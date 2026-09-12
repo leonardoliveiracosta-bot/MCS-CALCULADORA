@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<!-- My Car Scout - auction cost estimator (v1). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auction Cost Calculator — My Car Scout (v1)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg:#f2f4f7;
+    --card:#ffffff;
+    --ink:#0b0d10;
+    --ink-2:#454b54;
+    --ink-3:#6b727c;
+    --line:#dde2e8;
+    --line-2:#edf0f3;
+    --brand:#003686;
+    --brand-ink:#ffffff;
+    --accent:#005CFE;
+    --calm-bg:#f2f4f6;
+    --calm-line:#d9dee3;
+    --info-bg:#eaf1ff;
+    --info-line:#bcd0f7;
+    --info-ink:#00317a;
+    --err:#a3252b;
+    --wa:#005CFE;
+    --radius:12px;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font:16px/1.5 "Barlow",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    padding:16px 12px 48px;
+  }
+  .wrap{max-width:560px;margin:0 auto}
+
+  h1{font-family:"Anton","Haettenschweiler","Arial Narrow Bold",Impact,"Arial Narrow","Helvetica Neue Condensed",sans-serif;font-weight:400;font-size:33px;line-height:1.03;
+     text-transform:uppercase;letter-spacing:.004em;margin:0 0 12px;text-wrap:balance}
+  .sub{color:var(--ink-2);font-size:14px;margin:0 0 20px}
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px;
+    margin-bottom:14px;
+  }
+  .card > h2{
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--ink-3);
+    margin:0 0 14px;
+    font-weight:700;
+  }
+
+  .field{margin-bottom:16px}
+  .field:last-child{margin-bottom:0}
+  label,legend{display:block;font-size:14px;font-weight:600;margin-bottom:6px}
+  .hint{font-size:12.5px;color:var(--ink-3);margin:6px 0 0;line-height:1.45}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .card > .h2sub{font-size:13px;color:var(--ink-3);margin:-10px 0 14px;line-height:1.45}
+
+  input[type=text],input[type=number]{
+    width:100%;
+    padding:12px 12px;
+    font-size:16px;
+    font-family:inherit;
+    color:var(--ink);
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:9px;
+    appearance:none;
+  }
+  input[type=number]{-moz-appearance:textfield}
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+
+  select{
+    width:100%;padding:12px 36px 12px 12px;font-size:16px;font-family:inherit;
+    color:var(--ink);background-color:#fff;border:1px solid var(--line);border-radius:9px;appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' fill='none' stroke='%23454b54' stroke-width='2'/></svg>");
+    background-repeat:no-repeat;background-position:right 12px center;
+  }
+  select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+  #lance{font-size:22px;font-weight:700;padding:14px 12px}
+
+  input:focus-visible,button:focus-visible,summary:focus-visible,a:focus-visible{
+    outline:3px solid var(--accent);
+    outline-offset:2px;
+  }
+  input.invalid,select.invalid{border-color:var(--err);background:#fff6f6}
+
+  fieldset{border:0;padding:0;margin:0}
+  .opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .opt{
+    position:relative;
+    border:1px solid var(--line);
+    border-radius:9px;
+    background:#fff;
+    padding:12px 10px;
+    font-size:14.5px;
+    font-weight:600;
+    text-align:center;
+    cursor:pointer;
+    display:flex;align-items:center;justify-content:center;min-height:48px;
+  }
+  .opt input{position:absolute;opacity:0;width:100%;height:100%;left:0;top:0;margin:0;cursor:pointer}
+  .opt:has(input:checked){border-color:var(--brand);background:#e7eefb;color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand)}
+  .opt:has(input:focus-visible){outline:3px solid var(--accent);outline-offset:2px}
+
+  .check{
+    display:flex;gap:10px;align-items:flex-start;
+    border:1px solid var(--line);border-radius:9px;padding:12px;cursor:pointer;
+  }
+  .check:has(input:checked){border-color:var(--accent);background:#eef3ff}
+  .check:has(input:focus-visible){outline:3px solid var(--accent);outline-offset:2px}
+  .check input{width:20px;height:20px;margin:1px 0 0;flex:0 0 auto;accent-color:var(--accent)}
+  .check .t,.check .p,.check .h{display:block}
+  .check .t{font-size:14.5px;font-weight:600}
+  .check .p{font-size:14.5px;font-weight:700;color:var(--accent);margin-top:2px}
+  .check .h{font-size:12.5px;color:var(--ink-3);font-weight:400;margin-top:5px;line-height:1.45}
+
+  .err{color:var(--err);font-size:12.5px;margin-top:6px;font-weight:600;display:none}
+  .err.on{display:block}
+
+
+  .bloco{padding:14px 0;border-bottom:1px solid var(--line-2)}
+  .bloco:first-child{padding-top:0}
+  .bl-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .bl-nome{font-size:16px;font-weight:700}
+  .bl-val{font-size:17px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .bl-val.tbd{font-size:14px;font-weight:600;color:var(--ink-3);font-style:italic}
+  .bloco.mcs .bl-nome,.bloco.mcs .bl-val{color:var(--accent)}
+  .bl-itens{margin-top:8px}
+  .it{
+    display:flex;justify-content:space-between;gap:12px;
+    font-size:13.5px;color:var(--ink-2);padding:3px 0 3px 12px;
+    border-left:2px solid var(--line-2);
+  }
+  .it span:last-child{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .bl-nota{font-size:12px;color:var(--ink-3);line-height:1.45;margin:8px 0 0;padding-left:12px}
+  .it.ref{color:var(--ink-3)}
+  .it.ref span:last-child{color:var(--ink-3)}
+  .it .tag{font-weight:400;font-size:11.5px;color:var(--ink-3);display:block;margin-top:1px}
+  .bl-ref{
+    display:flex;justify-content:space-between;gap:12px;align-items:baseline;
+    margin:10px 0 0 12px;padding-top:9px;border-top:1px dashed var(--line);
+    font-size:12.5px;color:var(--ink-3);
+  }
+  .bl-ref .v{font-weight:600;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .bl-ref small{display:block;font-size:11.5px;margin-top:2px;line-height:1.4}
+  .bl-val:empty{display:none}
+
+  .total{
+    margin-top:16px;padding:16px;border-radius:10px;
+    background:var(--brand);color:var(--brand-ink);
+  }
+  .total .k{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;opacity:.85;font-weight:700}
+  .total .v{font-family:"Anton","Haettenschweiler","Arial Narrow Bold",Impact,"Arial Narrow","Helvetica Neue Condensed",sans-serif;font-weight:400;font-size:42px;
+     line-height:1.06;margin-top:6px;letter-spacing:.01em}
+  .total .m{font-size:13px;opacity:.92;margin-top:8px;line-height:1.45}
+  .total .tl{display:flex;justify-content:space-between;gap:14px;align-items:baseline;
+     font-size:13.5px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.22)}
+  .total .tl span:last-child{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .total .tl-tot{font-size:15px}
+  .total .tl-tot span:last-child{font-size:17px}
+
+  .aster{font-size:12.5px;color:var(--ink-3);line-height:1.5;margin:10px 2px 0;text-align:center}
+
+  .box{border-radius:10px;padding:14px;font-size:13.5px;line-height:1.55;margin-top:14px}
+  .box strong{display:block;margin-bottom:6px;font-size:13.5px;color:var(--ink)}
+  .box ul{margin:8px 0 0;padding-left:18px}
+  .box li{margin-bottom:5px}
+  .box.calm{background:var(--calm-bg);border:1px solid var(--calm-line);color:var(--ink-2)}
+  .box.info{background:var(--info-bg);border:1px solid var(--info-line);color:var(--info-ink)}
+  .box.info strong{color:var(--info-ink)}
+
+  .letra-miuda{
+    margin:18px 0 0;padding-top:14px;border-top:1px solid var(--line-2);
+    font-size:11.5px;color:var(--ink-3);line-height:1.55;
+  }
+
+  .btn{
+    display:block;width:100%;margin-top:4px;
+    padding:16px 14px;border:0;border-radius:10px;
+    background:var(--wa);color:#fff;font:700 16.5px/1.2 inherit;
+    cursor:pointer;text-align:center;text-decoration:none;
+  }
+  .btn:hover{filter:brightness(1.06)}
+  .btn .s{display:block;font-weight:500;font-size:12.5px;opacity:.92;margin-top:5px}
+
+  .free{
+    margin-top:12px;padding:14px;border-radius:10px;
+    background:#eef3ff;border:1px solid #bcd0f7;color:#00317a;
+    font-size:13.5px;line-height:1.55;text-align:center;
+  }
+  .free strong{display:block;margin-bottom:4px}
+
+  .empty{color:var(--ink-3);font-size:14px;text-align:center;padding:18px 8px}
+
+
+  details.tools{border:1px dashed #c3c9d2;border-radius:var(--radius);background:#fbfcfd;padding:0;margin-top:20px}
+  details.tools > summary{
+    padding:13px 16px;cursor:pointer;font-size:13px;font-weight:700;
+    color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em;list-style:none;
+  }
+  details.tools > summary::-webkit-details-marker{display:none}
+  details.tools > summary::before{content:"▸ "}
+  details.tools[open] > summary::before{content:"▾ "}
+  .tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .tools-grid label{font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:4px}
+  .tools-grid input{padding:9px 10px;font-size:14px}
+  .tools-grid .full{grid-column:1 / -1}
+  .btn-sm{
+    margin-top:12px;padding:10px 14px;border:1px solid var(--line);
+    background:#fff;border-radius:8px;font:600 13.5px inherit;cursor:pointer;color:var(--ink-2);
+  }
+
+
+  .brand{display:flex;align-items:center;gap:11px;margin:0 0 18px}
+  .brand img{width:46px;height:46px;border-radius:50%;display:block;flex:0 0 auto;box-shadow:0 1px 4px rgba(0,20,60,.18)}
+  .brand .nome{font-weight:700;font-size:15px;letter-spacing:.19em;text-transform:uppercase;color:var(--ink)}
+  .rule{width:56px;height:5px;background:var(--accent);border-radius:2px;margin:0 0 14px}
+  h1 .hl{color:var(--accent)}
+  .hook{font-size:16.5px;line-height:1.42;font-weight:600;color:var(--ink);margin:0 0 8px;text-wrap:balance}
+  .hook .hl{color:var(--accent)}
+  .foot .marca{display:block;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-2);margin-bottom:4px}
+
+  .foot{font-size:11.5px;color:var(--ink-3);text-align:center;margin-top:18px;line-height:1.5}
+
+  [hidden]{display:none !important}
+
+  @media (min-width:520px){
+    body{padding:24px 16px 56px}
+    h1{font-size:40px}
+    .card{padding:20px}
+  }
+</style>
+</head>
+<body>
+<main class="wrap">
+
+  <header class="brand">
+    <img src="data:image/png;base64,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" alt="My Car Scout" width="46" height="46">
+    <span class="nome">My Car Scout</span>
+  </header>
+
+  <h1>What a car really costs <span class="hl">at auction</span></h1>
+  <div class="rule"></div>
+  <p class="hook">There&rsquo;s a car market you can&rsquo;t buy from. <span class="hl">We bid there for you.</span></p>
+  <p class="sub">Enter the bid you want to place. Your total cost appears instantly.</p>
+
+  <form id="form" novalidate>
+
+    <section class="card">
+      <h2>So we can find the right car</h2>
+      <p class="h2sub">Nothing here changes the numbers above. This is what we use to search for your vehicle.</p>
+
+      <div class="field">
+        <label for="marca">Brand <span aria-hidden="true">*</span></label>
+        <select id="marca" aria-describedby="err-marca">
+          <option value="">Select a brand</option>
+        </select>
+        <p class="err" id="err-marca">Select a brand.</p>
+      </div>
+
+      <div class="field" id="wrap-modelo" hidden>
+        <label for="modelo">Model <span aria-hidden="true">*</span></label>
+        <select id="modelo" aria-describedby="err-modelo">
+          <option value="">Select a model</option>
+        </select>
+        <p class="err" id="err-modelo">Select a model.</p>
+      </div>
+    </section>
+
+
+    <section class="card">
+      <h2>Your estimate</h2>
+
+      <div class="field">
+        <label for="lance">Maximum bid you want to place (US$)</label>
+        <input type="number" id="lance" inputmode="decimal" min="0" step="100" placeholder="8000" aria-describedby="err-lance">
+        <p class="err" id="err-lance">Enter your maximum bid.</p>
+      </div>
+
+      <div class="field">
+        <label for="zip">Your ZIP code</label>
+        <input type="text" id="zip" inputmode="numeric" maxlength="10" placeholder="33401" autocomplete="postal-code">
+        <p class="hint">Optional. It doesn't change any of the numbers — it just speeds things up when we talk.</p>
+      </div>
+
+      <div class="field">
+        <fieldset>
+          <legend>Will you register the car in Florida?</legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="fl" value="sim" checked> Yes</label>
+            <label class="opt"><input type="radio" name="fl" value="nao"> No</label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="field" id="wrap-estado" hidden>
+        <label for="estado">Which state will you register it in?</label>
+        <select id="estado">
+          <option value="">Select your state</option>
+        </select>
+        <p class="hint">Used only to estimate the sales tax in your state.</p>
+      </div>
+
+      <div class="field">
+        <fieldset>
+          <legend>Payment method</legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="pgto" value="cash" checked> Cash</label>
+            <label class="opt"><input type="radio" name="pgto" value="fin"> Financing</label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="field" id="wrap-placa">
+        <fieldset>
+          <legend>License plate</legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="placa" value="transf" checked> Transfer my current plate</label>
+            <label class="opt"><input type="radio" name="placa" value="nova"> New plate</label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" id="inspecao">
+          <span>
+            <span class="t">In-person inspection before bidding</span>
+            <span class="p"><span id="preco-inspecao">$165</span> · optional</span>
+            <span class="h">Available only for vehicles at the West Palm Beach and Fort Lauderdale auctions.</span>
+          </span>
+        </label>
+      </div>
+    </section>
+
+
+    <section class="card" id="resultado" aria-live="polite">
+      <h2>Your cost breakdown</h2>
+      <div id="saida"><p class="empty">Enter your bid above to see the estimate.</p></div>
+    </section>
+
+  </form>
+
+
+  <a class="btn" id="wa" href="#" target="_blank" rel="noopener">Message My Car Scout on WhatsApp<span class="s">Your estimate is already written into the message.</span></a>
+
+
+  <p class="foot"><span class="marca">My Car Scout</span>Calculator v1. Automatically generated estimate, subject to confirmation.</p>
+
+</main>
+
+<script>
+"use strict";
+
+const CONFIG = {
+
+
+  whatsapp: "13055400742",
+
+
+  taxaLeilao: [
+    { ate: 2900,     valor: 300 },
+    { ate: 5000,     valor: 400 },
+    { ate: 7500,     valor: 490 },
+    { ate: 9900,     valor: 550 },
+    { ate: Infinity, valor: 600 }
+  ],
+
+
+  taxasFixasLeilao: [
+    { nome: "Environmental Fee",  valor: 15 },
+    { nome: "Title Mailing Fee",  valor: 20 }
+  ],
+
+
+  servico: {
+    faixas: [
+      { ate: 3000,  valor: 250 },
+      { ate: 5000,  valor: 350 },
+      { ate: 7500,  valor: 450 },
+      { ate: 10000, valor: 550 },
+      { ate: 15000, valor: 650 },
+      { ate: 20000, valor: 800 }
+    ],
+
+    limite: 20000,
+    base: 800,
+    blocoAdicional: 2500,
+    valorPorBloco: 50
+  },
+
+
+  inspecao: 165,
+
+
+  impostoPct: 7,
+
+
+  estados: [
+    { nome: "Arizona",        pct: 5.6   },
+    { nome: "California",     pct: 7.25  },
+    { nome: "Colorado",       pct: 2.9   },
+    { nome: "Georgia",        pct: 7     },
+    { nome: "Illinois",       pct: 6.25  },
+    { nome: "Indiana",        pct: 7     },
+    { nome: "Maryland",       pct: null  },
+    { nome: "Massachusetts",  pct: 6.25  },
+    { nome: "Michigan",       pct: 6     },
+    { nome: "Minnesota",      pct: 6.875 },
+    { nome: "Missouri",       pct: 4.225 },
+    { nome: "New Jersey",     pct: 6.625 },
+    { nome: "New York",       pct: 4     },
+    { nome: "North Carolina", pct: 3     },
+    { nome: "Ohio",           pct: 5.75  },
+    { nome: "Pennsylvania",   pct: 6     },
+    { nome: "Tennessee",      pct: 7     },
+    { nome: "Texas",          pct: 6.25  },
+    { nome: "Virginia",       pct: 4.15  },
+    { nome: "Washington",     pct: 6.5   }
+  ],
+
+
+  titulo: {
+    transferencia: 350,       // transferência de placa + título + registration + tag provisória
+    placaNova: 550            // placa de metal nova + título + registration + tag provisória
+  },
+
+
+  margemTotalPct: 0,
+
+
+  depositoPct: 10,
+  depositoMinimo: 500,
+
+
+  diasRetirada: 6
+};
+
+let P = {};
+function resetParams(){
+  P = {
+    margemPct:      CONFIG.margemTotalPct,
+    depPct:         CONFIG.depositoPct,
+    depMin:         CONFIG.depositoMinimo,
+    impostoPct:     CONFIG.impostoPct,
+    inspecao:       CONFIG.inspecao,
+    transferencia:  CONFIG.titulo.transferencia,
+    placaNova:      CONFIG.titulo.placaNova,
+    dias:           CONFIG.diasRetirada,
+    ovLeilao:       null,
+    ovServico:      null
+  };
+}
+resetParams();
+
+const $ = function(id){ return document.getElementById(id); };
+
+function usd(n){ return "$" + Math.round(n).toLocaleString("en-US"); }
+function num(v){
+  const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+  return isFinite(n) ? n : 0;
+}
+
+function taxaLeilaoDe(lance){
+  if (P.ovLeilao !== null) return P.ovLeilao;
+  for (const f of CONFIG.taxaLeilao){
+    if (lance <= f.ate) return f.valor;
+  }
+  return CONFIG.taxaLeilao[CONFIG.taxaLeilao.length - 1].valor;
+}
+
+function servicoDe(lance){
+  if (P.ovServico !== null) return P.ovServico;
+  for (const f of CONFIG.servico.faixas){
+    if (lance <= f.ate) return f.valor;
+  }
+  const s = CONFIG.servico;
+  const blocos = Math.ceil((lance - s.limite) / s.blocoAdicional);
+  return s.base + (blocos * s.valorPorBloco);
+}
+
+function calcular(d){
+  const lance      = d.lance;
+  const taxaLeilao = taxaLeilaoDe(lance);
+  const servico    = servicoDe(lance);
+  const inspecao   = d.inspecao ? P.inspecao : 0;
+
+
+  const fixas      = CONFIG.taxasFixasLeilao;
+  const totalFixas = fixas.reduce(function(a, f){ return a + f.valor; }, 0);
+
+  const base = lance + taxaLeilao + totalFixas + servico + inspecao;
+
+  const r = {
+    lance: lance,
+    taxaLeilao: taxaLeilao,
+    fixas: fixas,
+    totalFixas: totalFixas,
+    servico: servico,
+    inspecao: inspecao,
+    base: base,
+    florida: d.florida,
+    imposto: null,
+    titulo: (d.placa === "nova") ? P.placaNova : P.transferencia,
+    total: null,
+    totalMin: null,
+    totalMax: null,
+    deposito: Math.max(lance * (P.depPct / 100), P.depMin)
+  };
+
+  if (d.florida){
+    r.imposto = base * (P.impostoPct / 100);
+  }
+
+
+  r.estadoNome = null;
+  r.estadoPct  = null;
+  r.impostoEstado = null;
+  if (!d.florida && d.estado !== "" && d.estado !== "other"){
+    const e = CONFIG.estados[parseInt(d.estado, 10)];
+    if (e && e.pct !== null){
+      r.estadoNome = e.nome;
+      r.estadoPct  = e.pct;
+      r.impostoEstado = base * (e.pct / 100);
+    }
+  }
+
+
+  const L  = Math.round(lance);
+  const T  = Math.round(taxaLeilao) + fixas.reduce(function(a, f){ return a + Math.round(f.valor); }, 0);
+  const S  = Math.round(servico);
+  const I  = Math.round(inspecao);
+  const IM = d.florida ? Math.round(r.imposto) : 0;
+  const TI = Math.round(r.titulo);
+
+  r.gCarro  = L;
+  r.gLeilao = T + (d.florida ? (IM + TI) : 0);
+  r.gMcs    = S + I;
+  r.gImposto = (r.impostoEstado !== null) ? Math.round(r.impostoEstado) : null;
+
+  r.gTaxReg = d.florida ? null : ((r.gImposto !== null ? r.gImposto : 0) + TI);
+
+
+  if (d.pgto === "cash"){
+    r.total = r.gCarro + r.gLeilao + r.gMcs + (r.gTaxReg !== null ? r.gTaxReg : 0);
+    const m = P.margemPct / 100;
+    r.totalMin = r.total * (1 - m);
+    r.totalMax = r.total * (1 + m);
+  }
+  return r;
+}
+
+function lerForm(){
+  return {
+    florida: document.querySelector('input[name="fl"]:checked').value === "sim",
+    zip: $("zip").value.trim(),
+    estado: $("estado").value,
+    marca: $("marca").value,
+    modelo: $("modelo").value,
+    lance: num($("lance").value),
+    pgto: document.querySelector('input[name="pgto"]:checked').value,
+    placa: document.querySelector('input[name="placa"]:checked').value,
+    inspecao: $("inspecao").checked
+  };
+}
+
+function item(lbl, val, cls){
+  return '<div class="it ' + (cls || "") + '"><span>' + lbl + '</span><span>' + val + '</span></div>';
+}
+function bloco(nome, valorHtml, itens, notaTxt, classe, refHtml){
+  return '<div class="bloco ' + (classe || "") + '">' +
+           '<div class="bl-head"><span class="bl-nome">' + nome + '</span>' +
+           '<span class="bl-val ' + (classe === "tbdrow" ? "tbd" : "") + '">' + valorHtml + '</span></div>' +
+           (itens ? '<div class="bl-itens">' + itens + '</div>' : '') +
+           (notaTxt ? '<p class="bl-nota">' + notaTxt + '</p>' : '') +
+           (refHtml || '') +
+         '</div>';
+}
+
+function render(){
+  const d = lerForm();
+  const out = $("saida");
+  aplicarEstado();
+  aplicarMarca();
+
+  if (!(d.lance > 0)){
+    out.innerHTML = '<p class="empty">Enter your bid above to see the estimate.</p>';
+    return;
+  }
+
+  const r = calcular(d);
+  const tbd = 'to be confirmed';
+  const pctTxt = function(p){ return String(p).replace(/\.0+$/,""); };
+  let h = "";
+
+
+  h += bloco("Your maximum bid", usd(r.gCarro),
+             item("Amount you authorize us to bid", usd(r.lance)),
+             null);
+
+
+  if (d.florida){
+    let itens = item("Auction fee", usd(r.taxaLeilao));
+    r.fixas.forEach(function(f){ itens += item(f.nome, usd(f.valor)); });
+    itens += item("Sales tax (" + P.impostoPct + "%)", usd(r.imposto))
+           + item("Title, plate and registration", usd(r.titulo));
+    h += bloco("Auction and government", usd(r.gLeilao), itens,
+      "Auction fees are charged by the auction house, not by My Car Scout. The main fee is an estimate because it varies by lot. Tax and paperwork follow Florida rules and already assume" +
+      (d.placa === "nova" ? " a new metal plate." : " transferring your current plate."));
+  } else {
+    let itensL = item("Auction fee", usd(r.taxaLeilao));
+    r.fixas.forEach(function(f){ itensL += item(f.nome, usd(f.valor)); });
+    h += bloco("Auction", usd(r.gLeilao), itensL,
+               "Charged by the auction house, not by My Car Scout. The main fee is an estimate because it varies by lot.");
+
+    var itensT = (r.gImposto !== null)
+      ? item("Sales tax (" + pctTxt(r.estadoPct) + "%) — " + r.estadoNome, usd(r.gImposto))
+      : item("Sales tax", tbd, "tbd");
+    itensT += item("Title, plate and registration", usd(r.titulo));
+
+    var nota = (r.gImposto !== null
+        ? "The sales tax is an estimate based on the published state rate for " + r.estadoNome +
+          ". City or county taxes may add on top. "
+        : "Tell us your state above and we estimate the sales tax for you. ") +
+      "The title, plate and registration amount uses Florida as a reference and is included here so you can see the size of this cost. " +
+      (d.pgto === "fin"
+        ? "On a financed purchase the title stays in the lender\u2019s name, so registration is handled by the dealer, following your state\u2019s rules. "
+        : "Your own state\u2019s DMV sets its own fees. ") +
+      "The exact amount is confirmed when we talk.";
+
+    h += bloco("Tax and registration", usd(r.gTaxReg), itensT, nota);
+  }
+
+
+  let itensMcs = item("Bidding service", usd(r.servico));
+  if (r.inspecao > 0) itensMcs += item("In-person inspection", usd(r.inspecao));
+  h += bloco("My Car Scout", usd(r.gMcs), itensMcs,
+             "We only charge our service fee if we actually win the vehicle for you.", "mcs");
+
+
+  if (d.pgto === "fin"){
+    h += '<div class="box info"><strong>Financing — no final total here</strong>' +
+         '<ul>' +
+         '<li>The numbers in this estimate assume payment in cash.</li>' +
+         '<li>Financing requires bank pre-approval.</li>' +
+         '<li>Down payment and monthly payment depend on your individual credit approval.</li>' +
+         '<li>The title stays in the lender&rsquo;s name until the loan is paid off. Only then does the lender transfer it into your name.</li>' +
+         '</ul></div>';
+    h += '<p class="aster">Of these amounts, ' + usd(r.gMcs) + ' is My Car Scout. The rest is the car, the auction and the government.</p>';
+  } else {
+    const acima = r.total - r.gCarro;
+    h += '<div class="total"><div class="k">What you pay on top of your bid</div>' +
+         '<div class="v">' + (P.margemPct > 0 ? usd(r.totalMin - r.gCarro) + ' a ' + usd(r.totalMax - r.gCarro) : usd(acima)) + '</div>' +
+         '<div class="tl"><span>Your maximum bid</span><span>' + usd(r.gCarro) + '</span></div>' +
+         '<div class="tl tl-tot"><span>Estimated total cost</span><span>' + (P.margemPct > 0 ? usd(r.totalMin) + ' a ' + usd(r.totalMax) : usd(r.total)) + '</span></div>' +
+         '<div class="m">Of that total, ' + usd(r.gMcs) + ' is My Car Scout. The rest is the car, the auction and the government.</div></div>';
+
+    h += '<p class="aster">* Estimated amount. This is not a commercial offer and does not represent the final price.</p>';
+
+    if (!d.florida){
+      h += '<div class="box calm">Since you&rsquo;ll register the car outside Florida and you&rsquo;re paying cash, we hand the title directly to you. ' +
+           (r.gImposto !== null
+             ? 'The sales tax above is an estimate for ' + r.estadoNome + ' and you pay it at your state&rsquo;s DMV, not to My Car Scout. The title and registration amount uses Florida as a reference, to give you the size of that cost.'
+             : 'Sales tax and registration are paid by you at your state&rsquo;s DMV. The title and registration amount above uses Florida as a reference, to give you the size of that cost.') +
+           '</div>';
+    }
+  }
+
+
+  h += '<div class="box calm"><strong>Your bid is a ceiling, not a price</strong>' +
+       'Auction prices are set by the dealers bidding on the day. Your maximum bid is a ceiling you authorize &mdash; it is not a price we can guarantee.</div>';
+
+  const depFixo = (r.lance * (P.depPct / 100)) <= P.depMin;
+  h += '<div class="box calm"><strong>Deposit to release your bid: ' + usd(r.deposito) + '</strong>' +
+       (depFixo
+         ? 'For bids up to ' + usd(P.depMin / (P.depPct / 100)) + ' the deposit is ' + usd(P.depMin) + '. '
+         : 'That is ' + P.depPct + '% of your maximum authorized bid. ') +
+       'If we do not win the vehicle, the deposit is refunded in full. ' +
+       'If we win, it goes toward the purchase.</div>';
+
+
+  h += '<div class="box calm"><strong>Pickup window: ' + P.dias + ' days</strong>' +
+       'The vehicle must be picked up within ' + P.dias + ' days of release. After that the lot starts charging daily storage, which is not included in this estimate.</div>';
+
+
+  h += '<p class="letra-miuda">* This is an estimate, not a commercial offer. The amounts above are not fixed and are not binding on us. ' +
+       'The auction fee is set by the auction house, varies by lot and has no published rule &mdash; that is why we work with estimates. ' +
+       'The final cost is confirmed in writing before we place any bid on your behalf.</p>';
+
+  out.innerHTML = h;
+}
+
+function marcar(el, errId, ruim){
+  el.classList.toggle("invalid", ruim);
+  const e = $(errId);
+  if (e) e.classList.toggle("on", ruim);
+  return !ruim;
+}
+
+function validar(){
+  const d = lerForm();
+  let ok = true;
+  let primeiro = null;
+
+  if (!marcar($("marca"), "err-marca", d.marca === "")){ ok = false; primeiro = primeiro || $("marca"); }
+  const faltaModelo = !$("wrap-modelo").hidden && d.modelo === "";
+  if (!marcar($("modelo"), "err-modelo", faltaModelo)){ ok = false; primeiro = primeiro || $("modelo"); }
+  if (!marcar($("lance"), "err-lance", !(d.lance > 0))){ ok = false; primeiro = primeiro || $("lance"); }
+
+
+  if (primeiro){
+    primeiro.focus();
+    primeiro.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  return ok;
+}
+
+function linkWhatsApp(d, r){
+  const L = [];
+  L.push("Hi! I just ran an estimate on the My Car Scout calculator.");
+  L.push("");
+  L.push("*What I am looking for*");
+  L.push("Brand: " + (d.marca || "not specified"));
+  if (d.modelo) L.push("Model: " + d.modelo);
+  L.push("");
+  L.push("*My estimate*");
+  L.push("Maximum bid: " + usd(r.lance));
+  L.push("Payment method: " + (d.pgto === "cash" ? "Cash" : "Financing"));
+  L.push("Register in Florida: " + (d.florida ? "Yes" : "No"));
+  if (!d.florida && r.estadoNome) L.push("Registration state: " + r.estadoNome);
+  L.push("Plate: " + (d.placa === "nova" ? "New plate" : "Transfer my current plate"));
+  L.push("In-person inspection: " + (d.inspecao ? "Yes" : "No"));
+  if (d.zip) L.push("ZIP code: " + d.zip);
+  L.push("");
+  L.push("*Estimate breakdown*");
+  L.push("Your maximum bid: " + usd(r.gCarro));
+  if (d.florida){
+    L.push("Auction and government: " + usd(r.gLeilao));
+    L.push("  - Auction fee: " + usd(r.taxaLeilao));
+    r.fixas.forEach(function(f){ L.push("  - " + f.nome + ": " + usd(f.valor)); });
+    L.push("  - Sales tax (" + P.impostoPct + "%): " + usd(r.imposto));
+    L.push("  - Title, plate and registration: " + usd(r.titulo));
+  } else {
+    L.push("Auction: " + usd(r.gLeilao));
+    L.push("  - Auction fee: " + usd(r.taxaLeilao));
+    r.fixas.forEach(function(f){ L.push("  - " + f.nome + ": " + usd(f.valor)); });
+    L.push("Tax and registration: " + usd(r.gTaxReg));
+    L.push(r.gImposto !== null
+      ? "  - Sales tax (" + String(r.estadoPct).replace(/\.0+$/,"") + "%) in " + r.estadoNome + ": " + usd(r.gImposto)
+      : "  - Sales tax: to be confirmed");
+    L.push("  - Title, plate and registration: " + usd(r.titulo) + " (Florida reference, included to size the cost)");
+  }
+  L.push("My Car Scout: " + usd(r.gMcs));
+  if (r.inspecao > 0){
+    L.push("  - Bidding service: " + usd(r.servico));
+    L.push("  - In-person inspection: " + usd(r.inspecao));
+  }
+
+  L.push("");
+  if (d.pgto === "fin"){
+    L.push("Total: not final. I am buying with financing, so I need bank pre-approval and the amounts depend on credit approval.");
+  } else {
+    L.push("What I pay on top of my bid: " + (P.margemPct > 0 ? usd(r.totalMin - r.gCarro) + " to " + usd(r.totalMax - r.gCarro) : usd(r.total - r.gCarro)));
+    L.push("Estimated total cost: " + (P.margemPct > 0 ? usd(r.totalMin) + " to " + usd(r.totalMax) : usd(r.total)));
+    if (!d.florida){
+      L.push(r.gImposto !== null
+        ? "The sales tax above is an estimate for " + r.estadoNome + " and I pay it at my state DMV, not to My Car Scout. The title and registration amount uses Florida as a reference, included to size the cost."
+        : "I will register the car outside Florida and pay cash, so sales tax and registration fees are paid by me at my state DMV and are not included above.");
+    }
+  }
+  L.push("Deposit to release the bid: " + usd(r.deposito));
+  L.push("");
+  L.push("I understand this is an estimate and not a commercial offer. I would like to talk about the car I am looking for.");
+
+  const texto = encodeURIComponent(L.join("\n"));
+  const numeroWa = String(CONFIG.whatsapp).replace(/\D/g, "");
+  return numeroWa ? ("https://wa.me/" + numeroWa + "?text=" + texto)
+                  : ("https://wa.me/?text=" + texto);
+}
+
+function mostrarPrecoInspecao(){
+  $("preco-inspecao").textContent = usd(P.inspecao);
+}
+
+mostrarPrecoInspecao();
+
+(function(){
+  const sel = $("estado");
+  CONFIG.estados.forEach(function(e, i){
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = e.nome;
+    sel.appendChild(o);
+  });
+  const outro = document.createElement("option");
+  outro.value = "other";
+  outro.textContent = "Other state";
+  sel.appendChild(outro);
+})();
+
+const MARCAS = {
+  "Acura":           ["ILX","Integra","TLX","TSX","TL","RLX","RL","RDX","MDX","ZDX","NSX"],
+  "Audi":            ["A3","A4","A5","A6","A7","A8","Allroad","Q3","Q4 e-tron","Q5","Q7","Q8","e-tron","e-tron GT","TT","R8"],
+  "BMW":             ["2 Series","3 Series","4 Series","5 Series","6 Series","7 Series","8 Series","X1","X2","X3","X4","X5","X6","X7","Z4","i3","i4","i5","i7","iX","M2","M3","M4","M5"],
+  "Buick":           ["Enclave","Encore","Encore GX","Envision","Envista","LaCrosse","Lucerne","Regal","Regal TourX","Verano","Cascada","Rendezvous","Rainier","Terraza","Century"],
+  "Cadillac":        ["ATS","CT4","CT5","CT6","CTS","DTS","Escalade","Escalade ESV","ELR","LYRIQ","SRX","STS","XT4","XT5","XT6","XTS","XLR"],
+  "Chevrolet":       ["Silverado 1500","Silverado 2500HD","Silverado 3500HD","Colorado","Equinox","Traverse","Tahoe","Suburban","Blazer","Trailblazer","Trax","Malibu","Impala","Cruze","Sonic","Spark","Camaro","Corvette","Bolt EV","Bolt EUV","Express","Avalanche","HHR","Captiva Sport","Volt"],
+  "Chrysler":        ["300","200","Pacifica","Voyager","Town and Country","Sebring","PT Cruiser","Aspen","Crossfire","300M"],
+  "Dodge":           ["Charger","Challenger","Durango","Journey","Grand Caravan","Caravan","Dart","Avenger","Caliber","Nitro","Magnum","Viper","Hornet","Dakota","Ram 1500"],
+  "Ford":            ["F-150","F-250 Super Duty","F-350 Super Duty","F-150 Lightning","Ranger","Maverick","Escape","Explorer","Edge","Expedition","Bronco","Bronco Sport","EcoSport","Flex","Fusion","Focus","Fiesta","Taurus","Mustang","Mustang Mach-E","Transit","Transit Connect","C-Max","Five Hundred","Freestyle"],
+  "Genesis":         ["G70","G80","G90","GV60","GV70","GV80","GV80 Coupe"],
+  "GMC":             ["Sierra 1500","Sierra 2500HD","Sierra 3500HD","Canyon","Terrain","Acadia","Yukon","Yukon XL","Savana","Hummer EV","Envoy","Sonoma"],
+  "Honda":           ["Accord","Civic","CR-V","HR-V","Pilot","Passport","Odyssey","Ridgeline","Fit","Insight","Element","CR-Z","Crosstour","Prologue"],
+  "Hummer":          ["H1","H2","H3","H3T"],
+  "Hyundai":         ["Elantra","Sonata","Accent","Veloster","Azera","Genesis","Equus","Tucson","Santa Fe","Santa Fe Sport","Santa Cruz","Kona","Palisade","Venue","Veracruz","Ioniq","Ioniq 5","Ioniq 6","Nexo"],
+  "Infiniti":        ["Q50","Q60","Q70","QX50","QX55","QX60","QX70","QX80","G35","G37","M35","M37","EX35","FX35","JX35"],
+  "Jeep":            ["Wrangler","Grand Cherokee","Grand Cherokee L","Cherokee","Compass","Renegade","Gladiator","Patriot","Liberty","Commander","Wagoneer","Grand Wagoneer"],
+  "Kia":             ["Forte","Optima","K5","Rio","Soul","Soul EV","Sorento","Sportage","Telluride","Seltos","Carnival","Sedona","Cadenza","Stinger","Niro","EV6","EV9","Amanti","Rondo","Borrego"],
+  "Land Rover":      ["Range Rover","Range Rover Sport","Range Rover Velar","Range Rover Evoque","Discovery","Discovery Sport","Defender","LR2","LR3","LR4","Freelander"],
+  "Lexus":           ["ES","IS","GS","LS","RC","LC","CT","HS","UX","NX","RX","GX","LX","TX","RZ","SC"],
+  "Lincoln":         ["Navigator","Aviator","Corsair","Nautilus","Continental","MKZ","MKX","MKC","MKS","MKT","Town Car","Mark LT"],
+  "Mazda":           ["Mazda3","Mazda6","Mazda5","Mazda2","CX-3","CX-30","CX-5","CX-50","CX-7","CX-9","CX-70","CX-90","MX-5 Miata","MX-30","Tribute"],
+  "Mercedes-Benz":   ["A-Class","C-Class","E-Class","S-Class","CLA","CLS","GLA","GLB","GLC","GLE","GLS","G-Class","ML-Class","GL-Class","GLK-Class","SLK","SL","AMG GT","EQB","EQE","EQS","Sprinter","Metris","Maybach S-Class"],
+  "Mercury":         ["Grand Marquis","Milan","Mariner","Mountaineer","Sable","Montego","Monterey","Marauder","Villager"],
+  "MINI":            ["Cooper Hardtop","Cooper Convertible","Clubman","Countryman","Paceman","Coupe","Roadster","Cooper SE","John Cooper Works"],
+  "Mitsubishi":      ["Outlander","Outlander Sport","Outlander PHEV","Eclipse Cross","Mirage","Mirage G4","Lancer","Lancer Evolution","Galant","Endeavor","Eclipse","Montero","Raider","i-MiEV"],
+  "Nissan":          ["Altima","Sentra","Versa","Versa Note","Maxima","Rogue","Rogue Sport","Murano","Pathfinder","Armada","Frontier","Titan","Titan XD","Kicks","Juke","Leaf","Ariya","370Z","350Z","Z","GT-R","Quest","Xterra","Cube","NV200"],
+  "Pontiac":         ["G6","G5","G8","G3","Grand Prix","Grand Am","Vibe","Torrent","Solstice","Montana","Aztek","GTO","Bonneville","Sunfire"],
+  "Porsche":         ["911","Cayenne","Macan","Panamera","Taycan","718 Cayman","718 Boxster","Cayman","Boxster"],
+  "Ram":             ["1500","1500 Classic","2500","3500","ProMaster","ProMaster City","Dakota"],
+  "Saab":            ["9-3","9-5","9-7X","9-2X","9-4X"],
+  "Saturn":          ["Vue","Ion","Aura","Outlook","Sky","Astra","L300","Relay"],
+  "Scion":           ["tC","xB","xA","xD","iA","iM","iQ","FR-S"],
+  "Subaru":          ["Outback","Forester","Crosstrek","Impreza","WRX","WRX STI","Legacy","Ascent","BRZ","Solterra","Tribeca","Baja","XV Crosstrek"],
+  "Suzuki":          ["Grand Vitara","SX4","Kizashi","Forenza","Reno","Aerio","XL7","Verona","Equator","Vitara"],
+  "Tesla":           ["Model 3","Model Y","Model S","Model X","Cybertruck","Roadster"],
+  "Toyota":          ["Camry","Corolla","Corolla Cross","RAV4","Highlander","Grand Highlander","4Runner","Tacoma","Tundra","Sequoia","Land Cruiser","Sienna","Prius","Prius C","Prius V","Avalon","Venza","C-HR","Yaris","Matrix","FJ Cruiser","Supra","GR86","bZ4X","Crown"],
+  "Volkswagen":      ["Jetta","Passat","Golf","Golf GTI","Tiguan","Atlas","Atlas Cross Sport","Taos","ID.4","Beetle","CC","Arteon","Touareg","Routan","Eos","Rabbit"],
+  "Volvo":           ["XC90","XC60","XC40","S60","S80","S90","V60","V90","V70","XC70","C30","C70","S40","V50","EX30","EX90"]
+};
+
+(function(){
+  const sel = $("marca");
+  Object.keys(MARCAS).forEach(function(m){
+    const o = document.createElement("option");
+    o.value = m; o.textContent = m; sel.appendChild(o);
+  });
+  const outra = document.createElement("option");
+  outra.value = "Other brand"; outra.textContent = "Other brand";
+  sel.appendChild(outra);
+})();
+
+let marcaAtual = null;
+function aplicarMarca(){
+  const marca = $("marca").value;
+  if (marca === marcaAtual) return;
+  marcaAtual = marca;
+  const sel = $("modelo");
+  const temLista = Object.prototype.hasOwnProperty.call(MARCAS, marca);
+  $("wrap-modelo").hidden = !temLista;
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  const zero = document.createElement("option");
+  zero.value = ""; zero.textContent = "Select a model";
+  sel.appendChild(zero);
+  if (!temLista) return;
+  MARCAS[marca].forEach(function(m){
+    const o = document.createElement("option");
+    o.value = m; o.textContent = m; sel.appendChild(o);
+  });
+  const outro = document.createElement("option");
+  outro.value = "Other model"; outro.textContent = "Other model";
+  sel.appendChild(outro);
+}
+
+function aplicarEstado(){
+
+  $("wrap-estado").hidden = document.querySelector('input[name="fl"]:checked').value === "sim";
+}
+
+$("form").addEventListener("input", render);
+$("form").addEventListener("change", render);
+
+const ERROS = { marca: "err-marca", modelo: "err-modelo", lance: "err-lance" };
+Object.keys(ERROS).forEach(function(id){
+  ["input", "change"].forEach(function(ev){
+    $(id).addEventListener(ev, function(){
+      $(id).classList.remove("invalid");
+      $(ERROS[id]).classList.remove("on");
+    });
+  });
+});
+
+$("wa").addEventListener("click", function(ev){
+  if (!validar()){
+    ev.preventDefault();
+    return;
+  }
+  const d = lerForm();
+  this.href = linkWhatsApp(d, calcular(d));
+});
+
+$("form").addEventListener("submit", function(e){ e.preventDefault(); });
+
+render();
+</script>
+</body>
+</html>
