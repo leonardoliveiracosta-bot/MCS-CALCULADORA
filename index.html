@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Car Scout — Buy your car at a wholesale dealer auction</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&display=swap');
+
+  :root{
+    --bg:#f2f4f7;
+    --card:#ffffff;
+    --ink:#0b0d10;
+    --ink-2:#454b54;
+    --ink-3:#6b727c;
+    --line:#dde2e8;
+    --line-2:#edf0f3;
+    --brand:#003686;
+    --brand-ink:#ffffff;
+    --accent:#005CFE;
+    --aston-bg:#0f1720;
+    --aston-ink:#f2efe9;
+    --aston-ink-2:#b7bdc6;
+    --radius:12px;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font:16px/1.5 "Barlow",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .wrap{max-width:640px;margin:0 auto;padding:0 20px}
+  [hidden]{display:none !important}
+  .serif{font-family:"Fraunces",serif}
+
+  header.top{padding:20px 0 0}
+  .brand{display:flex;align-items:center;gap:11px}
+  .brand .nome{font-weight:700;font-size:14px;letter-spacing:.17em;text-transform:uppercase;color:var(--ink)}
+
+  /* ---------- Hero ---------- */
+  section.hero{padding:48px 0 44px}
+  .rule{width:56px;height:5px;background:var(--accent);border-radius:2px;margin:0 0 16px}
+  h1{
+    font-family:"Anton",sans-serif;font-weight:400;font-size:36px;line-height:1.05;
+    text-transform:uppercase;letter-spacing:.004em;margin:0 0 14px;text-wrap:balance;
+  }
+  .hero p.lede{font-size:17px;line-height:1.55;color:var(--ink-2);margin:0;max-width:46ch}
+
+  h2.section-title{
+    font-family:"Anton",sans-serif;font-weight:400;font-size:24px;
+    text-transform:uppercase;letter-spacing:.004em;margin:0 0 22px;
+  }
+
+  /* ---------- What we do (Mercedes: centered, spare) ---------- */
+  section.whatwedo{padding:52px 0;text-align:center}
+  section.whatwedo .eyebrow{font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 20px}
+  section.whatwedo p.lead{font-size:16px;color:var(--ink-2);max-width:42ch;margin:0 auto 36px;line-height:1.55}
+  .equation{margin:0 auto 28px;max-width:420px}
+  .eq-row{display:flex;align-items:center;justify-content:center;gap:10px;font-size:13px;color:var(--ink-3);letter-spacing:.02em;padding:2px 0}
+  .eq-row .word{font-weight:500;color:var(--ink-2)}
+  .eq-row .arrow{color:var(--line);font-size:14px}
+  .equation.result .eq-row{font-size:20px}
+  .equation.result .word{font-weight:700;color:var(--ink);font-family:"Anton",sans-serif;text-transform:uppercase;letter-spacing:.02em}
+  .eq-divider{width:32px;height:1px;background:var(--line);margin:20px auto}
+  .we-step-in{font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:0 0 18px}
+
+  /* ---------- How it works ---------- */
+  section.how{padding:44px 0}
+  .step{display:flex;gap:16px;padding:18px 0;border-top:1px solid var(--line-2)}
+  .step:first-of-type{border-top:none}
+  .step .num{
+    flex:0 0 auto;width:32px;height:32px;border-radius:50%;background:var(--brand);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-family:"Anton",sans-serif;font-size:15px;
+  }
+  .step p{margin:0;font-size:15.5px;font-weight:600;padding-top:5px}
+
+  /* ---------- Calculator intro + embed ---------- */
+  section.calc-intro{padding:44px 0 0}
+  section.calc-intro p.main{font-size:16px;color:var(--ink-2);line-height:1.55;margin:0 0 12px}
+  section.calc-intro p.disclaimer{font-size:12.5px;color:var(--ink-3);line-height:1.5;margin:0}
+
+  section.calc-embed{padding:24px 0 44px}
+  .calc-frame-wrap{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--card)}
+  iframe.calc-frame{width:100%;height:1150px;border:none;display:block}
+
+  /* ---------- Why My Car Scout (Aston Martin: serif, narrative, dark) ---------- */
+  section.why{background:var(--aston-bg);color:var(--aston-ink);padding:52px 0;margin:0 -20px;padding-left:20px;padding-right:20px}
+  section.why .wrap{padding:0}
+  section.why .eyebrow{font-family:"Fraunces",serif;font-style:italic;font-size:14px;color:var(--aston-ink-2);margin:0 0 22px}
+  .hook{
+    font-family:"Fraunces",serif;font-weight:400;font-size:22px;line-height:1.35;
+    padding:22px 0;border-top:1px solid rgba(242,239,233,0.14);
+  }
+  .hook:first-of-type{border-top:none;padding-top:0}
+
+  /* ---------- Vehicle condition & policy ---------- */
+  section.policy{padding:48px 0}
+  section.policy h3{
+    font-family:"Anton",sans-serif;font-weight:400;font-size:15px;text-transform:uppercase;
+    letter-spacing:.03em;color:var(--brand);margin:26px 0 10px;
+  }
+  section.policy h3:first-of-type{margin-top:0}
+  section.policy p{font-size:14.5px;color:var(--ink-2);line-height:1.6;margin:0 0 10px}
+
+  /* ---------- Service fees (Aston Martin: serif accents on light bg) ---------- */
+  section.fees{padding:48px 0}
+  section.fees h2.section-title{font-family:"Fraunces",serif;font-weight:500;font-size:28px;text-transform:none;letter-spacing:normal}
+  section.fees p.note{font-family:"Fraunces",serif;font-style:italic;font-size:15.5px;color:var(--ink-2);margin:0 0 24px;line-height:1.5}
+  table.fee-table{width:100%;border-collapse:collapse;font-size:14.5px}
+  table.fee-table th{
+    background:var(--brand);color:#fff;text-align:left;font-size:12px;letter-spacing:.06em;
+    text-transform:uppercase;padding:10px 12px;font-weight:700;
+  }
+  table.fee-table th:last-child, table.fee-table td:last-child{text-align:right}
+  table.fee-table td{padding:11px 12px;border-bottom:1px solid var(--line-2);color:var(--ink-2)}
+  table.fee-table tr:nth-child(even) td{background:var(--line-2)}
+  table.fee-table td.fee-val{font-weight:700;color:var(--ink)}
+  .fee-above{
+    margin-top:2px;background:var(--brand);color:#fff;border-radius:0 0 8px 8px;
+    padding:14px 16px;font-size:13.5px;display:flex;justify-content:space-between;gap:16px;align-items:center;
+  }
+  .fee-above .fee-plus{font-family:"Anton",sans-serif;font-size:19px;white-space:nowrap}
+  section.fees p.footnote{font-family:"Fraunces",serif;font-style:italic;font-size:14px;color:var(--ink-3);margin:18px 0 0}
+
+  /* ---------- FAQ ---------- */
+  section.faq{padding:48px 0}
+  details.faq-item{border-top:1px solid var(--line-2);padding:16px 0}
+  details.faq-item:first-of-type{border-top:none}
+  details.faq-item summary{
+    font-weight:700;font-size:15px;cursor:pointer;list-style:none;
+    display:flex;justify-content:space-between;align-items:center;gap:12px;
+  }
+  details.faq-item summary::-webkit-details-marker{display:none}
+  details.faq-item summary::after{content:"+";font-size:20px;color:var(--accent);flex:0 0 auto}
+  details.faq-item[open] summary::after{content:"–"}
+  details.faq-item p{font-size:14.5px;color:var(--ink-2);line-height:1.6;margin:12px 0 0}
+
+  /* ---------- Footer ---------- */
+  footer{margin-top:16px;padding:28px 0 40px;border-top:1px solid var(--line)}
+  footer .marca{font-weight:700;letter-spacing:.17em;text-transform:uppercase;color:var(--ink-2);font-size:12.5px;margin-bottom:10px}
+  footer .contact{font-size:13.5px;color:var(--ink-3);line-height:1.8}
+  footer .contact a{color:var(--accent);text-decoration:none;font-weight:600}
+
+  @media (min-width:520px){
+    h1{font-size:44px}
+    iframe.calc-frame{height:1050px}
+  }
+</style>
+</head>
+<body>
+<main class="wrap">
+
+  <header class="top">
+    <div class="brand"><span class="nome">My Car Scout</span></div>
+  </header>
+
+  <!-- 1. HERO -->
+  <section class="hero">
+    <div class="rule"></div>
+    <h1>Buy your car at a wholesale dealer auction</h1>
+    <p class="lede">Dealers source their inventory through auctions closed to the public. We have access to that same market, and we offer the bidding service for you.</p>
+  </section>
+
+  <!-- 2. WHAT WE DO -->
+  <section class="whatwedo">
+    <p class="eyebrow">What we do</p>
+    <p class="lead">We offer a bidding service at auctions restricted and exclusive to dealers, through a licensed dealer.<br><br>Before you buy from a dealer, look at where the dealer buys.</p>
+
+    <div class="equation">
+      <div class="eq-row"><span class="word">CAR</span><span class="arrow">→</span><span class="word">DEALER BUYS</span><span class="arrow">→</span><span class="word">MARKUP ADDED</span><span class="arrow">→</span><span class="word">YOU BUY</span></div>
+    </div>
+
+    <div class="eq-divider"></div>
+    <p class="we-step-in">We step in here</p>
+
+    <div class="equation result">
+      <div class="eq-row"><span class="word">CAR</span><span class="arrow">→</span><span class="word">YOU</span></div>
+    </div>
+  </section>
+
+  <!-- 3. HOW IT WORKS -->
+  <section class="how">
+    <h2 class="section-title">How it works</h2>
+    <div class="step"><div class="num">1</div><p>You tell us what you're after</p></div>
+    <div class="step"><div class="num">2</div><p>A deposit authorizes the bid</p></div>
+    <div class="step"><div class="num">3</div><p>We bid at the auction</p></div>
+    <div class="step"><div class="num">4</div><p>You pay the balance, we hand over the car</p></div>
+  </section>
+
+  <!-- 4/5. CALCULATOR -->
+  <section class="calc-intro">
+    <p class="main">We built a tool to make this part easier. Our calculator lets you build out what you're looking for, see an estimated purchase scenario, and send us the information we need to start showing you options that actually make sense for you.</p>
+    <p class="disclaimer">This calculator is a reference tool. The values shown are estimates, not an official quote, and create no purchase obligation.</p>
+  </section>
+  <section class="calc-embed">
+    <div class="calc-frame-wrap">
+      <iframe class="calc-frame" src="/calculadora" title="My Car Scout auction cost calculator" loading="lazy"></iframe>
+    </div>
+  </section>
+
+  <!-- 6. WHY MY CAR SCOUT -->
+  <section class="why">
+    <div class="wrap">
+      <p class="eyebrow">Why My Car Scout</p>
+      <div class="hook">Why wait for someone else to buy the car, mark it up, and only then sell it to you?</div>
+      <div class="hook">Why pick your car from someone else's leftover stock? Choose it before it becomes stock.</div>
+      <div class="hook">Before you buy your next car, find out what's out there for the car you want. See what My Car Scout can put within reach.</div>
+    </div>
+  </section>
+
+  <!-- 7. VEHICLE CONDITION & POLICY -->
+  <section class="policy">
+    <h2 class="section-title">Vehicle Condition &amp; Purchase Policy</h2>
+
+    <h3>How vehicle evaluation works</h3>
+    <p>Vehicles are offered through dealer-only auctions with restricted access.</p>
+    <p>Because these auctions are not open to the general public, customers cannot visit, inspect, or test-drive vehicles before purchase.</p>
+    <p>Remote purchase decisions are made using the same type of information available to dealers, including auction photos, listing details, condition information, and CARFAX when the purchase reaches a more advanced stage.</p>
+
+    <h3>Additional local verification</h3>
+    <p>When a vehicle is located at an auction in Fort Lauderdale or Palm Beach, My Car Scout may also provide an optional in-person visual check.</p>
+    <p>This can include additional photos, video, and visual observations of the vehicle.</p>
+    <p>This service provides an additional layer of information before a purchase decision, but it does not replace a professional mechanical inspection.</p>
+
+    <h3>Vehicle condition</h3>
+    <p>Vehicles are purchased under the conditions disclosed by the auction.</p>
+    <p>My Car Scout does not repair or recondition vehicles before delivery.</p>
+    <p>This purchasing model creates the opportunity to buy on the wholesale side of the market, before retail markup is added, while accepting the conditions associated with that market.</p>
+
+    <h3>Transparency before you decide</h3>
+    <p>Our role is not simply to provide access.</p>
+    <p>We help you review the information available for each vehicle so you can make a more informed decision before authorizing a purchase.</p>
+    <p>If seeing or test-driving a vehicle before purchase is essential to your decision, this purchasing model may not be the right fit.</p>
+    <p>We prefer to make that clear from the beginning, so you know exactly what to expect before moving forward.</p>
+  </section>
+
+  <!-- 8. SERVICE FEES -->
+  <section class="fees">
+    <h2 class="section-title serif">Service Fees</h2>
+    <p class="note">Based on the winning bid, charged only once you actually own the car.</p>
+
+    <table class="fee-table">
+      <thead>
+        <tr><th>Winning bid</th><th>Service fee</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Up to $3,000</td><td class="fee-val">$250</td></tr>
+        <tr><td>$3,001 – $5,000</td><td class="fee-val">$350</td></tr>
+        <tr><td>$5,001 – $7,500</td><td class="fee-val">$450</td></tr>
+        <tr><td>$7,501 – $10,000</td><td class="fee-val">$550</td></tr>
+        <tr><td>$10,001 – $15,000</td><td class="fee-val">$650</td></tr>
+        <tr><td>$15,001 – $20,000</td><td class="fee-val">$800</td></tr>
+      </tbody>
+    </table>
+    <div class="fee-above">
+      <span>For winning bids above $20,000: $800 base, plus a flat amount per additional $2,500 (or portion thereof)</span>
+      <span class="fee-plus">+$50</span>
+    </div>
+
+    <p class="footnote">The tier is set by one thing only: what the car actually sells for.</p>
+  </section>
+
+  <!-- 9. FAQ -->
+  <section class="faq">
+    <h2 class="section-title">Frequently asked questions</h2>
+
+    <details class="faq-item">
+      <summary>Can I choose the car I want?</summary>
+      <p>Yes. You tell me the brand, model, and budget you have in mind, and I search the auction on your behalf. You decide what fits before we place a bid.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Do I need to be a dealer to buy at auction?</summary>
+      <p>No. My Car Scout already has that access, so you don't need your own dealer credential. We place the bid using our own access, on your behalf.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Can I search for vehicles myself?</summary>
+      <p>No, access to the auction stays with us. You share your budget and criteria (brand, model, price range), and I bring you the best options from that day's inventory.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Do you inspect the car before I buy?</summary>
+      <p>We share the auction information available for each vehicle, including photos and the vehicle's history. A CARFAX report is provided once the negotiation reaches a more concrete stage, not at first contact. We also offer an in-person inspection as an add-on service, available only at our Fort Lauderdale and Palm Beach auctions. At those locations, the vehicle can be started, but not driven or run through electronic diagnostics. Worth noting: this inspection broadens your view of the car, but it doesn't eliminate the risk inherent to an auction purchase.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Can you buy a car without my authorization?</summary>
+      <p>No. No bid is placed without your authorization. You know which vehicle the bid is for, and you set the limit. You stay in control of the purchase.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Do you guarantee the car won't have problems?</summary>
+      <p>No. Buying at auction involves risk, and no analysis eliminates all of it. My Car Scout helps you review the available information for a clearer decision.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Who decides how much to pay for the car?</summary>
+      <p>You do. Before we participate in the auction, you set the maximum amount you're willing to offer. My Car Scout respects that limit.</p>
+    </details>
+    <details class="faq-item">
+      <summary>If I don't win the car, can I try another?</summary>
+      <p>Yes. Not winning a vehicle doesn't end your search. You can keep looking for another opportunity and decide when you want to try again. No fee for trying.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Do you offer financing?</summary>
+      <p>Yes, we work with financing options, subject to the terms and approval of the financial institution. Talk to us so we can evaluate your case.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Do you handle the paperwork?</summary>
+      <p>My Car Scout guides and coordinates the documentation required based on the type of purchase and where the vehicle will be registered. Each transaction may have different requirements, and we explain what applies to your case.</p>
+    </details>
+    <details class="faq-item">
+      <summary>How do I receive the car after the purchase?</summary>
+      <p>Once the process is complete, you can pick up the vehicle in person, send someone to pick it up, or hire a transport service to your desired location. You choose the best option for you.</p>
+    </details>
+    <details class="faq-item">
+      <summary>How do I get started?</summary>
+      <p>Talk to My Car Scout. We'll understand what you're looking for and show you how the process works.</p>
+    </details>
+  </section>
+
+  <!-- 10. FOOTER -->
+  <footer>
+    <div class="marca">My Car Scout</div>
+    <div class="contact">
+      Based in Florida, buying nationwide.<br>
+      WhatsApp: <a href="https://wa.me/13055400742" target="_blank" rel="noopener">+1 305 540 0742</a><br>
+      Instagram: <a href="https://instagram.com/mycarscout" target="_blank" rel="noopener">@mycarscout</a>
+    </div>
+  </footer>
+
+</main>
+</body>
+</html>
