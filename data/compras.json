@@ -14,6 +14,20 @@
     "foto": "img/compras/2018-dodge-charger-rt.jpg"
   },
   {
+    "ano": 2018,
+    "marca": "Porsche",
+    "modelo": "Macan GTS",
+    "milhas": 93000,
+    "lance": 18100,
+    "taxaLeilao": 600,
+    "taxaAmbiental": 15,
+    "envioTitulo": 20,
+    "taxaServico": 800,
+    "referencia": 26730,
+    "fonteRef": "CARFAX Retail",
+    "foto": "img/compras/2018-porsche-macan-gts.jpg"
+  },
+  {
     "ano": 2021,
     "marca": "BMW",
     "modelo": "X3",
