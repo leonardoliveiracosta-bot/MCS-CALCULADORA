@@ -14,6 +14,20 @@
     "foto": "img/compras/2018-dodge-charger-rt.jpg"
   },
   {
+    "ano": 2020,
+    "marca": "Cadillac",
+    "modelo": "Escalade Luxury",
+    "milhas": 62000,
+    "lance": 29900,
+    "taxaLeilao": 600,
+    "taxaAmbiental": 15,
+    "envioTitulo": 20,
+    "taxaServico": 1000,
+    "referencia": 41000,
+    "fonteRef": "CARFAX Retail",
+    "foto": "img/compras/2020-cadillac-escalade-luxury.jpg"
+  },
+  {
     "ano": 2018,
     "marca": "Porsche",
     "modelo": "Macan GTS",
