@@ -3,6 +3,16 @@
 <head>
 <meta charset="utf-8">
 <title>Real Purchase validation</title>
+<script>
+function clean(frame){
+  var doc=frame.contentDocument;
+  [".sticky-bar",".est-float",".wa-float"].forEach(function(selector){
+    var element=doc.querySelector(selector);
+    if(element) element.style.display="none";
+  });
+  doc.body.style.paddingBottom="0";
+}
+</script>
 <style>
 html,body{margin:0;background:#2a2d31;color:#fff;font-family:Arial,sans-serif}
 .case{padding:16px 0 24px}
@@ -13,7 +23,7 @@ html,body{margin:0;background:#2a2d31;color:#fff;font-family:Arial,sans-serif}
 </style>
 </head>
 <body>
-<section class="case"><h1>390px</h1><iframe class="mobile" scrolling="no" src="/#real-purchase"></iframe></section>
-<section class="case"><h1>1280px</h1><iframe class="desktop" scrolling="no" src="/#real-purchase"></iframe></section>
+<section class="case"><h1>390px</h1><iframe class="mobile" scrolling="no" src="/#real-purchase" onload="clean(this)"></iframe></section>
+<section class="case"><h1>1280px</h1><iframe class="desktop" scrolling="no" src="/#real-purchase" onload="clean(this)"></iframe></section>
 </body>
 </html>
