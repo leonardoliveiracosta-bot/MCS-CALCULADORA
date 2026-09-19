@@ -1,5 +1,19 @@
 [
   {
+    "ano": 2018,
+    "marca": "Dodge",
+    "modelo": "Charger R/T",
+    "milhas": 89370,
+    "lance": 9700,
+    "taxaLeilao": 550,
+    "taxaAmbiental": 15,
+    "envioTitulo": 20,
+    "taxaServico": 550,
+    "referencia": 19850,
+    "fonteRef": "CARFAX Retail",
+    "foto": "img/compras/2018-dodge-charger-rt.jpg"
+  },
+  {
     "ano": 2021,
     "marca": "BMW",
     "modelo": "X3",
