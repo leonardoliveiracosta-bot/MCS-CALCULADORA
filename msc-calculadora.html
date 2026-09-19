@@ -1240,79 +1240,72 @@ function linhaTriagem(d, r){
 
 function linkWhatsApp(d, r){
   const L = [];
+  const copy = {
+    en: {
+      hello: "Hello! I just ran a simulation on the My Car Scout calculator.",
+      name: "Name: ",
+      vehicle: "Vehicle: ",
+      zip: "ZIP code: ",
+      bid: "Maximum bid: ",
+      payment: "Payment method: ",
+      planning: "Planning to buy: ",
+      note1: "The figures shown in the calculator are an initial estimate based on the information I provided and do not represent the final purchase amount.",
+      note2: "Additional costs may apply depending on the conditions of the transaction. The applicable breakdown will be confirmed in writing before any purchase authorization.",
+      talk: "I'd like to discuss this simulation."
+    },
+    es: {
+      hello: "¡Hola! Acabo de hacer una simulación en la calculadora de My Car Scout.",
+      name: "Nombre: ",
+      vehicle: "Vehículo: ",
+      zip: "ZIP code: ",
+      bid: "Oferta máxima: ",
+      payment: "Forma de pago: ",
+      planning: "Pienso comprar: ",
+      note1: "Los valores presentados en la calculadora son una estimación inicial basada en la información que proporcioné y no representan el valor final de la compra.",
+      note2: "Pueden aplicarse costos adicionales según las condiciones de la transacción. El desglose aplicable será confirmado por escrito antes de cualquier autorización de compra.",
+      talk: "Quiero conversar sobre esta simulación."
+    },
+    pt: {
+      hello: "Olá! Acabei de fazer uma simulação na calculadora da My Car Scout.",
+      name: "Nome: ",
+      vehicle: "Veículo: ",
+      zip: "ZIP code: ",
+      bid: "Lance máximo: ",
+      payment: "Forma de pagamento: ",
+      planning: "Pretendo comprar: ",
+      note1: "Os valores apresentados na calculadora são uma estimativa inicial baseada nas informações que forneci e não representam o valor final da compra.",
+      note2: "Custos adicionais podem ser aplicados de acordo com as condições da transação. O detalhamento aplicável será confirmado por escrito antes de qualquer autorização de compra.",
+      talk: "Quero conversar sobre esta simulação."
+    }
+  };
+  const c = copy[LANG] || copy.en;
+  const carro = [d.marca, d.modelo]
+    .filter(function(x){ return x && x !== "Other model" && x !== "Other brand"; })
+    .join(" ") || T("w_naoinf");
+  var pagamento = T("cash");
+  if (d.pgto === "fin"){
+    pagamento = T("fin") + finapTxt(d.finap).replace(/^:\s*/, " — ");
+  }
+  var linhaZip = c.zip + d.zip;
+  if (!d.zipOk){
+    linhaZip += " <<< " + T("w_estnao").toUpperCase() + " — " + T("w_zipbad");
+  }
+
   L.push(linhaTriagem(d, r));
   L.push("");
-  L.push(T("w_hi"));
+  L.push(c.hello);
+  if (d.nome) L.push(c.name + d.nome);
+  L.push(c.vehicle + carro);
+  L.push(linhaZip);
+  L.push(c.bid + usd(r.lance));
+  L.push(c.payment + pagamento);
+  L.push(c.planning + prazoTxt(d.prazo));
   L.push("");
-  L.push(T("w_about"));
-  if (d.nome) L.push(T("w_nome") + d.nome);
-  L.push(T("w_prazo") + prazoTxt(d.prazo));
-  L.push(T("w_exp") + (d.exp === "1st" ? T("yes") : d.exp === "repeat" ? T("no") : T("w_naoinf")));
-  L.push(T("w_zip") + d.zip + (d.zipOk ? "" : " <<< " + T("w_estnao").toUpperCase()));
+  L.push(c.note1);
   L.push("");
-  L.push(T("w_look"));
-  L.push(T("w_marca") + (d.marca || T("w_naoinf")));
-  if (d.modelo) L.push(T("w_modelo") + d.modelo);
+  L.push(c.note2);
   L.push("");
-  L.push(T("w_est"));
-  L.push(T("w_lance") + usd(r.lance));
-  L.push(T("w_pgto") + (d.pgto === "cash" ? T("cash") : T("fin") + finapTxt(d.finap)));
-  L.push(T("w_fl") + (d.florida ? T("yes") : T("no")));
-  if (!d.florida){
-    L.push(T("w_regst") + (r.estadoNome || (d.zipOk ? d.zipUf : T("w_estnao"))));
-  }
-  if (!d.zipOk){ L.push(""); L.push(T("w_zipbad")); }
-  L.push(T("w_placa") + (d.placa === "nova" ? T("placa_nova") : T("placa_transf")));
-  L.push(T("w_insp") + (d.inspecao ? T("yes") : T("no")));
-  L.push("");
-  L.push(T("w_break"));
-  L.push(T("b_lance") + ": " + usd(r.gCarro));
-
-  var nomeFixa = function(f){
-    return f.nome === "Environmental Fee" ? T("i_env")
-         : f.nome === "Title Mailing Fee" ? T("i_titlemail")
-         : f.nome;
-  };
-  var pct = function(p){ return String(p).replace(/\.0+$/,""); };
-
-  if (d.florida){
-    L.push(T("b_leilaogov") + ": " + usd(r.gLeilao));
-    L.push("  - " + T("i_taxaleilao") + ": " + usd(r.taxaLeilao));
-    r.fixas.forEach(function(f){ L.push("  - " + nomeFixa(f) + ": " + usd(f.valor)); });
-    L.push("  - " + T("i_imposto") + " (" + P.impostoPct + "%): " + usd(r.imposto));
-    L.push("  - " + T("i_titulo") + ": " + usd(r.titulo));
-  } else {
-    L.push(T("b_leilao") + ": " + usd(r.gLeilao));
-    L.push("  - " + T("i_taxaleilao") + ": " + usd(r.taxaLeilao));
-    r.fixas.forEach(function(f){ L.push("  - " + nomeFixa(f) + ": " + usd(f.valor)); });
-    L.push(T("b_taxreg") + ": " + usd(r.gTaxReg));
-    L.push(r.gImposto !== null
-      ? (r.estadoNoTeto
-          ? "  - " + T("imp_teto", { e: r.estadoNome, p: pct(r.estadoPct), v: usd(r.estadoTeto) }) + ": " + usd(r.gImposto)
-          : "  - " + T("imp_em",   { e: r.estadoNome, p: pct(r.estadoPct) }) + ": " + usd(r.gImposto))
-      : T("w_tbd"));
-    L.push("  - " + T("i_titulo") + ": " + usd(r.titulo) + T("w_flref"));
-  }
-  L.push(T("b_mcs") + ": " + usd(r.gMcs));
-  L.push("  - " + T("i_servico") + ": " + usd(r.servico));
-  if (r.inspecao > 0) L.push("  - " + T("i_insp") + ": " + usd(r.inspecao));
-
-  L.push("");
-  if (d.pgto === "fin"){
-    L.push(T("w_fintot"));
-  } else {
-    L.push(T("w_acima") + (P.margemPct > 0 ? usd(r.totalMin - r.gCarro) + " to " + usd(r.totalMax - r.gCarro) : usd(r.total - r.gCarro)));
-    L.push(T("w_total") + (P.margemPct > 0 ? usd(r.totalMin) + " to " + usd(r.totalMax) : usd(r.total)));
-    if (!d.florida){
-      L.push(r.gImposto !== null ? T("w_fora_e", { e: r.estadoNome }) : T("w_fora_n"));
-    }
-  }
-  L.push(T("w_dep") + usd(r.deposito));
-  L.push(T("w_fee"));
-  L.push("");
-  L.push(T("w_end1"));
-  L.push(T("w_end2"));
-  L.push("");
+  L.push(c.talk);
   L.push("Ref: " + d.ref);
 
   return montarLink(L);
