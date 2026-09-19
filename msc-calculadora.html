@@ -557,6 +557,44 @@
 
 <script>
 "use strict";
+/* Informa ao site a altura real da calculadora para evitar rolagem dupla. */
+(function(){
+  var quadro = 0;
+  var ultimaAltura = 0;
+
+  function informarAltura(){
+    quadro = 0;
+    var corpo = document.body;
+    var altura = corpo ? Math.ceil(corpo.offsetHeight) : 0;
+    if (!altura || altura === ultimaAltura) return;
+    ultimaAltura = altura;
+    try {
+      parent.postMessage({ type: "mcs:calculator-height", height: altura }, "*");
+    } catch (e) {}
+  }
+
+  function agendarAltura(){
+    if (quadro) cancelAnimationFrame(quadro);
+    quadro = requestAnimationFrame(informarAltura);
+  }
+
+  window.addEventListener("load", agendarAltura);
+  window.addEventListener("resize", agendarAltura);
+  window.addEventListener("message", function(ev){
+    if (ev.data && ev.data.mcsRequestHeight) agendarAltura();
+  });
+  if (window.ResizeObserver){
+    new ResizeObserver(agendarAltura).observe(document.body);
+  } else {
+    new MutationObserver(agendarAltura).observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true
+    });
+  }
+  agendarAltura();
+})();
+
 
 const CONFIG = {
 
