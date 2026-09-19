@@ -1288,40 +1288,40 @@ function linkWhatsApp(d, r){
   const L = [];
   const copy = {
     en: {
-      hello: "Hello! I just ran a simulation on the My Car Scout calculator.",
+      hello: "Hello! I just ran a simulation on the My Car Scout calculator",
       name: "Name: ",
       vehicle: "Vehicle: ",
       zip: "ZIP code: ",
       bid: "Maximum bid: ",
       payment: "Payment method: ",
       planning: "Planning to buy: ",
-      note1: "The figures shown in the calculator are an initial estimate based on the information I provided and do not represent the final purchase amount.",
-      note2: "Additional costs may apply depending on the conditions of the transaction. The applicable breakdown will be confirmed in writing before any purchase authorization.",
-      talk: "I'd like to discuss this simulation."
+      note1: "The figures shown in the calculator are an initial estimate based on the information,\nI provided and do not represent the final purchase amount",
+      note2: "Additional costs may apply depending on the conditions of the transaction\nThe applicable breakdown will be confirmed in writing before any purchase authorization",
+      talk: "I'd like to discuss this simulation"
     },
     es: {
-      hello: "¡Hola! Acabo de hacer una simulación en la calculadora de My Car Scout.",
+      hello: "¡Hola! Acabo de hacer una simulación en la calculadora de My Car Scout",
       name: "Nombre: ",
       vehicle: "Vehículo: ",
       zip: "ZIP code: ",
       bid: "Oferta máxima: ",
       payment: "Forma de pago: ",
       planning: "Pienso comprar: ",
-      note1: "Los valores presentados en la calculadora son una estimación inicial basada en la información que proporcioné y no representan el valor final de la compra.",
-      note2: "Pueden aplicarse costos adicionales según las condiciones de la transacción. El desglose aplicable será confirmado por escrito antes de cualquier autorización de compra.",
-      talk: "Quiero conversar sobre esta simulación."
+      note1: "Los valores presentados en la calculadora son una estimación inicial basada en la información que proporcioné\ny no representan el valor final de la compra",
+      note2: "Pueden aplicarse costos adicionales según las condiciones de la transacción\nEl desglose aplicable será confirmado por escrito antes de cualquier autorización de compra",
+      talk: "Quiero conversar sobre esta simulación"
     },
     pt: {
-      hello: "Olá! Acabei de fazer uma simulação na calculadora da My Car Scout.",
+      hello: "Olá! Acabei de fazer uma simulação na calculadora da My Car Scout",
       name: "Nome: ",
       vehicle: "Veículo: ",
       zip: "ZIP code: ",
       bid: "Lance máximo: ",
       payment: "Forma de pagamento: ",
       planning: "Pretendo comprar: ",
-      note1: "Os valores apresentados na calculadora são uma estimativa inicial baseada nas informações que forneci e não representam o valor final da compra.",
-      note2: "Custos adicionais podem ser aplicados de acordo com as condições da transação. O detalhamento aplicável será confirmado por escrito antes de qualquer autorização de compra.",
-      talk: "Quero conversar sobre esta simulação."
+      note1: "Os valores apresentados na calculadora são uma estimativa inicial baseada nas informações que forneci\ne não representam o valor final da compra",
+      note2: "Custos adicionais podem ser aplicados de acordo com as condições da transação\nO detalhamento aplicável será confirmado por escrito antes de qualquer autorização de compra",
+      talk: "Quero conversar sobre esta simulação"
     }
   };
   const c = copy[LANG] || copy.en;
@@ -1340,6 +1340,7 @@ function linkWhatsApp(d, r){
   L.push(linhaTriagem(d, r));
   L.push("");
   L.push(c.hello);
+  L.push("");
   if (d.nome) L.push(c.name + d.nome);
   L.push(c.vehicle + carro);
   L.push(linhaZip);
