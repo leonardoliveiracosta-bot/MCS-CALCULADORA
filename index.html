@@ -1155,9 +1155,19 @@
 
     function carIr(i){
       var es=carEntries(); if(!es[i]) return;
+      var atual=carAtivo();
       var rr=root.getBoundingClientRect(), r=es[i].getBoundingClientRect();
-      root.scrollBy({left:(r.left+r.width/2)-(rr.left+rr.width/2),
-                     behavior:carSuave()?"smooth":"auto"});
+      var deslocamento=(r.left+r.width/2)-(rr.left+rr.width/2);
+      if(Math.abs(i-atual)>1){
+        root.style.scrollSnapType="none";
+        root.scrollLeft+=deslocamento;
+        window.requestAnimationFrame(function(){
+          root.style.scrollSnapType="";
+          carPintar();
+        });
+        return;
+      }
+      root.scrollBy({left:deslocamento,behavior:carSuave()?"smooth":"auto"});
     }
 
     function carPintar(){
