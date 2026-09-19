@@ -1716,8 +1716,8 @@ function registrar(evento){
       fin_aprovado: d.finap,
       placa: d.placa,
       inspecao: d.inspecao ? "sim" : "nao",
-      total: (r && d.pgto !== "fin" && r.total) ? Math.round(r.total) : "",
-      deposito: r ? Math.round(r.deposito) : ""
+      total: (d.lance > 0 && r && d.pgto !== "fin" && r.total) ? Math.round(r.total) : null,
+      deposito: (d.lance > 0 && r) ? Math.round(r.deposito) : null
     };
     var corpo = JSON.stringify(linha);
     if (evento === "simulacao"){
@@ -1729,7 +1729,7 @@ function registrar(evento){
       zip: d.zip || null,
       estado: d.zipUf || null,
       lance: d.lance > 0 ? d.lance : null,
-      total: (r && d.pgto !== "fin" && r.total) ? Math.round(r.total) : null,
+      total: (d.lance > 0 && r && d.pgto !== "fin" && r.total) ? Math.round(r.total) : null,
       pagamento: d.pgto || null,
       idioma: LANG || null,
       whatsapp: null,
@@ -1756,13 +1756,16 @@ function registrarDepois(){
   clearTimeout(tmrLog);
   tmrLog = setTimeout(function(){
     var d = lerForm();
-    if (d.zip === "" && !(d.lance > 0) && d.marca === "") return;
+    if (!(d.lance > 0)) return;
     registrar("simulacao");
   }, 2500);
 }
 $("form").addEventListener("input", registrarDepois);
 $("form").addEventListener("change", registrarDepois);
-window.addEventListener("pagehide", function(){ registrar("saida"); });
+window.addEventListener("pagehide", function(){
+  var d = lerForm();
+  if (d.lance > 0) registrar("saida");
+});
 
 aplicarIdioma();
 marcaAtual = null;
