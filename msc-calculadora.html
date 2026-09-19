@@ -1510,8 +1510,22 @@ Array.prototype.forEach.call(document.querySelectorAll(".langbar button"), funct
    CARTAO DA ESTIMATIVA (canvas) + COMPARTILHAR + REGISTRO
    ========================================================= */
 
-/* --- endereco da planilha Google. Trocar pela URL do Apps Script. --- */
-const LOG_URL = "";
+/* --- registro anonimo das simulacoes no Supabase --- */
+const SUPABASE_URL = "https://wwmakfaqahlbjzqvzgbr.supabase.co";
+const SUPABASE_KEY = "sb_publishable_orX2LpvNNS_ZWJk-0PQuqA_5AScfLAD";
+const LOG_URL = SUPABASE_URL + "/rest/v1/calc_runs";
+
+function origemCalculo(){
+  try {
+    var u = new URL(window.location.href);
+    if (window.self !== window.top && document.referrer) u = new URL(document.referrer);
+    var p = u.searchParams;
+    var utm = [p.get("utm_source"), p.get("utm_medium"), p.get("utm_campaign")]
+      .filter(function(x){ return !!x; })
+      .join(" / ");
+    return (utm || u.hostname || "direto").slice(0, 120);
+  } catch (e) { return "direto"; }
+}
 
 function carroTxt(d){
   var m = d.marca || "";
@@ -1689,7 +1703,6 @@ function registrar(evento){
       evento: evento || "simulacao",
       quando: new Date().toISOString(),
       idioma: LANG,
-      nome: d.nome,
       zip: d.zip,
       zip_ok: d.zipOk ? "sim" : "nao",
       estado: d.zipUf,
@@ -1712,11 +1725,27 @@ function registrar(evento){
       if (chave === ultimoEnvio) return;
       ultimoEnvio = chave;
     }
+    var registro = {
+      zip: d.zip || null,
+      estado: d.zipUf || null,
+      lance: d.lance > 0 ? d.lance : null,
+      total: (r && d.pgto !== "fin" && r.total) ? Math.round(r.total) : null,
+      pagamento: d.pgto || null,
+      idioma: LANG || null,
+      whatsapp: null,
+      origem: origemCalculo(),
+      dados: linha
+    };
     fetch(LOG_URL, {
       method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: corpo
+      mode: "cors",
+      keepalive: true,
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Prefer": "return=minimal"
+      },
+      body: JSON.stringify(registro)
     }).catch(function(){});
   } catch (e) {}
 }
