@@ -385,48 +385,53 @@
     font-weight:400;letter-spacing:.005em;white-space:nowrap;text-transform:uppercase;
   }
   .purchase-card__title span{color:var(--accent)}
-  .purchase-card__scale{position:relative;height:185px;margin:2px -7px 0;flex:none;overflow:hidden}
+  .purchase-card__comparison{
+    display:grid;grid-template-columns:minmax(0,42%) minmax(0,58%);gap:7px;
+    align-items:center;height:216px;margin:3px 0 0;flex:none;min-width:0;
+  }
+  .purchase-card__scale{position:relative;height:100%;min-width:0;overflow:hidden}
   .purchase-card__scale-art{
-    position:absolute;left:50%;top:0;width:100%;max-width:370px;height:auto;
+    position:absolute;left:50%;top:32px;width:116%;max-width:none;height:auto;
     transform:translateX(-50%);filter:drop-shadow(0 7px 6px rgba(0,0,0,.48));
   }
   .purchase-card__price{
-    position:absolute;z-index:2;width:40%;min-height:66px;padding:7px 5px 6px;
+    position:absolute;z-index:2;width:47%;min-height:62px;padding:6px 3px 5px;
     display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
     border:1px solid rgba(242,239,233,.5);box-shadow:0 5px 12px rgba(0,0,0,.36);
   }
-  .purchase-card__price--paid{left:4.5%;top:73px;background:#94703a;color:#fff}
-  .purchase-card__price--reference{right:3%;top:48px;background:#08090b;color:#fff}
+  .purchase-card__price--paid{left:0;top:102px;background:#94703a;color:#fff}
+  .purchase-card__price--reference{right:0;top:81px;background:#08090b;color:#fff}
   .purchase-card__price-kicker,.purchase-card__price-caption{
     display:block;font-size:13px;line-height:1.05;letter-spacing:.08em;text-transform:uppercase;
   }
   .purchase-card__price-value{
-    display:block;margin:2px 0 1px;font-family:"Anton",sans-serif;font-size:26px;line-height:1;font-weight:400;
+    display:block;margin:2px 0 1px;font-family:"Anton",sans-serif;font-size:21px;line-height:1;font-weight:400;
   }
-  .purchase-card__saving{text-align:center;margin:-2px 0 5px;flex:none}
+  .purchase-card__saving{text-align:center;margin:3px 0 0;flex:none}
   .purchase-card__saving-main{
     display:flex;align-items:baseline;justify-content:center;gap:7px;
     font-family:"Anton",sans-serif;color:var(--accent);line-height:.9;text-transform:uppercase;
   }
-  .purchase-card__saving-value{font-size:52px}
-  .purchase-card__saving-less{font-size:31px}
+  .purchase-card__saving-value{font-size:49px}
+  .purchase-card__saving-less{font-size:29px}
   .purchase-card__saving-sub{margin:5px 0 0;font-size:13px;line-height:1;letter-spacing:.16em;text-transform:uppercase}
   .purchase-card__panel{
-    width:100%;margin-top:auto;padding:5px 10px 4px;background:rgba(7,9,12,.84);
+    width:100%;min-width:0;padding:9px 7px 8px;background:rgba(7,9,12,.84);
     border:1px solid color-mix(in srgb,var(--accent) 72%,transparent);
   }
   .purchase-card__panel-title{
-    margin:0 0 3px;padding:0 0 3px;border-bottom:1px solid var(--accent);
+    margin:0 0 6px;padding:0 0 6px;border-bottom:1px solid var(--accent);
     color:var(--accent);font-size:13px;line-height:1;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
   }
-  .purchase-card__row{display:flex;justify-content:space-between;gap:12px;font-size:13px;line-height:1.05}
+  .purchase-card__row{display:flex;justify-content:space-between;gap:4px;font-size:13px;line-height:1.22}
+  .purchase-card__row span:first-child{min-width:0}
   .purchase-card__row span:last-child{white-space:nowrap}
   .purchase-card__row--total{
-    margin-top:2px;padding-top:2px;border-top:1px solid rgba(201,163,78,.68);font-weight:700;
+    margin-top:5px;padding-top:5px;border-top:1px solid rgba(201,163,78,.68);font-weight:700;
   }
   .purchase-card__row--total span:last-child{color:var(--accent)}
   .purchase-card__foot{
-    margin:7px 0 0;text-align:center;font-size:13px;line-height:1.1;letter-spacing:.045em;text-transform:uppercase;
+    margin:auto 0 0;text-align:center;font-size:13px;line-height:1.1;letter-spacing:.045em;text-transform:uppercase;
   }
   .purchase-cards__status{font-size:14px;color:rgba(242,239,233,.72);margin:0;padding:20px;text-align:center}
   @media (min-width:900px){
@@ -937,23 +942,7 @@
       title.appendChild(make("span","","THOUSANDS MORE?"));
       content.appendChild(title);
 
-      var scale=make("div","purchase-card__scale");
-      var scaleArt=make("img","purchase-card__scale-art");
-      scaleArt.src="img/compras/balanca.png";
-      scaleArt.alt="";
-      scaleArt.decoding="async";
-      scale.appendChild(scaleArt);
-      scale.appendChild(priceBoard("paid","MY CAR SCOUT",totalPago,"PURCHASE + FEES"));
-      scale.appendChild(priceBoard("reference",d.fonteRef,Number(d.referencia),"RETAIL REFERENCE"));
-      content.appendChild(scale);
-
-      var saving=make("div","purchase-card__saving");
-      var savingMain=make("div","purchase-card__saving-main");
-      savingMain.appendChild(make("strong","purchase-card__saving-value",money.format(diferenca)));
-      savingMain.appendChild(make("span","purchase-card__saving-less","LESS"));
-      saving.appendChild(savingMain);
-      saving.appendChild(make("p","purchase-card__saving-sub",percentual.toFixed(1)+"% BELOW REFERENCE"));
-      content.appendChild(saving);
+      var comparison=make("div","purchase-card__comparison");
 
       var panel=make("div","purchase-card__panel");
       panel.appendChild(make("h4","purchase-card__panel-title","REAL PURCHASE"));
@@ -963,7 +952,26 @@
       panel.appendChild(costRow("Title mailing",Number(d.envioTitulo)));
       panel.appendChild(costRow("Service fee",Number(d.taxaServico)));
       panel.appendChild(costRow("Total paid",totalPago,true));
-      content.appendChild(panel);
+      comparison.appendChild(panel);
+
+      var scale=make("div","purchase-card__scale");
+      var scaleArt=make("img","purchase-card__scale-art");
+      scaleArt.src="img/compras/balanca.png";
+      scaleArt.alt="";
+      scaleArt.decoding="async";
+      scale.appendChild(scaleArt);
+      scale.appendChild(priceBoard("paid","MY CAR SCOUT",totalPago,"PURCHASE + FEES"));
+      scale.appendChild(priceBoard("reference",d.fonteRef,Number(d.referencia),"RETAIL REFERENCE"));
+      comparison.appendChild(scale);
+      content.appendChild(comparison);
+
+      var saving=make("div","purchase-card__saving");
+      var savingMain=make("div","purchase-card__saving-main");
+      savingMain.appendChild(make("strong","purchase-card__saving-value",money.format(diferenca)));
+      savingMain.appendChild(make("span","purchase-card__saving-less","LESS"));
+      saving.appendChild(savingMain);
+      saving.appendChild(make("p","purchase-card__saving-sub",percentual.toFixed(1)+"% BELOW REFERENCE"));
+      content.appendChild(saving);
 
       content.appendChild(make("p","purchase-card__foot",d.fonteRef+" · VEHICLE CONDITION TO BE CONFIRMED"));
       card.appendChild(content);
@@ -975,7 +983,9 @@
         if(!response.ok) throw new Error("HTTP "+response.status);
         return response.json();
       })
-      .then(function(compras){
+      .then(function(dados){
+        var compras=Array.isArray(dados)?dados:(dados&&Array.isArray(dados.compras)?dados.compras:null);
+        if(!compras) throw new Error("Invalid purchase data format");
         root.textContent="";
         compras.forEach(function(compra){root.appendChild(renderPurchase(compra));});
         if(!compras.length) root.appendChild(make("p","purchase-cards__status","No purchases available."));
@@ -1508,9 +1518,21 @@ function aplicarIdioma(){
 function avisarCalculadora(){
   try{
     var f = document.querySelector("iframe.calc-frame");
-    if (f && f.contentWindow) f.contentWindow.postMessage({ mcsLang: LANG }, "*");
+    if (f && f.contentWindow) f.contentWindow.postMessage({ mcsLang: LANG, mcsRequestHeight: true }, "*");
   }catch(e){}
 }
+
+/* Mantem a calculadora inteira dentro da pagina, sem uma segunda rolagem. */
+function ajustarAlturaCalculadora(ev){
+  var f = document.querySelector("iframe.calc-frame");
+  if (!f || ev.source !== f.contentWindow) return;
+  var msg = ev.data;
+  if (!msg || msg.type !== "mcs:calculator-height") return;
+  var altura = Math.ceil(Number(msg.height));
+  if (!isFinite(altura) || altura < 400 || altura > 12000) return;
+  f.style.height = altura + "px";
+}
+window.addEventListener("message", ajustarAlturaCalculadora);
 
 function trocarIdioma(novo){
   if (!I18N[novo]) return;
