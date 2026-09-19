@@ -357,17 +357,82 @@
 
   /* ---------- A real purchase. Real numbers ---------- */
   section.real-purchase{
-    position:relative;overflow:hidden;margin:0 -20px;padding:32px 20px 40px;
+    position:relative;overflow:hidden;margin:0 -20px;padding:32px 0 40px;
     background:#0a0a0a;color:#f2efe9;
   }
-  section.real-purchase .rp-bg{position:absolute;top:-20%;left:0;right:0;bottom:-20%;background-position:center 40%;will-change:transform}
-  section.real-purchase .rp-veil{
-    position:absolute;inset:0;
-    background:rgba(8,10,12,.38);
+  .purchase-cards{display:grid;gap:22px;justify-items:center;width:100%}
+  .purchase-card{
+    position:relative;isolation:isolate;overflow:hidden;
+    width:min(100%,390px);aspect-ratio:4/5;padding:13px 14px 12px;
+    color:var(--aston-ink);background:#07090c;
+    border:1px solid rgba(242,239,233,.28);border-radius:var(--radius);
   }
-  section.real-purchase .rp-inner{position:relative;z-index:2}
-  section.real-purchase .rp-mark{height:22px;width:auto;display:block;margin:0 0 14px;opacity:.9}
-  section.real-purchase h2.section-title{color:#f2efe9}
+  .purchase-card__photo,.purchase-card__shade{position:absolute;inset:0;width:100%;height:100%}
+  .purchase-card__photo{z-index:-3;object-fit:cover;object-position:center center}
+  .purchase-card__shade{
+    z-index:-2;
+    background:linear-gradient(180deg,rgba(5,7,9,.76) 0%,rgba(5,7,9,.52) 39%,rgba(5,7,9,.78) 69%,rgba(5,7,9,.94) 100%);
+  }
+  .purchase-card__content{height:100%;display:flex;flex-direction:column;min-width:0}
+  .purchase-card__meta{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;min-height:18px}
+  .purchase-card__brand,.purchase-card__vehicle{
+    margin:0;font-size:13px;line-height:1.15;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  }
+  .purchase-card__brand{white-space:nowrap}
+  .purchase-card__vehicle{text-align:right;letter-spacing:.04em}
+  .purchase-card__title{
+    margin:7px 0 0;font-family:"Anton",sans-serif;font-size:34px;line-height:1;
+    font-weight:400;letter-spacing:.005em;white-space:nowrap;text-transform:uppercase;
+  }
+  .purchase-card__title span{color:var(--accent)}
+  .purchase-card__scale{position:relative;height:185px;margin:2px -7px 0;flex:none}
+  .purchase-card__scale-art{
+    position:absolute;left:50%;top:-18px;width:100%;max-width:370px;height:auto;
+    transform:translateX(-50%);filter:drop-shadow(0 7px 6px rgba(0,0,0,.48));
+  }
+  .purchase-card__price{
+    position:absolute;z-index:2;width:40%;min-height:66px;padding:7px 5px 6px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+    border:1px solid rgba(242,239,233,.5);box-shadow:0 5px 12px rgba(0,0,0,.36);
+  }
+  .purchase-card__price--paid{left:4.5%;top:73px;background:#94703a;color:#fff}
+  .purchase-card__price--reference{right:3%;top:48px;background:#08090b;color:#fff}
+  .purchase-card__price-kicker,.purchase-card__price-caption{
+    display:block;font-size:13px;line-height:1.05;letter-spacing:.08em;text-transform:uppercase;
+  }
+  .purchase-card__price-value{
+    display:block;margin:2px 0 1px;font-family:"Anton",sans-serif;font-size:26px;line-height:1;font-weight:400;
+  }
+  .purchase-card__saving{text-align:center;margin:-2px 0 5px;flex:none}
+  .purchase-card__saving-main{
+    display:flex;align-items:baseline;justify-content:center;gap:7px;
+    font-family:"Anton",sans-serif;color:var(--accent);line-height:.9;text-transform:uppercase;
+  }
+  .purchase-card__saving-value{font-size:52px}
+  .purchase-card__saving-less{font-size:31px}
+  .purchase-card__saving-sub{margin:5px 0 0;font-size:13px;line-height:1;letter-spacing:.16em;text-transform:uppercase}
+  .purchase-card__panel{
+    width:100%;margin-top:auto;padding:8px 10px 7px;background:rgba(7,9,12,.84);
+    border:1px solid color-mix(in srgb,var(--accent) 72%,transparent);
+  }
+  .purchase-card__panel-title{
+    margin:0 0 5px;padding:0 0 5px;border-bottom:1px solid var(--accent);
+    color:var(--accent);font-size:13px;line-height:1;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  }
+  .purchase-card__row{display:flex;justify-content:space-between;gap:12px;font-size:13px;line-height:1.22}
+  .purchase-card__row span:last-child{white-space:nowrap}
+  .purchase-card__row--total{
+    margin-top:4px;padding-top:4px;border-top:1px solid rgba(201,163,78,.68);font-weight:700;
+  }
+  .purchase-card__row--total span:last-child{color:var(--accent)}
+  .purchase-card__foot{
+    margin:7px 0 0;text-align:center;font-size:13px;line-height:1.1;letter-spacing:.045em;text-transform:uppercase;
+  }
+  .purchase-cards__status{font-size:14px;color:rgba(242,239,233,.72);margin:0;padding:20px;text-align:center}
+  @media (min-width:900px){
+    section.real-purchase{padding:48px 20px 56px}
+    .purchase-card{width:390px}
+  }
   .zoomable{cursor:zoom-in}
 
   .zoom-overlay{
@@ -386,11 +451,6 @@
     text-transform:uppercase;pointer-events:none;
   }
 
-  .purchase-proof{
-    display:block;width:100%;height:auto;max-width:100%;
-    border-radius:var(--radius);border:1px solid var(--line);
-  }
-  section.real-purchase .rp-caption{font-size:15px;color:rgba(242,239,233,.65);line-height:1.5;margin:14px 0 0}
   .calc-frame-wrap{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--card)}
   iframe.calc-frame{width:100%;height:1150px;border:none;display:block}
 
@@ -814,17 +874,119 @@
   </section>
 
   <section class="real-purchase">
-    <div class="rp-bg bg-mustang"></div>
-    <div class="rp-veil"></div>
-    <div class="fade-top-dark"></div>
-    <div class="fade-bottom-dark"></div>
-    <div class="rp-inner">
-    <img class="rp-mark" src="mcs-logo.svg" alt="My Car Scout">
-    <h2 class="section-title" data-i18n="rp_k">A REAL PURCHASE | REAL NUMBERS</h2>
-    <img class="purchase-proof zoomable" src="mcs-proof-balanca.jpg" alt="Comparison: My Car Scout purchase price versus Black Book XClean retail reference for a 2021 BMW X3">
-    <p class="rp-caption" data-i18n="rp_cap">The price on the left is what it took to buy this vehicle through My Car Scout</p>
+    <div class="purchase-cards" id="purchaseCards" aria-live="polite">
+      <p class="purchase-cards__status">Loading real purchase…</p>
     </div>
   </section>
+
+  <script>
+  (function(){
+    "use strict";
+    var root=document.getElementById("purchaseCards");
+    if(!root) return;
+
+    var money=new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
+    var number=new Intl.NumberFormat("en-US",{maximumFractionDigits:0});
+
+    function make(tag,className,text){
+      var node=document.createElement(tag);
+      if(className) node.className=className;
+      if(text!==undefined) node.textContent=text;
+      return node;
+    }
+
+    function costRow(label,value,total){
+      var row=make("div","purchase-card__row"+(total?" purchase-card__row--total":""));
+      row.appendChild(make("span","",label));
+      row.appendChild(make("span","",money.format(value)));
+      return row;
+    }
+
+    function priceBoard(kind,kicker,value,caption){
+      var board=make("div","purchase-card__price purchase-card__price--"+kind);
+      board.appendChild(make("span","purchase-card__price-kicker",kicker));
+      board.appendChild(make("strong","purchase-card__price-value",money.format(value)));
+      board.appendChild(make("span","purchase-card__price-caption",caption));
+      return board;
+    }
+
+    function renderPurchase(d){
+      var totalPago=Number(d.lance)+Number(d.taxaLeilao)+Number(d.taxaAmbiental)+Number(d.envioTitulo)+Number(d.taxaServico);
+      var diferenca=Number(d.referencia)-totalPago;
+      var percentual=Number(d.referencia)>0?(diferenca/Number(d.referencia))*100:0;
+
+      var card=make("article","purchase-card");
+      card.setAttribute("aria-label",d.ano+" "+d.marca+" "+d.modelo+": real purchase comparison");
+
+      var photo=make("img","purchase-card__photo");
+      photo.src=d.foto;
+      photo.alt="";
+      photo.loading="lazy";
+      photo.decoding="async";
+      card.appendChild(photo);
+      card.appendChild(make("div","purchase-card__shade"));
+
+      var content=make("div","purchase-card__content");
+      var meta=make("header","purchase-card__meta");
+      meta.appendChild(make("p","purchase-card__brand","MY CAR SCOUT"));
+      meta.appendChild(make("p","purchase-card__vehicle",d.ano+" "+d.marca+" "+d.modelo+" · "+number.format(d.milhas)+" MI"));
+      content.appendChild(meta);
+
+      var title=make("h3","purchase-card__title");
+      title.appendChild(document.createTextNode("WHY PAY "));
+      title.appendChild(make("span","","THOUSANDS MORE?"));
+      content.appendChild(title);
+
+      var scale=make("div","purchase-card__scale");
+      var scaleArt=make("img","purchase-card__scale-art");
+      scaleArt.src="img/compras/balanca.png";
+      scaleArt.alt="";
+      scaleArt.decoding="async";
+      scale.appendChild(scaleArt);
+      scale.appendChild(priceBoard("paid","MY CAR SCOUT",totalPago,"PURCHASE + FEES"));
+      scale.appendChild(priceBoard("reference",d.fonteRef,Number(d.referencia),"RETAIL REFERENCE"));
+      content.appendChild(scale);
+
+      var saving=make("div","purchase-card__saving");
+      var savingMain=make("div","purchase-card__saving-main");
+      savingMain.appendChild(make("strong","purchase-card__saving-value",money.format(diferenca)));
+      savingMain.appendChild(make("span","purchase-card__saving-less","LESS"));
+      saving.appendChild(savingMain);
+      saving.appendChild(make("p","purchase-card__saving-sub",percentual.toFixed(1)+"% BELOW REFERENCE"));
+      content.appendChild(saving);
+
+      var panel=make("div","purchase-card__panel");
+      panel.appendChild(make("h4","purchase-card__panel-title","REAL PURCHASE"));
+      panel.appendChild(costRow("Auction purchase",Number(d.lance)));
+      panel.appendChild(costRow("Auction fee",Number(d.taxaLeilao)));
+      panel.appendChild(costRow("Environmental fee",Number(d.taxaAmbiental)));
+      panel.appendChild(costRow("Title mailing",Number(d.envioTitulo)));
+      panel.appendChild(costRow("Service fee",Number(d.taxaServico)));
+      panel.appendChild(costRow("Total paid",totalPago,true));
+      content.appendChild(panel);
+
+      content.appendChild(make("p","purchase-card__foot",d.fonteRef+" · VEHICLE CONDITION TO BE CONFIRMED"));
+      card.appendChild(content);
+      return card;
+    }
+
+    fetch("data/compras.json",{cache:"no-store"})
+      .then(function(response){
+        if(!response.ok) throw new Error("HTTP "+response.status);
+        return response.json();
+      })
+      .then(function(compras){
+        root.textContent="";
+        compras.forEach(function(compra){root.appendChild(renderPurchase(compra));});
+        if(!compras.length) root.appendChild(make("p","purchase-cards__status","No purchases available."));
+      })
+      .catch(function(error){
+        root.textContent="";
+        root.appendChild(make("p","purchase-cards__status","Unable to load purchase data."));
+        console.error("Purchase cards:",error);
+      });
+  })();
+  </script>
 
   <section id="calculadora" class="calc-intro">
     <img class="calc-bg" loading="lazy" decoding="async" src="mcs-bg-calc.jpg" alt="">
