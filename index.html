@@ -361,6 +361,7 @@
     background:#0a0a0a;color:#f2efe9;
   }
   .purchase-cards{display:grid;gap:22px;justify-items:center;width:100%}
+  .purchase-card-entry{width:100%;max-width:1200px}
   .purchase-card{
     position:relative;isolation:isolate;overflow:hidden;container-type:inline-size;
     width:100%;max-width:1200px;aspect-ratio:3/2;
@@ -442,49 +443,35 @@
     position:absolute;left:10%;right:10%;bottom:5.6%;margin:0;text-align:center;
     font-size:clamp(13px,.92cqw,14px);line-height:1;letter-spacing:.3em;text-transform:uppercase;white-space:nowrap;
   }
+  .purchase-card-mobile-summary{display:none}
   .purchase-cards__status{font-size:14px;color:rgba(242,239,233,.72);margin:0;padding:20px;text-align:center}
-  @media (max-width:702px){
-    .purchase-card{aspect-ratio:3/4;border-width:1px;border-radius:8px}
-    .purchase-card__meta{left:4%;right:4%;top:4%;gap:8px}
-    .purchase-card__brand,.purchase-card__vehicle{font-size:13px;letter-spacing:.05em}
-    .purchase-card__vehicle{gap:0}
-    .purchase-card__vehicle::before{display:none}
-    .purchase-card__title{
-      left:4%;top:11%;font-family:"Barlow",sans-serif;font-size:clamp(28px,8.72vw,34px);
-      line-height:.98;font-weight:800;letter-spacing:.01em
+  @media (max-width:700px){
+    .purchase-card{aspect-ratio:3/2}
+    .purchase-card__brand,.purchase-card__vehicle{font-size:1.75cqw}
+    .purchase-card__price-kicker,.purchase-card__price-caption{font-size:1.05cqw}
+    .purchase-card__panel-title,.purchase-card__row,.purchase-card__saving-sub{font-size:1.35cqw}
+    .purchase-card__foot{font-size:.92cqw}
+    .purchase-card-mobile-summary{
+      display:block;margin:16px 16px 0;padding:18px 16px 20px;
+      background:#101216;border:1px solid rgba(201,163,78,.55);color:var(--aston-ink)
     }
-    .purchase-card__comparison{left:3%;right:3%;top:30%;height:40%}
-    .purchase-card__panel{
-      width:52%;height:100%;padding:11px 2px 7px;border-width:1px;border-radius:4px
+    .purchase-card-mobile-summary h4{
+      margin:0 0 12px;padding:0 0 10px;border-bottom:1px solid var(--accent);
+      color:var(--accent);font-size:16px;line-height:1;font-weight:700;letter-spacing:.14em;text-transform:uppercase
     }
-    .purchase-card__panel-title{
-      margin:0 0 8px;padding:0 0 8px;border-bottom-width:1px;
-      font-size:13px;letter-spacing:.12em
+    .purchase-card-mobile-row{display:flex;justify-content:space-between;gap:14px;font-size:15px;line-height:1.5}
+    .purchase-card-mobile-row span:last-child{white-space:nowrap}
+    .purchase-card-mobile-total{
+      margin-top:10px;padding-top:10px;border-top:1px solid rgba(201,163,78,.6);
+      font-size:17px;font-weight:700
     }
-    .purchase-card__row{gap:6px;font-size:13px;line-height:1.46}
-    .purchase-card__row--total{margin-top:6px;padding-top:6px;border-top-width:1px}
-    .purchase-card__scale{left:52.4%;right:0}
-    .purchase-card__scale-art{left:50%;top:8%;width:100%}
-    .purchase-card__price{
-      width:49%;min-height:86px;padding:7px 1px 6px;border-width:1px
+    .purchase-card-mobile-total span:last-child{color:var(--accent)}
+    .purchase-card-mobile-saving{margin-top:18px;text-align:center}
+    .purchase-card-mobile-saving-main{
+      color:var(--accent);font-size:clamp(38px,11vw,48px);line-height:1;font-weight:800;text-transform:uppercase
     }
-    .purchase-card__price--paid{left:0;top:46%}
-    .purchase-card__price--reference{right:0;top:38%}
-    .purchase-card__price-kicker,.purchase-card__price-caption{
-      font-size:13px;line-height:1;letter-spacing:.05em
-    }
-    .purchase-card__price-value{margin:3px 0 2px;font-size:19px}
-    .purchase-card__saving{left:3%;right:3%;top:74%}
-    .purchase-card__saving-main{gap:6px}
-    .purchase-card__saving-main::before,.purchase-card__saving-main::after{
-      width:10%;height:1px;margin:0 6px
-    }
-    .purchase-card__saving-value{font-size:44px}
-    .purchase-card__saving-less{font-size:34px}
-    .purchase-card__saving-sub{margin:7px 0 0;font-size:13px;letter-spacing:.16em}
-    .purchase-card__foot{
-      left:3%;right:3%;bottom:4%;font-size:13px;line-height:1.2;
-      letter-spacing:.06em;white-space:normal
+    .purchase-card-mobile-saving-sub{
+      margin:8px 0 0;font-size:15px;line-height:1.25;letter-spacing:.12em;text-transform:uppercase
     }
   }
   @media (min-width:900px){
@@ -967,11 +954,19 @@
       return board;
     }
 
+    function mobileCostRow(label,value,total){
+      var row=make("div","purchase-card-mobile-row"+(total?" purchase-card-mobile-total":""));
+      row.appendChild(make("span","",label));
+      row.appendChild(make("span","",money.format(value)));
+      return row;
+    }
+
     function renderPurchase(d){
       var totalPago=Number(d.lance)+Number(d.taxaLeilao)+Number(d.taxaAmbiental)+Number(d.envioTitulo)+Number(d.taxaServico);
       var diferenca=Number(d.referencia)-totalPago;
       var percentual=Number(d.referencia)>0?(diferenca/Number(d.referencia))*100:0;
 
+      var entry=make("div","purchase-card-entry");
       var card=make("article","purchase-card");
       card.setAttribute("aria-label",d.ano+" "+d.marca+" "+d.modelo+": real purchase comparison");
 
@@ -1022,12 +1017,27 @@
       savingMain.appendChild(make("strong","purchase-card__saving-value",money.format(diferenca)));
       savingMain.appendChild(make("span","purchase-card__saving-less","LESS"));
       saving.appendChild(savingMain);
-      saving.appendChild(make("p","purchase-card__saving-sub",percentual.toFixed(1)+"% BELOW REFERENCE"));
+      saving.appendChild(make("p","purchase-card__saving-sub",percentual.toFixed(2)+"% BELOW REFERENCE"));
       content.appendChild(saving);
 
       content.appendChild(make("p","purchase-card__foot",d.fonteRef+" · VEHICLE CONDITION TO BE CONFIRMED"));
       card.appendChild(content);
-      return card;
+      entry.appendChild(card);
+
+      var mobileSummary=make("div","purchase-card-mobile-summary");
+      mobileSummary.appendChild(make("h4","","REAL PURCHASE"));
+      mobileSummary.appendChild(mobileCostRow("Auction purchase",Number(d.lance)));
+      mobileSummary.appendChild(mobileCostRow("Auction fee",Number(d.taxaLeilao)));
+      mobileSummary.appendChild(mobileCostRow("Environmental fee",Number(d.taxaAmbiental)));
+      mobileSummary.appendChild(mobileCostRow("Title mailing",Number(d.envioTitulo)));
+      mobileSummary.appendChild(mobileCostRow("Service fee",Number(d.taxaServico)));
+      mobileSummary.appendChild(mobileCostRow("Total paid",totalPago,true));
+      var mobileSaving=make("div","purchase-card-mobile-saving");
+      mobileSaving.appendChild(make("div","purchase-card-mobile-saving-main",money.format(diferenca)+" LESS"));
+      mobileSaving.appendChild(make("p","purchase-card-mobile-saving-sub",percentual.toFixed(2)+"% BELOW REFERENCE"));
+      mobileSummary.appendChild(mobileSaving);
+      entry.appendChild(mobileSummary);
+      return entry;
     }
 
     fetch("data/compras.json",{cache:"no-store"})
