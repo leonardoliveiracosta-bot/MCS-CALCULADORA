@@ -1,5 +1,47 @@
 [
   {
+    "ano": 2018,
+    "marca": "Dodge",
+    "modelo": "Charger R/T",
+    "milhas": 89370,
+    "lance": 9700,
+    "taxaLeilao": 550,
+    "taxaAmbiental": 15,
+    "envioTitulo": 20,
+    "taxaServico": 550,
+    "referencia": 19850,
+    "fonteRef": "CARFAX Retail",
+    "foto": "img/compras/2018-dodge-charger-rt.jpg"
+  },
+  {
+    "ano": 2020,
+    "marca": "Cadillac",
+    "modelo": "Escalade Luxury",
+    "milhas": 62000,
+    "lance": 29900,
+    "taxaLeilao": 600,
+    "taxaAmbiental": 15,
+    "envioTitulo": 20,
+    "taxaServico": 1000,
+    "referencia": 41000,
+    "fonteRef": "CARFAX Retail",
+    "foto": "img/compras/2020-cadillac-escalade-luxury.jpg"
+  },
+  {
+    "ano": 2018,
+    "marca": "Porsche",
+    "modelo": "Macan GTS",
+    "milhas": 93000,
+    "lance": 18100,
+    "taxaLeilao": 600,
+    "taxaAmbiental": 15,
+    "envioTitulo": 20,
+    "taxaServico": 800,
+    "referencia": 26730,
+    "fonteRef": "CARFAX Retail",
+    "foto": "img/compras/2018-porsche-macan-gts.jpg"
+  },
+  {
     "ano": 2021,
     "marca": "BMW",
     "modelo": "X3",

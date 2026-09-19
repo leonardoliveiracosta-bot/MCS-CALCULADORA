@@ -477,6 +477,40 @@
   @media (min-width:900px){
     section.real-purchase{padding:48px 20px 56px}
   }
+  /* ---------- carrossel do Real Purchase ---------- */
+  .purchase-carousel{position:relative;width:100%}
+  .purchase-cards.purchase-cards--carousel{
+    display:flex;gap:0;width:100%;
+    overflow-x:auto;overflow-y:hidden;
+    scroll-snap-type:x mandatory;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;-ms-overflow-style:none;
+  }
+  .purchase-cards.purchase-cards--carousel::-webkit-scrollbar{display:none}
+  .purchase-cards.purchase-cards--carousel > .purchase-card-entry{
+    flex:0 0 100%;scroll-snap-align:center;scroll-snap-stop:always;
+  }
+  .purchase-dots{display:flex;justify-content:center;align-items:center;gap:9px;margin:18px 0 0}
+  .purchase-dots button{
+    width:9px;height:9px;padding:0;border-radius:50%;cursor:pointer;
+    border:1px solid rgba(201,163,78,.75);background:transparent;
+    transition:background .18s ease,transform .18s ease;
+  }
+  .purchase-dots button[aria-current="true"]{background:var(--accent);transform:scale(1.3)}
+  .purchase-nav{display:none}
+  @media (min-width:900px){
+    .purchase-nav{
+      display:flex;align-items:center;justify-content:center;
+      position:absolute;top:calc(50% - 22px);z-index:5;
+      width:44px;height:44px;padding:0;border-radius:50%;cursor:pointer;
+      border:1px solid rgba(242,239,233,.45);background:rgba(7,9,12,.72);
+      color:#f2efe9;font:700 22px "Barlow",sans-serif;line-height:1;
+    }
+    .purchase-nav--prev{left:10px}
+    .purchase-nav--next{right:10px}
+    .purchase-nav[hidden]{display:none}
+  }
+
   .zoomable{cursor:zoom-in}
 
   .zoom-overlay{
@@ -1097,6 +1131,106 @@
       return entry;
     }
 
+    /* ===== carrossel ===== */
+    var carShell=null,carDots=null,carPrev=null,carNext=null,carTick=false;
+
+    function carEntries(){ return root.querySelectorAll(".purchase-card-entry"); }
+
+    function carSuave(){
+      try{ return !window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+      catch(e){ return true; }
+    }
+
+    function carAtivo(){
+      var es=carEntries(); if(!es.length) return 0;
+      var rr=root.getBoundingClientRect(), c=rr.left+rr.width/2;
+      var melhor=0, dist=Infinity;
+      for(var i=0;i<es.length;i++){
+        var r=es[i].getBoundingClientRect();
+        var d=Math.abs((r.left+r.width/2)-c);
+        if(d<dist){ dist=d; melhor=i; }
+      }
+      return melhor;
+    }
+
+    function carIr(i){
+      var es=carEntries(); if(!es[i]) return;
+      var rr=root.getBoundingClientRect(), r=es[i].getBoundingClientRect();
+      root.scrollBy({left:(r.left+r.width/2)-(rr.left+rr.width/2),
+                     behavior:carSuave()?"smooth":"auto"});
+    }
+
+    function carPintar(){
+      if(!carDots) return;
+      var a=carAtivo(), bs=carDots.children;
+      for(var i=0;i<bs.length;i++){
+        bs[i].setAttribute("aria-current", i===a?"true":"false");
+      }
+      if(carPrev) carPrev.hidden=(a===0);
+      if(carNext) carNext.hidden=(a===carEntries().length-1);
+    }
+
+    function carCasca(){
+      if(carShell) return carShell;
+      carShell=document.createElement("div");
+      carShell.className="purchase-carousel";
+      root.parentNode.insertBefore(carShell,root);
+      carShell.appendChild(root);
+      root.addEventListener("scroll",function(){
+        if(carTick) return; carTick=true;
+        window.requestAnimationFrame(function(){ carTick=false; carPintar(); });
+      });
+      window.addEventListener("resize",function(){ carPintar(); });
+      return carShell;
+    }
+
+    function carLimpar(){
+      root.classList.remove("purchase-cards--carousel");
+      if(carDots&&carDots.parentNode) carDots.parentNode.removeChild(carDots);
+      if(carPrev&&carPrev.parentNode) carPrev.parentNode.removeChild(carPrev);
+      if(carNext&&carNext.parentNode) carNext.parentNode.removeChild(carNext);
+      carDots=null; carPrev=null; carNext=null;
+    }
+
+    function carMontar(){
+      var es=carEntries();
+      carLimpar();
+      if(es.length<2) return;
+      var casca=carCasca();
+      root.classList.add("purchase-cards--carousel");
+
+      carPrev=document.createElement("button");
+      carPrev.type="button";
+      carPrev.className="purchase-nav purchase-nav--prev";
+      carPrev.setAttribute("aria-label","Previous purchase");
+      carPrev.innerHTML="&#8249;";
+      carPrev.addEventListener("click",function(){ carIr(carAtivo()-1); });
+
+      carNext=document.createElement("button");
+      carNext.type="button";
+      carNext.className="purchase-nav purchase-nav--next";
+      carNext.setAttribute("aria-label","Next purchase");
+      carNext.innerHTML="&#8250;";
+      carNext.addEventListener("click",function(){ carIr(carAtivo()+1); });
+
+      casca.appendChild(carPrev);
+      casca.appendChild(carNext);
+
+      carDots=document.createElement("div");
+      carDots.className="purchase-dots";
+      for(var i=0;i<es.length;i++){
+        (function(k){
+          var b=document.createElement("button");
+          b.type="button";
+          b.setAttribute("aria-label","Purchase "+(k+1));
+          b.addEventListener("click",function(){ carIr(k); });
+          carDots.appendChild(b);
+        })(i);
+      }
+      casca.appendChild(carDots);
+      carPintar();
+    }
+
     fetch("data/compras.json",{cache:"no-store"})
       .then(function(response){
         if(!response.ok) throw new Error("HTTP "+response.status);
@@ -1107,11 +1241,13 @@
         if(!compras) throw new Error("Invalid purchase data format");
         root.textContent="";
         compras.forEach(function(compra){root.appendChild(renderPurchase(compra));});
+        carMontar();
         if(!compras.length) root.appendChild(make("p","purchase-cards__status","No purchases available."));
       })
       .catch(function(error){
         console.error("Purchase cards:",error);
       });
+    carMontar();
   })();
   </script>
 
