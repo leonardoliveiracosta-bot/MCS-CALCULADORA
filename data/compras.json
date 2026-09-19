@@ -1,0 +1,16 @@
+[
+  {
+    "ano": 2021,
+    "marca": "BMW",
+    "modelo": "X3",
+    "milhas": 57347,
+    "lance": 17900,
+    "taxaLeilao": 600,
+    "taxaAmbiental": 15,
+    "envioTitulo": 20,
+    "taxaServico": 800,
+    "referencia": 25800,
+    "fonteRef": "Black Book XClean",
+    "foto": "img/compras/2021-bmw-x3.jpg"
+  }
+]

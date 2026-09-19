@@ -20,7 +20,7 @@
 <meta name="twitter:description" content="You don't need a dealer license. See what the car actually costs before a lot marks it up.">
 <meta name="twitter:image" content="https://mycarscout.net/og-image.jpg">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&display=swap');
 
   :root{
     --bg:#f2f4f7;
@@ -357,17 +357,139 @@
 
   /* ---------- A real purchase. Real numbers ---------- */
   section.real-purchase{
-    position:relative;overflow:hidden;margin:0 -20px;padding:32px 20px 40px;
+    position:relative;overflow:hidden;margin:0 -20px;padding:32px 0 40px;
     background:#0a0a0a;color:#f2efe9;
   }
-  section.real-purchase .rp-bg{position:absolute;top:-20%;left:0;right:0;bottom:-20%;background-position:center 40%;will-change:transform}
-  section.real-purchase .rp-veil{
-    position:absolute;inset:0;
-    background:rgba(8,10,12,.38);
+  .purchase-cards{display:grid;gap:22px;justify-items:center;width:100%}
+  .purchase-card{
+    position:relative;isolation:isolate;overflow:hidden;container-type:inline-size;
+    width:100%;max-width:1200px;aspect-ratio:3/2;
+    color:var(--aston-ink);background:#07090c;
+    border:.18cqw solid rgba(242,239,233,.78);border-radius:1.45cqw;
   }
-  section.real-purchase .rp-inner{position:relative;z-index:2}
-  section.real-purchase .rp-mark{height:22px;width:auto;display:block;margin:0 0 14px;opacity:.9}
-  section.real-purchase h2.section-title{color:#f2efe9}
+  .purchase-card__photo,.purchase-card__shade{position:absolute;inset:0;width:100%;height:100%}
+  .purchase-card__photo{z-index:-3;object-fit:cover;object-position:center center}
+  .purchase-card__shade{
+    z-index:-2;
+    background:linear-gradient(180deg,rgba(5,7,9,.67) 0%,rgba(5,7,9,.42) 42%,rgba(5,7,9,.69) 72%,rgba(5,7,9,.9) 100%);
+  }
+  .purchase-card__content{position:relative;height:100%;min-width:0}
+  .purchase-card__meta{
+    position:absolute;left:4.5%;right:4%;top:5.2%;
+    display:flex;align-items:center;justify-content:space-between;gap:2cqw;
+  }
+  .purchase-card__brand,.purchase-card__vehicle{
+    margin:0;font-size:clamp(13px,1.75cqw,21px);line-height:1;font-weight:600;letter-spacing:.11em;text-transform:uppercase;
+  }
+  .purchase-card__brand{white-space:nowrap}
+  .purchase-card__vehicle{display:flex;align-items:center;gap:1.8cqw;text-align:right;letter-spacing:.08em;white-space:nowrap}
+  .purchase-card__vehicle::before{content:"";display:block;width:10.8cqw;height:.09cqw;background:rgba(242,239,233,.72)}
+  .purchase-card__title{
+    position:absolute;left:4.5%;top:14.2%;margin:0;
+    font-family:"Barlow",sans-serif;font-size:4.6cqw;line-height:.98;
+    font-weight:800;letter-spacing:.015em;text-transform:uppercase;
+  }
+  .purchase-card__title span{display:block;color:var(--accent)}
+  .purchase-card__comparison{
+    position:absolute;left:2.7%;right:3.2%;top:30.6%;height:39.5%;min-width:0;
+  }
+  .purchase-card__scale{position:absolute;left:26%;right:0;top:0;height:100%;min-width:0}
+  .purchase-card__scale-art{
+    position:absolute;left:38.9%;top:9%;width:77.2%;max-width:none;height:auto;
+    transform:translateX(-50%);filter:drop-shadow(0 7px 6px rgba(0,0,0,.48));
+  }
+  .purchase-card__price{
+    position:absolute;z-index:2;width:25.3%;min-height:34%;padding:1.15cqw .6cqw .8cqw;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+    border:.08cqw solid rgba(242,239,233,.5);box-shadow:0 .45cqw 1cqw rgba(0,0,0,.36);
+  }
+  .purchase-card__price--paid{left:3.2%;top:48%;background:#94703a;color:#fff}
+  .purchase-card__price--reference{right:26.2%;top:39%;background:#08090b;color:#fff}
+  .purchase-card__price-kicker,.purchase-card__price-caption{
+    display:block;font-size:clamp(13px,1.05cqw,16px);line-height:1.05;letter-spacing:.16em;text-transform:uppercase;
+  }
+  .purchase-card__price-value{
+    display:block;margin:.3cqw 0 .15cqw;font-family:"Anton",sans-serif;font-size:3.55cqw;line-height:1;font-weight:400;
+  }
+  .purchase-card__saving{position:absolute;left:8%;right:8%;top:75.8%;text-align:center;margin:0}
+  .purchase-card__saving-main{
+    display:flex;align-items:baseline;justify-content:center;gap:7px;
+    font-family:"Anton",sans-serif;color:var(--accent);line-height:.9;text-transform:uppercase;
+  }
+  .purchase-card__saving-main::before,.purchase-card__saving-main::after{
+    content:"";width:14.2%;height:.08cqw;background:rgba(242,239,233,.76);margin:0 2.8cqw;align-self:center;
+  }
+  .purchase-card__saving-value{font-size:6.35cqw}
+  .purchase-card__saving-less{font-size:4.25cqw}
+  .purchase-card__saving-sub{margin:.65cqw 0 0;font-size:clamp(13px,1.35cqw,17px);line-height:1;letter-spacing:.28em;text-transform:uppercase}
+  .purchase-card__panel{
+    position:absolute;left:0;top:0;width:25.9%;height:94%;min-width:0;
+    padding:1.6cqw 1.55cqw 1.25cqw;background:rgba(7,9,12,.78);
+    border:.08cqw solid color-mix(in srgb,var(--accent) 72%,transparent);border-radius:.55cqw;
+  }
+  .purchase-card__panel-title{
+    margin:0 0 1.15cqw;padding:0 0 1.15cqw;border-bottom:.08cqw solid var(--accent);
+    color:var(--accent);font-size:clamp(13px,1.35cqw,17px);line-height:1;font-weight:700;letter-spacing:.19em;text-transform:uppercase;
+  }
+  .purchase-card__row{display:flex;justify-content:space-between;gap:.8cqw;font-size:clamp(13px,1.35cqw,17px);line-height:1.55}
+  .purchase-card__row span:first-child{min-width:0}
+  .purchase-card__row span:last-child{white-space:nowrap}
+  .purchase-card__row--total{
+    margin-top:.75cqw;padding-top:.65cqw;border-top:.08cqw solid rgba(201,163,78,.68);font-weight:700;
+  }
+  .purchase-card__row--total span:last-child{color:var(--accent)}
+  .purchase-card__foot{
+    position:absolute;left:10%;right:10%;bottom:5.6%;margin:0;text-align:center;
+    font-size:clamp(13px,.92cqw,14px);line-height:1;letter-spacing:.3em;text-transform:uppercase;white-space:nowrap;
+  }
+  .purchase-cards__status{font-size:14px;color:rgba(242,239,233,.72);margin:0;padding:20px;text-align:center}
+  @media (max-width:702px){
+    .purchase-card{aspect-ratio:3/4;border-width:1px;border-radius:8px}
+    .purchase-card__meta{left:4%;right:4%;top:4%;gap:8px}
+    .purchase-card__brand,.purchase-card__vehicle{font-size:13px;letter-spacing:.05em}
+    .purchase-card__vehicle{gap:0}
+    .purchase-card__vehicle::before{display:none}
+    .purchase-card__title{
+      left:4%;top:11%;font-family:"Barlow",sans-serif;font-size:clamp(28px,8.72vw,34px);
+      line-height:.98;font-weight:800;letter-spacing:.01em
+    }
+    .purchase-card__comparison{left:3%;right:3%;top:30%;height:40%}
+    .purchase-card__panel{
+      width:52%;height:100%;padding:11px 2px 7px;border-width:1px;border-radius:4px
+    }
+    .purchase-card__panel-title{
+      margin:0 0 8px;padding:0 0 8px;border-bottom-width:1px;
+      font-size:13px;letter-spacing:.12em
+    }
+    .purchase-card__row{gap:6px;font-size:13px;line-height:1.46}
+    .purchase-card__row--total{margin-top:6px;padding-top:6px;border-top-width:1px}
+    .purchase-card__scale{left:52.4%;right:0}
+    .purchase-card__scale-art{left:50%;top:8%;width:100%}
+    .purchase-card__price{
+      width:49%;min-height:86px;padding:7px 1px 6px;border-width:1px
+    }
+    .purchase-card__price--paid{left:0;top:46%}
+    .purchase-card__price--reference{right:0;top:38%}
+    .purchase-card__price-kicker,.purchase-card__price-caption{
+      font-size:13px;line-height:1;letter-spacing:.05em
+    }
+    .purchase-card__price-value{margin:3px 0 2px;font-size:19px}
+    .purchase-card__saving{left:3%;right:3%;top:74%}
+    .purchase-card__saving-main{gap:6px}
+    .purchase-card__saving-main::before,.purchase-card__saving-main::after{
+      width:10%;height:1px;margin:0 6px
+    }
+    .purchase-card__saving-value{font-size:44px}
+    .purchase-card__saving-less{font-size:34px}
+    .purchase-card__saving-sub{margin:7px 0 0;font-size:13px;letter-spacing:.16em}
+    .purchase-card__foot{
+      left:3%;right:3%;bottom:4%;font-size:13px;line-height:1.2;
+      letter-spacing:.06em;white-space:normal
+    }
+  }
+  @media (min-width:900px){
+    section.real-purchase{padding:48px 20px 56px}
+  }
   .zoomable{cursor:zoom-in}
 
   .zoom-overlay{
@@ -386,11 +508,6 @@
     text-transform:uppercase;pointer-events:none;
   }
 
-  .purchase-proof{
-    display:block;width:100%;height:auto;max-width:100%;
-    border-radius:var(--radius);border:1px solid var(--line);
-  }
-  section.real-purchase .rp-caption{font-size:15px;color:rgba(242,239,233,.65);line-height:1.5;margin:14px 0 0}
   .calc-frame-wrap{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--card)}
   iframe.calc-frame{width:100%;height:1150px;border:none;display:block}
 
@@ -813,18 +930,125 @@
     </div>
   </section>
 
-  <section class="real-purchase">
-    <div class="rp-bg bg-mustang"></div>
-    <div class="rp-veil"></div>
-    <div class="fade-top-dark"></div>
-    <div class="fade-bottom-dark"></div>
-    <div class="rp-inner">
-    <img class="rp-mark" src="mcs-logo.svg" alt="My Car Scout">
-    <h2 class="section-title" data-i18n="rp_k">A REAL PURCHASE | REAL NUMBERS</h2>
-    <img class="purchase-proof zoomable" src="mcs-proof-balanca.jpg" alt="Comparison: My Car Scout purchase price versus Black Book XClean retail reference for a 2021 BMW X3">
-    <p class="rp-caption" data-i18n="rp_cap">The price on the left is what it took to buy this vehicle through My Car Scout</p>
+  <section id="real-purchase" class="real-purchase">
+    <div class="purchase-cards" id="purchaseCards" aria-live="polite">
+      <p class="purchase-cards__status">Loading real purchase…</p>
     </div>
   </section>
+
+  <script>
+  (function(){
+    "use strict";
+    var root=document.getElementById("purchaseCards");
+    if(!root) return;
+
+    var money=new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
+    var number=new Intl.NumberFormat("en-US",{maximumFractionDigits:0});
+
+    function make(tag,className,text){
+      var node=document.createElement(tag);
+      if(className) node.className=className;
+      if(text!==undefined) node.textContent=text;
+      return node;
+    }
+
+    function costRow(label,value,total){
+      var row=make("div","purchase-card__row"+(total?" purchase-card__row--total":""));
+      row.appendChild(make("span","",label));
+      row.appendChild(make("span","",money.format(value)));
+      return row;
+    }
+
+    function priceBoard(kind,kicker,value,caption){
+      var board=make("div","purchase-card__price purchase-card__price--"+kind);
+      board.appendChild(make("span","purchase-card__price-kicker",kicker));
+      board.appendChild(make("strong","purchase-card__price-value",money.format(value)));
+      board.appendChild(make("span","purchase-card__price-caption",caption));
+      return board;
+    }
+
+    function renderPurchase(d){
+      var totalPago=Number(d.lance)+Number(d.taxaLeilao)+Number(d.taxaAmbiental)+Number(d.envioTitulo)+Number(d.taxaServico);
+      var diferenca=Number(d.referencia)-totalPago;
+      var percentual=Number(d.referencia)>0?(diferenca/Number(d.referencia))*100:0;
+
+      var card=make("article","purchase-card");
+      card.setAttribute("aria-label",d.ano+" "+d.marca+" "+d.modelo+": real purchase comparison");
+
+      var photo=make("img","purchase-card__photo");
+      photo.src=d.foto;
+      photo.alt="";
+      photo.loading="lazy";
+      photo.decoding="async";
+      card.appendChild(photo);
+      card.appendChild(make("div","purchase-card__shade"));
+
+      var content=make("div","purchase-card__content");
+      var meta=make("header","purchase-card__meta");
+      meta.appendChild(make("p","purchase-card__brand","MY CAR SCOUT"));
+      meta.appendChild(make("p","purchase-card__vehicle",d.ano+" "+d.marca+" "+d.modelo+" · "+number.format(d.milhas)+" MI"));
+      content.appendChild(meta);
+
+      var title=make("h3","purchase-card__title");
+      title.appendChild(document.createTextNode("WHY PAY"));
+      title.appendChild(make("span","","THOUSANDS MORE?"));
+      content.appendChild(title);
+
+      var comparison=make("div","purchase-card__comparison");
+
+      var panel=make("div","purchase-card__panel");
+      panel.appendChild(make("h4","purchase-card__panel-title","REAL PURCHASE"));
+      panel.appendChild(costRow("Auction purchase",Number(d.lance)));
+      panel.appendChild(costRow("Auction fee",Number(d.taxaLeilao)));
+      panel.appendChild(costRow("Environmental fee",Number(d.taxaAmbiental)));
+      panel.appendChild(costRow("Title mailing",Number(d.envioTitulo)));
+      panel.appendChild(costRow("Service fee",Number(d.taxaServico)));
+      panel.appendChild(costRow("Total paid",totalPago,true));
+      comparison.appendChild(panel);
+
+      var scale=make("div","purchase-card__scale");
+      var scaleArt=make("img","purchase-card__scale-art");
+      scaleArt.src="img/compras/balanca.png";
+      scaleArt.alt="";
+      scaleArt.decoding="async";
+      scale.appendChild(scaleArt);
+      scale.appendChild(priceBoard("paid","MY CAR SCOUT",totalPago,"PURCHASE + FEES"));
+      scale.appendChild(priceBoard("reference",d.fonteRef,Number(d.referencia),"RETAIL REFERENCE"));
+      comparison.appendChild(scale);
+      content.appendChild(comparison);
+
+      var saving=make("div","purchase-card__saving");
+      var savingMain=make("div","purchase-card__saving-main");
+      savingMain.appendChild(make("strong","purchase-card__saving-value",money.format(diferenca)));
+      savingMain.appendChild(make("span","purchase-card__saving-less","LESS"));
+      saving.appendChild(savingMain);
+      saving.appendChild(make("p","purchase-card__saving-sub",percentual.toFixed(1)+"% BELOW REFERENCE"));
+      content.appendChild(saving);
+
+      content.appendChild(make("p","purchase-card__foot",d.fonteRef+" · VEHICLE CONDITION TO BE CONFIRMED"));
+      card.appendChild(content);
+      return card;
+    }
+
+    fetch("data/compras.json",{cache:"no-store"})
+      .then(function(response){
+        if(!response.ok) throw new Error("HTTP "+response.status);
+        return response.json();
+      })
+      .then(function(dados){
+        var compras=Array.isArray(dados)?dados:(dados&&Array.isArray(dados.compras)?dados.compras:null);
+        if(!compras) throw new Error("Invalid purchase data format");
+        root.textContent="";
+        compras.forEach(function(compra){root.appendChild(renderPurchase(compra));});
+        if(!compras.length) root.appendChild(make("p","purchase-cards__status","No purchases available."));
+      })
+      .catch(function(error){
+        root.textContent="";
+        root.appendChild(make("p","purchase-cards__status","Unable to load purchase data."));
+        console.error("Purchase cards:",error);
+      });
+  })();
+  </script>
 
   <section id="calculadora" class="calc-intro">
     <img class="calc-bg" loading="lazy" decoding="async" src="mcs-bg-calc.jpg" alt="">
@@ -1346,9 +1570,21 @@ function aplicarIdioma(){
 function avisarCalculadora(){
   try{
     var f = document.querySelector("iframe.calc-frame");
-    if (f && f.contentWindow) f.contentWindow.postMessage({ mcsLang: LANG }, "*");
+    if (f && f.contentWindow) f.contentWindow.postMessage({ mcsLang: LANG, mcsRequestHeight: true }, "*");
   }catch(e){}
 }
+
+/* Mantem a calculadora inteira dentro da pagina, sem uma segunda rolagem. */
+function ajustarAlturaCalculadora(ev){
+  var f = document.querySelector("iframe.calc-frame");
+  if (!f || ev.source !== f.contentWindow) return;
+  var msg = ev.data;
+  if (!msg || msg.type !== "mcs:calculator-height") return;
+  var altura = Math.ceil(Number(msg.height));
+  if (!isFinite(altura) || altura < 400 || altura > 12000) return;
+  f.style.height = altura + "px";
+}
+window.addEventListener("message", ajustarAlturaCalculadora);
 
 function trocarIdioma(novo){
   if (!I18N[novo]) return;
