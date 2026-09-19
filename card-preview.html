@@ -9,6 +9,7 @@
 :root{--accent:#c9a34e;--aston-ink:#f2efe9}
 *{box-sizing:border-box}
 html,body{margin:0;background:#202124;font-family:"Barlow",sans-serif}
+.purchase-card-entry{width:100%;max-width:1200px}
 .purchase-card{position:relative;isolation:isolate;overflow:hidden;container-type:inline-size;width:100%;max-width:1200px;aspect-ratio:3/2;color:var(--aston-ink);background:#07090c;border:.18cqw solid rgba(242,239,233,.78);border-radius:1.45cqw}
 .purchase-card__photo,.purchase-card__shade{position:absolute;inset:0;width:100%;height:100%}
 .purchase-card__photo{z-index:-3;object-fit:cover;object-position:center center}
@@ -34,26 +35,24 @@ html,body{margin:0;background:#202124;font-family:"Barlow",sans-serif}
 .purchase-card__panel-title{margin:0 0 1.15cqw;padding:0 0 1.15cqw;border-bottom:.08cqw solid var(--accent);color:var(--accent);font-size:clamp(13px,1.35cqw,17px);line-height:1;font-weight:700;letter-spacing:.19em;text-transform:uppercase}
 .purchase-card__row{display:flex;justify-content:space-between;gap:.8cqw;font-size:clamp(13px,1.35cqw,17px);line-height:1.55}.purchase-card__row span:last-child{white-space:nowrap}.purchase-card__row--total{margin-top:.75cqw;padding-top:.65cqw;border-top:.08cqw solid rgba(201,163,78,.68);font-weight:700}.purchase-card__row--total span:last-child{color:var(--accent)}
 .purchase-card__foot{position:absolute;left:10%;right:10%;bottom:5.6%;margin:0;text-align:center;font-size:clamp(13px,.92cqw,14px);line-height:1;letter-spacing:.3em;text-transform:uppercase;white-space:nowrap}
-@media (max-width:702px){
-.purchase-card{aspect-ratio:3/4;border-width:1px;border-radius:8px}
-.purchase-card__meta{left:4%;right:4%;top:4%;gap:8px}
-.purchase-card__brand,.purchase-card__vehicle{font-size:13px;letter-spacing:.05em}.purchase-card__vehicle{gap:0}.purchase-card__vehicle::before{display:none}
-.purchase-card__title{left:4%;top:11%;font-family:"Barlow",sans-serif;font-size:clamp(28px,8.72vw,34px);line-height:.98;font-weight:800;letter-spacing:.01em}
-.purchase-card__comparison{left:3%;right:3%;top:30%;height:40%}
-.purchase-card__panel{width:52%;height:100%;padding:11px 2px 7px;border-width:1px;border-radius:4px}
-.purchase-card__panel-title{margin:0 0 8px;padding:0 0 8px;border-bottom-width:1px;font-size:13px;letter-spacing:.12em}
-.purchase-card__row{gap:6px;font-size:13px;line-height:1.46}.purchase-card__row--total{margin-top:6px;padding-top:6px;border-top-width:1px}
-.purchase-card__scale{left:52.4%;right:0}.purchase-card__scale-art{left:50%;top:8%;width:100%}
-.purchase-card__price{width:49%;min-height:86px;padding:7px 1px 6px;border-width:1px}
-.purchase-card__price--paid{left:0;top:46%}.purchase-card__price--reference{right:0;top:38%}
-.purchase-card__price-kicker,.purchase-card__price-caption{font-size:13px;line-height:1;letter-spacing:.05em}.purchase-card__price-value{margin:3px 0 2px;font-size:19px}
-.purchase-card__saving{left:3%;right:3%;top:74%}.purchase-card__saving-main{gap:6px}.purchase-card__saving-main::before,.purchase-card__saving-main::after{width:10%;height:1px;margin:0 6px}
-.purchase-card__saving-value{font-size:44px}.purchase-card__saving-less{font-size:34px}.purchase-card__saving-sub{margin:7px 0 0;font-size:13px;letter-spacing:.16em}
-.purchase-card__foot{left:3%;right:3%;bottom:4%;font-size:13px;line-height:1.2;letter-spacing:.06em;white-space:normal}
+.purchase-card-mobile-summary{display:none}
+@media (max-width:700px){
+.purchase-card{aspect-ratio:3/2}
+.purchase-card__brand,.purchase-card__vehicle{font-size:1.75cqw}
+.purchase-card__price-kicker,.purchase-card__price-caption{font-size:1.05cqw}
+.purchase-card__panel-title,.purchase-card__row,.purchase-card__saving-sub{font-size:1.35cqw}
+.purchase-card__foot{font-size:.92cqw}
+.purchase-card-mobile-summary{display:block;margin:16px 16px 0;padding:18px 16px 20px;background:#101216;border:1px solid rgba(201,163,78,.55);color:var(--aston-ink)}
+.purchase-card-mobile-summary h4{margin:0 0 12px;padding:0 0 10px;border-bottom:1px solid var(--accent);color:var(--accent);font-size:16px;line-height:1;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.purchase-card-mobile-row{display:flex;justify-content:space-between;gap:14px;font-size:15px;line-height:1.5}.purchase-card-mobile-row span:last-child{white-space:nowrap}
+.purchase-card-mobile-total{margin-top:10px;padding-top:10px;border-top:1px solid rgba(201,163,78,.6);font-size:17px;font-weight:700}.purchase-card-mobile-total span:last-child{color:var(--accent)}
+.purchase-card-mobile-saving{margin-top:18px;text-align:center}.purchase-card-mobile-saving-main{color:var(--accent);font-size:clamp(38px,11vw,48px);line-height:1;font-weight:800;text-transform:uppercase}
+.purchase-card-mobile-saving-sub{margin:8px 0 0;font-size:15px;line-height:1.25;letter-spacing:.12em;text-transform:uppercase}
 }
 </style>
 </head>
 <body>
+<div class="purchase-card-entry">
 <article class="purchase-card" aria-label="2021 BMW X3: real purchase comparison">
   <img class="purchase-card__photo" src="img/compras/2021-bmw-x3.jpg" alt="">
   <div class="purchase-card__shade"></div>
@@ -64,10 +63,21 @@ html,body{margin:0;background:#202124;font-family:"Barlow",sans-serif}
       <div class="purchase-card__panel"><h4 class="purchase-card__panel-title">REAL PURCHASE</h4><div class="purchase-card__row"><span>Auction purchase</span><span>$17,900</span></div><div class="purchase-card__row"><span>Auction fee</span><span>$600</span></div><div class="purchase-card__row"><span>Environmental fee</span><span>$15</span></div><div class="purchase-card__row"><span>Title mailing</span><span>$20</span></div><div class="purchase-card__row"><span>Service fee</span><span>$800</span></div><div class="purchase-card__row purchase-card__row--total"><span>Total paid</span><span>$19,335</span></div></div>
       <div class="purchase-card__scale"><img class="purchase-card__scale-art" src="img/compras/balanca.png" alt=""><div class="purchase-card__price purchase-card__price--paid"><span class="purchase-card__price-kicker">MY CAR SCOUT</span><strong class="purchase-card__price-value">$19,335</strong><span class="purchase-card__price-caption">PURCHASE + FEES</span></div><div class="purchase-card__price purchase-card__price--reference"><span class="purchase-card__price-kicker">Black Book XClean</span><strong class="purchase-card__price-value">$25,800</strong><span class="purchase-card__price-caption">RETAIL REFERENCE</span></div></div>
     </div>
-    <div class="purchase-card__saving"><div class="purchase-card__saving-main"><strong class="purchase-card__saving-value">$6,465</strong><span class="purchase-card__saving-less">LESS</span></div><p class="purchase-card__saving-sub">25.1% BELOW REFERENCE</p></div>
+    <div class="purchase-card__saving"><div class="purchase-card__saving-main"><strong class="purchase-card__saving-value">$6,465</strong><span class="purchase-card__saving-less">LESS</span></div><p class="purchase-card__saving-sub">25.06% BELOW REFERENCE</p></div>
     <p class="purchase-card__foot">Black Book XClean · VEHICLE CONDITION TO BE CONFIRMED</p>
   </div>
 </article>
+<div class="purchase-card-mobile-summary">
+  <h4>REAL PURCHASE</h4>
+  <div class="purchase-card-mobile-row"><span>Auction purchase</span><span>$17,900</span></div>
+  <div class="purchase-card-mobile-row"><span>Auction fee</span><span>$600</span></div>
+  <div class="purchase-card-mobile-row"><span>Environmental fee</span><span>$15</span></div>
+  <div class="purchase-card-mobile-row"><span>Title mailing</span><span>$20</span></div>
+  <div class="purchase-card-mobile-row"><span>Service fee</span><span>$800</span></div>
+  <div class="purchase-card-mobile-row purchase-card-mobile-total"><span>Total paid</span><span>$19,335</span></div>
+  <div class="purchase-card-mobile-saving"><div class="purchase-card-mobile-saving-main">$6,465 LESS</div><p class="purchase-card-mobile-saving-sub">25.06% BELOW REFERENCE</p></div>
+</div>
+</div>
 </body>
 </html>
 <!-- EOF -->
