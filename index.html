@@ -232,37 +232,42 @@
   }
   .sticky-bar a{
     text-decoration:none;text-align:center;border-radius:8px;display:block;
-    font-family:"Anton",sans-serif;font-weight:700;font-style:italic;
-    font-size:15.5px;letter-spacing:.02em;
+    font-family:"Barlow",sans-serif;font-weight:800;font-style:normal;
+    font-size:15.5px;letter-spacing:.045em;
     text-transform:uppercase;padding:12px 10px 13px;line-height:1.1;
   }
-  .sticky-bar .cta-sub{font-size:11px;opacity:.78;margin-top:4px}
+  .sticky-bar .cta-sub{
+    font-family:"Barlow",sans-serif;font-weight:500;font-style:normal;
+    font-size:12px;letter-spacing:.01em;text-transform:none;
+    color:var(--accent);opacity:1;margin-top:4px;text-shadow:none;
+  }
   .sticky-bar.on{opacity:1;pointer-events:auto;transform:none}
   .sticky-cta{
-    position:relative;flex:1 1 auto;color:#0b0d10;
-    background:linear-gradient(176deg,#e2c37d 0%,var(--accent) 46%,#ae8b3c 100%);
-    padding-right:34px;border-radius:9px;
-    text-shadow:0 1px 0 rgba(255,255,255,.32), 0 -1px 1px rgba(0,0,0,.22);
-    box-shadow:0 5px 0 #6f5726,
+    position:relative;flex:1 1 auto;color:#f2efe9;
+    background:linear-gradient(176deg,#181a1e 0%,#08090b 48%,#000 100%);
+    padding-right:34px;border:1px solid rgba(122,124,129,.88);border-radius:9px;
+    text-shadow:0 1px 0 rgba(255,255,255,.08);
+    box-shadow:0 5px 0 #292b2f,
                0 7px 0 rgba(0,0,0,.30),
                0 11px 18px rgba(0,0,0,.46),
-               inset 0 2px 0 rgba(255,255,255,.70),
-               inset 0 -3px 0 rgba(0,0,0,.20);
+               inset 0 2px 0 rgba(255,255,255,.18),
+               inset 0 -3px 0 rgba(0,0,0,.72),
+               inset 0 0 0 1px rgba(201,163,78,.22);
     transition:transform .12s ease, box-shadow .12s ease;
   }
   .sticky-cta::after{
     content:"";position:absolute;right:15px;top:50%;
     width:8px;height:8px;margin-top:-5px;
-    border-right:2.2px solid #0b0d10;border-bottom:2.2px solid #0b0d10;
+    border-right:2.2px solid var(--accent);border-bottom:2.2px solid var(--accent);
     transform:rotate(-45deg);opacity:.85;
   }
   .sticky-cta:active{
     transform:translateY(4px);
-    box-shadow:0 1px 0 #6f5726,
+    box-shadow:0 1px 0 #292b2f,
                0 2px 0 rgba(0,0,0,.28),
                0 3px 8px rgba(0,0,0,.42),
-               inset 0 2px 0 rgba(255,255,255,.50),
-               inset 0 -1px 0 rgba(0,0,0,.22);
+               inset 0 2px 0 rgba(255,255,255,.12),
+               inset 0 -1px 0 rgba(0,0,0,.72);
   }
   body{padding-bottom:96px}
   @media (min-width:821px){ .sticky-bar{display:none} body{padding-bottom:0} }
@@ -1600,7 +1605,6 @@
     <p class="ready-text" data-i18n="ready_p">Tell us what you are looking for. We will search, evaluate, and present the right options before any bid is placed</p>
     <p class="ready-langs"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg></span><span data-i18n="lang_full">Write to us in English, Spanish or Portuguese. A person answers in your language.</span></p>
     <a class="ready-btn" href="https://wa.me/13055400742" target="_blank" rel="noopener" data-i18n="ready_cta">START MY SEARCH</a>
-    <p class="ready-contact"><span data-i18n="ready_call_lbl">WHATSAPP OR TEXT</span><br>(305) 540-0742</p>
     </div>
   </section>
 
