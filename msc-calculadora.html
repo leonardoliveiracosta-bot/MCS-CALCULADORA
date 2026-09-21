@@ -183,12 +183,12 @@
   /* CTA do WhatsApp: mesma identidade do botao principal do site */
   #wa.btn{
     position:relative;isolation:isolate;overflow:hidden;
-    padding:18px 44px 17px 22px;border-radius:9px;
-    background:linear-gradient(176deg,#e2c37d 0%,#c9a34e 46%,#ae8b3c 100%);
+    padding:19px 46px 18px 24px;border:1px solid rgba(255,255,255,.42);border-radius:9px;
+    background:linear-gradient(176deg,#ead08e 0%,#c9a34e 46%,#a98232 100%);
     color:#0b0d10;
-    font-family:"Anton",sans-serif;font-weight:700;font-style:italic;
-    font-size:17px;letter-spacing:.02em;text-transform:uppercase;
-    text-shadow:0 1px 0 rgba(255,255,255,.32),0 -1px 1px rgba(0,0,0,.22);
+    font-family:"Barlow",sans-serif;font-weight:800;font-style:normal;
+    font-size:18px;line-height:1.12;letter-spacing:.045em;text-transform:uppercase;
+    text-shadow:0 1px 0 rgba(255,255,255,.30);
     box-shadow:0 7px 0 #6f5726,
                0 9px 0 rgba(0,0,0,.30),
                0 15px 24px rgba(0,0,0,.46),
@@ -220,8 +220,8 @@
   }
   #wa.btn .s{
     font-family:"Barlow",sans-serif;font-weight:500;font-style:normal;
-    font-size:11.5px;line-height:1.3;text-transform:none;
-    opacity:.75;margin-top:6px;text-shadow:none;
+    font-size:13px;line-height:1.25;letter-spacing:.01em;text-transform:none;
+    opacity:.82;margin-top:7px;text-shadow:none;
   }
   #wa.btn:focus-visible{outline:3px solid #0b0d10;outline-offset:4px}
   @media (prefers-reduced-motion:reduce){#wa.btn::before{display:none}}
@@ -560,6 +560,8 @@
           </span>
         </label>
       </div>
+
+      <a class="btn" id="wa" href="#" target="_blank" rel="noopener"><span data-i18n="btn_wa">Message My Car Scout on WhatsApp</span><span class="s" data-i18n="btn_wa_s">Your estimate is already written into the message.</span></a>
     </section>
 
 
@@ -569,11 +571,6 @@
     </section>
 
   </form>
-
-
-
-  <a class="btn" id="wa" href="#" target="_blank" rel="noopener"><span data-i18n="btn_wa">Message My Car Scout on WhatsApp</span><span class="s" data-i18n="btn_wa_s">Your estimate is already written into the message.</span></a>
-
 
   <p class="foot"><span class="marca">My Car Scout</span><span data-i18n="foot">Automatically generated estimate, subject to confirmation.</span></p>
 
