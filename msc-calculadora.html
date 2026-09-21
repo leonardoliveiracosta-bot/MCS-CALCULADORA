@@ -999,6 +999,66 @@ function zipValido(zip){
   return zipEstado(zip) !== null;
 }
 
+/* Cidade e estado usados somente na mensagem do WhatsApp.
+   A tabela local continua decidindo o estado e os calculos. A consulta
+   externa apenas completa a cidade, sem alterar nenhum valor da tela. */
+var ZIP_LOCAL = Object.create(null);
+var ZIP_BUSCA = Object.create(null);
+
+function zipCinco(zip){
+  return String(zip || "").replace(/\D/g, "").slice(0, 5);
+}
+
+function localZipConhecido(zip){
+  var z = zipCinco(zip);
+  if (ZIP_LOCAL[z]) return ZIP_LOCAL[z];
+  var e = zipEstado(z);
+  return e ? { zip: z, cidade: "", estado: e.nome, uf: e.uf, exato: false } : null;
+}
+
+function buscarLocalZip(zip){
+  var z = zipCinco(zip);
+  var base = localZipConhecido(z);
+  if (!base || z.length !== 5) return Promise.resolve(base);
+  if (ZIP_LOCAL[z] && ZIP_LOCAL[z].exato) return Promise.resolve(ZIP_LOCAL[z]);
+  if (ZIP_BUSCA[z]) return ZIP_BUSCA[z];
+
+  var controle = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  var limite = controle ? setTimeout(function(){ controle.abort(); }, 3500) : null;
+  ZIP_BUSCA[z] = fetch("https://api.zippopotam.us/us/" + encodeURIComponent(z), {
+    method: "GET",
+    mode: "cors",
+    cache: "force-cache",
+    signal: controle ? controle.signal : undefined
+  }).then(function(resp){
+    if (limite) clearTimeout(limite);
+    if (!resp.ok) throw new Error("ZIP lookup HTTP " + resp.status);
+    return resp.json();
+  }).then(function(data){
+    var lugar = data && data.places && data.places[0];
+    var cidade = lugar && String(lugar["place name"] || "").trim();
+    if (!cidade) throw new Error("ZIP lookup sem cidade");
+    var local = {
+      zip: z,
+      cidade: cidade,
+      estado: String(lugar.state || base.estado || "").trim(),
+      uf: String(lugar["state abbreviation"] || base.uf || "").trim(),
+      exato: true
+    };
+    ZIP_LOCAL[z] = local;
+    return local;
+  }).catch(function(){
+    if (limite) clearTimeout(limite);
+    return base;
+  }).then(function(local){
+    delete ZIP_BUSCA[z];
+    atualizarLink();
+    return local;
+  });
+
+  return ZIP_BUSCA[z];
+}
+
 /* Referencia curta da simulacao. Aparece so na mensagem do WhatsApp,
    nunca na tela do cliente. Casa a linha da planilha com a conversa.
    Sem I, O, 0 e 1, que se confundem na leitura.                      */
@@ -1331,6 +1391,10 @@ function linkWhatsApp(d, r){
     pagamento = T("fin") + finapTxt(d.finap).replace(/^:\s*/, " — ");
   }
   var linhaZip = c.zip + d.zip;
+  var localZip = localZipConhecido(d.zip);
+  if (d.zipOk && localZip){
+    linhaZip += " — " + (localZip.cidade ? localZip.cidade + ", " : "") + localZip.estado;
+  }
   if (!d.zipOk){
     linhaZip += " <<< " + T("w_estnao").toUpperCase() + " — " + T("w_zipbad");
   }
@@ -1528,14 +1592,36 @@ $("form").addEventListener("change", atualizarLink);
 /* o aviso do zip aparece quando o codigo fica completo */
 function mostrarZip(){ aplicarEstado(); }
 $("zip").addEventListener("blur", function(){ zipTocado = true; mostrarZip(); });
-$("zip").addEventListener("input", function(){ zipTocado = false; mostrarZip(); });
-$("zip").addEventListener("change", mostrarZip);
+$("zip").addEventListener("input", function(){
+  zipTocado = false;
+  mostrarZip();
+  if (zipCinco(this.value).length === 5 && zipValido(this.value)) buscarLocalZip(this.value);
+});
+$("zip").addEventListener("change", function(){
+  mostrarZip();
+  if (zipCinco(this.value).length === 5 && zipValido(this.value)) buscarLocalZip(this.value);
+});
 mostrarZip();
 
 atualizarLink();
 
 $("wa").addEventListener("click", function(ev){
   if (!validar()){ ev.preventDefault(); return; }
+  var d = lerForm();
+  var z = zipCinco(d.zip);
+  if (d.zipOk && !(ZIP_LOCAL[z] && ZIP_LOCAL[z].exato)){
+    ev.preventDefault();
+    buscarLocalZip(z).then(function(){
+      var atual = lerForm();
+      var destino = linkWhatsApp(atual, calcular(atual));
+      $("wa").href = destino;
+      registrar("whatsapp");
+      $("modal").hidden = false;
+      $("modal-ok").focus();
+      window.location.href = destino;
+    });
+    return;
+  }
   atualizarLink();
   registrar("whatsapp");
   $("modal").hidden = false;
