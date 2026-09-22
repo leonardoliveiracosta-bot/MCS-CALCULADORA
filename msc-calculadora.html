@@ -323,8 +323,8 @@
   .find-hero h1{max-width:13ch;margin-bottom:12px}
   .find-hero .sub{margin-bottom:20px}
   .path-screen{
-    position:relative;isolation:isolate;overflow-x:clip;
-    width:calc(100% + 40px);min-height:calc(100svh + 20px);
+    position:relative;isolation:isolate;
+    width:calc(100% + 40px);
     margin:-20px -20px -64px;padding:20px 20px 64px;
     background:
       radial-gradient(circle at 50% 112%,rgba(27,115,105,.24) 0%,rgba(4,36,34,0) 37%),
@@ -398,7 +398,7 @@
   @media (min-width:560px){
     body{padding:36px 28px 72px}
     .start-screen{min-height:calc(100svh - 72px);margin:-36px calc(50% - 50vw) -72px;padding:42px 28px 62px}
-    .path-screen{width:calc(100% + 56px);min-height:calc(100svh + 36px);margin:-36px -28px -72px;padding:36px 28px 72px}
+    .path-screen{width:calc(100% + 56px);margin:-36px -28px -72px;padding:36px 28px 72px}
     .calc-hero{margin:-36px -28px 34px;padding:34px 28px 38px}
     h1{font-size:40px}
     .total{padding:36px 30px}
@@ -425,7 +425,7 @@
 
   /* ===== declaracao de titulo limpo ===== */
   .ct-flag{
-    background:var(--ink);color:#f3f1ec;
+    background:#050708;color:#f3f1ec;
     margin:4px -20px 34px;padding:30px 20px 32px;
     border-top:1px solid var(--accent);border-bottom:1px solid rgba(198,150,50,.35);
     text-align:center;
