@@ -262,6 +262,32 @@
   .calc-hero .hook{margin-left:auto;margin-right:auto;max-width:34ch}
   .calc-hero .sub{margin-left:auto;margin-right:auto;max-width:34ch}
 
+  /* ===== entrada e caminho Find it for me ===== */
+  .start-screen{position:relative;min-height:520px;padding:24px 0 18px}
+  .start-screen .langbar,.find-hero .langbar{position:absolute;top:0;right:0}
+  .start-brand{justify-content:flex-start;margin:54px 0 42px}
+  .start-title{font-size:34px;max-width:12ch;margin-bottom:24px}
+  .start-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch}
+  .start-card{min-width:0;min-height:230px;padding:22px 14px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,#fff 0%,#f7f7f7 100%);color:var(--ink);cursor:pointer;text-align:left;font-family:inherit;box-shadow:0 5px 0 #d8d8d8,0 10px 22px rgba(0,0,0,.10);transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+  .start-card:active{transform:translateY(4px);box-shadow:0 1px 0 #d8d8d8,0 4px 10px rgba(0,0,0,.10)}
+  .start-card:hover{border-color:var(--accent)}
+  .start-icon{display:flex;align-items:center;justify-content:center;width:46px;height:46px;margin-bottom:20px;border-radius:50%;background:var(--ink);color:var(--accent)}
+  .start-icon svg{width:25px;height:25px;display:block}
+  .start-card strong{display:block;font-family:"Barlow",sans-serif;font-size:18px;line-height:1.12;font-weight:800;margin-bottom:13px}
+  .start-card span:last-child{display:block;font-size:13px;line-height:1.5;color:var(--ink-2)}
+  .find-hero{position:relative;padding:20px 0 8px}
+  .find-hero .brand{margin-top:38px}
+  .find-hero h1{max-width:13ch;margin-bottom:12px}
+  .find-hero .sub{margin-bottom:20px}
+  .find-check{display:flex;gap:10px;align-items:center;margin-top:10px;font-size:14px;font-weight:500;cursor:pointer}
+  .find-check input{width:19px;height:19px;accent-color:var(--ink)}
+  #find-wa{position:relative;padding-right:48px;background:linear-gradient(176deg,#181a1e 0%,#08090b 48%,#000 100%);color:var(--accent);font-weight:800;text-transform:uppercase;border:1px solid rgba(122,124,129,.88);border-radius:9px;box-shadow:0 7px 0 #292b2f,0 12px 22px rgba(0,0,0,.35)}
+  #find-wa::after{content:"";position:absolute;right:21px;top:50%;width:9px;height:9px;margin-top:-6px;border-right:2.4px solid var(--accent);border-bottom:2.4px solid var(--accent);transform:rotate(-45deg)}
+  #find-wa:active{transform:translateY(5px);box-shadow:0 2px 0 #292b2f,0 5px 10px rgba(0,0,0,.28)}
+  .find-zip-note{display:none;margin-top:8px;color:var(--accent-ink);font-size:13px;line-height:1.5}
+  .find-zip-note.on{display:block}
+  @media (max-width:350px){.start-grid{gap:8px}.start-card{padding:19px 10px;min-height:238px}.start-card strong{font-size:16px}}
+
   [hidden]{display:none !important}
 
   @media (min-width:560px){
@@ -281,6 +307,7 @@
     background:transparent;cursor:pointer;line-height:0;opacity:.5;
     transition:opacity .16s,box-shadow .16s;display:block}
   .langbar button svg{display:block;width:34px;height:24px;border-radius:2px}
+  .langbar button > span{display:flex;width:100%;height:100%;align-items:center;justify-content:center;color:#fff;font:700 11px/1 "Barlow",sans-serif;letter-spacing:.04em}
   .langbar button:hover{opacity:.85}
   .langbar button[aria-pressed="true"]{opacity:1;box-shadow:0 0 0 2px var(--accent)}
   .langbar button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -367,6 +394,30 @@
 </head>
 <body>
 <main class="wrap">
+
+  <section id="path-entry" class="start-screen">
+    <div class="langbar" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English"><span aria-hidden="true">EN</span></button>
+      <button type="button" data-lang="es" aria-pressed="false" title="Español"><span aria-hidden="true">ES</span></button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português"><span aria-hidden="true">PT</span></button>
+    </div>
+    <header class="brand start-brand" id="start-brand"></header>
+    <h1 class="start-title" data-i18n="start_title">How do you want to start?</h1>
+    <div class="start-grid">
+      <button type="button" class="start-card" data-start="calculate">
+        <span class="start-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M7.5 6.5h9M8 11h1m3 0h1m3 0h1M8 15h1m3 0h1m3 0h1M8 19h1m3 0h5"/></svg></span>
+        <strong data-i18n="start_calc_title">Calculate my cost</strong>
+        <span><span data-i18n="start_calc_1">Already know your max bid?</span><br><span data-i18n="start_calc_2">See your estimate.</span></span>
+      </button>
+      <button type="button" class="start-card" data-start="find">
+        <span class="start-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></span>
+        <strong data-i18n="start_find_title">Find it for me</strong>
+        <span><span data-i18n="start_find_1">Tell us the car.</span><br><span data-i18n="start_find_2">We find the right options and show you the numbers.</span></span>
+      </button>
+    </div>
+  </section>
+
+  <section id="path-a" hidden>
 
   <div class="calc-hero">
   <div class="langbar" role="group" aria-label="Language">
@@ -597,6 +648,73 @@
     </div>
   </div>
 
+  </section>
+
+  <section id="path-b" hidden>
+    <div class="find-hero">
+      <div class="langbar" role="group" aria-label="Language">
+        <button type="button" data-lang="en" aria-pressed="true" title="English"><span aria-hidden="true">EN</span></button>
+        <button type="button" data-lang="es" aria-pressed="false" title="Español"><span aria-hidden="true">ES</span></button>
+        <button type="button" data-lang="pt" aria-pressed="false" title="Português"><span aria-hidden="true">PT</span></button>
+      </div>
+      <header class="brand" id="find-brand"></header>
+      <h1 data-i18n="find_title">Find it for me</h1>
+      <p class="sub" data-i18n="find_intro">Tell us the car. We find the right options and show you the numbers.</p>
+    </div>
+
+    <form id="find-form" novalidate>
+      <section class="card">
+        <h2 data-i18n="s1">Let&rsquo;s start here</h2>
+        <div class="field">
+          <fieldset>
+            <legend><span data-i18n="q_prazo">When are you planning to buy?</span>&nbsp;*</legend>
+            <div class="opts">
+              <label class="opt"><input type="radio" name="find-prazo" value="now"> <span data-i18n="prazo_now">Ready to buy now</span></label>
+              <label class="opt"><input type="radio" name="find-prazo" value="30d"> <span data-i18n="prazo_30">Within 30 days</span></label>
+              <label class="opt"><input type="radio" name="find-prazo" value="3mo"> <span data-i18n="prazo_3m">Within 3 months</span></label>
+              <label class="opt"><input type="radio" name="find-prazo" value="none"> <span data-i18n="prazo_none">No set date yet</span></label>
+            </div>
+          </fieldset>
+          <p class="err" id="find-err-prazo" data-i18n="err_prazo">Choose when you are planning to buy.</p>
+        </div>
+        <div class="field">
+          <fieldset>
+            <legend><span data-i18n="q_exp">Is this your first time buying at a dealer auction?</span>&nbsp;*</legend>
+            <div class="opts">
+              <label class="opt"><input type="radio" name="find-exp" value="1st"> <span data-i18n="exp_1">Yes, first time</span></label>
+              <label class="opt"><input type="radio" name="find-exp" value="repeat"> <span data-i18n="exp_r">No, I&rsquo;ve bought before</span></label>
+            </div>
+          </fieldset>
+          <p class="err" id="find-err-exp" data-i18n="err_exp">Let us know if this is your first time.</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 data-i18n="find_vehicle_title">Tell us the car</h2>
+        <div class="field row2">
+          <div><label for="find-year-from"><span data-i18n="find_year_from">Year from</span>&nbsp;*</label><select id="find-year-from"><option value="" data-i18n="find_select">Select</option></select><p class="err" id="find-err-year-from" data-i18n="find_required">Required.</p></div>
+          <div><label for="find-year-to"><span data-i18n="find_year_to">Year to</span>&nbsp;*</label><select id="find-year-to"><option value="" data-i18n="find_select">Select</option></select><p class="err" id="find-err-year-to" data-i18n="find_year_error">Choose a year equal to or later than Year from.</p></div>
+        </div>
+        <div class="field"><label for="find-marca"><span data-i18n="lbl_marca">Brand</span>&nbsp;*</label><select id="find-marca"><option value="" data-i18n="opt_marca">Select a brand</option></select><p class="err" id="find-err-marca" data-i18n="err_marca">Select a brand.</p></div>
+        <div id="find-other-brand" hidden>
+          <div class="field"><label for="find-marca-other"><span data-i18n="find_make">Make</span>&nbsp;*</label><input id="find-marca-other" type="text" autocomplete="off"><p class="err" id="find-err-marca-other" data-i18n="find_required">Required.</p></div>
+          <div class="field"><label for="find-modelo-other"><span data-i18n="lbl_modelo">Model</span>&nbsp;*</label><input id="find-modelo-other" type="text" autocomplete="off"><p class="err" id="find-err-modelo-other" data-i18n="find_required">Required.</p></div>
+        </div>
+        <div class="field" id="find-wrap-modelo" hidden><label for="find-modelo"><span data-i18n="lbl_modelo">Model</span>&nbsp;*</label><select id="find-modelo"><option value="" data-i18n="opt_modelo">Select a model</option></select><p class="err" id="find-err-modelo" data-i18n="err_modelo">Select a model.</p></div>
+        <div class="field" id="find-other-model" hidden><label for="find-modelo-custom"><span data-i18n="find_model_write">Write the model</span>&nbsp;*</label><input id="find-modelo-custom" type="text" autocomplete="off"><p class="err" id="find-err-modelo-custom" data-i18n="find_required">Required.</p></div>
+        <div class="field"><label for="find-trim"><span data-i18n="find_trim">Trim</span>&nbsp;*</label><input id="find-trim" type="text" placeholder="SE, XLE..." autocomplete="off"><label class="find-check"><input id="find-trim-unsure" type="checkbox"> <span data-i18n="find_not_sure">Not sure</span></label><p class="err" id="find-err-trim" data-i18n="find_trim_error">Enter the trim or select Not sure.</p></div>
+        <div class="field row2">
+          <div><label for="find-miles-from"><span data-i18n="find_miles_from">Miles from</span>&nbsp;*</label><input id="find-miles-from" type="text" inputmode="numeric" placeholder="20,000"><p class="err" id="find-err-miles-from" data-i18n="find_required">Required.</p></div>
+          <div><label for="find-miles-to"><span data-i18n="find_miles_to">Miles to</span>&nbsp;*</label><input id="find-miles-to" type="text" inputmode="numeric" placeholder="50,000"><p class="err" id="find-err-miles-to" data-i18n="find_miles_error">Enter a value equal to or greater than Miles from.</p></div>
+        </div>
+        <div class="field"><label for="find-zip"><span data-i18n="lbl_zip">ZIP code where you'll register the car</span>&nbsp;*</label><input id="find-zip" type="text" inputmode="numeric" maxlength="5" autocomplete="postal-code"><p class="err" id="find-err-zip" data-i18n="err_zip">Enter your ZIP code.</p><p class="find-zip-note" id="find-zip-note" data-i18n="find_zip_note">ZIP code not recognized. You can still send your request.</p></div>
+        <div class="field"><label for="find-nome"><span data-i18n="lbl_nome">Your name</span>&nbsp;*</label><input id="find-nome" type="text" autocomplete="name"><p class="err" id="find-err-nome" data-i18n="find_name_error">Enter your name.</p></div>
+        <a class="btn" id="find-wa" href="#" target="_blank" rel="noopener"><span data-i18n="find_send">Send my request</span></a>
+      </section>
+    </form>
+    <p class="foot"><span class="marca">My Car Scout</span><span data-i18n="find_foot">Your request goes directly to our team on WhatsApp.</span></p>
+  </section>
+
 </main>
 
 <script>
@@ -749,6 +867,19 @@ var I18N = {
   pt: {"n_est_teto": "{e} limita este imposto a {v}, então impostos de cidade ou condado não somam em cima. ", "n_est_sem": "A gente não publica estimativa de alíquota para {e}, então o imposto exato é confirmado no DMV do seu estado. ", "n_est_outro": "O imposto de venda do seu estado não está incluído acima e é confirmado no DMV do seu estado. ", "ct_k": "Somente título limpo", "ct_p": "A gente só dá lance em carro com título limpo e odômetro documentado. Nada de salvage, nada de rebuilt, nada de quilometragem não verificada, nem quando o cliente pede.", "t_onde": "Para onde vai", "d_car": "Veículo", "d_car_s": "o seu lance", "d_auc": "Casa de leilão", "d_auc_s": "taxas do leilão", "d_gov": "Seu estado", "d_gov_s": "imposto de venda, título e emplacamento", "d_gov_s_tbd": "título e emplacamento, imposto de venda a confirmar", "d_mcs": "My Car Scout", "d_mcs_s": "serviço de arremate", "d_mcs_s_insp": "serviço de arremate e inspeção presencial", "zip_k": "Você acabou de entrar", "zip_p": "81 leilões e 8 milhões de veículos por ano, fechados ao público. A gente começa pelos mais próximos de você.", "title": "Calculadora de Custos de Leilão | My Car Scout", "h1a": "Quanto um carro custa de verdade", "h1b": "no leilão", "hook1": "Existe um mercado de carros onde você não pode comprar", "hook2": "A gente dá o lance lá por você", "sub1": "Informe o lance que você quer dar", "sub2": "Seu custo total aparece na hora", "s1": "Vamos começar por aqui", "q_prazo": "Quando você pretende comprar?", "prazo_now": "Pronto para comprar agora", "prazo_30": "Em até 30 dias", "prazo_3m": "Em até 3 meses", "prazo_none": "Ainda sem data", "err_prazo": "Escolha quando você pretende comprar.", "q_exp": "É a sua primeira vez comprando em leilão de concessionárias?", "exp_1": "Sim, primeira vez", "exp_r": "Não, já comprei antes", "err_exp": "Nos diga se é a sua primeira vez.", "s2": "Conte o que você procura", "s2sub": "Isso nos ajuda a entender o que você quer e como seu lance se encaixa no mercado de leilão de concessionárias.", "lbl_marca": "Marca", "opt_marca": "Selecione uma marca", "marca_outra": "Outra marca", "err_marca": "Selecione uma marca.", "lbl_modelo": "Modelo", "opt_modelo": "Selecione um modelo", "modelo_outro": "Outro modelo", "err_modelo": "Selecione um modelo.", "s3": "Sua estimativa", "lbl_lance": "Lance máximo que você quer dar (US$)", "ph_lance": "ex. $15,000", "err_lance": "Informe seu lance máximo.", "hint_lance": "Vamos usar seu veículo e seu lance para mostrar onde essa faixa te coloca hoje no mercado de leilão.", "yes": "Sim", "no": "Não", "q_pgto": "Forma de pagamento", "cash": "À vista", "fin": "Financiamento", "q_finap": "Você já tem financiamento aprovado?", "finap_yes": "Sim", "finap_need": "Não, preciso de financiamento", "finap_exp": "Ainda estou avaliando opções", "q_placa": "Placa", "placa_transf": "Transferir minha placa atual", "placa_nova": "Placa nova", "relato_t": "Antes do lance, você recebe o laudo", "relato_p": "Você recebe o laudo de condição do leilão daquele veículo, e a gente passa por ele com você antes de autorizar qualquer coisa.", "insp_t": "Adicionar inspeção presencial", "insp_h": "Alguém da nossa equipe vai até o pátio e olha o carro. Disponível para veículos nos leilões de West Palm Beach e Fort Lauderdale.", "s4": "Seu detalhamento de custos", "vazio": "Informe seu lance acima para ver a estimativa.", "lbl_nome": "Seu nome", "lbl_zip": "ZIP code onde o carro vai ser emplacado", "err_zip": "Informe seu ZIP code.", "hint_zip": "Imposto de venda e emplacamento mudam de estado para estado. A gente também começa pelos leilões mais perto de você.", "btn_wa": "Fale com a My Car Scout no WhatsApp", "btn_wa_s": "Sua estimativa já vai escrita na mensagem.", "foot": "Estimativa gerada automaticamente, sujeita a confirmação.", "modal_t": "A porta acabou de abrir", "modal_p": "81 leilões de atacado. 8 milhões de carros por ano. Acesso exclusivo a dealers. Você acabou de entrar.", "modal_ok": "OK", "b_lance": "Seu lance máximo", "b_leilaogov": "Leilão e governo", "b_leilao": "Leilão", "b_taxreg": "Imposto e emplacamento", "i_taxaleilao": "Taxa do leilão", "i_env": "Taxa ambiental", "i_titlemail": "Envio do título", "i_imposto": "Imposto de venda", "i_titulo": "Título, placa e emplacamento", "tbd": "a confirmar", "imp_em": "Imposto de venda ({p}%) em {e}", "imp_teto": "Imposto de venda em {e} ({p}%, teto de {v})", "b_mcs": "My Car Scout", "i_servico": "Serviço de arremate", "i_insp": "Inspeção presencial", "n_mcs": "A gente só cobra o serviço se realmente arrematar o veículo para você.", "n_leilao": "Cobrado pela casa de leilão, não pela My Car Scout. A taxa principal é estimativa porque varia por lote.", "n_fl_a": "As taxas do leilão são cobradas pela casa de leilão, não pela My Car Scout. A taxa principal é estimativa porque varia por lote. Imposto e documentação seguem as regras da Flórida e já consideram", "n_fl_nova": " uma placa de metal nova.", "n_fl_transf": " a transferência da sua placa atual.", "n_est_sim": "O imposto de venda é uma estimativa com base na alíquota estadual publicada de {e}. Impostos de cidade ou condado podem somar em cima. ", "n_est_nao": "Informe seu estado acima e a gente estima o imposto de venda para você. ", "n_est_tit": "O valor de título, placa e emplacamento usa a Flórida como referência e está incluído aqui para você ver o tamanho desse custo. ", "n_est_fin": "Numa compra financiada o emplacamento é feito pelo dealer, seguindo as regras do seu estado. ", "n_est_cash": "O DMV do seu estado define as próprias taxas. ", "n_est_fim": "O valor exato é confirmado quando a gente conversa.", "f_t": "Financiamento: aqui não tem total final", "f_1": "Os números desta estimativa assumem pagamento à vista.", "f_2": "Financiamento exige pré-aprovação do banco, e as taxas e impostos do credor se somam a esta estimativa.", "f_3": "Imposto de venda, título e placa entram no financiamento. O que não está incluído aqui são as taxas do credor, que dependem da sua aprovação de crédito.", "f_4": "Entrada e parcela dependem da sua aprovação de crédito individual.", "t_k": "O que você paga além do seu lance", "t_lance": "Seu lance máximo", "t_total": "Custo total estimado", "t_aster": "* Valor estimado. Isto não é uma oferta comercial e não representa o preço final.", "calm_fora_e": "Como você vai emplacar o carro fora da Flórida e está pagando à vista, a gente entrega o título direto para você. O imposto de venda acima é uma estimativa para {e} e você paga no DMV do seu estado, não para a My Car Scout. O valor de título e emplacamento usa a Flórida como referência, para te dar o tamanho desse custo.", "calm_fora_n": "Como você vai emplacar o carro fora da Flórida e está pagando à vista, a gente entrega o título direto para você. O imposto de venda não está incluído acima e você paga no DMV do seu estado. O valor de título, placa e emplacamento acima está incluído para dimensionar esse custo, usando a Flórida como referência, e o seu estado define as próprias taxas.", "teto_t": "Seu lance é um teto, não um preço", "teto_p": "Os preços do leilão são definidos pelas concessionárias que dão lance no dia. Seu lance máximo é um teto que você autoriza, não um preço que a gente possa garantir.", "dep_t": "Depósito reembolsável: {v}", "dep_how": "Como funciona", "dep_p": "Não é uma taxa. A gente só recebe se arrematar seu carro. Se não arrematar, o depósito volta inteiro para você, ou fica para a próxima tentativa. Se arrematar, ele entra no valor do carro. ", "dep_fixo": "Para lances de até {a} o depósito é {b}.", "dep_pct": "É {p}% do seu lance máximo autorizado.", "ret_t": "Prazo de retirada: {d} dias", "ret_p": "O veículo precisa ser retirado em até {d} dias da liberação. Depois disso o pátio começa a cobrar diária de estadia, que não está incluída nesta estimativa.", "miuda": "* Isto é uma estimativa, não uma oferta comercial. Os valores acima não são fixos e não nos vinculam. A taxa do leilão é definida pela casa de leilão, varia por lote e não tem regra publicada, por isso trabalhamos com estimativas. O custo final é confirmado por escrito antes de darmos qualquer lance em seu nome.", "w_hi": "Oi! Acabei de fazer uma estimativa na calculadora da My Car Scout.", "w_about": "*Sobre mim*", "w_nome": "Nome: ", "w_prazo": "Pretendo comprar: ", "w_exp": "Primeira vez em leilão de concessionárias: ", "w_zip": "ZIP code: ", "w_look": "*O que eu procuro*", "w_marca": "Marca: ", "w_modelo": "Modelo: ", "w_est": "*Minha estimativa*", "w_lance": "Lance máximo: ", "w_pgto": "Forma de pagamento: ", "w_fl": "Emplacar na Flórida: ", "w_regst": "Estado de emplacamento: ", "w_placa": "Placa: ", "w_insp": "Inspeção presencial: ", "w_break": "*Detalhamento da estimativa*", "w_naoinf": "não informado", "w_flref": " (referência da Flórida, incluído para dimensionar o custo)", "w_tbd": "  - Imposto de venda: a confirmar", "w_fintot": "Total: não é final. Estou comprando financiado, então preciso de pré-aprovação do banco e os valores dependem da aprovação de crédito.", "w_acima": "O que eu pago além do meu lance: ", "w_total": "Custo total estimado: ", "w_fora_e": "O imposto de venda acima é uma estimativa para {e} e eu pago no DMV do meu estado, não para a My Car Scout. O valor de título e emplacamento usa a Flórida como referência, incluído para dimensionar o custo.", "w_fora_n": "Vou emplacar o carro fora da Flórida e pagar à vista. O imposto de venda não está incluído acima e eu pago no DMV do meu estado. O valor de título, placa e emplacamento acima está incluído para dimensionar esse custo, usando a Flórida como referência, e o meu estado define as próprias taxas.", "w_dep": "Depósito para liberar o lance: ", "w_fee": "A gente só cobra o serviço se realmente arrematar o veículo para você", "w_end1": "Entendo que isto é uma estimativa e não uma oferta comercial.", "w_end2": "Essa é a minha entrada no leilão.", "fin_ap_yes": ": já aprovado", "fin_ap_need": ": precisa de financiamento", "fin_ap_exp": ": ainda avaliando opções", "zipbad_k": "Verifique seu ZIP code", "zipbad_p": "Não conseguimos identificar esse código. Sem ele não é possível estimar o imposto de venda nem o emplacamento do seu estado, e o custo total fica incompleto.", "zipwarn_t": "O cálculo abaixo está incompleto", "zipwarn_p": "O ZIP informado não foi identificado, então o imposto de venda e o emplacamento do seu estado não entraram na conta. Se você seguir com esse ZIP incorreto, a My Car Scout não se responsabiliza pelo valor calculado. O custo real é confirmado por escrito antes de qualquer lance.", "img_t": "Leve sua estimativa com você", "img_p": "Salve a imagem e mande para quem decide junto com você.", "img_save": "Salvar imagem", "img_close": "Fechar", "share_lbl": "Compartilhar estimativa", "share_txt": "Minha estimativa na My Car Scout", "w_zipbad": "ATENÇÃO: o ZIP code acima não foi identificado. O estado não foi identificado, então imposto de venda e emplacamento NÃO estão neste total.", "w_estnao": "não identificado", "fin_min_t": "Financiamento começa em {v}", "fin_min_p": "Os bancos não financiam veículo de leilão abaixo de {v}. Para esse valor, conte com pagamento à vista, ou suba seu lance máximo.", "err_lance_min": "O lance mínimo no leilão é {v}.", "lc_min_t": "Esse lance está abaixo do mínimo do leilão", "lc_min_p": "O lance mínimo que a gente dá em leilão de concessionárias é {v}. Abaixo disso, os custos fixos passam do valor do próprio carro.", "fin_av": "Não é um total final: o financiamento depende da sua aprovação de crédito."}
 };
 
+Object.assign(I18N.en,{
+  start_title:"How do you want to start?",start_calc_title:"Calculate my cost",start_calc_1:"Already know your max bid?",start_calc_2:"See your estimate.",start_find_title:"Find it for me",start_find_1:"Tell us the car.",start_find_2:"We find the right options and show you the numbers.",
+  find_title:"Find it for me",find_intro:"Tell us the car. We find the right options and show you the numbers.",find_vehicle_title:"Tell us the car",find_year_from:"Year from",find_year_to:"Year to",find_select:"Select",find_required:"Required.",find_year_error:"Choose a year equal to or later than Year from.",find_make:"Make",find_model_write:"Write the model",find_trim:"Trim",find_not_sure:"Not sure",find_trim_error:"Enter the trim or select Not sure.",find_miles_from:"Miles from",find_miles_to:"Miles to",find_miles_error:"Enter a value equal to or greater than Miles from.",find_zip_note:"ZIP code not recognized. You can still send your request.",find_name_error:"Enter your name.",find_send:"Send my request",find_foot:"Your request goes directly to our team on WhatsApp."
+});
+Object.assign(I18N.es,{
+  start_title:"¿Cómo quieres comenzar?",start_calc_title:"Calcular mi costo",start_calc_1:"¿Ya sabes tu oferta máxima?",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntrenlo por mí",start_find_1:"Dinos qué auto buscas.",start_find_2:"Encontramos las opciones correctas y te mostramos los números.",
+  find_title:"Encuéntrenlo por mí",find_intro:"Dinos qué auto buscas. Encontramos las opciones correctas y te mostramos los números.",find_vehicle_title:"Dinos qué auto buscas",find_year_from:"Año desde",find_year_to:"Año hasta",find_select:"Seleccionar",find_required:"Obligatorio.",find_year_error:"Elige un año igual o posterior al año inicial.",find_make:"Marca",find_model_write:"Escribe el modelo",find_trim:"Versión",find_not_sure:"No estoy seguro",find_trim_error:"Escribe la versión o marca No estoy seguro.",find_miles_from:"Millas desde",find_miles_to:"Millas hasta",find_miles_error:"Ingresa un valor igual o mayor que Millas desde.",find_zip_note:"No reconocimos el ZIP code. Aun así puedes enviar tu solicitud.",find_name_error:"Escribe tu nombre.",find_send:"Enviar mi solicitud",find_foot:"Tu solicitud llega directamente a nuestro equipo por WhatsApp."
+});
+Object.assign(I18N.pt,{
+  start_title:"Como você quer começar?",start_calc_title:"Calcular meu custo",start_calc_1:"Já sabe o seu lance máximo?",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontrem para mim",start_find_1:"Conte qual é o carro.",start_find_2:"Encontramos as opções certas e mostramos os números.",
+  find_title:"Encontrem para mim",find_intro:"Conte qual é o carro. Encontramos as opções certas e mostramos os números.",find_vehicle_title:"Conte qual é o carro",find_year_from:"Ano de",find_year_to:"Ano até",find_select:"Selecionar",find_required:"Obrigatório.",find_year_error:"Escolha um ano igual ou posterior ao ano inicial.",find_make:"Marca",find_model_write:"Escreva o modelo",find_trim:"Versão",find_not_sure:"Não tenho certeza",find_trim_error:"Informe a versão ou marque Não tenho certeza.",find_miles_from:"Milhas de",find_miles_to:"Milhas até",find_miles_error:"Informe um valor igual ou maior que Milhas de.",find_zip_note:"ZIP code não reconhecido. Você ainda pode enviar o pedido.",find_name_error:"Informe seu nome.",find_send:"Enviar meu pedido",find_foot:"Seu pedido chega diretamente para nossa equipe no WhatsApp."
+});
+
 /* O site sempre abre em ingles. So muda se o visitante escolher
    uma bandeira, e nesse caso a escolha dele fica guardada. */
 var LANG = "en";
@@ -804,6 +935,7 @@ function trocarIdioma(novo){
   mostrarPrecoInspecao();
   render();
   atualizarLink();
+  if (typeof atualizarFindIdioma === "function") atualizarFindIdioma();
 }
 
 let P = {};
@@ -1475,6 +1607,151 @@ const MARCAS = {
   "Volvo":           ["XC90","XC60","XC40","S60","S80","S90","V60","V90","V70","XC70","C30","C70","S40","V50","EX30","EX90"]
 };
 
+/* ===== novo caminho: Find it for me ===== */
+var FIND_INICIADO = false;
+var FIND_SID = String(Date.now()) + "-find-" + Math.random().toString(36).slice(2, 8);
+
+function findNumero(v){
+  var s = String(v || "").replace(/\D/g, "");
+  return s ? parseInt(s, 10) : 0;
+}
+function findMilhas(v){
+  var n = findNumero(v);
+  return n ? n.toLocaleString("en-US") : "";
+}
+function findValorRadio(nome){
+  var e = document.querySelector('input[name="' + nome + '"]:checked');
+  return e ? e.value : "";
+}
+function findCarro(){
+  var outra = $("find-marca").value === "Other brand";
+  var marca = outra ? $("find-marca-other").value.trim() : $("find-marca").value;
+  var modelo = outra ? $("find-modelo-other").value.trim() : $("find-modelo").value;
+  if (!outra && modelo === "Other model") modelo = $("find-modelo-custom").value.trim();
+  return {marca:marca,modelo:modelo};
+}
+function lerFindForm(){
+  var carro = findCarro();
+  var zip = zipCinco($("find-zip").value);
+  return {
+    prazo:findValorRadio("find-prazo"),exp:findValorRadio("find-exp"),
+    anoDe:parseInt($("find-year-from").value,10)||0,anoAte:parseInt($("find-year-to").value,10)||0,
+    marca:carro.marca,modelo:carro.modelo,
+    trim:$("find-trim-unsure").checked ? T("find_not_sure") : $("find-trim").value.trim(),
+    trimSemCerteza:$("find-trim-unsure").checked,
+    milhasDe:findNumero($("find-miles-from").value),milhasAte:findNumero($("find-miles-to").value),
+    zip:zip,zipOk:zipValido(zip),zipUf:zipEstado(zip),nome:$("find-nome").value.trim(),ref:refSessao()
+  };
+}
+function findMostrarErro(id, mostrar){
+  var campo = $(id), erro = $("find-err-" + id.replace(/^find-/, ""));
+  if (campo) campo.classList.toggle("invalid", !!mostrar);
+  if (erro) erro.classList.toggle("on", !!mostrar);
+}
+function validarFind(marcar){
+  var d = lerFindForm(), primeiro = null;
+  function erro(id, cond){
+    if (marcar) findMostrarErro(id, cond);
+    if (cond && !primeiro) primeiro = $(id);
+  }
+  erro("find-year-from", !d.anoDe);
+  erro("find-year-to", !d.anoAte || (!!d.anoDe && d.anoAte < d.anoDe));
+  erro("find-marca", !$("find-marca").value);
+  if ($("find-marca").value === "Other brand"){
+    erro("find-marca-other", !d.marca);erro("find-modelo-other", !d.modelo);
+  } else {
+    erro("find-modelo", !$("find-modelo").value);
+    if ($("find-modelo").value === "Other model") erro("find-modelo-custom", !d.modelo);
+  }
+  erro("find-trim", !d.trim);
+  erro("find-miles-from", !(d.milhasDe > 0));
+  erro("find-miles-to", !(d.milhasAte > 0) || (d.milhasDe > 0 && d.milhasAte < d.milhasDe));
+  erro("find-zip", !d.zip);
+  erro("find-nome", !d.nome);
+  var prazoRuim = !d.prazo, expRuim = !d.exp;
+  if (marcar){
+    $("find-err-prazo").classList.toggle("on", prazoRuim);
+    $("find-err-exp").classList.toggle("on", expRuim);
+  }
+  if ((prazoRuim || expRuim) && !primeiro){
+    primeiro = document.querySelector('input[name="' + (prazoRuim ? "find-prazo" : "find-exp") + '"]');
+  }
+  if (marcar && primeiro){ primeiro.focus(); primeiro.scrollIntoView({behavior:"smooth",block:"center"}); }
+  return !primeiro;
+}
+function findCopy(){
+  var c = {
+    en:{hello:"Hello! I just ran a simulation on the My Car Scout calculator",name:"Name: ",planning:"Planning to buy: ",experience:"First time at a dealer auction: ",years:"Year range: ",vehicle:"Vehicle: ",trim:"Trim: ",miles:"Mileage range: ",zip:"ZIP code: ",talk:"I'd like to discuss this simulation",bad:"not recognized"},
+    es:{hello:"¡Hola! Acabo de hacer una simulación en la calculadora de My Car Scout",name:"Nombre: ",planning:"Pienso comprar: ",experience:"Primera vez en una subasta de concesionarios: ",years:"Rango de años: ",vehicle:"Vehículo: ",trim:"Versión: ",miles:"Rango de millas: ",zip:"ZIP code: ",talk:"Quiero conversar sobre esta simulación",bad:"no reconocido"},
+    pt:{hello:"Olá! Acabei de fazer uma simulação na calculadora da My Car Scout",name:"Nome: ",planning:"Pretendo comprar: ",experience:"Primeira vez em leilão de concessionárias: ",years:"Faixa de anos: ",vehicle:"Veículo: ",trim:"Versão: ",miles:"Faixa de milhas: ",zip:"ZIP code: ",talk:"Quero conversar sobre esta simulação",bad:"não reconhecido"}
+  };
+  return c[LANG] || c.en;
+}
+function linhaTriagemFind(d){
+  var carro = (d.marca + " " + d.modelo).trim();
+  return [LANG_SIGLA[LANG]||"EN","FIND",PRAZO_SIGLA[d.prazo]||"",d.anoDe+"-"+d.anoAte,carro,d.exp === "1st" ? "1st" : "repeat"].filter(Boolean).join(" \u00b7 ");
+}
+function linkWhatsAppFind(d){
+  var c=findCopy(), L=[], local=localZipConhecido(d.zip);
+  var zipLinha=c.zip+d.zip;
+  if (d.zipOk && local) zipLinha += " · " + (local.cidade ? local.cidade+", " : "") + local.estado;
+  if (!d.zipOk) zipLinha += " · " + c.bad;
+  L.push(linhaTriagemFind(d),"",c.hello,"",c.name+d.nome,c.planning+prazoTxt(d.prazo),c.experience+(d.exp === "1st" ? T("exp_1") : T("exp_r")),c.years+d.anoDe+"-"+d.anoAte,c.vehicle+(d.marca+" "+d.modelo).trim(),c.trim+d.trim,c.miles+findMilhas(d.milhasDe)+"-"+findMilhas(d.milhasAte),zipLinha,"",c.talk,"Ref: "+d.ref);
+  return montarLink(L);
+}
+function atualizarFindLink(){
+  try { $("find-wa").href = validarFind(false) ? linkWhatsAppFind(lerFindForm()) : "#"; }
+  catch(e){ $("find-wa").href="#"; }
+}
+function atualizarFindModelo(){
+  var marca=$("find-marca").value, outra=marca === "Other brand", sel=$("find-modelo");
+  $("find-other-brand").hidden=!outra;$("find-wrap-modelo").hidden=outra || !marca;
+  while(sel.firstChild) sel.removeChild(sel.firstChild);
+  var z=document.createElement("option");z.value="";z.textContent=T("opt_modelo");sel.appendChild(z);
+  if (!outra && MARCAS[marca]) MARCAS[marca].forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;sel.appendChild(o);});
+  if (!outra && marca){var o=document.createElement("option");o.value="Other model";o.textContent=T("modelo_outro");sel.appendChild(o);}
+  $("find-other-model").hidden=true;
+}
+function atualizarFindIdioma(){
+  if (!FIND_INICIADO) return;
+  var marca=$("find-marca").value, modelo=$("find-modelo").value;
+  var outro=$("find-marca").querySelector('option[value="Other brand"]');if(outro) outro.textContent=T("marca_outra");
+  atualizarFindModelo();$("find-marca").value=marca;if(modelo) $("find-modelo").value=modelo;
+  $("find-other-model").hidden=$("find-modelo").value !== "Other model";atualizarFindLink();
+}
+function iniciarFind(){
+  if (FIND_INICIADO) return;FIND_INICIADO=true;
+  var atual=(new Date()).getFullYear()+1;
+  [$("find-year-from"),$("find-year-to")].forEach(function(sel){for(var y=atual;y>=1995;y--){var o=document.createElement("option");o.value=String(y);o.textContent=String(y);sel.appendChild(o);}});
+  Object.keys(MARCAS).forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;$("find-marca").appendChild(o);});
+  var outra=document.createElement("option");outra.value="Other brand";outra.textContent=T("marca_outra");$("find-marca").appendChild(outra);
+  $("find-marca").addEventListener("change",function(){atualizarFindModelo();atualizarFindLink();});
+  $("find-modelo").addEventListener("change",function(){$("find-other-model").hidden=this.value!=="Other model";atualizarFindLink();});
+  $("find-trim-unsure").addEventListener("change",function(){$("find-trim").disabled=this.checked;if(this.checked) $("find-trim").value="";atualizarFindLink();});
+  ["find-miles-from","find-miles-to"].forEach(function(id){$(id).addEventListener("input",function(){this.value=findMilhas(this.value);});});
+  $("find-zip").addEventListener("input",function(){this.value=zipCinco(this.value);var z=this.value, conhecido=zipValido(z);$("find-zip-note").classList.toggle("on",z.length===5&&!conhecido);if(z.length===5&&conhecido) buscarLocalZip(z).then(atualizarFindLink);});
+  $("find-form").addEventListener("input",atualizarFindLink);$("find-form").addEventListener("change",atualizarFindLink);$("find-form").addEventListener("submit",function(e){e.preventDefault();});
+  $("find-wa").addEventListener("click",function(ev){
+    if(!validarFind(true)){ev.preventDefault();return;}
+    var d=lerFindForm(),z=d.zip;
+    if(d.zipOk&&!(ZIP_LOCAL[z]&&ZIP_LOCAL[z].exato)){ev.preventDefault();buscarLocalZip(z).then(function(){var a=lerFindForm(),url=linkWhatsAppFind(a);$("find-wa").href=url;registrarBusca(a);window.location.href=url;});return;}
+    registrarBusca(d);
+  });
+  atualizarFindModelo();atualizarFindLink();
+}
+
+function abrirCaminho(nome){
+  $("path-entry").hidden=true;$("path-a").hidden=nome!=="calculate";$("path-b").hidden=nome!=="find";
+  if(nome==="find") iniciarFind();
+  window.scrollTo(0,0);
+}
+(function(){
+  var logo=document.querySelector("#path-a .brand img");
+  [$("start-brand"),$("find-brand")].forEach(function(alvo){if(logo&&alvo) alvo.appendChild(logo.cloneNode(true));});
+})();
+Array.prototype.forEach.call(document.querySelectorAll("[data-start]"),function(b){b.addEventListener("click",function(){abrirCaminho(b.getAttribute("data-start"));});});
+try{var START_PARAM=new URLSearchParams(location.search).get("start");if(START_PARAM==="calculate"||START_PARAM==="find") abrirCaminho(START_PARAM);}catch(e){}
+
 /* Idem para as marcas: ja estao no HTML. */
 (function(){
   const sel = $("marca");
@@ -1652,8 +1929,7 @@ Array.prototype.forEach.call(document.querySelectorAll(".langbar button"), funct
   var dentroDeIframe = false;
   try { dentroDeIframe = (window.self !== window.top); } catch(e){ dentroDeIframe = true; }
   if (dentroDeIframe){
-    var barra = document.querySelector(".langbar");
-    if (barra) barra.style.display = "none";
+    Array.prototype.forEach.call(document.querySelectorAll(".langbar"),function(barra){barra.style.display="none";});
   }
   window.addEventListener("message", function(ev){
     var d = ev.data;
@@ -1911,6 +2187,23 @@ function registrar(evento){
       body: JSON.stringify(registro)
     }).catch(function(){});
   } catch (e) {}
+}
+
+function registrarBusca(d){
+  if (!LOG_URL || !d) return;
+  try {
+    var linha = {
+      sid:FIND_SID,evento:"busca",quando:new Date().toISOString(),idioma:LANG,
+      zip:d.zip,zip_ok:d.zipOk?"sim":"nao",estado:d.zipUf,ref:d.ref,
+      prazo:d.prazo,primeira_vez:d.exp,ano_de:d.anoDe,ano_ate:d.anoAte,
+      marca:d.marca,modelo:d.modelo,trim:d.trim,milhas_de:d.milhasDe,milhas_ate:d.milhasAte
+    };
+    fetch(LOG_URL,{
+      method:"POST",mode:"cors",keepalive:true,
+      headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,"Prefer":"return=minimal"},
+      body:JSON.stringify({zip:d.zip||null,estado:d.zipUf||null,lance:null,total:null,pagamento:null,idioma:LANG||null,whatsapp:null,origem:origemCalculo(),dados:linha})
+    }).catch(function(){});
+  } catch(e){}
 }
 
 var tmrLog = null;
