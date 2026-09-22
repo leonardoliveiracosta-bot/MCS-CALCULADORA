@@ -180,52 +180,45 @@
   .btn:hover{opacity:.86;filter:none}
   .btn .s{display:block;font-weight:400;font-size:12.5px;opacity:.62;margin-top:7px;letter-spacing:0}
 
-  /* CTA do WhatsApp: mesma identidade do botao principal do site */
-  #wa.btn{
-    position:relative;isolation:isolate;overflow:hidden;
-    padding:19px 46px 18px 24px;border:1px solid rgba(122,124,129,.88);border-radius:9px;
-    background:linear-gradient(176deg,#181a1e 0%,#08090b 48%,#000 100%);
-    color:#f2efe9;
-    font-family:"Barlow",sans-serif;font-weight:800;font-style:normal;
-    font-size:18px;line-height:1.12;letter-spacing:.045em;text-transform:uppercase;
-    text-shadow:0 1px 0 rgba(255,255,255,.08);
-    box-shadow:0 7px 0 #292b2f,
-               0 9px 0 rgba(0,0,0,.30),
-               0 15px 24px rgba(0,0,0,.46),
-               inset 0 2px 0 rgba(255,255,255,.18),
-               inset 0 -3px 0 rgba(0,0,0,.72),
-               inset 0 0 0 1px rgba(201,163,78,.22);
-    transition:transform .12s ease,box-shadow .12s ease;
+  /* Duas formas claras de enviar a mesma estimativa */
+  .contact-cta{
+    margin-top:30px;padding:20px 18px 22px;border:1px solid rgba(185,143,69,.55);border-radius:12px;
+    background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(245,239,228,.96));
+    box-shadow:0 13px 30px rgba(32,29,24,.13),inset 0 1px 0 rgba(255,255,255,.92);
   }
-  #wa.btn > span{position:relative;z-index:2}
-  #wa.btn::after{
-    content:"";position:absolute;z-index:2;right:21px;top:50%;
-    width:9px;height:9px;margin-top:-6px;
-    border-right:2.4px solid #c9a34e;border-bottom:2.4px solid #c9a34e;
-    transform:rotate(-45deg);opacity:.85;
+  .contact-cta--bottom{margin-top:28px}
+  .contact-cta__title{
+    margin:0;color:#171918;font:800 13px/1.25 "Barlow",sans-serif;
+    letter-spacing:.17em;text-transform:uppercase;
   }
-  #wa.btn::before{
-    content:"";position:absolute;z-index:1;top:0;bottom:0;left:-60%;width:45%;
-    background:linear-gradient(100deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.18) 50%,rgba(255,255,255,0) 100%);
-    transform:skewX(-18deg);animation:waCtaBrilho 5.6s ease-in-out infinite;
+  .contact-cta__copy{margin:6px 0 15px;color:#62635f;font-size:13.5px;line-height:1.45}
+  .contact-cta__choices{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .contact-choice{
+    position:relative;display:flex;align-items:center;min-width:0;min-height:92px;padding:15px 27px 15px 14px;
+    border:1px solid rgba(255,255,255,.32);border-radius:9px;color:#fff;text-decoration:none;
+    font-family:"Barlow",sans-serif;box-shadow:0 5px 0 rgba(0,0,0,.32),0 10px 18px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.22);
+    transition:transform .12s ease,box-shadow .12s ease,filter .12s ease;
   }
-  @keyframes waCtaBrilho{0%,72%{left:-60%}100%{left:120%}}
-  #wa.btn:hover{opacity:1}
-  #wa.btn:active{
-    transform:translateY(6px);
-    box-shadow:0 1px 0 #292b2f,
-               0 2px 0 rgba(0,0,0,.28),
-               0 4px 10px rgba(0,0,0,.42),
-               inset 0 2px 0 rgba(255,255,255,.12),
-               inset 0 -1px 0 rgba(0,0,0,.72);
+  .contact-choice--wa{background:linear-gradient(155deg,#07583d 0%,#003c2f 55%,#00291f 100%);border-color:rgba(43,214,133,.58)}
+  .contact-choice--sms{background:linear-gradient(155deg,#2a2c30 0%,#141518 55%,#07080a 100%);border-color:rgba(201,163,78,.48)}
+  .contact-choice:hover{filter:brightness(1.08)}
+  .contact-choice:active{transform:translateY(4px);box-shadow:0 1px 0 rgba(0,0,0,.32),0 4px 8px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.16)}
+  .contact-choice:focus-visible{outline:3px solid #c9a34e;outline-offset:4px}
+  .contact-choice__icon{width:34px;height:34px;flex:0 0 34px;margin-right:10px;color:#fff}
+  .contact-choice__text{display:block;min-width:0}
+  .contact-choice__text strong{display:block;font-size:16px;line-height:1.05;font-weight:800;letter-spacing:.01em}
+  .contact-choice__text small{display:block;margin-top:6px;color:#d6b66d;font-size:9px;line-height:1.15;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+  .contact-choice::after{
+    content:"";position:absolute;right:13px;top:50%;width:8px;height:8px;margin-top:-5px;
+    border-right:2px solid #d1a65d;border-bottom:2px solid #d1a65d;transform:rotate(-45deg);
   }
-  #wa.btn .s{
-    font-family:"Barlow",sans-serif;font-weight:500;font-style:normal;
-    font-size:13px;line-height:1.25;letter-spacing:.01em;text-transform:none;
-    color:#c9a34e;opacity:1;margin-top:7px;text-shadow:none;
+  @media (max-width:380px){
+    .contact-cta{padding-left:12px;padding-right:12px}
+    .contact-choice{padding-left:10px;padding-right:22px}
+    .contact-choice__icon{width:29px;height:29px;flex-basis:29px;margin-right:7px}
+    .contact-choice__text strong{font-size:14px}
+    .contact-choice__text small{font-size:8px;letter-spacing:.08em}
   }
-  #wa.btn:focus-visible{outline:3px solid #c9a34e;outline-offset:4px}
-  @media (prefers-reduced-motion:reduce){#wa.btn::before{display:none}}
 
   .empty{color:var(--ink-3);font-size:14px;text-align:left;padding:10px 0 24px}
 
@@ -726,7 +719,20 @@
         </label>
       </div>
 
-      <a class="btn" id="wa" href="#" target="_blank" rel="noopener"><span data-i18n="btn_wa">Message My Car Scout on WhatsApp</span><span class="s" data-i18n="btn_wa_s">Your estimate is already written into the message.</span></a>
+      <section class="contact-cta" aria-labelledby="contact-title-top">
+        <h3 class="contact-cta__title" id="contact-title-top" data-i18n="contact_title">Your estimate is ready</h3>
+        <p class="contact-cta__copy" data-i18n="contact_copy">Your estimate is already written into the message. Choose how to send it.</p>
+        <div class="contact-cta__choices">
+          <a class="contact-choice contact-choice--wa" id="wa" href="#" target="_blank" rel="noopener">
+            <svg class="contact-choice__icon" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M27.3 4.7A15.6 15.6 0 0 0 2.8 23.5L.6 31.4l8.1-2.1A15.6 15.6 0 0 0 16.1 31h.1A15.6 15.6 0 0 0 27.3 4.7Zm-11.1 23.6h-.1a12.8 12.8 0 0 1-6.5-1.8l-.5-.3-4.8 1.3 1.3-4.7-.3-.5A12.8 12.8 0 1 1 16.2 28.3Zm7-9.6c-.4-.2-2.3-1.1-2.7-1.3-.4-.1-.6-.2-.9.2-.3.4-1 1.3-1.2 1.6-.2.3-.5.3-.9.1-2.3-1.1-3.8-2-5.3-4.5-.4-.7.4-.6 1.1-2.1.1-.3.1-.6 0-.9l-1.2-2.9c-.3-.8-.7-.7-1-.7h-.8c-.3 0-.8.1-1.1.5-.4.4-1.5 1.5-1.5 3.6s1.6 4.2 1.8 4.5c.2.3 3.1 4.7 7.5 6.6 2.8 1.2 3.9 1.3 5.3 1.1.9-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.2-.3-.6-.4-1-.6Z"/></svg>
+            <span class="contact-choice__text"><strong>WhatsApp</strong><small data-i18n="contact_wa">Send via WhatsApp</small></span>
+          </a>
+          <a class="contact-choice contact-choice--sms" id="sms" href="#">
+            <svg class="contact-choice__icon" viewBox="0 0 32 32" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" d="M27.5 15.1c0 6.2-5.3 11.2-11.8 11.2-1.7 0-3.4-.4-4.9-1L4 28l2.3-6A10.8 10.8 0 0 1 4 15.1C4 8.9 9.3 3.8 15.8 3.8s11.7 5.1 11.7 11.3Z"/></svg>
+            <span class="contact-choice__text"><strong data-i18n="contact_sms_name">Text message</strong><small data-i18n="contact_sms">Send via SMS</small></span>
+          </a>
+        </div>
+      </section>
     </section>
 
 
@@ -738,6 +744,21 @@
   </form>
 
   <p class="foot"><span class="marca">My Car Scout</span><span data-i18n="foot">Automatically generated estimate, subject to confirmation.</span></p>
+
+  <section class="contact-cta contact-cta--bottom" aria-labelledby="contact-title-bottom">
+    <h3 class="contact-cta__title" id="contact-title-bottom" data-i18n="contact_end_title">Ready to send your estimate?</h3>
+    <p class="contact-cta__copy" data-i18n="contact_end_copy">Choose your preferred app. The same estimate is ready in both.</p>
+    <div class="contact-cta__choices">
+      <a class="contact-choice contact-choice--wa" id="wa-bottom" href="#" target="_blank" rel="noopener">
+        <svg class="contact-choice__icon" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M27.3 4.7A15.6 15.6 0 0 0 2.8 23.5L.6 31.4l8.1-2.1A15.6 15.6 0 0 0 16.1 31h.1A15.6 15.6 0 0 0 27.3 4.7Zm-11.1 23.6h-.1a12.8 12.8 0 0 1-6.5-1.8l-.5-.3-4.8 1.3 1.3-4.7-.3-.5A12.8 12.8 0 1 1 16.2 28.3Zm7-9.6c-.4-.2-2.3-1.1-2.7-1.3-.4-.1-.6-.2-.9.2-.3.4-1 1.3-1.2 1.6-.2.3-.5.3-.9.1-2.3-1.1-3.8-2-5.3-4.5-.4-.7.4-.6 1.1-2.1.1-.3.1-.6 0-.9l-1.2-2.9c-.3-.8-.7-.7-1-.7h-.8c-.3 0-.8.1-1.1.5-.4.4-1.5 1.5-1.5 3.6s1.6 4.2 1.8 4.5c.2.3 3.1 4.7 7.5 6.6 2.8 1.2 3.9 1.3 5.3 1.1.9-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.2-.3-.6-.4-1-.6Z"/></svg>
+        <span class="contact-choice__text"><strong>WhatsApp</strong><small data-i18n="contact_wa">Send via WhatsApp</small></span>
+      </a>
+      <a class="contact-choice contact-choice--sms" id="sms-bottom" href="#">
+        <svg class="contact-choice__icon" viewBox="0 0 32 32" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" d="M27.5 15.1c0 6.2-5.3 11.2-11.8 11.2-1.7 0-3.4-.4-4.9-1L4 28l2.3-6A10.8 10.8 0 0 1 4 15.1C4 8.9 9.3 3.8 15.8 3.8s11.7 5.1 11.7 11.3Z"/></svg>
+        <span class="contact-choice__text"><strong data-i18n="contact_sms_name">Text message</strong><small data-i18n="contact_sms">Send via SMS</small></span>
+      </a>
+    </div>
+  </section>
 
   <div class="modal" id="modal" hidden>
     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-t">
@@ -983,16 +1004,19 @@ var I18N = {
 
 Object.assign(I18N.en,{
   optional:"(optional)",
+  contact_title:"Your estimate is ready",contact_copy:"Your estimate is already written into the message. Choose how to send it.",contact_wa:"Send via WhatsApp",contact_sms_name:"Text message",contact_sms:"Send via SMS",contact_end_title:"Ready to send your estimate?",contact_end_copy:"Choose your preferred app. The same estimate is ready in both.",
   start_title:"How would you like to start?",start_sub:"Start with your budget or your ideal car. See the clearest path to a smarter purchase.",start_calc_title:"Calculate my cost",start_calc_1:"Plan with confidence.",start_calc_2:"See your estimate.",start_find_title:"Find one for me",start_find_1:"Tell us what you're looking for.",start_find_2:"We find the right options for you.",back_choice:"Back to choices",
   find_title:"Find it for me",find_intro:"Tell us the car. We find the right options and show you the numbers.",find_vehicle_title:"Tell us the car",find_year_from:"Year from",find_year_to:"Year to",find_select:"Select",find_required:"Required.",find_year_error:"Choose a year equal to or later than Year from.",find_make:"Make",find_model_write:"Write the model",find_trim:"Trim",find_not_sure:"Not sure",find_trim_error:"Enter the trim or select Not sure.",find_miles_from:"Miles from",find_miles_to:"Miles to",find_miles_error:"Enter a value equal to or greater than Miles from.",find_zip_note:"ZIP code not recognized. You can still send your request.",find_name_error:"Enter your name.",find_send:"Send my request",find_foot:"Your request goes directly to our team on WhatsApp."
 });
 Object.assign(I18N.es,{
   optional:"(opcional)",
+  contact_title:"Tu estimación está lista",contact_copy:"Tu estimación ya está escrita en el mensaje. Elige cómo enviarla.",contact_wa:"Enviar por WhatsApp",contact_sms_name:"Mensaje de texto",contact_sms:"Enviar por SMS",contact_end_title:"¿Listo para enviar tu estimación?",contact_end_copy:"Elige tu aplicación preferida. La misma estimación está lista en ambas.",
   start_title:"¿Cómo te gustaría comenzar?",start_sub:"Empieza por tu presupuesto o por el auto ideal. Mira el camino más claro hacia una compra más inteligente.",start_calc_title:"Calcular mi costo",start_calc_1:"Planifica con confianza.",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntralo para mí",start_find_1:"Dinos qué estás buscando.",start_find_2:"Encontramos las opciones correctas para ti.",back_choice:"Volver a las opciones",
   find_title:"Encuéntrenlo por mí",find_intro:"Dinos qué auto buscas. Encontramos las opciones correctas y te mostramos los números.",find_vehicle_title:"Dinos qué auto buscas",find_year_from:"Año desde",find_year_to:"Año hasta",find_select:"Seleccionar",find_required:"Obligatorio.",find_year_error:"Elige un año igual o posterior al año inicial.",find_make:"Marca",find_model_write:"Escribe el modelo",find_trim:"Versión",find_not_sure:"No estoy seguro",find_trim_error:"Escribe la versión o marca No estoy seguro.",find_miles_from:"Millas desde",find_miles_to:"Millas hasta",find_miles_error:"Ingresa un valor igual o mayor que Millas desde.",find_zip_note:"No reconocimos el ZIP code. Aun así puedes enviar tu solicitud.",find_name_error:"Escribe tu nombre.",find_send:"Enviar mi solicitud",find_foot:"Tu solicitud llega directamente a nuestro equipo por WhatsApp."
 });
 Object.assign(I18N.pt,{
   optional:"(opcional)",
+  contact_title:"Sua estimativa está pronta",contact_copy:"Sua estimativa já está escrita na mensagem. Escolha como enviar.",contact_wa:"Enviar pelo WhatsApp",contact_sms_name:"Mensagem de texto",contact_sms:"Enviar por SMS",contact_end_title:"Pronto para enviar sua estimativa?",contact_end_copy:"Escolha seu aplicativo preferido. A mesma estimativa está pronta nos dois.",
   start_title:"Como você gostaria de começar?",start_sub:"Comece pelo seu orçamento ou pelo carro ideal. Veja o caminho mais claro para uma compra mais inteligente.",start_calc_title:"Calcular meu custo",start_calc_1:"Planeje com confiança.",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontre para mim",start_find_1:"Conte o que você procura.",start_find_2:"Encontramos as opções certas para você.",back_choice:"Voltar às opções",
   find_title:"Encontrem para mim",find_intro:"Conte qual é o carro. Encontramos as opções certas e mostramos os números.",find_vehicle_title:"Conte qual é o carro",find_year_from:"Ano de",find_year_to:"Ano até",find_select:"Selecionar",find_required:"Obrigatório.",find_year_error:"Escolha um ano igual ou posterior ao ano inicial.",find_make:"Marca",find_model_write:"Escreva o modelo",find_trim:"Versão",find_not_sure:"Não tenho certeza",find_trim_error:"Informe a versão ou marque Não tenho certeza.",find_miles_from:"Milhas de",find_miles_to:"Milhas até",find_miles_error:"Informe um valor igual ou maior que Milhas de.",find_zip_note:"ZIP code não reconhecido. Você ainda pode enviar o pedido.",find_name_error:"Informe seu nome.",find_send:"Enviar meu pedido",find_foot:"Seu pedido chega diretamente para nossa equipe no WhatsApp."
 });
@@ -1676,6 +1700,14 @@ function montarLink(L){
                   : ("https://wa.me/?text=" + texto);
 }
 
+function linkSms(d, r){
+  const linkWa = linkWhatsApp(d, r);
+  const texto = linkWa.indexOf("?text=") >= 0 ? linkWa.split("?text=")[1] : "";
+  const numero = String(CONFIG.whatsapp).replace(/\D/g, "");
+  const separador = /iPad|iPhone|iPod/.test(navigator.userAgent) ? "&" : "?";
+  return "sms:" + (numero ? "+" + numero : "") + separador + "body=" + texto;
+}
+
 function mostrarPrecoInspecao(){
   $("preco-inspecao").textContent = usd(P.inspecao);
 }
@@ -1999,9 +2031,12 @@ function formOk(){
 function atualizarLink(){
   try {
     const d = lerForm();
-    $("wa").href = formOk() ? linkWhatsApp(d, calcular(d)) : "#";
+    const pronto = formOk();
+    const r = pronto ? calcular(d) : null;
+    ["wa", "wa-bottom"].forEach(function(id){ $(id).href = pronto ? linkWhatsApp(d, r) : "#"; });
+    ["sms", "sms-bottom"].forEach(function(id){ $(id).href = pronto ? linkSms(d, r) : "#"; });
   } catch (e) {
-    $("wa").href = "#";
+    ["wa", "wa-bottom", "sms", "sms-bottom"].forEach(function(id){ $(id).href = "#"; });
   }
 }
 
@@ -2023,7 +2058,7 @@ mostrarZip();
 
 atualizarLink();
 
-$("wa").addEventListener("click", function(ev){
+function prepararContato(ev, canal){
   if (!validar()){ ev.preventDefault(); return; }
   var d = lerForm();
   var z = zipCinco(d.zip);
@@ -2031,9 +2066,10 @@ $("wa").addEventListener("click", function(ev){
     ev.preventDefault();
     buscarLocalZip(z).then(function(){
       var atual = lerForm();
-      var destino = linkWhatsApp(atual, calcular(atual));
-      $("wa").href = destino;
-      registrar("whatsapp");
+      var resultado = calcular(atual);
+      var destino = canal === "sms" ? linkSms(atual, resultado) : linkWhatsApp(atual, resultado);
+      atualizarLink();
+      registrar(canal);
       $("modal").hidden = false;
       $("modal-ok").focus();
       window.location.href = destino;
@@ -2041,9 +2077,16 @@ $("wa").addEventListener("click", function(ev){
     return;
   }
   atualizarLink();
-  registrar("whatsapp");
+  registrar(canal);
   $("modal").hidden = false;
   $("modal-ok").focus();
+}
+
+["wa", "wa-bottom"].forEach(function(id){
+  $(id).addEventListener("click", function(ev){ prepararContato(ev, "whatsapp"); });
+});
+["sms", "sms-bottom"].forEach(function(id){
+  $(id).addEventListener("click", function(ev){ prepararContato(ev, "sms"); });
 });
 
 $("modal-x").addEventListener("click", function(){ $("modal").hidden = true; });
