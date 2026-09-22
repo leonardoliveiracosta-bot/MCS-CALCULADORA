@@ -263,7 +263,9 @@
   .calc-hero .sub{margin-left:auto;margin-right:auto;max-width:34ch}
 
   /* ===== entrada e caminho Find it for me ===== */
-  body:has(#path-entry:not([hidden])){overflow-x:clip;background:#001d1d}
+  body:has(#path-entry:not([hidden])),
+  body:has(#path-a:not([hidden])),
+  body:has(#path-b:not([hidden])){overflow-x:clip;background:#001d1d}
   .start-screen{
     position:relative;isolation:isolate;overflow:hidden;
     width:100vw;min-height:calc(100svh - 40px);
@@ -320,6 +322,48 @@
   .find-hero .brand{margin-top:38px}
   .find-hero h1{max-width:13ch;margin-bottom:12px}
   .find-hero .sub{margin-bottom:20px}
+  .path-screen{
+    position:relative;isolation:isolate;overflow-x:clip;
+    width:calc(100% + 40px);min-height:calc(100svh + 20px);
+    margin:-20px -20px -64px;padding:20px 20px 64px;
+    background:
+      radial-gradient(circle at 50% 112%,rgba(27,115,105,.24) 0%,rgba(4,36,34,0) 37%),
+      linear-gradient(145deg,#003e3a 0%,#002c2a 38%,#001d1d 72%,#001313 100%);
+    color:#f2efe9;
+    --card:transparent;
+    --ink:#f2efe9;
+    --ink-2:rgba(242,239,233,.76);
+    --ink-3:rgba(242,239,233,.58);
+    --line:rgba(242,239,233,.23);
+    --line-2:rgba(242,239,233,.14);
+    --surface:rgba(0,19,19,.42);
+    --total-bg:#061818;
+    --calm-bg:rgba(0,19,19,.42);
+    --calm-line:rgba(242,239,233,.18);
+    --info-bg:rgba(209,166,93,.10);
+    --info-line:rgba(209,166,93,.42);
+    --info-ink:#efe7dc;
+  }
+  .path-screen .card{background:transparent}
+  .path-screen .calc-hero{background:transparent;color:#f2efe9}
+  .path-screen .calc-hero .calc-hero-veil{background:linear-gradient(180deg,rgba(0,44,42,.78),rgba(0,29,29,.94))}
+  .path-screen .calc-hero .brand img,.path-screen .find-hero .brand img{filter:brightness(0) invert(1)}
+  .path-screen input[type=text],.path-screen input[type=number],.path-screen select{
+    color:#0e0e12;background-color:#f4f4f5;border-color:#d7d8da;border-bottom-color:#b9bbbe;
+  }
+  .path-screen input[type=text]:focus,.path-screen input[type=number]:focus,.path-screen select:focus{color:#0e0e12;background-color:#fff;border-bottom-color:#c69632}
+  .path-screen ::placeholder{color:#75787b}
+  .path-screen .opts{background:#fff;border-color:#d7d8da}
+  .path-screen .opt{background:#fff;color:#626669;box-shadow:inset -1px -1px 0 #e3e4e5}
+  .path-screen .opt:has(input:checked){background:#0e0e12;color:#fff;box-shadow:inset -1px -1px 0 #0e0e12}
+  .path-back{
+    position:relative;z-index:35;display:inline-flex;align-items:center;gap:9px;
+    margin:0 0 18px;padding:8px 2px;border:0;background:transparent;color:#f2efe9;
+    font:600 13px/1.2 "Barlow",sans-serif;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;
+  }
+  .path-back::before{content:"";width:9px;height:9px;border-left:2px solid #d1a65d;border-bottom:2px solid #d1a65d;transform:rotate(45deg)}
+  .path-back:hover{color:#d1a65d}
+  #path-a .path-back{margin-bottom:6px}
   .find-check{display:flex;gap:10px;align-items:center;margin-top:10px;font-size:14px;font-weight:500;cursor:pointer}
   .find-check input{width:19px;height:19px;accent-color:var(--ink)}
   #find-wa{position:relative;padding-right:48px;background:linear-gradient(176deg,#181a1e 0%,#08090b 48%,#000 100%);color:var(--accent);font-weight:800;text-transform:uppercase;border:1px solid rgba(122,124,129,.88);border-radius:9px;box-shadow:0 7px 0 #292b2f,0 12px 22px rgba(0,0,0,.35)}
@@ -354,6 +398,7 @@
   @media (min-width:560px){
     body{padding:36px 28px 72px}
     .start-screen{min-height:calc(100svh - 72px);margin:-36px calc(50% - 50vw) -72px;padding:42px 28px 62px}
+    .path-screen{width:calc(100% + 56px);min-height:calc(100svh + 36px);margin:-36px -28px -72px;padding:36px 28px 72px}
     .calc-hero{margin:-36px -28px 34px;padding:34px 28px 38px}
     h1{font-size:40px}
     .total{padding:36px 30px}
@@ -482,9 +527,10 @@
     </div>
   </section>
 
-  <section id="path-a" hidden>
+  <section id="path-a" class="path-screen" hidden>
 
   <div class="calc-hero">
+  <button type="button" class="path-back" data-back-choice data-i18n="back_choice">Back to choices</button>
   <div class="langbar" role="group" aria-label="Language">
     <button type="button" data-lang="en" aria-pressed="true"  title="English"><svg viewBox="0 0 38 26" aria-hidden="true"><rect width="38" height="26" fill="#b22234"/><rect y="2" width="38" height="2" fill="#fff"/><rect y="6" width="38" height="2" fill="#fff"/><rect y="10" width="38" height="2" fill="#fff"/><rect y="14" width="38" height="2" fill="#fff"/><rect y="18" width="38" height="2" fill="#fff"/><rect y="22" width="38" height="2" fill="#fff"/><rect width="16" height="14" fill="#3c3b6e"/><circle cx="2.0" cy="2" r=".7" fill="#fff"/><circle cx="4.6" cy="2" r=".7" fill="#fff"/><circle cx="7.2" cy="2" r=".7" fill="#fff"/><circle cx="9.8" cy="2" r=".7" fill="#fff"/><circle cx="12.4" cy="2" r=".7" fill="#fff"/><circle cx="2.0" cy="5" r=".7" fill="#fff"/><circle cx="4.6" cy="5" r=".7" fill="#fff"/><circle cx="7.2" cy="5" r=".7" fill="#fff"/><circle cx="9.8" cy="5" r=".7" fill="#fff"/><circle cx="12.4" cy="5" r=".7" fill="#fff"/><circle cx="2.0" cy="8" r=".7" fill="#fff"/><circle cx="4.6" cy="8" r=".7" fill="#fff"/><circle cx="7.2" cy="8" r=".7" fill="#fff"/><circle cx="9.8" cy="8" r=".7" fill="#fff"/><circle cx="12.4" cy="8" r=".7" fill="#fff"/><circle cx="2.0" cy="11" r=".7" fill="#fff"/><circle cx="4.6" cy="11" r=".7" fill="#fff"/><circle cx="7.2" cy="11" r=".7" fill="#fff"/><circle cx="9.8" cy="11" r=".7" fill="#fff"/><circle cx="12.4" cy="11" r=".7" fill="#fff"/></svg></button>
     <button type="button" data-lang="es" aria-pressed="false" title="Español"><svg viewBox="0 0 38 26" aria-hidden="true"><rect width="38" height="26" fill="#aa151b"/><rect y="6.5" width="38" height="13" fill="#f1bf00"/></svg></button>
@@ -715,8 +761,9 @@
 
   </section>
 
-  <section id="path-b" hidden>
+  <section id="path-b" class="path-screen" hidden>
     <div class="find-hero">
+      <button type="button" class="path-back" data-back-choice data-i18n="back_choice">Back to choices</button>
       <div class="langbar" role="group" aria-label="Language">
         <button type="button" data-lang="en" aria-pressed="true" title="English"><span aria-hidden="true">EN</span></button>
         <button type="button" data-lang="es" aria-pressed="false" title="Español"><span aria-hidden="true">ES</span></button>
@@ -934,17 +981,17 @@ var I18N = {
 
 Object.assign(I18N.en,{
   optional:"(optional)",
-  start_title:"How would you like to start?",start_sub:"Start with your budget or your ideal car. See the clearest path to a smarter purchase.",start_calc_title:"Calculate my cost",start_calc_1:"Plan with confidence.",start_calc_2:"See your estimate.",start_find_title:"Find one for me",start_find_1:"Tell us what you're looking for.",start_find_2:"We find the right options for you.",
+  start_title:"How would you like to start?",start_sub:"Start with your budget or your ideal car. See the clearest path to a smarter purchase.",start_calc_title:"Calculate my cost",start_calc_1:"Plan with confidence.",start_calc_2:"See your estimate.",start_find_title:"Find one for me",start_find_1:"Tell us what you're looking for.",start_find_2:"We find the right options for you.",back_choice:"Back to choices",
   find_title:"Find it for me",find_intro:"Tell us the car. We find the right options and show you the numbers.",find_vehicle_title:"Tell us the car",find_year_from:"Year from",find_year_to:"Year to",find_select:"Select",find_required:"Required.",find_year_error:"Choose a year equal to or later than Year from.",find_make:"Make",find_model_write:"Write the model",find_trim:"Trim",find_not_sure:"Not sure",find_trim_error:"Enter the trim or select Not sure.",find_miles_from:"Miles from",find_miles_to:"Miles to",find_miles_error:"Enter a value equal to or greater than Miles from.",find_zip_note:"ZIP code not recognized. You can still send your request.",find_name_error:"Enter your name.",find_send:"Send my request",find_foot:"Your request goes directly to our team on WhatsApp."
 });
 Object.assign(I18N.es,{
   optional:"(opcional)",
-  start_title:"¿Cómo te gustaría comenzar?",start_sub:"Empieza por tu presupuesto o por el auto ideal. Mira el camino más claro hacia una compra más inteligente.",start_calc_title:"Calcular mi costo",start_calc_1:"Planifica con confianza.",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntralo para mí",start_find_1:"Dinos qué estás buscando.",start_find_2:"Encontramos las opciones correctas para ti.",
+  start_title:"¿Cómo te gustaría comenzar?",start_sub:"Empieza por tu presupuesto o por el auto ideal. Mira el camino más claro hacia una compra más inteligente.",start_calc_title:"Calcular mi costo",start_calc_1:"Planifica con confianza.",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntralo para mí",start_find_1:"Dinos qué estás buscando.",start_find_2:"Encontramos las opciones correctas para ti.",back_choice:"Volver a las opciones",
   find_title:"Encuéntrenlo por mí",find_intro:"Dinos qué auto buscas. Encontramos las opciones correctas y te mostramos los números.",find_vehicle_title:"Dinos qué auto buscas",find_year_from:"Año desde",find_year_to:"Año hasta",find_select:"Seleccionar",find_required:"Obligatorio.",find_year_error:"Elige un año igual o posterior al año inicial.",find_make:"Marca",find_model_write:"Escribe el modelo",find_trim:"Versión",find_not_sure:"No estoy seguro",find_trim_error:"Escribe la versión o marca No estoy seguro.",find_miles_from:"Millas desde",find_miles_to:"Millas hasta",find_miles_error:"Ingresa un valor igual o mayor que Millas desde.",find_zip_note:"No reconocimos el ZIP code. Aun así puedes enviar tu solicitud.",find_name_error:"Escribe tu nombre.",find_send:"Enviar mi solicitud",find_foot:"Tu solicitud llega directamente a nuestro equipo por WhatsApp."
 });
 Object.assign(I18N.pt,{
   optional:"(opcional)",
-  start_title:"Como você gostaria de começar?",start_sub:"Comece pelo seu orçamento ou pelo carro ideal. Veja o caminho mais claro para uma compra mais inteligente.",start_calc_title:"Calcular meu custo",start_calc_1:"Planeje com confiança.",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontre para mim",start_find_1:"Conte o que você procura.",start_find_2:"Encontramos as opções certas para você.",
+  start_title:"Como você gostaria de começar?",start_sub:"Comece pelo seu orçamento ou pelo carro ideal. Veja o caminho mais claro para uma compra mais inteligente.",start_calc_title:"Calcular meu custo",start_calc_1:"Planeje com confiança.",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontre para mim",start_find_1:"Conte o que você procura.",start_find_2:"Encontramos as opções certas para você.",back_choice:"Voltar às opções",
   find_title:"Encontrem para mim",find_intro:"Conte qual é o carro. Encontramos as opções certas e mostramos os números.",find_vehicle_title:"Conte qual é o carro",find_year_from:"Ano de",find_year_to:"Ano até",find_select:"Selecionar",find_required:"Obrigatório.",find_year_error:"Escolha um ano igual ou posterior ao ano inicial.",find_make:"Marca",find_model_write:"Escreva o modelo",find_trim:"Versão",find_not_sure:"Não tenho certeza",find_trim_error:"Informe a versão ou marque Não tenho certeza.",find_miles_from:"Milhas de",find_miles_to:"Milhas até",find_miles_error:"Informe um valor igual ou maior que Milhas de.",find_zip_note:"ZIP code não reconhecido. Você ainda pode enviar o pedido.",find_name_error:"Informe seu nome.",find_send:"Enviar meu pedido",find_foot:"Seu pedido chega diretamente para nossa equipe no WhatsApp."
 });
 
@@ -1830,11 +1877,16 @@ function abrirCaminho(nome){
   if(nome==="find") iniciarFind();
   window.scrollTo(0,0);
 }
+function voltarEscolha(){
+  $("path-entry").hidden=false;$("path-a").hidden=true;$("path-b").hidden=true;
+  window.scrollTo(0,0);
+}
 (function(){
   var logo=document.querySelector("#path-a .brand img");
   [$("start-brand"),$("find-brand")].forEach(function(alvo){if(logo&&alvo) alvo.appendChild(logo.cloneNode(true));});
 })();
 Array.prototype.forEach.call(document.querySelectorAll("[data-start]"),function(b){b.addEventListener("click",function(){abrirCaminho(b.getAttribute("data-start"));});});
+Array.prototype.forEach.call(document.querySelectorAll("[data-back-choice]"),function(b){b.addEventListener("click",voltarEscolha);});
 try{var START_PARAM=new URLSearchParams(location.search).get("start");if(START_PARAM==="calculate"||START_PARAM==="find") abrirCaminho(START_PARAM);}catch(e){}
 
 /* A mesma lista central alimenta os dois caminhos. */
