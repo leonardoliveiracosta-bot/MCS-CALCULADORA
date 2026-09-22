@@ -263,18 +263,40 @@
   .calc-hero .sub{margin-left:auto;margin-right:auto;max-width:34ch}
 
   /* ===== entrada e caminho Find it for me ===== */
-  .start-screen{position:relative;min-height:520px;padding:24px 0 18px}
+  .start-screen{position:relative;min-height:520px;padding:24px 0 24px}
   .start-screen .langbar,.find-hero .langbar{position:absolute;top:0;right:0}
-  .start-brand{justify-content:flex-start;margin:54px 0 42px}
-  .start-title{font-size:34px;max-width:12ch;margin-bottom:24px}
-  .start-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch}
-  .start-card{min-width:0;min-height:230px;padding:22px 14px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,#fff 0%,#f7f7f7 100%);color:var(--ink);cursor:pointer;text-align:left;font-family:inherit;box-shadow:0 5px 0 #d8d8d8,0 10px 22px rgba(0,0,0,.10);transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
-  .start-card:active{transform:translateY(4px);box-shadow:0 1px 0 #d8d8d8,0 4px 10px rgba(0,0,0,.10)}
-  .start-card:hover{border-color:var(--accent)}
-  .start-icon{display:flex;align-items:center;justify-content:center;width:46px;height:46px;margin-bottom:20px;border-radius:50%;background:var(--ink);color:var(--accent)}
-  .start-icon svg{width:25px;height:25px;display:block}
-  .start-card strong{display:block;font-family:"Barlow",sans-serif;font-size:18px;line-height:1.12;font-weight:800;margin-bottom:13px}
-  .start-card span:last-child{display:block;font-size:13px;line-height:1.5;color:var(--ink-2)}
+  .start-brand{justify-content:center;margin:54px 0 28px}
+  .start-brand img{height:38px}
+  .start-title{
+    max-width:none;margin:0 auto 14px;text-align:center;
+    font-family:"Porsche Next","Barlow","Helvetica Neue",Arial,sans-serif;
+    font-size:29px;line-height:1.12;font-weight:700;letter-spacing:.035em;text-transform:uppercase;
+  }
+  .start-sub{
+    max-width:34ch;margin:0 auto 32px;text-align:center;text-wrap:balance;
+    color:var(--ink-2);font-size:15px;line-height:1.55;font-weight:400;
+  }
+  .start-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:stretch}
+  .start-card{
+    position:relative;min-width:0;min-height:226px;padding:22px 16px 44px;
+    border:1px solid #303238;border-radius:3px;
+    background:linear-gradient(145deg,#181a1e 0%,#0b0c0f 58%,#050506 100%);
+    color:#f2efe9;cursor:pointer;text-align:left;
+    font-family:"Porsche Next","Barlow","Helvetica Neue",Arial,sans-serif;
+    box-shadow:0 12px 28px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.08);
+    transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease;
+  }
+  .start-card::before{content:"";display:block;width:34px;height:2px;margin:0 0 22px;background:var(--accent)}
+  .start-card::after{
+    content:"";position:absolute;right:18px;bottom:20px;width:8px;height:8px;
+    border-right:1.8px solid var(--accent);border-bottom:1.8px solid var(--accent);transform:rotate(-45deg);
+  }
+  .start-card:active{transform:translateY(2px);box-shadow:0 7px 16px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.06)}
+  .start-card:hover{border-color:rgba(198,150,50,.78);box-shadow:0 14px 30px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.10)}
+  .start-icon{display:flex;align-items:center;justify-content:flex-start;width:38px;height:38px;margin-bottom:18px;color:var(--accent)}
+  .start-icon svg{width:30px;height:30px;display:block;stroke-width:1.45}
+  .start-card strong{display:block;font-size:17px;line-height:1.2;font-weight:600;letter-spacing:.005em;margin-bottom:12px;color:#f2efe9}
+  .start-card span:last-child{display:block;font-size:13.5px;line-height:1.48;color:#b9babd;font-weight:400}
   .find-hero{position:relative;padding:20px 0 8px}
   .find-hero .brand{margin-top:38px}
   .find-hero h1{max-width:13ch;margin-bottom:12px}
@@ -286,7 +308,7 @@
   #find-wa:active{transform:translateY(5px);box-shadow:0 2px 0 #292b2f,0 5px 10px rgba(0,0,0,.28)}
   .find-zip-note{display:none;margin-top:8px;color:var(--accent-ink);font-size:13px;line-height:1.5}
   .find-zip-note.on{display:block}
-  @media (max-width:350px){.start-grid{gap:8px}.start-card{padding:19px 10px;min-height:238px}.start-card strong{font-size:16px}}
+  @media (max-width:350px){.start-grid{gap:8px}.start-card{padding:20px 12px 42px;min-height:232px}.start-card strong{font-size:15.5px}.start-card span:last-child{font-size:13px}.start-title{font-size:26px}}
 
   [hidden]{display:none !important}
 
@@ -403,6 +425,7 @@
     </div>
     <header class="brand start-brand" id="start-brand"></header>
     <h1 class="start-title" data-i18n="start_title">How do you want to start?</h1>
+    <p class="start-sub" data-i18n="start_sub">Start with your budget or your ideal car. See the clearest path to a smarter purchase.</p>
     <div class="start-grid">
       <button type="button" class="start-card" data-start="calculate">
         <span class="start-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M7.5 6.5h9M8 11h1m3 0h1m3 0h1M8 15h1m3 0h1m3 0h1M8 19h1m3 0h5"/></svg></span>
@@ -869,17 +892,17 @@ var I18N = {
 
 Object.assign(I18N.en,{
   optional:"(optional)",
-  start_title:"How do you want to start?",start_calc_title:"Calculate my cost",start_calc_1:"Already know your max bid?",start_calc_2:"See your estimate.",start_find_title:"Find it for me",start_find_1:"Tell us the car.",start_find_2:"We find the right options and show you the numbers.",
+  start_title:"How do you want to start?",start_sub:"Start with your budget or your ideal car. See the clearest path to a smarter purchase.",start_calc_title:"Calculate my cost",start_calc_1:"Already know your max bid?",start_calc_2:"See your estimate.",start_find_title:"Find it for me",start_find_1:"Tell us the car.",start_find_2:"We find the right options and show you the numbers.",
   find_title:"Find it for me",find_intro:"Tell us the car. We find the right options and show you the numbers.",find_vehicle_title:"Tell us the car",find_year_from:"Year from",find_year_to:"Year to",find_select:"Select",find_required:"Required.",find_year_error:"Choose a year equal to or later than Year from.",find_make:"Make",find_model_write:"Write the model",find_trim:"Trim",find_not_sure:"Not sure",find_trim_error:"Enter the trim or select Not sure.",find_miles_from:"Miles from",find_miles_to:"Miles to",find_miles_error:"Enter a value equal to or greater than Miles from.",find_zip_note:"ZIP code not recognized. You can still send your request.",find_name_error:"Enter your name.",find_send:"Send my request",find_foot:"Your request goes directly to our team on WhatsApp."
 });
 Object.assign(I18N.es,{
   optional:"(opcional)",
-  start_title:"¿Cómo quieres comenzar?",start_calc_title:"Calcular mi costo",start_calc_1:"¿Ya sabes tu oferta máxima?",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntrenlo por mí",start_find_1:"Dinos qué auto buscas.",start_find_2:"Encontramos las opciones correctas y te mostramos los números.",
+  start_title:"¿Cómo quieres comenzar?",start_sub:"Empieza por tu presupuesto o por el auto ideal. Mira el camino más claro hacia una compra más inteligente.",start_calc_title:"Calcular mi costo",start_calc_1:"¿Ya sabes tu oferta máxima?",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntrenlo por mí",start_find_1:"Dinos qué auto buscas.",start_find_2:"Encontramos las opciones correctas y te mostramos los números.",
   find_title:"Encuéntrenlo por mí",find_intro:"Dinos qué auto buscas. Encontramos las opciones correctas y te mostramos los números.",find_vehicle_title:"Dinos qué auto buscas",find_year_from:"Año desde",find_year_to:"Año hasta",find_select:"Seleccionar",find_required:"Obligatorio.",find_year_error:"Elige un año igual o posterior al año inicial.",find_make:"Marca",find_model_write:"Escribe el modelo",find_trim:"Versión",find_not_sure:"No estoy seguro",find_trim_error:"Escribe la versión o marca No estoy seguro.",find_miles_from:"Millas desde",find_miles_to:"Millas hasta",find_miles_error:"Ingresa un valor igual o mayor que Millas desde.",find_zip_note:"No reconocimos el ZIP code. Aun así puedes enviar tu solicitud.",find_name_error:"Escribe tu nombre.",find_send:"Enviar mi solicitud",find_foot:"Tu solicitud llega directamente a nuestro equipo por WhatsApp."
 });
 Object.assign(I18N.pt,{
   optional:"(opcional)",
-  start_title:"Como você quer começar?",start_calc_title:"Calcular meu custo",start_calc_1:"Já sabe o seu lance máximo?",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontrem para mim",start_find_1:"Conte qual é o carro.",start_find_2:"Encontramos as opções certas e mostramos os números.",
+  start_title:"Como você quer começar?",start_sub:"Comece pelo seu orçamento ou pelo carro ideal. Veja o caminho mais claro para uma compra mais inteligente.",start_calc_title:"Calcular meu custo",start_calc_1:"Já sabe o seu lance máximo?",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontrem para mim",start_find_1:"Conte qual é o carro.",start_find_2:"Encontramos as opções certas e mostramos os números.",
   find_title:"Encontrem para mim",find_intro:"Conte qual é o carro. Encontramos as opções certas e mostramos os números.",find_vehicle_title:"Conte qual é o carro",find_year_from:"Ano de",find_year_to:"Ano até",find_select:"Selecionar",find_required:"Obrigatório.",find_year_error:"Escolha um ano igual ou posterior ao ano inicial.",find_make:"Marca",find_model_write:"Escreva o modelo",find_trim:"Versão",find_not_sure:"Não tenho certeza",find_trim_error:"Informe a versão ou marque Não tenho certeza.",find_miles_from:"Milhas de",find_miles_to:"Milhas até",find_miles_error:"Informe um valor igual ou maior que Milhas de.",find_zip_note:"ZIP code não reconhecido. Você ainda pode enviar o pedido.",find_name_error:"Informe seu nome.",find_send:"Enviar meu pedido",find_foot:"Seu pedido chega diretamente para nossa equipe no WhatsApp."
 });
 
