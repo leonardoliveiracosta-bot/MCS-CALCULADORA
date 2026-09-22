@@ -263,40 +263,59 @@
   .calc-hero .sub{margin-left:auto;margin-right:auto;max-width:34ch}
 
   /* ===== entrada e caminho Find it for me ===== */
-  .start-screen{position:relative;min-height:520px;padding:24px 0 24px}
-  .start-screen .langbar,.find-hero .langbar{position:absolute;top:0;right:0}
-  .start-brand{justify-content:center;margin:54px 0 28px}
-  .start-brand img{height:38px}
+  body:has(#path-entry:not([hidden])){overflow-x:clip;background:#001d1d}
+  .start-screen{
+    position:relative;isolation:isolate;overflow:hidden;
+    width:100vw;min-height:calc(100svh - 40px);
+    margin:-20px calc(50% - 50vw) -64px;padding:42px 20px 56px;
+    background:
+      radial-gradient(circle at 50% 112%,rgba(27,115,105,.24) 0%,rgba(4,36,34,0) 37%),
+      linear-gradient(145deg,#003e3a 0%,#002c2a 38%,#001d1d 72%,#001313 100%);
+    color:#f2efe9;
+  }
+  .start-screen::before,.start-screen::after{
+    content:"";position:absolute;z-index:-1;pointer-events:none;
+    width:64vw;height:1px;background:linear-gradient(90deg,transparent,rgba(26,194,187,.72),transparent);
+    box-shadow:0 0 12px rgba(26,194,187,.18);
+  }
+  .start-screen::before{left:-15vw;top:25%;transform:rotate(-36deg)}
+  .start-screen::after{right:-18vw;bottom:22%;transform:rotate(-40deg)}
+  .start-screen .langbar{position:absolute;top:26px;right:max(20px,calc((100vw - 1120px)/2))}
+  .find-hero .langbar{position:absolute;top:0;right:0}
+  .start-brand{justify-content:center;margin:0 auto 34px;max-width:1120px}
+  .start-brand img{height:42px;filter:brightness(0) invert(1)}
   .start-title{
-    max-width:none;margin:0 auto 14px;text-align:center;
-    font-family:"Porsche Next","Barlow","Helvetica Neue",Arial,sans-serif;
-    font-size:29px;line-height:1.12;font-weight:700;letter-spacing:.035em;text-transform:uppercase;
+    max-width:1120px;margin:0 auto 12px;text-align:center;
+    font-family:Georgia,"Times New Roman",serif;
+    font-size:clamp(29px,3.1vw,46px);line-height:1.08;font-weight:400;letter-spacing:.035em;text-transform:uppercase;
+    color:#efe7dc;text-shadow:0 2px 20px rgba(0,0,0,.22);
   }
+  .start-title::before{content:"";display:block;width:60px;height:3px;margin:0 auto 22px;background:#d1a65d;border-radius:3px}
   .start-sub{
-    max-width:34ch;margin:0 auto 32px;text-align:center;text-wrap:balance;
-    color:var(--ink-2);font-size:15px;line-height:1.55;font-weight:400;
+    max-width:46ch;margin:0 auto 28px;text-align:center;text-wrap:balance;
+    color:rgba(242,239,233,.84);font-size:clamp(15px,1.5vw,19px);line-height:1.45;font-weight:400;
   }
-  .start-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:stretch}
+  .start-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:stretch;max-width:1120px;margin:0 auto}
   .start-card{
-    position:relative;min-width:0;min-height:226px;padding:22px 16px 44px;
-    border:1px solid #303238;border-radius:3px;
-    background:linear-gradient(145deg,#181a1e 0%,#0b0c0f 58%,#050506 100%);
+    position:relative;min-width:0;min-height:0;padding:0 0 28px;overflow:hidden;
+    border:1px solid rgba(209,166,93,.92);border-radius:10px;
+    background:linear-gradient(145deg,#071d1d 0%,#021313 100%);
     color:#f2efe9;cursor:pointer;text-align:left;
     font-family:"Porsche Next","Barlow","Helvetica Neue",Arial,sans-serif;
-    box-shadow:0 12px 28px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.08);
+    box-shadow:0 18px 42px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.05);
     transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease;
   }
-  .start-card::before{content:"";display:block;width:34px;height:2px;margin:0 0 22px;background:var(--accent)}
   .start-card::after{
-    content:"";position:absolute;right:18px;bottom:20px;width:8px;height:8px;
-    border-right:1.8px solid var(--accent);border-bottom:1.8px solid var(--accent);transform:rotate(-45deg);
+    content:"";position:absolute;right:28px;bottom:34px;width:12px;height:12px;
+    border-right:2px solid #d1a65d;border-bottom:2px solid #d1a65d;transform:rotate(-45deg);
   }
   .start-card:active{transform:translateY(2px);box-shadow:0 7px 16px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.06)}
-  .start-card:hover{border-color:rgba(198,150,50,.78);box-shadow:0 14px 30px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.10)}
-  .start-icon{display:flex;align-items:center;justify-content:flex-start;width:38px;height:38px;margin-bottom:18px;color:var(--accent)}
-  .start-icon svg{width:30px;height:30px;display:block;stroke-width:1.45}
-  .start-card strong{display:block;font-size:17px;line-height:1.2;font-weight:600;letter-spacing:.005em;margin-bottom:12px;color:#f2efe9}
-  .start-card span:last-child{display:block;font-size:13.5px;line-height:1.48;color:#b9babd;font-weight:400}
+  .start-card:hover{border-color:#e1b96d;box-shadow:0 22px 46px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.08)}
+  .start-media{display:block;width:100%;aspect-ratio:558/354;overflow:hidden;border-bottom:1px solid rgba(209,166,93,.35)}
+  .start-media img{display:block;width:100%;height:100%;object-fit:cover}
+  .start-rule{display:block;width:46px;height:3px;margin:20px 0 15px 28px;background:#d1a65d;border-radius:3px}
+  .start-card strong{display:block;padding:0 58px 0 28px;font-family:Georgia,"Times New Roman",serif;font-size:clamp(20px,2.1vw,31px);line-height:1.15;font-weight:400;letter-spacing:.005em;margin-bottom:8px;color:#f2efe9}
+  .start-copy{display:block;padding:0 62px 0 28px;font-size:clamp(14px,1.35vw,18px);line-height:1.35;color:rgba(242,239,233,.82);font-weight:400}
   .find-hero{position:relative;padding:20px 0 8px}
   .find-hero .brand{margin-top:38px}
   .find-hero h1{max-width:13ch;margin-bottom:12px}
@@ -308,12 +327,33 @@
   #find-wa:active{transform:translateY(5px);box-shadow:0 2px 0 #292b2f,0 5px 10px rgba(0,0,0,.28)}
   .find-zip-note{display:none;margin-top:8px;color:var(--accent-ink);font-size:13px;line-height:1.5}
   .find-zip-note.on{display:block}
-  @media (max-width:350px){.start-grid{gap:8px}.start-card{padding:20px 12px 42px;min-height:232px}.start-card strong{font-size:15.5px}.start-card span:last-child{font-size:13px}.start-title{font-size:26px}}
+  @media (max-width:559px){
+    .start-screen{min-height:calc(100svh - 20px);padding:28px 12px 38px}
+    .start-screen .langbar{top:14px;right:12px}
+    .start-brand{margin:36px auto 26px}
+    .start-brand img{height:34px}
+    .start-title{font-size:26px;line-height:1.12;letter-spacing:.022em}
+    .start-title::before{width:42px;height:2px;margin-bottom:17px}
+    .start-sub{max-width:34ch;margin-bottom:24px;font-size:14px;line-height:1.45}
+    .start-grid{gap:8px}
+    .start-card{padding-bottom:20px;border-radius:7px}
+    .start-rule{width:30px;height:2px;margin:13px 0 11px 13px}
+    .start-card::after{right:13px;bottom:23px;width:8px;height:8px;border-width:1.5px}
+    .start-card strong{padding:0 28px 0 13px;font-size:17px;line-height:1.14;margin-bottom:7px}
+    .start-copy{padding:0 24px 0 13px;font-size:13px;line-height:1.35}
+  }
+  @media (max-width:350px){
+    .start-screen{padding-left:9px;padding-right:9px}
+    .start-grid{gap:6px}
+    .start-card strong{font-size:15px}
+    .start-copy{font-size:12px}
+  }
 
   [hidden]{display:none !important}
 
   @media (min-width:560px){
     body{padding:36px 28px 72px}
+    .start-screen{min-height:calc(100svh - 72px);margin:-36px calc(50% - 50vw) -72px;padding:42px 28px 62px}
     .calc-hero{margin:-36px -28px 34px;padding:34px 28px 38px}
     h1{font-size:40px}
     .total{padding:36px 30px}
@@ -424,18 +464,20 @@
       <button type="button" data-lang="pt" aria-pressed="false" title="Português"><span aria-hidden="true">PT</span></button>
     </div>
     <header class="brand start-brand" id="start-brand"></header>
-    <h1 class="start-title" data-i18n="start_title">How do you want to start?</h1>
+    <h1 class="start-title" data-i18n="start_title">How would you like to start?</h1>
     <p class="start-sub" data-i18n="start_sub">Start with your budget or your ideal car. See the clearest path to a smarter purchase.</p>
     <div class="start-grid">
       <button type="button" class="start-card" data-start="calculate">
-        <span class="start-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M7.5 6.5h9M8 11h1m3 0h1m3 0h1M8 15h1m3 0h1m3 0h1M8 19h1m3 0h5"/></svg></span>
+        <span class="start-media" aria-hidden="true"><img src="img/entry/calculate-my-cost.jpg" alt=""></span>
+        <span class="start-rule" aria-hidden="true"></span>
         <strong data-i18n="start_calc_title">Calculate my cost</strong>
-        <span><span data-i18n="start_calc_1">Already know your max bid?</span><br><span data-i18n="start_calc_2">See your estimate.</span></span>
+        <span class="start-copy"><span data-i18n="start_calc_1">Plan with confidence.</span><br><span data-i18n="start_calc_2">See your estimate.</span></span>
       </button>
       <button type="button" class="start-card" data-start="find">
-        <span class="start-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></span>
-        <strong data-i18n="start_find_title">Find it for me</strong>
-        <span><span data-i18n="start_find_1">Tell us the car.</span><br><span data-i18n="start_find_2">We find the right options and show you the numbers.</span></span>
+        <span class="start-media" aria-hidden="true"><img src="img/entry/find-one-for-me.jpg" alt=""></span>
+        <span class="start-rule" aria-hidden="true"></span>
+        <strong data-i18n="start_find_title">Find one for me</strong>
+        <span class="start-copy"><span data-i18n="start_find_1">Tell us what you're looking for.</span><br><span data-i18n="start_find_2">We find the right options for you.</span></span>
       </button>
     </div>
   </section>
@@ -892,17 +934,17 @@ var I18N = {
 
 Object.assign(I18N.en,{
   optional:"(optional)",
-  start_title:"How do you want to start?",start_sub:"Start with your budget or your ideal car. See the clearest path to a smarter purchase.",start_calc_title:"Calculate my cost",start_calc_1:"Already know your max bid?",start_calc_2:"See your estimate.",start_find_title:"Find it for me",start_find_1:"Tell us the car.",start_find_2:"We find the right options and show you the numbers.",
+  start_title:"How would you like to start?",start_sub:"Start with your budget or your ideal car. See the clearest path to a smarter purchase.",start_calc_title:"Calculate my cost",start_calc_1:"Plan with confidence.",start_calc_2:"See your estimate.",start_find_title:"Find one for me",start_find_1:"Tell us what you're looking for.",start_find_2:"We find the right options for you.",
   find_title:"Find it for me",find_intro:"Tell us the car. We find the right options and show you the numbers.",find_vehicle_title:"Tell us the car",find_year_from:"Year from",find_year_to:"Year to",find_select:"Select",find_required:"Required.",find_year_error:"Choose a year equal to or later than Year from.",find_make:"Make",find_model_write:"Write the model",find_trim:"Trim",find_not_sure:"Not sure",find_trim_error:"Enter the trim or select Not sure.",find_miles_from:"Miles from",find_miles_to:"Miles to",find_miles_error:"Enter a value equal to or greater than Miles from.",find_zip_note:"ZIP code not recognized. You can still send your request.",find_name_error:"Enter your name.",find_send:"Send my request",find_foot:"Your request goes directly to our team on WhatsApp."
 });
 Object.assign(I18N.es,{
   optional:"(opcional)",
-  start_title:"¿Cómo quieres comenzar?",start_sub:"Empieza por tu presupuesto o por el auto ideal. Mira el camino más claro hacia una compra más inteligente.",start_calc_title:"Calcular mi costo",start_calc_1:"¿Ya sabes tu oferta máxima?",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntrenlo por mí",start_find_1:"Dinos qué auto buscas.",start_find_2:"Encontramos las opciones correctas y te mostramos los números.",
+  start_title:"¿Cómo te gustaría comenzar?",start_sub:"Empieza por tu presupuesto o por el auto ideal. Mira el camino más claro hacia una compra más inteligente.",start_calc_title:"Calcular mi costo",start_calc_1:"Planifica con confianza.",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntralo para mí",start_find_1:"Dinos qué estás buscando.",start_find_2:"Encontramos las opciones correctas para ti.",
   find_title:"Encuéntrenlo por mí",find_intro:"Dinos qué auto buscas. Encontramos las opciones correctas y te mostramos los números.",find_vehicle_title:"Dinos qué auto buscas",find_year_from:"Año desde",find_year_to:"Año hasta",find_select:"Seleccionar",find_required:"Obligatorio.",find_year_error:"Elige un año igual o posterior al año inicial.",find_make:"Marca",find_model_write:"Escribe el modelo",find_trim:"Versión",find_not_sure:"No estoy seguro",find_trim_error:"Escribe la versión o marca No estoy seguro.",find_miles_from:"Millas desde",find_miles_to:"Millas hasta",find_miles_error:"Ingresa un valor igual o mayor que Millas desde.",find_zip_note:"No reconocimos el ZIP code. Aun así puedes enviar tu solicitud.",find_name_error:"Escribe tu nombre.",find_send:"Enviar mi solicitud",find_foot:"Tu solicitud llega directamente a nuestro equipo por WhatsApp."
 });
 Object.assign(I18N.pt,{
   optional:"(opcional)",
-  start_title:"Como você quer começar?",start_sub:"Comece pelo seu orçamento ou pelo carro ideal. Veja o caminho mais claro para uma compra mais inteligente.",start_calc_title:"Calcular meu custo",start_calc_1:"Já sabe o seu lance máximo?",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontrem para mim",start_find_1:"Conte qual é o carro.",start_find_2:"Encontramos as opções certas e mostramos os números.",
+  start_title:"Como você gostaria de começar?",start_sub:"Comece pelo seu orçamento ou pelo carro ideal. Veja o caminho mais claro para uma compra mais inteligente.",start_calc_title:"Calcular meu custo",start_calc_1:"Planeje com confiança.",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontre para mim",start_find_1:"Conte o que você procura.",start_find_2:"Encontramos as opções certas para você.",
   find_title:"Encontrem para mim",find_intro:"Conte qual é o carro. Encontramos as opções certas e mostramos os números.",find_vehicle_title:"Conte qual é o carro",find_year_from:"Ano de",find_year_to:"Ano até",find_select:"Selecionar",find_required:"Obrigatório.",find_year_error:"Escolha um ano igual ou posterior ao ano inicial.",find_make:"Marca",find_model_write:"Escreva o modelo",find_trim:"Versão",find_not_sure:"Não tenho certeza",find_trim_error:"Informe a versão ou marque Não tenho certeza.",find_miles_from:"Milhas de",find_miles_to:"Milhas até",find_miles_error:"Informe um valor igual ou maior que Milhas de.",find_zip_note:"ZIP code não reconhecido. Você ainda pode enviar o pedido.",find_name_error:"Informe seu nome.",find_send:"Enviar meu pedido",find_foot:"Seu pedido chega diretamente para nossa equipe no WhatsApp."
 });
 
