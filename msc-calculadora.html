@@ -557,7 +557,7 @@
       </div>
 
       <div class="field">
-        <label for="nome" data-i18n="lbl_nome">Your name</label>
+        <label for="nome"><span data-i18n="lbl_nome">Your name</span> <span data-i18n="optional">(optional)</span></label>
         <input type="text" id="nome" autocomplete="given-name">
       </div>
 
@@ -702,13 +702,13 @@
         </div>
         <div class="field" id="find-wrap-modelo" hidden><label for="find-modelo"><span data-i18n="lbl_modelo">Model</span>&nbsp;*</label><select id="find-modelo"><option value="" data-i18n="opt_modelo">Select a model</option></select><p class="err" id="find-err-modelo" data-i18n="err_modelo">Select a model.</p></div>
         <div class="field" id="find-other-model" hidden><label for="find-modelo-custom"><span data-i18n="find_model_write">Write the model</span>&nbsp;*</label><input id="find-modelo-custom" type="text" autocomplete="off"><p class="err" id="find-err-modelo-custom" data-i18n="find_required">Required.</p></div>
-        <div class="field"><label for="find-trim"><span data-i18n="find_trim">Trim</span>&nbsp;*</label><input id="find-trim" type="text" placeholder="SE, XLE..." autocomplete="off"><label class="find-check"><input id="find-trim-unsure" type="checkbox"> <span data-i18n="find_not_sure">Not sure</span></label><p class="err" id="find-err-trim" data-i18n="find_trim_error">Enter the trim or select Not sure.</p></div>
+        <div class="field"><label for="find-trim"><span data-i18n="find_trim">Trim</span> <span data-i18n="optional">(optional)</span></label><input id="find-trim" type="text" placeholder="SE, XLE..." autocomplete="off"><label class="find-check"><input id="find-trim-unsure" type="checkbox"> <span data-i18n="find_not_sure">Not sure</span></label></div>
         <div class="field row2">
           <div><label for="find-miles-from"><span data-i18n="find_miles_from">Miles from</span>&nbsp;*</label><input id="find-miles-from" type="text" inputmode="numeric" placeholder="20,000"><p class="err" id="find-err-miles-from" data-i18n="find_required">Required.</p></div>
           <div><label for="find-miles-to"><span data-i18n="find_miles_to">Miles to</span>&nbsp;*</label><input id="find-miles-to" type="text" inputmode="numeric" placeholder="50,000"><p class="err" id="find-err-miles-to" data-i18n="find_miles_error">Enter a value equal to or greater than Miles from.</p></div>
         </div>
         <div class="field"><label for="find-zip"><span data-i18n="lbl_zip">ZIP code where you'll register the car</span>&nbsp;*</label><input id="find-zip" type="text" inputmode="numeric" maxlength="5" autocomplete="postal-code"><p class="err" id="find-err-zip" data-i18n="err_zip">Enter your ZIP code.</p><p class="find-zip-note" id="find-zip-note" data-i18n="find_zip_note">ZIP code not recognized. You can still send your request.</p></div>
-        <div class="field"><label for="find-nome"><span data-i18n="lbl_nome">Your name</span>&nbsp;*</label><input id="find-nome" type="text" autocomplete="name"><p class="err" id="find-err-nome" data-i18n="find_name_error">Enter your name.</p></div>
+        <div class="field"><label for="find-nome"><span data-i18n="lbl_nome">Your name</span> <span data-i18n="optional">(optional)</span></label><input id="find-nome" type="text" autocomplete="name"></div>
         <a class="btn" id="find-wa" href="#" target="_blank" rel="noopener"><span data-i18n="find_send">Send my request</span></a>
       </section>
     </form>
@@ -868,14 +868,17 @@ var I18N = {
 };
 
 Object.assign(I18N.en,{
+  optional:"(optional)",
   start_title:"How do you want to start?",start_calc_title:"Calculate my cost",start_calc_1:"Already know your max bid?",start_calc_2:"See your estimate.",start_find_title:"Find it for me",start_find_1:"Tell us the car.",start_find_2:"We find the right options and show you the numbers.",
   find_title:"Find it for me",find_intro:"Tell us the car. We find the right options and show you the numbers.",find_vehicle_title:"Tell us the car",find_year_from:"Year from",find_year_to:"Year to",find_select:"Select",find_required:"Required.",find_year_error:"Choose a year equal to or later than Year from.",find_make:"Make",find_model_write:"Write the model",find_trim:"Trim",find_not_sure:"Not sure",find_trim_error:"Enter the trim or select Not sure.",find_miles_from:"Miles from",find_miles_to:"Miles to",find_miles_error:"Enter a value equal to or greater than Miles from.",find_zip_note:"ZIP code not recognized. You can still send your request.",find_name_error:"Enter your name.",find_send:"Send my request",find_foot:"Your request goes directly to our team on WhatsApp."
 });
 Object.assign(I18N.es,{
+  optional:"(opcional)",
   start_title:"¿Cómo quieres comenzar?",start_calc_title:"Calcular mi costo",start_calc_1:"¿Ya sabes tu oferta máxima?",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntrenlo por mí",start_find_1:"Dinos qué auto buscas.",start_find_2:"Encontramos las opciones correctas y te mostramos los números.",
   find_title:"Encuéntrenlo por mí",find_intro:"Dinos qué auto buscas. Encontramos las opciones correctas y te mostramos los números.",find_vehicle_title:"Dinos qué auto buscas",find_year_from:"Año desde",find_year_to:"Año hasta",find_select:"Seleccionar",find_required:"Obligatorio.",find_year_error:"Elige un año igual o posterior al año inicial.",find_make:"Marca",find_model_write:"Escribe el modelo",find_trim:"Versión",find_not_sure:"No estoy seguro",find_trim_error:"Escribe la versión o marca No estoy seguro.",find_miles_from:"Millas desde",find_miles_to:"Millas hasta",find_miles_error:"Ingresa un valor igual o mayor que Millas desde.",find_zip_note:"No reconocimos el ZIP code. Aun así puedes enviar tu solicitud.",find_name_error:"Escribe tu nombre.",find_send:"Enviar mi solicitud",find_foot:"Tu solicitud llega directamente a nuestro equipo por WhatsApp."
 });
 Object.assign(I18N.pt,{
+  optional:"(opcional)",
   start_title:"Como você quer começar?",start_calc_title:"Calcular meu custo",start_calc_1:"Já sabe o seu lance máximo?",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontrem para mim",start_find_1:"Conte qual é o carro.",start_find_2:"Encontramos as opções certas e mostramos os números.",
   find_title:"Encontrem para mim",find_intro:"Conte qual é o carro. Encontramos as opções certas e mostramos os números.",find_vehicle_title:"Conte qual é o carro",find_year_from:"Ano de",find_year_to:"Ano até",find_select:"Selecionar",find_required:"Obrigatório.",find_year_error:"Escolha um ano igual ou posterior ao ano inicial.",find_make:"Marca",find_model_write:"Escreva o modelo",find_trim:"Versão",find_not_sure:"Não tenho certeza",find_trim_error:"Informe a versão ou marque Não tenho certeza.",find_miles_from:"Milhas de",find_miles_to:"Milhas até",find_miles_error:"Informe um valor igual ou maior que Milhas de.",find_zip_note:"ZIP code não reconhecido. Você ainda pode enviar o pedido.",find_name_error:"Informe seu nome.",find_send:"Enviar meu pedido",find_foot:"Seu pedido chega diretamente para nossa equipe no WhatsApp."
 });
@@ -1568,13 +1571,18 @@ mostrarPrecoInspecao();
 
 const MARCAS = {
   "Acura":           ["ILX","Integra","TLX","TSX","TL","RLX","RL","RDX","MDX","ZDX","NSX"],
+  "Alfa Romeo":      ["Stelvio","Giulia"],
+  "Aston Martin":    ["DBX","Vantage"],
   "Audi":            ["A3","A4","A5","A6","A7","A8","Allroad","Q3","Q4 e-tron","Q5","Q7","Q8","e-tron","e-tron GT","TT","R8"],
   "BMW":             ["2 Series","3 Series","4 Series","5 Series","6 Series","7 Series","8 Series","X1","X2","X3","X4","X5","X6","X7","Z4","i3","i4","i5","i7","iX","M2","M3","M4","M5"],
+  "Bentley":         ["Bentayga","Continental GT"],
   "Buick":           ["Enclave","Encore","Encore GX","Envision","Envista","LaCrosse","Lucerne","Regal","Regal TourX","Verano","Cascada","Rendezvous","Rainier","Terraza","Century"],
   "Cadillac":        ["ATS","CT4","CT5","CT6","CTS","DTS","Escalade","Escalade ESV","ELR","LYRIQ","SRX","STS","XT4","XT5","XT6","XTS","XLR"],
   "Chevrolet":       ["Silverado 1500","Silverado 2500HD","Silverado 3500HD","Colorado","Equinox","Traverse","Tahoe","Suburban","Blazer","Trailblazer","Trax","Malibu","Impala","Cruze","Sonic","Spark","Camaro","Corvette","Bolt EV","Bolt EUV","Express","Avalanche","HHR","Captiva Sport","Volt"],
   "Chrysler":        ["300","200","Pacifica","Voyager","Town and Country","Sebring","PT Cruiser","Aspen","Crossfire","300M"],
   "Dodge":           ["Charger","Challenger","Durango","Journey","Grand Caravan","Caravan","Dart","Avenger","Caliber","Nitro","Magnum","Viper","Hornet","Dakota","Ram 1500"],
+  "Ferrari":         ["488","California"],
+  "Fiat":            ["500","500X"],
   "Ford":            ["F-150","F-250 Super Duty","F-350 Super Duty","F-150 Lightning","Ranger","Maverick","Escape","Explorer","Edge","Expedition","Bronco","Bronco Sport","EcoSport","Flex","Fusion","Focus","Fiesta","Taurus","Mustang","Mustang Mach-E","Transit","Transit Connect","C-Max","Five Hundred","Freestyle"],
   "Genesis":         ["G70","G80","G90","GV60","GV70","GV80","GV80 Coupe"],
   "GMC":             ["Sierra 1500","Sierra 2500HD","Sierra 3500HD","Canyon","Terrain","Acadia","Yukon","Yukon XL","Savana","Hummer EV","Envoy","Sonoma"],
@@ -1582,20 +1590,29 @@ const MARCAS = {
   "Hummer":          ["H1","H2","H3","H3T"],
   "Hyundai":         ["Elantra","Sonata","Accent","Veloster","Azera","Genesis","Equus","Tucson","Santa Fe","Santa Fe Sport","Santa Cruz","Kona","Palisade","Venue","Veracruz","Ioniq","Ioniq 5","Ioniq 6","Nexo"],
   "Infiniti":        ["Q50","Q60","Q70","QX50","QX55","QX60","QX70","QX80","G35","G37","M35","M37","EX35","FX35","JX35"],
+  "Jaguar":          ["F-PACE","F-TYPE"],
   "Jeep":            ["Wrangler","Grand Cherokee","Grand Cherokee L","Cherokee","Compass","Renegade","Gladiator","Patriot","Liberty","Commander","Wagoneer","Grand Wagoneer"],
   "Kia":             ["Forte","Optima","K5","Rio","Soul","Soul EV","Sorento","Sportage","Telluride","Seltos","Carnival","Sedona","Cadenza","Stinger","Niro","EV6","EV9","Amanti","Rondo","Borrego"],
   "Land Rover":      ["Range Rover","Range Rover Sport","Range Rover Velar","Range Rover Evoque","Discovery","Discovery Sport","Defender","LR2","LR3","LR4","Freelander"],
+  "Lamborghini":     ["Urus","Huracan"],
   "Lexus":           ["ES","IS","GS","LS","RC","LC","CT","HS","UX","NX","RX","GX","LX","TX","RZ","SC"],
   "Lincoln":         ["Navigator","Aviator","Corsair","Nautilus","Continental","MKZ","MKX","MKC","MKS","MKT","Town Car","Mark LT"],
+  "Lotus":           ["Evora","Emira"],
+  "Lucid":           ["Air","Gravity"],
   "Mazda":           ["Mazda3","Mazda6","Mazda5","Mazda2","CX-3","CX-30","CX-5","CX-50","CX-7","CX-9","CX-70","CX-90","MX-5 Miata","MX-30","Tribute"],
   "Mercedes-Benz":   ["A-Class","C-Class","E-Class","S-Class","CLA","CLS","GLA","GLB","GLC","GLE","GLS","G-Class","ML-Class","GL-Class","GLK-Class","SLK","SL","AMG GT","EQB","EQE","EQS","Sprinter","Metris","Maybach S-Class"],
+  "Maserati":        ["Levante","Ghibli"],
+  "McLaren":         ["570S","720S"],
   "Mercury":         ["Grand Marquis","Milan","Mariner","Mountaineer","Sable","Montego","Monterey","Marauder","Villager"],
   "MINI":            ["Cooper Hardtop","Cooper Convertible","Clubman","Countryman","Paceman","Coupe","Roadster","Cooper SE","John Cooper Works"],
   "Mitsubishi":      ["Outlander","Outlander Sport","Outlander PHEV","Eclipse Cross","Mirage","Mirage G4","Lancer","Lancer Evolution","Galant","Endeavor","Eclipse","Montero","Raider","i-MiEV"],
   "Nissan":          ["Altima","Sentra","Versa","Versa Note","Maxima","Rogue","Rogue Sport","Murano","Pathfinder","Armada","Frontier","Titan","Titan XD","Kicks","Juke","Leaf","Ariya","370Z","350Z","Z","GT-R","Quest","Xterra","Cube","NV200"],
   "Pontiac":         ["G6","G5","G8","G3","Grand Prix","Grand Am","Vibe","Torrent","Solstice","Montana","Aztek","GTO","Bonneville","Sunfire"],
+  "Polestar":        ["2","3"],
   "Porsche":         ["911","Cayenne","Macan","Panamera","Taycan","718 Cayman","718 Boxster","Cayman","Boxster"],
   "Ram":             ["1500","1500 Classic","2500","3500","ProMaster","ProMaster City","Dakota"],
+  "Rivian":          ["R1S","R1T"],
+  "Rolls-Royce":     ["Cullinan","Ghost"],
   "Saab":            ["9-3","9-5","9-7X","9-2X","9-4X"],
   "Saturn":          ["Vue","Ion","Aura","Outlook","Sky","Astra","L300","Relay"],
   "Scion":           ["tC","xB","xA","xD","iA","iM","iQ","FR-S"],
@@ -1604,6 +1621,7 @@ const MARCAS = {
   "Tesla":           ["Model 3","Model Y","Model S","Model X","Cybertruck","Roadster"],
   "Toyota":          ["Camry","Corolla","Corolla Cross","RAV4","Highlander","Grand Highlander","4Runner","Tacoma","Tundra","Sequoia","Land Cruiser","Sienna","Prius","Prius C","Prius V","Avalon","Venza","C-HR","Yaris","Matrix","FJ Cruiser","Supra","GR86","bZ4X","Crown"],
   "Volkswagen":      ["Jetta","Passat","Golf","Golf GTI","Tiguan","Atlas","Atlas Cross Sport","Taos","ID.4","Beetle","CC","Arteon","Touareg","Routan","Eos","Rabbit"],
+  "VinFast":         ["VF 8","VF 9"],
   "Volvo":           ["XC90","XC60","XC40","S60","S80","S90","V60","V90","V70","XC70","C30","C70","S40","V50","EX30","EX90"]
 };
 
@@ -1663,11 +1681,9 @@ function validarFind(marcar){
     erro("find-modelo", !$("find-modelo").value);
     if ($("find-modelo").value === "Other model") erro("find-modelo-custom", !d.modelo);
   }
-  erro("find-trim", !d.trim);
   erro("find-miles-from", !(d.milhasDe > 0));
   erro("find-miles-to", !(d.milhasAte > 0) || (d.milhasDe > 0 && d.milhasAte < d.milhasDe));
   erro("find-zip", !d.zip);
-  erro("find-nome", !d.nome);
   var prazoRuim = !d.prazo, expRuim = !d.exp;
   if (marcar){
     $("find-err-prazo").classList.toggle("on", prazoRuim);
@@ -1696,7 +1712,11 @@ function linkWhatsAppFind(d){
   var zipLinha=c.zip+d.zip;
   if (d.zipOk && local) zipLinha += " · " + (local.cidade ? local.cidade+", " : "") + local.estado;
   if (!d.zipOk) zipLinha += " · " + c.bad;
-  L.push(linhaTriagemFind(d),"",c.hello,"",c.name+d.nome,c.planning+prazoTxt(d.prazo),c.experience+(d.exp === "1st" ? T("exp_1") : T("exp_r")),c.years+d.anoDe+"-"+d.anoAte,c.vehicle+(d.marca+" "+d.modelo).trim(),c.trim+d.trim,c.miles+findMilhas(d.milhasDe)+"-"+findMilhas(d.milhasAte),zipLinha,"",c.talk,"Ref: "+d.ref);
+  L.push(linhaTriagemFind(d),"",c.hello,"");
+  if (d.nome) L.push(c.name+d.nome);
+  L.push(c.planning+prazoTxt(d.prazo),c.experience+(d.exp === "1st" ? T("exp_1") : T("exp_r")),c.years+d.anoDe+"-"+d.anoAte,c.vehicle+(d.marca+" "+d.modelo).trim());
+  if (d.trim) L.push(c.trim+d.trim);
+  L.push(c.miles+findMilhas(d.milhasDe)+"-"+findMilhas(d.milhasAte),zipLinha,"",c.talk,"Ref: "+d.ref);
   return montarLink(L);
 }
 function atualizarFindLink(){
@@ -1723,7 +1743,7 @@ function iniciarFind(){
   if (FIND_INICIADO) return;FIND_INICIADO=true;
   var atual=(new Date()).getFullYear()+1;
   [$("find-year-from"),$("find-year-to")].forEach(function(sel){for(var y=atual;y>=1995;y--){var o=document.createElement("option");o.value=String(y);o.textContent=String(y);sel.appendChild(o);}});
-  Object.keys(MARCAS).forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;$("find-marca").appendChild(o);});
+  Object.keys(MARCAS).sort().forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;$("find-marca").appendChild(o);});
   var outra=document.createElement("option");outra.value="Other brand";outra.textContent=T("marca_outra");$("find-marca").appendChild(outra);
   $("find-marca").addEventListener("change",function(){atualizarFindModelo();atualizarFindLink();});
   $("find-modelo").addEventListener("change",function(){$("find-other-model").hidden=this.value!=="Other model";atualizarFindLink();});
@@ -1752,16 +1772,18 @@ function abrirCaminho(nome){
 Array.prototype.forEach.call(document.querySelectorAll("[data-start]"),function(b){b.addEventListener("click",function(){abrirCaminho(b.getAttribute("data-start"));});});
 try{var START_PARAM=new URLSearchParams(location.search).get("start");if(START_PARAM==="calculate"||START_PARAM==="find") abrirCaminho(START_PARAM);}catch(e){}
 
-/* Idem para as marcas: ja estao no HTML. */
+/* A mesma lista central alimenta os dois caminhos. */
 (function(){
   const sel = $("marca");
-  if (sel.options.length > 1) return;
-  Object.keys(MARCAS).forEach(function(m){
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  const zero = document.createElement("option");
+  zero.value = ""; zero.setAttribute("data-i18n","opt_marca"); zero.textContent = T("opt_marca"); sel.appendChild(zero);
+  Object.keys(MARCAS).sort().forEach(function(m){
     const o = document.createElement("option");
     o.value = m; o.textContent = m; sel.appendChild(o);
   });
   const outra = document.createElement("option");
-  outra.value = "Other brand"; outra.textContent = "Other brand";
+  outra.value = "Other brand"; outra.setAttribute("data-i18n","marca_outra"); outra.textContent = T("marca_outra");
   sel.appendChild(outra);
 })();
 
