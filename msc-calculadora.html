@@ -451,9 +451,17 @@
     padding:6px 0 0;font-size:13.5px;line-height:1.45;opacity:.72}
   .onde .sub span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums}
   .onde .sub + .lin{margin-top:13px}
+  .onde .group-items{display:grid;grid-template-columns:1fr 1fr;gap:7px 14px;
+    padding:8px 0 5px;font-size:12.5px;line-height:1.4;opacity:.76}
+  .onde .group-item{display:flex;align-items:flex-start;gap:7px;min-width:0}
+  .onde .group-item::before{content:"✓";color:var(--accent);font-weight:700;flex:0 0 auto}
+  .onde .vl-wrap{display:flex;flex-direction:column;align-items:flex-end;min-width:0}
+  .onde .vl-note{display:block;max-width:19ch;margin-top:3px;font-size:10.5px;
+    font-weight:400;line-height:1.25;text-align:right;white-space:normal;opacity:.7}
   .onde-nota{margin:16px 0 0;padding-top:14px;
     border-top:1px solid rgba(255,255,255,.12);
     font-size:12.5px;line-height:1.6;opacity:.66}
+  @media (max-width:360px){.onde .group-items{grid-template-columns:1fr}}
 
   /* ===== aviso de zip invalido ===== */
   .zip-bad{display:none;margin:14px 0 0;padding:14px 15px;
@@ -944,6 +952,9 @@ const CONFIG = {
   inspecao: 165,
 
 
+  dealerFee: 599,
+
+
   impostoPct: 7,
 
 
@@ -982,7 +993,20 @@ const CONFIG = {
     { nome: "New Mexico",     pct: 4     },
     { nome: "Oregon",         pct: 0     },
     { nome: "Utah",           pct: 4.85  },
-    { nome: "Wisconsin",      pct: 5     }
+    { nome: "Wisconsin",      pct: 5     },
+    { nome: "Alaska",         pct: 0     },
+    { nome: "Montana",        pct: 0     },
+    { nome: "New Hampshire",  pct: 0     },
+    { nome: "Hawaii",         pct: 4     },
+    { nome: "Wyoming",        pct: 4     },
+    { nome: "South Dakota",   pct: 4     },
+    { nome: "Maine",          pct: 5.5   },
+    { nome: "Nebraska",       pct: 5.5   },
+    { nome: "North Dakota",   pct: 5     },
+    { nome: "Idaho",          pct: 6     },
+    { nome: "Vermont",        pct: 6     },
+    { nome: "West Virginia",  pct: 6     },
+    { nome: "Rhode Island",   pct: 7     }
   ],
 
 
@@ -1059,6 +1083,82 @@ Object.assign(I18N.pt,{
   find_intro:"Conte qual é o carro<br>Encontramos as opções certas e mostramos os números"
 });
 
+Object.assign(I18N.en,{
+  group_tax_title_reg:"Tax, title & registration",
+  group_title_reg:"Title & registration",
+  group_purchase_title:"Purchase & title",
+  purchase_agreement:"Purchase agreement",
+  title_transfer:"Title transfer",
+  title_signed:"Title signed over to you",
+  lien_filing:"Lien filing",
+  registration:"Registration",
+  registration_est:"Registration (est.)",
+  plate_transfer:"Plate transfer",
+  new_plate:"New plate",
+  new_plate_est:"New plate (est.)",
+  temporary_tag:"Temporary tag",
+  sales_tax:"Sales tax",
+  group_tax_unknown:"+ state sales tax to confirm",
+  dmv_known:"Paid at your {e} DMV, not included: sales tax (~{v}), title, registration and plate",
+  dmv_zero:"Paid at your {e} DMV, not included: title, registration and plate",
+  dmv_unknown:"Paid at your {e} DMV, not included: sales tax, title, registration and plate",
+  fin_av:"Total set with your financing (~{v} before loan costs)",
+  fin_box_title:"Financing details",
+  fin_box_1:"State sales tax is included when the rate is known. Title and registration are included as shown above.",
+  fin_box_2:"Lender fees and other loan costs are not included.",
+  fin_box_3:"Down payment and monthly payment depend on your credit approval."
+});
+Object.assign(I18N.pt,{
+  group_tax_title_reg:"Imposto, título e registro",
+  group_title_reg:"Título e registro",
+  group_purchase_title:"Compra e título",
+  purchase_agreement:"Contrato de compra",
+  title_transfer:"Transferência de título",
+  title_signed:"Título assinado em seu nome",
+  lien_filing:"Registro do financiamento no título",
+  registration:"Registro",
+  registration_est:"Registro (estimado)",
+  plate_transfer:"Transferência de placa",
+  new_plate:"Placa nova",
+  new_plate_est:"Placa nova (estimado)",
+  temporary_tag:"Placa provisória",
+  sales_tax:"Imposto sobre a venda",
+  group_tax_unknown:"+ imposto estadual a confirmar",
+  dmv_known:"Pago no DMV de {e}, não incluído: imposto sobre a venda (~{v}), título, registro e placa",
+  dmv_zero:"Pago no DMV de {e}, não incluído: título, registro e placa",
+  dmv_unknown:"Pago no DMV de {e}, não incluído: imposto sobre a venda, título, registro e placa",
+  fin_av:"Total definido com o seu financiamento (~{v} antes dos custos do empréstimo)",
+  fin_box_title:"Detalhes do financiamento",
+  fin_box_1:"O imposto estadual entra quando a alíquota é conhecida. Título e registro estão incluídos conforme mostrado acima.",
+  fin_box_2:"Taxas do credor e outros custos do empréstimo não estão incluídos.",
+  fin_box_3:"Entrada e parcela dependem da sua aprovação de crédito."
+});
+Object.assign(I18N.es,{
+  group_tax_title_reg:"Impuesto, título y registro",
+  group_title_reg:"Título y registro",
+  group_purchase_title:"Compra y título",
+  purchase_agreement:"Contrato de compra",
+  title_transfer:"Transferencia de título",
+  title_signed:"Título firmado a tu nombre",
+  lien_filing:"Registro del gravamen",
+  registration:"Registro",
+  registration_est:"Registro (estimado)",
+  plate_transfer:"Transferencia de placa",
+  new_plate:"Placa nueva",
+  new_plate_est:"Placa nueva (estimado)",
+  temporary_tag:"Placa temporal",
+  sales_tax:"Impuesto sobre la venta",
+  group_tax_unknown:"+ impuesto estatal por confirmar",
+  dmv_known:"Se paga en el DMV de {e}, no incluido: impuesto sobre la venta (~{v}), título, registro y placa",
+  dmv_zero:"Se paga en el DMV de {e}, no incluido: título, registro y placa",
+  dmv_unknown:"Se paga en el DMV de {e}, no incluido: impuesto sobre la venta, título, registro y placa",
+  fin_av:"Total definido con tu financiamiento (~{v} antes de los costos del préstamo)",
+  fin_box_title:"Detalles del financiamiento",
+  fin_box_1:"El impuesto estatal se incluye cuando se conoce la tasa. El título y el registro están incluidos como se muestra arriba.",
+  fin_box_2:"Los cargos del prestamista y otros costos del préstamo no están incluidos.",
+  fin_box_3:"El pago inicial y la mensualidad dependen de tu aprobación de crédito."
+});
+
 /* O site sempre abre em ingles. So muda se o visitante escolher
    uma bandeira, e nesse caso a escolha dele fica guardada. */
 var LANG = "en";
@@ -1125,6 +1225,7 @@ function resetParams(){
     depMin:         CONFIG.depositoMinimo,
     impostoPct:     CONFIG.impostoPct,
     inspecao:       CONFIG.inspecao,
+    dealerFee:      CONFIG.dealerFee,
     transferencia:  CONFIG.titulo.transferencia,
     placaNova:      CONFIG.titulo.placaNova,
     dias:           CONFIG.diasRetirada,
@@ -1165,15 +1266,13 @@ function calcular(d){
   const taxaLeilao = taxaLeilaoDe(lance);
   const servico    = servicoDe(lance);
   const inspecao   = d.inspecao ? P.inspecao : 0;
-
-
   const fixas      = CONFIG.taxasFixasLeilao;
   const totalFixas = fixas.reduce(function(a, f){ return a + f.valor; }, 0);
+  const dealerFee  = P.dealerFee;
 
-  const base = lance + taxaLeilao + totalFixas + servico + inspecao;
-
-  /* A inspecao presencial nao entra na base de imposto. */
-  const baseImposto = lance + taxaLeilao + totalFixas + servico;
+  /* BASE = lance + taxas do leilao + servico + valor fixo da compra.
+     Inspecao e titulo/placa ficam deliberadamente fora da base. */
+  const baseImposto = lance + taxaLeilao + totalFixas + servico + dealerFee;
 
   const r = {
     lance: lance,
@@ -1182,10 +1281,11 @@ function calcular(d){
     totalFixas: totalFixas,
     servico: servico,
     inspecao: inspecao,
-    base: base,
+    dealerFee: dealerFee,
+    base: baseImposto,
     florida: d.florida,
     imposto: null,
-    titulo: (d.placa === "nova") ? P.placaNova : P.transferencia,
+    titulo: (d.pgto === "fin" || d.placa === "nova") ? P.placaNova : P.transferencia,
     total: null,
     totalMin: null,
     totalMax: null,
@@ -1193,7 +1293,7 @@ function calcular(d){
   };
 
   if (d.florida){
-    r.imposto = baseImposto * (P.impostoPct / 100);
+    r.imposto = Math.round(baseImposto * (P.impostoPct / 100));
   }
 
 
@@ -1211,7 +1311,7 @@ function calcular(d){
     if (e && e.pct !== null){
       r.estadoPct  = e.pct;
       r.estadoTeto = (typeof e.teto === "number") ? e.teto : null;
-      r.impostoEstado = baseImposto * (e.pct / 100);
+      r.impostoEstado = Math.round(baseImposto * (e.pct / 100));
       if (r.estadoTeto !== null && r.impostoEstado > r.estadoTeto){
         r.impostoEstado = r.estadoTeto;
         r.estadoNoTeto  = true;
@@ -1219,30 +1319,38 @@ function calcular(d){
     }
   }
 
+  if (!d.florida && !r.estadoNome){
+    var estadoZip = zipEstado(d.zip);
+    r.estadoNome = estadoZip ? estadoZip.nome : null;
+  }
 
   const L  = Math.round(lance);
-  const T  = Math.round(taxaLeilao) + fixas.reduce(function(a, f){ return a + Math.round(f.valor); }, 0);
+  const A  = Math.round(taxaLeilao) + fixas.reduce(function(a, f){ return a + Math.round(f.valor); }, 0);
   const S  = Math.round(servico);
   const I  = Math.round(inspecao);
-  const IM = d.florida ? Math.round(r.imposto) : 0;
   const TI = Math.round(r.titulo);
+  const D  = Math.round(dealerFee);
+  const TAX = d.florida ? r.imposto : r.impostoEstado;
+  const caso = d.florida ? (d.pgto === "fin" ? 2 : 1)
+                         : (d.pgto === "fin" ? 4 : 3);
+  const G = caso === 3 ? D : (D + TI + (TAX !== null ? TAX : 0));
 
   r.gCarro  = L;
-  r.gLeilao = T + (d.florida ? (IM + TI) : 0);
-  /* destinos separados, para o quadro "para onde vai" */
+  r.gLeilao = A;
   r.dCarro   = L;
-  r.dLeilao  = T;
+  r.dLeilao  = A;
   r.dMcs     = S + I;
   r.gMcs    = S + I;
-  r.gImposto = (r.impostoEstado !== null) ? Math.round(r.impostoEstado) : null;
-
-  r.gTaxReg = d.florida ? null : ((r.gImposto !== null ? r.gImposto : 0) + TI);
-  r.dGoverno = d.florida ? (IM + TI) : ((r.gImposto !== null ? r.gImposto : 0) + TI);
-  r.dGovTbd  = (!d.florida && r.gImposto === null);
-
+  r.gImposto = TAX;
+  r.gGrupo   = G;
+  r.gTaxReg  = G;
+  r.caso     = caso;
+  r.taxDesconhecido = (caso === 4 && TAX === null);
+  r.acimaLance = A + G + S + I;
+  r.totalProjetado = L + r.acimaLance;
 
   if (d.pgto === "cash"){
-    r.total = r.gCarro + r.gLeilao + r.gMcs + (r.gTaxReg !== null ? r.gTaxReg : 0);
+    r.total = r.totalProjetado;
     const m = P.margemPct / 100;
     r.totalMin = r.total * (1 - m);
     r.totalMax = r.total * (1 + m);
@@ -1445,6 +1553,54 @@ function linhaOnde(nome, sub, valor, nosso){
          '</div>';
 }
 
+function dadosGrupo(d, r){
+  var itens = [];
+  var nome = T("group_tax_title_reg");
+  var nota = "";
+  var sufixo = r.taxDesconhecido ? T("group_tax_unknown") : "";
+
+  if (r.caso === 1){
+    itens = [T("purchase_agreement"), T("title_transfer"), T("registration"),
+      d.placa === "nova" ? T("new_plate") : T("plate_transfer"),
+      T("temporary_tag"), T("sales_tax")];
+  } else if (r.caso === 2){
+    itens = [T("purchase_agreement"), T("title_transfer"), T("lien_filing"),
+      T("registration"), T("new_plate"), T("temporary_tag")];
+    if (r.estadoPct !== 0) itens.push(T("sales_tax"));
+  } else if (r.caso === 3){
+    nome = T("group_purchase_title");
+    itens = [T("purchase_agreement"), T("title_signed"), T("temporary_tag")];
+    if (r.estadoPct === 0){
+      nota = T("dmv_zero", { e: r.estadoNome });
+    } else if (r.impostoEstado !== null){
+      nota = T("dmv_known", { e: r.estadoNome, v: usd(r.impostoEstado) });
+    } else {
+      nota = T("dmv_unknown", { e: r.estadoNome || T("w_estnao") });
+    }
+  } else {
+    itens = [T("purchase_agreement"), T("title_transfer"), T("lien_filing"),
+      T("registration_est"), T("new_plate_est"), T("temporary_tag")];
+    if (r.estadoPct !== 0) itens.push(T("sales_tax"));
+  }
+
+  if ((r.caso === 2 || r.caso === 4) && r.estadoPct === 0){
+    nome = T("group_title_reg");
+  }
+  return { nome: nome, itens: itens, nota: nota, sufixo: sufixo };
+}
+
+function linhaGrupo(g, valor){
+  var itens = g.itens.map(function(item){
+    return '<span class="group-item">' + item + '</span>';
+  }).join("");
+  return '<div class="lin group-line">' +
+           '<span class="nm">' + g.nome + '</span>' +
+           '<span class="vl-wrap"><span class="vl">' + usd(valor) + '</span>' +
+             (g.sufixo ? '<span class="vl-note">' + g.sufixo + '</span>' : '') +
+           '</span>' +
+         '</div><div class="group-items">' + itens + '</div>';
+}
+
 function render(){
   const d = lerForm();
   const out = $("saida");
@@ -1459,7 +1615,6 @@ function render(){
 
   const r = calcular(d);
   const tbd = T("tbd");
-  const pctTxt = function(p){ return String(p).replace(/\.0+$/,""); };
   const nomeFixa = function(f){
     return f.nome === "Environmental Fee" ? T("i_env")
          : f.nome === "Title Mailing Fee" ? T("i_titlemail")
@@ -1486,44 +1641,18 @@ function render(){
   var notas = [];
   var subLeilao = subItem(T("i_taxaleilao"), usd(r.taxaLeilao));
   r.fixas.forEach(function(f){ subLeilao += subItem(nomeFixa(f), usd(f.valor)); });
-
-  var subGov = "";
-  if (d.florida){
-    subGov += subItem(T("i_imposto") + " (" + P.impostoPct + "%)", usd(r.imposto));
-    subGov += subItem(T("i_titulo"), usd(r.titulo));
-    notas.push(T("n_fl_a") + (d.placa === "nova" ? T("n_fl_nova") : T("n_fl_transf")));
-  } else {
-    var rotuloImp = r.estadoNoTeto
-      ? T("imp_teto", { e: r.estadoNome, p: pctTxt(r.estadoPct), v: usd(r.estadoTeto) })
-      : T("imp_em",   { e: r.estadoNome, p: pctTxt(r.estadoPct) });
-    subGov += (r.gImposto !== null)
-      ? subItem(rotuloImp, usd(r.gImposto))
-      : subItem(T("i_imposto"), tbd);
-    subGov += subItem(T("i_titulo"), usd(r.titulo));
-    notas.push(T("n_leilao"));
-    notas.push(
-      (r.gImposto !== null
-        ? (r.estadoNoTeto
-            ? T("n_est_teto", { e: r.estadoNome, v: usd(r.estadoTeto) })
-            : T("n_est_sim",  { e: r.estadoNome }))
-        : (r.estadoNome
-            ? T("n_est_sem",   { e: r.estadoNome })
-            : (r.estadoOutro ? T("n_est_outro") : T("n_est_nao")))
-      ) + T("n_est_tit") +
-      (d.pgto === "fin" ? T("n_est_fin") : T("n_est_cash")) + T("n_est_fim"));
-  }
+  var grupo = dadosGrupo(d, r);
+  notas.push(T("n_leilao"));
 
   var subMcs = subItem(T("i_servico"), usd(r.servico));
   if (r.inspecao > 0) subMcs += subItem(T("i_insp"), usd(r.inspecao));
   notas.push(T("n_mcs"));
 
-  /* Somar os componentes, nao subtrair do total: no financiamento
-     o total e nulo e a subtracao devolvia numero negativo.        */
-  var acima = r.gLeilao + (r.gTaxReg !== null ? r.gTaxReg : 0) + r.gMcs;
+  var acima = r.acimaLance;
 
   h += '<div class="total"><div class="k">' + T("t_k") + '</div>' +
        '<div class="v">' + usd(acima) + '</div>' +
-       (d.pgto === "fin" ? '<p class="fin-av">' + T("fin_av") + '</p>' : '') +
+       (d.pgto === "fin" ? '<p class="fin-av">' + T("fin_av", { v: usd(r.totalProjetado) }) + '</p>' : '') +
        '<div class="tl"><span>' + T("t_lance") + '</span><span>' + usd(r.gCarro) + '</span></div>' +
        '<div class="tl tl-tot"><span>' + T("t_total") + '</span><span>' +
          (d.pgto === "fin" ? T("tbd") : usd(r.total)) + '</span></div>' +
@@ -1531,7 +1660,8 @@ function render(){
          '<div class="ttl">' + T("t_onde") + '</div>' +
          linhaOnde(T("d_car"), T("d_car_s"), r.dCarro) +
          linhaOnde(T("d_auc"), T("d_auc_s"), r.dLeilao) + subLeilao +
-         linhaOnde(T("d_gov"), r.dGovTbd ? T("d_gov_s_tbd") : T("d_gov_s"), r.dGoverno) + subGov +
+         linhaGrupo(grupo, r.gGrupo) +
+         (grupo.nota ? '<p class="onde-nota">' + grupo.nota + '</p>' : '') +
          linhaOnde(T("d_mcs"), r.inspecao > 0 ? T("d_mcs_s_insp") : T("d_mcs_s"), r.dMcs, true) + subMcs +
          '<p class="onde-nota">' + notas.join(" ") + '</p>' +
        '</div>' +
@@ -1546,19 +1676,13 @@ function render(){
          '<span style="color:#7a3b39">' + T("zipwarn_p") + '</span></div>';
   }
 
-  /* As instrucoes do financiamento continuam como estavam. */
   if (d.pgto === "fin"){
-    h += '<div class="box info"><strong>' + T("f_t") + '</strong>' +
+    h += '<div class="box info"><strong>' + T("fin_box_title") + '</strong>' +
          '<ul>' +
-         '<li>' + T("f_1") + '</li>' +
-         '<li>' + T("f_2") + '</li>' +
-         '<li>' + T("f_3") + '</li>' +
-         '<li>' + T("f_4") + '</li>' +
+         '<li>' + T("fin_box_1") + '</li>' +
+         '<li>' + T("fin_box_2") + '</li>' +
+         '<li>' + T("fin_box_3") + '</li>' +
          '</ul></div>';
-  } else if (!d.florida){
-    h += '<div class="box calm">' +
-         (r.gImposto !== null ? T("calm_fora_e", { e: r.estadoNome }) : T("calm_fora_n")) +
-         '</div>';
   }
 
   h += '<div class="box calm"><strong>' + T("teto_t") + '</strong>' + T("teto_p") + '</div>';
@@ -2012,10 +2136,12 @@ function aplicarMarca(){
 
 function aplicarFinap(){
   var fin = document.querySelector('input[name="pgto"]:checked').value === "fin";
+  var estadoZip = zipEstado($("zip").value);
+  var cashForaFlorida = !fin && estadoZip && estadoZip.uf !== "FL";
   $("wrap-finap").hidden = !fin;
-  /* No financiado o titulo sai no nome do credor, entao nao existe
-     transferencia de placa: a placa e sempre nova.                 */
-  $("wrap-placa").hidden = fin;
+  /* Financiamento sempre usa placa nova. Na compra a vista fora da
+     Florida, titulo/registro/placa ficam para o DMV do cliente. */
+  $("wrap-placa").hidden = fin || cashForaFlorida;
   if (fin) document.querySelector('input[name="placa"][value="nova"]').checked = true;
 }
 
@@ -2211,20 +2337,37 @@ function desenharCartao(d, r){
   var c = document.createElement("canvas");
   var x = c.getContext("2d");
   var pad = 56 * S, w = W * S;
-
-  var linhas = [];
-  linhas.push([T("b_lance"), usd(r.gCarro)]);
-  if (d.florida){
-    linhas.push([T("b_leilaogov"), usd(r.gLeilao)]);
-  } else {
-    linhas.push([T("b_leilao"), usd(r.gLeilao)]);
-    linhas.push([T("b_taxreg"), r.gTaxReg !== null ? usd(r.gTaxReg) : T("tbd")]);
-  }
-  linhas.push([T("b_mcs"), usd(r.gMcs)]);
-
+  var grupo = dadosGrupo(d, r);
   var fin = d.pgto === "fin";
-  var alturaBase = 300 + linhas.length * 74 + 250 + (d.zipOk ? 0 : 150);
-  c.width = w; c.height = Math.round(alturaBase * S / 2 + 220 * S);
+  c.width = w; c.height = 1700 * S;
+
+  function quebra(txt, largura){
+    var palavras = String(txt || "").split(/\s+/), linhas = [], atual = "";
+    palavras.forEach(function(p){
+      var teste = atual ? atual + " " + p : p;
+      if (atual && x.measureText(teste).width > largura){ linhas.push(atual); atual = p; }
+      else atual = teste;
+    });
+    if (atual) linhas.push(atual);
+    return linhas;
+  }
+  function textoQuebrado(txt, px, cor, esquerda, topo, largura, entrelinha, max){
+    x.font = "400 " + (px * S) + "px Helvetica, Arial, sans-serif";
+    x.fillStyle = cor; x.textAlign = "left";
+    var linhas = quebra(txt, largura).slice(0, max || 99);
+    linhas.forEach(function(l){ x.fillText(l, esquerda, topo); topo += entrelinha * S; });
+    return topo;
+  }
+  function separador(y){
+    x.strokeStyle = "#e5e6e8"; x.lineWidth = 1 * S;
+    x.beginPath(); x.moveTo(pad, y); x.lineTo(w - pad, y); x.stroke();
+  }
+  function linha(lbl, valor, y, cor){
+    x.font = "500 " + (25 * S) + "px Helvetica, Arial, sans-serif";
+    x.fillStyle = cor || "#4f5358"; x.textAlign = "left"; x.fillText(lbl, pad, y);
+    x.fillStyle = cor || "#0e0e12"; x.textAlign = "right"; x.fillText(valor, w - pad, y);
+    x.textAlign = "left";
+  }
 
   x.fillStyle = "#ffffff"; x.fillRect(0, 0, c.width, c.height);
 
@@ -2242,30 +2385,65 @@ function desenharCartao(d, r){
   x.strokeStyle = "#efefef"; x.lineWidth = 1 * S;
   x.beginPath(); x.moveTo(pad, y); x.lineTo(w - pad, y); x.stroke();
 
-  y += 18 * S;
-  linhas.forEach(function(l){
-    y += 38 * S;
-    x.font = "400 " + (27 * S) + "px Helvetica, Arial, sans-serif";
-    x.fillStyle = "#626669"; x.textAlign = "left";
-    x.fillText(l[0], pad, y);
-    x.fillStyle = "#0e0e12"; x.textAlign = "right";
-    x.fillText(l[1], w - pad, y);
-    x.textAlign = "left";
-  });
-
-  y += 46 * S;
-  var hTot = 116 * S;
+  y += 30 * S;
+  var hTot = (fin ? 258 : 222) * S;
   x.fillStyle = "#343d4d";
   x.fillRect(pad, y, w - pad * 2, hTot);
   x.fillStyle = "#c8cdd6";
-  x.font = "400 " + (23 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText(fin ? T("f_t") : T("t_total"), pad + 26 * S, y + 42 * S);
+  x.font = "500 " + (22 * S) + "px Helvetica, Arial, sans-serif";
+  x.fillText(T("t_k"), pad + 26 * S, y + 38 * S);
   x.fillStyle = "#f8f4ea";
   x.font = "600 " + (50 * S) + "px Helvetica, Arial, sans-serif";
-  x.fillText(fin ? "\u2014" : usd(r.total), pad + 26 * S, y + 95 * S);
+  x.fillText(usd(r.acimaLance), pad + 26 * S, y + 91 * S);
+  var linhaBase = y + 135 * S;
+  if (fin){
+    linhaBase = textoQuebrado(T("fin_av", { v: usd(r.totalProjetado) }), 18, "#c8cdd6",
+      pad + 26 * S, linhaBase, w - pad * 2 - 52 * S, 24, 2) + 4 * S;
+  }
+  x.font = "400 " + (20 * S) + "px Helvetica, Arial, sans-serif";
+  x.fillStyle = "#c8cdd6"; x.textAlign = "left"; x.fillText(T("t_lance"), pad + 26 * S, linhaBase);
+  x.textAlign = "right"; x.fillText(usd(r.gCarro), w - pad - 26 * S, linhaBase);
+  linhaBase += 34 * S;
+  x.fillStyle = "#f8f4ea"; x.textAlign = "left"; x.fillText(T("t_total"), pad + 26 * S, linhaBase);
+  x.textAlign = "right"; x.fillText(fin ? T("tbd") : usd(r.total), w - pad - 26 * S, linhaBase);
+  x.textAlign = "left";
   y += hTot;
 
-  y += 30 * S;
+  y += 42 * S;
+  x.fillStyle = "#72767b";
+  x.font = "700 " + (18 * S) + "px Helvetica, Arial, sans-serif";
+  x.fillText(T("t_onde").toUpperCase(), pad, y);
+
+  y += 52 * S;
+  linha(T("d_car"), usd(r.dCarro), y);
+  y += 44 * S; separador(y); y += 44 * S;
+  linha(T("d_auc"), usd(r.dLeilao), y);
+  y += 44 * S; separador(y); y += 44 * S;
+  linha(grupo.nome, usd(r.gGrupo), y);
+  if (grupo.sufixo){
+    x.font = "400 " + (16 * S) + "px Helvetica, Arial, sans-serif";
+    x.fillStyle = "#6b6f74"; x.textAlign = "right";
+    x.fillText(grupo.sufixo, w - pad, y + 27 * S); x.textAlign = "left";
+    y += 27 * S;
+  }
+  y += 32 * S;
+  var coluna = (w - pad * 2 - 32 * S) / 2;
+  grupo.itens.forEach(function(item, i){
+    var col = i % 2, row = Math.floor(i / 2);
+    var ix = pad + col * (coluna + 32 * S), iy = y + row * 35 * S;
+    x.fillStyle = "#a8791f"; x.font = "700 " + (18 * S) + "px Helvetica, Arial, sans-serif";
+    x.fillText("✓", ix, iy);
+    x.fillStyle = "#5b5f64"; x.font = "400 " + (18 * S) + "px Helvetica, Arial, sans-serif";
+    x.fillText(item, ix + 26 * S, iy);
+  });
+  y += (Math.ceil(grupo.itens.length / 2) * 35 + 16) * S;
+  if (grupo.nota){
+    y = textoQuebrado(grupo.nota, 17, "#6b6f74", pad, y, w - pad * 2, 24, 3) + 8 * S;
+  }
+  separador(y); y += 44 * S;
+  linha(T("d_mcs"), usd(r.dMcs), y, "#9a6a16");
+
+  y += 48 * S;
   var hDep = 78 * S;
   x.fillStyle = "#fbf7ee"; x.fillRect(pad, y, w - pad * 2, hDep);
   x.strokeStyle = "#e8dbbd"; x.lineWidth = 1 * S;
