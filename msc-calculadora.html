@@ -361,9 +361,6 @@
   #path-a .path-back{margin-bottom:6px}
   .find-check{display:flex;gap:10px;align-items:center;margin-top:10px;font-size:14px;font-weight:500;cursor:pointer}
   .find-check input{width:19px;height:19px;accent-color:var(--ink)}
-  #find-wa{position:relative;padding-right:48px;background:linear-gradient(176deg,#181a1e 0%,#08090b 48%,#000 100%);color:var(--accent);font-weight:800;text-transform:uppercase;border:1px solid rgba(122,124,129,.88);border-radius:9px;box-shadow:0 7px 0 #292b2f,0 12px 22px rgba(0,0,0,.35)}
-  #find-wa::after{content:"";position:absolute;right:21px;top:50%;width:9px;height:9px;margin-top:-6px;border-right:2.4px solid var(--accent);border-bottom:2.4px solid var(--accent);transform:rotate(-45deg)}
-  #find-wa:active{transform:translateY(5px);box-shadow:0 2px 0 #292b2f,0 5px 10px rgba(0,0,0,.28)}
   .find-zip-note{display:none;margin-top:8px;color:var(--accent-ink);font-size:13px;line-height:1.5}
   .find-zip-note.on{display:block}
   @media (max-width:559px){
@@ -844,10 +841,23 @@
         </div>
         <div class="field"><label for="find-zip"><span data-i18n="lbl_zip">ZIP code where you'll register the car</span>&nbsp;*</label><input id="find-zip" type="text" inputmode="numeric" maxlength="5" autocomplete="postal-code"><p class="err" id="find-err-zip" data-i18n="err_zip">Enter your ZIP code.</p><p class="find-zip-note" id="find-zip-note" data-i18n="find_zip_note">ZIP code not recognized. You can still send your request.</p></div>
         <div class="field"><label for="find-nome"><span data-i18n="lbl_nome">Your name</span> <span data-i18n="optional">(optional)</span></label><input id="find-nome" type="text" autocomplete="name"></div>
-        <a class="btn" id="find-wa" href="#" target="_blank" rel="noopener"><span data-i18n="find_send">Send my request</span></a>
+        <section class="contact-cta" aria-labelledby="find-contact-title">
+          <h3 class="contact-cta__title" id="find-contact-title" data-i18n="find_contact_title">Your request is ready</h3>
+          <p class="contact-cta__copy" data-i18n="find_contact_copy">Your request is already written into the message<br>Choose how to send it</p>
+          <div class="contact-cta__choices">
+            <a class="contact-choice contact-choice--wa" id="find-wa" href="#" target="_blank" rel="noopener">
+              <svg class="contact-choice__icon" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M27.3 4.7A15.6 15.6 0 0 0 2.8 23.5L.6 31.4l8.1-2.1A15.6 15.6 0 0 0 16.1 31h.1A15.6 15.6 0 0 0 27.3 4.7Zm-11.1 23.6h-.1a12.8 12.8 0 0 1-6.5-1.8l-.5-.3-4.8 1.3 1.3-4.7-.3-.5A12.8 12.8 0 1 1 16.2 28.3Zm7-9.6c-.4-.2-2.3-1.1-2.7-1.3-.4-.1-.6-.2-.9.2-.3.4-1 1.3-1.2 1.6-.2.3-.5.3-.9.1-2.3-1.1-3.8-2-5.3-4.5-.4-.7.4-.6 1.1-2.1.1-.3.1-.6 0-.9l-1.2-2.9c-.3-.8-.7-.7-1-.7h-.8c-.3 0-.8.1-1.1.5-.4.4-1.5 1.5-1.5 3.6s1.6 4.2 1.8 4.5c.2.3 3.1 4.7 7.5 6.6 2.8 1.2 3.9 1.3 5.3 1.1.9-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.2-.3-.6-.4-1-.6Z"/></svg>
+              <span class="contact-choice__text"><strong>WhatsApp</strong><small data-i18n="contact_wa">Send via WhatsApp</small></span>
+            </a>
+            <a class="contact-choice contact-choice--sms" id="find-sms" href="#">
+              <svg class="contact-choice__icon" viewBox="0 0 32 32" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" d="M27.5 15.1c0 6.2-5.3 11.2-11.8 11.2-1.7 0-3.4-.4-4.9-1L4 28l2.3-6A10.8 10.8 0 0 1 4 15.1C4 8.9 9.3 3.8 15.8 3.8s11.7 5.1 11.7 11.3Z"/></svg>
+              <span class="contact-choice__text"><strong data-i18n="contact_sms_name">Text message</strong><small data-i18n="contact_sms">Send via SMS</small></span>
+            </a>
+          </div>
+        </section>
       </section>
     </form>
-    <p class="foot"><span class="marca">My Car Scout</span><span data-i18n="find_foot">Your request goes directly to our team on WhatsApp.</span></p>
+    <p class="foot"><span class="marca">My Car Scout</span><span data-i18n="find_foot">Your request goes directly to our team by WhatsApp or text message</span></p>
   </section>
 
 </main>
@@ -1006,19 +1016,19 @@ Object.assign(I18N.en,{
   optional:"(optional)",
   contact_title:"Your estimate is ready",contact_copy:"Your estimate is already written into the message. Choose how to send it.",contact_wa:"Send via WhatsApp",contact_sms_name:"Text message",contact_sms:"Send via SMS",contact_end_title:"Ready to send your estimate?",contact_end_copy:"Choose your preferred app. The same estimate is ready in both.",
   start_title:"How would you like to start?",start_sub:"Start with your budget or your ideal car. See the clearest path to a smarter purchase.",start_calc_title:"Calculate my cost",start_calc_1:"Plan with confidence.",start_calc_2:"See your estimate.",start_find_title:"Find one for me",start_find_1:"Tell us what you're looking for.",start_find_2:"We find the right options for you.",back_choice:"Back to choices",
-  find_title:"Find it for me",find_intro:"Tell us the car. We find the right options and show you the numbers.",find_vehicle_title:"Tell us the car",find_year_from:"Year from",find_year_to:"Year to",find_select:"Select",find_required:"Required.",find_year_error:"Choose a year equal to or later than Year from.",find_make:"Make",find_model_write:"Write the model",find_trim:"Trim",find_not_sure:"Not sure",find_trim_error:"Enter the trim or select Not sure.",find_miles_from:"Miles from",find_miles_to:"Miles to",find_miles_error:"Enter a value equal to or greater than Miles from.",find_zip_note:"ZIP code not recognized. You can still send your request.",find_name_error:"Enter your name.",find_send:"Send my request",find_foot:"Your request goes directly to our team on WhatsApp."
+  find_title:"Find it for me",find_intro:"Tell us the car. We find the right options and show you the numbers.",find_vehicle_title:"Tell us the car",find_year_from:"Year from",find_year_to:"Year to",find_select:"Select",find_required:"Required.",find_year_error:"Choose a year equal to or later than Year from.",find_make:"Make",find_model_write:"Write the model",find_trim:"Trim",find_not_sure:"Not sure",find_trim_error:"Enter the trim or select Not sure.",find_miles_from:"Miles from",find_miles_to:"Miles to",find_miles_error:"Enter a value equal to or greater than Miles from.",find_zip_note:"ZIP code not recognized. You can still send your request.",find_name_error:"Enter your name.",find_send:"Send my request",find_contact_title:"Your request is ready",find_contact_copy:"Your request is already written into the message<br>Choose how to send it",find_foot:"Your request goes directly to our team by WhatsApp or text message"
 });
 Object.assign(I18N.es,{
   optional:"(opcional)",
   contact_title:"Tu estimación está lista",contact_copy:"Tu estimación ya está escrita en el mensaje. Elige cómo enviarla.",contact_wa:"Enviar por WhatsApp",contact_sms_name:"Mensaje de texto",contact_sms:"Enviar por SMS",contact_end_title:"¿Listo para enviar tu estimación?",contact_end_copy:"Elige tu aplicación preferida. La misma estimación está lista en ambas.",
   start_title:"¿Cómo te gustaría comenzar?",start_sub:"Empieza por tu presupuesto o por el auto ideal. Mira el camino más claro hacia una compra más inteligente.",start_calc_title:"Calcular mi costo",start_calc_1:"Planifica con confianza.",start_calc_2:"Mira tu estimación.",start_find_title:"Encuéntralo para mí",start_find_1:"Dinos qué estás buscando.",start_find_2:"Encontramos las opciones correctas para ti.",back_choice:"Volver a las opciones",
-  find_title:"Encuéntrenlo por mí",find_intro:"Dinos qué auto buscas. Encontramos las opciones correctas y te mostramos los números.",find_vehicle_title:"Dinos qué auto buscas",find_year_from:"Año desde",find_year_to:"Año hasta",find_select:"Seleccionar",find_required:"Obligatorio.",find_year_error:"Elige un año igual o posterior al año inicial.",find_make:"Marca",find_model_write:"Escribe el modelo",find_trim:"Versión",find_not_sure:"No estoy seguro",find_trim_error:"Escribe la versión o marca No estoy seguro.",find_miles_from:"Millas desde",find_miles_to:"Millas hasta",find_miles_error:"Ingresa un valor igual o mayor que Millas desde.",find_zip_note:"No reconocimos el ZIP code. Aun así puedes enviar tu solicitud.",find_name_error:"Escribe tu nombre.",find_send:"Enviar mi solicitud",find_foot:"Tu solicitud llega directamente a nuestro equipo por WhatsApp."
+  find_title:"Encuéntrenlo por mí",find_intro:"Dinos qué auto buscas. Encontramos las opciones correctas y te mostramos los números.",find_vehicle_title:"Dinos qué auto buscas",find_year_from:"Año desde",find_year_to:"Año hasta",find_select:"Seleccionar",find_required:"Obligatorio.",find_year_error:"Elige un año igual o posterior al año inicial.",find_make:"Marca",find_model_write:"Escribe el modelo",find_trim:"Versión",find_not_sure:"No estoy seguro",find_trim_error:"Escribe la versión o marca No estoy seguro.",find_miles_from:"Millas desde",find_miles_to:"Millas hasta",find_miles_error:"Ingresa un valor igual o mayor que Millas desde.",find_zip_note:"No reconocimos el ZIP code. Aun así puedes enviar tu solicitud.",find_name_error:"Escribe tu nombre.",find_send:"Enviar mi solicitud",find_contact_title:"Tu solicitud está lista",find_contact_copy:"Tu solicitud ya está escrita en el mensaje<br>Elige cómo enviarla",find_foot:"Tu solicitud llega directamente a nuestro equipo por WhatsApp o mensaje de texto"
 });
 Object.assign(I18N.pt,{
   optional:"(opcional)",
   contact_title:"Sua estimativa está pronta",contact_copy:"Sua estimativa já está escrita na mensagem. Escolha como enviar.",contact_wa:"Enviar pelo WhatsApp",contact_sms_name:"Mensagem de texto",contact_sms:"Enviar por SMS",contact_end_title:"Pronto para enviar sua estimativa?",contact_end_copy:"Escolha seu aplicativo preferido. A mesma estimativa está pronta nos dois.",
   start_title:"Como você gostaria de começar?",start_sub:"Comece pelo seu orçamento ou pelo carro ideal. Veja o caminho mais claro para uma compra mais inteligente.",start_calc_title:"Calcular meu custo",start_calc_1:"Planeje com confiança.",start_calc_2:"Veja sua estimativa.",start_find_title:"Encontre para mim",start_find_1:"Conte o que você procura.",start_find_2:"Encontramos as opções certas para você.",back_choice:"Voltar às opções",
-  find_title:"Encontrem para mim",find_intro:"Conte qual é o carro. Encontramos as opções certas e mostramos os números.",find_vehicle_title:"Conte qual é o carro",find_year_from:"Ano de",find_year_to:"Ano até",find_select:"Selecionar",find_required:"Obrigatório.",find_year_error:"Escolha um ano igual ou posterior ao ano inicial.",find_make:"Marca",find_model_write:"Escreva o modelo",find_trim:"Versão",find_not_sure:"Não tenho certeza",find_trim_error:"Informe a versão ou marque Não tenho certeza.",find_miles_from:"Milhas de",find_miles_to:"Milhas até",find_miles_error:"Informe um valor igual ou maior que Milhas de.",find_zip_note:"ZIP code não reconhecido. Você ainda pode enviar o pedido.",find_name_error:"Informe seu nome.",find_send:"Enviar meu pedido",find_foot:"Seu pedido chega diretamente para nossa equipe no WhatsApp."
+  find_title:"Encontrem para mim",find_intro:"Conte qual é o carro. Encontramos as opções certas e mostramos os números.",find_vehicle_title:"Conte qual é o carro",find_year_from:"Ano de",find_year_to:"Ano até",find_select:"Selecionar",find_required:"Obrigatório.",find_year_error:"Escolha um ano igual ou posterior ao ano inicial.",find_make:"Marca",find_model_write:"Escreva o modelo",find_trim:"Versão",find_not_sure:"Não tenho certeza",find_trim_error:"Informe a versão ou marque Não tenho certeza.",find_miles_from:"Milhas de",find_miles_to:"Milhas até",find_miles_error:"Informe um valor igual ou maior que Milhas de.",find_zip_note:"ZIP code não reconhecido. Você ainda pode enviar o pedido.",find_name_error:"Informe seu nome.",find_send:"Enviar meu pedido",find_contact_title:"Seu pedido está pronto",find_contact_copy:"Seu pedido já está escrito na mensagem<br>Escolha como enviar",find_foot:"Seu pedido chega diretamente para nossa equipe por WhatsApp ou mensagem de texto"
 });
 
 Object.assign(I18N.en,{
@@ -1893,9 +1903,19 @@ function linkWhatsAppFind(d){
   L.push(c.miles+findMilhas(d.milhasDe)+"-"+findMilhas(d.milhasAte),zipLinha,"",c.talk,"Ref: "+d.ref);
   return montarLink(L);
 }
+function linkSmsFind(d){
+  var linkWa=linkWhatsAppFind(d);
+  var texto=linkWa.indexOf("?text=")>=0?linkWa.split("?text=")[1]:"";
+  var numero=String(CONFIG.whatsapp).replace(/\D/g,"");
+  var separador=/iPad|iPhone|iPod/.test(navigator.userAgent)?"&":"?";
+  return "sms:"+(numero?"+"+numero:"")+separador+"body="+texto;
+}
 function atualizarFindLink(){
-  try { $("find-wa").href = validarFind(false) ? linkWhatsAppFind(lerFindForm()) : "#"; }
-  catch(e){ $("find-wa").href="#"; }
+  try {
+    var pronto=validarFind(false),d=pronto?lerFindForm():null;
+    $("find-wa").href=pronto?linkWhatsAppFind(d):"#";
+    $("find-sms").href=pronto?linkSmsFind(d):"#";
+  } catch(e){ $("find-wa").href="#";$("find-sms").href="#"; }
 }
 function atualizarFindModelo(){
   var marca=$("find-marca").value, outra=marca === "Other brand", sel=$("find-modelo");
@@ -1925,12 +1945,14 @@ function iniciarFind(){
   ["find-miles-from","find-miles-to"].forEach(function(id){$(id).addEventListener("input",function(){this.value=findMilhas(this.value);});});
   $("find-zip").addEventListener("input",function(){this.value=zipCinco(this.value);var z=this.value, conhecido=zipValido(z);$("find-zip-note").classList.toggle("on",z.length===5&&!conhecido);if(z.length===5&&conhecido) buscarLocalZip(z).then(atualizarFindLink);});
   $("find-form").addEventListener("input",atualizarFindLink);$("find-form").addEventListener("change",atualizarFindLink);$("find-form").addEventListener("submit",function(e){e.preventDefault();});
-  $("find-wa").addEventListener("click",function(ev){
+  function prepararContatoFind(ev,canal){
     if(!validarFind(true)){ev.preventDefault();return;}
     var d=lerFindForm(),z=d.zip;
-    if(d.zipOk&&!(ZIP_LOCAL[z]&&ZIP_LOCAL[z].exato)){ev.preventDefault();buscarLocalZip(z).then(function(){var a=lerFindForm(),url=linkWhatsAppFind(a);$("find-wa").href=url;registrarBusca(a);window.location.href=url;});return;}
-    registrarBusca(d);
-  });
+    if(d.zipOk&&!(ZIP_LOCAL[z]&&ZIP_LOCAL[z].exato)){ev.preventDefault();buscarLocalZip(z).then(function(){var a=lerFindForm(),url=canal==="sms"?linkSmsFind(a):linkWhatsAppFind(a);atualizarFindLink();registrarBusca(a,canal);window.location.href=url;});return;}
+    registrarBusca(d,canal);
+  }
+  $("find-wa").addEventListener("click",function(ev){prepararContatoFind(ev,"whatsapp");});
+  $("find-sms").addEventListener("click",function(ev){prepararContatoFind(ev,"sms");});
   atualizarFindModelo();atualizarFindLink();
 }
 
@@ -2401,11 +2423,11 @@ function registrar(evento){
   } catch (e) {}
 }
 
-function registrarBusca(d){
+function registrarBusca(d,canal){
   if (!LOG_URL || !d) return;
   try {
     var linha = {
-      sid:FIND_SID,evento:"busca",quando:new Date().toISOString(),idioma:LANG,
+      sid:FIND_SID,evento:"busca",canal:canal||null,quando:new Date().toISOString(),idioma:LANG,
       zip:d.zip,zip_ok:d.zipOk?"sim":"nao",estado:d.zipUf,ref:d.ref,
       prazo:d.prazo,primeira_vez:d.exp,ano_de:d.anoDe,ano_ate:d.anoAte,
       marca:d.marca,modelo:d.modelo,trim:d.trim,milhas_de:d.milhasDe,milhas_ate:d.milhasAte
