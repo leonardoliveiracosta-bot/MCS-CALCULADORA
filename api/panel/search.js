@@ -14,7 +14,7 @@ module.exports = async (req, res) => {
       allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,is_current', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'journeys', { select: 'id,contact_id,vehicle_text,stage,status,updated_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,stage,status,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados', order: 'created_at.asc' })
     ]);
     const journeyMap = new Map(journeys.map((item) => [item.id, item]));
@@ -50,6 +50,9 @@ module.exports = async (req, res) => {
       if (!searchMatches(refQuery, ref)) continue;
       const journey = journeyMap.get(ref.journey_id);
       if (journey) add(journey.contact_id, journey.id, 'Ref');
+    }
+    for (const journey of journeys) {
+      if (journey.reference_code && searchMatches(refQuery, { ref_code: journey.reference_code })) add(journey.contact_id, journey.id, 'Ref');
     }
     const contactHits = [...hits.values()];
     const orderHits = consolidateCalcRuns(calcRuns).filter((item) => orderSearchMatches(q, item)).map((item) => ({
