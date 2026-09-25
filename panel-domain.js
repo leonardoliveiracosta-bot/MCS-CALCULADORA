@@ -264,6 +264,16 @@ function searchMatches(query, record) {
     || Boolean(phoneLike && compact && values.some((value) => value.replace(/\D/g, '').includes(compact)));
 }
 
+function normalizeContactPhone(value) {
+  const raw = clean(value);
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 10) return '+1' + digits;
+  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
+  if (raw.startsWith('+') && digits.length >= 8 && digits.length <= 15) return '+' + digits;
+  return null;
+}
+
 function orderSearchMatches(query, order) {
   const raw = clean(query);
   const needle = fold(raw.replace(/^ref\s*:?[\s-]*/i, ''));
@@ -290,5 +300,5 @@ function clientOkPatch(at, messageId) {
 module.exports = {
   DAY_MS, REF_RE, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   consolidateCalcRuns, fold, journeyLogicalMode, logicalMode, nextStageForUnits,
-  normalizeState, orderSearchMatches, searchMatches, shortDeadline, time
+  normalizeContactPhone, normalizeState, orderSearchMatches, searchMatches, shortDeadline, time
 };

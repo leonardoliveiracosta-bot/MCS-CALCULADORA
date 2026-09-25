@@ -34,6 +34,9 @@
       IMPORT_BATCH_FAILED: 'não foi possível gravar as mensagens no banco',
       IMPORT_FINISH_FAILED: 'as mensagens foram recebidas, mas a jornada não pôde ser concluída',
       CONTACT_NOT_FOUND: 'o contato escolhido não existe mais',
+      CONTACT_PHONE_INVALID: 'o telefone não é válido',
+      CONTACT_PHONE_CONFLICT: 'este telefone já pertence a outro contato',
+      CONTACT_PHONE_AMBIGUOUS: 'este telefone está ligado a mais de um contato; escolha manualmente',
       CHAT_NOT_FOUND: 'o chat escolhido não existe mais',
       JOURNEY_CHOICE_REQUIRED: 'escolha a busca antes de confirmar',
       PANEL_ACCESS_DENIED: 'esta conta não tem acesso ao painel',
@@ -57,7 +60,15 @@
   const formatMoney = (cents) => Number(cents) ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(Number(cents) / 100) : '—';
   const localInput = (date = new Date()) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const normalize = (value) => MCSParser.normalizeSender(value);
-  const inferredContactName = (title) => MCSParser.clean(String(title || '').replace(/^WhatsApp Chat with\s+/i, '').replace(/^Conversa do WhatsApp com\s+/i, '')).slice(0, 160) || 'Contato sem nome';
+  const inferredContactName = (title) => {
+    let value = MCSParser.clean(String(title || '')
+      .replace(/^WhatsApp Chat(?: with)?\s*[-–—_:]*\s*/i, '')
+      .replace(/^Conversa do WhatsApp(?: com)?\s*[-–—_:]*\s*/i, '')
+      .replace(/^[_\s-]+|[_\s-]+$/g, ''));
+    const phone = MCSParser.extractPhoneCandidate(value);
+    if (phone) value = MCSParser.clean(value.replace(phone, '').replace(/^[_\s-]+|[_\s-]+$/g, ''));
+    return value.slice(0, 160) || 'Contato sem nome';
+  };
   const setCount = (view, value) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => { node.textContent = String(value || 0); });
 
   const request = async (path, options = {}) => {
@@ -117,6 +128,10 @@
     select.add(new Option(label, value));
   }
 
+  function contactLabel(contact) {
+    return `${contact.display_name || 'Sem nome'}${contact.phoneLast4 ? ` · •••• ${contact.phoneLast4}` : ''}`;
+  }
+
   function updateImportChoices(parsed) {
     const contactSelect = $('import-contact');
     const chatSelect = $('import-chat');
@@ -135,7 +150,7 @@
     $('contact-name-label').hidden = chosenContact !== 'new';
   }
 
-  function reviewConversation(raw, filename, parsed) {
+  function reviewConversation(raw, filename, parsed, phoneResolution) {
     return new Promise((resolve, reject) => {
       const card = $('import-review-card');
       const form = $('import-review-form');
@@ -148,13 +163,31 @@
       parsed.senders.forEach((name) => option(sender, name, name));
       const contact = $('import-contact');
       contact.replaceChildren(new Option('Novo contato', 'new'));
-      contacts.forEach((item) => option(contact, item.display_name || 'Sem nome', item.id));
+      contacts.forEach((item) => option(contact, contactLabel(item), item.id));
       $('import-contact-name').value = inferredContactName(parsed.title);
+      $('import-contact-phone').value = parsed.phoneCandidate || '';
+      const matchStatus = $('contact-match-status');
+      const matchIds = new Set((phoneResolution && phoneResolution.matches || []).map((item) => item.id));
+      if (phoneResolution && phoneResolution.status === 'unique') {
+        contact.value = phoneResolution.matches[0].id;
+        matchStatus.textContent = `Telefone reconhecido: contato encontrado com final ${phoneResolution.phoneLast4}.`;
+      } else if (phoneResolution && phoneResolution.status === 'ambiguous') {
+        contact.replaceChildren(new Option('Escolha o contato correto', ''));
+        phoneResolution.matches.forEach((item) => option(contact, `${item.displayName} · •••• ${phoneResolution.phoneLast4}`, item.id));
+        matchStatus.textContent = `Mais de um contato usa o final ${phoneResolution.phoneLast4}. Escolha o correto.`;
+      } else if (phoneResolution && phoneResolution.status === 'none') {
+        matchStatus.textContent = `Telefone final ${phoneResolution.phoneLast4} ainda não cadastrado; será salvo no novo contato.`;
+      } else {
+        matchStatus.textContent = 'Telefone não encontrado no nome do arquivo; você pode informá-lo agora.';
+      }
+      matchStatus.classList.remove('hidden');
       $('ref-warning').classList.toggle('hidden', !parsed.refs.length);
       updateImportChoices(parsed);
-      $('import-contact').value = 'new';
+      if (phoneResolution && phoneResolution.status === 'unique') $('import-contact').value = phoneResolution.matches[0].id;
+      else if (phoneResolution && phoneResolution.status === 'ambiguous') $('import-contact').value = '';
+      else $('import-contact').value = 'new';
+      updateImportChoices(parsed);
       $('import-journey').value = 'new';
-      ['contact-label', 'contact-name-label', 'chat-label', 'journey-label', 'ref-warning'].forEach((id) => $(id).classList.add('hidden'));
       card.classList.remove('hidden');
       $('import-status').classList.remove('error');
       $('import-status').textContent = `${filename}: arquivo lido. Confirme os dados abaixo para gravar a conversa.`;
@@ -162,7 +195,17 @@
 
       const toggle = () => {
         const group = $('chat-type').value === 'group';
-        ['contact-label', 'contact-name-label', 'journey-label'].forEach((id) => { $(id).hidden = group || (id === 'contact-name-label' && $('import-contact').value !== 'new'); });
+        const selectedNew = $('import-contact').value === 'new';
+        const visibility = {
+          'contact-label': group,
+          'contact-name-label': group || !selectedNew,
+          'contact-phone-label': group || !selectedNew,
+          'contact-match-status': group,
+          'chat-label': group,
+          'journey-label': group,
+          'ref-warning': group || !parsed.refs.length
+        };
+        Object.entries(visibility).forEach(([id, hidden]) => { $(id).hidden = hidden; $(id).classList.toggle('hidden', hidden); });
       };
       $('chat-type').onchange = () => { updateImportChoices(parsed); toggle(); };
       $('import-contact').onchange = () => { updateImportChoices(parsed); toggle(); };
@@ -185,6 +228,7 @@
           if (!dateOrder) throw new Error('Escolha DD/MM ou MM/DD.');
           if (!$('chat-type').value) throw new Error('Confirme se é conversa individual ou grupo.');
           if (!$('mcs-sender').value) throw new Error('Confirme qual remetente é a MCS.');
+          if (!isGroup && phoneResolution && phoneResolution.status === 'ambiguous' && !matchIds.has($('import-contact').value)) throw new Error('Escolha qual contato corresponde a este telefone.');
           if (!isGroup && $('import-contact').value === 'new' && !MCSParser.clean($('import-contact-name').value)) throw new Error('Informe o nome do novo contato.');
           if (!isGroup && !$('import-journey').value) throw new Error('Escolha mesma busca ou nova jornada.');
           const finalParsed = MCSParser.parseWhatsApp(raw, filename, { dateOrder });
@@ -197,6 +241,7 @@
             parsed: finalParsed, entries, isGroup, mcsSender: $('mcs-sender').value,
             contactId: isGroup || $('import-contact').value === 'new' ? null : $('import-contact').value,
             newContactName: isGroup ? null : $('import-contact').value === 'new' ? MCSParser.clean($('import-contact-name').value) : null,
+            contactPhone: isGroup ? null : MCSParser.clean($('import-contact-phone').value) || parsed.phoneCandidate || null,
             chatId: $('import-chat').value === 'new' ? null : $('import-chat').value,
             journey: isGroup ? null : { mode: $('import-journey').value === 'new' ? 'new' : 'existing', journeyId: $('import-journey').value === 'new' ? null : $('import-journey').value }
           });
@@ -228,11 +273,16 @@
       choice = {
         parsed, entries: MCSParser.assignDirections(parsed, knownMcs.sender_text), isGroup: false,
         mcsSender: knownMcs.sender_text, contactId: knownChat.contact_id, newContactName: null,
+        contactPhone: initial.phoneCandidate || null,
         chatId: knownChat.id, journey: target ? { mode: 'existing', journeyId: target.id } : { mode: 'new', journeyId: null }
       };
       $('import-status').textContent = `${sourceFilename}: conversa reconhecida; gravando…`;
     } else {
-      choice = await reviewConversation(raw, filename, initial);
+      let phoneResolution = null;
+      if (initial.phoneCandidate) {
+        phoneResolution = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'match_contact', phone: initial.phoneCandidate }) });
+      }
+      choice = await reviewConversation(raw, filename, initial, phoneResolution);
     }
     const senderPayload = choice.parsed.senders.map((name) => ({ senderText: name, direction: MCSParser.normalizeSender(name) === MCSParser.normalizeSender(choice.mcsSender) ? 'MCS' : 'CUSTOMER' }));
     const start = await request('/api/panel/entry', {
@@ -241,6 +291,7 @@
         chat: {
           channel: 'WHATSAPP', chatId: choice.chatId, isGroup: choice.isGroup,
           contactId: choice.contactId, newContactName: choice.newContactName,
+          contactPhone: choice.contactPhone,
           aliasText: choice.parsed.title, senderAliases: senderPayload
         }
       })
@@ -396,7 +447,7 @@
     const select = $('sms-contact');
     const old = select.value;
     select.replaceChildren(new Option('Novo contato', 'new'));
-    contacts.forEach((contact) => option(select, contact.display_name || 'Sem nome', contact.id));
+    contacts.forEach((contact) => option(select, contactLabel(contact), contact.id));
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
     setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
@@ -417,12 +468,13 @@
     const message = MCSParser.clean($('sms-text').value);
     const localInput = $('sms-date').value;
     const name = MCSParser.clean($('sms-new-name').value);
+    const phone = MCSParser.clean($('sms-new-phone').value);
     if (!message || !localInput || (selected === 'new' && !name)) return;
     const contactId = selected === 'new' ? null : selected;
     const existingChat = chats.find((chat) => chat.channel === 'SMS' && chat.contact_id === contactId && !chat.is_group);
     const start = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({
       action: 'start', sourceKind: 'SMS_PASTE', sourceFilename: 'SMS manual', sourceSha256: await sha256(message + localInput),
-      chat: { channel: 'SMS', chatId: existingChat ? existingChat.id : null, isGroup: false, contactId, newContactName: selected === 'new' ? name : null, aliasText: 'SMS', senderAliases: [] }
+      chat: { channel: 'SMS', chatId: existingChat ? existingChat.id : null, isGroup: false, contactId, newContactName: selected === 'new' ? name : null, contactPhone: selected === 'new' ? phone : null, aliasText: 'SMS', senderAliases: [] }
     }) });
     const date = smsDate(localInput);
     const direction = $('sms-direction').value;
@@ -853,6 +905,35 @@
     definition(definitions, 'Data da próxima ação', formatDate(item.next_action_at));
     dataBlock.append(definitions);
 
+    const identityForm = element('div', 'inline-form contact-identity-form');
+    const identityNameLabel = element('label', '', 'Nome');
+    const identityName = element('input');
+    identityName.maxLength = 160;
+    identityName.value = item.contact && item.contact.display_name || '';
+    identityNameLabel.append(identityName);
+    const identityPhoneLabel = element('label', '', 'Telefone');
+    const identityPhone = element('input');
+    identityPhone.type = 'tel';
+    identityPhone.maxLength = 40;
+    identityPhone.value = item.phones.find((phone) => phone.is_current !== false)?.phone_e164 || item.phones[0]?.phone_raw || '';
+    identityPhoneLabel.append(identityPhone);
+    const saveIdentity = element('button', 'quiet small', 'Salvar identificação');
+    saveIdentity.type = 'button';
+    const identityStatus = element('p', 'status');
+    saveIdentity.addEventListener('click', async () => {
+      try {
+        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'update_contact_identity', journeyId: id, displayName: identityName.value, phone: identityPhone.value }) });
+        identityStatus.classList.remove('error');
+        identityStatus.textContent = 'Nome e telefone atualizados em todas as abas.';
+        await reload();
+      } catch (failure) {
+        identityStatus.classList.add('error');
+        identityStatus.textContent = failure.code === 'CONTACT_PHONE_CONFLICT' ? 'Este telefone já pertence a outro contato.' : 'Confira o nome e o telefone.';
+      }
+    });
+    identityForm.append(identityNameLabel, identityPhoneLabel, saveIdentity, identityStatus);
+    dataBlock.append(identityForm);
+
     const noteForm = element('div', 'inline-form note-form');
     const noteLabel = element('label', '', 'Nota');
     const note = element('textarea');
@@ -1236,7 +1317,12 @@
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('sms-form').addEventListener('submit', addSms);
-    $('sms-contact').addEventListener('change', () => { $('sms-new-name-label').hidden = $('sms-contact').value !== 'new'; refreshSmsJourneys(); });
+    $('sms-contact').addEventListener('change', () => {
+      const existing = $('sms-contact').value !== 'new';
+      $('sms-new-name-label').hidden = existing;
+      $('sms-new-phone-label').hidden = existing;
+      refreshSmsJourneys();
+    });
     $('attachment-upload').addEventListener('click', uploadAttachment);
     $('sms-date').value = localInput();
     await routeSession();

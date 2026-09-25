@@ -1,6 +1,6 @@
 'use strict';
 
-const { clientOkPatch, consolidateCalcRuns, nextStageForUnits, REF_RE, time } = require('../../panel-domain');
+const { clientOkPatch, consolidateCalcRuns, nextStageForUnits, normalizeContactPhone, REF_RE, time } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
 const {
   allRows, insert, isUuid, jsonBody, patchRows, recordMutation, requirePanel,
@@ -254,6 +254,51 @@ async function actionNote(ctx, journey, body) {
   return send(ctx.res, 200, { saved: true });
 }
 
+async function actionContactIdentity(ctx, journey, body) {
+  const displayName = safeText(body.displayName, 160, true);
+  const phoneRaw = safeText(body.phone, 40) || null;
+  const phoneE164 = phoneRaw ? normalizeContactPhone(phoneRaw) : null;
+  if (!displayName || (phoneRaw && !phoneE164)) return send(ctx.res, 400, { error: 'CONTACT_IDENTITY_INVALID' });
+  if (phoneE164) {
+    const currentOwners = await rows(ctx, 'contact_phones', {
+      select: 'id,contact_id,is_current', environment: 'eq.' + ctx.environment,
+      phone_e164: 'eq.' + phoneE164, is_current: 'is.true'
+    });
+    const alreadyOwnsCurrent = currentOwners.some((item) => item.contact_id === journey.contact_id);
+    if (!alreadyOwnsCurrent && currentOwners.some((item) => item.contact_id !== journey.contact_id)) return send(ctx.res, 409, { error: 'CONTACT_PHONE_CONFLICT' });
+    const ownRows = await rows(ctx, 'contact_phones', {
+      select: 'id,is_current', environment: 'eq.' + ctx.environment,
+      contact_id: 'eq.' + journey.contact_id, phone_e164: 'eq.' + phoneE164, limit: '1'
+    });
+    await patchRows(ctx, 'contact_phones', {
+      environment: 'eq.' + ctx.environment, contact_id: 'eq.' + journey.contact_id,
+      is_current: 'is.true', phone_e164: 'neq.' + phoneE164
+    }, { is_current: false, retired_at: isoNow() });
+    if (ownRows[0]) {
+      await patchRows(ctx, 'contact_phones', { environment: 'eq.' + ctx.environment, id: 'eq.' + ownRows[0].id }, {
+        is_current: true, retired_at: null, confirmed_at: isoNow()
+      });
+    } else {
+      await insert(ctx, 'contact_phones', {
+        environment: ctx.environment, contact_id: journey.contact_id, phone_e164: phoneE164,
+        phone_raw: phoneRaw, is_current: true, confirmed_at: isoNow(), created_at: isoNow(), created_by: ctx.panel.id
+      }, false);
+    }
+  }
+  const at = isoNow();
+  await patchRows(ctx, 'contacts', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.contact_id }, {
+    display_name: displayName, updated_at: at, updated_by: ctx.panel.id
+  });
+  await recordMutation(ctx, {
+    at, journeyId: journey.id, contactId: journey.contact_id,
+    activityType: 'CONTACT_IDENTITY_UPDATED', summary: 'Identificação do contato atualizada',
+    metadata: { name_updated: true, phone_updated: Boolean(phoneE164) },
+    entityType: 'contact', entityId: journey.contact_id, action: 'CONTACT_IDENTITY_UPDATE',
+    after: { has_name: true, has_phone: Boolean(phoneE164) }
+  });
+  return send(ctx.res, 200, { saved: true, phoneLast4: phoneE164 ? phoneE164.slice(-4) : null });
+}
+
 async function actionFunnel(ctx, journey, body) {
   if (journey.stage_frozen || journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_FROZEN' });
   const value = String(body.value || '');
@@ -496,6 +541,7 @@ module.exports = async (req, res) => {
       case 'declaration': return actionDeclaration(ctx, journey, body);
       case 'mark_message': return actionMarkMessage(ctx, journey, body);
       case 'update_note': return actionNote(ctx, journey, body);
+      case 'update_contact_identity': return actionContactIdentity(ctx, journey, body);
       case 'set_funnel': return actionFunnel(ctx, journey, body);
       case 'promise': return actionPromise(ctx, journey, body);
       case 'fulfill_promise': return actionFulfillPromise(ctx, journey, body);
