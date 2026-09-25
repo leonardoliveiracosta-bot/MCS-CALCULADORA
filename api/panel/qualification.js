@@ -10,7 +10,7 @@ module.exports = async (req, res) => {
   try {
     const [journeys, contacts, refs, checklist, evidence, divergences, meta] = await Promise.all([
       allRows(ctx, 'journeys', {
-        select: 'id,contact_id,stage,status,vehicle_text,budget_cents,payment_text,customer_deadline_at,customer_deadline_text,qualified_at,closed_reason',
+        select: 'id,contact_id,stage,status,vehicle_text,budget_cents,payment_text,customer_deadline_at,customer_deadline_text,qualified_at,closed_reason,updated_at',
         environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
       }),
       allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment }),
