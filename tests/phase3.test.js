@@ -198,3 +198,19 @@ test('conversation UI treats imported text only as text and bans browser modal A
   assert.doesNotMatch(source, /\b(?:alert|confirm|prompt)\s*\(/);
   assert.match(source, /textContent/);
 });
+
+test('tab changes replace stale counts with loading and ignore older responses', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  assert.match(source, /const requestVersion = \+\+viewRequestVersion/);
+  assert.match(source, /renderLoading\(view\)/);
+  assert.match(source, /currentView === view && viewRequestVersion === requestVersion/);
+  assert.match(source, /empty\(\$\(roots\[view\]\), 'Carregando…'\)/);
+});
+
+test('FICHAS clears an old detail when the list is empty or the tab changes', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  assert.match(source, /function clearRecordDetail/);
+  assert.match(source, /clearRecordDetail\(\);[\s\S]*renderLoading\(view\)/);
+  assert.match(source, /if \(!items\.length\) \{\s*clearRecordDetail\('Nenhuma ficha selecionada\.'\)/);
+  assert.match(source, /if \(currentView !== 'records'\) return/);
+});
