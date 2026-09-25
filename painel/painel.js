@@ -894,7 +894,7 @@
     const mappings = [];
     for (const file of selected) {
       if (file.size > MAX_TEXT) throw new Error('MANHEIM_FILE_TOO_LARGE');
-      const parsed = MCSManheim.parseCsv(await file.text());
+      let contents;\n      try { contents = await file.text(); }\n      catch { throw new Error('MANHEIM_FILE_READ_FAILED'); }\n      const parsed = MCSManheim.parseCsv(contents);
       const mapping = MCSManheim.mapHeaders(parsed.headers);
       if (mapping.missing.length) {
         $('manheim-status').classList.add('error');
@@ -929,12 +929,12 @@
 
   function showManheimFailure(failure) {
     const messages = {
-      MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido.',
+      MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido.',\n      MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado. Selecione o arquivo novamente.',
       MANHEIM_MATCH_LIMIT: 'O CSV gerou combinações demais; reduza o arquivo.',
       MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação.',
       MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação.',
       MANHEIM_JOURNEY_DISABLED: 'Uma busca não está disponível para comparação.',
-      PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio.'
+      PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio.',\n      PANEL_ACTION_FAILED: 'A comparação foi lida, mas não pôde ser gravada. Tente novamente.'
     };
     const moduleMissing = failure && failure.message === 'MCSManheim is not defined';
     $('manheim-status').classList.add('error');
