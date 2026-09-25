@@ -110,7 +110,7 @@ test('UI and server wire structured wishlist, grouping, presenting, Reativar, an
   assert.match(client, /Reativar/);
   assert.match(client, /Apresentei ao cliente/);
   assert.match(client, /Exportar para shortlist/);
-  assert.match(client, /function showManheimFailure/);
+  assert.match(client, /function showManheimFailure/);\n  assert.match(client, /MANHEIM_FILE_READ_FAILED/);\n  assert.match(client, /A comparação foi lida, mas não pôde ser gravada/);
   assert.doesNotMatch(client, /INICIAR BUSCA/);
   assert.match(server, /manheimMatchId/);
   assert.match(server, /JOURNEY_ALREADY_DISABLED/);
