@@ -46,6 +46,7 @@ module.exports = async (req, res) => {
         logicalMode: journeyLogicalMode(item),
         vehicleText: item.vehicle_text, budgetCents: item.budget_cents,
         paymentText: item.payment_text, deadlineText: item.customer_deadline_text,
+        referenceCode: item.reference_code,
         occurredAt: item.created_at, contactName: item.contact && item.contact.display_name,
         status: latest && latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO'
       };
@@ -62,7 +63,7 @@ module.exports = async (req, res) => {
     const items = filtered.slice(offset, offset + limit);
     const linkTargets = data.journeys.filter((item) => item.status !== 'ENCERRADO' && item.stage !== 'QUALIFICADO').map((item) => ({
       journeyId: item.id, contactId: item.contact_id,
-      label: `${item.contact && item.contact.display_name ? item.contact.display_name : 'Contato sem nome'} — ${item.vehicle_text || 'busca sem veículo'}`
+      label: `${item.contact && item.contact.display_name ? item.contact.display_name : 'Contato sem nome'} · Ref ${item.reference_code || '—'} — ${item.vehicle_text || 'busca sem veículo'}`
     }));
     return send(res, 200, {
       environment: ctx.environment, filter, period, items, linkTargets, meta,
