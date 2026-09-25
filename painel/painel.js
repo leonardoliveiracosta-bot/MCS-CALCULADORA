@@ -6,6 +6,9 @@
   const MAX_ENTRIES = 10000;
   let config;
   let accessToken;
+  let refreshToken;
+  let accessExpiresAt = 0;
+  let persistentSession = false;
   let refreshTimer;
   let contacts = [];
   let chats = [];
@@ -33,10 +36,16 @@
   const localInput = (date = new Date()) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
   const request = async (path, options = {}) => {
+    const retryAuth = options.retryAuth !== false;
+    const fetchOptions = { ...options };
+    delete fetchOptions.retryAuth;
     const response = await fetch(path, {
-      ...options,
-      headers: { 'content-type': 'application/json', ...(options.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) }
+      ...fetchOptions,
+      headers: { 'content-type': 'application/json', ...(fetchOptions.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) }
     });
+    if (response.status === 401 && retryAuth && refreshToken && await refreshAccessToken()) {
+      return request(path, { ...fetchOptions, retryAuth: false });
+    }
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
       const failure = new Error(result.error || 'REQUEST_FAILED');
@@ -957,7 +966,58 @@
     $('report-status').textContent = 'Texto copiado.';
   }
 
-  const clearSession = () => { sessionStorage.removeItem('mcs_panel_token'); accessToken = null; };
+  const SESSION_KEY = 'mcs_panel_session';
+  const storeSession = () => {
+    const storage = persistentSession ? localStorage : sessionStorage;
+    const otherStorage = persistentSession ? sessionStorage : localStorage;
+    otherStorage.removeItem(SESSION_KEY);
+    storage.setItem(SESSION_KEY, JSON.stringify({ accessToken, refreshToken, accessExpiresAt }));
+  };
+  const acceptAuthSession = (data, remember = persistentSession) => {
+    accessToken = data.access_token;
+    refreshToken = data.refresh_token || refreshToken;
+    accessExpiresAt = Date.now() + Math.max(0, Number(data.expires_in || 3600) - 60) * 1000;
+    persistentSession = remember;
+    storeSession();
+  };
+  const clearSession = () => {
+    sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_KEY);
+    accessToken = null;
+    refreshToken = null;
+    accessExpiresAt = 0;
+    persistentSession = false;
+  };
+  async function refreshAccessToken() {
+    if (!refreshToken || !config) return false;
+    const response = await fetch(config.url + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { apikey: config.publishableKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.access_token) {
+      clearSession();
+      return false;
+    }
+    acceptAuthSession(data);
+    return true;
+  }
+  async function restoreSession() {
+    let raw = localStorage.getItem(SESSION_KEY);
+    persistentSession = Boolean(raw);
+    if (!raw) raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return;
+    try {
+      const stored = JSON.parse(raw);
+      accessToken = stored.accessToken || null;
+      refreshToken = stored.refreshToken || null;
+      accessExpiresAt = Number(stored.accessExpiresAt || 0);
+      if (!accessToken || accessExpiresAt <= Date.now()) await refreshAccessToken();
+    } catch (_) {
+      clearSession();
+    }
+  }
   const startSafeRefresh = () => {
     clearInterval(refreshTimer);
     refreshTimer = setInterval(async () => {
@@ -986,8 +1046,8 @@
     const response = await fetch(config.url + '/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: config.publishableKey, 'content-type': 'application/json' }, body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value }) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.access_token) return error('login-error', 'E-mail ou senha inválidos.');
-    accessToken = data.access_token;
-    sessionStorage.setItem('mcs_panel_token', accessToken);
+    acceptAuthSession(data, $('remember-login').checked);
+    $('password').value = '';
     await routeSession();
   }
   async function changePassword(event) {
@@ -1004,7 +1064,7 @@
   }
   async function boot() {
     try { config = await request('/api/panel/config'); } catch (_) { error('login-error', 'Painel indisponível no momento.'); return; }
-    accessToken = sessionStorage.getItem('mcs_panel_token');
+    await restoreSession();
     $('login-form').addEventListener('submit', signIn);
     $('password-form').addEventListener('submit', changePassword);
     $('logout').addEventListener('click', () => { clearInterval(refreshTimer); clearSession(); show('login-view'); });
