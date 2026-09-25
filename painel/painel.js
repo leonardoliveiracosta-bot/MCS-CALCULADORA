@@ -507,6 +507,18 @@
     return wrap;
   }
 
+  function makeCardClickable(card, action) {
+    card.tabIndex = 0;
+    card.classList.add('clickable-card');
+    card.addEventListener('click', (event) => {
+      if (event.target.closest('button,input,select,textarea,a,details,summary')) return;
+      action();
+    });
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && event.target === card) action();
+    });
+  }
+
   function renderFailure(view) {
     const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
@@ -606,10 +618,12 @@
         open.addEventListener('click', () => switchPanel('orders'));
         actions.append(open);
         card.append(actions);
+        makeCardClickable(card, () => switchPanel('orders'));
         root.append(card);
         return;
       }
       open.addEventListener('click', async () => { await switchPanel('records'); await openRecord(item.id); });
+      makeCardClickable(card, async () => { await switchPanel('records'); await openRecord(item.id); });
       const defer = element('button', 'small', 'Adiar');
       defer.type = 'button';
       const dismiss = element('button', 'quiet small', 'Dispensar');
@@ -686,6 +700,8 @@
         form.append(label, button);
         card.append(form);
       }
+      const linkedJourneyId = item.journeyId || item.link && item.link.journeyId;
+      if (linkedJourneyId) makeCardClickable(card, async () => { await switchPanel('records'); await openRecord(linkedJourneyId); });
       root.append(card);
     });
   }
@@ -699,7 +715,7 @@
       const card = element('article', 'item-card');
       const head = element('div', 'item-head');
       const title = element('div');
-      title.append(identityHeader(item));
+      title.append(identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' }));
       const badges = element('div', 'badges');
       badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage), makeBadge(item.status));
       if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
@@ -714,6 +730,7 @@
       const open = element('button', 'quiet small', 'Abrir ficha e conversa');
       open.type = 'button';
       open.addEventListener('click', async () => { await switchPanel('records'); await openRecord(item.id); });
+      makeCardClickable(card, async () => { await switchPanel('records'); await openRecord(item.id); });
       card.append(open);
       root.append(card);
     });
