@@ -10,21 +10,28 @@ module.exports = async (req, res) => {
   try {
     const id = String((req.query && req.query.id) || '');
     if (!id) {
-      const [items, contacts, refs, meta] = await Promise.all([
+      const [items, contacts, phones, refs, messageLinks, messages, meta] = await Promise.all([
         allRows(ctx, 'journeys', {
-          select: 'id,contact_id,source,stage,status,vehicle_text,budget_cents,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_reason,updated_at',
+          select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,budget_cents,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_reason,updated_at',
           environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
         }),
         allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment }),
+        allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,is_current', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
+        allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment }),
+        allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,created_at', environment: 'eq.' + ctx.environment }),
         panelMeta(ctx)
       ]);
       const contactsById = new Map(contacts.map((item) => [item.id, item]));
-      return send(res, 200, { environment: ctx.environment, items: items.map((item) => ({ ...item, contact: contactsById.get(item.contact_id) || null, refs: refs.filter((ref) => ref.journey_id === item.id) })), meta });
+      const messagesById = new Map(messages.map((item) => [item.id, item]));
+      return send(res, 200, { environment: ctx.environment, items: items.map((item) => {
+        const ownMessages = messageLinks.filter((link) => link.journey_id === item.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0) - (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0));
+        return { ...item, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages[0] || null };
+      }), meta });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });
     const found = await rows(ctx, 'journeys', {
-      select: 'id,contact_id,source,stage,status,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
+      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
       environment: 'eq.' + ctx.environment, id: 'eq.' + id, limit: '1'
     });
     const journey = found[0];
