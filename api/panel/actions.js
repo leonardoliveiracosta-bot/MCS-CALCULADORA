@@ -1,7 +1,11 @@
 'use strict';
 
-const { clientOkPatch, consolidateCalcRuns, nextStageForUnits, REF_RE, time } = require('../../panel-domain');
+const {
+  clientOkPatch, consolidateCalcRuns, finiteInteger, journeyEnabled, matchManheimVehicle,
+  mergeWishlists, nextStageForUnits, reactivationEligible, REF_RE, time, wishlistsForJourney, wishlistText
+} = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
+const vehicleCatalog = require('../../vehicle-catalog');
 const {
   allRows, insert, isUuid, jsonBody, patchRows, recordMutation, requirePanel,
   rows, safeText, send, supabase
@@ -9,6 +13,29 @@ const {
 
 const TODAY_KINDS = new Set(['NO_RESPONSE', 'NEXT_ACTION', 'MISSING_NEXT_ACTION', 'DIVERGENCE', 'PROMISE', 'SEARCH_STALLED', 'UNIT_NO_RESPONSE']);
 const isoNow = () => new Date().toISOString();
+
+function safeWishlist(value, requireVehicle = false) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const make = safeText(source.make, 80) || '';
+  const model = safeText(source.model, 120) || '';
+  const yearMin = finiteInteger(source.yearMin);
+  const yearMax = finiteInteger(source.yearMax);
+  const maxMiles = finiteInteger(source.maxMiles);
+  const maximumYear = new Date().getUTCFullYear() + 2;
+  if ((requireVehicle && !model)
+      || (yearMin !== null && (yearMin < 1900 || yearMin > maximumYear))
+      || (yearMax !== null && (yearMax < 1900 || yearMax > maximumYear))
+      || (yearMin && yearMax && yearMin > yearMax)
+      || (maxMiles !== null && (maxMiles < 0 || maxMiles > 2000000))) return null;
+  return { make, model, yearMin, yearMax, maxMiles };
+}
+
+function safeWishlists(value, requireVehicle = false) {
+  const sources = Array.isArray(value) ? value : value ? [value] : [];
+  if (!sources.length || sources.length > 5) return null;
+  const wishlists = sources.map((source) => safeWishlist(source, requireVehicle));
+  return wishlists.every(Boolean) ? wishlists : null;
+}
 
 function declarationKey(field, value, valueJson = {}) {
   if (field === 'TETO') {
@@ -202,9 +229,11 @@ async function actionMarkMessage(ctx, journey, body) {
   }[kind];
   const message = await customerMessage(ctx, journey, body.messageId);
   if (!config || !message) return send(ctx.res, 400, { error: 'MESSAGE_MARK_INVALID' });
-  const value = safeText(body.value || message.body_text, 500, true);
+  const wishlists = kind === 'VEHICLE' ? safeWishlists(body.wishlists || body.wishlist, true) : null;
+  if (kind === 'VEHICLE' && !wishlists) return send(ctx.res, 400, { error: 'WISHLIST_INVALID' });
+  const value = safeText(kind === 'VEHICLE' ? wishlistText(wishlists) : body.value || message.body_text, kind === 'VEHICLE' ? 1200 : 500, true);
   if (config.field && !value) return send(ctx.res, 400, { error: 'MESSAGE_MARK_VALUE_INVALID' });
-  const valueJson = {};
+  const valueJson = wishlists ? { wishlist: { wishlists } } : {};
   if (config.field === 'TETO') {
     const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
     if (Number.isFinite(amount) && amount >= 0) valueJson.cents = Math.round(amount * 100);
@@ -353,6 +382,13 @@ async function actionLinkRequest(ctx, journey, body) {
   if (!journey.budget_cents && request.budgetCents) fill.budget_cents = request.budgetCents;
   if (!journey.payment_text && request.paymentText) fill.payment_text = request.paymentText;
   if (!journey.customer_deadline_text && request.deadlineText) fill.customer_deadline_text = request.deadlineText;
+  const criteria = journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
+  const existingWishlists = wishlistsForJourney({ criteria_json: criteria });
+  const mergedWishlists = mergeWishlists(existingWishlists, request.wishlists || request.wishlist);
+  if (JSON.stringify(mergedWishlists) !== JSON.stringify(existingWishlists)) {
+    const { wishlist: _legacyWishlist, ...criteriaWithoutLegacy } = criteria;
+    fill.criteria_json = { ...criteriaWithoutLegacy, wishlists: mergedWishlists };
+  }
   await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, fill);
   await recordMutation(ctx, {
     at, journeyId: journey.id, contactId: journey.contact_id,
@@ -363,6 +399,7 @@ async function actionLinkRequest(ctx, journey, body) {
 }
 
 async function actionUnit(ctx, journey, body) {
+  if (!journeyEnabled(journey)) return send(ctx.res, 409, { error: 'JOURNEY_DISABLED' });
   const at = isoNow();
   let unitId = body.unitId;
   let status = String(body.status || 'PRESENTED');
@@ -379,10 +416,31 @@ async function actionUnit(ctx, journey, body) {
       updated_at: at, updated_by: ctx.panel.id
     });
   } else {
-    const vehicle = safeText(body.vehicleText, 500, true);
+    let vehicle = safeText(body.vehicleText, 500, true);
+    let details = {};
+    let match = null;
+    if (body.manheimMatchId) {
+      if (!isUuid(body.manheimMatchId)) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_ID_INVALID' });
+      const matches = await rows(ctx, 'manheim_matches', {
+        select: 'id,vehicle_json,presented_unit_id', environment: 'eq.' + ctx.environment,
+        journey_id: 'eq.' + journey.id, id: 'eq.' + body.manheimMatchId, limit: '1'
+      });
+      match = matches[0];
+      if (!match) return send(ctx.res, 404, { error: 'MANHEIM_MATCH_NOT_FOUND' });
+      if (match.presented_unit_id) return send(ctx.res, 200, { unitId: match.presented_unit_id, status: 'PRESENTED', stage: journey.stage, repeated: true });
+      const parsed = match.vehicle_json && match.vehicle_json.parsed || {};
+      vehicle = safeText([parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' '), 500, true);
+      details = {
+        manheim_match_id: match.id, miles: finiteInteger(parsed.miles), location: safeText(parsed.location, 200) || null,
+        sale_date: safeText(parsed.saleDate, 100) || null, mmr_cents: finiteInteger(parsed.mmrCents),
+        exterior_color: safeText(parsed.exteriorColor, 120) || null, buy_now_price: safeText(parsed.buyNowPrice, 120) || null,
+        condition_report_grade: safeText(parsed.conditionGrade, 120) || null
+      };
+    }
     if (!vehicle) return send(ctx.res, 400, { error: 'UNIT_VEHICLE_REQUIRED' });
-    const created = await insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: vehicle, details_json: {}, presented_at: at, status, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id });
+    const created = await insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: vehicle, details_json: details, presented_at: at, status, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id });
     unitId = created[0].id;
+    if (match) await patchRows(ctx, 'manheim_matches', { environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + match.id }, { presented_unit_id: unitId });
   }
   const units = await allRows(ctx, 'units', { select: 'id,status', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
   const stage = nextStageForUnits(journey.stage, units);
@@ -459,13 +517,118 @@ async function actionSetStatus(ctx, journey, body) {
   return send(ctx.res, 200, { status });
 }
 
+async function actionToggleJourney(ctx, journey, body) {
+  if (typeof body.enabled !== 'boolean') return send(ctx.res, 400, { error: 'JOURNEY_SWITCH_INVALID' });
+  if (!body.enabled && !journeyEnabled(journey)) return send(ctx.res, 409, { error: 'JOURNEY_ALREADY_DISABLED' });
+  const reason = body.reason === null || body.reason === undefined || body.reason === '' ? null : String(body.reason);
+  if (reason && !['MCS_PURCHASE', 'OTHER_PURCHASE', 'GAVE_UP', 'NO_RESPONSE'].includes(reason)) return send(ctx.res, 400, { error: 'JOURNEY_SWITCH_REASON_INVALID' });
+  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_set_journey_enabled', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      p_environment: ctx.environment, p_journey_id: journey.id, p_enabled: body.enabled,
+      p_reason: reason, p_actor_id: ctx.panel.id
+    })
+  });
+  return send(ctx.res, 200, result);
+}
+
+async function actionReturn(ctx, journey, body) {
+  const kind = String(body.returnKind || '');
+  const operation = String(body.operation || '');
+  if (!['COMPLETE', 'REMOVE'].includes(operation)) return send(ctx.res, 400, { error: 'RETURN_OPERATION_INVALID' });
+  if (kind === 'NEXT_ACTION') return actionNext(ctx, journey, { ...body, operation });
+  if (kind !== 'PROMISE' || !isUuid(body.returnId)) return send(ctx.res, 400, { error: 'RETURN_INVALID' });
+  const found = await rows(ctx, 'promises', { select: 'id,status', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + body.returnId, limit: '1' });
+  if (!found[0]) return send(ctx.res, 404, { error: 'RETURN_NOT_FOUND' });
+  const status = operation === 'COMPLETE' ? 'FULFILLED' : 'CANCELLED';
+  const at = isoNow();
+  await patchRows(ctx, 'promises', { environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + body.returnId }, { status, fulfilled_at: operation === 'COMPLETE' ? at : null });
+  await recordMutation(ctx, {
+    at, journeyId: journey.id, contactId: journey.contact_id,
+    activityType: operation === 'COMPLETE' ? 'PROMISE_FULFILLED' : 'PROMISE_REMOVED',
+    summary: operation === 'COMPLETE' ? 'Retorno concluído' : 'Retorno removido', metadata: {},
+    entityType: 'promise', entityId: body.returnId, action: operation,
+    before: { status: found[0].status }, after: { status }
+  });
+  return send(ctx.res, 200, { status });
+}
+
+function safeManheimVehicle(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const parsedSource = source.parsed && typeof source.parsed === 'object' && !Array.isArray(source.parsed) ? source.parsed : {};
+  const headers = Array.isArray(source.headers) ? source.headers.map((entry) => safeText(entry, 160, true)).filter(Boolean).slice(0, 100) : [];
+  const rawSource = source.raw && typeof source.raw === 'object' && !Array.isArray(source.raw) ? source.raw : {};
+  const raw = {};
+  for (const header of headers) raw[header] = safeText(rawSource[header], 1000) || '';
+  const parsed = {
+    year: finiteInteger(parsedSource.year), make: safeText(parsedSource.make, 80) || '', model: safeText(parsedSource.model, 120, true),
+    trim: safeText(parsedSource.trim, 120) || '', miles: finiteInteger(parsedSource.miles),
+    location: safeText(parsedSource.location, 200) || '', saleDate: safeText(parsedSource.saleDate, 100) || '',
+    locationDisplay: safeText(parsedSource.locationDisplay, 200) || '', mmrCents: finiteInteger(parsedSource.mmrCents),
+    makeNotice: safeText(parsedSource.makeNotice, 160) || '', makeInferred: parsedSource.makeInferred === true,
+    exteriorColor: safeText(parsedSource.exteriorColor, 120) || '', interiorColor: safeText(parsedSource.interiorColor, 120) || '',
+    buyNowPrice: safeText(parsedSource.buyNowPrice, 120) || '', conditionGrade: safeText(parsedSource.conditionGrade, 120) || ''
+  };
+  if (!headers.length || !parsed.year || !parsed.model || parsed.miles === null || parsed.miles < 0) return null;
+  if (parsed.makeInferred) {
+    const inferred = vehicleCatalog.inferMake(parsed.model);
+    parsed.make = inferred.make;
+    parsed.makeNotice = inferred.make ? '' : 'marca não informada no arquivo';
+  }
+  parsed.locationDisplay = vehicleCatalog.readableLocation(parsed.location);
+  const output = { headers, raw, parsed };
+  return Buffer.byteLength(JSON.stringify(output), 'utf8') <= 65536 ? output : null;
+}
+
+async function actionManheimUpload(ctx, body) {
+  const fileCount = Number(body.sourceFileCount);
+  const vehicleCount = Number(body.vehicleCount);
+  const headers = Array.isArray(body.headers) ? body.headers.map((group) => Array.isArray(group) ? group.map((entry) => safeText(entry, 160, true)).filter(Boolean).slice(0, 100) : []).filter((group) => group.length).slice(0, 20) : [];
+  const headerMap = body.headerMap && typeof body.headerMap === 'object' && !Array.isArray(body.headerMap) ? body.headerMap : {};
+  const requested = Array.isArray(body.matches) ? body.matches : [];
+  if (!Number.isInteger(fileCount) || fileCount < 1 || fileCount > 20 || !Number.isInteger(vehicleCount) || vehicleCount < 0 || vehicleCount > 100000 || !headers.length || requested.length > 2000) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+
+  const [journeys, toggleStates] = await Promise.all([
+    allRows(ctx, 'journeys', { select: 'id,status,stage,criteria_json,budget_cents', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment })
+  ]);
+  const states = new Map(toggleStates.map((state) => [state.journey_id, state]));
+  const byId = new Map(journeys.map((journey) => {
+    const state = states.get(journey.id);
+    return [journey.id, { ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', offReason: state && state.off_reason || null }];
+  }));
+  const matches = [];
+  for (const item of requested) {
+    if (!isUuid(item && item.journeyId)) return send(ctx.res, 400, { error: 'MANHEIM_JOURNEY_ID_INVALID' });
+    const journey = byId.get(item.journeyId);
+    const vehicle = safeManheimVehicle(item.vehicle);
+    const fingerprint = safeText(item.fingerprint, 200, true);
+    if (!journey || !vehicle || !fingerprint) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+    const result = matchManheimVehicle(vehicle.parsed, wishlistsForJourney(journey), journey.budget_cents);
+    if (!result) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+    if (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE')) return send(ctx.res, 409, { error: 'MANHEIM_JOURNEY_DISABLED' });
+    if (journey.status === 'PARADO' && result.kind !== 'BATE') continue;
+    vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
+    vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
+    vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
+    matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
+  }
+  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_source_file_count: fileCount,
+      p_vehicle_count: vehicleCount, p_headers: headers, p_header_map: headerMap, p_matches: matches
+    })
+  });
+  return send(ctx.res, 201, result);
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
   ctx.res = res;
   try {
-    const body = await jsonBody(req);
+    const body = await jsonBody(req, 2 * 1024 * 1024);
+    if (body.action === 'manheim_upload') return actionManheimUpload(ctx, body);
     const journey = await journeyContext(ctx, body.journeyId);
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
     switch (body.action) {
@@ -486,6 +649,8 @@ module.exports = async (req, res) => {
       case 'interaction': return actionInteraction(ctx, journey, body);
       case 'set_status': return actionSetStatus(ctx, journey, body);
       case 'close_journey': return actionClose(ctx, journey, body);
+      case 'toggle_journey': return actionToggleJourney(ctx, journey, body);
+      case 'return_update': return actionReturn(ctx, journey, body);
       default: return send(res, 400, { error: 'PANEL_ACTION_INVALID' });
     }
   } catch (failure) {

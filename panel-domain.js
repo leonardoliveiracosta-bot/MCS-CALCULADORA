@@ -1,5 +1,7 @@
 'use strict';
 
+const vehicleCatalog = require('./vehicle-catalog');
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REF_RE = /^[A-HJ-NP-Z2-9]{5}$/;
 
@@ -79,11 +81,148 @@ function moneyCents(value) {
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : null;
 }
 
+function finiteInteger(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(String(value).replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
+
+function normalizeWishlist(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  return {
+    make: clean(value.make),
+    model: clean(value.model),
+    yearMin: finiteInteger(value.yearMin),
+    yearMax: finiteInteger(value.yearMax),
+    maxMiles: finiteInteger(value.maxMiles)
+  };
+}
+
+function wishlistsForJourney(journey) {
+  const criteria = journey && journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
+  const nested = criteria.wishlist && typeof criteria.wishlist === 'object' && !Array.isArray(criteria.wishlist) && Array.isArray(criteria.wishlist.wishlists) ? criteria.wishlist.wishlists : null;
+  const sources = Array.isArray(criteria.wishlists) ? criteria.wishlists : nested || (criteria.wishlist && typeof criteria.wishlist === 'object' && !Array.isArray(criteria.wishlist) ? [criteria.wishlist] : []);
+  return sources.slice(0, 5).map(normalizeWishlist).filter((wishlist) => wishlist.model);
+}
+
+function wishlistForJourney(journey) {
+  return wishlistsForJourney(journey)[0] || normalizeWishlist({});
+}
+
+function mergeWishlist(current, incoming) {
+  const existing = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+  const proposed = incoming && typeof incoming === 'object' && !Array.isArray(incoming) ? incoming : {};
+  const result = { ...existing };
+  for (const field of ['make', 'model', 'yearMin', 'yearMax', 'maxMiles']) {
+    if ((result[field] === null || result[field] === undefined || result[field] === '') && proposed[field] !== null && proposed[field] !== undefined && proposed[field] !== '') result[field] = proposed[field];
+  }
+  return result;
+}
+
+function mergeWishlists(current, incoming) {
+  const result = (Array.isArray(current) ? current : current ? [current] : []).slice(0, 5).map(normalizeWishlist).filter((wishlist) => wishlist.model);
+  for (const proposed of (Array.isArray(incoming) ? incoming : incoming ? [incoming] : []).map(normalizeWishlist).filter((wishlist) => wishlist.model)) {
+    const index = result.findIndex((existing) => vehicleCatalog.modelTokens(existing.model, existing.make).join(' ') === vehicleCatalog.modelTokens(proposed.model, proposed.make).join(' ')
+      && (!existing.make || !proposed.make || fold(existing.make) === fold(proposed.make)));
+    if (index >= 0) result[index] = mergeWishlist(result[index], proposed);
+    else if (result.length < 5) result.push(proposed);
+  }
+  return result;
+}
+
+function wishlistText(wishlist) {
+  const wishes = Array.isArray(wishlist) ? wishlist : [wishlist || {}];
+  return wishes.slice(0, 5).map((wish) => {
+    const years = wish.yearMin && wish.yearMax && wish.yearMin !== wish.yearMax ? `${wish.yearMin}–${wish.yearMax}` : wish.yearMin || wish.yearMax || null;
+    return clean([years, wish.make, wish.model].filter(Boolean).join(' '));
+  }).filter(Boolean).join(' · ');
+}
+
+function normalizedVehicle(value) {
+  return fold(value).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function matchManheimVehicle(vehicle, wishlist, budgetCents) {
+  const wishes = Array.isArray(wishlist) ? wishlist.slice(0, 5) : wishlist && Array.isArray(wishlist.wishlists) ? wishlist.wishlists.slice(0, 5) : [wishlist || {}];
+  const year = finiteInteger(vehicle && vehicle.year);
+  const miles = finiteInteger(vehicle && vehicle.miles);
+  const mmrCents = finiteInteger(vehicle && vehicle.mmrCents);
+  if (!year || !clean(vehicle && vehicle.model)) return null;
+  const candidates = [];
+  wishes.forEach((wish, index) => {
+    if (!clean(wish && wish.model)) return;
+    if (clean(vehicle.make) && clean(wish.make) && normalizedVehicle(vehicle.make) !== normalizedVehicle(wish.make)) return;
+    if (!vehicleCatalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make)) return;
+  const yearMin = finiteInteger(wish.yearMin);
+  const yearMax = finiteInteger(wish.yearMax);
+  const maxMiles = finiteInteger(wish.maxMiles);
+  const failures = [];
+  if (yearMin && year < yearMin) failures.push({ kind: 'year', delta: yearMin - year, reason: `ano ${yearMin - year} abaixo` });
+  if (yearMax && year > yearMax) failures.push({ kind: 'year', delta: year - yearMax, reason: `ano ${year - yearMax} acima` });
+  if (maxMiles && miles && miles > maxMiles) failures.push({ kind: 'miles', delta: miles - maxMiles, reason: `milhas ${(miles - maxMiles).toLocaleString('pt-BR')} acima` });
+  const kind = failures.length === 0 ? 'BATE' : failures.length === 1 && ((failures[0].kind === 'year' && failures[0].delta <= 1) || (failures[0].kind === 'miles' && failures[0].delta <= maxMiles * 0.1)) ? 'QUASE' : null;
+    if (!kind) return;
+    candidates.push({
+    kind,
+    reason: failures[0] ? failures[0].reason : null,
+      mmrStatus: mmrCents && Number(budgetCents) > 0 ? (mmrCents > Number(budgetCents) ? 'MMR acima do teto' : 'MMR dentro do teto') : null,
+      matchedWishlistIndex: index,
+      matchedWishlistLabel: clean([wish.make, wish.model].filter(Boolean).join(' ')),
+      makeNotice: clean(vehicle.makeNotice)
+    });
+  });
+  return candidates.sort((left, right) => (left.kind === right.kind ? left.matchedWishlistIndex - right.matchedWishlistIndex : left.kind === 'BATE' ? -1 : 1))[0] || null;
+}
+
+function journeyEnabled(journey) {
+  if (journey && typeof journey.enabled === 'boolean') return journey.enabled;
+  return Boolean(journey && journey.status !== 'ENCERRADO');
+}
+
+function reactivationEligible(journey) {
+  if (!journey) return false;
+  if (journey.status === 'PARADO') return true;
+  return !journeyEnabled(journey) && ['GAVE_UP', 'NO_RESPONSE'].includes(clean(journey.offReason || journey.off_reason));
+}
+
+function buildReturns(journey, promises) {
+  const result = [];
+  if (journey && journey.next_action_at) result.push({
+    id: 'next:' + journey.id, kind: 'NEXT_ACTION', dueAt: journey.next_action_at,
+    text: clean(journey.next_action_text), origin: 'Manual', status: 'OPEN'
+  });
+  for (const promise of Array.isArray(promises) ? promises : []) result.push({
+    id: promise.id, kind: 'PROMISE', dueAt: promise.due_at, text: clean(promise.promise_text),
+    origin: 'Mensagem', status: promise.status
+  });
+  return result.sort((a, b) => (time(a.dueAt) || 0) - (time(b.dueAt) || 0) || a.id.localeCompare(b.id));
+}
+
 function vehicleFor(data) {
   return clean([
     data.ano_de && data.ano_ate && data.ano_de !== data.ano_ate ? `${data.ano_de}–${data.ano_ate}` : data.ano_de || data.ano_ate,
     data.marca, data.modelo, data.trim
   ].filter(Boolean).join(' '));
+}
+
+function wishlistsFromCalculatorEvents(events) {
+  const collected = [];
+  for (const row of events.slice().sort(newer)) {
+    const data = dataFor(row);
+    const arrays = [data.carros, data.veiculos, data.vehicles].find(Array.isArray);
+    const sources = arrays || [data];
+    for (const source of sources) {
+      const wishlist = normalizeWishlist({
+        make: source.marca ?? source.make,
+        model: source.modelo ?? source.model,
+        yearMin: source.ano_de ?? source.yearMin,
+        yearMax: source.ano_ate ?? source.yearMax,
+        maxMiles: source.milhas_ate ?? source.maxMiles ?? source.milhas_de
+      });
+      if (wishlist.model) collected.push(wishlist);
+    }
+  }
+  return mergeWishlists([], collected);
 }
 
 function contactChannel(events) {
@@ -126,6 +265,7 @@ function consolidateCalcRuns(rows, links = []) {
     const budget = latestValue(events, (event, row) => event.lance ?? row.lance);
     const payment = latestValue(events, (event, row) => event.pagamento ?? row.pagamento);
     const state = latestValue(events, (event, row) => event.estado ?? row.estado);
+    const wishlists = wishlistsFromCalculatorEvents(events);
     const channel = contactChannel(events);
     const item = {
       key: 'calculator:' + key, sid: sids[0], sids, ref, logicalMode: mode,
@@ -134,6 +274,8 @@ function consolidateCalcRuns(rows, links = []) {
       occurredAt: data.quando || snapshot.created_at || null,
       vehicles,
       vehicleText: vehicles.join(' · ') || null,
+      wishlist: wishlists[0] || normalizeWishlist({}),
+      wishlists,
       budgetCents: moneyCents(budget),
       paymentText: clean(payment) || null,
       deadlineText: clean(latestValue(events, (event) => event.prazo)) || null,
@@ -171,7 +313,7 @@ function buildTodayItems(input, nowValue = new Date()) {
   const suppressions = Array.isArray(input.suppressions) ? input.suppressions : [];
   const result = [];
   for (const journey of journeys) {
-    if (journey.status === 'ENCERRADO' || journey.stage === 'QUALIFICADO' || journey.stage_frozen) continue;
+    if (!journeyEnabled(journey) || journey.stage === 'QUALIFICADO' || journey.stage_frozen) continue;
     const ownMessages = messages.filter((item) => item.journey_id === journey.id && item.direction !== 'SYSTEM').sort((a, b) => (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0) - (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0));
     const latest = ownMessages.at(-1);
     const latestEvent = Math.max(time(latest && (latest.occurred_at_utc || latest.occurred_at_local || latest.created_at)) || 0, time(journey.last_effective_contact_at) || 0);
@@ -179,17 +321,19 @@ function buildTodayItems(input, nowValue = new Date()) {
     const add = (kind, label, anchor, extra = {}) => {
       if (!reasonSuppressed(suppressions, journey.id, kind, latestEvent, nowMs)) reasons.push({ kind, label, anchor: anchor || nowMs, ...extra });
     };
-    if (latest && latest.direction === 'CUSTOMER') {
-      add('NO_RESPONSE', 'SEM RESPOSTA', time(latest.occurred_at_utc || latest.occurred_at_local || latest.created_at), { preview: clean(latest.body_text).slice(0, 180), channel: latest.channel });
-    }
     if (journey.next_action_at) {
       const due = time(journey.next_action_at);
-      add('NEXT_ACTION', due <= nowMs ? 'RETORNO VENCIDO' : 'RETORNO MARCADO', due, { dueAt: journey.next_action_at, detail: clean(journey.next_action_text) });
+      if (due <= nowMs) add('NEXT_ACTION', 'RETORNO VENCIDO', due, { dueAt: journey.next_action_at, detail: clean(journey.next_action_text), urgency: 'red' });
+      else if (due - nowMs <= 2 * 60 * 60 * 1000) add('NEXT_ACTION', 'RETORNO EM ATÉ 2H', due, { dueAt: journey.next_action_at, detail: clean(journey.next_action_text), urgency: 'yellow' });
     }
     const missingSince = time(journey.next_action_missing_since);
     if (!journey.next_action_at && missingSince && nowMs - missingSince >= 2 * DAY_MS) add('MISSING_NEXT_ACTION', 'SEM PRÓXIMA AÇÃO', missingSince + 2 * DAY_MS);
     for (const item of divergences.filter((value) => value.journey_id === journey.id && value.status === 'OPEN')) add('DIVERGENCE', `DIVERGÊNCIA: ${item.field}`, time(item.created_at));
-    for (const item of promises.filter((value) => value.journey_id === journey.id && value.status === 'OPEN')) add('PROMISE', (time(item.due_at) || 0) <= nowMs ? 'PROMESSA VENCIDA' : 'PROMESSA ABERTA', time(item.due_at || item.created_at), { dueAt: item.due_at, detail: clean(item.promise_text) });
+    for (const item of promises.filter((value) => value.journey_id === journey.id && value.status === 'OPEN')) {
+      const due = time(item.due_at) || 0;
+      if (due <= nowMs) add('PROMISE', 'RETORNO VENCIDO', due, { dueAt: item.due_at, detail: clean(item.promise_text), urgency: 'red' });
+      else if (due - nowMs <= 2 * 60 * 60 * 1000) add('PROMISE', 'RETORNO EM ATÉ 2H', due, { dueAt: item.due_at, detail: clean(item.promise_text), urgency: 'yellow' });
+    }
     const ownUnits = units.filter((value) => value.journey_id === journey.id);
     const searchAt = time(journey.search_started_at);
     if (searchAt && !ownUnits.length && nowMs - searchAt >= 5 * DAY_MS) add('SEARCH_STALLED', 'BUSCA PARADA — 5 DIAS', searchAt + 5 * DAY_MS);
@@ -210,6 +354,8 @@ function buildTodayItems(input, nowValue = new Date()) {
       vehicleText: clean(journey.vehicle_text) || null,
       stage: journey.stage,
       status: journey.status,
+      enabled: journeyEnabled(journey),
+      offReason: journey.offReason || journey.off_reason || null,
       budgetCents: Number(journey.budget_cents) || 0,
       checklistComplete: completed,
       checklistLabel: completed === 6 ? 'checklist completo' : `${completed}/6`,
@@ -335,7 +481,7 @@ function buildConversationTimeline(messages, interactions, activities) {
 }
 
 module.exports = {
-  DAY_MS, REF_RE, buildConversationTimeline, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
-  consolidateCalcRuns, fold, journeyLogicalMode, logicalMode, nextStageForUnits,
-  normalizeState, orderSearchMatches, searchMatches, shortDeadline, time
+  DAY_MS, REF_RE, buildConversationTimeline, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
+  consolidateCalcRuns, finiteInteger, fold, journeyEnabled, journeyLogicalMode, logicalMode, matchManheimVehicle, mergeWishlist, mergeWishlists, nextStageForUnits,
+  normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };

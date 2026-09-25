@@ -32,7 +32,7 @@ test('HOJE orders by longest wait, then budget, then completed checklist', () =>
   assert.deepEqual(buildTodayItems(data, now).map((item) => item.id), [data.journeys[2].id, data.journeys[0].id, data.journeys[1].id]);
 });
 
-test('HOJE includes sem resposta, overdue return, and 2/5/7-day rules', () => {
+test('HOJE does not infer no-response from imports and keeps overdue plus 2/5/7-day rules', () => {
   const ids = Array.from({ length: 5 }, (_, index) => `00000000-0000-4000-8000-00000000000${index + 1}`);
   const data = base([
     journey(ids[0]),
@@ -44,7 +44,7 @@ test('HOJE includes sem resposta, overdue return, and 2/5/7-day rules', () => {
   data.messages.push({ journey_id: ids[0], direction: 'CUSTOMER', channel: 'WHATSAPP', body_text: 'Ainda aguardo.', occurred_at_utc: new Date(now - DAY_MS).toISOString() });
   data.units.push({ journey_id: ids[4], status: 'UNDER_REVIEW', vehicle_text: 'SUV', presented_at: new Date(now - 7 * DAY_MS).toISOString() });
   const reasons = Object.fromEntries(buildTodayItems(data, now).map((item) => [item.id, item.reasons.map((reason) => reason.kind)]));
-  assert.deepEqual(reasons[ids[0]], ['NO_RESPONSE']);
+  assert.equal(reasons[ids[0]], undefined);
   assert.deepEqual(reasons[ids[1]], ['NEXT_ACTION']);
   assert.deepEqual(reasons[ids[2]], ['MISSING_NEXT_ACTION']);
   assert.deepEqual(reasons[ids[3]], ['SEARCH_STALLED']);
@@ -61,14 +61,14 @@ test('HOJE carries open divergences and promises without duplicating a journey',
   assert.deepEqual(items[0].reasons.map((reason) => reason.kind), ['DIVERGENCE', 'PROMISE']);
 });
 
-test('old reimport does not cancel dismissal but a newer real message does', () => {
+test('customer messages never create an automatic no-response alert', () => {
   const id = '00000000-0000-4000-8000-000000000001';
   const data = base([journey(id)]);
   data.suppressions.push({ journey_id: id, kind: 'NO_RESPONSE', action: 'DISMISS', created_at: new Date(now - DAY_MS).toISOString(), cancelled_at: null });
   data.messages.push({ journey_id: id, direction: 'CUSTOMER', channel: 'SMS', body_text: 'Mensagem antiga', occurred_at_utc: new Date(now - 2 * DAY_MS).toISOString() });
   assert.equal(buildTodayItems(data, now).length, 0);
   data.messages.push({ journey_id: id, direction: 'CUSTOMER', channel: 'SMS', body_text: 'Mensagem nova', occurred_at_utc: new Date(now.getTime() - 1000).toISOString() });
-  assert.equal(buildTodayItems(data, now).length, 1);
+  assert.equal(buildTodayItems(data, now).length, 0);
 });
 
 test('calculator consolidation uses event mode, merges duplicate Ref, and reads every session event', () => {

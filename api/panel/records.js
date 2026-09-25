@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildConversationTimeline, checklistSummary, shortDeadline, time } = require('../../panel-domain');
+const { buildConversationTimeline, buildReturns, checklistSummary, journeyEnabled, reactivationEligible, shortDeadline, time, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
 
 module.exports = async (req, res) => {
@@ -8,9 +8,31 @@ module.exports = async (req, res) => {
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
   try {
+    if (String((req.query && req.query.view) || '') === 'manheim') {
+      const [journeys, contacts, toggleStates, uploads, meta] = await Promise.all([
+        allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,stage,status,criteria_json,budget_cents,vehicle_text,updated_at', environment: 'eq.' + ctx.environment, order: 'updated_at.desc' }),
+        allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment }),
+        allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
+        rows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,headers_json,header_map,uploaded_at', environment: 'eq.' + ctx.environment, order: 'uploaded_at.desc', limit: '1' }),
+        panelMeta(ctx)
+      ]);
+      const latest = uploads[0] || null;
+      const matches = latest ? await allRows(ctx, 'manheim_matches', {
+        select: 'id,journey_id,match_kind,match_reason,mmr_status,row_fingerprint,vehicle_json,presented_unit_id,created_at',
+        environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id, order: 'created_at.asc'
+      }) : [];
+      const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
+      const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
+      const items = journeys.map((journey) => {
+        const state = stateByJourney.get(journey.id);
+        const item = { ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null };
+        return { ...item, wishlist: wishlistForJourney(item), wishlists: wishlistsForJourney(item), reactivationEligible: reactivationEligible(item) };
+      });
+      return send(res, 200, { environment: ctx.environment, items, upload: latest, matches, meta });
+    }
     const id = String((req.query && req.query.id) || '');
     if (!id) {
-      const [items, contacts, phones, refs, messageLinks, messages, meta] = await Promise.all([
+      const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta] = await Promise.all([
         allRows(ctx, 'journeys', {
           select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,budget_cents,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_reason,updated_at',
           environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
@@ -20,13 +42,18 @@ module.exports = async (req, res) => {
         allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,created_at', environment: 'eq.' + ctx.environment }),
+        allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
+        rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, order: 'uploaded_at.desc', limit: '1' }),
         panelMeta(ctx)
       ]);
+      const latestMatches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'journey_id', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id }) : [];
       const contactsById = new Map(contacts.map((item) => [item.id, item]));
       const messagesById = new Map(messages.map((item) => [item.id, item]));
+      const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
       return send(res, 200, { environment: ctx.environment, items: items.map((item) => {
         const ownMessages = messageLinks.filter((link) => link.journey_id === item.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0) - (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0));
-        return { ...item, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages[0] || null };
+        const state = stateByJourney.get(item.id);
+        return { ...item, enabled: state ? state.enabled : item.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: latestMatches.filter((match) => match.journey_id === item.id).length, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages[0] || null };
       }), meta });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });
@@ -36,7 +63,7 @@ module.exports = async (req, res) => {
     });
     const journey = found[0];
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
-    const [contacts, phones, refs, checklist, evidence, promises, units, interactions, activities, divergences, declarations, links, messages, attachments, meta] = await Promise.all([
+    const [contacts, phones, refs, checklist, evidence, promises, units, interactions, activities, divergences, declarations, links, messages, attachments, toggleStates, uploads, meta] = await Promise.all([
       rows(ctx, 'contacts', { select: 'id,display_name,location_text,profile_text,notes', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.contact_id, limit: '1' }),
       allRows(ctx, 'contact_phones', { select: 'id,phone_e164,phone_raw,is_current,confirmed_at,retired_at', environment: 'eq.' + ctx.environment, contact_id: 'eq.' + journey.contact_id }),
       allRows(ctx, 'journey_refs', { select: 'id,ref_code,calculator_sid,source_message_id,created_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id }),
@@ -51,8 +78,11 @@ module.exports = async (req, res) => {
       allRows(ctx, 'message_journeys', { select: 'message_id,association_source,associated_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id }),
       allRows(ctx, 'messages', { select: 'id,chat_id,channel,direction,body_text,occurred_at_local,timezone_assumed,occurred_at_utc,time_uncertain,original_order,created_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'attachments', { select: 'id,chat_id,message_id,kind,original_filename,mime_type,byte_size,verified_at,created_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id }),
+      rows(ctx, 'journey_toggle_states', { select: 'enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id, limit: '1' }),
+      rows(ctx, 'manheim_uploads', { select: 'id,uploaded_at', environment: 'eq.' + ctx.environment, order: 'uploaded_at.desc', limit: '1' }),
       panelMeta(ctx)
     ]);
+    const manheimMatches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'id,match_kind', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, journey_id: 'eq.' + id }) : [];
     const messageIds = new Set(links.map((item) => item.message_id));
     const conversation = messages.filter((item) => messageIds.has(item.id)).sort((a, b) => {
       const delta = (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0) - (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0);
@@ -60,12 +90,15 @@ module.exports = async (req, res) => {
     });
     const points = checklist.map((point) => ({ ...point, evidence: evidence.filter((item) => item.checklist_id === point.id) }));
     const timeline = buildConversationTimeline(conversation, interactions, activities);
+    const toggle = toggleStates[0];
+    const enabled = toggle ? toggle.enabled : journey.status !== 'ENCERRADO';
     return send(res, 200, {
       environment: ctx.environment,
       item: {
-        ...journey, contact: contacts[0] || null, phones, refs, checklist: points, checklistSummary: checklistSummary(points),
+        ...journey, enabled, toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, wishlist: wishlistForJourney(journey), wishlists: wishlistsForJourney(journey), contact: contacts[0] || null, phones, refs, checklist: points, checklistSummary: checklistSummary(points),
         shortDeadline: shortDeadline(journey.customer_deadline_at), promises, units,
-        interactions, divergences, declarations, attachments, conversation, timeline
+        returns: buildReturns(journey, promises), interactions, divergences, declarations, attachments, conversation, timeline,
+        manheimMatchCount: manheimMatches.length, manheimUploadAt: uploads[0] && uploads[0].uploaded_at || null
       },
       meta
     });
