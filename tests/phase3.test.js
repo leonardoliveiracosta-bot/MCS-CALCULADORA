@@ -10,8 +10,8 @@ const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  DAY_MS, buildTodayItems, checklistSummary, clientOkPatch, consolidateCalcRuns,
-  logicalMode, nextStageForUnits, searchMatches, shortDeadline
+  DAY_MS, buildTodayItems, buildTodayOrderItems, checklistSummary, clientOkPatch, consolidateCalcRuns,
+  journeyLogicalMode, logicalMode, nextStageForUnits, orderSearchMatches, searchMatches, shortDeadline
 } = require('../panel-domain');
 const { supabase } = require('../panel-server');
 
@@ -71,18 +71,45 @@ test('old reimport does not cancel dismissal but a newer real message does', () 
   assert.equal(buildTodayItems(data, now).length, 1);
 });
 
-test('calculator consolidation keeps sid/ref/mode separate and selects last contact snapshot', () => {
+test('calculator consolidation uses event mode, merges duplicate Ref, and reads every session event', () => {
   const rows = [
-    { id: '1', created_at: '2026-01-01T10:00:00Z', dados: { sid: 'A', ref: 'ABC23', evento: 'simulacao', quando: '2026-01-01T10:00:00Z', lance: 10000, modelo: 'Old' } },
-    { id: '2', created_at: '2026-01-01T11:00:00Z', dados: { sid: 'A', ref: 'ABC23', evento: 'whatsapp', quando: '2026-01-01T11:00:00Z', lance: 10000, modelo: 'Contact' } },
-    { id: '3', created_at: '2026-01-01T12:00:00Z', dados: { sid: 'A', ref: 'ABC23', evento: 'share', quando: '2026-01-01T12:00:00Z', lance: 10000, modelo: 'Later non-contact' } },
-    { id: '4', created_at: '2026-01-02T10:00:00Z', dados: { sid: 'B', ref: 'ABC23', evento: 'busca', quando: '2026-01-02T10:00:00Z', ano_de: 2020 } },
-    { id: '5', created_at: '2026-01-03T10:00:00Z', dados: { sid: 'A', ref: 'ABC23', evento: 'busca', quando: '2026-01-03T10:00:00Z', ano_de: 2021 } }
+    { id: '1', created_at: '2026-01-01T10:00:00Z', dados: { sid: 'A', ref: 'ABC23', evento: 'simulacao', quando: '2026-01-01T10:00:00Z', lance: 10000, pagamento: 'cash', modelo: 'Old', estado: { uf: 'FL', nome: 'Florida' } } },
+    { id: '2', created_at: '2026-01-01T11:00:00Z', dados: { sid: 'A', ref: 'ABC23', evento: 'whatsapp', quando: '2026-01-01T11:00:00Z' } },
+    { id: '3', created_at: '2026-01-01T12:00:00Z', dados: { sid: 'A', ref: 'ABC23', evento: 'saida', quando: '2026-01-01T12:00:00Z' } },
+    { id: '4', created_at: '2026-01-02T10:00:00Z', dados: { sid: 'B-find-x', ref: 'RHD4F', evento: 'busca', quando: '2026-01-02T10:00:00Z', ano_de: 2016, ano_ate: 2024, marca: 'Fiat', modelo: '500', estado: { uf: 'FL' }, canal: 'sms', zip: '33030' } },
+    { id: '5', created_at: '2026-01-03T10:00:00Z', dados: { sid: 'B-find-x', ref: 'RHD4F', evento: 'busca', quando: '2026-01-03T10:00:00Z', ano_de: 2016, ano_ate: 2024, marca: 'Cadillac', modelo: 'XT4', estado: { uf: 'FL' }, canal: 'sms', zip: '33030' } },
+    { id: '6', created_at: '2026-01-04T10:00:00Z', dados: { sid: 'C', ref: 'ABCDE', evento: 'simulacao', quando: '2026-01-04T10:00:00Z', lance: 1 } }
   ];
   const result = consolidateCalcRuns(rows);
-  assert.equal(result.length, 3);
-  assert.equal(result.find((item) => item.sid === 'A' && item.logicalMode === 'CARRO').vehicleText, 'Contact');
-  assert.equal(logicalMode({ dados: { evento: 'share' } }), 'REVIEW');
+  assert.equal(result.length, 2);
+  const value = result.find((item) => item.logicalMode === 'VALOR');
+  assert.equal(value.budgetCents, 1000000);
+  assert.equal(value.paymentText, 'cash');
+  assert.equal(value.state, 'FL');
+  assert.equal(value.contactChannel, 'WHATSAPP');
+  const car = result.find((item) => item.ref === 'RHD4F');
+  assert.equal(car.logicalMode, 'CARRO');
+  assert.equal(car.state, 'FL');
+  assert.equal(car.vehicleText, '2016–2024 Fiat 500 · 2016–2024 Cadillac XT4');
+  assert.equal(car.contactChannel, 'SMS');
+  assert.equal(result.some((item) => item.ref === 'ABCDE'), false);
+  assert.equal(logicalMode({ dados: { evento: 'share' } }), 'VALOR');
+});
+
+test('direct order mode comes from stored mode and never from budget presence', () => {
+  assert.equal(journeyLogicalMode({ budget_cents: 5000000, criteria_json: { mode: 'VALOR' } }), 'VALOR');
+  assert.equal(journeyLogicalMode({ budget_cents: 5000000, criteria_json: {} }), 'REVIEW');
+  assert.equal(journeyLogicalMode({ budget_cents: null, criteria_json: { modo: 'CARRO' } }), 'CARRO');
+});
+
+test('clicked WhatsApp or SMS calculator requests appear in HOJE only while unlinked', () => {
+  const items = buildTodayOrderItems([
+    { key: 'a', ref: 'ABC23', clickedContact: true, contactChannel: 'WHATSAPP', occurredAt: new Date(now - DAY_MS).toISOString(), logicalMode: 'VALOR' },
+    { key: 'b', ref: 'ABC24', clickedContact: true, contactChannel: 'SMS', occurredAt: new Date(now - 2 * DAY_MS).toISOString(), logicalMode: 'CARRO', link: { journeyId: 'j' } },
+    { key: 'c', ref: 'ABC25', clickedContact: false, occurredAt: new Date(now - 3 * DAY_MS).toISOString(), logicalMode: 'VALOR' }
+  ], now);
+  assert.deepEqual(items.map((item) => item.id), ['a']);
+  assert.equal(items[0].reasons[0].label, 'WHATSAPP CLICADO');
 });
 
 test('Cliente deu OK freezes as QUALIFICADO + ENCERRADO with exact reason', () => {
@@ -112,6 +139,14 @@ test('global search matches name accents, phone digits, and Ref', () => {
   assert.equal(searchMatches('abc23', { ref_code: 'ABC23' }), true);
   assert.equal(searchMatches('abc24', { ref_code: 'ABC23' }), false);
   assert.equal(searchMatches('E3TST', { display_name: 'TESTE PAINEL E3 — BETA' }), false);
+});
+
+test('order search accepts Ref prefix, case-insensitive model, and ZIP', () => {
+  const order = { ref: 'RHD4F', vehicleText: '2016–2024 Cadillac XT4', zip: '33030' };
+  assert.equal(orderSearchMatches('Ref rhd4f', order), true);
+  assert.equal(orderSearchMatches('cadillac', order), true);
+  assert.equal(orderSearchMatches('33030', order), true);
+  assert.equal(orderSearchMatches('RHD5F', order), false);
 });
 
 function response(status, payload) {

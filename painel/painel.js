@@ -13,6 +13,10 @@
   let senderAliases = [];
   let currentView = 'today';
   let orderFilter = 'Todos';
+  let orderPeriod = '30';
+  let orderOffset = 0;
+  let orderItems = [];
+  let orderLinkTargets = [];
   let reportView = 'today';
   const $ = (id) => document.getElementById(id);
   const show = (id) => ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id));
@@ -401,9 +405,7 @@
       return renderToday(data.items || []);
     }
     if (currentView === 'orders') {
-      const data = await request('/api/panel/orders?filter=' + encodeURIComponent(orderFilter));
-      updateMeta(data.meta);
-      return renderOrders(data.items || [], data.linkTargets || []);
+      return loadOrders(false);
     }
     if (currentView === 'qualification') {
       const data = await request('/api/panel/qualification');
@@ -415,6 +417,20 @@
       updateMeta(data.meta);
       return renderRecords(data.items || []);
     }
+  }
+
+  async function loadOrders(append) {
+    if (!append) {
+      orderOffset = 0;
+      orderItems = [];
+    }
+    const params = new URLSearchParams({ filter: orderFilter, period: orderPeriod, limit: '30', offset: String(orderOffset) });
+    const data = await request('/api/panel/orders?' + params.toString());
+    updateMeta(data.meta);
+    orderItems = append ? orderItems.concat(data.items || []) : (data.items || []);
+    orderLinkTargets = data.linkTargets || orderLinkTargets;
+    orderOffset = orderItems.length;
+    renderOrders(orderItems, orderLinkTargets, data.page || {});
   }
 
   async function postAction(payload) {
@@ -444,6 +460,14 @@
       const actions = element('div', 'inline-actions');
       const open = element('button', 'quiet small', 'Abrir ficha');
       open.type = 'button';
+      if (item.kind === 'CALCULATOR_ORDER') {
+        open.textContent = 'Abrir pedido';
+        open.addEventListener('click', () => switchPanel('orders'));
+        actions.append(open);
+        card.append(actions);
+        root.append(card);
+        return;
+      }
       open.addEventListener('click', async () => { await switchPanel('records'); await openRecord(item.id); });
       const defer = element('button', 'small', 'Adiar');
       defer.type = 'button';
@@ -473,20 +497,34 @@
     });
   }
 
-  function renderOrders(items, linkTargets) {
+  function renderOrders(items, linkTargets, page) {
     const root = $('orders-list');
     root.replaceChildren();
-    if (!items.length) return empty(root, 'Nenhum pedido neste filtro.');
+    $('orders-more').classList.toggle('hidden', !page.hasMore);
+    if (!items.length) return empty(root, 'Nenhum pedido neste filtro e período.');
     items.forEach((item) => {
       const card = element('article', 'item-card');
+      card.dataset.orderKey = item.key;
       const head = element('div', 'item-head');
       const title = element('div');
-      title.append(element('h3', '', item.contactName || item.ref ? (item.contactName || `Ref ${item.ref}`) : 'Pedido direto'), element('p', 'muted', item.vehicleText || 'Critério/faixa de valor'));
+      const heading = item.contactName || (item.ref ? `Ref ${item.ref}` : 'Pedido direto');
+      title.append(element('h3', '', heading), element('p', 'muted', item.vehicleText || 'Veículo não informado'));
       const badges = element('div', 'badges');
-      badges.append(makeBadge(item.sourceLabel), makeBadge(item.logicalMode), makeBadge(item.status, item.status === 'SEM RESPOSTA' ? 'yellow' : item.status === 'SEM CONTATO' ? 'red' : 'green'));
+      const modeLabel = item.logicalMode === 'CARRO' ? 'POR CARRO IDEAL' : item.logicalMode === 'VALOR' ? 'POR ORÇAMENTO' : 'MODO NÃO INFORMADO';
+      const statusTone = item.status === 'SEM RESPOSTA' ? 'yellow' : item.status === 'EM REVISÃO' ? 'red' : 'green';
+      badges.append(makeBadge(item.sourceLabel), makeBadge(modeLabel), makeBadge(item.status, statusTone));
       head.append(title, badges);
-      const details = element('p', 'muted');
-      details.textContent = [item.ref ? `Ref ${item.ref}` : null, item.budgetCents ? formatMoney(item.budgetCents) : null, item.occurredAt ? formatDate(item.occurredAt) : null].filter(Boolean).join(' · ');
+      const details = element('dl', 'definition-grid order-details');
+      definition(details, 'Ref', item.ref || null);
+      definition(details, 'Orçamento', item.budgetCents ? formatMoney(item.budgetCents) : 'Não informado');
+      definition(details, 'Pagamento', item.paymentText || 'Não informado');
+      definition(details, 'Estado', item.state || 'Não informado');
+      definition(details, 'ZIP', item.zip || 'Não informado');
+      definition(details, 'Anos', item.yearsText || 'Não informado');
+      definition(details, 'Milhas', item.mileageText || 'Não informado');
+      definition(details, 'Prazo', item.deadlineText || 'Não informado');
+      definition(details, 'Contato escolhido', item.contactChannel || 'Não informado');
+      definition(details, 'Data', item.occurredAt ? formatDate(item.occurredAt) : 'Não informada');
       card.append(head, details);
       if (item.kind === 'CALCULATOR' && !item.link) {
         const form = element('div', 'inline-form');
@@ -842,8 +880,18 @@
       const button = element('button', 'search-hit');
       button.type = 'button';
       button.append(element('span', '', `${item.name}${item.vehicleText ? ` — ${item.vehicleText}` : ''}`), makeBadge(item.matchedBy));
-      button.disabled = !item.journeyId;
-      button.addEventListener('click', async () => { root.classList.add('hidden'); await switchPanel('records'); await openRecord(item.journeyId); });
+      button.addEventListener('click', async () => {
+        root.classList.add('hidden');
+        if (item.kind === 'ORDER') {
+          orderFilter = 'Todos';
+          orderPeriod = 'all';
+          document.querySelectorAll('[data-order-filter]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderFilter === orderFilter));
+          document.querySelectorAll('[data-order-period]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderPeriod === orderPeriod));
+          await switchPanel('orders');
+          return;
+        }
+        if (item.journeyId) { await switchPanel('records'); await openRecord(item.journeyId); }
+      });
       root.append(button);
     });
     root.classList.remove('hidden');
@@ -935,6 +983,12 @@
       document.querySelectorAll('[data-order-filter]').forEach((item) => item.classList.toggle('active', item === button));
       if (currentView === 'orders') await loadCurrent();
     }));
+    document.querySelectorAll('[data-order-period]').forEach((button) => button.addEventListener('click', async () => {
+      orderPeriod = button.dataset.orderPeriod;
+      document.querySelectorAll('[data-order-period]').forEach((item) => item.classList.toggle('active', item === button));
+      if (currentView === 'orders') await loadCurrent();
+    }));
+    $('orders-more').addEventListener('click', () => loadOrders(true).catch(() => { $('orders-more').textContent = 'Não foi possível carregar'; }));
     document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar.')); $('search-results').classList.remove('hidden'); }));
     $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));

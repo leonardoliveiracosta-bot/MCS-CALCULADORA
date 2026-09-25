@@ -115,7 +115,15 @@
           <button type="button" class="chip" data-order-filter="Carro">Carro</button>
           <button type="button" class="chip" data-order-filter="Valor">Valor</button>
         </div>
+        <div id="order-periods" class="filters" aria-label="Período dos pedidos">
+          <span class="filter-label">Período</span>
+          <button type="button" class="chip" data-order-period="7">7 dias</button>
+          <button type="button" class="chip active" data-order-period="30">30 dias</button>
+          <button type="button" class="chip" data-order-period="90">90 dias</button>
+          <button type="button" class="chip" data-order-period="all">Todo o histórico</button>
+        </div>
         <div id="orders-list" class="stack" aria-live="polite"></div>
+        <button id="orders-more" class="quiet load-more hidden" type="button">Carregar mais</button>
       </section>
       <section id="qualification-panel" class="panel-view hidden" aria-label="Qualificação">
         <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Frase real do cliente em cada evidência. Seis de seis significa apenas checklist completo.</p></div><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div>

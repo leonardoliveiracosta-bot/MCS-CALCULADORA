@@ -1,6 +1,6 @@
 'use strict';
 
-const { searchMatches } = require('../../panel-domain');
+const { consolidateCalcRuns, orderSearchMatches, searchMatches } = require('../../panel-domain');
 const { allRows, requirePanel, safeText, send } = require('../../panel-server');
 
 module.exports = async (req, res) => {
@@ -10,11 +10,12 @@ module.exports = async (req, res) => {
   try {
     const q = safeText(req.query && req.query.q, 100, true);
     if (!q) return send(res, 400, { error: 'SEARCH_QUERY_INVALID' });
-    const [contacts, phones, refs, journeys] = await Promise.all([
+    const [contacts, phones, refs, journeys, calcRuns] = await Promise.all([
       allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,is_current', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'journeys', { select: 'id,contact_id,vehicle_text,stage,status,updated_at', environment: 'eq.' + ctx.environment })
+      allRows(ctx, 'journeys', { select: 'id,contact_id,vehicle_text,stage,status,updated_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados', order: 'created_at.asc' })
     ]);
     const journeyMap = new Map(journeys.map((item) => [item.id, item]));
     const contactMap = new Map(contacts.map((item) => [item.id, item]));
@@ -44,13 +45,27 @@ module.exports = async (req, res) => {
         else add(phone.contact_id, null, 'telefone');
       }
     }
+    const refQuery = q.replace(/^ref\s*:?\s*/i, '');
     for (const ref of refs) {
-      if (!searchMatches(q, ref)) continue;
+      if (!searchMatches(refQuery, ref)) continue;
       const journey = journeyMap.get(ref.journey_id);
       if (journey) add(journey.contact_id, journey.id, 'Ref');
     }
-    return send(res, 200, { environment: ctx.environment, items: [...hits.values()].slice(0, 100) });
+    const contactHits = [...hits.values()];
+    const orderHits = consolidateCalcRuns(calcRuns).filter((item) => orderSearchMatches(q, item)).map((item) => ({
+      kind: 'ORDER', orderKey: item.key, journeyId: item.link && item.link.journeyId || null,
+      name: `Ref ${item.ref}`, vehicleText: item.vehicleText, zip: item.zip,
+      logicalMode: item.logicalMode, matchedBy: foldMatch(q, item)
+    }));
+    return send(res, 200, { environment: ctx.environment, items: contactHits.concat(orderHits).slice(0, 100) });
   } catch (_) {
     return send(res, 500, { error: 'PANEL_SEARCH_ERROR' });
   }
 };
+
+function foldMatch(query, item) {
+  const normalized = String(query || '').replace(/^ref\s*:?\s*/i, '').trim().toLocaleLowerCase('pt-BR');
+  if (String(item.ref || '').toLocaleLowerCase('pt-BR').includes(normalized)) return 'Ref';
+  if (String(item.zip || '').toLocaleLowerCase('pt-BR').includes(normalized)) return 'ZIP';
+  return 'modelo';
+}

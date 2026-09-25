@@ -16,13 +16,30 @@ function fold(value) {
   return clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
 }
 
+function dataFor(row) {
+  return row && row.dados && typeof row.dados === 'object' && !Array.isArray(row.dados) ? row.dados : {};
+}
+
+function normalizedMode(value) {
+  const mode = fold(value).replace(/[\s_-]+/g, '');
+  if (['carro', 'vehicle', 'veiculo', 'find', 'finditforme'].includes(mode)) return 'CARRO';
+  if (['valor', 'value', 'budget', 'orcamento', 'calculadora', 'calculator'].includes(mode)) return 'VALOR';
+  return null;
+}
+
 function logicalMode(row) {
-  const data = row && row.dados && typeof row.dados === 'object' ? row.dados : {};
+  const data = dataFor(row);
   const event = clean(data.evento).toLocaleLowerCase('pt-BR');
-  const bid = Number(data.lance);
-  if (event !== 'busca' && Number.isFinite(bid) && bid > 0) return 'CARRO';
-  if (event === 'busca' || ['ano_de', 'ano_ate', 'milhas_de', 'milhas_ate'].some((key) => data[key] !== undefined && data[key] !== null && data[key] !== '')) return 'VALOR';
+  const explicit = normalizedMode(data.logical_mode || data.logicalMode || data.modo || data.mode || (row && row.logical_mode) || (row && row.logicalMode));
+  if (explicit) return explicit;
+  if (event === 'busca' || /(?:^|-)find(?:-|$)/i.test(clean(data.sid))) return 'CARRO';
+  if (['simulacao', 'saida', 'share', 'whatsapp', 'sms'].includes(event)) return 'VALOR';
   return 'REVIEW';
+}
+
+function journeyLogicalMode(journey) {
+  const criteria = journey && journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
+  return normalizedMode(criteria.logical_mode || criteria.logicalMode || criteria.modo || criteria.mode || criteria.tipo || criteria.evento) || 'REVIEW';
 }
 
 function calcOrder(row) {
@@ -36,40 +53,100 @@ function newer(left, right) {
   return a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0] - b[0];
 }
 
+function normalizeState(value) {
+  let current = value;
+  if (typeof current === 'string') {
+    const trimmed = clean(current);
+    if (trimmed.startsWith('{')) {
+      try { current = JSON.parse(trimmed); } catch (_) { return trimmed.toUpperCase(); }
+    } else return trimmed.toUpperCase();
+  }
+  if (!current || typeof current !== 'object') return clean(current).toUpperCase();
+  return clean(current.uf || current.state || current.sigla || current.code || current.nome).toUpperCase();
+}
+
+function latestValue(events, getter) {
+  const ordered = events.slice().sort(newer).reverse();
+  for (const row of ordered) {
+    const value = getter(dataFor(row), row);
+    if (value !== undefined && value !== null && clean(value) !== '') return value;
+  }
+  return null;
+}
+
+function moneyCents(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : null;
+}
+
+function vehicleFor(data) {
+  return clean([
+    data.ano_de && data.ano_ate && data.ano_de !== data.ano_ate ? `${data.ano_de}–${data.ano_ate}` : data.ano_de || data.ano_ate,
+    data.marca, data.modelo, data.trim
+  ].filter(Boolean).join(' '));
+}
+
+function contactChannel(events) {
+  const latestContact = events.filter((row) => ['whatsapp', 'sms'].includes(fold(dataFor(row).evento))).sort(newer).at(-1);
+  if (latestContact) return fold(dataFor(latestContact).evento).toUpperCase();
+  const channel = latestValue(events, (data) => data.evento === 'busca' ? data.canal : null);
+  return ['whatsapp', 'sms'].includes(fold(channel)) ? fold(channel).toUpperCase() : null;
+}
+
+function calculatorEventStatus(item) {
+  if (item && item.contactChannel === 'WHATSAPP') return 'WHATSAPP CLICADO';
+  if (item && item.contactChannel === 'SMS') return 'SMS CLICADO';
+  const event = fold(item && item.event);
+  if (event === 'share') return 'COMPARTILHADO';
+  if (event === 'saida') return 'FINALIZADO';
+  if (event === 'simulacao') return 'SIMULADO';
+  if (event === 'busca') return 'BUSCA ENVIADA';
+  return 'EM REVISÃO';
+}
+
 function consolidateCalcRuns(rows, links = []) {
   const groups = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
-    const data = row && row.dados && typeof row.dados === 'object' ? row.dados : {};
+    const data = dataFor(row);
     const mode = logicalMode(row);
     const sid = clean(data.sid);
     const ref = clean(data.ref).toUpperCase();
-    if (mode === 'REVIEW' || !sid || !REF_RE.test(ref)) continue;
-    const key = [sid, ref, mode].join('\u001f');
+    if (mode === 'REVIEW' || !sid || !REF_RE.test(ref) || ref === 'ABCDE') continue;
+    const key = [ref, mode].join('\u001f');
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
   }
-  const linkMap = new Map((Array.isArray(links) ? links : []).map((link) => [[clean(link.calc_sid), clean(link.calc_ref).toUpperCase(), clean(link.logical_mode)].join('\u001f'), link]));
   return [...groups.entries()].map(([key, events]) => {
-    const preferred = events.filter((row) => ['whatsapp', 'sms'].includes(clean(row.dados && row.dados.evento).toLocaleLowerCase('pt-BR')));
-    const snapshot = (preferred.length ? preferred : events).slice().sort(newer).at(-1);
-    const data = snapshot.dados || {};
-    const [sid, ref, mode] = key.split('\u001f');
-    const link = linkMap.get(key) || null;
-    const vehicle = [data.ano_de && data.ano_ate && data.ano_de !== data.ano_ate ? `${data.ano_de}–${data.ano_ate}` : data.ano_de || data.ano_ate, data.marca, data.modelo, data.trim].filter(Boolean).join(' ');
-    const bid = Number(data.lance);
-    return {
-      key, sid, ref, logicalMode: mode,
+    const snapshot = events.slice().sort(newer).at(-1);
+    const data = dataFor(snapshot);
+    const [ref, mode] = key.split('\u001f');
+    const sids = [...new Set(events.map((row) => clean(dataFor(row).sid)).filter(Boolean))];
+    const link = (Array.isArray(links) ? links : []).find((candidate) => clean(candidate.calc_ref).toUpperCase() === ref && clean(candidate.logical_mode) === mode && sids.includes(clean(candidate.calc_sid))) || null;
+    const vehicles = [...new Set(events.map((row) => vehicleFor(dataFor(row))).filter(Boolean))];
+    const budget = latestValue(events, (event, row) => event.lance ?? row.lance);
+    const payment = latestValue(events, (event, row) => event.pagamento ?? row.pagamento);
+    const state = latestValue(events, (event, row) => event.estado ?? row.estado);
+    const channel = contactChannel(events);
+    const item = {
+      key: 'calculator:' + key, sid: sids[0], sids, ref, logicalMode: mode,
       eventCount: events.length,
       event: clean(data.evento),
       occurredAt: data.quando || snapshot.created_at || null,
-      vehicleText: clean(vehicle) || null,
-      budgetCents: Number.isFinite(bid) && bid > 0 ? Math.round(bid * 100) : null,
-      paymentText: clean(data.pagamento || snapshot.pagamento) || null,
-      deadlineText: clean(data.prazo) || null,
-      state: clean(data.estado || snapshot.estado) || null,
-      zip: clean(data.zip || snapshot.zip) || null,
+      vehicles,
+      vehicleText: vehicles.join(' · ') || null,
+      budgetCents: moneyCents(budget),
+      paymentText: clean(payment) || null,
+      deadlineText: clean(latestValue(events, (event) => event.prazo)) || null,
+      yearsText: clean(latestValue(events, (event) => event.ano_de || event.ano_ate) && [latestValue(events, (event) => event.ano_de), latestValue(events, (event) => event.ano_ate)].filter(Boolean).join('–')) || null,
+      mileageText: clean([latestValue(events, (event) => event.milhas_de), latestValue(events, (event) => event.milhas_ate)].filter((value) => value !== null).join('–')) || null,
+      state: normalizeState(state) || null,
+      zip: clean(latestValue(events, (event, row) => event.zip ?? row.zip)) || null,
+      contactChannel: channel,
+      clickedContact: Boolean(channel),
       link: link ? { contactId: link.contact_id || null, journeyId: link.journey_id || null } : null
     };
+    item.eventStatus = calculatorEventStatus(item);
+    return item;
   }).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0) || a.key.localeCompare(b.key));
 }
 
@@ -142,6 +219,27 @@ function buildTodayItems(input, nowValue = new Date()) {
   return result.sort((a, b) => b.waitMs - a.waitMs || b.budgetCents - a.budgetCents || b.checklistComplete - a.checklistComplete || a.id.localeCompare(b.id));
 }
 
+function buildTodayOrderItems(orders, nowValue = new Date()) {
+  const nowMs = nowValue instanceof Date ? nowValue.getTime() : time(nowValue);
+  return (Array.isArray(orders) ? orders : []).filter((item) => item.clickedContact && !item.link).map((item) => {
+    const occurred = time(item.occurredAt) || nowMs;
+    return {
+      id: item.key,
+      kind: 'CALCULATOR_ORDER',
+      orderKey: item.key,
+      name: item.ref ? `Ref ${item.ref}` : 'Pedido da calculadora',
+      vehicleText: item.vehicleText,
+      budgetCents: item.budgetCents || 0,
+      checklistComplete: 0,
+      checklistLabel: item.logicalMode === 'CARRO' ? 'carro ideal' : 'por valor',
+      waitingSince: new Date(occurred).toISOString(),
+      waitMs: Math.max(0, nowMs - occurred),
+      waitColor: nowMs - occurred < DAY_MS ? 'green' : nowMs - occurred < 3 * DAY_MS ? 'yellow' : 'red',
+      reasons: [{ kind: 'CONTACT_CLICK', label: `${item.contactChannel} CLICADO`, anchor: occurred }]
+    };
+  }).sort((a, b) => b.waitMs - a.waitMs || b.budgetCents - a.budgetCents || a.id.localeCompare(b.id));
+}
+
 function checklistSummary(points) {
   const completed = (Array.isArray(points) ? points : []).filter((item) => item.status === 'COMPLETE').length;
   return { completed, total: 6, label: completed === 6 ? 'checklist completo' : `${completed}/6` };
@@ -163,6 +261,13 @@ function searchMatches(query, record) {
     || Boolean(phoneLike && compact && values.some((value) => value.replace(/\D/g, '').includes(compact)));
 }
 
+function orderSearchMatches(query, order) {
+  const raw = clean(query);
+  const needle = fold(raw.replace(/^ref\s*:?[\s-]*/i, ''));
+  if (!needle) return false;
+  return [order && order.ref, order && order.vehicleText, order && order.zip].map(fold).some((value) => value.includes(needle));
+}
+
 function nextStageForUnits(currentStage, units) {
   const reviewing = (Array.isArray(units) ? units : []).some((item) => item.status === 'UNDER_REVIEW');
   if (reviewing) return 'DECIDINDO';
@@ -180,7 +285,7 @@ function clientOkPatch(at, messageId) {
 }
 
 module.exports = {
-  DAY_MS, REF_RE, buildTodayItems, checklistSummary, clean, clientOkPatch,
-  consolidateCalcRuns, fold, logicalMode, nextStageForUnits, searchMatches,
-  shortDeadline, time
+  DAY_MS, REF_RE, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
+  consolidateCalcRuns, fold, journeyLogicalMode, logicalMode, nextStageForUnits,
+  normalizeState, orderSearchMatches, searchMatches, shortDeadline, time
 };
