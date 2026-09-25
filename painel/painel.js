@@ -927,6 +927,20 @@
     await refreshCounters();
   }
 
+  function showManheimFailure(failure) {
+    const messages = {
+      MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido.',
+      MANHEIM_MATCH_LIMIT: 'O CSV gerou combinações demais; reduza o arquivo.',
+      MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação.',
+      MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação.',
+      MANHEIM_JOURNEY_DISABLED: 'Uma busca não está disponível para comparação.',
+      PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio.'
+    };
+    const moduleMissing = failure && failure.message === 'MCSManheim is not defined';
+    $('manheim-status').classList.add('error');
+    $('manheim-status').textContent = moduleMissing ? 'O leitor de CSV não carregou. Atualize a página e tente novamente.' : messages[failure && failure.code] || 'Não foi possível ler ou comparar este CSV.';
+  }
+
   function renderRecords(items) {
     const root = $('records-list');
     root.replaceChildren();
@@ -1446,11 +1460,11 @@
     ['dragenter', 'dragover'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
-    $('manheim-files').addEventListener('change', (event) => importManheim([...event.target.files]).catch(() => { $('manheim-status').classList.add('error'); $('manheim-status').textContent = 'Não foi possível ler ou comparar este CSV.'; }));
+    $('manheim-files').addEventListener('change', (event) => importManheim([...event.target.files]).catch(showManheimFailure));
     const manheimZone = $('manheim-drop-zone');
     ['dragenter', 'dragover'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.remove('dragging'); }));
-    manheimZone.addEventListener('drop', (event) => importManheim([...event.dataTransfer.files]).catch(() => { $('manheim-status').classList.add('error'); $('manheim-status').textContent = 'Não foi possível ler ou comparar este CSV.'; }));
+    manheimZone.addEventListener('drop', (event) => importManheim([...event.dataTransfer.files]).catch(showManheimFailure));
     $('sms-form').addEventListener('submit', addSms);
     $('sms-contact').addEventListener('change', () => { $('sms-new-name-label').hidden = $('sms-contact').value !== 'new'; refreshSmsJourneys(); });
     $('attachment-upload').addEventListener('click', uploadAttachment);
