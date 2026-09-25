@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { requirePanel, send, supabase } = require('../../panel-server');
+const { requirePanel, send, supabase, isUuid } = require('../../panel-server');
 
 const json = async (req) => {
   if (typeof req.body === 'object' && req.body !== null) return req.body;
@@ -11,142 +11,209 @@ const json = async (req) => {
 };
 const now = () => new Date().toISOString();
 const query = (params) => new URLSearchParams(params).toString();
+const normalized = (value) => String(value || '').normalize('NFC').replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, '').trim().toLocaleLowerCase('pt-BR');
 
 async function rows(ctx, table, params) {
   return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + query(params));
 }
 
+async function createContact(ctx, name, channel) {
+  const displayName = String(name || '').normalize('NFC').trim().slice(0, 160);
+  if (!displayName) return null;
+  const created = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/contacts', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
+    body: JSON.stringify({
+      environment: ctx.environment, display_name: displayName,
+      source: channel === 'SMS' ? 'SMS_DIRECT' : 'WHATSAPP_DIRECT',
+      created_at: now(), updated_at: now(), created_by: ctx.panel.id, updated_by: ctx.panel.id
+    })
+  });
+  return created[0];
+}
+
+async function ensureContact(ctx, chat, channel) {
+  if (chat.isGroup) return null;
+  if (chat.contactId) {
+    if (!isUuid(chat.contactId)) return false;
+    const found = await rows(ctx, 'contacts', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + chat.contactId, limit: '1' });
+    return found[0] || false;
+  }
+  return createContact(ctx, chat.newContactName, channel) || false;
+}
+
+async function storeAlias(ctx, chatId, aliasText) {
+  const alias = String(aliasText || '').normalize('NFC').trim().slice(0, 255);
+  if (!alias) return;
+  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chat_aliases?on_conflict=environment,chat_id,alias_normalized', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({
+      environment: ctx.environment, chat_id: chatId, alias_text: alias,
+      alias_normalized: normalized(alias), first_seen_at: now(), last_seen_at: now(),
+      confirmed_at: now(), confirmed_by: ctx.panel.id, created_at: now()
+    })
+  });
+}
+
+async function storeSenders(ctx, chatId, senderAliases) {
+  if (!Array.isArray(senderAliases) || !senderAliases.length || senderAliases.length > 50) throw new Error('SENDER_ALIASES_INVALID');
+  const payload = senderAliases.map((item) => {
+    const text = String(item.senderText || '').normalize('NFC').trim().slice(0, 200);
+    if (!text || !['CUSTOMER', 'MCS'].includes(item.direction)) throw new Error('SENDER_ALIAS_INVALID');
+    return {
+      environment: ctx.environment, chat_id: chatId, sender_text: text,
+      sender_normalized: normalized(text), direction: item.direction,
+      confirmed_at: now(), confirmed_by: ctx.panel.id, created_at: now()
+    };
+  });
+  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chat_sender_aliases?on_conflict=environment,chat_id,sender_normalized', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify(payload)
+  });
+}
+
 async function createJob(ctx, body) {
   const sourceKind = ['WHATSAPP_ZIP', 'WHATSAPP_TXT', 'SMS_PASTE'].includes(body.sourceKind) ? body.sourceKind : null;
   const chat = body.chat || {};
-  if (!sourceKind || !['WHATSAPP', 'SMS'].includes(chat.channel) || !String(chat.canonicalKey || '').trim()) {
+  const sourceSha = String(body.sourceSha256 || '');
+  if (!sourceKind || !['WHATSAPP', 'SMS'].includes(chat.channel) || typeof chat.isGroup !== 'boolean' || !/^[a-f0-9]{64}$/i.test(sourceSha)) {
     return send(ctx.res, 400, { error: 'IMPORT_METADATA_INVALID' });
   }
-  let contactId = chat.contactId || null;
-  if (chat.newContactName && !contactId) {
-    const name = String(chat.newContactName).trim();
-    if (!name) return send(ctx.res, 400, { error: 'CONTACT_NAME_REQUIRED' });
-    const created = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/contacts', {
+  if (chat.chatId && chat.newContactName) return send(ctx.res, 409, { error: 'EXISTING_CHAT_CANNOT_CREATE_CONTACT' });
+  const contact = await ensureContact(ctx, chat, chat.channel);
+  if (contact === false) return send(ctx.res, 400, { error: 'CONTACT_NOT_FOUND' });
+  let storedChat;
+  if (chat.chatId) {
+    if (!isUuid(chat.chatId)) return send(ctx.res, 400, { error: 'CHAT_ID_INVALID' });
+    const found = await rows(ctx, 'chats', { select: 'id,contact_id,resolution_status,is_group,channel', environment: 'eq.' + ctx.environment, id: 'eq.' + chat.chatId, limit: '1' });
+    storedChat = found[0];
+    if (!storedChat || storedChat.channel !== chat.channel) return send(ctx.res, 400, { error: 'CHAT_NOT_FOUND' });
+    if (Boolean(storedChat.is_group) !== chat.isGroup) return send(ctx.res, 409, { error: 'CHAT_TYPE_CONFLICT' });
+    if (contact && storedChat.contact_id && storedChat.contact_id !== contact.id) return send(ctx.res, 409, { error: 'CHAT_CONTACT_CONFLICT' });
+    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats?id=eq.' + encodeURIComponent(storedChat.id) + '&environment=eq.' + ctx.environment, {
+      method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
+      body: JSON.stringify({ contact_id: contact ? contact.id : null, resolution_status: chat.isGroup ? 'GROUP' : 'RESOLVED', last_seen_at: now(), updated_at: now() })
+    });
+  } else {
+    const created = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats', {
       method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
-      body: JSON.stringify({ environment: ctx.environment, display_name: name, source: 'SMS_DIRECT', created_at: now(), updated_at: now(), created_by: ctx.panel.id, updated_by: ctx.panel.id })
+      body: JSON.stringify({
+        environment: ctx.environment, channel: chat.channel, canonical_key: crypto.randomUUID(),
+        contact_id: contact ? contact.id : null, resolution_status: chat.isGroup ? 'GROUP' : 'RESOLVED',
+        is_group: chat.isGroup, first_seen_at: now(), last_seen_at: now(), created_at: now(), updated_at: now()
+      })
     });
-    contactId = created[0].id;
+    storedChat = created[0];
   }
-  if (contactId) {
-    const contacts = await rows(ctx, 'contacts', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + contactId, limit: '1' });
-    if (!contacts[0]) return send(ctx.res, 400, { error: 'CONTACT_NOT_FOUND' });
-  }
-  const isGroup = Boolean(chat.isGroup);
-  const newChat = {
-    environment: ctx.environment, channel: chat.channel, canonical_key: String(chat.canonicalKey).trim(),
-    contact_id: contactId, resolution_status: isGroup ? 'GROUP' : contactId ? 'RESOLVED' : 'UNIDENTIFIED',
-    is_group: isGroup, first_seen_at: now(), last_seen_at: now(), created_at: now(), updated_at: now()
-  };
-  let chatRows = await supabase(ctx.config.url, ctx.config.secretKey,
-    '/rest/v1/chats?on_conflict=environment,channel,canonical_key', {
-      method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify(newChat)
-    });
-  if (!chatRows[0]) chatRows = await rows(ctx, 'chats', {
-    select: 'id,contact_id,resolution_status,is_group', environment: 'eq.' + ctx.environment,
-    channel: 'eq.' + chat.channel, canonical_key: 'eq.' + newChat.canonical_key, limit: '1'
-  });
-  const storedChat = chatRows[0];
-  if (!storedChat) return send(ctx.res, 500, { error: 'CHAT_CREATE_FAILED' });
-  const job = {
-    environment: ctx.environment, channel: chat.channel, source_kind: sourceKind,
-    source_filename: String(body.sourceFilename || '').slice(0, 255) || null,
-    source_sha256: String(body.sourceSha256 || '').slice(0, 128) || null,
-    status: isGroup ? 'REVIEW' : 'PROCESSING', selected_file_count: 1,
-    review_reason: isGroup ? 'grupo do WhatsApp exige revisão' : null, created_by: ctx.panel.id
-  };
+  await storeAlias(ctx, storedChat.id, chat.aliasText);
+  if (chat.channel === 'WHATSAPP') await storeSenders(ctx, storedChat.id, chat.senderAliases);
+
   const jobs = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs', {
-    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' }, body: JSON.stringify(job)
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
+    body: JSON.stringify({
+      environment: ctx.environment, chat_id: storedChat.id, channel: chat.channel, source_kind: sourceKind,
+      source_filename: String(body.sourceFilename || '').slice(0, 255) || null,
+      source_sha256: sourceSha,
+      status: chat.isGroup ? 'REVIEW' : 'PROCESSING', selected_file_count: 1,
+      review_reason: chat.isGroup ? 'grupo do WhatsApp exige revisão' : null, created_by: ctx.panel.id
+    })
   });
-  return send(ctx.res, 201, { importJobId: jobs[0].id, chatId: storedChat.id, resolutionStatus: storedChat.resolution_status });
+  return send(ctx.res, 201, { importJobId: jobs[0].id, chatId: storedChat.id, contactId: contact ? contact.id : null });
 }
 
 async function createReview(ctx, body) {
   const sourceKind = ['WHATSAPP_ZIP', 'WHATSAPP_TXT'].includes(body.sourceKind) ? body.sourceKind : null;
-  if (!sourceKind) return send(ctx.res, 400, { error: 'IMPORT_METADATA_INVALID' });
+  const sourceSha = String(body.sourceSha256 || '');
+  if (!sourceKind || !/^[a-f0-9]{64}$/i.test(sourceSha)) return send(ctx.res, 400, { error: 'IMPORT_METADATA_INVALID' });
   const jobs = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs', {
     method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
-    body: JSON.stringify({ environment: ctx.environment, channel: 'WHATSAPP', source_kind: sourceKind, source_filename: String(body.sourceFilename || '').slice(0, 255) || null, source_sha256: String(body.sourceSha256 || '').slice(0, 128) || null, status: 'REVIEW', message_count: 0, review_reason: 'formato não suportado', created_by: ctx.panel.id, completed_at: now() })
+    body: JSON.stringify({
+      environment: ctx.environment, channel: 'WHATSAPP', source_kind: sourceKind,
+      source_filename: String(body.sourceFilename || '').slice(0, 255) || null,
+      source_sha256: sourceSha,
+      status: 'REVIEW', message_count: 0, review_reason: 'formato não suportado',
+      created_by: ctx.panel.id, completed_at: now()
+    })
   });
   return send(ctx.res, 201, { importJobId: jobs[0].id, status: 'REVIEW' });
 }
 
 async function receiveBatch(ctx, body) {
+  if (!isUuid(body.importJobId) || !Number.isInteger(Number(body.batchNumber)) || Number(body.batchNumber) < 1) return send(ctx.res, 400, { error: 'IMPORT_BATCH_INVALID' });
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const bytes = Buffer.byteLength(JSON.stringify(messages), 'utf8');
   if (!messages.length || messages.length > 500 || bytes > 1024 * 1024) return send(ctx.res, 400, { error: 'IMPORT_BATCH_LIMIT' });
-  const payload = {
-    p_environment: ctx.environment, p_import_job_id: body.importJobId,
-    p_batch_number: Number(body.batchNumber),
-    p_payload_sha256: crypto.createHash('sha256').update(JSON.stringify(messages)).digest('hex'), p_messages: messages
-  };
   const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_reconcile_import_batch', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      p_environment: ctx.environment, p_import_job_id: body.importJobId,
+      p_batch_number: Number(body.batchNumber),
+      p_payload_sha256: crypto.createHash('sha256').update(JSON.stringify(messages)).digest('hex'),
+      p_messages: messages
+    })
   });
   return send(ctx.res, 200, { inserted: result[0] ? result[0].inserted_count : 0, alreadyPresent: result[0] ? result[0].already_present_count : 0 });
 }
 
 async function finishJob(ctx, body) {
-  const jobs = await rows(ctx, 'import_jobs', { select: 'id', id: 'eq.' + body.importJobId, environment: 'eq.' + ctx.environment, limit: '1' });
+  if (!isUuid(body.importJobId)) return send(ctx.res, 400, { error: 'IMPORT_JOB_ID_INVALID' });
+  const jobs = await rows(ctx, 'import_jobs', { select: 'id,chat_id', id: 'eq.' + body.importJobId, environment: 'eq.' + ctx.environment, limit: '1' });
   if (!jobs[0]) return send(ctx.res, 404, { error: 'IMPORT_JOB_NOT_FOUND' });
-  const chats = await supabase(ctx.config.url, ctx.config.secretKey,
-    '/rest/v1/messages?select=chat:chats(resolution_status)&environment=eq.' + encodeURIComponent(ctx.environment) + '&import_job_id=eq.' + encodeURIComponent(body.importJobId));
-  const pending = chats.some((item) => item.chat && ['UNIDENTIFIED', 'REVIEW', 'GROUP'].includes(item.chat.resolution_status));
+  const chats = await rows(ctx, 'chats', { select: 'id,contact_id,resolution_status,is_group', id: 'eq.' + jobs[0].chat_id, environment: 'eq.' + ctx.environment, limit: '1' });
+  const chat = chats[0];
+  if (!chat) return send(ctx.res, 404, { error: 'CHAT_NOT_FOUND' });
+  const uncertain = await rows(ctx, 'messages', { select: 'id', environment: 'eq.' + ctx.environment, import_job_id: 'eq.' + body.importJobId, time_uncertain: 'is.true', limit: '1' });
+  let journeyId = null;
+  if (!chat.is_group) {
+    const journey = body.journey || {};
+    if (!chat.contact_id || !['new', 'existing'].includes(journey.mode)) return send(ctx.res, 400, { error: 'JOURNEY_CHOICE_REQUIRED' });
+    if (journey.mode === 'existing' && !isUuid(journey.journeyId)) return send(ctx.res, 400, { error: 'JOURNEY_ID_INVALID' });
+    const refs = Array.isArray(body.refs) ? body.refs.map((item) => String(item).toUpperCase()).filter((item) => /^[A-HJ-NP-Z2-9]{5}$/.test(item)).slice(0, 20) : [];
+    const resolved = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_finalize_import_resolution', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+        p_environment: ctx.environment, p_import_job_id: body.importJobId,
+        p_contact_id: chat.contact_id, p_journey_id: journey.mode === 'existing' ? journey.journeyId : null,
+        p_create_new: journey.mode === 'new', p_refs: refs, p_actor_id: ctx.panel.id
+      })
+    });
+    journeyId = resolved;
+  }
+  const pending = Boolean(chat.is_group || uncertain.length);
   await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + encodeURIComponent(body.importJobId), {
     method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
-    body: JSON.stringify({ status: pending ? 'REVIEW' : 'COMPLETED', completed_at: now(), review_reason: pending ? 'conversa exige identificação ou revisão' : null })
+    body: JSON.stringify({ status: pending ? 'REVIEW' : 'COMPLETED', completed_at: now(), review_reason: chat.is_group ? 'grupo do WhatsApp exige revisão' : uncertain.length ? 'hora incerta exige revisão' : null })
   });
-  return send(ctx.res, 200, { pending, destination: pending ? 'ENTRADA' : 'HOJE' });
+  return send(ctx.res, 200, { pending, destination: pending ? 'ENTRADA' : 'HOJE', journeyId });
 }
 
 async function queue(ctx, res) {
-  const chats = await rows(ctx, 'chats', {
-    select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact:contacts(display_name)', environment: 'eq.' + ctx.environment,
-    or: '(resolution_status.eq.UNIDENTIFIED,resolution_status.eq.REVIEW,resolution_status.eq.GROUP)', order: 'last_seen_at.desc', limit: '100'
+  const [chats, counts, contacts, journeys, senderAliases, reviews] = await Promise.all([
+    rows(ctx, 'chats', { select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact_id,contact:contacts(display_name)', environment: 'eq.' + ctx.environment, order: 'last_seen_at.desc', limit: '100' }),
+    supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_last_import_counts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment }) }),
+    rows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, order: 'display_name.asc', limit: '1000' }),
+    rows(ctx, 'journeys', { select: 'id,contact_id,vehicle_text,stage,status,created_at,refs:journey_refs(ref_code)', environment: 'eq.' + ctx.environment, status: 'neq.ENCERRADO', stage: 'neq.QUALIFICADO', order: 'updated_at.desc', limit: '1000' }),
+    rows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment, limit: '5000' }),
+    rows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc', limit: '100' })
+  ]);
+  const byChat = Object.fromEntries(counts.map((item) => [item.chat_id, item]));
+  return send(res, 200, {
+    chats: chats.map((chat) => ({ ...chat, newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
+    reviews, contacts, journeys, senderAliases
   });
-  const messages = await rows(ctx, 'messages', { select: 'chat_id', environment: 'eq.' + ctx.environment, limit: '10000' });
-  const counts = messages.reduce((all, message) => { all[message.chat_id] = (all[message.chat_id] || 0) + 1; return all; }, {});
-  const contacts = await rows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, order: 'display_name.asc', limit: '1000' });
-  const reviews = await rows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc', limit: '100' });
-  return send(res, 200, { chats: chats.map((chat) => ({ ...chat, newMessageCount: counts[chat.id] || 0 })), reviews, contacts });
 }
 
 async function resolveChat(ctx, body) {
-  const chatId = String(body.chatId || '');
-  let contactId = body.contactId || null;
-  if (body.resolution === 'new') {
-    const name = String(body.displayName || '').trim();
-    if (!name) return send(ctx.res, 400, { error: 'CONTACT_NAME_REQUIRED' });
-    const created = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/contacts', {
-      method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
-      body: JSON.stringify({ environment: ctx.environment, display_name: name, source: 'WHATSAPP_DIRECT', created_at: now(), updated_at: now(), created_by: ctx.panel.id, updated_by: ctx.panel.id })
-    });
-    contactId = created[0].id;
-  }
-  if (body.resolution === 'existing' && !contactId) return send(ctx.res, 400, { error: 'CONTACT_REQUIRED' });
-  if (body.resolution === 'discard') {
-    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats?id=eq.' + encodeURIComponent(chatId) + '&environment=eq.' + ctx.environment, {
+  if (!isUuid(body.chatId)) return send(ctx.res, 400, { error: 'CHAT_ID_INVALID' });
+  const chats = await rows(ctx, 'chats', { select: 'id,contact_id', id: 'eq.' + body.chatId, environment: 'eq.' + ctx.environment, limit: '1' });
+  if (!chats[0]) return send(ctx.res, 404, { error: 'CHAT_NOT_FOUND' });
+  if (body.resolution === 'review') {
+    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats?id=eq.' + body.chatId + '&environment=eq.' + ctx.environment, {
       method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ resolution_status: 'REVIEW', updated_at: now() })
+    });
+    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/activity_log', {
+      method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ environment: ctx.environment, contact_id: chats[0].contact_id, chat_id: body.chatId, activity_type: 'ENTRY_KEPT_IN_REVIEW', summary: 'Conversa mantida em revisão', metadata: {}, occurred_at: now(), actor_user_id: ctx.panel.id })
     });
     return send(ctx.res, 200, { status: 'REVIEW' });
   }
-  const allowed = await rows(ctx, 'contacts', { select: 'id', id: 'eq.' + contactId, environment: 'eq.' + ctx.environment, limit: '1' });
-  if (!allowed[0]) return send(ctx.res, 400, { error: 'CONTACT_NOT_FOUND' });
-  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats?id=eq.' + encodeURIComponent(chatId) + '&environment=eq.' + ctx.environment, {
-    method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ contact_id: contactId, resolution_status: 'RESOLVED', updated_at: now() })
-  });
-  if (body.aliasText) {
-    const alias = String(body.aliasText).trim();
-    if (alias) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chat_aliases?on_conflict=environment,chat_id,alias_normalized', {
-      method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' },
-      body: JSON.stringify({ environment: ctx.environment, chat_id: chatId, alias_text: alias, alias_normalized: alias.normalize('NFC').toLocaleLowerCase('pt-BR'), first_seen_at: now(), last_seen_at: now(), confirmed_at: now(), confirmed_by: ctx.panel.id, created_at: now() })
-    });
-  }
-  return send(ctx.res, 200, { status: 'RESOLVED' });
+  return send(ctx.res, 400, { error: 'RESOLUTION_INVALID' });
 }
 
 module.exports = async (req, res) => {
@@ -156,15 +223,14 @@ module.exports = async (req, res) => {
   try {
     if (req.method === 'GET') return queue(ctx, res);
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
-    const body = await json(req);
-    if (body.action === 'start') return createJob(ctx, body);
-    if (body.action === 'review') return createReview(ctx, body);
-    if (body.action === 'batch') return receiveBatch(ctx, body);
-    if (body.action === 'finish') return finishJob(ctx, body);
-    if (body.action === 'resolve') return resolveChat(ctx, body);
+    const input = await json(req);
+    if (input.action === 'start') return createJob(ctx, input);
+    if (input.action === 'review') return createReview(ctx, input);
+    if (input.action === 'batch') return receiveBatch(ctx, input);
+    if (input.action === 'finish') return finishJob(ctx, input);
+    if (input.action === 'resolve') return resolveChat(ctx, input);
     return send(res, 400, { error: 'IMPORT_ACTION_INVALID' });
-  } catch (error) {
-    console.error('panel entry request failed', { code: error.message.slice(0, 80) });
+  } catch (_) {
     return send(res, 500, { error: 'IMPORT_REQUEST_FAILED' });
   }
 };

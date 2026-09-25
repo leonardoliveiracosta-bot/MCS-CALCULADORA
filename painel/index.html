@@ -52,14 +52,29 @@
             <h2>Importar conversa</h2>
             <p class="muted">ZIPs ou TXT do WhatsApp. Os arquivos são lidos neste navegador e nunca seguem para a Vercel.</p>
             <label id="drop-zone" class="drop-zone" for="whatsapp-files">Arraste ZIPs/TXT aqui ou selecione arquivos<input id="whatsapp-files" type="file" accept=".zip,.txt,text/plain,application/zip" multiple></label>
-            <label>Nome da My Car Scout nesta conversa<input id="mcs-name" value="My Car Scout" maxlength="100"></label>
             <p id="import-status" class="status" role="status"></p>
+          </section>
+          <section id="import-review-card" class="card hidden" aria-labelledby="import-review-title">
+            <h2 id="import-review-title">Confirmar conversa</h2>
+            <p id="import-review-summary" class="muted"></p>
+            <form id="import-review-form">
+              <label id="date-order-label" class="hidden">Formato da data<select id="date-order"><option value="">Escolha</option><option value="DMY">DD/MM</option><option value="MDY">MM/DD</option></select></label>
+              <label>Tipo de conversa<select id="chat-type" required><option value="">Escolha</option><option value="individual">Conversa individual</option><option value="group">Grupo</option></select></label>
+              <label id="mcs-sender-label">Qual remetente é a MCS?<select id="mcs-sender"><option value="">Escolha</option></select></label>
+              <label id="contact-label">Contato<select id="import-contact"><option value="new">Novo contato</option></select></label>
+              <label id="contact-name-label">Nome do novo contato<input id="import-contact-name" maxlength="160"></label>
+              <label id="chat-label">Chat<select id="import-chat"><option value="new">Novo chat</option></select></label>
+              <label id="journey-label">Busca<select id="import-journey"><option value="new">Nova jornada</option></select></label>
+              <p id="ref-warning" class="warning hidden">Ref encontrada: escolha manualmente mesma busca ou nova jornada.</p>
+              <button type="submit">Confirmar e importar</button>
+            </form>
           </section>
           <section class="card">
             <h2>Colar SMS</h2>
             <form id="sms-form">
               <label>Contato<select id="sms-contact"><option value="new">Novo contato</option></select></label>
               <label id="sms-new-name-label">Nome do novo contato<input id="sms-new-name" maxlength="160"></label>
+              <label>Busca<select id="sms-journey"><option value="new">Nova jornada</option></select></label>
               <label>Quem falou<select id="sms-direction"><option value="CUSTOMER">Cliente</option><option value="MCS">My Car Scout</option></select></label>
               <label>Data e hora<input id="sms-date" type="datetime-local" required></label>
               <label>Mensagem<textarea id="sms-text" required maxlength="25000"></textarea></label>
@@ -84,6 +99,7 @@
     </section>
   </main>
   <script src="/painel/vendor/zip.min.js" defer></script>
+  <script src="/painel/parser.js" defer></script>
   <script src="/painel/painel.js" defer></script>
 </body>
 </html>

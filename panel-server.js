@@ -8,6 +8,7 @@ const SERVER_ENVIRONMENT = process.env.VERCEL_ENV === 'preview'
 
 function send(res, status, payload) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   return res.status(status).json(payload);
 }
@@ -23,6 +24,10 @@ function configuration() {
 function bearer(req) {
   const value = req.headers.authorization || '';
   return value.startsWith('Bearer ') ? value.slice(7) : null;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
 }
 
 async function supabase(url, key, path, options = {}) {
@@ -88,4 +93,4 @@ async function requirePanel(req, res, options = {}) {
   return { config, user, panel, environment: SERVER_ENVIRONMENT };
 }
 
-module.exports = { SERVER_ENVIRONMENT, configuration, requirePanel, send, supabase };
+module.exports = { SERVER_ENVIRONMENT, configuration, requirePanel, send, supabase, bearer, isUuid };
