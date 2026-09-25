@@ -131,6 +131,7 @@
       const refs = [journey.reference_code, ...(journey.refs || []).map((item) => item.ref_code)].filter(Boolean).join(', ');
       option(journeySelect, `${journey.vehicle_text || 'Busca sem veículo'}${refs ? ` — Ref ${refs}` : ''}`, journey.id);
     });
+    journeySelect.value = 'new';
     $('contact-name-label').hidden = chosenContact !== 'new';
   }
 
