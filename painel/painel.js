@@ -340,7 +340,12 @@
     try {
       const signed = await request('/api/panel/attachments', { method: 'POST', body: JSON.stringify({ action: 'sign', filename: file.name, mimeType: file.type, byteSize: file.size, magicBase64 }) });
       const path = signed.uploadUrl.startsWith('http') ? signed.uploadUrl : config.url + '/storage/v1' + signed.uploadUrl;
-      const uploaded = await fetch(path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(signed.token), { method: 'PUT', headers: { 'content-type': file.type }, body: file });
+      const uploadUrl = new URL(path);
+      uploadUrl.searchParams.set('token', signed.token);
+      const uploadBody = new FormData();
+      uploadBody.append('cacheControl', '3600');
+      uploadBody.append('', file);
+      const uploaded = await fetch(uploadUrl.toString(), { method: 'PUT', headers: { 'x-upsert': 'false' }, body: uploadBody });
       if (!uploaded.ok) throw new Error('UPLOAD_FAILED');
       await request('/api/panel/attachments', { method: 'POST', body: JSON.stringify({ action: 'finalize', attachmentId: signed.attachmentId, quarantinePath: signed.quarantinePath, filename: signed.filename, mimeType: file.type }) });
       $('attachment-status').textContent = 'Anexo verificado e armazenado de forma privada.';
