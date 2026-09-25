@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>My Car Scout — Painel</title>
+  <link rel="stylesheet" href="/painel/painel.css">
+</head>
+<body>
+  <main class="shell">
+    <section id="login-view" class="card" aria-labelledby="login-title">
+      <p class="eyebrow">MY CAR SCOUT</p>
+      <h1 id="login-title">Painel</h1>
+      <p class="muted">Acesso restrito à equipe.</p>
+      <form id="login-form">
+        <label>E-mail<input id="email" type="email" autocomplete="email" required></label>
+        <label>Senha<input id="password" type="password" autocomplete="current-password" required minlength="8"></label>
+        <button type="submit">Entrar</button>
+      </form>
+      <p id="login-error" class="error" role="alert"></p>
+    </section>
+
+    <section id="password-view" class="card hidden" aria-labelledby="password-title">
+      <p class="eyebrow">PRIMEIRO ACESSO</p>
+      <h1 id="password-title">Crie sua senha</h1>
+      <p class="muted">A senha temporária só vale para o primeiro acesso.</p>
+      <form id="password-form">
+        <label>Nova senha<input id="new-password" type="password" autocomplete="new-password" required minlength="12"></label>
+        <label>Confirme a nova senha<input id="confirm-password" type="password" autocomplete="new-password" required minlength="12"></label>
+        <button type="submit">Salvar e abrir painel</button>
+      </form>
+      <p id="password-error" class="error" role="alert"></p>
+    </section>
+
+    <section id="app-view" class="hidden" aria-label="Painel My Car Scout">
+      <header class="topbar">
+        <div><p class="eyebrow">MY CAR SCOUT</p><h1>HOJE</h1></div>
+        <button id="logout" class="quiet" type="button">Sair</button>
+      </header>
+      <nav aria-label="Seções do painel">
+        <button class="tab active" type="button">HOJE</button>
+        <button class="tab" type="button" disabled>ENTRADA</button>
+        <button class="tab" type="button" disabled>PEDIDOS</button>
+        <button class="tab" type="button" disabled>QUALIFICAÇÃO</button>
+        <button class="tab" type="button" disabled>FICHAS</button>
+      </nav>
+      <section class="card empty" aria-live="polite"><h2>Nenhuma pendência agora</h2><p>As próximas ações aparecerão aqui.</p></section>
+    </section>
+  </main>
+  <script src="/painel/painel.js" defer></script>
+</body>
+</html>

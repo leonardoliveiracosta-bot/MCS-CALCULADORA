@@ -1,5 +1,8 @@
 {
   "rewrites": [
+    { "source": "/api/panel/(.*)", "destination": "/api/panel/$1" },
+    { "source": "/painel", "destination": "/painel/index.html" },
+    { "source": "/painel/(.*)", "destination": "/painel/$1" },
     { "source": "/(.*)", "destination": "/msc-calculadora.html" }
   ]
 }
