@@ -225,3 +225,15 @@ test('remember login persists a refreshable session without storing the password
   assert.match(source, /refreshToken = data\.refresh_token/);
   assert.doesNotMatch(source, /setItem\([^\n]*(?:password|senha)/i);
 });
+
+test('WhatsApp import makes confirmation and storage failures explicit', () => {
+  const client = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'api', 'panel', 'entry.js'), 'utf8');
+  assert.match(client, /await loadQueue\(false\);/);
+  assert.match(client, /arquivo lido\. Confirme os dados abaixo para gravar a conversa/);
+  assert.match(client, /scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
+  assert.match(client, /Falha na importação:[\s\S]*Nenhum sucesso foi confirmado/);
+  assert.match(server, /start: 'IMPORT_START_FAILED'/);
+  assert.match(server, /batch: 'IMPORT_BATCH_FAILED'/);
+  assert.match(server, /finish: 'IMPORT_FINISH_FAILED'/);
+});
