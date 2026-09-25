@@ -203,6 +203,9 @@ function buildTodayItems(input, nowValue = new Date()) {
     result.push({
       id: journey.id,
       contactId: journey.contact_id,
+      referenceCode: clean(journey.reference_code) || null,
+      phoneLast4: clean((journey.phones || []).find((phone) => phone.is_current !== false)?.phone_e164 || (journey.phones || [])[0]?.phone_raw).replace(/\D/g, '').slice(-4) || null,
+      source: journey.source,
       name: clean(journey.contact && journey.contact.display_name) || 'Contato sem nome',
       vehicleText: clean(journey.vehicle_text) || null,
       stage: journey.stage,
