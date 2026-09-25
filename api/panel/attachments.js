@@ -62,7 +62,10 @@ async function handler(req, res) {
     if (!isUuid(input.attachmentId)) return send(res, 400, { error: 'ATTACHMENT_ID_INVALID' });
     const filename = safeName(input.filename);
     quarantinePath = `quarantine/${ctx.environment}/${input.attachmentId}/${filename}`;
-    if (String(input.quarantinePath || '') !== quarantinePath) return send(res, 400, { error: 'ATTACHMENT_PATH_INVALID' });
+    if (String(input.quarantinePath || '') !== quarantinePath) {
+      await removeObject(ctx, quarantinePath);
+      return send(res, 400, { error: 'ATTACHMENT_PATH_INVALID' });
+    }
 
     const relationSpecs = [['contacts', input.contactId], ['chats', input.chatId], ['journeys', input.journeyId], ['messages', input.messageId]];
     const validated = {};
