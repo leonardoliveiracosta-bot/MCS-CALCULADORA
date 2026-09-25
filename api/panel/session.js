@@ -10,7 +10,9 @@ module.exports = async (req, res) => {
       environment: session.environment,
       email: session.panel.email,
       role: session.panel.role,
-      mustChangePassword: session.panel.must_change_password
+      mustChangePassword: session.panel.must_change_password,
+      realtimeEnabled: false,
+      refreshSeconds: 120
     });
   } catch (error) {
     return send(res, 500, { error: 'PANEL_SESSION_ERROR' });

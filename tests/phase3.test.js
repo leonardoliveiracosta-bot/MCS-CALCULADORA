@@ -130,7 +130,6 @@ test('every phase-3 API is blocked while must_change_password is true', async ()
     ['../api/panel/records', { method: 'GET', query: {} }],
     ['../api/panel/search', { method: 'GET', query: { q: 'TESTE' } }],
     ['../api/panel/report', { method: 'GET', query: { period: 'today' } }],
-    ['../api/panel/realtime', { method: 'GET' }],
     ['../api/panel/actions', { method: 'POST', body: { action: 'start_search', journeyId: '00000000-0000-4000-8000-000000000003' } }]
   ];
   for (const [modulePath, request] of cases) {

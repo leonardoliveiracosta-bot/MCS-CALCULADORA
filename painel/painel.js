@@ -893,7 +893,6 @@
       const session = await request('/api/panel/session');
       if (session.mustChangePassword) return show('password-view');
       show('app-view');
-      await request('/api/panel/realtime');
       await switchPanel('today');
       startSafeRefresh();
     } catch (failure) {
