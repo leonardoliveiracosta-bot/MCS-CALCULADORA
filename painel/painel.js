@@ -14,6 +14,9 @@
   let chats = [];
   let journeys = [];
   let senderAliases = [];
+  let chatAliases = [];
+  let todayItems = [];
+  let recordItems = [];
   let currentView = 'today';
   let orderFilter = 'Todos';
   let orderPeriod = '30';
@@ -53,6 +56,9 @@
   const formatDate = (value) => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
   const formatMoney = (cents) => Number(cents) ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(Number(cents) / 100) : '—';
   const localInput = (date = new Date()) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const normalize = (value) => MCSParser.normalizeSender(value);
+  const inferredContactName = (title) => MCSParser.clean(String(title || '').replace(/^WhatsApp Chat with\s+/i, '').replace(/^Conversa do WhatsApp com\s+/i, '')).slice(0, 160) || 'Contato sem nome';
+  const setCount = (view, value) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => { node.textContent = String(value || 0); });
 
   const request = async (path, options = {}) => {
     const retryAuth = options.retryAuth !== false;
@@ -67,6 +73,12 @@
     }
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (response.status === 401 && path !== '/api/panel/config') {
+        clearInterval(refreshTimer);
+        clearSession();
+        show('login-view');
+        error('login-error', 'Sua sessão expirou. Entre novamente para continuar.');
+      }
       const failure = new Error(result.error || 'REQUEST_FAILED');
       failure.code = result.error;
       throw failure;
@@ -116,7 +128,7 @@
     journeySelect.replaceChildren(new Option('Escolha', ''));
     option(journeySelect, 'Nova jornada', 'new');
     journeys.filter((journey) => chosenContact !== 'new' && journey.contact_id === chosenContact).forEach((journey) => {
-      const refs = (journey.refs || []).map((item) => item.ref_code).join(', ');
+      const refs = [journey.reference_code, ...(journey.refs || []).map((item) => item.ref_code)].filter(Boolean).join(', ');
       option(journeySelect, `${journey.vehicle_text || 'Busca sem veículo'}${refs ? ` — Ref ${refs}` : ''}`, journey.id);
     });
     $('contact-name-label').hidden = chosenContact !== 'new';
@@ -136,9 +148,12 @@
       const contact = $('import-contact');
       contact.replaceChildren(new Option('Novo contato', 'new'));
       contacts.forEach((item) => option(contact, item.display_name || 'Sem nome', item.id));
-      $('import-contact-name').value = '';
+      $('import-contact-name').value = inferredContactName(parsed.title);
       $('ref-warning').classList.toggle('hidden', !parsed.refs.length);
       updateImportChoices(parsed);
+      $('import-contact').value = 'new';
+      $('import-journey').value = 'new';
+      ['contact-label', 'contact-name-label', 'chat-label', 'journey-label', 'ref-warning'].forEach((id) => $(id).classList.add('hidden'));
       card.classList.remove('hidden');
       $('import-status').classList.remove('error');
       $('import-status').textContent = `${filename}: arquivo lido. Confirme os dados abaixo para gravar a conversa.`;
@@ -200,7 +215,24 @@
       $('import-status').textContent = `${sourceFilename}: formato não suportado — revisão, sem inserir mensagens.`;
       return { pending: true, inserted: 0 };
     }
-    const choice = await reviewConversation(raw, filename, initial);
+    const automatic = MCSParser.automaticImportMatch(initial, chatAliases, chats, senderAliases);
+    const knownChat = automatic && automatic.chat;
+    const knownMcs = automatic && { sender_text: automatic.mcsSender };
+    let choice;
+    if (knownChat && knownMcs && !initial.requiresDateOrder) {
+      const parsed = MCSParser.parseWhatsApp(raw, filename, { dateOrder: initial.dateOrder });
+      const ownJourneys = journeys.filter((item) => item.contact_id === knownChat.contact_id);
+      const byRef = ownJourneys.filter((item) => initial.refs.some((ref) => ref === item.reference_code || (item.refs || []).some((stored) => stored.ref_code === ref)));
+      const target = byRef.length === 1 ? byRef[0] : ownJourneys.length === 1 ? ownJourneys[0] : null;
+      choice = {
+        parsed, entries: MCSParser.assignDirections(parsed, knownMcs.sender_text), isGroup: false,
+        mcsSender: knownMcs.sender_text, contactId: knownChat.contact_id, newContactName: null,
+        chatId: knownChat.id, journey: target ? { mode: 'existing', journeyId: target.id } : { mode: 'new', journeyId: null }
+      };
+      $('import-status').textContent = `${sourceFilename}: conversa reconhecida; gravando…`;
+    } else {
+      choice = await reviewConversation(raw, filename, initial);
+    }
     const senderPayload = choice.parsed.senders.map((name) => ({ senderText: name, direction: MCSParser.normalizeSender(name) === MCSParser.normalizeSender(choice.mcsSender) ? 'MCS' : 'CUSTOMER' }));
     const start = await request('/api/panel/entry', {
       method: 'POST', body: JSON.stringify({
@@ -237,7 +269,7 @@
       inserted += result.inserted;
     }
     const done = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'finish', importJobId: start.importJobId, journey: choice.journey, refs: choice.parsed.refs }) });
-    return { inserted, pending: done.pending };
+    return { inserted, pending: done.pending, journeyId: done.journeyId || null };
   }
 
   async function importFiles(files) {
@@ -245,6 +277,7 @@
     await loadQueue(false);
     let inserted = 0;
     let pending = false;
+    let lastJourneyId = null;
     for (const file of files) {
       $('import-status').classList.remove('error');
       $('import-status').textContent = `Lendo ${file.name}…`;
@@ -254,12 +287,13 @@
         const result = await submitConversation(item.text, item.name, file.name.toLowerCase().endsWith('.zip') ? 'WHATSAPP_ZIP' : 'WHATSAPP_TXT', file.name, sourceSha);
         inserted += result.inserted;
         pending = pending || result.pending;
+        lastJourneyId = result.journeyId || lastJourneyId;
       }
     }
     $('import-status').classList.remove('error');
-    $('import-status').textContent = `${inserted} mensagem(ns) nova(s). ${pending ? 'Há pendências em ENTRADA.' : 'Importação concluída; siga para HOJE.'}`;
+    $('import-status').textContent = `${inserted} mensagem(ns) nova(s). ${pending ? 'Há uma dúvida real para revisar.' : 'Importação concluída.'}`;
     await loadQueue();
-    if (!pending) switchPanel('today');
+    if (!pending && lastJourneyId) { await switchPanel('records'); await openRecord(lastJourneyId); }
   }
 
   function clearRecordDetail(message = 'Escolha uma ficha.') {
@@ -357,12 +391,14 @@
     chats = data.chats || [];
     journeys = data.journeys || [];
     senderAliases = data.senderAliases || [];
+    chatAliases = data.chatAliases || [];
     const select = $('sms-contact');
     const old = select.value;
     select.replaceChildren(new Option('Novo contato', 'new'));
     contacts.forEach((contact) => option(select, contact.display_name || 'Sem nome', contact.id));
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
+    setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
     if (render) renderQueue(chats, data.reviews || []);
     return data;
   }
@@ -447,6 +483,29 @@
     return `${Math.floor(hours / 24)}d ${hours % 24}h`;
   }
 
+  function sourceLabel(source) {
+    return ({ CALCULATOR: 'Calculadora', WHATSAPP_DIRECT: 'WhatsApp', SMS_DIRECT: 'SMS', MANUAL: 'Manual' })[source] || source || 'Origem não informada';
+  }
+
+  function initials(name) {
+    return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';
+  }
+
+  function identityHeader(item, options = {}) {
+    const name = item.name || item.contact && item.contact.display_name || item.contactName || 'Sem nome';
+    const ref = item.referenceCode || item.reference_code || item.ref || null;
+    const phone = item.phoneLast4 || String((item.phones || []).find((entry) => entry.is_current !== false)?.phone_e164 || (item.phones || [])[0]?.phone_raw || '').replace(/\D/g, '').slice(-4);
+    const wrap = element('div', 'identity');
+    wrap.append(element('span', 'avatar', initials(name)));
+    const text = element('div');
+    text.append(element('strong', '', `${name}${ref ? ` · Ref ${ref}` : ''}`));
+    const details = [item.vehicleText || item.vehicle_text || 'Veículo não informado', phone ? `•••• ${phone}` : null, sourceLabel(item.source)].filter(Boolean).join(' · ');
+    text.append(element('span', 'muted one-line', details));
+    if (options.preview) text.append(element('span', 'one-line message-preview', options.preview));
+    wrap.append(text);
+    return wrap;
+  }
+
   function renderFailure(view) {
     const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
@@ -506,12 +565,16 @@
   function renderToday(items) {
     const root = $('today-list');
     root.replaceChildren();
+    todayItems = items.slice();
+    setCount('today', items.length);
     if (!items.length) return empty(root, 'Nenhuma pendência agora.');
-    items.forEach((item) => {
+    const mode = $('today-sort') ? $('today-sort').value : 'priority';
+    const sorted = items.slice().sort((a, b) => mode === 'recent' ? a.waitMs - b.waitMs : mode === 'oldest' ? b.waitMs - a.waitMs : 0);
+    sorted.forEach((item) => {
       const card = element('article', 'item-card');
       const head = element('div', 'item-head');
       const title = element('div');
-      title.append(element('h3', '', item.name), element('p', 'muted', item.vehicleText || 'Busca sem veículo'));
+      title.append(identityHeader(item, { preview: item.reasons.find((reason) => reason.preview)?.preview || '' }));
       const priority = element('div', 'badges');
       priority.append(makeBadge(waitLabel(item.waitMs), item.waitColor), makeBadge(item.checklistLabel, 'blue'));
       if (item.budgetCents) priority.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
@@ -565,13 +628,14 @@
     const root = $('orders-list');
     root.replaceChildren();
     $('orders-more').classList.toggle('hidden', !page.hasMore);
+    setCount('orders', page.total || items.length);
     if (!items.length) return empty(root, 'Nenhum pedido neste filtro e período.');
     items.forEach((item) => {
       const card = element('article', 'item-card');
       card.dataset.orderKey = item.key;
       const head = element('div', 'item-head');
       const title = element('div');
-      const heading = item.contactName || (item.ref ? `Ref ${item.ref}` : 'Pedido direto');
+      const heading = item.contactName || (item.ref || item.referenceCode ? `Ref ${item.ref || item.referenceCode}` : 'Pedido direto');
       title.append(element('h3', '', heading), element('p', 'muted', item.vehicleText || 'Veículo não informado'));
       const badges = element('div', 'badges');
       const modeLabel = item.logicalMode === 'CARRO' ? 'POR CARRO IDEAL' : item.logicalMode === 'VALOR' ? 'POR ORÇAMENTO' : 'MODO NÃO INFORMADO';
@@ -579,7 +643,7 @@
       badges.append(makeBadge(item.sourceLabel), makeBadge(modeLabel), makeBadge(item.status, statusTone));
       head.append(title, badges);
       const details = element('dl', 'definition-grid order-details');
-      definition(details, 'Ref', item.ref || null);
+      definition(details, 'Ref', item.ref || item.referenceCode || null);
       definition(details, 'Orçamento', item.budgetCents ? formatMoney(item.budgetCents) : 'Não informado');
       definition(details, 'Pagamento', item.paymentText || 'Não informado');
       definition(details, 'Estado', item.state || 'Não informado');
@@ -615,12 +679,13 @@
   function renderQualification(items) {
     const root = $('qualification-list');
     root.replaceChildren();
+    setCount('qualification', items.length);
     if (!items.length) return empty(root, 'Nenhuma jornada para qualificar.');
     items.forEach((item) => {
       const card = element('article', 'item-card');
       const head = element('div', 'item-head');
       const title = element('div');
-      title.append(element('h3', '', item.contact && item.contact.display_name || 'Contato sem nome'), element('p', 'muted', item.vehicle_text || 'Busca sem veículo'));
+      title.append(identityHeader(item));
       const badges = element('div', 'badges');
       badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage), makeBadge(item.status));
       if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
@@ -643,15 +708,18 @@
   function renderRecords(items) {
     const root = $('records-list');
     root.replaceChildren();
+    recordItems = items.slice();
+    setCount('records', items.length);
     if (!items.length) {
       clearRecordDetail('Nenhuma ficha selecionada.');
       return empty(root, 'Nenhuma ficha criada.');
     }
-    items.forEach((item) => {
+    const mode = $('records-sort') ? $('records-sort').value : 'recent';
+    const sorted = items.slice().sort((a, b) => mode === 'oldest' ? Date.parse(a.updated_at) - Date.parse(b.updated_at) : mode === 'name' ? String(a.contact && a.contact.display_name || '').localeCompare(String(b.contact && b.contact.display_name || ''), 'pt-BR') : mode === 'ref' ? String(a.reference_code || '').localeCompare(String(b.reference_code || '')) : Date.parse(b.updated_at) - Date.parse(a.updated_at));
+    sorted.forEach((item) => {
       const button = element('button', 'search-hit');
       button.type = 'button';
-      const text = element('span');
-      text.append(element('strong', '', item.contact && item.contact.display_name || 'Contato sem nome'), element('span', 'muted', item.vehicle_text ? ` — ${item.vehicle_text}` : ' — busca sem veículo'));
+      const text = identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' });
       button.append(text, makeBadge(`${item.stage} · ${item.status}`));
       button.addEventListener('click', () => openRecord(item.id));
       root.append(button);
@@ -665,46 +733,39 @@
   }
 
   function actionMessage(message, journeyId, reload) {
-    const root = element('div', 'message-actions');
+    const root = element('details', 'message-menu');
+    const summary = element('summary', '', '⋯');
+    summary.setAttribute('aria-label', 'Ações desta mensagem');
+    root.append(summary);
+    const menu = element('div', 'message-menu-panel');
     if (message.direction === 'CUSTOMER') {
-      const evidenceForm = element('div', 'inline-form');
-      const pointLabel = element('label', '', 'Usar como evidência');
-      const point = element('select');
-      for (let number = 1; number <= 6; number += 1) point.append(new Option(`Ponto ${number}`, String(number)));
-      pointLabel.append(point);
-      const evidenceButton = element('button', 'small', 'Salvar evidência');
-      evidenceButton.type = 'button';
-      evidenceButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'checklist_evidence', journeyId, messageId: message.id, pointNumber: Number(point.value) }) }); await reload(); });
-      evidenceForm.append(pointLabel, evidenceButton);
-
-      const declarationForm = element('div', 'inline-form');
-      const fieldLabel = element('label', '', 'Usar como');
-      const field = element('select');
-      [['TETO', 'Teto'], ['VEICULO', 'Veículo'], ['PRAZO', 'Prazo']].forEach(([value, label]) => field.append(new Option(label, value)));
-      fieldLabel.append(field);
-      const valueLabel = element('label', '', 'Valor declarado');
-      const value = element('input');
-      value.maxLength = 500;
-      valueLabel.append(value);
-      const deadlineLabel = element('label', '', 'Data do prazo (se aplicável)');
-      const deadline = element('input');
-      deadline.type = 'datetime-local';
-      deadlineLabel.append(deadline);
-      const declarationButton = element('button', 'small', 'Registrar declaração');
-      declarationButton.type = 'button';
-      declarationButton.addEventListener('click', async () => {
-        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'declaration', journeyId, messageId: message.id, field: field.value, value: value.value, deadlineAt: deadline.value ? new Date(deadline.value).toISOString() : null }) });
-        await reload();
+      const choices = [
+        ['VEHICLE', 'Carro/faixa', true], ['BUDGET', 'Teto', true], ['PAYMENT', 'Pagamento', true],
+        ['DEADLINE', 'Prazo', true], ['OUTSIDE_FLORIDA', 'Aceita fora da Flórida', false],
+        ['NO_TEST_DRIVE', 'Entendeu sem test drive/devolução', false]
+      ];
+      choices.forEach(([kind, label, needsValue]) => {
+        const row = element('div', 'menu-action');
+        const value = element('input');
+        value.maxLength = 500;
+        value.value = needsValue ? String(message.body_text || '').slice(0, 500) : '';
+        value.classList.toggle('hidden', !needsValue);
+        const button = element('button', 'quiet small', label);
+        button.type = 'button';
+        button.addEventListener('click', async () => {
+          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'mark_message', journeyId, messageId: message.id, kind, value: needsValue ? value.value : null }) });
+          await reload();
+        });
+        row.append(button, value);
+        menu.append(row);
       });
-      declarationForm.append(fieldLabel, valueLabel, deadlineLabel, declarationButton);
-
       const okButton = element('button', 'small', 'Cliente deu OK');
       okButton.type = 'button';
       okButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'client_ok', journeyId, messageId: message.id }) }); await reload(); });
-      root.append(evidenceForm, declarationForm, okButton);
+      menu.append(okButton);
     }
     if (message.direction === 'MCS') {
-      const promiseForm = element('div', 'inline-form');
+      const promiseForm = element('div', 'menu-action');
       const dueLabel = element('label', '', 'Prazo da promessa');
       const due = element('input');
       due.type = 'datetime-local';
@@ -722,8 +783,9 @@
         await reload();
       });
       promiseForm.append(dueLabel, dueTextLabel, promiseButton);
-      root.append(promiseForm);
+      menu.append(promiseForm);
     }
+    root.append(menu);
     return root;
   }
 
@@ -735,6 +797,11 @@
     const root = $('record-detail');
     root.replaceChildren();
     const reload = () => openRecord(id);
+    const split = element('div', 'record-split');
+    const left = element('div', 'record-data-column');
+    const right = element('div', 'record-conversation-column');
+    split.append(left, right);
+    root.append(split);
 
     const dataBlock = element('section', 'record-block');
     dataBlock.append(element('h2', '', item.contact && item.contact.display_name || 'Contato sem nome'));
@@ -744,19 +811,28 @@
     dataBlock.append(statusBadges);
     const definitions = element('dl', 'definition-grid');
     definition(definitions, 'Telefones', item.phones.map((phone) => phone.phone_e164 || phone.phone_raw).join(', '));
-    definition(definitions, 'Refs', item.refs.map((ref) => ref.ref_code).join(', '));
+    definition(definitions, 'Ref', item.reference_code);
+    definition(definitions, 'Refs da calculadora/conversa', item.refs.map((ref) => ref.ref_code).join(', '));
     definition(definitions, 'Origem', item.source);
-    definition(definitions, 'Local', item.contact && item.contact.location_text);
     definition(definitions, 'Veículo', item.vehicle_text);
-    definition(definitions, 'Critérios', Object.keys(item.criteria_json || {}).length ? JSON.stringify(item.criteria_json) : null);
     definition(definitions, 'Teto', formatMoney(item.budget_cents));
     definition(definitions, 'Pagamento', item.payment_text);
     definition(definitions, 'Prazo', item.customer_deadline_text || formatDate(item.customer_deadline_at));
-    definition(definitions, 'Perfil', item.contact && item.contact.profile_text);
     definition(definitions, 'Próxima ação', item.next_action_text);
     definition(definitions, 'Data da próxima ação', formatDate(item.next_action_at));
-    definition(definitions, 'Observações', item.contact && item.contact.notes);
     dataBlock.append(definitions);
+
+    const noteForm = element('div', 'inline-form note-form');
+    const noteLabel = element('label', '', 'Nota');
+    const note = element('textarea');
+    note.maxLength = 4000;
+    note.value = item.contact && item.contact.notes || '';
+    noteLabel.append(note);
+    const saveNote = element('button', 'quiet small', 'Salvar nota');
+    saveNote.type = 'button';
+    saveNote.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'update_note', journeyId: id, note: note.value }) }); await reload(); });
+    noteForm.append(noteLabel, saveNote);
+    dataBlock.append(noteForm);
 
     if (!item.stage_frozen && item.status !== 'ENCERRADO') {
       const operations = element('div', 'inline-actions');
@@ -801,14 +877,14 @@
       dataBlock.append(nextForm);
 
       const statusForm = element('div', 'inline-form');
-      const statusLabel = element('label', '', 'Status');
+      const statusLabel = element('label', '', 'Etapa operacional');
       const statusSelect = element('select');
-      ['ATIVO', 'AGUARDANDO_CLIENTE', 'PARADO'].forEach((status) => statusSelect.append(new Option(status.replace('_', ' '), status)));
-      statusSelect.value = item.status;
+      [['NOVO', 'Novo'], ['RESPONDIDO', 'Respondido'], ['EM_BUSCA', 'Em busca'], ['DECIDINDO', 'Decidindo'], ['QUALIFICADO', 'Qualificado'], ['AGUARDANDO_CLIENTE', 'Aguardando cliente'], ['PARADO', 'Parado']].forEach(([value, label]) => statusSelect.append(new Option(label, value)));
+      statusSelect.value = ['AGUARDANDO_CLIENTE', 'PARADO'].includes(item.status) ? item.status : item.stage;
       statusLabel.append(statusSelect);
-      const statusButton = element('button', 'small', 'Atualizar status');
+      const statusButton = element('button', 'small', 'Atualizar etapa');
       statusButton.type = 'button';
-      statusButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_status', journeyId: id, status: statusSelect.value }) }); await reload(); });
+      statusButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_funnel', journeyId: id, value: statusSelect.value }) }); await reload(); });
       const closeReasonLabel = element('label', '', 'Motivo para encerrar');
       const closeReason = element('input');
       closeReason.maxLength = 500;
@@ -837,7 +913,7 @@
         dataBlock.append(row);
       });
     }
-    root.append(dataBlock);
+    left.append(dataBlock);
 
     const checklistBlock = element('section', 'record-block');
     checklistBlock.append(element('h3', '', `Checklist — ${item.checklistSummary.label}`));
@@ -847,7 +923,7 @@
       point.evidence.forEach((evidence) => row.append(element('p', 'evidence', evidence.excerpt_text)));
       checklistBlock.append(row);
     });
-    root.append(checklistBlock);
+    left.append(checklistBlock);
 
     const promiseBlock = element('section', 'record-block');
     promiseBlock.append(element('h3', '', 'O que eu prometi'));
@@ -863,7 +939,7 @@
       }
       promiseBlock.append(row);
     });
-    root.append(promiseBlock);
+    left.append(promiseBlock);
 
     const unitsBlock = element('section', 'record-block');
     unitsBlock.append(element('h3', '', 'Unidades apresentadas'));
@@ -904,36 +980,43 @@
       addForm.append(vehicle, status, add);
       unitsBlock.append(addForm);
     }
-    root.append(unitsBlock);
-
-    const historyBlock = element('section', 'record-block');
-    historyBlock.append(element('h3', '', 'Histórico'));
-    item.interactions.forEach((interaction) => historyBlock.append(element('p', 'muted', `${formatDate(interaction.occurred_at)} · ${interaction.type}${interaction.detail_text ? ` · ${interaction.detail_text}` : ''}`)));
-    if (!item.interactions.length) historyBlock.append(element('p', 'muted', 'Sem interações registradas.'));
-    root.append(historyBlock);
+    left.append(unitsBlock);
 
     const conversationBlock = element('section', 'record-block');
     conversationBlock.append(element('h3', '', 'CONVERSA'));
+    const conversationControls = element('div', 'conversation-controls');
+    const sortLabel = element('label', '', 'Ordenar');
+    const sort = element('select');
+    sort.append(new Option('Mais antigas primeiro', 'oldest'), new Option('Mais recentes primeiro', 'recent'));
+    sort.value = localStorage.getItem('mcs_conversation_sort') || 'oldest';
+    sortLabel.append(sort);
+    const filterLabel = element('label', '', 'Mostrar');
+    const filter = element('select');
+    filter.append(new Option('Tudo', 'all'), new Option('Cliente', 'CUSTOMER'), new Option('MCS', 'MCS'));
+    filterLabel.append(filter);
+    conversationControls.append(sortLabel, filterLabel);
+    conversationBlock.append(conversationControls);
+    const timeline = element('div', 'conversation-timeline');
+    const renderConversation = () => {
+      timeline.replaceChildren();
+      const messages = item.conversation.filter((message) => filter.value === 'all' || message.direction === filter.value);
+      if (sort.value === 'recent') messages.reverse();
+      messages.forEach((message) => {
+        const row = element('article', 'message ' + message.direction.toLowerCase());
+        const meta = `${message.channel} · ${message.direction === 'CUSTOMER' ? 'Cliente' : message.direction === 'MCS' ? 'MCS' : 'Sistema'} · ${formatDate(message.occurred_at_utc || message.occurred_at_local || message.created_at)}${message.time_uncertain ? ' · hora incerta' : ''}`;
+        row.append(element('span', 'message-meta', meta), element('p', 'message-body', message.body_text));
+        if (!item.stage_frozen && item.status !== 'ENCERRADO' && message.direction !== 'SYSTEM') row.append(actionMessage(message, id, reload));
+        timeline.append(row);
+      });
+      if (filter.value === 'all') item.interactions.filter((interaction) => !interaction.message_id).forEach((interaction) => timeline.append(element('p', 'timeline-event', `${formatDate(interaction.occurred_at)} · ${interaction.type}`)));
+      if (!timeline.childNodes.length) timeline.append(element('p', 'muted', 'Nenhuma mensagem neste filtro.'));
+    };
+    sort.addEventListener('change', () => { localStorage.setItem('mcs_conversation_sort', sort.value); renderConversation(); });
+    filter.addEventListener('change', renderConversation);
     if (!item.conversation.length) conversationBlock.append(element('p', 'muted', 'Nenhuma mensagem associada a esta jornada.'));
-    item.conversation.forEach((message) => {
-      const row = element('article', 'message ' + message.direction.toLowerCase());
-      const meta = `${message.channel} · ${message.direction === 'CUSTOMER' ? 'Cliente' : message.direction === 'MCS' ? 'MCS' : 'Sistema'} · ${formatDate(message.occurred_at_utc || message.occurred_at_local || message.created_at)}${message.time_uncertain ? ' · hora incerta' : ''}`;
-      row.append(element('span', 'message-meta', meta), element('p', 'message-body', message.body_text));
-      if (!item.stage_frozen && item.status !== 'ENCERRADO' && message.direction !== 'SYSTEM') row.append(actionMessage(message, id, reload));
-      conversationBlock.append(row);
-    });
-    root.append(conversationBlock);
-
-    const responseBlock = element('section', 'record-block response-area');
-    responseBlock.append(element('h3', '', 'Resposta'));
-    const response = element('textarea');
-    response.disabled = true;
-    response.placeholder = 'Área reservada para uma fase futura.';
-    const sendButton = element('button', '', 'Enviar resposta');
-    sendButton.type = 'button';
-    sendButton.disabled = true;
-    responseBlock.append(response, sendButton);
-    root.append(responseBlock);
+    conversationBlock.append(timeline);
+    renderConversation();
+    right.append(conversationBlock);
   }
 
   async function globalSearch(event) {
@@ -1108,6 +1191,8 @@
       if (currentView === 'orders') await loadCurrent();
     }));
     $('orders-more').addEventListener('click', () => loadOrders(true).catch(() => { $('orders-more').textContent = 'Não foi possível carregar'; }));
+    $('today-sort').addEventListener('change', () => renderToday(todayItems));
+    $('records-sort').addEventListener('change', () => renderRecords(recordItems));
     document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar.')); $('search-results').classList.remove('hidden'); }));
     $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
