@@ -18,6 +18,7 @@
   let orderItems = [];
   let orderLinkTargets = [];
   let reportView = 'today';
+  let viewRequestVersion = 0;
   const $ = (id) => document.getElementById(id);
   const show = (id) => ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id));
   const error = (id, message) => { $(id).textContent = message || ''; };
@@ -224,14 +225,30 @@
     if (!pending) switchPanel('today');
   }
 
+  function clearRecordDetail(message = 'Escolha uma ficha.') {
+    const root = $('record-detail');
+    if (root) root.replaceChildren(element('p', 'muted', message));
+  }
+
+  function renderLoading(view) {
+    const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', records: 'records-list' };
+    if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
+    if (view === 'orders') $('orders-more').classList.add('hidden');
+  }
+
   async function switchPanel(view) {
     if (!['today', 'entry', 'orders', 'qualification', 'records'].includes(view)) return;
     currentView = view;
+    const requestVersion = ++viewRequestVersion;
+    clearRecordDetail();
     const labels = { today: 'HOJE', entry: 'ENTRADA', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', records: 'FICHAS' };
     Object.keys(labels).forEach((name) => $(name + '-panel').classList.toggle('hidden', name !== view));
     $('page-title').textContent = labels[view];
     document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
-    try { await loadCurrent(); } catch (_) { renderFailure(view); }
+    renderLoading(view);
+    try { await loadCurrent(view, requestVersion); } catch (_) {
+      if (currentView === view && viewRequestVersion === requestVersion) renderFailure(view);
+    }
   }
 
   function renderQueue(items, reviews) {
@@ -297,7 +314,7 @@
     journeys.filter((journey) => contactId !== 'new' && journey.contact_id === contactId).forEach((journey) => option(select, journey.vehicle_text || 'Busca existente', journey.id));
   }
 
-  async function loadQueue() {
+  async function loadQueue(render = true) {
     const data = await request('/api/panel/entry');
     contacts = data.contacts || [];
     chats = data.chats || [];
@@ -309,7 +326,8 @@
     contacts.forEach((contact) => option(select, contact.display_name || 'Sem nome', contact.id));
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
-    renderQueue(chats, data.reviews || []);
+    if (render) renderQueue(chats, data.reviews || []);
+    return data;
   }
 
   function smsDate(local) {
@@ -397,35 +415,44 @@
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
   }
 
-  async function loadCurrent() {
-    if (currentView === 'entry') return loadQueue();
-    if (currentView === 'today') {
+  async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
+    const current = () => currentView === view && viewRequestVersion === requestVersion;
+    if (view === 'entry') {
+      const data = await loadQueue(false);
+      if (!current()) return;
+      return renderQueue(data.chats || [], data.reviews || []);
+    }
+    if (view === 'today') {
       const data = await request('/api/panel/today');
+      if (!current()) return;
       updateMeta(data.meta);
       return renderToday(data.items || []);
     }
-    if (currentView === 'orders') {
-      return loadOrders(false);
+    if (view === 'orders') {
+      return loadOrders(false, view, requestVersion);
     }
-    if (currentView === 'qualification') {
+    if (view === 'qualification') {
       const data = await request('/api/panel/qualification');
+      if (!current()) return;
       updateMeta(data.meta);
       return renderQualification(data.items || []);
     }
-    if (currentView === 'records') {
+    if (view === 'records') {
       const data = await request('/api/panel/records');
+      if (!current()) return;
       updateMeta(data.meta);
       return renderRecords(data.items || []);
     }
   }
 
-  async function loadOrders(append) {
+  async function loadOrders(append, view = currentView, requestVersion = viewRequestVersion) {
     if (!append) {
       orderOffset = 0;
       orderItems = [];
     }
     const params = new URLSearchParams({ filter: orderFilter, period: orderPeriod, limit: '30', offset: String(orderOffset) });
     const data = await request('/api/panel/orders?' + params.toString());
+    if (currentView !== view || viewRequestVersion !== requestVersion) return;
     updateMeta(data.meta);
     orderItems = append ? orderItems.concat(data.items || []) : (data.items || []);
     orderLinkTargets = data.linkTargets || orderLinkTargets;
@@ -579,7 +606,10 @@
   function renderRecords(items) {
     const root = $('records-list');
     root.replaceChildren();
-    if (!items.length) return empty(root, 'Nenhuma ficha criada.');
+    if (!items.length) {
+      clearRecordDetail('Nenhuma ficha selecionada.');
+      return empty(root, 'Nenhuma ficha criada.');
+    }
     items.forEach((item) => {
       const button = element('button', 'search-hit');
       button.type = 'button';
@@ -662,6 +692,7 @@
 
   async function openRecord(id) {
     const data = await request('/api/panel/records?id=' + encodeURIComponent(id));
+    if (currentView !== 'records') return;
     updateMeta(data.meta);
     const item = data.item;
     const root = $('record-detail');
