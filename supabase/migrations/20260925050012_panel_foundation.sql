@@ -30,7 +30,15 @@ create table if not exists public.panel_users (
   created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
   created_by uuid null, unique(environment, auth_user_id)
 );
-alter table public.panel_users add constraint panel_users_created_by_fkey foreign key (created_by) references public.panel_users(id) not valid;
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.panel_users'::regclass and conname = 'panel_users_created_by_fkey'
+  ) then
+    alter table public.panel_users add constraint panel_users_created_by_fkey
+      foreign key (created_by) references public.panel_users(id) not valid;
+  end if;
+end $$;
 
 create table if not exists public.contacts (
   id uuid primary key default gen_random_uuid(), environment public.panel_environment not null,
@@ -250,13 +258,25 @@ begin
   end loop;
 end $$;
 
-create policy panel_panel_users_select_authorized on public.panel_users for select to authenticated
-  using (auth_user_id = (select auth.uid()) and active and (auth.jwt() ->> 'panel_environment') = environment::text);
+do $$ begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'panel_users' and policyname = 'panel_panel_users_select_authorized'
+  ) then
+    create policy panel_panel_users_select_authorized on public.panel_users for select to authenticated
+      using (auth_user_id = (select auth.uid()) and active and (auth.jwt() ->> 'panel_environment') = environment::text);
+  end if;
+end $$;
 do $$
 declare t text;
 begin
   foreach t in array array['contacts','contact_phones','chats','chat_aliases','journeys','journey_refs','messages','message_journeys','journey_checklist','checklist_evidence','journey_declarations','journey_divergences','promises','units','interactions','journey_alert_suppressions','activity_log','audit_log','import_jobs','import_batches','calculator_request_links','attachments','panel_notifications'] loop
-    execute format('create policy %I on public.%I for select to authenticated using ((select private.panel_authorized(environment)))', 'panel_' || t || '_select_authorized', t);
+    if not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = t and policyname = 'panel_' || t || '_select_authorized'
+    ) then
+      execute format('create policy %I on public.%I for select to authenticated using ((select private.panel_authorized(environment)))', 'panel_' || t || '_select_authorized', t);
+    end if;
   end loop;
 end $$;
 
@@ -264,7 +284,14 @@ do $$
 declare t text;
 begin
   foreach t in array array['panel_users','contacts','chats','journeys','journey_checklist','units'] loop
-    execute format('create trigger %I before update on public.%I for each row execute function private.set_updated_at()', 'panel_' || t || '_set_updated_at', t);
+    if not exists (
+      select 1 from pg_trigger
+      where tgrelid = ('public.' || t)::regclass
+        and tgname = 'panel_' || t || '_set_updated_at'
+        and not tgisinternal
+    ) then
+      execute format('create trigger %I before update on public.%I for each row execute function private.set_updated_at()', 'panel_' || t || '_set_updated_at', t);
+    end if;
   end loop;
 end $$;
 
@@ -272,8 +299,16 @@ end $$;
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('mcs-panel-attachments', 'mcs-panel-attachments', false, 10485760, array['image/jpeg','image/png','image/webp','text/plain'])
 on conflict (id) do nothing;
-create policy panel_attachments_read_authorized on storage.objects for select to authenticated
-  using (bucket_id = 'mcs-panel-attachments' and case
-    when (storage.foldername(name))[1] in ('preview','production')
-      then private.panel_authorized(((storage.foldername(name))[1])::public.panel_environment)
-    else false end);
+do $$ begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects' and policyname = 'panel_attachments_read_authorized'
+  ) then
+    create policy panel_attachments_read_authorized on storage.objects for select to authenticated
+      using (bucket_id = 'mcs-panel-attachments' and case
+        when (storage.foldername(name))[1] = 'panel'
+          and (storage.foldername(name))[2] in ('preview','production')
+          then private.panel_authorized(((storage.foldername(name))[2])::public.panel_environment)
+        else false end);
+  end if;
+end $$;
