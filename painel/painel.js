@@ -25,6 +25,25 @@
   const $ = (id) => document.getElementById(id);
   const show = (id) => ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id));
   const error = (id, message) => { $(id).textContent = message || ''; };
+  const importFailureMessage = (failure) => {
+    const messages = {
+      IMPORT_START_FAILED: 'não foi possível criar a conversa no banco',
+      IMPORT_BATCH_FAILED: 'não foi possível gravar as mensagens no banco',
+      IMPORT_FINISH_FAILED: 'as mensagens foram recebidas, mas a jornada não pôde ser concluída',
+      CONTACT_NOT_FOUND: 'o contato escolhido não existe mais',
+      CHAT_NOT_FOUND: 'o chat escolhido não existe mais',
+      JOURNEY_CHOICE_REQUIRED: 'escolha a busca antes de confirmar',
+      PANEL_ACCESS_DENIED: 'esta conta não tem acesso ao painel',
+      AUTHENTICATION_REQUIRED: 'a sessão expirou; entre novamente'
+    };
+    const detail = messages[failure && failure.code] || 'não foi possível concluir a gravação';
+    return `Falha na importação: ${detail}. Nenhum sucesso foi confirmado.`;
+  };
+  const showImportFailure = (failure) => {
+    const status = $('import-status');
+    status.classList.add('error');
+    status.textContent = importFailureMessage(failure);
+  };
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -121,6 +140,9 @@
       $('ref-warning').classList.toggle('hidden', !parsed.refs.length);
       updateImportChoices(parsed);
       card.classList.remove('hidden');
+      $('import-status').classList.remove('error');
+      $('import-status').textContent = `${filename}: arquivo lido. Confirme os dados abaixo para gravar a conversa.`;
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
       const toggle = () => {
         const group = $('chat-type').value === 'group';
@@ -152,6 +174,8 @@
           const finalParsed = MCSParser.parseWhatsApp(raw, filename, { dateOrder });
           if (!finalParsed.supported || finalParsed.requiresDateOrder) throw new Error('Não foi possível confirmar as datas.');
           const entries = MCSParser.assignDirections(finalParsed, $('mcs-sender').value);
+          $('import-status').classList.remove('error');
+          $('import-status').textContent = 'Gravando conversa e mensagens…';
           card.classList.add('hidden');
           resolve({
             parsed: finalParsed, entries, isGroup, mcsSender: $('mcs-sender').value,
@@ -161,6 +185,7 @@
             journey: isGroup ? null : { mode: $('import-journey').value === 'new' ? 'new' : 'existing', journeyId: $('import-journey').value === 'new' ? null : $('import-journey').value }
           });
         } catch (failure) {
+          $('import-status').classList.add('error');
           $('import-status').textContent = failure.message;
         }
       };
@@ -217,9 +242,11 @@
 
   async function importFiles(files) {
     if (!files.length || files.length > MAX_FILES) throw new Error('Selecione de 1 a 20 arquivos.');
+    await loadQueue(false);
     let inserted = 0;
     let pending = false;
     for (const file of files) {
+      $('import-status').classList.remove('error');
       $('import-status').textContent = `Lendo ${file.name}…`;
       const sourceSha = await sha256(await file.arrayBuffer());
       const extracted = await extract(file);
@@ -229,6 +256,7 @@
         pending = pending || result.pending;
       }
     }
+    $('import-status').classList.remove('error');
     $('import-status').textContent = `${inserted} mensagem(ns) nova(s). ${pending ? 'Há pendências em ENTRADA.' : 'Importação concluída; siga para HOJE.'}`;
     await loadQueue();
     if (!pending) switchPanel('today');
@@ -1085,11 +1113,11 @@
     $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
     $('report-generate').addEventListener('click', generateReport);
     $('report-copy').addEventListener('click', () => copyReport().catch(() => { $('report-status').textContent = 'Não foi possível copiar.'; }));
-    $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch((failure) => { $('import-status').textContent = failure.message || 'Não foi possível importar o arquivo.'; }));
+    $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch(showImportFailure));
     const zone = $('drop-zone');
     ['dragenter', 'dragover'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
-    zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch((failure) => { $('import-status').textContent = failure.message || 'Não foi possível importar o arquivo.'; }));
+    zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('sms-form').addEventListener('submit', addSms);
     $('sms-contact').addEventListener('change', () => { $('sms-new-name-label').hidden = $('sms-contact').value !== 'new'; refreshSmsJourneys(); });
     $('attachment-upload').addEventListener('click', uploadAttachment);
