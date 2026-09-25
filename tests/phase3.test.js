@@ -214,3 +214,14 @@ test('FICHAS clears an old detail when the list is empty or the tab changes', ()
   assert.match(source, /if \(!items\.length\) \{\s*clearRecordDetail\('Nenhuma ficha selecionada\.'\)/);
   assert.match(source, /if \(currentView !== 'records'\) return/);
 });
+
+test('remember login persists a refreshable session without storing the password', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'painel', 'index.html'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  assert.match(html, /id="remember-login"[\s\S]*Manter conectado neste dispositivo/);
+  assert.match(source, /grant_type=refresh_token/);
+  assert.match(source, /localStorage\.getItem\(SESSION_KEY\)/);
+  assert.match(source, /sessionStorage\.getItem\(SESSION_KEY\)/);
+  assert.match(source, /refreshToken = data\.refresh_token/);
+  assert.doesNotMatch(source, /setItem\([^\n]*(?:password|senha)/i);
+});
