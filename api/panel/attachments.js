@@ -20,7 +20,7 @@ function allowed(name, mime, size, head) {
   return false;
 }
 
-module.exports = async (req, res) => {
+async function handler(req, res) {
   const ctx = await requirePanel(req, res); if (!ctx) return;
   if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   try {
@@ -59,4 +59,7 @@ module.exports = async (req, res) => {
     console.error('panel attachment request failed', { code: error.message.slice(0, 80) });
     return send(res, 500, { error: 'ATTACHMENT_REQUEST_FAILED' });
   }
-};
+}
+
+module.exports = handler;
+module.exports.validateAttachment = allowed;
