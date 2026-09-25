@@ -264,16 +264,6 @@ function searchMatches(query, record) {
     || Boolean(phoneLike && compact && values.some((value) => value.replace(/\D/g, '').includes(compact)));
 }
 
-function normalizeContactPhone(value) {
-  const raw = clean(value);
-  if (!raw) return null;
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length === 10) return '+1' + digits;
-  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
-  if (raw.startsWith('+') && digits.length >= 8 && digits.length <= 15) return '+' + digits;
-  return null;
-}
-
 function orderSearchMatches(query, order) {
   const raw = clean(query);
   const needle = fold(raw.replace(/^ref\s*:?[\s-]*/i, ''));
@@ -297,8 +287,55 @@ function clientOkPatch(at, messageId) {
   };
 }
 
+const INTERACTION_TIMELINE_LABELS = Object.freeze({
+  CALL_ANSWERED: 'Ligação atendida',
+  CALL_ATTEMPT: 'Tentativa de ligação',
+  IN_PERSON: 'Interação presencial',
+  NEXT_ACTION_CREATED: 'Retorno agendado',
+  NEXT_ACTION_COMPLETED: 'Retorno concluído',
+  NEXT_ACTION_REMOVED: 'Retorno removido',
+  SEARCH_STARTED: 'Busca iniciada',
+  JOURNEY_CLOSED: 'Jornada encerrada',
+  JOURNEY_QUALIFIED: 'Jornada qualificada'
+});
+
+const SYSTEM_TIMELINE_LABELS = Object.freeze({
+  JOURNEY_FUNNEL_CHANGED: 'Etapa alterada',
+  CLIENT_GAVE_OK: 'Jornada qualificada e encerrada',
+  PROMISE_RECORDED: 'Promessa registrada',
+  PROMISE_FULFILLED: 'Promessa cumprida',
+  UNIT_UPDATED: 'Unidade atualizada'
+});
+
+function buildConversationTimeline(messages, interactions, activities) {
+  const result = [];
+  for (const message of Array.isArray(messages) ? messages : []) {
+    result.push({
+      ...message,
+      timelineType: 'message',
+      occurredAt: message.occurred_at_utc || message.occurred_at_local || message.created_at
+    });
+  }
+  for (const interaction of Array.isArray(interactions) ? interactions : []) {
+    const label = INTERACTION_TIMELINE_LABELS[interaction.type];
+    if (!label || interaction.message_id) continue;
+    result.push({ id: 'interaction:' + interaction.id, timelineType: 'interaction', occurredAt: interaction.occurred_at || interaction.created_at, eventType: interaction.type, label });
+  }
+  for (const activity of Array.isArray(activities) ? activities : []) {
+    const label = SYSTEM_TIMELINE_LABELS[activity.activity_type];
+    if (!label) continue;
+    result.push({ id: 'activity:' + activity.id, timelineType: 'system', occurredAt: activity.occurred_at, eventType: activity.activity_type, label });
+  }
+  return result.sort((left, right) => {
+    const delta = (time(left.occurredAt) || 0) - (time(right.occurredAt) || 0);
+    if (delta) return delta;
+    const order = (Number(left.original_order) || 0) - (Number(right.original_order) || 0);
+    return order || String(left.id).localeCompare(String(right.id));
+  });
+}
+
 module.exports = {
-  DAY_MS, REF_RE, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
+  DAY_MS, REF_RE, buildConversationTimeline, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   consolidateCalcRuns, fold, journeyLogicalMode, logicalMode, nextStageForUnits,
-  normalizeContactPhone, normalizeState, orderSearchMatches, searchMatches, shortDeadline, time
+  normalizeState, orderSearchMatches, searchMatches, shortDeadline, time
 };

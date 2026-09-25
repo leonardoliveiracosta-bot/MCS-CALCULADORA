@@ -17,3 +17,5 @@ select,textarea { width:100%; border:1px solid #3a5977; background:#071421; colo
 .filter-label { color:#9eb1c4; font-size:.82rem; align-self:center; }
 .order-details { margin:0; padding:12px; border:1px solid #284762; border-radius:10px; }
 .load-more { display:block; margin:18px auto 0; }
+.timeline-interaction { color:#b8dcff; border:1px solid #315d80; }
+.timeline-system { color:#d5c4ec; background:#2b2140; border:1px solid #584476; }

@@ -116,15 +116,6 @@
     return [...refs];
   }
 
-  function extractPhoneCandidate(value) {
-    const source = clean(value);
-    const candidates = source.match(/\+?[\d][\d\s().\-\u00a0\u2011_]{7,}[\d]/g) || [];
-    return candidates.map((item) => clean(item.replace(/_/g, ' '))).find((item) => {
-      const digits = item.replace(/\D/g, '');
-      return digits.length >= 10 && digits.length <= 15;
-    }) || null;
-  }
-
   function parseWhatsApp(raw, filename, options) {
     const scanned = scan(raw);
     if (!scanned.recognized || !scanned.messages.length) return { supported: false, reason: 'formato não suportado' };
@@ -140,7 +131,6 @@
       style: scanned.style,
       senders,
       refs: extractRefs(scanned.messages),
-      phoneCandidate: extractPhoneCandidate(filename),
       groupSignal,
       requiresGroupConfirmation: !groupSignal,
       inferredDateOrder: inferred,
@@ -181,5 +171,5 @@
     return mcs ? { chat, mcsSender: mcs.sender_text } : null;
   }
 
-  return { clean, normalizeSender, inferDateOrder, resolveNewYork, parseWhatsApp, assignDirections, extractRefs, extractPhoneCandidate, automaticImportMatch };
+  return { clean, normalizeSender, inferDateOrder, resolveNewYork, parseWhatsApp, assignDirections, extractRefs, automaticImportMatch };
 });
