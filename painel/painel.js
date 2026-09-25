@@ -541,6 +541,19 @@
     }
   }
 
+  async function refreshCounters() {
+    const [entry, orders, qualification, records] = await Promise.all([
+      request('/api/panel/entry'),
+      request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
+      request('/api/panel/qualification'),
+      request('/api/panel/records')
+    ]);
+    setCount('entry', (entry.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (entry.reviews || []).length);
+    setCount('orders', orders.page && orders.page.total || 0);
+    setCount('qualification', (qualification.items || []).length);
+    setCount('records', (records.items || []).length);
+  }
+
   async function loadOrders(append, view = currentView, requestVersion = viewRequestVersion) {
     if (!append) {
       orderOffset = 0;
@@ -1144,6 +1157,7 @@
       if (session.mustChangePassword) return show('password-view');
       show('app-view');
       await switchPanel('today');
+      await refreshCounters();
       startSafeRefresh();
     } catch (failure) {
       clearSession();
