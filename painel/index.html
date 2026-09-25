@@ -36,17 +36,27 @@
     <section id="app-view" class="hidden" aria-label="Painel My Car Scout">
       <header class="topbar">
         <div><p class="eyebrow">MY CAR SCOUT</p><h1 id="page-title">HOJE</h1></div>
+        <form id="global-search" class="global-search" role="search">
+          <label for="global-search-input">Busca global</label>
+          <div><input id="global-search-input" type="search" maxlength="100" placeholder="Nome, telefone ou Ref" required><button type="submit">Buscar</button></div>
+        </form>
         <button id="logout" class="quiet" type="button">Sair</button>
       </header>
+      <div id="search-results" class="card search-results hidden" aria-live="polite"></div>
+      <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última importação WhatsApp: <strong id="last-whatsapp-import">—</strong></span></div>
       <nav aria-label="Seções do painel">
         <button class="tab active" type="button" data-view="today">HOJE</button>
         <button class="tab" type="button" data-view="entry">ENTRADA</button>
-        <button class="tab" type="button" disabled>PEDIDOS</button>
-        <button class="tab" type="button" disabled>QUALIFICAÇÃO</button>
-        <button class="tab" type="button" disabled>FICHAS</button>
+        <button class="tab" type="button" data-view="orders">PEDIDOS</button>
+        <button class="tab" type="button" data-view="qualification">QUALIFICAÇÃO</button>
+        <button class="tab" type="button" data-view="records">FICHAS</button>
       </nav>
-      <section id="today-panel" class="card empty" aria-live="polite"><h2>Nenhuma pendência agora</h2><p>As próximas ações aparecerão aqui.</p></section>
+      <section id="today-panel" class="panel-view" aria-label="Hoje">
+        <div class="section-head"><div><h2>O que exige ação</h2><p class="muted">Maior espera, maior teto e checklist mais fechado.</p></div><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div>
+        <div id="today-list" class="stack" aria-live="polite"></div>
+      </section>
       <section id="entry-panel" class="hidden" aria-label="Entrada">
+        <div class="section-head"><div><h2>Entrada e revisão</h2><p class="muted">Importações e decisões explícitas.</p></div><button class="quiet" type="button" data-report="entry">Gerar relatório desta aba</button></div>
         <div class="grid">
           <section class="card">
             <h2>Importar conversa</h2>
@@ -96,6 +106,39 @@
           <div id="entry-queue" class="queue" aria-live="polite"></div>
         </section>
       </section>
+      <section id="orders-panel" class="panel-view hidden" aria-label="Pedidos">
+        <div class="section-head"><div><h2>Pedidos</h2><p class="muted">Simulações não criam lead automaticamente.</p></div><button class="quiet" type="button" data-report="orders">Gerar relatório desta aba</button></div>
+        <div id="order-filters" class="filters" aria-label="Filtros de pedidos">
+          <button type="button" class="chip active" data-order-filter="Todos">Todos</button>
+          <button type="button" class="chip" data-order-filter="Calculadora">Calculadora</button>
+          <button type="button" class="chip" data-order-filter="WhatsApp direto">WhatsApp direto</button>
+          <button type="button" class="chip" data-order-filter="Carro">Carro</button>
+          <button type="button" class="chip" data-order-filter="Valor">Valor</button>
+        </div>
+        <div id="orders-list" class="stack" aria-live="polite"></div>
+      </section>
+      <section id="qualification-panel" class="panel-view hidden" aria-label="Qualificação">
+        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Frase real do cliente em cada evidência. Seis de seis significa apenas checklist completo.</p></div><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div>
+        <div id="qualification-list" class="stack" aria-live="polite"></div>
+      </section>
+      <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
+        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Histórico e conversa única de WhatsApp e SMS.</p></div><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button></div>
+        <div class="records-layout">
+          <div id="records-list" class="stack" aria-live="polite"></div>
+          <article id="record-detail" class="card record-detail"><p class="muted">Escolha uma ficha.</p></article>
+        </div>
+      </section>
+      <dialog id="report-dialog">
+        <form method="dialog" class="report-form">
+          <div class="section-head"><h2>Relatório da aba</h2><button class="quiet" value="cancel">Fechar</button></div>
+          <label>Período<select id="report-period"><option value="today">Hoje</option><option value="7">7 dias</option><option value="30">30 dias</option><option value="custom">Personalizado</option></select></label>
+          <div id="report-custom" class="filters hidden"><label>De<input id="report-from" type="date"></label><label>Até<input id="report-to" type="date"></label></div>
+          <button id="report-generate" type="button">Gerar</button>
+          <textarea id="report-text" rows="6" readonly aria-label="Texto do relatório"></textarea>
+          <button id="report-copy" type="button" class="quiet">Copiar texto</button>
+          <p id="report-status" class="status" role="status"></p>
+        </form>
+      </dialog>
     </section>
   </main>
   <script src="/painel/vendor/zip.min.js" defer></script>

@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { requirePanel, send, supabase, isUuid } = require('../../panel-server');
+const { allRows, requirePanel, send, supabase, isUuid } = require('../../panel-server');
 
 const json = async (req) => {
   if (typeof req.body === 'object' && req.body !== null) return req.body;
@@ -153,6 +153,59 @@ async function receiveBatch(ctx, body) {
   return send(ctx.res, 200, { inserted: result[0] ? result[0].inserted_count : 0, alreadyPresent: result[0] ? result[0].already_present_count : 0 });
 }
 
+async function recordImportedInteractions(ctx, importJobId, journeyId) {
+  if (!isUuid(journeyId)) return;
+  const importedRows = await allRows(ctx, 'messages', {
+    select: 'id,direction,occurred_at_utc,created_at', environment: 'eq.' + ctx.environment,
+    import_job_id: 'eq.' + importJobId, direction: 'neq.SYSTEM', order: 'created_at.asc'
+  });
+  const associated = await allRows(ctx, 'message_journeys', {
+    select: 'message_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId
+  });
+  const associatedIds = new Set(associated.map((item) => item.message_id));
+  const imported = importedRows.filter((item) => associatedIds.has(item.id) && item.occurred_at_utc);
+  if (!imported.length) return;
+  const existing = await allRows(ctx, 'interactions', {
+    select: 'message_id', environment: 'eq.' + ctx.environment,
+    journey_id: 'eq.' + journeyId, message_id: 'not.is.null'
+  });
+  const known = new Set(existing.map((item) => item.message_id));
+  const payload = imported.filter((item) => !known.has(item.id)).map((item) => ({
+    environment: ctx.environment, journey_id: journeyId, message_id: item.id,
+    type: item.direction === 'MCS' ? 'OUTBOUND_MESSAGE' : 'INBOUND_MESSAGE',
+    occurred_at: item.occurred_at_utc || item.created_at, detail_text: null,
+    created_at: now(), created_by: ctx.panel.id
+  }));
+  for (let offset = 0; offset < payload.length; offset += 500) {
+    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/interactions', {
+      method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
+      body: JSON.stringify(payload.slice(offset, offset + 500))
+    });
+  }
+  const effective = imported.filter((item) => item.direction === 'MCS').sort((a, b) => Date.parse(a.occurred_at_utc || a.created_at) - Date.parse(b.occurred_at_utc || b.created_at)).at(-1);
+  const latestEvent = imported.slice().sort((a, b) => Date.parse(a.occurred_at_utc || a.created_at) - Date.parse(b.occurred_at_utc || b.created_at)).at(-1);
+  const journeys = await rows(ctx, 'journeys', { select: 'id,stage,status,stage_frozen,next_action_at,last_effective_contact_at', environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1' });
+  const journey = journeys[0];
+  if (!journey || journey.stage_frozen || journey.status === 'ENCERRADO') return;
+  if (effective) {
+    const effectiveAt = effective.occurred_at_utc || effective.created_at;
+    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journeys?id=eq.' + journeyId + '&environment=eq.' + ctx.environment, {
+      method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
+      body: JSON.stringify({
+        stage: journey.stage === 'NOVO' ? 'RESPONDIDO' : journey.stage,
+        last_effective_contact_at: effectiveAt,
+        next_action_missing_since: journey.next_action_at ? null : effectiveAt,
+        updated_at: now(), updated_by: ctx.panel.id
+      })
+    });
+  }
+  const eventAt = latestEvent.occurred_at_utc || latestEvent.created_at;
+  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journey_alert_suppressions?environment=eq.' + ctx.environment + '&journey_id=eq.' + journeyId + '&cancelled_at=is.null&created_at=lt.' + encodeURIComponent(eventAt), {
+    method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
+    body: JSON.stringify({ cancelled_at: now(), cancelled_by: ctx.panel.id })
+  });
+}
+
 async function finishJob(ctx, body) {
   if (!isUuid(body.importJobId)) return send(ctx.res, 400, { error: 'IMPORT_JOB_ID_INVALID' });
   const jobs = await rows(ctx, 'import_jobs', { select: 'id,chat_id', id: 'eq.' + body.importJobId, environment: 'eq.' + ctx.environment, limit: '1' });
@@ -175,6 +228,7 @@ async function finishJob(ctx, body) {
       })
     });
     journeyId = resolved;
+    await recordImportedInteractions(ctx, body.importJobId, journeyId);
   }
   const pending = Boolean(chat.is_group || uncertain.length);
   await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + encodeURIComponent(body.importJobId), {
@@ -185,18 +239,20 @@ async function finishJob(ctx, body) {
 }
 
 async function queue(ctx, res) {
-  const [chats, counts, contacts, journeys, senderAliases, reviews] = await Promise.all([
-    rows(ctx, 'chats', { select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact_id,contact:contacts(display_name)', environment: 'eq.' + ctx.environment, order: 'last_seen_at.desc', limit: '100' }),
+  const [chats, counts, contacts, journeys, journeyRefs, senderAliases, reviews] = await Promise.all([
+    allRows(ctx, 'chats', { select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact_id', environment: 'eq.' + ctx.environment, order: 'last_seen_at.desc' }),
     supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_last_import_counts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment }) }),
-    rows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, order: 'display_name.asc', limit: '1000' }),
-    rows(ctx, 'journeys', { select: 'id,contact_id,vehicle_text,stage,status,created_at,refs:journey_refs(ref_code)', environment: 'eq.' + ctx.environment, status: 'neq.ENCERRADO', stage: 'neq.QUALIFICADO', order: 'updated_at.desc', limit: '1000' }),
-    rows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment, limit: '5000' }),
-    rows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc', limit: '100' })
+    allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, order: 'display_name.asc' }),
+    allRows(ctx, 'journeys', { select: 'id,contact_id,vehicle_text,stage,status,created_at', environment: 'eq.' + ctx.environment, status: 'neq.ENCERRADO', stage: 'neq.QUALIFICADO', order: 'updated_at.desc' }),
+    allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc' })
   ]);
   const byChat = Object.fromEntries(counts.map((item) => [item.chat_id, item]));
+  const contactsById = new Map(contacts.map((item) => [item.id, item]));
   return send(res, 200, {
-    chats: chats.map((chat) => ({ ...chat, newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
-    reviews, contacts, journeys, senderAliases
+    chats: chats.map((chat) => ({ ...chat, contact: contactsById.get(chat.contact_id) || null, newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
+    reviews, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), senderAliases
   });
 }
 

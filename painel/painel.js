@@ -11,9 +11,21 @@
   let chats = [];
   let journeys = [];
   let senderAliases = [];
+  let currentView = 'today';
+  let orderFilter = 'Todos';
+  let reportView = 'today';
   const $ = (id) => document.getElementById(id);
   const show = (id) => ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id));
   const error = (id, message) => { $(id).textContent = message || ''; };
+  const element = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  };
+  const formatDate = (value) => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
+  const formatMoney = (cents) => Number(cents) ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(Number(cents) / 100) : '—';
+  const localInput = (date = new Date()) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
   const request = async (path, options = {}) => {
     const response = await fetch(path, {
@@ -208,13 +220,14 @@
     if (!pending) switchPanel('today');
   }
 
-  function switchPanel(view) {
-    const entry = view === 'entry';
-    $('entry-panel').classList.toggle('hidden', !entry);
-    $('today-panel').classList.toggle('hidden', entry);
-    $('page-title').textContent = entry ? 'ENTRADA' : 'HOJE';
+  async function switchPanel(view) {
+    if (!['today', 'entry', 'orders', 'qualification', 'records'].includes(view)) return;
+    currentView = view;
+    const labels = { today: 'HOJE', entry: 'ENTRADA', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', records: 'FICHAS' };
+    Object.keys(labels).forEach((name) => $(name + '-panel').classList.toggle('hidden', name !== view));
+    $('page-title').textContent = labels[view];
     document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
-    if (entry) loadQueue().catch(() => null);
+    try { await loadCurrent(); } catch (_) { renderFailure(view); }
   }
 
   function renderQueue(items, reviews) {
@@ -355,13 +368,522 @@
     }
   }
 
+  function updateMeta(meta) {
+    if (!meta) return;
+    $('data-updated').textContent = formatDate(meta.dataUpdatedAt);
+    $('last-whatsapp-import').textContent = meta.lastWhatsAppImportAt ? formatDate(meta.lastWhatsAppImportAt) : 'nenhuma';
+  }
+
+  function empty(root, message) {
+    root.replaceChildren(element('p', 'empty-state', message));
+  }
+
+  function makeBadge(text, tone) {
+    return element('span', 'badge' + (tone ? ' ' + tone : ''), text);
+  }
+
+  function waitLabel(milliseconds) {
+    const hours = Math.max(0, Math.floor(Number(milliseconds || 0) / 3600000));
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+  }
+
+  function renderFailure(view) {
+    const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', records: 'records-list' };
+    if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
+  }
+
+  async function loadCurrent() {
+    if (currentView === 'entry') return loadQueue();
+    if (currentView === 'today') {
+      const data = await request('/api/panel/today');
+      updateMeta(data.meta);
+      return renderToday(data.items || []);
+    }
+    if (currentView === 'orders') {
+      const data = await request('/api/panel/orders?filter=' + encodeURIComponent(orderFilter));
+      updateMeta(data.meta);
+      return renderOrders(data.items || [], data.linkTargets || []);
+    }
+    if (currentView === 'qualification') {
+      const data = await request('/api/panel/qualification');
+      updateMeta(data.meta);
+      return renderQualification(data.items || []);
+    }
+    if (currentView === 'records') {
+      const data = await request('/api/panel/records');
+      updateMeta(data.meta);
+      return renderRecords(data.items || []);
+    }
+  }
+
+  async function postAction(payload) {
+    const result = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify(payload) });
+    await loadCurrent();
+    return result;
+  }
+
+  function renderToday(items) {
+    const root = $('today-list');
+    root.replaceChildren();
+    if (!items.length) return empty(root, 'Nenhuma pendência agora.');
+    items.forEach((item) => {
+      const card = element('article', 'item-card');
+      const head = element('div', 'item-head');
+      const title = element('div');
+      title.append(element('h3', '', item.name), element('p', 'muted', item.vehicleText || 'Busca sem veículo'));
+      const priority = element('div', 'badges');
+      priority.append(makeBadge(waitLabel(item.waitMs), item.waitColor), makeBadge(item.checklistLabel, 'blue'));
+      if (item.budgetCents) priority.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
+      head.append(title, priority);
+      const reasons = element('div', 'badges');
+      item.reasons.forEach((reason) => reasons.append(makeBadge(reason.label, reason.label.includes('VENCID') ? 'red' : '')));
+      card.append(head, reasons);
+      const noResponse = item.reasons.find((reason) => reason.kind === 'NO_RESPONSE');
+      if (noResponse) card.append(element('p', 'message-body', `[${noResponse.channel}] ${noResponse.preview}`));
+      const actions = element('div', 'inline-actions');
+      const open = element('button', 'quiet small', 'Abrir ficha');
+      open.type = 'button';
+      open.addEventListener('click', async () => { await switchPanel('records'); await openRecord(item.id); });
+      const defer = element('button', 'small', 'Adiar');
+      defer.type = 'button';
+      const dismiss = element('button', 'quiet small', 'Dispensar');
+      dismiss.type = 'button';
+      const form = element('div', 'inline-form hidden');
+      const dateLabel = element('label', '', 'Até');
+      const date = element('input');
+      date.type = 'datetime-local';
+      date.value = localInput(new Date(Date.now() + 24 * 3600000));
+      dateLabel.append(date);
+      const reasonLabel = element('label', '', 'Motivo');
+      const reason = element('input');
+      reason.maxLength = 500;
+      reasonLabel.append(reason);
+      const save = element('button', 'small', 'Salvar adiamento');
+      save.type = 'button';
+      save.addEventListener('click', async () => {
+        await postAction({ action: 'suppress', journeyId: item.id, kind: item.reasons[0].kind, suppressionAction: 'DEFER', untilAt: new Date(date.value).toISOString(), reason: reason.value });
+      });
+      form.append(dateLabel, reasonLabel, save);
+      defer.addEventListener('click', () => form.classList.toggle('hidden'));
+      dismiss.addEventListener('click', () => postAction({ action: 'suppress', journeyId: item.id, kind: item.reasons[0].kind, suppressionAction: 'DISMISS' }));
+      actions.append(open, defer, dismiss);
+      card.append(actions, form);
+      root.append(card);
+    });
+  }
+
+  function renderOrders(items, linkTargets) {
+    const root = $('orders-list');
+    root.replaceChildren();
+    if (!items.length) return empty(root, 'Nenhum pedido neste filtro.');
+    items.forEach((item) => {
+      const card = element('article', 'item-card');
+      const head = element('div', 'item-head');
+      const title = element('div');
+      title.append(element('h3', '', item.contactName || item.ref ? (item.contactName || `Ref ${item.ref}`) : 'Pedido direto'), element('p', 'muted', item.vehicleText || 'Critério/faixa de valor'));
+      const badges = element('div', 'badges');
+      badges.append(makeBadge(item.sourceLabel), makeBadge(item.logicalMode), makeBadge(item.status, item.status === 'SEM RESPOSTA' ? 'yellow' : item.status === 'SEM CONTATO' ? 'red' : 'green'));
+      head.append(title, badges);
+      const details = element('p', 'muted');
+      details.textContent = [item.ref ? `Ref ${item.ref}` : null, item.budgetCents ? formatMoney(item.budgetCents) : null, item.occurredAt ? formatDate(item.occurredAt) : null].filter(Boolean).join(' · ');
+      card.append(head, details);
+      if (item.kind === 'CALCULATOR' && !item.link) {
+        const form = element('div', 'inline-form');
+        const label = element('label', '', 'Ligar a um lead');
+        const select = element('select');
+        select.append(new Option('Escolha uma jornada', ''));
+        linkTargets.forEach((target) => select.append(new Option(target.label, `${target.journeyId}|${target.contactId}`)));
+        label.append(select);
+        const button = element('button', 'small', 'Ligar a um lead');
+        button.type = 'button';
+        button.disabled = !linkTargets.length;
+        button.addEventListener('click', async () => {
+          if (!select.value) return;
+          const [journeyId, contactId] = select.value.split('|');
+          await postAction({ action: 'link_request', journeyId, contactId, calcSid: item.sid, calcRef: item.ref, logicalMode: item.logicalMode });
+        });
+        form.append(label, button);
+        card.append(form);
+      }
+      root.append(card);
+    });
+  }
+
+  function renderQualification(items) {
+    const root = $('qualification-list');
+    root.replaceChildren();
+    if (!items.length) return empty(root, 'Nenhuma jornada para qualificar.');
+    items.forEach((item) => {
+      const card = element('article', 'item-card');
+      const head = element('div', 'item-head');
+      const title = element('div');
+      title.append(element('h3', '', item.contact && item.contact.display_name || 'Contato sem nome'), element('p', 'muted', item.vehicle_text || 'Busca sem veículo'));
+      const badges = element('div', 'badges');
+      badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage), makeBadge(item.status));
+      if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
+      head.append(title, badges);
+      card.append(head);
+      item.checklist.forEach((point) => {
+        const block = element('div', 'check-point' + (point.status === 'COMPLETE' ? ' complete' : ''));
+        block.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(point.status === 'COMPLETE' ? 'com evidência' : point.status.toLowerCase(), point.status === 'COMPLETE' ? 'green' : ''));
+        point.evidence.forEach((evidence) => block.append(element('p', 'evidence', evidence.excerpt_text)));
+        card.append(block);
+      });
+      const open = element('button', 'quiet small', 'Abrir ficha e conversa');
+      open.type = 'button';
+      open.addEventListener('click', async () => { await switchPanel('records'); await openRecord(item.id); });
+      card.append(open);
+      root.append(card);
+    });
+  }
+
+  function renderRecords(items) {
+    const root = $('records-list');
+    root.replaceChildren();
+    if (!items.length) return empty(root, 'Nenhuma ficha criada.');
+    items.forEach((item) => {
+      const button = element('button', 'search-hit');
+      button.type = 'button';
+      const text = element('span');
+      text.append(element('strong', '', item.contact && item.contact.display_name || 'Contato sem nome'), element('span', 'muted', item.vehicle_text ? ` — ${item.vehicle_text}` : ' — busca sem veículo'));
+      button.append(text, makeBadge(`${item.stage} · ${item.status}`));
+      button.addEventListener('click', () => openRecord(item.id));
+      root.append(button);
+    });
+  }
+
+  function definition(list, term, value) {
+    const wrapper = element('div');
+    wrapper.append(element('dt', '', term), element('dd', '', value === null || value === undefined || value === '' ? '—' : value));
+    list.append(wrapper);
+  }
+
+  function actionMessage(message, journeyId, reload) {
+    const root = element('div', 'message-actions');
+    if (message.direction === 'CUSTOMER') {
+      const evidenceForm = element('div', 'inline-form');
+      const pointLabel = element('label', '', 'Usar como evidência');
+      const point = element('select');
+      for (let number = 1; number <= 6; number += 1) point.append(new Option(`Ponto ${number}`, String(number)));
+      pointLabel.append(point);
+      const evidenceButton = element('button', 'small', 'Salvar evidência');
+      evidenceButton.type = 'button';
+      evidenceButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'checklist_evidence', journeyId, messageId: message.id, pointNumber: Number(point.value) }) }); await reload(); });
+      evidenceForm.append(pointLabel, evidenceButton);
+
+      const declarationForm = element('div', 'inline-form');
+      const fieldLabel = element('label', '', 'Usar como');
+      const field = element('select');
+      [['TETO', 'Teto'], ['VEICULO', 'Veículo'], ['PRAZO', 'Prazo']].forEach(([value, label]) => field.append(new Option(label, value)));
+      fieldLabel.append(field);
+      const valueLabel = element('label', '', 'Valor declarado');
+      const value = element('input');
+      value.maxLength = 500;
+      valueLabel.append(value);
+      const deadlineLabel = element('label', '', 'Data do prazo (se aplicável)');
+      const deadline = element('input');
+      deadline.type = 'datetime-local';
+      deadlineLabel.append(deadline);
+      const declarationButton = element('button', 'small', 'Registrar declaração');
+      declarationButton.type = 'button';
+      declarationButton.addEventListener('click', async () => {
+        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'declaration', journeyId, messageId: message.id, field: field.value, value: value.value, deadlineAt: deadline.value ? new Date(deadline.value).toISOString() : null }) });
+        await reload();
+      });
+      declarationForm.append(fieldLabel, valueLabel, deadlineLabel, declarationButton);
+
+      const okButton = element('button', 'small', 'Cliente deu OK');
+      okButton.type = 'button';
+      okButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'client_ok', journeyId, messageId: message.id }) }); await reload(); });
+      root.append(evidenceForm, declarationForm, okButton);
+    }
+    if (message.direction === 'MCS') {
+      const promiseForm = element('div', 'inline-form');
+      const dueLabel = element('label', '', 'Prazo da promessa');
+      const due = element('input');
+      due.type = 'datetime-local';
+      due.value = localInput(new Date(Date.now() + 24 * 3600000));
+      dueLabel.append(due);
+      const dueTextLabel = element('label', '', 'Prazo em texto');
+      const dueText = element('input');
+      dueText.maxLength = 200;
+      dueText.placeholder = 'Ex.: amanhã às 15h';
+      dueTextLabel.append(dueText);
+      const promiseButton = element('button', 'small', 'Marcar como promessa');
+      promiseButton.type = 'button';
+      promiseButton.addEventListener('click', async () => {
+        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'promise', journeyId, messageId: message.id, dueAt: new Date(due.value).toISOString(), dueText: dueText.value }) });
+        await reload();
+      });
+      promiseForm.append(dueLabel, dueTextLabel, promiseButton);
+      root.append(promiseForm);
+    }
+    return root;
+  }
+
+  async function openRecord(id) {
+    const data = await request('/api/panel/records?id=' + encodeURIComponent(id));
+    updateMeta(data.meta);
+    const item = data.item;
+    const root = $('record-detail');
+    root.replaceChildren();
+    const reload = () => openRecord(id);
+
+    const dataBlock = element('section', 'record-block');
+    dataBlock.append(element('h2', '', item.contact && item.contact.display_name || 'Contato sem nome'));
+    const statusBadges = element('div', 'badges');
+    statusBadges.append(makeBadge(item.stage), makeBadge(item.status), makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'));
+    if (item.shortDeadline) statusBadges.append(makeBadge('prazo curto', 'yellow'));
+    dataBlock.append(statusBadges);
+    const definitions = element('dl', 'definition-grid');
+    definition(definitions, 'Telefones', item.phones.map((phone) => phone.phone_e164 || phone.phone_raw).join(', '));
+    definition(definitions, 'Refs', item.refs.map((ref) => ref.ref_code).join(', '));
+    definition(definitions, 'Origem', item.source);
+    definition(definitions, 'Local', item.contact && item.contact.location_text);
+    definition(definitions, 'Veículo', item.vehicle_text);
+    definition(definitions, 'Critérios', Object.keys(item.criteria_json || {}).length ? JSON.stringify(item.criteria_json) : null);
+    definition(definitions, 'Teto', formatMoney(item.budget_cents));
+    definition(definitions, 'Pagamento', item.payment_text);
+    definition(definitions, 'Prazo', item.customer_deadline_text || formatDate(item.customer_deadline_at));
+    definition(definitions, 'Perfil', item.contact && item.contact.profile_text);
+    definition(definitions, 'Próxima ação', item.next_action_text);
+    definition(definitions, 'Data da próxima ação', formatDate(item.next_action_at));
+    definition(definitions, 'Observações', item.contact && item.contact.notes);
+    dataBlock.append(definitions);
+
+    if (!item.stage_frozen && item.status !== 'ENCERRADO') {
+      const operations = element('div', 'inline-actions');
+      const startSearch = element('button', 'small', 'INICIAR BUSCA');
+      startSearch.type = 'button';
+      startSearch.disabled = Boolean(item.search_started_at);
+      startSearch.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'start_search', journeyId: id }) }); await reload(); });
+      ['CALL_ANSWERED', 'CALL_ATTEMPT', 'IN_PERSON'].forEach((type) => {
+        const labels = { CALL_ANSWERED: 'Ligação atendida', CALL_ATTEMPT: 'Tentativa sem resposta', IN_PERSON: 'Conversa presencial' };
+        const button = element('button', 'quiet small', labels[type]);
+        button.type = 'button';
+        button.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'interaction', journeyId: id, interactionType: type }) }); await reload(); });
+        operations.append(button);
+      });
+      operations.prepend(startSearch);
+      dataBlock.append(operations);
+
+      const nextForm = element('div', 'inline-form');
+      const nextTextLabel = element('label', '', 'Próxima ação');
+      const nextText = element('input');
+      nextText.maxLength = 500;
+      nextText.value = item.next_action_text || '';
+      nextTextLabel.append(nextText);
+      const nextDateLabel = element('label', '', 'Data');
+      const nextDate = element('input');
+      nextDate.type = 'datetime-local';
+      nextDate.value = item.next_action_at ? localInput(new Date(item.next_action_at)) : localInput(new Date(Date.now() + 24 * 3600000));
+      nextDateLabel.append(nextDate);
+      const nextButton = element('button', 'small', 'Salvar próxima ação');
+      nextButton.type = 'button';
+      nextButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'next_action', operation: 'CREATE', journeyId: id, text: nextText.value, at: new Date(nextDate.value).toISOString() }) }); await reload(); });
+      nextForm.append(nextTextLabel, nextDateLabel, nextButton);
+      if (item.next_action_at) {
+        const complete = element('button', 'quiet small', 'Concluir retorno');
+        complete.type = 'button';
+        complete.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'next_action', operation: 'COMPLETE', journeyId: id }) }); await reload(); });
+        const remove = element('button', 'quiet small', 'Remover retorno');
+        remove.type = 'button';
+        remove.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'next_action', operation: 'REMOVE', journeyId: id }) }); await reload(); });
+        nextForm.append(complete, remove);
+      }
+      dataBlock.append(nextForm);
+
+      const statusForm = element('div', 'inline-form');
+      const statusLabel = element('label', '', 'Status');
+      const statusSelect = element('select');
+      ['ATIVO', 'AGUARDANDO_CLIENTE', 'PARADO'].forEach((status) => statusSelect.append(new Option(status.replace('_', ' '), status)));
+      statusSelect.value = item.status;
+      statusLabel.append(statusSelect);
+      const statusButton = element('button', 'small', 'Atualizar status');
+      statusButton.type = 'button';
+      statusButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_status', journeyId: id, status: statusSelect.value }) }); await reload(); });
+      const closeReasonLabel = element('label', '', 'Motivo para encerrar');
+      const closeReason = element('input');
+      closeReason.maxLength = 500;
+      closeReasonLabel.append(closeReason);
+      const closeButton = element('button', 'quiet small', 'Encerrar jornada');
+      closeButton.type = 'button';
+      closeButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'close_journey', journeyId: id, reason: closeReason.value }) }); await reload(); });
+      statusForm.append(statusLabel, statusButton, closeReasonLabel, closeButton);
+      dataBlock.append(statusForm);
+    }
+
+    if (item.divergences.length) {
+      dataBlock.append(element('h3', '', 'Pendências e divergências'));
+      item.divergences.forEach((divergence) => {
+        const row = element('div', 'check-point');
+        row.append(element('strong', '', `${divergence.field} — ${divergence.status}`));
+        if (divergence.status === 'OPEN') {
+          const choices = item.declarations.filter((declaration) => declaration.field === divergence.field && [divergence.left_declaration_id, divergence.right_declaration_id].includes(declaration.id));
+          const select = element('select');
+          choices.forEach((choice) => select.append(new Option(`${choice.source}: ${choice.value_text}`, choice.id)));
+          const button = element('button', 'small', 'Usar como operacional');
+          button.type = 'button';
+          button.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'resolve_divergence', journeyId: id, divergenceId: divergence.id, declarationId: select.value }) }); await reload(); });
+          row.append(select, button);
+        }
+        dataBlock.append(row);
+      });
+    }
+    root.append(dataBlock);
+
+    const checklistBlock = element('section', 'record-block');
+    checklistBlock.append(element('h3', '', `Checklist — ${item.checklistSummary.label}`));
+    item.checklist.forEach((point) => {
+      const row = element('div', 'check-point' + (point.status === 'COMPLETE' ? ' complete' : ''));
+      row.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(point.status));
+      point.evidence.forEach((evidence) => row.append(element('p', 'evidence', evidence.excerpt_text)));
+      checklistBlock.append(row);
+    });
+    root.append(checklistBlock);
+
+    const promiseBlock = element('section', 'record-block');
+    promiseBlock.append(element('h3', '', 'O que eu prometi'));
+    if (!item.promises.length) promiseBlock.append(element('p', 'muted', 'Nenhuma promessa marcada.'));
+    item.promises.forEach((promise) => {
+      const row = element('div', 'check-point');
+      row.append(element('p', 'message-body', promise.promise_text), element('p', 'muted', `${promise.due_text} · ${formatDate(promise.due_at)}`), makeBadge(promise.status, promise.status === 'OPEN' ? 'yellow' : 'green'));
+      if (promise.status === 'OPEN') {
+        const button = element('button', 'small', 'Cumpri');
+        button.type = 'button';
+        button.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'fulfill_promise', journeyId: id, promiseId: promise.id }) }); await reload(); });
+        row.append(button);
+      }
+      promiseBlock.append(row);
+    });
+    root.append(promiseBlock);
+
+    const unitsBlock = element('section', 'record-block');
+    unitsBlock.append(element('h3', '', 'Unidades apresentadas'));
+    if (!item.units.length) unitsBlock.append(element('p', 'muted', 'Nenhuma unidade apresentada.'));
+    item.units.forEach((unit) => {
+      const row = element('div', 'check-point');
+      row.append(element('strong', '', unit.vehicle_text), element('p', 'muted', formatDate(unit.presented_at)), makeBadge(unit.status));
+      if (!item.stage_frozen && item.status !== 'ENCERRADO') {
+        const form = element('div', 'inline-form');
+        const select = element('select');
+        ['PRESENTED', 'UNDER_REVIEW', 'ACCEPTED', 'DECLINED', 'WITHDRAWN'].forEach((status) => select.append(new Option(status, status)));
+        select.value = unit.status;
+        const decline = element('input');
+        decline.placeholder = 'Motivo de recusa';
+        decline.maxLength = 500;
+        decline.value = unit.decline_reason || '';
+        const save = element('button', 'small', 'Atualizar unidade');
+        save.type = 'button';
+        save.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'unit', journeyId: id, unitId: unit.id, status: select.value, declineReason: decline.value }) }); await reload(); });
+        const responded = element('button', 'quiet small', 'Registrar resposta do cliente');
+        responded.type = 'button';
+        responded.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'unit', journeyId: id, unitId: unit.id, status: select.value, declineReason: decline.value, customerResponded: true }) }); await reload(); });
+        form.append(select, decline, save, responded);
+        row.append(form);
+      }
+      unitsBlock.append(row);
+    });
+    if (!item.stage_frozen && item.status !== 'ENCERRADO') {
+      const addForm = element('div', 'inline-form');
+      const vehicle = element('input');
+      vehicle.placeholder = 'Veículo da unidade';
+      vehicle.maxLength = 500;
+      const status = element('select');
+      status.append(new Option('Apresentada', 'PRESENTED'), new Option('Em análise', 'UNDER_REVIEW'));
+      const add = element('button', 'small', 'Adicionar unidade');
+      add.type = 'button';
+      add.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'unit', journeyId: id, vehicleText: vehicle.value, status: status.value }) }); await reload(); });
+      addForm.append(vehicle, status, add);
+      unitsBlock.append(addForm);
+    }
+    root.append(unitsBlock);
+
+    const historyBlock = element('section', 'record-block');
+    historyBlock.append(element('h3', '', 'Histórico'));
+    item.interactions.forEach((interaction) => historyBlock.append(element('p', 'muted', `${formatDate(interaction.occurred_at)} · ${interaction.type}${interaction.detail_text ? ` · ${interaction.detail_text}` : ''}`)));
+    if (!item.interactions.length) historyBlock.append(element('p', 'muted', 'Sem interações registradas.'));
+    root.append(historyBlock);
+
+    const conversationBlock = element('section', 'record-block');
+    conversationBlock.append(element('h3', '', 'CONVERSA'));
+    if (!item.conversation.length) conversationBlock.append(element('p', 'muted', 'Nenhuma mensagem associada a esta jornada.'));
+    item.conversation.forEach((message) => {
+      const row = element('article', 'message ' + message.direction.toLowerCase());
+      const meta = `${message.channel} · ${message.direction === 'CUSTOMER' ? 'Cliente' : message.direction === 'MCS' ? 'MCS' : 'Sistema'} · ${formatDate(message.occurred_at_utc || message.occurred_at_local || message.created_at)}${message.time_uncertain ? ' · hora incerta' : ''}`;
+      row.append(element('span', 'message-meta', meta), element('p', 'message-body', message.body_text));
+      if (!item.stage_frozen && item.status !== 'ENCERRADO' && message.direction !== 'SYSTEM') row.append(actionMessage(message, id, reload));
+      conversationBlock.append(row);
+    });
+    root.append(conversationBlock);
+
+    const responseBlock = element('section', 'record-block response-area');
+    responseBlock.append(element('h3', '', 'Resposta'));
+    const response = element('textarea');
+    response.disabled = true;
+    response.placeholder = 'Área reservada para uma fase futura.';
+    const sendButton = element('button', '', 'Enviar resposta');
+    sendButton.type = 'button';
+    sendButton.disabled = true;
+    responseBlock.append(response, sendButton);
+    root.append(responseBlock);
+  }
+
+  async function globalSearch(event) {
+    event.preventDefault();
+    const q = $('global-search-input').value.trim();
+    if (!q) return;
+    const result = await request('/api/panel/search?q=' + encodeURIComponent(q));
+    const root = $('search-results');
+    root.replaceChildren(element('h2', '', 'Resultados da busca'));
+    if (!result.items.length) root.append(element('p', 'muted', 'Nenhum resultado.'));
+    result.items.forEach((item) => {
+      const button = element('button', 'search-hit');
+      button.type = 'button';
+      button.append(element('span', '', `${item.name}${item.vehicleText ? ` — ${item.vehicleText}` : ''}`), makeBadge(item.matchedBy));
+      button.disabled = !item.journeyId;
+      button.addEventListener('click', async () => { root.classList.add('hidden'); await switchPanel('records'); await openRecord(item.journeyId); });
+      root.append(button);
+    });
+    root.classList.remove('hidden');
+  }
+
+  function openReport(view) {
+    reportView = view;
+    $('report-text').value = '';
+    $('report-status').textContent = '';
+    $('report-dialog').showModal();
+  }
+
+  async function generateReport() {
+    const period = $('report-period').value;
+    const params = new URLSearchParams({ period, view: reportView });
+    if (period === 'custom') {
+      params.set('from', $('report-from').value);
+      params.set('to', $('report-to').value);
+    }
+    try {
+      const report = await request('/api/panel/report?' + params.toString());
+      $('report-text').value = report.text;
+      $('report-status').textContent = `Simulações: ${report.summary.simulations} · Leads: ${report.summary.leads} · Qualificados: ${report.summary.qualified} · Encerrados: ${report.summary.closed}`;
+    } catch (_) {
+      $('report-status').textContent = 'Não foi possível gerar o relatório para esse período.';
+    }
+  }
+
+  async function copyReport() {
+    if (!$('report-text').value) return;
+    await navigator.clipboard.writeText($('report-text').value);
+    $('report-status').textContent = 'Texto copiado.';
+  }
+
   const clearSession = () => { sessionStorage.removeItem('mcs_panel_token'); accessToken = null; };
   const startSafeRefresh = () => {
     clearInterval(refreshTimer);
     refreshTimer = setInterval(async () => {
       try {
-        await request('/api/panel/today');
-        if (!$('entry-panel').classList.contains('hidden')) await loadQueue();
+        await loadCurrent();
       } catch (_) { clearInterval(refreshTimer); }
     }, 120000);
   };
@@ -371,7 +893,8 @@
       const session = await request('/api/panel/session');
       if (session.mustChangePassword) return show('password-view');
       show('app-view');
-      await request('/api/panel/today');
+      await request('/api/panel/realtime');
+      await switchPanel('today');
       startSafeRefresh();
     } catch (failure) {
       clearSession();
@@ -408,6 +931,16 @@
     $('password-form').addEventListener('submit', changePassword);
     $('logout').addEventListener('click', () => { clearInterval(refreshTimer); clearSession(); show('login-view'); });
     document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => switchPanel(button.dataset.view)));
+    document.querySelectorAll('[data-order-filter]').forEach((button) => button.addEventListener('click', async () => {
+      orderFilter = button.dataset.orderFilter;
+      document.querySelectorAll('[data-order-filter]').forEach((item) => item.classList.toggle('active', item === button));
+      if (currentView === 'orders') await loadCurrent();
+    }));
+    document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
+    $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar.')); $('search-results').classList.remove('hidden'); }));
+    $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
+    $('report-generate').addEventListener('click', generateReport);
+    $('report-copy').addEventListener('click', () => copyReport().catch(() => { $('report-status').textContent = 'Não foi possível copiar.'; }));
     $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch((failure) => { $('import-status').textContent = failure.message || 'Não foi possível importar o arquivo.'; }));
     const zone = $('drop-zone');
     ['dragenter', 'dragover'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add('dragging'); }));
@@ -416,7 +949,7 @@
     $('sms-form').addEventListener('submit', addSms);
     $('sms-contact').addEventListener('change', () => { $('sms-new-name-label').hidden = $('sms-contact').value !== 'new'; refreshSmsJourneys(); });
     $('attachment-upload').addEventListener('click', uploadAttachment);
-    $('sms-date').value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    $('sms-date').value = localInput();
     await routeSession();
   }
   boot();
