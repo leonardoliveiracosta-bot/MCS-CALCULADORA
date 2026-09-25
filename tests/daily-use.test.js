@@ -61,6 +61,15 @@ test('all navigation counters are refreshed after login', () => {
   for (const view of ['entry', 'orders', 'qualification', 'records']) assert.match(client, new RegExp(`setCount\\('${view}'`));
 });
 
+test('operational cards share compact identity and open a ficha when linked', () => {
+  const client = read('painel/painel.js');
+  const qualification = read('api/panel/qualification.js');
+  assert.match(client, /function identityHeader/);
+  assert.match(client, /function makeCardClickable/);
+  assert.match(qualification, /contact_phones/);
+  assert.match(qualification, /latestMessage/);
+});
+
 test('unique calculator Ref linking fills only blank journey fields', () => {
   const entry = read('api/panel/entry.js');
   assert.match(entry, /matches\.length !== 1/);
