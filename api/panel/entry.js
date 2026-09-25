@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { consolidateCalcRuns } = require('../../panel-domain');
 const { allRows, requirePanel, send, supabase, isUuid } = require('../../panel-server');
 
 const json = async (req) => {
@@ -206,6 +207,32 @@ async function recordImportedInteractions(ctx, importJobId, journeyId) {
   });
 }
 
+async function linkUniqueCalculatorRef(ctx, journeyId, refs) {
+  if (!isUuid(journeyId) || !Array.isArray(refs) || refs.length !== 1) return null;
+  const calcRuns = await allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados', order: 'created_at.asc' });
+  const matches = consolidateCalcRuns(calcRuns).filter((item) => item.ref === refs[0]);
+  if (matches.length !== 1) return null;
+  const request = matches[0];
+  const existing = await rows(ctx, 'calculator_request_links', { select: 'id', environment: 'eq.' + ctx.environment, calc_ref: 'eq.' + request.ref, logical_mode: 'eq.' + request.logicalMode, limit: '1' });
+  if (existing[0]) return null;
+  const journeys = await rows(ctx, 'journeys', { select: 'id,contact_id,vehicle_text,budget_cents,payment_text,customer_deadline_text', environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1' });
+  const journey = journeys[0];
+  if (!journey) return null;
+  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/calculator_request_links', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
+    body: JSON.stringify({ environment: ctx.environment, calc_sid: request.sid, calc_ref: request.ref, logical_mode: request.logicalMode, contact_id: journey.contact_id, journey_id: journey.id, linked_at: now(), linked_by: ctx.panel.id })
+  });
+  const patch = { updated_at: now(), updated_by: ctx.panel.id };
+  if (!journey.vehicle_text && request.vehicleText) patch.vehicle_text = request.vehicleText;
+  if (!journey.budget_cents && request.budgetCents) patch.budget_cents = request.budgetCents;
+  if (!journey.payment_text && request.paymentText) patch.payment_text = request.paymentText;
+  if (!journey.customer_deadline_text && request.deadlineText) patch.customer_deadline_text = request.deadlineText;
+  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journeys?id=eq.' + journey.id + '&environment=eq.' + ctx.environment, {
+    method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify(patch)
+  });
+  return request.ref;
+}
+
 async function finishJob(ctx, body) {
   if (!isUuid(body.importJobId)) return send(ctx.res, 400, { error: 'IMPORT_JOB_ID_INVALID' });
   const jobs = await rows(ctx, 'import_jobs', { select: 'id,chat_id', id: 'eq.' + body.importJobId, environment: 'eq.' + ctx.environment, limit: '1' });
@@ -229,22 +256,24 @@ async function finishJob(ctx, body) {
     });
     journeyId = resolved;
     await recordImportedInteractions(ctx, body.importJobId, journeyId);
+    await linkUniqueCalculatorRef(ctx, journeyId, refs);
   }
   const pending = Boolean(chat.is_group || uncertain.length);
   await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + encodeURIComponent(body.importJobId), {
     method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
     body: JSON.stringify({ status: pending ? 'REVIEW' : 'COMPLETED', completed_at: now(), review_reason: chat.is_group ? 'grupo do WhatsApp exige revisão' : uncertain.length ? 'hora incerta exige revisão' : null })
   });
-  return send(ctx.res, 200, { pending, destination: pending ? 'ENTRADA' : 'HOJE', journeyId });
+  return send(ctx.res, 200, { pending, destination: pending ? 'ENTRADA' : 'FICHAS', journeyId });
 }
 
 async function queue(ctx, res) {
-  const [chats, counts, contacts, journeys, journeyRefs, senderAliases, reviews] = await Promise.all([
+  const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews] = await Promise.all([
     allRows(ctx, 'chats', { select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact_id', environment: 'eq.' + ctx.environment, order: 'last_seen_at.desc' }),
     supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_last_import_counts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment }) }),
     allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, order: 'display_name.asc' }),
-    allRows(ctx, 'journeys', { select: 'id,contact_id,vehicle_text,stage,status,created_at', environment: 'eq.' + ctx.environment, status: 'neq.ENCERRADO', stage: 'neq.QUALIFICADO', order: 'updated_at.desc' }),
+    allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,stage,status,created_at', environment: 'eq.' + ctx.environment, status: 'neq.ENCERRADO', stage: 'neq.QUALIFICADO', order: 'updated_at.desc' }),
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'chat_aliases', { select: 'chat_id,alias_text,alias_normalized', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc' })
   ]);
@@ -252,7 +281,7 @@ async function queue(ctx, res) {
   const contactsById = new Map(contacts.map((item) => [item.id, item]));
   return send(res, 200, {
     chats: chats.map((chat) => ({ ...chat, contact: contactsById.get(chat.contact_id) || null, newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
-    reviews, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), senderAliases
+    reviews, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), chatAliases, senderAliases
   });
 }
 

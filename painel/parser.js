@@ -162,5 +162,14 @@
     return parsed.entries.map((entry) => ({ ...entry, direction: normalizeSender(entry.sender) === chosen ? 'MCS' : 'CUSTOMER' }));
   }
 
-  return { clean, normalizeSender, inferDateOrder, resolveNewYork, parseWhatsApp, assignDirections, extractRefs };
+  function automaticImportMatch(parsed, chatAliases, chats, senderAliases) {
+    if (!parsed || !parsed.supported || parsed.requiresDateOrder || parsed.groupSignal) return null;
+    const alias = (Array.isArray(chatAliases) ? chatAliases : []).find((item) => normalizeSender(item.alias_text) === normalizeSender(parsed.title));
+    const chat = alias && (Array.isArray(chats) ? chats : []).find((item) => item.id === alias.chat_id && !item.is_group && item.contact_id);
+    if (!chat) return null;
+    const mcs = (Array.isArray(senderAliases) ? senderAliases : []).find((item) => item.chat_id === chat.id && item.direction === 'MCS' && parsed.senders.some((sender) => normalizeSender(sender) === normalizeSender(item.sender_text)));
+    return mcs ? { chat, mcsSender: mcs.sender_text } : null;
+  }
+
+  return { clean, normalizeSender, inferDateOrder, resolveNewYork, parseWhatsApp, assignDirections, extractRefs, automaticImportMatch };
 });

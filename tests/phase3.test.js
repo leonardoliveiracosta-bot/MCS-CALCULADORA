@@ -10,7 +10,7 @@ const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  DAY_MS, buildTodayItems, buildTodayOrderItems, checklistSummary, clientOkPatch, consolidateCalcRuns,
+  DAY_MS, buildConversationTimeline, buildTodayItems, buildTodayOrderItems, checklistSummary, clientOkPatch, consolidateCalcRuns,
   journeyLogicalMode, logicalMode, nextStageForUnits, orderSearchMatches, searchMatches, shortDeadline
 } = require('../panel-domain');
 const { supabase } = require('../panel-server');
@@ -197,6 +197,52 @@ test('conversation UI treats imported text only as text and bans browser modal A
   assert.doesNotMatch(source, /innerHTML|outerHTML|insertAdjacentHTML|dangerouslySetInnerHTML/);
   assert.doesNotMatch(source, /\b(?:alert|confirm|prompt)\s*\(/);
   assert.match(source, /textContent/);
+});
+
+test('conversation timeline interleaves messages, manual interactions and system events by real date', () => {
+  const timeline = buildConversationTimeline(
+    [
+      { id: 'm2', direction: 'MCS', occurred_at_utc: '2026-09-25T12:03:00Z', original_order: 2 },
+      { id: 'm1', direction: 'CUSTOMER', occurred_at_utc: '2026-09-25T12:00:00Z', original_order: 1 }
+    ],
+    [
+      { id: 'i1', type: 'CALL_ATTEMPT', occurred_at: '2026-09-25T12:01:00Z' },
+      { id: 'i2', type: 'OUTBOUND_MESSAGE', occurred_at: '2026-09-25T12:04:00Z' }
+    ],
+    [
+      { id: 'a1', activity_type: 'JOURNEY_FUNNEL_CHANGED', occurred_at: '2026-09-25T12:02:00Z' },
+      { id: 'a2', activity_type: 'NOTE_UPDATED', occurred_at: '2026-09-25T12:05:00Z' }
+    ]
+  );
+  assert.deepEqual(timeline.map((item) => item.id), ['m1', 'interaction:i1', 'activity:a1', 'm2']);
+  assert.deepEqual(timeline.map((item) => item.timelineType), ['message', 'interaction', 'system', 'message']);
+  assert.equal(timeline[1].label, 'Tentativa de ligação');
+  assert.equal(timeline[2].label, 'Etapa alterada');
+});
+
+test('timeline covers calls, returns, funnel, promises, search, units and closure', () => {
+  const timeline = buildConversationTimeline([], [
+    { id: '1', type: 'CALL_ANSWERED', occurred_at: '2026-09-25T12:00:00Z' },
+    { id: '2', type: 'NEXT_ACTION_CREATED', occurred_at: '2026-09-25T12:01:00Z' },
+    { id: '3', type: 'SEARCH_STARTED', occurred_at: '2026-09-25T12:04:00Z' },
+    { id: '4', type: 'JOURNEY_CLOSED', occurred_at: '2026-09-25T12:06:00Z' }
+  ], [
+    { id: '1', activity_type: 'JOURNEY_FUNNEL_CHANGED', occurred_at: '2026-09-25T12:02:00Z' },
+    { id: '2', activity_type: 'PROMISE_RECORDED', occurred_at: '2026-09-25T12:03:00Z' },
+    { id: '3', activity_type: 'UNIT_UPDATED', occurred_at: '2026-09-25T12:05:00Z' }
+  ]);
+  assert.deepEqual(timeline.map((item) => item.label), [
+    'Ligação atendida', 'Retorno agendado', 'Etapa alterada', 'Promessa registrada',
+    'Busca iniciada', 'Unidade atualizada', 'Jornada encerrada'
+  ]);
+});
+
+test('conversation sort applies to the unified timeline without mutating server order', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  assert.match(source, /item\.timeline/);
+  assert.match(source, /\.slice\(\)\s*\.sort/);
+  assert.match(source, /if \(sort\.value === 'recent'\) entries\.reverse\(\)/);
+  assert.match(source, /timelineType === 'interaction' \? 'Interação' : 'Sistema'/);
 });
 
 test('tab changes replace stale counts with loading and ignore older responses', () => {

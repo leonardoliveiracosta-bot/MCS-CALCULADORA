@@ -11,12 +11,13 @@ function flattenMessageLinks(links, messages) {
 }
 
 async function operational(ctx) {
-  const [journeys, contacts, messageLinks, messages, checklist, promises, divergences, units, suppressions] = await Promise.all([
+  const [journeys, contacts, phones, messageLinks, messages, checklist, promises, divergences, units, suppressions] = await Promise.all([
     allRows(ctx, 'journeys', {
-      select: 'id,contact_id,source,stage,status,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
+      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
       environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
     }),
     allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,is_current', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'message_journeys', {
       select: 'journey_id,message_id',
       environment: 'eq.' + ctx.environment
@@ -29,12 +30,12 @@ async function operational(ctx) {
     allRows(ctx, 'journey_alert_suppressions', { select: 'id,journey_id,kind,action,until_at,created_at,cancelled_at', environment: 'eq.' + ctx.environment })
   ]);
   const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
-  return { journeys: journeys.map((journey) => ({ ...journey, contact: contactsById.get(journey.contact_id) || null })), messages: flattenMessageLinks(messageLinks, messages), checklist, promises, divergences, units, suppressions };
+  return { journeys: journeys.map((journey) => ({ ...journey, contact: contactsById.get(journey.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === journey.contact_id) })), messages: flattenMessageLinks(messageLinks, messages), checklist, promises, divergences, units, suppressions };
 }
 
 async function journeyExists(ctx, journeyId) {
   const found = await rows(ctx, 'journeys', {
-    select: 'id,contact_id,stage,status,stage_frozen,next_action_at,next_action_text,next_action_missing_since,last_effective_contact_at,search_started_at,updated_at',
+    select: 'id,contact_id,reference_code,stage,status,stage_frozen,vehicle_text,budget_cents,payment_text,customer_deadline_text,next_action_at,next_action_text,next_action_missing_since,last_effective_contact_at,search_started_at,updated_at',
     environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1'
   });
   return found[0] || null;
