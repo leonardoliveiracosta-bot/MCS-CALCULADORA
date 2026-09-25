@@ -110,6 +110,7 @@ test('global search matches name accents, phone digits, and Ref', () => {
   assert.equal(searchMatches('3055551212', { phone_e164: '+1 (305) 555-1212' }), true);
   assert.equal(searchMatches('abc23', { ref_code: 'ABC23' }), true);
   assert.equal(searchMatches('abc24', { ref_code: 'ABC23' }), false);
+  assert.equal(searchMatches('E3TST', { display_name: 'TESTE PAINEL E3 — BETA' }), false);
 });
 
 function response(status, payload) {

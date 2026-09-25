@@ -158,7 +158,9 @@ function searchMatches(query, record) {
   if (!needle) return false;
   const values = [record.display_name, record.phone_e164, record.phone_raw, record.ref_code].map(fold);
   const compact = needle.replace(/\D/g, '');
-  return values.some((value) => value.includes(needle)) || Boolean(compact && values.some((value) => value.replace(/\D/g, '').includes(compact)));
+  const phoneLike = /^[+\d\s().-]+$/.test(clean(query));
+  return values.some((value) => value.includes(needle))
+    || Boolean(phoneLike && compact && values.some((value) => value.replace(/\D/g, '').includes(compact)));
 }
 
 function nextStageForUnits(currentStage, units) {
