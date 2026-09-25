@@ -144,7 +144,7 @@ async function actionDeclaration(ctx, journey, body) {
   const field = String(body.field || '');
   const value = safeText(body.value, 500, true);
   const message = await customerMessage(ctx, journey, body.messageId);
-  if (!message || !['TETO', 'VEICULO', 'PRAZO'].includes(field) || !value) return send(ctx.res, 400, { error: 'DECLARATION_INVALID' });
+  if (!message || !['TETO', 'VEICULO', 'PAGAMENTO', 'PRAZO'].includes(field) || !value) return send(ctx.res, 400, { error: 'DECLARATION_INVALID' });
   const at = isoNow();
   const existing = await rows(ctx, 'journey_declarations', {
     select: 'id,value_text,value_json,source', environment: 'eq.' + ctx.environment,
@@ -175,6 +175,7 @@ async function actionDeclaration(ctx, journey, body) {
   }
   const patch = { updated_at: at, updated_by: ctx.panel.id };
   if (field === 'VEICULO') patch.vehicle_text = value;
+  if (field === 'PAGAMENTO') patch.payment_text = value;
   if (field === 'TETO') {
     const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
     if (Number.isFinite(amount) && amount >= 0) patch.budget_cents = Math.round(amount * 100);
@@ -190,6 +191,82 @@ async function actionDeclaration(ctx, journey, body) {
     entityType: 'journey_declaration', entityId: created[0].id, action: 'CREATE', after: { field, source: 'CONVERSATION', message_id: message.id }
   });
   return send(ctx.res, 201, { declarationId: created[0].id, field });
+}
+
+async function actionMarkMessage(ctx, journey, body) {
+  const kind = String(body.kind || '');
+  const config = {
+    VEHICLE: { point: 1, field: 'VEICULO' }, BUDGET: { point: 2, field: 'TETO' },
+    PAYMENT: { point: 3, field: 'PAGAMENTO' }, DEADLINE: { point: 4, field: 'PRAZO' },
+    OUTSIDE_FLORIDA: { point: 5 }, NO_TEST_DRIVE: { point: 6 }
+  }[kind];
+  const message = await customerMessage(ctx, journey, body.messageId);
+  if (!config || !message) return send(ctx.res, 400, { error: 'MESSAGE_MARK_INVALID' });
+  const at = isoNow();
+  const points = await rows(ctx, 'journey_checklist', { select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, point_number: 'eq.' + config.point, limit: '1' });
+  if (!points[0]) return send(ctx.res, 404, { error: 'CHECKLIST_POINT_NOT_FOUND' });
+  const existingEvidence = await rows(ctx, 'checklist_evidence', { select: 'id', environment: 'eq.' + ctx.environment, checklist_id: 'eq.' + points[0].id, message_id: 'eq.' + message.id, limit: '1' });
+  if (!existingEvidence[0]) await insert(ctx, 'checklist_evidence', {
+    environment: ctx.environment, checklist_id: points[0].id, message_id: message.id,
+    excerpt_text: String(message.body_text).slice(0, 1000), created_at: at, created_by: ctx.panel.id
+  }, false);
+  await patchRows(ctx, 'journey_checklist', { environment: 'eq.' + ctx.environment, id: 'eq.' + points[0].id }, { status: 'COMPLETE', completed_at: at, updated_at: at });
+  let declarationId = null;
+  const value = safeText(body.value || message.body_text, 500, true);
+  if (config.field && value) {
+    const valueJson = {};
+    if (config.field === 'TETO') {
+      const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
+      if (Number.isFinite(amount) && amount >= 0) valueJson.cents = Math.round(amount * 100);
+    }
+    const created = await insert(ctx, 'journey_declarations', {
+      environment: ctx.environment, journey_id: journey.id, field: config.field,
+      source: 'CONVERSATION', value_text: value, value_json: valueJson,
+      message_id: message.id, declared_at: message.occurred_at_utc || message.created_at || at,
+      created_at: at, created_by: ctx.panel.id
+    });
+    declarationId = created[0].id;
+    const patch = { updated_at: at, updated_by: ctx.panel.id };
+    if (config.field === 'VEICULO') patch.vehicle_text = value;
+    if (config.field === 'PAGAMENTO') patch.payment_text = value;
+    if (config.field === 'TETO' && Number.isFinite(valueJson.cents)) patch.budget_cents = valueJson.cents;
+    if (config.field === 'PRAZO') {
+      patch.customer_deadline_text = value;
+      if (time(body.deadlineAt)) patch.customer_deadline_at = new Date(time(body.deadlineAt)).toISOString();
+    }
+    await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, patch);
+  }
+  await recordMutation(ctx, {
+    at, journeyId: journey.id, contactId: journey.contact_id, chatId: message.chat_id,
+    activityType: 'MESSAGE_FACT_MARKED', summary: 'Mensagem marcada na ficha e no checklist',
+    metadata: { point_number: config.point, field: config.field || null, message_id: message.id },
+    entityType: 'journey', entityId: journey.id, action: 'MESSAGE_FACT_MARK',
+    after: { point_number: config.point, field: config.field || null, declaration_id: declarationId }
+  });
+  return send(ctx.res, 200, { pointNumber: config.point, field: config.field || null, status: 'COMPLETE' });
+}
+
+async function actionNote(ctx, journey, body) {
+  const note = safeText(body.note, 4000) || null;
+  const at = isoNow();
+  await patchRows(ctx, 'contacts', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.contact_id }, { notes: note, updated_at: at, updated_by: ctx.panel.id });
+  await recordMutation(ctx, { at, journeyId: journey.id, contactId: journey.contact_id, activityType: 'NOTE_UPDATED', summary: 'Nota atualizada', metadata: {}, entityType: 'contact', entityId: journey.contact_id, action: 'NOTE_UPDATE', after: { has_note: Boolean(note) } });
+  return send(ctx.res, 200, { saved: true });
+}
+
+async function actionFunnel(ctx, journey, body) {
+  if (journey.stage_frozen || journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_FROZEN' });
+  const value = String(body.value || '');
+  const stages = new Set(['NOVO', 'RESPONDIDO', 'EM_BUSCA', 'DECIDINDO', 'QUALIFICADO']);
+  const statuses = new Set(['AGUARDANDO_CLIENTE', 'PARADO']);
+  if (!stages.has(value) && !statuses.has(value)) return send(ctx.res, 400, { error: 'FUNNEL_VALUE_INVALID' });
+  const at = isoNow();
+  const patch = stages.has(value)
+    ? { stage: value, status: 'ATIVO', qualified_at: value === 'QUALIFICADO' ? at : null, updated_at: at, updated_by: ctx.panel.id }
+    : { status: value, updated_at: at, updated_by: ctx.panel.id };
+  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, patch);
+  await recordMutation(ctx, { at, journeyId: journey.id, contactId: journey.contact_id, activityType: 'JOURNEY_FUNNEL_CHANGED', summary: 'Etapa operacional alterada', metadata: { value }, entityType: 'journey', entityId: journey.id, action: 'FUNNEL_CHANGE', before: { stage: journey.stage, status: journey.status }, after: patch });
+  return send(ctx.res, 200, { value });
 }
 
 async function actionPromise(ctx, journey, body) {
@@ -265,6 +342,7 @@ async function actionLinkRequest(ctx, journey, body) {
   const declarations = [
     request.budgetCents ? { field: 'TETO', value: String(request.budgetCents), json: { cents: request.budgetCents } } : null,
     request.vehicleText ? { field: 'VEICULO', value: request.vehicleText, json: {} } : null,
+    request.paymentText ? { field: 'PAGAMENTO', value: request.paymentText, json: {} } : null,
     request.deadlineText ? { field: 'PRAZO', value: request.deadlineText, json: {} } : null
   ].filter(Boolean);
   for (const declaration of declarations) {
@@ -290,6 +368,12 @@ async function actionLinkRequest(ctx, journey, body) {
       status: 'OPEN', created_at: at
     }, false);
   }
+  const fill = { updated_at: at, updated_by: ctx.panel.id };
+  if (!journey.vehicle_text && request.vehicleText) fill.vehicle_text = request.vehicleText;
+  if (!journey.budget_cents && request.budgetCents) fill.budget_cents = request.budgetCents;
+  if (!journey.payment_text && request.paymentText) fill.payment_text = request.paymentText;
+  if (!journey.customer_deadline_text && request.deadlineText) fill.customer_deadline_text = request.deadlineText;
+  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, fill);
   await recordMutation(ctx, {
     at, journeyId: journey.id, contactId: journey.contact_id,
     activityType: 'CALCULATOR_REQUEST_LINKED', summary: 'Pedido da calculadora ligado à jornada', metadata: { calc_sid: sid, calc_ref: ref, logical_mode: mode },
@@ -410,6 +494,9 @@ module.exports = async (req, res) => {
       case 'start_search': return actionStartSearch(ctx, journey);
       case 'checklist_evidence': return actionEvidence(ctx, journey, body);
       case 'declaration': return actionDeclaration(ctx, journey, body);
+      case 'mark_message': return actionMarkMessage(ctx, journey, body);
+      case 'update_note': return actionNote(ctx, journey, body);
+      case 'set_funnel': return actionFunnel(ctx, journey, body);
       case 'promise': return actionPromise(ctx, journey, body);
       case 'fulfill_promise': return actionFulfillPromise(ctx, journey, body);
       case 'client_ok': return actionClientOk(ctx, journey, body);
