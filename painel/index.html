@@ -50,6 +50,7 @@
         <button class="tab" type="button" data-view="entry">ENTRADA <span data-count="entry">0</span></button>
         <button class="tab" type="button" data-view="orders">PEDIDOS <span data-count="orders">0</span></button>
         <button class="tab" type="button" data-view="qualification">QUALIFICAÇÃO <span data-count="qualification">0</span></button>
+        <button class="tab" type="button" data-view="manheim">MANHEIM <span data-count="manheim">0</span></button>
         <button class="tab" type="button" data-view="records">FICHAS <span data-count="records">0</span></button>
       </nav>
       <section id="today-panel" class="panel-view" aria-label="Hoje">
@@ -133,6 +134,17 @@
         <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo.</p></div></div>
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
+      <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
+        <div class="section-head"><div><h2>Manheim</h2><p class="muted">Compare a exportação com as listas de desejo ligadas.</p></div></div>
+        <section class="card">
+          <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
+          <p id="manheim-status" class="status" role="status"></p>
+        </section>
+        <section class="card">
+          <div id="manheim-summary" class="muted"></div>
+          <div id="manheim-results" class="stack" aria-live="polite"></div>
+        </section>
+      </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
         <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><label>Ordenar<select id="records-sort"><option value="recent">Atualização recente</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option></select></label></div>
         <div class="records-layout">
@@ -155,6 +167,7 @@
   </main>
   <script src="/painel/vendor/zip.min.js" defer></script>
   <script src="/painel/parser.js" defer></script>
+  <script src="/painel/manheim.js" defer></script>
   <script src="/painel/painel.js" defer></script>
 </body>
 </html>

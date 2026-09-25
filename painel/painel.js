@@ -23,6 +23,8 @@
   let orderOffset = 0;
   let orderItems = [];
   let orderLinkTargets = [];
+  let manheimJourneys = [];
+  let manheimMatches = [];
   let reportView = 'today';
   let viewRequestVersion = 0;
   const $ = (id) => document.getElementById(id);
@@ -303,17 +305,17 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
     if (view === 'orders') $('orders-more').classList.add('hidden');
   }
 
   async function switchPanel(view) {
-    if (!['today', 'entry', 'orders', 'qualification', 'records'].includes(view)) return;
+    if (!['today', 'entry', 'orders', 'qualification', 'manheim', 'records'].includes(view)) return;
     currentView = view;
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
-    const labels = { today: 'HOJE', entry: 'ENTRADA', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', records: 'FICHAS' };
+    const labels = { today: 'HOJE', entry: 'ENTRADA', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', manheim: 'MANHEIM', records: 'FICHAS' };
     Object.keys(labels).forEach((name) => $(name + '-panel').classList.toggle('hidden', name !== view));
     $('page-title').textContent = labels[view];
     document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
@@ -519,8 +521,44 @@
     });
   }
 
+  function journeySwitch(item, reload) {
+    const enabled = typeof item.enabled === 'boolean' ? item.enabled : item.status !== 'ENCERRADO';
+    const wrap = element('div', 'journey-switch');
+    const canReactivate = enabled || item.toggleManaged !== false;
+    const toggle = element('button', enabled ? 'switch-on small' : 'switch-off small', enabled ? 'Ligado' : canReactivate ? 'Desligado — religar' : 'Desligado');
+    toggle.type = 'button';
+    toggle.disabled = !canReactivate;
+    toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-checked', String(enabled));
+    toggle.addEventListener('click', async () => {
+      await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'toggle_journey', journeyId: item.id, enabled: !enabled, reason: null }) });
+      await reload();
+    });
+    wrap.append(toggle);
+    if (enabled) {
+      const reasons = element('details', 'switch-reasons');
+      reasons.append(element('summary', '', 'Desligar com motivo'));
+      const choices = element('div', 'inline-actions');
+      [['MCS_PURCHASE', 'Comprou com a MCS'], ['OTHER_PURCHASE', 'Comprou em outro lugar'], ['GAVE_UP', 'Desistiu'], ['NO_RESPONSE', 'Sem resposta']].forEach(([reason, label]) => {
+        const button = element('button', 'quiet small', label);
+        button.type = 'button';
+        button.addEventListener('click', async () => {
+          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'toggle_journey', journeyId: item.id, enabled: false, reason }) });
+          await reload();
+        });
+        choices.append(button);
+      });
+      reasons.append(choices);
+      wrap.append(reasons);
+    } else if (item.offReason) {
+      const labels = { MCS_PURCHASE: 'Comprou com a MCS', OTHER_PURCHASE: 'Comprou em outro lugar', GAVE_UP: 'Desistiu', NO_RESPONSE: 'Sem resposta' };
+      wrap.append(makeBadge(labels[item.offReason] || item.offReason));
+    }
+    return wrap;
+  }
+
   function renderFailure(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
   }
 
@@ -546,6 +584,12 @@
       updateMeta(data.meta);
       return renderQualification(data.items || []);
     }
+    if (view === 'manheim') {
+      const data = await request('/api/panel/records?view=manheim');
+      if (!current()) return;
+      updateMeta(data.meta);
+      return renderManheim(data);
+    }
     if (view === 'records') {
       const data = await request('/api/panel/records');
       if (!current()) return;
@@ -555,15 +599,17 @@
   }
 
   async function refreshCounters() {
-    const [entry, orders, qualification, records] = await Promise.all([
+    const [entry, orders, qualification, manheim, records] = await Promise.all([
       request('/api/panel/entry'),
       request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
       request('/api/panel/qualification'),
+      request('/api/panel/records?view=manheim'),
       request('/api/panel/records')
     ]);
     setCount('entry', (entry.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (entry.reviews || []).length);
     setCount('orders', orders.page && orders.page.total || 0);
     setCount('qualification', (qualification.items || []).length);
+    setCount('manheim', manheim.upload && manheim.upload.lead_count || 0);
     setCount('records', (records.items || []).length);
   }
 
@@ -602,14 +648,13 @@
       const title = element('div');
       title.append(identityHeader(item, { preview: item.reasons.find((reason) => reason.preview)?.preview || '' }));
       const priority = element('div', 'badges');
-      priority.append(makeBadge(waitLabel(item.waitMs), item.waitColor), makeBadge(item.checklistLabel, 'blue'));
+      if (item.kind === 'CALCULATOR_ORDER') priority.append(makeBadge(waitLabel(item.waitMs), item.waitColor));
+      priority.append(makeBadge(item.checklistLabel, 'blue'));
       if (item.budgetCents) priority.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
       head.append(title, priority);
       const reasons = element('div', 'badges');
-      item.reasons.forEach((reason) => reasons.append(makeBadge(reason.label, reason.label.includes('VENCID') ? 'red' : '')));
+      item.reasons.forEach((reason) => reasons.append(makeBadge(reason.label, reason.urgency || (reason.label.includes('VENCID') ? 'red' : ''))));
       card.append(head, reasons);
-      const noResponse = item.reasons.find((reason) => reason.kind === 'NO_RESPONSE');
-      if (noResponse) card.append(element('p', 'message-body', `[${noResponse.channel}] ${noResponse.preview}`));
       const actions = element('div', 'inline-actions');
       const open = element('button', 'quiet small', 'Abrir ficha');
       open.type = 'button';
@@ -646,7 +691,7 @@
       form.append(dateLabel, reasonLabel, save);
       defer.addEventListener('click', () => form.classList.toggle('hidden'));
       dismiss.addEventListener('click', () => postAction({ action: 'suppress', journeyId: item.id, kind: item.reasons[0].kind, suppressionAction: 'DISMISS' }));
-      actions.append(open, defer, dismiss);
+      actions.append(open, defer, dismiss, journeySwitch(item, () => loadCurrent()));
       card.append(actions, form);
       root.append(card);
     });
@@ -717,7 +762,7 @@
       const title = element('div');
       title.append(identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' }));
       const badges = element('div', 'badges');
-      badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage), makeBadge(item.status));
+      badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage), makeBadge(item.enabled === false ? 'DESLIGADO' : item.status));
       if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
       head.append(title, badges);
       card.append(head);
@@ -731,9 +776,155 @@
       open.type = 'button';
       open.addEventListener('click', async () => { await switchPanel('records'); await openRecord(item.id); });
       makeCardClickable(card, async () => { await switchPanel('records'); await openRecord(item.id); });
-      card.append(open);
+      card.append(open, journeySwitch(item, () => loadCurrent()));
       root.append(card);
     });
+  }
+
+  function wishlistSummary(wish, budgetCents) {
+    const years = wish && wish.yearMin && wish.yearMax ? `${wish.yearMin}–${wish.yearMax}` : wish && (wish.yearMin || wish.yearMax) || 'qualquer ano';
+    const miles = wish && wish.maxMiles ? `até ${Number(wish.maxMiles).toLocaleString('pt-BR')} milhas` : 'sem limite de milhas';
+    return `${wish && wish.make || 'Marca não informada'} ${wish && wish.model || 'modelo não informado'} · ${years} · ${miles}${budgetCents ? ` · teto ${formatMoney(budgetCents)}` : ''}`;
+  }
+
+  function downloadShortlist(matches, referenceCode) {
+    if (!matches.length) return;
+    const headers = [];
+    matches.forEach((match) => (match.vehicle_json.headers || []).forEach((header) => { if (!headers.includes(header)) headers.push(header); }));
+    const csv = MCSManheim.toCsv(headers, matches.map((match) => match.vehicle_json.raw));
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `shortlist-${referenceCode || 'lead'}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function renderManheimGroup(root, journey, matches, reactivation) {
+    const card = element('article', 'item-card manheim-lead');
+    const head = element('div', 'item-head');
+    head.append(identityHeader(journey), makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));
+    card.append(head, element('p', 'muted', wishlistSummary(journey.wishlist, journey.budget_cents)));
+    if (reactivation) {
+      const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
+      reactivateButton.type = 'button';
+      reactivateButton.addEventListener('click', async () => {
+        const payload = journey.status === 'PARADO'
+          ? { action: 'set_funnel', journeyId: journey.id, value: 'EM_BUSCA' }
+          : { action: 'toggle_journey', journeyId: journey.id, enabled: true, reason: null };
+        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify(payload) });
+        await loadCurrent();
+      });
+      card.append(makeBadge(journey.status === 'PARADO' ? 'Parado — reativar' : 'Desligado — reativar', 'yellow'), reactivateButton);
+    }
+    const table = element('div', 'manheim-table');
+    matches.forEach((match) => {
+      const parsed = match.vehicle_json.parsed || {};
+      const row = element('div', 'manheim-row');
+      const select = element('input'); select.type = 'checkbox'; select.className = 'manheim-select'; select.dataset.matchId = match.id;
+      const vehicle = element('div');
+      vehicle.append(element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')), element('span', 'muted', `${Number(parsed.miles || 0).toLocaleString('pt-BR')} milhas${parsed.location ? ` · ${parsed.location}` : ''}${parsed.saleDate ? ` · ${parsed.saleDate}` : ''}`));
+      const badges = element('div', 'badges');
+      badges.append(makeBadge(match.match_kind, match.match_kind === 'BATE' ? 'green' : 'yellow'));
+      if (match.match_reason) badges.append(makeBadge(match.match_reason));
+      if (match.mmr_status) badges.append(makeBadge(match.mmr_status, match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
+      const presented = element('button', 'quiet small', match.presented_unit_id ? 'Apresentado' : journey.enabled === false ? 'Religue antes de apresentar' : 'Apresentei ao cliente');
+      presented.type = 'button'; presented.disabled = Boolean(match.presented_unit_id) || journey.enabled === false;
+      presented.addEventListener('click', async () => {
+        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'unit', journeyId: journey.id, manheimMatchId: match.id, status: 'PRESENTED' }) });
+        await loadCurrent();
+      });
+      row.append(select, vehicle, badges, presented);
+      table.append(row);
+    });
+    card.append(table);
+    const exportButton = element('button', 'quiet small', 'Exportar para shortlist');
+    exportButton.type = 'button';
+    exportButton.addEventListener('click', () => {
+      const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => matches.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
+      downloadShortlist(selected, journey.reference_code);
+    });
+    card.append(exportButton);
+    root.append(card);
+  }
+
+  function renderManheim(data) {
+    manheimJourneys = data.items || [];
+    manheimMatches = data.matches || [];
+    setCount('manheim', data.upload && data.upload.lead_count || 0);
+    $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.lead_count} lead(s) · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
+    const root = $('manheim-results');
+    root.replaceChildren();
+    if (!manheimMatches.length) return empty(root, 'Nenhum carro compatível no último upload.');
+    const byJourney = new Map(manheimJourneys.map((journey) => [journey.id, journey]));
+    const grouped = new Map();
+    manheimMatches.forEach((match) => {
+      if (!grouped.has(match.journey_id)) grouped.set(match.journey_id, []);
+      grouped.get(match.journey_id).push(match);
+    });
+    const standard = element('section', 'stack');
+    standard.append(element('h3', '', 'Compatíveis'));
+    const reactivate = element('section', 'stack');
+    reactivate.append(element('h3', '', 'Reativar'));
+    let standardCount = 0;
+    let reactivateCount = 0;
+    grouped.forEach((matches, journeyId) => {
+      const journey = byJourney.get(journeyId);
+      if (!journey) return;
+      const isReactivation = journey.reactivationEligible || journey.status === 'PARADO';
+      if (isReactivation) { renderManheimGroup(reactivate, journey, matches.filter((match) => match.match_kind === 'BATE'), true); reactivateCount += 1; }
+      else { renderManheimGroup(standard, journey, matches, false); standardCount += 1; }
+    });
+    if (standardCount) root.append(standard);
+    if (reactivateCount) root.append(reactivate);
+  }
+
+  async function importManheim(files) {
+    const selected = files.filter((file) => /\.csv$/i.test(file.name));
+    if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw new Error('MANHEIM_FILES_INVALID');
+    if (!window.MCSManheim) throw new Error('MANHEIM_READER_UNAVAILABLE');
+    $('manheim-status').classList.remove('error');
+    $('manheim-status').textContent = 'Lendo e comparando no navegador…';
+    if (!manheimJourneys.length) {
+      const data = await request('/api/panel/records?view=manheim');
+      manheimJourneys = data.items || [];
+    }
+    const vehicles = [];
+    const headerGroups = [];
+    const mappings = [];
+    for (const file of selected) {
+      if (file.size > MAX_TEXT) throw new Error('MANHEIM_FILE_TOO_LARGE');
+      const parsed = MCSManheim.parseCsv(await file.text());
+      const mapping = MCSManheim.mapHeaders(parsed.headers);
+      if (mapping.missing.length) {
+        $('manheim-status').classList.add('error');
+        $('manheim-status').textContent = `CSV incompleto: faltam ${mapping.missing.join(', ')}.`;
+        return;
+      }
+      headerGroups.push(parsed.headers);
+      mappings.push(mapping.fields);
+      vehicles.push(...MCSManheim.normalizeRows(parsed, mapping));
+    }
+    const matches = [];
+    for (const journey of manheimJourneys) {
+      const enabled = journey.enabled !== false;
+      const reactivation = journey.reactivationEligible || journey.status === 'PARADO';
+      if (!enabled && !reactivation) continue;
+      for (const vehicle of vehicles) {
+        const result = MCSManheim.matchVehicle(vehicle, journey.wishlist, journey.budget_cents);
+        if (!result || (reactivation && result.kind !== 'BATE')) continue;
+        matches.push({
+          journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus,
+          fingerprint: MCSManheim.fingerprint(vehicle),
+          vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: { year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents } }
+        });
+      }
+    }
+    if (matches.length > 2000) throw new Error('MANHEIM_MATCH_LIMIT');
+    const result = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_upload', sourceFileCount: selected.length, vehicleCount: vehicles.length, headers: headerGroups, headerMap: { files: mappings }, matches }) });
+    $('manheim-status').textContent = `${result.matchedVehicleCount} combinação(ões) compatível(is) em ${result.leadCount} lead(s).`;
+    await loadCurrent();
+    await refreshCounters();
   }
 
   function renderRecords(items) {
@@ -748,12 +939,17 @@
     const mode = $('records-sort') ? $('records-sort').value : 'recent';
     const sorted = items.slice().sort((a, b) => mode === 'oldest' ? Date.parse(a.updated_at) - Date.parse(b.updated_at) : mode === 'name' ? String(a.contact && a.contact.display_name || '').localeCompare(String(b.contact && b.contact.display_name || ''), 'pt-BR') : mode === 'ref' ? String(a.reference_code || '').localeCompare(String(b.reference_code || '')) : Date.parse(b.updated_at) - Date.parse(a.updated_at));
     sorted.forEach((item) => {
-      const button = element('button', 'search-hit');
-      button.type = 'button';
+      const card = element('article', 'search-hit record-list-card');
       const text = identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' });
-      button.append(text, makeBadge(`${item.stage} · ${item.status}`));
-      button.addEventListener('click', () => openRecord(item.id));
-      root.append(button);
+      const controls = element('div', 'record-card-controls');
+      controls.append(makeBadge(`${item.stage} · ${item.enabled === false ? 'DESLIGADO' : item.status}`));
+      const open = element('button', 'quiet small', 'Abrir ficha');
+      open.type = 'button';
+      open.addEventListener('click', () => openRecord(item.id));
+      controls.append(open, journeySwitch(item, () => loadCurrent()));
+      card.append(text, controls);
+      makeCardClickable(card, () => openRecord(item.id));
+      root.append(card);
     });
   }
 
@@ -770,8 +966,25 @@
     root.append(summary);
     const menu = element('div', 'message-menu-panel');
     if (message.direction === 'CUSTOMER') {
+      const wishlistForm = element('div', 'wishlist-menu');
+      const make = element('input'); make.placeholder = 'Marca'; make.maxLength = 80;
+      const model = element('input'); model.placeholder = 'Modelo'; model.maxLength = 120;
+      const yearMin = element('input'); yearMin.type = 'number'; yearMin.placeholder = 'Ano de'; yearMin.min = '1900'; yearMin.max = String(new Date().getFullYear() + 2);
+      const yearMax = element('input'); yearMax.type = 'number'; yearMax.placeholder = 'Ano até'; yearMax.min = '1900'; yearMax.max = String(new Date().getFullYear() + 2);
+      const maxMiles = element('input'); maxMiles.type = 'number'; maxMiles.placeholder = 'Milhas até'; maxMiles.min = '0'; maxMiles.max = '2000000';
+      const wishlistButton = element('button', 'quiet small', 'Carro ou faixa');
+      wishlistButton.type = 'button';
+      wishlistButton.addEventListener('click', async () => {
+        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({
+          action: 'mark_message', journeyId, messageId: message.id, kind: 'VEHICLE',
+          wishlist: { make: make.value, model: model.value, yearMin: yearMin.value || null, yearMax: yearMax.value || null, maxMiles: maxMiles.value || null }
+        }) });
+        await reload();
+      });
+      wishlistForm.append(wishlistButton, make, model, yearMin, yearMax, maxMiles);
+      menu.append(wishlistForm);
       const choices = [
-        ['VEHICLE', 'Carro/faixa', true], ['BUDGET', 'Teto', true], ['PAYMENT', 'Pagamento', true],
+        ['BUDGET', 'Teto', true], ['PAYMENT', 'Pagamento', true],
         ['DEADLINE', 'Prazo', true], ['OUTSIDE_FLORIDA', 'Aceita fora da Flórida', false],
         ['NO_TEST_DRIVE', 'Entendeu sem test drive/devolução', false]
       ];
@@ -837,7 +1050,7 @@
     const dataBlock = element('section', 'record-block');
     dataBlock.append(element('h2', '', item.contact && item.contact.display_name || 'Contato sem nome'));
     const statusBadges = element('div', 'badges');
-    statusBadges.append(makeBadge(item.stage), makeBadge(item.status), makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'));
+    statusBadges.append(makeBadge(item.stage), makeBadge(item.enabled ? 'LIGADO' : 'DESLIGADO', item.enabled ? 'green' : 'red'), makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'));
     if (item.shortDeadline) statusBadges.append(makeBadge('prazo curto', 'yellow'));
     dataBlock.append(statusBadges);
     const definitions = element('dl', 'definition-grid');
@@ -845,13 +1058,26 @@
     definition(definitions, 'Ref', item.reference_code);
     definition(definitions, 'Refs da calculadora/conversa', item.refs.map((ref) => ref.ref_code).join(', '));
     definition(definitions, 'Origem', item.source);
-    definition(definitions, 'Veículo', item.vehicle_text);
-    definition(definitions, 'Teto', formatMoney(item.budget_cents));
     definition(definitions, 'Pagamento', item.payment_text);
     definition(definitions, 'Prazo', item.customer_deadline_text || formatDate(item.customer_deadline_at));
-    definition(definitions, 'Próxima ação', item.next_action_text);
-    definition(definitions, 'Data da próxima ação', formatDate(item.next_action_at));
     dataBlock.append(definitions);
+    const wishlist = element('section', 'wishlist-block');
+    wishlist.append(element('h3', '', 'Lista de desejo'));
+    const wishDefinitions = element('dl', 'definition-grid');
+    definition(wishDefinitions, 'Marca', item.wishlist && item.wishlist.make);
+    definition(wishDefinitions, 'Modelo', item.wishlist && item.wishlist.model);
+    definition(wishDefinitions, 'Ano de', item.wishlist && item.wishlist.yearMin);
+    definition(wishDefinitions, 'Ano até', item.wishlist && item.wishlist.yearMax);
+    definition(wishDefinitions, 'Milhas até', item.wishlist && item.wishlist.maxMiles ? Number(item.wishlist.maxMiles).toLocaleString('pt-BR') : null);
+    definition(wishDefinitions, 'Teto', formatMoney(item.budget_cents));
+    wishlist.append(wishDefinitions);
+    dataBlock.append(wishlist, journeySwitch(item, reload));
+    if (item.manheimMatchCount) {
+      const matchNotice = element('button', 'manheim-notice', `${item.manheimMatchCount} carro(s) do export mais recente batem · abrir Manheim`);
+      matchNotice.type = 'button';
+      matchNotice.addEventListener('click', () => switchPanel('manheim'));
+      dataBlock.append(matchNotice);
+    }
 
     const noteForm = element('div', 'inline-form note-form');
     const noteLabel = element('label', '', 'Nota');
@@ -865,12 +1091,8 @@
     noteForm.append(noteLabel, saveNote);
     dataBlock.append(noteForm);
 
-    if (!item.stage_frozen && item.status !== 'ENCERRADO') {
+    if (item.enabled && !item.stage_frozen) {
       const operations = element('div', 'inline-actions');
-      const startSearch = element('button', 'small', 'INICIAR BUSCA');
-      startSearch.type = 'button';
-      startSearch.disabled = Boolean(item.search_started_at);
-      startSearch.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'start_search', journeyId: id }) }); await reload(); });
       ['CALL_ANSWERED', 'CALL_ATTEMPT', 'IN_PERSON'].forEach((type) => {
         const labels = { CALL_ANSWERED: 'Ligação atendida', CALL_ATTEMPT: 'Tentativa sem resposta', IN_PERSON: 'Conversa presencial' };
         const button = element('button', 'quiet small', labels[type]);
@@ -878,34 +1100,7 @@
         button.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'interaction', journeyId: id, interactionType: type }) }); await reload(); });
         operations.append(button);
       });
-      operations.prepend(startSearch);
       dataBlock.append(operations);
-
-      const nextForm = element('div', 'inline-form');
-      const nextTextLabel = element('label', '', 'Próxima ação');
-      const nextText = element('input');
-      nextText.maxLength = 500;
-      nextText.value = item.next_action_text || '';
-      nextTextLabel.append(nextText);
-      const nextDateLabel = element('label', '', 'Data');
-      const nextDate = element('input');
-      nextDate.type = 'datetime-local';
-      nextDate.value = item.next_action_at ? localInput(new Date(item.next_action_at)) : localInput(new Date(Date.now() + 24 * 3600000));
-      nextDateLabel.append(nextDate);
-      const nextButton = element('button', 'small', 'Salvar próxima ação');
-      nextButton.type = 'button';
-      nextButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'next_action', operation: 'CREATE', journeyId: id, text: nextText.value, at: new Date(nextDate.value).toISOString() }) }); await reload(); });
-      nextForm.append(nextTextLabel, nextDateLabel, nextButton);
-      if (item.next_action_at) {
-        const complete = element('button', 'quiet small', 'Concluir retorno');
-        complete.type = 'button';
-        complete.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'next_action', operation: 'COMPLETE', journeyId: id }) }); await reload(); });
-        const remove = element('button', 'quiet small', 'Remover retorno');
-        remove.type = 'button';
-        remove.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'next_action', operation: 'REMOVE', journeyId: id }) }); await reload(); });
-        nextForm.append(complete, remove);
-      }
-      dataBlock.append(nextForm);
 
       const statusForm = element('div', 'inline-form');
       const statusLabel = element('label', '', 'Etapa operacional');
@@ -916,14 +1111,7 @@
       const statusButton = element('button', 'small', 'Atualizar etapa');
       statusButton.type = 'button';
       statusButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_funnel', journeyId: id, value: statusSelect.value }) }); await reload(); });
-      const closeReasonLabel = element('label', '', 'Motivo para encerrar');
-      const closeReason = element('input');
-      closeReason.maxLength = 500;
-      closeReasonLabel.append(closeReason);
-      const closeButton = element('button', 'quiet small', 'Encerrar jornada');
-      closeButton.type = 'button';
-      closeButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'close_journey', journeyId: id, reason: closeReason.value }) }); await reload(); });
-      statusForm.append(statusLabel, statusButton, closeReasonLabel, closeButton);
+      statusForm.append(statusLabel, statusButton);
       dataBlock.append(statusForm);
     }
 
@@ -956,21 +1144,35 @@
     });
     left.append(checklistBlock);
 
-    const promiseBlock = element('section', 'record-block');
-    promiseBlock.append(element('h3', '', 'O que eu prometi'));
-    if (!item.promises.length) promiseBlock.append(element('p', 'muted', 'Nenhuma promessa marcada.'));
-    item.promises.forEach((promise) => {
+    const returnBlock = element('section', 'record-block');
+    returnBlock.append(element('h3', '', 'Retornos'));
+    const openReturns = item.returns.filter((entry) => entry.status === 'OPEN');
+    if (!openReturns.length) returnBlock.append(element('p', 'muted', 'Nenhum retorno aberto.'));
+    openReturns.forEach((entry) => {
       const row = element('div', 'check-point');
-      row.append(element('p', 'message-body', promise.promise_text), element('p', 'muted', `${promise.due_text} · ${formatDate(promise.due_at)}`), makeBadge(promise.status, promise.status === 'OPEN' ? 'yellow' : 'green'));
-      if (promise.status === 'OPEN') {
-        const button = element('button', 'small', 'Cumpri');
-        button.type = 'button';
-        button.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'fulfill_promise', journeyId: id, promiseId: promise.id }) }); await reload(); });
-        row.append(button);
-      }
-      promiseBlock.append(row);
+      row.append(element('p', 'message-body', entry.text), element('p', 'muted', `${entry.origin} · ${formatDate(entry.dueAt)}`));
+      const complete = element('button', 'small', 'Concluir');
+      complete.type = 'button';
+      complete.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'return_update', journeyId: id, returnKind: entry.kind, returnId: entry.kind === 'PROMISE' ? entry.id : null, operation: 'COMPLETE' }) }); await reload(); });
+      const remove = element('button', 'quiet small', 'Remover');
+      remove.type = 'button';
+      remove.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'return_update', journeyId: id, returnKind: entry.kind, returnId: entry.kind === 'PROMISE' ? entry.id : null, operation: 'REMOVE' }) }); await reload(); });
+      row.append(complete, remove);
+      returnBlock.append(row);
     });
-    left.append(promiseBlock);
+    if (item.enabled && !item.next_action_at) {
+      const nextForm = element('div', 'inline-form');
+      const nextTextLabel = element('label', '', 'Retorno manual');
+      const nextText = element('input'); nextText.maxLength = 500; nextTextLabel.append(nextText);
+      const nextDateLabel = element('label', '', 'Data');
+      const nextDate = element('input'); nextDate.type = 'datetime-local'; nextDate.value = localInput(new Date(Date.now() + 24 * 3600000)); nextDateLabel.append(nextDate);
+      const nextButton = element('button', 'small', 'Adicionar retorno');
+      nextButton.type = 'button';
+      nextButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'next_action', operation: 'CREATE', journeyId: id, text: nextText.value, at: new Date(nextDate.value).toISOString() }) }); await reload(); });
+      nextForm.append(nextTextLabel, nextDateLabel, nextButton);
+      returnBlock.append(nextForm);
+    }
+    left.append(returnBlock);
 
     const unitsBlock = element('section', 'record-block');
     unitsBlock.append(element('h3', '', 'Unidades apresentadas'));
@@ -978,7 +1180,7 @@
     item.units.forEach((unit) => {
       const row = element('div', 'check-point');
       row.append(element('strong', '', unit.vehicle_text), element('p', 'muted', formatDate(unit.presented_at)), makeBadge(unit.status));
-      if (!item.stage_frozen && item.status !== 'ENCERRADO') {
+      if (item.enabled && !item.stage_frozen) {
         const form = element('div', 'inline-form');
         const select = element('select');
         ['PRESENTED', 'UNDER_REVIEW', 'ACCEPTED', 'DECLINED', 'WITHDRAWN'].forEach((status) => select.append(new Option(status, status)));
@@ -998,7 +1200,7 @@
       }
       unitsBlock.append(row);
     });
-    if (!item.stage_frozen && item.status !== 'ENCERRADO') {
+    if (item.enabled && !item.stage_frozen) {
       const addForm = element('div', 'inline-form');
       const vehicle = element('input');
       vehicle.placeholder = 'Veículo da unidade';
@@ -1047,7 +1249,7 @@
         const row = element('article', 'message ' + message.direction.toLowerCase());
         const meta = `${message.channel} · ${message.direction === 'CUSTOMER' ? 'Cliente' : message.direction === 'MCS' ? 'MCS' : 'Sistema'} · ${formatDate(message.occurred_at_utc || message.occurred_at_local || message.created_at)}${message.time_uncertain ? ' · hora incerta' : ''}`;
         row.append(element('span', 'message-meta', meta), element('p', 'message-body', message.body_text));
-        if (!item.stage_frozen && item.status !== 'ENCERRADO' && message.direction !== 'SYSTEM') row.append(actionMessage(message, id, reload));
+        if (item.enabled && !item.stage_frozen && message.direction !== 'SYSTEM') row.append(actionMessage(message, id, reload));
         timeline.append(row);
       });
       if (!timeline.childNodes.length) timeline.append(element('p', 'muted', 'Nenhuma mensagem neste filtro.'));
@@ -1105,7 +1307,7 @@
     try {
       const report = await request('/api/panel/report?' + params.toString());
       $('report-text').value = report.text;
-      $('report-status').textContent = `Simulações: ${report.summary.simulations} · Leads: ${report.summary.leads} · Qualificados: ${report.summary.qualified} · Encerrados: ${report.summary.closed}`;
+      $('report-status').textContent = `Simulações: ${report.summary.simulations} · Leads: ${report.summary.leads} · Qualificados: ${report.summary.qualified} · Desligados: ${report.summary.closed}`;
     } catch (_) {
       $('report-status').textContent = 'Não foi possível gerar o relatório para esse período.';
     }
@@ -1244,6 +1446,11 @@
     ['dragenter', 'dragover'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
+    $('manheim-files').addEventListener('change', (event) => importManheim([...event.target.files]).catch(() => { $('manheim-status').classList.add('error'); $('manheim-status').textContent = 'Não foi possível ler ou comparar este CSV.'; }));
+    const manheimZone = $('manheim-drop-zone');
+    ['dragenter', 'dragover'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.add('dragging'); }));
+    ['dragleave', 'drop'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.remove('dragging'); }));
+    manheimZone.addEventListener('drop', (event) => importManheim([...event.dataTransfer.files]).catch(() => { $('manheim-status').classList.add('error'); $('manheim-status').textContent = 'Não foi possível ler ou comparar este CSV.'; }));
     $('sms-form').addEventListener('submit', addSms);
     $('sms-contact').addEventListener('change', () => { $('sms-new-name-label').hidden = $('sms-contact').value !== 'new'; refreshSmsJourneys(); });
     $('attachment-upload').addEventListener('click', uploadAttachment);
