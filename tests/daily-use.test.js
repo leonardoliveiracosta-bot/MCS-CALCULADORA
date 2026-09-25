@@ -49,6 +49,13 @@ test('expired session clears credentials and returns to login', () => {
   assert.match(client, /response\.status === 401[\s\S]*clearSession\(\)[\s\S]*show\('login-view'\)/);
 });
 
+test('all navigation counters are refreshed after login', () => {
+  const client = read('painel/painel.js');
+  assert.match(client, /async function refreshCounters\(\)/);
+  assert.match(client, /await refreshCounters\(\)/);
+  for (const view of ['entry', 'orders', 'qualification', 'records']) assert.match(client, new RegExp(`setCount\\('${view}'`));
+});
+
 test('unique calculator Ref linking fills only blank journey fields', () => {
   const entry = read('api/panel/entry.js');
   assert.match(entry, /matches\.length !== 1/);
