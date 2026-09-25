@@ -13,6 +13,7 @@ const {
   DAY_MS, buildTodayItems, checklistSummary, clientOkPatch, consolidateCalcRuns,
   logicalMode, nextStageForUnits, searchMatches, shortDeadline
 } = require('../panel-domain');
+const { supabase } = require('../panel-server');
 
 const now = new Date('2026-09-25T16:00:00.000Z');
 const journey = (id, extra = {}) => ({
@@ -119,6 +120,20 @@ function response(status, payload) {
 function output() {
   return { code: 0, payload: null, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(code) { this.code = code; return this; }, json(payload) { this.payload = payload; return this; } };
 }
+
+test('PostgREST 201 with return=minimal is accepted as an empty success', async () => {
+  global.fetch = async () => ({
+    ok: true,
+    status: 201,
+    headers: new Map(),
+    text: async () => ''
+  });
+  assert.equal(await supabase('https://example.supabase.co', 'secret-test', '/rest/v1/audit_log', {
+    method: 'POST',
+    headers: { prefer: 'return=minimal' },
+    body: '{}'
+  }), null);
+});
 
 test('every phase-3 API is blocked while must_change_password is true', async () => {
   global.fetch = async (url) => url.endsWith('/auth/v1/user')

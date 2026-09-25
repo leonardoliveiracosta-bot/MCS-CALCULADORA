@@ -47,7 +47,8 @@ async function supabase(url, key, path, options = {}) {
     throw failure;
   }
   if (response.status === 204) return null;
-  return response.json();
+  const raw = await response.text();
+  return raw ? JSON.parse(raw) : null;
 }
 
 function query(params) {
