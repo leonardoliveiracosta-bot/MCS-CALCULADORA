@@ -65,6 +65,16 @@ async function createJob(ctx, body) {
   return send(ctx.res, 201, { importJobId: jobs[0].id, chatId: storedChat.id, resolutionStatus: storedChat.resolution_status });
 }
 
+async function createReview(ctx, body) {
+  const sourceKind = ['WHATSAPP_ZIP', 'WHATSAPP_TXT'].includes(body.sourceKind) ? body.sourceKind : null;
+  if (!sourceKind) return send(ctx.res, 400, { error: 'IMPORT_METADATA_INVALID' });
+  const jobs = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
+    body: JSON.stringify({ environment: ctx.environment, channel: 'WHATSAPP', source_kind: sourceKind, source_filename: String(body.sourceFilename || '').slice(0, 255) || null, source_sha256: String(body.sourceSha256 || '').slice(0, 128) || null, status: 'REVIEW', message_count: 0, review_reason: 'formato não suportado', created_by: ctx.panel.id, completed_at: now() })
+  });
+  return send(ctx.res, 201, { importJobId: jobs[0].id, status: 'REVIEW' });
+}
+
 async function receiveBatch(ctx, body) {
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const bytes = Buffer.byteLength(JSON.stringify(messages), 'utf8');
@@ -101,7 +111,8 @@ async function queue(ctx, res) {
   const messages = await rows(ctx, 'messages', { select: 'chat_id', environment: 'eq.' + ctx.environment, limit: '10000' });
   const counts = messages.reduce((all, message) => { all[message.chat_id] = (all[message.chat_id] || 0) + 1; return all; }, {});
   const contacts = await rows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, order: 'display_name.asc', limit: '1000' });
-  return send(res, 200, { chats: chats.map((chat) => ({ ...chat, newMessageCount: counts[chat.id] || 0 })), contacts });
+  const reviews = await rows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc', limit: '100' });
+  return send(res, 200, { chats: chats.map((chat) => ({ ...chat, newMessageCount: counts[chat.id] || 0 })), reviews, contacts });
 }
 
 async function resolveChat(ctx, body) {
@@ -147,6 +158,7 @@ module.exports = async (req, res) => {
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await json(req);
     if (body.action === 'start') return createJob(ctx, body);
+    if (body.action === 'review') return createReview(ctx, body);
     if (body.action === 'batch') return receiveBatch(ctx, body);
     if (body.action === 'finish') return finishJob(ctx, body);
     if (body.action === 'resolve') return resolveChat(ctx, body);
