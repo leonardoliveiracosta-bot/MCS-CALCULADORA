@@ -6,15 +6,21 @@
 }(typeof globalThis === 'object' ? globalThis : self, () => {
   'use strict';
 
+  const catalog = typeof MCSVehicleCatalog === 'object' ? MCSVehicleCatalog : (typeof require === 'function' ? require('../vehicle-catalog') : null);
+
   const HEADER_ALIASES = Object.freeze({
     year: ['year', 'yr', 'model year', 'ano'],
     make: ['make', 'manufacturer', 'marca'],
     model: ['model', 'modelo'],
     trim: ['trim', 'series', 'style', 'version', 'versao'],
-    miles: ['odometer', 'odometer miles', 'mileage', 'miles', 'mi', 'milhas'],
-    location: ['location', 'vehicle location', 'auction', 'auction location', 'sale location', 'local', 'leilao'],
+    miles: ['odometer', 'odometer miles', 'odometer value', 'mileage', 'mileage value', 'miles', 'mi', 'milhas'],
+    location: ['location', 'location name', 'vehicle location', 'pickup location', 'auction', 'auction location', 'sale location', 'local', 'leilao'],
     saleDate: ['sale date', 'auction date', 'date of sale', 'data da venda', 'data venda'],
-    mmr: ['mmr', 'adjusted mmr', 'base mmr', 'manheim market report']
+    mmr: ['mmr', 'adjusted mmr', 'base mmr', 'manheim market report'],
+    exteriorColor: ['exterior color', 'exterior colour'],
+    interiorColor: ['interior color', 'interior colour'],
+    buyNowPrice: ['buy now price', 'buy now'],
+    conditionGrade: ['condition report grade', 'condition grade', 'cr grade']
   });
 
   function clean(value) {
@@ -63,7 +69,7 @@
       const exact = aliases.map(fold).find((alias) => available.has(alias));
       if (exact) fields[field] = available.get(exact);
     }
-    const missing = ['year', 'make', 'model', 'miles'].filter((field) => !fields[field]);
+    const missing = ['year', 'model', 'miles'].filter((field) => !fields[field]);
     return { fields, missing };
   }
 
@@ -76,20 +82,31 @@
     return parsed.rows.map((raw, index) => {
       const fields = mapping.fields;
       const mmr = fields.mmr ? number(raw[fields.mmr]) : null;
+      const model = clean(raw[fields.model]);
+      const suppliedMake = fields.make ? clean(raw[fields.make]) : '';
+      const inferred = !suppliedMake && catalog ? catalog.inferMake(model) : { make: '', ambiguous: false };
+      const location = fields.location ? clean(raw[fields.location]) : '';
       return {
         rowNumber: index + 2,
         raw,
         headers: parsed.headers.slice(),
         year: number(raw[fields.year]),
-        make: clean(raw[fields.make]),
-        model: clean(raw[fields.model]),
+        make: suppliedMake || inferred.make,
+        makeInferred: Boolean(!suppliedMake && inferred.make),
+        makeNotice: !suppliedMake && !inferred.make ? 'marca não informada no arquivo' : '',
+        model,
         trim: fields.trim ? clean(raw[fields.trim]) : '',
         miles: number(raw[fields.miles]),
-        location: fields.location ? clean(raw[fields.location]) : '',
+        location,
+        locationDisplay: catalog ? catalog.readableLocation(location) : location,
         saleDate: fields.saleDate ? clean(raw[fields.saleDate]) : '',
-        mmrCents: mmr === null ? null : Math.round(mmr * 100)
+        mmrCents: mmr === null ? null : Math.round(mmr * 100),
+        exteriorColor: fields.exteriorColor ? clean(raw[fields.exteriorColor]) : '',
+        interiorColor: fields.interiorColor ? clean(raw[fields.interiorColor]) : '',
+        buyNowPrice: fields.buyNowPrice ? clean(raw[fields.buyNowPrice]) : '',
+        conditionGrade: fields.conditionGrade ? clean(raw[fields.conditionGrade]) : ''
       };
-    }).filter((row) => row.year && row.make && row.model && row.miles !== null);
+    }).filter((row) => row.year && row.model && row.miles !== null);
   }
 
   function fingerprint(vehicle) {
@@ -102,10 +119,10 @@
     return (hash >>> 0).toString(16).padStart(8, '0') + ':' + value.length;
   }
 
-  function matchVehicle(vehicle, wishlist, budgetCents) {
-    const wish = wishlist || {};
-    if (!clean(wish.make) || !clean(wish.model) || !vehicle.year || !clean(vehicle.make) || !clean(vehicle.model)) return null;
-    if (fold(vehicle.make) !== fold(wish.make) || fold(vehicle.model) !== fold(wish.model)) return null;
+  function matchOne(vehicle, wish, budgetCents, index) {
+    if (!clean(wish && wish.model) || !vehicle.year || !clean(vehicle.model)) return null;
+    if (clean(vehicle.make) && clean(wish.make) && fold(vehicle.make) !== fold(wish.make)) return null;
+    if (!(catalog ? catalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make) : fold(vehicle.model) === fold(wish.model))) return null;
     const failures = [];
     if (wish.yearMin && vehicle.year < Number(wish.yearMin)) failures.push({ kind: 'year', delta: Number(wish.yearMin) - vehicle.year, reason: `ano ${Number(wish.yearMin) - vehicle.year} abaixo` });
     if (wish.yearMax && vehicle.year > Number(wish.yearMax)) failures.push({ kind: 'year', delta: vehicle.year - Number(wish.yearMax), reason: `ano ${vehicle.year - Number(wish.yearMax)} acima` });
@@ -114,8 +131,17 @@
     if (!kind) return null;
     return {
       kind, reason: failures[0] ? failures[0].reason : null,
-      mmrStatus: vehicle.mmrCents && Number(budgetCents) > 0 ? (vehicle.mmrCents > Number(budgetCents) ? 'MMR acima do teto' : 'MMR dentro do teto') : null
+      mmrStatus: vehicle.mmrCents && Number(budgetCents) > 0 ? (vehicle.mmrCents > Number(budgetCents) ? 'MMR acima do teto' : 'MMR dentro do teto') : null,
+      matchedWishlistIndex: index,
+      matchedWishlistLabel: clean([wish.make, wish.model].filter(Boolean).join(' ')),
+      makeNotice: clean(vehicle.makeNotice)
     };
+  }
+
+  function matchVehicle(vehicle, wishlist, budgetCents) {
+    const wishes = Array.isArray(wishlist) ? wishlist.slice(0, 5) : wishlist && Array.isArray(wishlist.wishlists) ? wishlist.wishlists.slice(0, 5) : [wishlist || {}];
+    const results = wishes.map((wish, index) => matchOne(vehicle, wish, budgetCents, index)).filter(Boolean);
+    return results.sort((left, right) => (left.kind === right.kind ? left.matchedWishlistIndex - right.matchedWishlistIndex : left.kind === 'BATE' ? -1 : 1))[0] || null;
   }
 
   function csvCell(value) {

@@ -781,16 +781,19 @@
     });
   }
 
-  function wishlistSummary(wish, budgetCents) {
-    const years = wish && wish.yearMin && wish.yearMax ? `${wish.yearMin}–${wish.yearMax}` : wish && (wish.yearMin || wish.yearMax) || 'qualquer ano';
-    const miles = wish && wish.maxMiles ? `até ${Number(wish.maxMiles).toLocaleString('pt-BR')} milhas` : 'sem limite de milhas';
-    return `${wish && wish.make || 'Marca não informada'} ${wish && wish.model || 'modelo não informado'} · ${years} · ${miles}${budgetCents ? ` · teto ${formatMoney(budgetCents)}` : ''}`;
+  function wishlistSummary(wishlist, budgetCents) {
+    const wishes = Array.isArray(wishlist) ? wishlist : [wishlist || {}];
+    const vehicles = wishes.slice(0, 5).map((wish) => {
+      const years = wish.yearMin && wish.yearMax ? `${wish.yearMin}–${wish.yearMax}` : wish.yearMin || wish.yearMax || 'qualquer ano';
+      const miles = wish.maxMiles ? `até ${Number(wish.maxMiles).toLocaleString('pt-BR')} milhas` : 'sem limite de milhas';
+      return `${wish.make || 'Marca não informada'} ${wish.model || 'modelo não informado'} · ${years} · ${miles}`;
+    });
+    return `${vehicles.join(' | ')}${budgetCents ? ` · teto ${formatMoney(budgetCents)}` : ''}`;
   }
 
   function downloadShortlist(matches, referenceCode) {
     if (!matches.length) return;
-    const headers = [];
-    matches.forEach((match) => (match.vehicle_json.headers || []).forEach((header) => { if (!headers.includes(header)) headers.push(header); }));
+    const headers = (matches[0].vehicle_json.headers || []).slice();
     const csv = MCSManheim.toCsv(headers, matches.map((match) => match.vehicle_json.raw));
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
@@ -804,7 +807,7 @@
     const card = element('article', 'item-card manheim-lead');
     const head = element('div', 'item-head');
     head.append(identityHeader(journey), makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));
-    card.append(head, element('p', 'muted', wishlistSummary(journey.wishlist, journey.budget_cents)));
+    card.append(head, element('p', 'muted', wishlistSummary(journey.wishlists || journey.wishlist, journey.budget_cents)));
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
@@ -820,10 +823,18 @@
     const table = element('div', 'manheim-table');
     matches.forEach((match) => {
       const parsed = match.vehicle_json.parsed || {};
-      const row = element('div', 'manheim-row');
+      const row = element('div', `manheim-row ${match.match_kind === 'BATE' ? 'match' : 'near'}`);
       const select = element('input'); select.type = 'checkbox'; select.className = 'manheim-select'; select.dataset.matchId = match.id;
       const vehicle = element('div');
-      vehicle.append(element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')), element('span', 'muted', `${Number(parsed.miles || 0).toLocaleString('pt-BR')} milhas${parsed.location ? ` · ${parsed.location}` : ''}${parsed.saleDate ? ` · ${parsed.saleDate}` : ''}`));
+      vehicle.append(
+        element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
+        element('span', 'muted', `${Number(parsed.miles || 0).toLocaleString('pt-BR')} milhas${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}${parsed.saleDate ? ` · ${parsed.saleDate}` : ''}`)
+      );
+      if (parsed.matchedWishlistLabel) vehicle.append(element('span', 'muted', `Lista: ${parsed.matchedWishlistLabel}`));
+      if (parsed.makeNotice) vehicle.append(element('span', 'muted', parsed.makeNotice));
+      if (parsed.exteriorColor) vehicle.append(element('span', 'muted', `Cor externa: ${parsed.exteriorColor}`));
+      if (parsed.buyNowPrice) vehicle.append(element('span', 'muted', `Buy Now: ${parsed.buyNowPrice}`));
+      if (parsed.conditionGrade) vehicle.append(element('span', 'muted', `Nota de condição: ${parsed.conditionGrade}`));
       const badges = element('div', 'badges');
       badges.append(makeBadge(match.match_kind, match.match_kind === 'BATE' ? 'green' : 'yellow'));
       if (match.match_reason) badges.append(makeBadge(match.match_reason));
@@ -894,7 +905,10 @@
     const mappings = [];
     for (const file of selected) {
       if (file.size > MAX_TEXT) throw new Error('MANHEIM_FILE_TOO_LARGE');
-      let contents;\n      try { contents = await file.text(); }\n      catch { throw new Error('MANHEIM_FILE_READ_FAILED'); }\n      const parsed = MCSManheim.parseCsv(contents);
+      let contents;
+      try { contents = await file.text(); }
+      catch { throw new Error('MANHEIM_FILE_READ_FAILED'); }
+      const parsed = MCSManheim.parseCsv(contents);
       const mapping = MCSManheim.mapHeaders(parsed.headers);
       if (mapping.missing.length) {
         $('manheim-status').classList.add('error');
@@ -911,12 +925,17 @@
       const reactivation = journey.reactivationEligible || journey.status === 'PARADO';
       if (!enabled && !reactivation) continue;
       for (const vehicle of vehicles) {
-        const result = MCSManheim.matchVehicle(vehicle, journey.wishlist, journey.budget_cents);
+        const result = MCSManheim.matchVehicle(vehicle, journey.wishlists || journey.wishlist, journey.budget_cents);
         if (!result || (reactivation && result.kind !== 'BATE')) continue;
         matches.push({
           journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus,
           fingerprint: MCSManheim.fingerprint(vehicle),
-          vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: { year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents } }
+          vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
+            year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
+            model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
+            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
+            buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade
+          } }
         });
       }
     }
@@ -929,12 +948,14 @@
 
   function showManheimFailure(failure) {
     const messages = {
-      MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido.',\n      MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado. Selecione o arquivo novamente.',
+      MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido.',
+      MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado. Selecione o arquivo novamente.',
       MANHEIM_MATCH_LIMIT: 'O CSV gerou combinações demais; reduza o arquivo.',
       MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação.',
       MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação.',
       MANHEIM_JOURNEY_DISABLED: 'Uma busca não está disponível para comparação.',
-      PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio.',\n      PANEL_ACTION_FAILED: 'A comparação foi lida, mas não pôde ser gravada. Tente novamente.'
+      PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio.',
+      PANEL_ACTION_FAILED: 'A comparação foi lida, mas não pôde ser gravada. Tente novamente.'
     };
     const moduleMissing = failure && failure.message === 'MCSManheim is not defined';
     $('manheim-status').classList.add('error');
@@ -981,21 +1002,37 @@
     const menu = element('div', 'message-menu-panel');
     if (message.direction === 'CUSTOMER') {
       const wishlistForm = element('div', 'wishlist-menu');
-      const make = element('input'); make.placeholder = 'Marca'; make.maxLength = 80;
-      const model = element('input'); model.placeholder = 'Modelo'; model.maxLength = 120;
-      const yearMin = element('input'); yearMin.type = 'number'; yearMin.placeholder = 'Ano de'; yearMin.min = '1900'; yearMin.max = String(new Date().getFullYear() + 2);
-      const yearMax = element('input'); yearMax.type = 'number'; yearMax.placeholder = 'Ano até'; yearMax.min = '1900'; yearMax.max = String(new Date().getFullYear() + 2);
-      const maxMiles = element('input'); maxMiles.type = 'number'; maxMiles.placeholder = 'Milhas até'; maxMiles.min = '0'; maxMiles.max = '2000000';
+      const wishlistRows = [];
+      const addWishlistRow = () => {
+        if (wishlistRows.length >= 5) return;
+        const row = element('div', 'wishlist-row');
+        const make = element('input'); make.placeholder = 'Marca'; make.maxLength = 80;
+        const model = element('input'); model.placeholder = 'Modelo'; model.maxLength = 120;
+        const yearMin = element('input'); yearMin.type = 'number'; yearMin.placeholder = 'Ano de'; yearMin.min = '1900'; yearMin.max = String(new Date().getFullYear() + 2);
+        const yearMax = element('input'); yearMax.type = 'number'; yearMax.placeholder = 'Ano até'; yearMax.min = '1900'; yearMax.max = String(new Date().getFullYear() + 2);
+        const maxMiles = element('input'); maxMiles.type = 'number'; maxMiles.placeholder = 'Milhas até'; maxMiles.min = '0'; maxMiles.max = '2000000';
+        row.append(make, model, yearMin, yearMax, maxMiles);
+        wishlistRows.push({ make, model, yearMin, yearMax, maxMiles });
+        wishlistForm.append(row);
+      };
+      addWishlistRow();
+      const addVehicle = element('button', 'quiet small', '+ outro carro');
+      addVehicle.type = 'button';
+      addVehicle.addEventListener('click', addWishlistRow);
       const wishlistButton = element('button', 'quiet small', 'Carro ou faixa');
       wishlistButton.type = 'button';
       wishlistButton.addEventListener('click', async () => {
+        const wishlists = wishlistRows.filter((row) => row.model.value.trim()).map((row) => ({
+          make: row.make.value, model: row.model.value, yearMin: row.yearMin.value || null,
+          yearMax: row.yearMax.value || null, maxMiles: row.maxMiles.value || null
+        }));
         await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({
           action: 'mark_message', journeyId, messageId: message.id, kind: 'VEHICLE',
-          wishlist: { make: make.value, model: model.value, yearMin: yearMin.value || null, yearMax: yearMax.value || null, maxMiles: maxMiles.value || null }
+          wishlists
         }) });
         await reload();
       });
-      wishlistForm.append(wishlistButton, make, model, yearMin, yearMax, maxMiles);
+      wishlistForm.prepend(wishlistButton, addVehicle);
       menu.append(wishlistForm);
       const choices = [
         ['BUDGET', 'Teto', true], ['PAYMENT', 'Pagamento', true],
@@ -1077,14 +1114,18 @@
     dataBlock.append(definitions);
     const wishlist = element('section', 'wishlist-block');
     wishlist.append(element('h3', '', 'Lista de desejo'));
-    const wishDefinitions = element('dl', 'definition-grid');
-    definition(wishDefinitions, 'Marca', item.wishlist && item.wishlist.make);
-    definition(wishDefinitions, 'Modelo', item.wishlist && item.wishlist.model);
-    definition(wishDefinitions, 'Ano de', item.wishlist && item.wishlist.yearMin);
-    definition(wishDefinitions, 'Ano até', item.wishlist && item.wishlist.yearMax);
-    definition(wishDefinitions, 'Milhas até', item.wishlist && item.wishlist.maxMiles ? Number(item.wishlist.maxMiles).toLocaleString('pt-BR') : null);
-    definition(wishDefinitions, 'Teto', formatMoney(item.budget_cents));
-    wishlist.append(wishDefinitions);
+    const wishes = item.wishlists && item.wishlists.length ? item.wishlists : [item.wishlist || {}];
+    wishes.forEach((wish, index) => {
+      const wishDefinitions = element('dl', 'definition-grid');
+      definition(wishDefinitions, `Carro ${index + 1}`, [wish.make, wish.model].filter(Boolean).join(' ') || null);
+      definition(wishDefinitions, 'Ano de', wish.yearMin);
+      definition(wishDefinitions, 'Ano até', wish.yearMax);
+      definition(wishDefinitions, 'Milhas até', wish.maxMiles ? Number(wish.maxMiles).toLocaleString('pt-BR') : null);
+      wishlist.append(wishDefinitions);
+    });
+    const budgetDefinition = element('dl', 'definition-grid');
+    definition(budgetDefinition, 'Teto único', formatMoney(item.budget_cents));
+    wishlist.append(budgetDefinition);
     dataBlock.append(wishlist, journeySwitch(item, reload));
     if (item.manheimMatchCount) {
       const matchNotice = element('button', 'manheim-notice', `${item.manheimMatchCount} carro(s) do export mais recente batem · abrir Manheim`);

@@ -32,6 +32,8 @@ select,textarea { width:100%; border:1px solid #3a5977; background:#071421; colo
 .manheim-row { min-width:720px; display:grid; grid-template-columns:28px minmax(260px,1fr) minmax(220px,.8fr) auto; gap:10px; align-items:center; padding:9px; border:1px solid #294c67; border-radius:9px; }
 .manheim-row.match { border-left:4px solid #4cc78b; background:#0d2a25; }
 .manheim-row.near { border-left:4px solid #e2ba4b; background:#2a2413; }
+.wishlist-row { display:grid; grid-template-columns:repeat(5,minmax(90px,1fr)); gap:8px; margin-top:8px; }
+@media (max-width:760px) { .wishlist-row { grid-template-columns:1fr 1fr; } }
 .manheim-select { width:18px; height:18px; margin:0; padding:0; accent-color:#52a7e5; }
 .records-controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 @media (max-width:820px) { .reason-menu { left:0; right:auto; } }

@@ -2,9 +2,10 @@
 
 const {
   clientOkPatch, consolidateCalcRuns, finiteInteger, journeyEnabled, matchManheimVehicle,
-  mergeWishlist, nextStageForUnits, reactivationEligible, REF_RE, time, wishlistForJourney, wishlistText
+  mergeWishlists, nextStageForUnits, reactivationEligible, REF_RE, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
+const vehicleCatalog = require('../../vehicle-catalog');
 const {
   allRows, insert, isUuid, jsonBody, patchRows, recordMutation, requirePanel,
   rows, safeText, send, supabase
@@ -21,12 +22,19 @@ function safeWishlist(value, requireVehicle = false) {
   const yearMax = finiteInteger(source.yearMax);
   const maxMiles = finiteInteger(source.maxMiles);
   const maximumYear = new Date().getUTCFullYear() + 2;
-  if ((requireVehicle && (!make || !model))
+  if ((requireVehicle && !model)
       || (yearMin !== null && (yearMin < 1900 || yearMin > maximumYear))
       || (yearMax !== null && (yearMax < 1900 || yearMax > maximumYear))
       || (yearMin && yearMax && yearMin > yearMax)
       || (maxMiles !== null && (maxMiles < 0 || maxMiles > 2000000))) return null;
   return { make, model, yearMin, yearMax, maxMiles };
+}
+
+function safeWishlists(value, requireVehicle = false) {
+  const sources = Array.isArray(value) ? value : value ? [value] : [];
+  if (!sources.length || sources.length > 5) return null;
+  const wishlists = sources.map((source) => safeWishlist(source, requireVehicle));
+  return wishlists.every(Boolean) ? wishlists : null;
 }
 
 function declarationKey(field, value, valueJson = {}) {
@@ -221,11 +229,11 @@ async function actionMarkMessage(ctx, journey, body) {
   }[kind];
   const message = await customerMessage(ctx, journey, body.messageId);
   if (!config || !message) return send(ctx.res, 400, { error: 'MESSAGE_MARK_INVALID' });
-  const wishlist = kind === 'VEHICLE' ? safeWishlist(body.wishlist, true) : null;
-  if (kind === 'VEHICLE' && !wishlist) return send(ctx.res, 400, { error: 'WISHLIST_INVALID' });
-  const value = safeText(kind === 'VEHICLE' ? wishlistText(wishlist) : body.value || message.body_text, 500, true);
+  const wishlists = kind === 'VEHICLE' ? safeWishlists(body.wishlists || body.wishlist, true) : null;
+  if (kind === 'VEHICLE' && !wishlists) return send(ctx.res, 400, { error: 'WISHLIST_INVALID' });
+  const value = safeText(kind === 'VEHICLE' ? wishlistText(wishlists) : body.value || message.body_text, kind === 'VEHICLE' ? 1200 : 500, true);
   if (config.field && !value) return send(ctx.res, 400, { error: 'MESSAGE_MARK_VALUE_INVALID' });
-  const valueJson = wishlist ? { wishlist } : {};
+  const valueJson = wishlists ? { wishlist: { wishlists } } : {};
   if (config.field === 'TETO') {
     const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
     if (Number.isFinite(amount) && amount >= 0) valueJson.cents = Math.round(amount * 100);
@@ -375,8 +383,12 @@ async function actionLinkRequest(ctx, journey, body) {
   if (!journey.payment_text && request.paymentText) fill.payment_text = request.paymentText;
   if (!journey.customer_deadline_text && request.deadlineText) fill.customer_deadline_text = request.deadlineText;
   const criteria = journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
-  const mergedWishlist = mergeWishlist(criteria.wishlist, request.wishlist);
-  if (JSON.stringify(mergedWishlist) !== JSON.stringify(criteria.wishlist || {})) fill.criteria_json = { ...criteria, wishlist: mergedWishlist };
+  const existingWishlists = wishlistsForJourney({ criteria_json: criteria });
+  const mergedWishlists = mergeWishlists(existingWishlists, request.wishlists || request.wishlist);
+  if (JSON.stringify(mergedWishlists) !== JSON.stringify(existingWishlists)) {
+    const { wishlist: _legacyWishlist, ...criteriaWithoutLegacy } = criteria;
+    fill.criteria_json = { ...criteriaWithoutLegacy, wishlists: mergedWishlists };
+  }
   await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, fill);
   await recordMutation(ctx, {
     at, journeyId: journey.id, contactId: journey.contact_id,
@@ -418,7 +430,12 @@ async function actionUnit(ctx, journey, body) {
       if (match.presented_unit_id) return send(ctx.res, 200, { unitId: match.presented_unit_id, status: 'PRESENTED', stage: journey.stage, repeated: true });
       const parsed = match.vehicle_json && match.vehicle_json.parsed || {};
       vehicle = safeText([parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' '), 500, true);
-      details = { manheim_match_id: match.id, miles: finiteInteger(parsed.miles), location: safeText(parsed.location, 200) || null, sale_date: safeText(parsed.saleDate, 100) || null, mmr_cents: finiteInteger(parsed.mmrCents) };
+      details = {
+        manheim_match_id: match.id, miles: finiteInteger(parsed.miles), location: safeText(parsed.location, 200) || null,
+        sale_date: safeText(parsed.saleDate, 100) || null, mmr_cents: finiteInteger(parsed.mmrCents),
+        exterior_color: safeText(parsed.exteriorColor, 120) || null, buy_now_price: safeText(parsed.buyNowPrice, 120) || null,
+        condition_report_grade: safeText(parsed.conditionGrade, 120) || null
+      };
     }
     if (!vehicle) return send(ctx.res, 400, { error: 'UNIT_VEHICLE_REQUIRED' });
     const created = await insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: vehicle, details_json: details, presented_at: at, status, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id });
@@ -543,12 +560,21 @@ function safeManheimVehicle(value) {
   const raw = {};
   for (const header of headers) raw[header] = safeText(rawSource[header], 1000) || '';
   const parsed = {
-    year: finiteInteger(parsedSource.year), make: safeText(parsedSource.make, 80, true), model: safeText(parsedSource.model, 120, true),
+    year: finiteInteger(parsedSource.year), make: safeText(parsedSource.make, 80) || '', model: safeText(parsedSource.model, 120, true),
     trim: safeText(parsedSource.trim, 120) || '', miles: finiteInteger(parsedSource.miles),
     location: safeText(parsedSource.location, 200) || '', saleDate: safeText(parsedSource.saleDate, 100) || '',
-    mmrCents: finiteInteger(parsedSource.mmrCents)
+    locationDisplay: safeText(parsedSource.locationDisplay, 200) || '', mmrCents: finiteInteger(parsedSource.mmrCents),
+    makeNotice: safeText(parsedSource.makeNotice, 160) || '', makeInferred: parsedSource.makeInferred === true,
+    exteriorColor: safeText(parsedSource.exteriorColor, 120) || '', interiorColor: safeText(parsedSource.interiorColor, 120) || '',
+    buyNowPrice: safeText(parsedSource.buyNowPrice, 120) || '', conditionGrade: safeText(parsedSource.conditionGrade, 120) || ''
   };
-  if (!headers.length || !parsed.year || !parsed.make || !parsed.model || parsed.miles === null || parsed.miles < 0) return null;
+  if (!headers.length || !parsed.year || !parsed.model || parsed.miles === null || parsed.miles < 0) return null;
+  if (parsed.makeInferred) {
+    const inferred = vehicleCatalog.inferMake(parsed.model);
+    parsed.make = inferred.make;
+    parsed.makeNotice = inferred.make ? '' : 'marca não informada no arquivo';
+  }
+  parsed.locationDisplay = vehicleCatalog.readableLocation(parsed.location);
   const output = { headers, raw, parsed };
   return Buffer.byteLength(JSON.stringify(output), 'utf8') <= 65536 ? output : null;
 }
@@ -577,10 +603,13 @@ async function actionManheimUpload(ctx, body) {
     const vehicle = safeManheimVehicle(item.vehicle);
     const fingerprint = safeText(item.fingerprint, 200, true);
     if (!journey || !vehicle || !fingerprint) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
-    const result = matchManheimVehicle(vehicle.parsed, wishlistForJourney(journey), journey.budget_cents);
+    const result = matchManheimVehicle(vehicle.parsed, wishlistsForJourney(journey), journey.budget_cents);
     if (!result) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
     if (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE')) return send(ctx.res, 409, { error: 'MANHEIM_JOURNEY_DISABLED' });
     if (journey.status === 'PARADO' && result.kind !== 'BATE') continue;
+    vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
+    vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
+    vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
     matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
   }
   const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload', {

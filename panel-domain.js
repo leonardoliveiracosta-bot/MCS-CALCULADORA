@@ -1,5 +1,7 @@
 'use strict';
 
+const vehicleCatalog = require('./vehicle-catalog');
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REF_RE = /^[A-HJ-NP-Z2-9]{5}$/;
 
@@ -85,16 +87,26 @@ function finiteInteger(value) {
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
 }
 
-function wishlistForJourney(journey) {
-  const criteria = journey && journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
-  const source = criteria.wishlist && typeof criteria.wishlist === 'object' && !Array.isArray(criteria.wishlist) ? criteria.wishlist : {};
+function normalizeWishlist(source) {
+  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
   return {
-    make: clean(source.make),
-    model: clean(source.model),
-    yearMin: finiteInteger(source.yearMin),
-    yearMax: finiteInteger(source.yearMax),
-    maxMiles: finiteInteger(source.maxMiles)
+    make: clean(value.make),
+    model: clean(value.model),
+    yearMin: finiteInteger(value.yearMin),
+    yearMax: finiteInteger(value.yearMax),
+    maxMiles: finiteInteger(value.maxMiles)
   };
+}
+
+function wishlistsForJourney(journey) {
+  const criteria = journey && journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
+  const nested = criteria.wishlist && typeof criteria.wishlist === 'object' && !Array.isArray(criteria.wishlist) && Array.isArray(criteria.wishlist.wishlists) ? criteria.wishlist.wishlists : null;
+  const sources = Array.isArray(criteria.wishlists) ? criteria.wishlists : nested || (criteria.wishlist && typeof criteria.wishlist === 'object' && !Array.isArray(criteria.wishlist) ? [criteria.wishlist] : []);
+  return sources.slice(0, 5).map(normalizeWishlist).filter((wishlist) => wishlist.model);
+}
+
+function wishlistForJourney(journey) {
+  return wishlistsForJourney(journey)[0] || normalizeWishlist({});
 }
 
 function mergeWishlist(current, incoming) {
@@ -107,10 +119,23 @@ function mergeWishlist(current, incoming) {
   return result;
 }
 
+function mergeWishlists(current, incoming) {
+  const result = (Array.isArray(current) ? current : current ? [current] : []).slice(0, 5).map(normalizeWishlist).filter((wishlist) => wishlist.model);
+  for (const proposed of (Array.isArray(incoming) ? incoming : incoming ? [incoming] : []).map(normalizeWishlist).filter((wishlist) => wishlist.model)) {
+    const index = result.findIndex((existing) => vehicleCatalog.modelTokens(existing.model, existing.make).join(' ') === vehicleCatalog.modelTokens(proposed.model, proposed.make).join(' ')
+      && (!existing.make || !proposed.make || fold(existing.make) === fold(proposed.make)));
+    if (index >= 0) result[index] = mergeWishlist(result[index], proposed);
+    else if (result.length < 5) result.push(proposed);
+  }
+  return result;
+}
+
 function wishlistText(wishlist) {
-  const wish = wishlist || {};
-  const years = wish.yearMin && wish.yearMax && wish.yearMin !== wish.yearMax ? `${wish.yearMin}–${wish.yearMax}` : wish.yearMin || wish.yearMax || null;
-  return clean([years, wish.make, wish.model].filter(Boolean).join(' '));
+  const wishes = Array.isArray(wishlist) ? wishlist : [wishlist || {}];
+  return wishes.slice(0, 5).map((wish) => {
+    const years = wish.yearMin && wish.yearMax && wish.yearMin !== wish.yearMax ? `${wish.yearMin}–${wish.yearMax}` : wish.yearMin || wish.yearMax || null;
+    return clean([years, wish.make, wish.model].filter(Boolean).join(' '));
+  }).filter(Boolean).join(' · ');
 }
 
 function normalizedVehicle(value) {
@@ -118,12 +143,16 @@ function normalizedVehicle(value) {
 }
 
 function matchManheimVehicle(vehicle, wishlist, budgetCents) {
-  const wish = wishlist || {};
+  const wishes = Array.isArray(wishlist) ? wishlist.slice(0, 5) : wishlist && Array.isArray(wishlist.wishlists) ? wishlist.wishlists.slice(0, 5) : [wishlist || {}];
   const year = finiteInteger(vehicle && vehicle.year);
   const miles = finiteInteger(vehicle && vehicle.miles);
   const mmrCents = finiteInteger(vehicle && vehicle.mmrCents);
-  if (!clean(wish.make) || !clean(wish.model) || !year || !clean(vehicle && vehicle.make) || !clean(vehicle && vehicle.model)) return null;
-  if (normalizedVehicle(vehicle.make) !== normalizedVehicle(wish.make) || normalizedVehicle(vehicle.model) !== normalizedVehicle(wish.model)) return null;
+  if (!year || !clean(vehicle && vehicle.model)) return null;
+  const candidates = [];
+  wishes.forEach((wish, index) => {
+    if (!clean(wish && wish.model)) return;
+    if (clean(vehicle.make) && clean(wish.make) && normalizedVehicle(vehicle.make) !== normalizedVehicle(wish.make)) return;
+    if (!vehicleCatalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make)) return;
   const yearMin = finiteInteger(wish.yearMin);
   const yearMax = finiteInteger(wish.yearMax);
   const maxMiles = finiteInteger(wish.maxMiles);
@@ -132,12 +161,17 @@ function matchManheimVehicle(vehicle, wishlist, budgetCents) {
   if (yearMax && year > yearMax) failures.push({ kind: 'year', delta: year - yearMax, reason: `ano ${year - yearMax} acima` });
   if (maxMiles && miles && miles > maxMiles) failures.push({ kind: 'miles', delta: miles - maxMiles, reason: `milhas ${(miles - maxMiles).toLocaleString('pt-BR')} acima` });
   const kind = failures.length === 0 ? 'BATE' : failures.length === 1 && ((failures[0].kind === 'year' && failures[0].delta <= 1) || (failures[0].kind === 'miles' && failures[0].delta <= maxMiles * 0.1)) ? 'QUASE' : null;
-  if (!kind) return null;
-  return {
+    if (!kind) return;
+    candidates.push({
     kind,
     reason: failures[0] ? failures[0].reason : null,
-    mmrStatus: mmrCents && Number(budgetCents) > 0 ? (mmrCents > Number(budgetCents) ? 'MMR acima do teto' : 'MMR dentro do teto') : null
-  };
+      mmrStatus: mmrCents && Number(budgetCents) > 0 ? (mmrCents > Number(budgetCents) ? 'MMR acima do teto' : 'MMR dentro do teto') : null,
+      matchedWishlistIndex: index,
+      matchedWishlistLabel: clean([wish.make, wish.model].filter(Boolean).join(' ')),
+      makeNotice: clean(vehicle.makeNotice)
+    });
+  });
+  return candidates.sort((left, right) => (left.kind === right.kind ? left.matchedWishlistIndex - right.matchedWishlistIndex : left.kind === 'BATE' ? -1 : 1))[0] || null;
 }
 
 function journeyEnabled(journey) {
@@ -169,6 +203,26 @@ function vehicleFor(data) {
     data.ano_de && data.ano_ate && data.ano_de !== data.ano_ate ? `${data.ano_de}–${data.ano_ate}` : data.ano_de || data.ano_ate,
     data.marca, data.modelo, data.trim
   ].filter(Boolean).join(' '));
+}
+
+function wishlistsFromCalculatorEvents(events) {
+  const collected = [];
+  for (const row of events.slice().sort(newer)) {
+    const data = dataFor(row);
+    const arrays = [data.carros, data.veiculos, data.vehicles].find(Array.isArray);
+    const sources = arrays || [data];
+    for (const source of sources) {
+      const wishlist = normalizeWishlist({
+        make: source.marca ?? source.make,
+        model: source.modelo ?? source.model,
+        yearMin: source.ano_de ?? source.yearMin,
+        yearMax: source.ano_ate ?? source.yearMax,
+        maxMiles: source.milhas_ate ?? source.maxMiles ?? source.milhas_de
+      });
+      if (wishlist.model) collected.push(wishlist);
+    }
+  }
+  return mergeWishlists([], collected);
 }
 
 function contactChannel(events) {
@@ -211,11 +265,7 @@ function consolidateCalcRuns(rows, links = []) {
     const budget = latestValue(events, (event, row) => event.lance ?? row.lance);
     const payment = latestValue(events, (event, row) => event.pagamento ?? row.pagamento);
     const state = latestValue(events, (event, row) => event.estado ?? row.estado);
-    const make = latestValue(events, (event) => event.marca);
-    const model = latestValue(events, (event) => event.modelo);
-    const yearMin = finiteInteger(latestValue(events, (event) => event.ano_de));
-    const yearMax = finiteInteger(latestValue(events, (event) => event.ano_ate));
-    const maxMiles = finiteInteger(latestValue(events, (event) => event.milhas_ate ?? event.milhas_de));
+    const wishlists = wishlistsFromCalculatorEvents(events);
     const channel = contactChannel(events);
     const item = {
       key: 'calculator:' + key, sid: sids[0], sids, ref, logicalMode: mode,
@@ -224,7 +274,8 @@ function consolidateCalcRuns(rows, links = []) {
       occurredAt: data.quando || snapshot.created_at || null,
       vehicles,
       vehicleText: vehicles.join(' · ') || null,
-      wishlist: { make: clean(make), model: clean(model), yearMin, yearMax, maxMiles },
+      wishlist: wishlists[0] || normalizeWishlist({}),
+      wishlists,
       budgetCents: moneyCents(budget),
       paymentText: clean(payment) || null,
       deadlineText: clean(latestValue(events, (event) => event.prazo)) || null,
@@ -431,6 +482,6 @@ function buildConversationTimeline(messages, interactions, activities) {
 
 module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
-  consolidateCalcRuns, finiteInteger, fold, journeyEnabled, journeyLogicalMode, logicalMode, matchManheimVehicle, mergeWishlist, nextStageForUnits,
-  normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, time, wishlistForJourney, wishlistText
+  consolidateCalcRuns, finiteInteger, fold, journeyEnabled, journeyLogicalMode, logicalMode, matchManheimVehicle, mergeWishlist, mergeWishlists, nextStageForUnits,
+  normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };

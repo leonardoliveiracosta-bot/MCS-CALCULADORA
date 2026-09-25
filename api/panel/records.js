@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildConversationTimeline, buildReturns, checklistSummary, journeyEnabled, reactivationEligible, shortDeadline, time, wishlistForJourney } = require('../../panel-domain');
+const { buildConversationTimeline, buildReturns, checklistSummary, journeyEnabled, reactivationEligible, shortDeadline, time, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
 
 module.exports = async (req, res) => {
@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
       const items = journeys.map((journey) => {
         const state = stateByJourney.get(journey.id);
         const item = { ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null };
-        return { ...item, wishlist: wishlistForJourney(item), reactivationEligible: reactivationEligible(item) };
+        return { ...item, wishlist: wishlistForJourney(item), wishlists: wishlistsForJourney(item), reactivationEligible: reactivationEligible(item) };
       });
       return send(res, 200, { environment: ctx.environment, items, upload: latest, matches, meta });
     }
@@ -95,7 +95,7 @@ module.exports = async (req, res) => {
     return send(res, 200, {
       environment: ctx.environment,
       item: {
-        ...journey, enabled, toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, wishlist: wishlistForJourney(journey), contact: contacts[0] || null, phones, refs, checklist: points, checklistSummary: checklistSummary(points),
+        ...journey, enabled, toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, wishlist: wishlistForJourney(journey), wishlists: wishlistsForJourney(journey), contact: contacts[0] || null, phones, refs, checklist: points, checklistSummary: checklistSummary(points),
         shortDeadline: shortDeadline(journey.customer_deadline_at), promises, units,
         returns: buildReturns(journey, promises), interactions, divergences, declarations, attachments, conversation, timeline,
         manheimMatchCount: manheimMatches.length, manheimUploadAt: uploads[0] && uploads[0].uploaded_at || null
