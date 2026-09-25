@@ -1,5 +1,22 @@
 {
+  "headers": [
+    { "source": "/painel", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+      { "key": "Cache-Control", "value": "no-store, max-age=0" }
+    ] },
+    { "source": "/painel/(.*)", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+      { "key": "Cache-Control", "value": "no-store, max-age=0" }
+    ] },
+    { "source": "/api/panel/(.*)", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+      { "key": "Cache-Control", "value": "no-store, max-age=0" }
+    ] }
+  ],
   "rewrites": [
+    { "source": "/api/panel/(.*)", "destination": "/api/panel/$1" },
+    { "source": "/painel", "destination": "/painel/index.html" },
+    { "source": "/painel/(.*)", "destination": "/painel/$1" },
     { "source": "/(.*)", "destination": "/msc-calculadora.html" }
   ]
 }

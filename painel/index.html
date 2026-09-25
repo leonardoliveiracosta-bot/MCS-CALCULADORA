@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>My Car Scout — Painel</title>
+  <link rel="stylesheet" href="/painel/painel.css">
+</head>
+<body>
+  <main class="shell">
+    <section id="login-view" class="card" aria-labelledby="login-title">
+      <p class="eyebrow">MY CAR SCOUT</p>
+      <h1 id="login-title">Painel</h1>
+      <p class="muted">Acesso restrito à equipe.</p>
+      <form id="login-form">
+        <label>E-mail<input id="email" type="email" autocomplete="email" required></label>
+        <label>Senha<input id="password" type="password" autocomplete="current-password" required minlength="8"></label>
+        <button type="submit">Entrar</button>
+      </form>
+      <p id="login-error" class="error" role="alert"></p>
+    </section>
+
+    <section id="password-view" class="card hidden" aria-labelledby="password-title">
+      <p class="eyebrow">PRIMEIRO ACESSO</p>
+      <h1 id="password-title">Crie sua senha</h1>
+      <p class="muted">A senha temporária só vale para o primeiro acesso.</p>
+      <form id="password-form">
+        <label>Nova senha<input id="new-password" type="password" autocomplete="new-password" required minlength="12"></label>
+        <label>Confirme a nova senha<input id="confirm-password" type="password" autocomplete="new-password" required minlength="12"></label>
+        <button type="submit">Salvar e abrir painel</button>
+      </form>
+      <p id="password-error" class="error" role="alert"></p>
+    </section>
+
+    <section id="app-view" class="hidden" aria-label="Painel My Car Scout">
+      <header class="topbar">
+        <div><p class="eyebrow">MY CAR SCOUT</p><h1 id="page-title">HOJE</h1></div>
+        <form id="global-search" class="global-search" role="search">
+          <label for="global-search-input">Busca global</label>
+          <div><input id="global-search-input" type="search" maxlength="100" placeholder="Nome, telefone ou Ref" required><button type="submit">Buscar</button></div>
+        </form>
+        <button id="logout" class="quiet" type="button">Sair</button>
+      </header>
+      <div id="search-results" class="card search-results hidden" aria-live="polite"></div>
+      <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última importação WhatsApp: <strong id="last-whatsapp-import">—</strong></span></div>
+      <nav aria-label="Seções do painel">
+        <button class="tab active" type="button" data-view="today">HOJE</button>
+        <button class="tab" type="button" data-view="entry">ENTRADA</button>
+        <button class="tab" type="button" data-view="orders">PEDIDOS</button>
+        <button class="tab" type="button" data-view="qualification">QUALIFICAÇÃO</button>
+        <button class="tab" type="button" data-view="records">FICHAS</button>
+      </nav>
+      <section id="today-panel" class="panel-view" aria-label="Hoje">
+        <div class="section-head"><div><h2>O que exige ação</h2><p class="muted">Maior espera, maior teto e checklist mais fechado.</p></div><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div>
+        <div id="today-list" class="stack" aria-live="polite"></div>
+      </section>
+      <section id="entry-panel" class="hidden" aria-label="Entrada">
+        <div class="section-head"><div><h2>Entrada e revisão</h2><p class="muted">Importações e decisões explícitas.</p></div><button class="quiet" type="button" data-report="entry">Gerar relatório desta aba</button></div>
+        <div class="grid">
+          <section class="card">
+            <h2>Importar conversa</h2>
+            <p class="muted">ZIPs ou TXT do WhatsApp. Os arquivos são lidos neste navegador e nunca seguem para a Vercel.</p>
+            <label id="drop-zone" class="drop-zone" for="whatsapp-files">Arraste ZIPs/TXT aqui ou selecione arquivos<input id="whatsapp-files" type="file" accept=".zip,.txt,text/plain,application/zip" multiple></label>
+            <p id="import-status" class="status" role="status"></p>
+          </section>
+          <section id="import-review-card" class="card hidden" aria-labelledby="import-review-title">
+            <h2 id="import-review-title">Confirmar conversa</h2>
+            <p id="import-review-summary" class="muted"></p>
+            <form id="import-review-form">
+              <label id="date-order-label" class="hidden">Formato da data<select id="date-order"><option value="">Escolha</option><option value="DMY">DD/MM</option><option value="MDY">MM/DD</option></select></label>
+              <label>Tipo de conversa<select id="chat-type" required><option value="">Escolha</option><option value="individual">Conversa individual</option><option value="group">Grupo</option></select></label>
+              <label id="mcs-sender-label">Qual remetente é a MCS?<select id="mcs-sender"><option value="">Escolha</option></select></label>
+              <label id="contact-label">Contato<select id="import-contact"><option value="new">Novo contato</option></select></label>
+              <label id="contact-name-label">Nome do novo contato<input id="import-contact-name" maxlength="160"></label>
+              <label id="chat-label">Chat<select id="import-chat"><option value="new">Novo chat</option></select></label>
+              <label id="journey-label">Busca<select id="import-journey"><option value="new">Nova jornada</option></select></label>
+              <p id="ref-warning" class="warning hidden">Ref encontrada: escolha manualmente mesma busca ou nova jornada.</p>
+              <button type="submit">Confirmar e importar</button>
+            </form>
+          </section>
+          <section class="card">
+            <h2>Colar SMS</h2>
+            <form id="sms-form">
+              <label>Contato<select id="sms-contact"><option value="new">Novo contato</option></select></label>
+              <label id="sms-new-name-label">Nome do novo contato<input id="sms-new-name" maxlength="160"></label>
+              <label>Busca<select id="sms-journey"><option value="new">Nova jornada</option></select></label>
+              <label>Quem falou<select id="sms-direction"><option value="CUSTOMER">Cliente</option><option value="MCS">My Car Scout</option></select></label>
+              <label>Data e hora<input id="sms-date" type="datetime-local" required></label>
+              <label>Mensagem<textarea id="sms-text" required maxlength="25000"></textarea></label>
+              <button type="submit">Adicionar SMS</button>
+            </form>
+            <p id="sms-status" class="status" role="status"></p>
+          </section>
+          <section class="card">
+            <h2>Anexo de print ou foto</h2>
+            <p class="muted">JPEG, PNG ou WebP, até 10 MB. SVG e HTML não são aceitos.</p>
+            <label>Arquivo<input id="attachment-file" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"></label>
+            <button id="attachment-upload" type="button">Enviar anexo</button>
+            <p id="attachment-status" class="status" role="status"></p>
+          </section>
+        </div>
+        <section class="card queue-card">
+          <h2>Revisão final</h2>
+          <p class="muted">Conversa lida, não identificada ou em revisão. Grupo não cria lead.</p>
+          <div id="entry-queue" class="queue" aria-live="polite"></div>
+        </section>
+      </section>
+      <section id="orders-panel" class="panel-view hidden" aria-label="Pedidos">
+        <div class="section-head"><div><h2>Pedidos</h2><p class="muted">Simulações não criam lead automaticamente.</p></div><button class="quiet" type="button" data-report="orders">Gerar relatório desta aba</button></div>
+        <div id="order-filters" class="filters" aria-label="Filtros de pedidos">
+          <button type="button" class="chip active" data-order-filter="Todos">Todos</button>
+          <button type="button" class="chip" data-order-filter="Calculadora">Calculadora</button>
+          <button type="button" class="chip" data-order-filter="WhatsApp direto">WhatsApp direto</button>
+          <button type="button" class="chip" data-order-filter="Carro">Carro</button>
+          <button type="button" class="chip" data-order-filter="Valor">Valor</button>
+        </div>
+        <div id="order-periods" class="filters" aria-label="Período dos pedidos">
+          <span class="filter-label">Período</span>
+          <button type="button" class="chip" data-order-period="7">7 dias</button>
+          <button type="button" class="chip active" data-order-period="30">30 dias</button>
+          <button type="button" class="chip" data-order-period="90">90 dias</button>
+          <button type="button" class="chip" data-order-period="all">Todo o histórico</button>
+        </div>
+        <div id="orders-list" class="stack" aria-live="polite"></div>
+        <button id="orders-more" class="quiet load-more hidden" type="button">Carregar mais</button>
+      </section>
+      <section id="qualification-panel" class="panel-view hidden" aria-label="Qualificação">
+        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Frase real do cliente em cada evidência. Seis de seis significa apenas checklist completo.</p></div><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div>
+        <div id="qualification-list" class="stack" aria-live="polite"></div>
+      </section>
+      <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
+        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Histórico e conversa única de WhatsApp e SMS.</p></div><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button></div>
+        <div class="records-layout">
+          <div id="records-list" class="stack" aria-live="polite"></div>
+          <article id="record-detail" class="card record-detail"><p class="muted">Escolha uma ficha.</p></article>
+        </div>
+      </section>
+      <dialog id="report-dialog">
+        <form method="dialog" class="report-form">
+          <div class="section-head"><h2>Relatório da aba</h2><button class="quiet" value="cancel">Fechar</button></div>
+          <label>Período<select id="report-period"><option value="today">Hoje</option><option value="7">7 dias</option><option value="30">30 dias</option><option value="custom">Personalizado</option></select></label>
+          <div id="report-custom" class="filters hidden"><label>De<input id="report-from" type="date"></label><label>Até<input id="report-to" type="date"></label></div>
+          <button id="report-generate" type="button">Gerar</button>
+          <textarea id="report-text" rows="6" readonly aria-label="Texto do relatório"></textarea>
+          <button id="report-copy" type="button" class="quiet">Copiar texto</button>
+          <p id="report-status" class="status" role="status"></p>
+        </form>
+      </dialog>
+    </section>
+  </main>
+  <script src="/painel/vendor/zip.min.js" defer></script>
+  <script src="/painel/parser.js" defer></script>
+  <script src="/painel/painel.js" defer></script>
+</body>
+</html>
