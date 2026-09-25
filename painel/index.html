@@ -46,18 +46,18 @@
       <div id="search-results" class="card search-results hidden" aria-live="polite"></div>
       <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última importação WhatsApp: <strong id="last-whatsapp-import">—</strong></span></div>
       <nav aria-label="Seções do painel">
-        <button class="tab active" type="button" data-view="today">HOJE</button>
-        <button class="tab" type="button" data-view="entry">ENTRADA</button>
-        <button class="tab" type="button" data-view="orders">PEDIDOS</button>
-        <button class="tab" type="button" data-view="qualification">QUALIFICAÇÃO</button>
-        <button class="tab" type="button" data-view="records">FICHAS</button>
+        <button class="tab active" type="button" data-view="today">HOJE <span data-count="today">0</span></button>
+        <button class="tab" type="button" data-view="entry">ENTRADA <span data-count="entry">0</span></button>
+        <button class="tab" type="button" data-view="orders">PEDIDOS <span data-count="orders">0</span></button>
+        <button class="tab" type="button" data-view="qualification">QUALIFICAÇÃO <span data-count="qualification">0</span></button>
+        <button class="tab" type="button" data-view="records">FICHAS <span data-count="records">0</span></button>
       </nav>
       <section id="today-panel" class="panel-view" aria-label="Hoje">
-        <div class="section-head"><div><h2>O que exige ação</h2><p class="muted">Maior espera, maior teto e checklist mais fechado.</p></div><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div>
+        <div class="section-head"><div><h2>O que exige ação</h2><p class="muted">Prioridades do trabalho de hoje.</p></div><div class="inline-actions"><label>Ordenar<select id="today-sort"><option value="priority">Prioridade</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
         <div id="today-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="entry-panel" class="hidden" aria-label="Entrada">
-        <div class="section-head"><div><h2>Entrada e revisão</h2><p class="muted">Importações e decisões explícitas.</p></div><button class="quiet" type="button" data-report="entry">Gerar relatório desta aba</button></div>
+        <div class="section-head"><div><h2>Entrada e revisão</h2><p class="muted">Arraste a exportação; confirme somente uma dúvida real.</p></div></div>
         <div class="grid">
           <section class="card">
             <h2>Importar conversa</h2>
@@ -80,7 +80,9 @@
               <button type="submit">Confirmar e importar</button>
             </form>
           </section>
-          <section class="card">
+          <details class="card manual-entry">
+            <summary>Adicionar manualmente</summary>
+          <section>
             <h2>Colar SMS</h2>
             <form id="sms-form">
               <label>Contato<select id="sms-contact"><option value="new">Novo contato</option></select></label>
@@ -93,13 +95,14 @@
             </form>
             <p id="sms-status" class="status" role="status"></p>
           </section>
-          <section class="card">
+          <section>
             <h2>Anexo de print ou foto</h2>
             <p class="muted">JPEG, PNG ou WebP, até 10 MB. SVG e HTML não são aceitos.</p>
             <label>Arquivo<input id="attachment-file" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"></label>
             <button id="attachment-upload" type="button">Enviar anexo</button>
             <p id="attachment-status" class="status" role="status"></p>
           </section>
+          </details>
         </div>
         <section class="card queue-card">
           <h2>Revisão final</h2>
@@ -127,11 +130,11 @@
         <button id="orders-more" class="quiet load-more hidden" type="button">Carregar mais</button>
       </section>
       <section id="qualification-panel" class="panel-view hidden" aria-label="Qualificação">
-        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Frase real do cliente em cada evidência. Seis de seis significa apenas checklist completo.</p></div><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div>
+        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo.</p></div></div>
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
-        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Histórico e conversa única de WhatsApp e SMS.</p></div><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button></div>
+        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><label>Ordenar<select id="records-sort"><option value="recent">Atualização recente</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option></select></label></div>
         <div class="records-layout">
           <div id="records-list" class="stack" aria-live="polite"></div>
           <article id="record-detail" class="card record-detail"><p class="muted">Escolha uma ficha.</p></article>
