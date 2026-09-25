@@ -19,6 +19,11 @@ test('known WhatsApp chat and MCS alias can import without repeated questions', 
   assert.equal(match.mcsSender, 'MCS');
 });
 
+test('a new contact always defaults to a new journey during simplified review', () => {
+  const client = read('painel/painel.js');
+  assert.match(client, /journeySelect\.replaceChildren[\s\S]*option\(journeySelect, 'Nova jornada', 'new'\)[\s\S]*journeySelect\.value = 'new'/);
+});
+
 test('ambiguous date, group, unknown chat or unknown MCS remains in review', () => {
   const ambiguous = parser.parseWhatsApp('[05/09/2026, 14:30] A: um\n[05/09/2026, 14:31] B: dois', 'Cliente.txt', {});
   assert.equal(parser.automaticImportMatch(ambiguous, [], [], []), null);
