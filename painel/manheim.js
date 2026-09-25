@@ -1,8 +1,8 @@
 (function attachManheim(root, factory) {
   'use strict';
   const api = factory();
+  if (root) root.MCSManheim = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.MCSManheim = api;
 }(typeof globalThis === 'object' ? globalThis : self, () => {
   'use strict';
 

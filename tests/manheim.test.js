@@ -16,6 +16,11 @@ const migration = read('supabase/migrations/20260925180602_panel_manheim_match.s
 const client = read('painel/painel.js');
 const server = read('api/panel/actions.js');
 
+test('browser build always publishes the Manheim module on the page global', () => {
+  const source = read('painel/manheim.js');
+  assert.match(source, /if \(root\) root\.MCSManheim = api/);
+});
+
 test('journeys default to enabled and disabled journeys leave HOJE', () => {
   const active = { id: 'a', status: 'ATIVO', stage: 'RESPONDIDO', stage_frozen: false };
   const disabled = { ...active, id: 'b', enabled: false };
