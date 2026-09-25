@@ -276,17 +276,24 @@ module.exports = async (req, res) => {
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
   ctx.res = res;
+  let action = null;
   try {
     if (req.method === 'GET') return queue(ctx, res);
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const input = await json(req);
-    if (input.action === 'start') return createJob(ctx, input);
-    if (input.action === 'review') return createReview(ctx, input);
-    if (input.action === 'batch') return receiveBatch(ctx, input);
-    if (input.action === 'finish') return finishJob(ctx, input);
-    if (input.action === 'resolve') return resolveChat(ctx, input);
+    action = input.action;
+    if (action === 'start') return createJob(ctx, input);
+    if (action === 'review') return createReview(ctx, input);
+    if (action === 'batch') return receiveBatch(ctx, input);
+    if (action === 'finish') return finishJob(ctx, input);
+    if (action === 'resolve') return resolveChat(ctx, input);
     return send(res, 400, { error: 'IMPORT_ACTION_INVALID' });
   } catch (_) {
-    return send(res, 500, { error: 'IMPORT_REQUEST_FAILED' });
+    const safeErrors = {
+      start: 'IMPORT_START_FAILED', review: 'IMPORT_START_FAILED',
+      batch: 'IMPORT_BATCH_FAILED', finish: 'IMPORT_FINISH_FAILED',
+      resolve: 'IMPORT_RESOLUTION_FAILED'
+    };
+    return send(res, 500, { error: safeErrors[action] || 'IMPORT_REQUEST_FAILED' });
   }
 };

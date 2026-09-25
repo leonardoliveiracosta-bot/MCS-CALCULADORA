@@ -6,6 +6,9 @@
   const MAX_ENTRIES = 10000;
   let config;
   let accessToken;
+  let refreshToken;
+  let accessExpiresAt = 0;
+  let persistentSession = false;
   let refreshTimer;
   let contacts = [];
   let chats = [];
@@ -18,9 +21,29 @@
   let orderItems = [];
   let orderLinkTargets = [];
   let reportView = 'today';
+  let viewRequestVersion = 0;
   const $ = (id) => document.getElementById(id);
   const show = (id) => ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id));
   const error = (id, message) => { $(id).textContent = message || ''; };
+  const importFailureMessage = (failure) => {
+    const messages = {
+      IMPORT_START_FAILED: 'não foi possível criar a conversa no banco',
+      IMPORT_BATCH_FAILED: 'não foi possível gravar as mensagens no banco',
+      IMPORT_FINISH_FAILED: 'as mensagens foram recebidas, mas a jornada não pôde ser concluída',
+      CONTACT_NOT_FOUND: 'o contato escolhido não existe mais',
+      CHAT_NOT_FOUND: 'o chat escolhido não existe mais',
+      JOURNEY_CHOICE_REQUIRED: 'escolha a busca antes de confirmar',
+      PANEL_ACCESS_DENIED: 'esta conta não tem acesso ao painel',
+      AUTHENTICATION_REQUIRED: 'a sessão expirou; entre novamente'
+    };
+    const detail = messages[failure && failure.code] || 'não foi possível concluir a gravação';
+    return `Falha na importação: ${detail}. Nenhum sucesso foi confirmado.`;
+  };
+  const showImportFailure = (failure) => {
+    const status = $('import-status');
+    status.classList.add('error');
+    status.textContent = importFailureMessage(failure);
+  };
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -32,10 +55,16 @@
   const localInput = (date = new Date()) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
   const request = async (path, options = {}) => {
+    const retryAuth = options.retryAuth !== false;
+    const fetchOptions = { ...options };
+    delete fetchOptions.retryAuth;
     const response = await fetch(path, {
-      ...options,
-      headers: { 'content-type': 'application/json', ...(options.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) }
+      ...fetchOptions,
+      headers: { 'content-type': 'application/json', ...(fetchOptions.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) }
     });
+    if (response.status === 401 && retryAuth && refreshToken && await refreshAccessToken()) {
+      return request(path, { ...fetchOptions, retryAuth: false });
+    }
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
       const failure = new Error(result.error || 'REQUEST_FAILED');
@@ -111,6 +140,9 @@
       $('ref-warning').classList.toggle('hidden', !parsed.refs.length);
       updateImportChoices(parsed);
       card.classList.remove('hidden');
+      $('import-status').classList.remove('error');
+      $('import-status').textContent = `${filename}: arquivo lido. Confirme os dados abaixo para gravar a conversa.`;
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
       const toggle = () => {
         const group = $('chat-type').value === 'group';
@@ -142,6 +174,8 @@
           const finalParsed = MCSParser.parseWhatsApp(raw, filename, { dateOrder });
           if (!finalParsed.supported || finalParsed.requiresDateOrder) throw new Error('Não foi possível confirmar as datas.');
           const entries = MCSParser.assignDirections(finalParsed, $('mcs-sender').value);
+          $('import-status').classList.remove('error');
+          $('import-status').textContent = 'Gravando conversa e mensagens…';
           card.classList.add('hidden');
           resolve({
             parsed: finalParsed, entries, isGroup, mcsSender: $('mcs-sender').value,
@@ -151,6 +185,7 @@
             journey: isGroup ? null : { mode: $('import-journey').value === 'new' ? 'new' : 'existing', journeyId: $('import-journey').value === 'new' ? null : $('import-journey').value }
           });
         } catch (failure) {
+          $('import-status').classList.add('error');
           $('import-status').textContent = failure.message;
         }
       };
@@ -207,9 +242,11 @@
 
   async function importFiles(files) {
     if (!files.length || files.length > MAX_FILES) throw new Error('Selecione de 1 a 20 arquivos.');
+    await loadQueue(false);
     let inserted = 0;
     let pending = false;
     for (const file of files) {
+      $('import-status').classList.remove('error');
       $('import-status').textContent = `Lendo ${file.name}…`;
       const sourceSha = await sha256(await file.arrayBuffer());
       const extracted = await extract(file);
@@ -219,19 +256,36 @@
         pending = pending || result.pending;
       }
     }
+    $('import-status').classList.remove('error');
     $('import-status').textContent = `${inserted} mensagem(ns) nova(s). ${pending ? 'Há pendências em ENTRADA.' : 'Importação concluída; siga para HOJE.'}`;
     await loadQueue();
     if (!pending) switchPanel('today');
   }
 
+  function clearRecordDetail(message = 'Escolha uma ficha.') {
+    const root = $('record-detail');
+    if (root) root.replaceChildren(element('p', 'muted', message));
+  }
+
+  function renderLoading(view) {
+    const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', records: 'records-list' };
+    if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
+    if (view === 'orders') $('orders-more').classList.add('hidden');
+  }
+
   async function switchPanel(view) {
     if (!['today', 'entry', 'orders', 'qualification', 'records'].includes(view)) return;
     currentView = view;
+    const requestVersion = ++viewRequestVersion;
+    clearRecordDetail();
     const labels = { today: 'HOJE', entry: 'ENTRADA', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', records: 'FICHAS' };
     Object.keys(labels).forEach((name) => $(name + '-panel').classList.toggle('hidden', name !== view));
     $('page-title').textContent = labels[view];
     document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
-    try { await loadCurrent(); } catch (_) { renderFailure(view); }
+    renderLoading(view);
+    try { await loadCurrent(view, requestVersion); } catch (_) {
+      if (currentView === view && viewRequestVersion === requestVersion) renderFailure(view);
+    }
   }
 
   function renderQueue(items, reviews) {
@@ -297,7 +351,7 @@
     journeys.filter((journey) => contactId !== 'new' && journey.contact_id === contactId).forEach((journey) => option(select, journey.vehicle_text || 'Busca existente', journey.id));
   }
 
-  async function loadQueue() {
+  async function loadQueue(render = true) {
     const data = await request('/api/panel/entry');
     contacts = data.contacts || [];
     chats = data.chats || [];
@@ -309,7 +363,8 @@
     contacts.forEach((contact) => option(select, contact.display_name || 'Sem nome', contact.id));
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
-    renderQueue(chats, data.reviews || []);
+    if (render) renderQueue(chats, data.reviews || []);
+    return data;
   }
 
   function smsDate(local) {
@@ -397,35 +452,44 @@
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
   }
 
-  async function loadCurrent() {
-    if (currentView === 'entry') return loadQueue();
-    if (currentView === 'today') {
+  async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
+    const current = () => currentView === view && viewRequestVersion === requestVersion;
+    if (view === 'entry') {
+      const data = await loadQueue(false);
+      if (!current()) return;
+      return renderQueue(data.chats || [], data.reviews || []);
+    }
+    if (view === 'today') {
       const data = await request('/api/panel/today');
+      if (!current()) return;
       updateMeta(data.meta);
       return renderToday(data.items || []);
     }
-    if (currentView === 'orders') {
-      return loadOrders(false);
+    if (view === 'orders') {
+      return loadOrders(false, view, requestVersion);
     }
-    if (currentView === 'qualification') {
+    if (view === 'qualification') {
       const data = await request('/api/panel/qualification');
+      if (!current()) return;
       updateMeta(data.meta);
       return renderQualification(data.items || []);
     }
-    if (currentView === 'records') {
+    if (view === 'records') {
       const data = await request('/api/panel/records');
+      if (!current()) return;
       updateMeta(data.meta);
       return renderRecords(data.items || []);
     }
   }
 
-  async function loadOrders(append) {
+  async function loadOrders(append, view = currentView, requestVersion = viewRequestVersion) {
     if (!append) {
       orderOffset = 0;
       orderItems = [];
     }
     const params = new URLSearchParams({ filter: orderFilter, period: orderPeriod, limit: '30', offset: String(orderOffset) });
     const data = await request('/api/panel/orders?' + params.toString());
+    if (currentView !== view || viewRequestVersion !== requestVersion) return;
     updateMeta(data.meta);
     orderItems = append ? orderItems.concat(data.items || []) : (data.items || []);
     orderLinkTargets = data.linkTargets || orderLinkTargets;
@@ -579,7 +643,10 @@
   function renderRecords(items) {
     const root = $('records-list');
     root.replaceChildren();
-    if (!items.length) return empty(root, 'Nenhuma ficha criada.');
+    if (!items.length) {
+      clearRecordDetail('Nenhuma ficha selecionada.');
+      return empty(root, 'Nenhuma ficha criada.');
+    }
     items.forEach((item) => {
       const button = element('button', 'search-hit');
       button.type = 'button';
@@ -662,6 +729,7 @@
 
   async function openRecord(id) {
     const data = await request('/api/panel/records?id=' + encodeURIComponent(id));
+    if (currentView !== 'records') return;
     updateMeta(data.meta);
     const item = data.item;
     const root = $('record-detail');
@@ -926,7 +994,58 @@
     $('report-status').textContent = 'Texto copiado.';
   }
 
-  const clearSession = () => { sessionStorage.removeItem('mcs_panel_token'); accessToken = null; };
+  const SESSION_KEY = 'mcs_panel_session';
+  const storeSession = () => {
+    const storage = persistentSession ? localStorage : sessionStorage;
+    const otherStorage = persistentSession ? sessionStorage : localStorage;
+    otherStorage.removeItem(SESSION_KEY);
+    storage.setItem(SESSION_KEY, JSON.stringify({ accessToken, refreshToken, accessExpiresAt }));
+  };
+  const acceptAuthSession = (data, remember = persistentSession) => {
+    accessToken = data.access_token;
+    refreshToken = data.refresh_token || refreshToken;
+    accessExpiresAt = Date.now() + Math.max(0, Number(data.expires_in || 3600) - 60) * 1000;
+    persistentSession = remember;
+    storeSession();
+  };
+  const clearSession = () => {
+    sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_KEY);
+    accessToken = null;
+    refreshToken = null;
+    accessExpiresAt = 0;
+    persistentSession = false;
+  };
+  async function refreshAccessToken() {
+    if (!refreshToken || !config) return false;
+    const response = await fetch(config.url + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { apikey: config.publishableKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.access_token) {
+      clearSession();
+      return false;
+    }
+    acceptAuthSession(data);
+    return true;
+  }
+  async function restoreSession() {
+    let raw = localStorage.getItem(SESSION_KEY);
+    persistentSession = Boolean(raw);
+    if (!raw) raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return;
+    try {
+      const stored = JSON.parse(raw);
+      accessToken = stored.accessToken || null;
+      refreshToken = stored.refreshToken || null;
+      accessExpiresAt = Number(stored.accessExpiresAt || 0);
+      if (!accessToken || accessExpiresAt <= Date.now()) await refreshAccessToken();
+    } catch (_) {
+      clearSession();
+    }
+  }
   const startSafeRefresh = () => {
     clearInterval(refreshTimer);
     refreshTimer = setInterval(async () => {
@@ -955,8 +1074,8 @@
     const response = await fetch(config.url + '/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: config.publishableKey, 'content-type': 'application/json' }, body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value }) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.access_token) return error('login-error', 'E-mail ou senha inválidos.');
-    accessToken = data.access_token;
-    sessionStorage.setItem('mcs_panel_token', accessToken);
+    acceptAuthSession(data, $('remember-login').checked);
+    $('password').value = '';
     await routeSession();
   }
   async function changePassword(event) {
@@ -973,7 +1092,7 @@
   }
   async function boot() {
     try { config = await request('/api/panel/config'); } catch (_) { error('login-error', 'Painel indisponível no momento.'); return; }
-    accessToken = sessionStorage.getItem('mcs_panel_token');
+    await restoreSession();
     $('login-form').addEventListener('submit', signIn);
     $('password-form').addEventListener('submit', changePassword);
     $('logout').addEventListener('click', () => { clearInterval(refreshTimer); clearSession(); show('login-view'); });
@@ -994,11 +1113,11 @@
     $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
     $('report-generate').addEventListener('click', generateReport);
     $('report-copy').addEventListener('click', () => copyReport().catch(() => { $('report-status').textContent = 'Não foi possível copiar.'; }));
-    $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch((failure) => { $('import-status').textContent = failure.message || 'Não foi possível importar o arquivo.'; }));
+    $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch(showImportFailure));
     const zone = $('drop-zone');
     ['dragenter', 'dragover'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
-    zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch((failure) => { $('import-status').textContent = failure.message || 'Não foi possível importar o arquivo.'; }));
+    zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('sms-form').addEventListener('submit', addSms);
     $('sms-contact').addEventListener('change', () => { $('sms-new-name-label').hidden = $('sms-contact').value !== 'new'; refreshSmsJourneys(); });
     $('attachment-upload').addEventListener('click', uploadAttachment);

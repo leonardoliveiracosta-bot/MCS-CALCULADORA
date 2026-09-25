@@ -198,3 +198,42 @@ test('conversation UI treats imported text only as text and bans browser modal A
   assert.doesNotMatch(source, /\b(?:alert|confirm|prompt)\s*\(/);
   assert.match(source, /textContent/);
 });
+
+test('tab changes replace stale counts with loading and ignore older responses', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  assert.match(source, /const requestVersion = \+\+viewRequestVersion/);
+  assert.match(source, /renderLoading\(view\)/);
+  assert.match(source, /currentView === view && viewRequestVersion === requestVersion/);
+  assert.match(source, /empty\(\$\(roots\[view\]\), 'Carregando…'\)/);
+});
+
+test('FICHAS clears an old detail when the list is empty or the tab changes', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  assert.match(source, /function clearRecordDetail/);
+  assert.match(source, /clearRecordDetail\(\);[\s\S]*renderLoading\(view\)/);
+  assert.match(source, /if \(!items\.length\) \{\s*clearRecordDetail\('Nenhuma ficha selecionada\.'\)/);
+  assert.match(source, /if \(currentView !== 'records'\) return/);
+});
+
+test('remember login persists a refreshable session without storing the password', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'painel', 'index.html'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  assert.match(html, /id="remember-login"[\s\S]*Manter conectado neste dispositivo/);
+  assert.match(source, /grant_type=refresh_token/);
+  assert.match(source, /localStorage\.getItem\(SESSION_KEY\)/);
+  assert.match(source, /sessionStorage\.getItem\(SESSION_KEY\)/);
+  assert.match(source, /refreshToken = data\.refresh_token/);
+  assert.doesNotMatch(source, /setItem\([^\n]*(?:password|senha)/i);
+});
+
+test('WhatsApp import makes confirmation and storage failures explicit', () => {
+  const client = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'api', 'panel', 'entry.js'), 'utf8');
+  assert.match(client, /await loadQueue\(false\);/);
+  assert.match(client, /arquivo lido\. Confirme os dados abaixo para gravar a conversa/);
+  assert.match(client, /scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
+  assert.match(client, /Falha na importação:[\s\S]*Nenhum sucesso foi confirmado/);
+  assert.match(server, /start: 'IMPORT_START_FAILED'/);
+  assert.match(server, /batch: 'IMPORT_BATCH_FAILED'/);
+  assert.match(server, /finish: 'IMPORT_FINISH_FAILED'/);
+});
