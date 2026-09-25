@@ -6,7 +6,8 @@ process.env.SUPABASE_SECRET_KEY = 'secret-test';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { validateAttachment, pathForApi } = require('../api/panel/attachments');
+const attachmentHandler = require('../api/panel/attachments');
+const { validateAttachment, pathForApi } = attachmentHandler;
 const { isUuid } = require('../panel-server');
 const completePassword = require('../api/panel/complete-password');
 const today = require('../api/panel/today');
@@ -26,6 +27,33 @@ test('storage API path preserves slashes and encodes segments', () => {
 test('UUID validation rejects malformed attachment ids', () => {
   assert.equal(isUuid('f6074aec-214c-4dc9-a50d-fdf2b749c141'), true);
   assert.equal(isUuid('../preview/not-a-uuid'), false);
+});
+
+test('failed finalize removes the exact quarantine object', async () => {
+  const deleted = [];
+  global.fetch = async (url, options = {}) => {
+    if (url.endsWith('/auth/v1/user')) return response(200, { id: 'f6074aec-214c-4dc9-a50d-fdf2b749c141' });
+    if (url.includes('/rest/v1/panel_users?select=')) return response(200, [{ id: '0cd6cda8-7c93-455c-af10-f8e49b1d2f8a', email: 'test@example.com', role: 'admin', active: true, must_change_password: false }]);
+    if (options.method === 'DELETE' && url.includes('/storage/v1/object/mcs-panel-attachments/')) {
+      deleted.push(url);
+      return response(200, {});
+    }
+    throw new Error('unexpected fetch');
+  };
+  const output = res();
+  await attachmentHandler({
+    method: 'POST', headers: { authorization: 'Bearer user-token' },
+    body: {
+      action: 'finalize', attachmentId: 'f6074aec-214c-4dc9-a50d-fdf2b749c141',
+      quarantinePath: 'quarantine/preview/f6074aec-214c-4dc9-a50d-fdf2b749c141/ok.png',
+      filename: 'ok.png', mimeType: 'image/png', contactId: 'not-a-uuid'
+    }
+  }, output);
+  assert.equal(output.code, 400);
+  assert.equal(output.payload.error, 'ATTACHMENT_RELATION_INVALID');
+  assert.equal(deleted.length, 1);
+  assert.match(deleted[0], /\/quarantine\/preview\/f6074aec-214c-4dc9-a50d-fdf2b749c141\/ok\.png$/);
+  assert.doesNotMatch(deleted[0], /%2F/i);
 });
 
 function response(status, payload) {
