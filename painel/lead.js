@@ -12,6 +12,7 @@
   const stageNames = ['Searching','Cars presented','Bid scheduled','Result'];
   const deadlineLabel = {now:'Agora','30d':'até 30 dias','3m':'30–90 dias',none:'Sem prazo'};
   const paymentLabel = {cash:'À vista',fin:'Financiado'};
+  const formatPhone=(value)=>{const digits=String(value||'').replace(/\D/g,'');if(digits.length===11&&digits[0]==='1')return `(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`;return value||'sem telefone';};
   const elapsed = (value) => { const hours=(Date.now()-Date.parse(value))/3600000; return hours < 1 ? `${Math.max(1,Math.round(hours*60))} min` : hours < 48 ? `${Math.floor(hours)} h` : `${Math.floor(hours/24)} dias`; };
   const safeString = (value) => value === null || value === undefined ? '' : String(value);
   function model(wish) { const make=safeString(wish.make);let name=safeString(wish.model);if(/^not sure$/i.test(name))name='';if(/^other model$/i.test(name))name='Outro modelo';return make&&name.toLowerCase().startsWith(make.toLowerCase()+' ') ? name : [make,name].filter(Boolean).join(' '); }
@@ -58,7 +59,7 @@
     const reload=async()=>{const position=window.scrollY; await onChanged(); requestAnimationFrame(()=>window.scrollTo(0,position));};
     const failed=(card,text)=>append(card,'p','status error',text);
     const title=record.contact?.display_name||order.contactName||'Contato sem nome';
-    const phone=record.phones?.find((item)=>item.is_current!==false);
+    const phones=(record.phones||[]).filter((item)=>item.is_current!==false).sort((a,b)=>Number(Boolean(b.is_primary))-Number(Boolean(a.is_primary)));
     const heading=section(root,1,'CABEÇALHO DA LIGAÇÃO');
     const header=append(heading,'div','lead-header');
     append(header,'div','lead-score',data.score===null?'—':data.score);
@@ -71,13 +72,14 @@
     append(right,'strong','lead-clock',new Intl.DateTimeFormat('pt-BR',{timeZone:data.timezone,hour:'2-digit',minute:'2-digit'}).format(new Date()));
     append(right,'span','muted',` horário do cliente · ${data.goodHour?'bom horário para ligar':'fora de horário'}`);
     const calling=append(right,'div','lead-actions');
-    if(phone){const link=append(calling,'a','lead-call',`Ligar ${phone.phone_raw||phone.phone_e164}`);link.href='tel:'+safeString(phone.phone_e164||phone.phone_raw).replace(/[^\d+]/g,'');button(calling,'Copiar',()=>navigator.clipboard.writeText(phone.phone_raw||phone.phone_e164));}
+    if(phones.length){phones.forEach((phone)=>{const line=append(calling,'div','lead-phone');const shown=formatPhone(phone.phone_e164||phone.phone_raw);const link=append(line,'a','lead-call',`${shown}${phone.phone_owner?' — '+phone.phone_owner:''}${phone.is_primary?' · principal':''}`);link.href='tel:'+safeString(phone.phone_e164||phone.phone_raw).replace(/[^\d+]/g,'');button(line,'Copiar',()=>navigator.clipboard.writeText(phone.phone_e164||phone.phone_raw));});}
     else append(calling,'span','muted','Sem telefone — pedir no WhatsApp');
     const badges=append(heading,'div','lead-badges');
     badges.append(badge(deadlineLabel[record.customer_deadline_text||order.deadlineText]||'Sem prazo','green'),badge(paymentLabel[data.payment]||'Não informado','green'));
     if(data.lastCustomerAt) badges.append(badge(`última mensagem do cliente há ${elapsed(data.lastCustomerAt)}`));
     badges.append(badge(record.enabled===false?'DESLIGADO':'LIGADO',record.enabled===false?'red':'green'));
     if(dispositionControls) heading.append(dispositionControls(order.ref?{kind:'CALCULATOR',ref}:{kind:'JOURNEY',id:record.id}));
+    button(heading,record.contact?.is_lead===false?'Restaurar como lead':'Não é lead',async()=>{if(!window.confirm(record.contact?.is_lead===false?'Restaurar este contato como lead?':'Marcar como não-lead? As mensagens continuarão guardadas.'))return;await api('contact_lead',{isLead:record.contact?.is_lead===false});await onChanged();});
 
     const trio=append(root,'div','lead-grid lead-three');
     const wishes=section(trio,2,'O QUE ELE QUER');
@@ -177,6 +179,9 @@
 
     const finalGrid=append(root,'div','lead-grid lead-two');
     const conversation=section(finalGrid,11,'CONVERSA','lead-highlight');conversation.id='lead-conversation';
+    const uploadAttachment=async(file,status)=>{if(!file)return;status.textContent='Enviando…';const ensured=journeyId?{journeyId,contactId:record.contact_id}:await api('ensure');const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const magicBase64=btoa(String.fromCharCode(...head));const signed=await request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploadBody=new FormData();uploadBody.append('cacheControl','3600');uploadBody.append('',file);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'x-upsert':'false'},body:uploadBody});if(!uploaded.ok)throw Error('UPLOAD_FAILED');await request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'finalize',attachmentId:signed.attachmentId,quarantinePath:signed.quarantinePath,filename:signed.filename,mimeType:file.type,contactId:ensured.contactId,journeyId:ensured.journeyId})});status.textContent='Anexo salvo.';await reload();};
+    const attachmentButton=(parent)=>{const input=append(parent,'input');input.type='file';input.accept='image/jpeg,image/png,image/webp,application/pdf';input.hidden=true;const status=append(parent,'span','status','');button(parent,'Anexar',()=>input.click());input.addEventListener('change',()=>uploadAttachment(input.files[0],status).catch((error)=>{status.textContent=error.message==='ATTACHMENT_REJECTED'?'Tipo não aceito ou arquivo maior que 10 MB.':'Falha no envio do anexo.';}));};
+    attachmentButton(conversation);
     const controls=append(conversation,'div','lead-actions');
     const sort=append(controls,'select');[['recent','Mais recentes'],['oldest','Mais antigas']].forEach(([value,label])=>sort.append(new Option(label,value)));
     sort.value=localStorage.getItem('mcs_conversation_sort')||'recent';
@@ -191,6 +196,10 @@
     sort.addEventListener('change',()=>{localStorage.setItem('mcs_conversation_sort',sort.value);draw();});filter.addEventListener('change',draw);draw();
 
     const history=section(finalGrid,12,'DADOS E HISTÓRICO','lead-highlight');
+    attachmentButton(history);
+    append(history,'h3','','Anexos');const attachments=append(history,'div','lead-attachments');
+    (record.attachments||[]).forEach((item)=>{const card=append(attachments,'button','lead-attachment');card.type='button';if(item.kind==='IMAGE')append(card,'span','lead-attachment-thumb','🖼️');else append(card,'span','lead-attachment-thumb','📄');append(card,'span','',`${item.original_filename} · ${date(item.created_at,data.timezone)}`);card.addEventListener('click',async()=>{card.disabled=true;try{const signed=await request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'download',attachmentId:item.id})});window.open(signed.url,'_blank','noopener');}finally{card.disabled=false;}});});
+    if(!record.attachments?.length)append(attachments,'p','muted','Nenhum anexo.');
     append(history,'h3','',`Checklist ${data.checklist.filter((point)=>point.status==='COMPLETE').length}/6`);
     data.checklist.forEach((point)=>{const line=append(history,'div','lead-check');button(line,`${point.point_number}. ${point.point_label} · ${point.status==='COMPLETE'?'OK':'Pendente'}`,async()=>{await api('checklist',{point:point.point_number,complete:point.status!=='COMPLETE'});await reload();});});
     const extraPhones=(data.events||[]).filter((item)=>item.event_type==='EXTRA_PHONE');
