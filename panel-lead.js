@@ -94,10 +94,12 @@ function offerKind(vehicle, wish) {
 function realisticBid(ceilingCents, options) {
   const ceiling = Math.floor(Number(ceilingCents) / 100);
   if (!(ceiling > 0)) return null;
-  let low = 0, high = Math.min(300000, ceiling);
+  const estimate = (lance) => calc.calcular({ lance, inspecao: false, florida: options.florida, placa: options.plate, pgto: options.payment, estado: options.stateIndex || '', zip: options.zip || '' }).totalProjetado;
+  if (estimate(calc.CONFIG.lanceMinimo) > ceiling) return null;
+  let low = calc.CONFIG.lanceMinimo, high = Math.min(calc.CONFIG.lanceMaximo, ceiling);
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
-    const total = calc.calcular({ lance: mid, inspecao: false, florida: options.florida, placa: options.plate, pgto: options.payment, estado: options.stateIndex || '', zip: options.zip || '' }).totalProjetado;
+    const total = estimate(mid);
     if (total <= ceiling) low = mid; else high = mid - 1;
   }
   return low;

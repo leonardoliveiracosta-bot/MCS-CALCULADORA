@@ -14,11 +14,12 @@
   const paymentLabel = {cash:'À vista',fin:'Financiado'};
   const elapsed = (value) => { const hours=(Date.now()-Date.parse(value))/3600000; return hours < 1 ? `${Math.max(1,Math.round(hours*60))} min` : hours < 48 ? `${Math.floor(hours)} h` : `${Math.floor(hours/24)} dias`; };
   const safeString = (value) => value === null || value === undefined ? '' : String(value);
-  function model(wish) { const make=safeString(wish.make),name=safeString(wish.model); return name.toLowerCase().startsWith(make.toLowerCase()+' ') ? name : [make,name].filter(Boolean).join(' '); }
+  function model(wish) { const make=safeString(wish.make);let name=safeString(wish.model);if(/^not sure$/i.test(name))name='';if(/^other model$/i.test(name))name='Outro modelo';return make&&name.toLowerCase().startsWith(make.toLowerCase()+' ') ? name : [make,name].filter(Boolean).join(' '); }
   function timelineRows(data) {
     const record=data.record||{};
     const undone=new Set((record.interactions||[]).filter((item)=>item.detail_text==='Desfeito').map((item)=>'interaction:'+item.id));
-    const entries=[...(record.timeline||[]).filter((item)=>!undone.has(item.id)).map((item)=>({at:item.occurredAt,text:item.label||item.body_text||'Mensagem'})),
+    const represented=new Set((data.events||[]).map((item)=>item.detail_json?.interactionId).filter(Boolean).map((id)=>'interaction:'+id));
+    const entries=[...(record.timeline||[]).filter((item)=>!undone.has(item.id)&&!represented.has(item.id)).map((item)=>({at:item.occurredAt,text:item.label||item.body_text||'Mensagem'})),
       ...(data.notes||[]).map((item)=>({at:item.created_at,text:`Anotação: ${item.body_text} · ${(item.distributed_json||[]).length} item(ns) distribuído(s)`})),
       ...(data.events||[]).map((item)=>({at:item.occurred_at,text:item.event_type==='EXTRA_PHONE'?`Telefone extra (${item.detail_json?.owner||'contato'}): ${item.detail_json?.number}`:item.detail_json?.label||item.detail_json?.vehicle||item.event_type})),
       ...(data.order?.simulations||[]).map((item)=>({at:item.occurredAt,text:`Simulação ${item.logicalMode==='VALOR'?'por valor':'carro ideal'} · ${item.vehicleText||'sem carro'}`}))];
@@ -60,14 +61,14 @@
     data.wishes.forEach((wish,index)=>row(wishes,`${index+1}. ${model(wish)}`,`${wish.yearMin||'—'}–${wish.yearMax||'—'}`,wish.maxMiles?`até ${Number(wish.maxMiles).toLocaleString('en-US')} mi`:'milhas não informadas'));
     append(wishes,'p','muted',`Teto: ${cents(data.ceilingCents)} · ${data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':'transferir'}`);
     const reality=section(trio,3,'REALIDADE (SÓ PARA VOCÊ)');
-    append(reality,'p','',`Lance realista: ${data.bid===null?'teto não informado':fmt(data.bid)}`);
+    append(reality,'p','',`Lance realista: ${data.bid===null?(data.ceilingCents?'sem lance viável no teto':'teto não informado'):fmt(data.bid)}`);
     if(!data.typical.length) append(reality,'p','muted','MMR típico: sem referência');
     data.typical.forEach((wish)=>{ append(reality,'p','muted',`MMR típico ${model(wish)}: ${wish.mmrCents?cents(wish.mmrCents):'sem referência'}`);
       if(wish.mmrCents&&data.bid!==null&&wish.mmrCents>data.bid*100) reality.append(badge(`Teto curto em ~${cents(wish.mmrCents-data.bid*100)}`,'yellow')); });
     append(reality,'p','muted','Cabe no teto: '+(data.fits.length?data.fits.map((car)=>`${car.make} ${car.model} ${car.year} · ${Number(car.miles).toLocaleString('en-US')} mi`).join(' · '):'sem combinação nos CSVs'));
     const numbers=section(trio,4,'NÚMEROS PRONTOS');
     if(data.costs){const c=data.costs;row(numbers,'Depósito',fmt(c.deposito));row(numbers,'Taxa de serviço',fmt(c.servico));row(numbers,'Taxa do leilão + fixas',fmt(c.gLeilao));row(numbers,'Tax, title & registration',fmt(c.gTaxReg));row(numbers,'Total estimado',fmt(c.totalProjetado));}
-    else append(numbers,'p','muted','Teto ainda não informado.');
+    else append(numbers,'p','muted',data.ceilingCents?'O teto não cobre o lance mínimo e os custos.':'Teto ainda não informado.');
 
     const second=append(root,'div','lead-grid lead-three');
     const questions=section(second,5,'PERGUNTAR NA LIGAÇÃO');
