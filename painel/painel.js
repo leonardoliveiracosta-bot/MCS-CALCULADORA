@@ -374,6 +374,7 @@
   }
 
   function renderQueue(items, reviews) {
+    items=clientSort(items,$('entry-sort')?.value||'recent');
     const root = $('entry-queue');
     root.replaceChildren();
     if (!items.length && !reviews.length) {
@@ -435,6 +436,11 @@
     select.replaceChildren(new Option('Nova jornada', 'new'));
     journeys.filter((journey) => contactId !== 'new' && journey.contact_id === contactId).forEach((journey) => option(select, journey.vehicle_text || 'Busca existente', journey.id));
   }
+  function refreshAttachmentJourneys(){
+    const contactId=$('attachment-contact').value,select=$('attachment-journey');select.replaceChildren(new Option('Escolha a ficha',''));
+    journeys.filter((journey)=>journey.contact_id===contactId).forEach((journey)=>option(select,`Ref ${journey.reference_code||'—'} · ${journey.vehicle_text||'busca sem veículo'}`,journey.id));
+    $('attachment-upload').disabled=!contactId||!select.value;
+  }
 
   async function loadWhatsApp() {
     const data = await request('/api/panel/whatsapp');
@@ -458,6 +464,8 @@
       } catch (_) { retry.disabled = false; row.append(element('span', 'status error', 'Não foi possível reprocessar.')); } });
       row.append(retry); errors.append(row);
     });
+    (data.ignored||[]).forEach((event)=>errors.append(element('div','queue-item',`ignorado: ${String(event.error_code||event.event_type||'campo desconhecido').replace(/^IGNORED:/,'')}`)));
+    (data.itemErrors||[]).forEach((event)=>errors.append(element('div','queue-item',`Item ${event.item_index+1} não processado: ${event.error_code}`)));
     const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
     (data.suggestions || []).forEach((item) => {
       const row = element('div', 'queue-item');
@@ -470,8 +478,10 @@
         } catch (_) { action.disabled = false; row.append(element('span', 'status error', 'Não foi possível registrar a escolha.')); } });
         row.append(action);
       }
+      const notLead=element('button','quiet small','Não é lead');notLead.type='button';notLead.addEventListener('click',async()=>{notLead.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:false})});await loadWhatsApp();await loadQueue();}catch(_){notLead.disabled=false;}});row.append(notLead);
       suggestions.append(row);
     });
+    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const choose=element('button','small',candidate.name);choose.type='button';choose.addEventListener('click',async()=>{choose.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})});await loadWhatsApp();await loadQueue();}catch(_){choose.disabled=false;row.append(element('span','status error','Não foi possível ligar a mensagem.'));}});row.append(choose);});suggestions.append(row);});
   }
 
   async function loadQueue(render = true) {
@@ -487,6 +497,11 @@
     contacts.forEach((contact) => option(select, contact.display_name || 'Sem nome', contact.id));
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
+    const attachmentContact=$('attachment-contact'),oldAttachment=attachmentContact.value;
+    attachmentContact.replaceChildren(new Option('Escolha o contato',''));
+    contacts.filter((contact)=>contact.is_lead!==false).forEach((contact)=>option(attachmentContact,contact.display_name||'Sem nome',contact.id));
+    if([...attachmentContact.options].some((entry)=>entry.value===oldAttachment))attachmentContact.value=oldAttachment;
+    refreshAttachmentJourneys();
     setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
     if (render) renderQueue(chats, data.reviews || []);
     return data;
@@ -505,12 +520,13 @@
     const message = MCSParser.clean($('sms-text').value);
     const localInput = $('sms-date').value;
     const name = MCSParser.clean($('sms-new-name').value);
-    if (!message || !localInput || (selected === 'new' && !name)) return;
+    const phone = MCSParser.clean($('sms-new-phone').value);
+    if (!message || !localInput || (selected === 'new' && (!name||!phone))) {$('sms-status').textContent='Informe nome e telefone para o novo contato.';return;}
     const contactId = selected === 'new' ? null : selected;
     const existingChat = chats.find((chat) => chat.channel === 'SMS' && chat.contact_id === contactId && !chat.is_group);
     const start = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({
       action: 'start', sourceKind: 'SMS_PASTE', sourceFilename: 'SMS manual', sourceSha256: await sha256(message + localInput),
-      chat: { channel: 'SMS', chatId: existingChat ? existingChat.id : null, isGroup: false, contactId, newContactName: selected === 'new' ? name : null, aliasText: 'SMS', senderAliases: [] }
+      chat: { channel: 'SMS', chatId: existingChat ? existingChat.id : null, isGroup: false, contactId, newContactName: selected === 'new' ? name : null, phone:selected==='new'?phone:null, aliasText: 'SMS', senderAliases: [] }
     }) });
     const date = smsDate(localInput);
     const direction = $('sms-direction').value;
@@ -531,7 +547,8 @@
 
   async function uploadAttachment() {
     const file = $('attachment-file').files[0];
-    if (!file) return;
+    const contactId=$('attachment-contact').value,journeyId=$('attachment-journey').value;
+    if (!file||!contactId||!journeyId) {$('attachment-status').textContent='Escolha o contato e a ficha antes do arquivo.';return;}
     const head = new Uint8Array(await file.slice(0, 64).arrayBuffer());
     const magicBase64 = btoa(String.fromCharCode(...head));
     try {
@@ -544,7 +561,7 @@
       uploadBody.append('', file);
       const uploaded = await fetch(uploadUrl.toString(), { method: 'PUT', headers: { 'x-upsert': 'false' }, body: uploadBody });
       if (!uploaded.ok) throw new Error('UPLOAD_FAILED');
-      await request('/api/panel/attachments', { method: 'POST', body: JSON.stringify({ action: 'finalize', attachmentId: signed.attachmentId, quarantinePath: signed.quarantinePath, filename: signed.filename, mimeType: file.type }) });
+      await request('/api/panel/attachments', { method: 'POST', body: JSON.stringify({ action: 'finalize', attachmentId: signed.attachmentId, quarantinePath: signed.quarantinePath, filename: signed.filename, mimeType: file.type,contactId,journeyId }) });
       $('attachment-status').textContent = 'Anexo verificado e armazenado de forma privada.';
       $('attachment-file').value = '';
     } catch (failure) {
@@ -579,16 +596,19 @@
   function initials(name) {
     return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';
   }
+  function phoneDisplay(value){const raw=String(value||'');const digits=raw.replace(/\D/g,'');return digits.length===11&&digits[0]==='1'?`(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`:raw||'sem telefone';}
+  function referencePhone(item){const ref=item.referenceCode||item.reference_code||item.ref||'—';const phone=(item.phones||[]).find((entry)=>entry.is_primary)||(item.phones||[]).find((entry)=>entry.is_current!==false)||(item.phones||[])[0];return `Ref ${ref} · 📞 ${phone?phoneDisplay(phone.phone_e164||phone.phone_raw):'sem telefone'}`;}
+  function clientSort(items,mode){const missing=(v)=>v===null||v===undefined||v==='';const value=(x)=>Number(x.confirmed_total_ceiling_cents||x.budgetCents||x.budget_cents)||null;const stamp=(x)=>Date.parse(x.last_seen_at||x.updated_at||x.occurredAt||x.created_at||0)||0;const field=(x,kind)=>kind==='location'?(x.state||x.estado||x.contact?.location_text):kind==='vehicle'?(x.make||x.vehicleText||x.vehicle_text):value(x);return items.slice().sort((a,b)=>{if(mode==='recent'||mode==='oldest')return(stamp(b)-stamp(a))*(mode==='recent'?1:-1);const av=field(a,mode),bv=field(b,mode);if(missing(av))return missing(bv)?0:1;if(missing(bv))return -1;if(mode==='value_desc'||mode==='value_asc')return(av-bv)*(mode==='value_desc'?-1:1);return String(av).localeCompare(String(bv),'pt-BR');});}
 
   function identityHeader(item, options = {}) {
     const name = item.name || item.contact && item.contact.display_name || item.contactName || 'Sem nome';
     const ref = item.referenceCode || item.reference_code || item.ref || null;
-    const phone = item.phoneLast4 || String((item.phones || []).find((entry) => entry.is_current !== false)?.phone_e164 || (item.phones || [])[0]?.phone_raw || '').replace(/\D/g, '').slice(-4);
     const wrap = element('div', 'identity');
     wrap.append(element('span', 'avatar', initials(name)));
     const text = element('div');
-    text.append(element('strong', '', `${name}${ref ? ` · Ref ${ref}` : ''}`));
-    const details = [item.vehicleText || item.vehicle_text || 'Veículo não informado', phone ? `•••• ${phone}` : null, sourceLabel(item.source)].filter(Boolean).join(' · ');
+    text.append(element('strong', '', name));
+    text.append(element('span','identity-ref-phone',referencePhone(item)));
+    const details = [item.vehicleText || item.vehicle_text || 'Veículo não informado', sourceLabel(item.source)].filter(Boolean).join(' · ');
     text.append(element('span', 'muted one-line', details));
     if (options.preview) text.append(element('span', 'one-line message-preview', options.preview));
     wrap.append(text);
@@ -657,7 +677,7 @@
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp.'; });
     }
     if (view === 'today') {
-      const data = await request('/api/panel/today');
+      const data = await request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value));
       if (!current()) return;
       updateMeta(data.meta);
       return renderToday(data.items || []);
@@ -666,7 +686,7 @@
       return loadOrders(false, view, requestVersion);
     }
     if (view === 'qualification') {
-      const data = await request('/api/panel/qualification');
+      const data = await request('/api/panel/qualification?sort='+encodeURIComponent($('qualification-sort').value));
       if (!current()) return;
       updateMeta(data.meta);
       return renderQualification(data.items || []);
@@ -678,7 +698,7 @@
       return renderManheim(data);
     }
     if (view === 'records') {
-      const data = await request('/api/panel/records');
+      const data = await request('/api/panel/records?sort='+encodeURIComponent($('records-sort').value));
       if (!current()) return;
       updateMeta(data.meta);
       return renderRecords(data.items || []);
@@ -705,7 +725,7 @@
       orderOffset = 0;
       orderItems = [];
     }
-    const params = new URLSearchParams({ filter: orderFilter, period: orderPeriod, limit: '30', offset: String(orderOffset) });
+    const params = new URLSearchParams({ filter: orderFilter, period: orderPeriod, sort:$('orders-sort').value,limit: '30', offset: String(orderOffset) });
     const data = await request('/api/panel/orders?' + params.toString());
     if (currentView !== view || viewRequestVersion !== requestVersion) return;
     updateMeta(data.meta);
@@ -922,7 +942,7 @@
         const title = element('div', 'identity');
         title.append(element('span', 'order-icon', orderIcon(item)));
         const txt = element('div');
-        txt.append(element('strong', '', `Ref ${item.ref}`), element('span', 'muted one-line', displayModel(item.vehicleText) || 'Veículo não informado'));
+        txt.append(element('strong', '', item.contactName||`Pedido ${item.ref}`),element('span','identity-ref-phone',referencePhone(item)), element('span', 'muted one-line', displayModel(item.vehicleText) || 'Veículo não informado'));
         title.append(txt);
         head.append(title);
       } else {
@@ -932,6 +952,7 @@
       const badges = element('div', 'badges');
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
       if (item.wantsCar) badges.append(makeBadge('QUER ESTE CARRO', 'green'));
+      if(item.returnedToTalk)badges.append(makeBadge('VOLTOU A FALAR','yellow'));
       if (item.score !== null && item.score !== undefined) badges.append(makeBadge(`Nota ${item.score}`, 'green'));
       badges.append(makeBadge(item.goodHour ? 'bom horário' : 'fora de horário', item.goodHour ? 'green' : 'yellow'));
       if (item.clickedContact && item.contactChannel) badges.append(makeBadge(`${item.contactChannel} CLICADO`, 'green'));
@@ -964,7 +985,7 @@
       identity.append(element('span', 'order-icon', orderIcon(item)));
       const title = element('div');
       const heading = item.contactName || (item.ref || item.referenceCode ? `Ref ${item.ref || item.referenceCode}` : 'Pedido direto');
-      title.append(element('h3', '', heading), element('p', 'muted', displayModel(item.vehicleText) || 'Veículo não informado'));
+      title.append(element('h3', '', heading),element('p','identity-ref-phone',referencePhone(item)), element('p', 'muted', displayModel(item.vehicleText) || 'Veículo não informado'));
       identity.append(title);
       head.append(identity);
       card.append(head);
@@ -1154,7 +1175,7 @@
     const identity = element('div', 'identity');
     identity.append(element('span', 'order-icon', orderIcon(order)));
     const text = element('div');
-    text.append(element('strong', '', `Ref ${order.ref}`), element('span', 'muted one-line', displayModel(order.vehicleText) || 'Pedido da calculadora'));
+    text.append(element('strong', '', order.contactName||`Pedido ${order.ref}`),element('span','identity-ref-phone',referencePhone(order)), element('span', 'muted one-line', displayModel(order.vehicleText) || 'Pedido da calculadora'));
     identity.append(text);
     head.append(identity);
     card.append(head);
@@ -1188,8 +1209,9 @@
   }
 
   function renderManheim(data) {
-    manheimJourneys = data.items || [];
-    manheimOrders = data.orders || [];
+    const mode=$('manheim-sort')?.value||'recent';
+    manheimJourneys = clientSort(data.items || [],mode);
+    manheimOrders = clientSort(data.orders || [],mode);
     manheimMatches = data.matches || [];
     renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas.'; });
     setCount('manheim', data.upload && data.upload.lead_count || 0);
@@ -1222,14 +1244,14 @@
     let standardCount = 0;
     let reactivateCount = 0;
 
-    orderGroups.forEach((matches, ref) => {
+    [...orderGroups.entries()].sort((a,b)=>manheimOrders.findIndex(x=>x.ref===a[0])-manheimOrders.findIndex(x=>x.ref===b[0])).forEach(([ref,matches]) => {
       const order = byOrder.get(ref);
       if (!order) return;
       renderManheimOrderGroup(standard, order, matches);
       standardCount += 1;
     });
 
-    journeyGroups.forEach((matches, journeyId) => {
+    [...journeyGroups.entries()].sort((a,b)=>manheimJourneys.findIndex(x=>x.id===a[0])-manheimJourneys.findIndex(x=>x.id===b[0])).forEach(([journeyId,matches]) => {
       const journey = byJourney.get(journeyId);
       if (!journey) return;
       const isReactivation = journey.reactivationEligible || journey.status === 'PARADO';
@@ -1380,8 +1402,7 @@
       clearRecordDetail('Nenhuma ficha selecionada.');
       return empty(root, 'Nenhuma ficha criada.');
     }
-    const mode = $('records-sort') ? $('records-sort').value : 'recent';
-    const sorted = items.slice().sort((a, b) => mode === 'ready' ? Number(b.promiseToday) - Number(a.promiseToday) || Number(b.score || 0) - Number(a.score || 0) : mode === 'oldest' ? Date.parse(a.updated_at) - Date.parse(b.updated_at) : mode === 'name' ? String(a.contact && a.contact.display_name || '').localeCompare(String(b.contact && b.contact.display_name || ''), 'pt-BR') : mode === 'ref' ? String(a.reference_code || '').localeCompare(String(b.reference_code || '')) : Date.parse(b.updated_at) - Date.parse(a.updated_at));
+    const sorted = items.slice();
     sorted.forEach((item) => {
       const card = element('article', 'search-hit record-list-card');
       const text = identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' });
@@ -1751,16 +1772,18 @@
     event.preventDefault();
     const q = $('global-search-input').value.trim();
     if (!q) return;
-    const result = await request('/api/panel/search?q=' + encodeURIComponent(q));
+    const searchSort=localStorage.getItem('mcs_sort_search')||'recent';
+    const result = await request('/api/panel/search?q=' + encodeURIComponent(q)+'&sort='+encodeURIComponent(searchSort));
     const root = $('search-results');
     root.replaceChildren(element('h2', '', 'Resultados da busca'));
+    const sortLabel=element('label','','Ordenar');const sortSelect=element('select');[['recent','Mais recentes'],['oldest','Mais antigas'],['value_desc','Maior valor'],['value_asc','Menor valor'],['location','Localização'],['vehicle','Marca do carro']].forEach(([v,l])=>sortSelect.append(new Option(l,v)));sortSelect.value=searchSort;sortSelect.addEventListener('change',()=>{localStorage.setItem('mcs_sort_search',sortSelect.value);globalSearch(new Event('submit'));});sortLabel.append(sortSelect);root.append(sortLabel);
     if (!result.items.length) root.append(element('p', 'muted', 'Nenhum resultado.'));
     result.items.forEach((item) => {
       const button = element('button', 'search-hit');
       button.type = 'button';
       const label = item.kind === 'ORDER'
-        ? `Ref ${item.ref}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
-        : `${item.name}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
+        ? `${referencePhone(item)}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
+        : `${item.name} · ${referencePhone(item)}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
       button.append(element('span', '', label), makeBadge(item.matchedBy));
       button.addEventListener('click', () => {
         root.classList.add('hidden');
@@ -1958,8 +1981,7 @@
       if (currentView === 'orders') await loadCurrent();
     }));
     $('orders-more').addEventListener('click', () => loadOrders(true).catch(() => { $('orders-more').textContent = 'Não foi possível carregar'; }));
-    $('today-sort').addEventListener('change', () => renderToday(todayItems));
-    $('records-sort').addEventListener('change', () => renderRecords(recordItems));
+    ['today','entry','orders','qualification','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView===name)loadCurrent().catch(()=>{});});});
     document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar.')); $('search-results').classList.remove('hidden'); }));
     $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
@@ -1976,7 +1998,9 @@
     ['dragleave', 'drop'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.remove('dragging'); }));
     manheimZone.addEventListener('drop', (event) => importManheim([...event.dataTransfer.files]).catch(showManheimFailure));
     $('sms-form').addEventListener('submit', addSms);
-    $('sms-contact').addEventListener('change', () => { $('sms-new-name-label').hidden = $('sms-contact').value !== 'new'; refreshSmsJourneys(); });
+    $('sms-contact').addEventListener('change', () => { const fresh=$('sms-contact').value==='new';$('sms-new-name-label').hidden=!fresh;$('sms-new-phone-label').hidden=!fresh;refreshSmsJourneys(); });
+    $('attachment-contact').addEventListener('change',refreshAttachmentJourneys);
+    $('attachment-journey').addEventListener('change',()=>{$('attachment-upload').disabled=!$('attachment-journey').value;});
     $('attachment-upload').addEventListener('click', uploadAttachment);
     $('sms-date').value = localInput();
     await routeSession();
