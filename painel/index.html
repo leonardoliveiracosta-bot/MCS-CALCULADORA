@@ -132,11 +132,11 @@
         <button id="orders-more" class="quiet load-more hidden" type="button">Carregar mais</button>
       </section>
       <section id="qualification-panel" class="panel-view hidden" aria-label="Qualificação">
-        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo.</p></div></div>
+        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo.</p></div><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div>
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
-        <div class="section-head"><div><h2>Manheim</h2><p class="muted">Compare a exportação com as listas de desejo ligadas.</p></div></div>
+        <div class="section-head"><div><h2>Manheim</h2><p class="muted">Compare a exportação com as listas de desejo ligadas.</p></div><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div>
         <section class="card">
           <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
           <p id="manheim-status" class="status" role="status"></p>
@@ -147,7 +147,7 @@
         </section>
       </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
-        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><label>Ordenar<select id="records-sort"><option value="recent">Atualização recente</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option></select></label></div>
+        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="recent">Atualização recente</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option></select></label></div></div>
         <div id="records-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="detail-panel" class="panel-view hidden" aria-label="Detalhe">
