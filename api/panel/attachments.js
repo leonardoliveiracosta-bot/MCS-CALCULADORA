@@ -69,6 +69,13 @@ async function handler(req, res) {
     }
     if (input.action !== 'finalize') return send(res, 400, { error: 'ATTACHMENT_ACTION_INVALID' });
     if (!isUuid(input.attachmentId)) return send(res, 400, { error: 'ATTACHMENT_ID_INVALID' });
+    const existing = await supabase(ctx.config.url, ctx.config.secretKey,
+      '/rest/v1/attachments?select=id,storage_path,contact_id,journey_id,original_filename&id=eq.' + encodeURIComponent(input.attachmentId) + '&environment=eq.' + encodeURIComponent(ctx.environment) + '&limit=1');
+    if (existing[0]) {
+      const sameRelation = (!input.contactId || existing[0].contact_id === input.contactId) && (!input.journeyId || existing[0].journey_id === input.journeyId);
+      if (!sameRelation || existing[0].original_filename !== safeName(input.filename)) return send(res, 409, { error: 'ATTACHMENT_ID_REUSED' });
+      return send(res, 200, { attachmentId: existing[0].id, duplicate: true });
+    }
     const filename = safeName(input.filename);
     quarantinePath = `quarantine/${ctx.environment}/${input.attachmentId}/${filename}`;
     if (String(input.quarantinePath || '') !== quarantinePath) {
@@ -116,21 +123,17 @@ async function handler(req, res) {
     });
     moved = true;
     const digest = crypto.createHash('sha256').update(bytes).digest('hex');
-    const stored = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/attachments', {
-      method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
+    const stored = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_attachment_finalize', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        id: input.attachmentId, environment: ctx.environment, kind: actualMime === 'application/pdf' ? 'PDF' : 'IMAGE', bucket_name: BUCKET,
-        storage_path: canonicalPath, original_filename: filename, mime_type: actualMime,
-        byte_size: bytes.length, sha256: digest, verified_at: new Date().toISOString(),
-        created_at: new Date().toISOString(), created_by: ctx.panel.id,
-        chat_id: validated.chats, contact_id: validated.contacts,
-        journey_id: validated.journeys, message_id: validated.messages
+        p_environment: ctx.environment, p_actor: ctx.panel.id, p_attachment: input.attachmentId,
+        p_kind: actualMime === 'application/pdf' ? 'PDF' : 'IMAGE', p_bucket: BUCKET,
+        p_storage_path: canonicalPath, p_filename: filename, p_mime: actualMime,
+        p_byte_size: bytes.length, p_sha256: digest, p_contact: validated.contacts,
+        p_chat: validated.chats, p_journey: validated.journeys, p_message: validated.messages
       })
     });
-    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/activity_log', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ environment: ctx.environment, journey_id: validated.journeys, contact_id: validated.contacts, activity_type: 'ATTACHMENT_ADDED', summary: 'Anexo adicionado: ' + filename, metadata: { attachmentId: stored[0].id }, occurred_at: new Date().toISOString(), actor_user_id: ctx.panel.id })
-    });
-    return send(res, 201, { attachmentId: stored[0].id });
+    return send(res, stored.duplicate ? 200 : 201, stored);
   } catch (_) {
     await removeObject(ctx, moved ? canonicalPath : quarantinePath);
     return send(res, 500, { error: 'ATTACHMENT_REQUEST_FAILED' });

@@ -11,14 +11,14 @@ module.exports = async (req, res) => {
   try {
     const [journeys, contacts, phones, refs, messageLinks, messages, checklist, evidence, divergences, toggleStates, meta] = await Promise.all([
       allRows(ctx, 'journeys', {
-        select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,budget_cents,payment_text,customer_deadline_at,customer_deadline_text,qualified_at,closed_reason,updated_at',
+        select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,qualified_at,closed_reason,updated_at',
         environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
       }),
       allRows(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'messages', { select: 'id,body_text,occurred_at_utc,occurred_at_local,created_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,created_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_checklist', { select: 'id,journey_id,point_number,point_label,status,completed_at', environment: 'eq.' + ctx.environment, order: 'point_number.asc' }),
       allRows(ctx, 'checklist_evidence', { select: 'id,checklist_id,message_id,excerpt_text,created_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_divergences', { select: 'id,journey_id,field,status,operational_declaration_id,created_at', environment: 'eq.' + ctx.environment }),
@@ -40,6 +40,7 @@ module.exports = async (req, res) => {
       return {
         ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,
         phones: phones.filter((phone) => phone.contact_id === journey.contact_id), latestMessage: ownMessages[0] || null,
+        lastCustomerAt: ownMessages.find((message) => message.direction === 'CUSTOMER')?.occurred_at_utc || ownMessages.find((message) => message.direction === 'CUSTOMER')?.occurred_at_local || ownMessages.find((message) => message.direction === 'CUSTOMER')?.created_at || null,
         refs: refs.filter((item) => item.journey_id === journey.id),
         checklist: points, checklistSummary: checklistSummary(points),
         divergences: divergences.filter((item) => item.journey_id === journey.id),

@@ -40,7 +40,7 @@
     const represented=new Set((data.events||[]).map((item)=>item.detail_json?.interactionId).filter(Boolean).map((id)=>'interaction:'+id));
     const entries=[...(record.timeline||[]).filter((item)=>!undone.has(item.id)&&!represented.has(item.id)).map((item)=>({at:item.occurredAt,text:item.label||item.body_text||'Mensagem'})),
       ...(data.notes||[]).map((item)=>({at:item.created_at,text:`Anotação: ${item.body_text}${(item.distributed_json||[]).length?' · Distribuído: '+item.distributed_json.map((part)=>({call_result:'Resultado',checklist:'Checklist '+part.point,budget:'Teto total',payment:'Pagamento',deadline:'Prazo',wishlist:'Lista de desejo',phone:'Telefone',promise:'Promessa',return:'Retorno',stage:'Etapa',disable:'Sugestão'}[part.type]||part.type)+': '+itemLabel(part,data.timezone)).join('; '):''}`})),
-      ...(data.events||[]).map((item)=>({at:item.occurred_at,text:item.event_type==='EXTRA_PHONE'?`Telefone extra (${item.detail_json?.owner||'contato'}): ${item.detail_json?.number}`:item.event_type==='DISABLE_SUGGESTED'?`Sugestão de desligar: ${item.detail_json?.reason||'sem motivo'}`:item.detail_json?.label||item.detail_json?.vehicle||item.event_type})),
+      ...(data.events||[]).map((item)=>({at:item.occurred_at,text:item.event_type==='EXTRA_PHONE'?`Telefone extra (${item.detail_json?.owner||'contato'}): ${item.detail_json?.number}`:item.event_type==='DISABLE_SUGGESTED'?`Sugestão de desligar: ${item.detail_json?.reason||'sem motivo'}`:item.detail_json?.label||item.detail_json?.vehicle||({QUICK_ANSWERED:'Ligação atendida',QUICK_NO_ANSWER:'Ligação não atendida',QUICK_LATER:'Pediu para ligar depois',QUICK_IN_PERSON:'Conversa presencial',QUICK_DEPOSIT:'Vai pagar o depósito',WANT_CAR:'Cliente quer este carro',NOT_FOR_ME:'Cliente não quer este carro',NOTE_CONFIRMED:'Anotação confirmada',UNIT_PRESENTED:'Carro apresentado',TOTAL_CEILING_UPDATED:'Teto total confirmado'}[item.event_type]||String(item.event_type||'Atividade').replaceAll('_',' ').toLocaleLowerCase('pt-BR'))})),
       ...(data.order?.simulations||[]).map((item)=>({at:item.occurredAt,text:`Simulação ${item.logicalMode==='VALOR'?'por valor':'carro ideal'} · ${item.vehicleText||'sem carro'}`}))];
     if (record.contact?.notes) entries.push({at:record.created_at,text:`Nota antiga: ${record.contact.notes}`});
     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
@@ -186,12 +186,12 @@
     const sort=append(controls,'select');[['recent','Mais recentes'],['oldest','Mais antigas']].forEach(([value,label])=>sort.append(new Option(label,value)));
     sort.value=localStorage.getItem('mcs_conversation_sort')||'recent';
     const filter=append(controls,'select');[['all','Tudo'],['CUSTOMER','Cliente'],['MCS','MCS']].forEach(([value,label])=>filter.append(new Option(label,value)));
-    if(journeyId){[...new Set((record.conversation||[]).map((message)=>message.chat_id).filter(Boolean))].forEach((chatId)=>button(controls,'Inverter remetentes desta conversa',async()=>{if(!window.confirm('Inverter os remetentes desta conversa?'))return;await api('manual',{panelAction:'invert_senders',payload:{chatId}});await reload();}));}
+    if(journeyId){[...new Set((record.conversation||[]).map((message)=>message.chat_id).filter(Boolean))].forEach((chatId)=>{const invert=button(controls,'Inverter remetentes desta conversa',async()=>{if(invert.dataset.confirmed!=='true'){invert.dataset.confirmed='true';invert.textContent='Confirmar inversão';return;}await api('manual',{panelAction:'invert_senders',payload:{chatId}});await reload();});});}
     const thread=append(conversation,'div','lead-thread');const messages=record.conversation||[];
     const draw=()=>{thread.replaceChildren();let list=messages.filter((message)=>filter.value==='all'||message.direction===filter.value);if(sort.value==='recent')list=list.slice().reverse();
       list.forEach((message)=>{const bubble=append(thread,'article','lead-message '+(message.direction==='MCS'?'m':'c'));
         append(bubble,'small','muted',`${message.channel} · ${message.direction==='CUSTOMER'?'Cliente':'MCS'} · ${date(message.occurred_at_utc||message.created_at,data.timezone)}`);
-        append(bubble,'p','',message.body_text);if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref));});
+        append(bubble,'p','',message.body_text);if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref,data.timezone));});
       if(!list.length)append(thread,'p','muted','Nenhuma mensagem neste filtro.');};
     sort.addEventListener('change',()=>{localStorage.setItem('mcs_conversation_sort',sort.value);draw();});filter.addEventListener('change',draw);draw();
 
@@ -209,7 +209,7 @@
     if(!record.next_action_at){const form=append(history,'div','lead-actions');const task=append(form,'input');task.placeholder='Retorno manual';const due=append(form,'input');due.type='datetime-local';
       append(form,'small','muted','horário do cliente');button(form,'Adicionar retorno',async()=>{await api('manual',{panelAction:'next_action',payload:{operation:'CREATE',text:task.value,atLocal:due.value}});await reload();});}
     append(history,'h3','','Unidades apresentadas');
-    (record.units||[]).forEach((unit)=>{const line=append(history,'div','lead-unit');append(line,'strong','',unit.vehicle_text);append(line,'p','muted',`${date(unit.presented_at,data.timezone)} · ${unit.status}`);
+    (record.units||[]).forEach((unit)=>{const line=append(history,'div','lead-unit');append(line,'strong','',unit.vehicle_text);append(line,'p','muted',`${date(unit.presented_at,data.timezone)} · ${{PRESENTED:'Apresentada',UNDER_REVIEW:'Em análise',ACCEPTED:'Aceita',DECLINED:'Recusada'}[unit.status]||unit.status}`);
       const fields=append(line,'div','lead-actions');const value=append(fields,'input');value.type='number';value.placeholder='Retail comparison (US$)';value.value=unit.details_json?.retailValue||'';
       const link=append(fields,'input');link.type='url';link.placeholder='Link da página de comparativos MCS';link.value=unit.details_json?.retailUrl||'';
       button(fields,'Salvar comparativo',async()=>{await api('retail',{unitId:unit.id,value:value.value,url:link.value});await reload();});});

@@ -32,11 +32,17 @@ module.exports = async (req, res) => {
     const journeyByRef=new Map(data.journeys.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));
     for(const ref of data.refs||[]){const journey=journeys.get(ref.journey_id);if(journey)journeyByRef.set(String(ref.ref_code).trim().toUpperCase(),journey);}
     const latestByJourney = new Map();
+    const latestCustomerByJourney = new Map();
     for (const message of data.messages) {
       const current = latestByJourney.get(message.journey_id);
       const stamp = Date.parse(message.occurred_at_utc || message.occurred_at_local || message.created_at) || 0;
       const currentStamp = current ? Date.parse(current.occurred_at_utc || current.occurred_at_local || current.created_at) || 0 : -1;
       if (stamp >= currentStamp) latestByJourney.set(message.journey_id, message);
+      if (message.direction === 'CUSTOMER') {
+        const customer = latestCustomerByJourney.get(message.journey_id);
+        const customerStamp = customer ? Date.parse(customer.occurred_at_utc || customer.occurred_at_local || customer.created_at) || 0 : -1;
+        if (stamp >= customerStamp) latestCustomerByJourney.set(message.journey_id, message);
+      }
     }
 
     const calcModes = consolidateCalcRuns(calcRuns, links).map((item) => {
@@ -51,6 +57,7 @@ module.exports = async (req, res) => {
     });
     const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);return [{
       ...item,journeyId:linked?.id||item.journeyId,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
+      lastCustomerAt: Math.max(time(item.occurredAt)||0, time(latestCustomerByJourney.get(linked?.id)?.occurred_at_utc || latestCustomerByJourney.get(linked?.id)?.occurred_at_local || latestCustomerByJourney.get(linked?.id)?.created_at)||0) || null,
       sourceLabel: 'Calculadora',
       status: item.disposition === 'TREATED' ? 'TRATADO' : item.disposition === 'DISCARDED' ? 'DESCARTADO' : item.status,
       standardBudget: standardBudget(item.budgetCents)
@@ -74,7 +81,8 @@ module.exports = async (req, res) => {
         pending: !disposition,
         outOfStandard: !standardBudget(item.budget_cents),
         status: disposition ? (disposition.status === 'TREATED' ? 'TRATADO' : 'DESCARTADO') : latest && latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO',
-        phones:item.phones||[],confirmed_total_ceiling_cents:item.confirmed_total_ceiling_cents
+        phones:item.phones||[],confirmed_total_ceiling_cents:item.confirmed_total_ceiling_cents,
+        lastCustomerAt: latestCustomerByJourney.get(item.id)?.occurred_at_utc || latestCustomerByJourney.get(item.id)?.occurred_at_local || latestCustomerByJourney.get(item.id)?.created_at || item.created_at
       };
     });
 

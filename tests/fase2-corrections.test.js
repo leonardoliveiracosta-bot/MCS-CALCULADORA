@@ -144,6 +144,18 @@ test('HOJE includes a wanted car even when the order was treated',async()=>{
   const res=output();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.payload.items.length,1);assert.equal(res.payload.items[0].disposition,'TREATED');assert.equal(res.payload.items[0].wantsCar,true);
 });
 
+test('HOJE includes an old linked order when a disabled lead writes again',async()=>{
+  const now=new Date().toISOString(),old='2020-01-01T00:00:00Z';
+  const order={ref:'ABC23',key:'ABC23',pending:false,disposition:'DISCARDED',occurredAt:old,simulations:[{occurredAt:old}],budgetCents:2500000};
+  const journey={id:journeyId,reference_code:'ABC23',source:'CALCULATOR',created_at:old,status:'ENCERRADO',enabled:false,contact:{display_name:'Cliente'},phones:[]};
+  const message={journey_id:journeyId,direction:'CUSTOMER',occurred_at_utc:now};
+  const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?[order]:[],panelMeta:async()=>({})});
+  const handler=loadWith('api/panel/today.js',{'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:(runs)=>runs,groupCalculatorByRef:(runs)=>runs,standardBudget:()=>true,time:(value)=>Date.parse(value)},
+    '../../panel-read-model':{operational:async()=>({journeys:[journey],refs:[],messages:[message],checklist:[],promises:[]})},'../../panel-ready':{score:()=>({score:null,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
+  const res=output();await handler({method:'GET',query:{}},res);
+  assert.equal(res.code,200);assert.equal(res.payload.items.length,1);assert.equal(res.payload.items[0].returnedToTalk,true);assert.equal(res.payload.items[0].disposition,'DISCARDED');
+});
+
 test('open lower year bound allows X5 2020 65k and ZIP conversions honor local zone',()=>{
   assert.equal(offerKind({make:'BMW',model:'X5',year:2020,miles:65000},{make:'BMW',model:'X5',yearMin:2019,maxMiles:70000}),'BATE');
   assert.equal(timezoneForZip('79901'),'America/Denver');assert.equal(timezoneForZip('46311'),'America/Chicago');

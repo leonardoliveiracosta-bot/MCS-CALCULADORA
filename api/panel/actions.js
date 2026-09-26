@@ -6,6 +6,7 @@ const {
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
 const vehicleCatalog = require('../../vehicle-catalog');
+const { localToUtc, timezoneForZip } = require('../../panel-lead');
 const {
   allRows, insert, isUuid, jsonBody, patchRows, recordMutation, requirePanel,
   rows, safeText, send, supabase
@@ -49,6 +50,20 @@ function declarationKey(field, value, valueJson = {}) {
 async function journeyContext(ctx, value) {
   if (!isUuid(value)) return null;
   return journeyExists(ctx, value);
+}
+
+async function journeyTimezone(ctx, journey) {
+  const contact = await rows(ctx, 'contacts', { select: 'location_text', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.contact_id, limit: '1' });
+  let zip = String(contact[0]?.location_text || '').match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || '';
+  if (!zip) {
+    const linked = await rows(ctx, 'journey_refs', { select: 'ref_code', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, order: 'created_at.asc', limit: '5' });
+    const references = [journey.reference_code, ...linked.map((item) => item.ref_code)].filter(Boolean);
+    for (const ref of references) {
+      const runs = await rows(ctx, 'calc_runs', { select: 'zip', 'dados->>ref': 'ilike.' + String(ref).toUpperCase(), order: 'created_at.desc', limit: '1' });
+      if (runs[0]?.zip) { zip = runs[0].zip; break; }
+    }
+  }
+  return timezoneForZip(zip);
 }
 
 async function recordMessageMenuEvent(ctx, journey, body, kind, at) {
@@ -291,7 +306,8 @@ async function actionFunnel(ctx, journey, body) {
 }
 
 async function actionPromise(ctx, journey, body) {
-  if (!isUuid(body.messageId) || !time(body.dueAt)) return send(ctx.res, 400, { error: 'PROMISE_INVALID' });
+  const dueValue = body.dueLocal ? localToUtc(String(body.dueLocal).slice(0, 16), await journeyTimezone(ctx, journey)) : body.dueAt;
+  if (!isUuid(body.messageId) || !time(dueValue)) return send(ctx.res, 400, { error: 'PROMISE_INVALID' });
   const message = await messageForJourney(ctx, journey.id, body.messageId);
   const dueText = safeText(body.dueText, 200, true);
   if (!message || message.direction !== 'MCS' || !dueText) return send(ctx.res, 400, { error: 'PROMISE_INVALID' });
@@ -300,13 +316,13 @@ async function actionPromise(ctx, journey, body) {
   const at = isoNow();
   const created = await insert(ctx, 'promises', {
     environment: ctx.environment, journey_id: journey.id, message_id: message.id,
-    promise_text: String(message.body_text).slice(0, 2000), due_at: new Date(time(body.dueAt)).toISOString(),
+    promise_text: String(message.body_text).slice(0, 2000), due_at: new Date(time(dueValue)).toISOString(),
     due_text: dueText, status: 'OPEN', created_at: at, created_by: ctx.panel.id
   });
   await recordMutation(ctx, {
     at, journeyId: journey.id, contactId: journey.contact_id, chatId: message.chat_id,
-    activityType: 'PROMISE_RECORDED', summary: 'Promessa registrada', metadata: { message_id: message.id, due_at: new Date(time(body.dueAt)).toISOString() },
-    entityType: 'promise', entityId: created[0].id, action: 'CREATE', after: { message_id: message.id, due_at: new Date(time(body.dueAt)).toISOString(), status: 'OPEN' }
+    activityType: 'PROMISE_RECORDED', summary: 'Promessa registrada', metadata: { message_id: message.id, due_at: new Date(time(dueValue)).toISOString() },
+    entityType: 'promise', entityId: created[0].id, action: 'CREATE', after: { message_id: message.id, due_at: new Date(time(dueValue)).toISOString(), status: 'OPEN' }
   });
   await recordMessageMenuEvent(ctx,journey,body,'PROMISE',isoNow());
   return send(ctx.res, 201, { promiseId: created[0].id, status: 'OPEN' });

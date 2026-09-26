@@ -67,12 +67,13 @@ module.exports = async (req, res) => {
         contactName: journey && journey.contact ? journey.contact.display_name : item.contactName
       };
     });
-    const grouped=groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).map((item)=>{const journey=journeyByRef.get(item.ref);return journey?{...item,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones}:item;});
+    const grouped=groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).map((item)=>{const journey=journeyByRef.get(item.ref);return journey?{...item,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents}:item;});
     const ordersByRef=new Map(grouped.map((item)=>[item.ref,item]));
     const arrival=(order)=>firstSimulation.get(order.ref)||firstCalculatorEvent.get(order.ref)||
       Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));
+    const returnedForRef=(ref)=>{const journey=journeyByRef.get(String(ref||'').trim().toUpperCase());const latest=journey&&latestByJourney.get(journey.id);return Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.occurred_at_local||latest.created_at)||0)>=cutoff);};
     const orders = grouped
-      .filter((item) => wanted.has(item.ref) || (item.pending && arrival(item)>=cutoff))
+      .filter((item) => wanted.has(item.ref) || returnedForRef(item.ref) || (item.pending && arrival(item)>=cutoff))
       .map((item) => ({
         ...item,
         kind: 'CALCULATOR_ORDER',
@@ -87,6 +88,7 @@ module.exports = async (req, res) => {
     const journeys = data.journeys
       .filter((item) => item.closed_reason !== 'WHATSAPP_LINKED')
       .filter((item) => {const ref=String(item.reference_code||'').trim().toUpperCase();if(wanted.has(ref))return true;
+        const latest=latestByJourney.get(item.id);const returned=(item.enabled===false||item.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff;if(returned)return true;
         const firstOrder=ordersByRef.get(ref);const times=data.messages.filter((message)=>message.journey_id===item.id).map((message)=>time(message.occurred_at_utc||message.created_at)).filter(Boolean);
         const arrived=firstOrder||times.length?Math.min(firstOrder?arrival(firstOrder):Infinity,times.length?Math.min(...times):Infinity):
           item.source==='CALCULATOR'?0:(time(item.created_at)||0);

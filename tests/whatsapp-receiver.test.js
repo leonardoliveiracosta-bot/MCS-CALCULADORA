@@ -66,3 +66,46 @@ test('failed normalization remains reprocessable and repeated raw event does not
   assert.match(sql,/source_kind='WHATSAPP_ZIP'/);assert.match(sql,/status text not null default 'PENDING'/);
   assert.match(sql,/date_trunc\('minute',x.occurred_at_utc\)=date_trunc\('minute',m.occurred_at_utc\)/);
 });
+
+test('item reprocessing uses an atomic claim and blocks a concurrent retry',async()=>{
+  const itemId='f6074aec-214c-4dc9-a50d-fdf2b749c141',rawId='0cd6cda8-7c93-455c-af10-f8e49b1d2f8a';
+  let status='ERROR',startedResolve,releaseResolve;
+  const started=new Promise((resolve)=>{startedResolve=resolve;});
+  const release=new Promise((resolve)=>{releaseResolve=resolve;});
+  const item={messageId:'wamid.retry',phone:'+13055550122',direction:'CUSTOMER',body:'oi',timestamp:'1790431200',refs:[],itemIndex:0};
+  const panelServer={
+    allRows:async()=>[],isUuid:(value)=>/^[0-9a-f-]{36}$/i.test(value),jsonBody:async(req)=>req.body,
+    requirePanel:async()=>({environment:'preview',config:{url:'u',secretKey:'k'},panel:{id:itemId}}),
+    send:(res,code,payload)=>res.status(code).json(payload),supabase:async()=>({}),
+    rows:async(_ctx,table,filters)=>{
+      if(table==='whatsapp_item_errors'){
+        if(filters.id)return [{id:itemId,raw_event_id:rawId,item_index:0,item_json:item,error_code:'ITEM_PROCESSING_FAILED',status,attempts:0,processing_started_at:null}];
+        return status==='RESOLVED'?[]:[{id:itemId}];
+      }
+      if(table==='whatsapp_raw_events')return [{id:rawId,payload_json:{}}];
+      return [];
+    },
+    patchRows:async(_ctx,table,filters,values,representation)=>{
+      if(table==='whatsapp_item_errors'&&filters.status==='eq.ERROR'){
+        if(status!=='ERROR')return [];
+        status='PROCESSING';return representation?[{id:itemId}]:[];
+      }
+      return representation?[{}]:[];
+    }
+  };
+  const handler=loadWith('api/panel/whatsapp.js',{
+    '../../panel-server':panelServer,
+    '../../whatsapp-receiver':{
+      normalizedItems:()=>({items:[item],itemErrors:[]}),
+      processItem:async()=>{startedResolve();await release;return {duplicate:false};},
+      processRaw:async()=>({}),resolveItemError:async()=>{status='RESOLVED';},saveItemError:async()=>{status='ERROR';}
+    }
+  });
+  const firstOut=response(),secondOut=response();
+  const first=handler({method:'POST',body:{action:'reprocess_item',id:itemId}},firstOut);
+  await started;
+  await handler({method:'POST',body:{action:'reprocess_item',id:itemId}},secondOut);
+  assert.equal(secondOut.code,409);assert.equal(secondOut.payload.error,'ITEM_ALREADY_PROCESSING');
+  releaseResolve();await first;
+  assert.equal(firstOut.code,200);assert.equal(status,'RESOLVED');
+});

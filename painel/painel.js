@@ -63,6 +63,8 @@
   const formatDate = (value) => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
   const formatMoney = (cents) => Number(cents) ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(Number(cents) / 100) : '—';
   const localInput = (date = new Date()) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const zonedInput = (date, timeZone) => Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:timeZone||'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).map((part)=>[part.type,part.value]));
+  const localInputForZone = (date, timeZone) => { const parts=zonedInput(date,timeZone); return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`; };
   const normalize = (value) => MCSParser.normalizeSender(value);
   const inferredContactName = (title) => MCSParser.clean(String(title || '').replace(/^WhatsApp Chat with\s+/i, '').replace(/^Conversa do WhatsApp com\s+/i, '')).slice(0, 160) || 'Contato sem nome';
   const setCount = (view, value) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => { node.textContent = String(value || 0); });
@@ -465,7 +467,8 @@
       row.append(retry); errors.append(row);
     });
     (data.ignored||[]).forEach((event)=>errors.append(element('div','queue-item',`ignorado: ${String(event.error_code||event.event_type||'campo desconhecido').replace(/^IGNORED:/,'')}`)));
-    (data.itemErrors||[]).forEach((event)=>errors.append(element('div','queue-item',`Item ${event.item_index+1} não processado: ${event.error_code}`)));
+    const itemErrorLabel=(code)=>({HISTORY_DECLINED:'Histórico não compartilhado pelo WhatsApp',PHONE_INVALID:'Telefone inválido',PHONE_AMBIGUOUS:'Telefone ligado a mais de um contato',MESSAGE_CONTENT_INVALID:'Mensagem inválida',ITEM_PROCESSING_FAILED:'Falha ao gravar a mensagem',PROCESSING_INTERRUPTED:'Processamento interrompido'})[code]||'Falha ao processar este item';
+    (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const retry=element('button','small','Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';retry.addEventListener('click',async()=>{retry.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'reprocess_item',id:event.id})});await loadWhatsApp();await loadQueue();}catch(error){retry.disabled=false;row.append(element('span','status error',error.message==='ITEM_ALREADY_PROCESSING'?'Este item já está sendo processado.':'Não foi possível processar este item.'));}});row.append(retry);errors.append(row);});
     const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
     (data.suggestions || []).forEach((item) => {
       const row = element('div', 'queue-item');
@@ -478,10 +481,10 @@
         } catch (_) { action.disabled = false; row.append(element('span', 'status error', 'Não foi possível registrar a escolha.')); } });
         row.append(action);
       }
-      const notLead=element('button','quiet small','Não é lead');notLead.type='button';notLead.addEventListener('click',async()=>{notLead.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:false})});await loadWhatsApp();await loadQueue();}catch(_){notLead.disabled=false;}});row.append(notLead);
+      const notLead=element('button','quiet small',item.sourceIsLead===false?'Restaurar lead':'Não é lead');notLead.type='button';notLead.addEventListener('click',async()=>{notLead.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:item.sourceIsLead===false})});await loadWhatsApp();await loadQueue();}catch(_){notLead.disabled=false;row.append(element('span','status error','Não foi possível atualizar este contato.'));}});row.append(notLead);
       suggestions.append(row);
     });
-    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const choose=element('button','small',candidate.name);choose.type='button';choose.addEventListener('click',async()=>{choose.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})});await loadWhatsApp();await loadQueue();}catch(_){choose.disabled=false;row.append(element('span','status error','Não foi possível ligar a mensagem.'));}});row.append(choose);});suggestions.append(row);});
+    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';choose.addEventListener('click',async()=>{choose.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})});await loadWhatsApp();await loadQueue();}catch(_){choose.disabled=false;row.append(element('span','status error','Não foi possível ligar a mensagem.'));}});const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:candidate.isLead===false})});await loadWhatsApp();await loadQueue();}catch(_){lead.disabled=false;}});group.append(choose,lead);row.append(group);});suggestions.append(row);});
   }
 
   async function loadQueue(render = true) {
@@ -598,6 +601,7 @@
   }
   function phoneDisplay(value){const raw=String(value||'');const digits=raw.replace(/\D/g,'');return digits.length===11&&digits[0]==='1'?`(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`:raw||'sem telefone';}
   function referencePhone(item){const ref=item.referenceCode||item.reference_code||item.ref||'—';const phone=(item.phones||[]).find((entry)=>entry.is_primary)||(item.phones||[]).find((entry)=>entry.is_current!==false)||(item.phones||[])[0];return `Ref ${ref} · 📞 ${phone?phoneDisplay(phone.phone_e164||phone.phone_raw):'sem telefone'}`;}
+  function referencePhoneClass(item){return 'identity-ref-phone'+((item.phones||[]).some((phone)=>phone.is_current!==false)?'':' muted');}
   function clientSort(items,mode){const missing=(v)=>v===null||v===undefined||v==='';const value=(x)=>Number(x.confirmed_total_ceiling_cents||x.budgetCents||x.budget_cents)||null;const stamp=(x)=>Date.parse(x.last_seen_at||x.updated_at||x.occurredAt||x.created_at||0)||0;const field=(x,kind)=>kind==='location'?(x.state||x.estado||x.contact?.location_text):kind==='vehicle'?(x.make||x.vehicleText||x.vehicle_text):value(x);return items.slice().sort((a,b)=>{if(mode==='recent'||mode==='oldest')return(stamp(b)-stamp(a))*(mode==='recent'?1:-1);const av=field(a,mode),bv=field(b,mode);if(missing(av))return missing(bv)?0:1;if(missing(bv))return -1;if(mode==='value_desc'||mode==='value_asc')return(av-bv)*(mode==='value_desc'?-1:1);return String(av).localeCompare(String(bv),'pt-BR');});}
 
   function identityHeader(item, options = {}) {
@@ -607,7 +611,7 @@
     wrap.append(element('span', 'avatar', initials(name)));
     const text = element('div');
     text.append(element('strong', '', name));
-    text.append(element('span','identity-ref-phone',referencePhone(item)));
+    text.append(element('span',referencePhoneClass(item),referencePhone(item)));
     const details = [item.vehicleText || item.vehicle_text || 'Veículo não informado', sourceLabel(item.source)].filter(Boolean).join(' · ');
     text.append(element('span', 'muted one-line', details));
     if (options.preview) text.append(element('span', 'one-line message-preview', options.preview));
@@ -743,12 +747,17 @@
   }
 
   function captureOrigin() {
+    const sorts = {};
+    ['today','entry','orders','qualification','manheim','records'].forEach((name) => { const select=$(name+'-sort'); if(select) sorts[name]=select.value; });
     return {
       view: currentView,
       scrollY: window.scrollY,
       orderFilter,
       orderPeriod,
-      orderLoaded: orderItems.length
+      orderLoaded: orderItems.length,
+      sorts,
+      searchQuery: $('global-search-input')?.value || '',
+      searchVisible: !$('search-results')?.classList.contains('hidden')
     };
   }
 
@@ -763,12 +772,17 @@
     currentDetail = null;
     orderFilter = target.orderFilter || orderFilter;
     orderPeriod = target.orderPeriod || orderPeriod;
+    Object.entries(target.sorts||{}).forEach(([name,value])=>{const select=$(name+'-sort');if(select&&[...select.options].some((option)=>option.value===value))select.value=value;});
     syncOrderControls();
     await switchPanel(target.view || 'today');
     if ((target.view || 'today') === 'orders') {
       while (orderItems.length < Number(target.orderLoaded || 0) && orderHasMore) {
         await loadOrders(true, 'orders', viewRequestVersion);
       }
+    }
+    if (target.searchVisible && target.searchQuery) {
+      $('global-search-input').value=target.searchQuery;
+      await globalSearch({preventDefault(){}});
     }
     requestAnimationFrame(() => window.scrollTo(0, Number(target.scrollY || 0)));
   }
@@ -922,27 +936,14 @@
     todayItems = items.slice();
     setCount('today', items.length);
     if (!items.length) return empty(root, 'Nenhum item nas últimas 24 horas.');
-    const mode = $('today-sort') ? $('today-sort').value : 'priority';
-    const stamp = (item) => Date.parse(item.occurredAt || item.created_at || item.waitingSince || 0) || 0;
-    const sorted = items.slice().sort((a, b) => {
-      const wanted = Number(Boolean(b.wantsCar)) - Number(Boolean(a.wantsCar));
-      if (wanted) return wanted;
-      if (mode === 'recent') return stamp(b) - stamp(a);
-      if (mode === 'oldest') return stamp(a) - stamp(b);
-      const promise = Number(Boolean(b.promiseToday)) - Number(Boolean(a.promiseToday));
-      if (promise) return promise;
-      const ready = Number(b.score || 0) - Number(a.score || 0);
-      if (ready) return ready;
-      return stamp(b) - stamp(a);
-    });
-    sorted.forEach((item) => {
+    items.forEach((item) => {
       const card = element('article', 'item-card');
       const head = element('div', 'item-head');
       if (item.kind === 'CALCULATOR_ORDER') {
         const title = element('div', 'identity');
         title.append(element('span', 'order-icon', orderIcon(item)));
         const txt = element('div');
-        txt.append(element('strong', '', item.contactName||`Pedido ${item.ref}`),element('span','identity-ref-phone',referencePhone(item)), element('span', 'muted one-line', displayModel(item.vehicleText) || 'Veículo não informado'));
+        txt.append(element('strong', '', item.contactName||`Pedido ${item.ref}`),element('span',referencePhoneClass(item),referencePhone(item)), element('span', 'muted one-line', displayModel(item.vehicleText) || 'Veículo não informado'));
         title.append(txt);
         head.append(title);
       } else {
@@ -985,7 +986,7 @@
       identity.append(element('span', 'order-icon', orderIcon(item)));
       const title = element('div');
       const heading = item.contactName || (item.ref || item.referenceCode ? `Ref ${item.ref || item.referenceCode}` : 'Pedido direto');
-      title.append(element('h3', '', heading),element('p','identity-ref-phone',referencePhone(item)), element('p', 'muted', displayModel(item.vehicleText) || 'Veículo não informado'));
+      title.append(element('h3', '', heading),element('p',referencePhoneClass(item),referencePhone(item)), element('p', 'muted', displayModel(item.vehicleText) || 'Veículo não informado'));
       identity.append(title);
       head.append(identity);
       card.append(head);
@@ -1175,7 +1176,7 @@
     const identity = element('div', 'identity');
     identity.append(element('span', 'order-icon', orderIcon(order)));
     const text = element('div');
-    text.append(element('strong', '', order.contactName||`Pedido ${order.ref}`),element('span','identity-ref-phone',referencePhone(order)), element('span', 'muted one-line', displayModel(order.vehicleText) || 'Pedido da calculadora'));
+    text.append(element('strong', '', order.contactName||`Pedido ${order.ref}`),element('span',referencePhoneClass(order),referencePhone(order)), element('span', 'muted one-line', displayModel(order.vehicleText) || 'Pedido da calculadora'));
     identity.append(text);
     head.append(identity);
     card.append(head);
@@ -1426,7 +1427,7 @@
     list.append(wrapper);
   }
 
-  function actionMessage(message, journeyId, reload, ref) {
+  function actionMessage(message, journeyId, reload, ref, customerTimezone) {
     const root = element('details', 'message-menu');
     const summary = element('summary', '', '⋯');
     summary.setAttribute('aria-label', 'Ações desta mensagem');
@@ -1496,8 +1497,9 @@
       const dueLabel = element('label', '', 'Prazo da promessa');
       const due = element('input');
       due.type = 'datetime-local';
-      due.value = localInput(new Date(Date.now() + 24 * 3600000));
+      due.value = localInputForZone(new Date(Date.now() + 24 * 3600000),customerTimezone);
       dueLabel.append(due);
+      dueLabel.append(element('small','muted','horário do cliente'));
       const dueTextLabel = element('label', '', 'Prazo em texto');
       const dueText = element('input');
       dueText.maxLength = 200;
@@ -1506,8 +1508,9 @@
       const promiseButton = element('button', 'small', 'Marcar como promessa');
       promiseButton.type = 'button';
       promiseButton.addEventListener('click', async () => {
-        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'promise', journeyId, ref, messageId: message.id, dueAt: new Date(due.value).toISOString(), dueText: dueText.value }) });
-        await reload();
+        promiseButton.disabled=true;
+        try { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'promise', journeyId, ref, messageId: message.id, dueLocal: due.value, dueText: dueText.value }) }); await reload(); }
+        finally { promiseButton.disabled=false; }
       });
       promiseForm.append(dueLabel, dueTextLabel, promiseButton);
       menu.append(promiseForm);
@@ -1717,8 +1720,10 @@
         const invert = element('button', 'quiet small', conversationChatIds.length === 1 ? 'Inverter remetentes desta conversa' : 'Inverter remetentes deste chat');
         invert.type = 'button';
         invert.addEventListener('click', async () => {
-          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'invert_senders', journeyId: id, chatId }) });
-          await reload();
+          if (invert.dataset.confirmed!=='true') { invert.dataset.confirmed='true'; invert.textContent='Confirmar inversão'; return; }
+          invert.disabled=true;
+          try { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'invert_senders', journeyId: id, chatId }) }); await reload(); }
+          finally { invert.disabled=false; }
         });
         senderTools.append(invert);
       });
@@ -1786,9 +1791,10 @@
         : `${item.name} · ${referencePhone(item)}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
       button.append(element('span', '', label), makeBadge(item.matchedBy));
       button.addEventListener('click', () => {
+        const origin=captureOrigin();
         root.classList.add('hidden');
-        if (item.kind === 'ORDER') return openDetail('order', item.ref);
-        if (item.journeyId) return openDetail('ficha', item.journeyId);
+        if (item.kind === 'ORDER') return openDetail('order', item.ref,{origin});
+        if (item.journeyId) return openDetail('ficha', item.journeyId,{origin});
       });
       root.append(button);
     });
