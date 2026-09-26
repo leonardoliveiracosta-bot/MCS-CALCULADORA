@@ -18,13 +18,17 @@ module.exports = async (req, res) => {
       return send(res, 200, { saved: true });
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
-    const [journeys, toggles, requests, saved] = await Promise.all([
+    const [journeys, toggles, requests, saved, refs] = await Promise.all([
       allRows(ctx, 'journeys', { select: 'id,reference_code,status,criteria_json,created_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment }),
       orders(ctx),
-      allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created', environment: 'eq.' + ctx.environment })
+      allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment })
     ]);
     const disabled = new Set(toggles.filter((row) => !row.enabled).map((row) => row.journey_id));
+    const closedRefs = new Set(journeys.filter((row) => row.status === 'ENCERRADO' || disabled.has(row.id)).map((row) => String(row.reference_code || '').trim()).filter(Boolean));
+    refs.filter((row)=>disabled.has(row.journey_id)||journeys.some((journey)=>journey.id===row.journey_id&&journey.status==='ENCERRADO'))
+      .forEach((row)=>closedRefs.add(String(row.ref_code).trim()));
     const active = new Map();
     for (const journey of journeys) {
       if (journey.status === 'ENCERRADO' || disabled.has(journey.id)) continue;
@@ -32,14 +36,14 @@ module.exports = async (req, res) => {
     }
     const cutoff = Date.now() - 30 * 86400000;
     for (const order of requests) {
-      if (order.disposition === 'DISCARDED' || Date.parse(order.occurredAt) < cutoff) continue;
+      if (order.disposition === 'DISCARDED' || closedRefs.has(order.ref) || Date.parse(order.occurredAt) < cutoff) continue;
       const key = order.ref;
       active.set(key, (active.get(key) || []).concat(order.wishlists || []));
     }
     const groups = new Map();
     const leadIds = new Set();
     for (const [lead, wishes] of active) for (const wish of wishes) {
-      if (!wish.make || !wish.model) continue;
+      if (!wish.make || !wish.model || /^(other brand|other model|outro modelo|outra marca)$/i.test(String(wish.make).trim()) || /^(other brand|other model|outro modelo|outra marca)$/i.test(String(wish.model).trim())) continue;
       leadIds.add(lead);
       const key = `${catalog.fold(wish.make)}|${catalog.modelTokens(wish.model,wish.make).join(' ')}`;
       if (!groups.has(key)) groups.set(key, { key, make: wish.make, model: wish.model, leads: new Set(), from: [], to: [], miles: [] });
@@ -54,8 +58,9 @@ module.exports = async (req, res) => {
     const result = [...groups.values()].sort((a,b) => b.leads.size - a.leads.size || a.key.localeCompare(b.key)).map((group,index) => {
       group.leads.forEach((lead) => seen.add(lead));
       const year = new Date().getUTCFullYear();
-      return { key: group.key, make: group.make, model: group.model, yearFrom: group.from.length ? Math.min(...group.from) : year - 9,
-        yearTo: group.to.length ? Math.max(...group.to) : year, milesMax: group.miles.length ? Math.max(...group.miles) : 100000,
+      const from=group.from.length?Math.min(...group.from):group.to.length?Math.min(...group.to)-9:year-9;
+      const to=group.to.length?Math.max(...group.to):group.from.length?Math.max(...group.from)+9:year;
+      return { key: group.key, make: group.make, model: group.model, yearFrom: Math.min(from,to), yearTo: Math.max(from,to), milesMax: group.miles.length ? Math.max(...group.miles) : 100000,
         leads: group.leads.size, searches: index + 1, covered: seen.size, percent: leadIds.size ? Math.round(seen.size / leadIds.size * 100) : 0, created: marked.get(group.key) === true };
     });
     return send(res, 200, { activeLeads: leadIds.size, groups: result });

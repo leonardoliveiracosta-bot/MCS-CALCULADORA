@@ -691,11 +691,11 @@ async function actionManheimArchive(ctx, body) {
       }, uploaded_at: at
     };
   });
-  if (vehicles.some((item) => !item)) return send(ctx.res, 400, { error: 'MANHEIM_ARCHIVE_INVALID' });
-  if (vehicles.length) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/manheim_vehicles?on_conflict=environment,upload_id,row_fingerprint', {
-    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(vehicles)
+  const valid = vehicles.filter(Boolean);
+  if (valid.length) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/manheim_vehicles?on_conflict=environment,upload_id,row_fingerprint', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(valid)
   });
-  return send(ctx.res, 200, { archived: vehicles.length });
+  return send(ctx.res, 200, { archived: valid.length, ignored: vehicles.length - valid.length });
 }
 
 

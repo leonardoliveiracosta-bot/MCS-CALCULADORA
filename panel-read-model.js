@@ -13,7 +13,7 @@ function flattenMessageLinks(links, messages) {
 async function operational(ctx) {
   const [journeys, contacts, phones, messageLinks, messages, checklist, promises, divergences, units, suppressions, toggleStates] = await Promise.all([
     allRows(ctx, 'journeys', {
-      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
+      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
       environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
     }),
     allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment }),
@@ -40,7 +40,7 @@ async function operational(ctx) {
 
 async function journeyExists(ctx, journeyId) {
   const found = await rows(ctx, 'journeys', {
-    select: 'id,contact_id,reference_code,stage,status,stage_frozen,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_text,next_action_at,next_action_text,next_action_missing_since,last_effective_contact_at,search_started_at,updated_at',
+    select: 'id,contact_id,reference_code,stage,status,stage_frozen,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,next_action_at,next_action_text,next_action_missing_since,last_effective_contact_at,search_started_at,updated_at',
     environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1'
   });
   if (!found[0]) return null;

@@ -866,10 +866,10 @@
     const mode = $('today-sort') ? $('today-sort').value : 'priority';
     const stamp = (item) => Date.parse(item.occurredAt || item.created_at || item.waitingSince || 0) || 0;
     const sorted = items.slice().sort((a, b) => {
-      if (mode === 'recent') return stamp(b) - stamp(a);
-      if (mode === 'oldest') return stamp(a) - stamp(b);
       const wanted = Number(Boolean(b.wantsCar)) - Number(Boolean(a.wantsCar));
       if (wanted) return wanted;
+      if (mode === 'recent') return stamp(b) - stamp(a);
+      if (mode === 'oldest') return stamp(a) - stamp(b);
       const promise = Number(Boolean(b.promiseToday)) - Number(Boolean(a.promiseToday));
       if (promise) return promise;
       const ready = Number(b.score || 0) - Number(a.score || 0);
@@ -1155,6 +1155,7 @@
     renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas.'; });
     setCount('manheim', data.upload && data.upload.lead_count || 0);
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.lead_count} lead(s) · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
+    if(data.historyIncomplete)$('manheim-summary').textContent += ' · reenviar CSVs dos últimos 60 dias para completar o histórico';
     const root = $('manheim-results');
     root.replaceChildren();
     if (!manheimMatches.length) return empty(root, 'Nenhum carro compatível no último upload.');
@@ -1240,6 +1241,7 @@
     const vehicles = [];
     const headerGroups = [];
     const mappings = [];
+    const parsedCounts = [];
     for (const file of selected) {
       if (file.size > MAX_TEXT) throw new Error('MANHEIM_FILE_TOO_LARGE');
       let contents;
@@ -1254,8 +1256,9 @@
       }
       headerGroups.push(parsed.headers);
       mappings.push(mapping.fields);
-      vehicles.push(...MCSManheim.normalizeRows(parsed, mapping));
+      const normalized=MCSManheim.normalizeRows(parsed, mapping);parsedCounts.push({ignored:parsed.rows.length-normalized.length});vehicles.push(...normalized);
     }
+    const ignoredRows = headerGroups.reduce((sum,_,index)=>sum+(parsedCounts[index]?.ignored||0),0);
     const matches = [];
     for (const journey of manheimJourneys) {
       const enabled = journey.enabled !== false;
@@ -1297,16 +1300,18 @@
     if (result.uploadId) {
       const seen = new Set();
       const archive = vehicles.filter((vehicle) => { const id = MCSManheim.fingerprint(vehicle); if (seen.has(id)) return false; seen.add(id); return true; });
+      let archived=0, ignored=ignoredRows;
       for (let index = 0; index < archive.length; index += 100) {
-        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_archive', uploadId: result.uploadId,
+        const saved=await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_archive', uploadId: result.uploadId,
           vehicles: archive.slice(index, index + 100).map((vehicle) => ({ fingerprint: MCSManheim.fingerprint(vehicle), vehicle: {
             vin: vehicle.vin, year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim,
             miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
             saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents
           } })) }) });
+        archived+=saved.archived||0;ignored+=saved.ignored||0;
       }
+      $('manheim-status').textContent = `${archived} carros arquivados, ${ignored} ignorados`;
     }
-    $('manheim-status').textContent = `${result.matchedVehicleCount} combinação(ões) compatível(is) em ${result.leadCount} lead(s).`;
     await loadCurrent();
     await refreshCounters();
   }

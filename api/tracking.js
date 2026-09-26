@@ -1,5 +1,5 @@
 'use strict';
-const { SERVER_ENVIRONMENT, configuration, jsonBody, patchRows, rows, insert, send } = require('../panel-server');
+const { SERVER_ENVIRONMENT, configuration, jsonBody, rows, supabase, send } = require('../panel-server');
 const { orders } = require('../panel-lead');
 function publicLocation(value) {
   const source = String(value || '').trim();
@@ -21,18 +21,15 @@ module.exports = async (req, res) => {
     if (journey && (toggle && !toggle.enabled || journey.status === 'ENCERRADO')) return send(res, 200, { closed: true });
     if (req.method === 'POST') {
       const body = await jsonBody(req, 4096);
-      const unit = journey && (await rows(ctx, 'units', { select: 'id,details_json,vehicle_text,status', environment: 'eq.' + SERVER_ENVIRONMENT, journey_id: 'eq.' + journey.id, id: 'eq.' + body.unitId, limit: '1' }))[0];
-      if (!unit || !['WANT','DECLINE'].includes(body.response)) return send(res, 400, { error: 'RESPONSE_INVALID' });
-      if (unit.status === 'ACCEPTED' || unit.status === 'DECLINED') return send(res, 200, { accepted: true });
-      if (unit.status !== 'PRESENTED' && unit.status !== 'UNDER_REVIEW') return send(res, 409, { error: 'UNIT_UNAVAILABLE' });
-      const at = new Date().toISOString();
-      await patchRows(ctx, 'units', { environment: 'eq.' + SERVER_ENVIRONMENT, id: 'eq.' + unit.id }, { status: body.response === 'WANT' ? 'ACCEPTED' : 'DECLINED', decline_reason: body.response === 'DECLINE' ? 'Not for me' : null, last_customer_response_at: at, updated_at: at });
-      await insert(ctx, 'lead_events', { environment: SERVER_ENVIRONMENT, ref_code: track.ref_code, journey_id: journey.id, unit_id: unit.id, event_type: body.response === 'WANT' ? 'WANT_CAR' : 'NOT_FOR_ME', detail_json: { vehicle: unit.vehicle_text }, occurred_at: at }, false);
-      return send(res, 200, { accepted: true });
+      if (!journey || !['WANT','DECLINE'].includes(body.response)) return send(res,400,{error:'RESPONSE_INVALID'});
+      const result=await supabase(config.url,config.secretKey,'/rest/v1/rpc/panel_customer_unit_response',{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:SERVER_ENVIRONMENT,p_code:code,p_unit:body.unitId,p_response:body.response})
+      });
+      return send(res,200,result);
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const contacts = journey ? await rows(ctx, 'contacts', { select: 'display_name', environment: 'eq.' + SERVER_ENVIRONMENT, id: 'eq.' + journey.contact_id, limit: '1' }) : [];
-    const fallback = !contacts[0]?.display_name ? (await orders(ctx)).find((item) => item.ref === String(track.ref_code).trim()) : null;
+    const fallback = !contacts[0]?.display_name ? (await orders(ctx,String(track.ref_code).trim())).find((item) => item.ref === String(track.ref_code).trim()) : null;
     const units = journey ? await rows(ctx, 'units', { select: 'id,vehicle_text,details_json,status,presented_at', environment: 'eq.' + SERVER_ENVIRONMENT, journey_id: 'eq.' + journey.id, order: 'presented_at.desc' }) : [];
     const safeUnits = units.filter((unit) => unit.status !== 'WITHDRAWN').map((unit) => {
       const d = unit.details_json || {};

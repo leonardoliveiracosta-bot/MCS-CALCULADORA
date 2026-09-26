@@ -15,12 +15,30 @@
   const elapsed = (value) => { const hours=(Date.now()-Date.parse(value))/3600000; return hours < 1 ? `${Math.max(1,Math.round(hours*60))} min` : hours < 48 ? `${Math.floor(hours)} h` : `${Math.floor(hours/24)} dias`; };
   const safeString = (value) => value === null || value === undefined ? '' : String(value);
   function model(wish) { const make=safeString(wish.make);let name=safeString(wish.model);if(/^not sure$/i.test(name))name='';if(/^other model$/i.test(name))name='Outro modelo';return make&&name.toLowerCase().startsWith(make.toLowerCase()+' ') ? name : [make,name].filter(Boolean).join(' '); }
+  const moneyLabel=(value)=>fmt(Number(value));
+  function itemLabel(item,tz) {
+    const v=item.value;
+    if(item.type==='call_result')return ({ANSWERED:'Atendeu',NO_ANSWER:'Não atendeu',LATER:'Pediu para ligar depois',IN_PERSON:'Conversa presencial',DEPOSIT:'Vai pagar o depósito'})[v]||String(v);
+    if(item.type==='checklist')return 'Ponto '+item.point+' — OK';
+    if(item.type==='budget')return moneyLabel(v)+' de teto total confirmado';
+    if(item.type==='payment')return paymentLabel[v]||String(v);
+    if(item.type==='deadline')return deadlineLabel[v]||String(v);
+    if(item.type==='stage')return ({NOVO:'Novo',RESPONDIDO:'Respondido',EM_BUSCA:'Em busca',DECIDINDO:'Decidindo',QUALIFICADO:'Qualificado'})[v]||String(v);
+    if(item.type==='wishlist')return (item.finalWishes||[]).map((car,index)=>{
+      const years=car.yearMin&&car.yearMax?`${car.yearMin}–${car.yearMax}`:car.yearMin?`a partir de ${car.yearMin}`:car.yearMax?`até ${car.yearMax}`:'';
+      return `${model(car)} ${years} ${car.maxMiles?'até '+Number(car.maxMiles).toLocaleString('pt-BR')+' mi':''} (preferência ${index+1})`.replace(/\s+/g,' ').trim();
+    }).join(' · ');
+    if(item.type==='phone')return `Telefone ${v.number||''} — ${v.owner||'contato'}`;
+    if(['promise','return'].includes(item.type))return `${v.text||''} · ${date(item.dueUtc,tz)} (horário do cliente)`;
+    if(item.type==='disable')return `Sugerir desligar: ${v.reason||''}`;
+    return String(v||'');
+  }
   function timelineRows(data) {
     const record=data.record||{};
     const undone=new Set((record.interactions||[]).filter((item)=>item.detail_text==='Desfeito').map((item)=>'interaction:'+item.id));
     const represented=new Set((data.events||[]).map((item)=>item.detail_json?.interactionId).filter(Boolean).map((id)=>'interaction:'+id));
     const entries=[...(record.timeline||[]).filter((item)=>!undone.has(item.id)&&!represented.has(item.id)).map((item)=>({at:item.occurredAt,text:item.label||item.body_text||'Mensagem'})),
-      ...(data.notes||[]).map((item)=>({at:item.created_at,text:`Anotação: ${item.body_text} · ${(item.distributed_json||[]).length} item(ns) distribuído(s)`})),
+      ...(data.notes||[]).map((item)=>({at:item.created_at,text:`Anotação: ${item.body_text}${(item.distributed_json||[]).length?' · Distribuído: '+item.distributed_json.map((part)=>({call_result:'Resultado',checklist:'Checklist '+part.point,budget:'Teto total',payment:'Pagamento',deadline:'Prazo',wishlist:'Lista de desejo',phone:'Telefone',promise:'Promessa',return:'Retorno',stage:'Etapa',disable:'Sugestão'}[part.type]||part.type)+': '+itemLabel(part,data.timezone)).join('; '):''}`})),
       ...(data.events||[]).map((item)=>({at:item.occurred_at,text:item.event_type==='EXTRA_PHONE'?`Telefone extra (${item.detail_json?.owner||'contato'}): ${item.detail_json?.number}`:item.event_type==='DISABLE_SUGGESTED'?`Sugestão de desligar: ${item.detail_json?.reason||'sem motivo'}`:item.detail_json?.label||item.detail_json?.vehicle||item.event_type})),
       ...(data.order?.simulations||[]).map((item)=>({at:item.occurredAt,text:`Simulação ${item.logicalMode==='VALOR'?'por valor':'carro ideal'} · ${item.vehicleText||'sem carro'}`}))];
     if (record.contact?.notes) entries.push({at:record.created_at,text:`Nota antiga: ${record.contact.notes}`});
@@ -31,7 +49,12 @@
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     root.replaceChildren(); root.classList.add('lead-detail');
     const record=data.record||{},order=data.order||{},track=data.track||{},ref=data.ref,journeyId=record.id;
-    const api=async(action,fields={})=>request('/api/panel/lead',{method:'POST',body:JSON.stringify({action,ref,journeyId,...fields})});
+    let activeUndo=null;
+    const api=async(action,fields={})=>{
+      const result=await request('/api/panel/lead',{method:'POST',body:JSON.stringify({action,ref,journeyId,...fields})});
+      if(action!=='undo'&&action!=='quick'&&activeUndo){activeUndo.remove();activeUndo=null;}
+      return result;
+    };
     const reload=async()=>{const position=window.scrollY; await onChanged(); requestAnimationFrame(()=>window.scrollTo(0,position));};
     const failed=(card,text)=>append(card,'p','status error',text);
     const title=record.contact?.display_name||order.contactName||'Contato sem nome';
@@ -40,9 +63,7 @@
     const header=append(heading,'div','lead-header');
     append(header,'div','lead-score',data.score===null?'—':data.score);
     const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — Ref ${ref}`);
-    const location=append(identity,'p','muted',`${data.state?.uf||'Local não identificado'}${data.zip?` · ZIP ${data.zip}`:''}`);
-    if(data.zip && data.state) fetch('https://api.zippopotam.us/us/'+encodeURIComponent(data.zip),{signal:AbortSignal.timeout(3500)})
-      .then((response)=>response.ok?response.json():null).then((place)=>{const city=place?.places?.[0]?.['place name'];if(city&&location.isConnected)location.textContent=`${city}, ${data.state.uf} (ZIP ${data.zip})`;}).catch(()=>{});
+    append(identity,'p','muted',`${data.city?data.city+', ':''}${data.state?.uf||'Local não identificado'}${data.zip?` · ZIP ${data.zip}`:''}`);
     const right=append(header,'div','lead-head-right');
     append(right,'strong','lead-clock',new Intl.DateTimeFormat('pt-BR',{timeZone:data.timezone,hour:'2-digit',minute:'2-digit'}).format(new Date()));
     append(right,'span','muted',` horário do cliente · ${data.goodHour?'bom horário para ligar':'fora de horário'}`);
@@ -59,21 +80,25 @@
     const wishes=section(trio,2,'O QUE ELE QUER');
     if(!data.wishes.length) append(wishes,'p','muted','Carro ainda não informado.');
     data.wishes.forEach((wish,index)=>row(wishes,`${index+1}. ${model(wish)}`,`${wish.yearMin||'—'}–${wish.yearMax||'—'}`,wish.maxMiles?`até ${Number(wish.maxMiles).toLocaleString('en-US')} mi`:'milhas não informadas'));
-    append(wishes,'p','muted',`Teto: ${cents(data.ceilingCents)} · ${data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':'transferir'}`);
+    append(wishes,'p','muted',`Lance máximo (calculadora): ${cents(data.maxBidCents)}`);
+    append(wishes,'p','muted',`Teto total confirmado: ${cents(data.totalCeilingCents)}`);
+    append(wishes,'p','muted',`${data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':'transferir'}`);
+    const ceilingForm=append(wishes,'div','lead-actions');const ceilingInput=append(ceilingForm,'input');ceilingInput.type='number';ceilingInput.min='1';ceilingInput.step='1';ceilingInput.placeholder='Teto total confirmado (US$)';ceilingInput.value=data.totalCeilingCents?data.totalCeilingCents/100:'';
+    button(ceilingForm,'Confirmar teto total',async()=>{await api('total_ceiling',{amount:ceilingInput.value});await reload();});
     const reality=section(trio,3,'REALIDADE (SÓ PARA VOCÊ)');
-    append(reality,'p','',`Lance realista: ${data.bid===null?(data.ceilingCents?'sem lance viável no teto':'teto não informado'):fmt(data.bid)}`);
+    append(reality,'p','',`Lance realista: ${data.bid===null?(data.totalCeilingCents?'sem lance viável no teto':'lance máximo não informado'):fmt(data.bid)}`);
     if(!data.typical.length) append(reality,'p','muted','MMR típico: sem referência');
     data.typical.forEach((wish)=>{ append(reality,'p','muted',`MMR típico ${model(wish)}: ${wish.mmrCents?cents(wish.mmrCents):'sem referência'}`);
       if(wish.mmrCents&&data.bid!==null&&wish.mmrCents>data.bid*100) reality.append(badge(`Teto curto em ~${cents(wish.mmrCents-data.bid*100)}`,'yellow')); });
     append(reality,'p','muted','Cabe no teto: '+(data.fits.length?data.fits.map((car)=>`${car.make} ${car.model} ${car.year} · ${Number(car.miles).toLocaleString('en-US')} mi`).join(' · '):'sem combinação nos CSVs'));
     const numbers=section(trio,4,'NÚMEROS PRONTOS');
     if(data.costs){const c=data.costs;row(numbers,'Depósito',fmt(c.deposito));row(numbers,'Taxa de serviço',fmt(c.servico));row(numbers,'Taxa do leilão + fixas',fmt(c.gLeilao));row(numbers,'Tax, title & registration',fmt(c.gTaxReg));row(numbers,'Total estimado',fmt(c.totalProjetado));}
-    else append(numbers,'p','muted',data.ceilingCents?'O teto não cobre o lance mínimo e os custos.':'Teto ainda não informado.');
+    else append(numbers,'p','muted',data.totalCeilingCents?'O teto não cobre o lance mínimo e os custos.':'Lance máximo ainda não informado.');
 
     const second=append(root,'div','lead-grid lead-three');
     const questions=section(second,5,'PERGUNTAR NA LIGAÇÃO');
     data.checklist.filter((point)=>point.status!=='COMPLETE').forEach((point)=>append(questions,'p','',`${point.point_number}. ${point.point_label}?`));
-    if(data.typical.some((wish)=>wish.mmrCents>data.bid*100)) append(questions,'p','',`O teto de ${cents(data.ceilingCents)} é final ou tem margem?`);
+    if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)) append(questions,'p','',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);
     if(!questions.querySelector('p'))append(questions,'p','muted','Checklist completo.');
     const offers=section(second,6,'O QUE OFERECER');
     if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível dentro do lance realista.');
@@ -81,7 +106,8 @@
       append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${Number(car.miles).toLocaleString('en-US')} mi · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
       button(line,'Apresentar',async()=>{await api('present',{fingerprint:car.rowFingerprint});await reload();}); });
     const context=section(second,7,'CONTEXTO RÁPIDO');
-    const promises=[...(record.promises||[]),...(data.promises||[])].filter((promise)=>promise.status==='OPEN');
+    const allPromises=[...(record.promises||[]),...(data.promises||[])];
+    const promises=allPromises.filter((promise)=>promise.status==='OPEN');
     const clientDay=(value)=>new Intl.DateTimeFormat('en-CA',{timeZone:data.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
     promises.forEach((promise)=>{const line=append(context,'p','',`Prometi: ${promise.promise_text}`);const due=clientDay(promise.due_at),today=clientDay(Date.now());if(due<=today)line.append(badge(due<today?'vencida':'vence hoje',due<today?'red':'yellow'));});
     append(context,'p','',`Já apresentados: ${record.units?.length?record.units.map((unit)=>unit.vehicle_text).join(' · '):'nenhum carro'}`);
@@ -91,32 +117,43 @@
     const note=section(root,8,'ANOTAÇÕES DA LIGAÇÃO','lead-highlight');
     append(note,'p','muted','Escreva do seu jeito, em português, durante ou depois da ligação.');
     const textarea=append(note,'textarea','lead-note');textarea.placeholder='Anote a conversa aqui…';textarea.maxLength=12000;
+    const draftKey='mcs_lead_draft_'+ref;textarea.value=sessionStorage.getItem(draftKey)||'';
+    textarea.addEventListener('input',()=>sessionStorage.setItem(draftKey,textarea.value));
     const noteStatus=append(note,'p','status','');const review=append(note,'div','lead-review');
     button(note,'Distribuir anotação',async()=>{
       const body=textarea.value.trim();if(!body)return;
-      noteStatus.textContent='Distribuindo…';review.replaceChildren();
+      noteStatus.textContent='Distribuindo…';review.replaceChildren();const confirmationKey=crypto.randomUUID();
       try{
-        const proposal=await request('/api/panel/notes/distribute',{method:'POST',body:JSON.stringify({ref,journeyId,note:body})});
+        const proposal=await request('/api/panel/notes/distribute',{method:'POST',body:JSON.stringify({ref,journeyId,note:body,fallbackKey:confirmationKey})});
+        if(proposal.saved){sessionStorage.removeItem(draftKey);textarea.value='';noteStatus.textContent=proposal.message;return;}
         noteStatus.textContent='Vai para:';
         const selected=[];
         proposal.items.forEach((item,index)=>{
-          const line=append(review,'label','lead-route');const input=append(line,'input');input.type='checkbox';input.checked=true;selected.push(input);
+          const line=append(review,'label','lead-route');const input=append(line,'input');input.type='checkbox';input.checked=!item.manualReview;selected.push(input);
           append(line,'strong','',item.type==='checklist'?`Checklist ${item.point} → OK`:({call_result:'Resultado da ligação',budget:'Teto',payment:'Pagamento',deadline:'Prazo',wishlist:'Lista de desejo',phone:'Telefones',promise:'Promessa',return:'Retorno',stage:'Etapa operacional',disable:'Desligar lead'}[item.type]||item.type));
-          const detail=append(line,'div','lead-route-value');append(detail,'span','',typeof item.value==='object'?JSON.stringify(item.value):item.value);append(detail,'small','muted',`“${item.evidence}”`);
+          const detail=append(line,'div','lead-route-value');append(detail,'span','',itemLabel(item,data.timezone));append(detail,'small','muted',`“${item.evidence}”`);if(item.manualReview)append(detail,'span','lead-badge yellow','confirmar manualmente');
         });
         const actions=append(review,'div','lead-actions');
-        button(actions,'Confirmar',async()=>{await api('note',{note:body,proposal:proposal.items,signature:proposal.signature,selected:selected.flatMap((input,index)=>input.checked?[index]:[])});await reload();},'small');
+        button(actions,'Confirmar',async()=>{await api('note',{note:body,proposal:proposal.items,signature:proposal.signature,selected:selected.flatMap((input,index)=>input.checked?[index]:[]),confirmationKey});sessionStorage.removeItem(draftKey);await reload();},'small');
         button(actions,'Editar anotação',()=>{review.replaceChildren();noteStatus.textContent='';});
-      }catch(_){await api('note',{note:body,proposal:[],selected:[]});review.replaceChildren();noteStatus.textContent='Anotação salva; distribuição indisponível agora — tentar de novo';}
+      }catch(_){await api('note',{note:body,proposal:[],selected:[],confirmationKey});sessionStorage.removeItem(draftKey);textarea.value='';review.replaceChildren();noteStatus.textContent='Anotação salva; distribuição indisponível agora — tentar de novo';}
     },'small');
 
     const quick=section(root,9,'RESULTADO RÁPIDO');const quickActions=append(quick,'div','lead-actions');
-    function undo(event){const toast=append(document.body,'div','undo-toast');append(toast,'span','','Resultado registrado.');
-      button(toast,'Desfazer',async()=>{await api('undo',{eventId:event.eventId});toast.remove();await reload();});setTimeout(()=>toast.remove(),10000);}
-    [['Atendeu','ANSWERED'],['Não atendeu','NO_ANSWER'],['Conversa presencial','IN_PERSON'],['Vai pagar o depósito','DEPOSIT']].forEach(([label,type])=>button(quickActions,label,async()=>{const event=await api('quick',{type});if(!event.duplicate)undo(event);await reload();}));
+    function undo(event){if(activeUndo)activeUndo.remove();const toast=append(document.body,'div','undo-toast');activeUndo=toast;append(toast,'span','','Resultado registrado.');
+      button(toast,'Desfazer',async()=>{await api('undo',{eventId:event.eventId});toast.remove();await reload();});setTimeout(()=>{toast.remove();if(activeUndo===toast)activeUndo=null;},10000);}
+    async function quickResult(type,dueLocal){
+      const key='mcs_quick_'+ref+'_'+type+'_'+(dueLocal||'');
+      let operationId=sessionStorage.getItem(key);
+      if(!operationId){operationId=crypto.randomUUID();sessionStorage.setItem(key,operationId);}
+      const event=await api('quick',{type,dueLocal,operationId});sessionStorage.removeItem(key);
+      if(event.duplicate)alert('Resultado já registrado.');else undo(event);
+      await reload();
+    }
+    [['Atendeu','ANSWERED'],['Não atendeu','NO_ANSWER'],['Conversa presencial','IN_PERSON'],['Vai pagar o depósito','DEPOSIT']].forEach(([label,type])=>button(quickActions,label,()=>quickResult(type)));
     const later=button(quickActions,'Pediu para ligar depois',()=>{laterForm.hidden=false;});
-    const laterForm=append(quick,'div','lead-actions');laterForm.hidden=true;const laterDate=append(laterForm,'input');laterDate.type='datetime-local';
-    button(laterForm,'Registrar retorno',async()=>{if(!laterDate.value)return;const event=await api('quick',{type:'LATER',dueLocal:laterDate.value});if(!event.duplicate)undo(event);await reload();},'small');
+    const laterForm=append(quick,'div','lead-actions');laterForm.hidden=true;const laterDate=append(laterForm,'input');laterDate.type='datetime-local';append(laterForm,'small','muted','horário do cliente');
+    button(laterForm,'Registrar retorno',async()=>{if(laterDate.value)await quickResult('LATER',laterDate.value);},'small');
 
     const tracking=section(root,10,'PÁGINA DO CLIENTE','lead-highlight');
     const steps=append(tracking,'div','lead-steps');stageNames.forEach((label,index)=>button(steps,label,async()=>{
@@ -134,7 +171,7 @@
     const sort=append(controls,'select');[['recent','Mais recentes'],['oldest','Mais antigas']].forEach(([value,label])=>sort.append(new Option(label,value)));
     sort.value=localStorage.getItem('mcs_conversation_sort')||'recent';
     const filter=append(controls,'select');[['all','Tudo'],['CUSTOMER','Cliente'],['MCS','MCS']].forEach(([value,label])=>filter.append(new Option(label,value)));
-    if(journeyId){[...new Set((record.conversation||[]).map((message)=>message.chat_id).filter(Boolean))].forEach((chatId)=>button(controls,'Inverter remetentes desta conversa',async()=>{await api('manual',{panelAction:'invert_senders',payload:{chatId}});await reload();}));}
+    if(journeyId){[...new Set((record.conversation||[]).map((message)=>message.chat_id).filter(Boolean))].forEach((chatId)=>button(controls,'Inverter remetentes desta conversa',async()=>{if(!window.confirm('Inverter os remetentes desta conversa?'))return;await api('manual',{panelAction:'invert_senders',payload:{chatId}});await reload();}));}
     const thread=append(conversation,'div','lead-thread');const messages=record.conversation||[];
     const draw=()=>{thread.replaceChildren();let list=messages.filter((message)=>filter.value==='all'||message.direction===filter.value);if(sort.value==='recent')list=list.slice().reverse();
       list.forEach((message)=>{const bubble=append(thread,'article','lead-message '+(message.direction==='MCS'?'m':'c'));
@@ -151,7 +188,7 @@
     append(history,'h3','','Retornos');
     (record.returns||[]).filter((item)=>item.status==='OPEN').forEach((item)=>{const line=row(history,item.text,date(item.dueAt,data.timezone));button(line,'Concluir',async()=>{await api('manual',{panelAction:'return_update',payload:{returnKind:item.kind,returnId:item.kind==='PROMISE'?item.id:null,operation:'COMPLETE'}});await reload();});});
     if(!record.next_action_at){const form=append(history,'div','lead-actions');const task=append(form,'input');task.placeholder='Retorno manual';const due=append(form,'input');due.type='datetime-local';
-      button(form,'Adicionar retorno',async()=>{await api('manual',{panelAction:'next_action',payload:{operation:'CREATE',text:task.value,at:new Date(due.value).toISOString()}});await reload();});}
+      append(form,'small','muted','horário do cliente');button(form,'Adicionar retorno',async()=>{await api('manual',{panelAction:'next_action',payload:{operation:'CREATE',text:task.value,atLocal:due.value}});await reload();});}
     append(history,'h3','','Unidades apresentadas');
     (record.units||[]).forEach((unit)=>{const line=append(history,'div','lead-unit');append(line,'strong','',unit.vehicle_text);append(line,'p','muted',`${date(unit.presented_at,data.timezone)} · ${unit.status}`);
       const fields=append(line,'div','lead-actions');const value=append(fields,'input');value.type='number';value.placeholder='Retail comparison (US$)';value.value=unit.details_json?.retailValue||'';
@@ -163,7 +200,7 @@
     stage.value=record.stage||'NOVO';button(history,'Salvar etapa',async()=>{await api('manual',{panelAction:'set_funnel',payload:{value:stage.value}});await reload();});
     append(history,'h3','','Simulações da Ref');
     (order.simulations||[]).forEach((simulation)=>row(history,simulation.logicalMode==='VALOR'?'Por valor':'Carro ideal',simulation.vehicleText||'Veículo não informado',cents(simulation.budgetCents)));
-    append(history,'h3','','Promessas');promises.forEach((promise)=>row(history,promise.promise_text,date(promise.due_at,data.timezone)));
+    append(history,'h3','','Promessas');allPromises.forEach((promise)=>{const line=row(history,promise.promise_text,date(promise.due_at,data.timezone),({OPEN:'Aberta',FULFILLED:'Concluída',CANCELLED:'Cancelada'})[promise.status]||promise.status);if(promise.status==='OPEN')button(line,'Concluir',async()=>{await api('promise_complete',{promiseId:promise.id,kind:promise.message_id?'OLD':'NEW'});await reload();});});
     append(history,'h3','','Linha do tempo');const timeline=append(history,'ul','lead-timeline');timelineRows(data).forEach((item)=>append(timeline,'li','',`${date(item.at,data.timezone)} — ${item.text}`));
     const power=append(history,'div','lead-actions');
     if(record.enabled===false)button(power,'Ligar lead',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:true}});await reload();});

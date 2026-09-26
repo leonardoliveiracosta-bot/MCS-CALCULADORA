@@ -2271,7 +2271,7 @@ function sessaoId(){
 
 var ultimoEnvio = "";
 function registrar(evento){
-  if (!LOG_URL) return;
+  if (!LOG_URL || !/^(www\.)?mycarscout\.net$/i.test(location.hostname)) return;
   try {
     var d = lerForm();
     var r = null;
@@ -2331,7 +2331,7 @@ function registrar(evento){
 }
 
 function registrarBusca(d,canal){
-  if (!LOG_URL || !d) return;
+  if (!LOG_URL || !d || !/^(www\.)?mycarscout\.net$/i.test(location.hostname)) return;
   try {
     var linha = {
       sid:FIND_SID,evento:"busca",canal:canal||null,quando:new Date().toISOString(),idioma:LANG,

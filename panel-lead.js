@@ -9,7 +9,16 @@ const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-
 function timezoneForZip(zip) {
   const location = calc.zipEstado(zip);
   const state = location && location.uf;
-  const prefix = Number(String(zip || '').slice(0, 3));
+  const code=String(zip||'').replace(/\D/g,'').slice(0,5);
+  const prefix = Number(code.slice(0, 3));
+  if (prefix >= 798 && prefix <= 799) return 'America/Denver';
+  const michiganCentral=new Set(['49801','49802','49812','49815','49821','49831','49834','49845','49847','49848','49852','49858','49863','49870','49873','49874','49876','49877','49881','49886','49887','49892','49893','49896','49902','49903','49911','49915','49920','49927','49935','49938','49947','49959','49964','49968','49969']);
+  if (michiganCentral.has(code)) return 'America/Chicago';
+  if (prefix===464 || (prefix===463 && !['46340','46341','46345','46346','46348','46350','46352','46360','46365','46371','46382','46390','46391'].includes(code))) return 'America/Chicago';
+  if ([835,838].includes(prefix)) return 'America/Los_Angeles';
+  if (prefix === 979) return 'America/Denver';
+  if (state==='KS' && prefix===677 || state==='NE' && prefix===693 || state==='SD' && prefix===577 ||
+      state==='ND' && ['58601','58602','58620','58621','58622','58623','58625','58626','58627','58630','58631','58632','58634','58636','58638','58639','58640','58641','58642','58643','58644','58645','58646','58647','58649','58650','58651','58652','58653','58654','58655','58656'].includes(code)) return 'America/Denver';
   if (state === 'FL' && prefix >= 324 && prefix <= 325) return 'America/Chicago';
   if (['CA','WA','OR','NV'].includes(state)) return 'America/Los_Angeles';
   if (['AZ','CO','NM','MT','UT','WY','ID'].includes(state)) return state === 'AZ' ? 'America/Phoenix' : 'America/Denver';
@@ -38,9 +47,9 @@ function addClientDays(now, zone, days) {
   return localToUtc(shifted.toISOString().slice(0,16),zone);
 }
 
-async function orders(ctx) {
+async function orders(ctx, ref) {
   const [runs, links, dispositions] = await Promise.all([
-    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', ...(ref ? { 'dados->>ref': 'eq.' + ref } : {}), order: 'created_at.asc' }),
     allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
   ]);
@@ -84,7 +93,7 @@ function relevant(vehicle, wish) {
 
 function offerKind(vehicle, wish) {
   if (!relevant(vehicle, wish)) return null;
-  const yearDelta = vehicle.year < wish.yearMin ? wish.yearMin - vehicle.year : vehicle.year > wish.yearMax ? vehicle.year - wish.yearMax : 0;
+  const yearDelta = wish.yearMin && vehicle.year < wish.yearMin ? wish.yearMin - vehicle.year : wish.yearMax && vehicle.year > wish.yearMax ? vehicle.year - wish.yearMax : 0;
   const milesDelta = wish.maxMiles && vehicle.miles > wish.maxMiles ? vehicle.miles - wish.maxMiles : 0;
   if (yearDelta === 0 && milesDelta === 0) return 'BATE';
   if (yearDelta <= 1 && milesDelta <= 15000) return 'QUASE';
@@ -111,11 +120,18 @@ function median(values) {
 }
 
 async function leadData(ctx, req, refInput, idInput) {
-  const allOrders = await orders(ctx);
   let ref = String(refInput || '').trim().toUpperCase();
   const journey = await journeyFor(ctx, REF_RE.test(ref) ? ref : null, idInput);
-  if (!REF_RE.test(ref)) ref = journey && String(journey.reference_code || '').trim().toUpperCase();
+  if (idInput && (!isUuid(idInput) || !journey || journey.id !== idInput || (REF_RE.test(ref) && !(await belongsToJourney(ctx, ref, journey))))) return null;
+  if (!REF_RE.test(ref)) {
+    ref = journey && String(journey.reference_code || '').trim().toUpperCase();
+    if (!REF_RE.test(ref) && journey) {
+      const linked=await rows(ctx,'journey_refs',{select:'ref_code',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,order:'created_at.asc',limit:'1'});
+      ref=String(linked[0]?.ref_code||'').trim().toUpperCase();
+    }
+  }
   if (!REF_RE.test(ref)) return null;
+  const allOrders = await orders(ctx, ref);
   const order = allOrders.find((item) => item.ref === ref) || null;
   if (!journey && !order) return null;
   const record = journey ? (await capture(require('./api/panel/records'), req, { id: journey.id }))?.item || null : null;
@@ -126,7 +142,7 @@ async function leadData(ctx, req, refInput, idInput) {
     allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + ref, undone_at: 'is.null', order: 'occurred_at.desc' }),
     allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + ref, order: 'due_at.asc' }),
     allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, order: 'uploaded_at.desc' }),
-    allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, calc_ref: 'eq.' + ref, created_at: 'gte.' + cutoff })
+    allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, created_at: 'gte.' + cutoff })
   ]);
   const wishes = record?.criteria_json?.wishlistOverride
     ? (record.wishlists || [])
@@ -139,8 +155,9 @@ async function leadData(ctx, req, refInput, idInput) {
   const plate = order && order.plate === 'nova' ? 'nova' : 'transf';
   const florida = state ? state.uf === 'FL' : true;
   const stateIndex = state ? String(calc.CONFIG.estados.findIndex((item) => item.nome === state.nome)) : '';
-  const ceilingCents = Number(record && record.budget_cents || order && order.budgetCents) || null;
-  const bid = realisticBid(ceilingCents, { florida, payment, plate, stateIndex, zip });
+  const maxBidCents = Number(order && order.budgetCents || record && record.budget_cents) || null;
+  const totalCeilingCents = Number(record && record.confirmed_total_ceiling_cents) || null;
+  const bid = totalCeilingCents ? realisticBid(totalCeilingCents, { florida, payment, plate, stateIndex, zip }) : maxBidCents ? Math.floor(maxBidCents / 100) : null;
   const costs = bid === null ? null : calc.calcular({ lance: bid, inspecao: false, florida, placa: plate, pgto: payment, estado: stateIndex, zip });
   const vehicles = archive.map((entry) => ({ ...entry.vehicle_json, rowFingerprint: entry.row_fingerprint, uploadedAt: entry.uploaded_at }));
   const unique = new Map();
@@ -150,7 +167,9 @@ async function leadData(ctx, req, refInput, idInput) {
     if (parsed && !unique.has(match.row_fingerprint)) unique.set(match.row_fingerprint, { ...parsed, rowFingerprint: match.row_fingerprint, matchId: match.id, uploadedAt: match.created_at });
   }
   const typical = wishes.map((wish) => {
-    const compared = [...unique.values()].filter((car) => relevant(car, wish) && (!wish.yearMin || (car.year >= wish.yearMin - 1 && car.year <= (wish.yearMax || wish.yearMin) + 1)) && (!wish.maxMiles || Math.abs(car.miles - wish.maxMiles) <= 20000));
+    const compared = [...unique.values()].filter((car) => relevant(car, wish) && (!wish.yearMin || car.year >= wish.yearMin - 1)
+      && (!wish.yearMax || car.year <= wish.yearMax + 1) && (!wish.yearMax || wish.yearMin || car.year >= wish.yearMax - 1)
+      && (!wish.maxMiles || Math.abs(car.miles - wish.maxMiles) <= 20000));
     return { ...wish, mmrCents: median(compared.map((car) => car.mmrCents)) };
   });
   const offers = [...unique.values()].flatMap((vehicle) => {
@@ -169,12 +188,30 @@ async function leadData(ctx, req, refInput, idInput) {
     'Prazo confirmado', 'Aceita busca fora da Flórida', 'Entende inspeção limitada e sem devolução'
   ].map((point_label, index) => ({ point_number: index + 1, point_label, status: 'OPEN' }));
   const deadline = record && record.customer_deadline_text || order && order.deadlineText || '';
-  const activeMs = lastCustomer ? Date.now() - Date.parse(lastCustomer.occurred_at_utc || lastCustomer.created_at) : Infinity;
-  const score = record && !record.enabled ? null : Math.min(100, (phone ? 15 : 0) + Math.min(30, checklist.filter((item) => item.status === 'COMPLETE').length * 5)
-    + (['now','30d'].includes(deadline) ? 20 : ['3m','30–90 dias'].includes(deadline) ? 10 : 0)
-    + (mmr && bid ? mmr <= bid * 100 ? 15 : mmr <= bid * 120 ? 5 : 0 : 0)
-    + (activeMs < 86400000 ? 10 : activeMs < 72 * 3600000 ? 5 : 0) + (goodHour ? 10 : 0));
-  return { ref, order, record, track, notes, events, promises, checklist, wishes, zip, state, timezone, goodHour, payment, plate, florida, ceilingCents, bid, costs, typical, offers, fits, score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null };
+  const { score } = require('./panel-ready');
+  const ready = score({ ...order, zip, occurredAt: order?.occurredAt, budgetCents: maxBidCents, paymentText: payment, plate, wishlists: wishes }, record, {
+    checklist: checklist.map((point) => ({ ...point, journey_id: record?.id })),
+    messages: (record?.conversation || []).map((message) => ({ ...message, journey_id: record?.id })),
+    promises: [...(record?.promises || []), ...promises].map((promise) => ({ ...promise, journey_id: record?.id }))
+  }, [...unique.values()]);
+  const city = await cityForZip(zip);
+  return { ref, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null };
+}
+
+async function belongsToJourney(ctx, ref, journey) {
+  if (String(journey.reference_code || '').trim().toUpperCase() === ref) return true;
+  return Boolean((await rows(ctx, 'journey_refs', { select: 'journey_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, ref_code: 'eq.' + ref, limit: '1' }))[0]);
+}
+const cityCache = new Map();
+async function cityForZip(zip) {
+  if (!zip) return null;
+  if (cityCache.has(zip)) return cityCache.get(zip);
+  try {
+    const response = await fetch('https://api.zippopotam.us/us/' + encodeURIComponent(zip), { signal: AbortSignal.timeout(2500) });
+    const city = response.ok ? (await response.json()).places?.[0]?.['place name'] || null : null;
+    cityCache.set(zip, city);
+    return city;
+  } catch (_) { return null; }
 }
 
 async function ensureJourney(ctx, lead) {
@@ -183,7 +220,7 @@ async function ensureJourney(ctx, lead) {
   if (existing) return { id: existing.id, contact_id: existing.contact_id, reference_code: lead.ref };
   const at = new Date().toISOString();
   const contact = (await insert(ctx, 'contacts', { environment: ctx.environment, display_name: lead.order && lead.order.contactName || 'Contato da Ref ' + lead.ref, source: 'CALCULATOR', created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id }))[0];
-  const journey = (await insert(ctx, 'journeys', { environment: ctx.environment, contact_id: contact.id, reference_code: lead.ref, source: 'CALCULATOR', stage: 'NOVO', status: 'ATIVO', vehicle_text: lead.order && lead.order.vehicleText || null, criteria_json: { wishlists: lead.wishes }, budget_cents: lead.ceilingCents, payment_text: lead.payment, customer_deadline_text: lead.order && lead.order.deadlineText || null, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id }))[0];
+  const journey = (await insert(ctx, 'journeys', { environment: ctx.environment, contact_id: contact.id, reference_code: lead.ref, source: 'CALCULATOR', stage: 'NOVO', status: 'ATIVO', vehicle_text: lead.order && lead.order.vehicleText || null, criteria_json: { wishlists: lead.wishes }, budget_cents: lead.maxBidCents, payment_text: lead.payment, customer_deadline_text: lead.order && lead.order.deadlineText || null, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id }))[0];
   for (let number = 1; number <= 6; number++) {
     const labels = ['Carro e critérios confirmados', 'Teto confirmado', 'Pagamento confirmado', 'Prazo confirmado', 'Aceita busca fora da Flórida', 'Entende inspeção limitada e sem devolução'];
     await insert(ctx, 'journey_checklist', { environment: ctx.environment, journey_id: journey.id, point_number: number, point_label: labels[number - 1], status: 'OPEN', created_at: at, updated_at: at }, false);

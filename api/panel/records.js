@@ -43,13 +43,20 @@ module.exports = async (req, res) => {
       ]);
       const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions)
         .filter((order) => order.disposition !== 'DISCARDED');
-      return send(res, 200, { environment: ctx.environment, items, orders, upload: latest, matches, meta });
+      const cutoff=new Date(Date.now()-60*86400000).toISOString();
+      const [history,stored]=await Promise.all([
+        allRows(ctx,'manheim_uploads',{select:'id,vehicle_count,uploaded_at',environment:'eq.'+ctx.environment,uploaded_at:'gte.'+cutoff}),
+        allRows(ctx,'manheim_vehicles',{select:'upload_id,row_fingerprint',environment:'eq.'+ctx.environment,uploaded_at:'gte.'+cutoff})
+      ]);
+      const storedByUpload=new Map();stored.forEach((row)=>storedByUpload.set(row.upload_id,(storedByUpload.get(row.upload_id)||0)+1));
+      const historyIncomplete=history.some((upload)=>Number(upload.vehicle_count)>0&&(storedByUpload.get(upload.id)||0)<Number(upload.vehicle_count));
+      return send(res, 200, { environment: ctx.environment, items, orders, upload: latest, matches, historyIncomplete, meta });
     }
     const id = String((req.query && req.query.id) || '');
     if (!id) {
       const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta, checklist, promises, archive, calcRuns, calcLinks, leadPromises] = await Promise.all([
         allRows(ctx, 'journeys', {
-          select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_reason,updated_at',
+          select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_reason,updated_at',
           environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
         }),
         allRows(ctx, 'contacts', { select: 'id,display_name,location_text', environment: 'eq.' + ctx.environment }),
@@ -62,12 +69,18 @@ module.exports = async (req, res) => {
         panelMeta(ctx),
         allRows(ctx, 'journey_checklist', { select: 'journey_id,status', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'promises', { select: 'journey_id,status,due_at', environment: 'eq.' + ctx.environment }),
-        allRows(ctx, 'manheim_vehicles', { select: 'vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(Date.now() - 60 * 86400000).toISOString() }),
+        allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(Date.now() - 60 * 86400000).toISOString() }),
         allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
         allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'lead_promises', { select: 'ref_code,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' })
       ]);
-      const latestMatches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'journey_id', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id }) : [];
+      const [latestMatches,recentVehicles]=await Promise.all([
+        uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id }) : Promise.resolve([]),
+        allRows(ctx,'manheim_matches',{select:'row_fingerprint,vehicle_json',environment:'eq.'+ctx.environment,created_at:'gte.'+new Date(Date.now()-60*86400000).toISOString()})
+      ]);
+      const vehicleMap=new Map(archive.map((entry)=>[entry.row_fingerprint,entry.vehicle_json]));
+      recentVehicles.forEach((entry)=>{if(entry.vehicle_json?.parsed&&!vehicleMap.has(entry.row_fingerprint))vehicleMap.set(entry.row_fingerprint,entry.vehicle_json.parsed);});
+      const scoredVehicles=[...vehicleMap.values()];
       const contactsById = new Map(contacts.map((item) => [item.id, item]));
       const messagesById = new Map(messages.map((item) => [item.id, item]));
       const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
@@ -77,14 +90,14 @@ module.exports = async (req, res) => {
         const state = stateByJourney.get(item.id);
         const complete = { ...item, enabled: state ? state.enabled : item.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: latestMatches.filter((match) => match.journey_id === item.id).length, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages[0] || null };
         const order = ordersByRef.get(String(item.reference_code || '').trim());
-        const scoring = { ...complete, zip: order?.zip || complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0] || '', plate: order?.plate || 'transf', wishlists: wishlistsForJourney(complete) };
-        const ready = score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, archive.map((entry) => entry.vehicle_json));
+        const scoring = { ...complete, ...order, zip: order?.zip || complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0] || '', plate: order?.plate || 'transf', wishlists: wishlistsForJourney(complete) };
+        const ready = score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, scoredVehicles);
         return { ...complete, ...ready, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) };
       }), meta });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });
     const found = await rows(ctx, 'journeys', {
-      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
+      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
       environment: 'eq.' + ctx.environment, id: 'eq.' + id, limit: '1'
     });
     const journey = found[0];
@@ -110,13 +123,14 @@ module.exports = async (req, res) => {
     ]);
     const manheimMatches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'id,match_kind', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, journey_id: 'eq.' + id }) : [];
     const [calcRuns, calcLinks, dispositions, senderAliases] = await Promise.all([
-      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+      Promise.resolve([]),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment })
     ]);
     const refSet = new Set([journey.reference_code, ...refs.map((ref) => ref.ref_code)].filter(Boolean).map((ref) => String(ref).toUpperCase()));
-    const calculatorRequests = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions).filter((order) => refSet.has(order.ref));
+    const filteredRuns = (await Promise.all([...refSet].map((ref)=>allRows(ctx,'calc_runs',{select:'id,created_at,zip,estado,lance,pagamento,dados,is_test','dados->>ref':'eq.'+ref,order:'created_at.asc'})))).flat();
+    const calculatorRequests = groupCalculatorByRef(consolidateCalcRuns(filteredRuns, calcLinks), dispositions).filter((order) => refSet.has(order.ref));
     const messageIds = new Set(links.map((item) => item.message_id));
     const conversation = messages.filter((item) => messageIds.has(item.id)).sort((a, b) => {
       const delta = (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0) - (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0);
