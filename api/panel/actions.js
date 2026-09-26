@@ -672,6 +672,32 @@ async function actionManheimUpload(ctx, body) {
   return send(ctx.res, 201, result);
 }
 
+async function actionManheimArchive(ctx, body) {
+  if (!isUuid(body.uploadId) || !Array.isArray(body.vehicles) || body.vehicles.length > 100) return send(ctx.res, 400, { error: 'MANHEIM_ARCHIVE_INVALID' });
+  const upload = await rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId, limit: '1' });
+  if (!upload[0]) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
+  const at = isoNow();
+  const vehicles = body.vehicles.map((item) => {
+    const parsed = item && item.vehicle || {};
+    const fingerprint = safeText(item && item.fingerprint, 200, true);
+    if (!fingerprint || !safeText(parsed.model, 120, true) || !finiteInteger(parsed.year) || finiteInteger(parsed.miles) === null) return null;
+    return {
+      environment: ctx.environment, upload_id: upload[0].id, row_fingerprint: fingerprint,
+      vehicle_json: {
+        vin: safeText(parsed.vin, 40) || '', year: finiteInteger(parsed.year), make: safeText(parsed.make, 80) || '',
+        model: safeText(parsed.model, 120), trim: safeText(parsed.trim, 120) || '', miles: finiteInteger(parsed.miles),
+        location: safeText(parsed.location, 200) || '', locationDisplay: safeText(parsed.locationDisplay, 200) || '',
+        saleDate: safeText(parsed.saleDate, 100) || '', mmrCents: finiteInteger(parsed.mmrCents)
+      }, uploaded_at: at
+    };
+  });
+  if (vehicles.some((item) => !item)) return send(ctx.res, 400, { error: 'MANHEIM_ARCHIVE_INVALID' });
+  if (vehicles.length) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/manheim_vehicles?on_conflict=environment,upload_id,row_fingerprint', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(vehicles)
+  });
+  return send(ctx.res, 200, { archived: vehicles.length });
+}
+
 
 async function actionDisposition(ctx, body) {
   const itemKind = String(body.itemKind || '');
@@ -723,6 +749,7 @@ module.exports = async (req, res) => {
   try {
     const body = await jsonBody(req, 2 * 1024 * 1024);
     if (body.action === 'manheim_upload') return actionManheimUpload(ctx, body);
+    if (body.action === 'manheim_archive') return actionManheimArchive(ctx, body);
     if (body.action === 'set_disposition') return actionDisposition(ctx, body);
     const journey = await journeyContext(ctx, body.journeyId);
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });

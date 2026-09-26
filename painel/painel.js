@@ -779,8 +779,12 @@
       detailOrigin = options.origin;
     }
     showDetailShell(kind, key);
-    if (kind === 'order') return openOrderDetail(key);
-    return openRecord(key);
+    $('page-title').textContent = 'TELA DO LEAD';
+    try {
+      await MCSLead.open({ kind, key, root: $('record-detail'), request,
+        onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
+        actionMessage, downloadShortlist, dispositionControls });
+    } catch (_) { empty($('record-detail'), 'Não foi possível carregar este lead.'); }
   }
 
   function simulationBlock(item) {
@@ -864,10 +868,12 @@
     const sorted = items.slice().sort((a, b) => {
       if (mode === 'recent') return stamp(b) - stamp(a);
       if (mode === 'oldest') return stamp(a) - stamp(b);
-      const outlier = Number(Boolean(a.outOfStandard)) - Number(Boolean(b.outOfStandard));
-      if (outlier) return outlier;
-      const clicked = Number(Boolean(b.clickedContact)) - Number(Boolean(a.clickedContact));
-      if (clicked) return clicked;
+      const wanted = Number(Boolean(b.wantsCar)) - Number(Boolean(a.wantsCar));
+      if (wanted) return wanted;
+      const promise = Number(Boolean(b.promiseToday)) - Number(Boolean(a.promiseToday));
+      if (promise) return promise;
+      const ready = Number(b.score || 0) - Number(a.score || 0);
+      if (ready) return ready;
       return stamp(b) - stamp(a);
     });
     sorted.forEach((item) => {
@@ -886,6 +892,9 @@
       card.append(head);
       const badges = element('div', 'badges');
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
+      if (item.wantsCar) badges.append(makeBadge('QUER ESTE CARRO', 'green'));
+      if (item.score !== null && item.score !== undefined) badges.append(makeBadge(`Nota ${item.score}`, 'green'));
+      badges.append(makeBadge(item.goodHour ? 'bom horário' : 'fora de horário', item.goodHour ? 'green' : 'yellow'));
       if (item.clickedContact && item.contactChannel) badges.append(makeBadge(`${item.contactChannel} CLICADO`, 'green'));
       if (item.budgetCents) badges.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
       if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
@@ -1015,12 +1024,29 @@
 
   function downloadShortlist(matches, referenceCode) {
     if (!matches.length) return;
-    const headers = (matches[0].vehicle_json.headers || []).slice();
-    const csv = MCSManheim.toCsv(headers, matches.map((match) => match.vehicle_json.raw));
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const plain = (value) => String(value || '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').slice(0, 105);
+    const escape = (value) => plain(value).replace(/[\\()]/g, '\\$&');
+    const lines = [`MY CAR SCOUT - SHORTLIST - REF ${plain(referenceCode || '')}`,
+      ...matches.slice(0, 45).map((match) => {
+        const vehicle = match.vehicle_json.parsed || match.vehicle_json.raw || {};
+        return [vehicle.year || vehicle.Year, vehicle.make || vehicle.Make, vehicle.model || vehicle.Model,
+          vehicle.miles || vehicle.Miles ? `${Number(vehicle.miles || vehicle.Miles).toLocaleString('en-US')} mi` : '',
+          vehicle.locationDisplay || vehicle.location || ''].filter(Boolean).join(' | ');
+      })];
+    const content = `BT /F1 11 Tf 40 790 Td 14 TL ${lines.map((line,index) => `${index?'T* ':''}(${escape(line)}) Tj`).join('\n')} ET`;
+    const objects = ['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+    let pdf = '%PDF-1.4\n'; const offsets = [0];
+    objects.forEach((object,index) => { offsets.push(pdf.length); pdf += `${index+1} 0 obj\n${object}\nendobj\n`; });
+    const xref = pdf.length; pdf += `xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;
+    offsets.slice(1).forEach((offset) => { pdf += String(offset).padStart(10,'0')+' 00000 n \n'; });
+    pdf += `trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    const url = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `shortlist-${referenceCode || 'lead'}.csv`;
+    link.download = `shortlist-${referenceCode || 'lead'}.pdf`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -1072,7 +1098,7 @@
       table.append(row);
     });
     card.append(table);
-    const exportButton = element('button', 'quiet small', 'Exportar para shortlist');
+    const exportButton = element('button', 'quiet small', 'Baixar PDF');
     exportButton.type = 'button';
     exportButton.addEventListener('click', () => {
       const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => matches.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
@@ -1126,6 +1152,7 @@
     manheimJourneys = data.items || [];
     manheimOrders = data.orders || [];
     manheimMatches = data.matches || [];
+    renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas.'; });
     setCount('manheim', data.upload && data.upload.lead_count || 0);
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.lead_count} lead(s) · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
     const root = $('manheim-results');
@@ -1177,6 +1204,26 @@
 
     if (standardCount) root.append(standard);
     if (reactivateCount) root.append(reactivate);
+  }
+
+  async function renderSavedSearches() {
+    const data = await request('/api/panel/manheim-searches');
+    const root = $('manheim-saved-searches');
+    root.replaceChildren(element('h2', '', 'QUAIS BUSCAS SALVAR NO MANHEIM'));
+    if (!data.groups.length) return root.append(element('p', 'muted', 'Nenhum lead ativo com marca e modelo.'));
+    data.groups.forEach((group) => {
+      const line = element('label', 'saved-search-line');
+      const check = element('input'); check.type = 'checkbox'; check.checked = group.created;
+      check.addEventListener('change', async () => {
+        try { await request('/api/panel/manheim-searches', { method: 'POST', body: JSON.stringify({ key: group.key, created: check.checked }) }); }
+        catch (_) { check.checked = !check.checked; }
+      });
+      const text = element('span');
+      text.append(element('strong', '', `${group.searches} buscas cobrem ${group.percent}% dos seus leads ativos`),
+        element('span', 'muted', `Make: ${group.make} · Model: ${group.model} · Year: ${group.yearFrom}–${group.yearTo} · Odometer max: ${Number(group.milesMax).toLocaleString('en-US')} · ${group.leads} lead(s)`));
+      line.append(check, text, element('span', '', 'Já criei'));
+      root.append(line);
+    });
   }
 
   async function importManheim(files) {
@@ -1247,6 +1294,18 @@
     }
     if (matches.length > 2000) throw new Error('MANHEIM_MATCH_LIMIT');
     const result = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_upload', sourceFileCount: selected.length, vehicleCount: vehicles.length, headers: headerGroups, headerMap: { files: mappings }, matches }) });
+    if (result.uploadId) {
+      const seen = new Set();
+      const archive = vehicles.filter((vehicle) => { const id = MCSManheim.fingerprint(vehicle); if (seen.has(id)) return false; seen.add(id); return true; });
+      for (let index = 0; index < archive.length; index += 100) {
+        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_archive', uploadId: result.uploadId,
+          vehicles: archive.slice(index, index + 100).map((vehicle) => ({ fingerprint: MCSManheim.fingerprint(vehicle), vehicle: {
+            vin: vehicle.vin, year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim,
+            miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
+            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents
+          } })) }) });
+      }
+    }
     $('manheim-status').textContent = `${result.matchedVehicleCount} combinação(ões) compatível(is) em ${result.leadCount} lead(s).`;
     await loadCurrent();
     await refreshCounters();
@@ -1278,13 +1337,14 @@
       return empty(root, 'Nenhuma ficha criada.');
     }
     const mode = $('records-sort') ? $('records-sort').value : 'recent';
-    const sorted = items.slice().sort((a, b) => mode === 'oldest' ? Date.parse(a.updated_at) - Date.parse(b.updated_at) : mode === 'name' ? String(a.contact && a.contact.display_name || '').localeCompare(String(b.contact && b.contact.display_name || ''), 'pt-BR') : mode === 'ref' ? String(a.reference_code || '').localeCompare(String(b.reference_code || '')) : Date.parse(b.updated_at) - Date.parse(a.updated_at));
+    const sorted = items.slice().sort((a, b) => mode === 'ready' ? Number(b.promiseToday) - Number(a.promiseToday) || Number(b.score || 0) - Number(a.score || 0) : mode === 'oldest' ? Date.parse(a.updated_at) - Date.parse(b.updated_at) : mode === 'name' ? String(a.contact && a.contact.display_name || '').localeCompare(String(b.contact && b.contact.display_name || ''), 'pt-BR') : mode === 'ref' ? String(a.reference_code || '').localeCompare(String(b.reference_code || '')) : Date.parse(b.updated_at) - Date.parse(a.updated_at));
     sorted.forEach((item) => {
       const card = element('article', 'search-hit record-list-card');
       const text = identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' });
       const controls = element('div', 'record-card-controls');
       const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
       controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
+      if (item.score !== null) controls.append(makeBadge(`Nota ${item.score}`, 'green'));
       const open = element('button', 'quiet small', 'Abrir ficha');
       open.type = 'button';
       open.addEventListener('click', () => openDetail('ficha', item.id));

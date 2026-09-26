@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/panel/notes/distribute.js": { "maxDuration": 30 }
+  },
   "headers": [
     { "source": "/painel", "headers": [
       { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
@@ -11,10 +14,15 @@
     { "source": "/api/panel/(.*)", "headers": [
       { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
       { "key": "Cache-Control", "value": "no-store, max-age=0" }
+    ] },
+    { "source": "/t/(.*)", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+      { "key": "Cache-Control", "value": "no-store, max-age=0" }
     ] }
   ],
   "rewrites": [
     { "source": "/api/panel/(.*)", "destination": "/api/panel/$1" },
+    { "source": "/t/:code([A-Za-z0-9_-]{22,80})", "destination": "/t/index.html" },
     { "source": "/painel", "destination": "/painel/index.html" },
     { "source": "/painel/(.*)", "destination": "/painel/$1" },
     { "source": "/(.*)", "destination": "/msc-calculadora.html" }

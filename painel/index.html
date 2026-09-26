@@ -54,7 +54,7 @@
         <button class="tab" type="button" data-view="records">FICHAS <span data-count="records">0</span></button>
       </nav>
       <section id="today-panel" class="panel-view" aria-label="Hoje">
-        <div class="section-head"><div><h2>O que exige ação</h2><p class="muted">Prioridades do trabalho de hoje.</p></div><div class="inline-actions"><label>Ordenar<select id="today-sort"><option value="priority">Prioridade</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
+        <div class="section-head"><div><h2>O que exige ação</h2><p class="muted">Prioridades do trabalho de hoje.</p></div><div class="inline-actions"><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
         <div id="today-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="entry-panel" class="hidden" aria-label="Entrada">
@@ -137,6 +137,7 @@
       </section>
       <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
         <div class="section-head"><div><h2>Manheim</h2><p class="muted">Compare a exportação com as listas de desejo ligadas.</p></div><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div>
+        <section id="manheim-saved-searches" class="card"></section>
         <section class="card">
           <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
           <p id="manheim-status" class="status" role="status"></p>
@@ -147,7 +148,7 @@
         </section>
       </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
-        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="recent">Atualização recente</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option></select></label></div></div>
+        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="ready">Pronto para ligar</option><option value="recent">Atualização recente</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option></select></label></div></div>
         <div id="records-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="detail-panel" class="panel-view hidden" aria-label="Detalhe">
@@ -173,6 +174,7 @@
   <script src="/painel/parser.js" defer></script>
   <script src="/vehicle-catalog.js?v=1" defer></script>
   <script src="/painel/manheim.js?v=2" defer></script>
+  <script src="/painel/lead.js" defer></script>
   <script src="/painel/painel.js" defer></script>
 </body>
 </html>
