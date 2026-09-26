@@ -109,3 +109,37 @@ test('item reprocessing uses an atomic claim and blocks a concurrent retry',asyn
   releaseResolve();await first;
   assert.equal(firstOut.code,200);assert.equal(status,'RESOLVED');
 });
+
+test('phone resolution only considers current active phone rows',async()=>{
+  const filters=[];
+  const mod=loadWith('whatsapp-receiver.js',{'./panel-server':{
+    rows:async(_ctx,table,query)=>{if(table==='contact_phones'){filters.push(query);return [{contact_id:'one'},{contact_id:'two'}];}return [];},
+    patchRows:async()=>[],supabase:async()=>({})
+  }});
+  const ctx={environment:'preview',config:{url:'u',secretKey:'k'}},item={messageId:'m',phone:'+13055550122',name:'Tiago',direction:'CUSTOMER',body:'oi',timestamp:'1790431200',itemIndex:0};
+  assert.equal((await mod.prepareItem(ctx,'raw',item)).review,true);
+  filters.forEach((query)=>{assert.equal(query.is_current,'eq.true');assert.equal(query.retired_at,'is.null');});
+});
+
+test('history declined can be dismissed and clears the parent event error',async()=>{
+  const itemId='f6074aec-214c-4dc9-a50d-fdf2b749c141',rawId='0cd6cda8-7c93-455c-af10-f8e49b1d2f8a';
+  let status='ERROR',rawError='ITEM_ERRORS:1';
+  const panelServer={
+    allRows:async()=>[],isUuid:(value)=>/^[0-9a-f-]{36}$/i.test(value),jsonBody:async(req)=>req.body,
+    requirePanel:async()=>({environment:'preview',config:{url:'u',secretKey:'k'},panel:{id:itemId}}),
+    send:(res,code,payload)=>res.status(code).json(payload),supabase:async()=>({}),
+    rows:async(_ctx,table,filters)=>{
+      if(table==='whatsapp_item_errors'&&filters.id)return [{id:itemId,raw_event_id:rawId,error_code:'HISTORY_DECLINED',status}];
+      if(table==='whatsapp_item_errors')return status==='RESOLVED'?[]:[{id:itemId}];
+      return [];
+    },
+    patchRows:async(_ctx,table,_filters,values,representation)=>{
+      if(table==='whatsapp_item_errors'){status=values.status;return representation?[{id:itemId}]:[];}
+      if(table==='whatsapp_raw_events')rawError=values.error_code;
+      return representation?[{}]:[];
+    }
+  };
+  const handler=loadWith('api/panel/whatsapp.js',{'../../panel-server':panelServer,'../../whatsapp-receiver':{}});
+  const out=response();await handler({method:'POST',body:{action:'dismiss_item',id:itemId}},out);
+  assert.equal(out.code,200);assert.equal(status,'RESOLVED');assert.equal(rawError,null);
+});
