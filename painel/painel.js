@@ -1436,7 +1436,10 @@
     definition(budgetDefinition, 'Teto único', formatMoney(item.budget_cents));
     wishlist.append(budgetDefinition);
     dataBlock.append(wishlist, journeySwitch(item, reload));
-    dataBlock.append(dispositionControls({ kind: 'JOURNEY', id: item.id, journeyId: item.id }));
+    if (!options.prepend) dataBlock.append(dispositionControls({ kind: 'JOURNEY', id: item.id, journeyId: item.id }));
+    if (!options.prepend && item.calculatorRequests && item.calculatorRequests.length) {
+      item.calculatorRequests.forEach((requestItem) => dataBlock.append(simulationBlock(requestItem)));
+    }
     if (item.manheimMatchCount) {
       const matchNotice = element('button', 'manheim-notice', `${item.manheimMatchCount} carro(s) do export mais recente batem · abrir Manheim`);
       matchNotice.type = 'button';
