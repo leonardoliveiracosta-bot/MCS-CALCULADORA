@@ -5,6 +5,7 @@ const { consolidateCalcRuns, groupCalculatorByRef, mergeWishlists, REF_RE, time 
 const { validItems, prepareItems } = require('./panel-note');
 const { allRows, insert, patchRows, rows, supabase } = require('./panel-server');
 const { timezoneForZip } = require('./panel-lead');
+const { storeDailyInsight } = require('./panel-pendencias');
 
 const AI_TYPES = new Set(['call_result','checklist','budget','payment','deadline','wishlist','phone','promise','return','stage','disable']);
 const DAY_MS = 86400000;
@@ -71,14 +72,16 @@ function stableValue(value) {
   return value;
 }
 
-function aiContextWindow(messages, maximumBid, timezone) {
+function aiContextWindow(messages, maximumBid, timezone, priorSummary='') {
   const newest = messages.slice(-AI_CONTEXT_MAX_MESSAGES).map((message) => ({
     sender: message.direction,
     text: String(message.body_text || ''),
     at: new Date(stampOf(message)).toISOString()
   }));
   const cut = messages.length > newest.length;
-  const payload = () => JSON.stringify({agora:new Date().toISOString(),fuso:timezone,lanceCalculadora:maximumBid||null,conversa:newest});
+  let accumulated=String(priorSummary||'').slice(0,6000);
+  const payload = () => JSON.stringify({agora:new Date().toISOString(),fuso:timezone,lanceCalculadora:maximumBid||null,resumoAcumulado:accumulated||null,conversa:newest});
+  while (accumulated && payload().length > AI_CONTEXT_MAX_CHARS) accumulated=accumulated.slice(Math.ceil(accumulated.length*.15));
   let truncated = cut;
   while (newest.length && payload().length > AI_CONTEXT_MAX_CHARS) {
     const excess = payload().length - AI_CONTEXT_MAX_CHARS;
@@ -115,7 +118,7 @@ function trackableAiFailure(error) {
 }
 
 async function allConversationData(ctx) {
-  const [journeys, contacts, links, messages, refs, readings, states, attempts, calcRuns] = await Promise.all([
+  const [journeys, contacts, links, messages, refs, readings, states, attempts, calcRuns, pendingInsights] = await Promise.all([
     allRows(ctx,'journeys',{select:'id,contact_id,reference_code,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contacts',{select:'id,display_name,location_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
@@ -124,7 +127,8 @@ async function allConversationData(ctx) {
     allRows(ctx,'conversation_ai_readings',{select:'id,journey_id,chat_id,last_customer_message_id,status,created_at',environment:'eq.'+ctx.environment,status:'eq.ACTIVE'}),
     allRows(ctx,'conversation_ai_link_state',{select:'journey_id,chat_id,first_customer_at,last_run_at,last_order_seen_at,retry_requested',environment:'eq.'+ctx.environment}),
     allRows(ctx,'conversation_ai_attempt_state',{select:'journey_id,chat_id,last_customer_message_id,last_failure_at,consecutive_failures,last_error,last_attempt_at',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'calc_runs',{select:'dados,is_test'})
+    allRows(ctx,'calc_runs',{select:'dados,is_test'}),
+    allRows(ctx,'conversation_pending_insights',{select:'journey_id,chat_id,summary_text,last_ai_message_id',environment:'eq.'+ctx.environment})
   ]);
   const calculatorRefs=new Set(calcRuns.filter((run)=>run.is_test!==true).map((run)=>String(run.dados?.ref||'').trim().toUpperCase()).filter((ref)=>REF_RE.test(ref)));
   const messageById=new Map(messages.map((message)=>[message.id,message]));
@@ -150,6 +154,7 @@ async function allConversationData(ctx) {
     group.reading=readings.find((reading)=>reading.journey_id===group.journey.id&&reading.chat_id===group.chatId)||null;
     group.linkState=states.find((state)=>state.journey_id===group.journey.id&&state.chat_id===group.chatId)||null;
     group.attemptState=attempts.find((state)=>state.journey_id===group.journey.id&&state.chat_id===group.chatId)||null;
+    group.pendingInsight=pendingInsights.find((item)=>item.journey_id===group.journey.id&&item.chat_id===group.chatId)||null;
   }
   return [...groups.values()];
 }
@@ -187,7 +192,7 @@ function deterministicCandidates(group, orders) {
 
 function readingPrompt(group, maximumBid) {
   const timezone=timezoneForZip((group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'');
-  const window=aiContextWindow(group.messages,maximumBid,timezone);
+  const window=aiContextWindow(group.messages,maximumBid,timezone,group.pendingInsight?.summary_text||'');
   const transcript=window.messages.map((message)=>`${message.sender==='CUSTOMER'?'Cliente':'MCS'}: ${message.text}`).join('\n');
   return {transcript,user:window.user,messages:window.messages,messageCount:window.messages.length,truncated:window.truncated};
 }
@@ -223,7 +228,7 @@ async function readConversation(ctx, group, options={}) {
       'Você analisa conversas da My Car Scout. Responda SOMENTE um objeto JSON com summary {want,money,missing} e items. '+
       'Cada item deve usar apenas estes tipos: call_result, checklist, budget, payment, deadline, wishlist, phone, promise, return, stage, disable. '+
       'Cada item precisa de evidence copiada literalmente de uma única mensagem do Cliente e o valor precisa estar provado nessa mesma frase. Nunca use fala da MCS como evidência. '+
-      'Para budget, value é o valor total em dólares. Para checklist, point é 1 a 6 e value é OK. Não invente nada. O resumo é em português e Dinheiro diferencia o lance da calculadora do valor falado.',
+      'Para budget, value é o valor total em dólares. Para checklist, point é 1 a 6 e value é OK. Não invente nada. O resumo é em português e Dinheiro diferencia o lance da calculadora do valor falado. Acrescente pending {situation,heat,summary,nextStep,translation}: situation é MCS_PENDING, CUSTOMER_PENDING, IN_PROGRESS ou CLOSED; heat é HOT, WARM ou COLD; translation só quando a última mensagem estiver em outro idioma.',
       prompt.user,options.fetchImpl
     );
     const zip=(group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'';
@@ -235,6 +240,7 @@ async function readConversation(ctx, group, options={}) {
         p_summary:summary,p_items:validated.items,p_message_count:prompt.messageCount,p_last_customer:group.lastCustomer.id,
         p_last_customer_at:new Date(stampOf(group.lastCustomer)).toISOString(),p_actor:options.actor||null})
     });
+    await storeDailyInsight(ctx,group,parsed.pending||{summary:validated.summary.want+' '+validated.summary.money+' '+validated.summary.missing}).catch(()=>null);
     await recordAttempt(ctx,group,true).catch(()=>null);
     return {...stored,summary,items:validated.items};
   } catch(error) {
@@ -283,7 +289,10 @@ async function runCron(ctx,options={}){
   for(const group of groups){
     if(!group.lastCustomer||stampOf(group.lastCustomer)<cutoff)continue;
     if(!automaticAttemptAllowed(group,now))continue;
-    const readingDue=group.mcsCount>=10&&stampOf(group.lastCustomer)<=now-10*60000&&group.reading?.last_customer_message_id!==group.lastCustomer.id;
+    const latestId=group.messages.at(-1)?.id;
+    const readingDue=group.mcsCount>=10&&stampOf(group.lastCustomer)<=now-10*60000&&(
+      group.reading?.last_customer_message_id!==group.lastCustomer.id || (group.pendingInsight && group.pendingInsight.last_ai_message_id!==latestId)
+    );
     const candidates=!group.refs.length?deterministicCandidates(group,orders):[];
     const newest=candidates.reduce((latest,order)=>Math.max(latest,time(order.occurredAt)||0),0);
     const state=group.linkState;

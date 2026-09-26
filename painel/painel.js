@@ -17,6 +17,8 @@
   let chatAliases = [];
   let todayItems = [];
   let recordItems = [];
+  let pendingSituation = 'all';
+  let pendingContinueTimer = null;
   let currentView = 'today';
   let orderFilter = 'Todos';
   let orderPeriod = '30';
@@ -353,17 +355,18 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
     if (view === 'orders') $('orders-more').classList.add('hidden');
   }
 
   async function switchPanel(view) {
-    if (!['today', 'entry', 'orders', 'qualification', 'manheim', 'records'].includes(view)) return;
+    if (!['today', 'entry', 'pending', 'orders', 'qualification', 'manheim', 'records'].includes(view)) return;
+    if (view !== 'pending') clearTimeout(pendingContinueTimer);
     currentView = view;
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
-    const labels = { today: 'HOJE', entry: 'ENTRADA', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', manheim: 'MANHEIM', records: 'FICHAS' };
+    const labels = { today: 'HOJE', entry: 'ENTRADA', pending: 'PENDÊNCIAS', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', manheim: 'MANHEIM', records: 'FICHAS' };
     currentDetail = null;
     if ($('detail-panel')) $('detail-panel').classList.add('hidden');
     Object.keys(labels).forEach((name) => $(name + '-panel').classList.toggle('hidden', name !== view));
@@ -579,6 +582,73 @@
     $('last-whatsapp-import').textContent = meta.lastWhatsAppImportAt ? formatDate(meta.lastWhatsAppImportAt) : 'nenhuma';
   }
 
+  function pendingQuery() {
+    const params=new URLSearchParams({situation:pendingSituation,sort:$('pending-sort').value,withRef:String($('pending-with-ref').checked)});
+    return '/api/panel/pendencias?'+params.toString();
+  }
+  function pendingAgo(value) {
+    const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(value||0))/60000));
+    return minutes<60?`${Math.max(1,minutes)} min`:minutes<1440?`${Math.floor(minutes/60)} h`:`${Math.floor(minutes/1440)} dias`;
+  }
+  function pendingSituationLabel(value) {
+    return {NO_RESPONSE:'🔴 Sem resposta',MCS_PENDING:'🟠 Parada com você',CUSTOMER_PENDING:'🟡 Parada com o cliente',IN_PROGRESS:'🟢 Em andamento',CLOSED:'⚪ Concluída / sem interesse'}[value]||'Situação pendente';
+  }
+  function pendingTone(value) { return {NO_RESPONSE:'red',MCS_PENDING:'yellow',CUSTOMER_PENDING:'yellow',IN_PROGRESS:'green',CLOSED:''}[value]||''; }
+  function pendingHeatLabel(value) { return {HOT:'quente',WARM:'morno',COLD:'frio'}[value]||'frio'; }
+  function renderPendingGeneral(data) {
+    const root=$('pending-general-card'),run=data.run||{},active=run.status==='ACTIVE',paused=run.status==='PAUSED',limited=run.status==='LIMIT';
+    root.replaceChildren();
+    root.append(element('h2','', 'Leitura geral de todas as conversas'));
+    if(!data.historyReady) {
+      root.append(element('p','muted',`Aguardando o histórico terminar de chegar (última parte há ${pendingAgo(data.lastHistoryAt)}).`));
+      const button=element('button','quiet small','Fazer leitura geral');button.type='button';button.disabled=true;root.append(button);return;
+    }
+    const total=Number(run.total_conversations||0),completed=Number(run.completed_conversations||0),spent=Number(run.spent_usd||0),budget=Number(run.budget_usd||20);
+    if(run.status==='IDLE'||!run.status){
+      root.append(element('p','muted','Lê todas as conversas, das mais recentes às mais antigas, inclusive conversas longas em partes.'));
+      const start=element('button','small','Fazer leitura geral');start.type='button';start.addEventListener('click',async()=>{start.disabled=true;try{await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'start_general'})});await continuePendingGeneral();}catch(error){start.disabled=false;root.append(element('p','error',error.code==='HISTORY_STILL_ARRIVING'?'Aguardando o histórico terminar de chegar.':'IA indisponível'));}});root.append(start);return;
+    }
+    const status=limited?'limite atingido':paused?'pausada':run.status==='COMPLETED'?'concluída':'em andamento';
+    root.append(element('p','',`Leitura geral ${status}`));
+    if (paused && run.last_error) root.append(element('p','error',run.last_error==='IA_UNAVAILABLE'?'IA indisponível. O painel continua disponível para uso manual.':'A leitura foi pausada; tente continuar novamente.'));
+    const bar=element('div','pending-bar'),fill=element('i');fill.style.width=`${total?Math.min(100,completed/total*100):100}%`;bar.append(fill);root.append(bar);
+    root.append(element('p','muted',`${completed} de ${total} conversas lidas · gasto US$ ${spent.toFixed(2)} de US$ ${budget.toFixed(2)} · conversas longas são lidas em partes, até o fim`));
+    const actions=element('div','inline-actions');
+    if(active){const pause=element('button','quiet small','Pausar');pause.type='button';pause.addEventListener('click',async()=>{pause.disabled=true;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})});await loadPending();});actions.append(pause);}
+    if(paused){const resume=element('button','small','Continuar');resume.type='button';resume.addEventListener('click',async()=>{resume.disabled=true;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resume_general'})});await continuePendingGeneral();});actions.append(resume);}
+    if(limited){
+      root.append(element('p','warning',`${completed} de ${total} lidas — faltam ${Math.max(0,total-completed)}.`));
+      const more=element('button','small','Liberar mais US$ 10');more.type='button';
+      more.addEventListener('click',()=>{
+        more.disabled=true;
+        const question=element('span','muted','Liberar mais US$ 10 para concluir a leitura geral?');
+        const cancel=element('button','quiet small','Cancelar');cancel.type='button';
+        const approve=element('button','small','Confirmar liberação');approve.type='button';
+        const confirmation=element('div','inline-actions');confirmation.append(question,cancel,approve);
+        cancel.addEventListener('click',()=>{confirmation.remove();more.disabled=false;});
+        approve.addEventListener('click',async()=>{approve.disabled=true;cancel.disabled=true;try{await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'increase_budget',confirm:true})});confirmation.remove();await continuePendingGeneral();}catch(_){approve.disabled=false;cancel.disabled=false;}});
+        root.append(confirmation);
+      });actions.append(more);
+    }
+    root.append(actions);
+  }
+  function renderPending(data) {
+    clearTimeout(pendingContinueTimer);renderPendingGeneral(data);setCount('pending',Object.values(data.counts||{}).reduce((total,value)=>total+Number(value||0),0));
+    const stats=$('pending-stats');stats.replaceChildren();[['NO_RESPONSE','🔴 Sem resposta'],['MCS_PENDING','🟠 Parada com você'],['CUSTOMER_PENDING','🟡 Parada com o cliente'],['IN_PROGRESS','🟢 Em andamento'],['CLOSED','⚪ Concluída / sem interesse']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.counts?.[key]||0)),element('span','muted',label));stats.append(stat);});
+    const root=$('pending-list');root.replaceChildren();if(!(data.items||[]).length)empty(root,'Nenhuma conversa neste filtro.');
+    (data.items||[]).forEach((item)=>{
+      const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div');text.append(element('strong','',item.name),element('span','identity-ref-phone'+(item.phone?'':' muted'),`Ref ${item.ref||'—'} · 📞 ${item.phone?phoneDisplay(item.phone):'sem telefone'}`));identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));head.append(badges);card.append(head);
+      const prefix=item.latestDirection==='MCS'?'Você: ':'';card.append(element('p','message-preview',prefix+item.latestMessage));if(item.translation)card.append(element('p','muted','Tradução: “'+item.translation+'”'));if(item.summary||item.nextStep){const ai=element('div','pending-ai');ai.append(element('strong','', 'IA: '),document.createTextNode(item.summary||'Sem resumo ainda'));if(item.nextStep)ai.append(element('strong','', ' Próximo passo: '),document.createTextNode(item.nextStep));card.append(ai);}
+      const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;copy.addEventListener('click',async()=>{copy.disabled=true;try{await navigator.clipboard.writeText(item.phone);}catch(_){copy.disabled=false;}});const resolved=element('button','quiet small','Já resolvi');resolved.type='button';resolved.addEventListener('click',async()=>{resolved.disabled=true;try{await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})});await loadPending();}catch(_){resolved.disabled=false;}});const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!item.isLead})});await loadPending();}catch(_){lead.disabled=false;}});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
+    });
+    if(currentView==='pending'&&data.run?.status==='ACTIVE')pendingContinueTimer=setTimeout(()=>continuePendingGeneral().catch(()=>{}),500);
+  }
+  async function loadPending() { const data=await request(pendingQuery());renderPending(data);return data; }
+  async function continuePendingGeneral() { if(currentView!=='pending')return;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'continue_general'})});return loadPending(); }
+  async function downloadPendingCsv() {
+    const response=await fetch(pendingQuery()+'&download=csv',{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('DOWNLOAD_FAILED');const blob=await response.blob(),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='pendencias-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+
   function empty(root, message) {
     root.replaceChildren(element('p', 'empty-state', message));
   }
@@ -669,7 +739,7 @@
   }
 
   function renderFailure(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
   }
 
@@ -681,6 +751,7 @@
       renderQueue(data.chats || [], data.reviews || []);
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp.'; });
     }
+    if (view === 'pending') return loadPending();
     if (view === 'today') {
       const data = await request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value));
       if (!current()) return;
@@ -711,14 +782,16 @@
   }
 
   async function refreshCounters() {
-    const [entry, orders, qualification, manheim, records] = await Promise.all([
+    const [entry, pending, orders, qualification, manheim, records] = await Promise.all([
       request('/api/panel/entry'),
+      request('/api/panel/pendencias'),
       request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
       request('/api/panel/qualification'),
       request('/api/panel/records?view=manheim'),
       request('/api/panel/records')
     ]);
     setCount('entry', (entry.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (entry.reviews || []).length);
+    setCount('pending', Object.values(pending.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
     setCount('orders', orders.page && orders.page.total || 0);
     setCount('qualification', (qualification.items || []).length);
     setCount('manheim', manheim.upload && manheim.upload.lead_count || 0);
@@ -749,7 +822,7 @@
 
   function captureOrigin() {
     const sorts = {};
-    ['today','entry','orders','qualification','manheim','records'].forEach((name) => { const select=$(name+'-sort'); if(select) sorts[name]=select.value; });
+    ['today','entry','pending','orders','qualification','manheim','records'].forEach((name) => { const select=$(name+'-sort'); if(select) sorts[name]=select.value; });
     return {
       view: currentView,
       scrollY: window.scrollY,
@@ -757,6 +830,8 @@
       orderPeriod,
       orderLoaded: orderItems.length,
       sorts,
+      pendingSituation,
+      pendingWithRef: Boolean($('pending-with-ref')?.checked),
       searchQuery: $('global-search-input')?.value || '',
       searchVisible: !$('search-results')?.classList.contains('hidden')
     };
@@ -773,6 +848,9 @@
     currentDetail = null;
     orderFilter = target.orderFilter || orderFilter;
     orderPeriod = target.orderPeriod || orderPeriod;
+    pendingSituation = target.pendingSituation || pendingSituation;
+    if ($('pending-with-ref')) $('pending-with-ref').checked = Boolean(target.pendingWithRef);
+    document.querySelectorAll('[data-pending-situation]').forEach((button) => button.classList.toggle('active', button.dataset.pendingSituation === pendingSituation));
     Object.entries(target.sorts||{}).forEach(([name,value])=>{const select=$(name+'-sort');if(select&&[...select.options].some((option)=>option.value===value))select.value=value;});
     syncOrderControls();
     await switchPanel(target.view || 'today');
@@ -835,7 +913,7 @@
   }
 
   function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', entry: 'entry-panel', orders: 'orders-panel', qualification: 'qualification-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    const labels = { today: 'today-panel', entry: 'entry-panel', pending: 'pending-panel', orders: 'orders-panel', qualification: 'qualification-panel', manheim: 'manheim-panel', records: 'records-panel' };
     Object.values(labels).forEach((id) => $(id).classList.add('hidden'));
     $('detail-panel').classList.remove('hidden');
     $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
@@ -1992,7 +2070,10 @@
       if (currentView === 'orders') await loadCurrent();
     }));
     $('orders-more').addEventListener('click', () => loadOrders(true).catch(() => { $('orders-more').textContent = 'Não foi possível carregar'; }));
-    ['today','entry','orders','qualification','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView===name)loadCurrent().catch(()=>{});});});
+    ['today','entry','pending','orders','qualification','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView===name)loadCurrent().catch(()=>{});});});
+    document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
+    $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});
+    $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
     document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar.')); $('search-results').classList.remove('hidden'); }));
     $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
