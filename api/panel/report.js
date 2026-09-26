@@ -60,13 +60,14 @@ module.exports = async (req, res) => {
   if (!['today', 'entry', 'orders', 'qualification', 'records', 'manheim'].includes(view)) return send(res, 400, { error: 'REPORT_VIEW_INVALID' });
 
   try {
-    const [calcRuns, links, dispositions, journeys, toggles, uploads] = await Promise.all([
+    const [calcRuns, links, dispositions, journeys, toggles, uploads, importJobs] = await Promise.all([
       allRows(ctx, 'calc_runs', { select: 'id,created_at,lance,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,stage,status,budget_cents,created_at,qualified_at,closed_at,closed_reason', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,uploaded_at', environment: 'eq.' + ctx.environment, order: 'uploaded_at.asc' })
+      allRows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,uploaded_at', environment: 'eq.' + ctx.environment, order: 'uploaded_at.asc' }),
+      allRows(ctx, 'import_jobs', { select: 'id,status,channel,selected_file_count,message_count,created_at', environment: 'eq.' + ctx.environment, order: 'created_at.asc' })
     ]);
 
     const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, links), dispositions);
@@ -114,8 +115,16 @@ module.exports = async (req, res) => {
       };
       text = `MANHEIM: ${summary.csvsProcessed} CSV(s) processados em ${summary.uploads} importação(ões); ${summary.compatibleCars} carro(s) compatível(is).`;
     } else {
-      summary = { imports: 0 };
-      text = 'ENTRADA: relatório operacional não solicitado para esta aba.';
+      const scoped = importJobs.filter((item) => inside(item.created_at, selected));
+      summary = {
+        imports: scoped.length,
+        files: scoped.reduce((sum, item) => sum + Number(item.selected_file_count || 0), 0),
+        messages: scoped.reduce((sum, item) => sum + Number(item.message_count || 0), 0),
+        completed: scoped.filter((item) => item.status === 'COMPLETED').length,
+        inReview: scoped.filter((item) => item.status === 'REVIEW').length,
+        failed: scoped.filter((item) => ['FAILED', 'REJECTED'].includes(item.status)).length
+      };
+      text = `ENTRADA: ${summary.imports} importação(ões), ${summary.files} arquivo(s), ${summary.messages} mensagem(ns); ${summary.completed} concluída(s), ${summary.inReview} em revisão e ${summary.failed} falha(s)/rejeitada(s).`;
     }
 
     return send(res, 200, {
