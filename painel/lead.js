@@ -49,7 +49,7 @@
     const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     root.replaceChildren(); root.classList.add('lead-detail');
-    const record=data.record||{},order=data.order||{},track=data.track||{},ref=data.ref,journeyId=record.id;
+    const record=data.record||{},order=data.order||{},track=data.track||null,ref=data.ref,hasCalculatorRef=data.hasCalculatorRef!==false&&Boolean(data.order),journeyId=record.id;
     let activeUndo=null;
     const api=async(action,fields={})=>{
       const result=await request('/api/panel/lead',{method:'POST',body:JSON.stringify({action,ref,journeyId,...fields})});
@@ -63,7 +63,7 @@
     const heading=section(root,1,'CABEÇALHO DA LIGAÇÃO');
     const header=append(heading,'div','lead-header');
     append(header,'div','lead-score',data.score===null?'—':data.score);
-    const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — Ref ${ref}`);
+    const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — ${hasCalculatorRef?'Ref '+ref:'sem Ref'}`);
     const locationLine=append(identity,'p','muted',`${data.city?data.city+', ':''}${data.state?.uf||'Local não identificado'}${data.zip?` · ZIP ${data.zip}`:''}`);
     if(data.zip&&!data.city)request('/api/panel/lead?cityZip='+encodeURIComponent(data.zip)).then((place)=>{
       if(locationLine.isConnected&&place.city)locationLine.textContent=`${place.city}, ${data.state?.uf||''} · ZIP ${data.zip}`;
@@ -80,6 +80,28 @@
     badges.append(badge(record.enabled===false?'DESLIGADO':'LIGADO',record.enabled===false?'red':'green'));
     if(dispositionControls) heading.append(dispositionControls(order.ref?{kind:'CALCULATOR',ref}:{kind:'JOURNEY',id:record.id}));
     button(heading,record.contact?.is_lead===false?'Restaurar como lead':'Não é lead',async()=>{if(!window.confirm(record.contact?.is_lead===false?'Restaurar este contato como lead?':'Marcar como não-lead? As mensagens continuarão guardadas.'))return;await api('contact_lead',{isLead:record.contact?.is_lead===false});await onChanged();});
+    const aiReading=data.ai?.reading;
+    if(aiReading){
+      const summary=append(heading,'div','lead-card lead-highlight ai-summary');append(summary,'span','lead-label','RESUMO DA IA');
+      const want=append(summary,'p');append(want,'b','','Quer: ');want.append(document.createTextNode(aiReading.summary_json?.want||'Ainda não identificado.'));
+      const money=append(summary,'p');append(money,'b','','Dinheiro: ');money.append(document.createTextNode(aiReading.summary_json?.money||'Ainda não identificado.'));
+      const missing=append(summary,'p');append(missing,'b','','Falta perguntar: ');missing.append(document.createTextNode(aiReading.summary_json?.missing||'Nada indicado pela leitura.'));
+      append(summary,'div','muted',`Atualizado há ${elapsed(aiReading.created_at)} · baseado em ${aiReading.message_count} mensagens`);
+    }
+    const aiSuggestion=data.ai?.suggestion;
+    if(aiSuggestion){
+      const suggestion=append(heading,'div','lead-card lead-highlight ai-link-suggestion');append(suggestion,'span','lead-label','LIGAÇÃO SUGERIDA');
+      const text=append(suggestion,'p');text.append(document.createTextNode('Esta conversa parece ser o pedido '));append(text,'strong','ref',`Ref ${aiSuggestion.target_ref}`);
+      append(suggestion,'div','muted',`Motivos: ${aiSuggestion.motives||'sinais da conversa e da simulação.'}`);
+      const actions=append(suggestion,'div','lead-actions');
+      button(actions,'Ligar ao pedido',async()=>{await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'suggestion',journeyId:record.id,suggestionId:aiSuggestion.id,link:true})});await reload();},'small');
+      button(actions,'Não é',async()=>{await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'suggestion',journeyId:record.id,suggestionId:aiSuggestion.id,link:false})});await reload();},'quiet small');
+      button(actions,'Escolher outro pedido',async()=>{const result=await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'alternatives',journeyId:record.id})});
+        let picker=suggestion.querySelector('.ai-alternative-picker');if(picker)picker.remove();picker=append(suggestion,'div','lead-actions ai-alternative-picker');const select=append(picker,'select');select.append(new Option('Escolha outro pedido',''));
+        (result.items||[]).filter((item)=>item.ref!==aiSuggestion.target_ref).forEach((item)=>select.append(new Option(`Ref ${item.ref} · ${item.name||'sem nome'} · ${item.vehicle||'sem carro'} · ${cents(item.budgetCents)}`,item.ref)));
+        button(picker,'Ligar escolhido',async()=>{if(!select.value)return;await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'choose',journeyId:record.id,ref:select.value})});await reload();},'small');
+      },'quiet small');
+    }
 
     const trio=append(root,'div','lead-grid lead-three');
     const wishes=section(trio,2,'O QUE ELE QUER');
@@ -168,17 +190,35 @@
     button(laterForm,'Registrar retorno',async()=>{if(laterDate.value)await quickResult('LATER',laterDate.value);},'small');
 
     const tracking=section(root,10,'PÁGINA DO CLIENTE','lead-highlight');
-    const steps=append(tracking,'div','lead-steps');stageNames.forEach((label,index)=>button(steps,label,async()=>{
-      if(index===3){resultChoice.hidden=false;return;}await api('tracking_step',{step:index+1});await reload();},'lead-step '+(index+1<=track.step?'on':'')));
     const resultChoice=append(tracking,'div','lead-actions');resultChoice.hidden=true;
-    button(resultChoice,'Won',async()=>{await api('tracking_step',{step:4,result:'WON'});await reload();});
-    button(resultChoice,'Not won',async()=>{await api('tracking_step',{step:4,result:'NOT_WON'});await reload();});
-    button(tracking,'Copiar link do cliente',()=>navigator.clipboard.writeText(location.origin+'/t/'+track.public_code));
+    if(track){const steps=append(tracking,'div','lead-steps');stageNames.forEach((label,index)=>button(steps,label,async()=>{
+      if(index===3){resultChoice.hidden=false;return;}await api('tracking_step',{step:index+1});await reload();},'lead-step '+(index+1<=track.step?'on':'')));
+      button(resultChoice,'Won',async()=>{await api('tracking_step',{step:4,result:'WON'});await reload();});
+      button(resultChoice,'Not won',async()=>{await api('tracking_step',{step:4,result:'NOT_WON'});await reload();});
+      button(tracking,'Copiar link do cliente',()=>navigator.clipboard.writeText(location.origin+'/t/'+track.public_code));
+    }else append(tracking,'p','muted','Ligue ao pedido para criar a página do cliente.');
     const customerResponses=(data.events||[]).filter((entry)=>['WANT_CAR','NOT_FOR_ME'].includes(entry.event_type));
     append(tracking,'p','muted',customerResponses.length?customerResponses.map((entry)=>`${entry.detail_json.vehicle}: ${entry.event_type==='WANT_CAR'?'I want this':'Not for me'}`).join(' · '):'O cliente ainda não respondeu aos carros.');
 
     const finalGrid=append(root,'div','lead-grid lead-two');
     const conversation=section(finalGrid,11,'CONVERSA','lead-highlight');conversation.id='lead-conversation';
+    const aiReview=append(conversation,'div','lead-card lead-highlight ai-conversation-review');append(aiReview,'span','lead-label','A IA LEU A CONVERSA');
+    append(aiReview,'p','muted','Roda sozinha depois de 10 mensagens da MCS, 10 min após a última mensagem do cliente e somente quando houver mensagem nova. Nada é gravado sem confirmação.');
+    const aiStatus=append(aiReview,'p','status','');
+    const readNow=append(aiReview,'button','quiet small','Ler conversa agora');readNow.type='button';readNow.addEventListener('click',async()=>{readNow.disabled=true;aiStatus.textContent='Lendo conversa…';try{await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'read',journeyId:record.id,chatId:aiReading?.chat_id||null})});await reload();}catch(error){aiStatus.textContent=error.code==='AI_DAILY_LIMIT'?'limite do dia atingido':'IA indisponível';readNow.disabled=false;}});
+    if(aiReading){
+      if(!hasCalculatorRef)append(aiReview,'p','warning','Ligue ao pedido para confirmar.');
+      if(aiReading.items?.length)append(aiReview,'div','ai-route-title','Vai para:');
+      const selected=[];
+      (aiReading.items||[]).forEach((item)=>{const line=append(aiReview,'label','lead-route');const input=append(line,'input');input.type='checkbox';input.checked=!item.manual_review&&item.type!=='budget';selected.push({input,id:item.id});
+        append(line,'strong','',item.type==='checklist'?`Checklist ${item.point} → OK`:({call_result:'Resultado da ligação',budget:'Teto total',payment:'Pagamento',deadline:'Prazo',wishlist:'Lista de desejo',phone:'Telefones',promise:'Promessa',return:'Retorno',stage:'Etapa operacional',disable:'Desligar lead'}[item.type]||item.type));
+        const detail=append(line,'div','lead-route-value');append(detail,'span','',itemLabel(item,data.timezone));if(item.manual_review||item.type==='budget')append(detail,'span','lead-badge yellow','confirmar manualmente');append(detail,'small','muted',`Cliente: “${item.evidence}”`);
+      });
+      const aiActions=append(aiReview,'div','lead-actions');
+      const confirm=append(aiActions,'button','small','Confirmar');confirm.type='button';confirm.disabled=!hasCalculatorRef||!aiReading.items?.length;confirm.addEventListener('click',async()=>{const itemIds=selected.filter((entry)=>entry.input.checked).map((entry)=>entry.id);if(!itemIds.length){aiStatus.textContent='Marque pelo menos um item.';return;}confirm.disabled=true;aiStatus.textContent='Gravando…';try{await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'confirm',journeyId:record.id,readingId:aiReading.id,itemIds,confirmationKey:crypto.randomUUID()})});await reload();}catch(error){aiStatus.textContent=error.code==='AI_REF_REQUIRED'?'Ligue ao pedido para confirmar.':'Não foi possível confirmar.';confirm.disabled=!hasCalculatorRef;}});
+      const discard=append(aiActions,'button','quiet small','Descartar');discard.type='button';discard.disabled=!aiReading.items?.length;discard.addEventListener('click',async()=>{discard.disabled=true;try{await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'discard',journeyId:record.id,readingId:aiReading.id})});await reload();}catch(_){aiStatus.textContent='Não foi possível descartar.';discard.disabled=false;}});
+      aiActions.append(readNow);
+    }
     const uploadAttachment=async(file,status)=>{if(!file)return;status.textContent='Enviando…';const ensured=journeyId?{journeyId,contactId:record.contact_id}:await api('ensure');const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const magicBase64=btoa(String.fromCharCode(...head));const signed=await request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploadBody=new FormData();uploadBody.append('cacheControl','3600');uploadBody.append('',file);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'x-upsert':'false'},body:uploadBody});if(!uploaded.ok)throw Error('UPLOAD_FAILED');await request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'finalize',attachmentId:signed.attachmentId,quarantinePath:signed.quarantinePath,filename:signed.filename,mimeType:file.type,contactId:ensured.contactId,journeyId:ensured.journeyId})});status.textContent='Anexo salvo.';await reload();};
     const attachmentButton=(parent)=>{const input=append(parent,'input');input.type='file';input.accept='image/jpeg,image/png,image/webp,application/pdf';input.hidden=true;const status=append(parent,'span','status','');button(parent,'Anexar',()=>input.click());input.addEventListener('change',()=>uploadAttachment(input.files[0],status).catch((error)=>{status.textContent=error.message==='ATTACHMENT_REJECTED'?'Tipo não aceito ou arquivo maior que 10 MB.':'Falha no envio do anexo.';}));};
     attachmentButton(conversation);
