@@ -63,11 +63,9 @@ async function applyItem(ctx, req, lead, journey, item) {
   } else if (type === 'wishlist') {
     const current = await rows(ctx, 'journeys', { select: 'criteria_json', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id, limit: '1' });
     const criteria = current[0]?.criteria_json || {};
-    const wished = Array.isArray(criteria.wishlists) ? criteria.wishlists.slice() : lead.wishes.slice();
     if (!value || !Array.isArray(value.cars)) return;
     const normalized = value.cars.slice(0, 5).filter((car) => car && typeof car.model === 'string' && car.model.length <= 120).map((car) => ({ make: safeText(car.make, 80) || '', model: car.model, yearMin: Number(car.yearMin) || null, yearMax: Number(car.yearMax) || null, maxMiles: Number(car.maxMiles) || null }));
-    if (!normalized.length && wished.length) return;
-    await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { criteria_json: { ...criteria, wishlists: normalized }, updated_at: at, updated_by: ctx.panel.id });
+    await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { criteria_json: { ...criteria, wishlists: normalized, wishlistOverride: true }, updated_at: at, updated_by: ctx.panel.id });
   } else if (type === 'phone') {
     const phone = safeText(value && value.number, 30);
     if (!phone || !/^[+()\d\s.-]{7,30}$/.test(phone)) return;

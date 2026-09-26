@@ -21,7 +21,7 @@
     const represented=new Set((data.events||[]).map((item)=>item.detail_json?.interactionId).filter(Boolean).map((id)=>'interaction:'+id));
     const entries=[...(record.timeline||[]).filter((item)=>!undone.has(item.id)&&!represented.has(item.id)).map((item)=>({at:item.occurredAt,text:item.label||item.body_text||'Mensagem'})),
       ...(data.notes||[]).map((item)=>({at:item.created_at,text:`Anotação: ${item.body_text} · ${(item.distributed_json||[]).length} item(ns) distribuído(s)`})),
-      ...(data.events||[]).map((item)=>({at:item.occurred_at,text:item.event_type==='EXTRA_PHONE'?`Telefone extra (${item.detail_json?.owner||'contato'}): ${item.detail_json?.number}`:item.detail_json?.label||item.detail_json?.vehicle||item.event_type})),
+      ...(data.events||[]).map((item)=>({at:item.occurred_at,text:item.event_type==='EXTRA_PHONE'?`Telefone extra (${item.detail_json?.owner||'contato'}): ${item.detail_json?.number}`:item.event_type==='DISABLE_SUGGESTED'?`Sugestão de desligar: ${item.detail_json?.reason||'sem motivo'}`:item.detail_json?.label||item.detail_json?.vehicle||item.event_type})),
       ...(data.order?.simulations||[]).map((item)=>({at:item.occurredAt,text:`Simulação ${item.logicalMode==='VALOR'?'por valor':'carro ideal'} · ${item.vehicleText||'sem carro'}`}))];
     if (record.contact?.notes) entries.push({at:record.created_at,text:`Nota antiga: ${record.contact.notes}`});
     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
@@ -146,6 +146,8 @@
     const history=section(finalGrid,12,'DADOS E HISTÓRICO','lead-highlight');
     append(history,'h3','',`Checklist ${data.checklist.filter((point)=>point.status==='COMPLETE').length}/6`);
     data.checklist.forEach((point)=>{const line=append(history,'div','lead-check');button(line,`${point.point_number}. ${point.point_label} · ${point.status==='COMPLETE'?'OK':'Pendente'}`,async()=>{await api('checklist',{point:point.point_number,complete:point.status!=='COMPLETE'});await reload();});});
+    const extraPhones=(data.events||[]).filter((item)=>item.event_type==='EXTRA_PHONE');
+    if(extraPhones.length){append(history,'h3','','Telefones extras');extraPhones.forEach((item)=>row(history,item.detail_json?.owner||'Contato',item.detail_json?.number));}
     append(history,'h3','','Retornos');
     (record.returns||[]).filter((item)=>item.status==='OPEN').forEach((item)=>{const line=row(history,item.text,date(item.dueAt,data.timezone));button(line,'Concluir',async()=>{await api('manual',{panelAction:'return_update',payload:{returnKind:item.kind,returnId:item.kind==='PROMISE'?item.id:null,operation:'COMPLETE'}});await reload();});});
     if(!record.next_action_at){const form=append(history,'div','lead-actions');const task=append(form,'input');task.placeholder='Retorno manual';const due=append(form,'input');due.type='datetime-local';

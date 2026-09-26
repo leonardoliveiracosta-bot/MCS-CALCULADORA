@@ -128,7 +128,9 @@ async function leadData(ctx, req, refInput, idInput) {
     allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, order: 'uploaded_at.desc' }),
     allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, calc_ref: 'eq.' + ref, created_at: 'gte.' + cutoff })
   ]);
-  const wishes = mergeWishlists(record && record.wishlists || [], order && order.wishlists || []);
+  const wishes = record?.criteria_json?.wishlistOverride
+    ? (record.wishlists || [])
+    : mergeWishlists(record && record.wishlists || [], order && order.wishlists || []);
   const rawZip = order && order.zip || (record?.contact?.location_text || '').match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || '';
   const zip = String(rawZip).replace(/\D/g, '').slice(0, 5);
   const state = calc.zipEstado(zip);
