@@ -1,23 +1,91 @@
 'use strict';
-const { buildTodayItems, buildTodayOrderItems, consolidateCalcRuns } = require('../../panel-domain');
+
+const { consolidateCalcRuns, groupCalculatorByRef, standardBudget, time } = require('../../panel-domain');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
+  const ctx = await requirePanel(req, res);
+  if (!ctx) return;
   try {
-    const session = await requirePanel(req, res);
-    if (!session) return;
-    const [data, calcRuns, links, meta] = await Promise.all([
-      operational(session),
-      allRows(session, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados', order: 'created_at.asc' }),
-      allRows(session, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + session.environment }),
-      panelMeta(session)
+    const now = Date.now();
+    const cutoff = now - 24 * 60 * 60 * 1000;
+    const [data, calcRuns, links, dispositions, meta] = await Promise.all([
+      operational(ctx),
+      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+      allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
+      panelMeta(ctx)
     ]);
-    const journeyItems = buildTodayItems(data);
-    const orderItems = buildTodayOrderItems(consolidateCalcRuns(calcRuns, links));
-    const items = journeyItems.concat(orderItems).sort((left, right) => right.waitMs - left.waitMs || right.budgetCents - left.budgetCents || left.id.localeCompare(right.id));
-    return send(res, 200, { environment: session.environment, items, meta });
+
+    const journeyMap = new Map(data.journeys.map((item) => [item.id, item]));
+    const latestByJourney = new Map();
+    for (const message of data.messages) {
+      const current = latestByJourney.get(message.journey_id);
+      const stamp = time(message.occurred_at_utc || message.occurred_at_local || message.created_at) || 0;
+      const currentStamp = current ? time(current.occurred_at_utc || current.occurred_at_local || current.created_at) || 0 : -1;
+      if (stamp >= currentStamp) latestByJourney.set(message.journey_id, message);
+    }
+
+    const calcModes = consolidateCalcRuns(calcRuns, links).map((item) => {
+      const journey = item.link && item.link.journeyId ? journeyMap.get(item.link.journeyId) : null;
+      const latest = journey ? latestByJourney.get(journey.id) : null;
+      return {
+        ...item,
+        status: item.link && latest ? (latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO') : item.eventStatus,
+        contactName: journey && journey.contact ? journey.contact.display_name : null
+      };
+    });
+    const orders = groupCalculatorByRef(calcModes, dispositions)
+      .filter((item) => item.pending && (time(item.occurredAt) || 0) >= cutoff)
+      .map((item) => ({
+        ...item,
+        kind: 'CALCULATOR_ORDER',
+        id: item.key,
+        name: item.contactName || `Ref ${item.ref}`,
+        checklistLabel: item.simulationCount > 1 ? `${item.simulationCount} simulações` : item.logicalMode === 'CARRO' ? 'carro ideal' : 'por valor',
+        standardBudget: standardBudget(item.budgetCents)
+      }));
+
+    const orderRefs = new Set(orders.map((item) => item.ref).filter(Boolean));
+    const dispositionByJourney = new Map(dispositions.filter((item) => item.item_kind === 'JOURNEY').map((item) => [item.item_key, item]));
+    const journeys = data.journeys
+      .filter((item) => (time(item.created_at) || 0) >= cutoff)
+      .filter((item) => !dispositionByJourney.has(item.id))
+      .filter((item) => !item.reference_code || !orderRefs.has(String(item.reference_code).toUpperCase()))
+      .map((item) => ({
+        ...item,
+        kind: 'JOURNEY',
+        name: item.contact && item.contact.display_name || 'Contato sem nome',
+        referenceCode: item.reference_code,
+        occurredAt: item.created_at,
+        clickedContact: false,
+        contactChannel: null,
+        standardBudget: standardBudget(item.budget_cents),
+        outOfStandard: !standardBudget(item.budget_cents),
+        budgetCents: Number(item.budget_cents) || 0,
+        vehicleText: item.vehicle_text || null,
+        checklistLabel: 'ficha nova'
+      }));
+
+    const items = orders.concat(journeys).sort((left, right) => {
+      const outlier = Number(Boolean(left.outOfStandard)) - Number(Boolean(right.outOfStandard));
+      if (outlier) return outlier;
+      const clicked = Number(Boolean(right.clickedContact)) - Number(Boolean(left.clickedContact));
+      if (clicked) return clicked;
+      const recent = (time(right.occurredAt) || 0) - (time(left.occurredAt) || 0);
+      if (recent) return recent;
+      return String(left.id).localeCompare(String(right.id));
+    });
+
+    return send(res, 200, {
+      environment: ctx.environment,
+      windowHours: 24,
+      generatedAt: new Date(now).toISOString(),
+      items,
+      meta
+    });
   } catch (_) {
     return send(res, 500, { error: 'PANEL_TODAY_ERROR' });
   }
