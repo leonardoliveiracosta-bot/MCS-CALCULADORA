@@ -1498,7 +1498,7 @@
     checklistBlock.append(element('h3', '', `Checklist — ${item.checklistSummary.label}`));
     item.checklist.forEach((point) => {
       const row = element('div', 'check-point' + (point.status === 'COMPLETE' ? ' complete' : ''));
-      row.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(point.status));
+      row.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(checklistStatusLabel(point.status), point.status === 'COMPLETE' ? 'green' : ''));
       point.evidence.forEach((evidence) => row.append(element('p', 'evidence', evidence.excerpt_text)));
       checklistBlock.append(row);
     });
@@ -1646,18 +1646,14 @@
     result.items.forEach((item) => {
       const button = element('button', 'search-hit');
       button.type = 'button';
-      button.append(element('span', '', `${item.name}${item.vehicleText ? ` — ${item.vehicleText}` : ''}`), makeBadge(item.matchedBy));
-      button.addEventListener('click', async () => {
+      const label = item.kind === 'ORDER'
+        ? `Ref ${item.ref}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
+        : `${item.name}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
+      button.append(element('span', '', label), makeBadge(item.matchedBy));
+      button.addEventListener('click', () => {
         root.classList.add('hidden');
-        if (item.kind === 'ORDER') {
-          orderFilter = 'Todos';
-          orderPeriod = 'all';
-          document.querySelectorAll('[data-order-filter]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderFilter === orderFilter));
-          document.querySelectorAll('[data-order-period]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderPeriod === orderPeriod));
-          await switchPanel('orders');
-          return;
-        }
-        if (item.journeyId) { await switchPanel('records'); await openRecord(item.journeyId); }
+        if (item.kind === 'ORDER') return openDetail('order', item.ref);
+        if (item.journeyId) return openDetail('ficha', item.journeyId);
       });
       root.append(button);
     });
@@ -1681,7 +1677,7 @@
     try {
       const report = await request('/api/panel/report?' + params.toString());
       $('report-text').value = report.text;
-      $('report-status').textContent = `Simulações: ${report.summary.simulations} · Leads: ${report.summary.leads} · Qualificados: ${report.summary.qualified} · Desligados: ${report.summary.closed}`;
+      $('report-status').textContent = 'Relatório gerado.';
     } catch (_) {
       $('report-status').textContent = 'Não foi possível gerar o relatório para esse período.';
     }
@@ -1753,6 +1749,33 @@
       } catch (_) { clearInterval(refreshTimer); }
     }, 120000);
   };
+  async function routeFromHash(push = false) {
+    const hash = String(location.hash || '');
+    const order = hash.match(/^#pedido\/([A-HJ-NP-Z2-9]{5})$/i);
+    if (order) {
+      const ref = decodeURIComponent(order[1]).toUpperCase();
+      await openDetail('order', ref, { push, origin: history.state && history.state.origin || detailOrigin || captureOrigin() });
+      return true;
+    }
+    const record = hash.match(/^#ficha\/([0-9a-f-]{36})$/i);
+    if (record) {
+      await openDetail('ficha', decodeURIComponent(record[1]), { push, origin: history.state && history.state.origin || detailOrigin || captureOrigin() });
+      return true;
+    }
+    return false;
+  }
+
+  async function handlePopState(event) {
+    if (!accessToken) return;
+    const state = event.state || {};
+    if (state.detail && state.kind && state.key) {
+      await openDetail(state.kind, state.key, { push: false, origin: state.origin || detailOrigin });
+      return;
+    }
+    if (await routeFromHash(false)) return;
+    await restoreOrigin(state.panelOrigin || detailOrigin || { view: currentView || 'today', scrollY: 0 });
+  }
+
   async function routeSession() {
     if (!accessToken) return show('login-view');
     try {
@@ -1760,6 +1783,8 @@
       if (session.mustChangePassword) return show('password-view');
       show('app-view');
       await switchPanel('today');
+      if (!history.state) history.replaceState({ panelOrigin: captureOrigin() }, '', location.pathname + location.search + (location.hash || ''));
+      await routeFromHash(false);
       await refreshCounters();
       startSafeRefresh();
     } catch (failure) {
@@ -1796,7 +1821,15 @@
     $('login-form').addEventListener('submit', signIn);
     $('password-form').addEventListener('submit', changePassword);
     $('logout').addEventListener('click', () => { clearInterval(refreshTimer); clearSession(); show('login-view'); });
-    document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => switchPanel(button.dataset.view)));
+    document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', async () => {
+      history.replaceState({ panelOrigin: { view: button.dataset.view, scrollY: 0, orderFilter, orderPeriod, orderLoaded: orderItems.length } }, '', location.pathname + location.search);
+      await switchPanel(button.dataset.view);
+    }));
+    $('detail-back').addEventListener('click', () => {
+      if (location.hash && history.length > 1) history.back();
+      else restoreOrigin().catch(() => {});
+    });
+    window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
     document.querySelectorAll('[data-order-filter]').forEach((button) => button.addEventListener('click', async () => {
       orderFilter = button.dataset.orderFilter;
       document.querySelectorAll('[data-order-filter]').forEach((item) => item.classList.toggle('active', item === button));
