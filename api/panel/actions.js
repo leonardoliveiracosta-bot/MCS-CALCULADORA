@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  clientOkPatch, consolidateCalcRuns, finiteInteger, journeyEnabled, matchManheimVehicle,
+  clientOkPatch, consolidateCalcRuns, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
   mergeWishlists, nextStageForUnits, reactivationEligible, REF_RE, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
@@ -560,6 +560,7 @@ function safeManheimVehicle(value) {
   const raw = {};
   for (const header of headers) raw[header] = safeText(rawSource[header], 1000) || '';
   const parsed = {
+    vin: safeText(parsedSource.vin, 40) || '',
     year: finiteInteger(parsedSource.year), make: safeText(parsedSource.make, 80) || '', model: safeText(parsedSource.model, 120, true),
     trim: safeText(parsedSource.trim, 120) || '', miles: finiteInteger(parsedSource.miles),
     location: safeText(parsedSource.location, 200) || '', saleDate: safeText(parsedSource.saleDate, 100) || '',
@@ -587,22 +588,40 @@ async function actionManheimUpload(ctx, body) {
   const requested = Array.isArray(body.matches) ? body.matches : [];
   if (!Number.isInteger(fileCount) || fileCount < 1 || fileCount > 20 || !Number.isInteger(vehicleCount) || vehicleCount < 0 || vehicleCount > 100000 || !headers.length || requested.length > 2000) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
 
-  const [journeys, toggleStates] = await Promise.all([
+  const [journeys, toggleStates, calcRuns, calcLinks, dispositions] = await Promise.all([
     allRows(ctx, 'journeys', { select: 'id,status,stage,criteria_json,budget_cents', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment })
+    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+    allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
   ]);
   const states = new Map(toggleStates.map((state) => [state.journey_id, state]));
   const byId = new Map(journeys.map((journey) => {
     const state = states.get(journey.id);
     return [journey.id, { ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', offReason: state && state.off_reason || null }];
   }));
+  const orderByRef = new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions)
+    .filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
   const matches = [];
+  const orderMatches = [];
   for (const item of requested) {
+    const vehicle = safeManheimVehicle(item && item.vehicle);
+    const fingerprint = safeText(item && item.fingerprint, 200, true);
+    if (!vehicle || !fingerprint) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+    if (item && item.targetType === 'ORDER') {
+      const ref = String(item.calcRef || '').trim().toUpperCase();
+      const order = orderByRef.get(ref);
+      const result = order && matchManheimOrder(vehicle.parsed, order);
+      if (!order || !result) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+      vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
+      vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
+      vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
+      orderMatches.push({ calcRef: ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
+      continue;
+    }
     if (!isUuid(item && item.journeyId)) return send(ctx.res, 400, { error: 'MANHEIM_JOURNEY_ID_INVALID' });
     const journey = byId.get(item.journeyId);
-    const vehicle = safeManheimVehicle(item.vehicle);
-    const fingerprint = safeText(item.fingerprint, 200, true);
-    if (!journey || !vehicle || !fingerprint) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+    if (!journey) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
     const result = matchManheimVehicle(vehicle.parsed, wishlistsForJourney(journey), journey.budget_cents);
     if (!result) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
     if (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE')) return send(ctx.res, 409, { error: 'MANHEIM_JOURNEY_DISABLED' });
@@ -621,6 +640,49 @@ async function actionManheimUpload(ctx, body) {
   return send(ctx.res, 201, result);
 }
 
+
+async function actionDisposition(ctx, body) {
+  const itemKind = String(body.itemKind || '');
+  const itemKey = safeText(body.itemKey, 200, true);
+  const status = body.status === null || body.status === '' ? null : String(body.status || '');
+  if (!['REF', 'JOURNEY'].includes(itemKind) || !itemKey || (status && !['TREATED', 'DISCARDED'].includes(status))) {
+    return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
+  }
+  if (itemKind === 'REF' && !REF_RE.test(itemKey.toUpperCase())) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
+  if (itemKind === 'JOURNEY' && !isUuid(itemKey)) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
+  const endpoint = '/rest/v1/panel_item_dispositions?environment=eq.' + ctx.environment + '&item_kind=eq.' + itemKind + '&item_key=eq.' + encodeURIComponent(itemKey);
+  if (!status) {
+    await supabase(ctx.config.url, ctx.config.secretKey, endpoint, { method: 'DELETE', headers: { prefer: 'return=minimal' } });
+    return send(ctx.res, 200, { status: null });
+  }
+  const at = isoNow();
+  await supabase(ctx.config.url, ctx.config.secretKey,
+    '/rest/v1/panel_item_dispositions?on_conflict=environment,item_kind,item_key',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ environment: ctx.environment, item_kind: itemKind, item_key: itemKey, status, updated_at: at, updated_by: ctx.panel.id })
+    });
+  return send(ctx.res, 200, { status, updatedAt: at });
+}
+
+async function actionInvertSenders(ctx, journey, body) {
+  if (!isUuid(body.chatId)) return send(ctx.res, 400, { error: 'CHAT_ID_INVALID' });
+  const links = await allRows(ctx, 'message_journeys', {
+    select: 'message_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id
+  });
+  const linked = new Set(links.map((item) => item.message_id));
+  const chatMessages = await rows(ctx, 'messages', {
+    select: 'id', environment: 'eq.' + ctx.environment, chat_id: 'eq.' + body.chatId, limit: '200'
+  });
+  if (!chatMessages.some((item) => linked.has(item.id))) return send(ctx.res, 404, { error: 'CHAT_NOT_IN_JOURNEY' });
+  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_invert_chat_senders', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ p_environment: ctx.environment, p_chat_id: body.chatId, p_actor_id: ctx.panel.id })
+  });
+  return send(ctx.res, 200, result);
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   const ctx = await requirePanel(req, res);
@@ -629,6 +691,7 @@ module.exports = async (req, res) => {
   try {
     const body = await jsonBody(req, 2 * 1024 * 1024);
     if (body.action === 'manheim_upload') return actionManheimUpload(ctx, body);
+    if (body.action === 'set_disposition') return actionDisposition(ctx, body);
     const journey = await journeyContext(ctx, body.journeyId);
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
     switch (body.action) {
@@ -651,6 +714,7 @@ module.exports = async (req, res) => {
       case 'close_journey': return actionClose(ctx, journey, body);
       case 'toggle_journey': return actionToggleJourney(ctx, journey, body);
       case 'return_update': return actionReturn(ctx, journey, body);
+      case 'invert_senders': return actionInvertSenders(ctx, journey, body);
       default: return send(res, 400, { error: 'PANEL_ACTION_INVALID' });
     }
   } catch (failure) {
