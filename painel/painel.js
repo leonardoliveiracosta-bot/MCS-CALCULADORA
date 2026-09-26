@@ -24,6 +24,7 @@
   let orderItems = [];
   let orderLinkTargets = [];
   let manheimJourneys = [];
+  let manheimOrders = [];
   let manheimMatches = [];
   let reportView = 'today';
   let viewRequestVersion = 0;
@@ -1046,6 +1047,7 @@
         element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
         element('span', 'muted', `${Number(parsed.miles || 0).toLocaleString('pt-BR')} milhas${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}${parsed.saleDate ? ` · ${parsed.saleDate}` : ''}`)
       );
+      if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
       if (parsed.matchedWishlistLabel) vehicle.append(element('span', 'muted', `Lista: ${parsed.matchedWishlistLabel}`));
       if (parsed.makeNotice) vehicle.append(element('span', 'muted', parsed.makeNotice));
       if (parsed.exteriorColor) vehicle.append(element('span', 'muted', `Cor externa: ${parsed.exteriorColor}`));
@@ -1072,36 +1074,102 @@
       downloadShortlist(selected, journey.reference_code);
     });
     card.append(exportButton);
+    makeCardClickable(card, () => openDetail('ficha', journey.id));
+    root.append(card);
+  }
+
+  function renderManheimOrderGroup(root, order, matches) {
+    const card = element('article', 'item-card manheim-lead');
+    const head = element('div', 'item-head');
+    const identity = element('div', 'identity');
+    identity.append(element('span', 'order-icon', orderIcon(order)));
+    const text = element('div');
+    text.append(element('strong', '', `Ref ${order.ref}`), element('span', 'muted one-line', displayModel(order.vehicleText) || 'Pedido da calculadora'));
+    identity.append(text);
+    head.append(identity);
+    card.append(head);
+    const summary = element('div', 'badges');
+    summary.append(makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));
+    summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
+    card.append(summary, element('p', 'muted', order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
+
+    const table = element('div', 'manheim-table');
+    matches.forEach((match) => {
+      const parsed = match.vehicle_json.parsed || {};
+      const row = element('div', `manheim-row ${match.match_kind === 'BATE' ? 'match' : 'near'}`);
+      const vehicle = element('div');
+      vehicle.append(
+        element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
+        element('span', 'muted', `${Number(parsed.miles || 0).toLocaleString('pt-BR')} milhas${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}`)
+      );
+      if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
+      vehicle.append(element('span', 'muted', `Ref do pedido: ${order.ref}`));
+      const badges = element('div', 'badges');
+      badges.append(makeBadge(match.match_kind, match.match_kind === 'BATE' ? 'green' : 'yellow'));
+      if (match.match_reason) badges.append(makeBadge(match.match_reason));
+      if (match.mmr_status) badges.append(makeBadge(match.mmr_status, match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
+      row.append(vehicle, badges);
+      makeCardClickable(row, () => openDetail('order', order.ref));
+      table.append(row);
+    });
+    card.append(table);
+    makeCardClickable(card, () => openDetail('order', order.ref));
     root.append(card);
   }
 
   function renderManheim(data) {
     manheimJourneys = data.items || [];
+    manheimOrders = data.orders || [];
     manheimMatches = data.matches || [];
     setCount('manheim', data.upload && data.upload.lead_count || 0);
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.lead_count} lead(s) · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
     const root = $('manheim-results');
     root.replaceChildren();
     if (!manheimMatches.length) return empty(root, 'Nenhum carro compatível no último upload.');
+
     const byJourney = new Map(manheimJourneys.map((journey) => [journey.id, journey]));
-    const grouped = new Map();
+    const byOrder = new Map(manheimOrders.map((order) => [order.ref, order]));
+    const journeyGroups = new Map();
+    const orderGroups = new Map();
+
     manheimMatches.forEach((match) => {
-      if (!grouped.has(match.journey_id)) grouped.set(match.journey_id, []);
-      grouped.get(match.journey_id).push(match);
+      if (match.calc_ref) {
+        const ref = String(match.calc_ref).trim();
+        if (!orderGroups.has(ref)) orderGroups.set(ref, []);
+        orderGroups.get(ref).push(match);
+      } else if (match.journey_id) {
+        if (!journeyGroups.has(match.journey_id)) journeyGroups.set(match.journey_id, []);
+        journeyGroups.get(match.journey_id).push(match);
+      }
     });
+
     const standard = element('section', 'stack');
     standard.append(element('h3', '', 'Compatíveis'));
     const reactivate = element('section', 'stack');
     reactivate.append(element('h3', '', 'Reativar'));
     let standardCount = 0;
     let reactivateCount = 0;
-    grouped.forEach((matches, journeyId) => {
+
+    orderGroups.forEach((matches, ref) => {
+      const order = byOrder.get(ref);
+      if (!order) return;
+      renderManheimOrderGroup(standard, order, matches);
+      standardCount += 1;
+    });
+
+    journeyGroups.forEach((matches, journeyId) => {
       const journey = byJourney.get(journeyId);
       if (!journey) return;
       const isReactivation = journey.reactivationEligible || journey.status === 'PARADO';
-      if (isReactivation) { renderManheimGroup(reactivate, journey, matches.filter((match) => match.match_kind === 'BATE'), true); reactivateCount += 1; }
-      else { renderManheimGroup(standard, journey, matches, false); standardCount += 1; }
+      if (isReactivation) {
+        const exact = matches.filter((match) => match.match_kind === 'BATE');
+        if (exact.length) { renderManheimGroup(reactivate, journey, exact, true); reactivateCount += 1; }
+      } else {
+        renderManheimGroup(standard, journey, matches, false);
+        standardCount += 1;
+      }
     });
+
     if (standardCount) root.append(standard);
     if (reactivateCount) root.append(reactivate);
   }
@@ -1112,9 +1180,10 @@
     if (!window.MCSManheim) throw new Error('MANHEIM_READER_UNAVAILABLE');
     $('manheim-status').classList.remove('error');
     $('manheim-status').textContent = 'Lendo e comparando no navegador…';
-    if (!manheimJourneys.length) {
+    if (!manheimJourneys.length && !manheimOrders.length) {
       const data = await request('/api/panel/records?view=manheim');
       manheimJourneys = data.items || [];
+      manheimOrders = data.orders || [];
     }
     const vehicles = [];
     const headerGroups = [];
@@ -1147,7 +1216,23 @@
           journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus,
           fingerprint: MCSManheim.fingerprint(vehicle),
           vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
-            year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
+            vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
+            model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
+            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
+            buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade
+          } }
+        });
+      }
+    }
+    for (const order of manheimOrders.filter((item) => item.disposition !== 'DISCARDED')) {
+      for (const vehicle of vehicles) {
+        const result = MCSManheim.matchOrder(vehicle, order);
+        if (!result) continue;
+        matches.push({
+          targetType: 'ORDER', calcRef: order.ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus,
+          fingerprint: MCSManheim.fingerprint(vehicle),
+          vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
+            vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
             model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
             saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
             buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade
