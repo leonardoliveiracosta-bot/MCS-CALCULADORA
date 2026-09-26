@@ -58,8 +58,10 @@ test('history received less than 30 minutes ago blocks the general reading befor
 
 test('general-read pricing reserves the configured price and unknown models use the highest rate',()=>{
   const pending=loadWith('panel-pendencias.js',{'./panel-server':server({})});
+  assert.deepEqual(pending.modelPrices('claude-haiku-4-5-20251001'),{input:1,output:5});
   assert.deepEqual(pending.modelPrices('claude-sonnet-5'),{input:2,output:10});
-  assert.deepEqual(pending.modelPrices('model-not-in-table'),{input:15,output:75});
+  assert.deepEqual(pending.modelPrices('claude-opus-5-5'),{input:4,output:20});
+  assert.deepEqual(pending.modelPrices('model-not-in-table'),{input:4,output:20});
   assert.ok(pending.maximumCostUsd('model-not-in-table')>pending.maximumCostUsd('claude-sonnet-5'));
   assert.equal(pending.usageCostUsd({input_tokens:1000000,output_tokens:1000000},'claude-sonnet-5'),12);
 });

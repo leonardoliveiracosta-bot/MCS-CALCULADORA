@@ -52,10 +52,10 @@ function formatSegment(messages, start, accumulated) {
 }
 function modelPrices(model) {
   const name=String(model||'').toLowerCase();
+  if(name.includes('opus-5-5')) return {input:4,output:20};
   if(name.includes('sonnet-5')) return {input:2,output:10};
-  if(name.includes('sonnet')) return {input:3,output:15};
   if(name.includes('haiku')) return {input:1,output:5};
-  return {input:15,output:75};
+  return {input:4,output:20};
 }
 function maximumCostUsd(model) { const price=modelPrices(model); return ((40000*price.input)+(2400*price.output))/1000000; }
 function usageCostUsd(usage, model) {

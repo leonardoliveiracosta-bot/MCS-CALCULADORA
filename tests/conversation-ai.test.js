@@ -75,6 +75,31 @@ test('cron fails closed: missing CRON_SECRET is 503 and missing bearer is 401',a
   if(saved===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=saved;
 });
 
+test('the daily cron keeps running when a general reading is paused or limited, and yields only while active',async()=>{
+  const saved=process.env.CRON_SECRET;process.env.CRON_SECRET='cron-test';
+  for(const status of ['PAUSED','LIMIT','DONE','IDLE']){
+    let daily=0,batches=0;
+    const server={configuration:()=>({}),SERVER_ENVIRONMENT:'production',send:(res,code,payload)=>res.status(code).json(payload)};
+    const handler=loadWith('api/panel/ai-cron.js',{
+      '../../panel-server':server,
+      '../../panel-ai':{runCron:async()=>{daily++;return {processed:1};}},
+      '../../panel-pendencias':{generalStatus:async()=>({run:{status}}),generalBatch:async()=>{batches++;return {status}}}
+    });
+    const res=response();await handler({method:'GET',headers:{authorization:'Bearer cron-test'}},res);
+    assert.equal(res.code,200);assert.equal(daily,1);assert.equal(batches,0);
+  }
+  let daily=0,batches=0;
+  const server={configuration:()=>({}),SERVER_ENVIRONMENT:'production',send:(res,code,payload)=>res.status(code).json(payload)};
+  const handler=loadWith('api/panel/ai-cron.js',{
+    '../../panel-server':server,
+    '../../panel-ai':{runCron:async()=>{daily++;return {processed:1};}},
+    '../../panel-pendencias':{generalStatus:async()=>({run:{status:'ACTIVE'}}),generalBatch:async()=>{batches++;return {status:'ACTIVE'};}}
+  });
+  const res=response();await handler({method:'GET',headers:{authorization:'Bearer cron-test'}},res);
+  assert.equal(res.code,200);assert.equal(daily,0);assert.equal(batches,1);
+  if(saved===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=saved;
+});
+
 test('Anthropic failure returns IA unavailable without breaking the manual panel route',async()=>{
   const server={requirePanel:async()=>({environment:'preview',panel:{id:ids.actor},config:{url:'x',secretKey:'k'}}),jsonBody:async(req)=>req.body,isUuid:()=>true,send:(res,code,payload)=>res.status(code).json(payload)};
   const handler=loadWith('api/panel/ai-conversations.js',{'../../panel-server':server,'../../panel-ai':{allConversationData:async()=>[{journey:{id:ids.journey},lastCustomer:{},chatId:ids.chat}],readConversation:async()=>{throw Error('AI_UNAVAILABLE');}}});
