@@ -33,6 +33,12 @@ test('history webhook, state sync and status callback have distinct validation',
   assert.equal(receiver.parse({object:'whatsapp_business_account',entry:[{changes:[{field:'messages',value:{statuses:[{id:'x'}]}}]}]}).type,'statuses');
   assert.throws(()=>receiver.parse({event:'history',data:{history:{}}}),/HISTORY_INVALID/);
 });
+test('official Meta history, reactions, contacts, edits, unsupported and captions isolate each item',()=>{
+  const payload={object:'whatsapp_business_account',entry:[{changes:[{field:'history',value:{metadata:{display_phone_number:business},history:[{threads:[{id:customer,messages:[message('t1'),{id:'r1',from:customer,timestamp:'1790431201',type:'reaction',reaction:{emoji:'👍'}},{id:'c1',from:customer,timestamp:'1790431202',type:'contacts',contacts:[]},{id:'e1',from:customer,timestamp:'1790431203',type:'edit'},{id:'u1',from:customer,timestamp:'1790431204',type:'future'},{id:'i1',from:customer,timestamp:'1790431205',type:'image',image:{id:'x',caption:'frente'}}]}]}]}}]}]};
+  assert.deepEqual(receiver.normalizedItems(payload).items.map(x=>x.body),['Ref: Q5U9B, preciso do carro','[reação 👍]','[contato]','[mensagem editada]','[tipo não suportado]','[imagem] frente']);
+  const mixed=receiver.normalizedItems(cloud([message('good'),{type:'text'}]));assert.equal(mixed.items.length,1);assert.equal(mixed.itemErrors.length,1);
+});
+test('state sync accepts saved address-book names',()=>{const parsed=receiver.parse({object:'whatsapp_business_account',entry:[{changes:[{field:'smb_app_state_sync',value:{state_sync:{contacts:[{phone_number:customer,full_name:'Tiago Agenda'}]}}}]}]});assert.equal(parsed.addressBook[0].fullName,'Tiago Agenda');});
 test('webhook rejects missing secret, durably saves before 200, and runs worker after registration',async()=>{
   let saved=false,ran=false;const scheduled=[];
   const handler=loadWith('api/whatsapp/webhook.js',{
@@ -49,12 +55,12 @@ test('webhook rejects missing secret, durably saves before 200, and runs worker 
 });
 test('failed normalization remains reprocessable and repeated raw event does not insert twice',async()=>{
   let saved=0,processed=0;const ctx={environment:'preview',config:{url:'u',secretKey:'k'}};
-  const mock={rows:async()=>[{id:'existing',status:'DONE'}],patchRows:async(_ctx,_table,_filters,payload,representation)=>{
+  const mock={rows:async(_ctx,table)=>table==='whatsapp_raw_events'?[{id:'existing',status:'DONE'}]:[],patchRows:async(_ctx,_table,_filters,payload,representation)=>{
     if(representation)return [{id:'raw'}];assert.equal(payload.status,'ERROR');saved++;return null;},
     supabase:async()=>{processed++;throw Error('DB_FAILED');}};
   const mod=loadWith('whatsapp-receiver.js',{'./panel-server':mock});
   const payload=cloud([message('repeat')]);
-  const result=await mod.processRaw(ctx,{id:'raw',payload_json:payload,attempts:0});assert.equal(result.error,true);assert.equal(saved,1);assert.equal(processed,1);
+  const result=await mod.processRaw(ctx,{id:'raw',payload_json:payload,attempts:0});assert.equal(result.error,true);assert.equal(saved,1);assert.equal(processed,2);
   const sql=fs.readFileSync(path.join(root,'supabase/migrations/20260926143000_whatsapp_receptor.sql'),'utf8');
   assert.match(sql,/unique\(environment,event_key\)/);assert.match(sql,/primary key\(environment,wa_message_id\)/);
   assert.match(sql,/source_kind='WHATSAPP_ZIP'/);assert.match(sql,/status text not null default 'PENDING'/);
