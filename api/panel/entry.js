@@ -13,6 +13,8 @@ const json = async (req) => {
 const now = () => new Date().toISOString();
 const query = (params) => new URLSearchParams(params).toString();
 const normalized = (value) => String(value || '').normalize('NFC').replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, '').trim().toLocaleLowerCase('pt-BR');
+const identityName = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^~+\s*/, '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]+/g, '');
+const inferredContactName = (value) => String(value || '').replace(/\.txt$/i, '').replace(/^WhatsApp Chat with\s+/i, '').replace(/^Conversa do WhatsApp com\s+/i, '').replace(/^chat(?:\s+with)?\s+/i, '').trim();
 
 async function rows(ctx, table, params) {
   return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + query(params));
@@ -36,7 +38,7 @@ async function ensureContact(ctx, chat, channel) {
   if (chat.isGroup) return null;
   if (chat.contactId) {
     if (!isUuid(chat.contactId)) return false;
-    const found = await rows(ctx, 'contacts', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + chat.contactId, limit: '1' });
+    const found = await rows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, id: 'eq.' + chat.contactId, limit: '1' });
     return found[0] || false;
   }
   return createContact(ctx, chat.newContactName, channel) || false;
@@ -55,11 +57,13 @@ async function storeAlias(ctx, chatId, aliasText) {
   });
 }
 
-async function storeSenders(ctx, chatId, senderAliases) {
+async function storeSenders(ctx, chatId, senderAliases, contactName, sourceName) {
   if (!Array.isArray(senderAliases) || !senderAliases.length || senderAliases.length > 50) throw new Error('SENDER_ALIASES_INVALID');
+  const forbidden = [contactName, inferredContactName(sourceName)].map(identityName).filter(Boolean);
   const payload = senderAliases.map((item) => {
     const text = String(item.senderText || '').normalize('NFC').trim().slice(0, 200);
     if (!text || !['CUSTOMER', 'MCS'].includes(item.direction)) throw new Error('SENDER_ALIAS_INVALID');
+    if (item.direction === 'MCS' && forbidden.includes(identityName(text))) throw new Error('MCS_SENDER_CONTACT_CONFLICT');
     return {
       environment: ctx.environment, chat_id: chatId, sender_text: text,
       sender_normalized: normalized(text), direction: item.direction,
@@ -106,7 +110,7 @@ async function createJob(ctx, body) {
     storedChat = created[0];
   }
   await storeAlias(ctx, storedChat.id, chat.aliasText);
-  if (chat.channel === 'WHATSAPP') await storeSenders(ctx, storedChat.id, chat.senderAliases);
+  if (chat.channel === 'WHATSAPP') await storeSenders(ctx, storedChat.id, chat.senderAliases, contact && contact.display_name, chat.aliasText || body.sourceFilename);
 
   const jobs = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs', {
     method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
