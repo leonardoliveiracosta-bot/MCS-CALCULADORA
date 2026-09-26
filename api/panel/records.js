@@ -60,7 +60,7 @@ module.exports = async (req, res) => {
     }
     const id = String((req.query && req.query.id) || '');
     if (!id) {
-      const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta, checklist, promises, archive, calcRuns, calcLinks, leadPromises] = await Promise.all([
+      const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta, checklist, promises, archive, calcRuns, calcLinks, leadPromises, aiItems, aiSuggestions] = await Promise.all([
         allRows(ctx, 'journeys', {
           select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_reason,updated_at',
           environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
@@ -78,7 +78,9 @@ module.exports = async (req, res) => {
         allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(Date.now() - 60 * 86400000).toISOString() }),
         allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
         allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-        allRows(ctx, 'lead_promises', { select: 'ref_code,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' })
+        allRows(ctx, 'lead_promises', { select: 'ref_code,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
+        allRows(ctx, 'conversation_ai_items', { select: 'journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' }),
+        allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' })
       ]);
       const [latestMatches,recentVehicles]=await Promise.all([
         uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id }) : Promise.resolve([]),
@@ -95,7 +97,8 @@ module.exports = async (req, res) => {
       const listed=items.filter((item)=>contactsById.get(item.contact_id)?.is_lead!==false).map((item) => {
         const ownMessages = messageLinks.filter((link) => link.journey_id === item.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0) - (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0));
         const state = stateByJourney.get(item.id);
-        const complete = { ...item, enabled: state ? state.enabled : item.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: latestMatches.filter((match) => match.journey_id === item.id).length, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages[0] || null };
+        const complete = { ...item, enabled: state ? state.enabled : item.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: latestMatches.filter((match) => match.journey_id === item.id).length, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages[0] || null,
+          pendingAiCount: aiItems.filter((entry)=>entry.journey_id===item.id).length, aiLinkSuggested: aiSuggestions.some((entry)=>entry.source_journey_id===item.id) };
         const order = [item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>ordersByRef.get(String(ref||'').trim().toUpperCase())).find(Boolean);
         const scoring = { ...complete, ...order, zip: order?.zip || complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0] || '', plate: order?.plate || 'transf', wishlists: wishlistsForJourney(complete) };
         const ready = score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, scoredVehicles);

@@ -134,20 +134,35 @@ async function leadData(ctx, req, refInput, idInput) {
       ref=String(linked[0]?.ref_code||'').trim().toUpperCase();
     }
   }
-  if (!REF_RE.test(ref)) return null;
-  const allOrders = await orders(ctx, ref);
-  const order = allOrders.find((item) => item.ref === ref) || null;
+  if (!REF_RE.test(ref) && !journey) return null;
+  let hasRef = REF_RE.test(ref);
+  let allOrders = hasRef ? await orders(ctx, ref) : [];
+  let order = allOrders.find((item) => item.ref === ref) || null;
+  if(!order&&journey){
+    const linked=await allRows(ctx,'journey_refs',{select:'ref_code',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,order:'created_at.asc'});
+    for(const candidate of linked.map((item)=>String(item.ref_code||'').trim().toUpperCase()).filter((value)=>REF_RE.test(value))){
+      const candidateOrders=await orders(ctx,candidate),candidateOrder=candidateOrders.find((item)=>item.ref===candidate);
+      if(candidateOrder){ref=candidate;allOrders=candidateOrders;order=candidateOrder;break;}
+    }
+  }
+  hasRef=Boolean(order);
   if (!journey && !order) return null;
   const record = journey ? (await capture(require('./api/panel/records'), req, { id: journey.id }))?.item || null : null;
-  const track = await trackFor(ctx, ref, journey && journey.id);
+  const track = hasRef ? await trackFor(ctx, ref, journey && journey.id) : null;
   const cutoff = new Date(Date.now() - 60 * 86400000).toISOString();
-  const [notes, events, promises, archive, recentMatches] = await Promise.all([
-    allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + ref, order: 'created_at.desc' }),
-    allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + ref, undone_at: 'is.null', order: 'occurred_at.desc' }),
-    allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + ref, order: 'due_at.asc' }),
+  const scope = hasRef ? { ref_code: 'eq.' + ref } : { journey_id: 'eq.' + journey.id };
+  const [notes, events, promises, archive, recentMatches, aiReadings, aiSuggestions] = await Promise.all([
+    allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'created_at.desc' }),
+    allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ...scope, undone_at: 'is.null', order: 'occurred_at.desc' }),
+    allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'due_at.asc' }),
     allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, order: 'uploaded_at.desc' }),
-    allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, created_at: 'gte.' + cutoff })
+    allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, created_at: 'gte.' + cutoff }),
+    journey ? rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'}) : Promise.resolve([]),
+    journey ? rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'}) : Promise.resolve([])
   ]);
+  const aiReading=aiReadings[0]||null;
+  const aiItems=aiReading?await allRows(ctx,'conversation_ai_items',{select:'id,item_json,evidence_text,manual_review,status,created_at',environment:'eq.'+ctx.environment,reading_id:'eq.'+aiReading.id,status:'eq.PENDING',order:'created_at.asc'}):[];
+  const ai={reading:aiReading?{...aiReading,items:aiItems.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:aiSuggestions[0]||null};
   const wishes = record?.criteria_json?.wishlistOverride
     ? (record.wishlists || [])
     : mergeWishlists(record && record.wishlists || [], order && order.wishlists || []);
@@ -193,13 +208,13 @@ async function leadData(ctx, req, refInput, idInput) {
   ].map((point_label, index) => ({ point_number: index + 1, point_label, status: 'OPEN' }));
   const deadline = record && record.customer_deadline_text || order && order.deadlineText || '';
   const { score } = require('./panel-ready');
-  const ready = score({ ...order, zip, occurredAt: order?.occurredAt, budgetCents: maxBidCents, paymentText: payment, plate, wishlists: wishes }, record, {
+  const ready = score({ ...(order||{}), zip, occurredAt: order?.occurredAt, budgetCents: maxBidCents, paymentText: payment, plate, wishlists: wishes }, record, {
     checklist: checklist.map((point) => ({ ...point, journey_id: record?.id })),
     messages: (record?.conversation || []).map((message) => ({ ...message, journey_id: record?.id })),
     promises: [...(record?.promises || []), ...promises].map((promise) => ({ ...promise, journey_id: record?.id }))
   }, [...unique.values()]);
   const city = cityCache.get(zip) || null;
-  return { ref, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null };
+  return { ref, hasCalculatorRef:hasRef, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai };
 }
 
 async function belongsToJourney(ctx, ref, journey) {

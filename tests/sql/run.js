@@ -32,8 +32,9 @@ async function main() {
     for (const migration of migrations) {
       await db.exec(fs.readFileSync(path.join(migrationDirectory, migration), 'utf8'));
     }
-    await db.exec(fs.readFileSync(path.join(__dirname, 'teste-troca-principal.sql'), 'utf8'));
-    console.log(`NOTICE: OK: numero que escreveu virou principal (${migrations.length} migrações)`);
+    const scenarios=fs.readdirSync(__dirname).filter((name)=>/^teste-.*\.sql$/.test(name)).sort();
+    for(const scenario of scenarios)await db.exec(fs.readFileSync(path.join(__dirname,scenario),'utf8'));
+    console.log(`NOTICE: OK: ${scenarios.length} cenários SQL (${migrations.length} migrações)`);
   } finally {
     await db.close();
   }

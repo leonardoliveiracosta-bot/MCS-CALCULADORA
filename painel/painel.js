@@ -472,7 +472,8 @@
     const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
     (data.suggestions || []).forEach((item) => {
       const row = element('div', 'queue-item');
-      row.append(element('strong', '', `Esta conversa do WhatsApp (${item.phone_e164}) parece ser a ficha ${item.targetName || 'sem nome'} — ${item.sourceName || 'novo contato'}`));
+      row.append(element('strong', '', item.target_ref?`Esta conversa do WhatsApp (${item.phone_e164}) parece ser Ref ${item.target_ref}`:`Esta conversa do WhatsApp (${item.phone_e164}) parece ser a ficha ${item.targetName || 'sem nome'} — ${item.sourceName || 'novo contato'}`));
+      if(item.motives)row.append(element('span','muted',`Motivos: ${item.motives}`));
       for (const [label, link] of [['Ligar', true], ['Não é', false]]) {
         const action = element('button', link ? 'small' : 'quiet small', label); action.type = 'button';
         action.addEventListener('click', async () => { action.disabled = true; try {
@@ -954,6 +955,8 @@
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
       if (item.wantsCar) badges.append(makeBadge('QUER ESTE CARRO', 'green'));
       if(item.returnedToTalk)badges.append(makeBadge('VOLTOU A FALAR','yellow'));
+      if(item.pendingAiCount)badges.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
+      if(item.aiLinkSuggested)badges.append(makeBadge('🔗 ligação sugerida','yellow'));
       if (item.score !== null && item.score !== undefined) badges.append(makeBadge(`Nota ${item.score}`, 'green'));
       badges.append(makeBadge(item.goodHour ? 'bom horário' : 'fora de horário', item.goodHour ? 'green' : 'yellow'));
       if (item.clickedContact && item.contactChannel) badges.append(makeBadge(`${item.contactChannel} CLICADO`, 'green'));
@@ -1411,6 +1414,8 @@
       const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
       controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
       if (item.score !== null) controls.append(makeBadge(`Nota ${item.score}`, 'green'));
+      if(item.pendingAiCount)controls.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
+      if(item.aiLinkSuggested)controls.append(makeBadge('🔗 ligação sugerida','yellow'));
       const open = element('button', 'quiet small', 'Abrir ficha');
       open.type = 'button';
       open.addEventListener('click', () => openDetail('ficha', item.id));
