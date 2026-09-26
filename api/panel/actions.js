@@ -662,7 +662,11 @@ async function actionManheimUpload(ctx, body) {
   const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
       p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_source_file_count: fileCount,
-      p_vehicle_count: vehicleCount, p_headers: headers, p_header_map: headerMap, p_matches: matches
+      p_vehicle_count: vehicleCount, p_headers: headers, p_header_map: headerMap,
+      p_matches: matches.concat(orderMatches.map((item) => ({
+        targetType: 'ORDER', calcRef: item.calcRef, kind: item.kind, reason: item.reason,
+        mmrStatus: item.mmrStatus, fingerprint: item.fingerprint, vehicle: item.vehicle
+      })))
     })
   });
   return send(ctx.res, 201, result);
