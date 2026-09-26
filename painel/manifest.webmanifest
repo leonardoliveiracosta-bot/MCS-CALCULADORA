@@ -1,0 +1,22 @@
+{
+  "name": "MCS Painel",
+  "short_name": "MCS Painel",
+  "start_url": "/painel",
+  "display": "standalone",
+  "background_color": "#0e0e12",
+  "theme_color": "#0e0e12",
+  "icons": [
+    {
+      "src": "/painel/icons/mcs-painel-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/painel/icons/mcs-painel-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
