@@ -436,6 +436,44 @@
     journeys.filter((journey) => contactId !== 'new' && journey.contact_id === contactId).forEach((journey) => option(select, journey.vehicle_text || 'Busca existente', journey.id));
   }
 
+  async function loadWhatsApp() {
+    const data = await request('/api/panel/whatsapp');
+    const ago = (stamp) => {
+      if (!stamp) return 'nenhuma ainda';
+      const hours = Math.max(0, (Date.now() - Date.parse(stamp)) / 3600000);
+      return hours < 1 ? `${Math.max(1, Math.floor(hours * 60))} min` : hours < 48 ? `${Math.floor(hours)} h` : `${Math.floor(hours / 24)} dias`;
+    };
+    $('whatsapp-signal').textContent = data.lastEventAt && Date.now() - Date.parse(data.lastEventAt) < 24 * 3600000
+      ? 'Recebendo · último sinal há ' + ago(data.lastEventAt) : 'Sem sinal' + (data.lastEventAt ? ' há ' + ago(data.lastEventAt) : ' ainda');
+    $('whatsapp-received').textContent = 'Última mensagem recebida há ' + ago(data.lastInboundAt);
+    $('whatsapp-echo').textContent = 'Última mensagem enviada por você recebida há ' + ago(data.lastEchoAt);
+    const errors = $('whatsapp-errors'); errors.replaceChildren();
+    (data.errors || []).forEach((event) => {
+      const row = element('div', 'queue-item');
+      row.append(element('span', '', `Evento ${event.event_type} · ${event.status === 'ERROR' ? 'erro' : 'pendente'} · ${ago(event.received_at)}`));
+      const retry = element('button', 'small', 'Reprocessar'); retry.type = 'button';
+      retry.addEventListener('click', async () => { retry.disabled = true; try {
+        await request('/api/panel/whatsapp', { method: 'POST', body: JSON.stringify({ action: 'reprocess', id: event.id }) });
+        await loadWhatsApp();
+      } catch (_) { retry.disabled = false; row.append(element('span', 'status error', 'Não foi possível reprocessar.')); } });
+      row.append(retry); errors.append(row);
+    });
+    const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
+    (data.suggestions || []).forEach((item) => {
+      const row = element('div', 'queue-item');
+      row.append(element('strong', '', `Esta conversa do WhatsApp (${item.phone_e164}) parece ser a ficha ${item.targetName || 'sem nome'} — ${item.sourceName || 'novo contato'}`));
+      for (const [label, link] of [['Ligar', true], ['Não é', false]]) {
+        const action = element('button', link ? 'small' : 'quiet small', label); action.type = 'button';
+        action.addEventListener('click', async () => { action.disabled = true; try {
+          await request('/api/panel/whatsapp', { method: 'POST', body: JSON.stringify({ action: 'suggestion', id: item.id, link }) });
+          await loadWhatsApp(); await loadQueue();
+        } catch (_) { action.disabled = false; row.append(element('span', 'status error', 'Não foi possível registrar a escolha.')); } });
+        row.append(action);
+      }
+      suggestions.append(row);
+    });
+  }
+
   async function loadQueue(render = true) {
     const data = await request('/api/panel/entry');
     contacts = data.contacts || [];
@@ -615,7 +653,8 @@
     if (view === 'entry') {
       const data = await loadQueue(false);
       if (!current()) return;
-      return renderQueue(data.chats || [], data.reviews || []);
+      renderQueue(data.chats || [], data.reviews || []);
+      return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp.'; });
     }
     if (view === 'today') {
       const data = await request('/api/panel/today');

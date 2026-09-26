@@ -83,6 +83,7 @@ module.exports = async (req, res) => {
     const orderRefs = new Set(orders.map((item) => item.ref).filter(Boolean));
     const dispositionByJourney = new Map(dispositions.filter((item) => item.item_kind === 'JOURNEY').map((item) => [item.item_key, item]));
     const journeys = data.journeys
+      .filter((item) => item.closed_reason !== 'WHATSAPP_LINKED')
       .filter((item) => {const ref=String(item.reference_code||'').trim().toUpperCase();if(wanted.has(ref))return true;
         const firstOrder=ordersByRef.get(ref);const times=data.messages.filter((message)=>message.journey_id===item.id).map((message)=>time(message.occurred_at_utc||message.created_at)).filter(Boolean);
         const arrived=firstOrder||times.length?Math.min(firstOrder?arrival(firstOrder):Infinity,times.length?Math.min(...times):Infinity):

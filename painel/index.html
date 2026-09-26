@@ -59,6 +59,14 @@
       </section>
       <section id="entry-panel" class="hidden" aria-label="Entrada">
         <div class="section-head"><div><h2>Entrada e revisão</h2><p class="muted">Arraste a exportação; confirme somente uma dúvida real.</p></div></div>
+        <section class="card whatsapp-card" aria-labelledby="whatsapp-title">
+          <h2 id="whatsapp-title">WhatsApp</h2>
+          <p id="whatsapp-signal" class="muted">Verificando sinal…</p>
+          <p id="whatsapp-received" class="muted"></p>
+          <p id="whatsapp-echo" class="muted">Última mensagem enviada por você recebida: nenhuma ainda</p>
+          <div id="whatsapp-errors" class="queue" aria-live="polite"></div>
+          <p class="muted">Importador do histórico do 360dialog — disponível depois da ativação</p>
+        </section>
         <div class="grid">
           <section class="card">
             <h2>Importar conversa</h2>
@@ -108,6 +116,7 @@
         <section class="card queue-card">
           <h2>Revisão final</h2>
           <p class="muted">Conversa lida, não identificada ou em revisão. Grupo não cria lead.</p>
+          <div id="whatsapp-suggestions" class="queue" aria-live="polite"></div>
           <div id="entry-queue" class="queue" aria-live="polite"></div>
         </section>
       </section>
