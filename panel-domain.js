@@ -198,11 +198,40 @@ function buildReturns(journey, promises) {
   return result.sort((a, b) => (time(a.dueAt) || 0) - (time(b.dueAt) || 0) || a.id.localeCompare(b.id));
 }
 
+function modelWithMake(makeValue, modelValue) {
+  const make = clean(makeValue);
+  const model = clean(modelValue);
+  if (!make) return model;
+  if (!model) return make;
+  const makeFold = fold(make);
+  const modelFold = fold(model);
+  return modelFold === makeFold || modelFold.startsWith(makeFold + ' ') ? model : `${make} ${model}`;
+}
+
 function vehicleFor(data) {
-  return clean([
-    data.ano_de && data.ano_ate && data.ano_de !== data.ano_ate ? `${data.ano_de}–${data.ano_ate}` : data.ano_de || data.ano_ate,
-    data.marca, data.modelo, data.trim
-  ].filter(Boolean).join(' '));
+  const years = data.ano_de && data.ano_ate && data.ano_de !== data.ano_ate
+    ? `${data.ano_de}–${data.ano_ate}`
+    : data.ano_de || data.ano_ate;
+  const vehicle = modelWithMake(data.marca, data.modelo);
+  const trim = clean(data.trim);
+  const usefulTrim = /^not sure$/i.test(trim) ? '' : trim;
+  return clean([years, vehicle, usefulTrim].filter(Boolean).join(' '));
+}
+
+function compactWishlistText(wishlists) {
+  const items = (Array.isArray(wishlists) ? wishlists : []).filter((wish) => clean(wish && wish.model));
+  if (!items.length) return '';
+  const makes = [...new Map(items.filter((wish) => clean(wish.make)).map((wish) => [fold(wish.make), clean(wish.make)])).values()];
+  if (makes.length === 1 && items.every((wish) => !clean(wish.make) || fold(wish.make) === fold(makes[0]))) {
+    const make = makes[0];
+    const models = [...new Set(items.map((wish) => {
+      const model = clean(wish.model);
+      const makeKey = fold(make);
+      return fold(model).startsWith(makeKey + ' ') ? clean(model.slice(make.length)) : model;
+    }).filter(Boolean))];
+    return clean(`${make} ${models.join(' · ')}`);
+  }
+  return [...new Set(items.map((wish) => modelWithMake(wish.make, wish.model)).filter(Boolean))].join(' · ');
 }
 
 function wishlistsFromCalculatorEvents(events) {
@@ -250,6 +279,7 @@ function consolidateCalcRuns(rows, links = []) {
     const mode = logicalMode(row);
     const sid = clean(data.sid);
     const ref = clean(data.ref).toUpperCase();
+    if (row && row.is_test === true) continue;
     if (mode === 'REVIEW' || !sid || !REF_RE.test(ref) || ref === 'ABCDE') continue;
     const key = [ref, mode].join('\u001f');
     if (!groups.has(key)) groups.set(key, []);
@@ -273,7 +303,7 @@ function consolidateCalcRuns(rows, links = []) {
       event: clean(data.evento),
       occurredAt: data.quando || snapshot.created_at || null,
       vehicles,
-      vehicleText: vehicles.join(' · ') || null,
+      vehicleText: compactWishlistText(wishlists) || vehicles.join(' · ') || null,
       wishlist: wishlists[0] || normalizeWishlist({}),
       wishlists,
       budgetCents: moneyCents(budget),
@@ -290,6 +320,71 @@ function consolidateCalcRuns(rows, links = []) {
     item.eventStatus = calculatorEventStatus(item);
     return item;
   }).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0) || a.key.localeCompare(b.key));
+}
+
+
+function groupCalculatorByRef(orders, dispositions = []) {
+  const dispositionMap = new Map((Array.isArray(dispositions) ? dispositions : [])
+    .filter((item) => item.item_kind === 'REF')
+    .map((item) => [clean(item.item_key).toUpperCase(), item]));
+  const grouped = new Map();
+  for (const order of Array.isArray(orders) ? orders : []) {
+    const ref = clean(order && order.ref).toUpperCase();
+    if (!REF_RE.test(ref)) continue;
+    if (!grouped.has(ref)) grouped.set(ref, []);
+    grouped.get(ref).push(order);
+  }
+  return [...grouped.entries()].map(([ref, simulations]) => {
+    const sorted = simulations.slice().sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0) || String(a.key).localeCompare(String(b.key)));
+    const latest = sorted[0];
+    const contacted = sorted.find((item) => item.clickedContact) || latest;
+    const links = sorted.map((item) => item.link && item.link.journeyId).filter(Boolean);
+    const journeyIds = [...new Set(links)];
+    const modes = [...new Set(sorted.map((item) => item.logicalMode).filter((mode) => ['CARRO', 'VALOR'].includes(mode)))];
+    const disposition = dispositionMap.get(ref) || null;
+    const wishlists = mergeWishlists([], sorted.flatMap((item) => item.wishlists || []));
+    return {
+      ...latest,
+      key: 'ref:' + ref,
+      ref,
+      kind: 'CALCULATOR',
+      simulations: sorted,
+      simulationCount: sorted.length,
+      logicalModes: modes,
+      logicalMode: modes.length === 1 ? modes[0] : 'MIXED',
+      eventCount: sorted.reduce((sum, item) => sum + Number(item.eventCount || 0), 0),
+      vehicleText: compactWishlistText(wishlists) || latest.vehicleText,
+      wishlist: wishlists[0] || latest.wishlist,
+      wishlists,
+      clickedContact: sorted.some((item) => item.clickedContact),
+      contactChannel: contacted && contacted.clickedContact ? contacted.contactChannel : null,
+      link: journeyIds.length === 1 ? { journeyId: journeyIds[0], contactId: (sorted.find((item) => item.link && item.link.journeyId === journeyIds[0]) || {}).link?.contactId || null } : null,
+      journeyId: journeyIds.length === 1 ? journeyIds[0] : null,
+      disposition: disposition ? disposition.status : null,
+      dispositionUpdatedAt: disposition ? disposition.updated_at : null,
+      pending: !disposition,
+      outOfStandard: Number(latest.budgetCents) > 0 && (Number(latest.budgetCents) < 300000 || Number(latest.budgetCents) > 30000000)
+    };
+  }).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0) || a.ref.localeCompare(b.ref));
+}
+
+function matchManheimOrder(vehicle, order) {
+  const simulations = Array.isArray(order && order.simulations) ? order.simulations : order ? [order] : [];
+  const candidates = [];
+  for (const simulation of simulations) {
+    const result = matchManheimVehicle(vehicle, simulation.wishlists || simulation.wishlist, simulation.budgetCents);
+    if (!result) continue;
+    if (simulation.logicalMode === 'VALOR') {
+      if (!(Number(simulation.budgetCents) > 0) || !(Number(vehicle && vehicle.mmrCents) > 0) || Number(vehicle.mmrCents) > Number(simulation.budgetCents)) continue;
+    }
+    candidates.push({ ...result, logicalMode: simulation.logicalMode, ref: simulation.ref });
+  }
+  return candidates.sort((left, right) => left.kind === right.kind ? (left.logicalMode === 'CARRO' ? -1 : 1) : left.kind === 'BATE' ? -1 : 1)[0] || null;
+}
+
+function standardBudget(budgetCents) {
+  const value = Number(budgetCents) || 0;
+  return !value || (value >= 300000 && value <= 30000000);
 }
 
 function reasonSuppressed(suppressions, journeyId, kind, eventAt, nowMs) {
@@ -482,6 +577,7 @@ function buildConversationTimeline(messages, interactions, activities) {
 
 module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
-  consolidateCalcRuns, finiteInteger, fold, journeyEnabled, journeyLogicalMode, logicalMode, matchManheimVehicle, mergeWishlist, mergeWishlists, nextStageForUnits,
-  normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, time, wishlistForJourney, wishlistsForJourney, wishlistText
+  compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, journeyLogicalMode, logicalMode,
+  matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits,
+  normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };
