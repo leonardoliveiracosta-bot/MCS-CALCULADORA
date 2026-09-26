@@ -148,6 +148,22 @@
     return results.sort((left, right) => (left.kind === right.kind ? left.matchedWishlistIndex - right.matchedWishlistIndex : left.kind === 'BATE' ? -1 : 1))[0] || null;
   }
 
+  function matchOrder(vehicle, order) {
+    const simulations = Array.isArray(order && order.simulations) ? order.simulations : order ? [order] : [];
+    const matches = [];
+    for (const simulation of simulations) {
+      const result = matchVehicle(vehicle, simulation.wishlists || simulation.wishlist, simulation.budgetCents);
+      if (!result) continue;
+      if (simulation.logicalMode === 'VALOR') {
+        if (!(Number(simulation.budgetCents) > 0) || !(Number(vehicle && vehicle.mmrCents) > 0) || Number(vehicle.mmrCents) > Number(simulation.budgetCents)) continue;
+      }
+      matches.push({ ...result, logicalMode: simulation.logicalMode, ref: simulation.ref });
+    }
+    return matches.sort((left, right) => left.kind === right.kind
+      ? (left.logicalMode === 'CARRO' ? -1 : 1)
+      : left.kind === 'BATE' ? -1 : 1)[0] || null;
+  }
+
   function csvCell(value) {
     const text = String(value === null || value === undefined ? '' : value);
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -160,5 +176,5 @@
     return '\uFEFF' + lines.join('\r\n');
   }
 
-  return { HEADER_ALIASES, fingerprint, fold, mapHeaders, matchVehicle, normalizeRows, parseCsv, toCsv };
+  return { HEADER_ALIASES, fingerprint, fold, mapHeaders, matchOrder, matchVehicle, normalizeRows, parseCsv, toCsv };
 }));
