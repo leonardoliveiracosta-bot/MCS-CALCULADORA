@@ -6,7 +6,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const { score }=require('../panel-ready');
 const { offerKind, timezoneForZip, localToUtc }=require('../panel-lead');
-const { validItems, wishlistAfter }=require('../panel-note');
+const { validItems, wishlistAfter, prepareItems, digest }=require('../panel-note');
 const root=path.join(__dirname,'..');
 const actor='ed24c183-d61e-4714-ada6-7dadef53685d';
 const journeyId='8fc49eea-1d7b-4576-bd21-a3fa22d7c6a5';
@@ -37,6 +37,45 @@ test('literal evidence without a specific value remains unchecked',()=>{
     {type:'checklist',point:6,value:'OK',evidence:'O teto total é 30.000'},
     {type:'return',value:{text:'retorno',at:'2026-10-01T10:00'},evidence:'Quinta 10h retorno'}]);
   assert.deepEqual(items.map((item)=>item.manualReview),[false,true,true,true,false]);
+});
+
+test('signed manual proposals can be left unchecked while the note and answered call save',async()=>{
+  const note='Atendeu. Prefere o Q7. Prometeu retornar.';
+  const proposed=prepareItems(validItems(note,[
+    {type:'call_result',value:'ANSWERED',evidence:'Atendeu'},
+    {type:'wishlist',value:{operation:'reorder',car:{make:'Audi',model:'Q7'},preference:1},evidence:'Prefere o Q7'},
+    {type:'promise',value:{text:'retornar'},evidence:'Prometeu retornar'}
+  ]),lead);
+  assert.deepEqual(proposed.map((item)=>item.manualReview),[false,true,true]);
+  let saved;
+  const server=mockServer({supabase:async(_url,_key,endpoint,options)=>{assert.match(endpoint,/panel_confirm_lead_note$/);saved=JSON.parse(options.body);return {noteId:journeyId};}});
+  const handler=loadWith('api/panel/lead.js',{'../../panel-server':server,'../../panel-lead':{leadData:async()=>lead,ensureJourney:async()=>lead.record,localToUtc,addClientDays:()=>new Date().toISOString()},'../../panel-note':require('../panel-note')});
+  const res=output();await handler({method:'POST',query:{},body:{action:'note',ref:lead.ref,journeyId,confirmationKey:operationId,note,proposal:proposed,signature:digest('test',lead.ref,note,proposed),selected:[0]}},res);
+  assert.equal(res.code,201);assert.equal(saved.p_body,note);assert.deepEqual(saved.p_items.map((item)=>item.value),['ANSWERED']);
+});
+
+test('manual promise date is required and converted from the customer zone',async()=>{
+  const note='Prometeu retornar';
+  const proposal=prepareItems(validItems(note,[{type:'promise',value:{text:'Retornar'},evidence:note}]),lead);
+  assert.equal(proposal[0].manualReview,true);
+  let saved;
+  const server=mockServer({supabase:async(_url,_key,_path,options)=>{saved=JSON.parse(options.body);return {noteId:journeyId};}});
+  const handler=loadWith('api/panel/lead.js',{'../../panel-server':server,'../../panel-lead':{leadData:async()=>lead,ensureJourney:async()=>lead.record,localToUtc,addClientDays:()=>null},'../../panel-note':require('../panel-note')});
+  const body={action:'note',ref:lead.ref,journeyId,confirmationKey:operationId,note,proposal,signature:digest('test',lead.ref,note,proposal),selected:[0]};
+  const missing=output();await handler({method:'POST',query:{},body},missing);
+  assert.equal(missing.code,400);assert.equal(missing.payload.error,'DUE_DATE_REQUIRED');assert.equal(saved,undefined);
+  const complete=output();await handler({method:'POST',query:{},body:{...body,manualDates:{0:'2026-09-28T10:00'}}},complete);
+  assert.equal(complete.code,201);assert.equal(saved.p_items[0].dueUtc,'2026-09-28T14:00:00.000Z');
+});
+
+test('Portuguese amounts and the no-test-drive acknowledgement support the exact evidence',()=>{
+  for(const amount of ['32 mil','32k','32.000','US$ 32 mil']){
+    const evidence='O teto final é '+amount;
+    assert.equal(validItems(evidence,[{type:'budget',value:32000,evidence}])[0].manualReview,false,amount);
+  }
+  const evidence='Sabe que não tem test drive';
+  assert.equal(validItems(evidence,[{type:'checklist',point:6,value:'OK',evidence}])[0].manualReview,false);
+  assert.equal(validItems('Não aceita ficar sem test drive',[{type:'checklist',point:6,value:'OK',evidence:'Não aceita ficar sem test drive'}])[0].manualReview,true);
 });
 
 test('wishlist operations preserve other cars and yield final order',()=>{
@@ -85,6 +124,18 @@ test('customer response is committed through one database RPC',async()=>{
   assert.equal(res.code,200);assert.equal(rpc,1);
 });
 
+test('repeated customer response and closed search return a clear 409',async()=>{
+  let closedSearch=false;
+  const server=mockServer({SERVER_ENVIRONMENT:'preview',configuration:()=>({url:'https://example.invalid',secretKey:'test'}),
+    rows:async(_ctx,table)=>table==='lead_tracking'?[{id:journeyId,ref_code:'ABC23',journey_id:journeyId}]:table==='journeys'?[{id:journeyId,contact_id:actor,status:closedSearch?'ENCERRADO':'ATIVO'}]:[],
+    supabase:async()=>({alreadyAnswered:true})});
+  const handler=loadWith('api/tracking.js',{'../panel-server':server,'../panel-lead':{orders:async()=>[]}});
+  const req={method:'POST',query:{code:'abcdefghijklmnopqrstuvwxyz'},body:{unitId:journeyId,response:'WANT'}};
+  const repeated=output();await handler(req,repeated);assert.equal(repeated.code,409);assert.equal(repeated.payload.message,'You already answered this car');
+  closedSearch=true;
+  const closed=output();await handler(req,closed);assert.equal(closed.code,409);assert.equal(closed.payload.message,'This search is closed');
+});
+
 test('HOJE includes a wanted car even when the order was treated',async()=>{
   const now=new Date().toISOString(),order={ref:'ABC23',key:'ABC23',pending:false,disposition:'TREATED',occurredAt:'2020-01-01T00:00:00Z',simulations:[{occurredAt:'2020-01-01T00:00:00Z'}],budgetCents:2500000};
   const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?[order]:table==='lead_events'?[{ref_code:'ABC23'}]:[],panelMeta:async()=>({})});
@@ -98,6 +149,10 @@ test('open lower year bound allows X5 2020 65k and ZIP conversions honor local z
   assert.equal(timezoneForZip('79901'),'America/Denver');assert.equal(timezoneForZip('46311'),'America/Chicago');
   assert.equal(timezoneForZip('83814'),'America/Los_Angeles');assert.equal(timezoneForZip('97914'),'America/Denver');
   assert.equal(timezoneForZip('49801'),'America/Chicago');assert.equal(timezoneForZip('49913'),'America/New_York');
+  assert.equal(timezoneForZip('37902'),'America/New_York');assert.equal(timezoneForZip('37402'),'America/New_York');
+  assert.equal(timezoneForZip('37201'),'America/Chicago');
+  assert.equal(timezoneForZip('42001'),'America/Chicago');assert.equal(timezoneForZip('46360'),'America/Chicago');
+  assert.equal(timezoneForZip('46350'),'America/Chicago');assert.equal(timezoneForZip('46574'),'America/Chicago');
   assert.equal(localToUtc('2026-09-26T10:00',timezoneForZip('79901')),'2026-09-26T16:00:00.000Z');
 });
 
@@ -132,6 +187,26 @@ test('migration pins note idempotency and presentation uniqueness to the environ
   assert.match(sql,/unique index if not exists lead_notes_confirmation_key_unique on public\.lead_notes\(environment, confirmation_key\)/);
   assert.match(sql,/unique index if not exists units_journey_vehicle_unique on public\.units\(environment, journey_id, vehicle_identity\)/);
   assert.match(sql,/revoke all on function public\.panel_customer_unit_response[\s\S]*from public,anon,authenticated/);
+});
+
+test('production backfill preserves duplicate units and SQL rejects undated work',()=>{
+  const sql=fs.readFileSync(path.join(root,'supabase/migrations/20260926100000_panel_fase2_followup.sql'),'utf8');
+  assert.match(sql,/environment='production'[\s\S]*r\.seq=1/);
+  assert.match(sql,/if due_time is null then raise exception 'DUE_DATE_REQUIRED'/);
+  assert.match(sql,/result_text='LATER' and due_time is null/);
+  assert.match(sql,/NOTE_CONFIRMED/);
+  assert.match(sql,/alreadyAnswered/);
+  assert.match(sql,/grant execute on function public\.panel_customer_unit_response[\s\S]*to service_role/);
+});
+
+test('lead requests filter calculator runs by case-insensitive Ref and load city separately',async()=>{
+  const source=fs.readFileSync(path.join(root,'panel-lead.js'),'utf8');
+  assert.match(source,/'dados->>ref': 'ilike\.' \+ ref/);
+  assert.doesNotMatch(source,/const city = await cityForZip\(zip\)/);
+  const server=mockServer();
+  const handler=loadWith('api/panel/lead.js',{'../../panel-server':server,'../../panel-lead':{leadData:async()=>{throw new Error('lead fetched for a city lookup');},cityForZip:async()=> 'Knoxville'}});
+  const res=output();await handler({method:'GET',query:{cityZip:'37902'}},res);
+  assert.equal(res.code,200);assert.equal(res.payload.city,'Knoxville');
 });
 
 test('Claude fenced response yields first JSON object',()=>{

@@ -1,6 +1,6 @@
 'use strict';
 
-const { leadData, ensureJourney, localToUtc, addClientDays } = require('../../panel-lead');
+const { leadData, ensureJourney, localToUtc, addClientDays, cityForZip } = require('../../panel-lead');
 const { validItems, verified, prepareItems } = require('../../panel-note');
 const { insert, isUuid, jsonBody, patchRows, requirePanel, rows, safeText, send, supabase } = require('../../panel-server');
 
@@ -36,6 +36,10 @@ module.exports = async (req, res) => {
     const ref = String(req.query && req.query.ref || '').toUpperCase();
     const id = String(req.query && req.query.id || '');
     if (req.method === 'GET') {
+      if (req.query?.cityZip) {
+        const zip=String(req.query.cityZip);
+        return /^\d{5}$/.test(zip) ? send(res,200,{city:await cityForZip(zip)}) : send(res,400,{error:'ZIP_INVALID'});
+      }
       const lead = await leadData(ctx, req, ref, id);
       return lead ? send(res, 200, lead) : send(res, 404, { error: 'LEAD_NOT_FOUND' });
     }
@@ -62,10 +66,22 @@ module.exports = async (req, res) => {
     if (body.action === 'note') {
       const note = safeText(body.note, 12000, true);
       if (!note || !isUuid(body.confirmationKey)) return send(res, 400, { error: 'NOTE_OR_KEY_REQUIRED' });
-      const proposal = validItems(note, body.proposal);
-      if (proposal.length && !verified(ctx.config.secretKey, lead.ref, note, proposal, body.signature)) return send(res, 400, { error: 'PROPOSAL_INVALID' });
+      const submitted = Array.isArray(body.proposal) ? body.proposal : [];
+      if (submitted.length && !verified(ctx.config.secretKey, lead.ref, note, submitted, body.signature)) return send(res, 400, { error: 'PROPOSAL_INVALID' });
+      const proposal = validItems(note, submitted);
+      if (proposal.length !== submitted.length) return send(res, 400, { error: 'PROPOSAL_INVALID' });
       const selected = Array.isArray(body.selected) ? new Set(body.selected.map(Number)) : new Set();
+      if ([...selected].some((index)=>!Number.isInteger(index)||index<0||index>=proposal.length)) return send(res,400,{error:'SELECTION_INVALID'});
       const items = prepareItems(proposal.filter((_, index) => selected.has(index)), lead);
+      let selectedIndex=0;
+      for (let index=0;index<proposal.length;index++) if (selected.has(index)) {
+        const item=items[selectedIndex++];
+        if ((item.type==='promise'||item.type==='return'||item.type==='call_result'&&item.value==='LATER')&&!item.dueUtc) {
+          const due=clientDateTime(body.manualDates?.[index],lead.timezone);
+          if(!due)return send(res,400,{error:'DUE_DATE_REQUIRED',message:'Informe a data no horário do cliente.'});
+          item.dueUtc=due;
+        }
+      }
       const initial = { name: lead.order?.contactName, vehicle: lead.order?.vehicleText, wishes: lead.wishes,
         maxBidCents: lead.maxBidCents, payment: lead.payment, deadline: lead.order?.deadlineText };
       const saved = await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_confirm_lead_note',{

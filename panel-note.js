@@ -5,13 +5,26 @@ function verified(secret, ref, note, items, signature) {
   return typeof signature==='string' && /^[0-9a-f]{64}$/.test(signature) && crypto.timingSafeEqual(Buffer.from(signature),Buffer.from(digest(secret,ref,note,items)));
 }
 const types=new Set(['call_result','checklist','budget','payment','deadline','wishlist','phone','promise','return','stage','disable']);
-const checklistTerms={1:/carro|modelo|ano|milha|critério/i,2:/teto|orçamento|valor|total/i,3:/pagamento|financ|vista/i,4:/prazo|urgên|dia|mês|semana/i,5:/flórida|florida|outro estado|fora da fl/i,6:/inspeção|devolução|risco/i};
+const checklistTerms={1:/carro|modelo|ano|milha|critério/i,2:/teto|orçamento|valor|total/i,3:/pagamento|financ|vista/i,4:/prazo|urgên|dia|mês|semana/i,5:/flórida|florida|outro estado|fora da fl/i,6:/inspeção|devolução|risco|test drive/i};
 const outcome={ANSWERED:/atendeu|conversamos|falei|falamos/i,NO_ANSWER:/não atendeu|sem resposta|caixa postal|não respondeu/i,LATER:/ligar depois|retornar|retorno|ligue/i,IN_PERSON:/presencial|pessoalmente/i,DEPOSIT:/depósito|deposito/i};
+function evidenceNumber(text, amount) {
+  return [...text.matchAll(/(?:^|[^\d])((?:\d{1,3}(?:[.,]\d{3})+|\d+)(?:\s*(?:mil|k))?)(?=$|[^\d])/gi)]
+    .some((match)=>{
+      const token=match[1].toLowerCase();
+      const multiplier=/\s*(?:mil|k)$/.test(token)?1000:1;
+      return Number(token.replace(/(?:mil|k)$/,'').replace(/[.,\s]/g,''))*multiplier===Number(amount);
+    });
+}
+function checklistDenied(point, evidence) {
+  if (point===6) return /(?:não|nunca)\s+(?:\w+\s+){0,3}(?:aceita|entende|sabe|confirm)/i.test(evidence);
+  const subject={1:'carro|modelo|ano|milha|critério',2:'teto|orçamento|valor|total',3:'pagamento|financ|vista',4:'prazo|urgên|dia|mês|semana',5:'flórida|florida|outro estado|fora da fl'}[point];
+  return new RegExp('(?:não|ainda não|sem confirmar)\\s+(?:[\\wÀ-ÿ]+\\s+){0,4}(?:'+subject+')','i').test(evidence);
+}
 function evidenceSupports(item) {
   const e=String(item.evidence||'').toLowerCase(),v=item.value;
   const hasNumber=(n)=>Number.isFinite(Number(n))&&new RegExp('(^|\\D)'+String(Number(n)).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(\\D|$)').test(e.replace(/[,.](?=\d{3}\b)/g,''));
-  if(item.type==='budget') return hasNumber(v)&&/teto|total|orçamento|limite|máximo|final|valor/i.test(e);
-  if(item.type==='checklist') return checklistTerms[item.point]?.test(e)&&!/não |ainda não|talvez|pendente|sem confirmar/i.test(e) && /confirm|sim|aceit|entend|combin|defin|fechad|será|vai |é |está /i.test(e);
+  if(item.type==='budget') return evidenceNumber(e,v)&&/teto|total|orçamento|limite|máximo|final|valor/i.test(e);
+  if(item.type==='checklist') return checklistTerms[item.point]?.test(e)&&!checklistDenied(item.point,e) && /confirm|sim|aceit|entend|sabe|ciente|combin|defin|fechad|será|vai |é |está /i.test(e);
   if(item.type==='call_result') return Boolean(outcome[v]?.test(e));
   if(item.type==='payment') return v==='cash'?/à vista|a vista|dinheiro|cash/i.test(e):v==='fin'?/financi/i.test(e):false;
   if(item.type==='deadline') return v==='now'?/agora|imediat|hoje/i.test(e):v==='30d'?/30\s*dias|um mês|1\s*mês/i.test(e):v==='3m'?/90\s*dias|3\s*meses|três meses/i.test(e):/sem prazo/i.test(e);
@@ -23,7 +36,7 @@ function evidenceSupports(item) {
   return false;
 }
 function validItems(note,items) {
-  return (Array.isArray(items)?items:[]).slice(0,30).filter((item)=>item&&types.has(item.type)&&typeof item.evidence==='string'&&item.evidence.trim().length>=2&&note.includes(item.evidence)).map((item)=>({...item,manualReview:!evidenceSupports(item)}));
+  return (Array.isArray(items)?items:[]).slice(0,30).filter((item)=>item&&types.has(item.type)&&typeof item.evidence==='string'&&item.evidence.trim().length>=2&&note.includes(item.evidence)).map((item)=>({...item,manualReview:Boolean(item.manualReview)||!evidenceSupports(item)}));
 }
 function wishlistAfter(wishes, value) {
   const list=(Array.isArray(wishes)?wishes:[]).map((w)=>({...w}));

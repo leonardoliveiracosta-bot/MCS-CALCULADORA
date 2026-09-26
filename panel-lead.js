@@ -12,6 +12,10 @@ function timezoneForZip(zip) {
   const code=String(zip||'').replace(/\D/g,'').slice(0,5);
   const prefix = Number(code.slice(0, 3));
   if (prefix >= 798 && prefix <= 799) return 'America/Denver';
+  if (state==='TN' && (prefix===374 || prefix>=376&&prefix<=379)) return 'America/New_York';
+  if (state==='KY' && prefix>=420&&prefix<=424) return 'America/Chicago';
+  const laPorteZips=new Set(['46340','46345','46346','46348','46350','46352','46360','46361','46365','46371','46382','46390','46391','46532','46552','46574']);
+  if (state==='IN' && laPorteZips.has(code)) return 'America/Chicago';
   const michiganCentral=new Set(['49801','49802','49812','49815','49821','49831','49834','49845','49847','49848','49852','49858','49863','49870','49873','49874','49876','49877','49881','49886','49887','49892','49893','49896','49902','49903','49911','49915','49920','49927','49935','49938','49947','49959','49964','49968','49969']);
   if (michiganCentral.has(code)) return 'America/Chicago';
   if (prefix===464 || (prefix===463 && !['46340','46341','46345','46346','46348','46350','46352','46360','46365','46371','46382','46390','46391'].includes(code))) return 'America/Chicago';
@@ -49,7 +53,7 @@ function addClientDays(now, zone, days) {
 
 async function orders(ctx, ref) {
   const [runs, links, dispositions] = await Promise.all([
-    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', ...(ref ? { 'dados->>ref': 'eq.' + ref } : {}), order: 'created_at.asc' }),
+    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', ...(ref ? { 'dados->>ref': 'ilike.' + ref } : {}), order: 'created_at.asc' }),
     allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
   ]);
@@ -194,7 +198,7 @@ async function leadData(ctx, req, refInput, idInput) {
     messages: (record?.conversation || []).map((message) => ({ ...message, journey_id: record?.id })),
     promises: [...(record?.promises || []), ...promises].map((promise) => ({ ...promise, journey_id: record?.id }))
   }, [...unique.values()]);
-  const city = await cityForZip(zip);
+  const city = cityCache.get(zip) || null;
   return { ref, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null };
 }
 
@@ -230,4 +234,4 @@ async function ensureJourney(ctx, lead) {
   return journey;
 }
 
-module.exports = { leadData, ensureJourney, orders, timezoneForZip, localToUtc, addClientDays, journeyFor, trackFor, realisticBid, median, offerKind };
+module.exports = { leadData, ensureJourney, orders, timezoneForZip, localToUtc, addClientDays, journeyFor, trackFor, realisticBid, median, offerKind, cityForZip };

@@ -1366,7 +1366,7 @@
     list.append(wrapper);
   }
 
-  function actionMessage(message, journeyId, reload) {
+  function actionMessage(message, journeyId, reload, ref) {
     const root = element('details', 'message-menu');
     const summary = element('summary', '', '⋯');
     summary.setAttribute('aria-label', 'Ações desta mensagem');
@@ -1399,7 +1399,7 @@
           yearMax: row.yearMax.value || null, maxMiles: row.maxMiles.value || null
         }));
         await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({
-          action: 'mark_message', journeyId, messageId: message.id, kind: 'VEHICLE',
+          action: 'mark_message', journeyId, ref, messageId: message.id, kind: 'VEHICLE',
           wishlists
         }) });
         await reload();
@@ -1420,7 +1420,7 @@
         const button = element('button', 'quiet small', label);
         button.type = 'button';
         button.addEventListener('click', async () => {
-          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'mark_message', journeyId, messageId: message.id, kind, value: needsValue ? value.value : null }) });
+          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'mark_message', journeyId, ref, messageId: message.id, kind, value: needsValue ? value.value : null }) });
           await reload();
         });
         row.append(button, value);
@@ -1428,7 +1428,7 @@
       });
       const okButton = element('button', 'small', 'Cliente deu OK');
       okButton.type = 'button';
-      okButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'client_ok', journeyId, messageId: message.id }) }); await reload(); });
+      okButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'client_ok', journeyId, ref, messageId: message.id }) }); await reload(); });
       menu.append(okButton);
     }
     if (message.direction === 'MCS') {
@@ -1446,7 +1446,7 @@
       const promiseButton = element('button', 'small', 'Marcar como promessa');
       promiseButton.type = 'button';
       promiseButton.addEventListener('click', async () => {
-        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'promise', journeyId, messageId: message.id, dueAt: new Date(due.value).toISOString(), dueText: dueText.value }) });
+        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'promise', journeyId, ref, messageId: message.id, dueAt: new Date(due.value).toISOString(), dueText: dueText.value }) });
         await reload();
       });
       promiseForm.append(dueLabel, dueTextLabel, promiseButton);

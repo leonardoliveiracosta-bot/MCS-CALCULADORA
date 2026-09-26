@@ -63,7 +63,10 @@
     const header=append(heading,'div','lead-header');
     append(header,'div','lead-score',data.score===null?'—':data.score);
     const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — Ref ${ref}`);
-    append(identity,'p','muted',`${data.city?data.city+', ':''}${data.state?.uf||'Local não identificado'}${data.zip?` · ZIP ${data.zip}`:''}`);
+    const locationLine=append(identity,'p','muted',`${data.city?data.city+', ':''}${data.state?.uf||'Local não identificado'}${data.zip?` · ZIP ${data.zip}`:''}`);
+    if(data.zip&&!data.city)request('/api/panel/lead?cityZip='+encodeURIComponent(data.zip)).then((place)=>{
+      if(locationLine.isConnected&&place.city)locationLine.textContent=`${place.city}, ${data.state?.uf||''} · ZIP ${data.zip}`;
+    }).catch(()=>{});
     const right=append(header,'div','lead-head-right');
     append(right,'strong','lead-clock',new Intl.DateTimeFormat('pt-BR',{timeZone:data.timezone,hour:'2-digit',minute:'2-digit'}).format(new Date()));
     append(right,'span','muted',` horário do cliente · ${data.goodHour?'bom horário para ligar':'fora de horário'}`);
@@ -127,14 +130,21 @@
         const proposal=await request('/api/panel/notes/distribute',{method:'POST',body:JSON.stringify({ref,journeyId,note:body,fallbackKey:confirmationKey})});
         if(proposal.saved){sessionStorage.removeItem(draftKey);textarea.value='';noteStatus.textContent=proposal.message;return;}
         noteStatus.textContent='Vai para:';
-        const selected=[];
+        const selected=[],manualDates={};
         proposal.items.forEach((item,index)=>{
           const line=append(review,'label','lead-route');const input=append(line,'input');input.type='checkbox';input.checked=!item.manualReview;selected.push(input);
           append(line,'strong','',item.type==='checklist'?`Checklist ${item.point} → OK`:({call_result:'Resultado da ligação',budget:'Teto',payment:'Pagamento',deadline:'Prazo',wishlist:'Lista de desejo',phone:'Telefones',promise:'Promessa',return:'Retorno',stage:'Etapa operacional',disable:'Desligar lead'}[item.type]||item.type));
           const detail=append(line,'div','lead-route-value');append(detail,'span','',itemLabel(item,data.timezone));append(detail,'small','muted',`“${item.evidence}”`);if(item.manualReview)append(detail,'span','lead-badge yellow','confirmar manualmente');
+          if(!item.dueUtc&&(item.type==='promise'||item.type==='return'||item.type==='call_result'&&item.value==='LATER')){
+            input.checked=false;input.disabled=true;
+            const dateLabel=append(detail,'label','muted','Data e hora — horário do cliente');
+            const due=append(detail,'input','lead-manual-date');due.type='datetime-local';due.setAttribute('aria-label','Data e hora — horário do cliente');
+            due.addEventListener('input',()=>{manualDates[index]=due.value;input.disabled=!due.value;if(!due.value)input.checked=false;});
+            dateLabel.htmlFor=due.id='lead-manual-date-'+index;
+          }
         });
         const actions=append(review,'div','lead-actions');
-        button(actions,'Confirmar',async()=>{await api('note',{note:body,proposal:proposal.items,signature:proposal.signature,selected:selected.flatMap((input,index)=>input.checked?[index]:[]),confirmationKey});sessionStorage.removeItem(draftKey);await reload();},'small');
+        button(actions,'Confirmar',async()=>{await api('note',{note:body,proposal:proposal.items,signature:proposal.signature,selected:selected.flatMap((input,index)=>input.checked?[index]:[]),manualDates,confirmationKey});sessionStorage.removeItem(draftKey);await reload();},'small');
         button(actions,'Editar anotação',()=>{review.replaceChildren();noteStatus.textContent='';});
       }catch(_){await api('note',{note:body,proposal:[],selected:[],confirmationKey});sessionStorage.removeItem(draftKey);textarea.value='';review.replaceChildren();noteStatus.textContent='Anotação salva; distribuição indisponível agora — tentar de novo';}
     },'small');
@@ -176,7 +186,7 @@
     const draw=()=>{thread.replaceChildren();let list=messages.filter((message)=>filter.value==='all'||message.direction===filter.value);if(sort.value==='recent')list=list.slice().reverse();
       list.forEach((message)=>{const bubble=append(thread,'article','lead-message '+(message.direction==='MCS'?'m':'c'));
         append(bubble,'small','muted',`${message.channel} · ${message.direction==='CUSTOMER'?'Cliente':'MCS'} · ${date(message.occurred_at_utc||message.created_at,data.timezone)}`);
-        append(bubble,'p','',message.body_text);if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload));});
+        append(bubble,'p','',message.body_text);if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref));});
       if(!list.length)append(thread,'p','muted','Nenhuma mensagem neste filtro.');};
     sort.addEventListener('change',()=>{localStorage.setItem('mcs_conversation_sort',sort.value);draw();});filter.addEventListener('change',draw);draw();
 

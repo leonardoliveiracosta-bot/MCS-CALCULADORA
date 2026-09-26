@@ -51,6 +51,17 @@ async function journeyContext(ctx, value) {
   return journeyExists(ctx, value);
 }
 
+async function recordMessageMenuEvent(ctx, journey, body, kind, at) {
+  const ref=String(body.ref||journey.reference_code||'').trim().toUpperCase();
+  if(!REF_RE.test(ref))return;
+  if(ref!==String(journey.reference_code||'').trim().toUpperCase()){
+    const linked=await rows(ctx,'journey_refs',{select:'journey_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,ref_code:'eq.'+ref,limit:'1'});
+    if(!linked[0])return;
+  }
+  await insert(ctx,'lead_events',{environment:ctx.environment,ref_code:ref,journey_id:journey.id,event_type:'ACTION_MESSAGE_'+kind,
+    detail_json:{messageId:body.messageId},occurred_at:at,created_by:ctx.panel.id},false);
+}
+
 async function cancelSuppressions(ctx, journeyId, at) {
   await patchRows(ctx, 'journey_alert_suppressions', {
     environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId,
@@ -252,6 +263,7 @@ async function actionMarkMessage(ctx, journey, body) {
       p_simulate_failure: false
     })
   });
+  await recordMessageMenuEvent(ctx,journey,body,'MARK_'+kind,isoNow());
   return send(ctx.res, 200, result);
 }
 
@@ -296,6 +308,7 @@ async function actionPromise(ctx, journey, body) {
     activityType: 'PROMISE_RECORDED', summary: 'Promessa registrada', metadata: { message_id: message.id, due_at: new Date(time(body.dueAt)).toISOString() },
     entityType: 'promise', entityId: created[0].id, action: 'CREATE', after: { message_id: message.id, due_at: new Date(time(body.dueAt)).toISOString(), status: 'OPEN' }
   });
+  await recordMessageMenuEvent(ctx,journey,body,'PROMISE',isoNow());
   return send(ctx.res, 201, { promiseId: created[0].id, status: 'OPEN' });
 }
 
@@ -330,6 +343,7 @@ async function actionClientOk(ctx, journey, body) {
     before: { stage: journey.stage, status: journey.status },
     after: { stage: 'QUALIFICADO', status: 'ENCERRADO', closed_reason: 'CLIENTE_DEU_OK', evidence_message_id: message.id }
   });
+  await recordMessageMenuEvent(ctx,journey,body,'CLIENT_OK',isoNow());
   return send(ctx.res, 200, { stage: 'QUALIFICADO', status: 'ENCERRADO', closedReason: 'CLIENTE_DEU_OK', openChecklistPoints: openPoints.map((item) => item.point_number) });
 }
 
