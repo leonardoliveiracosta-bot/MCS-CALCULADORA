@@ -223,6 +223,8 @@ function vehicleFor(data) {
 function compactWishlistText(wishlists) {
   const items = (Array.isArray(wishlists) ? wishlists : []).filter((wish) => clean(wish && wish.model));
   if (!items.length) return '';
+  // Keep the requested model years visible when requests under one Ref are combined.
+  if (items.some((wish) => wish.yearMin || wish.yearMax)) return wishlistText(items);
   const makes = [...new Map(items.filter((wish) => clean(wish.make)).map((wish) => [fold(wish.make), clean(wish.make)])).values()];
   if (makes.length === 1 && items.every((wish) => !clean(wish.make) || fold(wish.make) === fold(makes[0]))) {
     const make = makes[0];
