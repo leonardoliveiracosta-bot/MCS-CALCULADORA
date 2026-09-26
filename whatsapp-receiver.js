@@ -95,7 +95,7 @@ async function resolveItemError(ctx,rawId,itemIndex){await supabase(ctx.config.u
 async function savePhoneReview(ctx,rawId,item,contacts){await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_phone_reviews?on_conflict=raw_event_id,item_index',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({environment:ctx.environment,raw_event_id:rawId,item_index:item.itemIndex,item_json:item,phone_e164:item.phone,candidate_contact_ids:contacts})});}
 async function prepareItem(ctx,rawId,item){
   if(!item.name){const book=await rows(ctx,'whatsapp_address_book',{select:'full_name,first_name',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,limit:'1'});item={...item,name:book[0]?.full_name||book[0]?.first_name||null};}
-  const matches=await rows(ctx,'contact_phones',{select:'contact_id',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,retired_at:'is.null'});
+  const matches=await rows(ctx,'contact_phones',{select:'contact_id',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,is_current:'eq.true',retired_at:'is.null'});
   const contacts=[...new Set(matches.map((row)=>row.contact_id))];
   if(contacts.length<=1)return {item};
   await savePhoneReview(ctx,rawId,item,contacts);
@@ -109,7 +109,7 @@ async function processItem(ctx,rawId,item){
     return result||{};
   }catch(error){
     if(!/PHONE_AMBIGUOUS/.test(String(error&&error.message||'')))throw error;
-    const matches=await rows(ctx,'contact_phones',{select:'contact_id',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,retired_at:'is.null'});
+    const matches=await rows(ctx,'contact_phones',{select:'contact_id',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,is_current:'eq.true',retired_at:'is.null'});
     const contacts=[...new Set(matches.map((entry)=>entry.contact_id))];
     if(contacts.length<=1)throw error;
     await savePhoneReview(ctx,rawId,item,contacts);
@@ -131,7 +131,7 @@ async function processRaw(ctx,row){
       }catch(error){
         const ambiguous=/PHONE_AMBIGUOUS/.test(String(error&&error.message||''));
         if(ambiguous){
-          const matches=await rows(ctx,'contact_phones',{select:'contact_id',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,retired_at:'is.null'}).catch(()=>[]);
+          const matches=await rows(ctx,'contact_phones',{select:'contact_id',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,is_current:'eq.true',retired_at:'is.null'}).catch(()=>[]);
           const contacts=[...new Set(matches.map((entry)=>entry.contact_id))];
           if(contacts.length>1){await savePhoneReview(ctx,row.id,item,contacts);reviews++;await resolveItemError(ctx,row.id,item.itemIndex).catch(()=>null);continue;}
         }

@@ -38,6 +38,17 @@ module.exports=async(req,res)=>{
       const result=await processRaw(ctx,event);
       return send(res,result.error?409:200,result.error?{error:'PROCESSING_FAILED'}:result);
     }
+    if(body.action==='dismiss_item'){
+      if(!isUuid(body.id))return send(res,400,{error:'ITEM_ID_INVALID'});
+      const itemError=(await rows(ctx,'whatsapp_item_errors',{select:'id,raw_event_id,error_code,status',environment:'eq.'+ctx.environment,id:'eq.'+body.id,limit:'1'}))[0];
+      if(!itemError)return send(res,404,{error:'ITEM_ERROR_NOT_FOUND'});
+      if(itemError.error_code!=='HISTORY_DECLINED'||itemError.status==='RESOLVED')return send(res,409,{error:'ITEM_NOT_DISMISSIBLE'});
+      const resolved=await patchRows(ctx,'whatsapp_item_errors',{id:'eq.'+itemError.id,environment:'eq.'+ctx.environment,error_code:'eq.HISTORY_DECLINED',status:'neq.RESOLVED'},{status:'RESOLVED',processing_started_at:null,resolved_at:new Date().toISOString()},true);
+      if(!resolved.length)return send(res,409,{error:'ITEM_NOT_DISMISSIBLE'});
+      const remaining=await rows(ctx,'whatsapp_item_errors',{select:'id',environment:'eq.'+ctx.environment,raw_event_id:'eq.'+itemError.raw_event_id,status:'neq.RESOLVED',limit:'1'});
+      if(!remaining.length)await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+itemError.raw_event_id,environment:'eq.'+ctx.environment},{error_code:null});
+      return send(res,200,{resolved:true});
+    }
     if(body.action==='reprocess_item'){
       if(!isUuid(body.id))return send(res,400,{error:'ITEM_ID_INVALID'});
       let itemError=(await rows(ctx,'whatsapp_item_errors',{select:'id,raw_event_id,item_index,item_json,error_code,status,attempts,processing_started_at',environment:'eq.'+ctx.environment,id:'eq.'+body.id,limit:'1'}))[0];
