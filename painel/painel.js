@@ -162,6 +162,26 @@
       const sender = $('mcs-sender');
       sender.replaceChildren(new Option('Escolha', ''));
       parsed.senders.forEach((name) => option(sender, name, name));
+      const inferredName = inferredContactName(parsed.title);
+      const suggestedMcs = parsed.senders.filter((name) => !MCSParser.senderLooksLikeContact(name, inferredName));
+      const senderLabel = sender.closest('label');
+      if (senderLabel) {
+        const labelText = senderLabel.firstChild;
+        if (labelText && labelText.nodeType === Node.TEXT_NODE) labelText.textContent = 'Você é: ';
+        if (suggestedMcs.length === 1) {
+          sender.value = suggestedMcs[0];
+          const example = MCSParser.senderExample(parsed, suggestedMcs[0]);
+          const confirm = element('button', 'quiet small', `Confirmar: você é ${suggestedMcs[0]}`);
+          confirm.type = 'button';
+          confirm.addEventListener('click', () => {
+            sender.value = suggestedMcs[0];
+            confirm.textContent = 'Confirmado';
+            confirm.disabled = true;
+          });
+          senderLabel.append(confirm);
+          if (example) senderLabel.append(element('span', 'muted sender-example', `Exemplo: “${example}”`));
+        }
+      }
       const contact = $('import-contact');
       contact.replaceChildren(new Option('Novo contato', 'new'));
       contacts.forEach((item) => option(contact, item.display_name || 'Sem nome', item.id));
@@ -201,6 +221,12 @@
           if (!dateOrder) throw new Error('Escolha DD/MM ou MM/DD.');
           if (!$('chat-type').value) throw new Error('Confirme se é conversa individual ou grupo.');
           if (!$('mcs-sender').value) throw new Error('Confirme qual remetente é a MCS.');
+          const contactName = $('import-contact').value === 'new'
+            ? MCSParser.clean($('import-contact-name').value)
+            : ((contacts.find((item) => item.id === $('import-contact').value) || {}).display_name || inferredContactName(parsed.title));
+          if (!isGroup && MCSParser.senderLooksLikeContact($('mcs-sender').value, contactName || inferredContactName(parsed.title))) {
+            throw new Error('O remetente da MCS não pode ser o mesmo nome do contato. Revise quem é você.');
+          }
           if (!isGroup && $('import-contact').value === 'new' && !MCSParser.clean($('import-contact-name').value)) throw new Error('Informe o nome do novo contato.');
           if (!isGroup && !$('import-journey').value) throw new Error('Escolha mesma busca ou nova jornada.');
           const finalParsed = MCSParser.parseWhatsApp(raw, filename, { dateOrder });
@@ -232,7 +258,8 @@
       $('import-status').textContent = `${sourceFilename}: formato não suportado — revisão, sem inserir mensagens.`;
       return { pending: true, inserted: 0 };
     }
-    const automatic = MCSParser.automaticImportMatch(initial, chatAliases, chats, senderAliases);
+    const inferredName = inferredContactName(initial.title || filename);
+    const automatic = MCSParser.automaticImportMatch(initial, chatAliases, chats, senderAliases, inferredName);
     const knownChat = automatic && automatic.chat;
     const knownMcs = automatic && { sender_text: automatic.mcsSender };
     let choice;
