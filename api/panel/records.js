@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildConversationTimeline, buildReturns, checklistSummary, journeyEnabled, reactivationEligible, shortDeadline, time, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
+const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, groupCalculatorByRef, journeyEnabled, reactivationEligible, shortDeadline, time, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
 
 module.exports = async (req, res) => {
@@ -18,7 +18,7 @@ module.exports = async (req, res) => {
       ]);
       const latest = uploads[0] || null;
       const matches = latest ? await allRows(ctx, 'manheim_matches', {
-        select: 'id,journey_id,match_kind,match_reason,mmr_status,row_fingerprint,vehicle_json,presented_unit_id,created_at',
+        select: 'id,journey_id,calc_ref,match_kind,match_reason,mmr_status,row_fingerprint,vehicle_json,presented_unit_id,created_at',
         environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id, order: 'created_at.asc'
       }) : [];
       const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
@@ -28,7 +28,14 @@ module.exports = async (req, res) => {
         const item = { ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null };
         return { ...item, wishlist: wishlistForJourney(item), wishlists: wishlistsForJourney(item), reactivationEligible: reactivationEligible(item) };
       });
-      return send(res, 200, { environment: ctx.environment, items, upload: latest, matches, meta });
+      const [calcRuns, calcLinks, dispositions] = await Promise.all([
+        allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+        allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+        allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
+      ]);
+      const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions)
+        .filter((order) => order.disposition !== 'DISCARDED');
+      return send(res, 200, { environment: ctx.environment, items, orders, upload: latest, matches, meta });
     }
     const id = String((req.query && req.query.id) || '');
     if (!id) {
@@ -83,6 +90,14 @@ module.exports = async (req, res) => {
       panelMeta(ctx)
     ]);
     const manheimMatches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'id,match_kind', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, journey_id: 'eq.' + id }) : [];
+    const [calcRuns, calcLinks, dispositions, senderAliases] = await Promise.all([
+      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+      allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment })
+    ]);
+    const refSet = new Set([journey.reference_code, ...refs.map((ref) => ref.ref_code)].filter(Boolean).map((ref) => String(ref).toUpperCase()));
+    const calculatorRequests = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions).filter((order) => refSet.has(order.ref));
     const messageIds = new Set(links.map((item) => item.message_id));
     const conversation = messages.filter((item) => messageIds.has(item.id)).sort((a, b) => {
       const delta = (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0) - (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0);
@@ -98,6 +113,7 @@ module.exports = async (req, res) => {
         ...journey, enabled, toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, wishlist: wishlistForJourney(journey), wishlists: wishlistsForJourney(journey), contact: contacts[0] || null, phones, refs, checklist: points, checklistSummary: checklistSummary(points),
         shortDeadline: shortDeadline(journey.customer_deadline_at), promises, units,
         returns: buildReturns(journey, promises), interactions, divergences, declarations, attachments, conversation, timeline,
+        calculatorRequests, senderAliases: senderAliases.filter((alias) => conversation.some((message) => message.chat_id === alias.chat_id)),
         manheimMatchCount: manheimMatches.length, manheimUploadAt: uploads[0] && uploads[0].uploaded_at || null
       },
       meta

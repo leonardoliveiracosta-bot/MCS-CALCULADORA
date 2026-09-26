@@ -18,6 +18,36 @@
     return clean(value).toLocaleLowerCase('pt-BR');
   }
 
+  function senderIdentity(value) {
+    return clean(value)
+      .replace(/^~+\s*/, '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('pt-BR')
+      .replace(/[^a-z0-9]+/g, '');
+  }
+
+  function contactNameFromTitle(value) {
+    return clean(String(value || '')
+      .replace(/\.txt$/i, '')
+      .replace(/^WhatsApp Chat with\s+/i, '')
+      .replace(/^Conversa do WhatsApp com\s+/i, '')
+      .replace(/^chat(?:\s+with)?\s+/i, ''));
+  }
+
+  function senderLooksLikeContact(sender, contactName) {
+    const senderKey = senderIdentity(sender);
+    const contactKey = senderIdentity(contactName);
+    return Boolean(senderKey && contactKey && senderKey === contactKey);
+  }
+
+  function senderExample(parsed, sender) {
+    const chosen = normalizeSender(sender);
+    const entry = parsed && Array.isArray(parsed.entries)
+      ? parsed.entries.find((item) => normalizeSender(item.sender) === chosen)
+      : null;
+    return entry ? clean(entry.body).slice(0, 220) : '';
+  }
+
   function header(line) {
     let match = line.match(/^\[(\d{1,2})\/(\d{1,2})\/(\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp]\.?(?:[Mm])\.?)?\]\s?(.*)$/);
     if (match) return { style: 'IPHONE', parts: match.slice(1, 8), rest: match[8] };
@@ -162,14 +192,19 @@
     return parsed.entries.map((entry) => ({ ...entry, direction: normalizeSender(entry.sender) === chosen ? 'MCS' : 'CUSTOMER' }));
   }
 
-  function automaticImportMatch(parsed, chatAliases, chats, senderAliases) {
+  function automaticImportMatch(parsed, chatAliases, chats, senderAliases, contactName) {
     if (!parsed || !parsed.supported || parsed.requiresDateOrder || parsed.groupSignal) return null;
     const alias = (Array.isArray(chatAliases) ? chatAliases : []).find((item) => normalizeSender(item.alias_text) === normalizeSender(parsed.title));
     const chat = alias && (Array.isArray(chats) ? chats : []).find((item) => item.id === alias.chat_id && !item.is_group && item.contact_id);
     if (!chat) return null;
     const mcs = (Array.isArray(senderAliases) ? senderAliases : []).find((item) => item.chat_id === chat.id && item.direction === 'MCS' && parsed.senders.some((sender) => normalizeSender(sender) === normalizeSender(item.sender_text)));
-    return mcs ? { chat, mcsSender: mcs.sender_text } : null;
+    const inferredContact = contactName || contactNameFromTitle(parsed.title);
+    if (!mcs || senderLooksLikeContact(mcs.sender_text, inferredContact)) return null;
+    return { chat, mcsSender: mcs.sender_text };
   }
 
-  return { clean, normalizeSender, inferDateOrder, resolveNewYork, parseWhatsApp, assignDirections, extractRefs, automaticImportMatch };
+  return {
+    clean, normalizeSender, senderIdentity, contactNameFromTitle, senderLooksLikeContact, senderExample,
+    inferDateOrder, resolveNewYork, parseWhatsApp, assignDirections, extractRefs, automaticImportMatch
+  };
 });

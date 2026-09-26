@@ -1,6 +1,6 @@
 'use strict';
 
-const { consolidateCalcRuns, orderSearchMatches, searchMatches } = require('../../panel-domain');
+const { consolidateCalcRuns, groupCalculatorByRef, orderSearchMatches, searchMatches } = require('../../panel-domain');
 const { allRows, requirePanel, safeText, send } = require('../../panel-server');
 
 module.exports = async (req, res) => {
@@ -10,12 +10,14 @@ module.exports = async (req, res) => {
   try {
     const q = safeText(req.query && req.query.q, 100, true);
     if (!q) return send(res, 400, { error: 'SEARCH_QUERY_INVALID' });
-    const [contacts, phones, refs, journeys, calcRuns] = await Promise.all([
+    const [contacts, phones, refs, journeys, calcRuns, links, dispositions] = await Promise.all([
       allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,is_current', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,stage,status,updated_at', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados', order: 'created_at.asc' })
+      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+      allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
     ]);
     const journeyMap = new Map(journeys.map((item) => [item.id, item]));
     const contactMap = new Map(contacts.map((item) => [item.id, item]));
@@ -26,8 +28,11 @@ module.exports = async (req, res) => {
       if (!contact || hits.has(key)) return;
       const journey = journeyId ? journeyMap.get(journeyId) : null;
       hits.set(key, {
-        contactId, journeyId: journeyId || null, name: contact.display_name || 'Contato sem nome',
-        vehicleText: journey ? journey.vehicle_text : null, stage: journey ? journey.stage : null,
+        kind: 'JOURNEY', contactId, journeyId: journeyId || null,
+        name: contact.display_name || 'Contato sem nome',
+        vehicleText: journey ? journey.vehicle_text : null,
+        referenceCode: journey ? journey.reference_code : null,
+        stage: journey ? journey.stage : null,
         status: journey ? journey.status : null, matchedBy
       });
     };
@@ -54,13 +59,23 @@ module.exports = async (req, res) => {
     for (const journey of journeys) {
       if (journey.reference_code && searchMatches(refQuery, { ref_code: journey.reference_code })) add(journey.contact_id, journey.id, 'Ref');
     }
-    const contactHits = [...hits.values()];
-    const orderHits = consolidateCalcRuns(calcRuns).filter((item) => orderSearchMatches(q, item)).map((item) => ({
-      kind: 'ORDER', orderKey: item.key, journeyId: item.link && item.link.journeyId || null,
-      name: `Ref ${item.ref}`, vehicleText: item.vehicleText, zip: item.zip,
-      logicalMode: item.logicalMode, matchedBy: foldMatch(q, item)
+
+    const groupedOrders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, links), dispositions);
+    const orderHits = groupedOrders.filter((item) => orderSearchMatches(q, item)).map((item) => ({
+      kind: 'ORDER',
+      orderKey: item.key,
+      ref: item.ref,
+      journeyId: item.journeyId || null,
+      name: `Ref ${item.ref}`,
+      vehicleText: item.vehicleText,
+      zip: item.zip,
+      logicalMode: item.logicalMode,
+      logicalModes: item.logicalModes,
+      simulationCount: item.simulationCount,
+      disposition: item.disposition,
+      matchedBy: foldMatch(q, item)
     }));
-    return send(res, 200, { environment: ctx.environment, items: contactHits.concat(orderHits).slice(0, 100) });
+    return send(res, 200, { environment: ctx.environment, items: [...hits.values()].concat(orderHits).slice(0, 100) });
   } catch (_) {
     return send(res, 500, { error: 'PANEL_SEARCH_ERROR' });
   }

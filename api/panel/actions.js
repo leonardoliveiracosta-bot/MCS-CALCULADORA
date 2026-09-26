@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  clientOkPatch, consolidateCalcRuns, finiteInteger, journeyEnabled, matchManheimVehicle,
+  clientOkPatch, consolidateCalcRuns, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
   mergeWishlists, nextStageForUnits, reactivationEligible, REF_RE, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
@@ -334,57 +334,83 @@ async function actionClientOk(ctx, journey, body) {
 }
 
 async function actionLinkRequest(ctx, journey, body) {
-  const sid = safeText(body.calcSid, 200, true);
   const ref = String(body.calcRef || '').trim().toUpperCase();
-  const mode = String(body.logicalMode || '');
-  if (!sid || !REF_RE.test(ref) || !['CARRO', 'VALOR'].includes(mode) || body.contactId !== journey.contact_id) return send(ctx.res, 400, { error: 'CALCULATOR_LINK_INVALID' });
-  const calcRuns = await allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados', order: 'created_at.asc' });
-  const request = consolidateCalcRuns(calcRuns).find((item) => item.sid === sid && item.ref === ref && item.logicalMode === mode);
-  if (!request) return send(ctx.res, 404, { error: 'CALCULATOR_REQUEST_NOT_FOUND' });
+  if (!REF_RE.test(ref) || body.contactId !== journey.contact_id) return send(ctx.res, 400, { error: 'CALCULATOR_LINK_INVALID' });
+  const calcRuns = await allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' });
+  const requests = consolidateCalcRuns(calcRuns).filter((item) => item.ref === ref);
+  if (!requests.length) return send(ctx.res, 404, { error: 'CALCULATOR_REQUEST_NOT_FOUND' });
+
   const at = isoNow();
-  const payload = { environment: ctx.environment, calc_sid: sid, calc_ref: ref, logical_mode: mode, contact_id: journey.contact_id, journey_id: journey.id, linked_at: at, linked_by: ctx.panel.id };
-  const linked = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/calculator_request_links?on_conflict=environment,calc_sid,calc_ref,logical_mode', {
-    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(payload)
-  });
-  const existingRef = await rows(ctx, 'journey_refs', { select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, ref_code: 'eq.' + ref, calculator_sid: 'eq.' + sid, limit: '1' });
-  if (!existingRef[0]) await insert(ctx, 'journey_refs', { environment: ctx.environment, journey_id: journey.id, ref_code: ref, source_message_id: null, calculator_sid: sid, created_at: at, created_by: ctx.panel.id }, false);
-  const declarations = [
-    request.budgetCents ? { field: 'TETO', value: String(request.budgetCents), json: { cents: request.budgetCents } } : null,
-    request.vehicleText ? { field: 'VEICULO', value: request.vehicleText, json: {} } : null,
-    request.paymentText ? { field: 'PAGAMENTO', value: request.paymentText, json: {} } : null,
-    request.deadlineText ? { field: 'PRAZO', value: request.deadlineText, json: {} } : null
-  ].filter(Boolean);
-  for (const declaration of declarations) {
-    const already = await rows(ctx, 'journey_declarations', {
-      select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
-      field: 'eq.' + declaration.field, source: 'eq.CALCULATOR', calc_sid: 'eq.' + sid,
-      calc_ref: 'eq.' + ref, limit: '1'
-    });
-    if (already[0]) continue;
-    const previous = await rows(ctx, 'journey_declarations', {
-      select: 'id,value_text,value_json', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
-      field: 'eq.' + declaration.field, order: 'declared_at.desc', limit: '1'
-    });
-    const created = await insert(ctx, 'journey_declarations', {
-      environment: ctx.environment, journey_id: journey.id, field: declaration.field,
-      source: 'CALCULATOR', value_text: declaration.value, value_json: declaration.json,
-      message_id: null, calc_sid: sid, calc_ref: ref,
-      declared_at: request.occurredAt || at, created_at: at, created_by: ctx.panel.id
-    });
-    if (previous[0] && declarationKey(declaration.field, previous[0].value_text, previous[0].value_json) !== declarationKey(declaration.field, declaration.value, declaration.json)) await insert(ctx, 'journey_divergences', {
-      environment: ctx.environment, journey_id: journey.id, field: declaration.field,
-      left_declaration_id: previous[0].id, right_declaration_id: created[0].id,
-      status: 'OPEN', created_at: at
-    }, false);
+  const linkedIds = [];
+  const allWishlists = [];
+  const ordered = requests.slice().sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0));
+
+  for (const request of ordered) {
+    allWishlists.push(...(request.wishlists || (request.wishlist ? [request.wishlist] : [])));
+    const sids = Array.isArray(request.sids) && request.sids.length ? request.sids : [request.sid].filter(Boolean);
+    for (const sid of sids) {
+      const payload = {
+        environment: ctx.environment, calc_sid: sid, calc_ref: ref, logical_mode: request.logicalMode,
+        contact_id: journey.contact_id, journey_id: journey.id, linked_at: at, linked_by: ctx.panel.id
+      };
+      const linked = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/calculator_request_links?on_conflict=environment,calc_sid,calc_ref,logical_mode', {
+        method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(payload)
+      });
+      if (linked[0] && linked[0].id) linkedIds.push(linked[0].id);
+      const existingRef = await rows(ctx, 'journey_refs', {
+        select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
+        ref_code: 'eq.' + ref, calculator_sid: 'eq.' + sid, limit: '1'
+      });
+      if (!existingRef[0]) await insert(ctx, 'journey_refs', {
+        environment: ctx.environment, journey_id: journey.id, ref_code: ref, source_message_id: null,
+        calculator_sid: sid, created_at: at, created_by: ctx.panel.id
+      }, false);
+    }
+
+    const declarationSid = sids[0] || request.sid;
+    const declarations = [
+      request.budgetCents ? { field: 'TETO', value: String(request.budgetCents), json: { cents: request.budgetCents } } : null,
+      request.vehicleText ? { field: 'VEICULO', value: request.vehicleText, json: {} } : null,
+      request.paymentText ? { field: 'PAGAMENTO', value: request.paymentText, json: {} } : null,
+      request.deadlineText ? { field: 'PRAZO', value: request.deadlineText, json: {} } : null
+    ].filter(Boolean);
+
+    for (const declaration of declarations) {
+      const already = await rows(ctx, 'journey_declarations', {
+        select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
+        field: 'eq.' + declaration.field, source: 'eq.CALCULATOR', calc_sid: 'eq.' + declarationSid,
+        calc_ref: 'eq.' + ref, limit: '1'
+      });
+      if (already[0]) continue;
+      const previous = await rows(ctx, 'journey_declarations', {
+        select: 'id,value_text,value_json', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
+        field: 'eq.' + declaration.field, order: 'declared_at.desc', limit: '1'
+      });
+      const created = await insert(ctx, 'journey_declarations', {
+        environment: ctx.environment, journey_id: journey.id, field: declaration.field,
+        source: 'CALCULATOR', value_text: declaration.value, value_json: declaration.json,
+        message_id: null, calc_sid: declarationSid, calc_ref: ref,
+        declared_at: request.occurredAt || at, created_at: at, created_by: ctx.panel.id
+      });
+      if (previous[0] && declarationKey(declaration.field, previous[0].value_text, previous[0].value_json) !== declarationKey(declaration.field, declaration.value, declaration.json)) {
+        await insert(ctx, 'journey_divergences', {
+          environment: ctx.environment, journey_id: journey.id, field: declaration.field,
+          left_declaration_id: previous[0].id, right_declaration_id: created[0].id,
+          status: 'OPEN', created_at: at
+        }, false);
+      }
+    }
   }
+
+  const latest = ordered[0];
   const fill = { updated_at: at, updated_by: ctx.panel.id };
-  if (!journey.vehicle_text && request.vehicleText) fill.vehicle_text = request.vehicleText;
-  if (!journey.budget_cents && request.budgetCents) fill.budget_cents = request.budgetCents;
-  if (!journey.payment_text && request.paymentText) fill.payment_text = request.paymentText;
-  if (!journey.customer_deadline_text && request.deadlineText) fill.customer_deadline_text = request.deadlineText;
+  if (!journey.vehicle_text && latest.vehicleText) fill.vehicle_text = latest.vehicleText;
+  if (!journey.budget_cents && latest.budgetCents) fill.budget_cents = latest.budgetCents;
+  if (!journey.payment_text && latest.paymentText) fill.payment_text = latest.paymentText;
+  if (!journey.customer_deadline_text && latest.deadlineText) fill.customer_deadline_text = latest.deadlineText;
   const criteria = journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
   const existingWishlists = wishlistsForJourney({ criteria_json: criteria });
-  const mergedWishlists = mergeWishlists(existingWishlists, request.wishlists || request.wishlist);
+  const mergedWishlists = mergeWishlists(existingWishlists, allWishlists);
   if (JSON.stringify(mergedWishlists) !== JSON.stringify(existingWishlists)) {
     const { wishlist: _legacyWishlist, ...criteriaWithoutLegacy } = criteria;
     fill.criteria_json = { ...criteriaWithoutLegacy, wishlists: mergedWishlists };
@@ -392,10 +418,12 @@ async function actionLinkRequest(ctx, journey, body) {
   await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, fill);
   await recordMutation(ctx, {
     at, journeyId: journey.id, contactId: journey.contact_id,
-    activityType: 'CALCULATOR_REQUEST_LINKED', summary: 'Pedido da calculadora ligado à jornada', metadata: { calc_sid: sid, calc_ref: ref, logical_mode: mode },
-    entityType: 'calculator_request_link', entityId: linked[0].id, action: 'LINK', after: { calc_sid: sid, calc_ref: ref, logical_mode: mode, journey_id: journey.id }
+    activityType: 'CALCULATOR_REQUEST_LINKED', summary: 'Ref da calculadora ligada à jornada',
+    metadata: { calc_ref: ref, simulations: requests.length, modes: requests.map((item) => item.logicalMode) },
+    entityType: 'calculator_request_link', entityId: linkedIds[0] || journey.id, action: 'LINK_REF',
+    after: { calc_ref: ref, journey_id: journey.id, simulations: requests.length }
   });
-  return send(ctx.res, 200, { id: linked[0].id, status: 'LINKED' });
+  return send(ctx.res, 200, { ids: linkedIds, status: 'LINKED', simulations: requests.length });
 }
 
 async function actionUnit(ctx, journey, body) {
@@ -560,6 +588,7 @@ function safeManheimVehicle(value) {
   const raw = {};
   for (const header of headers) raw[header] = safeText(rawSource[header], 1000) || '';
   const parsed = {
+    vin: safeText(parsedSource.vin, 40) || '',
     year: finiteInteger(parsedSource.year), make: safeText(parsedSource.make, 80) || '', model: safeText(parsedSource.model, 120, true),
     trim: safeText(parsedSource.trim, 120) || '', miles: finiteInteger(parsedSource.miles),
     location: safeText(parsedSource.location, 200) || '', saleDate: safeText(parsedSource.saleDate, 100) || '',
@@ -587,22 +616,40 @@ async function actionManheimUpload(ctx, body) {
   const requested = Array.isArray(body.matches) ? body.matches : [];
   if (!Number.isInteger(fileCount) || fileCount < 1 || fileCount > 20 || !Number.isInteger(vehicleCount) || vehicleCount < 0 || vehicleCount > 100000 || !headers.length || requested.length > 2000) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
 
-  const [journeys, toggleStates] = await Promise.all([
+  const [journeys, toggleStates, calcRuns, calcLinks, dispositions] = await Promise.all([
     allRows(ctx, 'journeys', { select: 'id,status,stage,criteria_json,budget_cents', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment })
+    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+    allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
   ]);
   const states = new Map(toggleStates.map((state) => [state.journey_id, state]));
   const byId = new Map(journeys.map((journey) => {
     const state = states.get(journey.id);
     return [journey.id, { ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', offReason: state && state.off_reason || null }];
   }));
+  const orderByRef = new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions)
+    .filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
   const matches = [];
+  const orderMatches = [];
   for (const item of requested) {
+    const vehicle = safeManheimVehicle(item && item.vehicle);
+    const fingerprint = safeText(item && item.fingerprint, 200, true);
+    if (!vehicle || !fingerprint) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+    if (item && item.targetType === 'ORDER') {
+      const ref = String(item.calcRef || '').trim().toUpperCase();
+      const order = orderByRef.get(ref);
+      const result = order && matchManheimOrder(vehicle.parsed, order);
+      if (!order || !result) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+      vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
+      vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
+      vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
+      orderMatches.push({ calcRef: ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
+      continue;
+    }
     if (!isUuid(item && item.journeyId)) return send(ctx.res, 400, { error: 'MANHEIM_JOURNEY_ID_INVALID' });
     const journey = byId.get(item.journeyId);
-    const vehicle = safeManheimVehicle(item.vehicle);
-    const fingerprint = safeText(item.fingerprint, 200, true);
-    if (!journey || !vehicle || !fingerprint) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+    if (!journey) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
     const result = matchManheimVehicle(vehicle.parsed, wishlistsForJourney(journey), journey.budget_cents);
     if (!result) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
     if (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE')) return send(ctx.res, 409, { error: 'MANHEIM_JOURNEY_DISABLED' });
@@ -615,10 +662,57 @@ async function actionManheimUpload(ctx, body) {
   const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
       p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_source_file_count: fileCount,
-      p_vehicle_count: vehicleCount, p_headers: headers, p_header_map: headerMap, p_matches: matches
+      p_vehicle_count: vehicleCount, p_headers: headers, p_header_map: headerMap,
+      p_matches: matches.concat(orderMatches.map((item) => ({
+        targetType: 'ORDER', calcRef: item.calcRef, kind: item.kind, reason: item.reason,
+        mmrStatus: item.mmrStatus, fingerprint: item.fingerprint, vehicle: item.vehicle
+      })))
     })
   });
   return send(ctx.res, 201, result);
+}
+
+
+async function actionDisposition(ctx, body) {
+  const itemKind = String(body.itemKind || '');
+  const itemKey = safeText(body.itemKey, 200, true);
+  const status = body.status === null || body.status === '' ? null : String(body.status || '');
+  if (!['REF', 'JOURNEY'].includes(itemKind) || !itemKey || (status && !['TREATED', 'DISCARDED'].includes(status))) {
+    return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
+  }
+  if (itemKind === 'REF' && !REF_RE.test(itemKey.toUpperCase())) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
+  if (itemKind === 'JOURNEY' && !isUuid(itemKey)) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
+  const endpoint = '/rest/v1/panel_item_dispositions?environment=eq.' + ctx.environment + '&item_kind=eq.' + itemKind + '&item_key=eq.' + encodeURIComponent(itemKey);
+  if (!status) {
+    await supabase(ctx.config.url, ctx.config.secretKey, endpoint, { method: 'DELETE', headers: { prefer: 'return=minimal' } });
+    return send(ctx.res, 200, { status: null });
+  }
+  const at = isoNow();
+  await supabase(ctx.config.url, ctx.config.secretKey,
+    '/rest/v1/panel_item_dispositions?on_conflict=environment,item_kind,item_key',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ environment: ctx.environment, item_kind: itemKind, item_key: itemKey, status, updated_at: at, updated_by: ctx.panel.id })
+    });
+  return send(ctx.res, 200, { status, updatedAt: at });
+}
+
+async function actionInvertSenders(ctx, journey, body) {
+  if (!isUuid(body.chatId)) return send(ctx.res, 400, { error: 'CHAT_ID_INVALID' });
+  const links = await allRows(ctx, 'message_journeys', {
+    select: 'message_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id
+  });
+  const linked = new Set(links.map((item) => item.message_id));
+  const chatMessages = await rows(ctx, 'messages', {
+    select: 'id', environment: 'eq.' + ctx.environment, chat_id: 'eq.' + body.chatId, limit: '200'
+  });
+  if (!chatMessages.some((item) => linked.has(item.id))) return send(ctx.res, 404, { error: 'CHAT_NOT_IN_JOURNEY' });
+  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_invert_chat_senders', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ p_environment: ctx.environment, p_chat_id: body.chatId, p_actor_id: ctx.panel.id })
+  });
+  return send(ctx.res, 200, result);
 }
 
 module.exports = async (req, res) => {
@@ -629,6 +723,7 @@ module.exports = async (req, res) => {
   try {
     const body = await jsonBody(req, 2 * 1024 * 1024);
     if (body.action === 'manheim_upload') return actionManheimUpload(ctx, body);
+    if (body.action === 'set_disposition') return actionDisposition(ctx, body);
     const journey = await journeyContext(ctx, body.journeyId);
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
     switch (body.action) {
@@ -651,6 +746,7 @@ module.exports = async (req, res) => {
       case 'close_journey': return actionClose(ctx, journey, body);
       case 'toggle_journey': return actionToggleJourney(ctx, journey, body);
       case 'return_update': return actionReturn(ctx, journey, body);
+      case 'invert_senders': return actionInvertSenders(ctx, journey, body);
       default: return send(res, 400, { error: 'PANEL_ACTION_INVALID' });
     }
   } catch (failure) {

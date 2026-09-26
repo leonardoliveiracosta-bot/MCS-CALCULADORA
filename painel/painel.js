@@ -24,9 +24,14 @@
   let orderItems = [];
   let orderLinkTargets = [];
   let manheimJourneys = [];
+  let manheimOrders = [];
   let manheimMatches = [];
   let reportView = 'today';
   let viewRequestVersion = 0;
+  let detailOrigin = null;
+  let currentDetail = null;
+  let orderHasMore = false;
+  let undoTimer = null;
   const $ = (id) => document.getElementById(id);
   const show = (id) => ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id));
   const error = (id, message) => { $(id).textContent = message || ''; };
@@ -61,6 +66,16 @@
   const normalize = (value) => MCSParser.normalizeSender(value);
   const inferredContactName = (title) => MCSParser.clean(String(title || '').replace(/^WhatsApp Chat with\s+/i, '').replace(/^Conversa do WhatsApp com\s+/i, '')).slice(0, 160) || 'Contato sem nome';
   const setCount = (view, value) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => { node.textContent = String(value || 0); });
+
+  const PAYMENT_LABELS = Object.freeze({ cash: 'À vista', fin: 'Financiado', financing: 'Financiado' });
+  const DEADLINE_LABELS = Object.freeze({ none: 'Sem prazo', now: 'Agora', '30d': '30 dias', '3m': '3 meses', '6m': '6 meses', '12m': '12 meses' });
+  const SOURCE_LABELS = Object.freeze({ CALCULATOR: 'Calculadora', WHATSAPP_DIRECT: 'WhatsApp direto', SMS_DIRECT: 'SMS direto', MANUAL: 'Manual' });
+  const displayPayment = (value) => PAYMENT_LABELS[String(value || '').toLowerCase()] || value || 'Não informado';
+  const displayDeadline = (value) => DEADLINE_LABELS[String(value || '').toLowerCase()] || value || 'Sem prazo';
+  const displayModel = (value) => String(value || '').replace(/\bnot sure\b/gi, '').replace(/\bother model\b/gi, 'Outro modelo').replace(/\s{2,}/g, ' ').trim();
+  const checklistStatusLabel = (status) => status === 'COMPLETE' ? 'OK' : status === 'OPEN' ? 'Pendente' : status === 'NOT_APPLICABLE' ? 'Não se aplica' : status || '';
+  const orderIcon = (item) => item.logicalMode === 'VALOR' || (item.logicalModes || []).every((mode) => mode === 'VALOR') ? '💰' : '🚗';
+
 
   const request = async (path, options = {}) => {
     const retryAuth = options.retryAuth !== false;
@@ -148,6 +163,29 @@
       const sender = $('mcs-sender');
       sender.replaceChildren(new Option('Escolha', ''));
       parsed.senders.forEach((name) => option(sender, name, name));
+      const inferredName = inferredContactName(parsed.title);
+      const suggestedMcs = parsed.senders.filter((name) => !MCSParser.senderLooksLikeContact(name, inferredName));
+      const senderLabel = sender.closest('label');
+      sender.dataset.confirmed = suggestedMcs.length === 1 ? 'false' : 'true';
+      sender.addEventListener('change', () => { sender.dataset.confirmed = 'true'; });
+      if (senderLabel) {
+        const labelText = senderLabel.firstChild;
+        if (labelText && labelText.nodeType === Node.TEXT_NODE) labelText.textContent = 'Você é: ';
+        if (suggestedMcs.length === 1) {
+          sender.value = suggestedMcs[0];
+          const example = MCSParser.senderExample(parsed, suggestedMcs[0]);
+          const confirm = element('button', 'quiet small', `Confirmar: você é ${suggestedMcs[0]}`);
+          confirm.type = 'button';
+          confirm.addEventListener('click', () => {
+            sender.value = suggestedMcs[0];
+            sender.dataset.confirmed = 'true';
+            confirm.textContent = 'Confirmado';
+            confirm.disabled = true;
+          });
+          senderLabel.append(confirm);
+          if (example) senderLabel.append(element('span', 'muted sender-example', `Exemplo: “${example}”`));
+        }
+      }
       const contact = $('import-contact');
       contact.replaceChildren(new Option('Novo contato', 'new'));
       contacts.forEach((item) => option(contact, item.display_name || 'Sem nome', item.id));
@@ -187,6 +225,13 @@
           if (!dateOrder) throw new Error('Escolha DD/MM ou MM/DD.');
           if (!$('chat-type').value) throw new Error('Confirme se é conversa individual ou grupo.');
           if (!$('mcs-sender').value) throw new Error('Confirme qual remetente é a MCS.');
+          if ($('mcs-sender').dataset.confirmed === 'false') throw new Error('Confirme com um clique quem é você nesta conversa.');
+          const contactName = $('import-contact').value === 'new'
+            ? MCSParser.clean($('import-contact-name').value)
+            : ((contacts.find((item) => item.id === $('import-contact').value) || {}).display_name || inferredContactName(parsed.title));
+          if (!isGroup && MCSParser.senderLooksLikeContact($('mcs-sender').value, contactName || inferredContactName(parsed.title))) {
+            throw new Error('O remetente da MCS não pode ser o mesmo nome do contato. Revise quem é você.');
+          }
           if (!isGroup && $('import-contact').value === 'new' && !MCSParser.clean($('import-contact-name').value)) throw new Error('Informe o nome do novo contato.');
           if (!isGroup && !$('import-journey').value) throw new Error('Escolha mesma busca ou nova jornada.');
           const finalParsed = MCSParser.parseWhatsApp(raw, filename, { dateOrder });
@@ -218,7 +263,8 @@
       $('import-status').textContent = `${sourceFilename}: formato não suportado — revisão, sem inserir mensagens.`;
       return { pending: true, inserted: 0 };
     }
-    const automatic = MCSParser.automaticImportMatch(initial, chatAliases, chats, senderAliases);
+    const inferredName = inferredContactName(initial.title || filename);
+    const automatic = MCSParser.automaticImportMatch(initial, chatAliases, chats, senderAliases, inferredName);
     const knownChat = automatic && automatic.chat;
     const knownMcs = automatic && { sender_text: automatic.mcsSender };
     let choice;
@@ -316,6 +362,8 @@
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
     const labels = { today: 'HOJE', entry: 'ENTRADA', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', manheim: 'MANHEIM', records: 'FICHAS' };
+    currentDetail = null;
+    if ($('detail-panel')) $('detail-panel').classList.add('hidden');
     Object.keys(labels).forEach((name) => $(name + '-panel').classList.toggle('hidden', name !== view));
     $('page-title').textContent = labels[view];
     document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
@@ -487,7 +535,7 @@
   }
 
   function sourceLabel(source) {
-    return ({ CALCULATOR: 'Calculadora', WHATSAPP_DIRECT: 'WhatsApp', SMS_DIRECT: 'SMS', MANUAL: 'Manual' })[source] || source || 'Origem não informada';
+    return SOURCE_LABELS[source] || (source && !/^not sure$/i.test(String(source)) ? source : null);
   }
 
   function initials(name) {
@@ -625,6 +673,7 @@
     orderItems = append ? orderItems.concat(data.items || []) : (data.items || []);
     orderLinkTargets = data.linkTargets || orderLinkTargets;
     orderOffset = orderItems.length;
+    orderHasMore = Boolean(data.page && data.page.hasMore);
     renderOrders(orderItems, orderLinkTargets, data.page || {});
   }
 
@@ -634,65 +683,221 @@
     return result;
   }
 
+  function captureOrigin() {
+    return {
+      view: currentView,
+      scrollY: window.scrollY,
+      orderFilter,
+      orderPeriod,
+      orderLoaded: orderItems.length
+    };
+  }
+
+  function syncOrderControls() {
+    document.querySelectorAll('[data-order-filter]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderFilter === orderFilter));
+    document.querySelectorAll('[data-order-period]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderPeriod === orderPeriod));
+  }
+
+  async function restoreOrigin(origin = detailOrigin) {
+    const target = origin || { view: 'today', scrollY: 0, orderFilter: 'Todos', orderPeriod: '30', orderLoaded: 0 };
+    detailOrigin = null;
+    currentDetail = null;
+    orderFilter = target.orderFilter || orderFilter;
+    orderPeriod = target.orderPeriod || orderPeriod;
+    syncOrderControls();
+    await switchPanel(target.view || 'today');
+    if ((target.view || 'today') === 'orders') {
+      while (orderItems.length < Number(target.orderLoaded || 0) && orderHasMore) {
+        await loadOrders(true, 'orders', viewRequestVersion);
+      }
+    }
+    requestAnimationFrame(() => window.scrollTo(0, Number(target.scrollY || 0)));
+  }
+
+  function showUndo(itemKind, itemKey, label) {
+    clearTimeout(undoTimer);
+    document.querySelectorAll('.undo-toast').forEach((node) => node.remove());
+    const toast = element('div', 'undo-toast');
+    toast.append(element('span', '', label));
+    const undo = element('button', 'quiet small', 'Desfazer');
+    undo.type = 'button';
+    undo.addEventListener('click', async () => {
+      clearTimeout(undoTimer);
+      await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status: null }) });
+      toast.remove();
+      if (currentDetail) await openDetail(currentDetail.kind, currentDetail.key, { push: false, origin: detailOrigin });
+      else await loadCurrent();
+      await refreshCounters();
+    });
+    toast.append(undo);
+    document.body.append(toast);
+    undoTimer = setTimeout(() => toast.remove(), 10000);
+  }
+
+  async function setDisposition(item, status) {
+    const itemKind = item.kind === 'CALCULATOR_ORDER' || item.kind === 'CALCULATOR' ? 'REF' : 'JOURNEY';
+    const itemKey = itemKind === 'REF' ? item.ref : item.id || item.journeyId;
+    await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status }) });
+    showUndo(itemKind, itemKey, status === 'TREATED' ? 'Marcado como Tratado' : 'Marcado como Descartado');
+    if (currentDetail) await openDetail(currentDetail.kind, currentDetail.key, { push: false, origin: detailOrigin });
+    else await loadCurrent();
+    await refreshCounters();
+  }
+
+  function dispositionControls(item) {
+    const actions = element('div', 'inline-actions');
+    const treated = element('button', 'small', 'Tratado');
+    treated.type = 'button';
+    treated.addEventListener('click', () => setDisposition(item, 'TREATED'));
+    const discarded = element('button', 'quiet small', 'Descartar');
+    discarded.type = 'button';
+    discarded.addEventListener('click', () => setDisposition(item, 'DISCARDED'));
+    actions.append(treated, discarded);
+    return actions;
+  }
+
+  function detailHash(kind, key) {
+    return kind === 'order' ? '#pedido/' + encodeURIComponent(key) : '#ficha/' + encodeURIComponent(key);
+  }
+
+  function showDetailShell(kind, key) {
+    const labels = { today: 'today-panel', entry: 'entry-panel', orders: 'orders-panel', qualification: 'qualification-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    Object.values(labels).forEach((id) => $(id).classList.add('hidden'));
+    $('detail-panel').classList.remove('hidden');
+    $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
+    $('record-detail').replaceChildren(element('p', 'muted', 'Carregando…'));
+    currentDetail = { kind, key };
+  }
+
+  async function openDetail(kind, key, options = {}) {
+    const push = options.push !== false;
+    if (push) {
+      detailOrigin = options.origin || captureOrigin();
+      history.replaceState({ panelOrigin: detailOrigin }, '', location.pathname + location.search + (location.hash || ''));
+      history.pushState({ detail: true, kind, key, origin: detailOrigin }, '', detailHash(kind, key));
+    } else if (options.origin) {
+      detailOrigin = options.origin;
+    }
+    showDetailShell(kind, key);
+    if (kind === 'order') return openOrderDetail(key);
+    return openRecord(key);
+  }
+
+  function simulationBlock(item) {
+    const section = element('section', 'record-block detail-simulations');
+    section.append(element('h3', '', item.simulationCount > 1 ? `${item.simulationCount} simulações desta Ref` : 'Simulação desta Ref'));
+    (item.simulations || [item]).forEach((simulation) => {
+      const row = element('div', 'detail-simulation');
+      const mode = simulation.logicalMode === 'VALOR' ? 'Por valor' : simulation.logicalMode === 'CARRO' ? 'Carro ideal' : 'Simulação';
+      row.append(element('strong', '', mode));
+      const dl = element('dl', 'definition-grid');
+      definition(dl, 'Veículo', displayModel(simulation.vehicleText) || 'Não informado');
+      definition(dl, 'Orçamento', simulation.budgetCents ? formatMoney(simulation.budgetCents) : 'Não informado');
+      definition(dl, 'Pagamento', displayPayment(simulation.paymentText));
+      definition(dl, 'Prazo', displayDeadline(simulation.deadlineText));
+      definition(dl, 'Canal', simulation.contactChannel || 'Não informado');
+      definition(dl, 'Data', simulation.occurredAt ? formatDate(simulation.occurredAt) : 'Não informada');
+      row.append(dl);
+      section.append(row);
+    });
+    return section;
+  }
+
+  async function openOrderDetail(ref) {
+    const data = await request('/api/panel/orders?filter=Todos&period=all&limit=1&offset=0&ref=' + encodeURIComponent(ref));
+    const item = data.items && data.items[0];
+    const root = $('record-detail');
+    if (!item) return empty(root, 'Pedido não encontrado.');
+    updateMeta(data.meta);
+    const intro = element('section', 'record-block');
+    const title = element('div', 'identity');
+    title.append(element('span', 'order-icon', orderIcon(item)));
+    const text = element('div');
+    text.append(element('h2', '', `Ref ${item.ref || item.referenceCode || '—'}`), element('p', 'muted', displayModel(item.vehicleText) || 'Veículo não informado'));
+    title.append(text);
+    intro.append(title);
+    const badges = element('div', 'badges');
+    if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
+    if (item.status) badges.append(makeBadge(item.status, item.status === 'RESPONDIDO' ? 'blue' : item.status === 'SEM RESPOSTA' ? 'yellow' : ''));
+    if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
+    if (item.disposition === 'TREATED') badges.append(makeBadge('Tratado', 'blue'));
+    if (item.disposition === 'DISCARDED') badges.append(makeBadge('Descartado'));
+    intro.append(badges, simulationBlock(item), dispositionControls({ ...item, kind: 'CALCULATOR' }));
+
+    const linkedJourneyId = item.journeyId || item.link && item.link.journeyId;
+    if (linkedJourneyId) {
+      await openRecord(linkedJourneyId, { prepend: intro });
+      return;
+    }
+
+    if (item.kind === 'CALCULATOR' && !item.link) {
+      const form = element('div', 'inline-form');
+      const label = element('label', '', 'Ligar a um lead');
+      const select = element('select');
+      select.append(new Option('Escolha uma jornada', ''));
+      (data.linkTargets || []).forEach((target) => select.append(new Option(target.label, `${target.journeyId}|${target.contactId}`)));
+      label.append(select);
+      const button = element('button', 'small', 'Ligar a um lead');
+      button.type = 'button';
+      button.disabled = true;
+      select.addEventListener('change', () => { button.disabled = !select.value; });
+      button.addEventListener('click', async () => {
+        if (!select.value) return;
+        const [journeyId, contactId] = select.value.split('|');
+        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'link_request', journeyId, contactId, calcRef: item.ref }) });
+        await openDetail('order', item.ref, { push: false, origin: detailOrigin });
+      });
+      form.append(label, button);
+      intro.append(form);
+    }
+    root.replaceChildren(intro);
+  }
+
   function renderToday(items) {
     const root = $('today-list');
     root.replaceChildren();
     todayItems = items.slice();
     setCount('today', items.length);
-    if (!items.length) return empty(root, 'Nenhuma pendência agora.');
+    if (!items.length) return empty(root, 'Nenhum item nas últimas 24 horas.');
     const mode = $('today-sort') ? $('today-sort').value : 'priority';
-    const sorted = items.slice().sort((a, b) => mode === 'recent' ? a.waitMs - b.waitMs : mode === 'oldest' ? b.waitMs - a.waitMs : 0);
+    const stamp = (item) => Date.parse(item.occurredAt || item.created_at || item.waitingSince || 0) || 0;
+    const sorted = items.slice().sort((a, b) => {
+      if (mode === 'recent') return stamp(b) - stamp(a);
+      if (mode === 'oldest') return stamp(a) - stamp(b);
+      const outlier = Number(Boolean(a.outOfStandard)) - Number(Boolean(b.outOfStandard));
+      if (outlier) return outlier;
+      const clicked = Number(Boolean(b.clickedContact)) - Number(Boolean(a.clickedContact));
+      if (clicked) return clicked;
+      return stamp(b) - stamp(a);
+    });
     sorted.forEach((item) => {
       const card = element('article', 'item-card');
       const head = element('div', 'item-head');
-      const title = element('div');
-      title.append(identityHeader(item, { preview: item.reasons.find((reason) => reason.preview)?.preview || '' }));
-      const priority = element('div', 'badges');
-      if (item.kind === 'CALCULATOR_ORDER') priority.append(makeBadge(waitLabel(item.waitMs), item.waitColor));
-      priority.append(makeBadge(item.checklistLabel, 'blue'));
-      if (item.budgetCents) priority.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
-      head.append(title, priority);
-      const reasons = element('div', 'badges');
-      item.reasons.forEach((reason) => reasons.append(makeBadge(reason.label, reason.urgency || (reason.label.includes('VENCID') ? 'red' : ''))));
-      card.append(head, reasons);
-      const actions = element('div', 'inline-actions');
-      const open = element('button', 'quiet small', 'Abrir ficha');
-      open.type = 'button';
       if (item.kind === 'CALCULATOR_ORDER') {
-        open.textContent = 'Abrir pedido';
-        open.addEventListener('click', () => switchPanel('orders'));
-        actions.append(open);
-        card.append(actions);
-        makeCardClickable(card, () => switchPanel('orders'));
-        root.append(card);
-        return;
+        const title = element('div', 'identity');
+        title.append(element('span', 'order-icon', orderIcon(item)));
+        const txt = element('div');
+        txt.append(element('strong', '', `Ref ${item.ref}`), element('span', 'muted one-line', displayModel(item.vehicleText) || 'Veículo não informado'));
+        title.append(txt);
+        head.append(title);
+      } else {
+        head.append(identityHeader(item));
       }
-      open.addEventListener('click', async () => { await switchPanel('records'); await openRecord(item.id); });
-      makeCardClickable(card, async () => { await switchPanel('records'); await openRecord(item.id); });
-      const defer = element('button', 'small', 'Adiar');
-      defer.type = 'button';
-      const dismiss = element('button', 'quiet small', 'Dispensar');
-      dismiss.type = 'button';
-      const form = element('div', 'inline-form hidden');
-      const dateLabel = element('label', '', 'Até');
-      const date = element('input');
-      date.type = 'datetime-local';
-      date.value = localInput(new Date(Date.now() + 24 * 3600000));
-      dateLabel.append(date);
-      const reasonLabel = element('label', '', 'Motivo');
-      const reason = element('input');
-      reason.maxLength = 500;
-      reasonLabel.append(reason);
-      const save = element('button', 'small', 'Salvar adiamento');
-      save.type = 'button';
-      save.addEventListener('click', async () => {
-        await postAction({ action: 'suppress', journeyId: item.id, kind: item.reasons[0].kind, suppressionAction: 'DEFER', untilAt: new Date(date.value).toISOString(), reason: reason.value });
-      });
-      form.append(dateLabel, reasonLabel, save);
-      defer.addEventListener('click', () => form.classList.toggle('hidden'));
-      dismiss.addEventListener('click', () => postAction({ action: 'suppress', journeyId: item.id, kind: item.reasons[0].kind, suppressionAction: 'DISMISS' }));
-      actions.append(open, defer, dismiss, journeySwitch(item, () => loadCurrent()));
-      card.append(actions, form);
+      card.append(head);
+      const badges = element('div', 'badges');
+      if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
+      if (item.clickedContact && item.contactChannel) badges.append(makeBadge(`${item.contactChannel} CLICADO`, 'green'));
+      if (item.budgetCents) badges.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
+      if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
+      if (item.kind === 'JOURNEY') badges.append(makeBadge('Ficha nova', 'blue'));
+      card.append(badges);
+      const actions = element('div', 'inline-actions');
+      const open = element('button', 'quiet small', item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
+      open.type = 'button';
+      open.addEventListener('click', () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
+      actions.append(open);
+      card.append(actions, dispositionControls(item));
+      makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
       root.append(card);
     });
   }
@@ -707,26 +912,38 @@
       const card = element('article', 'item-card');
       card.dataset.orderKey = item.key;
       const head = element('div', 'item-head');
+      const identity = element('div', 'identity');
+      identity.append(element('span', 'order-icon', orderIcon(item)));
       const title = element('div');
       const heading = item.contactName || (item.ref || item.referenceCode ? `Ref ${item.ref || item.referenceCode}` : 'Pedido direto');
-      title.append(element('h3', '', heading), element('p', 'muted', item.vehicleText || 'Veículo não informado'));
+      title.append(element('h3', '', heading), element('p', 'muted', displayModel(item.vehicleText) || 'Veículo não informado'));
+      identity.append(title);
+      head.append(identity);
+      card.append(head);
+
       const badges = element('div', 'badges');
-      const modeLabel = item.logicalMode === 'CARRO' ? 'POR CARRO IDEAL' : item.logicalMode === 'VALOR' ? 'POR ORÇAMENTO' : 'MODO NÃO INFORMADO';
-      const statusTone = item.status === 'SEM RESPOSTA' ? 'yellow' : item.status === 'EM REVISÃO' ? 'red' : 'green';
-      badges.append(makeBadge(item.sourceLabel), makeBadge(modeLabel), makeBadge(item.status, statusTone));
-      head.append(title, badges);
+      if (item.sourceLabel) badges.append(makeBadge(item.sourceLabel));
+      if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
+      else badges.append(makeBadge(item.logicalMode === 'CARRO' ? 'CARRO IDEAL' : item.logicalMode === 'VALOR' ? 'POR VALOR' : 'PEDIDO'));
+      if (item.status) badges.append(makeBadge(item.status, item.status === 'RESPONDIDO' ? 'blue' : item.status === 'SEM RESPOSTA' ? 'yellow' : item.status === 'ATIVO' ? 'green' : ''));
+      if (item.disposition === 'TREATED') badges.append(makeBadge('Tratado', 'blue'));
+      if (item.disposition === 'DISCARDED') badges.append(makeBadge('Descartado'));
+      if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
+      card.append(badges);
+
       const details = element('dl', 'definition-grid order-details');
       definition(details, 'Ref', item.ref || item.referenceCode || null);
       definition(details, 'Orçamento', item.budgetCents ? formatMoney(item.budgetCents) : 'Não informado');
-      definition(details, 'Pagamento', item.paymentText || 'Não informado');
+      definition(details, 'Pagamento', displayPayment(item.paymentText));
       definition(details, 'Estado', item.state || 'Não informado');
       definition(details, 'ZIP', item.zip || 'Não informado');
       definition(details, 'Anos', item.yearsText || 'Não informado');
       definition(details, 'Milhas', item.mileageText || 'Não informado');
-      definition(details, 'Prazo', item.deadlineText || 'Não informado');
+      definition(details, 'Prazo', displayDeadline(item.deadlineText));
       definition(details, 'Contato escolhido', item.contactChannel || 'Não informado');
       definition(details, 'Data', item.occurredAt ? formatDate(item.occurredAt) : 'Não informada');
-      card.append(head, details);
+      card.append(details);
+
       if (item.kind === 'CALCULATOR' && !item.link) {
         const form = element('div', 'inline-form');
         const label = element('label', '', 'Ligar a um lead');
@@ -736,17 +953,21 @@
         label.append(select);
         const button = element('button', 'small', 'Ligar a um lead');
         button.type = 'button';
-        button.disabled = !linkTargets.length;
+        button.disabled = true;
+        select.addEventListener('change', () => { button.disabled = !select.value; });
         button.addEventListener('click', async () => {
           if (!select.value) return;
           const [journeyId, contactId] = select.value.split('|');
-          await postAction({ action: 'link_request', journeyId, contactId, calcSid: item.sid, calcRef: item.ref, logicalMode: item.logicalMode });
+          await postAction({ action: 'link_request', journeyId, contactId, calcRef: item.ref });
         });
         form.append(label, button);
         card.append(form);
       }
-      const linkedJourneyId = item.journeyId || item.link && item.link.journeyId;
-      if (linkedJourneyId) makeCardClickable(card, async () => { await switchPanel('records'); await openRecord(linkedJourneyId); });
+
+      makeCardClickable(card, () => {
+        if (item.kind === 'CALCULATOR') openDetail('order', item.ref);
+        else if (item.journeyId) openDetail('ficha', item.journeyId);
+      });
       root.append(card);
     });
   }
@@ -762,20 +983,21 @@
       const title = element('div');
       title.append(identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' }));
       const badges = element('div', 'badges');
-      badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage), makeBadge(item.enabled === false ? 'DESLIGADO' : item.status));
+      const qualificationStatus = item.enabled === false ? 'DESLIGADO' : item.status;
+      badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(qualificationStatus, qualificationStatus === 'ATIVO' ? 'green' : qualificationStatus === 'RESPONDIDO' ? 'blue' : ''));
       if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
       head.append(title, badges);
       card.append(head);
       item.checklist.forEach((point) => {
         const block = element('div', 'check-point' + (point.status === 'COMPLETE' ? ' complete' : ''));
-        block.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(point.status === 'COMPLETE' ? 'com evidência' : point.status.toLowerCase(), point.status === 'COMPLETE' ? 'green' : ''));
+        block.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(checklistStatusLabel(point.status), point.status === 'COMPLETE' ? 'green' : ''));
         point.evidence.forEach((evidence) => block.append(element('p', 'evidence', evidence.excerpt_text)));
         card.append(block);
       });
       const open = element('button', 'quiet small', 'Abrir ficha e conversa');
       open.type = 'button';
-      open.addEventListener('click', async () => { await switchPanel('records'); await openRecord(item.id); });
-      makeCardClickable(card, async () => { await switchPanel('records'); await openRecord(item.id); });
+      open.addEventListener('click', () => openDetail('ficha', item.id));
+      makeCardClickable(card, () => openDetail('ficha', item.id));
       card.append(open, journeySwitch(item, () => loadCurrent()));
       root.append(card);
     });
@@ -830,6 +1052,7 @@
         element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
         element('span', 'muted', `${Number(parsed.miles || 0).toLocaleString('pt-BR')} milhas${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}${parsed.saleDate ? ` · ${parsed.saleDate}` : ''}`)
       );
+      if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
       if (parsed.matchedWishlistLabel) vehicle.append(element('span', 'muted', `Lista: ${parsed.matchedWishlistLabel}`));
       if (parsed.makeNotice) vehicle.append(element('span', 'muted', parsed.makeNotice));
       if (parsed.exteriorColor) vehicle.append(element('span', 'muted', `Cor externa: ${parsed.exteriorColor}`));
@@ -856,36 +1079,102 @@
       downloadShortlist(selected, journey.reference_code);
     });
     card.append(exportButton);
+    makeCardClickable(card, () => openDetail('ficha', journey.id));
+    root.append(card);
+  }
+
+  function renderManheimOrderGroup(root, order, matches) {
+    const card = element('article', 'item-card manheim-lead');
+    const head = element('div', 'item-head');
+    const identity = element('div', 'identity');
+    identity.append(element('span', 'order-icon', orderIcon(order)));
+    const text = element('div');
+    text.append(element('strong', '', `Ref ${order.ref}`), element('span', 'muted one-line', displayModel(order.vehicleText) || 'Pedido da calculadora'));
+    identity.append(text);
+    head.append(identity);
+    card.append(head);
+    const summary = element('div', 'badges');
+    summary.append(makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));
+    summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
+    card.append(summary, element('p', 'muted', order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
+
+    const table = element('div', 'manheim-table');
+    matches.forEach((match) => {
+      const parsed = match.vehicle_json.parsed || {};
+      const row = element('div', `manheim-row ${match.match_kind === 'BATE' ? 'match' : 'near'}`);
+      const vehicle = element('div');
+      vehicle.append(
+        element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
+        element('span', 'muted', `${Number(parsed.miles || 0).toLocaleString('pt-BR')} milhas${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}`)
+      );
+      if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
+      vehicle.append(element('span', 'muted', `Ref do pedido: ${order.ref}`));
+      const badges = element('div', 'badges');
+      badges.append(makeBadge(match.match_kind, match.match_kind === 'BATE' ? 'green' : 'yellow'));
+      if (match.match_reason) badges.append(makeBadge(match.match_reason));
+      if (match.mmr_status) badges.append(makeBadge(match.mmr_status, match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
+      row.append(vehicle, badges);
+      makeCardClickable(row, () => openDetail('order', order.ref));
+      table.append(row);
+    });
+    card.append(table);
+    makeCardClickable(card, () => openDetail('order', order.ref));
     root.append(card);
   }
 
   function renderManheim(data) {
     manheimJourneys = data.items || [];
+    manheimOrders = data.orders || [];
     manheimMatches = data.matches || [];
     setCount('manheim', data.upload && data.upload.lead_count || 0);
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.lead_count} lead(s) · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
     const root = $('manheim-results');
     root.replaceChildren();
     if (!manheimMatches.length) return empty(root, 'Nenhum carro compatível no último upload.');
+
     const byJourney = new Map(manheimJourneys.map((journey) => [journey.id, journey]));
-    const grouped = new Map();
+    const byOrder = new Map(manheimOrders.map((order) => [order.ref, order]));
+    const journeyGroups = new Map();
+    const orderGroups = new Map();
+
     manheimMatches.forEach((match) => {
-      if (!grouped.has(match.journey_id)) grouped.set(match.journey_id, []);
-      grouped.get(match.journey_id).push(match);
+      if (match.calc_ref) {
+        const ref = String(match.calc_ref).trim();
+        if (!orderGroups.has(ref)) orderGroups.set(ref, []);
+        orderGroups.get(ref).push(match);
+      } else if (match.journey_id) {
+        if (!journeyGroups.has(match.journey_id)) journeyGroups.set(match.journey_id, []);
+        journeyGroups.get(match.journey_id).push(match);
+      }
     });
+
     const standard = element('section', 'stack');
     standard.append(element('h3', '', 'Compatíveis'));
     const reactivate = element('section', 'stack');
     reactivate.append(element('h3', '', 'Reativar'));
     let standardCount = 0;
     let reactivateCount = 0;
-    grouped.forEach((matches, journeyId) => {
+
+    orderGroups.forEach((matches, ref) => {
+      const order = byOrder.get(ref);
+      if (!order) return;
+      renderManheimOrderGroup(standard, order, matches);
+      standardCount += 1;
+    });
+
+    journeyGroups.forEach((matches, journeyId) => {
       const journey = byJourney.get(journeyId);
       if (!journey) return;
       const isReactivation = journey.reactivationEligible || journey.status === 'PARADO';
-      if (isReactivation) { renderManheimGroup(reactivate, journey, matches.filter((match) => match.match_kind === 'BATE'), true); reactivateCount += 1; }
-      else { renderManheimGroup(standard, journey, matches, false); standardCount += 1; }
+      if (isReactivation) {
+        const exact = matches.filter((match) => match.match_kind === 'BATE');
+        if (exact.length) { renderManheimGroup(reactivate, journey, exact, true); reactivateCount += 1; }
+      } else {
+        renderManheimGroup(standard, journey, matches, false);
+        standardCount += 1;
+      }
     });
+
     if (standardCount) root.append(standard);
     if (reactivateCount) root.append(reactivate);
   }
@@ -896,9 +1185,10 @@
     if (!window.MCSManheim) throw new Error('MANHEIM_READER_UNAVAILABLE');
     $('manheim-status').classList.remove('error');
     $('manheim-status').textContent = 'Lendo e comparando no navegador…';
-    if (!manheimJourneys.length) {
+    if (!manheimJourneys.length && !manheimOrders.length) {
       const data = await request('/api/panel/records?view=manheim');
       manheimJourneys = data.items || [];
+      manheimOrders = data.orders || [];
     }
     const vehicles = [];
     const headerGroups = [];
@@ -931,7 +1221,23 @@
           journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus,
           fingerprint: MCSManheim.fingerprint(vehicle),
           vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
-            year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
+            vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
+            model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
+            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
+            buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade
+          } }
+        });
+      }
+    }
+    for (const order of manheimOrders.filter((item) => item.disposition !== 'DISCARDED')) {
+      for (const vehicle of vehicles) {
+        const result = MCSManheim.matchOrder(vehicle, order);
+        if (!result) continue;
+        matches.push({
+          targetType: 'ORDER', calcRef: order.ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus,
+          fingerprint: MCSManheim.fingerprint(vehicle),
+          vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
+            vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
             model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
             saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
             buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade
@@ -977,13 +1283,14 @@
       const card = element('article', 'search-hit record-list-card');
       const text = identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' });
       const controls = element('div', 'record-card-controls');
-      controls.append(makeBadge(`${item.stage} · ${item.enabled === false ? 'DESLIGADO' : item.status}`));
+      const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
+      controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
       const open = element('button', 'quiet small', 'Abrir ficha');
       open.type = 'button';
-      open.addEventListener('click', () => openRecord(item.id));
+      open.addEventListener('click', () => openDetail('ficha', item.id));
       controls.append(open, journeySwitch(item, () => loadCurrent()));
       card.append(text, controls);
-      makeCardClickable(card, () => openRecord(item.id));
+      makeCardClickable(card, () => openDetail('ficha', item.id));
       root.append(card);
     });
   }
@@ -1084,14 +1391,14 @@
     return root;
   }
 
-  async function openRecord(id) {
+  async function openRecord(id, options = {}) {
     const data = await request('/api/panel/records?id=' + encodeURIComponent(id));
-    if (currentView !== 'records') return;
     updateMeta(data.meta);
     const item = data.item;
     const root = $('record-detail');
     root.replaceChildren();
-    const reload = () => openRecord(id);
+    if (options.prepend) root.append(options.prepend);
+    const reload = () => openRecord(id, options);
     const split = element('div', 'record-split');
     const left = element('div', 'record-data-column');
     const right = element('div', 'record-conversation-column');
@@ -1101,23 +1408,25 @@
     const dataBlock = element('section', 'record-block');
     dataBlock.append(element('h2', '', item.contact && item.contact.display_name || 'Contato sem nome'));
     const statusBadges = element('div', 'badges');
-    statusBadges.append(makeBadge(item.stage), makeBadge(item.enabled ? 'LIGADO' : 'DESLIGADO', item.enabled ? 'green' : 'red'), makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'));
+    statusBadges.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(item.enabled ? 'LIGADO' : 'DESLIGADO', item.enabled ? 'green' : ''), makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'));
     if (item.shortDeadline) statusBadges.append(makeBadge('prazo curto', 'yellow'));
     dataBlock.append(statusBadges);
     const definitions = element('dl', 'definition-grid');
     definition(definitions, 'Telefones', item.phones.map((phone) => phone.phone_e164 || phone.phone_raw).join(', '));
     definition(definitions, 'Ref', item.reference_code);
     definition(definitions, 'Refs da calculadora/conversa', item.refs.map((ref) => ref.ref_code).join(', '));
-    definition(definitions, 'Origem', item.source);
-    definition(definitions, 'Pagamento', item.payment_text);
-    definition(definitions, 'Prazo', item.customer_deadline_text || formatDate(item.customer_deadline_at));
+    const origin = sourceLabel(item.source);
+    if (origin) definition(definitions, 'Origem', origin);
+    definition(definitions, 'Pagamento', displayPayment(item.payment_text));
+    definition(definitions, 'Prazo', displayDeadline(item.customer_deadline_text) || formatDate(item.customer_deadline_at));
     dataBlock.append(definitions);
     const wishlist = element('section', 'wishlist-block');
     wishlist.append(element('h3', '', 'Lista de desejo'));
     const wishes = item.wishlists && item.wishlists.length ? item.wishlists : [item.wishlist || {}];
     wishes.forEach((wish, index) => {
       const wishDefinitions = element('dl', 'definition-grid');
-      definition(wishDefinitions, `Carro ${index + 1}`, [wish.make, wish.model].filter(Boolean).join(' ') || null);
+      const wishModel = displayModel(wish.model);
+      definition(wishDefinitions, `Carro ${index + 1}`, wishModel ? (String(wishModel).toLowerCase().startsWith(String(wish.make || '').toLowerCase() + ' ') ? wishModel : [wish.make, wishModel].filter(Boolean).join(' ')) : null);
       definition(wishDefinitions, 'Ano de', wish.yearMin);
       definition(wishDefinitions, 'Ano até', wish.yearMax);
       definition(wishDefinitions, 'Milhas até', wish.maxMiles ? Number(wish.maxMiles).toLocaleString('pt-BR') : null);
@@ -1127,6 +1436,10 @@
     definition(budgetDefinition, 'Teto único', formatMoney(item.budget_cents));
     wishlist.append(budgetDefinition);
     dataBlock.append(wishlist, journeySwitch(item, reload));
+    if (!options.prepend) dataBlock.append(dispositionControls({ kind: 'JOURNEY', id: item.id, journeyId: item.id }));
+    if (!options.prepend && item.calculatorRequests && item.calculatorRequests.length) {
+      item.calculatorRequests.forEach((requestItem) => dataBlock.append(simulationBlock(requestItem)));
+    }
     if (item.manheimMatchCount) {
       const matchNotice = element('button', 'manheim-notice', `${item.manheimMatchCount} carro(s) do export mais recente batem · abrir Manheim`);
       matchNotice.type = 'button';
@@ -1193,7 +1506,7 @@
     checklistBlock.append(element('h3', '', `Checklist — ${item.checklistSummary.label}`));
     item.checklist.forEach((point) => {
       const row = element('div', 'check-point' + (point.status === 'COMPLETE' ? ' complete' : ''));
-      row.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(point.status));
+      row.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(checklistStatusLabel(point.status), point.status === 'COMPLETE' ? 'green' : ''));
       point.evidence.forEach((evidence) => row.append(element('p', 'evidence', evidence.excerpt_text)));
       checklistBlock.append(row);
     });
@@ -1272,6 +1585,20 @@
 
     const conversationBlock = element('section', 'record-block');
     conversationBlock.append(element('h3', '', 'CONVERSA'));
+    const conversationChatIds = [...new Set((item.conversation || []).map((message) => message.chat_id).filter(Boolean))];
+    if (conversationChatIds.length) {
+      const senderTools = element('div', 'inline-actions');
+      conversationChatIds.forEach((chatId) => {
+        const invert = element('button', 'quiet small', conversationChatIds.length === 1 ? 'Inverter remetentes desta conversa' : 'Inverter remetentes deste chat');
+        invert.type = 'button';
+        invert.addEventListener('click', async () => {
+          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'invert_senders', journeyId: id, chatId }) });
+          await reload();
+        });
+        senderTools.append(invert);
+      });
+      conversationBlock.append(senderTools);
+    }
     const conversationControls = element('div', 'conversation-controls');
     const sortLabel = element('label', '', 'Ordenar');
     const sort = element('select');
@@ -1327,18 +1654,14 @@
     result.items.forEach((item) => {
       const button = element('button', 'search-hit');
       button.type = 'button';
-      button.append(element('span', '', `${item.name}${item.vehicleText ? ` — ${item.vehicleText}` : ''}`), makeBadge(item.matchedBy));
-      button.addEventListener('click', async () => {
+      const label = item.kind === 'ORDER'
+        ? `Ref ${item.ref}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
+        : `${item.name}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
+      button.append(element('span', '', label), makeBadge(item.matchedBy));
+      button.addEventListener('click', () => {
         root.classList.add('hidden');
-        if (item.kind === 'ORDER') {
-          orderFilter = 'Todos';
-          orderPeriod = 'all';
-          document.querySelectorAll('[data-order-filter]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderFilter === orderFilter));
-          document.querySelectorAll('[data-order-period]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderPeriod === orderPeriod));
-          await switchPanel('orders');
-          return;
-        }
-        if (item.journeyId) { await switchPanel('records'); await openRecord(item.journeyId); }
+        if (item.kind === 'ORDER') return openDetail('order', item.ref);
+        if (item.journeyId) return openDetail('ficha', item.journeyId);
       });
       root.append(button);
     });
@@ -1362,7 +1685,7 @@
     try {
       const report = await request('/api/panel/report?' + params.toString());
       $('report-text').value = report.text;
-      $('report-status').textContent = `Simulações: ${report.summary.simulations} · Leads: ${report.summary.leads} · Qualificados: ${report.summary.qualified} · Desligados: ${report.summary.closed}`;
+      $('report-status').textContent = 'Relatório gerado.';
     } catch (_) {
       $('report-status').textContent = 'Não foi possível gerar o relatório para esse período.';
     }
@@ -1434,6 +1757,33 @@
       } catch (_) { clearInterval(refreshTimer); }
     }, 120000);
   };
+  async function routeFromHash(push = false) {
+    const hash = String(location.hash || '');
+    const order = hash.match(/^#pedido\/([A-HJ-NP-Z2-9]{5})$/i);
+    if (order) {
+      const ref = decodeURIComponent(order[1]).toUpperCase();
+      await openDetail('order', ref, { push, origin: history.state && history.state.origin || detailOrigin || captureOrigin() });
+      return true;
+    }
+    const record = hash.match(/^#ficha\/([0-9a-f-]{36})$/i);
+    if (record) {
+      await openDetail('ficha', decodeURIComponent(record[1]), { push, origin: history.state && history.state.origin || detailOrigin || captureOrigin() });
+      return true;
+    }
+    return false;
+  }
+
+  async function handlePopState(event) {
+    if (!accessToken) return;
+    const state = event.state || {};
+    if (state.detail && state.kind && state.key) {
+      await openDetail(state.kind, state.key, { push: false, origin: state.origin || detailOrigin });
+      return;
+    }
+    if (await routeFromHash(false)) return;
+    await restoreOrigin(state.panelOrigin || detailOrigin || { view: currentView || 'today', scrollY: 0 });
+  }
+
   async function routeSession() {
     if (!accessToken) return show('login-view');
     try {
@@ -1441,6 +1791,8 @@
       if (session.mustChangePassword) return show('password-view');
       show('app-view');
       await switchPanel('today');
+      if (!history.state) history.replaceState({ panelOrigin: captureOrigin() }, '', location.pathname + location.search + (location.hash || ''));
+      await routeFromHash(false);
       await refreshCounters();
       startSafeRefresh();
     } catch (failure) {
@@ -1477,10 +1829,23 @@
     $('login-form').addEventListener('submit', signIn);
     $('password-form').addEventListener('submit', changePassword);
     $('logout').addEventListener('click', () => { clearInterval(refreshTimer); clearSession(); show('login-view'); });
-    document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => switchPanel(button.dataset.view)));
+    document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', async () => {
+      history.replaceState({ panelOrigin: { view: button.dataset.view, scrollY: 0, orderFilter, orderPeriod, orderLoaded: orderItems.length } }, '', location.pathname + location.search);
+      await switchPanel(button.dataset.view);
+    }));
+    $('detail-back').addEventListener('click', () => {
+      if (history.state && history.state.detail) history.back();
+      else {
+        history.replaceState({ panelOrigin: detailOrigin || { view: 'today', scrollY: 0 } }, '', location.pathname + location.search);
+        restoreOrigin().catch(() => {});
+      }
+    });
+    window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
     document.querySelectorAll('[data-order-filter]').forEach((button) => button.addEventListener('click', async () => {
       orderFilter = button.dataset.orderFilter;
+      if (orderFilter === 'Pendentes') orderPeriod = 'all';
       document.querySelectorAll('[data-order-filter]').forEach((item) => item.classList.toggle('active', item === button));
+      syncOrderControls();
       if (currentView === 'orders') await loadCurrent();
     }));
     document.querySelectorAll('[data-order-period]').forEach((button) => button.addEventListener('click', async () => {
