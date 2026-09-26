@@ -4,6 +4,8 @@ const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, standardB
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { sortItems } = require('../../panel-sort');
+const { contactIndex, decorateContact } = require('../../panel-contact');
+const { score } = require('../../panel-ready');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -20,13 +22,16 @@ module.exports = async (req, res) => {
     if (!['7', '30', '90', 'all'].includes(period)) return send(res, 400, { error: 'ORDER_PERIOD_INVALID' });
     if (exactRef && !/^[A-HJ-NP-Z2-9]{5}$/.test(exactRef)) return send(res, 400, { error: 'ORDER_REF_INVALID' });
 
-    const [calcRuns, links, dispositions, data, meta] = await Promise.all([
+    const [calcRuns, links, dispositions, data, meta, insights] = await Promise.all([
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
       operational(ctx),
-      panelMeta(ctx)
+      panelMeta(ctx),
+      allRows(ctx, 'conversation_pending_insights', { select:'journey_id,heat,summary_text,next_step_text', environment:'eq.' + ctx.environment })
     ]);
+    const contact=contactIndex({calcRuns,messages:data.messages,messageLinks:data.messages.map((message)=>({journey_id:message.journey_id,message_id:message.id}))});
+    const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
 
     const journeys = new Map(data.journeys.map((item) => [item.id, item]));
     const journeyByRef=new Map(data.journeys.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));
@@ -55,19 +60,20 @@ module.exports = async (req, res) => {
         contactName: journey && journey.contact ? journey.contact.display_name : item.contactName
       };
     });
-    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);return [{
+    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},[]);return [decorateContact({
       ...item,journeyId:linked?.id||item.journeyId,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
       lastCustomerAt: Math.max(time(item.occurredAt)||0, time(latestCustomerByJourney.get(linked?.id)?.occurred_at_utc || latestCustomerByJourney.get(linked?.id)?.occurred_at_local || latestCustomerByJourney.get(linked?.id)?.created_at)||0) || null,
       sourceLabel: 'Calculadora',
       status: item.disposition === 'TREATED' ? 'TRATADO' : item.disposition === 'DISCARDED' ? 'DESCARTADO' : item.status,
-      standardBudget: standardBudget(item.budgetCents)
-    }];});
+      standardBudget: standardBudget(item.budgetCents),score:ready.score,goodHour:ready.goodHour
+    },facts,insightByJourney.get(linked?.id))];});
 
     const dispositionByJourney = new Map(dispositions.filter((item) => item.item_kind === 'JOURNEY').map((item) => [item.item_key, item]));
-    const direct = data.journeys.filter((item) => ['WHATSAPP_DIRECT', 'SMS_DIRECT'].includes(item.source)).map((item) => {
+    const direct = data.journeys.filter((item) => ['WHATSAPP_DIRECT', 'SMS_DIRECT'].includes(item.source)).flatMap((item) => {
+      const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:(data.refs||[]).filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
       const latest = latestByJourney.get(item.id);
       const disposition = dispositionByJourney.get(item.id) || null;
-      return {
+      const complete={...item,phones:item.phones||[]};const ready=score(complete,complete,{checklist:data.checklist,promises:data.promises,messages:data.messages},[]);return [decorateContact({
         key: 'direct:' + item.id, kind: 'DIRECT', journeyId: item.id,
         sourceLabel: item.source === 'SMS_DIRECT' ? 'SMS direto' : 'WhatsApp direto',
         logicalMode: journeyLogicalMode(item), logicalModes: [journeyLogicalMode(item)],
@@ -82,8 +88,8 @@ module.exports = async (req, res) => {
         outOfStandard: !standardBudget(item.budget_cents),
         status: disposition ? (disposition.status === 'TREATED' ? 'TRATADO' : 'DESCARTADO') : latest && latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO',
         phones:item.phones||[],confirmed_total_ceiling_cents:item.confirmed_total_ceiling_cents,
-        lastCustomerAt: latestCustomerByJourney.get(item.id)?.occurred_at_utc || latestCustomerByJourney.get(item.id)?.occurred_at_local || latestCustomerByJourney.get(item.id)?.created_at || item.created_at
-      };
+        lastCustomerAt: latestCustomerByJourney.get(item.id)?.occurred_at_utc || latestCustomerByJourney.get(item.id)?.occurred_at_local || latestCustomerByJourney.get(item.id)?.created_at || item.created_at,score:ready.score,goodHour:ready.goodHour
+      },facts,insightByJourney.get(item.id))];
     });
 
     const cutoff = filter === 'Pendentes' || period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;

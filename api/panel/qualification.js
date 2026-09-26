@@ -3,13 +3,15 @@
 const { checklistSummary, shortDeadline } = require('../../panel-domain');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { sortItems } = require('../../panel-sort');
+const { contactIndex, decorateContact } = require('../../panel-contact');
+const { score } = require('../../panel-ready');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
   try {
-    const [journeys, contacts, phones, refs, messageLinks, messages, checklist, evidence, divergences, toggleStates, meta] = await Promise.all([
+    const [journeys, contacts, phones, refs, messageLinks, messages, checklist, evidence, divergences, toggleStates, meta, calcRuns, insights] = await Promise.all([
       allRows(ctx, 'journeys', {
         select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,qualified_at,closed_reason,updated_at',
         environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
@@ -18,13 +20,16 @@ module.exports = async (req, res) => {
       allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,created_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,source_kind,created_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_checklist', { select: 'id,journey_id,point_number,point_label,status,completed_at', environment: 'eq.' + ctx.environment, order: 'point_number.asc' }),
       allRows(ctx, 'checklist_evidence', { select: 'id,checklist_id,message_id,excerpt_text,created_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_divergences', { select: 'id,journey_id,field,status,operational_declaration_id,created_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment }),
-      panelMeta(ctx)
+      panelMeta(ctx),
+      allRows(ctx,'calc_runs',{select:'id,created_at,dados,is_test',order:'created_at.asc'}),
+      allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment})
     ]);
+    const contact=contactIndex({calcRuns,messages,messageLinks});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
     const evidenceByPoint = new Map();
     for (const item of evidence) {
       if (!evidenceByPoint.has(item.checklist_id)) evidenceByPoint.set(item.checklist_id, []);
@@ -33,19 +38,22 @@ module.exports = async (req, res) => {
     const contactsById = new Map(contacts.map((item) => [item.id, item]));
     const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
     const messagesById = new Map(messages.map((item) => [item.id, item]));
-    const items = journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).map((journey) => {
+    const items = journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).flatMap((journey) => {
+      const facts=contact.facts({journeyId:journey.id,ref:journey.reference_code,refs:refs.filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
       const points = checklist.filter((item) => item.journey_id === journey.id).map((point) => ({ ...point, evidence: evidenceByPoint.get(point.id) || [] }));
       const ownMessages = messageLinks.filter((link) => link.journey_id === journey.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => Date.parse(b.occurred_at_utc || b.occurred_at_local || b.created_at) - Date.parse(a.occurred_at_utc || a.occurred_at_local || a.created_at));
       const state = stateByJourney.get(journey.id);
-      return {
+      const complete={...journey,contact:contactsById.get(journey.contact_id)||null,phones:phones.filter((phone)=>phone.contact_id===journey.contact_id)};
+      const ready=score({zip:complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:complete.budget_cents},complete,{checklist,messages:ownMessages.map((message)=>({...message,journey_id:journey.id}))},[]);
+      return [decorateContact({
         ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,
         phones: phones.filter((phone) => phone.contact_id === journey.contact_id), latestMessage: ownMessages[0] || null,
         lastCustomerAt: ownMessages.find((message) => message.direction === 'CUSTOMER')?.occurred_at_utc || ownMessages.find((message) => message.direction === 'CUSTOMER')?.occurred_at_local || ownMessages.find((message) => message.direction === 'CUSTOMER')?.created_at || null,
         refs: refs.filter((item) => item.journey_id === journey.id),
         checklist: points, checklistSummary: checklistSummary(points),
         divergences: divergences.filter((item) => item.journey_id === journey.id),
-        shortDeadline: shortDeadline(journey.customer_deadline_at)
-      };
+        shortDeadline: shortDeadline(journey.customer_deadline_at),score:ready.score,goodHour:ready.goodHour
+      },facts,insightByJourney.get(journey.id))];
     });
     return send(res, 200, { environment: ctx.environment, items:sortItems(items,String(req.query?.sort||'recent'),'recent'), meta });
   } catch (_) {
