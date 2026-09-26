@@ -5,6 +5,7 @@ const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../
 const { score } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems } = require('../../panel-sort');
+const { contactIndex, decorateContact } = require('../../panel-contact');
 
 function newPromiseToday(promises, ref, zip) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -18,14 +19,16 @@ module.exports = async (req, res) => {
   if (!ctx) return;
   try {
     if (String((req.query && req.query.view) || '') === 'manheim') {
-      const [journeys, contacts, phones, refs, toggleStates, uploads, meta] = await Promise.all([
+      const [journeys, contacts, phones, refs, toggleStates, uploads, meta, messageLinks, messages] = await Promise.all([
         allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,vehicle_text,updated_at', environment: 'eq.' + ctx.environment, order: 'updated_at.desc' }),
         allRows(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: 'eq.' + ctx.environment }),
         allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current',environment:'eq.'+ctx.environment}),
         allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
         allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
         rows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,headers_json,header_map,uploaded_at', environment: 'eq.' + ctx.environment, order: 'uploaded_at.desc', limit: '1' }),
-        panelMeta(ctx)
+        panelMeta(ctx),
+        allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
+        allRows(ctx,'messages',{select:'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at',environment:'eq.'+ctx.environment})
       ]);
       const latest = uploads[0] || null;
       const matches = latest ? await allRows(ctx, 'manheim_matches', {
@@ -46,9 +49,13 @@ module.exports = async (req, res) => {
         allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
       ]);
+      const contact=contactIndex({calcRuns,messages,messageLinks});
       const journeyMap=new Map(items.map(x=>[x.id,x])),journeyByRef=new Map(items.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));refs.forEach(r=>{const j=journeyMap.get(r.journey_id);if(j)journeyByRef.set(String(r.ref_code).trim().toUpperCase(),j);});
       const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions)
-        .filter((order) => order.disposition !== 'DISCARDED'&&!excludedRefs.has(order.ref)).map(order=>{const j=journeyByRef.get(order.ref);return j?{...order,journeyId:j.id,contactName:j.contact?.display_name,phones:j.phones,confirmed_total_ceiling_cents:j.confirmed_total_ceiling_cents}:order;});
+        .filter((order) => order.disposition !== 'DISCARDED'&&!excludedRefs.has(order.ref)).flatMap(order=>{const j=journeyByRef.get(order.ref);const facts=contact.facts({ref:order.ref,journeyId:j?.id,refs:j?refs.filter((row)=>row.journey_id===j.id).map((row)=>row.ref_code):[]});return facts.entered?[j?{...order,journeyId:j.id,contactName:j.contact?.display_name,phones:j.phones,confirmed_total_ceiling_cents:j.confirmed_total_ceiling_cents,contactAt:new Date(facts.latestAt).toISOString(),contactChannel:facts.channel}: {...order,contactAt:new Date(facts.latestAt).toISOString(),contactChannel:facts.channel}]:[];});
+      const contactedItems=items.filter((item)=>contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)}).entered);
+      const itemIds=new Set(contactedItems.map((item)=>item.id)),orderRefs=new Set(orders.map((item)=>item.ref));
+      const contactedMatches=matches.filter((match)=>(match.journey_id&&itemIds.has(match.journey_id))||(match.calc_ref&&orderRefs.has(String(match.calc_ref).trim().toUpperCase())));
       const cutoff=new Date(Date.now()-60*86400000).toISOString();
       const [history,stored]=await Promise.all([
         allRows(ctx,'manheim_uploads',{select:'id,vehicle_count,uploaded_at',environment:'eq.'+ctx.environment,uploaded_at:'gte.'+cutoff}),
@@ -56,7 +63,7 @@ module.exports = async (req, res) => {
       ]);
       const storedByUpload=new Map();stored.forEach((row)=>storedByUpload.set(row.upload_id,(storedByUpload.get(row.upload_id)||0)+1));
       const historyIncomplete=history.some((upload)=>Number(upload.vehicle_count)>0&&(storedByUpload.get(upload.id)||0)<Number(upload.vehicle_count));
-      return send(res, 200, { environment: ctx.environment, items, orders, upload: latest, matches, historyIncomplete, meta });
+      return send(res, 200, { environment: ctx.environment, items:contactedItems, orders, upload: latest, matches:contactedMatches, historyIncomplete, meta });
     }
     const id = String((req.query && req.query.id) || '');
     if (!id) {
@@ -69,7 +76,7 @@ module.exports = async (req, res) => {
         allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment }),
-        allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,created_at', environment: 'eq.' + ctx.environment }),
+        allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,source_kind,created_at', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
         rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, order: 'uploaded_at.desc', limit: '1' }),
         panelMeta(ctx),
@@ -82,6 +89,8 @@ module.exports = async (req, res) => {
         allRows(ctx, 'conversation_ai_items', { select: 'journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' }),
         allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' })
       ]);
+      const contact=contactIndex({calcRuns,messages,messageLinks});
+      const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
       const [latestMatches,recentVehicles]=await Promise.all([
         uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id }) : Promise.resolve([]),
         allRows(ctx,'manheim_matches',{select:'row_fingerprint,vehicle_json',environment:'eq.'+ctx.environment,created_at:'gte.'+new Date(Date.now()-60*86400000).toISOString()})
@@ -94,7 +103,8 @@ module.exports = async (req, res) => {
       const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
       const ordersByRef = new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks)).map((order) => [order.ref, order]));
       refs.forEach((ref)=>{const own=items.find((item)=>item.id===ref.journey_id);if(own&&own.reference_code&&ordersByRef.has(String(ref.ref_code).trim().toUpperCase())&&!ordersByRef.has(String(own.reference_code).trim().toUpperCase()))ordersByRef.set(String(own.reference_code).trim().toUpperCase(),ordersByRef.get(String(ref.ref_code).trim().toUpperCase()));});
-      const listed=items.filter((item)=>contactsById.get(item.contact_id)?.is_lead!==false).map((item) => {
+      const listed=items.filter((item)=>contactsById.get(item.contact_id)?.is_lead!==false).flatMap((item) => {
+        const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
         const ownMessages = messageLinks.filter((link) => link.journey_id === item.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0) - (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0));
         const state = stateByJourney.get(item.id);
         const complete = { ...item, enabled: state ? state.enabled : item.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: latestMatches.filter((match) => match.journey_id === item.id).length, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages[0] || null,
@@ -102,7 +112,7 @@ module.exports = async (req, res) => {
         const order = [item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>ordersByRef.get(String(ref||'').trim().toUpperCase())).find(Boolean);
         const scoring = { ...complete, ...order, zip: order?.zip || complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0] || '', plate: order?.plate || 'transf', wishlists: wishlistsForJourney(complete) };
         const ready = score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, scoredVehicles);
-        return { ...complete, ...ready, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) };
+        return [decorateContact({ ...complete, ...ready, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id))];
       });return send(res, 200, { environment: ctx.environment, items:sortItems(listed,String(req.query?.sort||'ready'),'ready'), meta });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });

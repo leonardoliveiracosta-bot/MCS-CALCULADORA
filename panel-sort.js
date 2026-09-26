@@ -11,7 +11,7 @@ const name=(item)=>item.contact?.display_name||item.contactName||item.name||'';
 const reference=(item)=>item.reference_code||item.referenceCode||item.ref||'';
 function nullableCompare(left,right,direction=1){if(left===null||left==='')return right===null||right===''?0:1;if(right===null||right==='')return -1;return (left<right?-1:left>right?1:0)*direction;}
 function compare(mode,left,right){
-  if(mode==='ready')return Number(Boolean(right.wantsCar))-Number(Boolean(left.wantsCar))||Number(Boolean(right.returnedToTalk))-Number(Boolean(left.returnedToTalk))||Number(Boolean(right.promiseToday))-Number(Boolean(left.promiseToday))||Number(right.score||0)-Number(left.score||0)||stamp(right)-stamp(left);
+  if(mode==='ready'){const heat={HOT:3,WARM:2,COLD:1};return Number(Boolean(right.wantsCar))-Number(Boolean(left.wantsCar))||Number(Boolean(right.returnedToTalk))-Number(Boolean(left.returnedToTalk))||Number(Boolean(right.promiseToday))-Number(Boolean(left.promiseToday))||(heat[String(right.heat||'').toUpperCase()]||0)-(heat[String(left.heat||'').toUpperCase()]||0)||Number(right.score||0)-Number(left.score||0)||stamp(right)-stamp(left);}
   if(mode==='recent'||mode==='oldest')return (stamp(right)-stamp(left))*(mode==='recent'?1:-1);
   if(mode==='name')return nullableCompare(text(name(left)),text(name(right)));
   if(mode==='ref')return nullableCompare(text(reference(left)),text(reference(right)));

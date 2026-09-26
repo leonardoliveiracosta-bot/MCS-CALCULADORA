@@ -1,6 +1,7 @@
 'use strict';
 
 const { allRows, insert, patchRows, rows, supabase } = require('./panel-server');
+const { contactIndex } = require('./panel-contact');
 
 const THREE_DAYS = 3 * 86400000;
 const GENERAL_MAX_MESSAGES = 150;
@@ -86,25 +87,27 @@ async function callAnthropic(system,user,options={}) {
 }
 
 async function conversationGroups(ctx) {
-  const [journeys,contacts,phones,chats,links,messages,refs,toggles,insights,resolutions]=await Promise.all([
+  const [journeys,contacts,phones,chats,links,messages,refs,toggles,insights,resolutions,calcRuns]=await Promise.all([
     allRows(ctx,'journeys',{select:'id,contact_id,reference_code,status,vehicle_text,created_at,updated_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contacts',{select:'id,display_name,is_lead,location_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current',environment:'eq.'+ctx.environment}),
     allRows(ctx,'chats',{select:'id,contact_id,channel,is_group',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,occurred_at_utc,occurred_at_local,created_at',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,occurred_at_utc,occurred_at_local,source_kind,created_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment}),
     allRows(ctx,'conversation_pending_insights',{select:'journey_id,chat_id,situation,heat,summary_text,next_step_text,translation_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'conversation_pending_resolutions',{select:'journey_id,chat_id,resolved_message_id',environment:'eq.'+ctx.environment})
+    allRows(ctx,'conversation_pending_resolutions',{select:'journey_id,chat_id,resolved_message_id',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'calc_runs',{select:'id,created_at,dados,is_test',order:'created_at.asc'})
   ]);
+  const contactsIndex=contactIndex({calcRuns,messages,messageLinks:links});
   const byJourney=new Map(journeys.map((row)=>[row.id,row])),byContact=new Map(contacts.map((row)=>[row.id,row])),byChat=new Map(chats.map((row)=>[row.id,row])),byMessage=new Map(messages.map((row)=>[row.id,row])),toggleByJourney=new Map(toggles.map((row)=>[row.journey_id,row])),insightByKey=new Map(insights.map((row)=>[row.journey_id+'|'+row.chat_id,row])),resolutionByKey=new Map(resolutions.map((row)=>[row.journey_id+'|'+row.chat_id,row]));
   const grouped=new Map();
   for(const link of links){const journey=byJourney.get(link.journey_id),message=byMessage.get(link.message_id),chat=message&&byChat.get(message.chat_id);if(!journey||!message||!chat||chat.is_group||chat.channel!=='WHATSAPP')continue;const key=journey.id+'|'+chat.id;if(!grouped.has(key))grouped.set(key,{key,journey,chat,contact:byContact.get(journey.contact_id)||{},messages:[]});grouped.get(key).messages.push(message);}
   const result=[];
   for(const group of grouped.values()){
     group.messages.sort((a,b)=>at(a)-at(b)||String(a.id).localeCompare(String(b.id)));group.latest=group.messages.at(-1);if(!group.latest)continue;
-    group.phones=phones.filter((row)=>row.contact_id===group.journey.contact_id);group.phone=phoneFor(group.phones);group.ref=refFor(group.journey,refs);group.insight=insightByKey.get(group.key)||null;group.resolution=resolutionByKey.get(group.key)||null;const toggle=toggleByJourney.get(group.journey.id);group.enabled=toggle?toggle.enabled:group.journey.status!=='ENCERRADO';result.push(group);
+    group.phones=phones.filter((row)=>row.contact_id===group.journey.contact_id);group.phone=phoneFor(group.phones);group.ref=refFor(group.journey,refs);const facts=contactsIndex.facts({journeyId:group.journey.id,ref:group.ref,refs:refs.filter((row)=>row.journey_id===group.journey.id).map((row)=>row.ref_code)});if(!facts.entered)continue;group.contactFacts=facts;group.insight=insightByKey.get(group.key)||null;group.resolution=resolutionByKey.get(group.key)||null;const toggle=toggleByJourney.get(group.journey.id);group.enabled=toggle?toggle.enabled:group.journey.status!=='ENCERRADO';result.push(group);
   }
   return result;
 }
@@ -114,7 +117,7 @@ function itemFromGroup(group, now=Date.now()) {
   const resolved=Boolean(resolution&&resolution.resolved_message_id===group.latest.id);
   return {journeyId:group.journey.id,chatId:group.chat.id,contactId:group.journey.contact_id,name:group.contact.display_name||'Contato sem nome',phone:group.phone?.phone_e164||group.phone?.phone_raw||null,ref:group.ref,
     situation,heat:(group.insight&&group.insight.last_ai_message_id===group.latest.id&&situation!=='NO_RESPONSE'?heatFromAI(group.insight.heat):defaultHeat(situation,latestAt,now)),daysStalled:Math.max(0,Math.floor((now-latestAt)/86400000)),latestMessage:group.latest.body_text||'',latestDirection:group.latest.direction,latestAt:new Date(latestAt).toISOString(),
-    translation:group.insight?.last_ai_message_id===group.latest.id?group.insight.translation_text||'':'',summary:group.insight?.last_ai_message_id===group.latest.id?group.insight.summary_text||'':'',nextStep:group.insight?.last_ai_message_id===group.latest.id?group.insight.next_step_text||'':'',resolved,isLead:group.contact.is_lead!==false};
+    translation:group.insight?.last_ai_message_id===group.latest.id?group.insight.translation_text||'':'',summary:group.insight?.last_ai_message_id===group.latest.id?group.insight.summary_text||'':'',nextStep:group.insight?.last_ai_message_id===group.latest.id?group.insight.next_step_text||'':'',resolved,isLead:group.contact.is_lead!==false,contactAt:group.contactFacts?.latestAt?new Date(group.contactFacts.latestAt).toISOString():null,contactChannel:group.contactFacts?.channel||null};
 }
 function sortPending(items, mode) { return items.slice().sort((a,b)=>{if(mode==='oldest')return Date.parse(a.latestAt)-Date.parse(b.latestAt)||a.name.localeCompare(b.name);if(mode==='recent')return Date.parse(b.latestAt)-Date.parse(a.latestAt)||a.name.localeCompare(b.name);const heat={HOT:0,WARM:1,COLD:2},situation={NO_RESPONSE:0,MCS_PENDING:1,CUSTOMER_PENDING:2,IN_PROGRESS:3,CLOSED:4};return (heat[a.heat]-heat[b.heat])||(situation[a.situation]-situation[b.situation])||(Date.parse(a.latestAt)-Date.parse(b.latestAt))||a.name.localeCompare(b.name);}); }
 async function pendingSnapshot(ctx) {
