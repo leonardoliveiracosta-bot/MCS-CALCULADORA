@@ -42,7 +42,7 @@ module.exports = async (req, res) => {
         ...item,
         sourceLabel: 'Calculadora',
         status: item.link && latest ? (latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO') : item.eventStatus,
-        contactName: journey && journey.contact ? journey.contact.display_name : null
+        contactName: journey && journey.contact ? journey.contact.display_name : item.contactName
       };
     });
     const calculator = groupCalculatorByRef(calcModes, dispositions).map((item) => ({

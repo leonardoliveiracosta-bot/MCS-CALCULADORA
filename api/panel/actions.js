@@ -51,6 +51,17 @@ async function journeyContext(ctx, value) {
   return journeyExists(ctx, value);
 }
 
+async function recordMessageMenuEvent(ctx, journey, body, kind, at) {
+  const ref=String(body.ref||journey.reference_code||'').trim().toUpperCase();
+  if(!REF_RE.test(ref))return;
+  if(ref!==String(journey.reference_code||'').trim().toUpperCase()){
+    const linked=await rows(ctx,'journey_refs',{select:'journey_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,ref_code:'eq.'+ref,limit:'1'});
+    if(!linked[0])return;
+  }
+  await insert(ctx,'lead_events',{environment:ctx.environment,ref_code:ref,journey_id:journey.id,event_type:'ACTION_MESSAGE_'+kind,
+    detail_json:{messageId:body.messageId},occurred_at:at,created_by:ctx.panel.id},false);
+}
+
 async function cancelSuppressions(ctx, journeyId, at) {
   await patchRows(ctx, 'journey_alert_suppressions', {
     environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId,
@@ -252,6 +263,7 @@ async function actionMarkMessage(ctx, journey, body) {
       p_simulate_failure: false
     })
   });
+  await recordMessageMenuEvent(ctx,journey,body,'MARK_'+kind,isoNow());
   return send(ctx.res, 200, result);
 }
 
@@ -296,6 +308,7 @@ async function actionPromise(ctx, journey, body) {
     activityType: 'PROMISE_RECORDED', summary: 'Promessa registrada', metadata: { message_id: message.id, due_at: new Date(time(body.dueAt)).toISOString() },
     entityType: 'promise', entityId: created[0].id, action: 'CREATE', after: { message_id: message.id, due_at: new Date(time(body.dueAt)).toISOString(), status: 'OPEN' }
   });
+  await recordMessageMenuEvent(ctx,journey,body,'PROMISE',isoNow());
   return send(ctx.res, 201, { promiseId: created[0].id, status: 'OPEN' });
 }
 
@@ -330,6 +343,7 @@ async function actionClientOk(ctx, journey, body) {
     before: { stage: journey.stage, status: journey.status },
     after: { stage: 'QUALIFICADO', status: 'ENCERRADO', closed_reason: 'CLIENTE_DEU_OK', evidence_message_id: message.id }
   });
+  await recordMessageMenuEvent(ctx,journey,body,'CLIENT_OK',isoNow());
   return send(ctx.res, 200, { stage: 'QUALIFICADO', status: 'ENCERRADO', closedReason: 'CLIENTE_DEU_OK', openChecklistPoints: openPoints.map((item) => item.point_number) });
 }
 
@@ -672,6 +686,32 @@ async function actionManheimUpload(ctx, body) {
   return send(ctx.res, 201, result);
 }
 
+async function actionManheimArchive(ctx, body) {
+  if (!isUuid(body.uploadId) || !Array.isArray(body.vehicles) || body.vehicles.length > 100) return send(ctx.res, 400, { error: 'MANHEIM_ARCHIVE_INVALID' });
+  const upload = await rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId, limit: '1' });
+  if (!upload[0]) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
+  const at = isoNow();
+  const vehicles = body.vehicles.map((item) => {
+    const parsed = item && item.vehicle || {};
+    const fingerprint = safeText(item && item.fingerprint, 200, true);
+    if (!fingerprint || !safeText(parsed.model, 120, true) || !finiteInteger(parsed.year) || finiteInteger(parsed.miles) === null) return null;
+    return {
+      environment: ctx.environment, upload_id: upload[0].id, row_fingerprint: fingerprint,
+      vehicle_json: {
+        vin: safeText(parsed.vin, 40) || '', year: finiteInteger(parsed.year), make: safeText(parsed.make, 80) || '',
+        model: safeText(parsed.model, 120), trim: safeText(parsed.trim, 120) || '', miles: finiteInteger(parsed.miles),
+        location: safeText(parsed.location, 200) || '', locationDisplay: safeText(parsed.locationDisplay, 200) || '',
+        saleDate: safeText(parsed.saleDate, 100) || '', mmrCents: finiteInteger(parsed.mmrCents)
+      }, uploaded_at: at
+    };
+  });
+  const valid = vehicles.filter(Boolean);
+  if (valid.length) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/manheim_vehicles?on_conflict=environment,upload_id,row_fingerprint', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(valid)
+  });
+  return send(ctx.res, 200, { archived: valid.length, ignored: vehicles.length - valid.length });
+}
+
 
 async function actionDisposition(ctx, body) {
   const itemKind = String(body.itemKind || '');
@@ -723,6 +763,7 @@ module.exports = async (req, res) => {
   try {
     const body = await jsonBody(req, 2 * 1024 * 1024);
     if (body.action === 'manheim_upload') return actionManheimUpload(ctx, body);
+    if (body.action === 'manheim_archive') return actionManheimArchive(ctx, body);
     if (body.action === 'set_disposition') return actionDisposition(ctx, body);
     const journey = await journeyContext(ctx, body.journeyId);
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
