@@ -54,6 +54,14 @@ module.exports = async (req, res) => {
       return send(res, 200, { saved: true });
     }
     const journey = body.action === 'note' ? lead.record : await ensureJourney(ctx, lead);
+    if (body.action === 'ensure') return send(res, 200, { journeyId: journey.id, contactId: journey.contact_id });
+    if (body.action === 'contact_lead') {
+      if(typeof body.isLead!=='boolean')return send(res,400,{error:'CONTACT_LEAD_INVALID'});
+      const changed=await patchRows(ctx,'contacts',{environment:'eq.'+ctx.environment,id:'eq.'+journey.contact_id},{is_lead:body.isLead,lead_excluded_at:body.isLead?null:new Date().toISOString(),lead_excluded_by:body.isLead?null:ctx.panel.id,updated_at:new Date().toISOString()},true);
+      if(!changed.length)return send(res,404,{error:'CONTACT_NOT_FOUND'});
+      await actionEvent(ctx,lead,journey,body.isLead?'LEAD_RESTORED':'NOT_LEAD');
+      return send(res,200,{saved:true});
+    }
     if (body.action === 'tracking_step') {
       const step = Number(body.step);
       if (step < 1 || step > 4 || !Number.isInteger(step)) return send(res, 400, { error: 'STEP_INVALID' });

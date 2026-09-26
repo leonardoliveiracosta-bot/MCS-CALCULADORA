@@ -3,6 +3,7 @@
 const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, standardBudget, time } = require('../../panel-domain');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
+const { sortItems } = require('../../panel-sort');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -14,6 +15,7 @@ module.exports = async (req, res) => {
     const exactRef = String((req.query && req.query.ref) || '').trim().toUpperCase();
     const limit = Math.min(100, Math.max(1, Number.parseInt(req.query && req.query.limit, 10) || 30));
     const offset = Math.max(0, Number.parseInt(req.query && req.query.offset, 10) || 0);
+    const sort=String(req.query?.sort||'recent');
     if (!['Todos', 'Calculadora', 'WhatsApp direto', 'Carro', 'Valor', 'Pendentes'].includes(filter)) return send(res, 400, { error: 'ORDER_FILTER_INVALID' });
     if (!['7', '30', '90', 'all'].includes(period)) return send(res, 400, { error: 'ORDER_PERIOD_INVALID' });
     if (exactRef && !/^[A-HJ-NP-Z2-9]{5}$/.test(exactRef)) return send(res, 400, { error: 'ORDER_REF_INVALID' });
@@ -27,6 +29,8 @@ module.exports = async (req, res) => {
     ]);
 
     const journeys = new Map(data.journeys.map((item) => [item.id, item]));
+    const journeyByRef=new Map(data.journeys.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));
+    for(const ref of data.refs||[]){const journey=journeys.get(ref.journey_id);if(journey)journeyByRef.set(String(ref.ref_code).trim().toUpperCase(),journey);}
     const latestByJourney = new Map();
     for (const message of data.messages) {
       const current = latestByJourney.get(message.journey_id);
@@ -45,12 +49,12 @@ module.exports = async (req, res) => {
         contactName: journey && journey.contact ? journey.contact.display_name : item.contactName
       };
     });
-    const calculator = groupCalculatorByRef(calcModes, dispositions).map((item) => ({
-      ...item,
+    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);return [{
+      ...item,journeyId:linked?.id||item.journeyId,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
       sourceLabel: 'Calculadora',
       status: item.disposition === 'TREATED' ? 'TRATADO' : item.disposition === 'DISCARDED' ? 'DESCARTADO' : item.status,
       standardBudget: standardBudget(item.budgetCents)
-    }));
+    }];});
 
     const dispositionByJourney = new Map(dispositions.filter((item) => item.item_kind === 'JOURNEY').map((item) => [item.item_key, item]));
     const direct = data.journeys.filter((item) => ['WHATSAPP_DIRECT', 'SMS_DIRECT'].includes(item.source)).map((item) => {
@@ -69,7 +73,8 @@ module.exports = async (req, res) => {
         dispositionUpdatedAt: disposition ? disposition.updated_at : null,
         pending: !disposition,
         outOfStandard: !standardBudget(item.budget_cents),
-        status: disposition ? (disposition.status === 'TREATED' ? 'TRATADO' : 'DESCARTADO') : latest && latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO'
+        status: disposition ? (disposition.status === 'TREATED' ? 'TRATADO' : 'DESCARTADO') : latest && latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO',
+        phones:item.phones||[],confirmed_total_ceiling_cents:item.confirmed_total_ceiling_cents
       };
     });
 
@@ -86,7 +91,7 @@ module.exports = async (req, res) => {
         return true;
       }).filter((item) => cutoff === null || (time(item.occurredAt) || 0) >= cutoff);
     }
-    filtered.sort((left, right) => (time(right.occurredAt) || 0) - (time(left.occurredAt) || 0) || left.key.localeCompare(right.key));
+    filtered=sortItems(filtered,sort,'recent');
 
     const items = exactRef ? filtered.slice(0, 1) : filtered.slice(offset, offset + limit);
     const linkTargets = data.journeys.filter((item) => item.status !== 'ENCERRADO' && item.stage !== 'QUALIFICADO').map((item) => ({

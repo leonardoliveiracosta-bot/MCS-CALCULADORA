@@ -11,13 +11,14 @@ function flattenMessageLinks(links, messages) {
 }
 
 async function operational(ctx) {
-  const [journeys, contacts, phones, messageLinks, messages, checklist, promises, divergences, units, suppressions, toggleStates] = await Promise.all([
+  const [journeys, contacts, phones, refs, messageLinks, messages, checklist, promises, divergences, units, suppressions, toggleStates] = await Promise.all([
     allRows(ctx, 'journeys', {
       select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
       environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
     }),
-    allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,is_current', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'contact_phones', { select: 'id,contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'message_journeys', {
       select: 'journey_id,message_id',
       environment: 'eq.' + ctx.environment
@@ -31,11 +32,13 @@ async function operational(ctx) {
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment })
   ]);
   const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
+  const excludedJourneyIds=new Set(journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead===false).map((journey)=>journey.id));
+  const excludedRefs=[...new Set(journeys.filter((journey)=>excludedJourneyIds.has(journey.id)).flatMap((journey)=>[journey.reference_code,...refs.filter((ref)=>ref.journey_id===journey.id).map((ref)=>ref.ref_code)]).filter(Boolean).map((ref)=>String(ref).trim().toUpperCase()))];
   const toggleByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
-  return { journeys: journeys.map((journey) => {
+  return { journeys: journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).map((journey) => {
     const toggle = toggleByJourney.get(journey.id);
     return { ...journey, enabled: toggle ? toggle.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, contact: contactsById.get(journey.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === journey.contact_id) };
-  }), messages: flattenMessageLinks(messageLinks, messages), checklist, promises, divergences, units, suppressions };
+  }), refs,excludedRefs, messages: flattenMessageLinks(messageLinks, messages), checklist, promises, divergences, units, suppressions };
 }
 
 async function journeyExists(ctx, journeyId) {

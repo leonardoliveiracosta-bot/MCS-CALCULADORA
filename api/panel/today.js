@@ -5,6 +5,7 @@ const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { score } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
+const { sortItems } = require('../../panel-sort');
 
 function dueToday(promises, ref, zip, now) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -48,6 +49,7 @@ module.exports = async (req, res) => {
 
     const journeyMap = new Map(data.journeys.map((item) => [item.id, item]));
     const journeyByRef = new Map(data.journeys.filter((item) => item.reference_code).map((item) => [String(item.reference_code).trim().toUpperCase(), item]));
+    for(const link of data.refs||[]){const journey=journeyMap.get(link.journey_id);if(journey)journeyByRef.set(String(link.ref_code).trim().toUpperCase(),journey);}
     const latestByJourney = new Map();
     for (const message of data.messages) {
       const current = latestByJourney.get(message.journey_id);
@@ -65,7 +67,7 @@ module.exports = async (req, res) => {
         contactName: journey && journey.contact ? journey.contact.display_name : item.contactName
       };
     });
-    const grouped=groupCalculatorByRef(calcModes, dispositions);
+    const grouped=groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).map((item)=>{const journey=journeyByRef.get(item.ref);return journey?{...item,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones}:item;});
     const ordersByRef=new Map(grouped.map((item)=>[item.ref,item]));
     const arrival=(order)=>firstSimulation.get(order.ref)||firstCalculatorEvent.get(order.ref)||
       Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));
@@ -83,13 +85,14 @@ module.exports = async (req, res) => {
     const orderRefs = new Set(orders.map((item) => item.ref).filter(Boolean));
     const dispositionByJourney = new Map(dispositions.filter((item) => item.item_kind === 'JOURNEY').map((item) => [item.item_key, item]));
     const journeys = data.journeys
+      .filter((item) => item.closed_reason !== 'WHATSAPP_LINKED')
       .filter((item) => {const ref=String(item.reference_code||'').trim().toUpperCase();if(wanted.has(ref))return true;
         const firstOrder=ordersByRef.get(ref);const times=data.messages.filter((message)=>message.journey_id===item.id).map((message)=>time(message.occurred_at_utc||message.created_at)).filter(Boolean);
         const arrived=firstOrder||times.length?Math.min(firstOrder?arrival(firstOrder):Infinity,times.length?Math.min(...times):Infinity):
           item.source==='CALCULATOR'?0:(time(item.created_at)||0);
         return arrived>=cutoff;})
-      .filter((item) => wanted.has(String(item.reference_code||'').trim().toUpperCase()) || !dispositionByJourney.has(item.id))
-      .filter((item) => !item.reference_code || !orderRefs.has(String(item.reference_code).toUpperCase()))
+      .filter((item) => {const latest=latestByJourney.get(item.id);const returned=(item.enabled===false||item.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff;return wanted.has(String(item.reference_code||'').trim().toUpperCase())||returned||!dispositionByJourney.has(item.id);})
+      .filter((item) => {const ownRefs=[item.reference_code,...(data.refs||[]).filter(r=>r.journey_id===item.id).map(r=>r.ref_code)].filter(Boolean).map(r=>String(r).trim().toUpperCase());return !ownRefs.some(ref=>orderRefs.has(ref));})
       .map((item) => ({
         ...item,
         kind: 'JOURNEY',
@@ -105,11 +108,12 @@ module.exports = async (req, res) => {
         checklistLabel: 'ficha nova'
       }));
 
-    const items = orders.concat(journeys).map((item) => {
+    let items = orders.concat(journeys).map((item) => {
       const journey = journeyMap.get(item.journeyId || item.id) || journeyByRef.get(String(item.ref || item.referenceCode || '').trim().toUpperCase());
       const ref = String(item.ref || item.referenceCode || '').trim().toUpperCase();
       const ready = score(item, journey, { ...data, promises:data.promises.concat(leadPromises) }, vehicles, now);
-      return { ...item, ...ready, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wanted.has(ref) };
+      const latest=journey&&latestByJourney.get(journey.id);const returned=Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff);
+      return { ...item, phones:item.phones||journey?.phones||[], ...ready, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wanted.has(ref) };
     }).sort((left, right) => {
       const wants = Number(Boolean(right.wantsCar)) - Number(Boolean(left.wantsCar));
       if (wants) return wants;
@@ -125,6 +129,8 @@ module.exports = async (req, res) => {
       if (recent) return recent;
       return String(left.id).localeCompare(String(right.id));
     });
+    const requestedSort=String(req.query?.sort||'ready');
+    if(requestedSort!=='ready')items=sortItems(items,requestedSort,'ready');
 
     return send(res, 200, {
       environment: ctx.environment,
