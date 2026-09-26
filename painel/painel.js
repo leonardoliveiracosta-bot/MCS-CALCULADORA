@@ -72,7 +72,7 @@
   const SOURCE_LABELS = Object.freeze({ CALCULATOR: 'Calculadora', WHATSAPP_DIRECT: 'WhatsApp direto', SMS_DIRECT: 'SMS direto', MANUAL: 'Manual' });
   const displayPayment = (value) => PAYMENT_LABELS[String(value || '').toLowerCase()] || value || 'Não informado';
   const displayDeadline = (value) => DEADLINE_LABELS[String(value || '').toLowerCase()] || value || 'Sem prazo';
-  const displayModel = (value) => /^not sure$/i.test(String(value || '').trim()) ? '' : /^other model$/i.test(String(value || '').trim()) ? 'Outro modelo' : value;
+  const displayModel = (value) => String(value || '').replace(/\bnot sure\b/gi, '').replace(/\bother model\b/gi, 'Outro modelo').replace(/\s{2,}/g, ' ').trim();
   const checklistStatusLabel = (status) => status === 'COMPLETE' ? 'OK' : status === 'OPEN' ? 'Pendente' : status === 'NOT_APPLICABLE' ? 'Não se aplica' : status || '';
   const orderIcon = (item) => item.logicalMode === 'VALOR' || (item.logicalModes || []).every((mode) => mode === 'VALOR') ? '💰' : '🚗';
 
@@ -166,6 +166,8 @@
       const inferredName = inferredContactName(parsed.title);
       const suggestedMcs = parsed.senders.filter((name) => !MCSParser.senderLooksLikeContact(name, inferredName));
       const senderLabel = sender.closest('label');
+      sender.dataset.confirmed = suggestedMcs.length === 1 ? 'false' : 'true';
+      sender.addEventListener('change', () => { sender.dataset.confirmed = 'true'; });
       if (senderLabel) {
         const labelText = senderLabel.firstChild;
         if (labelText && labelText.nodeType === Node.TEXT_NODE) labelText.textContent = 'Você é: ';
@@ -176,6 +178,7 @@
           confirm.type = 'button';
           confirm.addEventListener('click', () => {
             sender.value = suggestedMcs[0];
+            sender.dataset.confirmed = 'true';
             confirm.textContent = 'Confirmado';
             confirm.disabled = true;
           });
@@ -222,6 +225,7 @@
           if (!dateOrder) throw new Error('Escolha DD/MM ou MM/DD.');
           if (!$('chat-type').value) throw new Error('Confirme se é conversa individual ou grupo.');
           if (!$('mcs-sender').value) throw new Error('Confirme qual remetente é a MCS.');
+          if ($('mcs-sender').dataset.confirmed === 'false') throw new Error('Confirme com um clique quem é você nesta conversa.');
           const contactName = $('import-contact').value === 'new'
             ? MCSParser.clean($('import-contact-name').value)
             : ((contacts.find((item) => item.id === $('import-contact').value) || {}).display_name || inferredContactName(parsed.title));
