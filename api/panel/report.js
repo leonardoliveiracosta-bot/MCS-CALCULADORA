@@ -1,6 +1,6 @@
 'use strict';
 
-const { consolidateCalcRuns, groupCalculatorByRef, time } = require('../../panel-domain');
+const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, time } = require('../../panel-domain');
 const { allRows, requirePanel, send } = require('../../panel-server');
 
 function newYorkBoundary(dateString, end) {
@@ -87,31 +87,43 @@ module.exports = async (req, res) => {
       summary = { enteredLast24h: items, treated, discarded, pending: Math.max(0, items - treated - discarded) };
       text = `HOJE — últimas 24h: ${items} entraram; ${treated} tratados; ${discarded} descartados; ${summary.pending} pendentes.`;
     } else if (view === 'orders') {
-      const scoped = orders.filter((item) => inside(item.occurredAt, selected));
+      const calcScoped = orders.filter((item) => inside(item.occurredAt, selected));
+      const directScoped = journeys.filter((item) => ['WHATSAPP_DIRECT','SMS_DIRECT'].includes(item.source) && inside(item.created_at, selected)).map((item) => {
+        const disposition = dispositions.find((entry) => entry.item_kind === 'JOURNEY' && entry.item_key === item.id) || null;
+        return {
+          logicalMode: journeyLogicalMode(item),
+          logicalModes: [journeyLogicalMode(item)],
+          budgetCents: item.budget_cents,
+          disposition: disposition && disposition.status || null
+        };
+      });
+      const scoped = calcScoped.concat(directScoped);
       const byValue = scoped.filter((item) => (item.logicalModes || [item.logicalMode]).includes('VALOR')).length;
       const byCar = scoped.filter((item) => (item.logicalModes || [item.logicalMode]).includes('CARRO')).length;
-      const whatsapp = scoped.filter((item) => item.contactChannel === 'WHATSAPP').length;
-      const sms = scoped.filter((item) => item.contactChannel === 'SMS').length;
+      const whatsapp = calcScoped.filter((item) => item.contactChannel === 'WHATSAPP').length;
+      const sms = calcScoped.filter((item) => item.contactChannel === 'SMS').length;
       const pending = scoped.filter((item) => !item.disposition).length;
       const budgetRanges = { 'até 10k': 0, '10–25k': 0, '25–50k': 0, '50k+': 0 };
       scoped.forEach((item) => { budgetRanges[budgetBucket(item.budgetCents)] += 1; });
       summary = { total: scoped.length, byValue, byCar, whatsappClicked: whatsapp, smsClicked: sms, pending, budgetRanges };
       text = `PEDIDOS: ${scoped.length} total; por valor ${byValue}; carro ideal ${byCar}; WhatsApp clicado ${whatsapp}; SMS clicado ${sms}; pendentes ${pending}; orçamento — até 10k: ${budgetRanges['até 10k']}, 10–25k: ${budgetRanges['10–25k']}, 25–50k: ${budgetRanges['25–50k']}, 50k+: ${budgetRanges['50k+']}.`;
     } else if (view === 'qualification' || view === 'records') {
-      const scoped = journeys.filter((item) => inside(item.created_at, selected) || inside(item.qualified_at, selected) || inside(item.closed_at, selected));
-      const qualified = scoped.filter((item) => item.stage === 'QUALIFICADO' || item.qualified_at).length;
+      const leads = journeys.filter((item) => inside(item.created_at, selected)).length;
+      const qualified = journeys.filter((item) => inside(item.qualified_at, selected)).length;
       const disabled = toggles.filter((item) => item.enabled === false && inside(item.switched_at, selected));
       const disabledByReason = {};
       disabled.forEach((item) => { const reason = item.off_reason || 'SEM MOTIVO'; disabledByReason[reason] = (disabledByReason[reason] || 0) + 1; });
-      summary = { leads: scoped.length, qualified, disabled: disabled.length, disabledByReason };
+      summary = { leads, qualified, disabled: disabled.length, disabledByReason };
       const reasons = Object.entries(disabledByReason).map(([reason, count]) => `${reason}: ${count}`).join(', ') || 'nenhum';
-      text = `${view === 'qualification' ? 'QUALIFICAÇÃO' : 'FICHAS'}: ${scoped.length} leads; ${qualified} qualificados; ${disabled.length} desligados (${reasons}).`;
+      text = `${view === 'qualification' ? 'QUALIFICAÇÃO' : 'FICHAS'}: ${leads} leads; ${qualified} qualificados; ${disabled.length} desligados (${reasons}).`;
     } else if (view === 'manheim') {
       const scoped = uploads.filter((item) => inside(item.uploaded_at, selected));
+      const uploadIds = new Set(scoped.map((item) => item.id));
+      const compatibleCars = new Set(manheimMatches.filter((item) => uploadIds.has(item.upload_id)).map((item) => item.upload_id + ':' + item.row_fingerprint)).size;
       summary = {
         csvsProcessed: scoped.reduce((sum, item) => sum + Number(item.source_file_count || 0), 0),
         uploads: scoped.length,
-        compatibleCars: scoped.reduce((sum, item) => sum + Number(item.matched_vehicle_count || 0), 0)
+        compatibleCars
       };
       text = `MANHEIM: ${summary.csvsProcessed} CSV(s) processados em ${summary.uploads} importação(ões); ${summary.compatibleCars} carro(s) compatível(is).`;
     } else {
