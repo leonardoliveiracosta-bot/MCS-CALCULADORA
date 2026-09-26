@@ -253,12 +253,12 @@ test('tab changes replace stale counts with loading and ignore older responses',
   assert.match(source, /empty\(\$\(roots\[view\]\), 'Carregando…'\)/);
 });
 
-test('FICHAS clears an old detail when the list is empty or the tab changes', () => {
+test('FICHAS occupies the list and opens a dedicated detail route', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
-  assert.match(source, /function clearRecordDetail/);
-  assert.match(source, /clearRecordDetail\(\);[\s\S]*renderLoading\(view\)/);
-  assert.match(source, /if \(!items\.length\) \{\s*clearRecordDetail\('Nenhuma ficha selecionada\.'\)/);
-  assert.match(source, /if \(currentView !== 'records'\) return/);
+  assert.match(source, /function renderRecords\(items\)/);
+  assert.match(source, /root\.replaceChildren\(\)/);
+  assert.match(source, /openDetail\('ficha', item\.id\)/);
+  assert.match(source, /history\.pushState\(\{ detail: true, kind, key, origin: detailOrigin \}/);
 });
 
 test('remember login persists a refreshable session without storing the password', () => {

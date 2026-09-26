@@ -19,6 +19,7 @@ test('attachment validation accepts PNG and rejects disguised SVG/HTML', () => {
   assert.equal(validateAttachment('bad.svg', 'image/png', png.length, png), null);
   assert.equal(validateAttachment('bad.png', 'image/svg+xml', png.length, png), null);
   assert.equal(validateAttachment('bad.html', 'image/png', png.length, png), null);
+  assert.equal(validateAttachment('ok.pdf','application/pdf',8,Buffer.from('%PDF-1.7')),'application/pdf');
 });
 
 test('storage API path preserves slashes and encodes segments', () => {
@@ -35,6 +36,7 @@ test('failed finalize removes the exact quarantine object', async () => {
   global.fetch = async (url, options = {}) => {
     if (url.endsWith('/auth/v1/user')) return response(200, { id: 'f6074aec-214c-4dc9-a50d-fdf2b749c141' });
     if (url.includes('/rest/v1/panel_users?select=')) return response(200, [{ id: '0cd6cda8-7c93-455c-af10-f8e49b1d2f8a', email: 'test@example.com', role: 'admin', active: true, must_change_password: false }]);
+    if (url.includes('/rest/v1/attachments?select=')) return response(200, []);
     if (options.method === 'DELETE' && url.includes('/storage/v1/object/mcs-panel-attachments/')) {
       deleted.push(url);
       return response(200, {});
@@ -62,6 +64,7 @@ test('tampered quarantine path is rejected and the expected path is cleaned', as
   global.fetch = async (url, options = {}) => {
     if (url.endsWith('/auth/v1/user')) return response(200, { id: 'f6074aec-214c-4dc9-a50d-fdf2b749c141' });
     if (url.includes('/rest/v1/panel_users?select=')) return response(200, [{ id: '0cd6cda8-7c93-455c-af10-f8e49b1d2f8a', email: 'test@example.com', role: 'admin', active: true, must_change_password: false }]);
+    if (url.includes('/rest/v1/attachments?select=')) return response(200, []);
     if (options.method === 'DELETE') { deleted.push(url); return response(200, {}); }
     throw new Error('unexpected fetch');
   };
@@ -89,9 +92,11 @@ test('finalize records the actual object size instead of client-declared size', 
       return { ok: true, status: 200, arrayBuffer: async () => actual.buffer.slice(actual.byteOffset, actual.byteOffset + actual.byteLength) };
     }
     if (url.endsWith('/storage/v1/object/move') && options.method === 'POST') return response(200, {});
-    if (url.endsWith('/rest/v1/attachments') && options.method === 'POST') {
+    if (url.includes('/rest/v1/attachments?select=')) return response(200, []);
+    if(url.includes('/rest/v1/contacts?select=id')||url.includes('/rest/v1/journeys?select=id'))return response(200,[{id:'ok'}]);
+    if (url.endsWith('/rest/v1/rpc/panel_attachment_finalize') && options.method === 'POST') {
       stored = JSON.parse(options.body);
-      return response(201, [{ id: stored.id }]);
+      return response(200, { attachmentId: stored.p_attachment, duplicate: false });
     }
     throw new Error('unexpected fetch');
   };
@@ -101,12 +106,33 @@ test('finalize records the actual object size instead of client-declared size', 
     body: {
       action: 'finalize', attachmentId: 'f6074aec-214c-4dc9-a50d-fdf2b749c141',
       quarantinePath: 'quarantine/preview/f6074aec-214c-4dc9-a50d-fdf2b749c141/ok.png',
-      filename: 'ok.png', mimeType: 'image/png', byteSize: 999999
+      filename: 'ok.png', mimeType: 'image/png', byteSize: 999999,
+      contactId:'f6074aec-214c-4dc9-a50d-fdf2b749c141',journeyId:'0cd6cda8-7c93-455c-af10-f8e49b1d2f8a'
     }
   }, output);
   assert.equal(output.code, 201);
-  assert.equal(stored.byte_size, actual.length);
-  assert.notEqual(stored.byte_size, 999999);
+  assert.equal(stored.p_byte_size, actual.length);
+  assert.notEqual(stored.p_byte_size, 999999);
+});
+
+test('failed attachment transaction removes the canonical storage object', async () => {
+  const deleted=[];
+  global.fetch=async(url,options={})=>{
+    if(url.endsWith('/auth/v1/user'))return response(200,{id:'f6074aec-214c-4dc9-a50d-fdf2b749c141'});
+    if(url.includes('/rest/v1/panel_users?select='))return response(200,[{id:'0cd6cda8-7c93-455c-af10-f8e49b1d2f8a',email:'test@example.com',role:'admin',active:true,must_change_password:false}]);
+    if(url.includes('/rest/v1/attachments?select='))return response(200,[]);
+    if(url.includes('/rest/v1/contacts?select=id')||url.includes('/rest/v1/journeys?select=id'))return response(200,[{id:'ok'}]);
+    if(url.includes('/storage/v1/object/mcs-panel-attachments/quarantine/')&&(!options.method||options.method==='GET'))return {ok:true,status:200,arrayBuffer:async()=>png.buffer.slice(png.byteOffset,png.byteOffset+png.byteLength)};
+    if(url.endsWith('/storage/v1/object/move')&&options.method==='POST')return response(200,{});
+    if(url.endsWith('/rest/v1/rpc/panel_attachment_finalize'))return response(500,{message:'activity log failed'});
+    if(options.method==='DELETE'){deleted.push(url);return response(200,{});}
+    throw new Error('unexpected fetch '+url);
+  };
+  const output=res();
+  await attachmentHandler({method:'POST',headers:{authorization:'Bearer user-token'},body:{action:'finalize',attachmentId:'f6074aec-214c-4dc9-a50d-fdf2b749c141',quarantinePath:'quarantine/preview/f6074aec-214c-4dc9-a50d-fdf2b749c141/ok.png',filename:'ok.png',mimeType:'image/png',contactId:'f6074aec-214c-4dc9-a50d-fdf2b749c141',journeyId:'0cd6cda8-7c93-455c-af10-f8e49b1d2f8a'}},output);
+  assert.equal(output.code,500);
+  assert.equal(deleted.length,1);
+  assert.match(deleted[0],/\/panel\/preview\/f6074aec-214c-4dc9-a50d-fdf2b749c141\/ok\.png$/);
 });
 
 function response(status, payload) {

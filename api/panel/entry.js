@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const { consolidateCalcRuns } = require('../../panel-domain');
 const { allRows, requirePanel, send, supabase, isUuid } = require('../../panel-server');
+const { normalizePhone } = require('../../panel-phone');
 
 const json = async (req) => {
   if (typeof req.body === 'object' && req.body !== null) return req.body;
@@ -84,8 +85,11 @@ async function createJob(ctx, body) {
     return send(ctx.res, 400, { error: 'IMPORT_METADATA_INVALID' });
   }
   if (chat.chatId && chat.newContactName) return send(ctx.res, 409, { error: 'EXISTING_CHAT_CANNOT_CREATE_CONTACT' });
+  const newPhone=sourceKind==='SMS_PASTE'&&!chat.contactId?normalizePhone(chat.phone):null;
+  if(sourceKind==='SMS_PASTE'&&!chat.contactId&&!newPhone)return send(ctx.res,400,{error:'PHONE_REQUIRED'});
   const contact = await ensureContact(ctx, chat, chat.channel);
   if (contact === false) return send(ctx.res, 400, { error: 'CONTACT_NOT_FOUND' });
+  if(newPhone)await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/contact_phones',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({environment:ctx.environment,contact_id:contact.id,phone_raw:chat.phone,phone_e164:newPhone,is_current:true,is_primary:true,created_at:now(),created_by:ctx.panel.id})});
   let storedChat;
   if (chat.chatId) {
     if (!isUuid(chat.chatId)) return send(ctx.res, 400, { error: 'CHAT_ID_INVALID' });
@@ -274,7 +278,7 @@ async function queue(ctx, res) {
   const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews] = await Promise.all([
     allRows(ctx, 'chats', { select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact_id', environment: 'eq.' + ctx.environment, order: 'last_seen_at.desc' }),
     supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_last_import_counts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment }) }),
-    allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, order: 'display_name.asc' }),
+    allRows(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: 'eq.' + ctx.environment, order: 'display_name.asc' }),
     allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,stage,status,created_at', environment: 'eq.' + ctx.environment, status: 'neq.ENCERRADO', stage: 'neq.QUALIFICADO', order: 'updated_at.desc' }),
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'chat_aliases', { select: 'chat_id,alias_text,alias_normalized', environment: 'eq.' + ctx.environment }),

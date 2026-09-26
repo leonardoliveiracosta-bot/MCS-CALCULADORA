@@ -3,6 +3,15 @@
 const { consolidateCalcRuns, groupCalculatorByRef, standardBudget, time } = require('../../panel-domain');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
+const { score } = require('../../panel-ready');
+const { timezoneForZip } = require('../../panel-lead');
+const { sortItems } = require('../../panel-sort');
+
+function dueToday(promises, ref, zip, now) {
+  const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
+  const today = format.format(now);
+  return promises.some((item) => String(item.ref_code).trim() === ref && item.status === 'OPEN' && format.format(new Date(item.due_at)) === today);
+}
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -11,15 +20,36 @@ module.exports = async (req, res) => {
   try {
     const now = Date.now();
     const cutoff = now - 24 * 60 * 60 * 1000;
-    const [data, calcRuns, links, dispositions, meta] = await Promise.all([
+    const [data, calcRuns, links, dispositions, meta, responses, archive, leadPromises, recentMatches] = await Promise.all([
       operational(ctx),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
-      panelMeta(ctx)
+      panelMeta(ctx),
+      allRows(ctx, 'lead_events', { select: 'ref_code,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(cutoff).toISOString() }),
+      allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() }),
+      allRows(ctx, 'lead_promises', { select: 'ref_code,journey_id,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
+      allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() })
     ]);
+    const wanted = new Set(responses.map((event) => String(event.ref_code).trim()));
+    const firstSimulation=new Map(), firstCalculatorEvent=new Map();
+    for(const run of calcRuns){
+      if(run.is_test===true)continue;
+      const data=run.dados&&typeof run.dados==='object'?run.dados:{};
+      const ref=String(data.ref||'').trim().toUpperCase(),stamp=time(data.quando||run.created_at);
+      if(!ref||!stamp)continue;
+      firstCalculatorEvent.set(ref,Math.min(firstCalculatorEvent.get(ref)||Infinity,stamp));
+      if(['simulacao','busca'].includes(String(data.evento||'').toLowerCase()))
+        firstSimulation.set(ref,Math.min(firstSimulation.get(ref)||Infinity,stamp));
+    }
+    const uniqueVehicles=new Map();
+    archive.forEach((entry)=>uniqueVehicles.set(entry.row_fingerprint,entry.vehicle_json));
+    recentMatches.forEach((entry)=>{if(entry.vehicle_json?.parsed&&!uniqueVehicles.has(entry.row_fingerprint))uniqueVehicles.set(entry.row_fingerprint,entry.vehicle_json.parsed);});
+    const vehicles=[...uniqueVehicles.values()];
 
     const journeyMap = new Map(data.journeys.map((item) => [item.id, item]));
+    const journeyByRef = new Map(data.journeys.filter((item) => item.reference_code).map((item) => [String(item.reference_code).trim().toUpperCase(), item]));
+    for(const link of data.refs||[]){const journey=journeyMap.get(link.journey_id);if(journey)journeyByRef.set(String(link.ref_code).trim().toUpperCase(),journey);}
     const latestByJourney = new Map();
     for (const message of data.messages) {
       const current = latestByJourney.get(message.journey_id);
@@ -34,11 +64,16 @@ module.exports = async (req, res) => {
       return {
         ...item,
         status: item.link && latest ? (latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO') : item.eventStatus,
-        contactName: journey && journey.contact ? journey.contact.display_name : null
+        contactName: journey && journey.contact ? journey.contact.display_name : item.contactName
       };
     });
-    const orders = groupCalculatorByRef(calcModes, dispositions)
-      .filter((item) => item.pending && (time(item.occurredAt) || 0) >= cutoff)
+    const grouped=groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).map((item)=>{const journey=journeyByRef.get(item.ref);return journey?{...item,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents}:item;});
+    const ordersByRef=new Map(grouped.map((item)=>[item.ref,item]));
+    const arrival=(order)=>firstSimulation.get(order.ref)||firstCalculatorEvent.get(order.ref)||
+      Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));
+    const returnedForRef=(ref)=>{const journey=journeyByRef.get(String(ref||'').trim().toUpperCase());const latest=journey&&latestByJourney.get(journey.id);return Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.occurred_at_local||latest.created_at)||0)>=cutoff);};
+    const orders = grouped
+      .filter((item) => wanted.has(item.ref) || returnedForRef(item.ref) || (item.pending && arrival(item)>=cutoff))
       .map((item) => ({
         ...item,
         kind: 'CALCULATOR_ORDER',
@@ -51,9 +86,15 @@ module.exports = async (req, res) => {
     const orderRefs = new Set(orders.map((item) => item.ref).filter(Boolean));
     const dispositionByJourney = new Map(dispositions.filter((item) => item.item_kind === 'JOURNEY').map((item) => [item.item_key, item]));
     const journeys = data.journeys
-      .filter((item) => (time(item.created_at) || 0) >= cutoff)
-      .filter((item) => !dispositionByJourney.has(item.id))
-      .filter((item) => !item.reference_code || !orderRefs.has(String(item.reference_code).toUpperCase()))
+      .filter((item) => item.closed_reason !== 'WHATSAPP_LINKED')
+      .filter((item) => {const ref=String(item.reference_code||'').trim().toUpperCase();if(wanted.has(ref))return true;
+        const latest=latestByJourney.get(item.id);const returned=(item.enabled===false||item.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff;if(returned)return true;
+        const firstOrder=ordersByRef.get(ref);const times=data.messages.filter((message)=>message.journey_id===item.id).map((message)=>time(message.occurred_at_utc||message.created_at)).filter(Boolean);
+        const arrived=firstOrder||times.length?Math.min(firstOrder?arrival(firstOrder):Infinity,times.length?Math.min(...times):Infinity):
+          item.source==='CALCULATOR'?0:(time(item.created_at)||0);
+        return arrived>=cutoff;})
+      .filter((item) => {const latest=latestByJourney.get(item.id);const returned=(item.enabled===false||item.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff;return wanted.has(String(item.reference_code||'').trim().toUpperCase())||returned||!dispositionByJourney.has(item.id);})
+      .filter((item) => {const ownRefs=[item.reference_code,...(data.refs||[]).filter(r=>r.journey_id===item.id).map(r=>r.ref_code)].filter(Boolean).map(r=>String(r).trim().toUpperCase());return !ownRefs.some(ref=>orderRefs.has(ref));})
       .map((item) => ({
         ...item,
         kind: 'JOURNEY',
@@ -69,7 +110,19 @@ module.exports = async (req, res) => {
         checklistLabel: 'ficha nova'
       }));
 
-    const items = orders.concat(journeys).sort((left, right) => {
+    let items = orders.concat(journeys).map((item) => {
+      const journey = journeyMap.get(item.journeyId || item.id) || journeyByRef.get(String(item.ref || item.referenceCode || '').trim().toUpperCase());
+      const ref = String(item.ref || item.referenceCode || '').trim().toUpperCase();
+      const ready = score(item, journey, { ...data, promises:data.promises.concat(leadPromises) }, vehicles, now);
+      const latest=journey&&latestByJourney.get(journey.id);const returned=Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff);
+      return { ...item, phones:item.phones||journey?.phones||[], ...ready, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wanted.has(ref) };
+    }).sort((left, right) => {
+      const wants = Number(Boolean(right.wantsCar)) - Number(Boolean(left.wantsCar));
+      if (wants) return wants;
+      const promise = Number(Boolean(right.promiseToday)) - Number(Boolean(left.promiseToday));
+      if (promise) return promise;
+      const ready = Number(right.score || 0) - Number(left.score || 0);
+      if (ready) return ready;
       const outlier = Number(Boolean(left.outOfStandard)) - Number(Boolean(right.outOfStandard));
       if (outlier) return outlier;
       const clicked = Number(Boolean(right.clickedContact)) - Number(Boolean(left.clickedContact));
@@ -78,6 +131,8 @@ module.exports = async (req, res) => {
       if (recent) return recent;
       return String(left.id).localeCompare(String(right.id));
     });
+    const requestedSort=String(req.query?.sort||'ready');
+    if(requestedSort!=='ready')items=sortItems(items,requestedSort,'ready');
 
     return send(res, 200, {
       environment: ctx.environment,

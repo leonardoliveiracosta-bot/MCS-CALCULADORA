@@ -152,8 +152,8 @@ test('UI and server wire structured wishlist, grouping, presenting, Reativar, an
   assert.match(client, /Compatíveis/);
   assert.match(client, /Reativar/);
   assert.match(client, /Apresentei ao cliente/);
-  assert.match(client, /Exportar para shortlist/);
-  assert.match(client, /matches\[0\]\.vehicle_json\.headers/);
+  assert.match(client, /Baixar PDF/);
+  assert.match(client, /const vehicle = match\.vehicle_json\.parsed/);
   assert.match(client, /Cor externa:/);
   assert.match(client, /Nota de condição:/);
   assert.match(client, /function showManheimFailure/);

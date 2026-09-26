@@ -21,6 +21,7 @@ function detectAttachment(name, declaredMime, size, head) {
   if (/\.jpe?g$/.test(lower) && declaredMime === 'image/jpeg' && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
   if (/\.png$/.test(lower) && declaredMime === 'image/png' && bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
   if (/\.webp$/.test(lower) && declaredMime === 'image/webp' && bytes.length >= 12 && bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP') return 'image/webp';
+  if (/\.pdf$/.test(lower) && declaredMime === 'application/pdf' && bytes.length >= 5 && bytes.subarray(0, 5).toString() === '%PDF-') return 'application/pdf';
   return null;
 }
 
@@ -46,6 +47,13 @@ async function handler(req, res) {
   let moved = false;
   try {
     const input = await body(req);
+    if (input.action === 'download') {
+      if (!isUuid(input.attachmentId)) return send(res, 400, { error: 'ATTACHMENT_ID_INVALID' });
+      const found = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/attachments?select=id,bucket_name,storage_path,journey_id,contact_id&id=eq.' + encodeURIComponent(input.attachmentId) + '&environment=eq.' + encodeURIComponent(ctx.environment) + '&limit=1');
+      if (!found[0]) return send(res, 404, { error: 'ATTACHMENT_NOT_FOUND' });
+      const signed = await supabase(ctx.config.url, ctx.config.secretKey, '/storage/v1/object/sign/' + found[0].bucket_name + '/' + pathForApi(found[0].storage_path), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expiresIn: 300 }) });
+      return send(res, 200, { url: ctx.config.url + '/storage/v1' + signed.signedURL, expiresIn: 300 });
+    }
     if (input.action === 'sign') {
       const detected = detectAttachment(input.filename, input.mimeType, Number(input.byteSize), input.magicBase64);
       if (!detected) return send(res, 400, { error: 'ATTACHMENT_REJECTED' });
@@ -56,10 +64,18 @@ async function handler(req, res) {
         '/storage/v1/object/upload/sign/' + BUCKET + '/' + pathForApi(quarantinePath), {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({})
         });
-      return send(res, 201, { attachmentId: id, filename, quarantinePath, uploadUrl: signed.url, token: signed.token });
+      const uploadUrl=signed.url.startsWith('http')?signed.url:ctx.config.url+'/storage/v1'+signed.url;
+      return send(res, 201, { attachmentId: id, filename, quarantinePath, uploadUrl, token: signed.token });
     }
     if (input.action !== 'finalize') return send(res, 400, { error: 'ATTACHMENT_ACTION_INVALID' });
     if (!isUuid(input.attachmentId)) return send(res, 400, { error: 'ATTACHMENT_ID_INVALID' });
+    const existing = await supabase(ctx.config.url, ctx.config.secretKey,
+      '/rest/v1/attachments?select=id,storage_path,contact_id,journey_id,original_filename&id=eq.' + encodeURIComponent(input.attachmentId) + '&environment=eq.' + encodeURIComponent(ctx.environment) + '&limit=1');
+    if (existing[0]) {
+      const sameRelation = (!input.contactId || existing[0].contact_id === input.contactId) && (!input.journeyId || existing[0].journey_id === input.journeyId);
+      if (!sameRelation || existing[0].original_filename !== safeName(input.filename)) return send(res, 409, { error: 'ATTACHMENT_ID_REUSED' });
+      return send(res, 200, { attachmentId: existing[0].id, duplicate: true });
+    }
     const filename = safeName(input.filename);
     quarantinePath = `quarantine/${ctx.environment}/${input.attachmentId}/${filename}`;
     if (String(input.quarantinePath || '') !== quarantinePath) {
@@ -76,6 +92,14 @@ async function handler(req, res) {
         return send(res, 400, { error: 'ATTACHMENT_RELATION_INVALID' });
       }
       validated[table] = value;
+    }
+    if (!validated.contacts && !validated.journeys) {
+      await removeObject(ctx, quarantinePath);
+      return send(res, 400, { error: 'ATTACHMENT_LEAD_REQUIRED' });
+    }
+    if (validated.contacts && validated.journeys) {
+      const relation = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journeys?select=id&id=eq.' + encodeURIComponent(validated.journeys) + '&contact_id=eq.' + encodeURIComponent(validated.contacts) + '&environment=eq.' + encodeURIComponent(ctx.environment) + '&limit=1');
+      if (!relation[0]) { await removeObject(ctx, quarantinePath); return send(res, 400, { error: 'ATTACHMENT_RELATION_INVALID' }); }
     }
 
     const object = await fetch(ctx.config.url + '/storage/v1/object/' + BUCKET + '/' + pathForApi(quarantinePath), {
@@ -99,18 +123,17 @@ async function handler(req, res) {
     });
     moved = true;
     const digest = crypto.createHash('sha256').update(bytes).digest('hex');
-    const stored = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/attachments', {
-      method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
+    const stored = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_attachment_finalize', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        id: input.attachmentId, environment: ctx.environment, kind: 'IMAGE', bucket_name: BUCKET,
-        storage_path: canonicalPath, original_filename: filename, mime_type: actualMime,
-        byte_size: bytes.length, sha256: digest, verified_at: new Date().toISOString(),
-        created_at: new Date().toISOString(), created_by: ctx.panel.id,
-        chat_id: validated.chats, contact_id: validated.contacts,
-        journey_id: validated.journeys, message_id: validated.messages
+        p_environment: ctx.environment, p_actor: ctx.panel.id, p_attachment: input.attachmentId,
+        p_kind: actualMime === 'application/pdf' ? 'PDF' : 'IMAGE', p_bucket: BUCKET,
+        p_storage_path: canonicalPath, p_filename: filename, p_mime: actualMime,
+        p_byte_size: bytes.length, p_sha256: digest, p_contact: validated.contacts,
+        p_chat: validated.chats, p_journey: validated.journeys, p_message: validated.messages
       })
     });
-    return send(res, 201, { attachmentId: stored[0].id });
+    return send(res, stored.duplicate ? 200 : 201, stored);
   } catch (_) {
     await removeObject(ctx, moved ? canonicalPath : quarantinePath);
     return send(res, 500, { error: 'ATTACHMENT_REQUEST_FAILED' });
