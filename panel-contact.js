@@ -20,9 +20,10 @@ function contactIndex({ calcRuns = [], messages = [], messageLinks = [] } = {}) 
   const firstWebhookAt = messages.filter((message) => message.direction === 'CUSTOMER' && message.source_kind === 'WHATSAPP_WEBHOOK')
     .reduce((minimum, message) => Math.min(minimum, at(message) || Infinity), Infinity);
   const byJourney = new Map(), byRef = new Map();
+  const messagesById = new Map(messages.map((message) => [message.id, message]));
   const add = (map, key, entry) => { if (!key || !entry.at) return; if (!map.has(key)) map.set(key, []); map.get(key).push(entry); };
   for (const link of messageLinks) {
-    const message = messages.find((item) => item.id === link.message_id);
+    const message = messagesById.get(link.message_id);
     if (message && message.direction === 'CUSTOMER') add(byJourney, link.journey_id, { at: at(message), channel: messageChannel(message), source: 'MESSAGE' });
   }
   for (const row of calcRuns) {

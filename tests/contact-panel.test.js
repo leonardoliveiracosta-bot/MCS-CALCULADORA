@@ -19,6 +19,14 @@ test('WhatsApp clicks before the first webhook inbound count permanently; later 
   assert.equal(index.facts({ref:'LATE1'}).entered,false);
   assert.equal(index.facts({journeyId:'j'}).entered,true);
 });
+test('contact index processes 20,000 linked messages in under one second',()=>{
+  const messages=Array.from({length:20000},(_,index)=>message('bulk-'+index,'WHATSAPP_WEBHOOK',new Date(1000+index).toISOString()));
+  const links=messages.map((item)=>({journey_id:'bulk-journey',message_id:item.id}));
+  const started=performance.now();
+  const index=contactIndex({messages,messageLinks:links});
+  assert.equal(index.facts({journeyId:'bulk-journey'}).entered,true);
+  assert.ok(performance.now()-started<1000);
+});
 test('latest contact chooses channel and Florida metadata uses the customer contact',()=>{
   const index=contactIndex({calcRuns:[run('ABCDE','sms',100)],messages:[message('m','WHATSAPP_WEBHOOK',new Date(200).toISOString())],messageLinks:[{journey_id:'j',message_id:'m'}]});
   const item=decorateContact({ref:'ABCDE'},index.facts({ref:'ABCDE',journeyId:'j'}));
