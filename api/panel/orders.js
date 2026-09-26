@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
       };
     });
 
-    const cutoff = period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
+    const cutoff = filter === 'Pendentes' || period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
     let filtered = calculator.concat(direct);
     if (exactRef) filtered = filtered.filter((item) => String(item.ref || item.referenceCode || '').toUpperCase() === exactRef);
     else {
