@@ -25,6 +25,7 @@ module.exports = async (req, res) => {
     const vehicles = archive.map((entry) => entry.vehicle_json);
 
     const journeyMap = new Map(data.journeys.map((item) => [item.id, item]));
+    const journeyByRef = new Map(data.journeys.filter((item) => item.reference_code).map((item) => [String(item.reference_code).trim().toUpperCase(), item]));
     const latestByJourney = new Map();
     for (const message of data.messages) {
       const current = latestByJourney.get(message.journey_id);
@@ -75,7 +76,7 @@ module.exports = async (req, res) => {
       }));
 
     const items = orders.concat(journeys).map((item) => {
-      const journey = journeyMap.get(item.journeyId || item.id);
+      const journey = journeyMap.get(item.journeyId || item.id) || journeyByRef.get(String(item.ref || item.referenceCode || '').trim().toUpperCase());
       return { ...item, ...score(item, journey, data, vehicles, now), wantsCar: wanted.has(item.ref || String(item.referenceCode).trim()) };
     }).sort((left, right) => {
       const wants = Number(Boolean(right.wantsCar)) - Number(Boolean(left.wantsCar));

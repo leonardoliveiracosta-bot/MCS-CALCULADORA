@@ -21,8 +21,10 @@ module.exports = async (req, res) => {
     if (journey && (toggle && !toggle.enabled || journey.status === 'ENCERRADO')) return send(res, 200, { closed: true });
     if (req.method === 'POST') {
       const body = await jsonBody(req, 4096);
-      const unit = journey && (await rows(ctx, 'units', { select: 'id,details_json,vehicle_text', environment: 'eq.' + SERVER_ENVIRONMENT, journey_id: 'eq.' + journey.id, id: 'eq.' + body.unitId, limit: '1' }))[0];
+      const unit = journey && (await rows(ctx, 'units', { select: 'id,details_json,vehicle_text,status', environment: 'eq.' + SERVER_ENVIRONMENT, journey_id: 'eq.' + journey.id, id: 'eq.' + body.unitId, limit: '1' }))[0];
       if (!unit || !['WANT','DECLINE'].includes(body.response)) return send(res, 400, { error: 'RESPONSE_INVALID' });
+      if (unit.status === 'ACCEPTED' || unit.status === 'DECLINED') return send(res, 200, { accepted: true });
+      if (unit.status !== 'PRESENTED' && unit.status !== 'UNDER_REVIEW') return send(res, 409, { error: 'UNIT_UNAVAILABLE' });
       const at = new Date().toISOString();
       await patchRows(ctx, 'units', { environment: 'eq.' + SERVER_ENVIRONMENT, id: 'eq.' + unit.id }, { status: body.response === 'WANT' ? 'ACCEPTED' : 'DECLINED', decline_reason: body.response === 'DECLINE' ? 'Not for me' : null, last_customer_response_at: at, updated_at: at });
       await insert(ctx, 'lead_events', { environment: SERVER_ENVIRONMENT, ref_code: track.ref_code, journey_id: journey.id, unit_id: unit.id, event_type: body.response === 'WANT' ? 'WANT_CAR' : 'NOT_FOR_ME', detail_json: { vehicle: unit.vehicle_text }, occurred_at: at }, false);

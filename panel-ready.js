@@ -24,7 +24,9 @@ function score(item, journey, data, vehicles, now=Date.now()) {
   }
   const state=calc.zipEstado(item.zip||'');
   const bid=realisticBid(journey?.budget_cents||item.budgetCents,{florida:state?state.uf==='FL':true,payment:journey?.payment_text||item.paymentText||'cash',plate:item.plate||'transf',zip:item.zip||'',stateIndex:state?String(calc.CONFIG.estados.findIndex((entry)=>entry.nome===state.nome)):''});
-  const promiseToday=Boolean(id&&data.promises.some((p)=>p.journey_id===id&&p.status==='OPEN'&&Date.parse(p.due_at)<=now+86400000));
+  const clientDate=(value)=>new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(value);
+  const today=clientDate(now);
+  const promiseToday=Boolean(id&&data.promises.some((p)=>p.journey_id===id&&p.status==='OPEN'&&clientDate(new Date(p.due_at))===today));
   const value=Math.min(100,(phone?15:0)+Math.min(30,checklist*5)+(['now','30d'].includes(deadline)?20:['3m','30–90 dias'].includes(deadline)?10:0)
     +(mmr&&bid?mmr<=bid*100?15:mmr<=bid*120?5:0:0)+(latest&&age<86400000?10:latest&&age<72*3600000?5:0)+(goodHour?10:0));
   return {score:value,goodHour,promiseToday};

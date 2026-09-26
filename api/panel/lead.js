@@ -10,7 +10,14 @@ async function delegate(req, payload) {
   return { code: response.code, data: response.data };
 }
 
-async function quick(ctx, lead, journey, type, at, dueAt) {
+function clientDateTime(value, zone) {
+  const raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(raw)) return localToUtc(raw.slice(0, 16), zone);
+  const stamp = Date.parse(raw);
+  return Number.isFinite(stamp) && /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? new Date(stamp).toISOString() : null;
+}
+
+async function quick(ctx, lead, journey, type, at, dueAt, source = 'button') {
   const types = { ANSWERED: 'CALL_ANSWERED', NO_ANSWER: 'CALL_ATTEMPT', LATER: 'CALL_ATTEMPT', IN_PERSON: 'IN_PERSON', DEPOSIT: 'CALL_ANSWERED' };
   if (!types[type]) throw new Error('QUICK_RESULT_INVALID');
   const prior = await rows(ctx, 'journeys', { select: 'stage,status,qualified_at,next_action_at,next_action_text,last_effective_contact_at', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id, limit: '1' });
@@ -25,7 +32,7 @@ async function quick(ctx, lead, journey, type, at, dueAt) {
   if (type === 'DEPOSIT') { patch.stage = 'QUALIFICADO'; patch.qualified_at = at; }
   if (dueAt) { patch.next_action_at = dueAt; patch.next_action_text = detail; patch.next_action_missing_since = null; }
   await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, patch);
-  const event = (await insert(ctx, 'lead_events', { environment: ctx.environment, ref_code: lead.ref, journey_id: journey.id, event_type: 'QUICK_' + type, detail_json: { label: detail, interactionId: interaction.id, snapshot, dueAt: dueAt || null }, occurred_at: at, created_by: ctx.panel.id }))[0];
+  const event = (await insert(ctx, 'lead_events', { environment: ctx.environment, ref_code: lead.ref, journey_id: journey.id, event_type: 'QUICK_' + type, detail_json: { label: detail, interactionId: interaction.id, snapshot, dueAt: dueAt || null, source }, occurred_at: at, created_by: ctx.panel.id }))[0];
   return event;
 }
 
@@ -35,9 +42,9 @@ async function applyItem(ctx, req, lead, journey, item) {
   const at = new Date().toISOString();
   if (type === 'call_result') {
     const duplicate = await rows(ctx, 'lead_events', { select: 'id', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + lead.ref, event_type: 'eq.QUICK_' + value, occurred_at: 'gte.' + new Date(Date.now() - 30000).toISOString(), limit: '1' });
-    const dueAt = item.dueAt || (['ANSWERED','NO_ANSWER'].includes(value)
+    const dueAt = clientDateTime(item.dueAt, lead.timezone) || (['ANSWERED','NO_ANSWER'].includes(value)
       ? addClientDays(Date.now(), lead.timezone, value === 'ANSWERED' ? 2 : 1) : null);
-    if (!duplicate.length) await quick(ctx, lead, journey, String(value), at, dueAt);
+    if (!duplicate.length) await quick(ctx, lead, journey, String(value), at, dueAt, 'annotation');
   } else if (type === 'checklist') {
     const number = Number(item.point);
     if (!Number.isInteger(number) || number < 1 || number > 6) return;
@@ -68,11 +75,11 @@ async function applyItem(ctx, req, lead, journey, item) {
     await insert(ctx, 'lead_events', { environment: ctx.environment, ref_code: lead.ref, journey_id: journey.id, event_type: 'EXTRA_PHONE', detail_json: { owner: safeText(value.owner, 100) || null, number: phone }, occurred_at: at, created_by: ctx.panel.id }, false);
   } else if (type === 'promise') {
     const text = safeText(value && value.text, 1000);
-    const date = Date.parse(value && value.at);
+    const date = Date.parse(clientDateTime(value && value.at, lead.timezone));
     if (!text || !Number.isFinite(date)) return;
     await insert(ctx, 'lead_promises', { environment: ctx.environment, ref_code: lead.ref, journey_id: journey.id, promise_text: text, due_at: new Date(date).toISOString(), created_at: at, created_by: ctx.panel.id }, false);
   } else if (type === 'return') {
-    const date = Date.parse(value && value.at);
+    const date = Date.parse(clientDateTime(value && value.at, lead.timezone));
     if (!Number.isFinite(date)) return;
     await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { next_action_at: new Date(date).toISOString(), next_action_text: safeText(value.text, 500) || 'Retorno', updated_at: at, updated_by: ctx.panel.id });
   } else if (type === 'stage') {
@@ -128,6 +135,8 @@ module.exports = async (req, res) => {
     }
     if (body.action === 'quick') {
       const type = String(body.type || '');
+      const earlier = await rows(ctx, 'lead_events', { select: 'id,detail_json', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + lead.ref, event_type: 'eq.QUICK_' + type, undone_at: 'is.null', occurred_at: 'gte.' + new Date(Date.now() - 30 * 60000).toISOString(), order: 'occurred_at.desc', limit: '10' });
+      if (earlier.some((event) => event.detail_json?.source === 'annotation')) return send(res, 200, { duplicate: true });
       const at = new Date().toISOString();
       let dueAt = null;
       if (type === 'LATER') {

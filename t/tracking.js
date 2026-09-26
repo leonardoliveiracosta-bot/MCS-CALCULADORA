@@ -8,8 +8,8 @@
       if (!response.ok) throw new Error('Unavailable');
       const data = await response.json();
       root.replaceChildren();
-      add(root, 'div', 'brand', 'MY CAR SCOUT');
       if (data.closed) { add(root, 'h1', '', 'This search is closed'); return; }
+      add(root, 'div', 'brand', 'MY CAR SCOUT');
       add(root, 'h1', '', `Hi ${data.firstName}, here’s your search`);
       add(root, 'p', 'muted', `Ref ${data.ref} · Updated ${new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date(data.updatedAt))}`);
       const steps = add(root, 'div', 'steps');

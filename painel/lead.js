@@ -17,9 +17,10 @@
   function model(wish) { const make=safeString(wish.make),name=safeString(wish.model); return name.toLowerCase().startsWith(make.toLowerCase()+' ') ? name : [make,name].filter(Boolean).join(' '); }
   function timelineRows(data) {
     const record=data.record||{};
-    const entries=[...(record.timeline||[]).map((item)=>({at:item.occurredAt,text:item.label||item.body_text||'Mensagem'})),
+    const undone=new Set((record.interactions||[]).filter((item)=>item.detail_text==='Desfeito').map((item)=>'interaction:'+item.id));
+    const entries=[...(record.timeline||[]).filter((item)=>!undone.has(item.id)).map((item)=>({at:item.occurredAt,text:item.label||item.body_text||'Mensagem'})),
       ...(data.notes||[]).map((item)=>({at:item.created_at,text:`Anotação: ${item.body_text} · ${(item.distributed_json||[]).length} item(ns) distribuído(s)`})),
-      ...(data.events||[]).map((item)=>({at:item.occurred_at,text:item.detail_json?.label||item.detail_json?.vehicle||item.event_type})),
+      ...(data.events||[]).map((item)=>({at:item.occurred_at,text:item.event_type==='EXTRA_PHONE'?`Telefone extra (${item.detail_json?.owner||'contato'}): ${item.detail_json?.number}`:item.detail_json?.label||item.detail_json?.vehicle||item.event_type})),
       ...(data.order?.simulations||[]).map((item)=>({at:item.occurredAt,text:`Simulação ${item.logicalMode==='VALOR'?'por valor':'carro ideal'} · ${item.vehicleText||'sem carro'}`}))];
     if (record.contact?.notes) entries.push({at:record.created_at,text:`Nota antiga: ${record.contact.notes}`});
     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
@@ -70,7 +71,7 @@
 
     const second=append(root,'div','lead-grid lead-three');
     const questions=section(second,5,'PERGUNTAR NA LIGAÇÃO');
-    (record.checklist||[]).filter((point)=>point.status!=='COMPLETE').forEach((point)=>append(questions,'p','',`${point.point_number}. ${point.point_label}?`));
+    data.checklist.filter((point)=>point.status!=='COMPLETE').forEach((point)=>append(questions,'p','',`${point.point_number}. ${point.point_label}?`));
     if(data.typical.some((wish)=>wish.mmrCents>data.bid*100)) append(questions,'p','',`O teto de ${cents(data.ceilingCents)} é final ou tem margem?`);
     if(!questions.querySelector('p'))append(questions,'p','muted','Checklist completo.');
     const offers=section(second,6,'O QUE OFERECER');
@@ -80,7 +81,8 @@
       button(line,'Apresentar',async()=>{await api('present',{fingerprint:car.rowFingerprint});await reload();}); });
     const context=section(second,7,'CONTEXTO RÁPIDO');
     const promises=[...(record.promises||[]),...(data.promises||[])].filter((promise)=>promise.status==='OPEN');
-    promises.forEach((promise)=>{const line=append(context,'p','',`Prometi: ${promise.promise_text}`);const days=(Date.parse(promise.due_at)-Date.now())/86400000;if(days<1)line.append(badge(days<0?'vencida':'vence hoje',days<0?'red':'yellow'));});
+    const clientDay=(value)=>new Intl.DateTimeFormat('en-CA',{timeZone:data.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+    promises.forEach((promise)=>{const line=append(context,'p','',`Prometi: ${promise.promise_text}`);const due=clientDay(promise.due_at),today=clientDay(Date.now());if(due<=today)line.append(badge(due<today?'vencida':'vence hoje',due<today?'red':'yellow'));});
     append(context,'p','',`Já apresentados: ${record.units?.length?record.units.map((unit)=>unit.vehicle_text).join(' · '):'nenhum carro'}`);
     [...(record.conversation||[])].filter((message)=>message.direction==='CUSTOMER').slice(-3).reverse().forEach((message)=>{
       const link=button(context,`↓ ${safeString(message.body_text).slice(0,120)}`,()=>document.getElementById('lead-conversation')?.scrollIntoView({behavior:'smooth'}));link.classList.add('lead-context-link'); });
@@ -110,10 +112,10 @@
     const quick=section(root,9,'RESULTADO RÁPIDO');const quickActions=append(quick,'div','lead-actions');
     function undo(event){const toast=append(document.body,'div','undo-toast');append(toast,'span','','Resultado registrado.');
       button(toast,'Desfazer',async()=>{await api('undo',{eventId:event.eventId});toast.remove();await reload();});setTimeout(()=>toast.remove(),10000);}
-    [['Atendeu','ANSWERED'],['Não atendeu','NO_ANSWER'],['Conversa presencial','IN_PERSON'],['Vai pagar o depósito','DEPOSIT']].forEach(([label,type])=>button(quickActions,label,async()=>{const event=await api('quick',{type});undo(event);await reload();}));
+    [['Atendeu','ANSWERED'],['Não atendeu','NO_ANSWER'],['Conversa presencial','IN_PERSON'],['Vai pagar o depósito','DEPOSIT']].forEach(([label,type])=>button(quickActions,label,async()=>{const event=await api('quick',{type});if(!event.duplicate)undo(event);await reload();}));
     const later=button(quickActions,'Pediu para ligar depois',()=>{laterForm.hidden=false;});
     const laterForm=append(quick,'div','lead-actions');laterForm.hidden=true;const laterDate=append(laterForm,'input');laterDate.type='datetime-local';
-    button(laterForm,'Registrar retorno',async()=>{if(!laterDate.value)return;const event=await api('quick',{type:'LATER',dueLocal:laterDate.value});undo(event);await reload();},'small');
+    button(laterForm,'Registrar retorno',async()=>{if(!laterDate.value)return;const event=await api('quick',{type:'LATER',dueLocal:laterDate.value});if(!event.duplicate)undo(event);await reload();},'small');
 
     const tracking=section(root,10,'PÁGINA DO CLIENTE','lead-highlight');
     const steps=append(tracking,'div','lead-steps');stageNames.forEach((label,index)=>button(steps,label,async()=>{
@@ -141,8 +143,8 @@
     sort.addEventListener('change',()=>{localStorage.setItem('mcs_conversation_sort',sort.value);draw();});filter.addEventListener('change',draw);draw();
 
     const history=section(finalGrid,12,'DADOS E HISTÓRICO','lead-highlight');
-    append(history,'h3','',`Checklist ${record.checklist?.filter((point)=>point.status==='COMPLETE').length||0}/6`);
-    (record.checklist||[]).forEach((point)=>{const line=append(history,'div','lead-check');button(line,`${point.point_number}. ${point.point_label} · ${point.status==='COMPLETE'?'OK':'Pendente'}`,async()=>{await api('checklist',{point:point.point_number,complete:point.status!=='COMPLETE'});await reload();});});
+    append(history,'h3','',`Checklist ${data.checklist.filter((point)=>point.status==='COMPLETE').length}/6`);
+    data.checklist.forEach((point)=>{const line=append(history,'div','lead-check');button(line,`${point.point_number}. ${point.point_label} · ${point.status==='COMPLETE'?'OK':'Pendente'}`,async()=>{await api('checklist',{point:point.point_number,complete:point.status!=='COMPLETE'});await reload();});});
     append(history,'h3','','Retornos');
     (record.returns||[]).filter((item)=>item.status==='OPEN').forEach((item)=>{const line=row(history,item.text,date(item.dueAt,data.timezone));button(line,'Concluir',async()=>{await api('manual',{panelAction:'return_update',payload:{returnKind:item.kind,returnId:item.kind==='PROMISE'?item.id:null,operation:'COMPLETE'}});await reload();});});
     if(!record.next_action_at){const form=append(history,'div','lead-actions');const task=append(form,'input');task.placeholder='Retorno manual';const due=append(form,'input');due.type='datetime-local';

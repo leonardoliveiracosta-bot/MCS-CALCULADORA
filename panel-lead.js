@@ -127,7 +127,7 @@ async function leadData(ctx, req, refInput, idInput) {
     allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, calc_ref: 'eq.' + ref, created_at: 'gte.' + cutoff })
   ]);
   const wishes = mergeWishlists(record && record.wishlists || [], order && order.wishlists || []);
-  const rawZip = order && order.zip || '';
+  const rawZip = order && order.zip || (record?.contact?.location_text || '').match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || '';
   const zip = String(rawZip).replace(/\D/g, '').slice(0, 5);
   const state = calc.zipEstado(zip);
   const timezone = timezoneForZip(zip);
@@ -160,14 +160,17 @@ async function leadData(ctx, req, refInput, idInput) {
   const goodHour = hour >= 9 && hour < 20;
   const mmr = typical[0] && typical[0].mmrCents;
   const phone = record && record.phones && record.phones.find((item) => item.is_current !== false);
-  const checklist = record && record.checklist || [];
+  const checklist = record && record.checklist || [
+    'Carro e critérios confirmados', 'Teto confirmado', 'Pagamento confirmado',
+    'Prazo confirmado', 'Aceita busca fora da Flórida', 'Entende inspeção limitada e sem devolução'
+  ].map((point_label, index) => ({ point_number: index + 1, point_label, status: 'OPEN' }));
   const deadline = record && record.customer_deadline_text || order && order.deadlineText || '';
   const activeMs = lastCustomer ? Date.now() - Date.parse(lastCustomer.occurred_at_utc || lastCustomer.created_at) : Infinity;
   const score = record && !record.enabled ? null : Math.min(100, (phone ? 15 : 0) + Math.min(30, checklist.filter((item) => item.status === 'COMPLETE').length * 5)
     + (['now','30d'].includes(deadline) ? 20 : ['3m','30–90 dias'].includes(deadline) ? 10 : 0)
     + (mmr && bid ? mmr <= bid * 100 ? 15 : mmr <= bid * 120 ? 5 : 0 : 0)
     + (activeMs < 86400000 ? 10 : activeMs < 72 * 3600000 ? 5 : 0) + (goodHour ? 10 : 0));
-  return { ref, order, record, track, notes, events, promises, wishes, zip, state, timezone, goodHour, payment, plate, florida, ceilingCents, bid, costs, typical, offers, fits, score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null };
+  return { ref, order, record, track, notes, events, promises, checklist, wishes, zip, state, timezone, goodHour, payment, plate, florida, ceilingCents, bid, costs, typical, offers, fits, score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null };
 }
 
 async function ensureJourney(ctx, lead) {
