@@ -84,3 +84,11 @@ nav[aria-label="Seções do painel"]{
   nav[aria-label="Seções do painel"]{top:126px}
   .detail-toolbar{top:188px}
 }
+
+.item-head{display:grid;grid-template-columns:minmax(0,1fr);align-items:start}
+.item-head>.badges,.item-card>.badges{width:100%;margin-top:2px;align-items:center}
+.sender-example{display:block;margin-top:6px}
+@media (max-width:820px){
+  nav[aria-label="Seções do painel"]{top:126px}
+  .detail-toolbar{top:188px}
+}
