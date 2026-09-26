@@ -334,57 +334,83 @@ async function actionClientOk(ctx, journey, body) {
 }
 
 async function actionLinkRequest(ctx, journey, body) {
-  const sid = safeText(body.calcSid, 200, true);
   const ref = String(body.calcRef || '').trim().toUpperCase();
-  const mode = String(body.logicalMode || '');
-  if (!sid || !REF_RE.test(ref) || !['CARRO', 'VALOR'].includes(mode) || body.contactId !== journey.contact_id) return send(ctx.res, 400, { error: 'CALCULATOR_LINK_INVALID' });
-  const calcRuns = await allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados', order: 'created_at.asc' });
-  const request = consolidateCalcRuns(calcRuns).find((item) => item.sid === sid && item.ref === ref && item.logicalMode === mode);
-  if (!request) return send(ctx.res, 404, { error: 'CALCULATOR_REQUEST_NOT_FOUND' });
+  if (!REF_RE.test(ref) || body.contactId !== journey.contact_id) return send(ctx.res, 400, { error: 'CALCULATOR_LINK_INVALID' });
+  const calcRuns = await allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' });
+  const requests = consolidateCalcRuns(calcRuns).filter((item) => item.ref === ref);
+  if (!requests.length) return send(ctx.res, 404, { error: 'CALCULATOR_REQUEST_NOT_FOUND' });
+
   const at = isoNow();
-  const payload = { environment: ctx.environment, calc_sid: sid, calc_ref: ref, logical_mode: mode, contact_id: journey.contact_id, journey_id: journey.id, linked_at: at, linked_by: ctx.panel.id };
-  const linked = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/calculator_request_links?on_conflict=environment,calc_sid,calc_ref,logical_mode', {
-    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(payload)
-  });
-  const existingRef = await rows(ctx, 'journey_refs', { select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, ref_code: 'eq.' + ref, calculator_sid: 'eq.' + sid, limit: '1' });
-  if (!existingRef[0]) await insert(ctx, 'journey_refs', { environment: ctx.environment, journey_id: journey.id, ref_code: ref, source_message_id: null, calculator_sid: sid, created_at: at, created_by: ctx.panel.id }, false);
-  const declarations = [
-    request.budgetCents ? { field: 'TETO', value: String(request.budgetCents), json: { cents: request.budgetCents } } : null,
-    request.vehicleText ? { field: 'VEICULO', value: request.vehicleText, json: {} } : null,
-    request.paymentText ? { field: 'PAGAMENTO', value: request.paymentText, json: {} } : null,
-    request.deadlineText ? { field: 'PRAZO', value: request.deadlineText, json: {} } : null
-  ].filter(Boolean);
-  for (const declaration of declarations) {
-    const already = await rows(ctx, 'journey_declarations', {
-      select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
-      field: 'eq.' + declaration.field, source: 'eq.CALCULATOR', calc_sid: 'eq.' + sid,
-      calc_ref: 'eq.' + ref, limit: '1'
-    });
-    if (already[0]) continue;
-    const previous = await rows(ctx, 'journey_declarations', {
-      select: 'id,value_text,value_json', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
-      field: 'eq.' + declaration.field, order: 'declared_at.desc', limit: '1'
-    });
-    const created = await insert(ctx, 'journey_declarations', {
-      environment: ctx.environment, journey_id: journey.id, field: declaration.field,
-      source: 'CALCULATOR', value_text: declaration.value, value_json: declaration.json,
-      message_id: null, calc_sid: sid, calc_ref: ref,
-      declared_at: request.occurredAt || at, created_at: at, created_by: ctx.panel.id
-    });
-    if (previous[0] && declarationKey(declaration.field, previous[0].value_text, previous[0].value_json) !== declarationKey(declaration.field, declaration.value, declaration.json)) await insert(ctx, 'journey_divergences', {
-      environment: ctx.environment, journey_id: journey.id, field: declaration.field,
-      left_declaration_id: previous[0].id, right_declaration_id: created[0].id,
-      status: 'OPEN', created_at: at
-    }, false);
+  const linkedIds = [];
+  const allWishlists = [];
+  const ordered = requests.slice().sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0));
+
+  for (const request of ordered) {
+    allWishlists.push(...(request.wishlists || (request.wishlist ? [request.wishlist] : [])));
+    const sids = Array.isArray(request.sids) && request.sids.length ? request.sids : [request.sid].filter(Boolean);
+    for (const sid of sids) {
+      const payload = {
+        environment: ctx.environment, calc_sid: sid, calc_ref: ref, logical_mode: request.logicalMode,
+        contact_id: journey.contact_id, journey_id: journey.id, linked_at: at, linked_by: ctx.panel.id
+      };
+      const linked = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/calculator_request_links?on_conflict=environment,calc_sid,calc_ref,logical_mode', {
+        method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(payload)
+      });
+      if (linked[0] && linked[0].id) linkedIds.push(linked[0].id);
+      const existingRef = await rows(ctx, 'journey_refs', {
+        select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
+        ref_code: 'eq.' + ref, calculator_sid: 'eq.' + sid, limit: '1'
+      });
+      if (!existingRef[0]) await insert(ctx, 'journey_refs', {
+        environment: ctx.environment, journey_id: journey.id, ref_code: ref, source_message_id: null,
+        calculator_sid: sid, created_at: at, created_by: ctx.panel.id
+      }, false);
+    }
+
+    const declarationSid = sids[0] || request.sid;
+    const declarations = [
+      request.budgetCents ? { field: 'TETO', value: String(request.budgetCents), json: { cents: request.budgetCents } } : null,
+      request.vehicleText ? { field: 'VEICULO', value: request.vehicleText, json: {} } : null,
+      request.paymentText ? { field: 'PAGAMENTO', value: request.paymentText, json: {} } : null,
+      request.deadlineText ? { field: 'PRAZO', value: request.deadlineText, json: {} } : null
+    ].filter(Boolean);
+
+    for (const declaration of declarations) {
+      const already = await rows(ctx, 'journey_declarations', {
+        select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
+        field: 'eq.' + declaration.field, source: 'eq.CALCULATOR', calc_sid: 'eq.' + declarationSid,
+        calc_ref: 'eq.' + ref, limit: '1'
+      });
+      if (already[0]) continue;
+      const previous = await rows(ctx, 'journey_declarations', {
+        select: 'id,value_text,value_json', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
+        field: 'eq.' + declaration.field, order: 'declared_at.desc', limit: '1'
+      });
+      const created = await insert(ctx, 'journey_declarations', {
+        environment: ctx.environment, journey_id: journey.id, field: declaration.field,
+        source: 'CALCULATOR', value_text: declaration.value, value_json: declaration.json,
+        message_id: null, calc_sid: declarationSid, calc_ref: ref,
+        declared_at: request.occurredAt || at, created_at: at, created_by: ctx.panel.id
+      });
+      if (previous[0] && declarationKey(declaration.field, previous[0].value_text, previous[0].value_json) !== declarationKey(declaration.field, declaration.value, declaration.json)) {
+        await insert(ctx, 'journey_divergences', {
+          environment: ctx.environment, journey_id: journey.id, field: declaration.field,
+          left_declaration_id: previous[0].id, right_declaration_id: created[0].id,
+          status: 'OPEN', created_at: at
+        }, false);
+      }
+    }
   }
+
+  const latest = ordered[0];
   const fill = { updated_at: at, updated_by: ctx.panel.id };
-  if (!journey.vehicle_text && request.vehicleText) fill.vehicle_text = request.vehicleText;
-  if (!journey.budget_cents && request.budgetCents) fill.budget_cents = request.budgetCents;
-  if (!journey.payment_text && request.paymentText) fill.payment_text = request.paymentText;
-  if (!journey.customer_deadline_text && request.deadlineText) fill.customer_deadline_text = request.deadlineText;
+  if (!journey.vehicle_text && latest.vehicleText) fill.vehicle_text = latest.vehicleText;
+  if (!journey.budget_cents && latest.budgetCents) fill.budget_cents = latest.budgetCents;
+  if (!journey.payment_text && latest.paymentText) fill.payment_text = latest.paymentText;
+  if (!journey.customer_deadline_text && latest.deadlineText) fill.customer_deadline_text = latest.deadlineText;
   const criteria = journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
   const existingWishlists = wishlistsForJourney({ criteria_json: criteria });
-  const mergedWishlists = mergeWishlists(existingWishlists, request.wishlists || request.wishlist);
+  const mergedWishlists = mergeWishlists(existingWishlists, allWishlists);
   if (JSON.stringify(mergedWishlists) !== JSON.stringify(existingWishlists)) {
     const { wishlist: _legacyWishlist, ...criteriaWithoutLegacy } = criteria;
     fill.criteria_json = { ...criteriaWithoutLegacy, wishlists: mergedWishlists };
@@ -392,10 +418,12 @@ async function actionLinkRequest(ctx, journey, body) {
   await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, fill);
   await recordMutation(ctx, {
     at, journeyId: journey.id, contactId: journey.contact_id,
-    activityType: 'CALCULATOR_REQUEST_LINKED', summary: 'Pedido da calculadora ligado à jornada', metadata: { calc_sid: sid, calc_ref: ref, logical_mode: mode },
-    entityType: 'calculator_request_link', entityId: linked[0].id, action: 'LINK', after: { calc_sid: sid, calc_ref: ref, logical_mode: mode, journey_id: journey.id }
+    activityType: 'CALCULATOR_REQUEST_LINKED', summary: 'Ref da calculadora ligada à jornada',
+    metadata: { calc_ref: ref, simulations: requests.length, modes: requests.map((item) => item.logicalMode) },
+    entityType: 'calculator_request_link', entityId: linkedIds[0] || journey.id, action: 'LINK_REF',
+    after: { calc_ref: ref, journey_id: journey.id, simulations: requests.length }
   });
-  return send(ctx.res, 200, { id: linked[0].id, status: 'LINKED' });
+  return send(ctx.res, 200, { ids: linkedIds, status: 'LINKED', simulations: requests.length });
 }
 
 async function actionUnit(ctx, journey, body) {
