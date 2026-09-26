@@ -119,6 +119,7 @@
           <button type="button" class="chip" data-order-filter="WhatsApp direto">WhatsApp direto</button>
           <button type="button" class="chip" data-order-filter="Carro">Carro</button>
           <button type="button" class="chip" data-order-filter="Valor">Valor</button>
+          <button type="button" class="chip" data-order-filter="Pendentes">Pendentes</button>
         </div>
         <div id="order-periods" class="filters" aria-label="Período dos pedidos">
           <span class="filter-label">Período</span>
@@ -147,10 +148,13 @@
       </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
         <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><label>Ordenar<select id="records-sort"><option value="recent">Atualização recente</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option></select></label></div>
-        <div class="records-layout">
-          <div id="records-list" class="stack" aria-live="polite"></div>
-          <article id="record-detail" class="card record-detail"><p class="muted">Escolha uma ficha.</p></article>
+        <div id="records-list" class="stack" aria-live="polite"></div>
+      </section>
+      <section id="detail-panel" class="panel-view hidden" aria-label="Detalhe">
+        <div class="detail-toolbar">
+          <button id="detail-back" class="quiet" type="button">← Voltar</button>
         </div>
+        <article id="record-detail" class="card record-detail"><p class="muted">Carregando…</p></article>
       </section>
       <dialog id="report-dialog">
         <form method="dialog" class="report-form">
