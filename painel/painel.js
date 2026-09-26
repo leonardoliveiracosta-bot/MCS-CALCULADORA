@@ -1193,7 +1193,8 @@
       const card = element('article', 'search-hit record-list-card');
       const text = identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' });
       const controls = element('div', 'record-card-controls');
-      controls.append(makeBadge(`${item.stage} · ${item.enabled === false ? 'DESLIGADO' : item.status}`));
+      const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
+      controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
       const open = element('button', 'quiet small', 'Abrir ficha');
       open.type = 'button';
       open.addEventListener('click', () => openDetail('ficha', item.id));
@@ -1300,14 +1301,14 @@
     return root;
   }
 
-  async function openRecord(id) {
+  async function openRecord(id, options = {}) {
     const data = await request('/api/panel/records?id=' + encodeURIComponent(id));
-    if (currentView !== 'records') return;
     updateMeta(data.meta);
     const item = data.item;
     const root = $('record-detail');
     root.replaceChildren();
-    const reload = () => openRecord(id);
+    if (options.prepend) root.append(options.prepend);
+    const reload = () => openRecord(id, options);
     const split = element('div', 'record-split');
     const left = element('div', 'record-data-column');
     const right = element('div', 'record-conversation-column');
@@ -1317,23 +1318,25 @@
     const dataBlock = element('section', 'record-block');
     dataBlock.append(element('h2', '', item.contact && item.contact.display_name || 'Contato sem nome'));
     const statusBadges = element('div', 'badges');
-    statusBadges.append(makeBadge(item.stage), makeBadge(item.enabled ? 'LIGADO' : 'DESLIGADO', item.enabled ? 'green' : 'red'), makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'));
+    statusBadges.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(item.enabled ? 'LIGADO' : 'DESLIGADO', item.enabled ? 'green' : ''), makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'));
     if (item.shortDeadline) statusBadges.append(makeBadge('prazo curto', 'yellow'));
     dataBlock.append(statusBadges);
     const definitions = element('dl', 'definition-grid');
     definition(definitions, 'Telefones', item.phones.map((phone) => phone.phone_e164 || phone.phone_raw).join(', '));
     definition(definitions, 'Ref', item.reference_code);
     definition(definitions, 'Refs da calculadora/conversa', item.refs.map((ref) => ref.ref_code).join(', '));
-    definition(definitions, 'Origem', item.source);
-    definition(definitions, 'Pagamento', item.payment_text);
-    definition(definitions, 'Prazo', item.customer_deadline_text || formatDate(item.customer_deadline_at));
+    const origin = sourceLabel(item.source);
+    if (origin) definition(definitions, 'Origem', origin);
+    definition(definitions, 'Pagamento', displayPayment(item.payment_text));
+    definition(definitions, 'Prazo', displayDeadline(item.customer_deadline_text) || formatDate(item.customer_deadline_at));
     dataBlock.append(definitions);
     const wishlist = element('section', 'wishlist-block');
     wishlist.append(element('h3', '', 'Lista de desejo'));
     const wishes = item.wishlists && item.wishlists.length ? item.wishlists : [item.wishlist || {}];
     wishes.forEach((wish, index) => {
       const wishDefinitions = element('dl', 'definition-grid');
-      definition(wishDefinitions, `Carro ${index + 1}`, [wish.make, wish.model].filter(Boolean).join(' ') || null);
+      const wishModel = displayModel(wish.model);
+      definition(wishDefinitions, `Carro ${index + 1}`, wishModel ? (String(wishModel).toLowerCase().startsWith(String(wish.make || '').toLowerCase() + ' ') ? wishModel : [wish.make, wishModel].filter(Boolean).join(' ')) : null);
       definition(wishDefinitions, 'Ano de', wish.yearMin);
       definition(wishDefinitions, 'Ano até', wish.yearMax);
       definition(wishDefinitions, 'Milhas até', wish.maxMiles ? Number(wish.maxMiles).toLocaleString('pt-BR') : null);
@@ -1343,6 +1346,7 @@
     definition(budgetDefinition, 'Teto único', formatMoney(item.budget_cents));
     wishlist.append(budgetDefinition);
     dataBlock.append(wishlist, journeySwitch(item, reload));
+    dataBlock.append(dispositionControls({ kind: 'JOURNEY', id: item.id, journeyId: item.id }));
     if (item.manheimMatchCount) {
       const matchNotice = element('button', 'manheim-notice', `${item.manheimMatchCount} carro(s) do export mais recente batem · abrir Manheim`);
       matchNotice.type = 'button';
@@ -1488,6 +1492,20 @@
 
     const conversationBlock = element('section', 'record-block');
     conversationBlock.append(element('h3', '', 'CONVERSA'));
+    const conversationChatIds = [...new Set((item.conversation || []).map((message) => message.chat_id).filter(Boolean))];
+    if (conversationChatIds.length) {
+      const senderTools = element('div', 'inline-actions');
+      conversationChatIds.forEach((chatId) => {
+        const invert = element('button', 'quiet small', conversationChatIds.length === 1 ? 'Inverter remetentes desta conversa' : 'Inverter remetentes deste chat');
+        invert.type = 'button';
+        invert.addEventListener('click', async () => {
+          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'invert_senders', journeyId: id, chatId }) });
+          await reload();
+        });
+        senderTools.append(invert);
+      });
+      conversationBlock.append(senderTools);
+    }
     const conversationControls = element('div', 'conversation-controls');
     const sortLabel = element('label', '', 'Ordenar');
     const sort = element('select');
