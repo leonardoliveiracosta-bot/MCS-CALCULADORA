@@ -31,6 +31,16 @@ module.exports = async (req, res) => {
       allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() })
     ]);
     const wanted = new Set(responses.map((event) => String(event.ref_code).trim()));
+    const firstSimulation=new Map(), firstCalculatorEvent=new Map();
+    for(const run of calcRuns){
+      if(run.is_test===true)continue;
+      const data=run.dados&&typeof run.dados==='object'?run.dados:{};
+      const ref=String(data.ref||'').trim().toUpperCase(),stamp=time(data.quando||run.created_at);
+      if(!ref||!stamp)continue;
+      firstCalculatorEvent.set(ref,Math.min(firstCalculatorEvent.get(ref)||Infinity,stamp));
+      if(['simulacao','busca'].includes(String(data.evento||'').toLowerCase()))
+        firstSimulation.set(ref,Math.min(firstSimulation.get(ref)||Infinity,stamp));
+    }
     const uniqueVehicles=new Map();
     archive.forEach((entry)=>uniqueVehicles.set(entry.row_fingerprint,entry.vehicle_json));
     recentMatches.forEach((entry)=>{if(entry.vehicle_json?.parsed&&!uniqueVehicles.has(entry.row_fingerprint))uniqueVehicles.set(entry.row_fingerprint,entry.vehicle_json.parsed);});
@@ -57,7 +67,8 @@ module.exports = async (req, res) => {
     });
     const grouped=groupCalculatorByRef(calcModes, dispositions);
     const ordersByRef=new Map(grouped.map((item)=>[item.ref,item]));
-    const arrival=(order)=>Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));
+    const arrival=(order)=>firstSimulation.get(order.ref)||firstCalculatorEvent.get(order.ref)||
+      Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));
     const orders = grouped
       .filter((item) => wanted.has(item.ref) || (item.pending && arrival(item)>=cutoff))
       .map((item) => ({
@@ -74,7 +85,8 @@ module.exports = async (req, res) => {
     const journeys = data.journeys
       .filter((item) => {const ref=String(item.reference_code||'').trim().toUpperCase();if(wanted.has(ref))return true;
         const firstOrder=ordersByRef.get(ref);const times=data.messages.filter((message)=>message.journey_id===item.id).map((message)=>time(message.occurred_at_utc||message.created_at)).filter(Boolean);
-        const arrived=firstOrder?arrival(firstOrder):times.length?Math.min(...times):item.source==='CALCULATOR'?0:(time(item.created_at)||0);
+        const arrived=firstOrder||times.length?Math.min(firstOrder?arrival(firstOrder):Infinity,times.length?Math.min(...times):Infinity):
+          item.source==='CALCULATOR'?0:(time(item.created_at)||0);
         return arrived>=cutoff;})
       .filter((item) => wanted.has(String(item.reference_code||'').trim().toUpperCase()) || !dispositionByJourney.has(item.id))
       .filter((item) => !item.reference_code || !orderRefs.has(String(item.reference_code).toUpperCase()))
