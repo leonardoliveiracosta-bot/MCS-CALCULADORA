@@ -1205,6 +1205,7 @@
     const head = element('div', 'item-head');
     head.append(identityHeader(journey), makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));
     card.append(head, element('p', 'muted', wishlistSummary(journey.wishlists || journey.wishlist, journey.budget_cents)));
+    const contact=contactMeta(journey);if(contact)card.append(contact);
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
@@ -1272,6 +1273,7 @@
     summary.append(makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));
     summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
     card.append(summary, element('p', 'muted', order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
+    const contact=contactMeta(order);if(contact)card.append(contact);
 
     const table = element('div', 'manheim-table');
     matches.forEach((match) => {

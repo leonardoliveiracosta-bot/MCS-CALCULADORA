@@ -50,10 +50,17 @@ module.exports = async (req, res) => {
         allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
       ]);
       const contact=contactIndex({calcRuns,messages,messageLinks});
+      const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment});
+      const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
+      const withContactHeat=(item,facts,journey)=>{
+        const target=journey||item;
+        const ready=score({...item,zip:item.zip||target.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||''},target,{messages:[]},[]);
+        return decorateContact({...item,...ready},facts,insightByJourney.get(target.id));
+      };
       const journeyMap=new Map(items.map(x=>[x.id,x])),journeyByRef=new Map(items.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));refs.forEach(r=>{const j=journeyMap.get(r.journey_id);if(j)journeyByRef.set(String(r.ref_code).trim().toUpperCase(),j);});
       const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions)
-        .filter((order) => order.disposition !== 'DISCARDED'&&!excludedRefs.has(order.ref)).flatMap(order=>{const j=journeyByRef.get(order.ref);const facts=contact.facts({ref:order.ref,journeyId:j?.id,refs:j?refs.filter((row)=>row.journey_id===j.id).map((row)=>row.ref_code):[]});return facts.entered?[j?{...order,journeyId:j.id,contactName:j.contact?.display_name,phones:j.phones,confirmed_total_ceiling_cents:j.confirmed_total_ceiling_cents,contactAt:new Date(facts.latestAt).toISOString(),contactChannel:facts.channel}: {...order,contactAt:new Date(facts.latestAt).toISOString(),contactChannel:facts.channel}]:[];});
-      const contactedItems=items.filter((item)=>contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)}).entered);
+        .filter((order) => order.disposition !== 'DISCARDED'&&!excludedRefs.has(order.ref)).flatMap(order=>{const j=journeyByRef.get(order.ref);const facts=contact.facts({ref:order.ref,journeyId:j?.id,refs:j?refs.filter((row)=>row.journey_id===j.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const complete=j?{...order,journeyId:j.id,contactName:j.contact?.display_name,phones:j.phones,confirmed_total_ceiling_cents:j.confirmed_total_ceiling_cents}:order;return [withContactHeat(complete,facts,j)];});
+      const contactedItems=items.flatMap((item)=>{const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});return facts.entered?[withContactHeat(item,facts,item)]:[];});
       const itemIds=new Set(contactedItems.map((item)=>item.id)),orderRefs=new Set(orders.map((item)=>item.ref));
       const contactedMatches=matches.filter((match)=>(match.journey_id&&itemIds.has(match.journey_id))||(match.calc_ref&&orderRefs.has(String(match.calc_ref).trim().toUpperCase())));
       const cutoff=new Date(Date.now()-60*86400000).toISOString();
