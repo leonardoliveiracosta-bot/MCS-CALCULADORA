@@ -19,15 +19,15 @@ function fixture(mcsCount,{withRef=true}={}){
   const messages=[...Array(mcsCount)].map((_,index)=>({id:`00000000-0000-4000-8000-${String(index+10).padStart(12,'0')}`,chat_id:ids.chat,direction:'MCS',body_text:'Mensagem MCS '+index,occurred_at_utc:new Date(Date.now()-(30-index)*60000).toISOString()}));
   messages.push({id:ids.customer,chat_id:ids.chat,direction:'CUSTOMER',body_text:'Prefiro Audi Q7 e pago cash',occurred_at_utc:customerAt});
   return {journeys:[{id:ids.journey,contact_id:ids.contact,reference_code:withRef?'ABC23':null,criteria_json:{wishlists:[]}}],contacts:[{id:ids.contact,display_name:'João',location_text:'ZIP 33101'}],messages,
-    links:messages.map((message)=>({journey_id:ids.journey,message_id:message.id})),refs:[],readings:[],states:[],suggestions:[],calcRuns:[]};
+    links:messages.map((message)=>({journey_id:ids.journey,message_id:message.id})),refs:[],readings:[],states:[],attempts:[],suggestions:[],calcRuns:[]};
 }
 function serverFor(data,calls){return {
   allRows:async(_ctx,table)=>({journeys:data.journeys,contacts:data.contacts,message_journeys:data.links,messages:data.messages,journey_refs:data.refs,
-    conversation_ai_readings:data.readings,conversation_ai_link_state:data.states,calc_runs:data.calcRuns,calculator_request_links:[],whatsapp_link_suggestions:data.suggestions,contact_phones:[{phone_e164:'+13055550123'}]}[table]||[]),
+    conversation_ai_readings:data.readings,conversation_ai_link_state:data.states,conversation_ai_attempt_state:data.attempts,calc_runs:data.calcRuns,calculator_request_links:[],whatsapp_link_suggestions:data.suggestions,contact_phones:[{phone_e164:'+13055550123'}]}[table]||[]),
   rows:async(_ctx,table)=>table==='conversation_ai_link_state'?data.states:table==='whatsapp_link_suggestions'?data.suggestions:table==='contact_phones'?[{phone_e164:'+13055550123'}]:[],
   insert:async(_ctx,table,payload)=>{if(table==='conversation_ai_link_state')data.states.push(payload);if(table==='whatsapp_link_suggestions'){const row={id:'66666666-6666-4666-8666-666666666666',...payload};data.suggestions.push(row);return[row];}return[];},
   patchRows:async()=>[],
-  supabase:async(_url,_key,endpoint,options)=>{calls.push(endpoint);if(endpoint.endsWith('panel_ai_reserve_call'))return {allowed:true,count:1};if(endpoint.endsWith('panel_ai_replace_reading')){const body=JSON.parse(options.body);return {readingId:'77777777-7777-4777-8777-777777777777',pending:body.p_items.length};}throw Error('unexpected '+endpoint);}
+  supabase:async(_url,_key,endpoint,options)=>{calls.push(endpoint);if(endpoint.endsWith('panel_ai_reserve_call'))return {allowed:true,count:1};if(endpoint.endsWith('panel_ai_replace_reading')){const body=JSON.parse(options.body);return {readingId:'77777777-7777-4777-8777-777777777777',pending:body.p_items.length};}if(endpoint.endsWith('panel_ai_record_attempt'))return {ok:true};throw Error('unexpected '+endpoint);}
 };}
 function loadAi(server){return loadWith('panel-ai.js',{'./panel-server':server,'./panel-domain':domain,'./panel-note':note,'./panel-lead':{timezoneForZip:()=> 'America/New_York'}});}
 
@@ -80,4 +80,27 @@ test('Anthropic failure returns IA unavailable without breaking the manual panel
   const handler=loadWith('api/panel/ai-conversations.js',{'../../panel-server':server,'../../panel-ai':{allConversationData:async()=>[{journey:{id:ids.journey},lastCustomer:{},chatId:ids.chat}],readConversation:async()=>{throw Error('AI_UNAVAILABLE');}}});
   const res=response();await handler({method:'POST',body:{action:'read',journeyId:ids.journey}},res);
   assert.equal(res.code,503);assert.equal(res.payload.message,'IA indisponível');
+});
+
+test('long conversations send only the newest 150 messages and never exceed 40,000 characters',()=>{
+  const data=fixture(400);
+  data.messages.forEach((message,index)=>{message.body_text=`${index}:`+'x'.repeat(500);});
+  const ai=loadAi(serverFor(data,[]));
+  const prompt=ai.aiContextWindow(data.messages,25000,'America/New_York');
+  assert.ok(prompt.messages.length<=150);
+  assert.ok(prompt.user.length<=40000);
+  assert.equal(prompt.messages.at(-1).text,data.messages.at(-1).body_text);
+  assert.equal(prompt.truncated,true);
+});
+
+test('automatic failures wait six hours and stop after three until a new customer message',()=>{
+  const ai=loadAi(serverFor(fixture(10),[]));
+  const now=Date.now(),group={lastCustomer:{id:ids.customer},attemptState:{last_customer_message_id:ids.customer,last_failure_at:new Date(now-5*60*60*1000).toISOString(),consecutive_failures:1}};
+  assert.equal(ai.automaticAttemptAllowed(group,now),false);
+  group.attemptState.last_failure_at=new Date(now-7*60*60*1000).toISOString();
+  assert.equal(ai.automaticAttemptAllowed(group,now),true);
+  group.attemptState.consecutive_failures=3;
+  assert.equal(ai.automaticAttemptAllowed(group,now),false);
+  group.lastCustomer={id:'nova-mensagem'};
+  assert.equal(ai.automaticAttemptAllowed(group,now),true);
 });

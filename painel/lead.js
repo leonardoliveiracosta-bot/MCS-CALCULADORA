@@ -86,7 +86,7 @@
       const want=append(summary,'p');append(want,'b','','Quer: ');want.append(document.createTextNode(aiReading.summary_json?.want||'Ainda não identificado.'));
       const money=append(summary,'p');append(money,'b','','Dinheiro: ');money.append(document.createTextNode(aiReading.summary_json?.money||'Ainda não identificado.'));
       const missing=append(summary,'p');append(missing,'b','','Falta perguntar: ');missing.append(document.createTextNode(aiReading.summary_json?.missing||'Nada indicado pela leitura.'));
-      append(summary,'div','muted',`Atualizado há ${elapsed(aiReading.created_at)} · baseado em ${aiReading.message_count} mensagens`);
+      append(summary,'div','muted',`Atualizado há ${elapsed(aiReading.created_at)} · ${aiReading.summary_json?.contextTruncated?'baseado nas últimas':'baseado em'} ${aiReading.message_count} mensagens`);
     }
     const aiSuggestion=data.ai?.suggestion;
     if(aiSuggestion){

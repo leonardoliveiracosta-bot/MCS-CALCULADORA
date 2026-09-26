@@ -48,6 +48,14 @@ begin
   if not (allowed->>'allowed')::boolean or (allowed->>'count')::integer<>100 then raise exception 'AI_LIMIT_100_FAILED'; end if;
   allowed:=public.panel_ai_reserve_call('preview');
   if (allowed->>'allowed')::boolean then raise exception 'AI_LIMIT_EXCEEDED'; end if;
+
+  perform public.panel_ai_record_attempt('preview',j,ch,m,false,'AI_UNAVAILABLE');
+  perform public.panel_ai_record_attempt('preview',j,ch,m,false,'AI_UNAVAILABLE');
+  perform public.panel_ai_record_attempt('preview',j,ch,m,false,'AI_UNAVAILABLE');
+  if (select consecutive_failures from public.conversation_ai_attempt_state where environment='preview' and journey_id=j and chat_id=ch)<>3 then raise exception 'AI_BACKOFF_FAILURE_COUNT'; end if;
+  if (select last_error from public.conversation_ai_attempt_state where environment='preview' and journey_id=j and chat_id=ch)<>'AI_UNAVAILABLE' then raise exception 'AI_BACKOFF_ERROR'; end if;
+  perform public.panel_ai_record_attempt('preview',j,ch,m,true,null);
+  if (select consecutive_failures from public.conversation_ai_attempt_state where environment='preview' and journey_id=j and chat_id=ch)<>0 then raise exception 'AI_BACKOFF_SUCCESS_NOT_RESET'; end if;
   raise notice 'OK: leituras da IA, confirmação sem Ref e limite diário';
 end $$;
 rollback;

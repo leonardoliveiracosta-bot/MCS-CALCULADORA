@@ -8,6 +8,9 @@ const { timezoneForZip } = require('./panel-lead');
 
 const AI_TYPES = new Set(['call_result','checklist','budget','payment','deadline','wishlist','phone','promise','return','stage','disable']);
 const DAY_MS = 86400000;
+const AI_CONTEXT_MAX_MESSAGES = 150;
+const AI_CONTEXT_MAX_CHARS = 40000;
+const AI_FAILURE_BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 function firstJson(text) {
   const source = String(text || '');
@@ -68,8 +71,51 @@ function stableValue(value) {
   return value;
 }
 
+function aiContextWindow(messages, maximumBid, timezone) {
+  const newest = messages.slice(-AI_CONTEXT_MAX_MESSAGES).map((message) => ({
+    sender: message.direction,
+    text: String(message.body_text || ''),
+    at: new Date(stampOf(message)).toISOString()
+  }));
+  const cut = messages.length > newest.length;
+  const payload = () => JSON.stringify({agora:new Date().toISOString(),fuso:timezone,lanceCalculadora:maximumBid||null,conversa:newest});
+  let truncated = cut;
+  while (newest.length && payload().length > AI_CONTEXT_MAX_CHARS) {
+    const excess = payload().length - AI_CONTEXT_MAX_CHARS;
+    if (newest.length > 1 && newest[0].text.length <= excess + 96) { newest.shift(); truncated = true; continue; }
+    const first = newest[0];
+    const trim = Math.min(first.text.length, Math.max(1, excess + 96));
+    first.text = first.text.slice(trim);
+    truncated = true;
+    if (!first.text && newest.length > 1) newest.shift();
+  }
+  return {messages:newest, truncated, user:payload()};
+}
+
+function automaticAttemptAllowed(group, now=Date.now()) {
+  const state = group.attemptState;
+  if (!state) return true;
+  const lastFailure = time(state.last_failure_at);
+  if (lastFailure && now - lastFailure < AI_FAILURE_BACKOFF_MS) return false;
+  return !(Number(state.consecutive_failures || 0) >= 3 && state.last_customer_message_id === group.lastCustomer?.id);
+}
+
+async function recordAttempt(ctx, group, success, errorCode=null) {
+  if (!group.lastCustomer) return null;
+  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_ai_record_attempt',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+      p_environment:ctx.environment,p_journey:group.journey.id,p_chat:group.chatId,p_customer:group.lastCustomer.id,
+      p_success:Boolean(success),p_error:success?null:String(errorCode||'AI_FAILED').slice(0,180)
+    })
+  });
+}
+
+function trackableAiFailure(error) {
+  return !['AI_DAILY_LIMIT','AI_NO_CUSTOMER_MESSAGE','AI_NOT_ELIGIBLE'].includes(String(error && error.message || error));
+}
+
 async function allConversationData(ctx) {
-  const [journeys, contacts, links, messages, refs, readings, states, calcRuns] = await Promise.all([
+  const [journeys, contacts, links, messages, refs, readings, states, attempts, calcRuns] = await Promise.all([
     allRows(ctx,'journeys',{select:'id,contact_id,reference_code,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contacts',{select:'id,display_name,location_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
@@ -77,6 +123,7 @@ async function allConversationData(ctx) {
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
     allRows(ctx,'conversation_ai_readings',{select:'id,journey_id,chat_id,last_customer_message_id,status,created_at',environment:'eq.'+ctx.environment,status:'eq.ACTIVE'}),
     allRows(ctx,'conversation_ai_link_state',{select:'journey_id,chat_id,first_customer_at,last_run_at,last_order_seen_at,retry_requested',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'conversation_ai_attempt_state',{select:'journey_id,chat_id,last_customer_message_id,last_failure_at,consecutive_failures,last_error,last_attempt_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'calc_runs',{select:'dados,is_test'})
   ]);
   const calculatorRefs=new Set(calcRuns.filter((run)=>run.is_test!==true).map((run)=>String(run.dados?.ref||'').trim().toUpperCase()).filter((ref)=>REF_RE.test(ref)));
@@ -102,6 +149,7 @@ async function allConversationData(ctx) {
     group.refs=[String(group.journey.reference_code||'').trim().toUpperCase(),...(refsByJourney.get(group.journey.id)||[])].filter((ref)=>REF_RE.test(ref)&&calculatorRefs.has(ref));
     group.reading=readings.find((reading)=>reading.journey_id===group.journey.id&&reading.chat_id===group.chatId)||null;
     group.linkState=states.find((state)=>state.journey_id===group.journey.id&&state.chat_id===group.chatId)||null;
+    group.attemptState=attempts.find((state)=>state.journey_id===group.journey.id&&state.chat_id===group.chatId)||null;
   }
   return [...groups.values()];
 }
@@ -138,12 +186,10 @@ function deterministicCandidates(group, orders) {
 }
 
 function readingPrompt(group, maximumBid) {
-  const transcript=group.messages.map((message)=>`${message.direction==='CUSTOMER'?'Cliente':'MCS'}: ${message.body_text}`).join('\n');
-  return {
-    transcript,
-    user: JSON.stringify({ agora:new Date().toISOString(),fuso:timezoneForZip((group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||''),
-      lanceCalculadora:maximumBid||null,conversa:group.messages.map((message)=>({remetente:message.direction,texto:message.body_text,data:new Date(stampOf(message)).toISOString()})) })
-  };
+  const timezone=timezoneForZip((group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'');
+  const window=aiContextWindow(group.messages,maximumBid,timezone);
+  const transcript=window.messages.map((message)=>`${message.sender==='CUSTOMER'?'Cliente':'MCS'}: ${message.text}`).join('\n');
+  return {transcript,user:window.user,messages:window.messages,messageCount:window.messages.length,truncated:window.truncated};
 }
 
 function validatedReading(parsed, transcript, lead, customerBodies) {
@@ -172,22 +218,29 @@ async function readConversation(ctx, group, options={}) {
     order=groupCalculatorByRef(consolidateCalcRuns(runs,links)).find((candidate)=>group.refs.includes(candidate.ref))||null;
   }
   const prompt=readingPrompt(group,order&&order.budgetCents?Number(order.budgetCents)/100:null);
-  const parsed=await anthropicJson(
-    'Você analisa conversas da My Car Scout. Responda SOMENTE um objeto JSON com summary {want,money,missing} e items. '+
-    'Cada item deve usar apenas estes tipos: call_result, checklist, budget, payment, deadline, wishlist, phone, promise, return, stage, disable. '+
-    'Cada item precisa de evidence copiada literalmente de uma única mensagem do Cliente e o valor precisa estar provado nessa mesma frase. Nunca use fala da MCS como evidência. '+
-    'Para budget, value é o valor total em dólares. Para checklist, point é 1 a 6 e value é OK. Não invente nada. O resumo é em português e Dinheiro diferencia o lance da calculadora do valor falado.',
-    prompt.user,options.fetchImpl
-  );
-  const zip=(group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'';
-  const lead={wishes:mergeWishlists([],group.journey.criteria_json?.wishlists||[]),timezone:timezoneForZip(zip)};
-  const validated=validatedReading(parsed,prompt.transcript,lead,group.customerMessages.map((message)=>message.body_text));
-  const stored=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_ai_replace_reading',{
-    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_journey:group.journey.id,p_chat:group.chatId,
-      p_summary:validated.summary,p_items:validated.items,p_message_count:group.messages.length,p_last_customer:group.lastCustomer.id,
-      p_last_customer_at:new Date(stampOf(group.lastCustomer)).toISOString(),p_actor:options.actor||null})
-  });
-  return {...stored,summary:validated.summary,items:validated.items};
+  try {
+    const parsed=await anthropicJson(
+      'Você analisa conversas da My Car Scout. Responda SOMENTE um objeto JSON com summary {want,money,missing} e items. '+
+      'Cada item deve usar apenas estes tipos: call_result, checklist, budget, payment, deadline, wishlist, phone, promise, return, stage, disable. '+
+      'Cada item precisa de evidence copiada literalmente de uma única mensagem do Cliente e o valor precisa estar provado nessa mesma frase. Nunca use fala da MCS como evidência. '+
+      'Para budget, value é o valor total em dólares. Para checklist, point é 1 a 6 e value é OK. Não invente nada. O resumo é em português e Dinheiro diferencia o lance da calculadora do valor falado.',
+      prompt.user,options.fetchImpl
+    );
+    const zip=(group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'';
+    const lead={wishes:mergeWishlists([],group.journey.criteria_json?.wishlists||[]),timezone:timezoneForZip(zip)};
+    const validated=validatedReading(parsed,prompt.transcript,lead,prompt.messages.filter((message)=>message.sender==='CUSTOMER').map((message)=>message.text));
+    const summary={...validated.summary,contextTruncated:prompt.truncated};
+    const stored=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_ai_replace_reading',{
+      method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_journey:group.journey.id,p_chat:group.chatId,
+        p_summary:summary,p_items:validated.items,p_message_count:prompt.messageCount,p_last_customer:group.lastCustomer.id,
+        p_last_customer_at:new Date(stampOf(group.lastCustomer)).toISOString(),p_actor:options.actor||null})
+    });
+    await recordAttempt(ctx,group,true).catch(()=>null);
+    return {...stored,summary,items:validated.items};
+  } catch(error) {
+    if (trackableAiFailure(error)) await recordAttempt(ctx,group,false,error.message).catch(()=>null);
+    throw error;
+  }
 }
 
 async function markLinkState(ctx,group,latestOrderAt,retry=false){
@@ -201,21 +254,27 @@ async function markLinkState(ctx,group,latestOrderAt,retry=false){
 async function suggestLink(ctx,group,orders,options={}){
   const candidates=deterministicCandidates(group,orders),latestOrderAt=orders.reduce((latest,order)=>Math.max(latest,time(order.occurredAt)||0),0);
   if(!candidates.length){await markLinkState(ctx,group,latestOrderAt?new Date(latestOrderAt).toISOString():null,false);return null;}
-  await reserveCall(ctx);
-  const parsed=await anthropicJson('Escolha somente entre os candidatos fornecidos o pedido mais provável para esta conversa. Responda SOMENTE JSON {"ref":"ABCDE" ou null,"reasons":["motivo curto"]}. Não invente dados.',JSON.stringify({
-    contato:group.contact.display_name,mensagens:group.customerMessages.slice(-10).map((message)=>message.body_text),candidatos:candidates.map((candidate)=>({ref:candidate.ref,nome:candidate.contactName,carro:candidate.vehicleText,valor:candidate.budgetCents?Number(candidate.budgetCents)/100:null,data:candidate.occurredAt,sinais:candidate.reasons}))
-  }),options.fetchImpl);
-  const chosen=candidates.find((candidate)=>candidate.ref===String(parsed.ref||'').trim().toUpperCase());
-  await markLinkState(ctx,group,latestOrderAt?new Date(latestOrderAt).toISOString():null,false);
-  if(!chosen)return null;
-  const phones=await rows(ctx,'contact_phones',{select:'phone_e164',environment:'eq.'+ctx.environment,contact_id:'eq.'+group.journey.contact_id,is_current:'eq.true',order:'is_primary.desc,created_at.asc',limit:'1'});
-  const motives=(Array.isArray(parsed.reasons)?parsed.reasons:chosen.reasons).map((value)=>String(value).slice(0,180)).slice(0,5).join(', ');
-  const existing=await rows(ctx,'whatsapp_link_suggestions',{select:'id',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+group.journey.id,target_ref:'eq.'+chosen.ref,limit:'1'});
-  await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,source_journey_id:'eq.'+group.journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI'},{status:'REJECTED',resolved_at:new Date().toISOString()});
-  const payload={source_chat_id:group.chatId,target_contact_id:null,target_journey_id:null,target_ref:chosen.ref,phone_e164:phones[0]?.phone_e164||'+10000000000',status:'PENDING',motives,suggestion_kind:'AI',candidate_latest_at:chosen.occurredAt,resolved_at:null,resolved_by:null};
-  if(existing[0])await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,id:'eq.'+existing[0].id},payload);
-  else await insert(ctx,'whatsapp_link_suggestions',{environment:ctx.environment,source_contact_id:group.journey.contact_id,source_journey_id:group.journey.id,...payload},false);
-  return {ref:chosen.ref,motives};
+  try {
+    await reserveCall(ctx);
+    const parsed=await anthropicJson('Escolha somente entre os candidatos fornecidos o pedido mais provável para esta conversa. Responda SOMENTE JSON {"ref":"ABCDE" ou null,"reasons":["motivo curto"]}. Não invente dados.',JSON.stringify({
+      contato:group.contact.display_name,mensagens:group.customerMessages.slice(-10).map((message)=>message.body_text),candidatos:candidates.map((candidate)=>({ref:candidate.ref,nome:candidate.contactName,carro:candidate.vehicleText,valor:candidate.budgetCents?Number(candidate.budgetCents)/100:null,data:candidate.occurredAt,sinais:candidate.reasons}))
+    }),options.fetchImpl);
+    const chosen=candidates.find((candidate)=>candidate.ref===String(parsed.ref||'').trim().toUpperCase());
+    await markLinkState(ctx,group,latestOrderAt?new Date(latestOrderAt).toISOString():null,false);
+    if(!chosen){await recordAttempt(ctx,group,true).catch(()=>null);return null;}
+    const phones=await rows(ctx,'contact_phones',{select:'phone_e164',environment:'eq.'+ctx.environment,contact_id:'eq.'+group.journey.contact_id,is_current:'eq.true',order:'is_primary.desc,created_at.asc',limit:'1'});
+    const motives=(Array.isArray(parsed.reasons)?parsed.reasons:chosen.reasons).map((value)=>String(value).slice(0,180)).slice(0,5).join(', ');
+    const existing=await rows(ctx,'whatsapp_link_suggestions',{select:'id',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+group.journey.id,target_ref:'eq.'+chosen.ref,limit:'1'});
+    await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,source_journey_id:'eq.'+group.journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI'},{status:'REJECTED',resolved_at:new Date().toISOString()});
+    const payload={source_chat_id:group.chatId,target_contact_id:null,target_journey_id:null,target_ref:chosen.ref,phone_e164:phones[0]?.phone_e164||'+10000000000',status:'PENDING',motives,suggestion_kind:'AI',candidate_latest_at:chosen.occurredAt,resolved_at:null,resolved_by:null};
+    if(existing[0])await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,id:'eq.'+existing[0].id},payload);
+    else await insert(ctx,'whatsapp_link_suggestions',{environment:ctx.environment,source_contact_id:group.journey.contact_id,source_journey_id:group.journey.id,...payload},false);
+    await recordAttempt(ctx,group,true).catch(()=>null);
+    return {ref:chosen.ref,motives};
+  } catch(error) {
+    if (trackableAiFailure(error)) await recordAttempt(ctx,group,false,error.message).catch(()=>null);
+    throw error;
+  }
 }
 
 async function runCron(ctx,options={}){
@@ -223,6 +282,7 @@ async function runCron(ctx,options={}){
   const eligible=[];
   for(const group of groups){
     if(!group.lastCustomer||stampOf(group.lastCustomer)<cutoff)continue;
+    if(!automaticAttemptAllowed(group,now))continue;
     const readingDue=group.mcsCount>=10&&stampOf(group.lastCustomer)<=now-10*60000&&group.reading?.last_customer_message_id!==group.lastCustomer.id;
     const candidates=!group.refs.length?deterministicCandidates(group,orders):[];
     const newest=candidates.reduce((latest,order)=>Math.max(latest,time(order.occurredAt)||0),0);
@@ -235,10 +295,10 @@ async function runCron(ctx,options={}){
   const output={processed:0,readings:0,suggestions:0,errors:0,limited:false};
   for(const entry of eligible.slice(0,20)){
     output.processed++;
-    try{if(entry.readingDue){await readConversation(ctx,entry.group,options);output.readings++;}}
-    catch(error){if(error.message==='AI_DAILY_LIMIT'){output.limited=true;break;}output.errors++;}
-    try{if(entry.suggestionDue&&entry.group.refs.length===0){const suggested=await suggestLink(ctx,entry.group,orders,options);if(suggested)output.suggestions++;}}
-    catch(error){if(error.message==='AI_DAILY_LIMIT'){output.limited=true;break;}output.errors++;}
+    try {
+      if(entry.readingDue){await readConversation(ctx,entry.group,options);output.readings++;}
+      if(entry.suggestionDue&&entry.group.refs.length===0){const suggested=await suggestLink(ctx,entry.group,orders,options);if(suggested)output.suggestions++;}
+    } catch(error) { if(error.message==='AI_DAILY_LIMIT'){output.limited=true;break;}output.errors++; }
   }
   return output;
 }
@@ -253,4 +313,4 @@ async function latestAiForJourney(ctx,journeyId){
   return {reading:reading?{...reading,items:items.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:suggestions[0]||null};
 }
 
-module.exports={anthropicJson,allConversationData,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};
+module.exports={AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};
