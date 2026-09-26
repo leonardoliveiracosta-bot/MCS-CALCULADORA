@@ -979,7 +979,8 @@
       const title = element('div');
       title.append(identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' }));
       const badges = element('div', 'badges');
-      badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage), makeBadge(item.enabled === false ? 'DESLIGADO' : item.status));
+      const qualificationStatus = item.enabled === false ? 'DESLIGADO' : item.status;
+      badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(qualificationStatus, qualificationStatus === 'ATIVO' ? 'green' : qualificationStatus === 'RESPONDIDO' ? 'blue' : ''));
       if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
       head.append(title, badges);
       card.append(head);
@@ -1826,13 +1827,18 @@
       await switchPanel(button.dataset.view);
     }));
     $('detail-back').addEventListener('click', () => {
-      if (location.hash && history.length > 1) history.back();
-      else restoreOrigin().catch(() => {});
+      if (history.state && history.state.detail) history.back();
+      else {
+        history.replaceState({ panelOrigin: detailOrigin || { view: 'today', scrollY: 0 } }, '', location.pathname + location.search);
+        restoreOrigin().catch(() => {});
+      }
     });
     window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
     document.querySelectorAll('[data-order-filter]').forEach((button) => button.addEventListener('click', async () => {
       orderFilter = button.dataset.orderFilter;
+      if (orderFilter === 'Pendentes') orderPeriod = 'all';
       document.querySelectorAll('[data-order-filter]').forEach((item) => item.classList.toggle('active', item === button));
+      syncOrderControls();
       if (currentView === 'orders') await loadCurrent();
     }));
     document.querySelectorAll('[data-order-period]').forEach((button) => button.addEventListener('click', async () => {
