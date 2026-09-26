@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
     };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
-    let response;
+    let response, result;
     try {
       response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', signal: controller.signal,
@@ -33,9 +33,9 @@ module.exports = async (req, res) => {
           messages: [{ role: 'user', content: JSON.stringify({ note, current, now: new Date().toISOString() }) }]
         })
       });
+      if (!response.ok) return send(res, 503, { error: 'DISTRIBUTION_UNAVAILABLE' });
+      result = await response.json();
     } finally { clearTimeout(timer); }
-    if (!response.ok) return send(res, 503, { error: 'DISTRIBUTION_UNAVAILABLE' });
-    const result = await response.json();
     const raw = (result.content || []).filter((item) => item.type === 'text').map((item) => item.text).join('');
     const parsed = JSON.parse(raw);
     const items = validItems(note, parsed.items);

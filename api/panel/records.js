@@ -3,6 +3,13 @@
 const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, groupCalculatorByRef, journeyEnabled, reactivationEligible, shortDeadline, time, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
 const { score } = require('../../panel-ready');
+const { timezoneForZip } = require('../../panel-lead');
+
+function newPromiseToday(promises, ref, zip) {
+  const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
+  const today = format.format(new Date());
+  return promises.some((item) => String(item.ref_code).trim() === ref && item.status === 'OPEN' && format.format(new Date(item.due_at)) === today);
+}
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -40,7 +47,7 @@ module.exports = async (req, res) => {
     }
     const id = String((req.query && req.query.id) || '');
     if (!id) {
-      const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta, checklist, promises, archive, calcRuns, calcLinks] = await Promise.all([
+      const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta, checklist, promises, archive, calcRuns, calcLinks, leadPromises] = await Promise.all([
         allRows(ctx, 'journeys', {
           select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_reason,updated_at',
           environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
@@ -57,7 +64,8 @@ module.exports = async (req, res) => {
         allRows(ctx, 'promises', { select: 'journey_id,status,due_at', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'manheim_vehicles', { select: 'vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(Date.now() - 60 * 86400000).toISOString() }),
         allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
-        allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment })
+        allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+        allRows(ctx, 'lead_promises', { select: 'ref_code,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' })
       ]);
       const latestMatches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'journey_id', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id }) : [];
       const contactsById = new Map(contacts.map((item) => [item.id, item]));
@@ -70,7 +78,8 @@ module.exports = async (req, res) => {
         const complete = { ...item, enabled: state ? state.enabled : item.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: latestMatches.filter((match) => match.journey_id === item.id).length, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages[0] || null };
         const order = ordersByRef.get(String(item.reference_code || '').trim());
         const scoring = { ...complete, zip: order?.zip || complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0] || '', plate: order?.plate || 'transf', wishlists: wishlistsForJourney(complete) };
-        return { ...complete, ...score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, archive.map((entry) => entry.vehicle_json)) };
+        const ready = score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, archive.map((entry) => entry.vehicle_json));
+        return { ...complete, ...ready, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) };
       }), meta });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });

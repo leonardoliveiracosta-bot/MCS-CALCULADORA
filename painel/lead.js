@@ -53,7 +53,7 @@
     badges.append(badge(deadlineLabel[record.customer_deadline_text||order.deadlineText]||'Sem prazo','green'),badge(paymentLabel[data.payment]||'Não informado','green'));
     if(data.lastCustomerAt) badges.append(badge(`última mensagem do cliente há ${elapsed(data.lastCustomerAt)}`));
     badges.append(badge(record.enabled===false?'DESLIGADO':'LIGADO',record.enabled===false?'red':'green'));
-    if(dispositionControls) heading.append(dispositionControls(record.id?{kind:'JOURNEY',id:record.id}:{kind:'CALCULATOR',ref}));
+    if(dispositionControls) heading.append(dispositionControls(order.ref?{kind:'CALCULATOR',ref}:{kind:'JOURNEY',id:record.id}));
 
     const trio=append(root,'div','lead-grid lead-three');
     const wishes=section(trio,2,'O QUE ELE QUER');

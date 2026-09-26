@@ -4,6 +4,13 @@ const { consolidateCalcRuns, groupCalculatorByRef, standardBudget, time } = requ
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { score } = require('../../panel-ready');
+const { timezoneForZip } = require('../../panel-lead');
+
+function dueToday(promises, ref, zip, now) {
+  const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
+  const today = format.format(now);
+  return promises.some((item) => String(item.ref_code).trim() === ref && item.status === 'OPEN' && format.format(new Date(item.due_at)) === today);
+}
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -12,14 +19,15 @@ module.exports = async (req, res) => {
   try {
     const now = Date.now();
     const cutoff = now - 24 * 60 * 60 * 1000;
-    const [data, calcRuns, links, dispositions, meta, responses, archive] = await Promise.all([
+    const [data, calcRuns, links, dispositions, meta, responses, archive, leadPromises] = await Promise.all([
       operational(ctx),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
       panelMeta(ctx),
       allRows(ctx, 'lead_events', { select: 'ref_code,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(cutoff).toISOString() }),
-      allRows(ctx, 'manheim_vehicles', { select: 'vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() })
+      allRows(ctx, 'manheim_vehicles', { select: 'vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() }),
+      allRows(ctx, 'lead_promises', { select: 'ref_code,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' })
     ]);
     const wanted = new Set(responses.map((event) => String(event.ref_code).trim()));
     const vehicles = archive.map((entry) => entry.vehicle_json);
@@ -77,7 +85,9 @@ module.exports = async (req, res) => {
 
     const items = orders.concat(journeys).map((item) => {
       const journey = journeyMap.get(item.journeyId || item.id) || journeyByRef.get(String(item.ref || item.referenceCode || '').trim().toUpperCase());
-      return { ...item, ...score(item, journey, data, vehicles, now), wantsCar: wanted.has(item.ref || String(item.referenceCode).trim()) };
+      const ref = String(item.ref || item.referenceCode || '').trim().toUpperCase();
+      const ready = score(item, journey, data, vehicles, now);
+      return { ...item, ...ready, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wanted.has(ref) };
     }).sort((left, right) => {
       const wants = Number(Boolean(right.wantsCar)) - Number(Boolean(left.wantsCar));
       if (wants) return wants;
