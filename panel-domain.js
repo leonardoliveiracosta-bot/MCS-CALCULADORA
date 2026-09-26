@@ -200,7 +200,9 @@ function buildReturns(journey, promises) {
 
 function modelWithMake(makeValue, modelValue) {
   const make = clean(makeValue);
-  const model = clean(modelValue);
+  let model = clean(modelValue);
+  if (/^not sure$/i.test(model)) model = '';
+  if (/^other model$/i.test(model)) model = 'Outro modelo';
   if (!make) return model;
   if (!model) return make;
   const makeFold = fold(make);
@@ -225,7 +227,9 @@ function compactWishlistText(wishlists) {
   if (makes.length === 1 && items.every((wish) => !clean(wish.make) || fold(wish.make) === fold(makes[0]))) {
     const make = makes[0];
     const models = [...new Set(items.map((wish) => {
-      const model = clean(wish.model);
+      let model = clean(wish.model);
+      if (/^not sure$/i.test(model)) model = '';
+      if (/^other model$/i.test(model)) model = 'Outro modelo';
       const makeKey = fold(make);
       return fold(model).startsWith(makeKey + ' ') ? clean(model.slice(make.length)) : model;
     }).filter(Boolean))];
