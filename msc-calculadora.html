@@ -920,7 +920,7 @@
 
 const CONFIG = MCSCalcCore.CONFIG;
 
-var ultimaMetricaSimulacao = "";
+var metricaSimulacaoEnviada = false;
 function metricaVercel(nome, dados){
   try {
     if (typeof window.va === "function") window.va("event", { name: nome, data: dados || {} });
@@ -933,9 +933,8 @@ function faixaLance(valor){
 }
 function registrarSimulacaoConcluida(d){
   try {
-    var chave = [d.lance, d.zipUf, d.pgto, d.placa, d.inspecao ? "1" : "0"].join("|");
-    if (chave === ultimaMetricaSimulacao) return;
-    ultimaMetricaSimulacao = chave;
+    if (metricaSimulacaoEnviada) return;
+    metricaSimulacaoEnviada = true;
     metricaVercel("simulacao_concluida", {
       estado: d.zipUf || "desconhecido",
       faixa_lance: faixaLance(d.lance)
