@@ -19,6 +19,7 @@ test('attachment validation accepts PNG and rejects disguised SVG/HTML', () => {
   assert.equal(validateAttachment('bad.svg', 'image/png', png.length, png), null);
   assert.equal(validateAttachment('bad.png', 'image/svg+xml', png.length, png), null);
   assert.equal(validateAttachment('bad.html', 'image/png', png.length, png), null);
+  assert.equal(validateAttachment('ok.pdf','application/pdf',8,Buffer.from('%PDF-1.7')),'application/pdf');
 });
 
 test('storage API path preserves slashes and encodes segments', () => {
@@ -93,6 +94,8 @@ test('finalize records the actual object size instead of client-declared size', 
       stored = JSON.parse(options.body);
       return response(201, [{ id: stored.id }]);
     }
+    if(url.includes('/rest/v1/contacts?select=id')||url.includes('/rest/v1/journeys?select=id'))return response(200,[{id:'ok'}]);
+    if(url.endsWith('/rest/v1/activity_log')&&options.method==='POST')return response(201,[]);
     throw new Error('unexpected fetch');
   };
   const output = res();
@@ -101,7 +104,8 @@ test('finalize records the actual object size instead of client-declared size', 
     body: {
       action: 'finalize', attachmentId: 'f6074aec-214c-4dc9-a50d-fdf2b749c141',
       quarantinePath: 'quarantine/preview/f6074aec-214c-4dc9-a50d-fdf2b749c141/ok.png',
-      filename: 'ok.png', mimeType: 'image/png', byteSize: 999999
+      filename: 'ok.png', mimeType: 'image/png', byteSize: 999999,
+      contactId:'f6074aec-214c-4dc9-a50d-fdf2b749c141',journeyId:'0cd6cda8-7c93-455c-af10-f8e49b1d2f8a'
     }
   }, output);
   assert.equal(output.code, 201);
