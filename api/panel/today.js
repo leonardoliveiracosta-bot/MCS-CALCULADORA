@@ -20,7 +20,7 @@ module.exports = async (req, res) => {
   try {
     const now = Date.now();
     const cutoff = now - 24 * 60 * 60 * 1000;
-    const [data, calcRuns, links, dispositions, meta, responses, archive, leadPromises, recentMatches] = await Promise.all([
+    const [data, calcRuns, links, dispositions, meta, responses, archive, leadPromises, recentMatches, aiItems, aiSuggestions] = await Promise.all([
       operational(ctx),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
@@ -29,7 +29,9 @@ module.exports = async (req, res) => {
       allRows(ctx, 'lead_events', { select: 'ref_code,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(cutoff).toISOString() }),
       allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() }),
       allRows(ctx, 'lead_promises', { select: 'ref_code,journey_id,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
-      allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() })
+      allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() }),
+      allRows(ctx, 'conversation_ai_items', { select: 'journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' }),
+      allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' })
     ]);
     const wanted = new Set(responses.map((event) => String(event.ref_code).trim()));
     const firstSimulation=new Map(), firstCalculatorEvent=new Map();
@@ -115,7 +117,9 @@ module.exports = async (req, res) => {
       const ref = String(item.ref || item.referenceCode || '').trim().toUpperCase();
       const ready = score(item, journey, { ...data, promises:data.promises.concat(leadPromises) }, vehicles, now);
       const latest=journey&&latestByJourney.get(journey.id);const returned=Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff);
-      return { ...item, phones:item.phones||journey?.phones||[], ...ready, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wanted.has(ref) };
+      const journeyId=journey?.id;
+      return { ...item, phones:item.phones||journey?.phones||[], ...ready, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wanted.has(ref),
+        pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false };
     }).sort((left, right) => {
       const wants = Number(Boolean(right.wantsCar)) - Number(Boolean(left.wantsCar));
       if (wants) return wants;

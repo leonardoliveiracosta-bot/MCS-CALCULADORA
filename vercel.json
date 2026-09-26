@@ -1,8 +1,13 @@
 {
   "functions": {
     "api/panel/notes/distribute.js": { "maxDuration": 30 },
+    "api/panel/ai-cron.js": { "maxDuration": 60 },
+    "api/panel/ai-conversations.js": { "maxDuration": 30 },
     "api/whatsapp/webhook.js": { "maxDuration": 60 }
   },
+  "crons": [
+    { "path": "/api/panel/ai-cron", "schedule": "*/10 * * * *" }
+  ],
   "headers": [
     { "source": "/painel", "headers": [
       { "key": "X-Robots-Tag", "value": "noindex, nofollow" },

@@ -4,7 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#0e0e12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MCS Painel">
   <title>My Car Scout — Painel</title>
+  <link rel="manifest" href="/painel/manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="/painel/icons/mcs-painel-180.png">
   <link rel="stylesheet" href="/painel/painel.css">
 </head>
 <body>
@@ -48,6 +54,7 @@
       <nav aria-label="Seções do painel">
         <button class="tab active" type="button" data-view="today">HOJE <span data-count="today">0</span></button>
         <button class="tab" type="button" data-view="entry">ENTRADA <span data-count="entry">0</span></button>
+        <button class="tab" type="button" data-view="pending">PENDÊNCIAS <span data-count="pending">0</span></button>
         <button class="tab" type="button" data-view="orders">PEDIDOS <span data-count="orders">0</span></button>
         <button class="tab" type="button" data-view="qualification">QUALIFICAÇÃO <span data-count="qualification">0</span></button>
         <button class="tab" type="button" data-view="manheim">MANHEIM <span data-count="manheim">0</span></button>
@@ -122,6 +129,23 @@
           <div id="whatsapp-suggestions" class="queue" aria-live="polite"></div>
           <div id="entry-queue" class="queue" aria-live="polite"></div>
         </section>
+      </section>
+      <section id="pending-panel" class="panel-view hidden" aria-label="Pendências">
+        <div class="section-head"><div><h2>Pendências</h2><p class="muted">Todas as conversas individuais do WhatsApp, com situação atualizada quando chega mensagem.</p></div></div>
+        <section id="pending-general-card" class="card pending-general" aria-live="polite"></section>
+        <div id="pending-stats" class="pending-stats" aria-live="polite"></div>
+        <div class="filters pending-filters" aria-label="Filtros de pendências">
+          <button type="button" class="chip active" data-pending-situation="all">Todas</button>
+          <button type="button" class="chip" data-pending-situation="NO_RESPONSE">🔴 Sem resposta</button>
+          <button type="button" class="chip" data-pending-situation="MCS_PENDING">🟠 Parada com você</button>
+          <button type="button" class="chip" data-pending-situation="CUSTOMER_PENDING">🟡 Parada com o cliente</button>
+          <button type="button" class="chip" data-pending-situation="IN_PROGRESS">🟢 Em andamento</button>
+          <button type="button" class="chip" data-pending-situation="CLOSED">⚪ Concluída / sem interesse</button>
+          <label class="pending-ref-filter"><input id="pending-with-ref" type="checkbox"> Só com Ref</label>
+          <label>Ordenar<select id="pending-sort"><option value="hot">Quentes primeiro</option><option value="oldest">Mais antigas</option><option value="recent">Mais recentes</option></select></label>
+          <button id="pending-download" class="quiet small" type="button">Baixar relatório (planilha)</button>
+        </div>
+        <div id="pending-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="orders-panel" class="panel-view hidden" aria-label="Pedidos">
         <div class="section-head"><div><h2>Pedidos</h2><p class="muted">Simulações não criam lead automaticamente.</p></div><div class="inline-actions"><label>Ordenar<select id="orders-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="orders">Gerar relatório desta aba</button></div></div>
