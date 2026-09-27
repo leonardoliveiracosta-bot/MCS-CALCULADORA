@@ -42,7 +42,7 @@
 
     <section id="app-view" class="hidden" aria-label="Painel My Car Scout">
       <header class="topbar">
-        <div><p class="eyebrow">MY CAR SCOUT</p><h1 id="page-title">HOJE</h1></div>
+        <div><p class="eyebrow">MY CAR SCOUT</p><h1 id="page-title">HOJE</h1></div><strong id="environment-badge" class="environment-badge" aria-live="polite"></strong>
         <form id="global-search" class="global-search" role="search">
           <label for="global-search-input">Busca global</label>
           <div><input id="global-search-input" type="search" maxlength="100" placeholder="Nome, telefone ou Ref" required><button type="submit">Buscar</button></div>
@@ -123,6 +123,13 @@
             <p id="attachment-status" class="status" role="status"></p>
           </section>
           </details>
+        <details class="card manual-entry" id="automatic-messages-card">
+          <summary>Mensagens automáticas</summary>
+          <p class="muted">Cole aqui saudações e ausências do WhatsApp Business. Elas nunca contam como resposta.</p>
+          <textarea id="automatic-message-text" maxlength="25000" placeholder="Texto automático completo"></textarea>
+          <button id="automatic-message-save" type="button">Adicionar mensagem automática</button>
+          <div id="automatic-message-list" class="queue"></div>
+        </details>
         </div>
         <section class="card queue-card">
           <h2>Revisão final</h2>
