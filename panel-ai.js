@@ -122,7 +122,7 @@ async function allConversationData(ctx) {
     allRows(ctx,'journeys',{select:'id,contact_id,reference_code,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contacts',{select:'id,display_name,location_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,created_at',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,created_at,undone_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
     allRows(ctx,'conversation_ai_readings',{select:'id,journey_id,chat_id,last_customer_message_id,status,created_at',environment:'eq.'+ctx.environment,status:'eq.ACTIVE'}),
     allRows(ctx,'conversation_ai_link_state',{select:'journey_id,chat_id,first_customer_at,last_run_at,last_order_seen_at,retry_requested',environment:'eq.'+ctx.environment}),
@@ -131,7 +131,7 @@ async function allConversationData(ctx) {
     allRows(ctx,'conversation_pending_insights',{select:'journey_id,chat_id,summary_text,last_ai_message_id',environment:'eq.'+ctx.environment})
   ]);
   const calculatorRefs=new Set(calcRuns.filter((run)=>run.is_test!==true).map((run)=>String(run.dados?.ref||'').trim().toUpperCase()).filter((ref)=>REF_RE.test(ref)));
-  const messageById=new Map(messages.map((message)=>[message.id,message]));
+  const messageById=new Map(messages.filter((message)=>!message.undone_at).map((message)=>[message.id,message]));
   const journeyById=new Map(journeys.map((journey)=>[journey.id,journey]));
   const contactById=new Map(contacts.map((contact)=>[contact.id,contact]));
   const refsByJourney=new Map();

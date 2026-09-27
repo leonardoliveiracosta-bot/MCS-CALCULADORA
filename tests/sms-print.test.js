@@ -40,12 +40,13 @@ test('discard keeps the screenshot in quarantine and AI failure opens a manual-r
   assert.match(api,/manual:true/);
 });
 
-test('Ref conflict is held for an explicit keep-or-move choice before confirmation',()=>{
+test('automatic print routes a different existing Ref without asking',()=>{
   const api=read('api/panel/sms-print.js');
   const client=read('painel/painel.js');
-  assert.match(api,/SMS_PRINT_REF_DECISION_REQUIRED/);
-  assert.match(client,/Gravar neste lead mesmo assim/);
-  assert.match(client,/Levar para o pedido/);
+  assert.match(api,/automaticTarget/);
+  assert.match(api,/byRef&&\(!record\.source_journey_id\|\|byRef\.id!==record\.source_journey_id\)/);
+  assert.match(client,/action:'confirm',auto:true/);
+  assert.doesNotMatch(client,/Gravar neste lead mesmo assim/);
 });
 
 test('card UI preserves the missing-phone and missing-SMS paths',()=>{

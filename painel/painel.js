@@ -36,6 +36,7 @@
   let currentDetail = null;
   let orderHasMore = false;
   let undoTimer = null;
+  let autoPrintContext = null;
   const $ = (id) => document.getElementById(id);
   const productionHost = location.hostname === 'www.mycarscout.net';
   const environmentBadge = $('environment-badge');
@@ -361,18 +362,18 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
     if (view === 'orders') $('orders-more').classList.add('hidden');
   }
 
   async function switchPanel(view) {
-    if (!['today', 'entry', 'pending', 'orders', 'qualification', 'manheim', 'records'].includes(view)) return;
+    if (!['today', 'entry', 'pending', 'orders', 'qualification', 'searches', 'manheim', 'records'].includes(view)) return;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     currentView = view;
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
-    const labels = { today: 'HOJE', entry: 'ENTRADA', pending: 'PENDÊNCIAS', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', manheim: 'MANHEIM', records: 'FICHAS' };
+    const labels = { today: 'HOJE', entry: 'ENTRADA', pending: 'PENDÊNCIAS', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', searches: 'BUSCAS', manheim: 'MANHEIM', records: 'FICHAS' };
     currentDetail = null;
     if ($('detail-panel')) $('detail-panel').classList.add('hidden');
     Object.keys(labels).forEach((name) => $(name + '-panel').classList.toggle('hidden', name !== view));
@@ -447,11 +448,6 @@
     select.replaceChildren(new Option('Nova jornada', 'new'));
     journeys.filter((journey) => contactId !== 'new' && journey.contact_id === contactId).forEach((journey) => option(select, journey.vehicle_text || 'Busca existente', journey.id));
   }
-  function refreshAttachmentJourneys(){
-    const contactId=$('attachment-contact').value,select=$('attachment-journey');select.replaceChildren(new Option('Escolha a ficha',''));
-    journeys.filter((journey)=>journey.contact_id===contactId).forEach((journey)=>option(select,`Ref ${journey.reference_code||'—'} · ${journey.vehicle_text||'busca sem veículo'}`,journey.id));
-    $('attachment-upload').disabled=!contactId||!select.value;
-  }
 
   async function loadWhatsApp() {
     const data = await request('/api/panel/whatsapp');
@@ -510,11 +506,6 @@
     contacts.forEach((contact) => option(select, contact.display_name || 'Sem nome', contact.id));
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
-    const attachmentContact=$('attachment-contact'),oldAttachment=attachmentContact.value;
-    attachmentContact.replaceChildren(new Option('Escolha o contato',''));
-    contacts.filter((contact)=>contact.is_lead!==false).forEach((contact)=>option(attachmentContact,contact.display_name||'Sem nome',contact.id));
-    if([...attachmentContact.options].some((entry)=>entry.value===oldAttachment))attachmentContact.value=oldAttachment;
-    refreshAttachmentJourneys();
     setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
     if (render) renderQueue(chats, data.reviews || []);
     return data;
@@ -558,29 +549,13 @@
     await loadQueue();
   }
 
-  async function uploadAttachment() {
-    const file = $('attachment-file').files[0];
-    const contactId=$('attachment-contact').value,journeyId=$('attachment-journey').value;
-    if (!file||!contactId||!journeyId) {$('attachment-status').textContent='Escolha o contato e a ficha antes do arquivo.';return;}
-    const head = new Uint8Array(await file.slice(0, 64).arrayBuffer());
-    const magicBase64 = btoa(String.fromCharCode(...head));
-    try {
-      const signed = await request('/api/panel/attachments', { method: 'POST', body: JSON.stringify({ action: 'sign', filename: file.name, mimeType: file.type, byteSize: file.size, magicBase64 }) });
-      const path = signed.uploadUrl.startsWith('http') ? signed.uploadUrl : config.url + '/storage/v1' + signed.uploadUrl;
-      const uploadUrl = new URL(path);
-      uploadUrl.searchParams.set('token', signed.token);
-      const uploadBody = new FormData();
-      uploadBody.append('cacheControl', '3600');
-      uploadBody.append('', file);
-      const uploaded = await fetch(uploadUrl.toString(), { method: 'PUT', headers: { 'x-upsert': 'false' }, body: uploadBody });
-      if (!uploaded.ok) throw new Error('UPLOAD_FAILED');
-      await request('/api/panel/attachments', { method: 'POST', body: JSON.stringify({ action: 'finalize', attachmentId: signed.attachmentId, quarantinePath: signed.quarantinePath, filename: signed.filename, mimeType: file.type,contactId,journeyId }) });
-      $('attachment-status').textContent = 'Anexo verificado e armazenado de forma privada.';
-      $('attachment-file').value = '';
-    } catch (failure) {
-      $('attachment-status').textContent = ['ATTACHMENT_REJECTED', 'ATTACHMENT_ID_INVALID', 'ATTACHMENT_PATH_INVALID'].includes(failure.code) ? 'Arquivo rejeitado por tipo, tamanho, caminho ou assinatura.' : 'Não foi possível enviar o anexo.';
-    }
-  }
+  function clearAutoPrint(){const input=$('auto-print-file');input.value='';autoPrintContext=null;$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;$('auto-print-result').classList.add('hidden');}
+  function showAutoPrintChoice(files){const info=$('auto-print-file-info');info.replaceChildren();[...files].forEach((file)=>info.append(element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`)));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=!files.length;}
+  function autoPrintResult(text,saved){const root=$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',text));root.append(row);return row;}
+  async function saveAutoPrint(read,context){const values=read.extracted_json||{};const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:values.ref||'',message:values.message||'',translation:values.translation||''})});const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');const root=autoPrintResult(saved.duplicate?'Este print já foi guardado.':`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||values.ref||'—'}`,true);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));const undo=element('button','quiet small','Desfazer');undo.type='button';undo.addEventListener('click',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})});root.replaceChildren(element('strong','', 'Desfeito. O arquivo permanece guardado.'));});actions.append(open,undo);root.append(actions);await refreshCounters();}
+  async function handleAutoPrintRead(result,context){if(result.manual){const root=autoPrintResult('Não consegui ler agora — ',false);const retry=element('button','quiet small','Tentar de novo');retry.type='button';retry.addEventListener('click',async()=>{retry.disabled=true;try{await handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),context);}catch(_){retry.disabled=false;}});root.append(retry);return;}await saveAutoPrint(result.read,context);}
+  async function uploadAutoPrint(file,context={}){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');await handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context);}
+  async function sendAutoPrint(){const files=[...$('auto-print-file').files];if(!files.length)return;const status=$('auto-print-status'),result=$('auto-print-result');status.classList.remove('error');status.textContent=`Enviando ${files.length} print${files.length===1?'':'s'}…`;result.replaceChildren();result.classList.remove('hidden');$('auto-print-send').disabled=true;for(const file of files){try{await uploadAutoPrint(file,autoPrintContext||{});}catch(error){autoPrintResult(error.code==='SMS_PRINT_INVALID_IMAGE'?'Use uma imagem válida, até 10 MB.':'Não consegui enviar agora. O arquivo não foi apagado.',false);}}status.textContent='';$('auto-print-send').disabled=!$('auto-print-file').files.length;}
 
   function updateMeta(meta) {
     if (!meta) return;
@@ -643,7 +618,7 @@
     const stats=$('pending-stats');stats.replaceChildren();[['NO_RESPONSE','🔴 Sem resposta'],['MCS_PENDING','🟠 Parada com você'],['CUSTOMER_PENDING','🟡 Parada com o cliente'],['IN_PROGRESS','🟢 Em andamento'],['CLOSED','⚪ Concluída / sem interesse']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.counts?.[key]||0)),element('span','muted',label));stats.append(stat);});
     const root=$('pending-list');root.replaceChildren();if(!(data.items||[]).length)empty(root,'Nenhuma conversa neste filtro.');
     (data.items||[]).forEach((item)=>{
-      const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div'),phoneItem={phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[],ref:item.ref};text.append(element('strong','identity-name',item.name||`Pedido ${item.ref||'—'}`),phoneNode(phoneItem),element('span','muted one-line',`Ref ${item.ref||'—'} · ${item.vehicleText||'Veículo não informado'}`));identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));head.append(badges);card.append(head);const contact=contactMeta(item);if(contact)card.append(contact);
+      const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div'),phoneItem={phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[],ref:item.ref};text.append(element('strong','identity-name',item.name||`Pedido ${item.ref||'—'}`),phoneNode(phoneItem),element('span','muted one-line',`Ref ${item.ref||'—'} · ${item.vehicleText||'Veículo não informado'}`));identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));head.append(badges);card.append(head);const contact=contactMeta(item);if(contact)card.append(contact);
       const prefix=item.latestDirection==='MCS'?'Você: ':'';card.append(element('p','message-preview',prefix+item.latestMessage));if(item.translation)card.append(element('p','muted','Tradução: “'+item.translation+'”'));if(item.summary||item.nextStep){const ai=element('div','pending-ai');ai.append(element('strong','', 'IA: '),document.createTextNode(item.summary||'Sem resumo ainda'));if(item.nextStep)ai.append(element('strong','', ' Próximo passo: '),document.createTextNode(item.nextStep));card.append(ai);}
       const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;copy.addEventListener('click',async()=>{copy.disabled=true;try{await navigator.clipboard.writeText(item.phone);}catch(_){copy.disabled=false;}});const resolved=element('button','quiet small','Já resolvi');resolved.type='button';resolved.addEventListener('click',async()=>{resolved.disabled=true;try{await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})});await loadPending();}catch(_){resolved.disabled=false;}});const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!item.isLead})});await loadPending();}catch(_){lead.disabled=false;}});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
     });
@@ -701,58 +676,13 @@
     return wrap;
   }
 
-  const smsPrintMagic = async (file) => btoa(String.fromCharCode(...new Uint8Array(await file.slice(0,64).arrayBuffer())));
-  async function uploadSmsPrint(file, context = {}) {
-    if (!file) return;
-    const status=$('sms-print-status'); status.classList.remove('error'); status.textContent='Enviando print…';
-    const start=$('sms-print-start'); if(start) start.disabled=true;
-    try {
-      const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:await smsPrintMagic(file),journeyId:context.journeyId||null,contactId:context.contactId||null})});
-      const uploadUrl=new URL(signed.uploadUrl.startsWith('http')?signed.uploadUrl:config.url+'/storage/v1'+signed.uploadUrl); uploadUrl.searchParams.set('token',signed.token);
-      const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});
-      if(!uploaded.ok)throw new Error('SMS_PRINT_UPLOAD_FAILED');
-      status.textContent='Lendo o print…';
-      const result=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});
-      renderSmsPrintReview(result.read,{...context,refTarget:result.refTarget||null,manual:Boolean(result.manual)});
-      status.textContent=result.manual?'Não consegui ler o print agora — preencha à mão.':'Confira antes de confirmar.';
-    } catch(failure) { status.classList.add('error'); status.textContent=failure.code==='SMS_PRINT_INVALID_IMAGE'?'Use JPEG, PNG ou WebP válido, até 10 MB.':'Não consegui enviar o print agora.'; }
-    finally { if(start) start.disabled=false; }
-  }
-  function startSmsPrint(context={}) {
-    const input=$('sms-print-file');
-    input.value='';
-    input.onchange=()=>uploadSmsPrint(input.files[0],context);
-    input.click();
-  }
-  function smsField(label, value, textarea=false) { const field=element('label','',label); const input=element(textarea?'textarea':'input'); input.value=value||''; input.maxLength=textarea?25000:textarea?25000:160; field.append(input); return {field,input}; }
-  function renderSmsPrintReview(read, context={}) {
-    const root=$('sms-print-review'); root.replaceChildren(); root.classList.remove('hidden');
-    const values=read?.extracted_json||{};
-    root.append(element('h3','', 'Revisar print do SMS'));
-    if(context.manual)root.append(element('p','warning','Não consegui ler o print agora — preencha à mão.'));
-    const phone=smsField('Número lido',values.phone||''); const name=smsField('Nome lido',values.name||''); const ref=smsField('Ref lida',values.ref||'');
-    const message=smsField('Mensagem completa',values.message||'',true); const translation=smsField('Tradução para português',values.translation||'',true);
-    root.append(phone.field,name.field,ref.field);
-    const expected=context.ref||context.referenceCode||null;
-    if(expected&&ref.input.value&&String(expected).toUpperCase()===String(ref.input.value).toUpperCase())root.append(element('p','badge green','Ref bate com este pedido ✓'));
-    else if(expected&&ref.input.value)root.append(element('p','warning',`⚠ A Ref do print (${ref.input.value}) é diferente deste pedido (${expected}).`));
-    root.append(message.field,translation.field);
-    const actions=element('div','inline-actions'); const confirm=element('button','small','Confirmar'); const correct=element('button','quiet small','Corrigir'); const discard=element('button','quiet small','Descartar');
-    correct.type=discard.type=confirm.type='button'; correct.addEventListener('click',()=>phone.input.focus());
-    discard.addEventListener('click',async()=>{discard.disabled=true;try{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'discard',readId:read.id})});root.classList.add('hidden');$('sms-print-status').textContent='Print descartado. O arquivo foi mantido em quarentena.';}catch(_){discard.disabled=false;}});
-    const submit=async(options={})=>{confirm.disabled=true;try{const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',readId:read.id,phone:phone.input.value,name:name.input.value,ref:ref.input.value,message:message.input.value,translation:translation.input.value,targetJourneyId:options.targetJourneyId||null,keepSource:options.keepSource===true})});$('sms-print-status').textContent='SMS confirmado e salvo.';root.classList.add('hidden');await loadQueue(false);if(saved.journeyId)openDetail('ficha',saved.journeyId);}catch(failure){confirm.disabled=false;$('sms-print-status').classList.add('error');$('sms-print-status').textContent=failure.code==='SMS_PRINT_PHONE_CONFLICT'?'Esse número já pertence a outro contato.':'Confira número e mensagem antes de confirmar.';}};
-    confirm.addEventListener('click',()=>{const source=context.journeyId||read.source_journey_id;const target=context.refTarget;if(source&&target&&target.id!==source&&String(ref.input.value||'').toUpperCase()===String(target.reference_code||'').toUpperCase()){const choice=element('div','sms-print-missing');choice.append(element('p','',`A Ref do print (${ref.input.value}) é diferente deste pedido.`));const keep=element('button','quiet small','Gravar neste lead mesmo assim');const move=element('button','small',`Levar para o pedido ${ref.input.value}`);keep.type=move.type='button';keep.addEventListener('click',()=>submit({keepSource:true}));move.addEventListener('click',()=>submit({targetJourneyId:target.id}));choice.append(keep,move);root.append(choice);return;}submit();});
-    actions.append(confirm,correct,discard); root.append(actions);
-  }
   function smsPrintMissing(item) {
     if(item.contactChannel!=='SMS_CLICK'||item.smsPrintConfirmed)return null;
     const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui.'));
-    const attach=element('button','small','📷 Anexar print do SMS'); const absent=element('button','quiet small','Não chegou SMS'); attach.type=absent.type='button';
-    attach.addEventListener('click',()=>startSmsPrint({journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null}));
+    const attach=element('label','small','📷 Anexar print do SMS'),input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;attach.append(input);const absent=element('button','quiet small','Não chegou SMS'); absent.type='button';
+    input.addEventListener('change',async()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null};attach.classList.add('disabled');for(const file of files){try{await uploadAutoPrint(file,context);}catch(_){block.append(element('p','status error','Não consegui ler agora — tente mais tarde.'));}}attach.classList.remove('disabled');input.value='';});
     absent.addEventListener('click',()=>setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED'));
     const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions);
-    const journeyId=item.journeyId||item.id||null;
-    if(journeyId)request('/api/panel/sms-print?journeyId='+encodeURIComponent(journeyId)).then((state)=>{if(state.confirmed)block.remove();}).catch(()=>{});
     return block;
   }
 
@@ -805,9 +735,32 @@
   }
 
   function renderFailure(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
   }
+
+  async function loadSearches() {
+    const data=await request('/api/panel/searches');
+    const summary=$('searches-summary'),root=$('searches-list');summary.replaceChildren();root.replaceChildren();
+    const makeButton=(label,handler,className='small')=>{const control=element('button',className,label);control.type='button';control.addEventListener('click',handler);return control;};
+    [['MISSING','🔍 Falta buscar'],['SAVED','💾 Busca salva'],['SENT','📤 Opções enviadas']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.counts?.[key]||0)),element('span','muted',label));summary.append(stat);});
+    (data.items||[]).forEach((item)=>{
+      const card=element('article','item-card search-card');const head=element('div','item-head');head.append(element('strong','identity-name',item.name),phoneNode({phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[]}),element('span','muted',`Ref ${item.ref||'—'}`),element('span','search-stage '+item.stage,`${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days===1?'':'s'}` : ''}`));card.append(head);
+      card.append(element('strong','',item.exactSearch));
+      if(item.alsoServes?.length){const names=item.alsoServes.slice(0,2).map((peer)=>`${peer.name} (Ref ${peer.ref||'—'})`).join(' e ');card.append(element('p','muted',`Também serve para: ${names}${item.alsoServes.length>2?` e mais ${item.alsoServes.length-2}`:''} — mesma busca no Manheim`));}
+      if(item.stage==='SAVED')card.append(element('p','muted',`${item.matchCount} carro${item.matchCount===1?'':'s'} no último CSV do Manheim batem com esta busca`));
+      const actions=element('div','inline-actions');
+      const toggle=async(kind)=>{const previous=item.stage;item.stage=kind==='SAVED'?'SAVED':'SENT';renderSearchesAgain();try{await request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind})});await loadSearches();}catch(_){item.stage=previous;renderSearchesAgain();const notice=element('p','error','Não foi possível atualizar agora.');root.prepend(notice);setTimeout(()=>notice.remove(),5000);}};
+      if(item.stage==='MISSING')actions.append(makeButton('💾 Salvei a busca no Manheim',()=>toggle('SAVED')));
+      if(item.stage!=='SENT')actions.append(makeButton('📤 Enviei opções ao cliente',()=>toggle('SENT'),'quiet small'));
+      if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>switchPanel('manheim'),'quiet small'));
+      if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED';actions.append(makeButton('Desfazer',async()=>{await request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind})});await loadSearches();},'quiet small'));}
+      actions.append(makeButton('Abrir lead',()=>openDetail('ficha',item.journeyId),'quiet small'));card.append(actions);root.append(card);
+    });
+    if(!(data.items||[]).length)empty(root,'Nenhum cliente ativo com desejo completo e contato registrado.');
+    window.__mcsSearchesRender=()=>loadSearches().catch(()=>{});
+  }
+  function renderSearchesAgain(){ if(window.__mcsSearchesRender)window.__mcsSearchesRender(); }
 
   async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
     const current = () => currentView === view && viewRequestVersion === requestVersion;
@@ -833,6 +786,7 @@
       updateMeta(data.meta);
       return renderQualification(data.items || []);
     }
+    if (view === 'searches') return loadSearches();
     if (view === 'manheim') {
       const data = await request('/api/panel/records?view=manheim');
       if (!current()) return;
@@ -848,11 +802,12 @@
   }
 
   async function refreshCounters() {
-    const [entry, pending, orders, qualification, manheim, records] = await Promise.all([
+    const [entry, pending, orders, qualification, searches, manheim, records] = await Promise.all([
       request('/api/panel/entry'),
       request('/api/panel/pendencias'),
       request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
       request('/api/panel/qualification'),
+      request('/api/panel/searches'),
       request('/api/panel/records?view=manheim'),
       request('/api/panel/records')
     ]);
@@ -860,6 +815,7 @@
     setCount('pending', Object.values(pending.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
     setCount('orders', orders.page && orders.page.total || 0);
     setCount('qualification', (qualification.items || []).length);
+    setCount('searches', (searches.items || []).length);
     setCount('manheim', manheim.upload && manheim.upload.lead_count || 0);
     setCount('records', (records.items || []).length);
   }
@@ -993,7 +949,7 @@
   }
 
   function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', entry: 'entry-panel', pending: 'pending-panel', orders: 'orders-panel', qualification: 'qualification-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    const labels = { today: 'today-panel', entry: 'entry-panel', pending: 'pending-panel', orders: 'orders-panel', qualification: 'qualification-panel', searches: 'searches-panel', manheim: 'manheim-panel', records: 'records-panel' };
     Object.values(labels).forEach((id) => $(id).classList.add('hidden'));
     $('detail-panel').classList.remove('hidden');
     $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
@@ -1121,6 +1077,7 @@
       }
       card.append(head);
       const badges = element('div', 'badges');
+      if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
       if (item.wantsCar) badges.append(makeBadge('QUER ESTE CARRO', 'green'));
       if(item.returnedToTalk)badges.append(makeBadge('VOLTOU A FALAR','yellow'));
@@ -1168,6 +1125,7 @@
       const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
 
       const badges = element('div', 'badges');
+      if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       if (item.sourceLabel) badges.append(makeBadge(item.sourceLabel));
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
       else badges.append(makeBadge(item.logicalMode === 'CARRO' ? 'CARRO IDEAL' : item.logicalMode === 'VALOR' ? 'POR VALOR' : 'PEDIDO'));
@@ -1229,6 +1187,7 @@
       const title = element('div');
       title.append(identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' }));
       const badges = element('div', 'badges');
+      if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       const qualificationStatus = item.enabled === false ? 'DESLIGADO' : item.status;
       badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(qualificationStatus, qualificationStatus === 'ATIVO' ? 'green' : qualificationStatus === 'RESPONDIDO' ? 'blue' : ''));
       if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
@@ -1292,7 +1251,7 @@
   function renderManheimGroup(root, journey, matches, reactivation) {
     const card = element('article', 'item-card manheim-lead');
     const head = element('div', 'item-head');
-    head.append(identityHeader(journey), makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));
+    head.append(identityHeader(journey), makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));if(journey.searchStageLabel)head.append(makeBadge(journey.searchStageLabel,journey.searchStage==='SENT'?'green':journey.searchStage==='SAVED'?'blue':'yellow'));
     card.append(head, element('p', 'muted', wishlistSummary(journey.wishlists || journey.wishlist, journey.budget_cents)));
     const contact=contactMeta(journey);if(contact)card.append(contact);
     if (reactivation) {
@@ -1593,6 +1552,7 @@
       const controls = element('div', 'record-card-controls');
       const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
       controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
+      if(item.searchStageLabel)controls.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       const heat=heatBadge(item);if(heat)controls.append(heat);
       if(item.pendingAiCount)controls.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
       if(item.aiLinkSuggested)controls.append(makeBadge('🔗 ligação sugerida','yellow'));
@@ -1975,7 +1935,7 @@
       const label = item.kind === 'ORDER'
         ? `${referencePhone(item)}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
         : `${item.name} · ${referencePhone(item)}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
-      button.append(element('span', '', label), makeBadge(item.matchedBy));
+      button.append(element('span', '', label), makeBadge(item.matchedBy));if(item.searchStageLabel)button.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       button.addEventListener('click', () => {
         const origin=captureOrigin();
         root.classList.add('hidden');
@@ -2182,7 +2142,7 @@
       if (currentView === 'orders') await loadCurrent();
     }));
     $('orders-more').addEventListener('click', () => loadOrders(true).catch(() => { $('orders-more').textContent = 'Não foi possível carregar'; }));
-    ['today','entry','pending','orders','qualification','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView!==name)return;if(name==='manheim'){renderSavedSearches().catch(()=>{});return;}loadCurrent().catch(()=>{});});});
+    ['today','entry','pending','orders','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView!==name)return;if(name==='manheim'){renderSavedSearches().catch(()=>{});return;}loadCurrent().catch(()=>{});});});
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
     $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});
     $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
@@ -2203,10 +2163,9 @@
     manheimZone.addEventListener('drop', (event) => importManheim([...event.dataTransfer.files]).catch(showManheimFailure));
     $('sms-form').addEventListener('submit', addSms);
     $('sms-contact').addEventListener('change', () => { const fresh=$('sms-contact').value==='new';$('sms-new-name-label').hidden=!fresh;$('sms-new-phone-label').hidden=!fresh;refreshSmsJourneys(); });
-    $('attachment-contact').addEventListener('change',refreshAttachmentJourneys);
-    $('attachment-journey').addEventListener('change',()=>{$('attachment-upload').disabled=!$('attachment-journey').value;});
-    $('attachment-upload').addEventListener('click', uploadAttachment);
-    $('sms-print-start').addEventListener('click', () => startSmsPrint());
+    $('auto-print-file').addEventListener('change',()=>{const files=$('auto-print-file').files;if(files.length)showAutoPrintChoice(files);});
+    $('auto-print-remove').addEventListener('click',clearAutoPrint);
+    $('auto-print-send').addEventListener('click',()=>sendAutoPrint().catch(()=>{}));
     $('sms-date').value = localInput();
     await routeSession();
   }

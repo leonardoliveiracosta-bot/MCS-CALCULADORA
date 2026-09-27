@@ -23,7 +23,7 @@ async function operational(ctx) {
       select: 'journey_id,message_id',
       environment: 'eq.' + ctx.environment
     }),
-    allRows(ctx, 'messages', { select: 'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_local,occurred_at_utc,time_uncertain,source_kind,created_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'messages', { select: 'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_local,occurred_at_utc,time_uncertain,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_checklist', { select: 'id,journey_id,point_number,point_label,status,completed_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'promises', { select: 'id,journey_id,message_id,promise_text,due_at,due_text,status,fulfilled_at,created_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_divergences', { select: 'id,journey_id,field,status,created_at,operational_declaration_id', environment: 'eq.' + ctx.environment }),
@@ -38,7 +38,7 @@ async function operational(ctx) {
   return { journeys: journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).map((journey) => {
     const toggle = toggleByJourney.get(journey.id);
     return { ...journey, enabled: toggle ? toggle.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, contact: contactsById.get(journey.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === journey.contact_id) };
-  }), refs,excludedRefs, messages: flattenMessageLinks(messageLinks, messages), checklist, promises, divergences, units, suppressions };
+  }), refs,excludedRefs, messages: flattenMessageLinks(messageLinks, messages.filter((message) => !message.undone_at)), checklist, promises, divergences, units, suppressions };
 }
 
 async function journeyExists(ctx, journeyId) {

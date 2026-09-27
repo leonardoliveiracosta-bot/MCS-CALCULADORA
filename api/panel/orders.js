@@ -5,6 +5,7 @@ const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
+const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 const { score } = require('../../panel-ready');
 
 module.exports = async (req, res) => {
@@ -113,8 +114,9 @@ module.exports = async (req, res) => {
       journeyId: item.id, contactId: item.contact_id,
       label: `${item.contact && item.contact.display_name ? item.contact.display_name : 'Contato sem nome'} · Ref ${item.reference_code || '—'} — ${item.vehicle_text || 'busca sem veículo'}`
     }));
+    const stageIndex=await loadSearchStageIndex(ctx);
     return send(res, 200, {
-      environment: ctx.environment, filter, period, items, linkTargets, meta,
+      environment: ctx.environment, filter, period, items:items.map((item)=>decorateWithSearchStage(item,stageIndex)), linkTargets, meta,
       page: { offset, limit, total: filtered.length, hasMore: !exactRef && offset + items.length < filtered.length }
     });
   } catch (_) {

@@ -4,6 +4,7 @@ const { checklistSummary, shortDeadline } = require('../../panel-domain');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
+const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 const { score } = require('../../panel-ready');
 
 module.exports = async (req, res) => {
@@ -20,7 +21,7 @@ module.exports = async (req, res) => {
       allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,source_kind,created_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_checklist', { select: 'id,journey_id,point_number,point_label,status,completed_at', environment: 'eq.' + ctx.environment, order: 'point_number.asc' }),
       allRows(ctx, 'checklist_evidence', { select: 'id,checklist_id,message_id,excerpt_text,created_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_divergences', { select: 'id,journey_id,field,status,operational_declaration_id,created_at', environment: 'eq.' + ctx.environment }),
@@ -29,7 +30,7 @@ module.exports = async (req, res) => {
       allRows(ctx,'calc_runs',{select:'id,created_at,dados,is_test',order:'created_at.asc'}),
       allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment})
     ]);
-    const contact=contactIndex({calcRuns,messages,messageLinks});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
+    const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
     const evidenceByPoint = new Map();
     for (const item of evidence) {
       if (!evidenceByPoint.has(item.checklist_id)) evidenceByPoint.set(item.checklist_id, []);
@@ -55,7 +56,8 @@ module.exports = async (req, res) => {
         shortDeadline: shortDeadline(journey.customer_deadline_at),score:ready.score,goodHour:ready.goodHour
       },facts,insightByJourney.get(journey.id))];
     });
-    return send(res, 200, { environment: ctx.environment, items:sortItems(items,String(req.query?.sort||'recent'),'recent'), meta });
+    const stageIndex=await loadSearchStageIndex(ctx);
+    return send(res, 200, { environment: ctx.environment, items:sortItems(items,String(req.query?.sort||'recent'),'recent').map((item)=>decorateWithSearchStage(item,stageIndex)), meta });
   } catch (_) {
     return send(res, 500, { error: 'PANEL_QUALIFICATION_ERROR' });
   }

@@ -2,6 +2,7 @@
 
 const { isUuid, jsonBody, requirePanel, send, supabase } = require('../../panel-server');
 const { generalBatch, generalStatus, pendingSnapshot, resolvePending, sortPending, startGeneralRead } = require('../../panel-pendencias');
+const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 
 function csvCell(value) { const text=String(value ?? '');return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text; }
 function sheet(items) {
@@ -23,7 +24,7 @@ module.exports=async(req,res)=>{
       if(String(req.query?.download||'')==='csv'){
         res.setHeader('Cache-Control','no-store, max-age=0');res.setHeader('X-Robots-Tag','noindex, nofollow');res.setHeader('Content-Type','text/csv; charset=utf-8');res.setHeader('Content-Disposition','attachment; filename="pendencias-mcs.csv"');return res.status(200).send('\uFEFF'+sheet(items));
       }
-      return send(res,200,{items,counts:snapshot.counts,run:snapshot.run,lastHistoryAt:snapshot.lastHistoryAt,historyReady:!snapshot.lastHistoryAt||Date.now()-Date.parse(snapshot.lastHistoryAt)>=30*60000});
+      const stageIndex=await loadSearchStageIndex(ctx);return send(res,200,{items:items.map((item)=>decorateWithSearchStage(item,stageIndex)),counts:snapshot.counts,run:snapshot.run,lastHistoryAt:snapshot.lastHistoryAt,historyReady:!snapshot.lastHistoryAt||Date.now()-Date.parse(snapshot.lastHistoryAt)>=30*60000});
     }
     if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});
     const body=await jsonBody(req,32*1024);
