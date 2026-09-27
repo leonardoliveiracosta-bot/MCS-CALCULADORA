@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('node:crypto');
+
 const { leadData, ensureJourney, localToUtc, addClientDays, cityForZip } = require('../../panel-lead');
 const { validItems, verified, prepareItems } = require('../../panel-note');
 const { insert, isUuid, jsonBody, patchRows, requirePanel, rows, safeText, send, supabase } = require('../../panel-server');
@@ -182,6 +184,11 @@ module.exports = async (req, res) => {
     }
     return send(res, 400, { error: 'LEAD_ACTION_INVALID' });
   } catch (error) {
-    return send(res, error.status || 500, { error: error.message || 'LEAD_ACTION_FAILED' });
+    const status=Number(error?.status)||500;
+    const requestId=crypto.randomUUID().slice(0,8);
+    // Do not log request bodies: they can contain customer conversations and notes.
+    // Validation errors are expected client feedback; retain logs for unexpected failures.
+    if (status >= 500) console.error('[panel-lead]',{requestId,route:'/api/panel/lead',ref:String(req.query?.ref||req.body?.ref||''),journeyId:String(req.query?.id||req.body?.journeyId||''),message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});
+    return send(res,status>=500?500:status,status>=500?{error:'LEAD_ACTION_FAILED',requestId}:{error:error.message||'LEAD_ACTION_FAILED',requestId});
   }
 };

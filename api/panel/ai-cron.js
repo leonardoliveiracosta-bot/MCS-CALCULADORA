@@ -34,7 +34,11 @@ module.exports=async(req,res)=>{
     try { capture=await runCaptureCheck(ctx); }
     catch (error) { capture={error:'CAPTURE_CHECK_FAILED'}; await recordCaptureFailure(ctx,error.message).catch(()=>{}); }
     return send(res,200,{...result,pending,capture});
-  }catch(_){return send(res,503,{error:'AI_UNAVAILABLE'});}
+  }catch(error){
+    const requestId=crypto.randomUUID().slice(0,8);
+    console.error('[panel-ai-cron]',{requestId,route:'/api/panel/ai-cron',message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});
+    return send(res,503,{error:'AI_UNAVAILABLE',requestId});
+  }
 };
 
 module.exports.equalSecret=equalSecret;

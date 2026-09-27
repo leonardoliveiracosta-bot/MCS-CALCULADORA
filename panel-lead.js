@@ -148,17 +148,31 @@ async function leadData(ctx, req, refInput, idInput) {
   hasRef=Boolean(order);
   if (!journey && !order) return null;
   const record = journey ? (await capture(require('./api/panel/records'), req, { id: journey.id }))?.item || null : null;
-  const track = hasRef ? await trackFor(ctx, ref, journey && journey.id) : null;
+  // Tracking is useful for the customer link, but it must never make the lead
+  // detail unavailable when its optional row cannot be refreshed.
+  let track = null;
+  if (hasRef) {
+    try { track = await trackFor(ctx, ref, journey && journey.id); }
+    catch (error) {
+      console.error('[panel-lead-tracking]',{ref,journeyId:journey?.id||null,message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});
+    }
+  }
   const cutoff = new Date(Date.now() - 60 * 86400000).toISOString();
   const scope = hasRef ? { ref_code: 'eq.' + ref } : { journey_id: 'eq.' + journey.id };
+  // Notes, events and optional enrichment must not prevent the lead itself
+  // from opening. In particular, an empty confirmed note is valid data.
+  const optionalRead=async(label,read)=>{
+    try{return await read();}
+    catch(error){console.error('[panel-lead-read]',{label,ref,journeyId:journey?.id||null,message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});return [];}
+  };
   const [notes, events, promises, archive, recentMatches, aiReadings, aiSuggestions] = await Promise.all([
-    allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'created_at.desc' }),
-    allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ...scope, undone_at: 'is.null', order: 'occurred_at.desc' }),
-    allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'due_at.asc' }),
-    allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, order: 'uploaded_at.desc' }),
-    allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, created_at: 'gte.' + cutoff }),
-    journey ? rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'}) : Promise.resolve([]),
-    journey ? rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'}) : Promise.resolve([])
+    optionalRead('lead_notes',()=>allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'created_at.desc' })),
+    optionalRead('lead_events',()=>allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ...scope, undone_at: 'is.null', order: 'occurred_at.desc' })),
+    optionalRead('lead_promises',()=>allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'due_at.asc' })),
+    optionalRead('manheim_vehicles',()=>allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, order: 'uploaded_at.desc' })),
+    optionalRead('manheim_matches',()=>allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, created_at: 'gte.' + cutoff })),
+    journey ? optionalRead('conversation_ai_readings',()=>rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
+    journey ? optionalRead('whatsapp_link_suggestions',()=>rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'})) : Promise.resolve([])
   ]);
   const aiReading=aiReadings[0]||null;
   const aiItems=aiReading?await allRows(ctx,'conversation_ai_items',{select:'id,item_json,evidence_text,manual_review,status,created_at',environment:'eq.'+ctx.environment,reading_id:'eq.'+aiReading.id,status:'eq.PENDING',order:'created_at.asc'}):[];
