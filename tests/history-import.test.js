@@ -19,6 +19,18 @@ const historyMedia=(id='history.media',field='messages')=>({id,event:'history',d
   [{id:'wamid.history.image',from:business,to:customer,timestamp:'1790432300',type:'image',image:{id:'media-image'}},{id:'wamid.history.echo-audio',from:business,to:customer,timestamp:'1790432301',type:'audio',audio:{id:'media-echo'}}]}});
 function loadWith(relative,mocks){const file=path.join(root,relative),mod={exports:{}};const req=(name)=>Object.hasOwn(mocks,name)?mocks[name]:require(name.startsWith('.')?path.resolve(path.dirname(file),name):name);new Function('require','module','exports',fs.readFileSync(file,'utf8'))(req,mod,mod.exports);return mod.exports;}
 function response(){return {code:0,payload:null,status(code){this.code=code;return this;},json(value){this.payload=value;return value;}};}
+function panelFunction(name){
+  const source=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8'),match=new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(source);
+  assert.ok(match,`função ${name} existe`);
+  const start=match.index,open=source.indexOf('{',start);let depth=0,end=open;
+  for(;end<source.length;end++){if(source[end]==='{')depth++;else if(source[end]==='}'&&!--depth){end++;break;}}
+  return new Function(`return (${source.slice(start,end)})`)();
+}
+const splitHistory=panelFunction('historyParts'),makeBatches=panelFunction('historyBatches'),sendHistoryBatch=panelFunction('requestHistoryBatch');
+const message=(id,body='x')=>({id,from:customer,timestamp:String(1790430000+Number(String(id).replace(/\D/g,'').slice(-6)||0)),type:'text',text:{body}});
+const historyFixture=(id,counts,metadata={phase:2,chunk_order:1,progress:50})=>({id,event:'history',data:{id:'data-'+id,messaging_product:'whatsapp',metadata:{display_phone_number:business},history:[{metadata,threads:counts.map((count,index)=>({id:`thread-${id}-${index}`,context:{slot:index},messages:Array.from({length:count},(_,item)=>message(`${id}-${index}-${item}`))}))}]}});
+const messageCount=(part)=>(part.data?.history||[]).flatMap((chunk)=>chunk.threads||[]).reduce((total,thread)=>total+(thread.messages||[]).length,0);
+const jsonBytes=(value)=>new TextEncoder().encode(JSON.stringify(value)).length;
 
 test('fixture history preserves direction and special labels',()=>{
   const parsed=receiver.normalizedItems(history());
@@ -41,6 +53,70 @@ test('history event validation accepts state sync without metadata and rejects a
   assert.equal(handler.validObject({...history(),data:{...history().data,metadata:{display_phone_number:'13055550999'}}}),false);
   assert.equal(handler.validObject({id:'bad',event:'history',data:{metadata:{display_phone_number:business}}}),false);
   assert.match(panel,/\[value\.data\.history, value\.data\.messages, value\.data\.message_echoes\]\.some\(Array\.isArray\)/);
+});
+
+test('history parts cap 40 threads at 100 messages with stable ids and metadata',()=>{
+  const input=historyFixture('forty',Array(40).fill(5),{phase:3,chunk_order:7,progress:81}),parts=splitHistory(input),again=splitHistory(input);
+  assert.deepEqual(parts.map((part)=>part.id),['forty#p1','forty#p2']);
+  assert.deepEqual(parts.map(messageCount),[100,100]);
+  assert.ok(parts.every((part)=>part.data.id===input.data.id&&part.data.messaging_product==='whatsapp'));
+  assert.ok(parts.every((part)=>JSON.stringify(part.data.metadata)===JSON.stringify(input.data.metadata)));
+  assert.ok(parts.every((part)=>JSON.stringify(part.data.history[0].metadata)===JSON.stringify(input.data.history[0].metadata)));
+  assert.deepEqual(again,parts);
+  assert.deepEqual(again.map(receiver.eventKey),parts.map(receiver.eventKey));
+  assert.deepEqual(parts.map(receiver.eventKey),['history:forty#p1','history:forty#p2']);
+  assert.equal(new Set(parts.map(receiver.eventKey)).size,parts.length);
+  const handler=loadWith('api/panel/history-import.js',{'../../panel-server':{},'../../whatsapp-receiver':{}});
+  assert.ok(parts.every(handler.validObject));
+  const empty=historyFixture('empty',[]);assert.deepEqual(splitHistory(empty),[empty]);
+});
+
+test('one 357-message thread becomes 100, 100, 100 and 57 in original order',()=>{
+  const input=historyFixture('long',[357]),parts=splitHistory(input);
+  assert.deepEqual(parts.map(messageCount),[100,100,100,57]);
+  assert.deepEqual(parts.map((part)=>part.id),['long#p1','long#p2','long#p3','long#p4']);
+  assert.ok(parts.every((part)=>part.data.history[0].threads.length===1&&part.data.history[0].threads[0].id==='thread-long-0'));
+  assert.ok(parts.every((part)=>part.data.history[0].threads[0].context.slot===0));
+  assert.deepEqual(parts.flatMap((part)=>part.data.history[0].threads[0].messages.map((item)=>item.id)),input.data.history[0].threads[0].messages.map((item)=>item.id));
+});
+
+test('history batches preserve order and cap count plus combined bytes',()=>{
+  const small=Array.from({length:10},(_,index)=>({id:'small-'+index,pad:'x'}));
+  assert.deepEqual(makeBatches(small),[small]);
+  const large=Array.from({length:3},(_,index)=>({id:'large-'+index,pad:'x'.repeat(600000)})),largeBatches=makeBatches(large);
+  assert.deepEqual(largeBatches.map((batch)=>batch.length),[1,1,1]);
+  const mixed=Array.from({length:23},(_,index)=>({id:'mixed-'+index,pad:'x'.repeat(index%4===0?130000:30000)})),batches=makeBatches(mixed);
+  assert.deepEqual(batches.flat(),mixed);
+  assert.ok(batches.every((batch)=>batch.length<=10));
+  assert.ok(batches.every((batch)=>batch.length===1||batch.reduce((sum,item)=>sum+jsonBytes(item),0)<=500000));
+});
+
+test('failed history batch retries the identical batch three times',async()=>{
+  const batch=[{id:'same'}],calls=[],waits=[];
+  const result=await sendHistoryBatch(batch,async(_path,options)=>{calls.push(JSON.parse(options.body).items);if(calls.length<3){const failure=Error('HISTORY_IMPORT_FAILED');failure.code='HISTORY_IMPORT_FAILED';throw failure;}return {imported:1};},async(milliseconds)=>waits.push(milliseconds));
+  assert.deepEqual(result,{imported:1});
+  assert.deepEqual(calls,[batch,batch,batch]);
+  assert.deepEqual(waits,[2000,2000]);
+  let failedCalls=0;
+  await assert.rejects(()=>sendHistoryBatch(batch,async()=>{failedCalls++;const failure=Error('HISTORY_IMPORT_FAILED');failure.code='HISTORY_IMPORT_FAILED';throw failure;},async()=>{}),/HISTORY_IMPORT_FAILED/);
+  assert.equal(failedCalls,3);
+});
+
+test('real-size synthetic history stays under message and batch limits',()=>{
+  const sized=(id,counts,target,phase,order)=>{const value=historyFixture(id,counts,{phase,chunk_order:order,progress:75}),total=counts.reduce((sum,count)=>sum+count,0),padding=Math.max(0,Math.floor((target-jsonBytes(value))/total));value.data.history[0].threads.forEach((thread)=>thread.messages.forEach((item)=>{item.text.body='x'.repeat(padding);}));return value;};
+  const histories=[sized('real-a',[357,...Array(237).fill(3)],627000,1,1),sized('real-b',Array(177).fill(3),347000,1,2),sized('real-c',[...Array(62).fill(2),...Array(346).fill(3)],306000,1,3)];
+  assert.deepEqual(histories.map((item)=>messageCount(item)),[1068,531,1162]);
+  assert.ok(histories.every((item,index)=>Math.abs(jsonBytes(item)-[627000,347000,306000][index])<4000));
+  const states=Array.from({length:5},(_,index)=>({id:'state-'+index,event:'smb_app_state_sync',data:{state_sync:Array.from({length:100},(_entry,contact)=>({phone_number:`1305555${index}${String(contact).padStart(3,'0')}`,full_name:'x'.repeat(560)}))}}));
+  const media=Array.from({length:441},(_,index)=>({id:'media-'+index,event:'history',data:{metadata:{display_phone_number:business},messages:[{id:'wamid.media.'+index,from:customer,timestamp:String(1790433000+index),type:'image',image:{id:'image-'+index,caption:'x'.repeat(700)}}]}}));
+  assert.ok(states.every((item)=>jsonBytes(item)>60000&&jsonBytes(item)<70000));
+  assert.ok(media.every((item)=>jsonBytes(item)>800&&jsonBytes(item)<1200));
+  const parts=histories.flatMap(splitHistory),ordered=states.concat(parts,media),batches=makeBatches(ordered);
+  assert.equal(parts.reduce((sum,part)=>sum+messageCount(part),0),2761);
+  assert.ok(parts.every((part)=>messageCount(part)<=100));
+  assert.deepEqual(batches.flat(),ordered);
+  assert.ok(batches.every((batch)=>batch.length<=10));
+  assert.ok(batches.every((batch)=>batch.length===1||batch.reduce((sum,item)=>sum+jsonBytes(item),0)<=500000));
 });
 
 test('history media uses webhook item paths with history labels and preserves directions',()=>{
@@ -94,9 +170,14 @@ test('importer sends state sync first and keeps batches small',()=>{
   const panel=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
   assert.match(panel,/states\.concat\(histories, mediaHistories\)/);
   assert.match(panel,/mediaHistoryOrder/);
-  assert.match(panel,/offset \+= 10/);
+  assert.match(panel,/flatMap\(historyParts\)/);
+  assert.match(panel,/historyBatches\(ordered\)/);
+  assert.doesNotMatch(panel,/offset \+= 10/);
+  assert.match(panel,/requestHistoryBatch\(batch, request, pause\)/);
   assert.match(panel,/\/api\/panel\/history-import/);
   assert.match(panel,/Importado: \$\{totals\.conversations\} conversas/);
+  assert.match(fs.readFileSync(path.join(root,'api/panel/history-import.js'),'utf8'),/FUNCTION_BUDGET_MS=45000/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root,'vercel.json'),'utf8')).functions['api/panel/history-import.js'].maxDuration,60);
   const receiverSource=fs.readFileSync(path.join(root,'whatsapp-receiver.js'),'utf8');
   assert.match(receiverSource,/saveAddressBook\(ctx,parsed\.addressBook\)/);
   assert.match(receiverSource,/panel_whatsapp_apply_address_book/);
