@@ -6,6 +6,50 @@
   font-display: swap;
 }
 
+/* Login isolado: a classe sai do body assim que o aplicativo abre. */
+body.login-screen {
+  min-height: 100vh;
+  background:
+    linear-gradient(rgba(11,13,16,.40), rgba(11,13,16,.70)),
+    url('/painel/login-fundo.jpg') center 40% / cover fixed no-repeat;
+  color: #F2EFE9;
+}
+body.login-screen .shell { min-height: 100vh; display: grid; place-items: center; }
+body.login-screen #login-view {
+  width: min(430px, calc(100vw - 32px));
+  background: rgba(11,13,16,.55);
+  border: 1px solid rgba(242,239,233,.28);
+  color: #F2EFE9;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+body.login-screen #login-view .muted,
+body.login-screen #login-view label { color: #F2EFE9; }
+body.login-screen #login-view input {
+  color: #F2EFE9;
+  background: rgba(242,239,233,.10);
+  border-color: rgba(242,239,233,.35);
+}
+body.login-screen #login-view button[type="submit"] { background: #C9A34E; color: #0B0D10; }
+
+.clients-filters { align-items: end; }
+.clients-filters label { min-width: 150px; }
+.searches-subsection { margin-top: 32px; }
+.ref-filters .chip span { margin-left: 4px; opacity: .75; }
+.next-action { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.next-action.overdue { color: #a52020; }
+.next-action-editor { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+.next-action-editor input[type="text"] { flex: 1 1 220px; }
+.wait-clock.wait-orange { color: #a45f00; }
+.wait-clock.wait-red, .read-no-reply { color: #b42318; font-weight: 600; }
+.wait-clock.wait-gray { color: var(--muted); }
+.no-ref-phone { font-size: 20px; font-weight: 600; }
+.discard-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+@media (max-width: 700px) {
+  .clients-filters label { width: 100%; min-width: 0; }
+}
+
 @font-face {
   font-family: "Instrument Sans";
   src: url("/painel/fonts/InstrumentSans-500.woff2") format("woff2");

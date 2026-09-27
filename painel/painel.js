@@ -17,6 +17,8 @@
   let chatAliases = [];
   let todayItems = [];
   let recordItems = [];
+  let clientsData = { items: [], pending: { items: [], counts: {} } };
+  let todayRefFilter = localStorage.getItem('mcs_today_ref_filter') || 'all';
   let pendingSituation = 'all';
   let pendingContinueTimer = null;
   let currentView = 'today';
@@ -42,7 +44,7 @@
   const productionHost = location.hostname === 'www.mycarscout.net';
   const environmentBadge = $('environment-badge');
   if (environmentBadge) { environmentBadge.textContent = productionHost ? 'PRODUÇÃO' : 'PREVIEW — NÃO USE PARA TRABALHAR'; environmentBadge.classList.toggle('production', productionHost); }
-  const show = (id) => ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id));
+  const show = (id) => { document.body.classList.toggle('login-screen', id === 'login-view'); ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id)); };
   const error = (id, message) => { $(id).textContent = message || ''; };
   const importFailureMessage = (failure) => {
     const messages = {
@@ -381,21 +383,21 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
     if (view === 'orders') $('orders-more').classList.add('hidden');
   }
 
   async function switchPanel(view) {
-    if (!['today', 'entry', 'pending', 'orders', 'qualification', 'searches', 'manheim', 'records'].includes(view)) return;
+    if (!['today', 'entry', 'clients', 'orders', 'searches'].includes(view)) return;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     currentView = view;
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
-    const labels = { today: 'HOJE', entry: 'ENTRADA', pending: 'PENDÊNCIAS', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', searches: 'BUSCAS', manheim: 'MANHEIM', records: 'FICHAS' };
+    const labels = { today: 'HOJE', entry: 'ENTRADA', clients: 'CLIENTES', orders: 'PEDIDOS', searches: 'BUSCAS' };
     currentDetail = null;
     if ($('detail-panel')) $('detail-panel').classList.add('hidden');
-    Object.keys(labels).forEach((name) => $(name + '-panel').classList.toggle('hidden', name !== view));
+    ['today','entry','clients','orders','searches','pending','qualification','manheim','records'].forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
     $('page-title').textContent = labels[view];
     document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
     renderLoading(view);
@@ -715,8 +717,8 @@
   }
   function pendingTone(value) { return {NO_RESPONSE:'red',MCS_PENDING:'yellow',CUSTOMER_PENDING:'yellow',IN_PROGRESS:'green',CLOSED:''}[value]||''; }
   function pendingHeatLabel(value) { return {HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'}[value]||'❄️ Frio'; }
-  function renderPendingGeneral(data) {
-    const root=$('pending-general-card'),run=data.run||{},active=run.status==='ACTIVE',paused=run.status==='PAUSED',limited=run.status==='LIMIT';
+  function renderPendingGeneral(data, rootId='pending-general-card') {
+    const root=$(rootId),run=data.run||{},active=run.status==='ACTIVE',paused=run.status==='PAUSED',limited=run.status==='LIMIT';
     root.replaceChildren();
     root.append(element('h2','', 'Leitura geral de todas as conversas'));
     if(!data.historyReady) {
@@ -734,7 +736,7 @@
     const bar=element('div','pending-bar'),fill=element('i');fill.style.width=`${total?Math.min(100,completed/total*100):100}%`;bar.append(fill);root.append(bar);
     root.append(element('p','muted',`${completed} de ${total} conversas lidas · gasto US$ ${spent.toFixed(2)} de US$ ${budget.toFixed(2)} · conversas longas são lidas em partes, até o fim`));
     const actions=element('div','inline-actions');
-    if(active){const pause=element('button','quiet small','Pausar');pause.type='button';MCSAction.bind(pause,()=>({scope:root,optimistic:()=>{pause.textContent='Pausando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})}),rollback:()=>{pause.textContent='Pausar';},onSuccess:()=>loadPending(),errorText:'Não consegui salvar — tente de novo'}));actions.append(pause);}
+    if(active){const pause=element('button','quiet small','Pausar');pause.type='button';MCSAction.bind(pause,()=>({scope:root,optimistic:()=>{pause.textContent='Pausando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})}),rollback:()=>{pause.textContent='Pausar';},onSuccess:()=>currentView==='clients'?loadClients():loadPending(),errorText:'Não consegui salvar — tente de novo'}));actions.append(pause);}
     if(paused){const resume=element('button','small','Continuar');resume.type='button';MCSAction.bind(resume,()=>({scope:root,optimistic:()=>{resume.textContent='Continuando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resume_general'})}),rollback:()=>{resume.textContent='Continuar';},onSuccess:()=>continuePendingGeneral(),errorText:'Não consegui salvar — tente de novo'}));actions.append(resume);}
     if(limited){
       root.append(element('p','warning',`${completed} de ${total} lidas — faltam ${Math.max(0,total-completed)}.`));
@@ -761,13 +763,59 @@
       const prefix=item.latestDirection==='MCS'?'Você: ':'';card.append(element('p','message-preview',prefix+item.latestMessage));if(item.translation)card.append(element('p','muted','Tradução: “'+item.translation+'”'));if(item.summary||item.nextStep){const ai=element('div','pending-ai');ai.append(element('strong','', 'IA: '),document.createTextNode(item.summary||'Sem resumo ainda'));if(item.nextStep)ai.append(element('strong','', ' Próximo passo: '),document.createTextNode(item.nextStep));card.append(ai);}
       const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(item.phone),successText:'Copiado',errorText:'Não consegui copiar — tente de novo'}));const resolved=element('button','quiet small','Já resolvi');resolved.type='button';MCSAction.bind(resolved,()=>({scope:card,successScope:document.body,feedbackKey:`pending:${item.journeyId}:${item.chatId}`,optimistic:()=>{card.classList.add('action-optimistic-hidden');const count=countValue('pending');setCount('pending',Math.max(0,count-1));return count;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})}),rollback:(count)=>{card.classList.remove('action-optimistic-hidden');setCount('pending',count);},successText:'Marcado como resolvido.',undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'unresolve',journeyId:item.journeyId,chatId:item.chatId})}),successText:'Voltou para pendente.',refresh:()=>loadPending()},errorText:'Não consegui salvar — tente de novo'}));const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadPending(),errorText:'Não consegui salvar — tente de novo'};});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
     });
-    if(currentView==='pending'&&data.run?.status==='ACTIVE')pendingContinueTimer=setTimeout(()=>continuePendingGeneral().catch(()=>{}),500);
+    if(['pending','clients'].includes(currentView)&&data.run?.status==='ACTIVE')pendingContinueTimer=setTimeout(()=>continuePendingGeneral().catch(()=>{}),500);
   }
   async function loadPending() { const data=await request(pendingQuery());renderPending(data);return data; }
-  async function continuePendingGeneral() { if(currentView!=='pending')return;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'continue_general'})});return loadPending(); }
+  async function continuePendingGeneral() { if(!['pending','clients'].includes(currentView))return;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'continue_general'})});return currentView==='clients'?loadClients():loadPending(); }
   async function downloadPendingCsv() {
     const response=await fetch(pendingQuery()+'&download=csv',{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('DOWNLOAD_FAILED');const blob=await response.blob(),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='pendencias-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
+
+  function hasRef(item){return Boolean(item?.ref||item?.referenceCode||item?.reference_code||(item?.refs||[]).some((entry)=>entry?.ref_code||entry));}
+  function checklistCompleted(item){return Number(item?.checklistSummary?.completed||item?.completedChecklist||0);}
+  function waitClockNode(item){
+    const latest=item?.latestMessage;
+    if(!latest||latest.is_automatic||latest.direction!=='CUSTOMER')return null;
+    const stamp=Date.parse(latest.occurred_at_utc||latest.occurred_at_local||latest.created_at||item.latestAt||0);if(!stamp)return null;
+    const elapsed=Math.max(0,Date.now()-stamp),tone=elapsed>14400000?'wait-red':elapsed>3600000?'wait-orange':'wait-gray';
+    return element('p',`wait-clock ${tone}`,`esperando há ${pendingAgo(new Date(stamp).toISOString())}`);
+  }
+  function readReceiptNode(item){
+    const latest=item?.latestMcsMessage||null,readAt=latest?.whatsapp_read_at||item?.lastMcsReadAt;if(!readAt)return null;
+    const wrap=element('div','message-receipt');wrap.append(element('span','muted',`✓✓ leu às ${new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(readAt))}`));
+    const customerAt=Date.parse(item?.lastCustomerAt||0)||0,mcsAt=Date.parse(latest?.occurred_at_utc||latest?.created_at||item?.lastMcsAt||0)||0;
+    if(Date.now()-Date.parse(readAt)>7200000&&customerAt<=mcsAt)wrap.append(makeBadge('leu e não respondeu','red'));
+    return wrap;
+  }
+  function nextQuickDate(kind){const date=new Date();date.setHours(17,0,0,0);if(kind==='tomorrow')date.setDate(date.getDate()+1);if(kind==='friday'){const add=(5-date.getDay()+7)%7||7;date.setDate(date.getDate()+add);}return date;}
+  function nextActionNode(item,reload){
+    if(item.enabled===false||item.status==='ENCERRADO')return null;
+    const journeyId=item.journeyId||item.id;if(!journeyId)return null;
+    const block=element('section','next-action'+(item.next_action_at&&Date.parse(item.next_action_at)<Date.now()?' overdue':''));
+    block.append(element('strong','',`Próximo passo: ${item.next_action_text||'não definido'}${item.next_action_at?' · '+formatDate(item.next_action_at):''}`));
+    const define=element('button','quiet small','Definir');define.type='button';block.append(define);
+    define.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();if(block.querySelector('.next-action-editor'))return;
+      const editor=element('div','next-action-editor'),text=element('input');text.type='text';text.maxLength=500;text.placeholder='Texto curto';text.value=item.next_action_text||'';
+      const quick=element('select');[['today','Hoje'],['tomorrow','Amanhã'],['friday','Sexta'],['custom','Data']].forEach(([value,label])=>quick.append(new Option(label,value)));
+      const date=element('input');date.type='datetime-local';date.value=localInput(nextQuickDate('today'));date.classList.add('hidden');quick.addEventListener('change',()=>{date.classList.toggle('hidden',quick.value!=='custom');if(quick.value!=='custom')date.value=localInput(nextQuickDate(quick.value));});
+      const save=element('button','small','Salvar');save.type='button';MCSAction.bind(save,()=>({scope:block,optimistic:()=>{save.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'next_action',operation:'CREATE',journeyId,text:text.value,at:new Date(date.value).toISOString()})}),rollback:()=>{save.textContent='Salvar';},refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
+      editor.append(text,quick,date,save);block.append(editor);
+    });
+    return block;
+  }
+  function copyPhoneButton(item,card){const phone=primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||item.phone;if(!phone)return null;const copy=element('button','quiet small','Copiar número');copy.type='button';MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(phone),successText:'Copiado',errorText:'Não consegui copiar — tente de novo'}));return copy;}
+
+  function renderClients(data){
+    clientsData=data;const pendingByJourney=new Map((data.pending.items||[]).map((item)=>[item.journeyId,item]));
+    let items=(data.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id,latestMessage:item.latestMessage||null}));
+    const situation=$('clients-situation').value,checklist=$('clients-checklist').value,ref=$('clients-ref').value,heat=$('clients-heat').value;
+    items=items.filter((item)=>(situation==='all'||item.situation===situation)&&(checklist==='all'||(checklist==='complete'?checklistCompleted(item)===6:checklistCompleted(item)<6))&&(ref==='all'||(ref==='with'?hasRef(item):!hasRef(item)))&&(heat==='all'||String(item.heat||'').toUpperCase()===heat));
+    items=clientSort(items,$('clients-sort').value);if($('clients-sort').value==='hot')items.sort((a,b)=>({HOT:0,WARM:1,COLD:2}[a.heat]??3)-({HOT:0,WARM:1,COLD:2}[b.heat]??3));
+    renderPendingGeneral(data.pending,'clients-general-card');const stats=$('clients-stats');stats.replaceChildren();[['NO_RESPONSE','Sem resposta'],['MCS_PENDING','Parado com você'],['CUSTOMER_PENDING','Parado com o cliente'],['IN_PROGRESS','Em andamento'],['CLOSED','Concluída']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.pending.counts?.[key]||0)),element('span','muted',label));stats.append(stat);});
+    const root=$('clients-list');root.replaceChildren();setCount('clients',(data.items||[]).length);if(!items.length)return empty(root,'Nenhum cliente neste filtro.');
+    items.forEach((item)=>{const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');head.append(identityHeader(item,{preview:item.latestMessage?.body_text||item.latestMessageText||''}));const badges=element('div','badges');badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)),makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));head.append(badges);card.append(head);if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`IA: ${item.aiSummary||item.summary}`));const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients());if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)card.append(copy);}const actions=element('div','inline-actions'),open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));actions.append(open,journeySwitch(item,()=>loadClients()));if(item.chatId){const done=element('button','quiet small','Já resolvi');done.type='button';MCSAction.bind(done,()=>({scope:card,optimistic:()=>card.classList.add('action-optimistic-hidden'),commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.id,chatId:item.chatId})}),rollback:()=>card.classList.remove('action-optimistic-hidden'),undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'unresolve',journeyId:item.id,chatId:item.chatId})}),successText:'Voltou para pendente.',refresh:()=>loadClients()},refresh:()=>loadClients(),errorText:'Não consegui salvar — tente de novo'}));actions.append(done);}card.append(actions,dispositionControls(item));makeCardClickable(card,()=>openDetail('ficha',item.id));root.append(card);});
+  }
+  async function loadClients(){const [records,pending]=await Promise.all([request('/api/panel/records?sort='+encodeURIComponent($('clients-sort').value)),request('/api/panel/pendencias?situation=all&sort=hot&withRef=false')]);updateMeta(records.meta);renderClients({items:records.items||[],pending});}
 
   function empty(root, message) {
     root.replaceChildren(element('p', 'empty-state', message));
@@ -808,7 +856,7 @@
     const wrap = element('div', 'identity');
     wrap.append(element('span', 'avatar', initials(name)));
     const text = element('div');
-    text.append(element('strong', 'identity-name', name), phoneNode(item));
+    const identityPhone=phoneNode(item);if(!ref)identityPhone.classList.add('no-ref-phone');text.append(element('strong', 'identity-name', name), identityPhone);
     const details = [`Ref ${ref||'—'}`, item.vehicleText || item.vehicle_text || 'Veículo não informado', item.budgetCents||item.budget_cents ? formatMoney(item.budgetCents||item.budget_cents) : null].filter(Boolean).join(' · ');
     text.append(element('span', 'muted one-line', details));
     const direct=directLeadBadge(item);if(direct)text.append(direct);
@@ -875,7 +923,7 @@
   }
 
   function renderFailure(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
   }
 
@@ -893,7 +941,7 @@
       const stageAction=(control,kind)=>MCSAction.bind(control,()=>{const previous=item.stage,next=kind==='SAVED'?'SAVED':'SENT';return{scope:card,optimistic:()=>{item.stage=next;card.querySelector('.search-stage').textContent=next==='SAVED'?'💾 Busca salva':'📤 Opções enviadas';return previous;},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind})}),rollback:(value)=>{item.stage=value;card.querySelector('.search-stage').textContent=item.stageLabel;},refresh:()=>loadSearches(),errorText:'Não consegui salvar — tente de novo'};});
       if(item.stage==='MISSING'){const saved=makeButton('💾 Salvei a busca no Manheim',null);stageAction(saved,'SAVED');actions.append(saved);}
       if(item.stage!=='SENT'){const sent=makeButton('📤 Enviei opções ao cliente',null,'quiet small');stageAction(sent,'SENT');actions.append(sent);}
-      if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>switchPanel('manheim'),'quiet small'));
+      if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>switchPanel('searches'),'quiet small'));
       if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED',undo=makeButton('Desfazer',null,'quiet small');if(item.stageSource==='MARK')MCSAction.bind(undo,()=>({scope:card,optimistic:()=>{undo.textContent='Desfazendo…';},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind})}),rollback:()=>{undo.textContent='Desfazer';},refresh:()=>loadSearches(),errorText:'Não consegui desfazer — tente de novo'}));else undo.addEventListener('click',()=>MCSAction.feedback(card,item.stageSource==='MANHEIM'?'Esta busca foi marcada no MANHEIM. Desfaça em “Quais buscas salvar”.':'As opções foram registradas pela ficha do cliente; desfaça na ficha.','error','search-origin'));actions.append(undo);}
       actions.append(makeButton('Abrir lead',()=>openDetail('ficha',item.journeyId),'quiet small'));card.append(actions);root.append(card);
     });
@@ -911,6 +959,7 @@
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp.'; });
     }
     if (view === 'pending') return loadPending();
+    if (view === 'clients') return loadClients();
     if (view === 'today') {
       const data = await request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value));
       if (!current()) return;
@@ -926,7 +975,11 @@
       updateMeta(data.meta);
       return renderQualification(data.items || []);
     }
-    if (view === 'searches') return loadSearches();
+    if (view === 'searches') {
+      const [,data]=await Promise.all([loadSearches(),request('/api/panel/records?view=manheim')]);
+      if (!current()) return;
+      updateMeta(data.meta);renderManheim(data);return;
+    }
     if (view === 'manheim') {
       const data = await request('/api/panel/records?view=manheim');
       if (!current()) return;
@@ -942,21 +995,20 @@
   }
 
   async function refreshCounters() {
-    const [today, entry, pending, orders, qualification, searches, manheim, records] = await Promise.all([
+    const [today, entry, pending, orders, searches, manheim, records] = await Promise.all([
       request('/api/panel/today'),
       request('/api/panel/entry'),
       request('/api/panel/pendencias'),
       request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
-      request('/api/panel/qualification'),
       request('/api/panel/searches'),
       request('/api/panel/records?view=manheim'),
       request('/api/panel/records')
     ]);
     setCount('today',(today.items||[]).length);
     setCount('entry', (entry.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (entry.reviews || []).length);
+    setCount('clients', (records.items || []).length);
     setCount('pending', Object.values(pending.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
     setCount('orders', orders.page && orders.page.total || 0);
-    setCount('qualification', (qualification.items || []).length);
     setCount('searches', (searches.items || []).length);
     setCount('manheim', manheim.upload && manheim.upload.lead_count || 0);
     setCount('records', (records.items || []).length);
@@ -1052,7 +1104,9 @@
     requestAnimationFrame(() => window.scrollTo(0, Number(target.scrollY || 0)));
   }
 
-  function showUndo({itemKind,itemKey,previousStatus,label,scope,refresh}) {
+  const DISCARD_REASONS=Object.freeze({PRICE:'Preço',DISAPPEARED:'Sumiu',BOUGHT_ELSEWHERE:'Comprou em outro lugar',NO_CREDIT:'Sem crédito',CURIOSITY:'Só curiosidade',OTHER:'Outro'});
+  function discardLabel(value){return DISCARD_REASONS[value]||'';}
+  function showUndo({itemKind,itemKey,previousStatus,previousReason,label,scope,refresh}) {
     const scopeKey=currentDetail?`detail:${currentDetail.kind}:${currentDetail.key}`:`view:${currentView}`;
     clearTimeout(undoTimers.get(scopeKey));
     document.querySelectorAll(`.undo-toast[data-undo-scope="${scopeKey}"]`).forEach((node)=>node.remove());
@@ -1061,7 +1115,7 @@
     const undo = element('button', 'quiet small', 'Desfazer');
     undo.type = 'button';
     MCSAction.bind(undo,()=>({scope:scope||document.body,feedbackKey:`undo:${scopeKey}`,optimistic:()=>{toast.classList.add('action-optimistic-hidden');return null;},
-      commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status:previousStatus,previousStatus})}),
+      commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status:previousStatus,previousStatus,previousReason})}),
       rollback:()=>toast.classList.remove('action-optimistic-hidden'),successText:'Ação desfeita.',
       refresh:async()=>{toast.remove();if(refresh)await refresh();await refreshCounters();await loadCaptureWarning();}}));
     toast.append(undo);
@@ -1077,8 +1131,8 @@
 
   function countValue(view){return Number(document.querySelector(`[data-count="${view}"]`)?.textContent)||0;}
   function applyDispositionVisual(button,item,status){
-    const card=button.closest('.item-card,.lead-card,.record-block'),hide=Boolean(status)&&!currentDetail&&['today','qualification'].includes(currentView);
-    const snapshot={status:item.disposition||null,card,hidden:card?.classList.contains('action-optimistic-hidden'),count:countValue(currentView)};
+    const card=button.closest('.item-card,.lead-card,.record-block'),hide=Boolean(status)&&!currentDetail&&['today','clients'].includes(currentView);
+    const snapshot={status:item.disposition||null,reason:item.discardReason||null,card,hidden:card?.classList.contains('action-optimistic-hidden'),count:countValue(currentView)};
     item.disposition=status;
     if(hide&&card){card.classList.add('action-optimistic-hidden');setCount(currentView,Math.max(0,snapshot.count-1));}
     else{const controls=button.closest('.disposition-controls');if(controls){controls.dataset.status=status||'';controls.querySelectorAll('.disposition-state').forEach((node)=>node.remove());if(status){const state=makeBadge(status==='TREATED'?'Tratado':'Descartado',status==='DISCARDED'?'red':'blue');state.classList.add('disposition-state');controls.prepend(state);}}}
@@ -1087,6 +1141,7 @@
 
   function rollbackDisposition(item,snapshot){
     item.disposition=snapshot.status;
+    item.discardReason=snapshot.reason;
     if(snapshot.card){snapshot.card.classList.toggle('action-optimistic-hidden',Boolean(snapshot.hidden));}
     setCount(currentView,snapshot.count);
   }
@@ -1096,19 +1151,19 @@
     return refreshCurrentPreservingState();
   }
 
-  function setDisposition(item,status,button) {
-    const {itemKind,itemKey}=dispositionIdentity(item),previousStatus=item.disposition||null,scope=button.closest('.item-card,.lead-card,.record-block')||document.body;
+  function setDisposition(item,status,button,reason=null) {
+    const {itemKind,itemKey}=dispositionIdentity(item),previousStatus=item.disposition||null,previousReason=item.discardReason||null,scope=button.closest('.item-card,.lead-card,.record-block')||document.body;
     return MCSAction.run({button,scope,feedbackKey:`disposition:${itemKind}:${itemKey}`,optimistic:()=>applyDispositionVisual(button,item,status),
-      commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status})}),
+      commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status,reason})}),
       rollback:(snapshot)=>rollbackDisposition(item,snapshot),errorText:'Não consegui salvar — tente de novo',
-      onSuccess:()=>showUndo({itemKind,itemKey,previousStatus,label:status==='TREATED'?'Marcado como Tratado':status==='DISCARDED'?'Marcado como Descartado':'Voltou para pendente',scope,refresh:dispositionRefresh}),
+      onSuccess:()=>{item.discardReason=status==='DISCARDED'?reason:null;showUndo({itemKind,itemKey,previousStatus,previousReason,label:status==='TREATED'?'Marcado como Tratado':status==='DISCARDED'?`Descartado · ${discardLabel(reason)}`:'Voltou para pendente',scope,refresh:dispositionRefresh});},
       refresh:async()=>{await dispositionRefresh();await refreshCounters();}});
   }
 
   function dispositionControls(item) {
     const actions = element('div', 'inline-actions disposition-controls');actions.dataset.status=item.disposition||'';
     if(item.disposition){
-      const state=makeBadge(item.disposition==='TREATED'?'Tratado':'Descartado',item.disposition==='DISCARDED'?'red':'blue');state.classList.add('disposition-state');actions.append(state);
+      const state=makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue');state.classList.add('disposition-state');actions.append(state);
       const restore=element('button','quiet small','Voltar para pendente');restore.type='button';restore.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();setDisposition(item,null,restore);});actions.append(restore);return actions;
     }
     const treated = element('button', 'small', 'Tratado');
@@ -1116,7 +1171,7 @@
     treated.addEventListener('click', (event) => {event.preventDefault();event.stopPropagation();setDisposition(item,'TREATED',treated);});
     const discarded = element('button', 'quiet small', 'Descartar');
     discarded.type = 'button';
-    discarded.addEventListener('click', (event) => {event.preventDefault();event.stopPropagation();setDisposition(item,'DISCARDED',discarded);});
+    discarded.addEventListener('click', (event) => {event.preventDefault();event.stopPropagation();if(actions.querySelector('.discard-reasons'))return;const reasons=element('div','discard-reasons');Object.entries(DISCARD_REASONS).forEach(([value,label])=>{const choice=element('button','quiet small',label);choice.type='button';choice.addEventListener('click',(choiceEvent)=>{choiceEvent.preventDefault();choiceEvent.stopPropagation();setDisposition(item,'DISCARDED',choice,value);});reasons.append(choice);});actions.append(reasons);});
     actions.append(treated, discarded);
     return actions;
   }
@@ -1126,7 +1181,7 @@
   }
 
   function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', entry: 'entry-panel', pending: 'pending-panel', orders: 'orders-panel', qualification: 'qualification-panel', searches: 'searches-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    const labels = { today: 'today-panel', entry: 'entry-panel', clients:'clients-panel', pending: 'pending-panel', orders: 'orders-panel', qualification: 'qualification-panel', searches: 'searches-panel', manheim: 'manheim-panel', records: 'records-panel' };
     Object.values(labels).forEach((id) => $(id).classList.add('hidden'));
     $('detail-panel').classList.remove('hidden');
     $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
@@ -1204,7 +1259,7 @@
     if (item.status) badges.append(makeBadge(item.status, item.status === 'RESPONDIDO' ? 'blue' : item.status === 'SEM RESPOSTA' ? 'yellow' : ''));
     if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
     if (item.disposition === 'TREATED') badges.append(makeBadge('Tratado', 'blue'));
-    if (item.disposition === 'DISCARDED') badges.append(makeBadge('Descartado'));
+    if (item.disposition === 'DISCARDED') badges.append(makeBadge(`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`));
     intro.append(badges, simulationBlock(item), dispositionControls({ ...item, kind: 'CALCULATOR' }));
 
     const linkedJourneyId = item.journeyId || item.link && item.link.journeyId;
@@ -1231,13 +1286,16 @@
     root.replaceChildren(intro);
   }
 
-  function renderToday(items) {
+  function renderToday(items, preserveAll=false) {
     const root = $('today-list');
     const stats = $('today-stats');
     root.replaceChildren();
     stats.replaceChildren();
-    todayItems = items.slice();
-    setCount('today', items.length);
+    if(!preserveAll)todayItems = items.slice();
+    const all=preserveAll?todayItems:items.slice(),counts={all:all.length,with:all.filter(hasRef).length,without:all.filter((item)=>!hasRef(item)).length};
+    document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);const count=button.querySelector('span');if(count)count.textContent=String(counts[button.dataset.todayRef]||0);});
+    items=all.filter((item)=>todayRefFilter==='all'||(todayRefFilter==='with'?hasRef(item):!hasRef(item))).sort((a,b)=>{const ao=a.next_action_at&&Date.parse(a.next_action_at)<Date.now()?1:0,bo=b.next_action_at&&Date.parse(b.next_action_at)<Date.now()?1:0;return bo-ao;});
+    setCount('today', all.length);
     const stat = (value, label) => {
       const block = element('div', 'today-stat');
       block.append(element('strong', '', value), element('span', '', label));
@@ -1278,6 +1336,8 @@
       if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
       if (item.kind === 'JOURNEY') badges.append(makeBadge('Ficha nova', 'blue'));
       card.append(badges);
+      const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadCurrent('today',viewRequestVersion));if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
+      if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)card.append(copy);}
       const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
       const actions = element('div', 'inline-actions');
       const open = element('button', 'today-primary small', item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
@@ -1320,7 +1380,7 @@
       else badges.append(makeBadge(item.logicalMode === 'CARRO' ? 'CARRO IDEAL' : item.logicalMode === 'VALOR' ? 'POR VALOR' : 'PEDIDO'));
       if (item.status) badges.append(makeBadge(item.status, item.status === 'RESPONDIDO' ? 'blue' : item.status === 'SEM RESPOSTA' ? 'yellow' : item.status === 'ATIVO' ? 'green' : ''));
       if (item.disposition === 'TREATED') badges.append(makeBadge('Tratado', 'blue'));
-      if (item.disposition === 'DISCARDED') badges.append(makeBadge('Descartado'));
+      if (item.disposition === 'DISCARDED') badges.append(makeBadge(`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`));
       if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
       card.append(badges);
 
@@ -1731,7 +1791,7 @@
       const controls = element('div', 'record-card-controls');
       const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
       controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
-      if(item.disposition)controls.append(makeBadge(item.disposition==='TREATED'?'Tratado':'Descartado',item.disposition==='DISCARDED'?'red':'blue'));
+      if(item.disposition)controls.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));
       if(item.searchStageLabel)controls.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       const heat=heatBadge(item);if(heat)controls.append(heat);
       if(item.pendingAiCount)controls.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
@@ -1891,7 +1951,7 @@
     if (item.manheimMatchCount) {
       const matchNotice = element('button', 'manheim-notice', `${item.manheimMatchCount} carro(s) do export mais recente batem · abrir Manheim`);
       matchNotice.type = 'button';
-      matchNotice.addEventListener('click', () => switchPanel('manheim'));
+      matchNotice.addEventListener('click', () => switchPanel('searches'));
       dataBlock.append(matchNotice);
     }
 
@@ -2104,7 +2164,7 @@
       const label = item.kind === 'ORDER'
         ? `${referencePhone(item)}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
         : `${item.name} · ${referencePhone(item)}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
-      button.append(element('span', '', label), makeBadge(item.matchedBy));const direct=directLeadBadge(item);if(direct)button.append(direct);if(item.disposition)button.append(makeBadge(item.disposition==='TREATED'?'Tratado':'Descartado',item.disposition==='DISCARDED'?'red':'blue'));if(item.searchStageLabel)button.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
+      button.append(element('span', '', label), makeBadge(item.matchedBy));const direct=directLeadBadge(item);if(direct)button.append(direct);if(item.disposition)button.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));if(item.searchStageLabel)button.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       button.addEventListener('click', () => {
         const origin=captureOrigin();
         root.classList.add('hidden');
@@ -2208,6 +2268,8 @@
   };
   async function routeFromHash(push = false) {
     const hash = String(location.hash || '');
+    const legacy={fichas:'clients',qualificacao:'clients',pendencias:'clients',clientes:'clients',manheim:'searches',buscas:'searches'}[hash.replace(/^#/,'').toLowerCase()];
+    if(legacy){history.replaceState({panelOrigin:{view:legacy,scrollY:0}},'',location.pathname+location.search);await switchPanel(legacy);return true;}
     const order = hash.match(/^#pedido\/([A-HJ-NP-Z2-9]{5})$/i);
     if (order) {
       const ref = decodeURIComponent(order[1]).toUpperCase();
@@ -2311,10 +2373,13 @@
       if (currentView === 'orders') await loadCurrent();
     }));
     $('orders-more').addEventListener('click', () => loadOrders(true).catch(() => { $('orders-more').textContent = 'Não foi possível carregar'; }));
-    ['today','entry','pending','orders','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView!==name)return;if(name==='manheim'){renderSavedSearches().catch(()=>{});return;}loadCurrent().catch(()=>{});});});
+    ['today','entry','clients','pending','orders','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')renderClients(clientsData);return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim({items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
+    ['clients-situation','clients-checklist','clients-ref','clients-heat'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')renderClients(clientsData);});});
+    document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
     $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});
     $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
+    $('clients-download').addEventListener('click',async()=>{const button=$('clients-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
     document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar.')); $('search-results').classList.remove('hidden'); }));
     $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));

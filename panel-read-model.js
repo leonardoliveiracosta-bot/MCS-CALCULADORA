@@ -23,7 +23,7 @@ async function operational(ctx) {
       select: 'journey_id,message_id',
       environment: 'eq.' + ctx.environment, undone_at:'is.null'
     }),
-    allRows(ctx, 'messages', { select: 'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_local,occurred_at_utc,time_uncertain,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'messages', { select: 'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_local,occurred_at_utc,time_uncertain,source_kind,whatsapp_delivered_at,whatsapp_read_at,created_at,undone_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_checklist', { select: 'id,journey_id,point_number,point_label,status,completed_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'promises', { select: 'id,journey_id,message_id,promise_text,due_at,due_text,status,fulfilled_at,created_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_divergences', { select: 'id,journey_id,field,status,created_at,operational_declaration_id', environment: 'eq.' + ctx.environment }),
@@ -61,7 +61,7 @@ async function messageForJourney(ctx, journeyId, messageId) {
   });
   if (!links[0]) return null;
   const messages = await rows(ctx, 'messages', {
-    select: 'id,chat_id,channel,direction,body_text,occurred_at_utc,occurred_at_local,created_at',
+    select: 'id,chat_id,channel,direction,body_text,occurred_at_utc,occurred_at_local,whatsapp_delivered_at,whatsapp_read_at,created_at',
     environment: 'eq.' + ctx.environment, id: 'eq.' + messageId, limit: '1'
   });
   return messages[0] || null;

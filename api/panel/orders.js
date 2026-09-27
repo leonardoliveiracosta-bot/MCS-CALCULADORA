@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
     const [calcRuns, links, dispositions, data, meta, insights] = await Promise.all([
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
+      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       operational(ctx),
       panelMeta(ctx),
       allRows(ctx, 'conversation_pending_insights', { select:'journey_id,heat,summary_text,next_step_text', environment:'eq.' + ctx.environment })
@@ -85,6 +85,7 @@ module.exports = async (req, res) => {
         referenceCode: item.reference_code, ref: item.reference_code,
         occurredAt: item.created_at, contactName: item.contact && item.contact.display_name,
         disposition: disposition ? disposition.status : null,
+        discardReason: disposition ? disposition.discard_reason : null,
         dispositionUpdatedAt: disposition ? disposition.updated_at : null,
         pending: !disposition,
         outOfStandard: !standardBudget(item.budget_cents),
