@@ -3,6 +3,8 @@
 const { contactIndex, clickChannel, refOf } = require('./panel-contact');
 const { consolidateCalcRuns, groupCalculatorByRef } = require('./panel-domain');
 
+const REF = /^[A-HJ-NP-Z2-9]{5}$/;
+
 function refsFor(journey, refs) {
   return [journey.reference_code, ...refs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)]
     .filter(Boolean).map((value) => String(value).trim().toUpperCase());
@@ -15,7 +17,7 @@ function auditCapture({ calcRuns = [], messages = [], messageLinks = [], disposi
   for (const journey of journeys) for (const ref of refsFor(journey, refs)) journeyByRef.set(ref, journey);
   const discarded = new Set(dispositions.filter((row) => row.item_kind === 'REF' && row.status === 'DISCARDED').map((row) => String(row.item_key || '').trim().toUpperCase()));
   const grouped = new Set(groupCalculatorByRef(consolidateCalcRuns(calcRuns, []), dispositions).map((row) => row.ref));
-  const clicked = new Set(calcRuns.filter((row) => row.is_test !== true && clickChannel(row)).map(refOf).filter(Boolean));
+  const clicked = new Set(calcRuns.filter((row) => row.is_test !== true && clickChannel(row)).map(refOf).filter((ref) => REF.test(ref)));
   const missing = [];
   for (const ref of clicked) {
     const journey = journeyByRef.get(ref);
