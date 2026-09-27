@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('node:crypto');
+
 const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, groupCalculatorByRef, journeyEnabled, reactivationEligible, shortDeadline, time, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
 const { score } = require('../../panel-ready');
@@ -178,7 +180,9 @@ module.exports = async (req, res) => {
       },
       meta
     });
-  } catch (_) {
-    return send(res, 500, { error: 'PANEL_RECORDS_ERROR' });
+  } catch (error) {
+    const requestId=crypto.randomUUID().slice(0,8);
+    console.error('[panel-records]',{requestId,route:'/api/panel/records',journeyId:String(req.query?.id||''),message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});
+    return send(res, 500, { error: 'PANEL_RECORDS_ERROR',requestId });
   }
 };
