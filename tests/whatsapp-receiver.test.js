@@ -30,7 +30,8 @@ test('history webhook, state sync and status callback have distinct validation',
   const history={id:'history.1',event:'history',data:{metadata:{display_phone_number:business},history:[{threads:[{id:customer,messages:[message('wamid.old'),{...message('wamid.out',business),to:customer}]}]}]}};
   assert.deepEqual(receiver.normalizedItems(history).items.map(x=>x.direction),['CUSTOMER','MCS']);
   assert.equal(receiver.normalizedItems({id:'state.1',event:'smb_app_state_sync',data:{state_sync:[]}}).items.length,0);
-  assert.equal(receiver.parse({object:'whatsapp_business_account',entry:[{changes:[{field:'messages',value:{statuses:[{id:'x'}]}}]}]}).type,'statuses');
+  const status=receiver.parse({object:'whatsapp_business_account',entry:[{changes:[{field:'messages',value:{statuses:[{id:'x',status:'read',timestamp:'1790431200'}]}}]}]});
+  assert.equal(status.type,'statuses');assert.equal(status.statuses[0].status,'read');
   assert.throws(()=>receiver.parse({event:'history',data:{history:{}}}),/HISTORY_INVALID/);
 });
 test('official Meta history, reactions, contacts, edits, unsupported and captions isolate each item',()=>{

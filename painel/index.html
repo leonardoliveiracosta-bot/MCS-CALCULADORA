@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="/painel/painel.css">
   <link rel="stylesheet" href="/painel/tema-mcs.css">
 </head>
-<body>
+<body class="login-screen">
   <main class="shell">
     <section id="login-view" class="card" aria-labelledby="login-title">
       <p class="eyebrow">MY CAR SCOUT</p>
@@ -52,12 +52,9 @@
         <nav aria-label="Seções do painel">
           <button class="tab active" type="button" data-view="today">HOJE <span data-count="today">0</span></button>
           <button class="tab" type="button" data-view="entry">ENTRADA <span data-count="entry">0</span></button>
-          <button class="tab" type="button" data-view="pending">PENDÊNCIAS <span data-count="pending">0</span></button>
+          <button class="tab" type="button" data-view="clients">CLIENTES <span data-count="clients">0</span></button>
           <button class="tab" type="button" data-view="orders">PEDIDOS <span data-count="orders">0</span></button>
-          <button class="tab" type="button" data-view="qualification">QUALIFICAÇÃO <span data-count="qualification">0</span></button>
           <button class="tab" type="button" data-view="searches">BUSCAS <span data-count="searches">0</span></button>
-          <button class="tab" type="button" data-view="manheim">MANHEIM <span data-count="manheim">0</span></button>
-          <button class="tab" type="button" data-view="records">FICHAS <span data-count="records">0</span></button>
         </nav>
         <form id="global-search" class="global-search" role="search">
           <label class="visually-hidden" for="global-search-input">Busca global</label>
@@ -71,6 +68,11 @@
       <section id="today-panel" class="panel-view" aria-label="Hoje">
         <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Hoje</h2><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
         <div id="today-stats" class="today-stats" aria-live="polite"></div>
+        <div id="today-ref-filters" class="filters ref-filters" aria-label="Filtrar Hoje por Ref">
+          <button type="button" class="chip active" data-today-ref="all">Todos <span>0</span></button>
+          <button type="button" class="chip" data-today-ref="with">Com Ref <span>0</span></button>
+          <button type="button" class="chip" data-today-ref="without">Sem Ref <span>0</span></button>
+        </div>
         <div id="today-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="entry-panel" class="hidden" aria-label="Entrada">
@@ -159,6 +161,19 @@
           <div id="entry-queue" class="queue" aria-live="polite"></div>
         </section>
       </section>
+      <section id="clients-panel" class="panel-view hidden" aria-label="Clientes">
+        <div class="section-head"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Conversa, qualificação e próximos passos em uma única lista.</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
+        <section id="clients-general-card" class="card pending-general" aria-live="polite"></section>
+        <div id="clients-stats" class="pending-stats" aria-live="polite"></div>
+        <div class="filters clients-filters" aria-label="Filtros de clientes">
+          <label>Situação<select id="clients-situation"><option value="all">Todas</option><option value="NO_RESPONSE">Sem resposta</option><option value="MCS_PENDING">Parado com você</option><option value="CUSTOMER_PENDING">Parado com o cliente</option><option value="IN_PROGRESS">Em andamento</option><option value="CLOSED">Concluída</option></select></label>
+          <label>Checklist<select id="clients-checklist"><option value="all">Todos</option><option value="complete">Completo 6/6</option><option value="incomplete">Incompleto</option></select></label>
+          <label>Ref<select id="clients-ref"><option value="all">Todos</option><option value="with">Com Ref</option><option value="without">Sem Ref</option></select></label>
+          <label>Calor<select id="clients-heat"><option value="all">Todos</option><option value="HOT">Quente</option><option value="WARM">Morno</option><option value="COLD">Frio</option></select></label>
+          <label>Ordenar<select id="clients-sort"><option value="ready">Pronto para ligar</option><option value="hot">Quentes primeiro</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label>
+        </div>
+        <div id="clients-list" class="stack" aria-live="polite"></div>
+      </section>
       <section id="pending-panel" class="panel-view hidden" aria-label="Pendências">
         <div class="section-head"><div><h2>Pendências</h2><p class="muted">Todas as conversas individuais do WhatsApp, com situação atualizada quando chega mensagem.</p></div></div>
         <section id="pending-general-card" class="card pending-general" aria-live="polite"></section>
@@ -204,10 +219,9 @@
         <div class="section-head"><div><h2>Buscas por cliente</h2><p class="muted">Cada linha mostra o que buscar e em que etapa o cliente está.</p></div></div>
         <div id="searches-summary" class="pending-stats" aria-live="polite"></div>
         <div id="searches-list" class="stack" aria-live="polite"></div>
-      </section>
-      <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
-        <div class="section-head"><div><h2>Manheim</h2><p class="muted">Compare a exportação com as listas de desejo ligadas.</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
+        <div class="section-head searches-subsection"><div><h2>Quais buscas salvar no Manheim</h2><p class="muted">Listas de desejo prontas para pesquisa.</p></div></div>
         <section id="manheim-saved-searches" class="card"></section>
+        <div class="section-head searches-subsection"><div><h2>Arquivo do Manheim</h2><p class="muted">Suba o CSV e veja os carros que batem.</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
         <section class="card">
           <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
           <p id="manheim-status" class="status" role="status"></p>
@@ -216,6 +230,9 @@
           <div id="manheim-summary" class="muted"></div>
           <div id="manheim-results" class="stack" aria-live="polite"></div>
         </section>
+      </section>
+      <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
+        <p class="visually-hidden">Conteúdo reunido na aba Buscas.</p>
       </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
         <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>

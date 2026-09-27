@@ -20,7 +20,7 @@ module.exports = async (req, res) => {
       allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,stage,status,budget_cents,confirmed_total_ceiling_cents,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
+      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment,undone_at:'is.null'}),
       allRows(ctx,'messages',{select:'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at',environment:'eq.'+ctx.environment}),
       allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment})
@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
         referenceCode: journey ? journey.reference_code : null,
         stage: journey ? journey.stage : null,
         status: journey ? journey.status : null, budget_cents:journey?.budget_cents,confirmed_total_ceiling_cents:journey?.confirmed_total_ceiling_cents,
-        contact,phones:phones.filter((p)=>p.contact_id===contactId),disposition:disposition?.status||null,dispositionUpdatedAt:disposition?.updated_at||null,updated_at:journey?.updated_at,matchedBy
+        contact,phones:phones.filter((p)=>p.contact_id===contactId),disposition:disposition?.status||null,discardReason:disposition?.discard_reason||null,dispositionUpdatedAt:disposition?.updated_at||null,updated_at:journey?.updated_at,matchedBy
       },facts,insightByJourney.get(journeyId)));
     };
     for (const contact of contacts) {

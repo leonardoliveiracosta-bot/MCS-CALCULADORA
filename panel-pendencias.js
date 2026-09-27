@@ -94,7 +94,7 @@ async function conversationGroups(ctx) {
     allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current',environment:'eq.'+ctx.environment}),
     allRows(ctx,'chats',{select:'id,contact_id,channel,is_group',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment,undone_at:'is.null'}),
-    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,source_kind,whatsapp_delivered_at,whatsapp_read_at,created_at,undone_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment}),
     allRows(ctx,'conversation_pending_insights',{select:'journey_id,chat_id,situation,heat,summary_text,next_step_text,translation_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment}),

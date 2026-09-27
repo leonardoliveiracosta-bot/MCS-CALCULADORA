@@ -734,11 +734,15 @@ async function actionDisposition(ctx, body) {
   const itemKey = safeText(body.itemKey, 200, true);
   const requestedStatus=Object.prototype.hasOwnProperty.call(body,'previousStatus')?body.previousStatus:body.status;
   const status = requestedStatus === null || requestedStatus === '' ? null : String(requestedStatus || '');
+  const requestedReason=Object.prototype.hasOwnProperty.call(body,'previousStatus')?body.previousReason:body.reason;
+  const discardReason=status==='DISCARDED'?(requestedReason===null||requestedReason===''?'OTHER':String(requestedReason||'')):null;
+  const allowedReasons=new Set(['PRICE','DISAPPEARED','BOUGHT_ELSEWHERE','NO_CREDIT','CURIOSITY','OTHER']);
   if (!['REF', 'JOURNEY'].includes(itemKind) || !itemKey || (status && !['TREATED', 'DISCARDED'].includes(status))) {
     return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
   }
   if (itemKind === 'REF' && !REF_RE.test(itemKey.toUpperCase())) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
   if (itemKind === 'JOURNEY' && !isUuid(itemKey)) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
+  if(status==='DISCARDED'&&!allowedReasons.has(discardReason))return send(ctx.res,400,{error:'DISPOSITION_REASON_INVALID'});
   const endpoint = '/rest/v1/panel_item_dispositions?environment=eq.' + ctx.environment + '&item_kind=eq.' + itemKind + '&item_key=eq.' + encodeURIComponent(itemKey);
   const at = isoNow();
   if (!status) {
@@ -750,9 +754,9 @@ async function actionDisposition(ctx, body) {
     {
       method: 'POST',
       headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ environment: ctx.environment, item_kind: itemKind, item_key: itemKey, status, cleared_at:null,cleared_by:null,updated_at: at, updated_by: ctx.panel.id })
+      body: JSON.stringify({ environment: ctx.environment, item_kind: itemKind, item_key: itemKey, status, discard_reason:status==='DISCARDED'?discardReason:null, cleared_at:null,cleared_by:null,updated_at: at, updated_by: ctx.panel.id })
     });
-  return send(ctx.res, 200, { status, updatedAt: at });
+  return send(ctx.res, 200, { status, discardReason:status==='DISCARDED'?discardReason:null, updatedAt: at });
 }
 
 async function actionInvertSenders(ctx, journey, body) {

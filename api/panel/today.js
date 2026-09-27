@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
       operational(ctx),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
+      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       panelMeta(ctx),
       allRows(ctx, 'lead_events', { select: 'ref_code,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(cutoff).toISOString() }),
       allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() }),
@@ -113,7 +113,7 @@ module.exports = async (req, res) => {
       .filter((item) => {const disposition=dispositionByJourney.get(item.id);const ownRefs=[item.reference_code,...(data.refs||[]).filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)].filter(Boolean);return !disposition||ownRefs.some((ref)=>wantedAfterDisposition(ref,disposition.updated_at))||returnedForJourney(item,disposition.updated_at);})
       .filter((item) => {const ownRefs=[item.reference_code,...(data.refs||[]).filter(r=>r.journey_id===item.id).map(r=>r.ref_code)].filter(Boolean).map(r=>String(r).trim().toUpperCase());return !ownRefs.some(ref=>orderRefs.has(ref));})
       .map((item) => ({
-        ...item, disposition:dispositionByJourney.get(item.id)?.status||null, dispositionUpdatedAt:dispositionByJourney.get(item.id)?.updated_at||null,
+        ...item, disposition:dispositionByJourney.get(item.id)?.status||null, discardReason:dispositionByJourney.get(item.id)?.discard_reason||null, dispositionUpdatedAt:dispositionByJourney.get(item.id)?.updated_at||null,
         kind: 'JOURNEY',
         name: item.contact && item.contact.display_name || 'Contato sem nome',
         referenceCode: item.reference_code,
@@ -134,7 +134,9 @@ module.exports = async (req, res) => {
       const dispositionAt=item.dispositionUpdatedAt||dispositionByJourney.get(journey?.id)?.updated_at;const returned=returnedForJourney(journey,dispositionAt);
       const journeyId=journey?.id;
       const facts=contacts.facts({journeyId:journey?.id,ref,refs:journey?(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});
-      return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wantedAfterDisposition(ref,dispositionAt),
+      const ownMessages=journeyId?data.messages.filter((message)=>message.journey_id===journeyId).sort((a,b)=>(time(b.occurred_at_utc||b.created_at)||0)-(time(a.occurred_at_utc||a.created_at)||0)):[];
+      const latestMessage=ownMessages.find((message)=>!message.is_automatic)||ownMessages[0]||null,latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
+      return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wantedAfterDisposition(ref,dispositionAt),
         pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false }, facts, insightByJourney.get(journeyId));
     }).sort((left, right) => {
       const wants = Number(Boolean(right.wantsCar)) - Number(Boolean(left.wantsCar));

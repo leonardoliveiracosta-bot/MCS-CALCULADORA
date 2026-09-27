@@ -83,11 +83,11 @@ function parse(payload){
     if(messages)items.push(...messages);
     if(echoes)items.push(...echoes);
     if(!items.length&&!Array.isArray(value.history)&&!Array.isArray(value.messages)&&!Array.isArray(value.message_echoes))throw Error('HISTORY_INVALID');
-    return {type:'history',items,addressBook:[],ignoredFields:[]};
+    return {type:'history',items,addressBook:[],statuses:[],ignoredFields:[]};
   }
-  if(payload?.event==='smb_app_state_sync')return {type:'smb_app_state_sync',items:[],addressBook:stateContacts(payload.data||{}),ignoredFields:[]};
-  if(payload?.object!=='whatsapp_business_account'||!Array.isArray(payload.entry))return {type:'UNKNOWN',items:[],addressBook:[],ignoredFields:['payload']};
-  const items=[],addressBook=[],types=new Set(),ignoredFields=[];
+  if(payload?.event==='smb_app_state_sync')return {type:'smb_app_state_sync',items:[],addressBook:stateContacts(payload.data||{}),statuses:[],ignoredFields:[]};
+  if(payload?.object!=='whatsapp_business_account'||!Array.isArray(payload.entry))return {type:'UNKNOWN',items:[],addressBook:[],statuses:[],ignoredFields:['payload']};
+  const items=[],addressBook=[],statuses=[],types=new Set(),ignoredFields=[];
   for(const entry of payload.entry){
     if(!Array.isArray(entry.changes)){ignoredFields.push('changes');continue;}
     for(const change of entry.changes){
@@ -95,6 +95,7 @@ function parse(payload){
       if(field==='messages'){
         const parsed=webhookItems(value,'messages');
         if(parsed){types.add('messages');items.push(...parsed);}else if(!Array.isArray(value.statuses)) ignoredFields.push('messages');
+        if(Array.isArray(value.statuses))statuses.push(...value.statuses.filter((status)=>status&&typeof status==='object'));
       }else if(field==='smb_message_echoes'){
         types.add(field);const parsed=webhookItems(value,field);if(!parsed){ignoredFields.push(field);continue;}items.push(...parsed);
       }else if(field==='history'){types.add(field);try{items.push(...historyItems(value));}catch(_){ignoredFields.push('history inválido');}}
@@ -103,7 +104,7 @@ function parse(payload){
     }
   }
   const type=types.size===1?[...types][0]:types.size?'mixed':ignoredFields.length?'UNKNOWN':'statuses';
-  return {type,items,addressBook,ignoredFields:[...new Set(ignoredFields)]};
+  return {type,items,addressBook,statuses,ignoredFields:[...new Set(ignoredFields)]};
 }
 function normalizeParsed(payload,options={}){
   const parsed=parse(payload),items=[],itemErrors=[];
@@ -159,6 +160,7 @@ async function processItem(ctx,rawId,item){
   if(prepared.review)return {review:true};
   try{
     const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_raw:rawId,p_item:prepared.item})});
+    await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_sync_receipt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_wa_message_id:prepared.item.messageId})});
     await upgradeHistoryMediaPlaceholder(ctx,prepared.item,result||{});
     // The receiver has already persisted the raw event. Detect the 3+ same
     // greeting pattern after storage so the webhook acknowledgement is never
@@ -181,6 +183,7 @@ async function processRaw(ctx,row,options={}){
   try{
     const sourceKind=sourceKindFor(row,options),parsed=normalizeParsed(row.payload_json,{sourceKind});let imported=0,duplicates=0,reviews=0,itemFailures=0;
     await saveAddressBook(ctx,parsed.addressBook);
+    for(const status of parsed.statuses||[]){try{await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_status:status})});}catch(_){itemFailures++;}}
     for(const failure of parsed.itemErrors){await saveItemError(ctx,row.id,failure);itemFailures++;}
     for(const parsedItem of parsed.items){
       if(options.deadlineAt&&Date.now()>=options.deadlineAt){

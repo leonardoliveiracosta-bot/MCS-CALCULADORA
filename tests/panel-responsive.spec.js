@@ -26,7 +26,7 @@ async function showPanel(page, view = 'today') {
     document.querySelector('#login-view')?.classList.add('hidden');
     document.querySelector('#password-view')?.classList.add('hidden');
     document.querySelector('#app-view')?.classList.remove('hidden');
-    for (const name of ['today', 'entry', 'pending', 'orders', 'qualification', 'searches', 'manheim', 'records']) {
+    for (const name of ['today', 'entry', 'clients', 'orders', 'searches', 'pending', 'qualification', 'manheim', 'records']) {
       document.querySelector(`#${name}-panel`)?.classList.toggle('hidden', name !== activeView);
     }
   }, view);
@@ -83,7 +83,7 @@ test('helper dá efeito em até 300 ms, bloqueia clique duplo, desfaz e reverte 
 });
 
 for (const width of [1024, 1280, 1440, 1920]) {
-  test(`as 8 abas ficam inteiras e visíveis em ${width}px`, async ({ page }) => {
+  test(`as 5 abas ficam inteiras e visíveis em ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(target.toString(), { waitUntil: 'networkidle' });
     await showPanel(page);
@@ -96,7 +96,7 @@ for (const width of [1024, 1280, 1440, 1920]) {
         visible: getComputedStyle(element).visibility !== 'hidden'
       };
     }));
-    expect(tabs).toHaveLength(8);
+    expect(tabs).toHaveLength(5);
     for (const tab of tabs) {
       expect(tab.visible).toBe(true);
       expect(tab.width).toBeGreaterThan(0);

@@ -372,6 +372,7 @@ function groupCalculatorByRef(orders, dispositions = []) {
       link: journeyIds.length === 1 ? { journeyId: journeyIds[0], contactId: (sorted.find((item) => item.link && item.link.journeyId === journeyIds[0]) || {}).link?.contactId || null } : null,
       journeyId: journeyIds.length === 1 ? journeyIds[0] : null,
       disposition: disposition ? disposition.status : null,
+      discardReason: disposition ? disposition.discard_reason || null : null,
       dispositionUpdatedAt: disposition ? disposition.updated_at : null,
       pending: !disposition,
       outOfStandard: Number(latest.budgetCents) > 0 && (Number(latest.budgetCents) < 300000 || Number(latest.budgetCents) > 30000000)
