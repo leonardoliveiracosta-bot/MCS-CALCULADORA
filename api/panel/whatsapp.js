@@ -2,17 +2,20 @@
 const crypto=require('node:crypto');
 const {allRows,isUuid,jsonBody,patchRows,requirePanel,rows,send,supabase}=require('../../panel-server');
 const {normalizedItems,processItem,processRaw,resolveItemError,saveItemError}=require('../../whatsapp-receiver');
+const {recoverStalledEvents,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
 
 module.exports=async(req,res)=>{
   const ctx=await requirePanel(req,res);if(!ctx)return;
   try{
     if(req.method==='GET'){
+      await resolveStoredItemErrors(ctx).catch((error)=>console.error('[whatsapp-maintenance]',{operation:'resolve',message:String(error?.message||'UNKNOWN')}));
+      await recoverStalledEvents(ctx,{maxEvents:3,deadlineAt:Date.now()+25000}).catch((error)=>console.error('[whatsapp-maintenance]',{operation:'recover',message:String(error?.message||'UNKNOWN')}));
       const [latest,inbound,echo,errors,ignored,itemErrors,suggestions,phoneReviews]=await Promise.all([
         rows(ctx,'whatsapp_raw_events',{select:'received_at',environment:'eq.'+ctx.environment,order:'received_at.desc',limit:'1'}),
         rows(ctx,'whatsapp_raw_events',{select:'received_at',environment:'eq.'+ctx.environment,event_type:'eq.messages',status:'eq.DONE',order:'received_at.desc',limit:'1'}),
         rows(ctx,'whatsapp_raw_events',{select:'received_at',environment:'eq.'+ctx.environment,event_type:'eq.smb_message_echoes',status:'eq.DONE',order:'received_at.desc',limit:'1'}),
         rows(ctx,'whatsapp_raw_events',{select:'id,event_type,status,error_code,received_at,processing_started_at,attempts',environment:'eq.'+ctx.environment,status:'in.(ERROR,PENDING,PROCESSING)',order:'received_at.desc',limit:'50'}),
-        rows(ctx,'whatsapp_raw_events',{select:'id,event_type,status,error_code,received_at',environment:'eq.'+ctx.environment,status:'eq.IGNORED',order:'received_at.desc',limit:'20'}),
+        rows(ctx,'whatsapp_raw_events',{select:'id,event_type,status,error_code,received_at',environment:'eq.'+ctx.environment,status:'eq.IGNORED',event_type:'neq.statuses',order:'received_at.desc',limit:'20'}),
         rows(ctx,'whatsapp_item_errors',{select:'id,raw_event_id,item_index,error_code,status,attempts,processing_started_at,created_at',environment:'eq.'+ctx.environment,status:'neq.RESOLVED',order:'created_at.desc',limit:'50'}),
         allRows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_contact_id,target_contact_id,target_journey_id,target_ref,motives,suggestion_kind,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
         ,allRows(ctx,'whatsapp_phone_reviews',{select:'id,phone_e164,candidate_contact_ids,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})

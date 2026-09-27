@@ -11,7 +11,7 @@ function flattenMessageLinks(links, messages) {
 }
 
 async function operational(ctx) {
-  const [journeys, contacts, phones, refs, messageLinks, messages, checklist, promises, divergences, units, suppressions, toggleStates] = await Promise.all([
+  const [journeys, contacts, phones, refs, messageLinks, messages, checklist, promises, divergences, units, suppressions, toggleStates, userIds] = await Promise.all([
     allRows(ctx, 'journeys', {
       select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
       environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
@@ -29,7 +29,8 @@ async function operational(ctx) {
     allRows(ctx, 'journey_divergences', { select: 'id,journey_id,field,status,created_at,operational_declaration_id', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'units', { select: 'id,journey_id,vehicle_text,details_json,presented_at,last_customer_response_at,status,decline_reason,updated_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_alert_suppressions', { select: 'id,journey_id,kind,action,until_at,created_at,cancelled_at', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment })
+    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: 'eq.' + ctx.environment })
   ]);
   const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
   const excludedJourneyIds=new Set(journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead===false).map((journey)=>journey.id));
@@ -37,7 +38,8 @@ async function operational(ctx) {
   const toggleByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
   return { journeys: journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).map((journey) => {
     const toggle = toggleByJourney.get(journey.id);
-    return { ...journey, enabled: toggle ? toggle.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, contact: contactsById.get(journey.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === journey.contact_id) };
+    const ownPhones=phones.filter((phone) => phone.contact_id === journey.contact_id),user=userIds.find((entry)=>entry.contact_id===journey.contact_id);
+    return { ...journey, enabled: toggle ? toggle.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, contact: contactsById.get(journey.contact_id) || null, phones:ownPhones,whatsappUsername:user?.username||null,whatsappWithoutPhone:Boolean(user&&!ownPhones.some((phone)=>phone.is_current!==false)) };
   }), refs,excludedRefs, messages: flattenMessageLinks(messageLinks, messages.filter((message) => !message.undone_at)), checklist, promises, divergences, units, suppressions };
 }
 

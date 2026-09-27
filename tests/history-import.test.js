@@ -160,7 +160,7 @@ test('history import is idempotent and resumes pending or interrupted raw events
   const rawId='c8df2ad7-ae98-4ce1-a24d-91fd4eb076f4',ctx={environment:'preview',config:{url:'u',secretKey:'k'},panel:{id:rawId}};
   let row={id:rawId,status:'DONE',event_type:'history',processing_started_at:null};let calls=[];
   const panelServer={requirePanel:async()=>ctx,jsonBody:async(req)=>req.body,send:(res,code,payload)=>res.status(code).json(payload),rows:async()=>[row],patchRows:async(_ctx,_table,_filters,values)=>{calls.push(values);row={...row,...values};return [row];}};
-  const handler=loadWith('api/panel/history-import.js',{'../../panel-server':panelServer,'../../whatsapp-receiver':{eventKey:(value)=>value.event+':'+value.id,rawEvent:async()=>null,processRaw:async()=>({imported:2,duplicates:1,itemErrors:0})}});
+  const handler=loadWith('api/panel/history-import.js',{'../../panel-server':panelServer,'../../whatsapp-receiver':{eventKey:(value)=>value.event+':'+value.id,rawEvent:async()=>null,processRaw:async()=>({imported:2,duplicates:1,itemErrors:0})},'../../whatsapp-maintenance':{resolveStoredItemErrors:async()=>({resolved:0})}});
   let out=response();await handler({method:'POST',body:{items:[history()]}},out);assert.equal(out.code,200);assert.equal(out.payload.alreadyExists,1);
   row={id:rawId,status:'PENDING',event_type:'history',processing_started_at:null};out=response();await handler({method:'POST',body:{items:[history('history.pending')]}},out);assert.equal(out.payload.imported,2);
   row={id:rawId,status:'PROCESSING',event_type:'history',processing_started_at:'2000-01-01T00:00:00.000Z'};out=response();await handler({method:'POST',body:{items:[history('history.stalled')]}},out);assert.equal(out.payload.imported,2);assert.equal(calls.at(-1).error_code,'PROCESSING_INTERRUPTED');
@@ -181,7 +181,7 @@ test('importer sends state sync first and keeps batches small',()=>{
   const receiverSource=fs.readFileSync(path.join(root,'whatsapp-receiver.js'),'utf8');
   assert.match(receiverSource,/saveAddressBook\(ctx,parsed\.addressBook\)/);
   assert.match(receiverSource,/panel_whatsapp_apply_address_book/);
-  assert.match(receiverSource,/if\(!item\.name\)\{const book=/);
+  assert.match(receiverSource,/if\(item\.phone&&!item\.name\)\{const book=/);
 });
 
 test('history contact facts keep the history label while only live inbound starts the click cutoff',()=>{
