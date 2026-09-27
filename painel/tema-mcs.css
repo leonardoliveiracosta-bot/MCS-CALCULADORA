@@ -64,6 +64,9 @@ body.login-screen #login-view button[type="submit"] { background: #C9A34E; color
 .weekly-value { font-size: 18px; font-weight: 600; white-space: nowrap; }
 button.weekly-value { min-height: 0; padding: 0; text-decoration: underline; }
 .weekly-reasons { grid-column: 1 / -1; margin: 0; padding: 14px; background: var(--mcs-surface); font-size: 13px; }
+.whatsapp-media { margin-top: 8px; }
+.whatsapp-media-image { display: block; width: min(240px,100%); max-height: 240px; object-fit: cover; cursor: zoom-in; border: 1px solid var(--mcs-line); }
+.whatsapp-media audio,.whatsapp-media video { width: min(360px,100%); max-height: 280px; }
 
 @media (max-width: 700px) {
   #weekly-summary-content { grid-template-columns: 1fr; }
