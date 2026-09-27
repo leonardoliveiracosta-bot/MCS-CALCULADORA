@@ -193,7 +193,7 @@ function deterministicCandidates(group, orders) {
 
 function readingPrompt(group, maximumBid) {
   const timezone=timezoneForZip((group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'');
-  const window=aiContextWindow(group.messages,maximumBid,timezone,group.pendingInsight?.summary_text||'');
+  const window=aiContextWindow(group.effectiveMessages||group.messages,maximumBid,timezone,group.pendingInsight?.summary_text||'');
   const transcript=window.messages.map((message)=>`${message.sender==='CUSTOMER'?'Cliente':'MCS'}: ${message.text}`).join('\n');
   return {transcript,user:window.user,messages:window.messages,messageCount:window.messages.length,truncated:window.truncated};
 }
@@ -258,69 +258,3 @@ async function markLinkState(ctx,group,latestOrderAt,retry=false){
   else await insert(ctx,'conversation_ai_link_state',payload,false);
 }
 
-async function suggestLink(ctx,group,orders,options={}){
-  const candidates=deterministicCandidates(group,orders),latestOrderAt=orders.reduce((latest,order)=>Math.max(latest,time(order.occurredAt)||0),0);
-  if(!candidates.length){await markLinkState(ctx,group,latestOrderAt?new Date(latestOrderAt).toISOString():null,false);return null;}
-  try {
-    await reserveCall(ctx);
-    const parsed=await anthropicJson('Escolha somente entre os candidatos fornecidos o pedido mais provável para esta conversa. Responda SOMENTE JSON {"ref":"ABCDE" ou null,"reasons":["motivo curto"]}. Não invente dados.',JSON.stringify({
-      contato:group.contact.display_name,mensagens:group.customerMessages.slice(-10).map((message)=>message.body_text),candidatos:candidates.map((candidate)=>({ref:candidate.ref,nome:candidate.contactName,carro:candidate.vehicleText,valor:candidate.budgetCents?Number(candidate.budgetCents)/100:null,data:candidate.occurredAt,sinais:candidate.reasons}))
-    }),options.fetchImpl);
-    const chosen=candidates.find((candidate)=>candidate.ref===String(parsed.ref||'').trim().toUpperCase());
-    await markLinkState(ctx,group,latestOrderAt?new Date(latestOrderAt).toISOString():null,false);
-    if(!chosen){await recordAttempt(ctx,group,true).catch(()=>null);return null;}
-    const phones=await rows(ctx,'contact_phones',{select:'phone_e164',environment:'eq.'+ctx.environment,contact_id:'eq.'+group.journey.contact_id,is_current:'eq.true',order:'is_primary.desc,created_at.asc',limit:'1'});
-    const motives=(Array.isArray(parsed.reasons)?parsed.reasons:chosen.reasons).map((value)=>String(value).slice(0,180)).slice(0,5).join(', ');
-    const existing=await rows(ctx,'whatsapp_link_suggestions',{select:'id',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+group.journey.id,target_ref:'eq.'+chosen.ref,limit:'1'});
-    await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,source_journey_id:'eq.'+group.journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI'},{status:'REJECTED',resolved_at:new Date().toISOString()});
-    const payload={source_chat_id:group.chatId,target_contact_id:null,target_journey_id:null,target_ref:chosen.ref,phone_e164:phones[0]?.phone_e164||'+10000000000',status:'PENDING',motives,suggestion_kind:'AI',candidate_latest_at:chosen.occurredAt,resolved_at:null,resolved_by:null};
-    if(existing[0])await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,id:'eq.'+existing[0].id},payload);
-    else await insert(ctx,'whatsapp_link_suggestions',{environment:ctx.environment,source_contact_id:group.journey.contact_id,source_journey_id:group.journey.id,...payload},false);
-    await recordAttempt(ctx,group,true).catch(()=>null);
-    return {ref:chosen.ref,motives};
-  } catch(error) {
-    if (trackableAiFailure(error)) await recordAttempt(ctx,group,false,error.message).catch(()=>null);
-    throw error;
-  }
-}
-
-async function runCron(ctx,options={}){
-  const groups=await allConversationData(ctx),orders=await calculatorOrders(ctx),now=Date.now(),cutoff=now-30*DAY_MS;
-  const eligible=[];
-  for(const group of groups){
-    if(!group.lastCustomer||stampOf(group.lastCustomer)<cutoff)continue;
-    if(!automaticAttemptAllowed(group,now))continue;
-    const latestId=group.effectiveMessages.at(-1)?.id;
-    const readingDue=group.mcsCount>=10&&stampOf(group.lastCustomer)<=now-10*60000&&(
-      group.reading?.last_customer_message_id!==group.lastCustomer.id || (group.pendingInsight && group.pendingInsight.last_ai_message_id!==latestId)
-    );
-    const candidates=!group.refs.length?deterministicCandidates(group,orders):[];
-    const newest=candidates.reduce((latest,order)=>Math.max(latest,time(order.occurredAt)||0),0);
-    const state=group.linkState;
-    const withinWindow=!group.firstCustomer||!newest||newest<=stampOf(group.firstCustomer)+DAY_MS;
-    const suggestionDue=!group.refs.length&&group.firstCustomer&&withinWindow&&(!state||state.retry_requested||(newest&&newest>Date.parse(state.last_order_seen_at||0)));
-    if(readingDue||suggestionDue)eligible.push({group,readingDue,suggestionDue});
-  }
-  eligible.sort((a,b)=>stampOf(b.group.lastCustomer)-stampOf(a.group.lastCustomer));
-  const output={processed:0,readings:0,suggestions:0,errors:0,limited:false};
-  for(const entry of eligible.slice(0,20)){
-    output.processed++;
-    try {
-      if(entry.readingDue){await readConversation(ctx,entry.group,options);output.readings++;}
-      if(entry.suggestionDue&&entry.group.refs.length===0){const suggested=await suggestLink(ctx,entry.group,orders,options);if(suggested)output.suggestions++;}
-    } catch(error) { if(error.message==='AI_DAILY_LIMIT'){output.limited=true;break;}output.errors++; }
-  }
-  return output;
-}
-
-async function latestAiForJourney(ctx,journeyId){
-  const readings=await rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journeyId,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'});
-  const reading=readings[0]||null;
-  const [items,suggestions]=await Promise.all([
-    reading?allRows(ctx,'conversation_ai_items',{select:'id,item_json,evidence_text,manual_review,status,created_at',environment:'eq.'+ctx.environment,reading_id:'eq.'+reading.id,status:'eq.PENDING',order:'created_at.asc'}):Promise.resolve([]),
-    rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journeyId,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'})
-  ]);
-  return {reading:reading?{...reading,items:items.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:suggestions[0]||null};
-}
-
-module.exports={AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};
