@@ -13,7 +13,7 @@ We've had a high volume of messages, so the key details come first. When our tea
 6. To bid, we require a refundable deposit. It locks your max in place. We never bid above it. No purchase? You get it back, or it stays valid for your next search
 7. Financing is also an option, subject to lender approval. Cars up to $7,000 are cash only
 
-Reply YES and a real person will personally review your request. Demand is high, and a quick reply isn't always a good reply. You're in line`;
+Reply YES and a real person will personally review your request. Demand is high, and a quick reply isn't always a good reply. We'll make your reply count.`;
 
 function isEnabled(){return String(process.env.AUTO_REPLY_ENABLED||'').trim().toLowerCase()==='true';}
 function testNumbers(){return new Set(String(process.env.AUTO_REPLY_TEST_NUMBERS||'').split(',').map(normalizePhone).filter(Boolean));}

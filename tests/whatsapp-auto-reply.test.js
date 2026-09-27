@@ -16,7 +16,7 @@ We've had a high volume of messages, so the key details come first. When our tea
 6. To bid, we require a refundable deposit. It locks your max in place. We never bid above it. No purchase? You get it back, or it stays valid for your next search
 7. Financing is also an option, subject to lender approval. Cars up to $7,000 are cash only
 
-Reply YES and a real person will personally review your request. Demand is high, and a quick reply isn't always a good reply. You're in line`;
+Reply YES and a real person will personally review your request. Demand is high, and a quick reply isn't always a good reply. We'll make your reply count.`;
 const ctx={environment:'preview',config:{url:'https://db.invalid',secretKey:'service'}};
 const item=(id,phone='+13055550122')=>({messageId:id,phone,direction:'CUSTOMER',eventField:'messages',timestamp:String(Math.floor(Date.now()/1000)),body:'Hello'});
 const stored={messageId:'10000000-0000-4000-8000-000000000001',contactId:'10000000-0000-4000-8000-000000000002'};
@@ -38,11 +38,11 @@ async function withEnvironment(values,run){
   }
 }
 
-test('new live contact receives the exact 1,326-character greeting once and it is recorded',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:''},async()=>{
+test('new live contact receives the exact greeting once and it is recorded',async()=>withEnvironment({AUTO_REPLY_ENABLED:'true',AUTO_REPLY_TEST_NUMBERS:''},async()=>{
   const {mod,calls}=moduleWith(()=>({claimed:true}));let posted;
   global.fetch=async(_url,options)=>{posted=JSON.parse(options.body);return {ok:true,status:200,json:async()=>({messages:[{id:'wamid.sent'}]})};};
   const result=await mod.maybeAutoReply(ctx,'raw',item('wamid.in'),stored);
-  assert.equal(mod.AUTO_REPLY_TEXT,expected);assert.equal(mod.AUTO_REPLY_TEXT.length,1326);
+  assert.equal(mod.AUTO_REPLY_TEXT,expected);assert.equal(mod.AUTO_REPLY_TEXT.length,1340);
   assert.equal(posted.text.body,expected);assert.equal(posted.to,'13055550122');assert.equal(result.sent,true);assert.equal(result.recorded,true);
   assert.equal(calls.filter((call)=>call.endpoint.includes('claim_auto_reply')).length,1);
   assert.equal(calls.filter((call)=>call.endpoint.includes('apply_message')).length,1);
