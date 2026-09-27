@@ -20,7 +20,7 @@ module.exports=async(req,res)=>{
     const ctx={config,environment:SERVER_ENVIRONMENT};
     const row=await rawEvent(ctx,payload); // Durable before any acknowledgment.
     if(row){
-      const task=processRaw(ctx,row).catch(()=>{}); // Status is persisted by processRaw; no message text in logs.
+      const task=processRaw(ctx,row,{live:true}).catch(()=>{}); // Status is persisted by processRaw; no message text in logs.
       (typeof req.waitUntil==='function'?req.waitUntil:waitUntil)(task);
     }
     return send(res,200,{received:true});
