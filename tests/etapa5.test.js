@@ -61,13 +61,14 @@ test('note distribution uses reserveCall and never silently changes the configur
   assert.match(source,/DISTRIBUTION_UNAVAILABLE/);
 });
 
-test('automatic attachment supports direct save, ref conflict, unknown ref choice, and photo-only save',()=>{
+test('automatic attachment resolves and saves without a manual target choice',()=>{
   const client=read('painel/painel.js'),api=read('api/panel/sms-print.js');
   assert.match(client,/handleAutoPrintRead/);
-  assert.match(client,/Guardar neste lead/);
-  assert.match(client,/Guardar no lead/);
-  assert.match(client,/Criar lead novo com este número/);
-  assert.match(client,/Escolher o lead/);
+  assert.match(client,/auto:true/);
+  assert.match(api,/automaticTarget/);
+  assert.match(api,/matchedBy:'ref'/);
+  assert.match(api,/matchedBy:'telefone'/);
+  assert.match(api,/matchedBy:'nome'/);
   assert.match(api,/body\.action==='photo'/);
   assert.match(api,/panel_sms_print_attach_photo/);
 });
@@ -77,7 +78,7 @@ test('automatic attachment can remove and replace a selected file without choosi
   assert.match(html,/id="auto-print-remove"/);
   assert.match(client,/function clearAutoPrint/);
   assert.match(client,/input\.value=''/);
-  assert.match(client,/auto-print-send'\)\.disabled=false/);
+  assert.match(client,/auto-print-send'\)\.disabled=!files\.length/);
   assert.doesNotMatch(html,/attachment-contact-select|attachment-order-select/);
 });
 

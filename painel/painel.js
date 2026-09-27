@@ -448,11 +448,6 @@
     select.replaceChildren(new Option('Nova jornada', 'new'));
     journeys.filter((journey) => contactId !== 'new' && journey.contact_id === contactId).forEach((journey) => option(select, journey.vehicle_text || 'Busca existente', journey.id));
   }
-  function refreshAttachmentJourneys(){
-    const contactId=$('attachment-contact').value,select=$('attachment-journey');select.replaceChildren(new Option('Escolha a ficha',''));
-    journeys.filter((journey)=>journey.contact_id===contactId).forEach((journey)=>option(select,`Ref ${journey.reference_code||'—'} · ${journey.vehicle_text||'busca sem veículo'}`,journey.id));
-    $('attachment-upload').disabled=!contactId||!select.value;
-  }
 
   async function loadWhatsApp() {
     const data = await request('/api/panel/whatsapp');
@@ -511,11 +506,6 @@
     contacts.forEach((contact) => option(select, contact.display_name || 'Sem nome', contact.id));
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
-    const attachmentContact=$('attachment-contact'),oldAttachment=attachmentContact.value;
-    attachmentContact.replaceChildren(new Option('Escolha o contato',''));
-    contacts.filter((contact)=>contact.is_lead!==false).forEach((contact)=>option(attachmentContact,contact.display_name||'Sem nome',contact.id));
-    if([...attachmentContact.options].some((entry)=>entry.value===oldAttachment))attachmentContact.value=oldAttachment;
-    refreshAttachmentJourneys();
     setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
     if (render) renderQueue(chats, data.reviews || []);
     return data;
@@ -560,31 +550,12 @@
   }
 
   function clearAutoPrint(){const input=$('auto-print-file');input.value='';autoPrintContext=null;$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;$('auto-print-result').classList.add('hidden');}
-  function showAutoPrintChoice(file){const info=$('auto-print-file-info');info.replaceChildren();const image=element('img');image.alt='';image.src=URL.createObjectURL(file);info.append(image,element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=false;}
-  function autoPrintResult(text,saved){const root=$('auto-print-result');root.replaceChildren();root.classList.remove('hidden');root.classList.toggle('error',!saved);root.append(element('strong',saved?'':'warning',text));return root;}
-  async function saveAutoPrint(read, targetJourneyId, values){
-    const action=values.message?'confirm':'photo';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify(action==='photo'?{action,readId:read.id,targetJourneyId}:{action,readId:read.id,targetJourneyId,phone:values.phone,name:values.name,ref:values.ref,message:values.message,translation:values.translation})});
-    const root=autoPrintResult(`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead · Ref ${values.ref||'—'}`,true);const added=[];if(values.phone)added.push(`📞 ${values.phone} adicionado`);if(values.message)added.push('💬 mensagem registrada');if(added.length)root.append(element('p','muted',added.join(' · ')));const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));const undo=element('button','quiet small','Desfazer');undo.type='button';undo.addEventListener('click',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})});root.replaceChildren(element('strong','', 'Desfeito. O arquivo permanece guardado.'));});actions.append(open,undo);root.append(actions);await refreshCounters();return saved;
-  }
-  async function handleAutoPrintRead(result){
-    const status=$('auto-print-status');
-    if(result.manual){status.classList.add('error');status.textContent='Não consegui ler agora — tente mais tarde.';const retry=element('button','quiet small','Tentar de novo');retry.type='button';retry.addEventListener('click',async()=>{retry.disabled=true;try{const next=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})});await handleAutoPrintRead(next);}catch(_){retry.disabled=false;}});$('auto-print-result').replaceChildren(retry);$('auto-print-result').classList.remove('hidden');return;}
-    const values=result.read.extracted_json||{},target=result.refTarget||null,context=autoPrintContext||{};
-    if(context.journeyId&&target&&target.id!==context.journeyId){const root=autoPrintResult(`A Ref do print (${values.ref}) é diferente deste lead.`,false);for(const [label,id] of [['Guardar neste lead',context.journeyId],[`Guardar no lead ${values.ref}`,target.id]]){const button=element('button','small',label);button.type='button';button.addEventListener('click',()=>saveAutoPrint(result.read,id,values));root.append(button);}return;}
-    if(target||context.journeyId){await saveAutoPrint(result.read,target?.id||context.journeyId,values);status.textContent='';return;}
-    const root=autoPrintResult(`Não achei a Ref ${values.ref||'no print'} no painel.`,false);if(values.phone&&values.message){const create=element('button','small','Criar lead novo com este número');create.type='button';create.addEventListener('click',()=>saveAutoPrint(result.read,null,values));root.append(create);}
-    const chooser=element('div','inline-actions'),query=element('input');query.placeholder='Nome, telefone ou Ref';const choose=element('button','quiet small','Escolher o lead');choose.type='button';const results=element('div','');choose.addEventListener('click',async()=>{const found=await request('/api/panel/search?q='+encodeURIComponent(query.value));results.replaceChildren();(found.items||[]).slice(0,6).forEach((item)=>{const pick=element('button','quiet small',`${item.name||'Pedido'} · Ref ${item.referenceCode||item.ref||'—'}`);pick.type='button';pick.addEventListener('click',()=>saveAutoPrint(result.read,item.journeyId||item.id,values));results.append(pick);});if(!results.childNodes.length)results.append(element('p','muted','Nenhum lead encontrado.'));});chooser.append(query,choose);root.append(chooser,results);
-  }
-  async function sendAutoPrint(){const file=$('auto-print-file').files[0];if(!file)return;const status=$('auto-print-status');status.classList.remove('error');status.textContent='Enviando e lendo o print…';$('auto-print-send').disabled=true;try{
-    const head=new Uint8Array(await file.slice(0,64).arrayBuffer());
-    const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:autoPrintContext?.journeyId||null,contactId:autoPrintContext?.contactId||null})});
-    const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);
-    const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});
-    if(!uploaded.ok)throw Error('UPLOAD_FAILED');
-    const result=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});
-    await handleAutoPrintRead(result);}
-    catch(error){status.classList.add('error');status.textContent=error.code==='SMS_PRINT_INVALID_IMAGE'?'Use JPEG, PNG ou WebP válido, até 10 MB.':'Não consegui enviar agora. O arquivo não foi apagado.';}finally{$('auto-print-send').disabled=!$('auto-print-file').files[0];}
-  }
+  function showAutoPrintChoice(files){const info=$('auto-print-file-info');info.replaceChildren();[...files].forEach((file)=>info.append(element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`)));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=!files.length;}
+  function autoPrintResult(text,saved){const root=$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',text));root.append(row);return row;}
+  async function saveAutoPrint(read,context){const values=read.extracted_json||{};const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:values.ref||'',message:values.message||'',translation:values.translation||''})});const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');const root=autoPrintResult(saved.duplicate?'Este print já foi guardado.':`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||values.ref||'—'}`,true);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));const undo=element('button','quiet small','Desfazer');undo.type='button';undo.addEventListener('click',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})});root.replaceChildren(element('strong','', 'Desfeito. O arquivo permanece guardado.'));});actions.append(open,undo);root.append(actions);await refreshCounters();}
+  async function handleAutoPrintRead(result,context){if(result.manual){const root=autoPrintResult('Não consegui ler agora — ',false);const retry=element('button','quiet small','Tentar de novo');retry.type='button';retry.addEventListener('click',async()=>{retry.disabled=true;try{await handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),context);}catch(_){retry.disabled=false;}});root.append(retry);return;}await saveAutoPrint(result.read,context);}
+  async function uploadAutoPrint(file,context={}){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');await handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context);}
+  async function sendAutoPrint(){const files=[...$('auto-print-file').files];if(!files.length)return;const status=$('auto-print-status'),result=$('auto-print-result');status.classList.remove('error');status.textContent=`Enviando ${files.length} print${files.length===1?'':'s'}…`;result.replaceChildren();result.classList.remove('hidden');$('auto-print-send').disabled=true;for(const file of files){try{await uploadAutoPrint(file,autoPrintContext||{});}catch(error){autoPrintResult(error.code==='SMS_PRINT_INVALID_IMAGE'?'Use uma imagem válida, até 10 MB.':'Não consegui enviar agora. O arquivo não foi apagado.',false);}}status.textContent='';$('auto-print-send').disabled=!$('auto-print-file').files.length;}
 
   function updateMeta(meta) {
     if (!meta) return;
@@ -705,59 +676,13 @@
     return wrap;
   }
 
-  const smsPrintMagic = async (file) => btoa(String.fromCharCode(...new Uint8Array(await file.slice(0,64).arrayBuffer())));
-  async function uploadSmsPrint(file, context = {}) {
-    if (!file) return;
-    const status=$('sms-print-status'); status.classList.remove('error'); status.textContent='Enviando print…';
-    const start=$('sms-print-start'); if(start) start.disabled=true;
-    try {
-      const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:await smsPrintMagic(file),journeyId:context.journeyId||null,contactId:context.contactId||null})});
-      const uploadUrl=new URL(signed.uploadUrl.startsWith('http')?signed.uploadUrl:config.url+'/storage/v1'+signed.uploadUrl); uploadUrl.searchParams.set('token',signed.token);
-      const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});
-      if(!uploaded.ok)throw new Error('SMS_PRINT_UPLOAD_FAILED');
-      status.textContent='Lendo o print…';
-      const result=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});
-      renderSmsPrintReview(result.read,{...context,refTarget:result.refTarget||null,manual:Boolean(result.manual)});
-      status.textContent=result.manual?'Não consegui ler o print agora — preencha à mão.':'Confira antes de confirmar.';
-    } catch(failure) { status.classList.add('error'); status.textContent=failure.code==='SMS_PRINT_INVALID_IMAGE'?'Use JPEG, PNG ou WebP válido, até 10 MB.':'Não consegui enviar o print agora.'; }
-    finally { if(start) start.disabled=false; }
-  }
-  function startSmsPrint(context={}) {
-    const input=$('auto-print-file');
-    autoPrintContext=context;
-    input.value='';
-    input.onchange=()=>{if(input.files[0])showAutoPrintChoice(input.files[0]);};
-    input.click();
-  }
-  function smsField(label, value, textarea=false) { const field=element('label','',label); const input=element(textarea?'textarea':'input'); input.value=value||''; input.maxLength=textarea?25000:textarea?25000:160; field.append(input); return {field,input}; }
-  function renderSmsPrintReview(read, context={}) {
-    const root=$('sms-print-review'); root.replaceChildren(); root.classList.remove('hidden');
-    const values=read?.extracted_json||{};
-    root.append(element('h3','', 'Revisar print do SMS'));
-    if(context.manual)root.append(element('p','warning','Não consegui ler o print agora — preencha à mão.'));
-    const phone=smsField('Número lido',values.phone||''); const name=smsField('Nome lido',values.name||''); const ref=smsField('Ref lida',values.ref||'');
-    const message=smsField('Mensagem completa',values.message||'',true); const translation=smsField('Tradução para português',values.translation||'',true);
-    root.append(phone.field,name.field,ref.field);
-    const expected=context.ref||context.referenceCode||null;
-    if(expected&&ref.input.value&&String(expected).toUpperCase()===String(ref.input.value).toUpperCase())root.append(element('p','badge green','Ref bate com este pedido ✓'));
-    else if(expected&&ref.input.value)root.append(element('p','warning',`⚠ A Ref do print (${ref.input.value}) é diferente deste pedido (${expected}).`));
-    root.append(message.field,translation.field);
-    const actions=element('div','inline-actions'); const confirm=element('button','small','Confirmar'); const correct=element('button','quiet small','Corrigir'); const discard=element('button','quiet small','Descartar');
-    correct.type=discard.type=confirm.type='button'; correct.addEventListener('click',()=>phone.input.focus());
-    discard.addEventListener('click',async()=>{discard.disabled=true;try{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'discard',readId:read.id})});root.classList.add('hidden');$('sms-print-status').textContent='Print descartado. O arquivo foi mantido em quarentena.';}catch(_){discard.disabled=false;}});
-    const submit=async(options={})=>{confirm.disabled=true;try{const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',readId:read.id,phone:phone.input.value,name:name.input.value,ref:ref.input.value,message:message.input.value,translation:translation.input.value,targetJourneyId:options.targetJourneyId||null,keepSource:options.keepSource===true})});$('sms-print-status').textContent='SMS confirmado e salvo.';root.classList.add('hidden');await loadQueue(false);if(saved.journeyId)openDetail('ficha',saved.journeyId);}catch(failure){confirm.disabled=false;$('sms-print-status').classList.add('error');$('sms-print-status').textContent=failure.code==='SMS_PRINT_PHONE_CONFLICT'?'Esse número já pertence a outro contato.':'Confira número e mensagem antes de confirmar.';}};
-    confirm.addEventListener('click',()=>{const source=context.journeyId||read.source_journey_id;const target=context.refTarget;if(source&&target&&target.id!==source&&String(ref.input.value||'').toUpperCase()===String(target.reference_code||'').toUpperCase()){const choice=element('div','sms-print-missing');choice.append(element('p','',`A Ref do print (${ref.input.value}) é diferente deste pedido.`));const keep=element('button','quiet small','Gravar neste lead mesmo assim');const move=element('button','small',`Levar para o pedido ${ref.input.value}`);keep.type=move.type='button';keep.addEventListener('click',()=>submit({keepSource:true}));move.addEventListener('click',()=>submit({targetJourneyId:target.id}));choice.append(keep,move);root.append(choice);return;}submit();});
-    actions.append(confirm,correct,discard); root.append(actions);
-  }
   function smsPrintMissing(item) {
     if(item.contactChannel!=='SMS_CLICK'||item.smsPrintConfirmed)return null;
     const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui.'));
-    const attach=element('button','small','📷 Anexar print do SMS'); const absent=element('button','quiet small','Não chegou SMS'); attach.type=absent.type='button';
-    attach.addEventListener('click',()=>switchPanel('entry').then(()=>startSmsPrint({journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null})));
+    const attach=element('label','small','📷 Anexar print do SMS'),input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;attach.append(input);const absent=element('button','quiet small','Não chegou SMS'); absent.type='button';
+    input.addEventListener('change',async()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null};attach.classList.add('disabled');for(const file of files){try{await uploadAutoPrint(file,context);}catch(_){block.append(element('p','status error','Não consegui ler agora — tente mais tarde.'));}}attach.classList.remove('disabled');input.value='';});
     absent.addEventListener('click',()=>setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED'));
     const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions);
-    const journeyId=item.journeyId||item.id||null;
-    if(journeyId)request('/api/panel/sms-print?journeyId='+encodeURIComponent(journeyId)).then((state)=>{if(state.confirmed)block.remove();}).catch(()=>{});
     return block;
   }
 
@@ -2238,7 +2163,7 @@
     manheimZone.addEventListener('drop', (event) => importManheim([...event.dataTransfer.files]).catch(showManheimFailure));
     $('sms-form').addEventListener('submit', addSms);
     $('sms-contact').addEventListener('change', () => { const fresh=$('sms-contact').value==='new';$('sms-new-name-label').hidden=!fresh;$('sms-new-phone-label').hidden=!fresh;refreshSmsJourneys(); });
-    $('auto-print-file').addEventListener('change',()=>{const file=$('auto-print-file').files[0];if(file)showAutoPrintChoice(file);});
+    $('auto-print-file').addEventListener('change',()=>{const files=$('auto-print-file').files;if(files.length)showAutoPrintChoice(files);});
     $('auto-print-remove').addEventListener('click',clearAutoPrint);
     $('auto-print-send').addEventListener('click',()=>sendAutoPrint().catch(()=>{}));
     $('sms-date').value = localInput();
