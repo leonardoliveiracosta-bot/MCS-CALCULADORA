@@ -108,6 +108,8 @@ h3 { font-size: 1.1rem; }
 
 .card { padding: clamp(20px, 3vw, 32px); }
 .item-card { padding: 20px; }
+#login-view, #password-view { margin: clamp(24px, 8vh, 80px) auto; }
+.remember-login { color: var(--mcs-text); }
 
 input, select, textarea, .lead-note {
   border: 1px solid var(--mcs-border);
