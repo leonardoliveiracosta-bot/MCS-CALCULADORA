@@ -22,7 +22,7 @@ function configuration() {
 }
 
 function bearer(req) {
-  const value = req.headers.authorization || '';
+  const value = req?.headers?.authorization || '';
   return value.startsWith('Bearer ') ? value.slice(7) : null;
 }
 
