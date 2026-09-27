@@ -29,9 +29,9 @@ module.exports = async (req, res) => {
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'messages', { select: 'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at', environment: 'eq.' + ctx.environment })
+      allRows(ctx, 'messages', { select: 'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment })
     ]);
-    const contact = contactIndex({ calcRuns, messages, messageLinks });
+    const contact = contactIndex({ calcRuns, messages:messages.filter((message)=>!message.undone_at), messageLinks });
     const contactById = new Map(contacts.map((row) => [row.id, row]));
     const phonesFor = (contactId) => phones.filter((row) => row.contact_id === contactId && row.is_current !== false);
     const primaryPhone = (contactId) => {

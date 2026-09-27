@@ -36,6 +36,7 @@
   let currentDetail = null;
   let orderHasMore = false;
   let undoTimer = null;
+  let autoPrintContext = null;
   const $ = (id) => document.getElementById(id);
   const productionHost = location.hostname === 'www.mycarscout.net';
   const environmentBadge = $('environment-badge');
@@ -361,18 +362,18 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
     if (view === 'orders') $('orders-more').classList.add('hidden');
   }
 
   async function switchPanel(view) {
-    if (!['today', 'entry', 'pending', 'orders', 'qualification', 'manheim', 'records'].includes(view)) return;
+    if (!['today', 'entry', 'pending', 'orders', 'qualification', 'searches', 'manheim', 'records'].includes(view)) return;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     currentView = view;
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
-    const labels = { today: 'HOJE', entry: 'ENTRADA', pending: 'PENDÊNCIAS', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', manheim: 'MANHEIM', records: 'FICHAS' };
+    const labels = { today: 'HOJE', entry: 'ENTRADA', pending: 'PENDÊNCIAS', orders: 'PEDIDOS', qualification: 'QUALIFICAÇÃO', searches: 'BUSCAS', manheim: 'MANHEIM', records: 'FICHAS' };
     currentDetail = null;
     if ($('detail-panel')) $('detail-panel').classList.add('hidden');
     Object.keys(labels).forEach((name) => $(name + '-panel').classList.toggle('hidden', name !== view));
@@ -558,28 +559,31 @@
     await loadQueue();
   }
 
-  async function uploadAttachment() {
-    const file = $('attachment-file').files[0];
-    const contactId=$('attachment-contact').value,journeyId=$('attachment-journey').value;
-    if (!file||!contactId||!journeyId) {$('attachment-status').textContent='Escolha o contato e a ficha antes do arquivo.';return;}
-    const head = new Uint8Array(await file.slice(0, 64).arrayBuffer());
-    const magicBase64 = btoa(String.fromCharCode(...head));
-    try {
-      const signed = await request('/api/panel/attachments', { method: 'POST', body: JSON.stringify({ action: 'sign', filename: file.name, mimeType: file.type, byteSize: file.size, magicBase64 }) });
-      const path = signed.uploadUrl.startsWith('http') ? signed.uploadUrl : config.url + '/storage/v1' + signed.uploadUrl;
-      const uploadUrl = new URL(path);
-      uploadUrl.searchParams.set('token', signed.token);
-      const uploadBody = new FormData();
-      uploadBody.append('cacheControl', '3600');
-      uploadBody.append('', file);
-      const uploaded = await fetch(uploadUrl.toString(), { method: 'PUT', headers: { 'x-upsert': 'false' }, body: uploadBody });
-      if (!uploaded.ok) throw new Error('UPLOAD_FAILED');
-      await request('/api/panel/attachments', { method: 'POST', body: JSON.stringify({ action: 'finalize', attachmentId: signed.attachmentId, quarantinePath: signed.quarantinePath, filename: signed.filename, mimeType: file.type,contactId,journeyId }) });
-      $('attachment-status').textContent = 'Anexo verificado e armazenado de forma privada.';
-      $('attachment-file').value = '';
-    } catch (failure) {
-      $('attachment-status').textContent = ['ATTACHMENT_REJECTED', 'ATTACHMENT_ID_INVALID', 'ATTACHMENT_PATH_INVALID'].includes(failure.code) ? 'Arquivo rejeitado por tipo, tamanho, caminho ou assinatura.' : 'Não foi possível enviar o anexo.';
-    }
+  function clearAutoPrint(){const input=$('auto-print-file');input.value='';autoPrintContext=null;$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;$('auto-print-result').classList.add('hidden');}
+  function showAutoPrintChoice(file){const info=$('auto-print-file-info');info.replaceChildren();const image=element('img');image.alt='';image.src=URL.createObjectURL(file);info.append(image,element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=false;}
+  function autoPrintResult(text,saved){const root=$('auto-print-result');root.replaceChildren();root.classList.remove('hidden');root.classList.toggle('error',!saved);root.append(element('strong',saved?'':'warning',text));return root;}
+  async function saveAutoPrint(read, targetJourneyId, values){
+    const action=values.message?'confirm':'photo';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify(action==='photo'?{action,readId:read.id,targetJourneyId}:{action,readId:read.id,targetJourneyId,phone:values.phone,name:values.name,ref:values.ref,message:values.message,translation:values.translation})});
+    const root=autoPrintResult(`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead · Ref ${values.ref||'—'}`,true);const added=[];if(values.phone)added.push(`📞 ${values.phone} adicionado`);if(values.message)added.push('💬 mensagem registrada');if(added.length)root.append(element('p','muted',added.join(' · ')));const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));const undo=element('button','quiet small','Desfazer');undo.type='button';undo.addEventListener('click',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})});root.replaceChildren(element('strong','', 'Desfeito. O arquivo permanece guardado.'));});actions.append(open,undo);root.append(actions);await refreshCounters();return saved;
+  }
+  async function handleAutoPrintRead(result){
+    const status=$('auto-print-status');
+    if(result.manual){status.classList.add('error');status.textContent='Não consegui ler agora — tente mais tarde.';const retry=element('button','quiet small','Tentar de novo');retry.type='button';retry.addEventListener('click',async()=>{retry.disabled=true;try{const next=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})});await handleAutoPrintRead(next);}catch(_){retry.disabled=false;}});$('auto-print-result').replaceChildren(retry);$('auto-print-result').classList.remove('hidden');return;}
+    const values=result.read.extracted_json||{},target=result.refTarget||null,context=autoPrintContext||{};
+    if(context.journeyId&&target&&target.id!==context.journeyId){const root=autoPrintResult(`A Ref do print (${values.ref}) é diferente deste lead.`,false);for(const [label,id] of [['Guardar neste lead',context.journeyId],[`Guardar no lead ${values.ref}`,target.id]]){const button=element('button','small',label);button.type='button';button.addEventListener('click',()=>saveAutoPrint(result.read,id,values));root.append(button);}return;}
+    if(target||context.journeyId){await saveAutoPrint(result.read,target?.id||context.journeyId,values);status.textContent='';return;}
+    const root=autoPrintResult(`Não achei a Ref ${values.ref||'no print'} no painel.`,false);if(values.phone&&values.message){const create=element('button','small','Criar lead novo com este número');create.type='button';create.addEventListener('click',()=>saveAutoPrint(result.read,null,values));root.append(create);}
+    const chooser=element('div','inline-actions'),query=element('input');query.placeholder='Nome, telefone ou Ref';const choose=element('button','quiet small','Escolher o lead');choose.type='button';const results=element('div','');choose.addEventListener('click',async()=>{const found=await request('/api/panel/search?q='+encodeURIComponent(query.value));results.replaceChildren();(found.items||[]).slice(0,6).forEach((item)=>{const pick=element('button','quiet small',`${item.name||'Pedido'} · Ref ${item.referenceCode||item.ref||'—'}`);pick.type='button';pick.addEventListener('click',()=>saveAutoPrint(result.read,item.journeyId||item.id,values));results.append(pick);});if(!results.childNodes.length)results.append(element('p','muted','Nenhum lead encontrado.'));});chooser.append(query,choose);root.append(chooser,results);
+  }
+  async function sendAutoPrint(){const file=$('auto-print-file').files[0];if(!file)return;const status=$('auto-print-status');status.classList.remove('error');status.textContent='Enviando e lendo o print…';$('auto-print-send').disabled=true;try{
+    const head=new Uint8Array(await file.slice(0,64).arrayBuffer());
+    const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:autoPrintContext?.journeyId||null,contactId:autoPrintContext?.contactId||null})});
+    const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);
+    const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});
+    if(!uploaded.ok)throw Error('UPLOAD_FAILED');
+    const result=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});
+    await handleAutoPrintRead(result);}
+    catch(error){status.classList.add('error');status.textContent=error.code==='SMS_PRINT_INVALID_IMAGE'?'Use JPEG, PNG ou WebP válido, até 10 MB.':'Não consegui enviar agora. O arquivo não foi apagado.';}finally{$('auto-print-send').disabled=!$('auto-print-file').files[0];}
   }
 
   function updateMeta(meta) {
@@ -643,7 +647,7 @@
     const stats=$('pending-stats');stats.replaceChildren();[['NO_RESPONSE','🔴 Sem resposta'],['MCS_PENDING','🟠 Parada com você'],['CUSTOMER_PENDING','🟡 Parada com o cliente'],['IN_PROGRESS','🟢 Em andamento'],['CLOSED','⚪ Concluída / sem interesse']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.counts?.[key]||0)),element('span','muted',label));stats.append(stat);});
     const root=$('pending-list');root.replaceChildren();if(!(data.items||[]).length)empty(root,'Nenhuma conversa neste filtro.');
     (data.items||[]).forEach((item)=>{
-      const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div'),phoneItem={phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[],ref:item.ref};text.append(element('strong','identity-name',item.name||`Pedido ${item.ref||'—'}`),phoneNode(phoneItem),element('span','muted one-line',`Ref ${item.ref||'—'} · ${item.vehicleText||'Veículo não informado'}`));identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));head.append(badges);card.append(head);const contact=contactMeta(item);if(contact)card.append(contact);
+      const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div'),phoneItem={phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[],ref:item.ref};text.append(element('strong','identity-name',item.name||`Pedido ${item.ref||'—'}`),phoneNode(phoneItem),element('span','muted one-line',`Ref ${item.ref||'—'} · ${item.vehicleText||'Veículo não informado'}`));identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));head.append(badges);card.append(head);const contact=contactMeta(item);if(contact)card.append(contact);
       const prefix=item.latestDirection==='MCS'?'Você: ':'';card.append(element('p','message-preview',prefix+item.latestMessage));if(item.translation)card.append(element('p','muted','Tradução: “'+item.translation+'”'));if(item.summary||item.nextStep){const ai=element('div','pending-ai');ai.append(element('strong','', 'IA: '),document.createTextNode(item.summary||'Sem resumo ainda'));if(item.nextStep)ai.append(element('strong','', ' Próximo passo: '),document.createTextNode(item.nextStep));card.append(ai);}
       const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;copy.addEventListener('click',async()=>{copy.disabled=true;try{await navigator.clipboard.writeText(item.phone);}catch(_){copy.disabled=false;}});const resolved=element('button','quiet small','Já resolvi');resolved.type='button';resolved.addEventListener('click',async()=>{resolved.disabled=true;try{await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})});await loadPending();}catch(_){resolved.disabled=false;}});const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!item.isLead})});await loadPending();}catch(_){lead.disabled=false;}});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
     });
@@ -719,9 +723,10 @@
     finally { if(start) start.disabled=false; }
   }
   function startSmsPrint(context={}) {
-    const input=$('sms-print-file');
+    const input=$('auto-print-file');
+    autoPrintContext=context;
     input.value='';
-    input.onchange=()=>uploadSmsPrint(input.files[0],context);
+    input.onchange=()=>{if(input.files[0])showAutoPrintChoice(input.files[0]);};
     input.click();
   }
   function smsField(label, value, textarea=false) { const field=element('label','',label); const input=element(textarea?'textarea':'input'); input.value=value||''; input.maxLength=textarea?25000:textarea?25000:160; field.append(input); return {field,input}; }
@@ -748,7 +753,7 @@
     if(item.contactChannel!=='SMS_CLICK'||item.smsPrintConfirmed)return null;
     const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui.'));
     const attach=element('button','small','📷 Anexar print do SMS'); const absent=element('button','quiet small','Não chegou SMS'); attach.type=absent.type='button';
-    attach.addEventListener('click',()=>startSmsPrint({journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null}));
+    attach.addEventListener('click',()=>switchPanel('entry').then(()=>startSmsPrint({journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null})));
     absent.addEventListener('click',()=>setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED'));
     const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions);
     const journeyId=item.journeyId||item.id||null;
@@ -805,9 +810,32 @@
   }
 
   function renderFailure(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
   }
+
+  async function loadSearches() {
+    const data=await request('/api/panel/searches');
+    const summary=$('searches-summary'),root=$('searches-list');summary.replaceChildren();root.replaceChildren();
+    const makeButton=(label,handler,className='small')=>{const control=element('button',className,label);control.type='button';control.addEventListener('click',handler);return control;};
+    [['MISSING','🔍 Falta buscar'],['SAVED','💾 Busca salva'],['SENT','📤 Opções enviadas']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.counts?.[key]||0)),element('span','muted',label));summary.append(stat);});
+    (data.items||[]).forEach((item)=>{
+      const card=element('article','item-card search-card');const head=element('div','item-head');head.append(element('strong','identity-name',item.name),phoneNode({phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[]}),element('span','muted',`Ref ${item.ref||'—'}`),element('span','search-stage '+item.stage,`${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days===1?'':'s'}` : ''}`));card.append(head);
+      card.append(element('strong','',item.exactSearch));
+      if(item.alsoServes?.length){const names=item.alsoServes.slice(0,2).map((peer)=>`${peer.name} (Ref ${peer.ref||'—'})`).join(' e ');card.append(element('p','muted',`Também serve para: ${names}${item.alsoServes.length>2?` e mais ${item.alsoServes.length-2}`:''} — mesma busca no Manheim`));}
+      if(item.stage==='SAVED')card.append(element('p','muted',`${item.matchCount} carro${item.matchCount===1?'':'s'} no último CSV do Manheim batem com esta busca`));
+      const actions=element('div','inline-actions');
+      const toggle=async(kind)=>{const previous=item.stage;item.stage=kind==='SAVED'?'SAVED':'SENT';renderSearchesAgain();try{await request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind})});await loadSearches();}catch(_){item.stage=previous;renderSearchesAgain();const notice=element('p','error','Não foi possível atualizar agora.');root.prepend(notice);setTimeout(()=>notice.remove(),5000);}};
+      if(item.stage==='MISSING')actions.append(makeButton('💾 Salvei a busca no Manheim',()=>toggle('SAVED')));
+      if(item.stage!=='SENT')actions.append(makeButton('📤 Enviei opções ao cliente',()=>toggle('SENT'),'quiet small'));
+      if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>switchPanel('manheim'),'quiet small'));
+      if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED';actions.append(makeButton('Desfazer',async()=>{await request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind})});await loadSearches();},'quiet small'));}
+      actions.append(makeButton('Abrir lead',()=>openDetail('ficha',item.journeyId),'quiet small'));card.append(actions);root.append(card);
+    });
+    if(!(data.items||[]).length)empty(root,'Nenhum cliente ativo com desejo completo e contato registrado.');
+    window.__mcsSearchesRender=()=>loadSearches().catch(()=>{});
+  }
+  function renderSearchesAgain(){ if(window.__mcsSearchesRender)window.__mcsSearchesRender(); }
 
   async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
     const current = () => currentView === view && viewRequestVersion === requestVersion;
@@ -833,6 +861,7 @@
       updateMeta(data.meta);
       return renderQualification(data.items || []);
     }
+    if (view === 'searches') return loadSearches();
     if (view === 'manheim') {
       const data = await request('/api/panel/records?view=manheim');
       if (!current()) return;
@@ -848,11 +877,12 @@
   }
 
   async function refreshCounters() {
-    const [entry, pending, orders, qualification, manheim, records] = await Promise.all([
+    const [entry, pending, orders, qualification, searches, manheim, records] = await Promise.all([
       request('/api/panel/entry'),
       request('/api/panel/pendencias'),
       request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
       request('/api/panel/qualification'),
+      request('/api/panel/searches'),
       request('/api/panel/records?view=manheim'),
       request('/api/panel/records')
     ]);
@@ -860,6 +890,7 @@
     setCount('pending', Object.values(pending.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
     setCount('orders', orders.page && orders.page.total || 0);
     setCount('qualification', (qualification.items || []).length);
+    setCount('searches', (searches.items || []).length);
     setCount('manheim', manheim.upload && manheim.upload.lead_count || 0);
     setCount('records', (records.items || []).length);
   }
@@ -993,7 +1024,7 @@
   }
 
   function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', entry: 'entry-panel', pending: 'pending-panel', orders: 'orders-panel', qualification: 'qualification-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    const labels = { today: 'today-panel', entry: 'entry-panel', pending: 'pending-panel', orders: 'orders-panel', qualification: 'qualification-panel', searches: 'searches-panel', manheim: 'manheim-panel', records: 'records-panel' };
     Object.values(labels).forEach((id) => $(id).classList.add('hidden'));
     $('detail-panel').classList.remove('hidden');
     $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
@@ -1121,6 +1152,7 @@
       }
       card.append(head);
       const badges = element('div', 'badges');
+      if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
       if (item.wantsCar) badges.append(makeBadge('QUER ESTE CARRO', 'green'));
       if(item.returnedToTalk)badges.append(makeBadge('VOLTOU A FALAR','yellow'));
@@ -1168,6 +1200,7 @@
       const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
 
       const badges = element('div', 'badges');
+      if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       if (item.sourceLabel) badges.append(makeBadge(item.sourceLabel));
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
       else badges.append(makeBadge(item.logicalMode === 'CARRO' ? 'CARRO IDEAL' : item.logicalMode === 'VALOR' ? 'POR VALOR' : 'PEDIDO'));
@@ -1229,6 +1262,7 @@
       const title = element('div');
       title.append(identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' }));
       const badges = element('div', 'badges');
+      if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       const qualificationStatus = item.enabled === false ? 'DESLIGADO' : item.status;
       badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(qualificationStatus, qualificationStatus === 'ATIVO' ? 'green' : qualificationStatus === 'RESPONDIDO' ? 'blue' : ''));
       if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
@@ -1292,7 +1326,7 @@
   function renderManheimGroup(root, journey, matches, reactivation) {
     const card = element('article', 'item-card manheim-lead');
     const head = element('div', 'item-head');
-    head.append(identityHeader(journey), makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));
+    head.append(identityHeader(journey), makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));if(journey.searchStageLabel)head.append(makeBadge(journey.searchStageLabel,journey.searchStage==='SENT'?'green':journey.searchStage==='SAVED'?'blue':'yellow'));
     card.append(head, element('p', 'muted', wishlistSummary(journey.wishlists || journey.wishlist, journey.budget_cents)));
     const contact=contactMeta(journey);if(contact)card.append(contact);
     if (reactivation) {
@@ -1593,6 +1627,7 @@
       const controls = element('div', 'record-card-controls');
       const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
       controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
+      if(item.searchStageLabel)controls.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       const heat=heatBadge(item);if(heat)controls.append(heat);
       if(item.pendingAiCount)controls.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
       if(item.aiLinkSuggested)controls.append(makeBadge('🔗 ligação sugerida','yellow'));
@@ -1975,7 +2010,7 @@
       const label = item.kind === 'ORDER'
         ? `${referencePhone(item)}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
         : `${item.name} · ${referencePhone(item)}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
-      button.append(element('span', '', label), makeBadge(item.matchedBy));
+      button.append(element('span', '', label), makeBadge(item.matchedBy));if(item.searchStageLabel)button.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       button.addEventListener('click', () => {
         const origin=captureOrigin();
         root.classList.add('hidden');
@@ -2182,7 +2217,7 @@
       if (currentView === 'orders') await loadCurrent();
     }));
     $('orders-more').addEventListener('click', () => loadOrders(true).catch(() => { $('orders-more').textContent = 'Não foi possível carregar'; }));
-    ['today','entry','pending','orders','qualification','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView!==name)return;if(name==='manheim'){renderSavedSearches().catch(()=>{});return;}loadCurrent().catch(()=>{});});});
+    ['today','entry','pending','orders','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView!==name)return;if(name==='manheim'){renderSavedSearches().catch(()=>{});return;}loadCurrent().catch(()=>{});});});
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
     $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});
     $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
@@ -2203,10 +2238,9 @@
     manheimZone.addEventListener('drop', (event) => importManheim([...event.dataTransfer.files]).catch(showManheimFailure));
     $('sms-form').addEventListener('submit', addSms);
     $('sms-contact').addEventListener('change', () => { const fresh=$('sms-contact').value==='new';$('sms-new-name-label').hidden=!fresh;$('sms-new-phone-label').hidden=!fresh;refreshSmsJourneys(); });
-    $('attachment-contact').addEventListener('change',refreshAttachmentJourneys);
-    $('attachment-journey').addEventListener('change',()=>{$('attachment-upload').disabled=!$('attachment-journey').value;});
-    $('attachment-upload').addEventListener('click', uploadAttachment);
-    $('sms-print-start').addEventListener('click', () => startSmsPrint());
+    $('auto-print-file').addEventListener('change',()=>{const file=$('auto-print-file').files[0];if(file)showAutoPrintChoice(file);});
+    $('auto-print-remove').addEventListener('click',clearAutoPrint);
+    $('auto-print-send').addEventListener('click',()=>sendAutoPrint().catch(()=>{}));
     $('sms-date').value = localInput();
     await routeSession();
   }

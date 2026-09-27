@@ -4,6 +4,7 @@ const { consolidateCalcRuns, groupCalculatorByRef, orderSearchMatches, searchMat
 const { allRows, requirePanel, safeText, send } = require('../../panel-server');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
+const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -21,10 +22,10 @@ module.exports = async (req, res) => {
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
-      allRows(ctx,'messages',{select:'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at',environment:'eq.'+ctx.environment}),
+      allRows(ctx,'messages',{select:'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at',environment:'eq.'+ctx.environment}),
       allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment})
     ]);
-    const contactIndexData=contactIndex({calcRuns,messages,messageLinks});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
+    const contactIndexData=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
     const journeyMap = new Map(journeys.map((item) => [item.id, item]));
     const contactMap = new Map(contacts.filter((item)=>item.is_lead!==false).map((item) => [item.id, item]));
     const hits = new Map();
@@ -88,7 +89,8 @@ module.exports = async (req, res) => {
       matchedBy: foldMatch(q, item)
     },facts,insightByJourney.get(journey?.id))];});
     const sort=String(req.query?.sort||'recent');
-    return send(res, 200, { environment: ctx.environment, items: sortItems([...hits.values()].concat(orderHits),sort,'recent').slice(0, 100) });
+    const stageIndex=await loadSearchStageIndex(ctx);
+    return send(res, 200, { environment: ctx.environment, items: sortItems([...hits.values()].concat(orderHits),sort,'recent').slice(0, 100).map((item)=>decorateWithSearchStage(item,stageIndex)) });
   } catch (_) {
     return send(res, 500, { error: 'PANEL_SEARCH_ERROR' });
   }

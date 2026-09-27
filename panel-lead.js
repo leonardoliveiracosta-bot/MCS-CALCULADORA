@@ -5,6 +5,7 @@ const calc = require('./calc-core');
 const catalog = require('./vehicle-catalog');
 const { consolidateCalcRuns, groupCalculatorByRef, mergeWishlists, REF_RE } = require('./panel-domain');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
+const { loadSearchStageIndex } = require('./panel-search-stage');
 
 function timezoneForZip(zip) {
   const location = calc.zipEstado(zip);
@@ -168,14 +169,16 @@ async function leadData(ctx, req, refInput, idInput) {
     try{return await read();}
     catch(error){console.error('[panel-lead-read]',{label,ref,journeyId:journey?.id||null,message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});return [];}
   };
-  const [notes, events, promises, archive, recentMatches, aiReadings, aiSuggestions] = await Promise.all([
+  const [notes, events, promises, archive, recentMatches, aiReadings, aiSuggestions, aiHelp, stageIndex] = await Promise.all([
     optionalRead('lead_notes',()=>allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'created_at.desc' })),
     optionalRead('lead_events',()=>allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ...scope, undone_at: 'is.null', order: 'occurred_at.desc' })),
     optionalRead('lead_promises',()=>allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'due_at.asc' })),
     optionalRead('manheim_vehicles',()=>allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, order: 'uploaded_at.desc' })),
     optionalRead('manheim_matches',()=>allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, created_at: 'gte.' + cutoff })),
     journey ? optionalRead('conversation_ai_readings',()=>rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
-    journey ? optionalRead('whatsapp_link_suggestions',()=>rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'})) : Promise.resolve([])
+    journey ? optionalRead('whatsapp_link_suggestions',()=>rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
+    journey ? optionalRead('lead_ai_help',()=>allRows(ctx,'lead_ai_help',{select:'id,question,answer_json,created_at',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,order:'created_at.desc'})) : Promise.resolve([]),
+    loadSearchStageIndex(ctx).catch(()=>new Map())
   ]);
   const aiReading=aiReadings[0]||null;
   const aiItems=aiReading?await allRows(ctx,'conversation_ai_items',{select:'id,item_json,evidence_text,manual_review,status,created_at',environment:'eq.'+ctx.environment,reading_id:'eq.'+aiReading.id,status:'eq.PENDING',order:'created_at.asc'}):[];
@@ -231,7 +234,7 @@ async function leadData(ctx, req, refInput, idInput) {
     promises: [...(record?.promises || []), ...promises].map((promise) => ({ ...promise, journey_id: record?.id }))
   }, [...unique.values()]);
   const city = cityCache.get(zip) || null;
-  return { ref, hasCalculatorRef:hasRef, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai };
+  return { ref, hasCalculatorRef:hasRef, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage: journey ? stageIndex.get(journey.id) || null : null };
 }
 
 async function belongsToJourney(ctx, ref, journey) {

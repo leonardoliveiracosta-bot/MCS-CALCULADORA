@@ -7,6 +7,7 @@ const { score } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
+const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 
 function dueToday(promises, ref, zip, now) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -145,11 +146,12 @@ module.exports = async (req, res) => {
     const requestedSort=String(req.query?.sort||'ready');
     if(requestedSort!=='ready')items=sortItems(items,requestedSort,'ready');
 
+    const stageIndex=await loadSearchStageIndex(ctx).catch(()=>new Map());
     return send(res, 200, {
       environment: ctx.environment,
       windowHours: 24,
       generatedAt: new Date(now).toISOString(),
-      items,
+      items:items.map((item)=>decorateWithSearchStage(item,stageIndex)),
       meta
     });
   } catch (_) {
