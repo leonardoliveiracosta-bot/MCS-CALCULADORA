@@ -1993,6 +1993,7 @@
     refreshTimer = setInterval(async () => {
       try {
         await loadCurrent();
+        await loadCaptureWarning();
       } catch (_) { clearInterval(refreshTimer); }
     }, 120000);
   };
