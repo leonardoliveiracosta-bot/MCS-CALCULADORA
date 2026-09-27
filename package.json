@@ -1,13 +1,15 @@
 {
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "test:sql": "node tests/sql/run.js"
+    "test:sql": "node tests/sql/run.js",
+    "test:visual": "playwright test tests/panel-responsive.spec.js"
   },
   "dependencies": {
     "@vercel/functions": "3.9.9",
     "@zip.js/zip.js": "2.18.2"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.8"
+    "@electric-sql/pglite": "0.5.8",
+    "@playwright/test": "1.55.1"
   }
 }
