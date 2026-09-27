@@ -1,0 +1,5 @@
+-- Registro histórico da reaplicação idempotente de
+-- 20260925223000_panel_auditoria_fix.sql.
+--
+-- Esta migração não contém instruções SQL porque a reaplicação já ocorreu em
+-- produção e não alterou o resultado do schema.
