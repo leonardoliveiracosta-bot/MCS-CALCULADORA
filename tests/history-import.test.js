@@ -57,12 +57,20 @@ test('importer sends state sync first and keeps batches small',()=>{
   assert.match(receiverSource,/if\(!item\.name\)\{const book=/);
 });
 
-test('history contact facts use WhatsApp while only live inbound starts the click cutoff',()=>{
-  assert.equal(messageChannel({source_kind:'WHATSAPP_HISTORY'}),'WHATSAPP');
+test('history contact facts keep the history label while only live inbound starts the click cutoff',()=>{
+  assert.equal(messageChannel({source_kind:'WHATSAPP_HISTORY'}),'WHATSAPP_HISTORY');
   const historical=contactIndex({messages:[{id:'old',direction:'CUSTOMER',source_kind:'WHATSAPP_HISTORY',created_at:'2026-09-01T00:00:00Z'}],messageLinks:[{message_id:'old',journey_id:'journey'}],calcRuns:[]});
   assert.equal(historical.firstWebhookAt,null);
   const live=contactIndex({messages:[{id:'old',direction:'CUSTOMER',source_kind:'WHATSAPP_HISTORY',created_at:'2026-09-01T00:00:00Z'},{id:'live',direction:'CUSTOMER',source_kind:'WHATSAPP_WEBHOOK',created_at:'2026-09-02T00:00:00Z'}],messageLinks:[],calcRuns:[]});
   assert.ok(live.firstWebhookAt);
+});
+
+test('history WhatsApp label stays green and report rules count it as WhatsApp',()=>{
+  const panel=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
+  const report=fs.readFileSync(path.join(root,'api/panel/report.js'),'utf8');
+  assert.match(panel,/WHATSAPP_HISTORY:'💬 WhatsApp · histórico'/);
+  assert.match(panel,/\['WHATSAPP','WHATSAPP_HISTORY','WHATSAPP_CLICK'\]\.includes\(item\.contactChannel\)/);
+  assert.match(report,/\['WHATSAPP','WHATSAPP_HISTORY'\]\.includes\(item\.contactChannel\)/);
 });
 
 test('cron skips an all-history group and a live inbound makes it eligible again',async()=>{
@@ -95,4 +103,12 @@ test('migration records history source and automatic detector accepts history wi
   assert.match(ai,/source_kind,occurred_at_utc/);
   assert.match(ai,/latestCustomerIsLive/);
   assert.match(fs.readFileSync(path.join(root,'api/panel/whatsapp.js'),'utf8'),/raw\.event_type==='history'\?'WHATSAPP_HISTORY':'WHATSAPP_WEBHOOK'/);
+});
+
+test('latest WhatsApp function keeps source_key and clears the old primary before promotion',()=>{
+  const sql=fs.readFileSync(path.join(root,'supabase/migrations/20260927091000_restore_primary_swap_fix.sql'),'utf8');
+  assert.match(sql,/source_key text := coalesce\(nullif\(p_item->>'source_kind',''\),'WHATSAPP_WEBHOOK'\)/);
+  assert.match(sql,/set is_primary=false where cp\.environment=p_environment and cp\.contact_id=contact_id and cp\.is_primary/);
+  assert.match(sql,/set is_primary=true where cp\.environment=p_environment and cp\.contact_id=contact_id and cp\.phone_e164=phone/);
+  assert.doesNotMatch(sql,/set is_primary=\(cp\.phone_e164=phone/);
 });
