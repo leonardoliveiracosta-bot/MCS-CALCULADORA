@@ -169,6 +169,7 @@ module.exports = async (req, res) => {
     const timeline = buildConversationTimeline(conversation, interactions, activities);
     const toggle = toggleStates[0];
     const enabled = toggle ? toggle.enabled : journey.status !== 'ENCERRADO';
+    const facts = contactIndex({ calcRuns: filteredRuns, messages, messageLinks: links.map((link) => ({ journey_id: journey.id, message_id: link.message_id })) }).facts({ journeyId: journey.id, ref: journey.reference_code, refs: refs.map((row) => row.ref_code) });
     return send(res, 200, {
       environment: ctx.environment,
       item: {
@@ -176,7 +177,7 @@ module.exports = async (req, res) => {
         shortDeadline: shortDeadline(journey.customer_deadline_at), promises, units,
         returns: buildReturns(journey, promises), interactions, divergences, declarations, attachments, conversation, timeline,
         calculatorRequests, senderAliases: senderAliases.filter((alias) => conversation.some((message) => message.chat_id === alias.chat_id)),
-        manheimMatchCount: manheimMatches.length, manheimUploadAt: uploads[0] && uploads[0].uploaded_at || null
+        manheimMatchCount: manheimMatches.length, manheimUploadAt: uploads[0] && uploads[0].uploaded_at || null, contactChannel: facts.channel, enteredContact: facts.entered
       },
       meta
     });
