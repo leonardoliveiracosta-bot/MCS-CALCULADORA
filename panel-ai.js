@@ -122,7 +122,7 @@ async function allConversationData(ctx) {
     allRows(ctx,'journeys',{select:'id,contact_id,reference_code,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contacts',{select:'id,display_name,location_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,occurred_at_utc,occurred_at_local,created_at',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,created_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
     allRows(ctx,'conversation_ai_readings',{select:'id,journey_id,chat_id,last_customer_message_id,status,created_at',environment:'eq.'+ctx.environment,status:'eq.ACTIVE'}),
     allRows(ctx,'conversation_ai_link_state',{select:'journey_id,chat_id,first_customer_at,last_run_at,last_order_seen_at,retry_requested',environment:'eq.'+ctx.environment}),
@@ -146,8 +146,9 @@ async function allConversationData(ctx) {
   }
   for(const group of groups.values()){
     group.messages.sort((a,b)=>stampOf(a)-stampOf(b)||String(a.id).localeCompare(String(b.id)));
-    group.customerMessages=group.messages.filter((message)=>message.direction==='CUSTOMER');
-    group.mcsCount=group.messages.filter((message)=>message.direction==='MCS').length;
+    group.effectiveMessages=group.messages.filter((message)=>!message.is_automatic);
+    group.customerMessages=group.effectiveMessages.filter((message)=>message.direction==='CUSTOMER');
+    group.mcsCount=group.messages.filter((message)=>message.direction==='MCS'&&!message.is_automatic).length;
     group.lastCustomer=group.customerMessages.at(-1)||null;
     group.firstCustomer=group.customerMessages[0]||null;
     group.refs=[String(group.journey.reference_code||'').trim().toUpperCase(),...(refsByJourney.get(group.journey.id)||[])].filter((ref)=>REF_RE.test(ref)&&calculatorRefs.has(ref));
@@ -289,7 +290,7 @@ async function runCron(ctx,options={}){
   for(const group of groups){
     if(!group.lastCustomer||stampOf(group.lastCustomer)<cutoff)continue;
     if(!automaticAttemptAllowed(group,now))continue;
-    const latestId=group.messages.at(-1)?.id;
+    const latestId=group.effectiveMessages.at(-1)?.id;
     const readingDue=group.mcsCount>=10&&stampOf(group.lastCustomer)<=now-10*60000&&(
       group.reading?.last_customer_message_id!==group.lastCustomer.id || (group.pendingInsight && group.pendingInsight.last_ai_message_id!==latestId)
     );
