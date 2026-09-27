@@ -3,7 +3,7 @@ const {normalizePhone}=require('./panel-phone');
 const {supabase}=require('./panel-server');
 
 const AUTO_REPLY_TEXT=`Hi, this is an automatic message from My Car Scout
-We've had a high volume of messages, so the key details come first. When our team joins, we start from your car and your numbers, not from zero
+We've had a high volume of messages, so the key details come first. When our team joins the conversation, we start with the car you want and your numbers, not from scratch
 
 1. We offer an auction buying service through dealer wholesale auctions, you choose the car and set your limit, we handle the purchase
 2. These auctions are closed to the public. Through us, that door is open. No license or auction account needed
@@ -13,7 +13,7 @@ We've had a high volume of messages, so the key details come first. When our tea
 6. To bid, we require a refundable deposit. It locks your max in place. We never bid above it. No purchase? You get it back, or it stays valid for your next search
 7. Financing is also an option, subject to lender approval. Cars up to $7,000 are cash only
 
-Reply YES and a real person will personally review your request. Demand is high, and a quick reply isn't always a good reply. We'll make your reply count.`;
+Reply YES and a real person will review what you're looking for. Demand is high, and a quick reply isn't always a good reply. We'll make your reply count.`;
 
 function isEnabled(){return String(process.env.AUTO_REPLY_ENABLED||'').trim().toLowerCase()==='true';}
 function testNumbers(){return new Set(String(process.env.AUTO_REPLY_TEST_NUMBERS||'').split(',').map(normalizePhone).filter(Boolean));}

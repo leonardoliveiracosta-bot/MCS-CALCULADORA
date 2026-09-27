@@ -6,7 +6,7 @@ const path=require('node:path');
 const root=path.join(__dirname,'..');
 function loadWith(relative,mocks){const file=path.join(root,relative),mod={exports:{}};const req=(name)=>Object.hasOwn(mocks,name)?mocks[name]:require(name.startsWith('.')?path.resolve(path.dirname(file),name):name);new Function('require','module','exports',fs.readFileSync(file,'utf8'))(req,mod,mod.exports);return mod.exports;}
 const expected=`Hi, this is an automatic message from My Car Scout
-We've had a high volume of messages, so the key details come first. When our team joins, we start from your car and your numbers, not from zero
+We've had a high volume of messages, so the key details come first. When our team joins the conversation, we start with the car you want and your numbers, not from scratch
 
 1. We offer an auction buying service through dealer wholesale auctions, you choose the car and set your limit, we handle the purchase
 2. These auctions are closed to the public. Through us, that door is open. No license or auction account needed
@@ -16,7 +16,7 @@ We've had a high volume of messages, so the key details come first. When our tea
 6. To bid, we require a refundable deposit. It locks your max in place. We never bid above it. No purchase? You get it back, or it stays valid for your next search
 7. Financing is also an option, subject to lender approval. Cars up to $7,000 are cash only
 
-Reply YES and a real person will personally review your request. Demand is high, and a quick reply isn't always a good reply. We'll make your reply count.`;
+Reply YES and a real person will review what you're looking for. Demand is high, and a quick reply isn't always a good reply. We'll make your reply count.`;
 const ctx={environment:'preview',config:{url:'https://db.invalid',secretKey:'service'}};
 const item=(id,phone='+13055550122')=>({messageId:id,phone,direction:'CUSTOMER',eventField:'messages',timestamp:String(Math.floor(Date.now()/1000)),body:'Hello'});
 const stored={messageId:'10000000-0000-4000-8000-000000000001',contactId:'10000000-0000-4000-8000-000000000002'};
@@ -42,7 +42,7 @@ test('new live contact receives the exact greeting once and it is recorded',asyn
   const {mod,calls}=moduleWith(()=>({claimed:true}));let posted;
   global.fetch=async(_url,options)=>{posted=JSON.parse(options.body);return {ok:true,status:200,json:async()=>({messages:[{id:'wamid.sent'}]})};};
   const result=await mod.maybeAutoReply(ctx,'raw',item('wamid.in'),stored);
-  assert.equal(mod.AUTO_REPLY_TEXT,expected);assert.equal(mod.AUTO_REPLY_TEXT.length,1340);
+  assert.equal(mod.AUTO_REPLY_TEXT,expected);assert.equal(mod.AUTO_REPLY_TEXT.length,1368);
   assert.equal(posted.text.body,expected);assert.equal(posted.to,'13055550122');assert.equal(result.sent,true);assert.equal(result.recorded,true);
   assert.equal(calls.filter((call)=>call.endpoint.includes('claim_auto_reply')).length,1);
   assert.equal(calls.filter((call)=>call.endpoint.includes('apply_message')).length,1);
