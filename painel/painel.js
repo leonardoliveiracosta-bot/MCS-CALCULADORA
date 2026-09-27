@@ -37,6 +37,7 @@
   let orderHasMore = false;
   let undoTimer = null;
   let autoPrintContext = null;
+  let historyImportFile = null;
   const $ = (id) => document.getElementById(id);
   const productionHost = location.hostname === 'www.mycarscout.net';
   const environmentBadge = $('environment-badge');
@@ -493,6 +494,48 @@
     (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';choose.addEventListener('click',async()=>{choose.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})});await loadWhatsApp();await loadQueue();}catch(_){choose.disabled=false;row.append(element('span','status error','Não foi possível ligar a mensagem.'));}});const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:candidate.isLead===false})});await loadWhatsApp();await loadQueue();}catch(_){lead.disabled=false;}});group.append(choose,lead);row.append(group);});suggestions.append(row);});
   }
 
+  const historyPhone = '13055400742';
+  function validHistoryObject(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !['history', 'smb_app_state_sync'].includes(value.event) || !String(value.id || '').trim() || !value.data || typeof value.data !== 'object' || Array.isArray(value.data)) return false;
+    if (value.event === 'history' && !Array.isArray(value.data.history)) return false;
+    if (Object.prototype.hasOwnProperty.call(value.data, 'metadata') && String(value.data.metadata?.display_phone_number || '').replace(/\D/g, '') !== historyPhone) return false;
+    return true;
+  }
+  function historyOrder(value) {
+    const ranks = (value.data?.history || []).map((chunk) => [Number(chunk?.metadata?.phase), Number(chunk?.metadata?.chunk_order)]).filter(([phase, order]) => Number.isFinite(phase) || Number.isFinite(order));
+    return ranks.sort((left, right) => (left[0] - right[0]) || (left[1] - right[1]))[0] || [Infinity, Infinity];
+  }
+  const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  async function import360History() {
+    const status = $('history-import-status'), errors = $('history-import-errors'), sendButton = $('history-import-send');
+    if (!historyImportFile) return;
+    let entries;
+    try { entries = JSON.parse(await historyImportFile.text()); } catch (_) { throw new Error('HISTORY_FILE_INVALID'); }
+    if (!Array.isArray(entries) || !entries.length || !entries.every(validHistoryObject)) throw new Error('HISTORY_FILE_INVALID');
+    const states = entries.filter((entry) => entry.event === 'smb_app_state_sync');
+    const histories = entries.filter((entry) => entry.event === 'history').sort((left, right) => historyOrder(left)[0] - historyOrder(right)[0] || historyOrder(left)[1] - historyOrder(right)[1]);
+    const ordered = states.concat(histories), totals = { conversations: 0, imported: 0, alreadyExists: 0, errors: 0 };
+    errors.replaceChildren(); sendButton.disabled = true;
+    for (let offset = 0; offset < ordered.length; offset += 10) {
+      let batch = ordered.slice(offset, offset + 10), attempts = 0;
+      while (batch.length) {
+        status.textContent = `Importando ${Math.min(offset + (ordered.slice(offset, offset + 10).length - batch.length), ordered.length)} de ${ordered.length}…`;
+        const result = await request('/api/panel/history-import', { method: 'POST', body: JSON.stringify({ items: batch }) });
+        totals.conversations += Number(result.conversations || 0); totals.imported += Number(result.imported || 0); totals.alreadyExists += Number(result.alreadyExists || 0); totals.errors += Number(result.errors || 0);
+        if (result.more) { batch = batch.slice(Math.max(1, Number(result.nextIndex || 1))); continue; }
+        if (result.inProgress && attempts++ < 8) { await pause(1000); continue; }
+        if (result.inProgress) totals.errors += batch.length;
+        break;
+      }
+      status.textContent = `Importando ${Math.min(offset + 10, ordered.length)} de ${ordered.length}…`;
+    }
+    const summary = `Importado: ${totals.conversations} conversas, ${totals.imported} mensagens novas, ${totals.alreadyExists} já existiam, ${totals.errors} com erro`;
+    status.textContent = summary;
+    if (totals.errors) { const viewErrors = element('button', 'quiet small', 'ver erros'); viewErrors.type = 'button'; viewErrors.addEventListener('click', () => loadWhatsApp().catch(() => {})); errors.append(viewErrors); }
+    historyImportFile = null; $('history-import-file').value = ''; sendButton.disabled = true;
+    await Promise.all([loadWhatsApp(), loadQueue(false)]);
+  }
+
   async function loadQueue(render = true) {
     const data = await request('/api/panel/entry');
     contacts = data.contacts || [];
@@ -655,10 +698,10 @@
   function phoneDisplay(value){const raw=String(value||'');const digits=raw.replace(/\D/g,'');return digits.length===11&&digits[0]==='1'?`(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`:raw||'falta o número';}
   function referencePhone(item){const ref=item.referenceCode||item.reference_code||item.ref||'—';const phone=primaryPhone(item);return `Ref ${ref} · 📞 ${phone?phoneDisplay(phone.phone_e164||phone.phone_raw):'falta o número'}`;}
   function phoneNode(item){const phone=primaryPhone(item);if(!phone)return element('span','identity-ref-phone phone-missing','📞 falta o número');const raw=phone.phone_e164||phone.phone_raw;const link=element('a','identity-ref-phone phone-link','📞 '+phoneDisplay(raw));link.href='tel:'+String(raw).replace(/[^+\d]/g,'');link.addEventListener('click',(event)=>event.stopPropagation());return link;}
-  function contactChannelLabel(channel){return {WHATSAPP:'💬 WhatsApp',WHATSAPP_CLICK:'💬 Clicou em WhatsApp',SMS_CLICK:'✉️ Clicou em mensagem de texto',CONTACT_CLICK_UNKNOWN:'💬 Clicou para falar (canal não registrado)',IMPORTED:'📎 Conversa importada/colada'}[channel]||'';}
+  function contactChannelLabel(channel){return {WHATSAPP:'💬 WhatsApp',WHATSAPP_HISTORY:'💬 WhatsApp · histórico',WHATSAPP_CLICK:'💬 Clicou em WhatsApp',SMS_CLICK:'✉️ Clicou em mensagem de texto',CONTACT_CLICK_UNKNOWN:'💬 Clicou para falar (canal não registrado)',IMPORTED:'📎 Conversa importada/colada'}[channel]||'';}
   function floridaArrival(value){if(!value)return '';const date=new Date(value),now=new Date();const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true});const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(date);const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(now);const yesterday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date(Date.now()-86400000));const prefix=day===today?'hoje':day===yesterday?'ontem':new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).format(date);return `chegou ${prefix} ${fmt.format(date)} (Flórida)`;}
   function heatBadge(item){const labels={HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'},tone={HOT:'red',WARM:'yellow',COLD:'blue'};const heat=String(item.heat||'').toUpperCase();return heat?makeBadge(labels[heat]||labels.COLD,tone[heat]||'blue'):null;}
-  function contactMeta(item){const wrap=element('div','badges contact-meta');const channel=contactChannelLabel(item.contactChannel),arrival=floridaArrival(item.contactAt||item.lastCustomerAt);if(channel)wrap.append(makeBadge(channel,item.contactChannel==='WHATSAPP'||item.contactChannel==='WHATSAPP_CLICK'?'green':item.contactChannel==='SMS_CLICK'?'yellow':'blue'));if(arrival)wrap.append(makeBadge(arrival));const heat=heatBadge(item);if(heat){const details=element('details','temperature-details'),summary=element('summary','');summary.append(heat);details.append(summary,element('p','temperature-explanation',item.heatSource==='AI'?`Temperatura da IA: ${item.aiSummary||'Sem resumo.'}${item.aiNextStep?' Próximo passo: '+item.aiNextStep:''}`:'Temperatura calculada: telefone, checklist, prazo, orçamento x Manheim, conversa recente e horário.'));wrap.append(details);}return wrap.childNodes.length?wrap:null;}
+  function contactMeta(item){const wrap=element('div','badges contact-meta');const channel=contactChannelLabel(item.contactChannel),arrival=floridaArrival(item.contactAt||item.lastCustomerAt);if(channel)wrap.append(makeBadge(channel,['WHATSAPP','WHATSAPP_HISTORY','WHATSAPP_CLICK'].includes(item.contactChannel)?'green':item.contactChannel==='SMS_CLICK'?'yellow':'blue'));if(arrival)wrap.append(makeBadge(arrival));const heat=heatBadge(item);if(heat){const details=element('details','temperature-details'),summary=element('summary','');summary.append(heat);details.append(summary,element('p','temperature-explanation',item.heatSource==='AI'?`Temperatura da IA: ${item.aiSummary||'Sem resumo.'}${item.aiNextStep?' Próximo passo: '+item.aiNextStep:''}`:'Temperatura calculada: telefone, checklist, prazo, orçamento x Manheim, conversa recente e horário.'));wrap.append(details);}return wrap.childNodes.length?wrap:null;}
   function directLeadLabel(item){return item?.directLeadSource==='WHATSAPP_DIRECT'?'📱 veio direto pelo WhatsApp (sem calculadora)':item?.directLeadSource==='SMS_DIRECT'?'✉️ veio direto por SMS (sem calculadora)':'';}
   function directLeadBadge(item){const label=directLeadLabel(item);return label?makeBadge(label,'blue'):null;}
   function clientSort(items,mode){const missing=(v)=>v===null||v===undefined||v==='';const value=(x)=>Number(x.confirmed_total_ceiling_cents||x.budgetCents||x.budget_cents)||null;const stamp=(x)=>Date.parse(x.last_seen_at||x.updated_at||x.occurredAt||x.created_at||0)||0;const field=(x,kind)=>kind==='location'?(x.state||x.estado||x.contact?.location_text):kind==='vehicle'?(x.make||x.vehicleText||x.vehicle_text):value(x);return items.slice().sort((a,b)=>{if(mode==='recent'||mode==='oldest')return(stamp(b)-stamp(a))*(mode==='recent'?1:-1);const av=field(a,mode),bv=field(b,mode);if(missing(av))return missing(bv)?0:1;if(missing(bv))return -1;if(mode==='value_desc'||mode==='value_asc')return(av-bv)*(mode==='value_desc'?-1:1);return String(av).localeCompare(String(bv),'pt-BR');});}
@@ -2154,6 +2197,15 @@
     $('report-generate').addEventListener('click', generateReport);
     $('report-copy').addEventListener('click', () => copyReport().catch(() => { $('report-status').textContent = 'Não foi possível copiar.'; }));
     $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch(showImportFailure));
+    $('history-import-file').addEventListener('change', (event) => {
+      historyImportFile = event.target.files?.[0] || null;
+      $('history-import-send').disabled = !historyImportFile;
+      $('history-import-status').textContent = historyImportFile ? `${historyImportFile.name} pronto para importar.` : '';
+    });
+    $('history-import-send').addEventListener('click', () => import360History().catch((failure) => {
+      $('history-import-status').textContent = failure?.code === 'HISTORY_IMPORT_INVALID' || failure?.message === 'HISTORY_FILE_INVALID' ? 'Este não é o arquivo do histórico do 360dialog para o número configurado.' : 'Não foi possível importar agora. Você pode tentar de novo sem duplicar.';
+      $('history-import-send').disabled = !historyImportFile;
+    }));
     const zone = $('drop-zone');
     ['dragenter', 'dragover'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));

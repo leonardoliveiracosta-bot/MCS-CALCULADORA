@@ -10,6 +10,8 @@ const migrationDirectory = path.join(root, 'supabase', 'migrations');
 
 const stubs = `
 create extension if not exists pgcrypto;
+create schema extensions;
+create function extensions.digest(value text, algorithm text) returns bytea language sql as $$select public.digest(value,algorithm)$$;
 create role anon;
 create role authenticated;
 create role service_role;

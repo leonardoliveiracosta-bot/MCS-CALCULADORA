@@ -124,7 +124,7 @@ module.exports = async (req, res) => {
       const scoped = calcScoped.concat(directScoped);
       const byValue = scoped.filter((item) => (item.logicalModes || [item.logicalMode]).includes('VALOR')).length;
       const byCar = scoped.filter((item) => (item.logicalModes || [item.logicalMode]).includes('CARRO')).length;
-      const whatsapp = calcScoped.filter((item) => item.contactChannel === 'WHATSAPP').length;
+      const whatsapp = calcScoped.filter((item) => ['WHATSAPP','WHATSAPP_HISTORY'].includes(item.contactChannel)).length;
       const sms = calcScoped.filter((item) => item.contactChannel === 'SMS').length;
       const pending = scoped.filter((item) => !item.disposition).length;
       const budgetRanges = { 'até 10k': 0, '10–25k': 0, '25–50k': 0, '50k+': 0 };

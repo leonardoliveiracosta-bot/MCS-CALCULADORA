@@ -74,7 +74,14 @@
           <p id="whatsapp-received" class="muted"></p>
           <p id="whatsapp-echo" class="muted">Última mensagem enviada por você recebida: nenhuma ainda</p>
           <div id="whatsapp-errors" class="queue" aria-live="polite"></div>
-          <p class="muted">Importador do histórico do 360dialog — disponível depois da ativação</p>
+          <section class="history-import" aria-labelledby="history-import-title">
+            <h3 id="history-import-title">📥 Importar histórico do 360dialog</h3>
+            <p class="muted">Use o arquivo baixado em 360dialog → Details → Coexistence Webhooks ⬇.</p>
+            <label class="inline-actions" for="history-import-file">Escolher arquivo .json<input id="history-import-file" type="file" accept="application/json,.json"></label>
+            <button id="history-import-send" class="small" type="button" disabled>Importar</button>
+            <p id="history-import-status" class="status" role="status"></p>
+            <div id="history-import-errors" class="queue" aria-live="polite"></div>
+          </section>
         </section>
         <div class="grid">
           <section class="card">

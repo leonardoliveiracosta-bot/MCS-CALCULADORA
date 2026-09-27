@@ -64,7 +64,7 @@ module.exports=async(req,res)=>{
       const claimed=await patchRows(ctx,'whatsapp_item_errors',{id:'eq.'+itemError.id,environment:'eq.'+ctx.environment,status:'eq.ERROR'},{status:'PROCESSING',processing_started_at:started,last_attempt_at:started,attempts:Number(itemError.attempts||0)+1},true);
       if(!claimed.length)return send(res,409,{error:'ITEM_ALREADY_PROCESSING'});
       try{
-        const raw=(await rows(ctx,'whatsapp_raw_events',{select:'id,payload_json',environment:'eq.'+ctx.environment,id:'eq.'+itemError.raw_event_id,limit:'1'}))[0];
+        const raw=(await rows(ctx,'whatsapp_raw_events',{select:'id,event_type,payload_json',environment:'eq.'+ctx.environment,id:'eq.'+itemError.raw_event_id,limit:'1'}))[0];
         if(!raw)throw Error('RAW_EVENT_MISSING');
         const parsed=normalizedItems(raw.payload_json);
         const normalized=parsed.items.find(item=>item.itemIndex===itemError.item_index);
@@ -72,7 +72,7 @@ module.exports=async(req,res)=>{
         if(parseFailure)throw Error(parseFailure.errorCode);
         const item=normalized||(itemError.item_json?.messageId?itemError.item_json:null);
         if(!item)throw Error('ITEM_NOT_RECONSTRUCTED');
-        const result=await processItem(ctx,raw.id,item);
+        const result=await processItem(ctx,raw.id,{...item,source_kind:item.source_kind||(raw.event_type==='history'?'WHATSAPP_HISTORY':'WHATSAPP_WEBHOOK')});
         await resolveItemError(ctx,raw.id,itemError.item_index);
         const remaining=await rows(ctx,'whatsapp_item_errors',{select:'id',environment:'eq.'+ctx.environment,raw_event_id:'eq.'+raw.id,status:'neq.RESOLVED',limit:'1'});
         if(!remaining.length)await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+raw.id,environment:'eq.'+ctx.environment},{error_code:null});

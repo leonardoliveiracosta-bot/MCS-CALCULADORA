@@ -15,6 +15,7 @@ function content(message){
   if(type==='reaction')return message.reaction?.emoji?{body:`[reação ${message.reaction.emoji}]`}:{ignore:true};
   if(type==='contacts')return {body:'[contato]'};
   if(['edited','edit','edited_message'].includes(type))return {body:'[mensagem editada]'};
+  if(type==='media_placeholder')return {body:'📎 mídia (foto/áudio/vídeo — arquivo não veio no histórico)'};
   const marker={image:'[imagem]',audio:'[áudio]',voice:'[áudio]',video:'[vídeo]',document:'[documento]',location:'[localização]',sticker:'[imagem]'}[type];
   if(marker){const caption=String(message[type]?.caption||'').trim();return {body:caption?`${marker} ${caption}`:marker};}
   return {body:'[tipo não suportado]'};
@@ -89,7 +90,14 @@ function eventKey(payload){
   if(payload?.id&&['history','smb_app_state_sync'].includes(payload.event))return `${payload.event}:${payload.id}`;
   return 'sha256:'+crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
-async function saveAddressBook(ctx,entries){for(const entry of entries)await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_address_book?on_conflict=environment,phone_e164',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({environment:ctx.environment,phone_e164:entry.phone,full_name:entry.fullName||null,first_name:entry.firstName||null,source_action:entry.action||null,source_timestamp:entry.timestamp||null,updated_at:new Date().toISOString()})});}
+async function saveAddressBook(ctx,entries){
+  if(!entries.length)return;
+  // The address book is written before its history chunks. prepareItem then uses
+  // it only for a contact without a name; the RPC keeps an existing name intact.
+  const values=entries.map((entry)=>({environment:ctx.environment,phone_e164:entry.phone,full_name:entry.fullName||null,first_name:entry.firstName||null,source_action:entry.action||null,source_timestamp:entry.timestamp||null,updated_at:new Date().toISOString()}));
+  await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_address_book?on_conflict=environment,phone_e164',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(values)});
+  await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_address_book',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_entries:values})});
+}
 async function saveItemError(ctx,rawId,error){await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_item_errors?on_conflict=raw_event_id,item_index',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({environment:ctx.environment,raw_event_id:rawId,item_index:error.itemIndex,error_code:error.errorCode,item_json:error.item,status:'ERROR',processing_started_at:null,last_attempt_at:new Date().toISOString(),resolved_at:null})});}
 async function resolveItemError(ctx,rawId,itemIndex){await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_item_errors?raw_event_id=eq.'+encodeURIComponent(rawId)+'&item_index=eq.'+itemIndex+'&environment=eq.'+encodeURIComponent(ctx.environment),{method:'PATCH',headers:{'content-type':'application/json','prefer':'return=minimal'},body:JSON.stringify({status:'RESOLVED',processing_started_at:null,resolved_at:new Date().toISOString()})});}
 async function savePhoneReview(ctx,rawId,item,contacts){await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_phone_reviews?on_conflict=raw_event_id,item_index',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({environment:ctx.environment,raw_event_id:rawId,item_index:item.itemIndex,item_json:item,phone_e164:item.phone,candidate_contact_ids:contacts})});}
@@ -120,14 +128,16 @@ async function processItem(ctx,rawId,item){
     return {review:true};
   }
 }
-async function processRaw(ctx,row){
+function sourceKindFor(row,options={}){return options.sourceKind||(row.event_type==='history'?'WHATSAPP_HISTORY':'WHATSAPP_WEBHOOK');}
+async function processRaw(ctx,row,options={}){
   const claimed=await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+row.id,environment:'eq.'+ctx.environment,status:'in.(PENDING,ERROR)'},{status:'PROCESSING',attempts:(row.attempts||0)+1,error_code:null,processing_started_at:new Date().toISOString()},true);
   if(!claimed.length)return {skipped:true};
   try{
-    const parsed=normalizeParsed(row.payload_json);let imported=0,duplicates=0,reviews=0,itemFailures=0;
+    const sourceKind=sourceKindFor(row,options),parsed=normalizeParsed(row.payload_json);let imported=0,duplicates=0,reviews=0,itemFailures=0;
     await saveAddressBook(ctx,parsed.addressBook);
     for(const failure of parsed.itemErrors){await saveItemError(ctx,row.id,failure);itemFailures++;}
-    for(const item of parsed.items){
+    for(const parsedItem of parsed.items){
+      const item={...parsedItem,source_kind:sourceKind};
       try{
         const result=await processItem(ctx,row.id,item);if(result.review){reviews++;continue;}
         if(result.duplicate)duplicates++;else imported++;
@@ -156,4 +166,4 @@ async function rawEvent(ctx,payload){
   const existing=await rows(ctx,'whatsapp_raw_events',{select:'id,status,attempts,payload_json',environment:'eq.'+ctx.environment,event_key:'eq.'+key,limit:'1'});
   return existing[0]?.status==='ERROR'?existing[0]:null;
 }
-module.exports={phone,content,parse,normalizedItems,eventKey,processRaw,rawEvent,prepareItem,processItem,saveItemError,resolveItemError};
+module.exports={phone,content,parse,normalizedItems,eventKey,processRaw,rawEvent,prepareItem,processItem,saveItemError,resolveItemError,sourceKindFor};
