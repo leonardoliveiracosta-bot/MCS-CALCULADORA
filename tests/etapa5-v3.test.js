@@ -34,3 +34,20 @@ test('multiple image selection, direct iPhone labels, duplicate guard, and no pe
   assert.match(stage, /smsPrintConfirmed/);
   assert.match(read('api/panel/sms-print.js'), /sha256:'eq\.'\+record\.sha256/);
 });
+
+test('each selected print keeps its own result and a duplicate only opens the original lead', () => {
+  const panel = read('painel/painel.js'), api = read('api/panel/sms-print.js');
+  assert.match(panel, /function autoPrintResult\(filename,text,saved\)/);
+  assert.match(panel, /\$\{filename\|\|'Print'\} — \$\{text\}/);
+  assert.match(panel, /if\(!saved\.duplicate\)\{const undo=/);
+  assert.match(api, /async function duplicateResult/);
+  assert.match(api, /name:contact\?\.display_name\|\|null/);
+});
+
+test('multiple upload status advances, finishes, and clears only the selected files', () => {
+  const panel = read('painel/painel.js');
+  assert.match(panel, /\$\{index\+1\} de \$\{files\.length\}…/);
+  assert.match(panel, /\$\{files\.length\} de \$\{files\.length\} prontos/);
+  assert.match(panel, /\$\('auto-print-file'\)\.value=''/);
+  assert.match(panel, /let failures=0/);
+});

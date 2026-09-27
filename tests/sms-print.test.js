@@ -16,6 +16,8 @@ test('SMS print accepts only real image signatures',()=>{
 test('SMS print candidates keep only a valid number and Ref',()=>{
   assert.deepEqual(candidate({phone:'(786) 555-0192',name:'Patricia',ref:'l5lbd',message:'Hi',translation:'Oi'}),{phone:'+17865550192',name:'Patricia',ref:'L5LBD',message:'Hi',translation:'Oi'});
   assert.deepEqual(candidate({phone:'not a phone',ref:'OOOOO',message:'  full text  '}),{phone:'',name:'',ref:'',message:'full text',translation:''});
+  assert.equal(candidate({name:'A'}).name,'');
+  assert.equal(candidate({name:'  · A  '}).name,'');
 });
 
 test('SMS print normalizes an already formatted existing US phone before duplicate lookup',()=>{
