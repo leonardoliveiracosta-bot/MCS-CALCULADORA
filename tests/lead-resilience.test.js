@@ -37,6 +37,25 @@ test('a lead still opens when optional note history cannot be read',async()=>{
   assert.equal(value.ref,'HFAR4');assert.deepEqual(value.notes,[]);
 });
 
+test('detail delegation preserves inherited request headers for every lead with a journey',async()=>{
+  const domain=require('../panel-domain');
+  const run={id:'run',created_at:'2026-09-27T03:35:00.000Z',zip:'07036',estado:'NJ',lance:null,pagamento:null,is_test:false,dados:{ref:'HFAR4',evento:'busca',canal:'sms',marca:'Audi',modelo:'S5'}};
+  const journey={id:journeyId,reference_code:'HFAR4',contact_id:'contact',criteria_json:{wishlists:[]},budget_cents:null,payment_text:'cash'};
+  const server={
+    allRows:async(_ctx,table)=>table==='calc_runs'?[run]:table==='journey_refs'?[{journey_id:journeyId,ref_code:'HFAR4'}]:[],
+    rows:async(_ctx,table)=>table==='journeys'?[journey]:table==='lead_tracking'?[{id:'track',ref_code:'HFAR4',journey_id:journeyId,public_code:'code'}]:[],
+    insert:async()=>[],patchRows:async()=>[],supabase:async()=>[],isUuid:(value)=>/^[0-9a-f-]{36}$/i.test(String(value))
+  };
+  const recordHandler=async(req,res)=>{
+    assert.equal(req.headers.authorization,'Bearer panel-session');
+    return res.status(200).json({item:{...journey,contact:{display_name:'Test',location_text:null},phones:[],wishlists:[],conversation:[],checklist:[],promises:[]}});
+  };
+  const lead=loadWith('panel-lead.js',{'./panel-server':server,'./panel-domain':domain,'./api/panel/records':recordHandler});
+  const request=Object.create({headers:{authorization:'Bearer panel-session'}});
+  const value=await lead.leadData({environment:'production',config:{}},request,'HFAR4',journeyId);
+  assert.equal(value.ref,'HFAR4');
+});
+
 test('the panel AI module exports every runtime entrypoint used by cron and manual reading',()=>{
   const ai=require('../panel-ai');
   for(const name of ['runCron','readConversation','suggestLink','latestAiForJourney']) assert.equal(typeof ai[name],'function',name);
