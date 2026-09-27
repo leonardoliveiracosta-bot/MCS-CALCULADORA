@@ -3,6 +3,7 @@ const crypto=require('node:crypto');
 const {extractRefs}=require('./painel/parser');
 const {normalizePhone}=require('./panel-phone');
 const {rows,patchRows,supabase}=require('./panel-server');
+const {maybeAutoReply}=require('./whatsapp-auto-reply');
 
 const phone=normalizePhone;
 function isGroup(message,threadId){return /@g\.us|@broadcast|@newsletter/i.test([message?.from,message?.to,message?.context?.group_id,threadId].join(' '));}
@@ -32,7 +33,7 @@ function webhookItems(value,field){
       if(isGroup(message))continue;
       const who=phone(message.from),messageUserId=String(message.from_user_id||'').trim()||null;
       const contact=(value.contacts||[]).find((row)=>(messageUserId&&row?.user_id===messageUserId)||(who&&phone(row?.wa_id)===who));
-      items.push({message,phone:who,userId:messageUserId||contact?.user_id||null,username:contact?.profile?.username||null,direction:'CUSTOMER',name:contact?.profile?.name||null});
+      items.push({message,phone:who,userId:messageUserId||contact?.user_id||null,username:contact?.profile?.username||null,direction:'CUSTOMER',name:contact?.profile?.name||null,eventField:'messages'});
     }
     return items;
   }
@@ -43,7 +44,7 @@ function webhookItems(value,field){
       if(isGroup(message))continue;
       const who=phone(message.to),messageUserId=String(message.to_user_id||'').trim()||null;
       const contact=(value.contacts||[]).find((row)=>(messageUserId&&row?.user_id===messageUserId)||(who&&phone(row?.wa_id)===who));
-      items.push({message,phone:who,userId:messageUserId||contact?.user_id||null,username:contact?.profile?.username||null,direction:'MCS',name:contact?.profile?.name||null});
+      items.push({message,phone:who,userId:messageUserId||contact?.user_id||null,username:contact?.profile?.username||null,direction:'MCS',name:contact?.profile?.name||null,eventField:'smb_message_echoes'});
     }
     return items;
   }
@@ -110,10 +111,10 @@ function normalizeParsed(payload,options={}){
   parsed.items.forEach((candidate,index)=>{
     try{
       if(candidate.error)throw Error(candidate.error);
-      const {message,phone:clientPhone,userId,username,direction,name}=candidate,rendered=content(message,sourceKind);
+      const {message,phone:clientPhone,userId,username,direction,name,eventField}=candidate,rendered=content(message,sourceKind);
       if(rendered.ignore)return;
       if(!message?.id||!message?.timestamp||!rendered.body||!direction||(!clientPhone&&!userId))throw Error('MESSAGE_CONTENT_INVALID');
-      items.push({messageId:String(message.id),phone:clientPhone||null,userId:userId||null,username:username||null,name,direction,body:rendered.body,timestamp:String(message.timestamp),refs:extractRefs([{body:rendered.body}]),itemIndex:index});
+      items.push({messageId:String(message.id),phone:clientPhone||null,userId:userId||null,username:username||null,name,direction,body:rendered.body,timestamp:String(message.timestamp),refs:extractRefs([{body:rendered.body}]),itemIndex:index,eventField:eventField||null});
     }catch(error){itemErrors.push({itemIndex:index,errorCode:/^[A-Z_]{3,50}$/.test(error.message)?error.message:'MESSAGE_CONTENT_INVALID',item:candidate.message||{}});}
   });
   return {...parsed,items,itemErrors};
@@ -191,6 +192,7 @@ async function processRaw(ctx,row,options={}){
         const result=await processItem(ctx,row.id,item);if(result.review){reviews++;continue;}
         if(result.duplicate)duplicates++;else imported++;
         await resolveItemError(ctx,row.id,item.itemIndex).catch(()=>null);
+        if(options.live&&item.direction==='CUSTOMER'&&item.eventField==='messages')await maybeAutoReply(ctx,row.id,item,result).catch(()=>null);
       }catch(error){
         const ambiguous=/PHONE_AMBIGUOUS/.test(String(error&&error.message||''));
         if(ambiguous){
