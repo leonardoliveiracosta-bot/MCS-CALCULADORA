@@ -1,6 +1,7 @@
 'use strict';
 
 const { contactIndex, clickChannel, refOf } = require('./panel-contact');
+const { consolidateCalcRuns, groupCalculatorByRef } = require('./panel-domain');
 
 function refsFor(journey, refs) {
   return [journey.reference_code, ...refs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)]
@@ -13,13 +14,16 @@ function auditCapture({ calcRuns = [], messages = [], messageLinks = [], disposi
   const journeyByRef = new Map();
   for (const journey of journeys) for (const ref of refsFor(journey, refs)) journeyByRef.set(ref, journey);
   const discarded = new Set(dispositions.filter((row) => row.item_kind === 'REF' && row.status === 'DISCARDED').map((row) => String(row.item_key || '').trim().toUpperCase()));
+  const grouped = new Set(groupCalculatorByRef(consolidateCalcRuns(calcRuns, []), dispositions).map((row) => row.ref));
   const clicked = new Set(calcRuns.filter((row) => row.is_test !== true && clickChannel(row)).map(refOf).filter(Boolean));
   const missing = [];
   for (const ref of clicked) {
     const journey = journeyByRef.get(ref);
     if (discarded.has(ref) || (journey && contactById.get(journey.contact_id)?.is_lead === false)) continue;
     const facts = index.facts({ journeyId: journey?.id, ref, refs: journey ? refsFor(journey, refs) : [] });
-    if (!facts.entered) missing.push(ref);
+    // A WhatsApp click after the permanent global cutover is intentionally
+    // excluded, so it must not produce a false red capture alert.
+    if (facts.entered && !grouped.has(ref)) missing.push(ref);
   }
   return { checkedAt: new Date().toISOString(), missingRefs: missing.sort(), candidateCount: clicked.size };
 }
