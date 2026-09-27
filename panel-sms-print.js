@@ -8,7 +8,8 @@ const IMAGE_MIMES=new Set(['image/jpeg','image/png','image/webp']);
 function detectedImage(name,mime,size,head){const detected=validateAttachment(name,mime,size,head);return IMAGE_MIMES.has(detected)?detected:null;}
 function clean(value,max=25000){return String(value||'').normalize('NFC').trim().slice(0,max);}
 function ref(value){const found=clean(value,20).toUpperCase().match(/\b[A-HJ-NP-Z2-9]{5}\b/);return found?found[0]:null;}
-function candidate(value){const source=value&&typeof value==='object'?value:{};return {phone:normalizePhone(source.phone)||'',name:clean(source.name,160),ref:ref(source.ref)||'',message:clean(source.message||source.body,25000),translation:clean(source.translation,25000)};}
+function name(value){const result=clean(value,160);return [...result.matchAll(/[\p{L}]/gu)].length>=2?result:'';}
+function candidate(value){const source=value&&typeof value==='object'?value:{};return {phone:normalizePhone(source.phone)||'',name:name(source.name),ref:ref(source.ref)||'',message:clean(source.message||source.body,25000),translation:clean(source.translation,25000)};}
 async function readPrint(ctx,bytes,mime,fetchImpl=fetch){
   if(!IMAGE_MIMES.has(mime)||!Buffer.isBuffer(bytes)||bytes.length>5*1024*1024)throw new Error('SMS_PRINT_INVALID_IMAGE');
   await reserveCall(ctx);
