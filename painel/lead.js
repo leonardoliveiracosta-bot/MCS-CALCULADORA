@@ -230,8 +230,10 @@
     const thread=append(conversation,'div','lead-thread');const messages=record.conversation||[];
     const draw=()=>{thread.replaceChildren();let list=messages.filter((message)=>filter.value==='all'||message.direction===filter.value);if(sort.value==='recent')list=list.slice().reverse();
       list.forEach((message)=>{const bubble=append(thread,'article','lead-message '+(message.direction==='MCS'?'m':'c'));
-        append(bubble,'small','muted',`${message.channel} · ${message.direction==='CUSTOMER'?'Cliente':'MCS'} · ${date(message.occurred_at_utc||message.created_at,data.timezone)}`);
-        append(bubble,'p','',message.body_text);if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref,data.timezone));});
+        append(bubble,'small','muted',`${message.channel} · ${message.direction==='CUSTOMER'?'Cliente':'MCS'} · ${date(message.occurred_at_utc||message.created_at,data.timezone)}${message.is_automatic?' · 🤖 automática':''}`);
+        append(bubble,'p','',message.body_text);
+        if(message.direction==='MCS'){const automatic=button(bubble,message.is_automatic?'não é automática':'marcar como automática',async()=>{automatic.disabled=true;try{await request('/api/panel/messages',{method:'POST',body:JSON.stringify({messageId:message.id,automatic:!message.is_automatic})});await reload();}finally{automatic.disabled=false;}});automatic.classList.add('quiet','small');}
+        if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref,data.timezone));});
       if(!list.length)append(thread,'p','muted','Nenhuma mensagem neste filtro.');};
     sort.addEventListener('change',()=>{localStorage.setItem('mcs_conversation_sort',sort.value);draw();});filter.addEventListener('change',draw);draw();
 
