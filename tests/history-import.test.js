@@ -14,6 +14,9 @@ const history=(id='history.synthetic')=>({id,event:'history',data:{metadata:{dis
   {id:'wamid.history.edit',from:customer,timestamp:'1790431202',type:'edit',edit:{}}
 ]},{id:'+13055550123',messages:[{id:'wamid.history.out',from:business,to:'+13055550123',timestamp:'1790431203',type:'text',text:{body:'Oi'}}]}]}]}});
 const state=(id='state.synthetic')=>({id,event:'smb_app_state_sync',data:{state_sync:[{phone_number:customer,full_name:'Nome da Agenda'}]}});
+const historyMedia=(id='history.media',field='messages')=>({id,event:'history',data:{metadata:{display_phone_number:business},[field]:field==='messages'?
+  [{id:'wamid.history.audio',from:customer,timestamp:'1790432200',type:'audio',audio:{id:'media-audio'}},{id:'wamid.history.document',from:customer,timestamp:'1790432201',type:'document',document:{id:'media-doc'}}]:
+  [{id:'wamid.history.image',from:business,to:customer,timestamp:'1790432300',type:'image',image:{id:'media-image'}},{id:'wamid.history.echo-audio',from:business,to:customer,timestamp:'1790432301',type:'audio',audio:{id:'media-echo'}}]}});
 function loadWith(relative,mocks){const file=path.join(root,relative),mod={exports:{}};const req=(name)=>Object.hasOwn(mocks,name)?mocks[name]:require(name.startsWith('.')?path.resolve(path.dirname(file),name):name);new Function('require','module','exports',fs.readFileSync(file,'utf8'))(req,mod,mod.exports);return mod.exports;}
 function response(){return {code:0,payload:null,status(code){this.code=code;return this;},json(value){this.payload=value;return value;}};}
 
@@ -29,10 +32,52 @@ test('fixture history preserves direction and special labels',()=>{
 
 test('history event validation accepts state sync without metadata and rejects another phone',()=>{
   const handler=loadWith('api/panel/history-import.js',{'../../panel-server':{},'../../whatsapp-receiver':{}});
+  const panel=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
   assert.equal(handler.validObject(state()),true);
   assert.equal(handler.validObject(history()),true);
+  assert.equal(handler.validObject(historyMedia()),true);
+  assert.equal(handler.validObject(historyMedia('history.echoes','message_echoes')),true);
+  assert.equal(handler.validObject({...history(),data:{...history().data,messages:historyMedia().data.messages,message_echoes:historyMedia('history.echoes','message_echoes').data.message_echoes}}),true);
   assert.equal(handler.validObject({...history(),data:{...history().data,metadata:{display_phone_number:'13055550999'}}}),false);
   assert.equal(handler.validObject({id:'bad',event:'history',data:{metadata:{display_phone_number:business}}}),false);
+  assert.match(panel,/\[value\.data\.history, value\.data\.messages, value\.data\.message_echoes\]\.some\(Array\.isArray\)/);
+});
+
+test('history media uses webhook item paths with history labels and preserves directions',()=>{
+  const inbound=receiver.normalizedItems(historyMedia());
+  const echoes=receiver.normalizedItems(historyMedia('history.echoes','message_echoes'));
+  assert.deepEqual(inbound.items.map((item)=>item.direction),['CUSTOMER','CUSTOMER']);
+  assert.deepEqual(echoes.items.map((item)=>item.direction),['MCS','MCS']);
+  assert.deepEqual(inbound.items.map((item)=>item.body),['🎤 áudio (arquivo não veio no histórico)','📄 documento (arquivo não veio no histórico)']);
+  assert.deepEqual(echoes.items.map((item)=>item.body),['📷 foto (arquivo não veio no histórico)','🎤 áudio (arquivo não veio no histórico)']);
+  assert.equal(receiver.content({type:'audio',audio:{}},'WHATSAPP_WEBHOOK').body,'[áudio]');
+});
+
+test('existing history placeholders are upgraded in place without another message',async()=>{
+  const item={source_kind:'WHATSAPP_HISTORY',body:'🎤 áudio (arquivo não veio no histórico)'};
+  assert.equal(receiver.shouldUpgradeHistoryMedia(item,receiver.HISTORY_MEDIA_PLACEHOLDER),true);
+  assert.equal(receiver.shouldUpgradeHistoryMedia(item,'[áudio]'),false);
+  assert.equal(receiver.shouldUpgradeHistoryMedia({...item,source_kind:'WHATSAPP_WEBHOOK'},receiver.HISTORY_MEDIA_PLACEHOLDER),false);
+  assert.equal(receiver.shouldUpgradeHistoryMedia({...item,body:'[mensagem editada]'},receiver.HISTORY_MEDIA_PLACEHOLDER),false);
+  const patches=[];
+  const fake=loadWith('whatsapp-receiver.js',{
+    './painel/parser':{extractRefs:()=>[]},'./panel-phone':{normalizePhone:(value)=>String(value||'')},
+    './panel-server':{rows:async(_ctx,table)=>table==='messages'?[{id:'message-old',body_text:receiver.HISTORY_MEDIA_PLACEHOLDER}]:[],patchRows:async(_ctx,table,filters,values)=>{patches.push({table,filters,values});return [{id:'message-old'}];},supabase:async(_url,_key,path)=>path.includes('panel_whatsapp_apply_message')?{duplicate:true,messageId:'message-old'}:{}}
+  });
+  const ctx={environment:'preview',config:{url:'u',secretKey:'k'}};
+  const duplicate=await fake.processItem(ctx,'raw-old',{messageId:'wamid.old',phone:customer,name:'Cliente',direction:'CUSTOMER',body:item.body,timestamp:'1790432200',source_kind:'WHATSAPP_HISTORY'});
+  assert.equal(duplicate.duplicate,true);
+  assert.deepEqual(patches,[{table:'messages',filters:{id:'eq.message-old',environment:'eq.preview',body_text:'eq.'+receiver.HISTORY_MEDIA_PLACEHOLDER},values:{body_text:item.body,body_normalized:item.body.toLowerCase()}}]);
+  patches.length=0;
+  const fresh=loadWith('whatsapp-receiver.js',{
+    './painel/parser':{extractRefs:()=>[]},'./panel-phone':{normalizePhone:(value)=>String(value||'')},
+    './panel-server':{rows:async()=>[],patchRows:async(...args)=>{patches.push(args);return [];},supabase:async(_url,_key,path)=>path.includes('panel_whatsapp_apply_message')?{duplicate:false,messageId:'message-new'}:{}}
+  });
+  assert.equal((await fresh.processItem(ctx,'raw-new',{messageId:'wamid.new',phone:customer,name:'Cliente',direction:'CUSTOMER',body:item.body,timestamp:'1790432201',source_kind:'WHATSAPP_HISTORY'})).duplicate,false);
+  assert.equal(patches.length,0);
+  const source=fs.readFileSync(path.join(root,'whatsapp-receiver.js'),'utf8');
+  assert.match(source,/await upgradeHistoryMediaPlaceholder\(ctx,prepared\.item,result\|\|\{\}\)/);
+  assert.match(source,/body_text:item\.body,body_normalized:normalized/);
 });
 
 test('history import is idempotent and resumes pending or interrupted raw events',async()=>{
@@ -47,7 +92,8 @@ test('history import is idempotent and resumes pending or interrupted raw events
 
 test('importer sends state sync first and keeps batches small',()=>{
   const panel=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
-  assert.match(panel,/const ordered = states\.concat\(histories\)/);
+  assert.match(panel,/states\.concat\(histories, mediaHistories\)/);
+  assert.match(panel,/mediaHistoryOrder/);
   assert.match(panel,/offset \+= 10/);
   assert.match(panel,/\/api\/panel\/history-import/);
   assert.match(panel,/Importado: \$\{totals\.conversations\} conversas/);
