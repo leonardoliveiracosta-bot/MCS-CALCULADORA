@@ -497,13 +497,16 @@
   const historyPhone = '13055400742';
   function validHistoryObject(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value) || !['history', 'smb_app_state_sync'].includes(value.event) || !String(value.id || '').trim() || !value.data || typeof value.data !== 'object' || Array.isArray(value.data)) return false;
-    if (value.event === 'history' && !Array.isArray(value.data.history)) return false;
+    if (value.event === 'history' && ![value.data.history, value.data.messages, value.data.message_echoes].some(Array.isArray)) return false;
     if (Object.prototype.hasOwnProperty.call(value.data, 'metadata') && String(value.data.metadata?.display_phone_number || '').replace(/\D/g, '') !== historyPhone) return false;
     return true;
   }
   function historyOrder(value) {
     const ranks = (value.data?.history || []).map((chunk) => [Number(chunk?.metadata?.phase), Number(chunk?.metadata?.chunk_order)]).filter(([phase, order]) => Number.isFinite(phase) || Number.isFinite(order));
     return ranks.sort((left, right) => (left[0] - right[0]) || (left[1] - right[1]))[0] || [Infinity, Infinity];
+  }
+  function mediaHistoryOrder(value) {
+    return Math.min(...[...(value.data?.messages || []), ...(value.data?.message_echoes || [])].map((message) => Number(message?.timestamp)).filter(Number.isFinite), Infinity);
   }
   const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
   async function import360History() {
@@ -513,8 +516,9 @@
     try { entries = JSON.parse(await historyImportFile.text()); } catch (_) { throw new Error('HISTORY_FILE_INVALID'); }
     if (!Array.isArray(entries) || !entries.length || !entries.every(validHistoryObject)) throw new Error('HISTORY_FILE_INVALID');
     const states = entries.filter((entry) => entry.event === 'smb_app_state_sync');
-    const histories = entries.filter((entry) => entry.event === 'history').sort((left, right) => historyOrder(left)[0] - historyOrder(right)[0] || historyOrder(left)[1] - historyOrder(right)[1]);
-    const ordered = states.concat(histories), totals = { conversations: 0, imported: 0, alreadyExists: 0, errors: 0 };
+    const histories = entries.filter((entry) => entry.event === 'history' && Array.isArray(entry.data.history)).sort((left, right) => historyOrder(left)[0] - historyOrder(right)[0] || historyOrder(left)[1] - historyOrder(right)[1]);
+    const mediaHistories = entries.filter((entry) => entry.event === 'history' && !Array.isArray(entry.data.history)).sort((left, right) => mediaHistoryOrder(left) - mediaHistoryOrder(right));
+    const ordered = states.concat(histories, mediaHistories), totals = { conversations: 0, imported: 0, alreadyExists: 0, errors: 0 };
     errors.replaceChildren(); sendButton.disabled = true;
     for (let offset = 0; offset < ordered.length; offset += 10) {
       let batch = ordered.slice(offset, offset + 10), attempts = 0;

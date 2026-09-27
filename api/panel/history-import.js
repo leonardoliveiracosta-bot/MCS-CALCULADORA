@@ -8,10 +8,11 @@ const HISTORY_PHONE='13055400742';
 const BATCH_LIMIT=10;
 const FUNCTION_BUDGET_MS=8000;
 
+function hasHistoryMessages(value){return Array.isArray(value?.history)||Array.isArray(value?.messages)||Array.isArray(value?.message_echoes);}
 function validObject(value){
   if(!value||typeof value!=='object'||Array.isArray(value)||!['history','smb_app_state_sync'].includes(value.event)||typeof value.id!=='string'||!value.id.trim())return false;
   if(!value.data||typeof value.data!=='object'||Array.isArray(value.data))return false;
-  if(value.event==='history'&&!Array.isArray(value.data.history))return false;
+  if(value.event==='history'&&!hasHistoryMessages(value.data))return false;
   if(Object.prototype.hasOwnProperty.call(value.data,'metadata')){
     const shown=String(value.data.metadata?.display_phone_number||'').replace(/\D/g,'');
     if(shown!==HISTORY_PHONE)return false;
@@ -64,3 +65,4 @@ module.exports=async(req,res)=>{
 
 module.exports.validObject=validObject;
 module.exports.importOne=importOne;
+module.exports.hasHistoryMessages=hasHistoryMessages;
