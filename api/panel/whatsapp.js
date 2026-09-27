@@ -1,4 +1,5 @@
 'use strict';
+const crypto=require('node:crypto');
 const {allRows,isUuid,jsonBody,patchRows,requirePanel,rows,send,supabase}=require('../../panel-server');
 const {normalizedItems,processItem,processRaw,resolveItemError,saveItemError}=require('../../whatsapp-receiver');
 
@@ -16,7 +17,7 @@ module.exports=async(req,res)=>{
         allRows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_contact_id,target_contact_id,target_journey_id,target_ref,motives,suggestion_kind,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
         ,allRows(ctx,'whatsapp_phone_reviews',{select:'id,phone_e164,candidate_contact_ids,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
       ]);
-      const contactIds=[...new Set(suggestions.flatMap(x=>[x.source_contact_id,x.target_contact_id]).concat(phoneReviews.flatMap(x=>x.candidate_contact_ids||[])))];
+      const contactIds=[...new Set(suggestions.flatMap((item)=>[item.source_contact_id,item.target_contact_id]).filter(Boolean).concat(phoneReviews.flatMap((item)=>(item.candidate_contact_ids||[]).filter(Boolean))))];
       const contacts=contactIds.length?await rows(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment,id:'in.('+contactIds.join(',')+')'}):[];
       const names=new Map(contacts.map(x=>[x.id,x.display_name]));
       return send(res,200,{lastEventAt:latest[0]?.received_at||null,lastInboundAt:inbound[0]?.received_at||null,lastEchoAt:echo[0]?.received_at||null,
@@ -105,5 +106,9 @@ module.exports=async(req,res)=>{
       return send(res,200,{updated:true});
     }
     return send(res,400,{error:'ACTION_INVALID'});
-  }catch(_){return send(res,500,{error:'WHATSAPP_PANEL_UNAVAILABLE'});}
+  }catch(error){
+    const requestId=crypto.randomUUID().slice(0,8);
+    console.error('[panel-whatsapp]',{requestId,route:'/api/panel/whatsapp',message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});
+    return send(res,500,{error:'WHATSAPP_PANEL_UNAVAILABLE',requestId});
+  }
 };

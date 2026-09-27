@@ -21,10 +21,23 @@ function floridaDays(at, now = Date.now()) {
   const stamp = Date.parse(at || '');
   return Number.isFinite(stamp) ? Math.max(0, Math.floor((now - stamp) / 86400000)) : 0;
 }
+function calculatorRefs(calcRuns) {
+  return new Set((calcRuns || []).map((row) => String(row?.dados?.ref || '').trim().toUpperCase()).filter(Boolean));
+}
+function hasCalculatorOrder(journey, refs, refsFromCalculator) {
+  const journeyRefs=[journey?.reference_code,...(refs || []).filter((row)=>row.journey_id===journey?.id).map((row)=>row.ref_code)]
+    .map((value)=>String(value||'').trim().toUpperCase()).filter(Boolean);
+  return journeyRefs.some((value)=>refsFromCalculator.has(value));
+}
+function directLeadSource(journey, hasOrder) {
+  return !hasOrder&&['WHATSAPP_DIRECT','SMS_DIRECT'].includes(journey?.source)?journey.source:null;
+}
 
 async function loadSearchStageIndex(ctx) {
-  const [journeys, saved, marks, events, units, confirmedPrints] = await Promise.all([
-    allRows(ctx, 'journeys', { select: 'id,criteria_json,created_at', environment: 'eq.' + ctx.environment }),
+  const [journeys, refs, calcRuns, saved, marks, events, units, confirmedPrints] = await Promise.all([
+    allRows(ctx, 'journeys', { select: 'id,reference_code,source,criteria_json,created_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'calc_runs', { select: 'dados', order: 'created_at.asc' }),
     allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' }),
     allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at', environment: 'eq.' + ctx.environment, undone_at: 'is.null' }).catch(() => []),
     allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
@@ -42,19 +55,22 @@ async function loadSearchStageIndex(ctx) {
   [...events.map((row) => ({ id: row.journey_id, at: row.occurred_at })), ...units.map((row) => ({ id: row.journey_id, at: row.presented_at || row.created_at }))]
     .forEach((row) => { if (!sentByJourney.get(row.id) || Date.parse(sentByJourney.get(row.id)) < Date.parse(row.at)) sentByJourney.set(row.id, row.at); });
   const confirmedByJourney = new Set(confirmedPrints.map((row) => row.confirmed_journey_id).filter(Boolean));
+  const refsFromCalculator=calculatorRefs(calcRuns);
   const index = new Map();
   journeys.forEach((journey) => {
+    const hasOrder=hasCalculatorOrder(journey,refs,refsFromCalculator);
+    const source=directLeadSource(journey,hasOrder);
     const wish = searchableWish(wishlistsForJourney(journey));
     const key = searchKey(wish);
     if (!key) {
-      if (confirmedByJourney.has(journey.id)) index.set(journey.id, { smsPrintConfirmed: true });
+      index.set(journey.id, { hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
       return;
     }
     const marksFor = marksByJourney.get(journey.id) || {};
     const sentAt = sentByJourney.get(journey.id) || marksFor.SENT || null;
     const savedAt = savedByKey.get(key) || marksFor.SAVED || null;
     const stage = sentAt ? 'SENT' : savedAt ? 'SAVED' : 'MISSING';
-    index.set(journey.id, { stage, label: stageLabel(stage), at: sentAt || savedAt || journey.created_at, searchKey: key, wish, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
+    index.set(journey.id, { stage, label: stageLabel(stage), at: sentAt || savedAt || journey.created_at, searchKey: key, wish, hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
   });
   return index;
 }
@@ -62,7 +78,7 @@ async function loadSearchStageIndex(ctx) {
 function decorateWithSearchStage(item, index) {
   const journeyId = item && (item.journeyId || item.journey_id || item.id);
   const stage = journeyId && index.get(journeyId);
-  return stage ? { ...item, searchStage: stage.stage, searchStageLabel: stage.label, searchStageAt: stage.at, searchKey: stage.searchKey, smsPrintConfirmed: stage.smsPrintConfirmed } : item;
+  return stage ? { ...item, searchStage: stage.stage, searchStageLabel: stage.label, searchStageAt: stage.at, searchKey: stage.searchKey, hasCalculatorOrder:stage.hasCalculatorOrder, directLeadSource:stage.directLeadSource, smsPrintConfirmed: stage.smsPrintConfirmed } : item;
 }
 
-module.exports = { searchableWish, searchKey, stageLabel, floridaDays, loadSearchStageIndex, decorateWithSearchStage };
+module.exports = { searchableWish, searchKey, stageLabel, floridaDays, calculatorRefs, hasCalculatorOrder, directLeadSource, loadSearchStageIndex, decorateWithSearchStage };

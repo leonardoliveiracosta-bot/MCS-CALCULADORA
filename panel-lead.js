@@ -234,7 +234,8 @@ async function leadData(ctx, req, refInput, idInput) {
     promises: [...(record?.promises || []), ...promises].map((promise) => ({ ...promise, journey_id: record?.id }))
   }, [...unique.values()]);
   const city = cityCache.get(zip) || null;
-  return { ref, hasCalculatorRef:hasRef, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage: journey ? stageIndex.get(journey.id) || null : null };
+  const searchStage=journey?stageIndex.get(journey.id)||null:null;
+  return { ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
 }
 
 async function belongsToJourney(ctx, ref, journey) {
