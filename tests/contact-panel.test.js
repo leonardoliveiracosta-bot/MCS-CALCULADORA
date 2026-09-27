@@ -32,8 +32,10 @@ test('capture audit reports only an actually hidden click and ignores discarded 
   const run=(ref)=>({id:ref,created_at:new Date(1).toISOString(),dados:{sid:'find-'+ref,ref,evento:'busca',canal:'whatsapp',quando:new Date(1).toISOString()}});
   const result=auditCapture({calcRuns:[run('ABCD2'),run('DROP2'),run('NLED2')],journeys:[{id:'j1',contact_id:'c1',reference_code:'ABCD2'},{id:'j2',contact_id:'c2',reference_code:'DROP2'},{id:'j3',contact_id:'c3',reference_code:'NLED2'}],contacts:[{id:'c1',is_lead:true},{id:'c2',is_lead:true},{id:'c3',is_lead:false}],dispositions:[{item_kind:'REF',item_key:'DROP2',status:'DISCARDED'}]});
   assert.deepEqual(result.missingRefs,[]);
-  const hidden=auditCapture({calcRuns:[{id:'bad',created_at:new Date(300).toISOString(),dados:{sid:'find-hidden',ref:'HIDE1',evento:'busca',canal:'whatsapp',quando:new Date(300).toISOString()}}]});
-  assert.deepEqual(hidden.missingRefs,['HIDE1']);
+  const hidden=auditCapture({calcRuns:[{id:'bad',created_at:new Date(300).toISOString(),dados:{ref:'HDE22',evento:'busca',canal:'whatsapp',quando:new Date(300).toISOString()}}]});
+  assert.deepEqual(hidden.missingRefs,['HDE22']);
+  const legacy=auditCapture({calcRuns:[{id:'legacy',created_at:new Date(300).toISOString(),dados:{sid:'legacy',ref:'-----',evento:'busca',canal:'whatsapp',quando:new Date(300).toISOString()}}]});
+  assert.deepEqual(legacy.missingRefs,[]);
 });
 test('contact index processes 20,000 linked messages in under one second',()=>{
   const messages=Array.from({length:20000},(_,index)=>message('bulk-'+index,'WHATSAPP_WEBHOOK',new Date(1000+index).toISOString()));
