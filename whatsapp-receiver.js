@@ -6,7 +6,9 @@ const {rows,patchRows,supabase}=require('./panel-server');
 
 const phone=normalizePhone;
 function isGroup(message,threadId){return /@g\.us|@broadcast|@newsletter/i.test([message?.from,message?.to,message?.context?.group_id,threadId].join(' '));}
-function content(message){
+const HISTORY_MEDIA_PLACEHOLDER='📎 mídia (foto/áudio/vídeo — arquivo não veio no histórico)';
+const HISTORY_MEDIA_BODIES=new Set(['📷 foto (arquivo não veio no histórico)','🎤 áudio (arquivo não veio no histórico)','🎬 vídeo (arquivo não veio no histórico)','📄 documento (arquivo não veio no histórico)']);
+function content(message,sourceKind='WHATSAPP_WEBHOOK'){
   const type=String(message?.type||'').toLowerCase();
   if(['revoked','revoke','deleted','delete'].includes(type)||message?.errors?.some?.((x)=>Number(x.code)===131051&&/revoke|delete/i.test(x.title||'')))return {ignore:true};
   if(type==='text')return {body:message.text?.body||null};
@@ -15,10 +17,34 @@ function content(message){
   if(type==='reaction')return message.reaction?.emoji?{body:`[reação ${message.reaction.emoji}]`}:{ignore:true};
   if(type==='contacts')return {body:'[contato]'};
   if(['edited','edit','edited_message'].includes(type))return {body:'[mensagem editada]'};
-  if(type==='media_placeholder')return {body:'📎 mídia (foto/áudio/vídeo — arquivo não veio no histórico)'};
+  if(type==='media_placeholder')return {body:HISTORY_MEDIA_PLACEHOLDER};
+  if(sourceKind==='WHATSAPP_HISTORY'&&['image','audio','video','document'].includes(type))return {body:{image:'📷 foto',audio:'🎤 áudio',video:'🎬 vídeo',document:'📄 documento'}[type]+' (arquivo não veio no histórico)'};
   const marker={image:'[imagem]',audio:'[áudio]',voice:'[áudio]',video:'[vídeo]',document:'[documento]',location:'[localização]',sticker:'[imagem]'}[type];
   if(marker){const caption=String(message[type]?.caption||'').trim();return {body:caption?`${marker} ${caption}`:marker};}
   return {body:'[tipo não suportado]'};
+}
+function webhookItems(value,field){
+  const items=[];
+  if(field==='messages'){
+    if(!Array.isArray(value.messages))return null;
+    for(const message of value.messages){
+      if(!message||typeof message!=='object'){items.push({message,error:'MESSAGE_INVALID'});continue;}
+      if(isGroup(message))continue;
+      const who=phone(message.from),contact=(value.contacts||[]).find((row)=>phone(row.wa_id)===who);
+      items.push({message,phone:who,direction:'CUSTOMER',name:contact?.profile?.name||null});
+    }
+    return items;
+  }
+  if(field==='smb_message_echoes'){
+    if(!Array.isArray(value.message_echoes))return null;
+    for(const message of value.message_echoes){
+      if(!message||typeof message!=='object'){items.push({message,error:'ECHO_INVALID'});continue;}
+      if(isGroup(message))continue;
+      items.push({message,phone:phone(message.to),direction:'MCS',name:null});
+    }
+    return items;
+  }
+  return null;
 }
 function historyItems(value){
   if(!Array.isArray(value?.history))throw Error('HISTORY_INVALID');
@@ -44,7 +70,15 @@ function stateContacts(value){
   return entries.flatMap((entry)=>{const contact=entry?.contact||entry;if(entry?.type&&entry.type!=='contact')return [];return [{phone:phone(contact?.phone_number),fullName:String(contact?.full_name||'').trim(),firstName:String(contact?.first_name||'').trim(),action:String(entry.action||''),timestamp:String(entry.metadata?.timestamp||'')}];}).filter((entry)=>entry.phone);
 }
 function parse(payload){
-  if(payload?.event==='history')return {type:'history',items:historyItems(payload.data||{}),addressBook:[],ignoredFields:[]};
+  if(payload?.event==='history'){
+    const value=payload.data||{},items=[];
+    if(Array.isArray(value.history))items.push(...historyItems(value));
+    const messages=webhookItems(value,'messages'),echoes=webhookItems(value,'smb_message_echoes');
+    if(messages)items.push(...messages);
+    if(echoes)items.push(...echoes);
+    if(!items.length&&!Array.isArray(value.history)&&!Array.isArray(value.messages)&&!Array.isArray(value.message_echoes))throw Error('HISTORY_INVALID');
+    return {type:'history',items,addressBook:[],ignoredFields:[]};
+  }
   if(payload?.event==='smb_app_state_sync')return {type:'smb_app_state_sync',items:[],addressBook:stateContacts(payload.data||{}),ignoredFields:[]};
   if(payload?.object!=='whatsapp_business_account'||!Array.isArray(payload.entry))return {type:'UNKNOWN',items:[],addressBook:[],ignoredFields:['payload']};
   const items=[],addressBook=[],types=new Set(),ignoredFields=[];
@@ -53,15 +87,10 @@ function parse(payload){
     for(const change of entry.changes){
       const field=String(change?.field||'UNKNOWN'),value=change?.value||{};
       if(field==='messages'){
-        if(Array.isArray(value.messages)){types.add('messages');for(const message of value.messages){
-          if(!message||typeof message!=='object'){items.push({message,error:'MESSAGE_INVALID'});continue;}
-          if(isGroup(message))continue;
-          const who=phone(message.from),contact=(value.contacts||[]).find((row)=>phone(row.wa_id)===who);
-          items.push({message,phone:who,direction:'CUSTOMER',name:contact?.profile?.name||null});
-        }} else if(!Array.isArray(value.statuses)) ignoredFields.push('messages');
+        const parsed=webhookItems(value,'messages');
+        if(parsed){types.add('messages');items.push(...parsed);}else if(!Array.isArray(value.statuses)) ignoredFields.push('messages');
       }else if(field==='smb_message_echoes'){
-        types.add(field);if(!Array.isArray(value.message_echoes)){ignoredFields.push(field);continue;}
-        for(const message of value.message_echoes){if(!message||typeof message!=='object'){items.push({message,error:'ECHO_INVALID'});continue;}if(isGroup(message))continue;items.push({message,phone:phone(message.to),direction:'MCS',name:null});}
+        types.add(field);const parsed=webhookItems(value,field);if(!parsed){ignoredFields.push(field);continue;}items.push(...parsed);
       }else if(field==='history'){types.add(field);try{items.push(...historyItems(value));}catch(_){ignoredFields.push('history inválido');}}
       else if(field==='smb_app_state_sync'){types.add(field);try{addressBook.push(...stateContacts(value));}catch(_){ignoredFields.push('smb_app_state_sync inválido');}}
       else if(field!=='messages'||!Array.isArray(value.statuses))ignoredFields.push(field);
@@ -70,12 +99,13 @@ function parse(payload){
   const type=types.size===1?[...types][0]:types.size?'mixed':ignoredFields.length?'UNKNOWN':'statuses';
   return {type,items,addressBook,ignoredFields:[...new Set(ignoredFields)]};
 }
-function normalizeParsed(payload){
+function normalizeParsed(payload,options={}){
   const parsed=parse(payload),items=[],itemErrors=[];
+  const sourceKind=options.sourceKind||(payload?.event==='history'?'WHATSAPP_HISTORY':'WHATSAPP_WEBHOOK');
   parsed.items.forEach((candidate,index)=>{
     try{
       if(candidate.error)throw Error(candidate.error);
-      const {message,phone:clientPhone,direction,name}=candidate,rendered=content(message);
+      const {message,phone:clientPhone,direction,name}=candidate,rendered=content(message,sourceKind);
       if(rendered.ignore)return;
       if(!message?.id||!message?.timestamp||!rendered.body||!direction||!clientPhone)throw Error('MESSAGE_CONTENT_INVALID');
       items.push({messageId:String(message.id),phone:clientPhone,name,direction,body:rendered.body,timestamp:String(message.timestamp),refs:extractRefs([{body:rendered.body}]),itemIndex:index});
@@ -109,11 +139,20 @@ async function prepareItem(ctx,rawId,item){
   await savePhoneReview(ctx,rawId,item,contacts);
   return {review:true};
 }
+function shouldUpgradeHistoryMedia(item,currentBody){return item?.source_kind==='WHATSAPP_HISTORY'&&HISTORY_MEDIA_BODIES.has(item.body)&&currentBody===HISTORY_MEDIA_PLACEHOLDER;}
+async function upgradeHistoryMediaPlaceholder(ctx,item,result){
+  if(!result?.duplicate||!result.messageId)return;
+  const existing=(await rows(ctx,'messages',{select:'id,body_text',environment:'eq.'+ctx.environment,id:'eq.'+result.messageId,limit:'1'}))[0];
+  if(!existing||!shouldUpgradeHistoryMedia(item,existing.body_text))return;
+  const normalized=String(item.body).trim().replace(/\s+/g,' ').toLowerCase();
+  await patchRows(ctx,'messages',{id:'eq.'+existing.id,environment:'eq.'+ctx.environment,body_text:'eq.'+HISTORY_MEDIA_PLACEHOLDER},{body_text:item.body,body_normalized:normalized});
+}
 async function processItem(ctx,rawId,item){
   const prepared=await prepareItem(ctx,rawId,item);
   if(prepared.review)return {review:true};
   try{
     const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_raw:rawId,p_item:prepared.item})});
+    await upgradeHistoryMediaPlaceholder(ctx,prepared.item,result||{});
     // The receiver has already persisted the raw event. Detect the 3+ same
     // greeting pattern after storage so the webhook acknowledgement is never
     // delayed by this optional classification.
@@ -133,7 +172,7 @@ async function processRaw(ctx,row,options={}){
   const claimed=await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+row.id,environment:'eq.'+ctx.environment,status:'in.(PENDING,ERROR)'},{status:'PROCESSING',attempts:(row.attempts||0)+1,error_code:null,processing_started_at:new Date().toISOString()},true);
   if(!claimed.length)return {skipped:true};
   try{
-    const sourceKind=sourceKindFor(row,options),parsed=normalizeParsed(row.payload_json);let imported=0,duplicates=0,reviews=0,itemFailures=0;
+    const sourceKind=sourceKindFor(row,options),parsed=normalizeParsed(row.payload_json,{sourceKind});let imported=0,duplicates=0,reviews=0,itemFailures=0;
     await saveAddressBook(ctx,parsed.addressBook);
     for(const failure of parsed.itemErrors){await saveItemError(ctx,row.id,failure);itemFailures++;}
     for(const parsedItem of parsed.items){
@@ -166,4 +205,4 @@ async function rawEvent(ctx,payload){
   const existing=await rows(ctx,'whatsapp_raw_events',{select:'id,status,attempts,payload_json',environment:'eq.'+ctx.environment,event_key:'eq.'+key,limit:'1'});
   return existing[0]?.status==='ERROR'?existing[0]:null;
 }
-module.exports={phone,content,parse,normalizedItems,eventKey,processRaw,rawEvent,prepareItem,processItem,saveItemError,resolveItemError,sourceKindFor};
+module.exports={phone,content,parse,normalizedItems,eventKey,processRaw,rawEvent,prepareItem,processItem,saveItemError,resolveItemError,sourceKindFor,webhookItems,shouldUpgradeHistoryMedia,HISTORY_MEDIA_PLACEHOLDER,HISTORY_MEDIA_BODIES};
