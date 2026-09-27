@@ -58,6 +58,7 @@ module.exports = async (req, res) => {
     for(const link of data.refs||[]){const journey=journeyMap.get(link.journey_id);if(journey)journeyByRef.set(String(link.ref_code).trim().toUpperCase(),journey);}
     const latestByJourney = new Map();
     for (const message of data.messages) {
+      if (message.is_automatic) continue;
       const current = latestByJourney.get(message.journey_id);
       const stamp = time(message.occurred_at_utc || message.occurred_at_local || message.created_at) || 0;
       const currentStamp = current ? time(current.occurred_at_utc || current.occurred_at_local || current.created_at) || 0 : -1;
