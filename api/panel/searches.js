@@ -52,6 +52,7 @@ async function payload(ctx) {
       phone: phoneFor(phones, journey.contact_id), wish, searchKey: stage.searchKey,
       exactSearch: title(wish, Number(journey.budget_cents || 0) / 100),
       stage: stage.stage, stageLabel: stage.label, stageAt: stage.at, days: floridaDays(stage.at),
+      hasCalculatorOrder: stage.hasCalculatorOrder, directLeadSource: stage.directLeadSource,
       matchCount: matches.filter((match) => match.journey_id === journey.id).length,
       latestAt: journey.updated_at || journey.created_at
     });

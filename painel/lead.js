@@ -15,6 +15,7 @@
   const formatPhone=(value)=>{const digits=String(value||'').replace(/\D/g,'');if(digits.length===11&&digits[0]==='1')return `(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`;return value||'sem telefone';};
   const elapsed = (value) => { const hours=(Date.now()-Date.parse(value))/3600000; return hours < 1 ? `${Math.max(1,Math.round(hours*60))} min` : hours < 48 ? `${Math.floor(hours)} h` : `${Math.floor(hours/24)} dias`; };
   const safeString = (value) => value === null || value === undefined ? '' : String(value);
+  const directLeadLabel = (source) => source==='WHATSAPP_DIRECT'?'📱 veio direto pelo WhatsApp (sem calculadora)':source==='SMS_DIRECT'?'✉️ veio direto por SMS (sem calculadora)':'';
   function model(wish) { const make=safeString(wish.make);let name=safeString(wish.model);if(/^not sure$/i.test(name))name='';if(/^other model$/i.test(name))name='Outro modelo';return make&&name.toLowerCase().startsWith(make.toLowerCase()+' ') ? name : [make,name].filter(Boolean).join(' '); }
   const moneyLabel=(value)=>fmt(Number(value));
   function itemLabel(item,tz) {
@@ -64,7 +65,7 @@
     const heading=section(root,1,'CABEÇALHO DA LIGAÇÃO');
     const header=append(heading,'div','lead-header');
     append(header,'div','lead-score',data.score===null?'—':data.score);
-    const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — ${hasCalculatorRef?'Ref '+ref:'sem Ref'}`);
+    const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — Ref ${ref||record.reference_code||'—'}`);const directOrigin=directLeadLabel(data.directLeadSource);if(directOrigin)append(identity,'span','lead-badge blue',directOrigin);
     const locationLine=append(identity,'p','muted',`${data.city?data.city+', ':''}${data.state?.uf||'Local não identificado'}${data.zip?` · ZIP ${data.zip}`:''}`);
     if(data.zip&&!data.city)request('/api/panel/lead?cityZip='+encodeURIComponent(data.zip)).then((place)=>{
       if(locationLine.isConnected&&place.city)locationLine.textContent=`${place.city}, ${data.state?.uf||''} · ZIP ${data.zip}`;
