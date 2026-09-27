@@ -2,6 +2,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {contactIndex,decorateContact,heatFor}=require('../panel-contact');
+const {auditCapture}=require('../panel-capture');
 const {sortItems}=require('../panel-sort');
 
 const run=(ref,event,when)=>({id:ref+event+when,created_at:new Date(when).toISOString(),dados:{ref,evento:event,quando:new Date(when).toISOString()}});
@@ -18,6 +19,21 @@ test('WhatsApp clicks before the first webhook inbound count permanently; later 
   assert.equal(index.facts({ref:'EARLY'}).entered,true);
   assert.equal(index.facts({ref:'LATE1'}).entered,false);
   assert.equal(index.facts({journeyId:'j'}).entered,true);
+});
+test('Find contact clicks use their stored channel and older channelless clicks remain visible',()=>{
+  const find=(ref,canal,when)=>({id:ref+String(canal),created_at:new Date(when).toISOString(),dados:{ref,evento:'busca',canal,quando:new Date(when).toISOString()}});
+  const index=contactIndex({calcRuns:[find('FNDW1','whatsapp',100),find('FNDS1','sms',101),find('FNDL1','',102)]});
+  assert.equal(index.facts({ref:'FNDW1'}).channel,'WHATSAPP_CLICK');
+  assert.equal(index.facts({ref:'FNDS1'}).channel,'SMS_CLICK');
+  assert.equal(index.facts({ref:'FNDL1'}).channel,'CONTACT_CLICK_UNKNOWN');
+  assert.equal(index.facts({ref:'SIMUL'}).entered,false);
+});
+test('capture audit reports only an actually hidden click and ignores discarded and non-leads',()=>{
+  const run=(ref)=>({id:ref,created_at:new Date(1).toISOString(),dados:{sid:'find-'+ref,ref,evento:'busca',canal:'whatsapp',quando:new Date(1).toISOString()}});
+  const result=auditCapture({calcRuns:[run('ABCD2'),run('DROP2'),run('NLED2')],journeys:[{id:'j1',contact_id:'c1',reference_code:'ABCD2'},{id:'j2',contact_id:'c2',reference_code:'DROP2'},{id:'j3',contact_id:'c3',reference_code:'NLED2'}],contacts:[{id:'c1',is_lead:true},{id:'c2',is_lead:true},{id:'c3',is_lead:false}],dispositions:[{item_kind:'REF',item_key:'DROP2',status:'DISCARDED'}]});
+  assert.deepEqual(result.missingRefs,[]);
+  const hidden=auditCapture({calcRuns:[{id:'bad',created_at:new Date(300).toISOString(),dados:{sid:'find-hidden',ref:'HIDE1',evento:'busca',canal:'whatsapp',quando:new Date(300).toISOString()}}]});
+  assert.deepEqual(hidden.missingRefs,['HIDE1']);
 });
 test('contact index processes 20,000 linked messages in under one second',()=>{
   const messages=Array.from({length:20000},(_,index)=>message('bulk-'+index,'WHATSAPP_WEBHOOK',new Date(1000+index).toISOString()));

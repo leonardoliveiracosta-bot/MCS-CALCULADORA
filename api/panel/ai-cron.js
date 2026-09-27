@@ -4,6 +4,7 @@ const crypto=require('node:crypto');
 const {configuration,SERVER_ENVIRONMENT,send}=require('../../panel-server');
 const {runCron}=require('../../panel-ai');
 const {generalBatch,generalStatus}=require('../../panel-pendencias');
+const {runCaptureCheck,recordCaptureFailure}=require('../../panel-capture');
 
 function equalSecret(actual,expected){
   const left=Buffer.from(String(actual||'')),right=Buffer.from(String(expected||''));
@@ -29,7 +30,10 @@ module.exports=async(req,res)=>{
     const result=active
       ? {processed:0,readings:0,suggestions:0,errors:0,limited:false}
       : await runCron(ctx);
-    return send(res,200,{...result,pending});
+    let capture;
+    try { capture=await runCaptureCheck(ctx); }
+    catch (error) { capture={error:'CAPTURE_CHECK_FAILED'}; await recordCaptureFailure(ctx,error.message).catch(()=>{}); }
+    return send(res,200,{...result,pending,capture});
   }catch(_){return send(res,503,{error:'AI_UNAVAILABLE'});}
 };
 

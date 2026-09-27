@@ -12,13 +12,20 @@ function messageChannel(message) {
   return 'IMPORTED';
 }
 function clickChannel(event) {
-  const value = String(data(event).evento || '').trim().toLowerCase();
-  return value === 'sms' ? 'SMS_CLICK' : value === 'whatsapp' ? 'WHATSAPP_CLICK' : null;
+  const values = data(event);
+  const value = String(values.evento || '').trim().toLowerCase();
+  const channel = String(values.canal || '').trim().toLowerCase();
+  if (value === 'sms' || (value === 'busca' && channel === 'sms')) return 'SMS_CLICK';
+  if (value === 'whatsapp' || (value === 'busca' && channel === 'whatsapp')) return 'WHATSAPP_CLICK';
+  // Older Find submissions recorded the contact click as "busca" without a
+  // channel. Keep them visible, but never claim a channel we do not have.
+  if (value === 'busca' && !channel) return 'CONTACT_CLICK_UNKNOWN';
+  return null;
 }
 
 function contactIndex({ calcRuns = [], messages = [], messageLinks = [] } = {}) {
   const firstWebhookAt = messages.filter((message) => message.direction === 'CUSTOMER' && message.source_kind === 'WHATSAPP_WEBHOOK')
-    .reduce((minimum, message) => Math.min(minimum, at(message) || Infinity), Infinity);
+    .reduce((minimum, message) => Math.min(minimum, at(message) ?? Infinity), Infinity);
   const byJourney = new Map(), byRef = new Map();
   const messagesById = new Map(messages.map((message) => [message.id, message]));
   const add = (map, key, entry) => { if (!key || !entry.at) return; if (!map.has(key)) map.set(key, []); map.get(key).push(entry); };
@@ -59,4 +66,4 @@ function decorateContact(item, facts, insight) {
   return { ...result, heat: heat.key, heatSource: heat.source };
 }
 
-module.exports = { contactIndex, decorateContact, heatFor, messageChannel };
+module.exports = { contactIndex, decorateContact, heatFor, messageChannel, clickChannel, refOf };
