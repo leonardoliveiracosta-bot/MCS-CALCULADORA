@@ -126,7 +126,7 @@ module.exports = async (req, res) => {
       const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
       const ordersByRef = new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks)).map((order) => [order.ref, order]));
       refs.forEach((ref)=>{const own=items.find((item)=>item.id===ref.journey_id);if(own&&own.reference_code&&ordersByRef.has(String(ref.ref_code).trim().toUpperCase())&&!ordersByRef.has(String(own.reference_code).trim().toUpperCase()))ordersByRef.set(String(own.reference_code).trim().toUpperCase(),ordersByRef.get(String(ref.ref_code).trim().toUpperCase()));});
-      const listed=items.filter((item)=>contactsById.get(item.contact_id)?.is_lead!==false).flatMap((item) => {
+      const listed=items.flatMap((item) => {
         const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
         const ownMessages = messageLinks.filter((link) => link.journey_id === item.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0) - (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0));
         const state = stateByJourney.get(item.id);
@@ -137,7 +137,7 @@ module.exports = async (req, res) => {
         const ready = score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, scoredVehicles);
         const disposition=(order&&dispositionByRef.get(order.ref))||dispositionByJourney.get(item.id)||null;
         const latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
-        return [decorateContact({ ...complete, ...ready, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id))];
+        return [decorateContact({ ...complete, ...ready, isLead:complete.contact?.is_lead!==false, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id))];
       });const stageIndex=await loadSearchStageIndex(ctx);return send(res, 200, { environment: ctx.environment, items:sortItems(listed,String(req.query?.sort||'ready'),'ready').map((item)=>decorateWithSearchStage(item,stageIndex)), meta });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });

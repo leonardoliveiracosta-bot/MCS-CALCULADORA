@@ -6,6 +6,7 @@ const path=require('node:path');
 const root=path.join(__dirname,'..');
 const html=fs.readFileSync(path.join(root,'painel/index.html'),'utf8');
 const js=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
+const css=fs.readFileSync(path.join(root,'painel/tema-mcs.css'),'utf8');
 
 test('painel publica exatamente cinco abas e mantém os ids legados',()=>{
   const tabs=[...html.matchAll(/class="tab(?: active)?"[^>]+data-view="([^"]+)"/g)].map((match)=>match[1]);
@@ -26,6 +27,24 @@ test('login usa somente a imagem local e sai do modo fotográfico ao abrir o app
   assert.ok(fs.existsSync(path.join(root,'painel/login-fundo.jpg')));
   assert.match(html,/<body class="login-screen">/);
   assert.match(js,/document\.body\.classList\.toggle\('login-screen', id === 'login-view'\)/);
+  assert.match(css,/login-screen #login-view \.eyebrow \{ color: #C9A34E; \}/);
+  assert.match(css,/login-screen #login-view h1,[\s\S]*color: #F2EFE9/);
+});
+
+test('CLIENTES preserva resolvidos, não leads e exporta a própria lista filtrada',()=>{
+  const records=fs.readFileSync(path.join(root,'api/panel/records.js'),'utf8');
+  const pending=fs.readFileSync(path.join(root,'api/panel/pendencias.js'),'utf8');
+  assert.match(js,/includeResolved=true/);
+  assert.match(js,/Restaurar pendência/);
+  assert.match(js,/Restaurar lead/);
+  assert.match(js,/function downloadClientsCsv/);
+  assert.doesNotMatch(js,/clients-download'[\s\S]{0,180}downloadPendingCsv/);
+  assert.match(records,/isLead:complete\.contact\?\.is_lead!==false/);
+  assert.match(pending,/includeResolved\|\|!item\.resolved/);
+});
+
+test('cartões da HOJE e CLIENTES não esticam nem distribuem espaço interno',()=>{
+  assert.match(css,/\.today-card,[\s\S]*\.client-card \{[\s\S]*align-self: start;[\s\S]*align-content: start;[\s\S]*gap: 10px/);
 });
 
 test('migrações aditivas guardam leitura e motivo sem remover dados',()=>{

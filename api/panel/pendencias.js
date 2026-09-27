@@ -12,7 +12,7 @@ function sheet(items) {
   return text.join('\r\n');
 }
 function visible(snapshot, query) {
-  const situation=String(query.situation||'all'),withRef=String(query.withRef||'')==='true',items=snapshot.items.filter((item)=>!item.resolved).filter((item)=>situation==='all'||item.situation===situation).filter((item)=>!withRef||Boolean(item.ref));
+  const situation=String(query.situation||'all'),withRef=String(query.withRef||'')==='true',includeResolved=String(query.includeResolved||'')==='true',items=snapshot.items.filter((item)=>includeResolved||!item.resolved).filter((item)=>situation==='all'||item.situation===situation).filter((item)=>!withRef||Boolean(item.ref));
   return sortPending(items,String(query.sort||'hot'));
 }
 
