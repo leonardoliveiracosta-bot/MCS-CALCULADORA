@@ -14,7 +14,7 @@ function equalSecret(actual,expected){
 module.exports=async(req,res)=>{
   if(req.method!=='GET')return send(res,405,{error:'METHOD_NOT_ALLOWED'});
   if(!process.env.CRON_SECRET)return send(res,503,{error:'CRON_NOT_CONFIGURED'});
-  if(!equalSecret(req.headers.authorization,'Bearer '+process.env.CRON_SECRET))return send(res,401,{error:'UNAUTHORIZED'});
+  if(!equalSecret(req.headers?.authorization,'Bearer '+process.env.CRON_SECRET))return send(res,401,{error:'UNAUTHORIZED'});
   const config=configuration();
   if(!config||SERVER_ENVIRONMENT!=='production')return send(res,503,{error:'CRON_NOT_CONFIGURED'});
   try{
