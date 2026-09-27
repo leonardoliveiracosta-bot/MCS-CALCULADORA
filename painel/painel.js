@@ -30,6 +30,7 @@
   let manheimMatches = [];
   let reportView = 'today';
   let viewRequestVersion = 0;
+  let detailRequestVersion = 0;
   let detailOrigin = null;
   let currentDetail = null;
   let orderHasMore = false;
@@ -105,6 +106,7 @@
       }
       const failure = new Error(result.error || 'REQUEST_FAILED');
       failure.code = result.error;
+      failure.requestId = result.requestId || null;
       throw failure;
     }
     return result;
@@ -944,6 +946,7 @@
   }
 
   async function openDetail(kind, key, options = {}) {
+    const requestVersion=++detailRequestVersion;
     const push = options.push !== false;
     if (push) {
       detailOrigin = options.origin || captureOrigin();
@@ -958,7 +961,17 @@
       await MCSLead.open({ kind, key, root: $('record-detail'), request,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
         actionMessage, downloadShortlist, dispositionControls });
-    } catch (_) { empty($('record-detail'), 'Não foi possível carregar este lead.'); }
+      if(requestVersion!==detailRequestVersion)return;
+    } catch (failure) {
+      if(requestVersion!==detailRequestVersion)return;
+      const code=failure?.requestId||failure?.code||'SEM-CODIGO';
+      const root=$('record-detail');root.replaceChildren();
+      root.append(element('p','status error',`Não consegui abrir este lead agora. Código: ${code}`));
+      const actions=element('div','inline-actions');
+      const retry=element('button','small','Tentar de novo');retry.type='button';retry.addEventListener('click',()=>openDetail(kind,key,{push:false,origin:detailOrigin}));
+      const back=element('button','quiet small','Voltar ao painel');back.type='button';back.addEventListener('click',()=>{if(history.state?.detail)history.back();else restoreOrigin(detailOrigin||captureOrigin()).catch(()=>{});});
+      actions.append(retry,back);root.append(actions);
+    }
   }
 
   function simulationBlock(item) {
@@ -2017,6 +2030,7 @@
   }
 
   async function handlePopState(event) {
+    detailRequestVersion++;
     if (!accessToken) return;
     const state = event.state || {};
     if (state.detail && state.kind && state.key) {
@@ -2083,6 +2097,7 @@
       await switchPanel(button.dataset.view);
     }));
     $('detail-back').addEventListener('click', () => {
+      detailRequestVersion++;
       if (history.state && history.state.detail) history.back();
       else {
         history.replaceState({ panelOrigin: detailOrigin || { view: 'today', scrollY: 0 } }, '', location.pathname + location.search);
