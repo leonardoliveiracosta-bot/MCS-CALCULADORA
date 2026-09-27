@@ -71,12 +71,26 @@
   };
   const formatDate = (value) => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
   const formatMoney = (cents) => Number(cents) ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(Number(cents) / 100) : '—';
+  const updateFloridaClock = () => {
+    const clock = $('today-florida-time');
+    if (!clock) return;
+    clock.textContent = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/New_York', weekday: 'long', day: '2-digit', month: 'long',
+      hour: '2-digit', minute: '2-digit'
+    }).format(new Date()) + ' · Flórida';
+  };
+  updateFloridaClock();
+  setInterval(updateFloridaClock, 60000);
   const localInput = (date = new Date()) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const zonedInput = (date, timeZone) => Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:timeZone||'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).map((part)=>[part.type,part.value]));
   const localInputForZone = (date, timeZone) => { const parts=zonedInput(date,timeZone); return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`; };
   const normalize = (value) => MCSParser.normalizeSender(value);
   const inferredContactName = (title) => MCSParser.clean(String(title || '').replace(/^WhatsApp Chat with\s+/i, '').replace(/^Conversa do WhatsApp com\s+/i, '')).slice(0, 160) || 'Contato sem nome';
-  const setCount = (view, value) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => { node.textContent = String(value || 0); });
+  const setCount = (view, value) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => {
+    const count = Number(value) || 0;
+    node.textContent = String(count);
+    node.classList.toggle('count-positive', count > 0);
+  });
 
   const PAYMENT_LABELS = Object.freeze({ cash: 'À vista', fin: 'Financiado', financing: 'Financiado' });
   const DEADLINE_LABELS = Object.freeze({ none: 'Sem prazo', now: 'Agora', '30d': '30 dias', '3m': '3 meses', '6m': '6 meses', '12m': '12 meses' });
@@ -492,6 +506,7 @@
       suggestions.append(row);
     });
     (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';choose.addEventListener('click',async()=>{choose.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})});await loadWhatsApp();await loadQueue();}catch(_){choose.disabled=false;row.append(element('span','status error','Não foi possível ligar a mensagem.'));}});const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:candidate.isLead===false})});await loadWhatsApp();await loadQueue();}catch(_){lead.disabled=false;}});group.append(choose,lead);row.append(group);});suggestions.append(row);});
+    $('entry-needs-empty').classList.toggle('hidden', Boolean(errors.childElementCount || suggestions.childElementCount));
   }
 
   const historyPhone = '13055400742';
@@ -1167,12 +1182,26 @@
 
   function renderToday(items) {
     const root = $('today-list');
+    const stats = $('today-stats');
     root.replaceChildren();
+    stats.replaceChildren();
     todayItems = items.slice();
     setCount('today', items.length);
+    const stat = (value, label) => {
+      const block = element('div', 'today-stat');
+      block.append(element('strong', '', value), element('span', '', label));
+      stats.append(block);
+    };
+    stat(items.length, 'Para responder');
+    if (items.some((item) => item.heat)) stat(items.filter((item) => item.heat === 'HOT').length, 'Quentes');
+    if (items.some((item) => item.searchStage)) {
+      stat(items.filter((item) => item.searchStage === 'MISSING').length, 'Falta buscar');
+      stat(items.filter((item) => item.searchStage === 'SENT').length, 'Opções enviadas');
+    }
     if (!items.length) return empty(root, 'Nenhum item nas últimas 24 horas.');
     items.forEach((item) => {
-      const card = element('article', 'item-card');
+      const heat = String(item.heat || '').toUpperCase();
+      const card = element('article', `item-card today-card${heat ? ` heat-${heat.toLowerCase()}` : ''}`);
       const head = element('div', 'item-head');
       if (item.kind === 'CALCULATOR_ORDER') {
         const title = element('div', 'identity');
@@ -1200,7 +1229,7 @@
       card.append(badges);
       const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
       const actions = element('div', 'inline-actions');
-      const open = element('button', 'quiet small', item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
+      const open = element('button', 'today-primary small', item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
       open.type = 'button';
       open.addEventListener('click', () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
       actions.append(open);
