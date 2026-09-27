@@ -458,7 +458,9 @@ nav[aria-label="Seções do painel"]::-webkit-scrollbar { display: none; }
 .today-card > :not(.inline-actions) { grid-column: 1 / -1; }
 .today-card > .inline-actions { display: contents; }
 .today-card > .inline-actions button {
-  width: 100%;
+  width: auto;
+  min-height: 40px;
+  align-self: start;
   margin-top: 8px;
   padding-inline: 8px;
   white-space: nowrap;
@@ -518,16 +520,21 @@ nav[aria-label="Seções do painel"]::-webkit-scrollbar { display: none; }
 .badge.red,
 .lead-badge.red {
   border-color: var(--mcs-red);
-  background: var(--mcs-red);
-  color: #fff;
+  background: var(--mcs-tag);
+  color: var(--mcs-red);
 }
 
 .badge.yellow,
 .lead-badge.yellow {
   border-color: var(--mcs-amber);
-  background: var(--mcs-amber);
-  color: #0b0d10;
+  background: var(--mcs-tag);
+  color: var(--mcs-text);
 }
+
+.badge.heat-badge.red,
+.lead-badge.heat-badge.red { background: var(--mcs-red); color: #fff; }
+.badge.heat-badge.yellow,
+.lead-badge.heat-badge.yellow { background: var(--mcs-amber); color: #0b0d10; }
 
 .badge.blue,
 .lead-badge.blue {
@@ -539,9 +546,35 @@ nav[aria-label="Seções do painel"]::-webkit-scrollbar { display: none; }
 .badge.green,
 .lead-badge.green {
   border-color: var(--mcs-gold);
-  background: var(--mcs-gold-tint);
+  background: var(--mcs-tag);
   color: var(--mcs-gold-text);
 }
+
+.item-card .inline-actions > button,
+.item-card .inline-actions > .small,
+.record-block .inline-actions > button,
+.lead-card .lead-actions > button {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 40px;
+  align-self: flex-start;
+}
+
+.whatsapp-user-id { font-size: 14px !important; font-weight: 400 !important; }
+.sms-print-missing label.small {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--mcs-button);
+  border-radius: 4px;
+  background: var(--mcs-button);
+  color: var(--mcs-button-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.action-optimistic-hidden { display: none !important; }
 
 .avatar,
 .order-icon {
@@ -849,6 +882,10 @@ nav[aria-label="Seções do painel"]::-webkit-scrollbar { display: none; }
 }
 
 @media (max-width: 699px) {
+  .today-heading,
+  .entry-heading { align-items: flex-start; text-align: left; }
+  .today-heading > div:first-child,
+  .entry-heading > div:first-child { width: 100%; text-align: left; }
   .section-head > .inline-actions {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

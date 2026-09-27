@@ -56,7 +56,7 @@ async function orders(ctx, ref) {
   const [runs, links, dispositions] = await Promise.all([
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', ...(ref ? { 'dados->>ref': 'ilike.' + ref } : {}), order: 'created_at.asc' }),
     allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
+    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' })
   ]);
   return groupCalculatorByRef(consolidateCalcRuns(runs, links), dispositions);
 }
@@ -235,7 +235,9 @@ async function leadData(ctx, req, refInput, idInput) {
   }, [...unique.values()]);
   const city = cityCache.get(zip) || null;
   const searchStage=journey?stageIndex.get(journey.id)||null:null;
-  return { ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
+  const dispositionKind=order?'REF':'JOURNEY',dispositionKey=order?ref:journey?.id;
+  const disposition=dispositionKey?(await optionalRead('panel_item_dispositions',()=>rows(ctx,'panel_item_dispositions',{select:'status,updated_at',environment:'eq.'+ctx.environment,item_kind:'eq.'+dispositionKind,item_key:'eq.'+dispositionKey,cleared_at:'is.null',limit:'1'})))[0]||null:null;
+  return { ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
 }
 
 async function belongsToJourney(ctx, ref, journey) {

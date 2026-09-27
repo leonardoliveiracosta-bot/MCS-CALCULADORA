@@ -106,11 +106,15 @@ async function patchRows(ctx, table, filters, payload, representation = false) {
 }
 
 async function panelMeta(ctx) {
-  const latest = await rows(ctx, 'import_jobs', {
+  const [latestImport,latestMessage] = await Promise.all([rows(ctx, 'import_jobs', {
     select: 'completed_at', environment: 'eq.' + ctx.environment,
     channel: 'eq.WHATSAPP', completed_at: 'not.is.null', order: 'completed_at.desc', limit: '1'
-  });
-  return { dataUpdatedAt: new Date().toISOString(), lastWhatsAppImportAt: latest[0] ? latest[0].completed_at : null };
+  }),rows(ctx,'messages',{
+    select:'occurred_at_utc,created_at',environment:'eq.'+ctx.environment,channel:'eq.WHATSAPP',
+    source_kind:'in.(WHATSAPP_ZIP,WHATSAPP_TXT,WHATSAPP_HISTORY,WHATSAPP_WEBHOOK,IMPORT)',order:'occurred_at_utc.desc',limit:'1'
+  })]);
+  return { dataUpdatedAt: new Date().toISOString(), lastWhatsAppImportAt: latestImport[0] ? latestImport[0].completed_at : null,
+    lastWhatsAppMessageAt:latestMessage[0]&&(latestMessage[0].occurred_at_utc||latestMessage[0].created_at)||null };
 }
 
 async function recordMutation(ctx, input) {

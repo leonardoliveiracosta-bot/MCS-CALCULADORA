@@ -35,7 +35,7 @@
   let detailOrigin = null;
   let currentDetail = null;
   let orderHasMore = false;
-  let undoTimer = null;
+  const undoTimers = new Map();
   let autoPrintContext = null;
   let historyImportFile = null;
   const $ = (id) => document.getElementById(id);
@@ -372,7 +372,7 @@
     $('import-status').classList.remove('error');
     $('import-status').textContent = `${inserted} mensagem(ns) nova(s). ${pending ? 'Há uma dúvida real para revisar.' : 'Importação concluída.'}`;
     await loadQueue();
-    if (!pending && lastJourneyId) { await switchPanel('records'); await openRecord(lastJourneyId); }
+    if (!pending && lastJourneyId) await openDetail('ficha',lastJourneyId);
   }
 
   function clearRecordDetail(message = 'Escolha uma ficha.') {
@@ -415,6 +415,31 @@
       root.append(empty);
       return;
     }
+    const reviewControls=(item,target,kind)=>{
+      const controls=element('div','entry-review-actions');
+      const select=element('select','');
+      select.setAttribute('aria-label','Lead para ligar');
+      select.append(new Option('Escolha um lead', ''));
+      journeys.forEach((journey)=>select.append(new Option(`${journey.contact?.display_name||journey.vehicle_text||'Lead'}${journey.reference_code?` · ${journey.reference_code}`:''}`,journey.id)));
+      const run=(button,action,successText)=>MCSAction.bind(button,()=>({
+        scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,
+        optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},
+        commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action,kind,id:target.id,journeyId:select.value||null})}),
+        rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},
+        successText,
+        undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão.',refresh:()=>loadQueue()},
+        refresh:()=>loadQueue(false),errorText:'Não consegui salvar — tente de novo'
+      }));
+      const link=element('button','small','Ligar a um lead');link.type='button';
+      MCSAction.bind(link,()=>{
+        if(!select.value)return{scope:item,commit:()=>Promise.reject(new Error('JOURNEY_REQUIRED')),errorText:'Escolha um lead antes de ligar.'};
+        return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},successText:'Conversa ligada ao lead.',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão.',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar — tente de novo'};
+      });
+      const create=element('button','quiet small','Criar lead novo');create.type='button';run(create,'review_create','Lead criado e conversa ligada.');
+      const dismiss=element('button','quiet small','Dispensar (não é cliente)');dismiss.type='button';run(dismiss,'review_dismiss','Conversa dispensada.');
+      controls.append(select,link,create,dismiss);
+      return controls;
+    };
     items.forEach((chat) => {
       const item = document.createElement('article');
       item.className = 'queue-item';
@@ -440,12 +465,10 @@
         keep.className = 'small';
         keep.type = 'button';
         keep.textContent = 'Manter em revisão';
-        keep.addEventListener('click', async () => {
-          await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'resolve', chatId: chat.id, resolution: 'review' }) });
-          await loadQueue();
-        });
+        MCSAction.bind(keep,()=>({scope:item,optimistic:()=>{const before=badge.textContent;badge.textContent='revisão';return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'resolve',chatId:chat.id,resolution:'review'})}),rollback:(before)=>{badge.textContent=before;},refresh:()=>loadQueue(),errorText:'Não consegui salvar — tente de novo'}));
         item.append(keep);
       }
+      if(chat.resolution_status!=='RESOLVED'||chat.hasTimeUncertain)item.append(reviewControls(item,chat,'chat'));
       root.append(item);
     });
     reviews.forEach((review) => {
@@ -456,7 +479,7 @@
       const note = document.createElement('span');
       note.className = 'badge';
       note.textContent = 'revisão — formato não suportado — manter em revisão';
-      item.append(title, note);
+      item.append(title, note,reviewControls(item,review,'review'));
       root.append(item);
     });
   }
@@ -484,15 +507,12 @@
       const row = element('div', 'queue-item');
       row.append(element('span', '', `Evento ${event.event_type} · ${event.status === 'ERROR' ? 'erro' : 'pendente'} · ${ago(event.received_at)}`));
       const retry = element('button', 'small', 'Reprocessar'); retry.type = 'button';
-      retry.addEventListener('click', async () => { retry.disabled = true; try {
-        await request('/api/panel/whatsapp', { method: 'POST', body: JSON.stringify({ action: 'reprocess', id: event.id }) });
-        await loadWhatsApp();
-      } catch (_) { retry.disabled = false; row.append(element('span', 'status error', 'Não foi possível reprocessar.')); } });
+      MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent='Reprocessando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'reprocess',id:event.id})}),rollback:()=>{retry.textContent='Reprocessar';},refresh:()=>loadWhatsApp(),errorText:'Não consegui salvar — tente de novo'}));
       row.append(retry); errors.append(row);
     });
     (data.ignored||[]).forEach((event)=>errors.append(element('div','queue-item',`ignorado: ${String(event.error_code||event.event_type||'campo desconhecido').replace(/^IGNORED:/,'')}`)));
     const itemErrorLabel=(code)=>({HISTORY_DECLINED:'Histórico não compartilhado pelo WhatsApp',PHONE_INVALID:'Telefone inválido',PHONE_AMBIGUOUS:'Telefone ligado a mais de um contato',MESSAGE_CONTENT_INVALID:'Mensagem inválida',ITEM_PROCESSING_FAILED:'Falha ao gravar a mensagem',PROCESSING_INTERRUPTED:'Processamento interrompido'})[code]||'Falha ao processar este item';
-    (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const declined=event.error_code==='HISTORY_DECLINED';const retry=element('button','small',declined?'Dispensar':'Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';retry.addEventListener('click',async()=>{retry.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:declined?'dismiss_item':'reprocess_item',id:event.id})});await loadWhatsApp();await loadQueue();}catch(error){retry.disabled=false;row.append(element('span','status error',error.message==='ITEM_ALREADY_PROCESSING'?'Este item já está sendo processado.':declined?'Não foi possível dispensar este item.':'Não foi possível processar este item.'));}});row.append(retry);errors.append(row);});
+    (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const declined=event.error_code==='HISTORY_DECLINED';const retry=element('button','small',declined?'Dispensar':'Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent=declined?'Dispensando…':'Processando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:declined?'dismiss_item':'reprocess_item',id:event.id})}),rollback:()=>{retry.textContent=declined?'Dispensar':'Tentar de novo';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'}));row.append(retry);errors.append(row);});
     const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
     (data.suggestions || []).forEach((item) => {
       const row = element('div', 'queue-item');
@@ -500,16 +520,13 @@
       if(item.motives)row.append(element('span','muted',`Motivos: ${item.motives}`));
       for (const [label, link] of [['Ligar', true], ['Não é', false]]) {
         const action = element('button', link ? 'small' : 'quiet small', label); action.type = 'button';
-        action.addEventListener('click', async () => { action.disabled = true; try {
-          await request('/api/panel/whatsapp', { method: 'POST', body: JSON.stringify({ action: 'suggestion', id: item.id, link }) });
-          await loadWhatsApp(); await loadQueue();
-        } catch (_) { action.disabled = false; row.append(element('span', 'status error', 'Não foi possível registrar a escolha.')); } });
+        MCSAction.bind(action,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'suggestion',id:item.id,link})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'}));
         row.append(action);
       }
-      const notLead=element('button','quiet small',item.sourceIsLead===false?'Restaurar lead':'Não é lead');notLead.type='button';notLead.addEventListener('click',async()=>{notLead.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:item.sourceIsLead===false})});await loadWhatsApp();await loadQueue();}catch(_){notLead.disabled=false;row.append(element('span','status error','Não foi possível atualizar este contato.'));}});row.append(notLead);
+      const notLead=element('button','quiet small',item.sourceIsLead===false?'Restaurar lead':'Não é lead');notLead.type='button';MCSAction.bind(notLead,()=>{const before=item.sourceIsLead!==false;return{scope:row,optimistic:()=>{item.sourceIsLead=!before;notLead.textContent=item.sourceIsLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:!before})}),rollback:(value)=>{item.sourceIsLead=value;notLead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'};});row.append(notLead);
       suggestions.append(row);
     });
-    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';choose.addEventListener('click',async()=>{choose.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})});await loadWhatsApp();await loadQueue();}catch(_){choose.disabled=false;row.append(element('span','status error','Não foi possível ligar a mensagem.'));}});const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:candidate.isLead===false})});await loadWhatsApp();await loadQueue();}catch(_){lead.disabled=false;}});group.append(choose,lead);row.append(group);});suggestions.append(row);});
+    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';MCSAction.bind(choose,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'}));const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=candidate.isLead!==false;return{scope:row,optimistic:()=>{candidate.isLead=!before;lead.textContent=candidate.isLead?'Não é lead':'Restaurar';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:!before})}),rollback:(value)=>{candidate.isLead=value;lead.textContent=value?'Não é lead':'Restaurar';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'};});group.append(choose,lead);row.append(group);});suggestions.append(row);});
     $('entry-needs-empty').classList.toggle('hidden', Boolean(errors.childElementCount || suggestions.childElementCount));
   }
 
@@ -640,7 +657,7 @@
     return MCSParser.resolveNewYork({ year, month, day, hour, minute, second: 0 });
   }
 
-  async function addSms(event) {
+  function addSms(event) {
     event.preventDefault();
     const selected = $('sms-contact').value;
     const message = MCSParser.clean($('sms-text').value);
@@ -648,41 +665,41 @@
     const name = MCSParser.clean($('sms-new-name').value);
     const phone = MCSParser.clean($('sms-new-phone').value);
     if (!message || !localInput || (selected === 'new' && (!name||!phone))) {$('sms-status').textContent='Informe nome e telefone para o novo contato.';return;}
-    const contactId = selected === 'new' ? null : selected;
-    const existingChat = chats.find((chat) => chat.channel === 'SMS' && chat.contact_id === contactId && !chat.is_group);
-    const start = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({
-      action: 'start', sourceKind: 'SMS_PASTE', sourceFilename: 'SMS manual', sourceSha256: await sha256(message + localInput),
-      chat: { channel: 'SMS', chatId: existingChat ? existingChat.id : null, isGroup: false, contactId, newContactName: selected === 'new' ? name : null, phone:selected==='new'?phone:null, aliasText: 'SMS', senderAliases: [] }
-    }) });
-    const date = smsDate(localInput);
-    const direction = $('sms-direction').value;
-    const signature = await sha256([start.chatId, date.local, direction, message].join('\u001f'));
-    const batch = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'batch', importJobId: start.importJobId, batchNumber: 1, messages: [{
-      chat_id: start.chatId, channel: 'SMS', direction, body_text: message, body_normalized: message,
-      occurred_at_local: date.local, timezone_assumed: 'America/New_York', occurred_at_utc: date.utc,
-      time_uncertain: date.timeUncertain, original_datetime_text: localInput, original_order: 1,
-      source_kind: 'SMS_PASTE', is_edit_marker: false, is_delete_marker: false,
-      signature_base: signature, file_occurrence_total: 1
-    }] }) });
-    const journeyValue = $('sms-journey').value;
-    await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'finish', importJobId: start.importJobId, journey: { mode: journeyValue === 'new' ? 'new' : 'existing', journeyId: journeyValue === 'new' ? null : journeyValue }, refs: MCSParser.extractRefs([{ body: message }]) }) });
-    $('sms-status').textContent = `${batch.inserted} SMS adicionado(s)${date.timeUncertain ? ' — hora incerta, revisão necessária' : ''}.`;
-    $('sms-text').value = '';
-    await loadQueue();
+    const submit=event.submitter||$('sms-form').querySelector('button[type="submit"]');
+    MCSAction.run({button:submit,scope:$('sms-form'),optimistic:()=>{$('sms-status').classList.remove('error');$('sms-status').textContent='Salvando…';},commit:async()=>{
+      const contactId = selected === 'new' ? null : selected;
+      const existingChat = chats.find((chat) => chat.channel === 'SMS' && chat.contact_id === contactId && !chat.is_group);
+      const start = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({
+        action: 'start', sourceKind: 'SMS_PASTE', sourceFilename: 'SMS manual', sourceSha256: await sha256(message + localInput),
+        chat: { channel: 'SMS', chatId: existingChat ? existingChat.id : null, isGroup: false, contactId, newContactName: selected === 'new' ? name : null, phone:selected==='new'?phone:null, aliasText: 'SMS', senderAliases: [] }
+      }) });
+      const date = smsDate(localInput),direction = $('sms-direction').value;
+      const signature = await sha256([start.chatId, date.local, direction, message].join('\u001f'));
+      const batch = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'batch', importJobId: start.importJobId, batchNumber: 1, messages: [{
+        chat_id: start.chatId, channel: 'SMS', direction, body_text: message, body_normalized: message,
+        occurred_at_local: date.local, timezone_assumed: 'America/New_York', occurred_at_utc: date.utc,
+        time_uncertain: date.timeUncertain, original_datetime_text: localInput, original_order: 1,
+        source_kind: 'SMS_PASTE', is_edit_marker: false, is_delete_marker: false, signature_base: signature, file_occurrence_total: 1
+      }] }) });
+      const journeyValue = $('sms-journey').value;
+      await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'finish', importJobId: start.importJobId, journey: { mode: journeyValue === 'new' ? 'new' : 'existing', journeyId: journeyValue === 'new' ? null : journeyValue }, refs: MCSParser.extractRefs([{ body: message }]) }) });
+      return{batch,date};
+    },onSuccess:({batch,date})=>{$('sms-status').textContent=`${batch.inserted} SMS adicionado(s)${date.timeUncertain?' — hora incerta, revisão necessária':''}.`;$('sms-text').value='';},refresh:()=>loadQueue(),onError:()=>{$('sms-status').classList.add('error');},errorText:'Não consegui salvar — tente de novo'});
   }
 
   function clearAutoPrint(){const input=$('auto-print-file');input.value='';autoPrintContext=null;$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;$('auto-print-result').classList.add('hidden');}
   function showAutoPrintChoice(files){const info=$('auto-print-file-info');info.replaceChildren();[...files].forEach((file)=>info.append(element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`)));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=!files.length;}
-  function autoPrintResult(filename,text,saved){const root=$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',`${filename||'Print'} — ${text}`));root.append(row);return row;}
-  async function saveAutoPrint(read,context,filename=read.original_filename){const values=read.extracted_json||{};const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:values.ref||'',message:values.message||'',translation:values.translation||''})});const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||values.ref||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||values.ref||'—'}`,true);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';undo.addEventListener('click',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})});root.replaceChildren(element('strong','', `${filename||'Print'} — Desfeito. O arquivo permanece guardado.`));});actions.append(undo);}root.append(actions);await refreshCounters();return saved;}
-  async function handleAutoPrintRead(result,context,filename){if(result.manual){const root=autoPrintResult(filename||result.read?.original_filename,'Não consegui ler agora — ',false);const retry=element('button','quiet small','Tentar de novo');retry.type='button';retry.addEventListener('click',async()=>{retry.disabled=true;try{await handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),context,filename);}catch(_){retry.disabled=false;}});root.append(retry);return false;}return saveAutoPrint(result.read,context,filename);}
-  async function uploadAutoPrint(file,context={}){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');return handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context,file.name);}
+  function autoPrintResult(filename,text,saved){const resultRoot=arguments[3],root=resultRoot||$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',`${filename||'Print'} — ${text}`));root.append(row);return row;}
+  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} — Desfeito. O arquivo permanece guardado.`,errorText:'Não consegui desfazer — tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters();return saved;}
+  async function handleAutoPrintRead(result,context,filename,resultRoot){if(result.manual){const root=autoPrintResult(filename||result.read?.original_filename,'Não consegui ler agora — tente mais tarde ou use outra imagem.',false,resultRoot);const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),onSuccess:(next)=>handleAutoPrintRead(next,context,filename,resultRoot),errorText:'Não consegui ler agora — tente de novo'}));root.append(retry);return false;}return saveAutoPrint(result.read,context,filename,resultRoot);}
+  async function uploadAutoPrint(file,context={},resultRoot){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');return handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context,file.name,resultRoot);}
   async function sendAutoPrint(){const files=[...$('auto-print-file').files];if(!files.length)return;const status=$('auto-print-status'),result=$('auto-print-result');let failures=0;status.classList.remove('error');result.replaceChildren();result.classList.remove('hidden');$('auto-print-send').disabled=true;for(let index=0;index<files.length;index++){const file=files[index];status.textContent=`${index+1} de ${files.length}…`;try{if(await uploadAutoPrint(file,autoPrintContext||{})===false)failures++;}catch(error){failures++;autoPrintResult(file.name,error.code==='SMS_PRINT_INVALID_IMAGE'?'Use uma imagem válida, até 10 MB.':'Não consegui enviar agora. O arquivo não foi apagado.',false);}}$('auto-print-file').value='';$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;autoPrintContext=null;status.textContent=`${files.length} de ${files.length} prontos${failures?` · ${failures} com erro`:''}`;}
 
   function updateMeta(meta) {
     if (!meta) return;
     $('data-updated').textContent = formatDate(meta.dataUpdatedAt);
-    $('last-whatsapp-import').textContent = meta.lastWhatsAppImportAt ? formatDate(meta.lastWhatsAppImportAt) : 'nenhuma';
+    const whatsappAt=meta.lastWhatsAppMessageAt||meta.lastWhatsAppImportAt;
+    $('last-whatsapp-import').textContent = whatsappAt ? formatDate(whatsappAt) : 'nenhuma';
   }
 
   function pendingQuery() {
@@ -709,7 +726,7 @@
     const total=Number(run.total_conversations||0),completed=Number(run.completed_conversations||0),spent=Number(run.spent_usd||0),budget=Number(run.budget_usd||20);
     if(run.status==='IDLE'||!run.status){
       root.append(element('p','muted','Lê todas as conversas, das mais recentes às mais antigas, inclusive conversas longas em partes.'));
-      const start=element('button','small','Fazer leitura geral');start.type='button';start.addEventListener('click',async()=>{start.disabled=true;try{await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'start_general'})});await continuePendingGeneral();}catch(error){start.disabled=false;root.append(element('p','error',error.code==='HISTORY_STILL_ARRIVING'?'Aguardando o histórico terminar de chegar.':'IA indisponível'));}});root.append(start);return;
+      const start=element('button','small','Fazer leitura geral');start.type='button';MCSAction.bind(start,()=>({scope:root,commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'start_general'})}),onSuccess:()=>continuePendingGeneral(),errorText:'IA indisponível — tente de novo'}));root.append(start);return;
     }
     const status=limited?'limite atingido':paused?'pausada':run.status==='COMPLETED'?'concluída':'em andamento';
     root.append(element('p','',`Leitura geral ${status}`));
@@ -717,8 +734,8 @@
     const bar=element('div','pending-bar'),fill=element('i');fill.style.width=`${total?Math.min(100,completed/total*100):100}%`;bar.append(fill);root.append(bar);
     root.append(element('p','muted',`${completed} de ${total} conversas lidas · gasto US$ ${spent.toFixed(2)} de US$ ${budget.toFixed(2)} · conversas longas são lidas em partes, até o fim`));
     const actions=element('div','inline-actions');
-    if(active){const pause=element('button','quiet small','Pausar');pause.type='button';pause.addEventListener('click',async()=>{pause.disabled=true;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})});await loadPending();});actions.append(pause);}
-    if(paused){const resume=element('button','small','Continuar');resume.type='button';resume.addEventListener('click',async()=>{resume.disabled=true;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resume_general'})});await continuePendingGeneral();});actions.append(resume);}
+    if(active){const pause=element('button','quiet small','Pausar');pause.type='button';MCSAction.bind(pause,()=>({scope:root,optimistic:()=>{pause.textContent='Pausando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})}),rollback:()=>{pause.textContent='Pausar';},onSuccess:()=>loadPending(),errorText:'Não consegui salvar — tente de novo'}));actions.append(pause);}
+    if(paused){const resume=element('button','small','Continuar');resume.type='button';MCSAction.bind(resume,()=>({scope:root,optimistic:()=>{resume.textContent='Continuando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resume_general'})}),rollback:()=>{resume.textContent='Continuar';},onSuccess:()=>continuePendingGeneral(),errorText:'Não consegui salvar — tente de novo'}));actions.append(resume);}
     if(limited){
       root.append(element('p','warning',`${completed} de ${total} lidas — faltam ${Math.max(0,total-completed)}.`));
       const more=element('button','small','Liberar mais US$ 10');more.type='button';
@@ -729,7 +746,7 @@
         const approve=element('button','small','Confirmar liberação');approve.type='button';
         const confirmation=element('div','inline-actions');confirmation.append(question,cancel,approve);
         cancel.addEventListener('click',()=>{confirmation.remove();more.disabled=false;});
-        approve.addEventListener('click',async()=>{approve.disabled=true;cancel.disabled=true;try{await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'increase_budget',confirm:true})});confirmation.remove();await continuePendingGeneral();}catch(_){approve.disabled=false;cancel.disabled=false;}});
+        MCSAction.bind(approve,()=>({scope:confirmation,optimistic:()=>{cancel.disabled=true;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'increase_budget',confirm:true})}),rollback:()=>{cancel.disabled=false;},onSuccess:()=>{confirmation.remove();continuePendingGeneral();},errorText:'Não consegui salvar — tente de novo'}));
         root.append(confirmation);
       });actions.append(more);
     }
@@ -742,7 +759,7 @@
     (data.items||[]).forEach((item)=>{
       const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div'),phoneItem={phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[],ref:item.ref};text.append(element('strong','identity-name',item.name||`Pedido ${item.ref||'—'}`),phoneNode(phoneItem),element('span','muted one-line',`Ref ${item.ref||'—'} · ${item.vehicleText||'Veículo não informado'}`));const direct=directLeadBadge(item);if(direct)text.append(direct);identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));head.append(badges);card.append(head);const contact=contactMeta(item);if(contact)card.append(contact);
       const prefix=item.latestDirection==='MCS'?'Você: ':'';card.append(element('p','message-preview',prefix+item.latestMessage));if(item.translation)card.append(element('p','muted','Tradução: “'+item.translation+'”'));if(item.summary||item.nextStep){const ai=element('div','pending-ai');ai.append(element('strong','', 'IA: '),document.createTextNode(item.summary||'Sem resumo ainda'));if(item.nextStep)ai.append(element('strong','', ' Próximo passo: '),document.createTextNode(item.nextStep));card.append(ai);}
-      const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;copy.addEventListener('click',async()=>{copy.disabled=true;try{await navigator.clipboard.writeText(item.phone);}catch(_){copy.disabled=false;}});const resolved=element('button','quiet small','Já resolvi');resolved.type='button';resolved.addEventListener('click',async()=>{resolved.disabled=true;try{await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})});await loadPending();}catch(_){resolved.disabled=false;}});const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!item.isLead})});await loadPending();}catch(_){lead.disabled=false;}});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
+      const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(item.phone),successText:'Copiado',errorText:'Não consegui copiar — tente de novo'}));const resolved=element('button','quiet small','Já resolvi');resolved.type='button';MCSAction.bind(resolved,()=>({scope:card,successScope:document.body,feedbackKey:`pending:${item.journeyId}:${item.chatId}`,optimistic:()=>{card.classList.add('action-optimistic-hidden');const count=countValue('pending');setCount('pending',Math.max(0,count-1));return count;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})}),rollback:(count)=>{card.classList.remove('action-optimistic-hidden');setCount('pending',count);},successText:'Marcado como resolvido.',undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'unresolve',journeyId:item.journeyId,chatId:item.chatId})}),successText:'Voltou para pendente.',refresh:()=>loadPending()},errorText:'Não consegui salvar — tente de novo'}));const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadPending(),errorText:'Não consegui salvar — tente de novo'};});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
     });
     if(currentView==='pending'&&data.run?.status==='ACTIVE')pendingContinueTimer=setTimeout(()=>continuePendingGeneral().catch(()=>{}),500);
   }
@@ -776,10 +793,10 @@
   function primaryPhone(item){return (item.phones||[]).find((entry)=>entry.is_primary)||(item.phones||[]).find((entry)=>entry.is_current!==false)||(item.phones||[])[0]||null;}
   function phoneDisplay(value){const raw=String(value||'');const digits=raw.replace(/\D/g,'');return digits.length===11&&digits[0]==='1'?`(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`:raw||'falta o número';}
   function referencePhone(item){const ref=item.referenceCode||item.reference_code||item.ref||'—';const phone=primaryPhone(item);return `Ref ${ref} · 📞 ${phone?phoneDisplay(phone.phone_e164||phone.phone_raw):'falta o número'}`;}
-  function phoneNode(item){const phone=primaryPhone(item);if(!phone){if(item?.whatsappWithoutPhone){const username=String(item.whatsappUsername||'').replace(/^@/,'');return element('span','identity-ref-phone whatsapp-user-id',`💬 ${username?'@'+username+' · ':''}WhatsApp sem número`);}return element('span','identity-ref-phone phone-missing','📞 falta o número');}const raw=phone.phone_e164||phone.phone_raw;const link=element('a','identity-ref-phone phone-link','📞 '+phoneDisplay(raw));link.href='tel:'+String(raw).replace(/[^+\d]/g,'');link.addEventListener('click',(event)=>event.stopPropagation());return link;}
+  function phoneNode(item){const phone=primaryPhone(item);if(!phone){if(item?.whatsappWithoutPhone){const username=String(item.whatsappUsername||'').replace(/^@/,'');const name=String(item.name||item.contactName||item.contact?.display_name||'').trim().replace(/^@/,'');const showUsername=username&&name.toLocaleLowerCase('pt-BR')!==username.toLocaleLowerCase('pt-BR');const withUsername=`💬 ${username?'@'+username+' · ':''}WhatsApp sem número`;return element('span','identity-ref-phone whatsapp-user-id',showUsername?withUsername:'💬 WhatsApp sem número');}return element('span','identity-ref-phone phone-missing','📞 falta o número');}const raw=phone.phone_e164||phone.phone_raw;const link=element('a','identity-ref-phone phone-link','📞 '+phoneDisplay(raw));link.href='tel:'+String(raw).replace(/[^+\d]/g,'');link.addEventListener('click',(event)=>event.stopPropagation());return link;}
   function contactChannelLabel(channel){return {WHATSAPP:'💬 WhatsApp',WHATSAPP_HISTORY:'💬 WhatsApp · histórico',WHATSAPP_CLICK:'💬 Clicou em WhatsApp',SMS_CLICK:'✉️ Clicou em mensagem de texto',CONTACT_CLICK_UNKNOWN:'💬 Clicou para falar (canal não registrado)',IMPORTED:'📎 Conversa importada/colada'}[channel]||'';}
   function floridaArrival(value){if(!value)return '';const date=new Date(value),now=new Date();const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true});const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(date);const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(now);const yesterday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date(Date.now()-86400000));const prefix=day===today?'hoje':day===yesterday?'ontem':new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).format(date);return `chegou ${prefix} ${fmt.format(date)} (Flórida)`;}
-  function heatBadge(item){const labels={HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'},tone={HOT:'red',WARM:'yellow',COLD:'blue'};const heat=String(item.heat||'').toUpperCase();return heat?makeBadge(labels[heat]||labels.COLD,tone[heat]||'blue'):null;}
+  function heatBadge(item){const labels={HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'},tone={HOT:'red',WARM:'yellow',COLD:'blue'};const heat=String(item.heat||'').toUpperCase();if(!heat)return null;const badge=makeBadge(labels[heat]||labels.COLD,tone[heat]||'blue');badge.classList.add('heat-badge');return badge;}
   function contactMeta(item){const wrap=element('div','badges contact-meta');const channel=contactChannelLabel(item.contactChannel),arrival=floridaArrival(item.contactAt||item.lastCustomerAt);if(channel)wrap.append(makeBadge(channel,['WHATSAPP','WHATSAPP_HISTORY','WHATSAPP_CLICK'].includes(item.contactChannel)?'green':item.contactChannel==='SMS_CLICK'?'yellow':'blue'));if(arrival)wrap.append(makeBadge(arrival));const heat=heatBadge(item);if(heat){const details=element('details','temperature-details'),summary=element('summary','');summary.append(heat);details.append(summary,element('p','temperature-explanation',item.heatSource==='AI'?`Temperatura da IA: ${item.aiSummary||'Sem resumo.'}${item.aiNextStep?' Próximo passo: '+item.aiNextStep:''}`:'Temperatura calculada: telefone, checklist, prazo, orçamento x Manheim, conversa recente e horário.'));wrap.append(details);}return wrap.childNodes.length?wrap:null;}
   function directLeadLabel(item){return item?.directLeadSource==='WHATSAPP_DIRECT'?'📱 veio direto pelo WhatsApp (sem calculadora)':item?.directLeadSource==='SMS_DIRECT'?'✉️ veio direto por SMS (sem calculadora)':'';}
   function directLeadBadge(item){const label=directLeadLabel(item);return label?makeBadge(label,'blue'):null;}
@@ -802,12 +819,13 @@
   }
 
   function smsPrintMissing(item) {
-    if(item.contactChannel!=='SMS_CLICK'||item.smsPrintConfirmed)return null;
+    if(item.contactChannel!=='SMS_CLICK'||item.smsPrintConfirmed||item.disposition)return null;
     const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui.'));
     const attach=element('label','small','📷 Anexar print do SMS'),input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;attach.append(input);const absent=element('button','quiet small','Não chegou SMS'); absent.type='button';
-    input.addEventListener('change',async()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null};attach.classList.add('disabled');for(const file of files){try{await uploadAutoPrint(file,context);}catch(_){block.append(element('p','status error','Não consegui ler agora — tente mais tarde.'));}}attach.classList.remove('disabled');input.value='';});
-    absent.addEventListener('click',()=>setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED'));
-    const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions);
+    const resultRoot=element('div','card-action-result');
+    input.addEventListener('change',()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null};MCSAction.run({button:attach,scope:block,optimistic:()=>attach.classList.add('disabled'),commit:async()=>{let last;for(const file of files)last=await uploadAutoPrint(file,context,resultRoot);return last;},rollback:()=>attach.classList.remove('disabled'),onSuccess:()=>{attach.classList.remove('disabled');input.value='';},errorText:'Não consegui salvar — tente de novo'});});
+    absent.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED',absent);});
+    const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions,resultRoot);
     return block;
   }
 
@@ -832,10 +850,10 @@
     toggle.disabled = !canReactivate;
     toggle.setAttribute('role', 'switch');
     toggle.setAttribute('aria-checked', String(enabled));
-    toggle.addEventListener('click', async () => {
-      await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'toggle_journey', journeyId: item.id, enabled: !enabled, reason: null }) });
-      await reload();
-    });
+    MCSAction.bind(toggle,()=>({scope:wrap,optimistic:()=>{toggle.textContent=enabled?'Desligando…':'Religando…';toggle.setAttribute('aria-checked',String(!enabled));},
+      commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled:!enabled,reason:null})}),
+      rollback:()=>{toggle.textContent=enabled?'Ligado':canReactivate?'Desligado — religar':'Desligado';toggle.setAttribute('aria-checked',String(enabled));},refresh:reload,
+      errorText:'Não consegui salvar — tente de novo'}));
     wrap.append(toggle);
     if (enabled) {
       const reasons = element('details', 'switch-reasons');
@@ -844,10 +862,7 @@
       [['MCS_PURCHASE', 'Comprou com a MCS'], ['OTHER_PURCHASE', 'Comprou em outro lugar'], ['GAVE_UP', 'Desistiu'], ['NO_RESPONSE', 'Sem resposta']].forEach(([reason, label]) => {
         const button = element('button', 'quiet small', label);
         button.type = 'button';
-        button.addEventListener('click', async () => {
-          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'toggle_journey', journeyId: item.id, enabled: false, reason }) });
-          await reload();
-        });
+        MCSAction.bind(button,()=>({scope:wrap,optimistic:()=>{button.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled:false,reason})}),rollback:()=>{button.textContent=label;},refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
         choices.append(button);
       });
       reasons.append(choices);
@@ -875,11 +890,11 @@
       if(item.alsoServes?.length){const names=item.alsoServes.slice(0,2).map((peer)=>`${peer.name} (Ref ${peer.ref||'—'})`).join(' e ');card.append(element('p','muted',`Também serve para: ${names}${item.alsoServes.length>2?` e mais ${item.alsoServes.length-2}`:''} — mesma busca no Manheim`));}
       if(item.stage==='SAVED')card.append(element('p','muted',`${item.matchCount} carro${item.matchCount===1?'':'s'} no último CSV do Manheim batem com esta busca`));
       const actions=element('div','inline-actions');
-      const toggle=async(kind)=>{const previous=item.stage;item.stage=kind==='SAVED'?'SAVED':'SENT';renderSearchesAgain();try{await request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind})});await loadSearches();}catch(_){item.stage=previous;renderSearchesAgain();const notice=element('p','error','Não foi possível atualizar agora.');root.prepend(notice);setTimeout(()=>notice.remove(),5000);}};
-      if(item.stage==='MISSING')actions.append(makeButton('💾 Salvei a busca no Manheim',()=>toggle('SAVED')));
-      if(item.stage!=='SENT')actions.append(makeButton('📤 Enviei opções ao cliente',()=>toggle('SENT'),'quiet small'));
+      const stageAction=(control,kind)=>MCSAction.bind(control,()=>{const previous=item.stage,next=kind==='SAVED'?'SAVED':'SENT';return{scope:card,optimistic:()=>{item.stage=next;card.querySelector('.search-stage').textContent=next==='SAVED'?'💾 Busca salva':'📤 Opções enviadas';return previous;},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind})}),rollback:(value)=>{item.stage=value;card.querySelector('.search-stage').textContent=item.stageLabel;},refresh:()=>loadSearches(),errorText:'Não consegui salvar — tente de novo'};});
+      if(item.stage==='MISSING'){const saved=makeButton('💾 Salvei a busca no Manheim',null);stageAction(saved,'SAVED');actions.append(saved);}
+      if(item.stage!=='SENT'){const sent=makeButton('📤 Enviei opções ao cliente',null,'quiet small');stageAction(sent,'SENT');actions.append(sent);}
       if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>switchPanel('manheim'),'quiet small'));
-      if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED';actions.append(makeButton('Desfazer',async()=>{await request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind})});await loadSearches();},'quiet small'));}
+      if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED',undo=makeButton('Desfazer',null,'quiet small');if(item.stageSource==='MARK')MCSAction.bind(undo,()=>({scope:card,optimistic:()=>{undo.textContent='Desfazendo…';},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind})}),rollback:()=>{undo.textContent='Desfazer';},refresh:()=>loadSearches(),errorText:'Não consegui desfazer — tente de novo'}));else undo.addEventListener('click',()=>MCSAction.feedback(card,item.stageSource==='MANHEIM'?'Esta busca foi marcada no MANHEIM. Desfaça em “Quais buscas salvar”.':'As opções foram registradas pela ficha do cliente; desfaça na ficha.','error','search-origin'));actions.append(undo);}
       actions.append(makeButton('Abrir lead',()=>openDetail('ficha',item.journeyId),'quiet small'));card.append(actions);root.append(card);
     });
     if(!(data.items||[]).length)empty(root,'Nenhum cliente ativo com desejo completo e contato registrado.');
@@ -927,7 +942,8 @@
   }
 
   async function refreshCounters() {
-    const [entry, pending, orders, qualification, searches, manheim, records] = await Promise.all([
+    const [today, entry, pending, orders, qualification, searches, manheim, records] = await Promise.all([
+      request('/api/panel/today'),
       request('/api/panel/entry'),
       request('/api/panel/pendencias'),
       request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
@@ -936,6 +952,7 @@
       request('/api/panel/records?view=manheim'),
       request('/api/panel/records')
     ]);
+    setCount('today',(today.items||[]).length);
     setCount('entry', (entry.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (entry.reviews || []).length);
     setCount('pending', Object.values(pending.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
     setCount('orders', orders.page && orders.page.total || 0);
@@ -976,8 +993,17 @@
 
   async function postAction(payload) {
     const result = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify(payload) });
-    await loadCurrent();
+    await refreshCurrentPreservingState();
     return result;
+  }
+
+  async function refreshCurrentPreservingState() {
+    const scrollY=window.scrollY,loadedOrders=orderItems.length,view=currentView,version=viewRequestVersion;
+    if(view==='orders'){
+      await loadOrders(false,view,version);
+      while(orderItems.length<loadedOrders&&orderHasMore)await loadOrders(true,view,version);
+    }else await loadCurrent(view,version);
+    requestAnimationFrame(()=>window.scrollTo(0,scrollY));
   }
 
   function captureOrigin() {
@@ -1026,45 +1052,71 @@
     requestAnimationFrame(() => window.scrollTo(0, Number(target.scrollY || 0)));
   }
 
-  function showUndo(itemKind, itemKey, label) {
-    clearTimeout(undoTimer);
-    document.querySelectorAll('.undo-toast').forEach((node) => node.remove());
-    const toast = element('div', 'undo-toast');
+  function showUndo({itemKind,itemKey,previousStatus,label,scope,refresh}) {
+    const scopeKey=currentDetail?`detail:${currentDetail.kind}:${currentDetail.key}`:`view:${currentView}`;
+    clearTimeout(undoTimers.get(scopeKey));
+    document.querySelectorAll(`.undo-toast[data-undo-scope="${scopeKey}"]`).forEach((node)=>node.remove());
+    const toast = element('div', 'undo-toast');toast.dataset.undoScope=scopeKey;
     toast.append(element('span', '', label));
     const undo = element('button', 'quiet small', 'Desfazer');
     undo.type = 'button';
-    undo.addEventListener('click', async () => {
-      clearTimeout(undoTimer);
-      await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status: null }) });
-      toast.remove();
-      if (currentDetail) await openDetail(currentDetail.kind, currentDetail.key, { push: false, origin: detailOrigin });
-      else await loadCurrent();
-      await refreshCounters();
-      await loadCaptureWarning();
-    });
+    MCSAction.bind(undo,()=>({scope:scope||document.body,feedbackKey:`undo:${scopeKey}`,optimistic:()=>{toast.classList.add('action-optimistic-hidden');return null;},
+      commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status:previousStatus,previousStatus})}),
+      rollback:()=>toast.classList.remove('action-optimistic-hidden'),successText:'Ação desfeita.',
+      refresh:async()=>{toast.remove();if(refresh)await refresh();await refreshCounters();await loadCaptureWarning();}}));
     toast.append(undo);
     document.body.append(toast);
-    undoTimer = setTimeout(() => toast.remove(), 10000);
+    undoTimers.set(scopeKey,setTimeout(() => toast.remove(), 10000));
   }
 
-  async function setDisposition(item, status) {
+  function dispositionIdentity(item){
     const itemKind = item.kind === 'CALCULATOR_ORDER' || item.kind === 'CALCULATOR' ? 'REF' : 'JOURNEY';
     const itemKey = itemKind === 'REF' ? item.ref : item.id || item.journeyId;
-    await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status }) });
-    showUndo(itemKind, itemKey, status === 'TREATED' ? 'Marcado como Tratado' : 'Marcado como Descartado');
-    if (currentDetail) await openDetail(currentDetail.kind, currentDetail.key, { push: false, origin: detailOrigin });
-    else await loadCurrent();
-    await refreshCounters();
+    return {itemKind,itemKey};
+  }
+
+  function countValue(view){return Number(document.querySelector(`[data-count="${view}"]`)?.textContent)||0;}
+  function applyDispositionVisual(button,item,status){
+    const card=button.closest('.item-card,.lead-card,.record-block'),hide=Boolean(status)&&!currentDetail&&['today','qualification'].includes(currentView);
+    const snapshot={status:item.disposition||null,card,hidden:card?.classList.contains('action-optimistic-hidden'),count:countValue(currentView)};
+    item.disposition=status;
+    if(hide&&card){card.classList.add('action-optimistic-hidden');setCount(currentView,Math.max(0,snapshot.count-1));}
+    else{const controls=button.closest('.disposition-controls');if(controls){controls.dataset.status=status||'';controls.querySelectorAll('.disposition-state').forEach((node)=>node.remove());if(status){const state=makeBadge(status==='TREATED'?'Tratado':'Descartado',status==='DISCARDED'?'red':'blue');state.classList.add('disposition-state');controls.prepend(state);}}}
+    return snapshot;
+  }
+
+  function rollbackDisposition(item,snapshot){
+    item.disposition=snapshot.status;
+    if(snapshot.card){snapshot.card.classList.toggle('action-optimistic-hidden',Boolean(snapshot.hidden));}
+    setCount(currentView,snapshot.count);
+  }
+
+  function dispositionRefresh(){
+    if(currentDetail)return openDetail(currentDetail.kind,currentDetail.key,{push:false,origin:detailOrigin});
+    return refreshCurrentPreservingState();
+  }
+
+  function setDisposition(item,status,button) {
+    const {itemKind,itemKey}=dispositionIdentity(item),previousStatus=item.disposition||null,scope=button.closest('.item-card,.lead-card,.record-block')||document.body;
+    return MCSAction.run({button,scope,feedbackKey:`disposition:${itemKind}:${itemKey}`,optimistic:()=>applyDispositionVisual(button,item,status),
+      commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status})}),
+      rollback:(snapshot)=>rollbackDisposition(item,snapshot),errorText:'Não consegui salvar — tente de novo',
+      onSuccess:()=>showUndo({itemKind,itemKey,previousStatus,label:status==='TREATED'?'Marcado como Tratado':status==='DISCARDED'?'Marcado como Descartado':'Voltou para pendente',scope,refresh:dispositionRefresh}),
+      refresh:async()=>{await dispositionRefresh();await refreshCounters();}});
   }
 
   function dispositionControls(item) {
-    const actions = element('div', 'inline-actions');
+    const actions = element('div', 'inline-actions disposition-controls');actions.dataset.status=item.disposition||'';
+    if(item.disposition){
+      const state=makeBadge(item.disposition==='TREATED'?'Tratado':'Descartado',item.disposition==='DISCARDED'?'red':'blue');state.classList.add('disposition-state');actions.append(state);
+      const restore=element('button','quiet small','Voltar para pendente');restore.type='button';restore.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();setDisposition(item,null,restore);});actions.append(restore);return actions;
+    }
     const treated = element('button', 'small', 'Tratado');
     treated.type = 'button';
-    treated.addEventListener('click', () => setDisposition(item, 'TREATED'));
+    treated.addEventListener('click', (event) => {event.preventDefault();event.stopPropagation();setDisposition(item,'TREATED',treated);});
     const discarded = element('button', 'quiet small', 'Descartar');
     discarded.type = 'button';
-    discarded.addEventListener('click', () => setDisposition(item, 'DISCARDED'));
+    discarded.addEventListener('click', (event) => {event.preventDefault();event.stopPropagation();setDisposition(item,'DISCARDED',discarded);});
     actions.append(treated, discarded);
     return actions;
   }
@@ -1172,12 +1224,7 @@
       button.type = 'button';
       button.disabled = true;
       select.addEventListener('change', () => { button.disabled = !select.value; });
-      button.addEventListener('click', async () => {
-        if (!select.value) return;
-        const [journeyId, contactId] = select.value.split('|');
-        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'link_request', journeyId, contactId, calcRef: item.ref }) });
-        await openDetail('order', item.ref, { push: false, origin: detailOrigin });
-      });
+      MCSAction.bind(button,()=>{const [journeyId,contactId]=select.value.split('|');return{scope:intro,optimistic:()=>{button.textContent='Ligando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'link_request',journeyId,contactId,calcRef:item.ref})}),rollback:()=>{button.textContent='Ligar a um lead';},refresh:()=>openDetail('order',item.ref,{push:false,origin:detailOrigin}),errorText:'Não consegui salvar — tente de novo'};});
       form.append(label, button);
       intro.append(form);
     }
@@ -1301,14 +1348,12 @@
         button.type = 'button';
         button.disabled = true;
         select.addEventListener('change', () => { button.disabled = !select.value; });
-        button.addEventListener('click', async () => {
-          if (!select.value) return;
-          const [journeyId, contactId] = select.value.split('|');
-          await postAction({ action: 'link_request', journeyId, contactId, calcRef: item.ref });
-        });
+        MCSAction.bind(button,()=>{const [journeyId,contactId]=select.value.split('|');return{scope:card,optimistic:()=>{button.textContent='Ligando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'link_request',journeyId,contactId,calcRef:item.ref})}),rollback:()=>{button.textContent='Ligar a um lead';},refresh:refreshCurrentPreservingState,errorText:'Não consegui salvar — tente de novo'};});
         form.append(label, button);
         card.append(form);
       }
+
+      card.append(dispositionControls(item));
 
       makeCardClickable(card, () => {
         if (item.kind === 'CALCULATOR') openDetail('order', item.ref);
@@ -1398,13 +1443,7 @@
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
-      reactivateButton.addEventListener('click', async () => {
-        const payload = journey.status === 'PARADO'
-          ? { action: 'set_funnel', journeyId: journey.id, value: 'EM_BUSCA' }
-          : { action: 'toggle_journey', journeyId: journey.id, enabled: true, reason: null };
-        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify(payload) });
-        await loadCurrent();
-      });
+      MCSAction.bind(reactivateButton,()=>{const payload=journey.status==='PARADO'?{action:'set_funnel',journeyId:journey.id,value:'EM_BUSCA'}:{action:'toggle_journey',journeyId:journey.id,enabled:true,reason:null};return{scope:card,optimistic:()=>{reactivateButton.textContent='Retomando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify(payload)}),rollback:()=>{reactivateButton.textContent=journey.status==='PARADO'?'Retomar busca':'Religar busca';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'};});
       card.append(makeBadge(journey.status === 'PARADO' ? 'Parado — reativar' : 'Desligado — reativar', 'yellow'), reactivateButton);
     }
     const table = element('div', 'manheim-table');
@@ -1429,10 +1468,7 @@
       if (match.mmr_status) badges.append(makeBadge(match.mmr_status, match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
       const presented = element('button', 'quiet small', match.presented_unit_id ? 'Apresentado' : journey.enabled === false ? 'Religue antes de apresentar' : 'Apresentei ao cliente');
       presented.type = 'button'; presented.disabled = Boolean(match.presented_unit_id) || journey.enabled === false;
-      presented.addEventListener('click', async () => {
-        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'unit', journeyId: journey.id, manheimMatchId: match.id, status: 'PRESENTED' }) });
-        await loadCurrent();
-      });
+      MCSAction.bind(presented,()=>({scope:row,optimistic:()=>{presented.textContent='Apresentado';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:journey.id,manheimMatchId:match.id,status:'PRESENTED'})}),rollback:()=>{presented.textContent='Apresentei ao cliente';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'}));
       row.append(select, vehicle, badges, presented);
       table.append(row);
     });
@@ -1443,7 +1479,7 @@
       const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => matches.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
       downloadShortlist(selected, journey.reference_code);
     });
-    card.append(exportButton);
+    card.append(exportButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
   }
@@ -1484,7 +1520,9 @@
       makeCardClickable(row, () => openDetail('order', order.ref));
       table.append(row);
     });
-    card.append(table);
+    const actions=element('div','inline-actions');
+    const open=element('button','small','Abrir pedido');open.type='button';open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('order',order.ref);});
+    actions.append(open);card.append(table,actions,dispositionControls({...order,kind:'CALCULATOR'}));
     makeCardClickable(card, () => openDetail('order', order.ref));
     root.append(card);
   }
@@ -1566,8 +1604,8 @@
       const people=element('div','saved-search-clients hidden'); (group.clients||[]).forEach((client)=>{const person=element('button','quiet small',`${client.name||'Pedido'} · 📞 ${client.phone?phoneDisplay(client.phone):'falta o número'} · Ref ${client.ref||'—'}`);person.type='button';person.addEventListener('click',()=>{if(client.journeyId)openDetail('ficha',client.journeyId);});people.append(person);}); clients.addEventListener('click',()=>people.classList.toggle('hidden'));
       text.append(element('strong','',title),clients,element('span','muted',mode==='customers'?`Salvando da #1 até esta, você atende ${group.percent}% dos clientes ativos.`:`Esta busca sozinha atende ${group.individualPercent}% dos clientes ativos.`),people);
       const toggle=element('button',group.created?'quiet small':'small',group.created?'✓ Busca criada':'Já criei esta busca'); toggle.type='button';
-      toggle.addEventListener('click',async()=>{const before=group.created;group.created=!before;renderSavedSearches().catch(()=>{});try{await request('/api/panel/manheim-searches',{method:'POST',body:JSON.stringify({key:group.key,created:group.created})});}catch(_){group.created=before;renderSavedSearches().catch(()=>{});$('manheim-status').classList.add('error');$('manheim-status').textContent='Não foi possível atualizar a busca.';}});
       const undo=element('button','quiet small','Desfazer');undo.type='button';undo.classList.toggle('hidden',!group.created);undo.addEventListener('click',()=>toggle.click());
+      MCSAction.bind(toggle,()=>{const before=group.created;return{scope:line,optimistic:()=>{group.created=!before;toggle.textContent=group.created?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!group.created);return before;},commit:()=>request('/api/panel/manheim-searches',{method:'POST',body:JSON.stringify({key:group.key,created:group.created})}),rollback:()=>{group.created=before;toggle.textContent=before?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!before);},onSuccess:()=>{if(savedSearchesData?.groups){const cached=savedSearchesData.groups.find((entry)=>entry.key===group.key);if(cached)cached.created=group.created;}},errorText:'Não consegui salvar — tente de novo'};});
       const controls=element('div','inline-actions');controls.append(toggle,undo);line.append(text,controls);root.append(line);
     });
   }
@@ -1693,6 +1731,7 @@
       const controls = element('div', 'record-card-controls');
       const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
       controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
+      if(item.disposition)controls.append(makeBadge(item.disposition==='TREATED'?'Tratado':'Descartado',item.disposition==='DISCARDED'?'red':'blue'));
       if(item.searchStageLabel)controls.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       const heat=heatBadge(item);if(heat)controls.append(heat);
       if(item.pendingAiCount)controls.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
@@ -1719,6 +1758,7 @@
     summary.setAttribute('aria-label', 'Ações desta mensagem');
     root.append(summary);
     const menu = element('div', 'message-menu-panel');
+    const bindMutation=(control,commit,scope=menu)=>MCSAction.bind(control,()=>({scope,commit,refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
     if (message.direction === 'CUSTOMER') {
       const wishlistForm = element('div', 'wishlist-menu');
       const wishlistRows = [];
@@ -1740,7 +1780,7 @@
       addVehicle.addEventListener('click', addWishlistRow);
       const wishlistButton = element('button', 'quiet small', 'Carro ou faixa');
       wishlistButton.type = 'button';
-      wishlistButton.addEventListener('click', async () => {
+      bindMutation(wishlistButton,async () => {
         const wishlists = wishlistRows.filter((row) => row.model.value.trim()).map((row) => ({
           make: row.make.value, model: row.model.value, yearMin: row.yearMin.value || null,
           yearMax: row.yearMax.value || null, maxMiles: row.maxMiles.value || null
@@ -1749,7 +1789,6 @@
           action: 'mark_message', journeyId, ref, messageId: message.id, kind: 'VEHICLE',
           wishlists
         }) });
-        await reload();
       });
       wishlistForm.prepend(wishlistButton, addVehicle);
       menu.append(wishlistForm);
@@ -1766,16 +1805,13 @@
         value.classList.toggle('hidden', !needsValue);
         const button = element('button', 'quiet small', label);
         button.type = 'button';
-        button.addEventListener('click', async () => {
-          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'mark_message', journeyId, ref, messageId: message.id, kind, value: needsValue ? value.value : null }) });
-          await reload();
-        });
+        bindMutation(button,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'mark_message',journeyId,ref,messageId:message.id,kind,value:needsValue?value.value:null})}),row);
         row.append(button, value);
         menu.append(row);
       });
       const okButton = element('button', 'small', 'Cliente deu OK');
       okButton.type = 'button';
-      okButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'client_ok', journeyId, ref, messageId: message.id }) }); await reload(); });
+      bindMutation(okButton,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'client_ok',journeyId,ref,messageId:message.id})}));
       menu.append(okButton);
     }
     if (message.direction === 'MCS') {
@@ -1793,11 +1829,7 @@
       dueTextLabel.append(dueText);
       const promiseButton = element('button', 'small', 'Marcar como promessa');
       promiseButton.type = 'button';
-      promiseButton.addEventListener('click', async () => {
-        promiseButton.disabled=true;
-        try { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'promise', journeyId, ref, messageId: message.id, dueLocal: due.value, dueText: dueText.value }) }); await reload(); }
-        finally { promiseButton.disabled=false; }
-      });
+      bindMutation(promiseButton,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'promise',journeyId,ref,messageId:message.id,dueLocal:due.value,dueText:dueText.value})}),promiseForm);
       promiseForm.append(dueLabel, dueTextLabel, promiseButton);
       menu.append(promiseForm);
     }
@@ -1813,6 +1845,7 @@
     root.replaceChildren();
     if (options.prepend) root.append(options.prepend);
     const reload = () => openRecord(id, options);
+    const bindRecordAction=(control,commit,scope)=>MCSAction.bind(control,()=>({scope:scope||control.closest('.record-block')||root,commit,refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
     const split = element('div', 'record-split');
     const left = element('div', 'record-data-column');
     const right = element('div', 'record-conversation-column');
@@ -1870,7 +1903,7 @@
     noteLabel.append(note);
     const saveNote = element('button', 'quiet small', 'Salvar nota');
     saveNote.type = 'button';
-    saveNote.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'update_note', journeyId: id, note: note.value }) }); await reload(); });
+    bindRecordAction(saveNote,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'update_note',journeyId:id,note:note.value})}),noteForm);
     noteForm.append(noteLabel, saveNote);
     dataBlock.append(noteForm);
 
@@ -1880,7 +1913,7 @@
         const labels = { CALL_ANSWERED: 'Ligação atendida', CALL_ATTEMPT: 'Tentativa sem resposta', IN_PERSON: 'Conversa presencial' };
         const button = element('button', 'quiet small', labels[type]);
         button.type = 'button';
-        button.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'interaction', journeyId: id, interactionType: type }) }); await reload(); });
+        bindRecordAction(button,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'interaction',journeyId:id,interactionType:type})}),operations);
         operations.append(button);
       });
       dataBlock.append(operations);
@@ -1893,7 +1926,7 @@
       statusLabel.append(statusSelect);
       const statusButton = element('button', 'small', 'Atualizar etapa');
       statusButton.type = 'button';
-      statusButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_funnel', journeyId: id, value: statusSelect.value }) }); await reload(); });
+      bindRecordAction(statusButton,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_funnel',journeyId:id,value:statusSelect.value})}),statusForm);
       statusForm.append(statusLabel, statusButton);
       dataBlock.append(statusForm);
     }
@@ -1909,7 +1942,7 @@
           choices.forEach((choice) => select.append(new Option(`${choice.source}: ${choice.value_text}`, choice.id)));
           const button = element('button', 'small', 'Usar como operacional');
           button.type = 'button';
-          button.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'resolve_divergence', journeyId: id, divergenceId: divergence.id, declarationId: select.value }) }); await reload(); });
+          bindRecordAction(button,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'resolve_divergence',journeyId:id,divergenceId:divergence.id,declarationId:select.value})}),row);
           row.append(select, button);
         }
         dataBlock.append(row);
@@ -1936,10 +1969,10 @@
       row.append(element('p', 'message-body', entry.text), element('p', 'muted', `${entry.origin} · ${formatDate(entry.dueAt)}`));
       const complete = element('button', 'small', 'Concluir');
       complete.type = 'button';
-      complete.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'return_update', journeyId: id, returnKind: entry.kind, returnId: entry.kind === 'PROMISE' ? entry.id : null, operation: 'COMPLETE' }) }); await reload(); });
+      bindRecordAction(complete,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'return_update',journeyId:id,returnKind:entry.kind,returnId:entry.kind==='PROMISE'?entry.id:null,operation:'COMPLETE'})}),row);
       const remove = element('button', 'quiet small', 'Remover');
       remove.type = 'button';
-      remove.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'return_update', journeyId: id, returnKind: entry.kind, returnId: entry.kind === 'PROMISE' ? entry.id : null, operation: 'REMOVE' }) }); await reload(); });
+      bindRecordAction(remove,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'return_update',journeyId:id,returnKind:entry.kind,returnId:entry.kind==='PROMISE'?entry.id:null,operation:'REMOVE'})}),row);
       row.append(complete, remove);
       returnBlock.append(row);
     });
@@ -1951,7 +1984,7 @@
       const nextDate = element('input'); nextDate.type = 'datetime-local'; nextDate.value = localInput(new Date(Date.now() + 24 * 3600000)); nextDateLabel.append(nextDate);
       const nextButton = element('button', 'small', 'Adicionar retorno');
       nextButton.type = 'button';
-      nextButton.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'next_action', operation: 'CREATE', journeyId: id, text: nextText.value, at: new Date(nextDate.value).toISOString() }) }); await reload(); });
+      bindRecordAction(nextButton,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'next_action',operation:'CREATE',journeyId:id,text:nextText.value,at:new Date(nextDate.value).toISOString()})}),nextForm);
       nextForm.append(nextTextLabel, nextDateLabel, nextButton);
       returnBlock.append(nextForm);
     }
@@ -1974,10 +2007,10 @@
         decline.value = unit.decline_reason || '';
         const save = element('button', 'small', 'Atualizar unidade');
         save.type = 'button';
-        save.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'unit', journeyId: id, unitId: unit.id, status: select.value, declineReason: decline.value }) }); await reload(); });
+        bindRecordAction(save,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:id,unitId:unit.id,status:select.value,declineReason:decline.value})}),form);
         const responded = element('button', 'quiet small', 'Registrar resposta do cliente');
         responded.type = 'button';
-        responded.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'unit', journeyId: id, unitId: unit.id, status: select.value, declineReason: decline.value, customerResponded: true }) }); await reload(); });
+        bindRecordAction(responded,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:id,unitId:unit.id,status:select.value,declineReason:decline.value,customerResponded:true})}),form);
         form.append(select, decline, save, responded);
         row.append(form);
       }
@@ -1992,7 +2025,7 @@
       status.append(new Option('Apresentada', 'PRESENTED'), new Option('Em análise', 'UNDER_REVIEW'));
       const add = element('button', 'small', 'Adicionar unidade');
       add.type = 'button';
-      add.addEventListener('click', async () => { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'unit', journeyId: id, vehicleText: vehicle.value, status: status.value }) }); await reload(); });
+      bindRecordAction(add,()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:id,vehicleText:vehicle.value,status:status.value})}),addForm);
       addForm.append(vehicle, status, add);
       unitsBlock.append(addForm);
     }
@@ -2006,12 +2039,7 @@
       conversationChatIds.forEach((chatId) => {
         const invert = element('button', 'quiet small', conversationChatIds.length === 1 ? 'Inverter remetentes desta conversa' : 'Inverter remetentes deste chat');
         invert.type = 'button';
-        invert.addEventListener('click', async () => {
-          if (invert.dataset.confirmed!=='true') { invert.dataset.confirmed='true'; invert.textContent='Confirmar inversão'; return; }
-          invert.disabled=true;
-          try { await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'invert_senders', journeyId: id, chatId }) }); await reload(); }
-          finally { invert.disabled=false; }
-        });
+        invert.addEventListener('click',()=>{if(invert.dataset.confirmed!=='true'){invert.dataset.confirmed='true';invert.textContent='Confirmar inversão';return;}MCSAction.run({button:invert,scope:senderTools,commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'invert_senders',journeyId:id,chatId})}),refresh:reload,errorText:'Não consegui salvar — tente de novo'});});
         senderTools.append(invert);
       });
       conversationBlock.append(senderTools);
@@ -2076,7 +2104,7 @@
       const label = item.kind === 'ORDER'
         ? `${referencePhone(item)}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
         : `${item.name} · ${referencePhone(item)}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
-      button.append(element('span', '', label), makeBadge(item.matchedBy));const direct=directLeadBadge(item);if(direct)button.append(direct);if(item.searchStageLabel)button.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
+      button.append(element('span', '', label), makeBadge(item.matchedBy));const direct=directLeadBadge(item);if(direct)button.append(direct);if(item.disposition)button.append(makeBadge(item.disposition==='TREATED'?'Tratado':'Descartado',item.disposition==='DISCARDED'?'red':'blue'));if(item.searchStageLabel)button.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       button.addEventListener('click', () => {
         const origin=captureOrigin();
         root.classList.add('hidden');
@@ -2226,9 +2254,9 @@
   }
   async function loadAutomaticMessages(){
     const list=$('automatic-message-list');if(!list)return;
-    try{const data=await request('/api/panel/automatic-messages');list.replaceChildren();(data.items||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('span','',item.body_normalized));const remove=element('button','quiet small','Remover');remove.type='button';remove.addEventListener('click',async()=>{remove.disabled=true;await request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'delete',id:item.id})});await loadAutomaticMessages();});row.append(remove);list.append(row);});}catch(_){list.textContent='Não foi possível carregar mensagens automáticas.';}
+    try{const data=await request('/api/panel/automatic-messages');list.replaceChildren();(data.items||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('span','',item.body_normalized));const remove=element('button','quiet small','Remover');remove.type='button';MCSAction.bind(remove,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'delete',id:item.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>loadAutomaticMessages(),errorText:'Não consegui salvar — tente de novo'}));row.append(remove);list.append(row);});}catch(_){list.textContent='Não foi possível carregar mensagens automáticas.';}
   }
-  $('automatic-message-save')?.addEventListener('click',async()=>{const input=$('automatic-message-text'),save=$('automatic-message-save');if(!input.value.trim())return;save.disabled=true;try{await request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'save',text:input.value})});input.value='';await loadAutomaticMessages();}finally{save.disabled=false;}});
+  if($('automatic-message-save'))MCSAction.bind($('automatic-message-save'),()=>{const input=$('automatic-message-text'),value=input.value.trim();if(!value)return{scope:$('automatic-message-list'),commit:()=>Promise.reject(new Error('MESSAGE_REQUIRED')),errorText:'Digite a mensagem automática.'};return{scope:$('automatic-message-list'),commit:()=>request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'save',text:value})}),onSuccess:()=>{input.value='';},refresh:()=>loadAutomaticMessages(),errorText:'Não consegui salvar — tente de novo'};});
   async function signIn(event) {
     event.preventDefault();
     error('login-error');

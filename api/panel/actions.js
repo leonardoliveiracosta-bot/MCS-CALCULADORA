@@ -651,7 +651,7 @@ async function actionManheimUpload(ctx, body) {
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment })
+    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' })
   ]);
   const states = new Map(toggleStates.map((state) => [state.journey_id, state]));
   const byId = new Map(journeys.map((journey) => {
@@ -732,24 +732,25 @@ async function actionManheimArchive(ctx, body) {
 async function actionDisposition(ctx, body) {
   const itemKind = String(body.itemKind || '');
   const itemKey = safeText(body.itemKey, 200, true);
-  const status = body.status === null || body.status === '' ? null : String(body.status || '');
+  const requestedStatus=Object.prototype.hasOwnProperty.call(body,'previousStatus')?body.previousStatus:body.status;
+  const status = requestedStatus === null || requestedStatus === '' ? null : String(requestedStatus || '');
   if (!['REF', 'JOURNEY'].includes(itemKind) || !itemKey || (status && !['TREATED', 'DISCARDED'].includes(status))) {
     return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
   }
   if (itemKind === 'REF' && !REF_RE.test(itemKey.toUpperCase())) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
   if (itemKind === 'JOURNEY' && !isUuid(itemKey)) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
   const endpoint = '/rest/v1/panel_item_dispositions?environment=eq.' + ctx.environment + '&item_kind=eq.' + itemKind + '&item_key=eq.' + encodeURIComponent(itemKey);
+  const at = isoNow();
   if (!status) {
-    await supabase(ctx.config.url, ctx.config.secretKey, endpoint, { method: 'DELETE', headers: { prefer: 'return=minimal' } });
+    await supabase(ctx.config.url, ctx.config.secretKey, endpoint, { method: 'PATCH', headers: { 'content-type':'application/json',prefer: 'return=minimal' },body:JSON.stringify({cleared_at:at,cleared_by:ctx.panel.id,updated_at:at,updated_by:ctx.panel.id}) });
     return send(ctx.res, 200, { status: null });
   }
-  const at = isoNow();
   await supabase(ctx.config.url, ctx.config.secretKey,
     '/rest/v1/panel_item_dispositions?on_conflict=environment,item_kind,item_key',
     {
       method: 'POST',
       headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ environment: ctx.environment, item_kind: itemKind, item_key: itemKey, status, updated_at: at, updated_by: ctx.panel.id })
+      body: JSON.stringify({ environment: ctx.environment, item_kind: itemKind, item_key: itemKey, status, cleared_at:null,cleared_by:null,updated_at: at, updated_by: ctx.panel.id })
     });
   return send(ctx.res, 200, { status, updatedAt: at });
 }
@@ -757,7 +758,7 @@ async function actionDisposition(ctx, body) {
 async function actionInvertSenders(ctx, journey, body) {
   if (!isUuid(body.chatId)) return send(ctx.res, 400, { error: 'CHAT_ID_INVALID' });
   const links = await allRows(ctx, 'message_journeys', {
-    select: 'message_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id
+    select: 'message_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, undone_at:'is.null'
   });
   const linked = new Set(links.map((item) => item.message_id));
   const chatMessages = await rows(ctx, 'messages', {

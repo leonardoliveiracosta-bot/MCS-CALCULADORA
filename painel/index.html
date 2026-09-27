@@ -66,7 +66,7 @@
         <div class="topbar-actions"><strong id="environment-badge" class="environment-badge" aria-live="polite"></strong><button id="logout" class="quiet" type="button">Sair</button></div>
       </header>
       <div id="search-results" class="card search-results hidden" aria-live="polite"><label>Ordenar<select id="search-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
-      <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última importação WhatsApp: <strong id="last-whatsapp-import">—</strong></span></div>
+      <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última mensagem do WhatsApp: <strong id="last-whatsapp-import">—</strong></span></div>
       <section id="capture-warning" class="capture-warning hidden" aria-live="polite"></section>
       <section id="today-panel" class="panel-view" aria-label="Hoje">
         <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Hoje</h2><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
@@ -244,6 +244,7 @@
   <script src="/painel/parser.js" defer></script>
   <script src="/vehicle-catalog.js?v=1" defer></script>
   <script src="/painel/manheim.js?v=2" defer></script>
+  <script src="/painel/action.js" defer></script>
   <script src="/painel/lead.js" defer></script>
   <script src="/painel/painel.js" defer></script>
 </body>

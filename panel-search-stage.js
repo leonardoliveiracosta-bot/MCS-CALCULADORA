@@ -67,10 +67,13 @@ async function loadSearchStageIndex(ctx) {
       return;
     }
     const marksFor = marksByJourney.get(journey.id) || {};
-    const sentAt = sentByJourney.get(journey.id) || marksFor.SENT || null;
-    const savedAt = savedByKey.get(key) || marksFor.SAVED || null;
+    const sentFromEvent=sentByJourney.get(journey.id)||null;
+    const savedFromManheim=savedByKey.get(key)||null;
+    const sentAt = sentFromEvent || marksFor.SENT || null;
+    const savedAt = savedFromManheim || marksFor.SAVED || null;
     const stage = sentAt ? 'SENT' : savedAt ? 'SAVED' : 'MISSING';
-    index.set(journey.id, { stage, label: stageLabel(stage), at: sentAt || savedAt || journey.created_at, searchKey: key, wish, hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
+    const stageSource=stage==='SENT'?(sentFromEvent?'EVENT':'MARK'):stage==='SAVED'?(savedFromManheim?'MANHEIM':'MARK'):null;
+    index.set(journey.id, { stage, stageSource, label: stageLabel(stage), at: sentAt || savedAt || journey.created_at, searchKey: key, wish, hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
   });
   return index;
 }
@@ -78,7 +81,7 @@ async function loadSearchStageIndex(ctx) {
 function decorateWithSearchStage(item, index) {
   const journeyId = item && (item.journeyId || item.journey_id || item.id);
   const stage = journeyId && index.get(journeyId);
-  return stage ? { ...item, searchStage: stage.stage, searchStageLabel: stage.label, searchStageAt: stage.at, searchKey: stage.searchKey, hasCalculatorOrder:stage.hasCalculatorOrder, directLeadSource:stage.directLeadSource, smsPrintConfirmed: stage.smsPrintConfirmed } : item;
+  return stage ? { ...item, searchStage: stage.stage, searchStageSource:stage.stageSource, searchStageLabel: stage.label, searchStageAt: stage.at, searchKey: stage.searchKey, hasCalculatorOrder:stage.hasCalculatorOrder, directLeadSource:stage.directLeadSource, smsPrintConfirmed: stage.smsPrintConfirmed } : item;
 }
 
 module.exports = { searchableWish, searchKey, stageLabel, floridaDays, calculatorRefs, hasCalculatorOrder, directLeadSource, loadSearchStageIndex, decorateWithSearchStage };

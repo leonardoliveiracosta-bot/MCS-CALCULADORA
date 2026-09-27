@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
       operational(ctx),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       panelMeta(ctx),
       allRows(ctx, 'lead_events', { select: 'ref_code,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(cutoff).toISOString() }),
       allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() }),
@@ -38,7 +38,14 @@ module.exports = async (req, res) => {
     ]);
     const contacts = contactIndex({ calcRuns, messages: data.messages, messageLinks: data.messages.map((message) => ({ journey_id: message.journey_id, message_id: message.id })) });
     const insightByJourney = new Map(pendingInsights.map((item) => [item.journey_id, item]));
-    const wanted = new Set(responses.map((event) => String(event.ref_code).trim()));
+    const wantedAtByRef = new Map();
+    for (const event of responses) {
+      const ref = String(event.ref_code || '').trim().toUpperCase();
+      const stamp = time(event.occurred_at) || 0;
+      if (ref && stamp >= (wantedAtByRef.get(ref) || 0)) wantedAtByRef.set(ref, stamp);
+    }
+    const eventAfterDisposition = (eventAt, dispositionAt) => !dispositionAt || Number(eventAt || 0) > (time(dispositionAt) || 0);
+    const wantedAfterDisposition = (ref, dispositionAt) => { const stamp=wantedAtByRef.get(String(ref || '').trim().toUpperCase());return Boolean(stamp)&&eventAfterDisposition(stamp,dispositionAt); };
     const firstSimulation=new Map(), firstCalculatorEvent=new Map();
     for(const run of calcRuns){
       if(run.is_test===true)continue;
@@ -75,13 +82,17 @@ module.exports = async (req, res) => {
         contactName: journey && journey.contact ? journey.contact.display_name : item.contactName
       };
     });
-    const grouped=groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).map((item)=>{const journey=journeyByRef.get(item.ref);return journey?{...item,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents}:item;});
+    const returnedForJourney=(journey,dispositionAt)=>{const latest=journey&&latestByJourney.get(journey.id);const stamp=time(latest?.occurred_at_utc||latest?.occurred_at_local||latest?.created_at)||0;return Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&stamp>=cutoff&&eventAfterDisposition(stamp,dispositionAt));};
+    const returnedForRef=(ref,dispositionAt)=>returnedForJourney(journeyByRef.get(String(ref||'').trim().toUpperCase()),dispositionAt);
+    const grouped=groupCalculatorByRef(calcModes, dispositions)
+      .filter((item)=>!(data.excludedRefs||[]).includes(item.ref))
+      .filter((item)=>!item.disposition||wantedAfterDisposition(item.ref,item.dispositionUpdatedAt)||returnedForRef(item.ref,item.dispositionUpdatedAt))
+      .map((item)=>{const journey=journeyByRef.get(item.ref);return journey?{...item,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents}:item;});
     const ordersByRef=new Map(grouped.map((item)=>[item.ref,item]));
     const arrival=(order)=>firstSimulation.get(order.ref)||firstCalculatorEvent.get(order.ref)||
       Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));
-    const returnedForRef=(ref)=>{const journey=journeyByRef.get(String(ref||'').trim().toUpperCase());const latest=journey&&latestByJourney.get(journey.id);return Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.occurred_at_local||latest.created_at)||0)>=cutoff);};
     const orders = grouped
-      .filter((item) => { const facts=contacts.facts({ref:item.ref,journeyId:item.journeyId}); return wanted.has(item.ref) || (facts.entered && (facts.latestAt>=cutoff || returnedForRef(item.ref))); })
+      .filter((item) => { const facts=contacts.facts({ref:item.ref,journeyId:item.journeyId}); return wantedAfterDisposition(item.ref,item.dispositionUpdatedAt) || (facts.entered && (facts.latestAt>=cutoff || returnedForRef(item.ref,item.dispositionUpdatedAt))); })
       .map((item) => ({
         ...item,
         kind: 'CALCULATOR_ORDER',
@@ -95,14 +106,14 @@ module.exports = async (req, res) => {
     const dispositionByJourney = new Map(dispositions.filter((item) => item.item_kind === 'JOURNEY').map((item) => [item.item_key, item]));
     const journeys = data.journeys
       .filter((item) => item.closed_reason !== 'WHATSAPP_LINKED')
-      .filter((item) => {const ref=String(item.reference_code||'').trim().toUpperCase();if(wanted.has(ref))return true;
-        const latest=latestByJourney.get(item.id);const returned=(item.enabled===false||item.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff;if(returned)return true;
+      .filter((item) => {const disposition=dispositionByJourney.get(item.id);const ref=String(item.reference_code||'').trim().toUpperCase();if(wantedAfterDisposition(ref,disposition?.updated_at))return true;
+        if(returnedForJourney(item,disposition?.updated_at))return true;
         const facts=contacts.facts({journeyId:item.id,ref,refs:(data.refs||[]).filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});
         return facts.entered && facts.latestAt>=cutoff;})
-      .filter((item) => {const latest=latestByJourney.get(item.id);const returned=(item.enabled===false||item.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff;return wanted.has(String(item.reference_code||'').trim().toUpperCase())||returned||!dispositionByJourney.has(item.id);})
+      .filter((item) => {const disposition=dispositionByJourney.get(item.id);const ownRefs=[item.reference_code,...(data.refs||[]).filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)].filter(Boolean);return !disposition||ownRefs.some((ref)=>wantedAfterDisposition(ref,disposition.updated_at))||returnedForJourney(item,disposition.updated_at);})
       .filter((item) => {const ownRefs=[item.reference_code,...(data.refs||[]).filter(r=>r.journey_id===item.id).map(r=>r.ref_code)].filter(Boolean).map(r=>String(r).trim().toUpperCase());return !ownRefs.some(ref=>orderRefs.has(ref));})
       .map((item) => ({
-        ...item,
+        ...item, disposition:dispositionByJourney.get(item.id)?.status||null, dispositionUpdatedAt:dispositionByJourney.get(item.id)?.updated_at||null,
         kind: 'JOURNEY',
         name: item.contact && item.contact.display_name || 'Contato sem nome',
         referenceCode: item.reference_code,
@@ -120,10 +131,10 @@ module.exports = async (req, res) => {
       const journey = journeyMap.get(item.journeyId || item.id) || journeyByRef.get(String(item.ref || item.referenceCode || '').trim().toUpperCase());
       const ref = String(item.ref || item.referenceCode || '').trim().toUpperCase();
       const ready = score(item, journey, { ...data, promises:data.promises.concat(leadPromises) }, vehicles, now);
-      const latest=journey&&latestByJourney.get(journey.id);const returned=Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&(time(latest.occurred_at_utc||latest.created_at)||0)>=cutoff);
+      const dispositionAt=item.dispositionUpdatedAt||dispositionByJourney.get(journey?.id)?.updated_at;const returned=returnedForJourney(journey,dispositionAt);
       const journeyId=journey?.id;
       const facts=contacts.facts({journeyId:journey?.id,ref,refs:journey?(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});
-      return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wanted.has(ref),
+      return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wantedAfterDisposition(ref,dispositionAt),
         pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false }, facts, insightByJourney.get(journeyId));
     }).sort((left, right) => {
       const wants = Number(Boolean(right.wantsCar)) - Number(Boolean(left.wantsCar));

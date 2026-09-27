@@ -93,12 +93,12 @@ async function conversationGroups(ctx) {
     allRows(ctx,'contacts',{select:'id,display_name,is_lead,location_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current',environment:'eq.'+ctx.environment}),
     allRows(ctx,'chats',{select:'id,contact_id,channel,is_group',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment,undone_at:'is.null'}),
     allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment}),
     allRows(ctx,'conversation_pending_insights',{select:'journey_id,chat_id,situation,heat,summary_text,next_step_text,translation_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'conversation_pending_resolutions',{select:'journey_id,chat_id,resolved_message_id',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'conversation_pending_resolutions',{select:'journey_id,chat_id,resolved_message_id',environment:'eq.'+ctx.environment,undone_at:'is.null'}),
     allRows(ctx,'calc_runs',{select:'id,created_at,dados,is_test',order:'created_at.asc'}),
     allRows(ctx,'journey_checklist',{select:'journey_id,status',environment:'eq.'+ctx.environment}),
     allRows(ctx,'promises',{select:'journey_id,status,due_at',environment:'eq.'+ctx.environment}),
@@ -161,7 +161,11 @@ async function storeDailyInsight(ctx, group, values) {
 }
 async function resolvePending(ctx, body) {
   const group=(await conversationGroups(ctx)).find((entry)=>entry.journey.id===body.journeyId&&entry.chat.id===body.chatId);if(!group)throw new Error('CONVERSATION_NOT_FOUND');
-  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/conversation_pending_resolutions?on_conflict=environment,journey_id,chat_id',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({environment:ctx.environment,journey_id:group.journey.id,chat_id:group.chat.id,resolved_message_id:group.latest.id,resolved_at:new Date().toISOString(),resolved_by:ctx.panel.id})});
+  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/conversation_pending_resolutions?on_conflict=environment,journey_id,chat_id',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({environment:ctx.environment,journey_id:group.journey.id,chat_id:group.chat.id,resolved_message_id:group.latest.id,resolved_at:new Date().toISOString(),resolved_by:ctx.panel.id,undone_at:null,undone_by:null})});
 }
 
-module.exports={GENERAL_MAX_CHARS,GENERAL_MAX_MESSAGES,SITUATIONS,callAnthropic,conversationGroups,defaultHeat,fixedSituation,formatSegment,generalBatch,generalStatus,itemFromGroup,maximumCostUsd,modelPrices,pendingSnapshot,resolvePending,sortPending,startGeneralRead,statusFromAI,storeDailyInsight,usageCostUsd,validatedGeneral};
+async function unresolvePending(ctx, body) {
+  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/conversation_pending_resolutions?environment=eq.'+ctx.environment+'&journey_id=eq.'+body.journeyId+'&chat_id=eq.'+body.chatId+'&undone_at=is.null',{method:'PATCH',headers:{'content-type':'application/json',prefer:'return=minimal'},body:JSON.stringify({undone_at:new Date().toISOString(),undone_by:ctx.panel.id})});
+}
+
+module.exports={GENERAL_MAX_CHARS,GENERAL_MAX_MESSAGES,SITUATIONS,callAnthropic,conversationGroups,defaultHeat,fixedSituation,formatSegment,generalBatch,generalStatus,itemFromGroup,maximumCostUsd,modelPrices,pendingSnapshot,resolvePending,unresolvePending,sortPending,startGeneralRead,statusFromAI,storeDailyInsight,usageCostUsd,validatedGeneral};
