@@ -74,6 +74,11 @@
           <button type="button" class="chip" data-today-ref="without">Sem Ref <span>0</span></button>
         </div>
         <div id="today-list" class="stack" aria-live="polite"></div>
+        <details id="weekly-summary" class="card weekly-summary">
+          <summary>Esta semana</summary>
+          <p id="weekly-period" class="muted">Últimos 7 dias comparados com os 7 anteriores · horário da Flórida</p>
+          <div id="weekly-summary-content" aria-live="polite"></div>
+        </details>
       </section>
       <section id="entry-panel" class="hidden" aria-label="Entrada">
         <div class="section-head entry-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Entrada</h2><p class="muted">Tudo que chega ao painel. Só pede sua ação quando houver dúvida real.</p></div><label>Ordenar<select id="entry-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>

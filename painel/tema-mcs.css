@@ -55,6 +55,19 @@ body.login-screen #login-view button[type="submit"] { background: #C9A34E; color
   align-content: start;
   gap: 10px;
 }
+
+.weekly-summary { margin-top: 24px; }
+.weekly-summary > summary { cursor: pointer; font-size: 17px; font-weight: 600; }
+#weekly-summary-content { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 1px; margin-top: 16px; background: var(--mcs-line); border: 1px solid var(--mcs-line); }
+.weekly-metric { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: baseline; padding: 14px; background: var(--mcs-surface); font-size: 14px; }
+.weekly-metric small { grid-column: 1 / -1; font-size: 12px; }
+.weekly-value { font-size: 18px; font-weight: 600; white-space: nowrap; }
+button.weekly-value { min-height: 0; padding: 0; text-decoration: underline; }
+.weekly-reasons { grid-column: 1 / -1; margin: 0; padding: 14px; background: var(--mcs-surface); font-size: 13px; }
+
+@media (max-width: 700px) {
+  #weekly-summary-content { grid-template-columns: 1fr; }
+}
 .today-card > *,
 .client-card > * { margin-block: 0; }
 .today-card .inline-actions,
