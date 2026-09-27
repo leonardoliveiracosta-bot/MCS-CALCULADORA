@@ -31,7 +31,7 @@ async function enqueueRecentMedia(ctx,options={}){
 function mediaUrl(url){const parsed=new URL(url);return 'https://waba-v2.360dialog.io'+parsed.pathname+parsed.search;}
 async function fetchMedia(job,key){
   let source=job.source_url,mime=job.mime_type,size=null;
-  if(!source){
+  if(job.media_id){
     const metadata=await fetch('https://waba-v2.360dialog.io/'+encodeURIComponent(job.media_id),{headers:{'D360-API-KEY':key}});
     if(!metadata.ok)throw Error('MEDIA_METADATA_'+metadata.status);
     const value=await metadata.json();source=value.url;mime=value.mime_type||mime;size=Number(value.file_size)||null;
