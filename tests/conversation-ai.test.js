@@ -11,7 +11,7 @@ const note=require('../panel-note');
 const root=path.join(__dirname,'..');
 const ids={journey:'11111111-1111-4111-8111-111111111111',contact:'22222222-2222-4222-8222-222222222222',chat:'33333333-3333-4333-8333-333333333333',customer:'44444444-4444-4444-8444-444444444444',actor:'55555555-5555-4555-8555-555555555555'};
 
-function loadWith(relative,mocks){const file=path.join(root,relative),mod={exports:{}};const localRequire=(name)=>Object.prototype.hasOwnProperty.call(mocks,name)?mocks[name]:require(name.startsWith('.')?path.resolve(path.dirname(file),name):name);new Function('require','module','exports',fs.readFileSync(file,'utf8'))(localRequire,mod,mod.exports);return mod.exports;}
+function loadWith(relative,mocks){const file=path.join(root,relative),mod={exports:{}};const localRequire=(name)=>Object.prototype.hasOwnProperty.call(mocks,name)?mocks[name]:name==='../../panel-capture'?{runCaptureCheck:async()=>({missingRefs:[]}),recordCaptureFailure:async()=>{}}:require(name.startsWith('.')?path.resolve(path.dirname(file),name):name);new Function('require','module','exports',fs.readFileSync(file,'utf8'))(localRequire,mod,mod.exports);return mod.exports;}
 function response(){return {code:0,payload:null,setHeader(){},status(code){this.code=code;return this;},json(payload){this.payload=payload;return payload;}};}
 function aiResponse(value){return {ok:true,json:async()=>({content:[{type:'text',text:JSON.stringify(value)}]})};}
 function fixture(mcsCount,{withRef=true}={}){
@@ -97,6 +97,15 @@ test('the daily cron keeps running when a general reading is paused or limited, 
   });
   const res=response();await handler({method:'GET',headers:{authorization:'Bearer cron-test'}},res);
   assert.equal(res.code,200);assert.equal(daily,0);assert.equal(batches,1);
+  if(saved===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=saved;
+});
+
+test('capture failure is isolated and does not stop the AI cron',async()=>{
+  const saved=process.env.CRON_SECRET;process.env.CRON_SECRET='cron-test';let daily=0,recorded=0;
+  const server={configuration:()=>({}),SERVER_ENVIRONMENT:'production',send:(res,code,payload)=>res.status(code).json(payload)};
+  const handler=loadWith('api/panel/ai-cron.js',{'../../panel-server':server,'../../panel-ai':{runCron:async()=>{daily++;return {processed:1};}},'../../panel-pendencias':{generalStatus:async()=>({run:{status:'IDLE'}})},'../../panel-capture':{runCaptureCheck:async()=>{throw Error('database')},recordCaptureFailure:async()=>{recorded++;}}});
+  const res=response();await handler({method:'GET',headers:{authorization:'Bearer cron-test'}},res);
+  assert.equal(res.code,200);assert.equal(daily,1);assert.equal(recorded,1);assert.equal(res.payload.capture.error,'CAPTURE_CHECK_FAILED');
   if(saved===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=saved;
 });
 

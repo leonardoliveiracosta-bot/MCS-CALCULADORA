@@ -673,7 +673,7 @@
   function phoneDisplay(value){const raw=String(value||'');const digits=raw.replace(/\D/g,'');return digits.length===11&&digits[0]==='1'?`(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`:raw||'sem telefone';}
   function referencePhone(item){const ref=item.referenceCode||item.reference_code||item.ref||'—';const phone=(item.phones||[]).find((entry)=>entry.is_primary)||(item.phones||[]).find((entry)=>entry.is_current!==false)||(item.phones||[])[0];return `Ref ${ref} · 📞 ${phone?phoneDisplay(phone.phone_e164||phone.phone_raw):'sem telefone'}`;}
   function referencePhoneClass(item){return 'identity-ref-phone'+((item.phones||[]).some((phone)=>phone.is_current!==false)?'':' muted');}
-  function contactChannelLabel(channel){return {WHATSAPP:'💬 WhatsApp',WHATSAPP_CLICK:'💬 Clicou em WhatsApp',SMS_CLICK:'✉️ Clicou em mensagem de texto',IMPORTED:'📎 Conversa importada/colada'}[channel]||'';}
+  function contactChannelLabel(channel){return {WHATSAPP:'💬 WhatsApp',WHATSAPP_CLICK:'💬 Clicou em WhatsApp',SMS_CLICK:'✉️ Clicou em mensagem de texto',CONTACT_CLICK_UNKNOWN:'💬 Clicou para falar (canal não registrado)',IMPORTED:'📎 Conversa importada/colada'}[channel]||'';}
   function floridaArrival(value){if(!value)return '';const date=new Date(value),now=new Date();const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true});const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(date);const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(now);const yesterday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date(Date.now()-86400000));const prefix=day===today?'hoje':day===yesterday?'ontem':new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).format(date);return `chegou ${prefix} ${fmt.format(date)} (Flórida)`;}
   function heatBadge(item){const labels={HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'},tone={HOT:'red',WARM:'yellow',COLD:'blue'};const heat=String(item.heat||'').toUpperCase();return heat?makeBadge(labels[heat]||labels.COLD,tone[heat]||'blue'):null;}
   function contactMeta(item){const wrap=element('div','badges contact-meta');const channel=contactChannelLabel(item.contactChannel),arrival=floridaArrival(item.contactAt||item.lastCustomerAt);if(channel)wrap.append(makeBadge(channel,item.contactChannel==='WHATSAPP'||item.contactChannel==='WHATSAPP_CLICK'?'green':item.contactChannel==='SMS_CLICK'?'yellow':'blue'));if(arrival)wrap.append(makeBadge(arrival));const heat=heatBadge(item);if(heat){const details=element('details','temperature-details'),summary=element('summary','');summary.append(heat);details.append(summary,element('p','temperature-explanation',item.heatSource==='AI'?`Temperatura da IA: ${item.aiSummary||'Sem resumo.'}${item.aiNextStep?' Próximo passo: '+item.aiNextStep:''}`:'Temperatura calculada: telefone, checklist, prazo, orçamento x Manheim, conversa recente e horário.'));wrap.append(details);}return wrap.childNodes.length?wrap:null;}
@@ -803,6 +803,19 @@
     setCount('records', (records.items || []).length);
   }
 
+  async function loadCaptureWarning() {
+    const root=$('capture-warning'); if (!root) return;
+    try {
+      const data=await request('/api/panel/capture'),check=data.check;
+      root.replaceChildren();
+      if (!check || check.error_code || !check.checked_at) { root.className='capture-warning muted'; root.textContent='Checagem de captura indisponível'; return; }
+      const missing=(check.missing_refs||[]).filter(Boolean);
+      if (!missing.length) { root.className='capture-warning hidden'; return; }
+      root.className='capture-warning error';
+      const details=element('details',''); details.append(element('summary','',`${missing.length} contatos não estão aparecendo — ver lista`),element('p','',missing.join(' · '))); root.append(details);
+    } catch (_) { root.className='capture-warning muted'; root.textContent='Checagem de captura indisponível'; }
+  }
+
   async function loadOrders(append, view = currentView, requestVersion = viewRequestVersion) {
     if (!append) {
       orderOffset = 0;
@@ -885,6 +898,7 @@
       if (currentDetail) await openDetail(currentDetail.kind, currentDetail.key, { push: false, origin: detailOrigin });
       else await loadCurrent();
       await refreshCounters();
+      await loadCaptureWarning();
     });
     toast.append(undo);
     document.body.append(toast);
