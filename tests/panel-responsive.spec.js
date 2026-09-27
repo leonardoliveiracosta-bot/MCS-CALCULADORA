@@ -39,7 +39,7 @@ for (const width of [360, 390, 430]) {
       test(`${view} sem rolagem horizontal em ${width}px / ${colorScheme}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.emulateMedia({ colorScheme });
-        await page.goto(target.toString(), { waitUntil: 'networkidle' });
+        await page.goto(target.toString(), { waitUntil: 'domcontentloaded' });
         await showPanel(page, view);
         const dimensions = await page.evaluate(() => ({
           scrollWidth: document.documentElement.scrollWidth,
@@ -85,7 +85,7 @@ test('helper dá efeito em até 300 ms, bloqueia clique duplo, desfaz e reverte 
 for (const width of [1024, 1280, 1440, 1920]) {
   test(`as 5 abas ficam inteiras e visíveis em ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(target.toString(), { waitUntil: 'networkidle' });
+    await page.goto(target.toString(), { waitUntil: 'domcontentloaded' });
     await showPanel(page);
     const tabs = await page.locator('nav[aria-label="Seções do painel"] .tab').evaluateAll((elements) => elements.map((element) => {
       const rect = element.getBoundingClientRect();
@@ -109,7 +109,7 @@ for (const width of [1024, 1280, 1440, 1920]) {
 for (const width of [360, 390, 430]) {
   test(`controles da HOJE ocupam a largura disponível em ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(target.toString(), { waitUntil: 'networkidle' });
+    await page.goto(target.toString(), { waitUntil: 'domcontentloaded' });
     await showPanel(page);
     const controls = await page.locator('.today-heading .inline-actions').evaluate((element) => {
       const parent = element.parentElement.getBoundingClientRect();
