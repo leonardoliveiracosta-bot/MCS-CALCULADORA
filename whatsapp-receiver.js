@@ -115,7 +115,9 @@ function normalizeParsed(payload,options={}){
       const {message,phone:clientPhone,userId,username,direction,name,eventField}=candidate,rendered=content(message,sourceKind);
       if(rendered.ignore)return;
       if(!message?.id||!message?.timestamp||!rendered.body||!direction||(!clientPhone&&!userId))throw Error('MESSAGE_CONTENT_INVALID');
-      items.push({messageId:String(message.id),phone:clientPhone||null,userId:userId||null,username:username||null,name,direction,body:rendered.body,timestamp:String(message.timestamp),refs:extractRefs([{body:rendered.body}]),itemIndex:index,eventField:eventField||null});
+      const mediaType=String(message.type||'').toLowerCase()==='voice'?'audio':String(message.type||'').toLowerCase(),mediaValue=message[mediaType]||message.voice||null;
+      const media=['image','audio','video','document','sticker'].includes(mediaType)&&mediaValue?{kind:mediaType,id:String(mediaValue.id||'').trim()||null,url:String(mediaValue.url||'').trim()||null,mimeType:String(mediaValue.mime_type||'').trim()||null,sha256:String(mediaValue.sha256||'').trim()||null,filename:String(mediaValue.filename||'').trim()||null}:null;
+      items.push({messageId:String(message.id),phone:clientPhone||null,userId:userId||null,username:username||null,name,direction,body:rendered.body,timestamp:String(message.timestamp),refs:extractRefs([{body:rendered.body}]),itemIndex:index,eventField:eventField||null,media});
     }catch(error){itemErrors.push({itemIndex:index,errorCode:/^[A-Z_]{3,50}$/.test(error.message)?error.message:'MESSAGE_CONTENT_INVALID',item:candidate.message||{}});}
   });
   return {...parsed,items,itemErrors};
@@ -196,6 +198,7 @@ async function processRaw(ctx,row,options={}){
         if(result.duplicate)duplicates++;else imported++;
         await resolveItemError(ctx,row.id,item.itemIndex).catch(()=>null);
         if(options.live&&item.direction==='CUSTOMER'&&item.eventField==='messages')await maybeAutoReply(ctx,row.id,item,result).catch(()=>null);
+        if(item.media&&(item.media.id||item.media.url)&&result?.messageId){try{const {enqueueMediaJob}=require('./whatsapp-media');await enqueueMediaJob(ctx,item,result.messageId);}catch(error){console.error('[whatsapp-media]',{operation:'enqueue',message:String(error?.message||'UNKNOWN')});}}
       }catch(error){
         const ambiguous=/PHONE_AMBIGUOUS/.test(String(error&&error.message||''));
         if(ambiguous){

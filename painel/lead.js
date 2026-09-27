@@ -48,7 +48,7 @@
     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
   }
   async function open(options) {
-    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls} = options;
+    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     root.replaceChildren(); root.classList.add('lead-detail');
     const record=data.record||{},order=data.order||{},track=data.track||null,ref=data.ref,hasCalculatorRef=data.hasCalculatorRef!==false&&Boolean(data.order),journeyId=record.id;
@@ -241,6 +241,7 @@
       list.forEach((message)=>{const bubble=append(thread,'article','lead-message '+(message.direction==='MCS'?'m':'c'));
         append(bubble,'small','muted',`${message.channel} · ${message.direction==='CUSTOMER'?'Cliente':'MCS'} · ${date(message.occurred_at_utc||message.created_at,data.timezone)}${message.is_automatic?' · 🤖 automática':''}`);
         append(bubble,'p','',message.body_text);
+        if(message.media_status==='STORED'&&mediaObjectUrl){const media=append(bubble,'div','whatsapp-media'),load=append(media,'button','quiet small',message.media_kind==='document'?'Baixar':'Carregar mídia');load.type='button';load.addEventListener('click',async()=>{load.disabled=true;try{const url=await mediaObjectUrl(message.id);load.remove();if(message.media_kind==='image'){const image=append(media,'img','whatsapp-media-image');image.alt='Foto da conversa';image.src=url;image.addEventListener('click',()=>window.open(url,'_blank','noopener'));}else if(message.media_kind==='audio'){const player=append(media,'audio');player.controls=true;player.src=url;}else if(message.media_kind==='video'){const player=append(media,'video');player.controls=true;player.src=url;}else{const link=append(media,'a','', 'Baixar');link.href=url;link.download='';}}catch(_){load.disabled=false;load.textContent='Mídia não disponível';}});}else if(message.media_status==='FAILED')append(bubble,'span','muted','Mídia não disponível');
         if(message.direction==='MCS'){const automatic=button(bubble,message.is_automatic?'não é automática':'marcar como automática',async()=>{automatic.disabled=true;try{await request('/api/panel/messages',{method:'POST',body:JSON.stringify({messageId:message.id,automatic:!message.is_automatic})});await reload();}finally{automatic.disabled=false;}});automatic.classList.add('quiet','small');}
         if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref,data.timezone));});
       if(!list.length)append(thread,'p','muted','Nenhuma mensagem neste filtro.');};

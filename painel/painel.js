@@ -1232,7 +1232,8 @@
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
-        actionMessage, downloadShortlist, dispositionControls });
+        actionMessage, downloadShortlist, dispositionControls,
+        mediaObjectUrl:async(messageId)=>{const response=await fetch('/api/panel/media?messageId='+encodeURIComponent(messageId),{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('MEDIA_NOT_AVAILABLE');return URL.createObjectURL(await response.blob());} });
       if(requestVersion!==detailRequestVersion)return;
       if(leadDetailData?.record?.whatsappWithoutPhone){const identity=$('record-detail').querySelector('.lead-head-name');if(identity)identity.append(element('p','muted whatsapp-no-phone-note','Responda pela conversa no app WhatsApp Business'));}
     } catch (failure) {
