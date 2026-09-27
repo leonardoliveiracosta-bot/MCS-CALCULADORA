@@ -87,7 +87,10 @@ async function trackFor(ctx, ref, journeyId) {
 
 function capture(handler, req, query) {
   const response = { code: 200, setHeader() {}, status(code) { this.code = code; return this; }, json(value) { this.data = value; return value; } };
-  return Promise.resolve(handler({ ...req, method: 'GET', query }, response)).then(() => response.code === 200 ? response.data : null);
+  // IncomingMessage properties such as headers live on its prototype and are
+  // not preserved by object spread. Keep the authenticated request context
+  // when a panel handler delegates to another panel handler.
+  return Promise.resolve(handler({ ...req, headers: req?.headers || {}, method: 'GET', query }, response)).then(() => response.code === 200 ? response.data : null);
 }
 
 function relevant(vehicle, wish) {
