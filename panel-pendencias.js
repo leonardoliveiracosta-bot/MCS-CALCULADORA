@@ -94,7 +94,7 @@ async function conversationGroups(ctx) {
     allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current',environment:'eq.'+ctx.environment}),
     allRows(ctx,'chats',{select:'id,contact_id,channel,is_group',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,occurred_at_utc,occurred_at_local,source_kind,created_at',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,source_kind,created_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment}),
     allRows(ctx,'conversation_pending_insights',{select:'journey_id,chat_id,situation,heat,summary_text,next_step_text,translation_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment}),
@@ -110,7 +110,7 @@ async function conversationGroups(ctx) {
   for(const link of links){const journey=byJourney.get(link.journey_id),message=byMessage.get(link.message_id),chat=message&&byChat.get(message.chat_id);if(!journey||!message||!chat||chat.is_group||chat.channel!=='WHATSAPP')continue;const key=journey.id+'|'+chat.id;if(!grouped.has(key))grouped.set(key,{key,journey,chat,contact:byContact.get(journey.contact_id)||{},messages:[]});grouped.get(key).messages.push(message);}
   const result=[];
   for(const group of grouped.values()){
-    group.messages.sort((a,b)=>at(a)-at(b)||String(a.id).localeCompare(String(b.id)));group.latest=group.messages.at(-1);if(!group.latest)continue;
+    group.messages.sort((a,b)=>at(a)-at(b)||String(a.id).localeCompare(String(b.id)));group.latest=group.messages.filter((message)=>!message.is_automatic).at(-1)||group.messages.at(-1);if(!group.latest)continue;
     group.phones=phones.filter((row)=>row.contact_id===group.journey.contact_id);group.phone=phoneFor(group.phones);group.ref=refFor(group.journey,refs);const facts=contactsIndex.facts({journeyId:group.journey.id,ref:group.ref,refs:refs.filter((row)=>row.journey_id===group.journey.id).map((row)=>row.ref_code)});if(!facts.entered)continue;group.contactFacts=facts;group.insight=insightByKey.get(group.key)||null;group.resolution=resolutionByKey.get(group.key)||null;const toggle=toggleByJourney.get(group.journey.id);group.enabled=toggle?toggle.enabled:group.journey.status!=='ENCERRADO';group.ready=score({zip:group.contact.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:group.journey.budget_cents}, {...group.journey,phones:group.phones,enabled:group.enabled}, {checklist,promises,messages:group.messages.map((message)=>({...message,journey_id:group.journey.id}))}, vehicles.map((row)=>row.vehicle_json?.parsed||row.vehicle_json).filter(Boolean));result.push(group);
   }
   return result;

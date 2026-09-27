@@ -106,6 +106,10 @@ async function processItem(ctx,rawId,item){
   if(prepared.review)return {review:true};
   try{
     const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_raw:rawId,p_item:prepared.item})});
+    // The receiver has already persisted the raw event. Detect the 3+ same
+    // greeting pattern after storage so the webhook acknowledgement is never
+    // delayed by this optional classification.
+    if(prepared.item.direction==='MCS'&&result?.messageId)await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_detect_webhook_automatic',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_message:result.messageId})});
     return result||{};
   }catch(error){
     if(!/PHONE_AMBIGUOUS/.test(String(error&&error.message||'')))throw error;

@@ -39,6 +39,7 @@ module.exports = async (req, res) => {
     const latestByJourney = new Map();
     const latestCustomerByJourney = new Map();
     for (const message of data.messages) {
+      if (message.is_automatic) continue;
       const current = latestByJourney.get(message.journey_id);
       const stamp = Date.parse(message.occurred_at_utc || message.occurred_at_local || message.created_at) || 0;
       const currentStamp = current ? Date.parse(current.occurred_at_utc || current.occurred_at_local || current.created_at) || 0 : -1;

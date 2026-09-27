@@ -165,7 +165,7 @@ async function receiveBatch(ctx, body) {
 async function recordImportedInteractions(ctx, importJobId, journeyId) {
   if (!isUuid(journeyId)) return;
   const importedRows = await allRows(ctx, 'messages', {
-    select: 'id,direction,occurred_at_utc,created_at', environment: 'eq.' + ctx.environment,
+    select: 'id,direction,is_automatic,occurred_at_utc,created_at', environment: 'eq.' + ctx.environment,
     import_job_id: 'eq.' + importJobId, direction: 'neq.SYSTEM', order: 'created_at.asc'
   });
   const associated = await allRows(ctx, 'message_journeys', {
@@ -191,7 +191,7 @@ async function recordImportedInteractions(ctx, importJobId, journeyId) {
       body: JSON.stringify(payload.slice(offset, offset + 500))
     });
   }
-  const effective = imported.filter((item) => item.direction === 'MCS').sort((a, b) => Date.parse(a.occurred_at_utc || a.created_at) - Date.parse(b.occurred_at_utc || b.created_at)).at(-1);
+  const effective = imported.filter((item) => item.direction === 'MCS' && !item.is_automatic).sort((a, b) => Date.parse(a.occurred_at_utc || a.created_at) - Date.parse(b.occurred_at_utc || b.created_at)).at(-1);
   const latestEvent = imported.slice().sort((a, b) => Date.parse(a.occurred_at_utc || a.created_at) - Date.parse(b.occurred_at_utc || b.created_at)).at(-1);
   const journeys = await rows(ctx, 'journeys', { select: 'id,stage,status,stage_frozen,next_action_at,last_effective_contact_at', environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1' });
   const journey = journeys[0];
