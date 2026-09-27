@@ -169,7 +169,7 @@ async function recordImportedInteractions(ctx, importJobId, journeyId) {
     import_job_id: 'eq.' + importJobId, direction: 'neq.SYSTEM', order: 'created_at.asc'
   });
   const associated = await allRows(ctx, 'message_journeys', {
-    select: 'message_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId
+    select: 'message_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId, undone_at:'is.null'
   });
   const associatedIds = new Set(associated.map((item) => item.message_id));
   const imported = importedRows.filter((item) => associatedIds.has(item.id) && item.occurred_at_utc);
@@ -309,6 +309,123 @@ async function resolveChat(ctx, body) {
   return send(ctx.res, 400, { error: 'RESOLUTION_INVALID' });
 }
 
+const checklistLabels = [
+  'Carro ou faixa de valor definido',
+  'Teto confirmado pelo cliente depois da conversa',
+  'Forma de pagamento', 'Prazo',
+  'Aceita carro fora da Flórida com custo de transporte',
+  'Entendeu o modelo sem test drive e sem devolução'
+];
+
+async function reviewTarget(ctx, body) {
+  const kind = body.kind === 'review' ? 'review' : 'chat';
+  if (!isUuid(body.id)) return null;
+  if (kind === 'review') {
+    const jobs = await rows(ctx, 'import_jobs', { select: 'id,status,review_reason,source_filename,chat_id', environment: 'eq.' + ctx.environment, id: 'eq.' + body.id, limit: '1' });
+    return jobs[0] ? { kind, row: jobs[0] } : null;
+  }
+  const chats = await rows(ctx, 'chats', { select: 'id,contact_id,resolution_status,canonical_key,channel,is_group', environment: 'eq.' + ctx.environment, id: 'eq.' + body.id, limit: '1' });
+  return chats[0] ? { kind, row: chats[0] } : null;
+}
+
+async function journeyTarget(ctx, journeyId) {
+  if (!isUuid(journeyId)) return null;
+  const found = await rows(ctx, 'journeys', { select: 'id,contact_id,status,stage', environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1' });
+  return found[0] && found[0].status !== 'ENCERRADO' ? found[0] : null;
+}
+
+async function createReviewJourney(ctx, target) {
+  let contactId = target.kind === 'chat' ? target.row.contact_id : null;
+  let createdContactId = null;
+  if (!contactId) {
+    const suggested = target.row.source_filename || target.row.canonical_key || 'Lead da entrada';
+    const contact = await createContact(ctx, inferredContactName(suggested) || 'Lead da entrada', target.row.channel || 'WHATSAPP');
+    if (!contact) throw new Error('CONTACT_CREATE_FAILED');
+    contactId = createdContactId = contact.id;
+  } else {
+    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/contacts?id=eq.' + contactId + '&environment=eq.' + ctx.environment, {
+      method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ is_lead: true, updated_at: now(), updated_by: ctx.panel.id })
+    });
+  }
+  const journeys = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journeys', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
+    body: JSON.stringify({ environment: ctx.environment, contact_id: contactId, source: target.row.channel === 'SMS' ? 'SMS_DIRECT' : 'WHATSAPP_DIRECT', stage: 'NOVO', status: 'ATIVO', criteria_json: {}, stage_frozen: false, created_at: now(), updated_at: now(), created_by: ctx.panel.id, updated_by: ctx.panel.id })
+  });
+  const journey = journeys[0];
+  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journey_checklist', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
+    body: JSON.stringify(checklistLabels.map((label, index) => ({ environment: ctx.environment, journey_id: journey.id, point_number: index + 1, point_label: label, status: 'OPEN', created_at: now(), updated_at: now() })))
+  });
+  return { journey, createdContactId };
+}
+
+async function associateReviewChat(ctx, chat, journey) {
+  const messages = await allRows(ctx, 'messages', { select: 'id', environment: 'eq.' + ctx.environment, chat_id: 'eq.' + chat.id });
+  const existing = await allRows(ctx, 'message_journeys', { select: 'message_id,undone_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
+  const existingById = new Map(existing.map((row) => [row.message_id, row]));
+  const linkedMessageIds = messages.filter((message) => !existingById.has(message.id) || existingById.get(message.id).undone_at).map((message) => message.id);
+  if (linkedMessageIds.length) {
+    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/message_journeys?on_conflict=environment,message_id,journey_id', {
+      method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(linkedMessageIds.map((messageId) => ({ environment: ctx.environment, message_id: messageId, journey_id: journey.id, association_source: 'ENTRY_MANUAL', associated_at: now(), associated_by: ctx.panel.id, undone_at: null, undone_by: null })))
+    });
+  }
+  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats?id=eq.' + chat.id + '&environment=eq.' + ctx.environment, {
+    method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ contact_id: journey.contact_id, resolution_status: 'RESOLVED', updated_at: now() })
+  });
+  return linkedMessageIds;
+}
+
+async function applyReviewAction(ctx, body) {
+  const target = await reviewTarget(ctx, body);
+  if (!target) return send(ctx.res, 404, { error: 'REVIEW_NOT_FOUND' });
+  if (body.action === 'review_link') {
+    const journey = await journeyTarget(ctx, body.journeyId);
+    if (!journey) return send(ctx.res, 404, { error: 'JOURNEY_NOT_FOUND' });
+    let linkedMessageIds = [];
+    if (target.kind === 'chat') linkedMessageIds = await associateReviewChat(ctx, target.row, journey);
+    else await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + target.row.id + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ status: 'COMPLETED', review_reason: 'ligado manualmente ao lead', completed_at: now() }) });
+    return send(ctx.res, 200, { journeyId: journey.id, undo: { kind: target.kind, id: target.row.id, previousContactId: target.row.contact_id || null, previousResolution: target.row.resolution_status || null, previousStatus: target.row.status || null, previousReason: target.row.review_reason || null, journeyId: journey.id, linkedMessageIds } });
+  }
+  if (body.action === 'review_create') {
+    const created = await createReviewJourney(ctx, target);
+    let linkedMessageIds = [];
+    if (target.kind === 'chat') linkedMessageIds = await associateReviewChat(ctx, target.row, created.journey);
+    else await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + target.row.id + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ status: 'COMPLETED', review_reason: 'lead criado manualmente', completed_at: now() }) });
+    return send(ctx.res, 200, { journeyId: created.journey.id, undo: { kind: target.kind, id: target.row.id, previousContactId: target.row.contact_id || null, previousResolution: target.row.resolution_status || null, previousStatus: target.row.status || null, previousReason: target.row.review_reason || null, journeyId: created.journey.id, createdJourneyId: created.journey.id, createdContactId: created.createdContactId, linkedMessageIds } });
+  }
+  if (body.action === 'review_dismiss') {
+    let contactWasLead = null;
+    if (target.kind === 'chat') {
+      if (target.row.contact_id) {
+        const contacts = await rows(ctx, 'contacts', { select: 'id,is_lead', environment: 'eq.' + ctx.environment, id: 'eq.' + target.row.contact_id, limit: '1' });
+        contactWasLead = contacts[0]?.is_lead !== false;
+        await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/contacts?id=eq.' + target.row.contact_id + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ is_lead: false, updated_at: now(), updated_by: ctx.panel.id }) });
+      }
+      await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats?id=eq.' + target.row.id + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ resolution_status: 'RESOLVED', updated_at: now() }) });
+    } else await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + target.row.id + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ status: 'COMPLETED', review_reason: 'dispensado — não é cliente', completed_at: now() }) });
+    return send(ctx.res, 200, { undo: { kind: target.kind, id: target.row.id, previousContactId: target.row.contact_id || null, previousResolution: target.row.resolution_status || null, previousStatus: target.row.status || null, previousReason: target.row.review_reason || null, contactWasLead } });
+  }
+  return send(ctx.res, 400, { error: 'REVIEW_ACTION_INVALID' });
+}
+
+async function undoReviewAction(ctx, body) {
+  const undo = body.undo || {};
+  if (!['chat', 'review'].includes(undo.kind) || !isUuid(undo.id)) return send(ctx.res, 400, { error: 'REVIEW_UNDO_INVALID' });
+  if (Array.isArray(undo.linkedMessageIds) && isUuid(undo.journeyId)) {
+    for (const messageId of undo.linkedMessageIds.filter(isUuid)) {
+      await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/message_journeys?environment=eq.' + ctx.environment + '&journey_id=eq.' + undo.journeyId + '&message_id=eq.' + messageId, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ undone_at: now(), undone_by: ctx.panel.id }) });
+    }
+  }
+  if (undo.kind === 'chat') {
+    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats?id=eq.' + undo.id + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ contact_id: isUuid(undo.previousContactId) ? undo.previousContactId : null, resolution_status: ['UNIDENTIFIED', 'REVIEW', 'GROUP', 'RESOLVED'].includes(undo.previousResolution) ? undo.previousResolution : 'REVIEW', updated_at: now() }) });
+    if (isUuid(undo.previousContactId) && typeof undo.contactWasLead === 'boolean') await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/contacts?id=eq.' + undo.previousContactId + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ is_lead: undo.contactWasLead, updated_at: now(), updated_by: ctx.panel.id }) });
+  } else await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + undo.id + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ status: undo.previousStatus || 'REVIEW', review_reason: undo.previousReason || 'formato não suportado', completed_at: now() }) });
+  if (isUuid(undo.createdJourneyId)) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journeys?id=eq.' + undo.createdJourneyId + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ status: 'ENCERRADO', closed_at: now(), closed_reason: 'Ação da entrada desfeita', updated_at: now(), updated_by: ctx.panel.id }) });
+  if (isUuid(undo.createdContactId)) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/contacts?id=eq.' + undo.createdContactId + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ is_lead: false, updated_at: now(), updated_by: ctx.panel.id }) });
+  return send(ctx.res, 200, { undone: true });
+}
+
 module.exports = async (req, res) => {
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
@@ -324,12 +441,16 @@ module.exports = async (req, res) => {
     if (action === 'batch') return receiveBatch(ctx, input);
     if (action === 'finish') return finishJob(ctx, input);
     if (action === 'resolve') return resolveChat(ctx, input);
+    if (['review_link', 'review_create', 'review_dismiss'].includes(action)) return applyReviewAction(ctx, input);
+    if (action === 'review_undo') return undoReviewAction(ctx, input);
     return send(res, 400, { error: 'IMPORT_ACTION_INVALID' });
   } catch (_) {
     const safeErrors = {
       start: 'IMPORT_START_FAILED', review: 'IMPORT_START_FAILED',
       batch: 'IMPORT_BATCH_FAILED', finish: 'IMPORT_FINISH_FAILED',
-      resolve: 'IMPORT_RESOLUTION_FAILED'
+      resolve: 'IMPORT_RESOLUTION_FAILED', review_link: 'REVIEW_ACTION_FAILED',
+      review_create: 'REVIEW_ACTION_FAILED', review_dismiss: 'REVIEW_ACTION_FAILED',
+      review_undo: 'REVIEW_UNDO_FAILED'
     };
     return send(res, 500, { error: safeErrors[action] || 'IMPORT_REQUEST_FAILED' });
   }

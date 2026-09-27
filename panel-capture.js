@@ -35,8 +35,8 @@ async function runCaptureCheck(ctx) {
   const [calcRuns, messages, messageLinks, dispositions, journeys, refs, contacts] = await Promise.all([
     allRows(ctx, 'calc_runs', { select: 'id,created_at,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'messages', { select: 'id,direction,source_kind,occurred_at_utc,occurred_at_local,created_at,undone_at', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment, undone_at:'is.null' }),
+    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
     allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'contacts', { select: 'id,is_lead', environment: 'eq.' + ctx.environment })

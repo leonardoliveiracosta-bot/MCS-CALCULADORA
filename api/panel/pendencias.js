@@ -1,7 +1,7 @@
 'use strict';
 
 const { isUuid, jsonBody, requirePanel, send, supabase } = require('../../panel-server');
-const { generalBatch, generalStatus, pendingSnapshot, resolvePending, sortPending, startGeneralRead } = require('../../panel-pendencias');
+const { generalBatch, generalStatus, pendingSnapshot, resolvePending, unresolvePending, sortPending, startGeneralRead } = require('../../panel-pendencias');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 
 function csvCell(value) { const text=String(value ?? '');return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text; }
@@ -39,6 +39,9 @@ module.exports=async(req,res)=>{
     }
     if(body.action==='resolve'){
       if(!isUuid(body.journeyId)||!isUuid(body.chatId))return send(res,400,{error:'CONVERSATION_ID_INVALID'});await resolvePending(ctx,body);return send(res,200,{resolved:true});
+    }
+    if(body.action==='unresolve'){
+      if(!isUuid(body.journeyId)||!isUuid(body.chatId))return send(res,400,{error:'CONVERSATION_ID_INVALID'});await unresolvePending(ctx,body);return send(res,200,{resolved:false});
     }
     return send(res,400,{error:'ACTION_INVALID'});
   }catch(error){

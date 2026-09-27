@@ -27,7 +27,7 @@ async function payload(ctx) {
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'messages', { select: 'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment, undone_at:'is.null' }),
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint', environment: 'eq.' + ctx.environment }),
@@ -51,7 +51,7 @@ async function payload(ctx) {
       name: person?.display_name || `Pedido ${journey.reference_code || '—'}`,
       phone: phoneFor(phones, journey.contact_id), wish, searchKey: stage.searchKey,
       exactSearch: title(wish, Number(journey.budget_cents || 0) / 100),
-      stage: stage.stage, stageLabel: stage.label, stageAt: stage.at, days: floridaDays(stage.at),
+      stage: stage.stage, stageSource:stage.stageSource, stageLabel: stage.label, stageAt: stage.at, days: floridaDays(stage.at),
       hasCalculatorOrder: stage.hasCalculatorOrder, directLeadSource: stage.directLeadSource,
       matchCount: matches.filter((match) => match.journey_id === journey.id).length,
       latestAt: journey.updated_at || journey.created_at

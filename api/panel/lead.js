@@ -8,7 +8,8 @@ const { insert, isUuid, jsonBody, patchRows, requirePanel, rows, safeText, send,
 
 async function delegate(req, payload) {
   const response = { code: 200, setHeader() {}, status(code) { this.code = code; return this; }, json(value) { this.data = value; return value; } };
-  await require('./actions')({ ...req, headers: req?.headers || {}, method: 'POST', body: payload }, response);
+  const delegatedRequest=Object.assign({},req,{headers:req?.headers||{},method:'POST',body:payload});
+  await require('./actions')(delegatedRequest, response);
   return { code: response.code, data: response.data };
 }
 

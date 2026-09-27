@@ -1,0 +1,80 @@
+(() => {
+  'use strict';
+
+  const running = new WeakSet();
+
+  function scopeFor(button, requested) {
+    if (requested) return requested;
+    return button?.closest('.item-card,.queue-item,.lead-card,.record-block,.sms-print-missing,.panel-view') || document.body;
+  }
+
+  function feedback(scope, message, tone = '', key = 'action') {
+    if (!scope || !message) return null;
+    scope.querySelectorAll(`.action-feedback[data-action-key="${key}"]`).forEach((node) => node.remove());
+    const notice = document.createElement('p');
+    notice.className = `status action-feedback${tone ? ` ${tone}` : ''}`;
+    notice.dataset.actionKey = key;
+    notice.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+    notice.textContent = message;
+    scope.append(notice);
+    return notice;
+  }
+
+  async function run(options) {
+    const button = options?.button;
+    if (!button || running.has(button)) return { ok: false, duplicate: true };
+    const scope = scopeFor(button, options.scope);
+    const wasDisabled = button.disabled;
+    running.add(button);
+    button.disabled = true;
+    let snapshot;
+    try {
+      snapshot = options.optimistic ? options.optimistic() : undefined;
+      const result = await options.commit();
+      let notice = null;
+      const successScope=options.successScope||scope;
+      if (options.successText) notice = feedback(successScope, options.successText, '', options.feedbackKey);
+      if (options.undo && notice) {
+        const undo = document.createElement('button');
+        undo.type = 'button';
+        undo.className = 'quiet small';
+        undo.textContent = 'Desfazer';
+        notice.append(' ', undo);
+        undo.addEventListener('click', () => run({
+          button: undo,
+          scope:successScope,
+          feedbackKey: options.feedbackKey,
+          optimistic: options.undo.optimistic,
+          commit: () => options.undo.commit(result, snapshot),
+          rollback: options.undo.rollback,
+          successText: options.undo.successText || 'Ação desfeita.',
+          errorText: options.errorText,
+          refresh: options.undo.refresh || options.refresh
+        }));
+      }
+      if (options.refresh) Promise.resolve().then(() => options.refresh(result, snapshot)).catch(() => {});
+      if (options.onSuccess) options.onSuccess(result, snapshot, notice);
+      return { ok: true, result };
+    } catch (error) {
+      if (options.rollback) await options.rollback(snapshot, error);
+      feedback(scope, options.errorText || 'Não consegui salvar — tente de novo', 'error', options.feedbackKey);
+      if (options.onError) options.onError(error, snapshot);
+      return { ok: false, error };
+    } finally {
+      running.delete(button);
+      if (button.isConnected) button.disabled = wasDisabled;
+    }
+  }
+
+  function bind(button, options) {
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const resolved = typeof options === 'function' ? options(event) : options;
+      return run({ ...resolved, button });
+    });
+    return button;
+  }
+
+  window.MCSAction = Object.freeze({ bind, feedback, run });
+})();

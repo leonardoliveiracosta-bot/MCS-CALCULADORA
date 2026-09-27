@@ -21,7 +21,7 @@ async function operational(ctx) {
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'message_journeys', {
       select: 'journey_id,message_id',
-      environment: 'eq.' + ctx.environment
+      environment: 'eq.' + ctx.environment, undone_at:'is.null'
     }),
     allRows(ctx, 'messages', { select: 'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_local,occurred_at_utc,time_uncertain,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_checklist', { select: 'id,journey_id,point_number,point_label,status,completed_at', environment: 'eq.' + ctx.environment }),
@@ -57,7 +57,7 @@ async function messageForJourney(ctx, journeyId, messageId) {
   const links = await rows(ctx, 'message_journeys', {
     select: 'message_id',
     environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId,
-    message_id: 'eq.' + messageId, limit: '1'
+    message_id: 'eq.' + messageId, undone_at:'is.null', limit: '1'
   });
   if (!links[0]) return null;
   const messages = await rows(ctx, 'messages', {
