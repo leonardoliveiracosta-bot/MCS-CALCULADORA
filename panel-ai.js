@@ -122,7 +122,7 @@ async function allConversationData(ctx) {
     allRows(ctx,'journeys',{select:'id,contact_id,reference_code,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contacts',{select:'id,display_name,location_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,created_at,undone_at',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,source_kind,occurred_at_utc,occurred_at_local,created_at,undone_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
     allRows(ctx,'conversation_ai_readings',{select:'id,journey_id,chat_id,last_customer_message_id,status,created_at',environment:'eq.'+ctx.environment,status:'eq.ACTIVE'}),
     allRows(ctx,'conversation_ai_link_state',{select:'journey_id,chat_id,first_customer_at,last_run_at,last_order_seen_at,retry_requested',environment:'eq.'+ctx.environment}),
@@ -291,14 +291,15 @@ async function runCron(ctx,options={}){
     if(!group.lastCustomer||stampOf(group.lastCustomer)<cutoff)continue;
     if(!automaticAttemptAllowed(group,now))continue;
     const latestId=group.effectiveMessages.at(-1)?.id;
-    const readingDue=group.mcsCount>=10&&stampOf(group.lastCustomer)<=now-10*60000&&(
+    const latestCustomerIsLive=group.lastCustomer.source_kind!=='WHATSAPP_HISTORY';
+    const readingDue=latestCustomerIsLive&&group.mcsCount>=10&&stampOf(group.lastCustomer)<=now-10*60000&&(
       group.reading?.last_customer_message_id!==group.lastCustomer.id || (group.pendingInsight && group.pendingInsight.last_ai_message_id!==latestId)
     );
     const candidates=!group.refs.length?deterministicCandidates(group,orders):[];
     const newest=candidates.reduce((latest,order)=>Math.max(latest,time(order.occurredAt)||0),0);
     const state=group.linkState;
     const withinWindow=!group.firstCustomer||!newest||newest<=stampOf(group.firstCustomer)+DAY_MS;
-    const suggestionDue=!group.refs.length&&group.firstCustomer&&withinWindow&&(!state||state.retry_requested||(newest&&newest>Date.parse(state.last_order_seen_at||0)));
+    const suggestionDue=latestCustomerIsLive&&!group.refs.length&&group.firstCustomer&&withinWindow&&(!state||state.retry_requested||(newest&&newest>Date.parse(state.last_order_seen_at||0)));
     if(readingDue||suggestionDue)eligible.push({group,readingDue,suggestionDue});
   }
   eligible.sort((a,b)=>stampOf(b.group.lastCustomer)-stampOf(a.group.lastCustomer));

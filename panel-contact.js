@@ -8,7 +8,7 @@ function data(row) { return row && row.dados && typeof row.dados === 'object' ? 
 function refOf(row) { return String(data(row).ref || '').trim().toUpperCase(); }
 function at(row) { return time(row?.occurred_at_utc || row?.occurred_at_local || row?.created_at || data(row).quando) || 0; }
 function messageChannel(message) {
-  if (message?.source_kind === 'WHATSAPP_WEBHOOK') return 'WHATSAPP';
+  if (['WHATSAPP_WEBHOOK','WHATSAPP_HISTORY'].includes(message?.source_kind)) return 'WHATSAPP';
   return 'IMPORTED';
 }
 function clickChannel(event) {

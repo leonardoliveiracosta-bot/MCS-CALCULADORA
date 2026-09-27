@@ -37,6 +37,7 @@
   let orderHasMore = false;
   let undoTimer = null;
   let autoPrintContext = null;
+  let historyImportFile = null;
   const $ = (id) => document.getElementById(id);
   const productionHost = location.hostname === 'www.mycarscout.net';
   const environmentBadge = $('environment-badge');
@@ -491,6 +492,48 @@
       suggestions.append(row);
     });
     (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';choose.addEventListener('click',async()=>{choose.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})});await loadWhatsApp();await loadQueue();}catch(_){choose.disabled=false;row.append(element('span','status error','Não foi possível ligar a mensagem.'));}});const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:candidate.isLead===false})});await loadWhatsApp();await loadQueue();}catch(_){lead.disabled=false;}});group.append(choose,lead);row.append(group);});suggestions.append(row);});
+  }
+
+  const historyPhone = '13055400742';
+  function validHistoryObject(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !['history', 'smb_app_state_sync'].includes(value.event) || !String(value.id || '').trim() || !value.data || typeof value.data !== 'object' || Array.isArray(value.data)) return false;
+    if (value.event === 'history' && !Array.isArray(value.data.history)) return false;
+    if (Object.prototype.hasOwnProperty.call(value.data, 'metadata') && String(value.data.metadata?.display_phone_number || '').replace(/\D/g, '') !== historyPhone) return false;
+    return true;
+  }
+  function historyOrder(value) {
+    const ranks = (value.data?.history || []).map((chunk) => [Number(chunk?.metadata?.phase), Number(chunk?.metadata?.chunk_order)]).filter(([phase, order]) => Number.isFinite(phase) || Number.isFinite(order));
+    return ranks.sort((left, right) => (left[0] - right[0]) || (left[1] - right[1]))[0] || [Infinity, Infinity];
+  }
+  const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  async function import360History() {
+    const status = $('history-import-status'), errors = $('history-import-errors'), sendButton = $('history-import-send');
+    if (!historyImportFile) return;
+    let entries;
+    try { entries = JSON.parse(await historyImportFile.text()); } catch (_) { throw new Error('HISTORY_FILE_INVALID'); }
+    if (!Array.isArray(entries) || !entries.length || !entries.every(validHistoryObject)) throw new Error('HISTORY_FILE_INVALID');
+    const states = entries.filter((entry) => entry.event === 'smb_app_state_sync');
+    const histories = entries.filter((entry) => entry.event === 'history').sort((left, right) => historyOrder(left)[0] - historyOrder(right)[0] || historyOrder(left)[1] - historyOrder(right)[1]);
+    const ordered = states.concat(histories), totals = { conversations: 0, imported: 0, alreadyExists: 0, errors: 0 };
+    errors.replaceChildren(); sendButton.disabled = true;
+    for (let offset = 0; offset < ordered.length; offset += 10) {
+      let batch = ordered.slice(offset, offset + 10), attempts = 0;
+      while (batch.length) {
+        status.textContent = `Importando ${Math.min(offset + (ordered.slice(offset, offset + 10).length - batch.length), ordered.length)} de ${ordered.length}…`;
+        const result = await request('/api/panel/history-import', { method: 'POST', body: JSON.stringify({ items: batch }) });
+        totals.conversations += Number(result.conversations || 0); totals.imported += Number(result.imported || 0); totals.alreadyExists += Number(result.alreadyExists || 0); totals.errors += Number(result.errors || 0);
+        if (result.more) { batch = batch.slice(Math.max(1, Number(result.nextIndex || 1))); continue; }
+        if (result.inProgress && attempts++ < 8) { await pause(1000); continue; }
+        if (result.inProgress) totals.errors += batch.length;
+        break;
+      }
+      status.textContent = `Importando ${Math.min(offset + 10, ordered.length)} de ${ordered.length}…`;
+    }
+    const summary = `Importado: ${totals.conversations} conversas, ${totals.imported} mensagens novas, ${totals.alreadyExists} já existiam, ${totals.errors} com erro`;
+    status.textContent = summary;
+    if (totals.errors) { const viewErrors = element('button', 'quiet small', 'ver erros'); viewErrors.type = 'button'; viewErrors.addEventListener('click', () => loadWhatsApp().catch(() => {})); errors.append(viewErrors); }
+    historyImportFile = null; $('history-import-file').value = ''; sendButton.disabled = true;
+    await Promise.all([loadWhatsApp(), loadQueue(false)]);
   }
 
   async function loadQueue(render = true) {
@@ -2154,6 +2197,15 @@
     $('report-generate').addEventListener('click', generateReport);
     $('report-copy').addEventListener('click', () => copyReport().catch(() => { $('report-status').textContent = 'Não foi possível copiar.'; }));
     $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch(showImportFailure));
+    $('history-import-file').addEventListener('change', (event) => {
+      historyImportFile = event.target.files?.[0] || null;
+      $('history-import-send').disabled = !historyImportFile;
+      $('history-import-status').textContent = historyImportFile ? `${historyImportFile.name} pronto para importar.` : '';
+    });
+    $('history-import-send').addEventListener('click', () => import360History().catch((failure) => {
+      $('history-import-status').textContent = failure?.code === 'HISTORY_IMPORT_INVALID' || failure?.message === 'HISTORY_FILE_INVALID' ? 'Este não é o arquivo do histórico do 360dialog para o número configurado.' : 'Não foi possível importar agora. Você pode tentar de novo sem duplicar.';
+      $('history-import-send').disabled = !historyImportFile;
+    }));
     const zone = $('drop-zone');
     ['dragenter', 'dragover'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
