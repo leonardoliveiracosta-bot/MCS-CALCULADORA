@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 36448)
+Total output lines: 2173
+
 (() => {
   'use strict';
   const MAX_FILES = 20;
@@ -581,6 +584,24 @@
     }
   }
 
+  async function startSmsPrint(file,source={}){
+    if(!file)return;const status=$('sms-print-status');status.textContent='Enviando print…';
+    const head=new Uint8Array(await file.slice(0,64).arrayBuffer()),magicBase64=btoa(String.fromCharCode(...head));
+    const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64,journeyId:source.journeyId||null,contactId:source.contactId||null})});
+    const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const form=new FormData();form.append('cacheControl','3600');form.append('',file);
+    const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'x-upsert':'false'},body:form});if(!uploaded.ok)throw Error('UPLOAD_FAILED');
+    status.textContent='Lendo o print uma vez…';const result=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});renderSmsPrintReview(result,source);status.textContent='Confira antes de confirmar.';
+  }
+  function pickSmsPrint(source={}){const input=document.createElement('input');input.type='file';input.accept='image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp';input.addEventListener('change',async()=>{try{await switchPanel('entry');await startSmsPrint(input.files[0],source);}catch(error){$('sms-print-status').textContent=error.code==='AI_DAILY_LIMIT'?'Limite diário da IA atingido.':'Não consegui ler este print. Preencha o SMS à mão.';}});input.click();}
+  function renderSmsPrintReview(result,source={}){
+    const root=$('sms-print-review'),read=result.read||{},value=read.extracted_json||{};root.replaceChildren();root.classList.remove('hidden');root.append(element('strong','', 'Confira o que foi lido antes de gravar'));
+    const phone=element('input');phone.value=value.phone||'';phone.placeholder='+1 786 555 0192';const name=element('input');name.value=value.name||'';name.placeholder='Nome exibido';const ref=element('input');ref.value=value.ref||'';ref.placeholder='Ref de 5 caracteres';const message=element('textarea');message.value=value.message||'';message.placeholder='Mensagem completa';const translation=element('textarea');translation.value=value.translation||'';translation.placeholder='Tradução integral para português, se houver';
+    [['Número lido',phone],['Nome lido',name],['Ref lida',ref],['Mensagem completa',message],['Tradução',translation]].forEach(([label,input])=>{const field=element('label','',label);field.append(input);root.append(field);});
+    let targetJourneyId=null,keepSource=false;const sourceJourney=read.source_journey_id||source.journeyId||null,target=result.refTarget||null;
+    if(sourceJourney&&target&&target.id!==sourceJourney){root.append(element('div','warning',`A Ref do print pertence a outra ficha (${target.reference_code||ref.value}). Escolha o destino.`));const choice=element('select');choice.append(new Option('Levar para a ficha da Ref lida',target.id),new Option('Gravar nesta ficha mesmo',sourceJourney));choice.addEventListener('change',()=>{targetJourneyId=choice.value;keepSource=choice.value===sourceJourney;});targetJourneyId=target.id;root.append(choice);}else if(sourceJourney){targetJourneyId=sourceJourney;keepSource=true;}else if(target)targetJourneyId=target.id;
+    const actions=element('div','inline-actions'),confirm=element('button','small','Confirmar');confirm.type='button';confirm.addEventListener('click',async()=>{confirm.disabled=true;try{const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',readId:read.id,targetJourneyId,keepSource,phone:phone.value,name:name.value,ref:ref.value,message:message.value,translation:translation.value})});root.replaceChildren(element('p','status','SMS confirmado e gravado.'));await loadQueue();if(saved.journeyId)openDetail('ficha',saved.journeyId);}catch(error){confirm.disabled=false;root.append(element('p','error',error.code==='SMS_PRINT_PHONE_CONFLICT'?'Esse número já pertence a outra ficha.':'Não foi possível confirmar. Confira os dados.'));}});const discard=element('button','quiet small','Descartar');discard.type='button';discard.addEventListener('click',async()=>{discard.disabled=true;await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'discard',readId:read.id})});root.classList.add('hidden');root.replaceChildren();});actions.append(confirm,discard);root.append(actions);
+  }
+
   function updateMeta(meta) {
     if (!meta) return;
     $('data-updated').textContent = formatDate(meta.dataUpdatedAt);
@@ -695,6 +716,11 @@
     const details = [item.vehicleText || item.vehicle_text || 'Veículo não informado', sourceLabel(item.source)].filter(Boolean).join(' · ');
     text.append(element('span', 'muted one-line', details));
     const contact=contactMeta(item);if(contact)text.append(contact);
+    const hasPhone=(item.phones||[]).some((phone)=>phone.is_current!==false&&(phone.phone_e164||phone.phone_raw));
+    if(!hasPhone&&item.contactChannel==='SMS_CLICK'){
+      const missing=element('div','sms-print-missing');missing.append(document.createTextNode('Falta o print do SMS. '));
+      const attach=element('button','quiet small','Anexar print do SMS');attach.type='button';attach.addEventListener('click',(event)=>{event.stopPropagation();pickSmsPrint({journeyId:item.id||item.journeyId||null,contactId:item.contact_id||item.contact?.id||null});});missing.append(attach);text.append(missing);
+    }
     if (options.preview) text.append(element('span', 'one-line message-preview', options.preview));
     wrap.append(text);
     return wrap;
@@ -728,474 +754,7 @@
     wrap.append(toggle);
     if (enabled) {
       const reasons = element('details', 'switch-reasons');
-      reasons.append(element('summary', '', 'Desligar com motivo'));
-      const choices = element('div', 'inline-actions');
-      [['MCS_PURCHASE', 'Comprou com a MCS'], ['OTHER_PURCHASE', 'Comprou em outro lugar'], ['GAVE_UP', 'Desistiu'], ['NO_RESPONSE', 'Sem resposta']].forEach(([reason, label]) => {
-        const button = element('button', 'quiet small', label);
-        button.type = 'button';
-        button.addEventListener('click', async () => {
-          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'toggle_journey', journeyId: item.id, enabled: false, reason }) });
-          await reload();
-        });
-        choices.append(button);
-      });
-      reasons.append(choices);
-      wrap.append(reasons);
-    } else if (item.offReason) {
-      const labels = { MCS_PURCHASE: 'Comprou com a MCS', OTHER_PURCHASE: 'Comprou em outro lugar', GAVE_UP: 'Desistiu', NO_RESPONSE: 'Sem resposta' };
-      wrap.append(makeBadge(labels[item.offReason] || item.offReason));
-    }
-    return wrap;
-  }
-
-  function renderFailure(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', pending: 'pending-list', orders: 'orders-list', qualification: 'qualification-list', manheim: 'manheim-results', records: 'records-list' };
-    if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
-  }
-
-  async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
-    const current = () => currentView === view && viewRequestVersion === requestVersion;
-    if (view === 'entry') {
-      const data = await loadQueue(false);
-      if (!current()) return;
-      renderQueue(data.chats || [], data.reviews || []);
-      return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp.'; });
-    }
-    if (view === 'pending') return loadPending();
-    if (view === 'today') {
-      const data = await request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value));
-      if (!current()) return;
-      updateMeta(data.meta);
-      return renderToday(data.items || []);
-    }
-    if (view === 'orders') {
-      return loadOrders(false, view, requestVersion);
-    }
-    if (view === 'qualification') {
-      const data = await request('/api/panel/qualification?sort='+encodeURIComponent($('qualification-sort').value));
-      if (!current()) return;
-      updateMeta(data.meta);
-      return renderQualification(data.items || []);
-    }
-    if (view === 'manheim') {
-      const data = await request('/api/panel/records?view=manheim');
-      if (!current()) return;
-      updateMeta(data.meta);
-      return renderManheim(data);
-    }
-    if (view === 'records') {
-      const data = await request('/api/panel/records?sort='+encodeURIComponent($('records-sort').value));
-      if (!current()) return;
-      updateMeta(data.meta);
-      return renderRecords(data.items || []);
-    }
-  }
-
-  async function refreshCounters() {
-    const [entry, pending, orders, qualification, manheim, records] = await Promise.all([
-      request('/api/panel/entry'),
-      request('/api/panel/pendencias'),
-      request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
-      request('/api/panel/qualification'),
-      request('/api/panel/records?view=manheim'),
-      request('/api/panel/records')
-    ]);
-    setCount('entry', (entry.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (entry.reviews || []).length);
-    setCount('pending', Object.values(pending.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
-    setCount('orders', orders.page && orders.page.total || 0);
-    setCount('qualification', (qualification.items || []).length);
-    setCount('manheim', manheim.upload && manheim.upload.lead_count || 0);
-    setCount('records', (records.items || []).length);
-  }
-
-  async function loadCaptureWarning() {
-    const root=$('capture-warning'); if (!root) return;
-    try {
-      const data=await request('/api/panel/capture'),check=data.check;
-      root.replaceChildren();
-      if (!check || check.error_code || !check.checked_at) { root.className='capture-warning muted'; root.textContent='Checagem de captura indisponível'; return; }
-      const missing=(check.missing_refs||[]).filter(Boolean);
-      if (!missing.length) { root.className='capture-warning hidden'; return; }
-      root.className='capture-warning error';
-      const details=element('details',''); details.append(element('summary','',`${missing.length} contatos não estão aparecendo — ver lista`),element('p','',missing.join(' · '))); root.append(details);
-    } catch (_) { root.className='capture-warning muted'; root.textContent='Checagem de captura indisponível'; }
-  }
-
-  async function loadOrders(append, view = currentView, requestVersion = viewRequestVersion) {
-    if (!append) {
-      orderOffset = 0;
-      orderItems = [];
-    }
-    const params = new URLSearchParams({ filter: orderFilter, period: orderPeriod, sort:$('orders-sort').value,limit: '30', offset: String(orderOffset) });
-    const data = await request('/api/panel/orders?' + params.toString());
-    if (currentView !== view || viewRequestVersion !== requestVersion) return;
-    updateMeta(data.meta);
-    orderItems = append ? orderItems.concat(data.items || []) : (data.items || []);
-    orderLinkTargets = data.linkTargets || orderLinkTargets;
-    orderOffset = orderItems.length;
-    orderHasMore = Boolean(data.page && data.page.hasMore);
-    renderOrders(orderItems, orderLinkTargets, data.page || {});
-  }
-
-  async function postAction(payload) {
-    const result = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify(payload) });
-    await loadCurrent();
-    return result;
-  }
-
-  function captureOrigin() {
-    const sorts = {};
-    ['today','entry','pending','orders','qualification','manheim','records'].forEach((name) => { const select=$(name+'-sort'); if(select) sorts[name]=select.value; });
-    return {
-      view: currentView,
-      scrollY: window.scrollY,
-      orderFilter,
-      orderPeriod,
-      orderLoaded: orderItems.length,
-      sorts,
-      pendingSituation,
-      pendingWithRef: Boolean($('pending-with-ref')?.checked),
-      searchQuery: $('global-search-input')?.value || '',
-      searchVisible: !$('search-results')?.classList.contains('hidden')
-    };
-  }
-
-  function syncOrderControls() {
-    document.querySelectorAll('[data-order-filter]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderFilter === orderFilter));
-    document.querySelectorAll('[data-order-period]').forEach((entry) => entry.classList.toggle('active', entry.dataset.orderPeriod === orderPeriod));
-  }
-
-  async function restoreOrigin(origin = detailOrigin) {
-    const target = origin || { view: 'today', scrollY: 0, orderFilter: 'Todos', orderPeriod: '30', orderLoaded: 0 };
-    detailOrigin = null;
-    currentDetail = null;
-    orderFilter = target.orderFilter || orderFilter;
-    orderPeriod = target.orderPeriod || orderPeriod;
-    pendingSituation = target.pendingSituation || pendingSituation;
-    if ($('pending-with-ref')) $('pending-with-ref').checked = Boolean(target.pendingWithRef);
-    document.querySelectorAll('[data-pending-situation]').forEach((button) => button.classList.toggle('active', button.dataset.pendingSituation === pendingSituation));
-    Object.entries(target.sorts||{}).forEach(([name,value])=>{const select=$(name+'-sort');if(select&&[...select.options].some((option)=>option.value===value))select.value=value;});
-    syncOrderControls();
-    await switchPanel(target.view || 'today');
-    if ((target.view || 'today') === 'orders') {
-      while (orderItems.length < Number(target.orderLoaded || 0) && orderHasMore) {
-        await loadOrders(true, 'orders', viewRequestVersion);
-      }
-    }
-    if (target.searchVisible && target.searchQuery) {
-      $('global-search-input').value=target.searchQuery;
-      await globalSearch({preventDefault(){}});
-    }
-    requestAnimationFrame(() => window.scrollTo(0, Number(target.scrollY || 0)));
-  }
-
-  function showUndo(itemKind, itemKey, label) {
-    clearTimeout(undoTimer);
-    document.querySelectorAll('.undo-toast').forEach((node) => node.remove());
-    const toast = element('div', 'undo-toast');
-    toast.append(element('span', '', label));
-    const undo = element('button', 'quiet small', 'Desfazer');
-    undo.type = 'button';
-    undo.addEventListener('click', async () => {
-      clearTimeout(undoTimer);
-      await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status: null }) });
-      toast.remove();
-      if (currentDetail) await openDetail(currentDetail.kind, currentDetail.key, { push: false, origin: detailOrigin });
-      else await loadCurrent();
-      await refreshCounters();
-      await loadCaptureWarning();
-    });
-    toast.append(undo);
-    document.body.append(toast);
-    undoTimer = setTimeout(() => toast.remove(), 10000);
-  }
-
-  async function setDisposition(item, status) {
-    const itemKind = item.kind === 'CALCULATOR_ORDER' || item.kind === 'CALCULATOR' ? 'REF' : 'JOURNEY';
-    const itemKey = itemKind === 'REF' ? item.ref : item.id || item.journeyId;
-    await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status }) });
-    showUndo(itemKind, itemKey, status === 'TREATED' ? 'Marcado como Tratado' : 'Marcado como Descartado');
-    if (currentDetail) await openDetail(currentDetail.kind, currentDetail.key, { push: false, origin: detailOrigin });
-    else await loadCurrent();
-    await refreshCounters();
-  }
-
-  function dispositionControls(item) {
-    const actions = element('div', 'inline-actions');
-    const treated = element('button', 'small', 'Tratado');
-    treated.type = 'button';
-    treated.addEventListener('click', () => setDisposition(item, 'TREATED'));
-    const discarded = element('button', 'quiet small', 'Descartar');
-    discarded.type = 'button';
-    discarded.addEventListener('click', () => setDisposition(item, 'DISCARDED'));
-    actions.append(treated, discarded);
-    return actions;
-  }
-
-  function detailHash(kind, key) {
-    return kind === 'order' ? '#pedido/' + encodeURIComponent(key) : '#ficha/' + encodeURIComponent(key);
-  }
-
-  function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', entry: 'entry-panel', pending: 'pending-panel', orders: 'orders-panel', qualification: 'qualification-panel', manheim: 'manheim-panel', records: 'records-panel' };
-    Object.values(labels).forEach((id) => $(id).classList.add('hidden'));
-    $('detail-panel').classList.remove('hidden');
-    $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
-    $('record-detail').replaceChildren(element('p', 'muted', 'Carregando…'));
-    currentDetail = { kind, key };
-  }
-
-  async function openDetail(kind, key, options = {}) {
-    const requestVersion=++detailRequestVersion;
-    const push = options.push !== false;
-    if (push) {
-      detailOrigin = options.origin || captureOrigin();
-      history.replaceState({ panelOrigin: detailOrigin }, '', location.pathname + location.search + (location.hash || ''));
-      history.pushState({ detail: true, kind, key, origin: detailOrigin }, '', detailHash(kind, key));
-    } else if (options.origin) {
-      detailOrigin = options.origin;
-    }
-    showDetailShell(kind, key);
-    $('page-title').textContent = 'TELA DO LEAD';
-    try {
-      await MCSLead.open({ kind, key, root: $('record-detail'), request,
-        onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
-        actionMessage, downloadShortlist, dispositionControls });
-      if(requestVersion!==detailRequestVersion)return;
-    } catch (failure) {
-      if(requestVersion!==detailRequestVersion)return;
-      const code=failure?.requestId||failure?.code||'SEM-CODIGO';
-      const root=$('record-detail');root.replaceChildren();
-      root.append(element('p','status error',`Não consegui abrir este lead agora. Código: ${code}`));
-      const actions=element('div','inline-actions');
-      const retry=element('button','small','Tentar de novo');retry.type='button';retry.addEventListener('click',()=>openDetail(kind,key,{push:false,origin:detailOrigin}));
-      const back=element('button','quiet small','Voltar ao painel');back.type='button';back.addEventListener('click',()=>{if(history.state?.detail)history.back();else restoreOrigin(detailOrigin||captureOrigin()).catch(()=>{});});
-      actions.append(retry,back);root.append(actions);
-    }
-  }
-
-  function simulationBlock(item) {
-    const section = element('section', 'record-block detail-simulations');
-    section.append(element('h3', '', item.simulationCount > 1 ? `${item.simulationCount} simulações desta Ref` : 'Simulação desta Ref'));
-    (item.simulations || [item]).forEach((simulation) => {
-      const row = element('div', 'detail-simulation');
-      const mode = simulation.logicalMode === 'VALOR' ? 'Por valor' : simulation.logicalMode === 'CARRO' ? 'Carro ideal' : 'Simulação';
-      row.append(element('strong', '', mode));
-      const dl = element('dl', 'definition-grid');
-      definition(dl, 'Veículo', displayModel(simulation.vehicleText) || 'Não informado');
-      definition(dl, 'Orçamento', simulation.budgetCents ? formatMoney(simulation.budgetCents) : 'Não informado');
-      definition(dl, 'Pagamento', displayPayment(simulation.paymentText));
-      definition(dl, 'Prazo', displayDeadline(simulation.deadlineText));
-      definition(dl, 'Canal', simulation.contactChannel || 'Não informado');
-      definition(dl, 'Data', simulation.occurredAt ? formatDate(simulation.occurredAt) : 'Não informada');
-      row.append(dl);
-      section.append(row);
-    });
-    return section;
-  }
-
-  async function openOrderDetail(ref) {
-    const data = await request('/api/panel/orders?filter=Todos&period=all&limit=1&offset=0&ref=' + encodeURIComponent(ref));
-    const item = data.items && data.items[0];
-    const root = $('record-detail');
-    if (!item) return empty(root, 'Pedido não encontrado.');
-    updateMeta(data.meta);
-    const intro = element('section', 'record-block');
-    const title = element('div', 'identity');
-    title.append(element('span', 'order-icon', orderIcon(item)));
-    const text = element('div');
-    text.append(element('h2', '', `Ref ${item.ref || item.referenceCode || '—'}`), element('p', 'muted', displayModel(item.vehicleText) || 'Veículo não informado'));
-    title.append(text);
-    intro.append(title);
-    const badges = element('div', 'badges');
-    if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
-    if (item.status) badges.append(makeBadge(item.status, item.status === 'RESPONDIDO' ? 'blue' : item.status === 'SEM RESPOSTA' ? 'yellow' : ''));
-    if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
-    if (item.disposition === 'TREATED') badges.append(makeBadge('Tratado', 'blue'));
-    if (item.disposition === 'DISCARDED') badges.append(makeBadge('Descartado'));
-    intro.append(badges, simulationBlock(item), dispositionControls({ ...item, kind: 'CALCULATOR' }));
-
-    const linkedJourneyId = item.journeyId || item.link && item.link.journeyId;
-    if (linkedJourneyId) {
-      await openRecord(linkedJourneyId, { prepend: intro });
-      return;
-    }
-
-    if (item.kind === 'CALCULATOR' && !item.link) {
-      const form = element('div', 'inline-form');
-      const label = element('label', '', 'Ligar a um lead');
-      const select = element('select');
-      select.append(new Option('Escolha uma jornada', ''));
-      (data.linkTargets || []).forEach((target) => select.append(new Option(target.label, `${target.journeyId}|${target.contactId}`)));
-      label.append(select);
-      const button = element('button', 'small', 'Ligar a um lead');
-      button.type = 'button';
-      button.disabled = true;
-      select.addEventListener('change', () => { button.disabled = !select.value; });
-      button.addEventListener('click', async () => {
-        if (!select.value) return;
-        const [journeyId, contactId] = select.value.split('|');
-        await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'link_request', journeyId, contactId, calcRef: item.ref }) });
-        await openDetail('order', item.ref, { push: false, origin: detailOrigin });
-      });
-      form.append(label, button);
-      intro.append(form);
-    }
-    root.replaceChildren(intro);
-  }
-
-  function renderToday(items) {
-    const root = $('today-list');
-    root.replaceChildren();
-    todayItems = items.slice();
-    setCount('today', items.length);
-    if (!items.length) return empty(root, 'Nenhum item nas últimas 24 horas.');
-    items.forEach((item) => {
-      const card = element('article', 'item-card');
-      const head = element('div', 'item-head');
-      if (item.kind === 'CALCULATOR_ORDER') {
-        const title = element('div', 'identity');
-        title.append(element('span', 'order-icon', orderIcon(item)));
-        const txt = element('div');
-        txt.append(element('strong', '', item.contactName||`Pedido ${item.ref}`),element('span',referencePhoneClass(item),referencePhone(item)), element('span', 'muted one-line', displayModel(item.vehicleText) || 'Veículo não informado'));
-        title.append(txt);
-        head.append(title);
-      } else {
-        head.append(identityHeader(item));
-      }
-      card.append(head);
-      const badges = element('div', 'badges');
-      if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
-      if (item.wantsCar) badges.append(makeBadge('QUER ESTE CARRO', 'green'));
-      if(item.returnedToTalk)badges.append(makeBadge('VOLTOU A FALAR','yellow'));
-      if(item.pendingAiCount)badges.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
-      if(item.aiLinkSuggested)badges.append(makeBadge('🔗 ligação sugerida','yellow'));
-      const contact=contactMeta(item); if(contact) badges.append(contact);
-      badges.append(makeBadge(item.goodHour ? 'bom horário' : 'fora de horário', item.goodHour ? 'green' : 'yellow'));
-      if (item.clickedContact && item.contactChannel) badges.append(makeBadge(`${item.contactChannel} CLICADO`, 'green'));
-      if (item.budgetCents) badges.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
-      if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
-      if (item.kind === 'JOURNEY') badges.append(makeBadge('Ficha nova', 'blue'));
-      card.append(badges);
-      const actions = element('div', 'inline-actions');
-      const open = element('button', 'quiet small', item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
-      open.type = 'button';
-      open.addEventListener('click', () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
-      actions.append(open);
-      card.append(actions, dispositionControls(item));
-      makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
-      root.append(card);
-    });
-  }
-
-  function renderOrders(items, linkTargets, page) {
-    const root = $('orders-list');
-    root.replaceChildren();
-    $('orders-more').classList.toggle('hidden', !page.hasMore);
-    setCount('orders', page.total || items.length);
-    if (!items.length) return empty(root, 'Nenhum pedido neste filtro e período.');
-    items.forEach((item) => {
-      const card = element('article', 'item-card');
-      card.dataset.orderKey = item.key;
-      const head = element('div', 'item-head');
-      const identity = element('div', 'identity');
-      identity.append(element('span', 'order-icon', orderIcon(item)));
-      const title = element('div');
-      const heading = item.contactName || (item.ref || item.referenceCode ? `Ref ${item.ref || item.referenceCode}` : 'Pedido direto');
-      title.append(element('h3', '', heading),element('p',referencePhoneClass(item),referencePhone(item)), element('p', 'muted', displayModel(item.vehicleText) || 'Veículo não informado'));
-      identity.append(title);
-      head.append(identity);
-      card.append(head);
-
-      const contact=contactMeta(item);if(contact)card.append(contact);
-
-      const badges = element('div', 'badges');
-      if (item.sourceLabel) badges.append(makeBadge(item.sourceLabel));
-      if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
-      else badges.append(makeBadge(item.logicalMode === 'CARRO' ? 'CARRO IDEAL' : item.logicalMode === 'VALOR' ? 'POR VALOR' : 'PEDIDO'));
-      if (item.status) badges.append(makeBadge(item.status, item.status === 'RESPONDIDO' ? 'blue' : item.status === 'SEM RESPOSTA' ? 'yellow' : item.status === 'ATIVO' ? 'green' : ''));
-      if (item.disposition === 'TREATED') badges.append(makeBadge('Tratado', 'blue'));
-      if (item.disposition === 'DISCARDED') badges.append(makeBadge('Descartado'));
-      if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
-      card.append(badges);
-
-      const details = element('dl', 'definition-grid order-details');
-      definition(details, 'Ref', item.ref || item.referenceCode || null);
-      definition(details, 'Orçamento', item.budgetCents ? formatMoney(item.budgetCents) : 'Não informado');
-      definition(details, 'Pagamento', displayPayment(item.paymentText));
-      definition(details, 'Estado', item.state || 'Não informado');
-      definition(details, 'ZIP', item.zip || 'Não informado');
-      definition(details, 'Anos', item.yearsText || 'Não informado');
-      definition(details, 'Milhas', item.mileageText || 'Não informado');
-      definition(details, 'Prazo', displayDeadline(item.deadlineText));
-      definition(details, 'Contato escolhido', item.contactChannel || 'Não informado');
-      definition(details, 'Data', item.occurredAt ? formatDate(item.occurredAt) : 'Não informada');
-      card.append(details);
-
-      if (item.kind === 'CALCULATOR' && !item.link) {
-        const form = element('div', 'inline-form');
-        const label = element('label', '', 'Ligar a um lead');
-        const select = element('select');
-        select.append(new Option('Escolha uma jornada', ''));
-        linkTargets.forEach((target) => select.append(new Option(target.label, `${target.journeyId}|${target.contactId}`)));
-        label.append(select);
-        const button = element('button', 'small', 'Ligar a um lead');
-        button.type = 'button';
-        button.disabled = true;
-        select.addEventListener('change', () => { button.disabled = !select.value; });
-        button.addEventListener('click', async () => {
-          if (!select.value) return;
-          const [journeyId, contactId] = select.value.split('|');
-          await postAction({ action: 'link_request', journeyId, contactId, calcRef: item.ref });
-        });
-        form.append(label, button);
-        card.append(form);
-      }
-
-      makeCardClickable(card, () => {
-        if (item.kind === 'CALCULATOR') openDetail('order', item.ref);
-        else if (item.journeyId) openDetail('ficha', item.journeyId);
-      });
-      root.append(card);
-    });
-  }
-
-  function renderQualification(items) {
-    const root = $('qualification-list');
-    root.replaceChildren();
-    setCount('qualification', items.length);
-    if (!items.length) return empty(root, 'Nenhuma jornada para qualificar.');
-    items.forEach((item) => {
-      const card = element('article', 'item-card');
-      const head = element('div', 'item-head');
-      const title = element('div');
-      title.append(identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' }));
-      const badges = element('div', 'badges');
-      const qualificationStatus = item.enabled === false ? 'DESLIGADO' : item.status;
-      badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(qualificationStatus, qualificationStatus === 'ATIVO' ? 'green' : qualificationStatus === 'RESPONDIDO' ? 'blue' : ''));
-      if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
-      head.append(title, badges);
-      card.append(head);
-      item.checklist.forEach((point) => {
-        const block = element('div', 'check-point' + (point.status === 'COMPLETE' ? ' complete' : ''));
-        block.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(checklistStatusLabel(point.status), point.status === 'COMPLETE' ? 'green' : ''));
-        point.evidence.forEach((evidence) => block.append(element('p', 'evidence', evidence.excerpt_text)));
-        card.append(block);
-      });
-      const open = element('button', 'quiet small', 'Abrir ficha e conversa');
-      open.type = 'button';
-      open.addEventListener('click', () => openDetail('ficha', item.id));
-      makeCardClickable(card, () => openDetail('ficha', item.id));
-      card.append(open, journeySwitch(item, () => loadCurrent()));
-      root.append(card);
-    });
-  }
-
-  function wishlistSummary(wishlist, budgetCents) {
-    const wishes = Array.isArray(wishlist) ? wishlist : [wishlist || {}];
-    const vehicles = wishes.slice(0, 5).map((wish) => {
-      const years = wish.yearMin && wish.yearMax ? `${wish.yearMin}–${wish.yearMax}` : wish.yearMin || wish.yearMax || 'qualquer ano';
-      const miles = wish.maxMiles ? `até ${Number(wish.maxMiles).toLocaleString('pt-BR')} milhas` : 'sem limite de milhas';
+      reasons.append(element(…6448 tokens truncated…} milhas` : 'sem limite de milhas';
       return `${wish.make || 'Marca não informada'} ${wish.model || 'modelo não informado'} · ${years} · ${miles}`;
     });
     return `${vehicles.join(' | ')}${budgetCents ? ` · teto ${formatMoney(budgetCents)}` : ''}`;
@@ -2142,6 +1701,7 @@
     $('attachment-contact').addEventListener('change',refreshAttachmentJourneys);
     $('attachment-journey').addEventListener('change',()=>{$('attachment-upload').disabled=!$('attachment-journey').value;});
     $('attachment-upload').addEventListener('click', uploadAttachment);
+    $('sms-print-start').addEventListener('click',()=>startSmsPrint($('sms-print-file').files[0]).catch((error)=>{$('sms-print-status').textContent=error.code==='AI_DAILY_LIMIT'?'Limite diário da IA atingido.':'Não consegui ler este print. Preencha o SMS à mão.';}));
     $('sms-date').value = localInput();
     await routeSession();
   }

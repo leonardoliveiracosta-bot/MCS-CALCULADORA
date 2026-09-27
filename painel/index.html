@@ -122,6 +122,14 @@
             <button id="attachment-upload" type="button" disabled>Enviar anexo</button>
             <p id="attachment-status" class="status" role="status"></p>
           </section>
+          <section id="sms-print-card">
+            <h2>Print de SMS</h2>
+            <p class="muted">Envie o print com número e Ref. A leitura é mostrada antes de gravar qualquer dado.</p>
+            <label>Print<input id="sms-print-file" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"></label>
+            <button id="sms-print-start" type="button">Ler print do SMS</button>
+            <p id="sms-print-status" class="status" role="status"></p>
+            <section id="sms-print-review" class="sms-print-review hidden" aria-live="polite"></section>
+          </section>
           </details>
         <details class="card manual-entry" id="automatic-messages-card">
           <summary>Mensagens automáticas</summary>
