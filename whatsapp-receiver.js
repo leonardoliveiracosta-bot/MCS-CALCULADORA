@@ -30,8 +30,9 @@ function webhookItems(value,field){
     for(const message of value.messages){
       if(!message||typeof message!=='object'){items.push({message,error:'MESSAGE_INVALID'});continue;}
       if(isGroup(message))continue;
-      const who=phone(message.from),contact=(value.contacts||[]).find((row)=>phone(row.wa_id)===who);
-      items.push({message,phone:who,direction:'CUSTOMER',name:contact?.profile?.name||null});
+      const who=phone(message.from),messageUserId=String(message.from_user_id||'').trim()||null;
+      const contact=(value.contacts||[]).find((row)=>(messageUserId&&row?.user_id===messageUserId)||(who&&phone(row?.wa_id)===who));
+      items.push({message,phone:who,userId:messageUserId||contact?.user_id||null,username:contact?.profile?.username||null,direction:'CUSTOMER',name:contact?.profile?.name||null});
     }
     return items;
   }
@@ -40,7 +41,9 @@ function webhookItems(value,field){
     for(const message of value.message_echoes){
       if(!message||typeof message!=='object'){items.push({message,error:'ECHO_INVALID'});continue;}
       if(isGroup(message))continue;
-      items.push({message,phone:phone(message.to),direction:'MCS',name:null});
+      const who=phone(message.to),messageUserId=String(message.to_user_id||'').trim()||null;
+      const contact=(value.contacts||[]).find((row)=>(messageUserId&&row?.user_id===messageUserId)||(who&&phone(row?.wa_id)===who));
+      items.push({message,phone:who,userId:messageUserId||contact?.user_id||null,username:contact?.profile?.username||null,direction:'MCS',name:contact?.profile?.name||null});
     }
     return items;
   }
@@ -56,9 +59,11 @@ function historyItems(value){
       if(!Array.isArray(thread?.messages))continue;
       for(const message of thread.messages){
         if(isGroup(message,thread.id))continue;
-        const client=phone(thread.id||message.to),sender=phone(message.from);
-        if(!client||!sender){items.push({message,error:'PHONE_INVALID'});continue;}
-        items.push({message,phone:client,direction:business&&sender===business?'MCS':sender===client?'CUSTOMER':null,name:thread.name||null});
+        const context=thread.context||{},client=phone(context.wa_id||thread.id||message.to),sender=phone(message.from);
+        const userId=String(context.user_id||message.from_user_id||message.to_user_id||'').trim()||null;
+        const direction=message?.history_context?.from_me===true||business&&sender===business?'MCS':client&&sender===client||message.from_user_id&&message.from_user_id===userId?'CUSTOMER':null;
+        if((!client&&!userId)||!direction){items.push({message,error:'PHONE_INVALID'});continue;}
+        items.push({message,phone:client,userId,username:context.username||context.profile?.username||null,direction,name:thread.name||context.profile?.name||null});
       }
     }
   }
@@ -105,10 +110,10 @@ function normalizeParsed(payload,options={}){
   parsed.items.forEach((candidate,index)=>{
     try{
       if(candidate.error)throw Error(candidate.error);
-      const {message,phone:clientPhone,direction,name}=candidate,rendered=content(message,sourceKind);
+      const {message,phone:clientPhone,userId,username,direction,name}=candidate,rendered=content(message,sourceKind);
       if(rendered.ignore)return;
-      if(!message?.id||!message?.timestamp||!rendered.body||!direction||!clientPhone)throw Error('MESSAGE_CONTENT_INVALID');
-      items.push({messageId:String(message.id),phone:clientPhone,name,direction,body:rendered.body,timestamp:String(message.timestamp),refs:extractRefs([{body:rendered.body}]),itemIndex:index});
+      if(!message?.id||!message?.timestamp||!rendered.body||!direction||(!clientPhone&&!userId))throw Error('MESSAGE_CONTENT_INVALID');
+      items.push({messageId:String(message.id),phone:clientPhone||null,userId:userId||null,username:username||null,name,direction,body:rendered.body,timestamp:String(message.timestamp),refs:extractRefs([{body:rendered.body}]),itemIndex:index});
     }catch(error){itemErrors.push({itemIndex:index,errorCode:/^[A-Z_]{3,50}$/.test(error.message)?error.message:'MESSAGE_CONTENT_INVALID',item:candidate.message||{}});}
   });
   return {...parsed,items,itemErrors};
@@ -132,7 +137,8 @@ async function saveItemError(ctx,rawId,error){await supabase(ctx.config.url,ctx.
 async function resolveItemError(ctx,rawId,itemIndex){await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_item_errors?raw_event_id=eq.'+encodeURIComponent(rawId)+'&item_index=eq.'+itemIndex+'&environment=eq.'+encodeURIComponent(ctx.environment),{method:'PATCH',headers:{'content-type':'application/json','prefer':'return=minimal'},body:JSON.stringify({status:'RESOLVED',processing_started_at:null,resolved_at:new Date().toISOString()})});}
 async function savePhoneReview(ctx,rawId,item,contacts){await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_phone_reviews?on_conflict=raw_event_id,item_index',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({environment:ctx.environment,raw_event_id:rawId,item_index:item.itemIndex,item_json:item,phone_e164:item.phone,candidate_contact_ids:contacts})});}
 async function prepareItem(ctx,rawId,item){
-  if(!item.name){const book=await rows(ctx,'whatsapp_address_book',{select:'full_name,first_name',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,limit:'1'});item={...item,name:book[0]?.full_name||book[0]?.first_name||null};}
+  if(item.phone&&!item.name){const book=await rows(ctx,'whatsapp_address_book',{select:'full_name,first_name',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,limit:'1'});item={...item,name:book[0]?.full_name||book[0]?.first_name||null};}
+  if(!item.phone)return {item};
   const matches=await rows(ctx,'contact_phones',{select:'contact_id',environment:'eq.'+ctx.environment,phone_e164:'eq.'+item.phone,is_current:'eq.true',retired_at:'is.null'});
   const contacts=[...new Set(matches.map((row)=>row.contact_id))];
   if(contacts.length<=1)return {item};
@@ -176,6 +182,10 @@ async function processRaw(ctx,row,options={}){
     await saveAddressBook(ctx,parsed.addressBook);
     for(const failure of parsed.itemErrors){await saveItemError(ctx,row.id,failure);itemFailures++;}
     for(const parsedItem of parsed.items){
+      if(options.deadlineAt&&Date.now()>=options.deadlineAt){
+        await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+row.id,environment:'eq.'+ctx.environment,status:'eq.PROCESSING'},{status:'PENDING',error_code:'PROCESSING_DEFERRED',processing_started_at:null});
+        return {pending:true,imported,duplicates,reviews,itemErrors:itemFailures};
+      }
       const item={...parsedItem,source_kind:sourceKind};
       try{
         const result=await processItem(ctx,row.id,item);if(result.review){reviews++;continue;}
@@ -205,4 +215,4 @@ async function rawEvent(ctx,payload){
   const existing=await rows(ctx,'whatsapp_raw_events',{select:'id,status,attempts,payload_json',environment:'eq.'+ctx.environment,event_key:'eq.'+key,limit:'1'});
   return existing[0]?.status==='ERROR'?existing[0]:null;
 }
-module.exports={phone,content,parse,normalizedItems,eventKey,processRaw,rawEvent,prepareItem,processItem,saveItemError,resolveItemError,sourceKindFor,webhookItems,shouldUpgradeHistoryMedia,HISTORY_MEDIA_PLACEHOLDER,HISTORY_MEDIA_BODIES};
+module.exports={phone,content,parse,normalizeParsed,normalizedItems,eventKey,processRaw,rawEvent,prepareItem,processItem,saveItemError,resolveItemError,sourceKindFor,webhookItems,shouldUpgradeHistoryMedia,HISTORY_MEDIA_PLACEHOLDER,HISTORY_MEDIA_BODIES};

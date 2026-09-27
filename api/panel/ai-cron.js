@@ -5,6 +5,7 @@ const {configuration,SERVER_ENVIRONMENT,send}=require('../../panel-server');
 const {runCron}=require('../../panel-ai');
 const {generalBatch,generalStatus}=require('../../panel-pendencias');
 const {runCaptureCheck,recordCaptureFailure}=require('../../panel-capture');
+const {recoverStalledEvents,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
 
 function equalSecret(actual,expected){
   const left=Buffer.from(String(actual||'')),right=Buffer.from(String(expected||''));
@@ -19,6 +20,11 @@ module.exports=async(req,res)=>{
   if(!config||SERVER_ENVIRONMENT!=='production')return send(res,503,{error:'CRON_NOT_CONFIGURED'});
   try{
     const ctx={config,environment:SERVER_ENVIRONMENT};
+    let whatsappMaintenance={done:0,reprocessed:0,deferred:0,failed:0};
+    try{
+      whatsappMaintenance=await recoverStalledEvents(ctx,{maxEvents:1,deadlineAt:Date.now()+20000});
+      await resolveStoredItemErrors(ctx);
+    }catch(error){console.error('[whatsapp-maintenance]',{operation:'cron',message:String(error?.message||'UNKNOWN')});}
     // A resumable full reading has priority only while it is actively running.
     // Paused, budget-limited, completed, and idle runs must not stop the normal
     // day-to-day analysis cycle.
@@ -33,7 +39,7 @@ module.exports=async(req,res)=>{
     let capture;
     try { capture=await runCaptureCheck(ctx); }
     catch (error) { capture={error:'CAPTURE_CHECK_FAILED'}; await recordCaptureFailure(ctx,error.message).catch(()=>{}); }
-    return send(res,200,{...result,pending,capture});
+    return send(res,200,{...result,pending,capture,whatsappMaintenance});
   }catch(error){
     const requestId=crypto.randomUUID().slice(0,8);
     console.error('[panel-ai-cron]',{requestId,route:'/api/panel/ai-cron',message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});
