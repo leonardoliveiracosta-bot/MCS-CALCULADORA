@@ -35,6 +35,9 @@
   let orderHasMore = false;
   let undoTimer = null;
   const $ = (id) => document.getElementById(id);
+  const productionHost = location.hostname === 'www.mycarscout.net';
+  const environmentBadge = $('environment-badge');
+  if (environmentBadge) { environmentBadge.textContent = productionHost ? 'PRODUÇÃO' : 'PREVIEW — NÃO USE PARA TRABALHAR'; environmentBadge.classList.toggle('production', productionHost); }
   const show = (id) => ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id));
   const error = (id, message) => { $(id).textContent = message || ''; };
   const importFailureMessage = (failure) => {
@@ -2034,6 +2037,7 @@
       if (!history.state) history.replaceState({ panelOrigin: captureOrigin() }, '', location.pathname + location.search + (location.hash || ''));
       await routeFromHash(false);
       await refreshCounters();
+      await loadAutomaticMessages();
       startSafeRefresh();
     } catch (failure) {
       clearSession();
@@ -2041,6 +2045,11 @@
       if (failure.code === 'PANEL_ACCESS_DENIED') error('login-error', 'Esta conta não tem acesso ao painel.');
     }
   }
+  async function loadAutomaticMessages(){
+    const list=$('automatic-message-list');if(!list)return;
+    try{const data=await request('/api/panel/automatic-messages');list.replaceChildren();(data.items||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('span','',item.body_normalized));const remove=element('button','quiet small','Remover');remove.type='button';remove.addEventListener('click',async()=>{remove.disabled=true;await request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'delete',id:item.id})});await loadAutomaticMessages();});row.append(remove);list.append(row);});}catch(_){list.textContent='Não foi possível carregar mensagens automáticas.';}
+  }
+  $('automatic-message-save')?.addEventListener('click',async()=>{const input=$('automatic-message-text'),save=$('automatic-message-save');if(!input.value.trim())return;save.disabled=true;try{await request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'save',text:input.value})});input.value='';await loadAutomaticMessages();}finally{save.disabled=false;}});
   async function signIn(event) {
     event.preventDefault();
     error('login-error');
