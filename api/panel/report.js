@@ -2,6 +2,8 @@
 
 const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, time } = require('../../panel-domain');
 const { allRows, requirePanel, send } = require('../../panel-server');
+const { operational } = require('../../panel-read-model');
+const { contactIndex } = require('../../panel-contact');
 
 function newYorkBoundary(dateString, end) {
   const match = String(dateString || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -60,24 +62,46 @@ module.exports = async (req, res) => {
   if (!['today', 'orders', 'qualification', 'records', 'manheim'].includes(view)) return send(res, 400, { error: 'REPORT_VIEW_INVALID' });
 
   try {
-    const [calcRuns, links, dispositions, journeys, toggles, uploads, manheimMatches] = await Promise.all([
+    const [calcRuns, links, dispositions, journeys, toggles, uploads, manheimMatches, data] = await Promise.all([
       allRows(ctx, 'calc_runs', { select: 'id,created_at,lance,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,stage,status,budget_cents,created_at,qualified_at,closed_at,closed_reason', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,uploaded_at', environment: 'eq.' + ctx.environment, order: 'uploaded_at.asc' }),
-      view === 'manheim' ? allRows(ctx, 'manheim_matches', { select: 'upload_id,row_fingerprint', environment: 'eq.' + ctx.environment }) : Promise.resolve([])
+      view === 'manheim' ? allRows(ctx, 'manheim_matches', { select: 'upload_id,row_fingerprint', environment: 'eq.' + ctx.environment }) : Promise.resolve([]),
+      operational(ctx)
     ]);
 
-    const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, links), dispositions);
+    const contact = contactIndex({
+      calcRuns,
+      messages: data.messages,
+      messageLinks: data.messages.map((message) => ({ journey_id: message.journey_id, message_id: message.id }))
+    });
+    const visibleJourneys = data.journeys;
+    const journeyById = new Map(visibleJourneys.map((journey) => [journey.id, journey]));
+    const journeyByRef = new Map();
+    for (const journey of visibleJourneys) if (journey.reference_code) journeyByRef.set(String(journey.reference_code).trim().toUpperCase(), journey);
+    for (const row of data.refs) {
+      const journey = journeyById.get(row.journey_id);
+      if (journey) journeyByRef.set(String(row.ref_code).trim().toUpperCase(), journey);
+    }
+    const visible = (ref, journey) => contact.facts({
+      ref,
+      journeyId: journey?.id,
+      refs: journey ? data.refs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code) : []
+    }).entered;
+    const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, links), dispositions)
+      .filter((item) => !(data.excludedRefs || []).includes(item.ref))
+      .filter((item) => visible(item.ref, journeyByRef.get(item.ref)));
+    const contactedJourneys = visibleJourneys.filter((journey) => visible(journey.reference_code, journey));
     let summary = {};
     let text = '';
 
     if (view === 'today') {
       const cutoff = Date.now() - 24 * 60 * 60 * 1000;
       const orderRefs = new Set(orders.filter((item) => (time(item.occurredAt) || 0) >= cutoff).map((item) => item.ref));
-      const newJourneys = journeys.filter((item) => (time(item.created_at) || 0) >= cutoff && (!item.reference_code || !orderRefs.has(String(item.reference_code).toUpperCase())));
+      const newJourneys = contactedJourneys.filter((item) => (time(item.created_at) || 0) >= cutoff && (!item.reference_code || !orderRefs.has(String(item.reference_code).toUpperCase())));
       const recentOrders = orders.filter((item) => (time(item.occurredAt) || 0) >= cutoff);
       const items = recentOrders.length + newJourneys.length;
       const treated = recentOrders.filter((item) => item.disposition === 'TREATED').length
@@ -88,7 +112,7 @@ module.exports = async (req, res) => {
       text = `HOJE — últimas 24h: ${items} entraram; ${treated} tratados; ${discarded} descartados; ${summary.pending} pendentes.`;
     } else if (view === 'orders') {
       const calcScoped = orders.filter((item) => inside(item.occurredAt, selected));
-      const directScoped = journeys.filter((item) => ['WHATSAPP_DIRECT','SMS_DIRECT'].includes(item.source) && inside(item.created_at, selected)).map((item) => {
+      const directScoped = contactedJourneys.filter((item) => ['WHATSAPP_DIRECT','SMS_DIRECT'].includes(item.source) && inside(item.created_at, selected)).map((item) => {
         const disposition = dispositions.find((entry) => entry.item_kind === 'JOURNEY' && entry.item_key === item.id) || null;
         return {
           logicalMode: journeyLogicalMode(item),
@@ -108,8 +132,8 @@ module.exports = async (req, res) => {
       summary = { total: scoped.length, byValue, byCar, whatsappClicked: whatsapp, smsClicked: sms, pending, budgetRanges };
       text = `PEDIDOS: ${scoped.length} total; por valor ${byValue}; carro ideal ${byCar}; WhatsApp clicado ${whatsapp}; SMS clicado ${sms}; pendentes ${pending}; orçamento — até 10k: ${budgetRanges['até 10k']}, 10–25k: ${budgetRanges['10–25k']}, 25–50k: ${budgetRanges['25–50k']}, 50k+: ${budgetRanges['50k+']}.`;
     } else if (view === 'qualification' || view === 'records') {
-      const leads = journeys.filter((item) => inside(item.created_at, selected)).length;
-      const qualified = journeys.filter((item) => inside(item.qualified_at, selected)).length;
+      const leads = contactedJourneys.filter((item) => inside(item.created_at, selected)).length;
+      const qualified = contactedJourneys.filter((item) => inside(item.qualified_at, selected)).length;
       const disabled = toggles.filter((item) => item.enabled === false && inside(item.switched_at, selected));
       const disabledByReason = {};
       disabled.forEach((item) => { const reason = item.off_reason || 'SEM MOTIVO'; disabledByReason[reason] = (disabledByReason[reason] || 0) + 1; });
