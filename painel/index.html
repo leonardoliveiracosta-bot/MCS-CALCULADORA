@@ -122,6 +122,14 @@
             <button id="attachment-upload" type="button" disabled>Enviar anexo</button>
             <p id="attachment-status" class="status" role="status"></p>
           </section>
+          <section id="sms-print-card">
+            <h2>Print de SMS</h2>
+            <p class="muted">Envie o print com número e Ref. A leitura é mostrada antes de gravar qualquer dado.</p>
+            <label>Print<input id="sms-print-file" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"></label>
+            <button id="sms-print-start" type="button">Ler print do SMS</button>
+            <p id="sms-print-status" class="status" role="status"></p>
+            <section id="sms-print-review" class="sms-print-review hidden" aria-live="polite"></section>
+          </section>
           </details>
         <details class="card manual-entry" id="automatic-messages-card">
           <summary>Mensagens automáticas</summary>
@@ -180,7 +188,7 @@
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
-        <div class="section-head"><div><h2>Manheim</h2><p class="muted">Compare a exportação com as listas de desejo ligadas.</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
+        <div class="section-head"><div><h2>Manheim</h2><p class="muted">Compare a exportação com as listas de desejo ligadas.</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
         <section id="manheim-saved-searches" class="card"></section>
         <section class="card">
           <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>

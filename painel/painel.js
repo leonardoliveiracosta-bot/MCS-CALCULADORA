@@ -28,6 +28,7 @@
   let manheimJourneys = [];
   let manheimOrders = [];
   let manheimMatches = [];
+  let savedSearchesData = null;
   let reportView = 'today';
   let viewRequestVersion = 0;
   let detailRequestVersion = 0;
@@ -642,7 +643,7 @@
     const stats=$('pending-stats');stats.replaceChildren();[['NO_RESPONSE','🔴 Sem resposta'],['MCS_PENDING','🟠 Parada com você'],['CUSTOMER_PENDING','🟡 Parada com o cliente'],['IN_PROGRESS','🟢 Em andamento'],['CLOSED','⚪ Concluída / sem interesse']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.counts?.[key]||0)),element('span','muted',label));stats.append(stat);});
     const root=$('pending-list');root.replaceChildren();if(!(data.items||[]).length)empty(root,'Nenhuma conversa neste filtro.');
     (data.items||[]).forEach((item)=>{
-      const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div');text.append(element('strong','',item.name),element('span','identity-ref-phone'+(item.phone?'':' muted'),`Ref ${item.ref||'—'} · 📞 ${item.phone?phoneDisplay(item.phone):'sem telefone'}`));identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));head.append(badges);card.append(head);const contact=contactMeta(item);if(contact)card.append(contact);
+      const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div'),phoneItem={phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[],ref:item.ref};text.append(element('strong','identity-name',item.name||`Pedido ${item.ref||'—'}`),phoneNode(phoneItem),element('span','muted one-line',`Ref ${item.ref||'—'} · ${item.vehicleText||'Veículo não informado'}`));identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));head.append(badges);card.append(head);const contact=contactMeta(item);if(contact)card.append(contact);
       const prefix=item.latestDirection==='MCS'?'Você: ':'';card.append(element('p','message-preview',prefix+item.latestMessage));if(item.translation)card.append(element('p','muted','Tradução: “'+item.translation+'”'));if(item.summary||item.nextStep){const ai=element('div','pending-ai');ai.append(element('strong','', 'IA: '),document.createTextNode(item.summary||'Sem resumo ainda'));if(item.nextStep)ai.append(element('strong','', ' Próximo passo: '),document.createTextNode(item.nextStep));card.append(ai);}
       const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;copy.addEventListener('click',async()=>{copy.disabled=true;try{await navigator.clipboard.writeText(item.phone);}catch(_){copy.disabled=false;}});const resolved=element('button','quiet small','Já resolvi');resolved.type='button';resolved.addEventListener('click',async()=>{resolved.disabled=true;try{await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})});await loadPending();}catch(_){resolved.disabled=false;}});const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';lead.addEventListener('click',async()=>{lead.disabled=true;try{await request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!item.isLead})});await loadPending();}catch(_){lead.disabled=false;}});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
     });
@@ -675,9 +676,10 @@
   function initials(name) {
     return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';
   }
-  function phoneDisplay(value){const raw=String(value||'');const digits=raw.replace(/\D/g,'');return digits.length===11&&digits[0]==='1'?`(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`:raw||'sem telefone';}
-  function referencePhone(item){const ref=item.referenceCode||item.reference_code||item.ref||'—';const phone=(item.phones||[]).find((entry)=>entry.is_primary)||(item.phones||[]).find((entry)=>entry.is_current!==false)||(item.phones||[])[0];return `Ref ${ref} · 📞 ${phone?phoneDisplay(phone.phone_e164||phone.phone_raw):'sem telefone'}`;}
-  function referencePhoneClass(item){return 'identity-ref-phone'+((item.phones||[]).some((phone)=>phone.is_current!==false)?'':' muted');}
+  function primaryPhone(item){return (item.phones||[]).find((entry)=>entry.is_primary)||(item.phones||[]).find((entry)=>entry.is_current!==false)||(item.phones||[])[0]||null;}
+  function phoneDisplay(value){const raw=String(value||'');const digits=raw.replace(/\D/g,'');return digits.length===11&&digits[0]==='1'?`(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`:raw||'falta o número';}
+  function referencePhone(item){const ref=item.referenceCode||item.reference_code||item.ref||'—';const phone=primaryPhone(item);return `Ref ${ref} · 📞 ${phone?phoneDisplay(phone.phone_e164||phone.phone_raw):'falta o número'}`;}
+  function phoneNode(item){const phone=primaryPhone(item);if(!phone)return element('span','identity-ref-phone phone-missing','📞 falta o número');const raw=phone.phone_e164||phone.phone_raw;const link=element('a','identity-ref-phone phone-link','📞 '+phoneDisplay(raw));link.href='tel:'+String(raw).replace(/[^+\d]/g,'');link.addEventListener('click',(event)=>event.stopPropagation());return link;}
   function contactChannelLabel(channel){return {WHATSAPP:'💬 WhatsApp',WHATSAPP_CLICK:'💬 Clicou em WhatsApp',SMS_CLICK:'✉️ Clicou em mensagem de texto',CONTACT_CLICK_UNKNOWN:'💬 Clicou para falar (canal não registrado)',IMPORTED:'📎 Conversa importada/colada'}[channel]||'';}
   function floridaArrival(value){if(!value)return '';const date=new Date(value),now=new Date();const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true});const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(date);const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(now);const yesterday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date(Date.now()-86400000));const prefix=day===today?'hoje':day===yesterday?'ontem':new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).format(date);return `chegou ${prefix} ${fmt.format(date)} (Flórida)`;}
   function heatBadge(item){const labels={HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'},tone={HOT:'red',WARM:'yellow',COLD:'blue'};const heat=String(item.heat||'').toUpperCase();return heat?makeBadge(labels[heat]||labels.COLD,tone[heat]||'blue'):null;}
@@ -685,19 +687,73 @@
   function clientSort(items,mode){const missing=(v)=>v===null||v===undefined||v==='';const value=(x)=>Number(x.confirmed_total_ceiling_cents||x.budgetCents||x.budget_cents)||null;const stamp=(x)=>Date.parse(x.last_seen_at||x.updated_at||x.occurredAt||x.created_at||0)||0;const field=(x,kind)=>kind==='location'?(x.state||x.estado||x.contact?.location_text):kind==='vehicle'?(x.make||x.vehicleText||x.vehicle_text):value(x);return items.slice().sort((a,b)=>{if(mode==='recent'||mode==='oldest')return(stamp(b)-stamp(a))*(mode==='recent'?1:-1);const av=field(a,mode),bv=field(b,mode);if(missing(av))return missing(bv)?0:1;if(missing(bv))return -1;if(mode==='value_desc'||mode==='value_asc')return(av-bv)*(mode==='value_desc'?-1:1);return String(av).localeCompare(String(bv),'pt-BR');});}
 
   function identityHeader(item, options = {}) {
-    const name = item.name || item.contact && item.contact.display_name || item.contactName || 'Sem nome';
     const ref = item.referenceCode || item.reference_code || item.ref || null;
+    const name = item.name || item.contact && item.contact.display_name || item.contactName || (ref ? `Pedido ${ref}` : 'Pedido');
     const wrap = element('div', 'identity');
     wrap.append(element('span', 'avatar', initials(name)));
     const text = element('div');
-    text.append(element('strong', '', name));
-    text.append(element('span',referencePhoneClass(item),referencePhone(item)));
-    const details = [item.vehicleText || item.vehicle_text || 'Veículo não informado', sourceLabel(item.source)].filter(Boolean).join(' · ');
+    text.append(element('strong', 'identity-name', name), phoneNode(item));
+    const details = [`Ref ${ref||'—'}`, item.vehicleText || item.vehicle_text || 'Veículo não informado', item.budgetCents||item.budget_cents ? formatMoney(item.budgetCents||item.budget_cents) : null].filter(Boolean).join(' · ');
     text.append(element('span', 'muted one-line', details));
     const contact=contactMeta(item);if(contact)text.append(contact);
     if (options.preview) text.append(element('span', 'one-line message-preview', options.preview));
     wrap.append(text);
     return wrap;
+  }
+
+  const smsPrintMagic = async (file) => btoa(String.fromCharCode(...new Uint8Array(await file.slice(0,64).arrayBuffer())));
+  async function uploadSmsPrint(file, context = {}) {
+    if (!file) return;
+    const status=$('sms-print-status'); status.classList.remove('error'); status.textContent='Enviando print…';
+    const start=$('sms-print-start'); if(start) start.disabled=true;
+    try {
+      const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:await smsPrintMagic(file),journeyId:context.journeyId||null,contactId:context.contactId||null})});
+      const uploadUrl=new URL(signed.uploadUrl.startsWith('http')?signed.uploadUrl:config.url+'/storage/v1'+signed.uploadUrl); uploadUrl.searchParams.set('token',signed.token);
+      const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});
+      if(!uploaded.ok)throw new Error('SMS_PRINT_UPLOAD_FAILED');
+      status.textContent='Lendo o print…';
+      const result=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});
+      renderSmsPrintReview(result.read,{...context,refTarget:result.refTarget||null,manual:Boolean(result.manual)});
+      status.textContent=result.manual?'Não consegui ler o print agora — preencha à mão.':'Confira antes de confirmar.';
+    } catch(failure) { status.classList.add('error'); status.textContent=failure.code==='SMS_PRINT_INVALID_IMAGE'?'Use JPEG, PNG ou WebP válido, até 10 MB.':'Não consegui enviar o print agora.'; }
+    finally { if(start) start.disabled=false; }
+  }
+  function startSmsPrint(context={}) {
+    const input=$('sms-print-file');
+    input.value='';
+    input.onchange=()=>uploadSmsPrint(input.files[0],context);
+    input.click();
+  }
+  function smsField(label, value, textarea=false) { const field=element('label','',label); const input=element(textarea?'textarea':'input'); input.value=value||''; input.maxLength=textarea?25000:textarea?25000:160; field.append(input); return {field,input}; }
+  function renderSmsPrintReview(read, context={}) {
+    const root=$('sms-print-review'); root.replaceChildren(); root.classList.remove('hidden');
+    const values=read?.extracted_json||{};
+    root.append(element('h3','', 'Revisar print do SMS'));
+    if(context.manual)root.append(element('p','warning','Não consegui ler o print agora — preencha à mão.'));
+    const phone=smsField('Número lido',values.phone||''); const name=smsField('Nome lido',values.name||''); const ref=smsField('Ref lida',values.ref||'');
+    const message=smsField('Mensagem completa',values.message||'',true); const translation=smsField('Tradução para português',values.translation||'',true);
+    root.append(phone.field,name.field,ref.field);
+    const expected=context.ref||context.referenceCode||null;
+    if(expected&&ref.input.value&&String(expected).toUpperCase()===String(ref.input.value).toUpperCase())root.append(element('p','badge green','Ref bate com este pedido ✓'));
+    else if(expected&&ref.input.value)root.append(element('p','warning',`⚠ A Ref do print (${ref.input.value}) é diferente deste pedido (${expected}).`));
+    root.append(message.field,translation.field);
+    const actions=element('div','inline-actions'); const confirm=element('button','small','Confirmar'); const correct=element('button','quiet small','Corrigir'); const discard=element('button','quiet small','Descartar');
+    correct.type=discard.type=confirm.type='button'; correct.addEventListener('click',()=>phone.input.focus());
+    discard.addEventListener('click',async()=>{discard.disabled=true;try{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'discard',readId:read.id})});root.classList.add('hidden');$('sms-print-status').textContent='Print descartado. O arquivo foi mantido em quarentena.';}catch(_){discard.disabled=false;}});
+    const submit=async(options={})=>{confirm.disabled=true;try{const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',readId:read.id,phone:phone.input.value,name:name.input.value,ref:ref.input.value,message:message.input.value,translation:translation.input.value,targetJourneyId:options.targetJourneyId||null,keepSource:options.keepSource===true})});$('sms-print-status').textContent='SMS confirmado e salvo.';root.classList.add('hidden');await loadQueue(false);if(saved.journeyId)openDetail('ficha',saved.journeyId);}catch(failure){confirm.disabled=false;$('sms-print-status').classList.add('error');$('sms-print-status').textContent=failure.code==='SMS_PRINT_PHONE_CONFLICT'?'Esse número já pertence a outro contato.':'Confira número e mensagem antes de confirmar.';}};
+    confirm.addEventListener('click',()=>{const source=context.journeyId||read.source_journey_id;const target=context.refTarget;if(source&&target&&target.id!==source&&String(ref.input.value||'').toUpperCase()===String(target.reference_code||'').toUpperCase()){const choice=element('div','sms-print-missing');choice.append(element('p','',`A Ref do print (${ref.input.value}) é diferente deste pedido.`));const keep=element('button','quiet small','Gravar neste lead mesmo assim');const move=element('button','small',`Levar para o pedido ${ref.input.value}`);keep.type=move.type='button';keep.addEventListener('click',()=>submit({keepSource:true}));move.addEventListener('click',()=>submit({targetJourneyId:target.id}));choice.append(keep,move);root.append(choice);return;}submit();});
+    actions.append(confirm,correct,discard); root.append(actions);
+  }
+  function smsPrintMissing(item) {
+    if(item.contactChannel!=='SMS_CLICK'||item.smsPrintConfirmed)return null;
+    const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui.'));
+    const attach=element('button','small','📷 Anexar print do SMS'); const absent=element('button','quiet small','Não chegou SMS'); attach.type=absent.type='button';
+    attach.addEventListener('click',()=>startSmsPrint({journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null}));
+    absent.addEventListener('click',()=>setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED'));
+    const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions);
+    const journeyId=item.journeyId||item.id||null;
+    if(journeyId)request('/api/panel/sms-print?journeyId='+encodeURIComponent(journeyId)).then((state)=>{if(state.confirmed)block.remove();}).catch(()=>{});
+    return block;
   }
 
   function makeCardClickable(card, action) {
@@ -1057,7 +1113,7 @@
         const title = element('div', 'identity');
         title.append(element('span', 'order-icon', orderIcon(item)));
         const txt = element('div');
-        txt.append(element('strong', '', item.contactName||`Pedido ${item.ref}`),element('span',referencePhoneClass(item),referencePhone(item)), element('span', 'muted one-line', displayModel(item.vehicleText) || 'Veículo não informado'));
+        txt.append(element('strong', 'identity-name', item.contactName||`Pedido ${item.ref}`),phoneNode(item), element('span', 'muted one-line', `Ref ${item.ref||'—'} · ${displayModel(item.vehicleText) || 'Veículo não informado'}${item.budgetCents?` · ${formatMoney(item.budgetCents)}`:''}`));
         title.append(txt);
         head.append(title);
       } else {
@@ -1077,6 +1133,7 @@
       if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
       if (item.kind === 'JOURNEY') badges.append(makeBadge('Ficha nova', 'blue'));
       card.append(badges);
+      const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
       const actions = element('div', 'inline-actions');
       const open = element('button', 'quiet small', item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
       open.type = 'button';
@@ -1102,12 +1159,13 @@
       identity.append(element('span', 'order-icon', orderIcon(item)));
       const title = element('div');
       const heading = item.contactName || (item.ref || item.referenceCode ? `Ref ${item.ref || item.referenceCode}` : 'Pedido direto');
-      title.append(element('h3', '', heading),element('p',referencePhoneClass(item),referencePhone(item)), element('p', 'muted', displayModel(item.vehicleText) || 'Veículo não informado'));
+      title.append(element('h3', 'identity-name', heading),phoneNode(item), element('p', 'muted', `Ref ${item.ref||item.referenceCode||'—'} · ${displayModel(item.vehicleText) || 'Veículo não informado'}${item.budgetCents?` · ${formatMoney(item.budgetCents)}`:''}`));
       identity.append(title);
       head.append(identity);
       card.append(head);
 
       const contact=contactMeta(item);if(contact)card.append(contact);
+      const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
 
       const badges = element('div', 'badges');
       if (item.sourceLabel) badges.append(makeBadge(item.sourceLabel));
@@ -1176,6 +1234,7 @@
       if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
       head.append(title, badges);
       card.append(head);
+      const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
       item.checklist.forEach((point) => {
         const block = element('div', 'check-point' + (point.status === 'COMPLETE' ? ' complete' : ''));
         block.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(checklistStatusLabel(point.status), point.status === 'COMPLETE' ? 'green' : ''));
@@ -1295,7 +1354,7 @@
     const identity = element('div', 'identity');
     identity.append(element('span', 'order-icon', orderIcon(order)));
     const text = element('div');
-    text.append(element('strong', '', order.contactName||`Pedido ${order.ref}`),element('span',referencePhoneClass(order),referencePhone(order)), element('span', 'muted one-line', displayModel(order.vehicleText) || 'Pedido da calculadora'));
+    text.append(element('strong', 'identity-name', order.contactName||`Pedido ${order.ref}`),phoneNode(order), element('span', 'muted one-line', `Ref ${order.ref||'—'} · ${displayModel(order.vehicleText) || 'Pedido da calculadora'}${order.budgetCents?` · ${formatMoney(order.budgetCents)}`:''}`));
     identity.append(text);
     head.append(identity);
     card.append(head);
@@ -1304,6 +1363,7 @@
     summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
     card.append(summary, element('p', 'muted', order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
     const contact=contactMeta(order);if(contact)card.append(contact);
+    const smsMissing=smsPrintMissing(order); if(smsMissing)card.append(smsMissing);
 
     const table = element('div', 'manheim-table');
     matches.forEach((match) => {
@@ -1331,8 +1391,9 @@
 
   function renderManheim(data) {
     const mode=$('manheim-sort')?.value||'recent';
-    manheimJourneys = clientSort(data.items || [],mode);
-    manheimOrders = clientSort(data.orders || [],mode);
+    const cardMode=mode==='customers'?'recent':mode;
+    manheimJourneys = clientSort(data.items || [],cardMode);
+    manheimOrders = clientSort(data.orders || [],cardMode);
     manheimMatches = data.matches || [];
     renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas.'; });
     setCount('manheim', data.upload && data.upload.lead_count || 0);
@@ -1390,22 +1451,24 @@
   }
 
   async function renderSavedSearches() {
-    const data = await request('/api/panel/manheim-searches');
+    const data = savedSearchesData || await request('/api/panel/manheim-searches');
+    savedSearchesData = data;
     const root = $('manheim-saved-searches');
     root.replaceChildren(element('h2', '', 'QUAIS BUSCAS SALVAR NO MANHEIM'));
+    root.append(element('p','muted','Cada linha é uma busca para você salvar no Manheim. As primeiras atendem mais clientes. Conta só quem entrou em contato.'));
     if (!data.groups.length) return root.append(element('p', 'muted', 'Nenhum lead ativo com marca e modelo.'));
-    data.groups.forEach((group) => {
-      const line = element('label', 'saved-search-line');
-      const check = element('input'); check.type = 'checkbox'; check.checked = group.created;
-      check.addEventListener('change', async () => {
-        try { await request('/api/panel/manheim-searches', { method: 'POST', body: JSON.stringify({ key: group.key, created: check.checked }) }); }
-        catch (_) { check.checked = !check.checked; }
-      });
-      const text = element('span');
-      text.append(element('strong', '', `${group.searches} buscas cobrem ${group.percent}% dos seus leads ativos`),
-        element('span', 'muted', `Make: ${group.make} · Model: ${group.model} · Year: ${group.yearFrom}–${group.yearTo} · Odometer max: ${Number(group.milesMax).toLocaleString('en-US')} · ${group.leads} lead(s)`));
-      line.append(check, text, element('span', '', 'Já criei'));
-      root.append(line);
+    const mode=$('manheim-sort')?.value||'customers';
+    const groups=data.groups.slice().sort((a,b)=>mode==='vehicle'?`${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`,'pt-BR'):mode==='recent'?(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)||a.searches-b.searches):a.searches-b.searches);
+    groups.forEach((group) => {
+      const line = element('article', 'saved-search-line');
+      const text = element('span'); const title=`#${group.searches} · ${group.make} ${group.model} · ${group.yearFrom}–${group.yearTo} · até ${Number(group.milesMax).toLocaleString('pt-BR')} milhas`;
+      const clients=element('button','quiet small',`👥 ${group.leads} ${group.leads===1?'cliente quer':'clientes querem'} este carro`); clients.type='button';
+      const people=element('div','saved-search-clients hidden'); (group.clients||[]).forEach((client)=>{const person=element('button','quiet small',`${client.name||'Pedido'} · 📞 ${client.phone?phoneDisplay(client.phone):'falta o número'} · Ref ${client.ref||'—'}`);person.type='button';person.addEventListener('click',()=>{if(client.journeyId)openDetail('ficha',client.journeyId);});people.append(person);}); clients.addEventListener('click',()=>people.classList.toggle('hidden'));
+      text.append(element('strong','',title),clients,element('span','muted',mode==='customers'?`Salvando da #1 até esta, você atende ${group.percent}% dos clientes ativos.`:`Esta busca sozinha atende ${group.individualPercent}% dos clientes ativos.`),people);
+      const toggle=element('button',group.created?'quiet small':'small',group.created?'✓ Busca criada':'Já criei esta busca'); toggle.type='button';
+      toggle.addEventListener('click',async()=>{const before=group.created;group.created=!before;renderSavedSearches().catch(()=>{});try{await request('/api/panel/manheim-searches',{method:'POST',body:JSON.stringify({key:group.key,created:group.created})});}catch(_){group.created=before;renderSavedSearches().catch(()=>{});$('manheim-status').classList.add('error');$('manheim-status').textContent='Não foi possível atualizar a busca.';}});
+      const undo=element('button','quiet small','Desfazer');undo.type='button';undo.classList.toggle('hidden',!group.created);undo.addEventListener('click',()=>toggle.click());
+      const controls=element('div','inline-actions');controls.append(toggle,undo);line.append(text,controls);root.append(line);
     });
   }
 
@@ -1670,6 +1733,7 @@
     definition(definitions, 'Pagamento', displayPayment(item.payment_text));
     definition(definitions, 'Prazo', displayDeadline(item.customer_deadline_text) || formatDate(item.customer_deadline_at));
     dataBlock.append(definitions);
+    const smsMissing=smsPrintMissing({ ...item, id:item.id, journeyId:item.id, contactChannel:item.contactChannel || item.contact_channel, ref:item.reference_code, contact_id:item.contact_id }); if(smsMissing)dataBlock.append(smsMissing);
     const wishlist = element('section', 'wishlist-block');
     wishlist.append(element('h3', '', 'Lista de desejo'));
     const wishes = item.wishlists && item.wishlists.length ? item.wishlists : [item.wishlist || {}];
@@ -2118,7 +2182,7 @@
       if (currentView === 'orders') await loadCurrent();
     }));
     $('orders-more').addEventListener('click', () => loadOrders(true).catch(() => { $('orders-more').textContent = 'Não foi possível carregar'; }));
-    ['today','entry','pending','orders','qualification','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView===name)loadCurrent().catch(()=>{});});});
+    ['today','entry','pending','orders','qualification','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(currentView!==name)return;if(name==='manheim'){renderSavedSearches().catch(()=>{});return;}loadCurrent().catch(()=>{});});});
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
     $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});
     $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
@@ -2142,6 +2206,7 @@
     $('attachment-contact').addEventListener('change',refreshAttachmentJourneys);
     $('attachment-journey').addEventListener('change',()=>{$('attachment-upload').disabled=!$('attachment-journey').value;});
     $('attachment-upload').addEventListener('click', uploadAttachment);
+    $('sms-print-start').addEventListener('click', () => startSmsPrint());
     $('sms-date').value = localInput();
     await routeSession();
   }

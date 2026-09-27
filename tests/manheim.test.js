@@ -173,3 +173,25 @@ test('new Manheim tables force RLS and allow no direct writes from browser roles
   assert.match(migration, /grant select on table[\s\S]*to authenticated/i);
   for (const line of migration.split(/\r?\n/)) assert.doesNotMatch(line, /grant (?:insert|update|delete|all).*to (?:anon|authenticated)/i);
 });
+
+test('saved searches reuse the contact index and expose cumulative versus individual explanations', () => {
+  const searches=read('api/panel/manheim-searches.js');
+  assert.match(searches,/const \{ contactIndex \} = require/);
+  assert.match(searches,/if \(!facts\.entered\) continue/);
+  assert.match(searches,/individualPercent/);
+  assert.match(searches,/clients: \[\.\.\.group\.leads\.values\(\)\]/);
+  assert.match(client,/Conta só quem entrou em contato/);
+  assert.match(client,/Salvando da #1 até esta/);
+  assert.match(client,/Esta busca sozinha atende/);
+  assert.match(client,/group\.leads===1\?'cliente quer':'clientes querem'/);
+});
+
+test('saved search actions are optimistic, sortable, and let the owner open each client lead', () => {
+  const searches=read('api/panel/manheim-searches.js');
+  assert.match(client,/mode==='vehicle'/);
+  assert.match(client,/mode==='recent'/);
+  assert.match(client,/group\.created=!before/);
+  assert.match(client,/group\.created=before/);
+  assert.match(client,/openDetail\('ficha',client\.journeyId\)/);
+  assert.match(searches,/phone: primaryPhone/);
+});
