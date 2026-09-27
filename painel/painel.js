@@ -508,7 +508,61 @@
   function mediaHistoryOrder(value) {
     return Math.min(...[...(value.data?.messages || []), ...(value.data?.message_echoes || [])].map((message) => Number(message?.timestamp)).filter(Number.isFinite), Infinity);
   }
+  function historyPartNumber(value) {
+    const match = String(value?.id || '').match(/#p(\d+)$/);
+    return match ? Number(match[1]) : 0;
+  }
+  function historyParts(value) {
+    if (value?.event !== 'history' || !Array.isArray(value.data?.history)) return [value];
+    const totalMessages = value.data.history.reduce((total, chunk) => total + (Array.isArray(chunk?.threads) ? chunk.threads : []).reduce((count, thread) => count + (Array.isArray(thread?.messages) ? thread.messages.length : 0), 0), 0);
+    if (!totalMessages) return [value];
+    const parts = [];
+    for (const chunk of value.data.history) {
+      let threads = [], messageCount = 0;
+      const flush = () => {
+        if (!threads.length) return;
+        parts.push({ id: `${value.id}#p${parts.length + 1}`, event: 'history', data: { id: value.data.id, messaging_product: value.data.messaging_product, metadata: value.data.metadata, history: [{ metadata: chunk?.metadata, threads }] } });
+        threads = []; messageCount = 0;
+      };
+      for (const thread of Array.isArray(chunk?.threads) ? chunk.threads : []) {
+        const messages = Array.isArray(thread?.messages) ? thread.messages : [];
+        for (let index = 0; index < messages.length;) {
+          if (messageCount === 100) flush();
+          const take = Math.min(100 - messageCount, messages.length - index);
+          threads.push({ ...thread, messages: messages.slice(index, index + take) });
+          messageCount += take; index += take;
+          if (messageCount === 100) flush();
+        }
+      }
+      flush();
+    }
+    return parts.length ? parts : [value];
+  }
+  function historyBatches(ordered) {
+    const batches = [], encoder = new TextEncoder();
+    let batch = [], bytes = 0;
+    for (const item of ordered) {
+      const itemBytes = encoder.encode(JSON.stringify(item)).length;
+      if (batch.length && (batch.length === 10 || bytes + itemBytes > 500000)) { batches.push(batch); batch = []; bytes = 0; }
+      batch.push(item); bytes += itemBytes;
+    }
+    if (batch.length) batches.push(batch);
+    return batches;
+  }
   const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  async function requestHistoryBatch(batch, requester, wait) {
+    let failure;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try { return await requester('/api/panel/history-import', { method: 'POST', body: JSON.stringify({ items: batch }) }); }
+      catch (error) {
+        failure = error;
+        const retryable = !error?.code || error.code === 'HISTORY_IMPORT_FAILED' || error.message === 'REQUEST_FAILED';
+        if (!retryable || attempt === 3) throw error;
+        await wait(2000);
+      }
+    }
+    throw failure;
+  }
   async function import360History() {
     const status = $('history-import-status'), errors = $('history-import-errors'), sendButton = $('history-import-send');
     if (!historyImportFile) return;
@@ -516,22 +570,24 @@
     try { entries = JSON.parse(await historyImportFile.text()); } catch (_) { throw new Error('HISTORY_FILE_INVALID'); }
     if (!Array.isArray(entries) || !entries.length || !entries.every(validHistoryObject)) throw new Error('HISTORY_FILE_INVALID');
     const states = entries.filter((entry) => entry.event === 'smb_app_state_sync');
-    const histories = entries.filter((entry) => entry.event === 'history' && Array.isArray(entry.data.history)).sort((left, right) => historyOrder(left)[0] - historyOrder(right)[0] || historyOrder(left)[1] - historyOrder(right)[1]);
+    const histories = entries.filter((entry) => entry.event === 'history' && Array.isArray(entry.data.history)).flatMap(historyParts).sort((left, right) => historyOrder(left)[0] - historyOrder(right)[0] || historyOrder(left)[1] - historyOrder(right)[1] || historyPartNumber(left) - historyPartNumber(right));
     const mediaHistories = entries.filter((entry) => entry.event === 'history' && !Array.isArray(entry.data.history)).sort((left, right) => mediaHistoryOrder(left) - mediaHistoryOrder(right));
     const ordered = states.concat(histories, mediaHistories), totals = { conversations: 0, imported: 0, alreadyExists: 0, errors: 0 };
     errors.replaceChildren(); sendButton.disabled = true;
-    for (let offset = 0; offset < ordered.length; offset += 10) {
-      let batch = ordered.slice(offset, offset + 10), attempts = 0;
+    let completed = 0;
+    for (const originalBatch of historyBatches(ordered)) {
+      let batch = originalBatch, attempts = 0;
       while (batch.length) {
-        status.textContent = `Importando ${Math.min(offset + (ordered.slice(offset, offset + 10).length - batch.length), ordered.length)} de ${ordered.length}…`;
-        const result = await request('/api/panel/history-import', { method: 'POST', body: JSON.stringify({ items: batch }) });
+        status.textContent = `Importando ${Math.min(completed, ordered.length)} de ${ordered.length}…`;
+        const result = await requestHistoryBatch(batch, request, pause);
         totals.conversations += Number(result.conversations || 0); totals.imported += Number(result.imported || 0); totals.alreadyExists += Number(result.alreadyExists || 0); totals.errors += Number(result.errors || 0);
-        if (result.more) { batch = batch.slice(Math.max(1, Number(result.nextIndex || 1))); continue; }
+        if (result.more) { const processed = Math.max(1, Number(result.nextIndex || 1)); completed += Math.min(processed, batch.length); batch = batch.slice(processed); continue; }
         if (result.inProgress && attempts++ < 8) { await pause(1000); continue; }
         if (result.inProgress) totals.errors += batch.length;
+        completed += batch.length;
         break;
       }
-      status.textContent = `Importando ${Math.min(offset + 10, ordered.length)} de ${ordered.length}…`;
+      status.textContent = `Importando ${Math.min(completed, ordered.length)} de ${ordered.length}…`;
     }
     const summary = `Importado: ${totals.conversations} conversas, ${totals.imported} mensagens novas, ${totals.alreadyExists} já existiam, ${totals.errors} com erro`;
     status.textContent = summary;

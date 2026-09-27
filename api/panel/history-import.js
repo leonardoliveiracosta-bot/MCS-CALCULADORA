@@ -6,7 +6,7 @@ const {eventKey,processRaw,rawEvent}=require('../../whatsapp-receiver');
 
 const HISTORY_PHONE='13055400742';
 const BATCH_LIMIT=10;
-const FUNCTION_BUDGET_MS=8000;
+const FUNCTION_BUDGET_MS=45000;
 
 function hasHistoryMessages(value){return Array.isArray(value?.history)||Array.isArray(value?.messages)||Array.isArray(value?.message_echoes);}
 function validObject(value){
