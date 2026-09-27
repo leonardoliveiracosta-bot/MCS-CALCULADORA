@@ -25,6 +25,10 @@ body.login-screen #login-view {
 }
 body.login-screen #login-view .muted,
 body.login-screen #login-view label { color: #F2EFE9; }
+body.login-screen #login-view .eyebrow { color: #C9A34E; }
+body.login-screen #login-view h1,
+body.login-screen #login-view p,
+body.login-screen #login-view label { color: #F2EFE9; }
 body.login-screen #login-view input {
   color: #F2EFE9;
   background: rgba(242,239,233,.10);
@@ -45,6 +49,16 @@ body.login-screen #login-view button[type="submit"] { background: #C9A34E; color
 .wait-clock.wait-gray { color: var(--muted); }
 .no-ref-phone { font-size: 20px; font-weight: 600; }
 .discard-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.today-card,
+.client-card {
+  align-self: start;
+  align-content: start;
+  gap: 10px;
+}
+.today-card > *,
+.client-card > * { margin-block: 0; }
+.today-card .inline-actions,
+.client-card .inline-actions { align-items: flex-start; }
 
 @media (max-width: 700px) {
   .clients-filters label { width: 100%; min-width: 0; }

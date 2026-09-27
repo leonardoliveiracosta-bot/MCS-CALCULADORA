@@ -21,6 +21,19 @@ test.beforeEach(async ({ page }) => {
   if (bypass) await page.setExtraHTTPHeaders({ 'x-vercel-protection-bypass': bypass });
 });
 
+for (const colorScheme of ['light', 'dark']) {
+  test(`login mantém marca dourada e textos creme em ${colorScheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme });
+    await page.goto(target.toString(), { waitUntil: 'domcontentloaded' });
+    const colors = await page.evaluate(() => ({
+      brand: getComputedStyle(document.querySelector('#login-view .eyebrow')).color,
+      title: getComputedStyle(document.querySelector('#login-title')).color,
+      copy: getComputedStyle(document.querySelector('#login-view .muted')).color
+    }));
+    expect(colors).toEqual({ brand: 'rgb(201, 163, 78)', title: 'rgb(242, 239, 233)', copy: 'rgb(242, 239, 233)' });
+  });
+}
+
 async function showPanel(page, view = 'today') {
   await page.evaluate((activeView) => {
     document.querySelector('#login-view')?.classList.add('hidden');
@@ -50,6 +63,29 @@ for (const width of [360, 390, 430]) {
     }
   }
 }
+
+test('cartões da HOJE e CLIENTES mantêm altura natural e blocos compactos', async ({ page }) => {
+  await page.goto(target.toString(), { waitUntil: 'domcontentloaded' });
+  await showPanel(page);
+  const result = await page.evaluate(() => {
+    const sample = (className) => {
+      const card = document.createElement('article');card.className=`item-card ${className}`;
+      card.innerHTML='<div class="item-head"><strong>Cliente</strong></div><div class="badges"><span class="badge">Quente</span></div><p class="wait-clock">esperando há 2 h</p><section class="next-action"><strong>Próximo passo</strong></section><div class="inline-actions"><button>Tratado</button></div>';
+      document.querySelector('#today-list').append(card);
+      const style=getComputedStyle(card),button=card.querySelector('button').getBoundingClientRect();
+      return {alignSelf:style.alignSelf,alignContent:style.alignContent,rowGap:parseFloat(style.rowGap),buttonHeight:button.height};
+    };
+    return {today:sample('today-card'),client:sample('client-card')};
+  });
+  for (const card of Object.values(result)) {
+    expect(card.alignSelf).toBe('start');
+    expect(card.alignContent).toBe('start');
+    expect(card.rowGap).toBeGreaterThanOrEqual(8);
+    expect(card.rowGap).toBeLessThanOrEqual(12);
+    expect(card.buttonHeight).toBeGreaterThanOrEqual(38);
+    expect(card.buttonHeight).toBeLessThanOrEqual(46);
+  }
+});
 
 test('helper dá efeito em até 300 ms, bloqueia clique duplo, desfaz e reverte falha',async({page})=>{
   await page.goto(target.toString(),{waitUntil:'domcontentloaded'});
