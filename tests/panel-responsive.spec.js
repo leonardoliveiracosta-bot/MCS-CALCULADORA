@@ -10,6 +10,7 @@ if (previewUrl.hostname === 'www.mycarscout.net' || previewUrl.hostname === 'myc
 }
 
 const target = new URL('/painel', previewUrl);
+for (const [name, value] of previewUrl.searchParams) target.searchParams.append(name, value);
 if (bypass) {
   target.searchParams.set('x-vercel-protection-bypass', bypass);
   target.searchParams.set('x-vercel-set-bypass-cookie', 'true');
