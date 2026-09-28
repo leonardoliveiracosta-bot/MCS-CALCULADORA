@@ -1324,6 +1324,46 @@
     root.replaceChildren(intro);
   }
 
+  /* ===== Montar V2: vitrine nova, so com o carro pedido, ligada a V1 ===== */
+  const V2_MAX_PHOTOS=12,V2_MAX_SIDE=1600,V2_MAX_BYTES=5*1024*1024;
+  function resizePhoto(file){return new Promise((resolve,reject)=>{if(!/^image\//.test(file.type||'')){reject(Error('NOT_IMAGE'));return;}const url=URL.createObjectURL(file),image=new Image();image.onload=()=>{const scale=Math.min(1,V2_MAX_SIDE/Math.max(image.naturalWidth,image.naturalHeight));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);canvas.toBlob((blob)=>{if(!blob){reject(Error('RESIZE_FAILED'));return;}if(blob.size>V2_MAX_BYTES){reject(Error('TOO_LARGE'));return;}resolve(blob);},'image/jpeg',0.85);};image.onerror=()=>{URL.revokeObjectURL(url);reject(Error('NOT_IMAGE'));};image.src=url;});}
+  const dollarsText=(cents)=>cents?String(Math.round(Number(cents)/100)):'';
+  function openV2Builder(request,card){
+    const existing=card.querySelector('.v2-builder');if(existing){existing.remove();return;}
+    const box=element('section','v2-builder'),photos=[];
+    box.append(element('h4','',request.car||'Carro'));
+    const status=element('p','muted v2-status','');
+    const drop=element('label','v2-drop','Arraste as fotos aqui ou toque para escolher · até 12 · a primeira é a capa');
+    const input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.className='visually-hidden';drop.append(input);
+    const thumbs=element('div','v2-thumbs');
+    const paint=()=>{thumbs.replaceChildren();photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.addEventListener('click',()=>{URL.revokeObjectURL(photo.url);photos.splice(index,1);paint();});item.append(img,remove);if(index===0)item.append(element('span','v2-cover','Capa'));thumbs.append(item);});};
+    const add=async(files)=>{for(const file of [...files]){if(photos.length>=V2_MAX_PHOTOS){status.textContent='Máximo de 12 fotos';break;}try{const blob=await resizePhoto(file);photos.push({blob,url:URL.createObjectURL(blob)});}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':'Um dos arquivos não é uma imagem';}}paint();};
+    input.addEventListener('change',()=>{add(input.files);input.value='';});
+    drop.addEventListener('dragover',(event)=>{event.preventDefault();drop.classList.add('over');});
+    drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+    drop.addEventListener('drop',(event)=>{event.preventDefault();drop.classList.remove('over');add(event.dataTransfer.files);});
+    const limitLabel=element('label','','Limite do cliente (US$) · em branco esconde o bloco');const limit=element('input');limit.type='text';limit.inputMode='numeric';limit.value=dollarsText(request.budgetCents);limitLabel.append(limit);
+    const noteLabel=element('label','','Nota (opcional)');const note=element('textarea');note.rows=2;note.maxLength=1200;noteLabel.append(note);
+    const generate=element('button','small','Gerar link da V2');generate.type='button';
+    const result=element('div','inline-actions v2-result hidden');
+    generate.addEventListener('click',async()=>{
+      generate.disabled=true;status.textContent='Criando a V2…';
+      const digits=limit.value.replace(/[^0-9]/g,'');
+      try{
+        const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({requestId:request.id,customerLimitCents:digits?Number(digits)*100:null,noteText:note.value.trim()||null})});
+        for(let index=0;index<photos.length;index++){status.textContent=`Enviando foto ${index+1} de ${photos.length}…`;await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(created.vitrineId)+'&carId='+encodeURIComponent(created.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photos[index].blob});}
+        const link=location.origin+created.link,message=`${request.name}, here's the car you asked to see\n${link}`;
+        status.textContent='V2 pronta';result.replaceChildren();
+        const view=element('button','quiet small','Ver como o cliente vê');view.type='button';view.addEventListener('click',()=>window.open(created.link,'_blank','noopener'));
+        const copyLink=element('button','quiet small','Copiar link');copyLink.type='button';copyLink.addEventListener('click',async()=>{await navigator.clipboard?.writeText(link);status.textContent='Link copiado';});
+        const copyMessage=element('button','small','Copiar mensagem com link');copyMessage.type='button';copyMessage.addEventListener('click',async()=>{await navigator.clipboard?.writeText(message);status.textContent='Mensagem copiada';});
+        result.append(view,copyLink,copyMessage);result.classList.remove('hidden');
+      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
+    });
+    box.append(drop,thumbs,limitLabel,noteLabel,generate,status,result);
+    card.append(box);
+  }
+
   function renderVitrineRequests(data) {
     const root=$('vitrine-requests'),signals=$('vitrine-signals');if(!root||!signals)return;
     root.replaceChildren();signals.replaceChildren();
@@ -1336,7 +1376,7 @@
         card.append(element('strong','',request.name),element('span','muted',`${request.phone||'Sem telefone'} · Ref ${request.referenceCode||'—'} · pediu pelo WhatsApp ${request.ago||''}`),element('span','',request.car||'Carro não informado'));
         const auction=request.endsAt||request.startsAt;if(auction)card.append(element('span','auction-alert',`Leilão ${relativeAuction(auction)} · ${formatDate(auction)}`));
         if(request.referred)card.append(makeBadge(`Número novo pelo link de ${request.ownerName} (${request.ownerRef||'sem Ref'}) · provável indicação`,'yellow'));
-        const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2 (em breve)');build.type='button';build.disabled=true;
+        if(request.kind==='BID'&&request.depositUsd)card.append(element('span','v2-deposit',`Próximo passo: pedir o depósito · US$ ${Number(request.depositUsd).toLocaleString('en-US')}`));const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2');build.type='button';build.disabled=!request.vitrineCarId;build.addEventListener('click',()=>openV2Builder(request,card));
         const open=element('button','quiet small','Abrir conversa');open.type='button';open.addEventListener('click',()=>request.journeyId&&openDetail('ficha',request.journeyId));open.disabled=!request.journeyId;
         const treated=element('button','small','Tratado');treated.type='button';treated.addEventListener('click',async()=>{card.remove();try{await requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:request.id});showUndoNotice('Marcado como tratado',async()=>{await requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:request.id});loadCurrent('today',viewRequestVersion);});}catch(_){loadCurrent('today',viewRequestVersion);}});actions.append(build,open,treated);card.append(actions);block.append(card);
       });
@@ -1590,6 +1630,9 @@
       badges.append(makeBadge(match.match_kind, match.match_kind === 'BATE' ? 'green' : 'yellow'));
       if (match.match_reason) badges.append(makeBadge(match.match_reason));
       if (match.mmr_status) badges.append(makeBadge(match.mmr_status, match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
+      if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
+      else if (match.fitsBid === false) badges.append(makeBadge('passa do lance', 'red'));
+      if (Array.isArray(match.alsoFitsFor) && match.alsoFitsFor.length) badges.append(makeBadge(`também bate para ${match.alsoFitsFor.join(', ')}`, 'blue'));
       const presented = element('button', 'quiet small', match.presented_unit_id ? 'Apresentado' : journey.enabled === false ? 'Religue antes de apresentar' : 'Apresentei ao cliente');
       presented.type = 'button'; presented.disabled = Boolean(match.presented_unit_id) || journey.enabled === false;
       MCSAction.bind(presented,()=>({scope:row,optimistic:()=>{presented.textContent='Apresentado';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:journey.id,manheimMatchId:match.id,status:'PRESENTED'})}),rollback:()=>{presented.textContent='Apresentei ao cliente';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'}));
@@ -1642,6 +1685,9 @@
       badges.append(makeBadge(match.match_kind, match.match_kind === 'BATE' ? 'green' : 'yellow'));
       if (match.match_reason) badges.append(makeBadge(match.match_reason));
       if (match.mmr_status) badges.append(makeBadge(match.mmr_status, match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
+      if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
+      else if (match.fitsBid === false) badges.append(makeBadge('passa do lance', 'red'));
+      if (Array.isArray(match.alsoFitsFor) && match.alsoFitsFor.length) badges.append(makeBadge(`também bate para ${match.alsoFitsFor.join(', ')}`, 'blue'));
       row.append(vehicle, badges);
       makeCardClickable(row, () => openDetail('order', order.ref));
       table.append(row);
