@@ -705,6 +705,17 @@
   section.policy h3:first-of-type{margin-top:0}
   section.policy p{font-size:15px;color:var(--ink-2);line-height:1.6;margin:0 0 10px}
   section.policy .policy-subtitle{font-size:15px;font-weight:600;color:var(--ink);line-height:1.5;margin:0 0 20px}
+  /* Bloco 9: juridico recolhido (botao + aria-expanded) */
+  .pol-toggle{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;
+    padding:16px 18px;border:1px solid rgba(20,24,29,.22);border-radius:10px;background:rgba(255,255,255,.55);
+    font:inherit;font-size:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--accent-dark);cursor:pointer;text-align:left;
+  }
+  .pol-toggle:focus-visible{outline:2px solid var(--accent-dark);outline-offset:2px}
+  .pol-caret{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:7px solid currentColor;transition:transform .2s ease;flex:0 0 auto}
+  .pol-toggle[aria-expanded="true"] .pol-caret{transform:rotate(180deg)}
+  .pol-body{padding-top:22px}
 
   /* ---------- Service fees (Aston Martin: serif accents on light bg) ---------- */
   section.fees{
@@ -1523,6 +1534,11 @@
     <h2 class="section-title" data-i18n="pol_k">KNOW BEFORE YOU AUTHORIZE A PURCHASE</h2>
     <p class="policy-subtitle" data-i18n="pol_h">WE BELIEVE A GOOD OPPORTUNITY SHOULD COME WITH CLEAR INFORMATION</p>
 
+    <button type="button" class="pol-toggle" id="pol-toggle" aria-expanded="true" aria-controls="pol-body">
+      <span>READ THE FULL DETAILS</span><span class="pol-caret" aria-hidden="true"></span>
+    </button>
+    <div class="pol-body" id="pol-body" role="region" aria-labelledby="pol-toggle">
+
     <p data-i18n="pol_1">Before we present an option to you, we provide the available vehicle information for your review, including CARFAX, auction photos, condition reports, auction announcements, title and odometer status, vehicle history, market data, and available diagnostics when present.</p>
     <p data-i18n="pol_2">We only begin searches that meet our operating criteria: clean title and a documented actual odometer. We do not place bids on salvage, rebuilt, TMU, or unverified-odometer vehicles, even at a client's request.</p>
 
@@ -1538,7 +1554,18 @@
     <h3 data-i18n="pol_h5">OPTIONAL THIRD-PARTY PROTECTION</h3>
     <p data-i18n="pol_6">Eligible vehicles may qualify for optional third-party vehicle service contracts. Coverage, deductibles, exclusions, waiting periods, and claims are determined by the provider.</p>
     </div>
+    </div>
   </section>
+  <script>
+  /* Bloco 9: acordeao acessivel. Sem JavaScript o texto fica aberto; com JavaScript comeca recolhido */
+  (function(){
+    var b = document.getElementById("pol-toggle"), c = document.getElementById("pol-body");
+    if (!b || !c) return;
+    function abrir(sim){ b.setAttribute("aria-expanded", sim ? "true" : "false"); c.hidden = !sim; }
+    abrir(false);
+    b.addEventListener("click", function(){ abrir(b.getAttribute("aria-expanded") !== "true"); });
+  })();
+  </script>
 
   <div class="sep" aria-hidden="true"><span></span></div>
   <section id="taxas" class="fees">
