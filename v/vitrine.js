@@ -2,6 +2,7 @@
   'use strict';
   const app = document.querySelector('#app');
   const token = location.pathname.split('/').filter(Boolean).at(-1);
+  let whatsAppNumber = '';
   const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format((Number(value) || 0) / 100);
   const date = (value) => value ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) : '';
   const name = (vehicle) => [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(' ');
@@ -11,7 +12,7 @@
   function openWhatsApp(car, bid) {
     event('TAP', car.code);
     const text = bid ? `Hey, I want to bid on the ${name(car.vehicle)} (${car.code})` : `Hey, I'd like to see the ${name(car.vehicle)} (${car.code})`;
-    location.href = 'https://wa.me/13055400742?text=' + encodeURIComponent(text);
+    location.href = 'https://wa.me/' + encodeURIComponent(whatsAppNumber) + '?text=' + encodeURIComponent(text);
   }
   function countdown(value) {
     const remaining = Date.parse(value) - Date.now();
@@ -26,15 +27,16 @@
     const tags = vehicle.cleanTitle || vehicle.odometerOk ? `<div class="tags">${vehicle.cleanTitle ? '<span>✓ Clean title</span>' : ''}${vehicle.odometerOk ? '<span>✓ Odometer OK</span>' : ''}</div>` : '';
     const limit = isV2 && car.customerLimitCents ? `<section class="limit"><div class="label">Your limit</div><div class="value">Up to ${money(car.customerLimitCents)}</div>${lines("You set the limit, we do the bidding\nYour limit is the most we'll bid, not what you pay\nIf we win it for less, you pay based on the winning bid")}</section>` : '';
     const note = isV2 && car.note ? `<p class="note">${escape(car.note)}</p>` : '';
-    return `<article class="car"><h2>${escape(carName)}</h2><p class="muted">${[vehicle.miles && Number(vehicle.miles).toLocaleString() + ' mi', vehicle.exteriorColor, vehicle.state].filter(Boolean).map(escape).join(' · ')}</p>${gallery(car.photos, carName)}${tags}<section class="auction"><div class="label">Auction day</div><div class="value">${escape(date(vehicle.startsAt))}</div><b>${escape(countdown(vehicle.startsAt))}</b></section><section><div class="label">Average auction value</div><div class="value">~ ${money(Math.round((vehicle.mmrCents || 0) / 5000) * 5000)}</div>${lines('A reference, not a fixed price\nThe final price is set on auction day')}</section>${isV2 ? specs(vehicle) : ''}${limit}${note}<button data-code="${car.code}" data-bid="${isV2}">${isV2 ? 'I want to bid' : 'Show me this car'}</button><p class="muted">Opens WhatsApp with a ready message to our team</p></article>`;
+    return `<article class="car"><h2>${escape(carName)}</h2><p class="muted">${[vehicle.miles && Number(vehicle.miles).toLocaleString() + ' mi', vehicle.exteriorColor, vehicle.state].filter(Boolean).map(escape).join(' · ')}</p>${gallery(car.photos, carName)}${tags}<section class="auction"><div class="label">Auction day</div><div class="value">${escape(date(vehicle.startsAt))}</div><b>${escape(countdown(vehicle.startsAt))}</b></section><section><div class="label">Average auction value</div><div class="value">~ ${money((car.averageAuctionValue || 0) * 100)}</div>${lines('A reference, not a fixed price\nThe final price is set on auction day')}</section>${isV2 ? specs(vehicle) : ''}${limit}${note}<button data-code="${car.code}" data-bid="${isV2}">${isV2 ? 'I want to bid' : 'Show me this car'}</button><p class="muted">Opens WhatsApp with a ready message to our team</p></article>`;
   }
   async function load() {
     const response = await fetch('/api/vitrine?token=' + encodeURIComponent(token));
     if (!response.ok) throw Error();
     const data = await response.json();
+    whatsAppNumber = String(data.whatsAppNumber || '');
     if (data.expired) {
       app.innerHTML = '<section class="expired"><h1>This auction has ended</h1><p>Ask us about similar cars</p><button>Ask our team</button></section>';
-      app.querySelector('button').onclick = () => { location.href = 'https://wa.me/13055400742?text=' + encodeURIComponent(`Hey, I'd like to see similar cars (Ref ${data.referenceCode})`); };
+      app.querySelector('button').onclick = () => { location.href = 'https://wa.me/' + encodeURIComponent(whatsAppNumber) + '?text=' + encodeURIComponent(`Hey, I'd like to see similar cars (Ref ${data.referenceCode})`); };
       return;
     }
     event('OPEN');

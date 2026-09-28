@@ -14,7 +14,7 @@ function publicVehicle(vehicle={}){
   const date=clean(vehicle.startsAt||vehicle.saleDate,80);
   return { year:Number(vehicle.year)||null, make:clean(vehicle.make,80), model:clean(vehicle.model,120), trim:clean(vehicle.trim,120), miles:Number(vehicle.miles)||null,
     exteriorColor:clean(vehicle.exteriorColor,80), interiorColor:clean(vehicle.interiorColor,80), drivetrain:clean(vehicle.drivetrain,80), transmission:clean(vehicle.transmission,80), engine:clean(vehicle.engine,120),
-    state:locationState(vehicle.location)||clean(vehicle.state,80), startsAt:date||null, endsAt:clean(vehicle.endsAt,80)||null, mmrCents:Number(vehicle.mmrCents)||null,
+    state:locationState(vehicle.location)||clean(vehicle.state,80), startsAt:date||null, endsAt:clean(vehicle.endsAt,80)||null, averageAuctionValue:roundedMmr(vehicle.mmrCents),
     cleanTitle:vehicle.cleanTitle===true, odometerOk:vehicle.odometerOk===true };
 }
 function vehicleName(vehicle={}){ return clean([vehicle.year,vehicle.make,vehicle.model,vehicle.trim].filter(Boolean).join(' '),220); }
@@ -24,13 +24,16 @@ function randomCode(){ return 'MCS-'+[0,1,2,3].map(()=>CODE_ALPHABET[crypto.rand
 function extractCode(text){ const hit=String(text||'').match(CODE_RE); return hit?'MCS-'+hit[1].toUpperCase():null; }
 function deposit(cents){ const amount=Math.max(0,Number(cents)||0)/100; return amount<=5000?500:Math.round(amount*.1); }
 function expiresAt(cars, now=Date.now()){
-  const latest=Math.max(...(cars||[]).map((car)=>Date.parse(car?.vehicle_snapshot?.endsAt||car?.endsAt||car?.vehicle_snapshot?.startsAt||0)).filter(Number.isFinite),0);
+  const latest=Math.max(...(cars||[]).map((car)=>{
+    const vehicle=car?.vehicle_snapshot||car?.vehicle||car||{};
+    return Date.parse(vehicle.endsAt||vehicle.startsAt||vehicle.saleDate||0);
+  }).filter(Number.isFinite),0);
   return new Date((latest||now)+48*60*60*1000).toISOString();
 }
 function isExpired(vitrine, now=Date.now()){ return Date.parse(vitrine?.expires_at||'')<=now; }
 function publicResponse(vitrine,cars,urls=[]){
   const expired=isExpired(vitrine);
   return { token:vitrine.token, version:vitrine.version, referenceCode:vitrine.reference_code, customerName:clean(vitrine.customer_name,80), expired,
-    cars:(cars||[]).map((car,index)=>({code:car.short_code, vehicle:publicVehicle(car.vehicle_snapshot), photos:urls[index]||[], customerLimitCents:car.customer_limit_cents||null, note:clean(car.note_text,800)||null})).filter(Boolean) };
+    cars:(cars||[]).map((car,index)=>({code:car.short_code, vehicle:publicVehicle(car.vehicle_snapshot), averageAuctionValue:car.vehicle_snapshot?.averageAuctionValue||roundedMmr(car.vehicle_snapshot?.mmrCents), photos:urls[index]||[], customerLimitCents:car.customer_limit_cents||null, note:clean(car.note_text,800)||null})).filter(Boolean) };
 }
 module.exports={STATES,CODE_RE,clean,locationState,publicVehicle,vehicleName,roundedMmr,randomToken,randomCode,extractCode,deposit,expiresAt,isExpired,publicResponse};
