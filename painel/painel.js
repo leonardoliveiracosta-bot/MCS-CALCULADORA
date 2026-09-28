@@ -2258,7 +2258,66 @@
     filter.addEventListener('change', renderConversation);
     conversationBlock.append(timeline);
     renderConversation();
+    replyComposer(conversationBlock, id, reload);
     right.append(conversationBlock);
+  }
+
+  // Resposta pelo painel: escrevo em português, a IA traduz, eu confiro a volta e envio pelo WhatsApp.
+  // Só aparece quando o servidor diz que a ficha tem um único chat WhatsApp individual com telefone.
+  async function replyComposer(block, journeyId, reload) {
+    let state;
+    try { state = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'window', journeyId }) }); } catch (_) { return; }
+    const box = element('div', 'reply-composer');
+    box.append(element('h4', '', 'Responder pelo painel'));
+    const windowLine = element('p', 'reply-window muted');
+    const ptLabel = element('label', '', 'Sua mensagem (português)');
+    const pt = element('textarea'); pt.maxLength = 4000; pt.rows = 4; ptLabel.append(pt);
+    const translateButton = element('button', 'small', 'Traduzir'); translateButton.type = 'button';
+    const enLabel = element('label', '', 'Vai para o cliente (inglês)');
+    const en = element('textarea'); en.readOnly = true; en.rows = 4; enLabel.append(en);
+    const backLabel = element('label', '', 'Conferência (volta para o português)');
+    const back = element('textarea'); back.readOnly = true; back.rows = 4; backLabel.append(back);
+    const sendButton = element('button', 'small', 'Enviar'); sendButton.type = 'button';
+    const status = element('p', 'reply-status', '');
+    let translatedFor = null, busy = false;
+    const closedText = 'Mais de 24 h desde a última mensagem do cliente · responda pelo app do WhatsApp';
+    const floridaTime = (value) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+    const windowOpen = () => state.allowed && Date.parse(state.openUntil) > Date.now();
+    const refresh = () => {
+      windowLine.textContent = windowOpen() ? `Janela aberta até ${floridaTime(state.openUntil)} (Flórida)` : closedText;
+      translateButton.disabled = busy || !pt.value.trim();
+      sendButton.disabled = busy || !windowOpen() || !en.value || translatedFor !== pt.value.trim();
+    };
+    pt.addEventListener('input', () => { if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
+    translateButton.addEventListener('click', async () => {
+      const text = pt.value.trim(); if (!text) return;
+      busy = true; status.textContent = 'Traduzindo…'; refresh();
+      try {
+        const out = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'translate', text }) });
+        en.value = out.en; back.value = out.pt_back; translatedFor = text; status.textContent = '';
+      } catch (_) { status.textContent = 'IA indisponível'; }
+      busy = false; refresh();
+    });
+    sendButton.addEventListener('click', async () => {
+      if (sendButton.disabled) return;
+      busy = true; status.textContent = 'Enviando…'; refresh();
+      try {
+        await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'send', journeyId, textEn: en.value }) });
+        status.textContent = 'Enviado'; busy = false; reload(); return;
+      } catch (failure) {
+        const code = failure.code || 'REQUEST_FAILED';
+        if (code === 'WINDOW_CLOSED') { state = { allowed: false }; status.textContent = closedText; }
+        else if (code === 'SENT_NOT_RECORDED') status.textContent = 'Enviado ao cliente, mas não registrado no painel · não reenvie';
+        else if (/^D360_/.test(code)) status.textContent = `${code} · Não enviado · nada foi registrado`;
+        else status.textContent = `${code} · Não enviado`;
+      }
+      busy = false; refresh();
+    });
+    const translateRow = element('div', 'inline-actions'); translateRow.append(translateButton);
+    const sendRow = element('div', 'inline-actions'); sendRow.append(sendButton);
+    box.append(windowLine, ptLabel, translateRow, enLabel, backLabel, sendRow, status);
+    refresh();
+    block.append(box);
   }
 
   async function globalSearch(event) {

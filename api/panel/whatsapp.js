@@ -11,7 +11,7 @@ module.exports=async(req,res)=>{
       await resolveStoredItemErrors(ctx).catch((error)=>console.error('[whatsapp-maintenance]',{operation:'resolve',message:String(error?.message||'UNKNOWN')}));
       await recoverStalledEvents(ctx,{maxEvents:3,deadlineAt:Date.now()+25000}).catch((error)=>console.error('[whatsapp-maintenance]',{operation:'recover',message:String(error?.message||'UNKNOWN')}));
       const [latest,inbound,echo,errors,ignored,itemErrors,suggestions,phoneReviews]=await Promise.all([
-        rows(ctx,'whatsapp_raw_events',{select:'received_at',environment:'eq.'+ctx.environment,order:'received_at.desc',limit:'1'}),
+        rows(ctx,'whatsapp_raw_events',{select:'received_at',environment:'eq.'+ctx.environment,event_type:'neq.PANEL_SEND',order:'received_at.desc',limit:'1'}),
         rows(ctx,'whatsapp_raw_events',{select:'received_at',environment:'eq.'+ctx.environment,event_type:'eq.messages',status:'eq.DONE',order:'received_at.desc',limit:'1'}),
         rows(ctx,'whatsapp_raw_events',{select:'received_at',environment:'eq.'+ctx.environment,event_type:'eq.smb_message_echoes',status:'eq.DONE',order:'received_at.desc',limit:'1'}),
         rows(ctx,'whatsapp_raw_events',{select:'id,event_type,status,error_code,received_at,processing_started_at,attempts',environment:'eq.'+ctx.environment,status:'in.(ERROR,PENDING,PROCESSING)',order:'received_at.desc',limit:'50'}),
