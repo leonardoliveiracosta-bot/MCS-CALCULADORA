@@ -1,7 +1,7 @@
 'use strict';
 const { timezoneForZip, realisticBid, median } = require('./panel-lead');
 const { effectiveCriteria } = require('./panel-domain');
-const catalog = require('./vehicle-catalog');
+const vehicleMatch = require('./vehicle-match');
 const calc = require('./calc-core');
 function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   const tz=timezoneForZip(item.zip||journey?.zip||'');
@@ -19,9 +19,8 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   const wish=wishes[0];
   let mmr=null;
   if(wish?.model){
-    const comparable=vehicles.filter((vehicle)=>(!wish.make||!vehicle.make||catalog.fold(wish.make)===catalog.fold(vehicle.make))&&catalog.modelsMatch(vehicle.model,wish.model,vehicle.make,wish.make)
-      &&(!wish.yearMin||vehicle.year>=wish.yearMin-1)&&(!wish.yearMax||vehicle.year<=wish.yearMax+1)&&(!wish.yearMax||wish.yearMin||vehicle.year>=wish.yearMax-1)
-      &&(!wish.maxMiles||Math.abs(vehicle.miles-wish.maxMiles)<=20000));
+    // R3: only cars the shared rule calls BATE are comparable; unknown criteria are not "any".
+    const comparable=vehicles.filter((vehicle)=>vehicleMatch.matchWish(vehicle,wish,criteria.bidCents)?.kind==='BATE');
     mmr=median(comparable.map((vehicle)=>vehicle.mmrCents));
   }
   const zip=item.zip||journey?.zip||'';

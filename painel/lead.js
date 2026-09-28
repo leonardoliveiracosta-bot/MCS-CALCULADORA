@@ -134,9 +134,10 @@
     if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)) append(questions,'p','',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);
     if(!questions.querySelector('p'))append(questions,'p','muted','Checklist completo.');
     const offers=section(second,6,'O QUE OFERECER');
-    if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível dentro do lance realista.');
+    if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes.');
     data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind,car.kind==='BATE'?'green':'yellow'));
-      append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${Number(car.miles).toLocaleString('en-US')} mi · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
+      append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('en-US')+' mi'} · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
+      if(car.matchNotice)line.append(badge(car.matchNotice,'yellow'));else if(car.matchReason)append(line,'span','muted',car.matchReason);
       button(line,'Apresentar',async()=>{await api('present',{fingerprint:car.rowFingerprint});await reload();}); });
     const context=section(second,7,'CONTEXTO RÁPIDO');
     const allPromises=[...(record.promises||[]),...(data.promises||[])];

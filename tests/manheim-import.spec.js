@@ -70,7 +70,7 @@ test('CSV do Manheim com milhares de combinações importa inteiro, em partes, s
         if (body.partIndex < body.partCount) return json({ uploadId: server.draft.id, complete: false, partIndex: body.partIndex, partCount: body.partCount }, 202);
         const matches = server.draft.matches.map((match, index) => ({
           id: `5b000000-0000-4000-8000-${String(index).padStart(12, '0')}`, journey_id: match.journeyId || null, calc_ref: match.calcRef || null,
-          match_kind: match.kind, match_reason: match.reason, mmr_status: match.mmrStatus, row_fingerprint: match.fingerprint, vehicle_json: match.vehicle
+          match_kind: match.kind, match_reason: match.reason, mmr_status: match.mmrStatus, row_fingerprint: match.fingerprint, vehicle_json: match.vehicle, dataGap: match.dataGap === true
         }));
         const leads = new Set(matches.map((match) => match.journey_id || match.calc_ref)).size;
         server.uploads.push({ id: server.draft.id, matches, summary: { id: server.draft.id, vehicle_count: body.vehicleCount, matched_vehicle_count: matches.length, lead_count: leads, uploaded_at: new Date().toISOString() } });
@@ -92,7 +92,8 @@ test('CSV do Manheim com milhares de combinações importa inteiro, em partes, s
   const status = page.locator('#manheim-status');
   await expect(status).toContainText('arquivados', { timeout: 150000 });
   const text = await status.textContent();
-  console.log('Status final:', text, '| partes:', server.parts.length, '| maior parte:', Math.max(...server.parts.map((part) => part.bytes)), 'bytes');
+  const kinds = server.uploads[0] ? server.uploads[0].matches.reduce((acc, match) => { const key = match.match_kind + (match.dataGap ? ' (falta de dado)' : ''); acc[key] = (acc[key] || 0) + 1; return acc; }, {}) : {};
+  console.log('Status final:', text, '| partes:', server.parts.length, '| maior parte:', Math.max(...server.parts.map((part) => part.bytes)), 'bytes', '| tipos:', JSON.stringify(kinds));
 
   await expect(status).not.toHaveClass(/error/);
   expect(text).toMatch(/^\d+ carros arquivados, \d+ ignorados, \d+ combinações$/);

@@ -274,7 +274,7 @@ test('todo erro da importação do Manheim tem código ou vira "Erro inesperado:
   assert.match(client, /status\.textContent = 'Lendo…'/);
   assert.match(client, /`Comparando \$\{vehicles\.length\} carros…`/);
   assert.match(client, /`Enviando parte \$\{partIndex\} de \$\{partCount\}…`/);
-  assert.match(client, /`\$\{archived\} carros arquivados, \$\{ignored\} ignorados, \$\{combinations\} combinações`/);
+  assert.match(client, /`\$\{archived\} carros arquivados, \$\{ignored\} ignorados, \$\{combinations\} combinações\$\{discardedText\}`/);
   assert.match(read('painel/index.html'), /manheim\.js[\s\S]*manheim-upload\.js[\s\S]*painel\.js/);
 });
 

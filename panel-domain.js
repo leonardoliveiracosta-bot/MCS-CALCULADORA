@@ -1,6 +1,7 @@
 'use strict';
 
 const vehicleCatalog = require('./vehicle-catalog');
+const vehicleMatch = require('./vehicle-match');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REF_RE = /^[A-HJ-NP-Z2-9]{5}$/;
@@ -174,40 +175,9 @@ function wishlistText(wishlist) {
   }).filter(Boolean).join(' · ');
 }
 
-function normalizedVehicle(value) {
-  return fold(value).replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
+// R3 lives in vehicle-match.js, shared with the browser. budgetCents is the maximum bid (R2).
 function matchManheimVehicle(vehicle, wishlist, budgetCents) {
-  const wishes = Array.isArray(wishlist) ? wishlist.slice(0, 5) : wishlist && Array.isArray(wishlist.wishlists) ? wishlist.wishlists.slice(0, 5) : [wishlist || {}];
-  const year = finiteInteger(vehicle && vehicle.year);
-  const miles = finiteInteger(vehicle && vehicle.miles);
-  const mmrCents = finiteInteger(vehicle && vehicle.mmrCents);
-  if (!year || !clean(vehicle && vehicle.model)) return null;
-  const candidates = [];
-  wishes.forEach((wish, index) => {
-    if (!clean(wish && wish.model)) return;
-    if (clean(vehicle.make) && clean(wish.make) && normalizedVehicle(vehicle.make) !== normalizedVehicle(wish.make)) return;
-    if (!vehicleCatalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make)) return;
-  const yearMin = finiteInteger(wish.yearMin);
-  const yearMax = finiteInteger(wish.yearMax);
-  const maxMiles = finiteInteger(wish.maxMiles);
-  const failures = [];
-  if (yearMin && year < yearMin) failures.push({ kind: 'year', delta: yearMin - year, reason: `ano ${yearMin - year} abaixo` });
-  if (yearMax && year > yearMax) failures.push({ kind: 'year', delta: year - yearMax, reason: `ano ${year - yearMax} acima` });
-  if (maxMiles && miles && miles > maxMiles) failures.push({ kind: 'miles', delta: miles - maxMiles, reason: `milhas ${(miles - maxMiles).toLocaleString('pt-BR')} acima` });
-  const kind = failures.length === 0 ? 'BATE' : failures.length === 1 && ((failures[0].kind === 'year' && failures[0].delta <= 1) || (failures[0].kind === 'miles' && failures[0].delta <= maxMiles * 0.1)) ? 'QUASE' : null;
-    if (!kind) return;
-    candidates.push({
-    kind,
-    reason: failures[0] ? failures[0].reason : null,
-      mmrStatus: mmrCents && Number(budgetCents) > 0 ? (mmrCents > Number(budgetCents) ? 'MMR acima do teto' : 'MMR dentro do teto') : null,
-      matchedWishlistIndex: index,
-      matchedWishlistLabel: clean([wish.make, wish.model].filter(Boolean).join(' ')),
-      makeNotice: clean(vehicle.makeNotice)
-    });
-  });
-  return candidates.sort((left, right) => (left.kind === right.kind ? left.matchedWishlistIndex - right.matchedWishlistIndex : left.kind === 'BATE' ? -1 : 1))[0] || null;
+  return vehicleMatch.matchVehicle(vehicle, wishlist, budgetCents);
 }
 
 // A5: ENCERRADO always wins over the on/off switch. A closed ficha only comes back through an
@@ -435,18 +405,14 @@ function groupCalculatorByRef(orders, dispositions = []) {
   }).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0) || a.ref.localeCompare(b.ref));
 }
 
+// A calculator order is matched once, with the Ref's combined criteria (newest value of each
+// field) and the Ref's newest bid (A6). A simulation without year/mileage no longer opens the
+// filter of a search in the same Ref.
 function matchManheimOrder(vehicle, order) {
-  const simulations = Array.isArray(order && order.simulations) ? order.simulations : order ? [order] : [];
-  const candidates = [];
-  for (const simulation of simulations) {
-    const result = matchManheimVehicle(vehicle, simulation.wishlists || simulation.wishlist, simulation.budgetCents);
-    if (!result) continue;
-    if (simulation.logicalMode === 'VALOR') {
-      if (!(Number(simulation.budgetCents) > 0) || !(Number(vehicle && vehicle.mmrCents) > 0) || Number(vehicle.mmrCents) > Number(simulation.budgetCents)) continue;
-    }
-    candidates.push({ ...result, logicalMode: simulation.logicalMode, ref: simulation.ref });
-  }
-  return candidates.sort((left, right) => left.kind === right.kind ? (left.logicalMode === 'CARRO' ? -1 : 1) : left.kind === 'BATE' ? -1 : 1)[0] || null;
+  if (!order) return null;
+  const wishlists = Array.isArray(order.wishlists) ? order.wishlists : order.wishlist ? [order.wishlist] : [];
+  const result = vehicleMatch.matchVehicle(vehicle, wishlists, order.budgetCents);
+  return result ? { ...result, logicalMode: order.logicalMode || null, ref: order.ref || null } : null;
 }
 
 function standardBudget(budgetCents) {

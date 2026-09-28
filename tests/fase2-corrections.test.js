@@ -181,8 +181,10 @@ test('archive skips invalid rows and reports ignored count',async()=>{
   const valid={fingerprint:'vin:OK',vehicle:{vin:'OK',year:2020,make:'BMW',model:'X5',miles:65000}};
   let archive=[];const server=mockServer({rows:async()=>[{id:journeyId}],supabase:async(_url,_key,_path,options)=>{archive=JSON.parse(options.body);return[];}});
   const handler=loadWith('api/panel/actions.js',{'../../panel-server':server});
-  const res=output();await handler({method:'POST',body:{action:'manheim_archive',uploadId:journeyId,vehicles:[valid,{fingerprint:'bad',vehicle:{year:2020,model:'X5'}}]}},res);
-  assert.equal(res.code,200);assert.deepEqual([res.payload.archived,res.payload.ignored],[1,1]);assert.equal(archive.length,1);
+  // R3e: a car without odometer is archived with unknown mileage (null), never dropped nor 0.
+  const noOdometer={fingerprint:'vin:TMU',vehicle:{vin:'TMU',year:2020,model:'X5'}};
+  const res=output();await handler({method:'POST',body:{action:'manheim_archive',uploadId:journeyId,vehicles:[valid,noOdometer,{fingerprint:'bad',vehicle:{model:'X5',miles:1000}}]}},res);
+  assert.equal(res.code,200);assert.deepEqual([res.payload.archived,res.payload.ignored],[2,1]);assert.equal(archive.length,2);assert.equal(archive[1].vehicle_json.miles,null);
 });
 
 test('manual return date reaches delegated action as customer-zone UTC',async()=>{

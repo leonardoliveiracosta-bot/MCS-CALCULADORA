@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const calc = require('./calc-core');
 const catalog = require('./vehicle-catalog');
+const vehicleMatch = require('./vehicle-match');
 const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, REF_RE } = require('./panel-domain');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
 const { loadSearchStageIndex } = require('./panel-search-stage');
@@ -99,13 +100,10 @@ function relevant(vehicle, wish) {
     && catalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make);
 }
 
-function offerKind(vehicle, wish) {
-  if (!relevant(vehicle, wish)) return null;
-  const yearDelta = wish.yearMin && vehicle.year < wish.yearMin ? wish.yearMin - vehicle.year : wish.yearMax && vehicle.year > wish.yearMax ? vehicle.year - wish.yearMax : 0;
-  const milesDelta = wish.maxMiles && vehicle.miles > wish.maxMiles ? vehicle.miles - wish.maxMiles : 0;
-  if (yearDelta === 0 && milesDelta === 0) return 'BATE';
-  if (yearDelta <= 1 && milesDelta <= 15000) return 'QUASE';
-  return null;
+// Same rule as the CSV match (R3, vehicle-match.js): kind of one car for one wish.
+function offerKind(vehicle, wish, bidCents) {
+  const result = vehicleMatch.matchWish(vehicle, wish || {}, bidCents);
+  return result ? result.kind : null;
 }
 
 function realisticBid(ceilingCents, options) {
@@ -212,11 +210,13 @@ async function leadData(ctx, req, refInput, idInput) {
       && (!wish.maxMiles || Math.abs(car.miles - wish.maxMiles) <= 20000));
     return { ...wish, mmrCents: median(compared.map((car) => car.mmrCents)) };
   });
+  // R3: offers use the maximum bid (never the total ceiling, R2) and the same match rule as
+  // the CSV. A QUASE caused by missing data keeps its notice so it is not read as a fit.
   const offers = [...unique.values()].flatMap((vehicle) => {
-    const kind = wishes.map((wish) => offerKind(vehicle, wish)).find((value) => value === 'BATE') || wishes.map((wish) => offerKind(vehicle, wish)).find(Boolean);
-    return kind && bid !== null && Number(vehicle.mmrCents) > 0 && vehicle.mmrCents <= bid * 100 ? [{ ...vehicle, kind }] : [];
-  }).slice(0, 80);
-  const fits = [...unique.values()].filter((vehicle) => bid !== null && vehicle.mmrCents > 0 && vehicle.mmrCents <= bid * 100 && wishes.some((wish) => relevant(vehicle, wish)))
+    const result = vehicleMatch.matchVehicle(vehicle, wishes, maxBidCents);
+    return result ? [{ ...vehicle, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap }] : [];
+  }).sort((a, b) => (a.kind === b.kind ? (a.dataGap === b.dataGap ? 0 : a.dataGap ? 1 : -1) : a.kind === 'BATE' ? -1 : 1)).slice(0, 80);
+  const fits = offers.filter((vehicle) => vehicle.kind === 'BATE')
     .map((vehicle) => ({ year: vehicle.year, miles: vehicle.miles, make: vehicle.make, model: vehicle.model })).slice(0, 8);
   const lastCustomer = record && [...(record.conversation || [])].reverse().find((message) => message.direction === 'CUSTOMER');
   const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(new Date()));

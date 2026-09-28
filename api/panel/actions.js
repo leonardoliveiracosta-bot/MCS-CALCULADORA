@@ -633,7 +633,8 @@ function safeManheimVehicle(value) {
     exteriorColor: safeText(parsedSource.exteriorColor, 120) || '', interiorColor: safeText(parsedSource.interiorColor, 120) || '',
     buyNowPrice: safeText(parsedSource.buyNowPrice, 120) || '', conditionGrade: safeText(parsedSource.conditionGrade, 120) || '', startsAt:safeText(parsedSource.startsAt,100)||safeText(parsedSource.saleDate,100)||'', endsAt:safeText(parsedSource.endsAt,100)||'', drivetrain:safeText(parsedSource.drivetrain,80)||'', transmission:safeText(parsedSource.transmission,80)||'', engine:safeText(parsedSource.engine,120)||'', cleanTitle:parsedSource.cleanTitle===true, odometerOk:parsedSource.odometerOk===true
   };
-  if (!headers.length || !parsed.year || !parsed.model || parsed.miles === null || parsed.miles < 0) return null;
+  // Unknown odometer stays null (R3e); it is never turned into 0 miles.
+  if (!headers.length || !parsed.year || !parsed.model || (parsed.miles !== null && parsed.miles < 0)) return null;
   if (parsed.makeInferred) {
     const inferred = vehicleCatalog.inferMake(parsed.model);
     parsed.make = inferred.make;
@@ -653,52 +654,84 @@ function manheimUploadHeader(body) {
   return valid ? { fileCount, vehicleCount, headers, headerMap } : null;
 }
 
-// Revalidates every requested match against the current journeys and calculator orders.
+// Revalidates every requested match against the current journeys and calculator orders with
+// the same rule the browser uses (vehicle-match.js, R3). A match that is no longer valid
+// (criteria changed, ficha closed or switched off, Ref now linked to a ficha) is dropped and
+// counted instead of failing the whole upload (A19).
 async function validateManheimMatches(ctx, requested) {
-  const [journeys, toggleStates, calcRuns, calcLinks, dispositions] = await Promise.all([
-    allRows(ctx, 'journeys', { select: 'id,status,stage,criteria_json,budget_cents', environment: 'eq.' + ctx.environment }),
+  const [journeys, toggleStates, calcRuns, calcLinks, dispositions, journeyRefs] = await Promise.all([
+    allRows(ctx, 'journeys', { select: 'id,status,stage,reference_code,criteria_json,budget_cents,confirmed_total_ceiling_cents', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' })
+    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
+    allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment })
   ]);
   const states = new Map(toggleStates.map((state) => [state.journey_id, state]));
   const byId = new Map(journeys.map((journey) => {
     const state = states.get(journey.id);
-    return [journey.id, { ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', offReason: state && state.off_reason || null }];
+    return [journey.id, { ...journey, enabled: toggleEnabled(journey.status, state), offReason: state && state.off_reason || null }];
   }));
-  const orderByRef = new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions)
-    .filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
+  const refOwner = new Map();
+  journeys.forEach((journey) => { const ref = String(journey.reference_code || '').trim().toUpperCase(); if (ref) refOwner.set(ref, journey.id); });
+  journeyRefs.forEach((row) => { const ref = String(row.ref_code || '').trim().toUpperCase(); if (ref && byId.has(row.journey_id)) refOwner.set(ref, row.journey_id); });
+  const allOrders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions);
+  const linked = new Map();
+  allOrders.forEach((order) => {
+    const owner = refOwner.get(order.ref) || order.journeyId;
+    if (!owner || !byId.has(owner)) return;
+    if (!linked.has(owner)) linked.set(owner, []);
+    linked.get(owner).push(order);
+  });
+  const criteriaFor = new Map();
+  const journeyCriteria = (journey) => {
+    if (!criteriaFor.has(journey.id)) {
+      const orders = linked.get(journey.id) || [];
+      const merged = orders.length ? { wishlists: mergeWishlists([], orders.flatMap((order) => order.wishlists || [])), budgetCents: orders.map((order) => order.budgetCents).find((value) => Number(value) > 0) || null } : null;
+      criteriaFor.set(journey.id, effectiveCriteria(journey, merged));
+    }
+    return criteriaFor.get(journey.id);
+  };
+  const orderByRef = new Map(allOrders.filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
   const matches = [];
   const orderMatches = [];
-  for (const item of requested) {
-    const vehicle = safeManheimVehicle(item && item.vehicle);
-    const fingerprint = safeText(item && item.fingerprint, 200, true);
-    if (!vehicle || !fingerprint) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
-    if (item && item.targetType === 'ORDER') {
-      const ref = String(item.calcRef || '').trim().toUpperCase();
-      const order = orderByRef.get(ref);
-      const result = order && matchManheimOrder(vehicle.parsed, order);
-      if (!order || !result) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
-      vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
-      vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
-      vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
-      orderMatches.push({ calcRef: ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
-      continue;
-    }
-    if (!isUuid(item && item.journeyId)) return { status: 400, error: 'MANHEIM_JOURNEY_ID_INVALID' };
-    const journey = byId.get(item.journeyId);
-    if (!journey) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
-    const result = matchManheimVehicle(vehicle.parsed, wishlistsForJourney(journey), journey.budget_cents);
-    if (!result) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
-    if (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE')) return { status: 409, error: 'MANHEIM_JOURNEY_DISABLED' };
-    if (journey.status === 'PARADO' && result.kind !== 'BATE') continue;
+  const discarded = { total: 0, reasons: {} };
+  const discard = (reason) => { discarded.total += 1; discarded.reasons[reason] = (discarded.reasons[reason] || 0) + 1; };
+  const annotate = (vehicle, result) => {
     vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
     vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
     vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
-    matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
+    vehicle.parsed.matchNotice = result.notice || '';
+    vehicle.parsed.matchBasis = result.basis;
+    vehicle.parsed.dataGap = result.dataGap === true;
+  };
+  for (const item of requested) {
+    const vehicle = safeManheimVehicle(item && item.vehicle);
+    const fingerprint = safeText(item && item.fingerprint, 200, true);
+    if (!vehicle || !fingerprint) { discard('INVALID_ROW'); continue; }
+    if (item && item.targetType === 'ORDER') {
+      const ref = String(item.calcRef || '').trim().toUpperCase();
+      const order = orderByRef.get(ref);
+      if (!order) { discard('ORDER_UNAVAILABLE'); continue; }
+      if (refOwner.has(ref) || order.journeyId) { discard('REF_LINKED_TO_FICHA'); continue; }
+      const result = matchManheimOrder(vehicle.parsed, order);
+      if (!result) { discard('CRITERIA_CHANGED'); continue; }
+      annotate(vehicle, result);
+      orderMatches.push({ calcRef: ref, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
+      continue;
+    }
+    if (!isUuid(item && item.journeyId)) { discard('INVALID_ROW'); continue; }
+    const journey = byId.get(item.journeyId);
+    if (!journey) { discard('JOURNEY_UNAVAILABLE'); continue; }
+    const criteria = journeyCriteria(journey);
+    const result = matchManheimVehicle(vehicle.parsed, criteria.wishes, criteria.bidCents);
+    if (!result) { discard('CRITERIA_CHANGED'); continue; }
+    if (journey.status === 'ENCERRADO' || (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE'))) { discard('JOURNEY_DISABLED'); continue; }
+    if (journey.status === 'PARADO' && result.kind !== 'BATE') { discard('JOURNEY_DISABLED'); continue; }
+    annotate(vehicle, result);
+    matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
   }
-  return { matches: matches.concat(orderMatches.map((item) => ({
+  return { discarded, matches: matches.concat(orderMatches.map((item) => ({
     targetType: 'ORDER', calcRef: item.calcRef, kind: item.kind, reason: item.reason,
     mmrStatus: item.mmrStatus, fingerprint: item.fingerprint, vehicle: item.vehicle
   }))) };
@@ -718,8 +751,7 @@ async function actionManheimUpload(ctx, body) {
   const requested = Array.isArray(body.matches) ? body.matches : [];
   if (!header || requested.length > 2000) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
   const validated = await validateManheimMatches(ctx, requested);
-  if (validated.error) return send(ctx.res, validated.status, { error: validated.error });
-  return send(ctx.res, 201, await storeManheimUpload(ctx, header, validated.matches));
+  return send(ctx.res, 201, { ...await storeManheimUpload(ctx, header, validated.matches), discarded: validated.discarded });
 }
 
 const MANHEIM_PART_ITEMS = 250;
@@ -736,9 +768,8 @@ async function actionManheimUploadPart(ctx, body) {
       || !Number.isInteger(partIndex) || partIndex < 1 || partIndex > partCount || (uploadId !== null && !isUuid(uploadId))
       || (uploadId === null && partIndex !== 1)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
   const validated = await validateManheimMatches(ctx, requested);
-  if (validated.error) return send(ctx.res, validated.status, { error: validated.error });
   // A single part is already atomic: keep using the original RPC.
-  if (partCount === 1) return send(ctx.res, 201, { ...await storeManheimUpload(ctx, header, validated.matches), complete: true, partIndex: 1, partCount: 1 });
+  if (partCount === 1) return send(ctx.res, 201, { ...await storeManheimUpload(ctx, header, validated.matches), complete: true, partIndex: 1, partCount: 1, discarded: validated.discarded });
   let result;
   try {
     result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload_part', {
@@ -753,7 +784,7 @@ async function actionManheimUploadPart(ctx, body) {
     if (failure && failure.status === 404) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
     throw failure;
   }
-  return send(ctx.res, result && result.complete ? 201 : 202, result);
+  return send(ctx.res, result && result.complete ? 201 : 202, { ...result, discarded: validated.discarded });
 }
 
 async function actionManheimArchive(ctx, body) {
@@ -764,7 +795,7 @@ async function actionManheimArchive(ctx, body) {
   const vehicles = body.vehicles.map((item) => {
     const parsed = item && item.vehicle || {};
     const fingerprint = safeText(item && item.fingerprint, 200, true);
-    if (!fingerprint || !safeText(parsed.model, 120, true) || !finiteInteger(parsed.year) || finiteInteger(parsed.miles) === null) return null;
+    if (!fingerprint || !safeText(parsed.model, 120, true) || !finiteInteger(parsed.year) || (finiteInteger(parsed.miles) !== null && finiteInteger(parsed.miles) < 0)) return null;
     return {
       environment: ctx.environment, upload_id: upload[0].id, row_fingerprint: fingerprint,
       vehicle_json: {

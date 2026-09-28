@@ -7,6 +7,7 @@
   'use strict';
 
   const catalog = typeof MCSVehicleCatalog === 'object' ? MCSVehicleCatalog : (typeof require === 'function' ? require('../vehicle-catalog') : null);
+  const vehicleMatch = typeof MCSVehicleMatch === 'object' ? MCSVehicleMatch : (typeof require === 'function' ? require('../vehicle-match') : null);
 
   const HEADER_ALIASES = Object.freeze({
     vin: ['vin', 'vehicle identification number', 'vehicle id number'],
@@ -78,8 +79,11 @@
     return { fields, missing };
   }
 
+  // Empty, "TMU", "Exempt" and other text without digits are unknown, never 0 (R3e).
   function number(value) {
-    const parsed = Number(clean(value).replace(/[$,\s]/g, '').replace(/[^0-9.-]/g, ''));
+    const text = clean(value);
+    if (!/\d/.test(text)) return null;
+    const parsed = Number(text.replace(/[$,\s]/g, '').replace(/[^0-9.-]/g, ''));
     return Number.isFinite(parsed) ? parsed : null;
   }
 
@@ -108,7 +112,7 @@
         saleDate: fields.saleDate ? clean(raw[fields.saleDate]) : '',
         startsAt: fields.saleDate ? clean(raw[fields.saleDate]) : '',
         endsAt: fields.endsAt ? clean(raw[fields.endsAt]) : '',
-        mmrCents: mmr === null ? null : Math.round(mmr * 100),
+        mmrCents: mmr === null || mmr <= 0 ? null : Math.round(mmr * 100),
         exteriorColor: fields.exteriorColor ? clean(raw[fields.exteriorColor]) : '',
         interiorColor: fields.interiorColor ? clean(raw[fields.interiorColor]) : '',
         buyNowPrice: fields.buyNowPrice ? clean(raw[fields.buyNowPrice]) : '',
@@ -117,7 +121,7 @@
         ,transmission: fields.transmission ? clean(raw[fields.transmission]) : ''
         ,engine: fields.engine ? clean(raw[fields.engine]) : ''
       };
-    }).filter((row) => row.year && row.model && row.miles !== null);
+    }).filter((row) => row.year && row.model).map((row) => (row.miles !== null && row.miles < 0 ? { ...row, miles: null } : row));
   }
 
   function fingerprint(vehicle) {
@@ -132,45 +136,16 @@
     return (hash >>> 0).toString(16).padStart(8, '0') + ':' + value.length;
   }
 
-  function matchOne(vehicle, wish, budgetCents, index) {
-    if (!clean(wish && wish.model) || !vehicle.year || !clean(vehicle.model)) return null;
-    if (clean(vehicle.make) && clean(wish.make) && fold(vehicle.make) !== fold(wish.make)) return null;
-    if (!(catalog ? catalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make) : fold(vehicle.model) === fold(wish.model))) return null;
-    const failures = [];
-    if (wish.yearMin && vehicle.year < Number(wish.yearMin)) failures.push({ kind: 'year', delta: Number(wish.yearMin) - vehicle.year, reason: `ano ${Number(wish.yearMin) - vehicle.year} abaixo` });
-    if (wish.yearMax && vehicle.year > Number(wish.yearMax)) failures.push({ kind: 'year', delta: vehicle.year - Number(wish.yearMax), reason: `ano ${vehicle.year - Number(wish.yearMax)} acima` });
-    if (wish.maxMiles && vehicle.miles > Number(wish.maxMiles)) failures.push({ kind: 'miles', delta: vehicle.miles - Number(wish.maxMiles), reason: `milhas ${(vehicle.miles - Number(wish.maxMiles)).toLocaleString('pt-BR')} acima` });
-    const kind = failures.length === 0 ? 'BATE' : failures.length === 1 && ((failures[0].kind === 'year' && failures[0].delta <= 1) || (failures[0].kind === 'miles' && failures[0].delta <= Number(wish.maxMiles) * 0.1)) ? 'QUASE' : null;
-    if (!kind) return null;
-    return {
-      kind, reason: failures[0] ? failures[0].reason : null,
-      mmrStatus: vehicle.mmrCents && Number(budgetCents) > 0 ? (vehicle.mmrCents > Number(budgetCents) ? 'MMR acima do teto' : 'MMR dentro do teto') : null,
-      matchedWishlistIndex: index,
-      matchedWishlistLabel: clean([wish.make, wish.model].filter(Boolean).join(' ')),
-      makeNotice: clean(vehicle.makeNotice)
-    };
-  }
-
+  // R3 lives in vehicle-match.js, the same module the server uses.
   function matchVehicle(vehicle, wishlist, budgetCents) {
-    const wishes = Array.isArray(wishlist) ? wishlist.slice(0, 5) : wishlist && Array.isArray(wishlist.wishlists) ? wishlist.wishlists.slice(0, 5) : [wishlist || {}];
-    const results = wishes.map((wish, index) => matchOne(vehicle, wish, budgetCents, index)).filter(Boolean);
-    return results.sort((left, right) => (left.kind === right.kind ? left.matchedWishlistIndex - right.matchedWishlistIndex : left.kind === 'BATE' ? -1 : 1))[0] || null;
+    return vehicleMatch.matchVehicle(vehicle, wishlist, budgetCents);
   }
 
   function matchOrder(vehicle, order) {
-    const simulations = Array.isArray(order && order.simulations) ? order.simulations : order ? [order] : [];
-    const matches = [];
-    for (const simulation of simulations) {
-      const result = matchVehicle(vehicle, simulation.wishlists || simulation.wishlist, simulation.budgetCents);
-      if (!result) continue;
-      if (simulation.logicalMode === 'VALOR') {
-        if (!(Number(simulation.budgetCents) > 0) || !(Number(vehicle && vehicle.mmrCents) > 0) || Number(vehicle.mmrCents) > Number(simulation.budgetCents)) continue;
-      }
-      matches.push({ ...result, logicalMode: simulation.logicalMode, ref: simulation.ref });
-    }
-    return matches.sort((left, right) => left.kind === right.kind
-      ? (left.logicalMode === 'CARRO' ? -1 : 1)
-      : left.kind === 'BATE' ? -1 : 1)[0] || null;
+    if (!order) return null;
+    const wishlists = Array.isArray(order.wishlists) ? order.wishlists : order.wishlist ? [order.wishlist] : [];
+    const result = vehicleMatch.matchVehicle(vehicle, wishlists, order.budgetCents);
+    return result ? { ...result, logicalMode: order.logicalMode || null, ref: order.ref || null } : null;
   }
 
   function csvCell(value) {
