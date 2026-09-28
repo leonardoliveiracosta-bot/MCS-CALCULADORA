@@ -897,12 +897,14 @@ nav[aria-label="Seções do painel"]::-webkit-scrollbar { display: none; }
     padding: 0 14px 40px;
   }
 
+  /* celular: uma coluna; logo, depois os botoes numa linha propria, busca e abas */
   .topbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "logo actions"
-      "search search"
-      "tabs tabs";
+      "logo"
+      "actions"
+      "search"
+      "tabs";
     gap: 8px 10px;
     min-height: 0;
     height: auto;
@@ -911,7 +913,18 @@ nav[aria-label="Seções do painel"]::-webkit-scrollbar { display: none; }
   }
 
   .panel-logo img { height: 22px; }
-  .topbar-actions { justify-self: end; }
+  .topbar-actions {
+    justify-self: stretch;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .environment-badge,
+  .environment-badge.production {
+    font-size: .68rem;
+    padding: 5px 9px;
+  }
 
   .global-search {
     width: 100%;
