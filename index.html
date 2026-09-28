@@ -158,8 +158,6 @@
   section.search-criteria{
     position:relative;margin:0 -20px;padding:54px 20px 58px;
     background:#14181d;color:#f2efe9;
-    border-top:1px solid rgba(201,163,78,.34);
-    border-bottom:1px solid rgba(201,163,78,.34);
   }
   section.search-criteria h2.section-title{color:#f2efe9}
   section.search-criteria .sc-text{font-size:15px;color:rgba(242,239,233,.86);line-height:1.6;margin:0 0 28px;max-width:52ch}
@@ -320,8 +318,6 @@
   section.reel{
     position:relative;overflow:hidden;margin:0 -20px;
     background:#0a0a0a;color:#f2efe9;
-    border-top:1px solid rgba(201,163,78,.34);
-    border-bottom:1px solid rgba(201,163,78,.34);
   }
   section.reel .reel-video{
     position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;
@@ -353,7 +349,6 @@
   section.how{
     position:relative;overflow:hidden;padding:0;margin:0 -20px;
     background:#0a0a0a;color:#f2efe9;
-    border-top:1px solid rgba(201,163,78,.34);
   }
   section.how .how-bg{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;object-position:center 45%}
   section.how .how-veil{
@@ -377,10 +372,29 @@
   section.how .step p.step-desc{color:rgba(242,239,233,.72)}
 
   /* ---------- Bloco 3: a calculadora e o bloco (largura total, sem card dentro de card) ---------- */
-  section.calc-block{position:relative;margin:0 -20px;padding:0 0 28px;background:#000}
-  section.calc-block iframe.calc-frame{display:block;width:100%;border:0;background:#000}
+  section.calc-block{position:relative;margin:0 -20px;padding:0 0 28px;background:#050506}
+  section.calc-block iframe.calc-frame{display:block;width:100%;border:0;background:#050506}
   section.calc-block .calc-after-note{font-size:13px;color:rgba(242,239,233,.66);line-height:1.5;margin:14px 20px 0}
 
+
+  /* ---------- Divisor premium entre blocos ----------
+     Fio dourado que nasce do nada, acende no centro e some de novo, com um losango
+     lapidado no meio. Altura zero: fica exatamente na costura entre dois blocos,
+     funciona sobre fundo escuro e claro, e nao empurra o layout */
+  .sep{position:relative;z-index:6;height:0;margin:0 -20px;pointer-events:none}
+  .sep::before{
+    content:"";position:absolute;left:0;right:0;top:-.5px;height:1px;
+    background:linear-gradient(90deg,rgba(201,163,78,0) 4%,rgba(201,163,78,.28) 26%,#e6c77f 50%,rgba(201,163,78,.28) 74%,rgba(201,163,78,0) 96%);
+  }
+  .sep::after{
+    content:"";position:absolute;left:50%;top:-6px;width:40%;max-width:260px;height:12px;transform:translateX(-50%);
+    background:radial-gradient(ellipse at center,rgba(230,199,127,.30) 0%,rgba(230,199,127,0) 70%);
+  }
+  .sep span{
+    position:absolute;left:50%;top:0;width:9px;height:9px;transform:translate(-50%,-50%) rotate(45deg);
+    background:linear-gradient(135deg,#f3dfa6 0%,#c9a34e 55%,#8f6d2a 100%);
+    box-shadow:0 0 0 3px rgba(0,0,0,.55),0 0 0 4px rgba(201,163,78,.55),0 0 14px rgba(230,199,127,.45);
+  }
   /* ---------- Bloco 4: financiamento (form de dois campos que abre o WhatsApp) ---------- */
   section.financing{
     position:relative;overflow:hidden;margin:0 -20px;padding:44px 20px 40px;
@@ -999,6 +1013,7 @@
     </div>
   </section>
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section id="real-purchase" class="real-purchase">
     <div class="purchase-cards" id="purchaseCards" aria-live="polite">
     <div class="purchase-card-entry">
@@ -1238,6 +1253,7 @@
   })();
   </script>
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section class="calc-block" id="calculadora-widget">
     <iframe class="calc-frame" src="/msc-calculadora.html" title="My Car Scout auction cost calculator" loading="lazy"></iframe>
     <p class="calc-after-note" data-i18n="calc_disclaimer">This calculator is a reference tool<br>The values shown are estimates, not an official quote, and create no purchase obligation</p>
@@ -1252,6 +1268,7 @@
     
   </section>
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section id="financiamento" class="financing">
     <img class="fin-bg" loading="lazy" decoding="async" src="mcs-bg-financing.jpg" alt="">
     <div class="fin-veil"></div>
@@ -1278,6 +1295,7 @@
     </div>
   </section>
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section class="reel">
     <video class="reel-video" muted loop playsinline preload="none" poster="mcs-drone-poster.jpg" aria-hidden="true" data-src="mcs-drone.mp4"></video>
     <div class="reel-veil"></div>
@@ -1295,6 +1313,7 @@
     </div>
   </section>
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section id="why" class="why">
     <div class="why-bg bg-mustang"></div>
     <div class="why-veil"></div>
@@ -1311,6 +1330,7 @@
 
 
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section id="exemplos" class="examples-dark">
       <div class="ex-bg"></div>
       <div class="ex-veil"></div>
@@ -1430,6 +1450,7 @@
     </section>
 
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section id="como-funciona" class="how">
     <img class="how-bg" loading="lazy" decoding="async" src="mcs-bg-how.jpg" alt="Porsche 911 Turbo taillight in low light">
     <div class="how-veil"></div>
@@ -1448,6 +1469,7 @@
   </section>
 
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section id="politica" class="policy">
     <img class="policy-bg" loading="lazy" decoding="async" src="mcs-bg-policy.jpg" alt="">
     <div class="policy-veil"></div>
@@ -1474,6 +1496,7 @@
     </div>
   </section>
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section id="taxas" class="fees">
     <img class="fees-bg" loading="lazy" decoding="async" src="mcs-bg-policy.jpg" alt="">
     <div class="fees-veil"></div>
@@ -1510,6 +1533,7 @@
     </div>
   </section>
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section id="faq" class="faq">
     <img class="faq-bg" loading="lazy" decoding="async" src="mcs-bg-policy.jpg" alt="">
     <div class="faq-veil"></div>
@@ -1553,6 +1577,7 @@
     </div>
   </section>
 
+  <div class="sep" aria-hidden="true"><span></span></div>
   <section id="comecar" class="ready-cta">
     <img class="ready-bg" loading="lazy" decoding="async" src="mcs-bg-ready.jpg" alt="">
     <div class="ready-veil"></div>
