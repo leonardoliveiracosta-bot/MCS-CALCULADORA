@@ -165,7 +165,13 @@ async function sendTestPush(ctx) {
   });
 }
 
+async function sendVitrinePush(ctx, payload) {
+  const subscriptions = await subscriptionsFor(ctx, null);
+  if (!subscriptions.length) return { accepted: 0, failed: 0, skipped: 'NO_SUBSCRIPTIONS' };
+  return deliverToSubscriptions(ctx, subscriptions, { type:'vitrine-interest', ...payload });
+}
+
 module.exports = {
   THROTTLE_MS, canSendForContact, deliverToSubscriptions, notificationTitle,
-  sendCustomerMessagePushes, sendPanelPush, sendTestPush, vapidDetails
+  sendCustomerMessagePushes, sendPanelPush, sendTestPush, sendVitrinePush, vapidDetails
 };

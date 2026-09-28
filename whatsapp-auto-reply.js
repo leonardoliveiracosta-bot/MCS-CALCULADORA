@@ -45,6 +45,7 @@ async function recordSent(ctx,rawId,item,messageId){
   return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_raw:rawId,p_item:{messageId,phone:item.phone||null,userId:item.userId||null,username:item.username||null,name:item.name||null,direction:'MCS',body:AUTO_REPLY_TEXT,timestamp:String(Math.floor(Date.now()/1000)),refs:[],source_kind:'WHATSAPP_WEBHOOK'}})});
 }
 async function maybeAutoReply(ctx,rawId,item,result){
+  if(result?.vitrineHandled)return {sent:false,reason:'VITRINE_INTEREST'};
   if(!result?.messageId||!result?.contactId||item.direction!=='CUSTOMER'||item.eventField!=='messages')return {sent:false,reason:'NOT_LIVE_INBOUND'};
   const normalized=normalizePhone(item.phone),isTest=Boolean(normalized&&testNumbers().has(normalized));
   if(!isEnabled()&&!isTest)return {sent:false,reason:'DISABLED'};

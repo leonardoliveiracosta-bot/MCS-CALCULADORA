@@ -625,7 +625,7 @@ function safeManheimVehicle(value) {
     locationDisplay: safeText(parsedSource.locationDisplay, 200) || '', mmrCents: finiteInteger(parsedSource.mmrCents),
     makeNotice: safeText(parsedSource.makeNotice, 160) || '', makeInferred: parsedSource.makeInferred === true,
     exteriorColor: safeText(parsedSource.exteriorColor, 120) || '', interiorColor: safeText(parsedSource.interiorColor, 120) || '',
-    buyNowPrice: safeText(parsedSource.buyNowPrice, 120) || '', conditionGrade: safeText(parsedSource.conditionGrade, 120) || ''
+    buyNowPrice: safeText(parsedSource.buyNowPrice, 120) || '', conditionGrade: safeText(parsedSource.conditionGrade, 120) || '', startsAt:safeText(parsedSource.startsAt,100)||safeText(parsedSource.saleDate,100)||'', endsAt:safeText(parsedSource.endsAt,100)||'', drivetrain:safeText(parsedSource.drivetrain,80)||'', transmission:safeText(parsedSource.transmission,80)||'', engine:safeText(parsedSource.engine,120)||'', cleanTitle:parsedSource.cleanTitle===true, odometerOk:parsedSource.odometerOk===true
   };
   if (!headers.length || !parsed.year || !parsed.model || parsed.miles === null || parsed.miles < 0) return null;
   if (parsed.makeInferred) {
@@ -717,7 +717,8 @@ async function actionManheimArchive(ctx, body) {
         vin: safeText(parsed.vin, 40) || '', year: finiteInteger(parsed.year), make: safeText(parsed.make, 80) || '',
         model: safeText(parsed.model, 120), trim: safeText(parsed.trim, 120) || '', miles: finiteInteger(parsed.miles),
         location: safeText(parsed.location, 200) || '', locationDisplay: safeText(parsed.locationDisplay, 200) || '',
-        saleDate: safeText(parsed.saleDate, 100) || '', mmrCents: finiteInteger(parsed.mmrCents)
+        saleDate: safeText(parsed.saleDate, 100) || '', startsAt: safeText(parsed.startsAt, 100) || safeText(parsed.saleDate,100) || '', endsAt: safeText(parsed.endsAt,100) || '',
+        mmrCents: finiteInteger(parsed.mmrCents), exteriorColor:safeText(parsed.exteriorColor,80)||'', interiorColor:safeText(parsed.interiorColor,80)||'', drivetrain:safeText(parsed.drivetrain,80)||'', transmission:safeText(parsed.transmission,80)||'', engine:safeText(parsed.engine,120)||'', cleanTitle:parsed.cleanTitle===true,odometerOk:parsed.odometerOk===true
       }, uploaded_at: at
     };
   });

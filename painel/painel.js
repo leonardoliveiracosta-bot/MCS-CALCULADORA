@@ -72,6 +72,12 @@
     if (text !== undefined && text !== null) node.textContent = String(text);
     return node;
   };
+  function askCleanStatus() {
+    const dialog=element('dialog',''); const form=element('form',''); form.method='dialog';
+    form.append(element('h2','', 'Esta busca tem clean title e odometer OK?'));
+    const yes=element('button','small','Sim');yes.value='yes'; const no=element('button','quiet small','Não');no.value='no';form.append(yes,no);dialog.append(form);document.body.append(dialog);dialog.showModal();
+    return new Promise((resolve)=>dialog.addEventListener('close',()=>{const value=dialog.returnValue==='yes';dialog.remove();resolve(value);},{once:true}));
+  }
   const formatDate = (value) => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
   const formatMoney = (cents) => Number(cents) ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(Number(cents) / 100) : '—';
   const updateFloridaClock = () => {
@@ -1566,7 +1572,8 @@
       const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => matches.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
       downloadShortlist(selected, journey.reference_code);
     });
-    card.append(exportButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();const selected=[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent='Selecione pelo menos um carro';return;}vitrineButton.disabled=true;try{const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected})});const absolute=location.origin+created.link;await navigator.clipboard?.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Não consegui gerar o link';}finally{vitrineButton.disabled=false;}});
+    card.append(exportButton,vitrineButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
   }
@@ -1708,6 +1715,7 @@
       manheimJourneys = data.items || [];
       manheimOrders = data.orders || [];
     }
+    const cleanAndOdometerOk = await askCleanStatus();
     const vehicles = [];
     const headerGroups = [];
     const mappings = [];
@@ -1726,7 +1734,7 @@
       }
       headerGroups.push(parsed.headers);
       mappings.push(mapping.fields);
-      const normalized=MCSManheim.normalizeRows(parsed, mapping);parsedCounts.push({ignored:parsed.rows.length-normalized.length});vehicles.push(...normalized);
+      const normalized=MCSManheim.chooseAuctionRows(MCSManheim.normalizeRows(parsed, mapping)).map((vehicle)=>({...vehicle,cleanTitle:cleanAndOdometerOk,odometerOk:cleanAndOdometerOk}));parsedCounts.push({ignored:parsed.rows.length-normalized.length});vehicles.push(...normalized);
     }
     const ignoredRows = headerGroups.reduce((sum,_,index)=>sum+(parsedCounts[index]?.ignored||0),0);
     const matches = [];
@@ -1743,8 +1751,8 @@
           vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
             vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
             model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
-            buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade
+            saleDate: vehicle.saleDate, startsAt:vehicle.startsAt, endsAt:vehicle.endsAt, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
+            drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
           } }
         });
       }
@@ -1759,8 +1767,8 @@
           vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
             vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
             model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
-            buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade
+            saleDate: vehicle.saleDate, startsAt:vehicle.startsAt, endsAt:vehicle.endsAt, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
+            drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
           } }
         });
       }
@@ -1776,7 +1784,7 @@
           vehicles: archive.slice(index, index + 100).map((vehicle) => ({ fingerprint: MCSManheim.fingerprint(vehicle), vehicle: {
             vin: vehicle.vin, year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim,
             miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents
+            saleDate: vehicle.saleDate,startsAt:vehicle.startsAt,endsAt:vehicle.endsAt,mmrCents: vehicle.mmrCents,exteriorColor:vehicle.exteriorColor,interiorColor:vehicle.interiorColor,drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
           } })) }) });
         archived+=saved.archived||0;ignored+=saved.ignored||0;
       }

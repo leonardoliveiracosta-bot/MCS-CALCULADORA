@@ -199,6 +199,7 @@ async function processRaw(ctx,row,options={}){
         await resolveItemError(ctx,row.id,item.itemIndex).catch(()=>null);
         if(options.live&&item.direction==='CUSTOMER'&&item.eventField==='messages'){
           if(!result?.duplicate&&result?.messageId)pushMessages.push({messageId:result.messageId,contactId:result.contactId||null,journeyId:result.journeyId||null,phone:item.phone||null});
+          try{const {captureVitrineInterest}=require('./vitrine-webhook');const vitrine=await captureVitrineInterest(ctx,item,result);if(vitrine?.handled)result.vitrineHandled=true;}catch(_){/* Vitrine must never affect WhatsApp processing. */}
           await maybeAutoReply(ctx,row.id,item,result).catch(()=>null);
         }
         if(item.media&&(item.media.id||item.media.url)&&result?.messageId){try{const {enqueueMediaJob}=require('./whatsapp-media');await enqueueMediaJob(ctx,item,result.messageId);}catch(error){console.error('[whatsapp-media]',{operation:'enqueue',message:String(error?.message||'UNKNOWN')});}}
