@@ -10,6 +10,7 @@ function at(row) { return time(row?.occurred_at_utc || row?.occurred_at_local ||
 function messageChannel(message) {
   if (message?.source_kind === 'WHATSAPP_WEBHOOK') return 'WHATSAPP';
   if (message?.source_kind === 'WHATSAPP_HISTORY') return 'WHATSAPP_HISTORY';
+  if (message?.source_kind === 'SMS_SHORTCUT') return 'SMS';
   return 'IMPORTED';
 }
 function clickChannel(event) {
