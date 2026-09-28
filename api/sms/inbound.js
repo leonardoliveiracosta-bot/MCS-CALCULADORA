@@ -1,0 +1,146 @@
+'use strict';
+
+// SMS recebido no iPhone e repassado por uma automação do app Atalhos.
+// Portão de privacidade: só guarda quando o remetente é, sem ambiguidade, um contato conhecido
+// (telefone, nome exato ou Ref no texto). O resto é descartado sem gravar e sem registrar o texto.
+// Com o segredo certo a resposta é sempre 200: o endpoint nunca revela se um número é cliente.
+const crypto = require('node:crypto');
+const { waitUntil } = require('@vercel/functions');
+const { SERVER_ENVIRONMENT, allRows, configuration, insert, jsonBody, patchRows, rows, send } = require('../../panel-server');
+const { normalizePhone } = require('../../panel-phone');
+const { notificationTitle, sendPanelPush } = require('../../panel-push');
+
+const MAX_TEXT = 4000;
+const REF = /\b[A-HJ-NP-Z2-9]{5}\b/g;
+const MIN_DATE = Date.parse('2009-01-01T00:00:00Z');
+
+function secretMatches(supplied, expected) {
+  if (!expected || typeof supplied !== 'string' || !supplied || Buffer.byteLength(supplied) > 256) return false;
+  return crypto.timingSafeEqual(crypto.createHash('sha256').update(supplied).digest(), crypto.createHash('sha256').update(expected).digest());
+}
+
+const plainName = (value) => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+const normalizedBody = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+function messageDate(value, now = Date.now()) {
+  const stamp = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value.trim()) ? Date.parse(value.trim()) : NaN;
+  return Number.isFinite(stamp) && stamp >= MIN_DATE && stamp <= now + 86400000 ? stamp : now;
+}
+
+async function contactByPhone(ctx, phone, services) {
+  const found = await services.rows(ctx, 'contact_phones', { select: 'contact_id', environment: 'eq.' + ctx.environment, phone_e164: 'eq.' + phone, is_current: 'is.true', retired_at: 'is.null' });
+  const ids = [...new Set(found.map((row) => row.contact_id))];
+  return ids.length === 1 ? ids[0] : null;
+}
+
+async function contactByName(ctx, name, services) {
+  const wanted = plainName(name);
+  if (!wanted) return null;
+  const contacts = await services.allRows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment });
+  const matches = contacts.filter((contact) => plainName(contact.display_name) === wanted);
+  return matches.length === 1 ? matches[0].id : null;
+}
+
+async function journeyByRef(ctx, text, services) {
+  const tokens = [...new Set(String(text || '').match(REF) || [])].slice(0, 20);
+  for (const ref of tokens) {
+    const [journey] = await services.rows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,status,created_at', environment: 'eq.' + ctx.environment, reference_code: 'eq.' + ref, limit: '1' });
+    if (journey) return journey;
+    const [link] = await services.rows(ctx, 'journey_refs', { select: 'journey_id', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + ref, limit: '1' });
+    if (link) {
+      const [linked] = await services.rows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,status,created_at', environment: 'eq.' + ctx.environment, id: 'eq.' + link.journey_id, limit: '1' });
+      if (linked) return linked;
+    }
+  }
+  return null;
+}
+
+async function latestJourney(ctx, contactId, services) {
+  const list = await services.rows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,status,created_at', environment: 'eq.' + ctx.environment, contact_id: 'eq.' + contactId, order: 'created_at.desc' });
+  return list.find((journey) => journey.status !== 'ENCERRADO') || list[0] || null;
+}
+
+async function findChat(ctx, key, services) {
+  const [chat] = await services.rows(ctx, 'chats', { select: 'id,contact_id', environment: 'eq.' + ctx.environment, channel: 'eq.SMS', canonical_key: 'eq.' + key, limit: '1' });
+  return chat || null;
+}
+
+async function receive(ctx, body, services, now = Date.now()) {
+  const text = String(body?.text || '').trim();
+  if (!text || text.length > MAX_TEXT) return { stored: false };
+  const phone = normalizePhone(body?.sender);
+  const senderName = String(body?.senderName || '').slice(0, 160);
+
+  // 1. portão de privacidade, nesta ordem
+  let contactId = null, journey = null;
+  if (phone) contactId = await contactByPhone(ctx, phone, services);
+  else if (senderName.trim()) {
+    // (b) sem telefone: o nome precisa bater com exatamente um contato; 0 ou 2+ descarta
+    contactId = await contactByName(ctx, senderName, services);
+    if (!contactId) return { stored: false };
+  }
+  const refJourney = await journeyByRef(ctx, text, services);
+  if (!contactId && refJourney) contactId = refJourney.contact_id;
+  if (!contactId) return { stored: false };
+  journey = refJourney && refJourney.contact_id === contactId ? refJourney : await latestJourney(ctx, contactId, services);
+  if (!journey) return { stored: false };
+
+  // 2. chat SMS do remetente; se o número já é de outro contato, não mistura
+  const key = phone ? 'sms:' + phone : 'sms:name:' + contactId;
+  let chat = await findChat(ctx, key, services);
+  if (chat && chat.contact_id && chat.contact_id !== contactId) return { stored: false };
+
+  // 3. duplicado: mesmo chat, mesmo texto, mesmo minuto
+  const at = messageDate(body?.date, now), norm = normalizedBody(text);
+  if (chat) {
+    const minute = Math.floor(at / 60000) * 60000;
+    const same = await services.rows(ctx, 'messages', { select: 'id', environment: 'eq.' + ctx.environment, chat_id: 'eq.' + chat.id, body_normalized: 'eq.' + norm, and: `(occurred_at_utc.gte.${new Date(minute).toISOString()},occurred_at_utc.lt.${new Date(minute + 60000).toISOString()})`, limit: '1' });
+    if (same.length) return { stored: false, duplicate: true };
+  }
+
+  // 4. grava
+  const stamp = new Date(at).toISOString(), nowIso = new Date(now).toISOString();
+  if (!chat) {
+    try {
+      [chat] = await services.insert(ctx, 'chats', { environment: ctx.environment, channel: 'SMS', contact_id: contactId, canonical_key: key, resolution_status: 'RESOLVED', is_group: false, first_seen_at: stamp, last_seen_at: nowIso, created_at: nowIso, updated_at: nowIso });
+    } catch (_) {
+      chat = await findChat(ctx, key, services); // criado ao mesmo tempo por outra chamada
+      if (!chat || (chat.contact_id && chat.contact_id !== contactId)) return { stored: false };
+    }
+  }
+  const [message] = await services.insert(ctx, 'messages', { environment: ctx.environment, chat_id: chat.id, channel: 'SMS', direction: 'CUSTOMER', body_text: text, body_normalized: norm,
+    occurred_at_utc: stamp, time_uncertain: true, signature_base: 'SMS_SHORTCUT:' + crypto.randomUUID(), occurrence_index: 1, source_kind: 'SMS_SHORTCUT', created_at: nowIso });
+  await services.insert(ctx, 'message_journeys', { environment: ctx.environment, message_id: message.id, journey_id: journey.id, association_source: 'SMS_SHORTCUT', associated_at: nowIso }, false);
+  await services.insert(ctx, 'interactions', { environment: ctx.environment, journey_id: journey.id, message_id: message.id, type: 'INBOUND_MESSAGE', occurred_at: stamp, created_at: nowIso }, false);
+  await services.patchRows(ctx, 'chats', { id: 'eq.' + chat.id, environment: 'eq.' + ctx.environment }, { last_seen_at: nowIso, updated_at: nowIso });
+
+  // 5. aviso no celular
+  const [contact] = await services.rows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, id: 'eq.' + contactId, limit: '1' });
+  const title = notificationTitle({ name: contact?.display_name, phone, ref: journey.reference_code, vehicle: journey.vehicle_text });
+  const push = services.push(ctx, { contactId, messageId: message.id, payload: { type: 'customer-message', messageId: message.id, journeyId: journey.id, title } });
+  return { stored: true, push };
+}
+
+const defaultServices = { rows, allRows, insert, patchRows, push: sendPanelPush };
+
+module.exports = async (req, res) => {
+  if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
+  if (!secretMatches(req.headers['x-sms-secret'], process.env.SMS_INBOUND_SECRET)) return send(res, 401, { error: 'UNAUTHORIZED' });
+  const config = configuration();
+  if (!config || !SERVER_ENVIRONMENT) return send(res, 200, { stored: false });
+  try {
+    const body = await jsonBody(req, 64 * 1024);
+    const result = await receive({ config, environment: SERVER_ENVIRONMENT }, body, module.exports.services);
+    if (result.push) (typeof req.waitUntil === 'function' ? req.waitUntil : waitUntil)(Promise.resolve(result.push).catch(() => null));
+    return send(res, 200, result.duplicate ? { stored: false, duplicate: true } : { stored: Boolean(result.stored) });
+  } catch (error) {
+    // só o código do erro; nunca o corpo nem o texto
+    console.error('[sms-inbound]', { code: /^[A-Z_]{3,60}$/.test(String(error?.message)) ? error.message : 'UNKNOWN' });
+    return send(res, 200, { stored: false });
+  }
+};
+module.exports.services = defaultServices;
+module.exports.receive = receive;
+module.exports.secretMatches = secretMatches;
+module.exports.messageDate = messageDate;
+module.exports.plainName = plainName;
