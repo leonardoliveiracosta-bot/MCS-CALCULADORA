@@ -393,14 +393,15 @@
   section.calc-block .calc-stage{position:absolute;left:0;right:0;top:0;height:0;overflow:hidden;pointer-events:none;z-index:0;background:#050506;
     transition:opacity .5s ease}
   section.calc-block .calc-stage.off{opacity:0}
-  section.calc-block .calc-stage-art{position:absolute;left:0;top:0;width:0;height:0;
-    -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 14%,#000 100%);mask-image:linear-gradient(180deg,transparent 0,#000 14%,#000 100%)}
+  /* como o Bloco 1: a foto e o fundo inteiro do bloco (cover, centralizada) */
+  section.calc-block .calc-stage-art{position:absolute;inset:0}
   section.calc-block .calc-stage-photo,section.calc-block .calc-stage-neon{position:absolute;inset:0;width:100%;height:100%;display:block}
+  section.calc-block .calc-stage-photo{object-fit:cover;object-position:center center}
   section.calc-block .calc-stage-neon{overflow:visible}
   .calc-stage-neon path{opacity:0;will-change:opacity}
   .calc-stage-neon .neon-core{fill:#f4fbff}
   .calc-stage-neon .neon-glow{fill:#d9f1ff}
-  .calc-stage-neon .neon-halo{fill:#9fd8ff}
+  .calc-stage-neon .neon-halo{fill:#b9e3ff}
   section.calc-block .calc-stage-veil{position:absolute;inset:0;background:#050506;opacity:.94;will-change:opacity}
   section.calc-block iframe.calc-frame,section.calc-block .calc-after-note{position:relative;z-index:1}
 
@@ -1287,9 +1288,9 @@
       <div class="calc-stage-art">
         <img class="calc-stage-photo" src="mcs-calc-cybertruck.jpg" alt="" decoding="async" loading="lazy">
         <div class="calc-stage-veil"></div>
-        <svg class="calc-stage-neon" viewBox="0 0 1320 1980" preserveAspectRatio="none">
+        <svg class="calc-stage-neon" viewBox="0 0 1320 1980" preserveAspectRatio="xMidYMid slice">
           <defs>
-            <filter id="neonHalo" x="-20%" y="-400%" width="140%" height="900%"><feGaussianBlur stdDeviation="16"/></filter>
+            <filter id="neonHalo" x="-30%" y="-900%" width="160%" height="1900%"><feGaussianBlur stdDeviation="34"/></filter>
             <filter id="neonGlow" x="-10%" y="-200%" width="120%" height="500%"><feGaussianBlur stdDeviation="5"/></filter>
           </defs>
           <path class="neon-halo" d="M722 1053 L905 1071 L1320 1079 L1320 1103 L915 1099 L722 1087 Z" filter="url(#neonHalo)"/>
@@ -2080,9 +2081,8 @@ else ligar();
 </script>
 
 <script>
-/* Bloco 3: palco de cinema. A foto fica atras da capa (so enquanto a capa esta aberta).
-   Posiciona a foto para a barra de luz aparecer logo abaixo das duas portas e liga o neon
-   conforme a rolagem. Por quadro: so opacity */
+/* Bloco 3: palco de cinema, o inverso do Bloco 1. A foto e o fundo do bloco (so enquanto a
+   capa esta aberta) e, ao chegar no bloco, foto e farol clareiam juntos. Por quadro: so opacity */
 (function(){
   var sec = document.getElementById("calculadora-widget");
   if (!sec) return;
@@ -2090,7 +2090,6 @@ else ligar();
   var veu = sec.querySelector(".calc-stage-veil"), f = sec.querySelector("iframe.calc-frame");
   var halo = sec.querySelector(".neon-halo"), glow = sec.querySelector(".neon-glow"), core = sec.querySelector(".neon-core");
   if (!palco || !arte || !f) return;
-  var IW = 1320, IH = 1980, BAR_X0 = 722, BAR_Y = 1080;
   var parado = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var agendado = false;
 
@@ -2103,17 +2102,19 @@ else ligar();
     if (!aberta) return;
     var W = sec.clientWidth, H = sec.clientHeight;
     palco.style.height = H + "px";
-    /* alvo: a barra acende no espaco logo abaixo da porta de baixo */
-    var porta = d.querySelector(".gate-door--quiet");
-    var alvoY = porta ? f.offsetTop + porta.getBoundingClientRect().bottom + 40 : H * 0.8;
-    /* a barra ocupa ~62% da largura, da esquerda do centro ate a borda direita */
-    var esc = (W * 0.62) / (IW - BAR_X0);
-    var w = IW * esc, h = IH * esc;
-    if (h < H) { esc = H / IH; w = IW * esc; h = IH * esc; }
-    var left = W - w, top = alvoY - BAR_Y * esc;
-    if (top + h < H) top = H - h;
-    arte.style.width = w + "px"; arte.style.height = h + "px";
-    arte.style.left = left + "px"; arte.style.top = top + "px";
+    /* tela larga: foto cobre o bloco inteiro, centralizada (como o Bloco 1).
+       tela em pe (celular): a foto continua cobrindo o bloco inteiro, mas ampliada para a
+       barra de luz acender logo abaixo das portas, e nao escondida atras do botao dourado */
+    var IW = 1320, IH = 1980, BAR_Y = 1080;
+    if (W / H >= 0.8){ arte.removeAttribute("style"); }
+    else {
+      var porta = d.querySelector(".gate-door--quiet");
+      var alvoY = porta ? f.offsetTop + porta.getBoundingClientRect().bottom + 44 : H * 0.8;
+      var esc = Math.max(W / IW, H / IH, alvoY / BAR_Y);
+      var w = IW * esc, h = IH * esc, top = alvoY - BAR_Y * esc;
+      if (top + h < H) top = H - h;
+      arte.style.cssText = "inset:auto;width:" + w + "px;height:" + h + "px;left:" + (W - w) + "px;top:" + top + "px";
+    }
     atualizar();
   }
 
@@ -2128,7 +2129,7 @@ else ligar();
     veu.style.opacity = (0.94 - 0.26 * e).toFixed(3);
     core.style.opacity = e.toFixed(3);
     glow.style.opacity = (e * 0.9).toFixed(3);
-    halo.style.opacity = (e * 0.75).toFixed(3);
+    halo.style.opacity = e.toFixed(3);
   }
   function aoRolar(){ if (!agendado){ agendado = true; requestAnimationFrame(atualizar); } }
 
