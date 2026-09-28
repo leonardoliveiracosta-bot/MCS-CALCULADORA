@@ -1040,8 +1040,7 @@
       <div class="rpx-card">
         <h4 class="rpx-card-title">REAL PURCHASE</h4>
         <div class="rpx-row"><span>Auction purchase</span><span>$17,900</span></div>
-        <div class="rpx-row"><span>Auction fee</span><span>$600</span></div>
-        <div class="rpx-row"><span>Environmental fee</span><span>$50</span></div>
+        <div class="rpx-row"><span>Auction fee</span><span>$650</span></div>
         <div class="rpx-row"><span>Purchase &amp; title</span><span>$644</span></div>
         <div class="rpx-row"><span>Service fee</span><span>$800</span></div>
         <div class="rpx-row rpx-row--total"><span>Total paid</span><span>$19,994</span></div>
@@ -1083,7 +1082,6 @@
     function renderPurchase(d){
       var lance=Number(d.lance), referencia=Number(d.referencia);
       var r=core.calcular({lance:lance,florida:false,estado:"other",pgto:"cash",inspecao:false,placa:"transfer",zip:""});
-      var ambiental=r.fixasLeilao.reduce(function(a,f){return a+Math.round(f.valor);},0);
       var totalPago=r.totalProjetado;
       var diferenca=referencia-totalPago;
       var percentual=referencia>0?(diferenca/referencia)*100:0;
@@ -1116,8 +1114,8 @@
       var box=make("div","rpx-card");
       box.appendChild(make("h4","rpx-card-title","REAL PURCHASE"));
       box.appendChild(costRow("Auction purchase",lance));
-      box.appendChild(costRow("Auction fee",r.taxaLeilao));
-      box.appendChild(costRow("Environmental fee",ambiental));
+      /* taxa do leilao + ambiental numa linha so, como a calculadora mostra (r.dLeilao) */
+      box.appendChild(costRow("Auction fee",r.dLeilao));
       box.appendChild(costRow("Purchase & title",r.gGrupo));
       box.appendChild(costRow("Service fee",r.dMcs));
       box.appendChild(costRow("Total paid",totalPago,true));
