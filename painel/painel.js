@@ -919,7 +919,7 @@
   }
 
   function journeySwitch(item, reload) {
-    const enabled = typeof item.enabled === 'boolean' ? item.enabled : item.status !== 'ENCERRADO';
+    const enabled = item.status !== 'ENCERRADO' && (typeof item.enabled === 'boolean' ? item.enabled : true);
     const wrap = element('div', 'journey-switch');
     const canReactivate = enabled || item.toggleManaged !== false;
     const toggle = element('button', enabled ? 'switch-on small' : 'switch-off small', enabled ? 'Ligado' : canReactivate ? 'Desligado — religar' : 'Desligado');

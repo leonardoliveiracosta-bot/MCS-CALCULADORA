@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 
-const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, groupCalculatorByRef, journeyEnabled, reactivationEligible, shortDeadline, time, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
+const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, mergeWishlists, journeyEnabled, reactivationEligible, shortDeadline, time, toggleEnabled, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
 const { score } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
@@ -52,7 +52,7 @@ module.exports = async (req, res) => {
       const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
       const items = journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).map((journey) => {
         const state = stateByJourney.get(journey.id);
-        const item = withWhatsAppIdentity({ ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,phones:phones.filter(p=>p.contact_id===journey.contact_id) },userIds);
+        const item = withWhatsAppIdentity({ ...journey, enabled: toggleEnabled(journey.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,phones:phones.filter(p=>p.contact_id===journey.contact_id) },userIds);
         return { ...item, wishlist: wishlistForJourney(item), wishlists: wishlistsForJourney(item), reactivationEligible: reactivationEligible(item) };
       });
       const [calcRuns, calcLinks, dispositions] = await Promise.all([
@@ -70,8 +70,13 @@ module.exports = async (req, res) => {
         return decorateContact({...item,...ready},facts,insightByJourney.get(target.id));
       };
       const journeyMap=new Map(items.map(x=>[x.id,x])),journeyByRef=new Map(items.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));refs.forEach(r=>{const j=journeyMap.get(r.journey_id);if(j)journeyByRef.set(String(r.ref_code).trim().toUpperCase(),j);});
-      const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions)
-        .filter((order) => order.disposition !== 'DISCARDED'&&!excludedRefs.has(order.ref)).flatMap(order=>{const j=journeyByRef.get(order.ref);const facts=contact.facts({ref:order.ref,journeyId:j?.id,refs:j?refs.filter((row)=>row.journey_id===j.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const complete=j?{...order,journeyId:j.id,contactName:j.contact?.display_name,phones:j.phones,confirmed_total_ceiling_cents:j.confirmed_total_ceiling_cents}:order;return [withContactHeat(complete,facts,j)];});
+      const allOrders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions);
+      // A4 + R1: a Ref linked to a ficha is matched through the ficha (one person, one target).
+      // The ficha's criteria win; the linked Refs only fill what the ficha does not have.
+      const linkedOrders=new Map();allOrders.forEach((order)=>{const j=journeyByRef.get(order.ref)||(order.journeyId&&journeyMap.get(order.journeyId));if(!j)return;if(!linkedOrders.has(j.id))linkedOrders.set(j.id,[]);linkedOrders.get(j.id).push(order);});
+      items.forEach((item)=>{const linked=linkedOrders.get(item.id)||[];const merged=linked.length?{wishlists:mergeWishlists([],linked.flatMap((order)=>order.wishlists||[])),budgetCents:linked.map((order)=>order.budgetCents).find((value)=>Number(value)>0)||null}:null;const criteria=effectiveCriteria(item,merged);item.matchWishes=criteria.wishes;item.matchBidCents=criteria.bidCents;item.linkedRefs=linked.map((order)=>order.ref);});
+      const orders = allOrders
+        .filter((order) => order.disposition !== 'DISCARDED'&&!excludedRefs.has(order.ref)).flatMap(order=>{const j=journeyByRef.get(order.ref);const facts=contact.facts({ref:order.ref,journeyId:j?.id,refs:j?refs.filter((row)=>row.journey_id===j.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const complete=j?{...order,journeyId:j.id,linkedJourneyStatus:j.status,matchTarget:false,contactName:j.contact?.display_name,phones:j.phones,confirmed_total_ceiling_cents:j.confirmed_total_ceiling_cents}:{...order,matchTarget:!order.journeyId};return [withContactHeat(complete,facts,j)];});
       const contactedItems=items.flatMap((item)=>{const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});const disposition=dispositionByJourney.get(item.id);return facts.entered?[withContactHeat({...item,disposition:disposition?.status||null,discardReason:disposition?.discard_reason||null,dispositionUpdatedAt:disposition?.updated_at||null},facts,item)]:[];});
       const itemIds=new Set(contactedItems.map((item)=>item.id)),orderRefs=new Set(orders.map((item)=>item.ref));
       const contactedMatchesRaw=matches.filter((match)=>(match.journey_id&&itemIds.has(match.journey_id))||(match.calc_ref&&orderRefs.has(String(match.calc_ref).trim().toUpperCase())));
@@ -146,7 +151,7 @@ module.exports = async (req, res) => {
         const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
         const ownMessages = messageLinks.filter((link) => link.journey_id === item.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0) - (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0));
         const state = stateByJourney.get(item.id);
-        const complete = withWhatsAppIdentity({ ...item, enabled: state ? state.enabled : item.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: latestMatches.filter((match) =>match.journey_id === item.id).length, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages.find((message)=>!message.is_automatic) || ownMessages[0] || null,
+        const complete = withWhatsAppIdentity({ ...item, enabled: toggleEnabled(item.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: latestMatches.filter((match) =>match.journey_id === item.id).length, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages.find((message)=>!message.is_automatic) || ownMessages[0] || null,
           pendingAiCount: aiItems.filter((entry)=>entry.journey_id===item.id).length, aiLinkSuggested: aiSuggestions.some((entry)=>entry.source_journey_id===item.id) },userIds);
         const order = [item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>ordersByRef.get(String(ref||'').trim().toUpperCase())).find(Boolean);
         const scoring = { ...complete, ...order, zip: order?.zip || complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0] || '', plate: order?.plate || 'transf', wishlists: wishlistsForJourney(complete) };
@@ -203,7 +208,7 @@ module.exports = async (req, res) => {
     const points = checklist.map((point) => ({ ...point, evidence: evidence.filter((item) => item.checklist_id === point.id) }));
     const timeline = buildConversationTimeline(conversation, interactions, activities);
     const toggle = toggleStates[0];
-    const enabled = toggle ? toggle.enabled : journey.status !== 'ENCERRADO';
+    const enabled = toggleEnabled(journey.status, toggle);
     const facts = contactIndex({ calcRuns: filteredRuns, messages: messages.filter((message)=>!message.undone_at), messageLinks: links.map((link) => ({ journey_id: journey.id, message_id: link.message_id })) }).facts({ journeyId: journey.id, ref: journey.reference_code, refs: refs.map((row) => row.ref_code) });
     const journeyDisposition=dispositions.find((item)=>item.item_kind==='JOURNEY'&&item.item_key===journey.id)||null;
     const refDisposition=calculatorRequests.map((item)=>dispositions.find((entry)=>entry.item_kind==='REF'&&String(entry.item_key).trim().toUpperCase()===item.ref)).find(Boolean)||null;

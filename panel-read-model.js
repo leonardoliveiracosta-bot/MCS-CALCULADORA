@@ -1,6 +1,7 @@
 'use strict';
 
 const { allRows, rows } = require('./panel-server');
+const { toggleEnabled } = require('./panel-domain');
 
 function flattenMessageLinks(links, messages) {
   const byId = new Map((Array.isArray(messages) ? messages : []).map((message) => [message.id, message]));
@@ -39,7 +40,7 @@ async function operational(ctx) {
   return { journeys: journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).map((journey) => {
     const toggle = toggleByJourney.get(journey.id);
     const ownPhones=phones.filter((phone) => phone.contact_id === journey.contact_id),user=userIds.find((entry)=>entry.contact_id===journey.contact_id);
-    return { ...journey, enabled: toggle ? toggle.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, contact: contactsById.get(journey.contact_id) || null, phones:ownPhones,whatsappUsername:user?.username||null,whatsappWithoutPhone:Boolean(user&&!ownPhones.some((phone)=>phone.is_current!==false)) };
+    return { ...journey, enabled: toggleEnabled(journey.status, toggle), toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, contact: contactsById.get(journey.contact_id) || null, phones:ownPhones,whatsappUsername:user?.username||null,whatsappWithoutPhone:Boolean(user&&!ownPhones.some((phone)=>phone.is_current!==false)) };
   }), refs,excludedRefs, messages: flattenMessageLinks(messageLinks, messages.filter((message) => !message.undone_at)), checklist, promises, divergences, units, suppressions };
 }
 
@@ -50,7 +51,7 @@ async function journeyExists(ctx, journeyId) {
   });
   if (!found[0]) return null;
   const states = await rows(ctx, 'journey_toggle_states', { select: 'enabled,off_reason', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId, limit: '1' });
-  return { ...found[0], enabled: states[0] ? states[0].enabled : found[0].status !== 'ENCERRADO', toggleManaged: Boolean(states[0]), offReason: states[0] && states[0].off_reason || null };
+  return { ...found[0], enabled: toggleEnabled(found[0].status, states[0]), toggleManaged: Boolean(states[0]), offReason: states[0] && states[0].off_reason || null };
 }
 
 async function messageForJourney(ctx, journeyId, messageId) {

@@ -139,12 +139,18 @@ function wishlistForJourney(journey) {
   return wishlistsForJourney(journey)[0] || normalizeWishlist({});
 }
 
+// Fills what `current` does not have from `incoming`. The year range is one unit: both years
+// come from the same source, so two sources never mix into an impossible range (A6).
+const WISH_FIELD_GROUPS = [['make'], ['model'], ['yearMin', 'yearMax'], ['maxMiles']];
 function mergeWishlist(current, incoming) {
   const existing = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
   const proposed = incoming && typeof incoming === 'object' && !Array.isArray(incoming) ? incoming : {};
+  const empty = (value) => value === null || value === undefined || value === '';
   const result = { ...existing };
-  for (const field of ['make', 'model', 'yearMin', 'yearMax', 'maxMiles']) {
-    if ((result[field] === null || result[field] === undefined || result[field] === '') && proposed[field] !== null && proposed[field] !== undefined && proposed[field] !== '') result[field] = proposed[field];
+  for (const group of WISH_FIELD_GROUPS) {
+    if (group.every((field) => empty(result[field])) && group.some((field) => !empty(proposed[field]))) {
+      for (const field of group) result[field] = empty(proposed[field]) ? (result[field] ?? null) : proposed[field];
+    }
   }
   return result;
 }
@@ -204,9 +210,17 @@ function matchManheimVehicle(vehicle, wishlist, budgetCents) {
   return candidates.sort((left, right) => (left.kind === right.kind ? left.matchedWishlistIndex - right.matchedWishlistIndex : left.kind === 'BATE' ? -1 : 1))[0] || null;
 }
 
+// A5: ENCERRADO always wins over the on/off switch. A closed ficha only comes back through an
+// explicit reopen; switching it on or off never makes it active again.
+function toggleEnabled(status, state) {
+  if (status === 'ENCERRADO') return false;
+  return state ? state.enabled !== false : true;
+}
+
 function journeyEnabled(journey) {
-  if (journey && typeof journey.enabled === 'boolean') return journey.enabled;
-  return Boolean(journey && journey.status !== 'ENCERRADO');
+  if (!journey || journey.status === 'ENCERRADO') return false;
+  if (typeof journey.enabled === 'boolean') return journey.enabled;
+  return true;
 }
 
 function reactivationEligible(journey) {
@@ -272,7 +286,8 @@ function compactWishlistText(wishlists) {
 
 function wishlistsFromCalculatorEvents(events) {
   const collected = [];
-  for (const row of events.slice().sort(newer)) {
+  // Newest first: inside a Ref the most recent value of each field wins (A6).
+  for (const row of events.slice().sort(newer).reverse()) {
     const data = dataFor(row);
     const arrays = [data.carros, data.veiculos, data.vehicles].find(Array.isArray);
     const sources = arrays || [data];
@@ -381,9 +396,19 @@ function groupCalculatorByRef(orders, dispositions = []) {
     const journeyIds = [...new Set(links)];
     const modes = [...new Set(sorted.map((item) => item.logicalMode).filter((mode) => ['CARRO', 'VALOR'].includes(mode)))];
     const disposition = dispositionMap.get(ref) || null;
+    // sorted is newest first, so the most recent value of each field wins (A6). A search
+    // (years/miles) and a value simulation (bid) of the same Ref are combined.
     const wishlists = mergeWishlists([], sorted.flatMap((item) => item.wishlists || []));
+    const newest = (getter) => { for (const item of sorted) { const value = getter(item); if (value !== null && value !== undefined && value !== '') return value; } return null; };
     return {
       ...latest,
+      budgetCents: newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null),
+      paymentText: newest((item) => item.paymentText),
+      deadlineText: newest((item) => item.deadlineText),
+      zip: newest((item) => item.zip),
+      state: newest((item) => item.state),
+      yearsText: newest((item) => item.yearsText),
+      mileageText: newest((item) => item.mileageText),
       key: 'ref:' + ref,
       ref,
       kind: 'CALCULATOR',
@@ -405,7 +430,7 @@ function groupCalculatorByRef(orders, dispositions = []) {
       discardReason: disposition ? disposition.discard_reason || null : null,
       dispositionUpdatedAt: disposition ? disposition.updated_at : null,
       pending: !disposition,
-      outOfStandard: Number(latest.budgetCents) > 0 && (Number(latest.budgetCents) < 300000 || Number(latest.budgetCents) > 30000000)
+      outOfStandard: Number(newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null)) > 0 && !standardBudget(newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null))
     };
   }).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0) || a.ref.localeCompare(b.ref));
 }
@@ -619,7 +644,7 @@ function buildConversationTimeline(messages, interactions, activities) {
 
 module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
-  compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, journeyLogicalMode, logicalMode,
+  compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, toggleEnabled, journeyLogicalMode, logicalMode,
   matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits,
   normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };

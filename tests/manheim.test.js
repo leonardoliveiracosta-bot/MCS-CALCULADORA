@@ -64,14 +64,18 @@ test('calculator wishlist fills only empty fields', () => {
     ano_de: 2021, ano_ate: 2025, milhas_ate: 45000
   } }];
   const request = consolidateCalcRuns(rows)[0];
-  const incoming = request.wishlist;
+  // A6: inside a Ref the newest request comes first.
+  assert.deepEqual(request.wishlist, { make: 'Toyota', model: 'Camry', yearMin: 2021, yearMax: 2025, maxMiles: 45000 });
+  const incoming = request.wishlists.find((wish) => wish.model === 'Civic');
   assert.deepEqual(incoming, { make: 'Honda', model: 'Civic', yearMin: 2020, yearMax: 2024, maxMiles: 50000 });
   assert.equal(request.wishlists.length, 2);
+  // A6: the year range is one unit. A ficha that already has a year never receives the other
+  // year from another source (that mix produced impossible ranges such as 2023-2021).
   assert.deepEqual(mergeWishlist({ make: 'Toyota', yearMin: 2021 }, incoming), {
-    make: 'Toyota', model: 'Civic', yearMin: 2021, yearMax: 2024, maxMiles: 50000
+    make: 'Toyota', model: 'Civic', yearMin: 2021, maxMiles: 50000
   });
   assert.deepEqual(mergeWishlists([{ make: 'Honda', model: 'Civic', yearMin: 2022 }], request.wishlists), [
-    { make: 'Honda', model: 'Civic', yearMin: 2022, yearMax: 2024, maxMiles: 50000 },
+    { make: 'Honda', model: 'Civic', yearMin: 2022, yearMax: null, maxMiles: 50000 },
     { make: 'Toyota', model: 'Camry', yearMin: 2021, yearMax: 2025, maxMiles: 45000 }
   ]);
   assert.deepEqual(wishlistForJourney({ criteria_json: { wishlist: incoming } }), incoming);
