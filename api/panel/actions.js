@@ -638,14 +638,17 @@ function safeManheimVehicle(value) {
   return Buffer.byteLength(JSON.stringify(output), 'utf8') <= 65536 ? output : null;
 }
 
-async function actionManheimUpload(ctx, body) {
+function manheimUploadHeader(body) {
   const fileCount = Number(body.sourceFileCount);
   const vehicleCount = Number(body.vehicleCount);
   const headers = Array.isArray(body.headers) ? body.headers.map((group) => Array.isArray(group) ? group.map((entry) => safeText(entry, 160, true)).filter(Boolean).slice(0, 100) : []).filter((group) => group.length).slice(0, 20) : [];
   const headerMap = body.headerMap && typeof body.headerMap === 'object' && !Array.isArray(body.headerMap) ? body.headerMap : {};
-  const requested = Array.isArray(body.matches) ? body.matches : [];
-  if (!Number.isInteger(fileCount) || fileCount < 1 || fileCount > 20 || !Number.isInteger(vehicleCount) || vehicleCount < 0 || vehicleCount > 100000 || !headers.length || requested.length > 2000) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  const valid = Number.isInteger(fileCount) && fileCount >= 1 && fileCount <= 20 && Number.isInteger(vehicleCount) && vehicleCount >= 0 && vehicleCount <= 100000 && headers.length > 0;
+  return valid ? { fileCount, vehicleCount, headers, headerMap } : null;
+}
 
+// Revalidates every requested match against the current journeys and calculator orders.
+async function validateManheimMatches(ctx, requested) {
   const [journeys, toggleStates, calcRuns, calcLinks, dispositions] = await Promise.all([
     allRows(ctx, 'journeys', { select: 'id,status,stage,criteria_json,budget_cents', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment }),
@@ -665,41 +668,86 @@ async function actionManheimUpload(ctx, body) {
   for (const item of requested) {
     const vehicle = safeManheimVehicle(item && item.vehicle);
     const fingerprint = safeText(item && item.fingerprint, 200, true);
-    if (!vehicle || !fingerprint) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+    if (!vehicle || !fingerprint) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
     if (item && item.targetType === 'ORDER') {
       const ref = String(item.calcRef || '').trim().toUpperCase();
       const order = orderByRef.get(ref);
       const result = order && matchManheimOrder(vehicle.parsed, order);
-      if (!order || !result) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+      if (!order || !result) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
       vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
       vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
       vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
       orderMatches.push({ calcRef: ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
       continue;
     }
-    if (!isUuid(item && item.journeyId)) return send(ctx.res, 400, { error: 'MANHEIM_JOURNEY_ID_INVALID' });
+    if (!isUuid(item && item.journeyId)) return { status: 400, error: 'MANHEIM_JOURNEY_ID_INVALID' };
     const journey = byId.get(item.journeyId);
-    if (!journey) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
+    if (!journey) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
     const result = matchManheimVehicle(vehicle.parsed, wishlistsForJourney(journey), journey.budget_cents);
-    if (!result) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_INVALID' });
-    if (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE')) return send(ctx.res, 409, { error: 'MANHEIM_JOURNEY_DISABLED' });
+    if (!result) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
+    if (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE')) return { status: 409, error: 'MANHEIM_JOURNEY_DISABLED' };
     if (journey.status === 'PARADO' && result.kind !== 'BATE') continue;
     vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
     vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
     vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
     matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
   }
-  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload', {
+  return { matches: matches.concat(orderMatches.map((item) => ({
+    targetType: 'ORDER', calcRef: item.calcRef, kind: item.kind, reason: item.reason,
+    mmrStatus: item.mmrStatus, fingerprint: item.fingerprint, vehicle: item.vehicle
+  }))) };
+}
+
+function storeManheimUpload(ctx, header, matches) {
+  return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
-      p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_source_file_count: fileCount,
-      p_vehicle_count: vehicleCount, p_headers: headers, p_header_map: headerMap,
-      p_matches: matches.concat(orderMatches.map((item) => ({
-        targetType: 'ORDER', calcRef: item.calcRef, kind: item.kind, reason: item.reason,
-        mmrStatus: item.mmrStatus, fingerprint: item.fingerprint, vehicle: item.vehicle
-      })))
+      p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_source_file_count: header.fileCount,
+      p_vehicle_count: header.vehicleCount, p_headers: header.headers, p_header_map: header.headerMap, p_matches: matches
     })
   });
-  return send(ctx.res, 201, result);
+}
+
+async function actionManheimUpload(ctx, body) {
+  const header = manheimUploadHeader(body);
+  const requested = Array.isArray(body.matches) ? body.matches : [];
+  if (!header || requested.length > 2000) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  const validated = await validateManheimMatches(ctx, requested);
+  if (validated.error) return send(ctx.res, validated.status, { error: validated.error });
+  return send(ctx.res, 201, await storeManheimUpload(ctx, header, validated.matches));
+}
+
+const MANHEIM_PART_ITEMS = 250;
+const MANHEIM_MAX_PARTS = 400;
+
+// One part of a chunked Manheim upload. The upload becomes the latest one only when its last part is stored.
+async function actionManheimUploadPart(ctx, body) {
+  const header = manheimUploadHeader(body);
+  const partIndex = Number(body.partIndex);
+  const partCount = Number(body.partCount);
+  const uploadId = body.uploadId === null || body.uploadId === undefined || body.uploadId === '' ? null : body.uploadId;
+  const requested = Array.isArray(body.matches) ? body.matches : null;
+  if (!header || !requested || requested.length > MANHEIM_PART_ITEMS || !Number.isInteger(partCount) || partCount < 1 || partCount > MANHEIM_MAX_PARTS
+      || !Number.isInteger(partIndex) || partIndex < 1 || partIndex > partCount || (uploadId !== null && !isUuid(uploadId))
+      || (uploadId === null && partIndex !== 1)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  const validated = await validateManheimMatches(ctx, requested);
+  if (validated.error) return send(ctx.res, validated.status, { error: validated.error });
+  // A single part is already atomic: keep using the original RPC.
+  if (partCount === 1) return send(ctx.res, 201, { ...await storeManheimUpload(ctx, header, validated.matches), complete: true, partIndex: 1, partCount: 1 });
+  let result;
+  try {
+    result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload_part', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+        p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: uploadId, p_part_index: partIndex, p_part_count: partCount,
+        p_source_file_count: header.fileCount, p_vehicle_count: header.vehicleCount, p_headers: header.headers,
+        p_header_map: header.headerMap, p_matches: validated.matches
+      })
+    });
+  } catch (failure) {
+    // PostgREST answers 404 when the RPC does not exist yet (migration not applied).
+    if (failure && failure.status === 404) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
+    throw failure;
+  }
+  return send(ctx.res, result && result.complete ? 201 : 202, result);
 }
 
 async function actionManheimArchive(ctx, body) {
@@ -785,6 +833,7 @@ module.exports = async (req, res) => {
   try {
     const body = await jsonBody(req, 2 * 1024 * 1024);
     if (body.action === 'manheim_upload') return actionManheimUpload(ctx, body);
+    if (body.action === 'manheim_upload_part') return actionManheimUploadPart(ctx, body);
     if (body.action === 'manheim_archive') return actionManheimArchive(ctx, body);
     if (body.action === 'set_disposition') return actionDisposition(ctx, body);
     const journey = await journeyContext(ctx, body.journeyId);

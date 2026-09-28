@@ -26,14 +26,19 @@ create function storage.foldername(name text) returns text[] language sql as $$s
 create table public.calc_runs(id bigserial primary key, created_at timestamptz default now(), zip text, estado text, lance numeric, pagamento text, dados jsonb);
 `;
 
-async function main() {
+async function migratedDatabase() {
   const db = new PGlite({ extensions: { pgcrypto } });
+  await db.exec(stubs);
+  const migrations = fs.readdirSync(migrationDirectory).filter((name) => name.endsWith('.sql')).sort();
+  for (const migration of migrations) {
+    await db.exec(fs.readFileSync(path.join(migrationDirectory, migration), 'utf8'));
+  }
+  return { db, migrations };
+}
+
+async function main() {
+  const { db, migrations } = await migratedDatabase();
   try {
-    await db.exec(stubs);
-    const migrations = fs.readdirSync(migrationDirectory).filter((name) => name.endsWith('.sql')).sort();
-    for (const migration of migrations) {
-      await db.exec(fs.readFileSync(path.join(migrationDirectory, migration), 'utf8'));
-    }
     const scenarios=fs.readdirSync(__dirname).filter((name)=>/^teste-.*\.sql$/.test(name)).sort();
     for(const scenario of scenarios)await db.exec(fs.readFileSync(path.join(__dirname,scenario),'utf8'));
     console.log(`NOTICE: OK: ${scenarios.length} cenários SQL (${migrations.length} migrações)`);
@@ -42,7 +47,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+module.exports = { migratedDatabase };
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}
