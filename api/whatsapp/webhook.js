@@ -1,8 +1,8 @@
 'use strict';
 const crypto=require('node:crypto');
-const {waitUntil}=require('@vercel/functions');
-const {SERVER_ENVIRONMENT,configuration,jsonBody,send}=require('../../panel-server');
+const {waitUntil}=require('@vercel/functions');const {SERVER_ENVIRONMENT,configuration,jsonBody,send}=require('../../panel-server');
 const {rawEvent,processRaw}=require('../../whatsapp-receiver');
+const {sendCustomerMessagePushes}=require('../../panel-push');
 
 module.exports=async(req,res)=>{
   if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});
@@ -20,7 +20,9 @@ module.exports=async(req,res)=>{
     const ctx={config,environment:SERVER_ENVIRONMENT};
     const row=await rawEvent(ctx,payload); // Durable before any acknowledgment.
     if(row){
-      const task=processRaw(ctx,row,{live:true}).catch(()=>{}); // Status is persisted by processRaw; no message text in logs.
+      const task=processRaw(ctx,row,{live:true})
+        .then((result)=>sendCustomerMessagePushes(ctx,result?.pushMessages||[]).catch(()=>null))
+        .catch(()=>{}); // Status is persisted by processRaw; no message text in logs.
       (typeof req.waitUntil==='function'?req.waitUntil:waitUntil)(task);
     }
     return send(res,200,{received:true});
