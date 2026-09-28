@@ -586,11 +586,9 @@
   /* ---------- Bloco 2: prova real BMW X3 (Playfair + Inter, aprovado) ---------- */
   section.real-purchase{background:#000}
   .rpx{width:100%;max-width:390px;margin:0 auto;background:#000;color:#fff;font-family:"Inter",sans-serif;border-radius:10px;overflow:hidden}
-  .rpx-top{position:relative;isolation:isolate;padding:26px 22px 30px}
-  .rpx-photo{position:absolute;inset:0;z-index:-2;width:100%;height:100%;object-fit:cover;object-position:center 30%;display:block;
-    filter:brightness(.6) saturate(.35) contrast(.95)}
-  /* carro e so fundo: os numeros sao o foco */
-  .rpx-veil{position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(0,0,0,.74) 0%,rgba(0,0,0,.66) 50%,rgba(0,0,0,.72) 100%)}
+  /* sem foto do carro no fundo: o foco e so nos numeros */
+  .rpx-top{position:relative;isolation:isolate;padding:26px 22px 30px;
+    background:radial-gradient(ellipse 90% 60% at 50% 0%,rgba(201,163,78,.10) 0%,rgba(201,163,78,0) 70%),linear-gradient(180deg,#0d0e11 0%,#050506 100%)}
   .rpx-top > *{text-shadow:0 1px 3px rgba(0,0,0,.75),0 0 14px rgba(0,0,0,.45)}
   .rpx-title{font-family:"Playfair Display",serif;font-weight:800;font-size:30px;line-height:1.1;color:#fff;margin:0}
   .rpx-sub{font-size:11px;font-weight:600;letter-spacing:2.5px;color:#c9a227;margin:10px 0 0;text-transform:uppercase}
@@ -1061,8 +1059,6 @@
     <div class="purchase-card-entry">
     <article class="rpx" aria-label="2021 BMW X3: real purchase comparison">
       <div class="rpx-top">
-        <img class="rpx-photo" src="img/compras/2021-bmw-x3.jpg" alt="2021 BMW X3" loading="lazy" decoding="async">
-        <div class="rpx-veil"></div>
         <h3 class="rpx-title">2021 BMW X3</h3>
         <p class="rpx-sub">57,347 MI · DOCUMENTED MCS CASE</p>
         <p class="rpx-why">WHY PAY THOUSANDS MORE?</p>
@@ -1129,13 +1125,6 @@
       card.setAttribute("aria-label",nome+": real purchase comparison");
 
       var top=make("div","rpx-top");
-      var photo=make("img","rpx-photo");
-      photo.src=d.foto;
-      photo.alt=nome;
-      photo.loading="lazy";
-      photo.decoding="async";
-      top.appendChild(photo);
-      top.appendChild(make("div","rpx-veil"));
       top.appendChild(make("h3","rpx-title",nome));
       top.appendChild(make("p","rpx-sub",number.format(d.milhas)+" MI · DOCUMENTED MCS CASE"));
       top.appendChild(make("p","rpx-why","WHY PAY THOUSANDS MORE?"));
