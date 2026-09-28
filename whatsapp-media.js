@@ -54,14 +54,14 @@ async function storeMedia(ctx,job,key){
 async function processMediaJobs(ctx,options={}){
   const key=process.env.D360_API_KEY;if(!key)return {stored:0,failed:0,skipped:'D360_API_KEY_MISSING'};
   const jobs=await rows(ctx,'whatsapp_media_jobs',{select:'*',environment:'eq.'+ctx.environment,status:'in.(PENDING,FAILED)',attempts:'lt.3',next_attempt_at:'lte.'+new Date().toISOString(),order:'created_at.asc',limit:String(options.maxJobs||8)});
-  const result={stored:0,failed:0};
-  for(const job of jobs){
-    if(options.deadlineAt&&Date.now()>=options.deadlineAt)break;
+  const result={stored:0,failed:0};let cursor=0,stopped=false;
+  const worker=async()=>{for(;;){
+    if(stopped||(options.deadlineAt&&Date.now()>=options.deadlineAt))return;const job=jobs[cursor++];if(!job)return;
     const attempt=Number(job.attempts||0)+1,claimed=await patchRows(ctx,'whatsapp_media_jobs',{id:'eq.'+job.id,environment:'eq.'+ctx.environment,status:'eq.'+job.status,attempts:'eq.'+job.attempts},{status:'PROCESSING',attempts:attempt,updated_at:new Date().toISOString()},true);if(!claimed.length)continue;
     try{await storeMedia(ctx,{...job,attempts:attempt},key);result.stored++;}
-    catch(error){const final=attempt>=3,code=String(error?.message||'MEDIA_FAILED').slice(0,120);await patchRows(ctx,'whatsapp_media_jobs',{id:'eq.'+job.id,environment:'eq.'+ctx.environment},{status:final?'FAILED':'PENDING',error_code:code,next_attempt_at:new Date(Date.now()+attempt*5*60000).toISOString(),updated_at:new Date().toISOString()});await patchRows(ctx,'messages',{id:'eq.'+job.message_id,environment:'eq.'+ctx.environment},{media_kind:job.media_kind,media_mime_type:job.mime_type||null,media_status:final?'FAILED':'PENDING'});result.failed++;if(/_(401|403|429)$/.test(code))break;}
-    if(options.deadlineAt&&Date.now()>=options.deadlineAt)break;
-  }
+    catch(error){const final=attempt>=3,code=String(error?.message||'MEDIA_FAILED').slice(0,120);await patchRows(ctx,'whatsapp_media_jobs',{id:'eq.'+job.id,environment:'eq.'+ctx.environment},{status:final?'FAILED':'PENDING',error_code:code,next_attempt_at:new Date(Date.now()+attempt*5*60000).toISOString(),updated_at:new Date().toISOString()});await patchRows(ctx,'messages',{id:'eq.'+job.message_id,environment:'eq.'+ctx.environment},{media_kind:job.media_kind,media_mime_type:job.mime_type||null,media_status:final?'FAILED':'PENDING'});result.failed++;if(/_(401|403|429)$/.test(code))stopped=true;}
+  }};
+  await Promise.all(Array.from({length:Math.min(4,jobs.length)},worker));
   return result;
 }
 async function recoverMediaJobs(ctx){const stale=new Date(Date.now()-120000).toISOString();await patchRows(ctx,'whatsapp_media_jobs',{environment:'eq.'+ctx.environment,status:'eq.PROCESSING',updated_at:'lt.'+stale,attempts:'lt.3'},{status:'PENDING',error_code:'WORKER_INTERRUPTED',next_attempt_at:new Date().toISOString(),updated_at:new Date().toISOString()});await patchRows(ctx,'whatsapp_media_jobs',{environment:'eq.'+ctx.environment,status:'eq.PROCESSING',updated_at:'lt.'+stale,attempts:'gte.3'},{status:'FAILED',error_code:'WORKER_INTERRUPTED',updated_at:new Date().toISOString()});}
