@@ -10,8 +10,8 @@
   // One rule for every place that compares a car with what a customer wants (browser CSV
   // import, server revalidation, ficha offers, score and saved searches).
   // R3: an unknown criterion is never "any".
-  //  a) year and/or mileage the customer gave are used as given;
-  //  b) a missing year/mileage is replaced by the MMR range of the bid:
+  //  a) year and/or mileage the customer gave are used as given (BATE);
+  //  b) a missing year/mileage is replaced by the MMR range of the bid (POR_VALOR):
   //     bid <= US$ 60.000: MMR between 70% and 115% of the bid; above: 75% to 110%;
   //  c) rule b with a car without MMR: QUASE "sem MMR para comparar";
   //  d) missing year/mileage and no bid: QUASE "precisa qualificar";
@@ -105,7 +105,10 @@
       const tolerated = (failure.kind === 'year' && failure.delta <= 1) || (failure.kind === 'miles' && failure.delta <= maxMiles * 0.1);
       if (!tolerated) return null;
     }
-    const kind = failures.length === 0 && gaps.length === 0 ? 'BATE' : 'QUASE';
+    // BATE: the criteria the customer gave are met (no lance or MMR needed). POR_VALOR: year
+    // and/or mileage were not given and the MMR is inside the bid range (the natural path of
+    // the Simulação tab). QUASE: tolerance or missing data, always with a reason.
+    const kind = failures.length === 0 && gaps.length === 0 ? (valueReason ? 'POR_VALOR' : 'BATE') : 'QUASE';
     const bid = positive(bidCents);
     return {
       kind,
@@ -122,7 +125,17 @@
   }
 
   function rank(result) {
-    return result.kind === 'BATE' ? 0 : result.dataGap ? 2 : 1;
+    return result.kind === 'BATE' ? 0 : result.kind === 'POR_VALOR' ? 1 : result.dataGap ? 3 : 2;
+  }
+
+  // Display label for the stored kind codes.
+  function kindLabel(kind) {
+    return kind === 'POR_VALOR' ? 'POR VALOR · ligar' : kind || '';
+  }
+
+  // BATE and POR_VALOR are real opportunities; QUASE never counts as serving a customer.
+  function countsAsServed(kind) {
+    return kind === 'BATE' || kind === 'POR_VALOR';
   }
 
   function matchVehicle(vehicle, wishlist, bidCents) {
@@ -147,5 +160,5 @@
     return code === 'MMR acima do teto' ? 'MMR acima do lance' : code === 'MMR dentro do teto' ? 'MMR dentro do lance' : code || '';
   }
 
-  return { NOTICE, VALUE_THRESHOLD_CENTS, fold, integer, matchVehicle, matchWish, mmrStatusLabel, sameVehicle, valueBand, wishSearchBasis };
+  return { NOTICE, VALUE_THRESHOLD_CENTS, countsAsServed, fold, integer, kindLabel, matchVehicle, matchWish, mmrStatusLabel, sameVehicle, valueBand, wishSearchBasis };
 }));

@@ -27,13 +27,13 @@
   }
 
   // Export file names that say nothing about who the customer is. The iPhone always
-  // exports "_chat.txt", so these can never identify a chat or name a contact.
-  const GENERIC_TITLE_RE = /^(?:_+\s*)?(?:chat|whatsapp|whatsapp chat|conversa|conversa do whatsapp|mensagens|messages|export|exportar|txt)?$/i;
+  // exports "_chat.txt", so these can never identify a chat or name a contact. Only these
+  // known names are generic (a real name that starts with "_" is not).
+  const GENERIC_TITLES = new Set(['_chat', 'whatsapp chat', 'chat', 'conversa', 'conversa do whatsapp', 'mensagens', 'messages', 'export']);
 
   function isGenericTitle(value) {
-    const title = clean(String(value || '').replace(/\.(?:txt|zip)$/i, ''));
-    return !title || title.startsWith('_') || GENERIC_TITLE_RE.test(title)
-      || /^(?:whatsapp chat with|conversa do whatsapp com)\s*$/i.test(title);
+    const title = clean(String(value || '').replace(/\.(?:txt|zip)$/i, '')).toLocaleLowerCase('pt-BR');
+    return !title || GENERIC_TITLES.has(title) || /^(?:whatsapp chat with|conversa do whatsapp com)\s*$/i.test(title);
   }
 
   function contactNameFromTitle(value) {

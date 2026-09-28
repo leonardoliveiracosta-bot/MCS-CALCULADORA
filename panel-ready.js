@@ -20,7 +20,7 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   let mmr=null;
   if(wish?.model){
     // R3: only cars the shared rule calls BATE are comparable; unknown criteria are not "any".
-    const comparable=vehicles.filter((vehicle)=>vehicleMatch.matchWish(vehicle,wish,criteria.bidCents)?.kind==='BATE');
+    const comparable=vehicles.filter((vehicle)=>vehicleMatch.countsAsServed(vehicleMatch.matchWish(vehicle,wish,criteria.bidCents)?.kind));
     mmr=median(comparable.map((vehicle)=>vehicle.mmrCents));
   }
   const zip=item.zip||journey?.zip||'';

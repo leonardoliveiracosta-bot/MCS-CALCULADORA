@@ -264,7 +264,7 @@ async function actionMarkMessage(ctx, journey, body) {
   const valueJson = wishlists ? { wishlist: { wishlists } } : {};
   if (config.field === 'TETO') {
     // The total ceiling goes only to confirmed_total_ceiling_cents (R2), written atomically by
-    // panel_mark_message_fact from value_json.ceilingCents; budget_cents (maximum bid) is untouched.
+    // panel_mark_message_fact_v2 from value_json.ceilingCents; budget_cents (maximum bid) is untouched.
     if (journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_CLOSED' });
     // Only the amount the operator typed and confirmed; never the whole message text.
     const ceilingCents = parseMoneyCents(body.value);
@@ -272,7 +272,7 @@ async function actionMarkMessage(ctx, journey, body) {
     valueJson.ceilingCents = ceilingCents;
   }
   const deadlineAt = time(body.deadlineAt) ? new Date(time(body.deadlineAt)).toISOString() : null;
-  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_mark_message_fact', {
+  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_mark_message_fact_v2', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
       p_environment: ctx.environment,
       p_journey_id: journey.id,

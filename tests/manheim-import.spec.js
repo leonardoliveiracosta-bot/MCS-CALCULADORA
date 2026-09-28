@@ -122,12 +122,13 @@ test('CSV do Manheim com milhares de combinações importa inteiro, em partes, s
   await more.click();
   expect(await card.locator('.manheim-row').count()).toBe(10 + hidden);
   const rows = await card.locator('.manheim-row').evaluateAll((list) => list.map((row) => ({
-    kind: row.classList.contains('match') ? 'BATE' : 'QUASE',
+    kind: row.classList.contains('match') ? 'BATE' : row.classList.contains('value') ? 'POR_VALOR' : 'QUASE',
     miles: Number(([...row.querySelectorAll('span')].map((span) => /^([\d.,\s\u00a0]+) milhas/.exec(span.textContent)).find(Boolean) || ['', ''])[1].replace(/\D/g, '') || NaN)
   })));
   expect(rows.every((row) => Number.isFinite(row.miles))).toBe(true);
-  const firstNear = rows.findIndex((row) => row.kind === 'QUASE');
-  if (firstNear >= 0) expect(rows.slice(firstNear).every((row) => row.kind === 'QUASE')).toBe(true);
+  // Order: BATE, then POR VALOR, then QUASE.
+  const order = { BATE: 0, POR_VALOR: 1, QUASE: 2 };
+  for (let index = 1; index < rows.length; index += 1) expect(order[rows[index].kind]).toBeGreaterThanOrEqual(order[rows[index - 1].kind]);
   for (let index = 1; index < rows.length; index += 1) {
     if (rows[index].kind === rows[index - 1].kind) expect(rows[index].miles).toBeGreaterThanOrEqual(rows[index - 1].miles);
   }

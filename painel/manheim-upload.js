@@ -128,14 +128,15 @@
     return { ...result, discardedTotal: discarded };
   }
 
-  // BATE before QUASE, then lowest mileage first.
+  // BATE, then POR_VALOR, then QUASE; lowest mileage first inside each.
   function sortForDisplay(matches) {
     const miles = (match) => {
       const value = Number(match && match.vehicle_json && match.vehicle_json.parsed && match.vehicle_json.parsed.miles);
       return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
     };
     return (matches || []).slice().sort((left, right) => {
-      const kind = (left.match_kind === 'BATE' ? 0 : 1) - (right.match_kind === 'BATE' ? 0 : 1);
+      const order = (kind) => kind === 'BATE' ? 0 : kind === 'POR_VALOR' ? 1 : 2;
+      const kind = order(left.match_kind) - order(right.match_kind);
       return kind || miles(left) - miles(right);
     });
   }

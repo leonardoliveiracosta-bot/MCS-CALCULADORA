@@ -81,6 +81,9 @@ module.exports = async (req, res) => {
     }
     const groups = new Map();
     const leadIds = new Set();
+    // Coverage is counted separately by basis: criteria (Busca) and value (Simulação) are two
+    // different commercial paths and are never added up as if they were the same thing.
+    const basisLeads = { CRITERIA: new Set(), VALUE: new Set() };
     const bump = (list, value) => { if (Number(value) > 0) list.push(Number(value)); };
     for (const [lead, activeLead] of active) {
       const merged = activeLead.orders.length ? { wishlists: mergeWishlists([], activeLead.orders.slice().sort((a, b) => (Date.parse(b.occurredAt) || 0) - (Date.parse(a.occurredAt) || 0)).flatMap((order) => order.wishlists || [])), budgetCents: activeLead.orders.map((order) => order.budgetCents).find((value) => Number(value) > 0) || null } : null;
@@ -89,7 +92,7 @@ module.exports = async (req, res) => {
         if (!wish.make || !wish.model || /^(other brand|other model|outro modelo|outra marca)$/i.test(String(wish.make).trim()) || /^(other brand|other model|outro modelo|outra marca)$/i.test(String(wish.model).trim())) continue;
         // R3: how this wish can be searched. Nothing is invented for what the customer did not say.
         const { basis, band } = vehicleMatch.wishSearchBasis(wish, criteria.bidCents);
-        if (basis !== 'QUALIFY') leadIds.add(lead);
+        if (basis !== 'QUALIFY') { leadIds.add(lead); basisLeads[basis].add(lead); }
         const base = `${catalog.fold(wish.make)}|${catalog.modelTokens(wish.model,wish.make).join(' ')}`;
         const key = basis === 'CRITERIA' ? base : base + (basis === 'VALUE' ? '|valor' : '|qualificar');
         if (!groups.has(key)) groups.set(key, { key, basis, make: wish.make, model: wish.model, leads: new Map(), yearMins: [], yearMaxs: [], openFrom: false, openTo: false, withYears: 0, miles: [], mmrMin: [], mmrMax: [], latestAt: 0 });
@@ -106,8 +109,10 @@ module.exports = async (req, res) => {
       }
     }
     const marked = new Map(saved.map((row) => [row.search_key,row.created]));
-    const seen = new Set();
-    const counted = [...groups.values()].filter((group) => group.basis !== 'QUALIFY').sort((a,b) => b.leads.size - a.leads.size || a.key.localeCompare(b.key));
+    const seen = { CRITERIA: new Set(), VALUE: new Set() };
+    const bySize = (a,b) => b.leads.size - a.leads.size || a.key.localeCompare(b.key);
+    const criteriaGroups = [...groups.values()].filter((group) => group.basis === 'CRITERIA').sort(bySize);
+    const valueGroups = [...groups.values()].filter((group) => group.basis === 'VALUE').sort(bySize);
     const qualify = [...groups.values()].filter((group) => group.basis === 'QUALIFY').sort((a,b) => b.leads.size - a.leads.size || a.key.localeCompare(b.key));
     const shape = (group, index) => {
       const yearsKnown = group.withYears === group.leads.size && group.withYears > 0;
@@ -122,12 +127,13 @@ module.exports = async (req, res) => {
         leads: group.leads.size, clients: [...group.leads.values()], latestAt: group.latestAt ? new Date(group.latestAt).toISOString() : null,
         created: marked.get(group.key) === true, needsQualify: group.basis === 'QUALIFY',
         ...(index === null ? { searches: null, covered: null, percent: null, individualPercent: null } : (() => {
-          group.leads.forEach((_, lead) => seen.add(lead));
-          return { searches: index + 1, covered: seen.size, percent: leadIds.size ? Math.round(seen.size / leadIds.size * 100) : 0, individualPercent: leadIds.size ? Math.round(group.leads.size / leadIds.size * 100) : 0 };
+          const total = basisLeads[group.basis].size;
+          group.leads.forEach((_, lead) => seen[group.basis].add(lead));
+          return { searches: index + 1, covered: seen[group.basis].size, percent: total ? Math.round(seen[group.basis].size / total * 100) : 0, individualPercent: total ? Math.round(group.leads.size / total * 100) : 0 };
         })())
       };
     };
-    const result = [...counted.map((group, index) => shape(group, index)), ...qualify.map((group) => shape(group, null))];
-    return send(res, 200, { activeLeads: leadIds.size, needsQualifyLeads: new Set(qualify.flatMap((group) => [...group.leads.keys()])).size, groups: result });
+    const result = [...criteriaGroups.map((group, index) => shape(group, index)), ...valueGroups.map((group, index) => shape(group, index)), ...qualify.map((group) => shape(group, null))];
+    return send(res, 200, { activeLeads: leadIds.size, activeLeadsCriteria: basisLeads.CRITERIA.size, activeLeadsValue: basisLeads.VALUE.size, needsQualifyLeads: new Set(qualify.flatMap((group) => [...group.leads.keys()])).size, groups: result });
   } catch (_) { return send(res, 500, { error: 'SEARCHES_UNAVAILABLE' }); }
 };

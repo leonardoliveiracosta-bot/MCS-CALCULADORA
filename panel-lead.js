@@ -100,6 +100,8 @@ function relevant(vehicle, wish) {
     && catalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make);
 }
 
+const offerRank = (offer) => offer.kind === 'BATE' ? 0 : offer.kind === 'POR_VALOR' ? 1 : offer.dataGap ? 3 : 2;
+
 // Same rule as the CSV match (R3, vehicle-match.js): kind of one car for one wish.
 function offerKind(vehicle, wish, bidCents) {
   const result = vehicleMatch.matchWish(vehicle, wish || {}, bidCents);
@@ -215,8 +217,9 @@ async function leadData(ctx, req, refInput, idInput) {
   const offers = [...unique.values()].flatMap((vehicle) => {
     const result = vehicleMatch.matchVehicle(vehicle, wishes, maxBidCents);
     return result ? [{ ...vehicle, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap }] : [];
-  }).sort((a, b) => (a.kind === b.kind ? (a.dataGap === b.dataGap ? 0 : a.dataGap ? 1 : -1) : a.kind === 'BATE' ? -1 : 1)).slice(0, 80);
-  const fits = offers.filter((vehicle) => vehicle.kind === 'BATE')
+  }).sort((a, b) => offerRank(a) - offerRank(b)).slice(0, 80);
+  // "Cabe" = BATE or POR_VALOR (real opportunities); QUASE never counts as a fit.
+  const fits = offers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind))
     .map((vehicle) => ({ year: vehicle.year, miles: vehicle.miles, make: vehicle.make, model: vehicle.model })).slice(0, 8);
   const lastCustomer = record && [...(record.conversation || [])].reverse().find((message) => message.direction === 'CUSTOMER');
   const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(new Date()));

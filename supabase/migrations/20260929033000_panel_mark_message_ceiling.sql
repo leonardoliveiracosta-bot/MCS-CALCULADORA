@@ -1,10 +1,13 @@
 -- Audit C3 / rule R2: marking "Teto" on a customer message records the customer's TOTAL
 -- ceiling in journeys.confirmed_total_ceiling_cents (value_json.ceilingCents, parsed and
--- confirmed in the panel). It no longer writes journeys.budget_cents (maximum bid) and it
--- refuses a closed ficha. Same signature: the current panel code keeps working; an old client
--- that still sends value_json.cents simply stops overwriting the bid.
+-- confirmed in the panel). It never writes journeys.budget_cents (maximum bid) and it refuses a
+-- closed ficha.
+-- Additive: this creates panel_mark_message_fact_v2 and leaves panel_mark_message_fact (used by
+-- the currently published panel) untouched.
+-- DEPLOY ORDER MATTERS: apply this migration BEFORE publishing the panel code that calls the V2.
+-- Between the two steps, do not use "Marcar Teto" in the old panel (it still writes budget_cents).
 
-create or replace function public.panel_mark_message_fact(
+create or replace function public.panel_mark_message_fact_v2(
   p_environment public.panel_environment,
   p_journey_id uuid,
   p_message_id uuid,
@@ -186,9 +189,9 @@ begin
 end;
 $$;
 
-revoke all on function public.panel_mark_message_fact(
+revoke all on function public.panel_mark_message_fact_v2(
   public.panel_environment, uuid, uuid, text, uuid, text, jsonb, timestamptz, boolean
 ) from public, anon, authenticated;
-grant execute on function public.panel_mark_message_fact(
+grant execute on function public.panel_mark_message_fact_v2(
   public.panel_environment, uuid, uuid, text, uuid, text, jsonb, timestamptz, boolean
 ) to service_role;

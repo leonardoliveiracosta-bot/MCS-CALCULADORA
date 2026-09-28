@@ -114,8 +114,16 @@ function effectiveCriteria(journey, order) {
   const orderWishes = (order && Array.isArray(order.wishlists) ? order.wishlists : []).map(normalizeWishlist).filter((wish) => wish.model);
   const journeyBid = Number(journey && journey.budget_cents) > 0 ? Number(journey.budget_cents) : null;
   const orderBid = Number(order && order.budgetCents) > 0 ? Number(order.budgetCents) : null;
+  // The ficha's wishes win. For the SAME model, fields the ficha does not have yet are filled
+  // from the linked Ref (the year range stays one unit). Models that only exist in the Ref are
+  // never added when the ficha already has wishes.
+  const sameModel = (left, right) => vehicleCatalog.modelTokens(left.model, left.make).join(' ') === vehicleCatalog.modelTokens(right.model, right.make).join(' ')
+    && (!left.make || !right.make || fold(left.make) === fold(right.make));
+  const wishes = journeyWishes.length
+    ? journeyWishes.map((wish) => { const evidence = orderWishes.find((candidate) => sameModel(wish, candidate)); return evidence ? normalizeWishlist(mergeWishlist(wish, evidence)) : wish; })
+    : orderWishes;
   return {
-    wishes: journeyWishes.length ? journeyWishes : orderWishes,
+    wishes,
     wishesSource: journeyWishes.length ? 'FICHA' : orderWishes.length ? 'CALCULADORA' : null,
     bidCents: journeyBid || orderBid,
     bidSource: journeyBid ? 'FICHA' : orderBid ? 'CALCULADORA' : null,

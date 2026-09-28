@@ -135,7 +135,7 @@
     if(!questions.querySelector('p'))append(questions,'p','muted','Checklist completo.');
     const offers=section(second,6,'O QUE OFERECER');
     if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes.');
-    data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind,car.kind==='BATE'?'green':'yellow'));
+    data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind==='POR_VALOR'?'POR VALOR · ligar':car.kind,car.kind==='BATE'?'green':car.kind==='POR_VALOR'?'blue':'yellow'));
       append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('en-US')+' mi'} · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
       if(car.matchNotice)line.append(badge(car.matchNotice,'yellow'));else if(car.matchReason)append(line,'span','muted',car.matchReason);
       button(line,'Apresentar',async()=>{await api('present',{fingerprint:car.rowFingerprint});await reload();}); });

@@ -1,10 +1,21 @@
--- Manheim upload RPCs, second revision (audit A5 and rule R3f). Replaces the bodies of
--- panel_store_manheim_upload and panel_store_manheim_upload_part with the same signatures, so
--- the current panel code keeps working before and after this migration.
+-- Manheim upload RPCs, second revision (audit A5, rule R3 and the POR_VALOR kind).
+-- Replaces the bodies of panel_store_manheim_upload and panel_store_manheim_upload_part with
+-- the same signatures, so the current panel code keeps working before and after this migration.
 --  * A closed ficha (status ENCERRADO) is never a match target, even if its on/off switch
 --    says "enabled" (before: coalesce(ts.enabled, status <> 'ENCERRADO') let it through).
---  * lead_count does not count targets whose only matches are QUASE because data is missing
---    (vehicle_json.parsed.dataGap = true, set by the panel server).
+--  * New match kind POR_VALOR (customer gave no year/mileage; MMR inside the bid range).
+--    manheim_matches.match_kind accepts BATE, POR_VALOR and QUASE. The published code never
+--    writes POR_VALOR, so widening the rule is compatible.
+--  * lead_count counts only targets with a BATE or POR_VALOR match; QUASE never counts.
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conrelid = 'public.manheim_matches'::regclass and conname = 'manheim_matches_match_kind_check') then
+    alter table public.manheim_matches drop constraint manheim_matches_match_kind_check;
+  end if;
+  alter table public.manheim_matches
+    add constraint manheim_matches_match_kind_check check (match_kind in ('BATE', 'POR_VALOR', 'QUASE'));
+end $$;
 
 create or replace function public.panel_store_manheim_upload(
   p_environment public.panel_environment,
@@ -52,7 +63,7 @@ begin
 
   for v_match in select value from jsonb_array_elements(p_matches) loop
     v_kind := v_match ->> 'kind';
-    if v_kind not in ('BATE','QUASE')
+    if v_kind not in ('BATE','POR_VALOR','QUASE')
        or length(coalesce(v_match ->> 'fingerprint', '')) not between 3 and 200
        or jsonb_typeof(v_match -> 'vehicle') <> 'object'
        or octet_length((v_match -> 'vehicle')::text) > 65536
@@ -117,9 +128,9 @@ begin
   end loop;
 
   select count(*),
-         -- R3f: a QUASE caused by missing data is not a lead the upload serves.
+         -- Only BATE and POR_VALOR serve a customer; QUASE never counts.
          count(distinct case
-           when coalesce((vehicle_json -> 'parsed' ->> 'dataGap')::boolean, false) then null
+           when match_kind not in ('BATE', 'POR_VALOR') then null
            when journey_id is not null then 'j:' || journey_id::text
            else 'r:' || trim(calc_ref::text)
          end)
@@ -238,7 +249,7 @@ begin
 
   for v_match in select value from jsonb_array_elements(p_matches) loop
     v_kind := v_match ->> 'kind';
-    if v_kind not in ('BATE','QUASE')
+    if v_kind not in ('BATE','POR_VALOR','QUASE')
        or length(coalesce(v_match ->> 'fingerprint', '')) not between 3 and 200
        or jsonb_typeof(v_match -> 'vehicle') <> 'object'
        or octet_length((v_match -> 'vehicle')::text) > 65536
@@ -338,9 +349,9 @@ begin
   on conflict do nothing;
 
   select count(*),
-         -- R3f: a QUASE caused by missing data is not a lead the upload serves.
+         -- Only BATE and POR_VALOR serve a customer; QUASE never counts.
          count(distinct case
-           when coalesce((vehicle_json -> 'parsed' ->> 'dataGap')::boolean, false) then null
+           when match_kind not in ('BATE', 'POR_VALOR') then null
            when journey_id is not null then 'j:' || journey_id::text
            else 'r:' || trim(calc_ref::text)
          end)

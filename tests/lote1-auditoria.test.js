@@ -31,22 +31,27 @@ const car = (overrides) => ({ year: 2020, make: 'BMW', model: 'X5', miles: 40000
 // ---------------------------------------------------------------- R3: faixa de MMR
 test('R3b: faixa de MMR do lance (US$ 20.000, 60.000 e 80.000), bordas inclusivas', () => {
   const wish = [{ make: 'BMW', model: 'X5' }];
+  // Simulação path: inside the bid range = POR_VALOR (not BATE: the customer never gave year/mileage).
   const kind = (bidUsd, mmrUsd) => vehicleMatch.matchVehicle(car({ mmrCents: mmrUsd * 100 }), wish, bidUsd * 100)?.kind || null;
-  assert.equal(kind(20000, 14000), 'BATE');
-  assert.equal(kind(20000, 23000), 'BATE');
+  assert.equal(kind(20000, 14000), 'POR_VALOR');
+  assert.equal(kind(20000, 23000), 'POR_VALOR');
   assert.equal(kind(20000, 13999), null);
   assert.equal(kind(20000, 23001), null);
-  assert.equal(kind(60000, 42000), 'BATE');
-  assert.equal(kind(60000, 69000), 'BATE');
+  assert.equal(kind(60000, 42000), 'POR_VALOR');
+  assert.equal(kind(60000, 69000), 'POR_VALOR');
   assert.equal(kind(60000, 41999), null);
   assert.equal(kind(60000, 69001), null);
-  assert.equal(kind(80000, 60000), 'BATE');
-  assert.equal(kind(80000, 88000), 'BATE');
+  assert.equal(kind(80000, 60000), 'POR_VALOR');
+  assert.equal(kind(80000, 88000), 'POR_VALOR');
   assert.equal(kind(80000, 59999), null);
   assert.equal(kind(80000, 88001), null);
   const byValue = vehicleMatch.matchVehicle(car({ mmrCents: 2000000 }), wish, 2000000);
   assert.equal(byValue.reason, 'por valor: MMR US$ 20,000 na faixa do lance US$ 20,000');
   assert.equal(byValue.basis, 'VALUE');
+  assert.equal(byValue.kind, 'POR_VALOR');
+  assert.equal(vehicleMatch.kindLabel('POR_VALOR'), 'POR VALOR · ligar');
+  assert.equal(vehicleMatch.countsAsServed('POR_VALOR'), true);
+  assert.equal(vehicleMatch.countsAsServed('QUASE'), false);
   assert.equal(byValue.dataGap, false);
 });
 
@@ -67,7 +72,10 @@ test('R3a: critérios informados são usados; ano informado sem milhagem usa ano
   assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, miles: 40000 }), full, null).kind, 'BATE');
   assert.equal(vehicleMatch.matchVehicle(car({ year: 2015, miles: 40000 }), full, null), null);
   const yearOnly = [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2021 }];
-  assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, mmrCents: 3000000 }), yearOnly, 3000000).kind, 'BATE');
+  assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, mmrCents: 3000000 }), yearOnly, 3000000).kind, 'POR_VALOR');
+  // Busca path: complete criteria = BATE even without bid and even when the car has no MMR.
+  assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, miles: 40000, mmrCents: null }), full, null).kind, 'BATE');
+  assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, miles: 40000, mmrCents: null }), full, 3000000).kind, 'BATE');
   assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, mmrCents: 9000000 }), yearOnly, 3000000), null);
   assert.equal(vehicleMatch.matchVehicle(car({ year: 2010, mmrCents: 3000000 }), yearOnly, 3000000), null);
 });
@@ -220,7 +228,7 @@ test('A5: ficha encerrada continua encerrada com o interruptor ligado; desligar 
   const res = response();
   await handler({ method: 'POST', headers: {}, body: { action: 'toggle_journey', journeyId: uuid(1), enabled: false, reason: 'GAVE_UP' } }, res);
   assert.deepEqual([res.code, res.payload.error, rpcCalled], [409, 'JOURNEY_ALREADY_DISABLED', false]);
-  const sql = read('supabase/migrations/20260929032000_panel_manheim_closed_and_gap_count.sql');
+  const sql = read('supabase/migrations/20260929032000_panel_manheim_closed_gap_por_valor.sql');
   assert.equal((sql.match(/\(j\.status <> 'ENCERRADO' and coalesce\(ts\.enabled, true\)\)/g) || []).length, 2);
 });
 
@@ -300,14 +308,19 @@ test('C2: "Quais buscas salvar" não inventa faixa e deixa "precisa qualificar" 
   assert.deepEqual([value.leads, value.mmrMinCents, value.mmrMaxCents], [1, 2800000, 4600000]);
   const qualify = byKey['bmw|x5|qualificar'];
   assert.deepEqual([qualify.leads, qualify.percent, qualify.needsQualify], [1, null, true]);
-  // % counts only criteria + value customers: AAAA2, CCCC4, DDDD5, BBBB3 and the Q5 ficha.
+  // % counts only criteria + value customers: AAAA2, CCCC4, DDDD5, BBBB3 and the Q5 ficha,
+  // separately by basis: criteria (Busca) 4 and value (Simulação) 1.
   assert.equal(res.payload.activeLeads, 5);
+  assert.deepEqual([res.payload.activeLeadsCriteria, res.payload.activeLeadsValue], [4, 1]);
+  assert.equal(value.percent, 100, 'o % do grupo por valor usa só os clientes por valor');
   assert.equal(res.payload.needsQualifyLeads, 1);
   const q5 = byKey['audi|q5'];
   assert.equal(q5.leads, 1);
   assert.ok(!criteria.clients.some((client) => client.journeyId === uuid(2)), 'a ficha que trocou para Q5 não conta como X5');
-  const total = groups.filter((group) => !group.needsQualify).at(-1);
-  assert.equal(total.percent, 100);
+  const lastCriteria = groups.filter((group) => group.basis === 'CRITERIA').at(-1);
+  assert.equal(lastCriteria.percent, 100);
+  // Groups come criteria first, then value, then "precisa qualificar".
+  assert.deepEqual([...new Set(groups.map((group) => group.basis))], ['CRITERIA', 'VALUE', 'QUALIFY']);
 });
 
 // ---------------------------------------------------------------- C5 / A24 / A14 / A20 (estáticos; Playwright cobre o fluxo)
@@ -338,4 +351,79 @@ test('migração de limites da calculadora é restritiva, aditiva e aceita o for
   const site = read('msc-calculadora.html');
   assert.match(site, /var A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"/);
   for (const event of ['simulacao', 'busca']) assert.match(sql, new RegExp(`'${event}'`));
+});
+
+// ---------------------------------------------------------------- Bloco 1 (revisão do PR #64)
+test('Bloco 1 · R1: ficha parcial é completada pela Ref do mesmo modelo, sem acrescentar modelos', () => {
+  const ref = { wishlists: [{ make: 'BMW', model: 'X5', yearMin: 2021, yearMax: 2023, maxMiles: 40000 }], budgetCents: 3000000 };
+  assert.deepEqual(domain.effectiveCriteria({ criteria_json: { wishlists: [{ make: 'BMW', model: 'X5' }] } }, ref).wishes,
+    [{ make: 'BMW', model: 'X5', yearMin: 2021, yearMax: 2023, maxMiles: 40000 }]);
+  assert.deepEqual(domain.effectiveCriteria({ criteria_json: { wishlists: [{ make: 'Audi', model: 'Q5', yearMin: 2020, yearMax: 2022, maxMiles: 30000 }], wishlistOverride: true } }, ref).wishes.map((wish) => wish.model), ['Q5']);
+  // A value the ficha has is never overwritten, and the year range is not mixed across sources.
+  assert.deepEqual(domain.effectiveCriteria({ criteria_json: { wishlists: [{ make: 'BMW', model: 'X5', yearMin: 2019, maxMiles: 90000 }] } }, ref).wishes,
+    [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: null, maxMiles: 90000 }]);
+});
+
+test('Bloco 1 · aliases: só nomes genéricos conhecidos; nome real com "_" é preservado', () => {
+  for (const title of ['_chat', '_chat.txt', 'WhatsApp Chat', 'chat', 'conversa', 'Conversa do WhatsApp', 'mensagens', 'messages', 'export']) assert.equal(parser.isGenericTitle(title), true, title);
+  for (const title of ['_Maria', '_loja_do_ze', 'Maria', 'WhatsApp Chat with Ana']) assert.equal(parser.isGenericTitle(title), false, title);
+  const migration = read('supabase/migrations/20260929031000_chat_alias_generic_cleanup.sql');
+  assert.doesNotMatch(migration, /~ '\^_'/);
+  assert.match(migration, /'_chat', 'whatsapp chat', 'chat', 'conversa', 'conversa do whatsapp', 'mensagens', 'messages', 'export'/);
+});
+
+test('Bloco 1 · banco real: V2 grava só o teto total; função antiga intacta; POR_VALOR aceito e contado', async () => {
+  const { migratedDatabase } = require('./sql/run');
+  const { db } = await migratedDatabase();
+  try {
+    const ids = { actor: uuid(900), contact: uuid(901), open: uuid(902), closed: uuid(903), chat: uuid(904) };
+    await db.query(`insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password) values($1,'preview',$2,'teto@example.test','admin',true,false)`, [ids.actor, uuid(905)]);
+    await db.query(`insert into public.contacts(id,environment,display_name,created_at,updated_at) values($1,'preview','Cliente Teste',now(),now())`, [ids.contact]);
+    await db.query(`insert into public.journeys(id,environment,contact_id,source,status,stage,budget_cents,created_at,updated_at) values($1,'preview',$2,'MANUAL','ATIVO','NOVO',2000000,now(),now())`, [ids.open, ids.contact]);
+    await db.query(`insert into public.journeys(id,environment,contact_id,source,status,stage,budget_cents,closed_at,closed_reason,created_at,updated_at) values($1,'preview',$2,'MANUAL','ENCERRADO','NOVO',2000000,now(),'TESTE',now(),now())`, [ids.closed, ids.contact]);
+    await db.query(`insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,created_at,updated_at) values($1,'preview','WHATSAPP',$2,'teto-teste','RESOLVED',now(),now())`, [ids.chat, ids.contact]);
+    let n = 0;
+    const message = async (journey) => {
+      n += 1;
+      const id = uuid(950 + n);
+      await db.query(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values($1,'preview',$2,'WHATSAPP','CUSTOMER','my budget is 40k','my budget is 40k',now(),$3,0,'WHATSAPP_WEBHOOK',now())`, [id, ids.chat, 'sig-' + n]);
+      await db.query(`insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview',$1,$2,'TEST',now())`, [id, journey]);
+      return id;
+    };
+    for (const journey of [ids.open, ids.closed]) for (let point = 1; point <= 6; point += 1) await db.query(`insert into public.journey_checklist(environment,journey_id,point_number,point_label,created_at,updated_at) values('preview',$1,$2,'p',now(),now())`, [journey, point]);
+    const call = (fn, journey, messageId, json) => db.query(`select public.${fn}(p_environment => 'preview', p_journey_id => $1, p_message_id => $2, p_kind => 'BUDGET', p_actor_id => $3, p_value => '40k', p_value_json => $4::jsonb) as r`, [journey, messageId, ids.actor, JSON.stringify(json)]);
+    const journeyRow = async (id) => (await db.query(`select budget_cents::float8 as budget_cents, confirmed_total_ceiling_cents::float8 as confirmed_total_ceiling_cents from public.journeys where id=$1`, [id])).rows[0];
+    // New panel → V2: only the total ceiling changes.
+    await call('panel_mark_message_fact_v2', ids.open, await message(ids.open), { ceilingCents: 4000000 });
+    assert.deepEqual(await journeyRow(ids.open), { budget_cents: 2000000, confirmed_total_ceiling_cents: 4000000 });
+    // V2 ignores the legacy "cents" field and refuses a closed ficha.
+    await call('panel_mark_message_fact_v2', ids.open, await message(ids.open), { cents: 3500 });
+    assert.deepEqual(await journeyRow(ids.open), { budget_cents: 2000000, confirmed_total_ceiling_cents: 4000000 });
+    await assert.rejects(() => call('panel_mark_message_fact_v2', ids.closed, uuid(999), { ceilingCents: 4000000 }), /JOURNEY_CLOSED/);
+    // Old panel → original function is untouched (it still writes budget_cents; do not use it between steps).
+    await call('panel_mark_message_fact', ids.open, await message(ids.open), { cents: 5500000 });
+    assert.equal((await journeyRow(ids.open)).budget_cents, 5500000);
+    // POR_VALOR is accepted by the table and by the upload RPC; lead_count counts BATE and POR_VALOR only.
+    const vehicle = { headers: ['Year'], raw: { Year: '2022' }, parsed: { year: 2022, make: 'BMW', model: 'X5', miles: 30000 } };
+    const upload = (await db.query(`select public.panel_store_manheim_upload(p_environment => 'preview', p_actor_id => $1, p_source_file_count => 1, p_vehicle_count => 1, p_headers => '[["Year"]]'::jsonb, p_header_map => '{}'::jsonb, p_matches => $2::jsonb) as r`,
+      [ids.actor, JSON.stringify([{ journeyId: ids.open, kind: 'POR_VALOR', fingerprint: 'vin:A', vehicle }])])).rows[0].r;
+    assert.equal(upload.leadCount, 1);
+    const quase = (await db.query(`select public.panel_store_manheim_upload(p_environment => 'preview', p_actor_id => $1, p_source_file_count => 1, p_vehicle_count => 1, p_headers => '[["Year"]]'::jsonb, p_header_map => '{}'::jsonb, p_matches => $2::jsonb) as r`,
+      [ids.actor, JSON.stringify([{ journeyId: ids.open, kind: 'QUASE', fingerprint: 'vin:B', vehicle }])])).rows[0].r;
+    assert.equal(quase.leadCount, 0, 'QUASE nunca conta');
+    assert.equal(quase.matchedVehicleCount, 1);
+  } finally { await db.close(); }
+});
+
+test('Bloco 1 · painel mostra POR VALOR separado de BATE e QUASE', () => {
+  const panel = read('painel/painel.js');
+  assert.match(panel, /const kindClass = \(kind\) => kind === 'BATE' \? 'match' : kind === 'POR_VALOR' \? 'value' : 'near';/);
+  assert.match(panel, /Por valor #\$\{group\.searches\}/);
+  assert.match(read('painel/painel.css'), /\.manheim-row\.value/);
+  const rows = [{ match_kind: 'QUASE', vehicle_json: { parsed: { miles: 1 } } }, { match_kind: 'POR_VALOR', vehicle_json: { parsed: { miles: 1 } } }, { match_kind: 'BATE', vehicle_json: { parsed: { miles: 9 } } }];
+  assert.deepEqual(upload.sortForDisplay(rows).map((row) => row.match_kind), ['BATE', 'POR_VALOR', 'QUASE']);
+  assert.match(read('api/panel/actions.js'), /rpc\/panel_mark_message_fact_v2/);
+  const migration = read('supabase/migrations/20260929033000_panel_mark_message_ceiling.sql');
+  assert.match(migration, /DEPLOY ORDER MATTERS/);
+  assert.doesNotMatch(migration, /function public\.panel_mark_message_fact\(/);
 });
