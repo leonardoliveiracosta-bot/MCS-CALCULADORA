@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 
 const { leadData, ensureJourney, localToUtc, addClientDays, cityForZip } = require('../../panel-lead');
 const { validItems, verified, prepareItems } = require('../../panel-note');
-const { forwardStage } = require('../../panel-domain');
+const { forwardStage, normalizeDeadline } = require('../../panel-domain');
 const { insert, isUuid, jsonBody, patchRows, requirePanel, rows, safeText, send, supabase } = require('../../panel-server');
 
 async function delegate(req, payload) {
@@ -95,7 +95,7 @@ module.exports = async (req, res) => {
         }
       }
       const initial = { name: lead.order?.contactName, vehicle: lead.order?.vehicleText, wishes: lead.wishes,
-        maxBidCents: lead.maxBidCents, payment: lead.payment, deadline: lead.order?.deadlineText };
+        maxBidCents: lead.maxBidCents, payment: lead.paymentKnown || null, deadline: normalizeDeadline(lead.order?.deadlineText) || lead.order?.deadlineText || null };
       const saved = await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_confirm_lead_note',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
           p_environment:ctx.environment,p_actor:ctx.panel.id,p_ref:lead.ref,p_journey:journey?.id||null,

@@ -77,7 +77,8 @@
     if(phones.length){phones.forEach((phone)=>{const line=append(calling,'div','lead-phone');const shown=formatPhone(phone.phone_e164||phone.phone_raw);const link=append(line,'a','lead-call',`${shown}${phone.phone_owner?' — '+phone.phone_owner:''}${phone.is_primary?' · principal':''}`);link.href='tel:'+safeString(phone.phone_e164||phone.phone_raw).replace(/[^\d+]/g,'');button(line,'Copiar',()=>navigator.clipboard.writeText(phone.phone_e164||phone.phone_raw));});}
     else append(calling,'span','muted','Sem telefone — pedir no WhatsApp');
     const badges=append(heading,'div','lead-badges');
-    badges.append(badge(deadlineLabel[record.customer_deadline_text||order.deadlineText]||'Sem prazo','green'),badge(paymentLabel[data.payment]||'Não informado','green'));
+    // M11: an unknown deadline or payment is shown as unknown, not as "sem prazo" or "à vista".
+    badges.append(data.deadlineKnown?badge(deadlineLabel[data.deadlineKnown]||data.deadlineKnown,'green'):badge('Prazo não informado','yellow'),data.paymentKnown?badge(paymentLabel[data.paymentKnown],'green'):badge('Pagamento não informado','yellow'));
     if(data.searchStage)badges.append(badge(data.searchStage.label||({MISSING:'🔍 Falta buscar',SAVED:'💾 Busca salva',SENT:'📤 Opções enviadas'}[data.searchStage.stage]||''),data.searchStage.stage==='SENT'?'green':data.searchStage.stage==='SAVED'?'':'yellow'));
     if(data.lastCustomerAt) badges.append(badge(`última mensagem do cliente há ${elapsed(data.lastCustomerAt)}`));
     badges.append(badge(record.enabled===false?'DESLIGADO':'LIGADO',record.enabled===false?'red':'green'));
@@ -115,7 +116,7 @@
     if((data.calculatorNews||[]).length){const news=append(wishes,'div','calculator-news');append(news,'strong','','Nova informação da calculadora (a ficha não foi alterada)');
       data.calculatorNews.forEach((item)=>append(news,'p','muted',item.field==='LANCE'?`Lance: calculadora ${cents(item.calculatorCents)} · ficha ${cents(item.fichaCents)}`:`${({PAGAMENTO:'Pagamento',VEICULO:'Veículo',NOME:'Nome'})[item.field]||item.field}: calculadora "${item.calculator}" · ficha "${item.ficha}"`));}
     append(wishes,'p','muted',`Teto total confirmado: ${cents(data.totalCeilingCents)}`);
-    append(wishes,'p','muted',`${data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':'transferir'}`);
+    append(wishes,'p','muted',`${data.zipKnown===false?'ZIP não informado (estimativa como FL)':data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':'transferir'}`);
     const ceilingForm=append(wishes,'div','lead-actions');const ceilingInput=append(ceilingForm,'input');ceilingInput.type='number';ceilingInput.min='1';ceilingInput.step='1';ceilingInput.placeholder='Teto total confirmado (US$)';ceilingInput.value=data.totalCeilingCents?data.totalCeilingCents/100:'';
     button(ceilingForm,'Confirmar teto total',async()=>{await api('total_ceiling',{amount:ceilingInput.value});await reload();});
     const reality=section(trio,3,'REALIDADE (SÓ PARA VOCÊ)');

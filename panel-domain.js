@@ -532,6 +532,28 @@ function checklistSummary(points) {
   return { completed, total: 6, label: completed === 6 ? 'checklist completo' : `${completed}/6` };
 }
 
+// M1: one vocabulary for the customer's deadline. The calculator sends "3mo" (Within 3 months);
+// the panel stores "3m". An empty value is unknown, never "sem prazo".
+function normalizeDeadline(value) {
+  const text = fold(value);
+  if (!text) return null;
+  if (['now', 'agora', 'ready to buy now'].includes(text)) return 'now';
+  if (['30d', '30 dias', 'within 30 days'].includes(text)) return '30d';
+  if (['3m', '3mo', '90d', '30–90 dias', '3 meses', 'within 3 months'].includes(text)) return '3m';
+  if (['none', 'sem prazo', 'no set date yet'].includes(text)) return 'none';
+  return ['6m', '12m'].includes(text) ? text : null;
+}
+
+// M11 / E:M4: payment is "cash", "fin" or unknown (null). Free text such as "financiado" or
+// "vou financiar" is financing, never cash by default.
+function normalizePayment(value) {
+  const text = fold(value);
+  if (!text) return null;
+  if (/\b(fin|financ\w*|loan|parcel\w*)/.test(text)) return 'fin';
+  if (/\b(cash|a vista|vista|dinheiro)\b/.test(text)) return 'cash';
+  return null;
+}
+
 function shortDeadline(deadline, nowValue = new Date()) {
   const due = time(deadline);
   const nowMs = nowValue instanceof Date ? nowValue.getTime() : time(nowValue);
@@ -630,6 +652,6 @@ function buildConversationTimeline(messages, interactions, activities) {
 module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, toggleEnabled, journeyLogicalMode, logicalMode,
-  matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK,
+  matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
   normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };

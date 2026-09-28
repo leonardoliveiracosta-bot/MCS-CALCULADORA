@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 
 const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, mergeWishlists, journeyEnabled, reactivationEligible, shortDeadline, time, toggleEnabled, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
-const { score } = require('../../panel-ready');
+const { score, loadScoreVehicles } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems, lastRealMessageAt } = require('../../panel-sort');
 const { roundedMmr } = require('../../vitrine-domain');
@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
   try {
     if (String((req.query && req.query.view) || '') === 'manheim') {
       const [journeys, contacts, phones, refs, toggleStates, uploads, meta, messageLinks, messages, userIds] = await Promise.all([
-        allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,vehicle_text,created_at,updated_at', environment: 'eq.' + ctx.environment, order: 'updated_at.desc' }),
+        allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,qualified_at,closed_at,vehicle_text,created_at,updated_at', environment: 'eq.' + ctx.environment, order: 'updated_at.desc' }),
         allRows(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: 'eq.' + ctx.environment }),
         allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current',environment:'eq.'+ctx.environment}),
         allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
@@ -65,9 +65,13 @@ module.exports = async (req, res) => {
       const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});
       const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});
       const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
+      // A9: BUSCAS scores with the same inputs as the other screens (checklist, messages, cars).
+      const [scoreVehicles,scoreChecklist]=await Promise.all([loadScoreVehicles(ctx).catch(()=>[]),allRows(ctx,'journey_checklist',{select:'journey_id,status',environment:'eq.'+ctx.environment})]);
+      const messageById=new Map(messages.filter((message)=>!message.undone_at).map((message)=>[message.id,message]));
+      const scoreMessages=messageLinks.map((link)=>{const message=messageById.get(link.message_id);return message?{...message,journey_id:link.journey_id}:null;}).filter(Boolean);
       const withContactHeat=(item,facts,journey)=>{
         const target=journey||item;
-        const ready=score({...item,zip:item.zip||target.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||''},target,{messages:[]},[]);
+        const ready=score(item,target,{checklist:scoreChecklist,messages:scoreMessages},scoreVehicles);
         return decorateContact({...item,...ready},facts,insightByJourney.get(target.id),journey||(item.status?item:null));
       };
       const journeyMap=new Map(items.map(x=>[x.id,x])),journeyByRef=new Map(items.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));refs.forEach(r=>{const j=journeyMap.get(r.journey_id);if(j)journeyByRef.set(String(r.ref_code).trim().toUpperCase(),j);});
@@ -110,7 +114,7 @@ module.exports = async (req, res) => {
     if (!id) {
       const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta, checklist, promises, archive, calcRuns, calcLinks, leadPromises, aiItems, aiSuggestions, userIds, dispositions] = await Promise.all([
         allRows(ctx, 'journeys', {
-          select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_reason,updated_at',
+          select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_at,closed_reason,updated_at',
           environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
         }),
         allRows(ctx, 'contacts', { select: 'id,display_name,location_text,is_lead', environment: 'eq.' + ctx.environment }),

@@ -1,12 +1,12 @@
 'use strict';
 
-const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, standardBudget, time } = require('../../panel-domain');
+const { consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, journeyLogicalMode, standardBudget, time } = require('../../panel-domain');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { sortItems, lastRealMessageAt } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
-const { score } = require('../../panel-ready');
+const { score, loadScoreVehicles } = require('../../panel-ready');
 const { dispositionIndex, refKey } = require('../../panel-disposition');
 
 module.exports = async (req, res) => {
@@ -70,10 +70,12 @@ module.exports = async (req, res) => {
       };
     });
     // A8: one disposition per person (ficha + linked Refs).
+    // A9: the same cars as every other screen, so the score matches.
+    const scoreVehicles = await loadScoreVehicles(ctx).catch(() => []);
     const personDisposition = dispositionIndex(dispositions);
     const refsOfJourney = (journey) => [journey.reference_code, ...(data.refs || []).filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].filter(Boolean).map(refKey);
-    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const person=linked?personDisposition(linked.id,[...refsOfJourney(linked),item.ref]):null;const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},[]);return [decorateContact({
-      ...item,...(person?{disposition:person.status,discardReason:person.discard_reason||null,dispositionUpdatedAt:person.updated_at||null,pending:false}:{}),journeyId:linked?.id||item.journeyId,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
+    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const person=linked?personDisposition(linked.id,[...refsOfJourney(linked),item.ref]):null;const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},scoreVehicles);return [decorateContact({
+      ...item,...(person?{disposition:person.status,discardReason:person.discard_reason||null,dispositionUpdatedAt:person.updated_at||null,pending:false}:{}),journeyId:linked?.id||item.journeyId,budgetCents:linked?effectiveCriteria(linked,item).bidCents||item.budgetCents:item.budgetCents,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
       lastCustomerAt: Math.max(time(item.occurredAt)||0, time(latestCustomerByJourney.get(linked?.id)?.occurred_at_utc || latestCustomerByJourney.get(linked?.id)?.occurred_at_local || latestCustomerByJourney.get(linked?.id)?.created_at)||0) || null,
       lastRealMessageAt: lastRealByJourney(linked?.id||item.journeyId), sortAt: lastRealByJourney(linked?.id||item.journeyId) || item.occurredAt || null,
       sourceLabel: 'Calculadora',
@@ -85,7 +87,7 @@ module.exports = async (req, res) => {
       const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:(data.refs||[]).filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
       const latest = latestByJourney.get(item.id);
       const disposition = personDisposition(item.id, refsOfJourney(item));
-      const complete={...item,phones:item.phones||[]};const ready=score(complete,complete,{checklist:data.checklist,promises:data.promises,messages:data.messages},[]);return [decorateContact({
+      const complete={...item,phones:item.phones||[]};const ready=score(complete,complete,{checklist:data.checklist,promises:data.promises,messages:data.messages},scoreVehicles);return [decorateContact({
         key: 'direct:' + item.id, kind: 'DIRECT', journeyId: item.id,
         sourceLabel: item.source === 'SMS_DIRECT' ? 'SMS direto' : 'WhatsApp direto',
         logicalMode: journeyLogicalMode(item), logicalModes: [journeyLogicalMode(item)],

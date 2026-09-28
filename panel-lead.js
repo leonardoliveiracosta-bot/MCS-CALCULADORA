@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const calc = require('./calc-core');
 const catalog = require('./vehicle-catalog');
 const vehicleMatch = require('./vehicle-match');
-const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, REF_RE } = require('./panel-domain');
+const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, normalizeDeadline, normalizePayment, REF_RE } = require('./panel-domain');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 
@@ -191,13 +191,17 @@ async function leadData(ctx, req, refInput, idInput) {
   const zip = String(rawZip).replace(/\D/g, '').slice(0, 5);
   const state = calc.zipEstado(zip);
   const timezone = timezoneForZip(zip);
-  const payment = String(record && record.payment_text || order && order.paymentText || 'cash').toLowerCase() === 'fin' ? 'fin' : 'cash';
+  // M11 / E:M4: unknown payment is shown as unknown; estimates assume cash (the calculator default).
+  const paymentKnown = normalizePayment(record && record.payment_text) || normalizePayment(order && order.paymentText);
+  const payment = paymentKnown || 'cash';
   const plate = order && order.plate === 'nova' ? 'nova' : 'transf';
   const florida = state ? state.uf === 'FL' : true;
   const stateIndex = state ? String(calc.CONFIG.estados.findIndex((item) => item.nome === state.nome)) : '';
   const maxBidCents = criteria.bidCents;
   const totalCeilingCents = Number(record && record.confirmed_total_ceiling_cents) || null;
-  const bid = totalCeilingCents ? realisticBid(totalCeilingCents, { florida, payment, plate, stateIndex, zip }) : maxBidCents ? Math.floor(maxBidCents / 100) : null;
+  // R1 + R2 (same rule as the score): the bid confirmed on the ficha, then the bid derived from the
+  // confirmed total ceiling, then the calculator bid.
+  const bid = criteria.bidSource === 'FICHA' && maxBidCents ? Math.floor(maxBidCents / 100) : totalCeilingCents ? realisticBid(totalCeilingCents, { florida, payment, plate, stateIndex, zip }) : maxBidCents ? Math.floor(maxBidCents / 100) : null;
   const costs = bid === null ? null : calc.calcular({ lance: bid, inspecao: false, florida, placa: plate, pgto: payment, estado: stateIndex, zip });
   const vehicles = archive.map((entry) => ({ ...entry.vehicle_json, rowFingerprint: entry.row_fingerprint, uploadedAt: entry.uploaded_at }));
   const unique = new Map();
@@ -245,7 +249,7 @@ async function leadData(ctx, req, refInput, idInput) {
   const found=(await Promise.all(personKeys.map((entry)=>optionalRead('panel_item_dispositions',()=>rows(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,discard_reason,updated_at',environment:'eq.'+ctx.environment,item_kind:'eq.'+entry.kind,item_key:'eq.'+entry.key,cleared_at:'is.null',limit:'1'}))))).flat();
   const disposition=found.sort((left,right)=>(Date.parse(right.updated_at)||0)-(Date.parse(left.updated_at)||0))[0]||null;
   const dispositionKind=disposition?disposition.item_kind:order?'REF':'JOURNEY',dispositionKey=disposition?disposition.item_key:order?ref:journey?.id;
-  return { ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, calculatorNews: news, bidSource: criteria.bidSource, wishesSource: criteria.wishesSource, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
+  return { paymentKnown: paymentKnown || null, zipKnown: Boolean(state), deadlineKnown: normalizeDeadline(record?.customer_deadline_text) || normalizeDeadline(order?.deadlineText) || null, ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, calculatorNews: news, bidSource: criteria.bidSource, wishesSource: criteria.wishesSource, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
 }
 
 async function belongsToJourney(ctx, ref, journey) {
@@ -270,7 +274,7 @@ async function ensureJourney(ctx, lead) {
   if (existing) return { id: existing.id, contact_id: existing.contact_id, reference_code: lead.ref };
   const at = new Date().toISOString();
   const contact = (await insert(ctx, 'contacts', { environment: ctx.environment, display_name: lead.order && lead.order.contactName || 'Contato da Ref ' + lead.ref, source: 'CALCULATOR', created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id }))[0];
-  const journey = (await insert(ctx, 'journeys', { environment: ctx.environment, contact_id: contact.id, reference_code: lead.ref, source: 'CALCULATOR', stage: 'NOVO', status: 'ATIVO', vehicle_text: lead.order && lead.order.vehicleText || null, criteria_json: { wishlists: lead.wishes }, budget_cents: lead.maxBidCents, payment_text: lead.payment, customer_deadline_text: lead.order && lead.order.deadlineText || null, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id }))[0];
+  const journey = (await insert(ctx, 'journeys', { environment: ctx.environment, contact_id: contact.id, reference_code: lead.ref, source: 'CALCULATOR', stage: 'NOVO', status: 'ATIVO', vehicle_text: lead.order && lead.order.vehicleText || null, criteria_json: { wishlists: lead.wishes }, budget_cents: lead.maxBidCents, payment_text: lead.paymentKnown || null, customer_deadline_text: normalizeDeadline(lead.order && lead.order.deadlineText) || lead.order && lead.order.deadlineText || null, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id }))[0];
   for (let number = 1; number <= 6; number++) {
     const labels = ['Carro e critérios confirmados', 'Teto confirmado', 'Pagamento confirmado', 'Prazo confirmado', 'Aceita busca fora da Flórida', 'Entende inspeção limitada e sem devolução'];
     await insert(ctx, 'journey_checklist', { environment: ctx.environment, journey_id: journey.id, point_number: number, point_label: labels[number - 1], status: 'OPEN', created_at: at, updated_at: at }, false);

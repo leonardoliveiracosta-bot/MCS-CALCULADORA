@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildTodayItems, consolidateCalcRuns, groupCalculatorByRef, standardBudget, time } = require('../../panel-domain');
+const { buildTodayItems, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, standardBudget, time } = require('../../panel-domain');
 const { dispositionIndex, refKey } = require('../../panel-disposition');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
@@ -109,7 +109,8 @@ module.exports = async (req, res) => {
     const grouped=groupCalculatorByRef(calcModes, dispositions)
       .filter((item)=>!(data.excludedRefs||[]).includes(item.ref))
       .map((item)=>{const journey=journeyByRef.get(item.ref);const disposition=dispositionFor(journey,item.ref);const person=disposition?{...item,disposition:disposition.status,discardReason:disposition.discard_reason||null,dispositionUpdatedAt:disposition.updated_at||null}:item;
-        return journey?{...person,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents}:person;});
+        // A9 + R1: the card shows the same bid as the ficha (the ficha's bid wins over the calculator's).
+        return journey?{...person,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents,budgetCents:effectiveCriteria(journey,item).bidCents||item.budgetCents}:person;});
     const ordersByRef=new Map(grouped.map((item)=>[item.ref,item]));
     const arrival=(order)=>firstSimulation.get(order.ref)||firstCalculatorEvent.get(order.ref)||
       Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));

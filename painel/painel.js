@@ -793,7 +793,10 @@
     if(Date.now()-Date.parse(readAt)>7200000&&customerAt<=mcsAt)wrap.append(makeBadge('leu e não respondeu','red'));
     return wrap;
   }
-  function nextQuickDate(kind){const date=new Date();date.setHours(17,0,0,0);if(kind==='tomorrow')date.setDate(date.getDate()+1);if(kind==='friday'){const add=(5-date.getDay()+7)%7||7;date.setDate(date.getDate()+add);}return date;}
+  // M30: the shortcuts are 17:00 on the Florida calendar (the panel's clock), whatever the phone's zone.
+  const FLORIDA='America/New_York';
+  function zoneToUtc(local,timeZone=FLORIDA){const guess=Date.parse(local+':00Z');if(!Number.isFinite(guess))return null;const parts=zonedInput(new Date(guess),timeZone);const asZone=Date.parse(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:00Z`);return new Date(guess-(asZone-guess)).toISOString();}
+  function nextQuickLocal(kind){const today=zonedInput(new Date(),FLORIDA);const date=new Date(Date.UTC(Number(today.year),Number(today.month)-1,Number(today.day)));if(kind==='tomorrow')date.setUTCDate(date.getUTCDate()+1);if(kind==='friday'){const add=(5-date.getUTCDay()+7)%7||7;date.setUTCDate(date.getUTCDate()+add);}return date.toISOString().slice(0,10)+'T17:00';}
   function nextActionNode(item,reload){
     if(item.enabled===false||item.status==='ENCERRADO')return null;
     const journeyId=item.journeyId||item.id;if(!journeyId)return null;
@@ -803,8 +806,8 @@
     define.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();if(block.querySelector('.next-action-editor'))return;
       const editor=element('div','next-action-editor'),text=element('input');text.type='text';text.maxLength=500;text.placeholder='Texto curto';text.value=item.next_action_text||'';
       const quick=element('select');[['today','Hoje'],['tomorrow','Amanhã'],['friday','Sexta'],['custom','Data']].forEach(([value,label])=>quick.append(new Option(label,value)));
-      const date=element('input');date.type='datetime-local';date.value=localInput(nextQuickDate('today'));date.classList.add('hidden');quick.addEventListener('change',()=>{date.classList.toggle('hidden',quick.value!=='custom');if(quick.value!=='custom')date.value=localInput(nextQuickDate(quick.value));});
-      const save=element('button','small','Salvar');save.type='button';MCSAction.bind(save,()=>({scope:block,optimistic:()=>{save.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'next_action',operation:'CREATE',journeyId,text:text.value,at:new Date(date.value).toISOString()})}),rollback:()=>{save.textContent='Salvar';},refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
+      const date=element('input');date.type='datetime-local';date.value=nextQuickLocal('today');date.title='Horário da Flórida';date.classList.add('hidden');quick.addEventListener('change',()=>{date.classList.toggle('hidden',quick.value!=='custom');if(quick.value!=='custom')date.value=nextQuickLocal(quick.value);});
+      const save=element('button','small','Salvar');save.type='button';MCSAction.bind(save,()=>({scope:block,optimistic:()=>{save.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'next_action',operation:'CREATE',journeyId,text:text.value,at:zoneToUtc(date.value)})}),rollback:()=>{save.textContent='Salvar';},refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
       editor.append(text,quick,date,save);block.append(editor);
     });
     return block;
@@ -813,7 +816,8 @@
 
   function renderClients(data){
     clientsData=data;const pendingByJourney=new Map((data.pending.items||[]).map((item)=>[item.journeyId,item]));
-    let items=(data.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id,latestMessage:item.latestMessage||null}));
+    // A9: heat and score come from the same read as every other screen (records), not from the pending summary.
+    let items=(data.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id,latestMessage:item.latestMessage||null,heat:item.heat,heatSource:item.heatSource,score:item.score}));
     const situation=$('clients-situation').value,checklist=$('clients-checklist').value,ref=$('clients-ref').value,heat=$('clients-heat').value;
     items=items.filter((item)=>(situation==='all'||item.situation===situation)&&(checklist==='all'||(checklist==='complete'?checklistCompleted(item)===6:checklistCompleted(item)<6))&&(ref==='all'||(ref==='with'?hasRef(item):!hasRef(item)))&&(heat==='all'||String(item.heat||'').toUpperCase()===heat));
     if(clientsOverdue24)items=items.filter((item)=>{const latest=item.latestMessage;if(!latest||latest.is_automatic||latest.direction!=='CUSTOMER')return false;return Date.now()-Date.parse(latest.occurred_at_utc||latest.occurred_at_local||latest.created_at)>86400000;});

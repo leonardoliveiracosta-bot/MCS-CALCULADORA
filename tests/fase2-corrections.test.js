@@ -139,7 +139,7 @@ test('repeated customer response and closed search return a clear 409',async()=>
 test('HOJE includes a wanted car after the order was treated',async()=>{
   const now=new Date().toISOString(),order={ref:'ABC23',key:'ABC23',pending:false,disposition:'TREATED',dispositionUpdatedAt:'2020-01-02T00:00:00Z',occurredAt:'2020-01-01T00:00:00Z',simulations:[{occurredAt:'2020-01-01T00:00:00Z'}],budgetCents:2500000};
   const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?[order]:table==='lead_events'?[{ref_code:'ABC23',occurred_at:now}]:[],panelMeta:async()=>({})});
-  const handler=loadWith('api/panel/today.js',{'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:(runs)=>runs,groupCalculatorByRef:(runs)=>runs,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[]},
+  const handler=loadWith('api/panel/today.js',{'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:(runs)=>runs,groupCalculatorByRef:(runs)=>runs,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[],effectiveCriteria:(journey,item)=>({bidCents:item?.budgetCents||null})},
     '../../panel-read-model':{operational:async()=>({journeys:[],messages:[],checklist:[],promises:[]})},'../../panel-ready':{score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
   const res=output();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.payload.items.length,1);assert.equal(res.payload.items[0].disposition,'TREATED');assert.equal(res.payload.items[0].wantsCar,true);
 });
@@ -150,7 +150,7 @@ test('HOJE includes an old linked order when a disabled lead writes again',async
   const journey={id:journeyId,reference_code:'ABC23',source:'CALCULATOR',created_at:old,status:'ENCERRADO',enabled:false,contact:{display_name:'Cliente'},phones:[]};
   const message={journey_id:journeyId,direction:'CUSTOMER',occurred_at_utc:now};
   const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?[order]:[],panelMeta:async()=>({})});
-  const handler=loadWith('api/panel/today.js',{'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:(runs)=>runs,groupCalculatorByRef:(runs)=>runs,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[]},
+  const handler=loadWith('api/panel/today.js',{'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:(runs)=>runs,groupCalculatorByRef:(runs)=>runs,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[],effectiveCriteria:(journey,item)=>({bidCents:item?.budgetCents||null})},
     '../../panel-read-model':{operational:async()=>({journeys:[journey],refs:[],messages:[message],checklist:[],promises:[]})},'../../panel-ready':{score:()=>({score:null,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
   const res=output();await handler({method:'GET',query:{}},res);
   assert.equal(res.code,200);assert.equal(res.payload.items.length,1);assert.equal(res.payload.items[0].returnedToTalk,true);assert.equal(res.payload.items[0].disposition,'DISCARDED');
@@ -234,7 +234,7 @@ test('a WhatsApp click counts while the webhook has never received an inbound me
   const order={ref:'ABC23',key:'ABC23',pending:true,occurredAt:now,simulations:[{occurredAt:now}],budgetCents:2500000};
   const journey={id:journeyId,reference_code:'ABC23',source:'CALCULATOR',created_at:now,contact:{display_name:'Cliente'}};
   const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?runs:[],panelMeta:async()=>({})});
-  const handler=loadWith('api/panel/today.js',{'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:()=>[order],groupCalculatorByRef:(rows)=>rows,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[]},
+  const handler=loadWith('api/panel/today.js',{'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:()=>[order],groupCalculatorByRef:(rows)=>rows,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[],effectiveCriteria:(journey,item)=>({bidCents:item?.budgetCents||null})},
     '../../panel-read-model':{operational:async()=>({journeys:[journey],messages:[],checklist:[],promises:[]})},'../../panel-ready':{score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
   const res=output();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.payload.items.length,1);
 });

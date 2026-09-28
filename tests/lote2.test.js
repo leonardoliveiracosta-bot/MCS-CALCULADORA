@@ -123,3 +123,77 @@ test('Lote 2 · contato efetivo nunca rebaixa a etapa; "quero o carro" leva a DE
     assert.equal(await want('QUALIFICADO', true), 'QUALIFICADO');
   } finally { await db.close(); }
 });
+
+// ----- Blocos C e D: HOJE, disposição por pessoa, calor e score iguais em todas as telas -----
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(__dirname, '..');
+function loadWith(relative, mocks) {
+  const file = path.join(root, relative); const mod = { exports: {} };
+  const localRequire = (name) => Object.prototype.hasOwnProperty.call(mocks, name) ? mocks[name] : require(name.startsWith('.') ? path.resolve(path.dirname(file), name) : name);
+  new Function('require', 'module', 'exports', fs.readFileSync(file, 'utf8'))(localRequire, mod, mod.exports);
+  return mod.exports;
+}
+const output = () => ({ code: 0, payload: null, setHeader() {}, status(code) { this.code = code; return this; }, json(payload) { this.payload = payload; return payload; } });
+const JOURNEY = uuid(500), CONTACT = uuid(501);
+function hoje({ journey = {}, messages = [], dispositions = [], calcRuns = [], leadEvents = [] } = {}) {
+  const base = { id: JOURNEY, contact_id: CONTACT, reference_code: 'ABC23', source: 'CALCULATOR', stage: 'RESPONDIDO', status: 'ATIVO', enabled: true, created_at: '2026-09-01T00:00:00Z', criteria_json: {}, contact: { display_name: 'Ana' }, phones: [], ...journey };
+  const server = { requirePanel: async () => ({ environment: 'preview', panel: { id: uuid(1) }, config: {} }), send: (res, code, payload) => res.status(code).json(payload), panelMeta: async () => ({}),
+    allRows: async (_ctx, table) => ({ calc_runs: calcRuns, panel_item_dispositions: dispositions, lead_events: leadEvents })[table] || [] };
+  const handler = loadWith('api/panel/today.js', { '../../panel-server': server, '../../panel-read-model': { operational: async () => ({ journeys: [base], refs: [], messages, checklist: [], promises: [], excludedRefs: [] }) },
+    '../../panel-search-stage': { loadSearchStageIndex: async () => new Map(), decorateWithSearchStage: (item) => item } });
+  return (async () => { const res = output(); await handler({ method: 'GET', query: {} }, res); return res.payload; })();
+}
+const hoursAgo = (hours) => new Date(Date.now() - hours * 3600000).toISOString();
+const customer = (at) => ({ id: uuid(600 + Math.floor(Math.random() * 99)), journey_id: JOURNEY, direction: 'CUSTOMER', body_text: 'oi', occurred_at_utc: at, source_kind: 'WHATSAPP_WEBHOOK' });
+
+test('Lote 2 · HOJE: retorno vencido entra mesmo sem mensagem nas 24 h; data ilegível não', async () => {
+  const overdue = await hoje({ journey: { next_action_at: hoursAgo(3), next_action_text: 'Ligar' } });
+  assert.equal(overdue.items.length, 1);
+  assert.equal(overdue.items[0].todayReasons[0].label, 'RETORNO VENCIDO');
+  const invalid = await hoje({ journey: { next_action_at: 'não é data' } });
+  assert.equal(invalid.items.length, 0);
+});
+
+test('Lote 2 · HOJE: "Tratado" na Ref também tira a ficha da mesma pessoa; mensagem nova depois traz de volta', async () => {
+  const treatedRef = [{ item_kind: 'REF', item_key: 'ABC23', status: 'TREATED', updated_at: hoursAgo(1) }];
+  const before = await hoje({ messages: [customer(hoursAgo(2))], dispositions: treatedRef });
+  assert.equal(before.items.length, 0, 'tratado não volta como outro tipo de cartão');
+  const after = await hoje({ messages: [customer(hoursAgo(0.5))], dispositions: treatedRef });
+  assert.equal(after.items.length, 1);
+  assert.equal(after.items[0].disposition, 'TREATED');
+  assert.equal(after.items[0].awaitingReply, true);
+});
+
+test('Lote 2 · HOJE: "voltou a falar" só quando o cliente escreveu depois do encerramento', async () => {
+  const closed = { status: 'ENCERRADO', enabled: false, closed_at: hoursAgo(1) };
+  assert.equal((await hoje({ journey: closed, messages: [customer(hoursAgo(2))] })).items.length, 0);
+  const again = await hoje({ journey: closed, messages: [customer(hoursAgo(0.5))] });
+  assert.equal(again.items.length, 1);
+  assert.equal(again.items[0].returnedToTalk, true);
+});
+
+test('Lote 2 · calor da IA vale só se recente, na última mensagem e depois do encerramento/qualificação', () => {
+  const { insightUsable } = require('../panel-contact');
+  const fresh = { heat: 'HOT', last_ai_message_id: 'm2', updated_at: hoursAgo(1) };
+  assert.equal(insightUsable(fresh, { status: 'ATIVO' }, 'm2'), true);
+  assert.equal(insightUsable(fresh, { status: 'ATIVO' }, 'm3'), false, 'mensagem nova depois da leitura');
+  assert.equal(insightUsable({ ...fresh, updated_at: hoursAgo(24 * 8) }, { status: 'ATIVO' }, 'm2'), false, 'mais de 7 dias');
+  assert.equal(insightUsable(fresh, { status: 'ENCERRADO' }, 'm2'), false);
+  assert.equal(insightUsable(fresh, { status: 'ATIVO', qualified_at: hoursAgo(0.5) }, 'm2'), false, 'qualificado depois da leitura');
+});
+
+test('Lote 2 · score igual em todas as telas: ZIP único, sem hora do dia, prazo 3mo, pagamento financiado', () => {
+  const { score, leadZip } = require('../panel-ready');
+  const journey = { id: JOURNEY, status: 'ATIVO', enabled: true, customer_deadline_text: '3mo', payment_text: 'vou financiar', phones: [{ is_current: true }], contact: { location_text: 'Miami 33101' } };
+  assert.equal(leadZip({}, journey), '33101');
+  assert.equal(leadZip({ zip: '90210' }, journey), '90210');
+  const day = score({}, journey, {}, [], Date.parse('2026-09-28T17:00:00Z'));
+  const night = score({}, journey, {}, [], Date.parse('2026-09-29T03:00:00Z'));
+  assert.equal(day.score, night.score, 'o relógio não muda o score');
+  assert.equal(day.score, 15 + 10, 'telefone + prazo 3 meses');
+  assert.equal(domain.normalizePayment('vou financiar'), 'fin');
+  assert.equal(domain.normalizePayment(''), null);
+  assert.equal(domain.normalizeDeadline('3mo'), '3m');
+  assert.equal(domain.normalizeDeadline(''), null);
+});

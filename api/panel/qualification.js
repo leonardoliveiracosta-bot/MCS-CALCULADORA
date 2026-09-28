@@ -5,16 +5,17 @@ const { allRows, panelMeta, requirePanel, send } = require('../../panel-server')
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
-const { score } = require('../../panel-ready');
+const { score, loadScoreVehicles } = require('../../panel-ready');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
   try {
+    const scoreVehicles = await loadScoreVehicles(ctx).catch(() => []);
     const [journeys, contacts, phones, refs, messageLinks, messages, checklist, evidence, divergences, toggleStates, meta, calcRuns, insights, dispositions] = await Promise.all([
       allRows(ctx, 'journeys', {
-        select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,qualified_at,closed_reason,updated_at',
+        select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,closed_at,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,qualified_at,closed_reason,updated_at',
         environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
       }),
       allRows(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: 'eq.' + ctx.environment }),
@@ -53,7 +54,7 @@ module.exports = async (req, res) => {
       const ownMessages = messageLinks.filter((link) => link.journey_id === journey.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => Date.parse(b.occurred_at_utc || b.occurred_at_local || b.created_at) - Date.parse(a.occurred_at_utc || a.occurred_at_local || a.created_at));
       const state = stateByJourney.get(journey.id);
       const complete={...journey,contact:contactsById.get(journey.contact_id)||null,phones:phones.filter((phone)=>phone.contact_id===journey.contact_id)};
-      const ready=score({zip:complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:complete.budget_cents},complete,{checklist,messages:ownMessages.map((message)=>({...message,journey_id:journey.id}))},[]);
+      const ready=score({zip:complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:complete.budget_cents},complete,{checklist,messages:ownMessages.map((message)=>({...message,journey_id:journey.id}))},scoreVehicles);
       return [decorateContact({
         ...journey, kind:calculatorRef?'CALCULATOR_ORDER':'JOURNEY', ref:calculatorRef||journey.reference_code, disposition:null, dispositionUpdatedAt:null, enabled: toggleEnabled(journey.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,
         phones: phones.filter((phone) => phone.contact_id === journey.contact_id), latestMessage: ownMessages[0] || null,
