@@ -6,6 +6,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title data-i18n="title">Auction Cost Calculator | My Car Scout</title>
 <script>
+  /* dentro da home (iframe): a capa fica transparente e o palco do site aparece por tras */
+  try { if (window.self !== window.top) document.documentElement.classList.add("embed"); } catch (e) { document.documentElement.classList.add("embed"); }
+</script>
+<script>
   window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
   window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
 </script>
@@ -551,6 +555,11 @@
   #path-a .calc-hero{background:transparent}
   #path-a .calc-hero .brand,#path-a .calc-hero .hook,#path-a .calc-hero .rule{display:none}
   #path-a .card-top,#path-a #resultado{background:rgba(255,255,255,.86);border:1px solid rgba(48,53,51,.12);border-radius:12px;padding:18px 16px;margin-bottom:16px}
+
+  /* ===== Capa dentro da home: fundo transparente; o palco (Cybertruck + neon) vem da pagina ===== */
+  html.embed body:has(#path-entry:not([hidden])){background:transparent}
+  html.embed .start-screen.gate{background:transparent}
+  html.embed .start-screen.gate > .gate-grain{display:none}
 </style>
 </head>
 <body>

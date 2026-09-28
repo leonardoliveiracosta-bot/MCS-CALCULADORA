@@ -386,7 +386,26 @@
 
   /* ---------- Bloco 3: a calculadora e o bloco (largura total, sem card dentro de card) ---------- */
   section.calc-block{position:relative;margin:0 -20px;padding:0 0 28px;background:#050506}
-  section.calc-block iframe.calc-frame{display:block;width:100%;border:0;background:#050506}
+  section.calc-block iframe.calc-frame{display:block;width:100%;border:0;background:transparent}
+  /* ---------- Bloco 3: palco de cinema atras da capa da calculadora ----------
+     Cybertruck no escuro; ao chegar no bloco, a barra de luz dianteira acende em neon
+     e a foto clareia ate o veu padrao do site. A foto nunca fica totalmente clara */
+  section.calc-block .calc-stage{position:absolute;left:0;right:0;top:0;height:0;overflow:hidden;pointer-events:none;z-index:0;background:#050506;
+    transition:opacity .5s ease}
+  section.calc-block .calc-stage.off{opacity:0}
+  section.calc-block .calc-stage-art{position:absolute;left:0;top:0;width:0;height:0;
+    -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 14%,#000 100%);mask-image:linear-gradient(180deg,transparent 0,#000 14%,#000 100%)}
+  section.calc-block .calc-stage-photo,section.calc-block .calc-stage-neon{position:absolute;inset:0;width:100%;height:100%;display:block}
+  section.calc-block .calc-stage-neon{overflow:visible}
+  .calc-stage-neon path{opacity:0;will-change:opacity}
+  .calc-stage-neon .neon-core{fill:#f4fbff}
+  .calc-stage-neon .neon-glow{fill:#d9f1ff}
+  .calc-stage-neon .neon-halo{fill:#9fd8ff}
+  section.calc-block .calc-stage-veil{position:absolute;inset:0;background:#050506;opacity:.9;will-change:opacity}
+  section.calc-block .calc-stage.lit .calc-stage-neon{animation:neonIgnite 1.1s steps(1,end) 1}
+  @keyframes neonIgnite{0%{opacity:.2}8%{opacity:1}14%{opacity:.35}22%{opacity:1}30%{opacity:.6}38%,100%{opacity:1}}
+  section.calc-block iframe.calc-frame,section.calc-block .calc-after-note{position:relative;z-index:1}
+
   section.calc-block .calc-after-note{font-size:13px;color:rgba(242,239,233,.66);line-height:1.5;margin:14px 20px 0}
 
 
@@ -1266,6 +1285,21 @@
 
   <div class="sep" aria-hidden="true"><span></span></div>
   <section class="calc-block" id="calculadora-widget">
+    <div class="calc-stage" aria-hidden="true">
+      <div class="calc-stage-art">
+        <img class="calc-stage-photo" src="mcs-calc-cybertruck.jpg" alt="" decoding="async" loading="lazy">
+        <div class="calc-stage-veil"></div>
+        <svg class="calc-stage-neon" viewBox="0 0 1320 1980" preserveAspectRatio="none">
+          <defs>
+            <filter id="neonHalo" x="-20%" y="-400%" width="140%" height="900%"><feGaussianBlur stdDeviation="16"/></filter>
+            <filter id="neonGlow" x="-10%" y="-200%" width="120%" height="500%"><feGaussianBlur stdDeviation="5"/></filter>
+          </defs>
+          <path class="neon-halo" d="M722 1053 L905 1071 L1320 1079 L1320 1103 L915 1099 L722 1087 Z" filter="url(#neonHalo)"/>
+          <path class="neon-glow" d="M722 1053 L905 1071 L1320 1079 L1320 1103 L915 1099 L722 1087 Z" filter="url(#neonGlow)"/>
+          <path class="neon-core" d="M722 1053 L905 1071 L1320 1079 L1320 1103 L915 1099 L722 1087 Z"/>
+        </svg>
+      </div>
+    </div>
     <iframe class="calc-frame" src="/msc-calculadora.html" title="My Car Scout auction cost calculator" loading="lazy"></iframe>
     <p class="calc-after-note" data-i18n="calc_disclaimer">This calculator is a reference tool<br>The values shown are estimates, not an official quote, and create no purchase obligation</p>
   </section>
@@ -2044,6 +2078,72 @@ else ligar();
   });
   btn.addEventListener("click", atualizar);
   atualizar();
+})();
+</script>
+
+<script>
+/* Bloco 3: palco de cinema. A foto fica atras da capa (so enquanto a capa esta aberta).
+   Posiciona a foto para a barra de luz aparecer logo abaixo das duas portas e liga o neon
+   conforme a rolagem. Por quadro: so opacity */
+(function(){
+  var sec = document.getElementById("calculadora-widget");
+  if (!sec) return;
+  var palco = sec.querySelector(".calc-stage"), arte = sec.querySelector(".calc-stage-art");
+  var veu = sec.querySelector(".calc-stage-veil"), f = sec.querySelector("iframe.calc-frame");
+  var halo = sec.querySelector(".neon-halo"), glow = sec.querySelector(".neon-glow"), core = sec.querySelector(".neon-core");
+  if (!palco || !arte || !f) return;
+  var IW = 1320, IH = 1980, BAR_X0 = 722, BAR_Y = 1080;
+  var parado = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var agendado = false, aceso = false;
+
+  function docFrame(){ try { return f.contentDocument; } catch(e){ return null; } }
+
+  function posicionar(){
+    var d = docFrame(), capa = d && d.getElementById("path-entry");
+    var aberta = capa && !capa.hidden;
+    palco.classList.toggle("off", !aberta);
+    if (!aberta) return;
+    var W = sec.clientWidth, H = sec.clientHeight;
+    palco.style.height = H + "px";
+    /* alvo: a barra acende no espaco logo abaixo da porta de baixo */
+    var porta = d.querySelector(".gate-door--quiet");
+    var alvoY = porta ? f.offsetTop + porta.getBoundingClientRect().bottom + 40 : H * 0.8;
+    /* a barra ocupa ~62% da largura, da esquerda do centro ate a borda direita */
+    var esc = (W * 0.62) / (IW - BAR_X0);
+    var w = IW * esc, h = IH * esc;
+    if (h < H) { esc = H / IH; w = IW * esc; h = IH * esc; }
+    var left = W - w, top = alvoY - BAR_Y * esc;
+    if (top + h < H) top = H - h;
+    arte.style.width = w + "px"; arte.style.height = h + "px";
+    arte.style.left = left + "px"; arte.style.top = top + "px";
+    atualizar();
+  }
+
+  function atualizar(){
+    agendado = false;
+    var r = sec.getBoundingClientRect(), vh = window.innerHeight || 800;
+    var p = parado ? 1 : Math.min(Math.max((vh - r.top) / (vh * 0.85), 0), 1);
+    /* veu: de quase preto ate o veu padrao (a foto nunca fica totalmente clara) */
+    veu.style.opacity = (0.9 - 0.34 * p).toFixed(3);
+    var n = Math.min(Math.max((p - 0.25) / 0.6, 0), 1);
+    core.style.opacity = n.toFixed(3);
+    glow.style.opacity = (n * 0.9).toFixed(3);
+    halo.style.opacity = (n * 0.75).toFixed(3);
+    if (!parado && n > 0.15 && !aceso){ aceso = true; palco.classList.add("lit"); }
+    if (n === 0 && aceso){ aceso = false; palco.classList.remove("lit"); }
+  }
+  function aoRolar(){ if (!agendado){ agendado = true; requestAnimationFrame(atualizar); } }
+
+  window.addEventListener("scroll", aoRolar, { passive: true });
+  window.addEventListener("resize", posicionar);
+  /* a calculadora avisa a altura sempre que troca de tela (capa, calcular, encontrar) */
+  window.addEventListener("message", function(ev){
+    if (ev.source === f.contentWindow && ev.data && ev.data.type === "mcs:calculator-height") setTimeout(posicionar, 30);
+  });
+  f.addEventListener("load", posicionar);
+  var foto = arte.querySelector("img");
+  if (foto) foto.addEventListener("load", posicionar);
+  posicionar();
 })();
 </script>
 </body>
