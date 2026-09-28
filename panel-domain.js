@@ -119,12 +119,15 @@ function effectiveCriteria(journey, order) {
   // never added when the ficha already has wishes.
   const sameModel = (left, right) => vehicleCatalog.modelTokens(left.model, left.make).join(' ') === vehicleCatalog.modelTokens(right.model, right.make).join(' ')
     && (!left.make || !right.make || fold(left.make) === fold(right.make));
+  // A:P6: a confirmed override (note or AI) that removed every car keeps the ficha empty; the
+  // calculator Ref does not bring the old car back.
+  const overridden = Boolean(journey && journey.criteria_json && journey.criteria_json.wishlistOverride === true);
   const wishes = journeyWishes.length
     ? journeyWishes.map((wish) => { const evidence = orderWishes.find((candidate) => sameModel(wish, candidate)); return evidence ? normalizeWishlist(mergeWishlist(wish, evidence)) : wish; })
-    : orderWishes;
+    : overridden ? [] : orderWishes;
   return {
     wishes,
-    wishesSource: journeyWishes.length ? 'FICHA' : orderWishes.length ? 'CALCULADORA' : null,
+    wishesSource: journeyWishes.length || overridden ? 'FICHA' : orderWishes.length ? 'CALCULADORA' : null,
     bidCents: journeyBid || orderBid,
     bidSource: journeyBid ? 'FICHA' : orderBid ? 'CALCULADORA' : null,
     ceilingCents: Number(journey && journey.confirmed_total_ceiling_cents) > 0 ? Number(journey.confirmed_total_ceiling_cents) : null
@@ -204,6 +207,8 @@ function journeyEnabled(journey) {
 function reactivationEligible(journey) {
   if (!journey) return false;
   if (journey.status === 'PARADO') return true;
+  // A closed ficha stays closed until it is reopened explicitly (A5): it is never reactivated by a car.
+  if (journey.status === 'ENCERRADO') return false;
   return !journeyEnabled(journey) && ['GAVE_UP', 'NO_RESPONSE'].includes(clean(journey.offReason || journey.off_reason));
 }
 
@@ -223,7 +228,7 @@ function buildReturns(journey, promises) {
 function modelWithMake(makeValue, modelValue) {
   const make = clean(makeValue);
   let model = clean(modelValue);
-  if (/^not sure$/i.test(model)) model = '';
+  if (/^(not sure|n[ãa]o tenho certeza|no estoy seguro|n[ãa]o sei)$/i.test(model)) model = '';
   if (/^other model$/i.test(model)) model = 'Outro modelo';
   if (!make) return model;
   if (!model) return make;
@@ -238,7 +243,7 @@ function vehicleFor(data) {
     : data.ano_de || data.ano_ate;
   const vehicle = modelWithMake(data.marca, data.modelo);
   const trim = clean(data.trim);
-  const usefulTrim = /^not sure$/i.test(trim) ? '' : trim;
+  const usefulTrim = /^(not sure|n[ãa]o tenho certeza|no estoy seguro|n[ãa]o sei)$/i.test(trim) ? '' : trim;
   return clean([years, vehicle, usefulTrim].filter(Boolean).join(' '));
 }
 
@@ -252,7 +257,7 @@ function compactWishlistText(wishlists) {
     const make = makes[0];
     const models = [...new Set(items.map((wish) => {
       let model = clean(wish.model);
-      if (/^not sure$/i.test(model)) model = '';
+      if (/^(not sure|n[ãa]o tenho certeza|no estoy seguro|n[ãa]o sei)$/i.test(model)) model = '';
       if (/^other model$/i.test(model)) model = 'Outro modelo';
       const makeKey = fold(make);
       return fold(model).startsWith(makeKey + ' ') ? clean(model.slice(make.length)) : model;
@@ -275,7 +280,8 @@ function wishlistsFromCalculatorEvents(events) {
         model: source.modelo ?? source.model,
         yearMin: source.ano_de ?? source.yearMin,
         yearMax: source.ano_ate ?? source.yearMax,
-        maxMiles: source.milhas_ate ?? source.maxMiles ?? source.milhas_de
+        // A:P10: milhas_de is the minimum the customer accepts, never the mileage limit.
+        maxMiles: source.milhas_ate ?? source.maxMiles
       });
       if (wishlist.model) collected.push(wishlist);
     }
@@ -653,5 +659,5 @@ module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, toggleEnabled, journeyLogicalMode, logicalMode,
   matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
-  normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
+  normalizeState, normalizeWishlist, wishlistsFromCalculatorEvents, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };

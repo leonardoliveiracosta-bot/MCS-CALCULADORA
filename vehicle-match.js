@@ -110,10 +110,14 @@
     // the Simulação tab). QUASE: tolerance or missing data, always with a reason.
     const kind = failures.length === 0 && gaps.length === 0 ? (valueReason ? 'POR_VALOR' : 'BATE') : 'QUASE';
     const bid = positive(bidCents);
+    // A POR VALOR car with an unknown odometer is still an opportunity, but the missing mileage is
+    // said out loud (Anexo A, surpresa 7).
+    const notes = gaps.map((gap) => NOTICE[gap]);
+    if (kind === 'POR_VALOR' && (miles === null || miles < 0)) notes.push(NOTICE.NO_ODOMETER);
     return {
       kind,
       reason: failures[0] ? failures[0].reason : valueReason,
-      notice: gaps.map((gap) => NOTICE[gap]).join(' · ') || null,
+      notice: notes.join(' · ') || null,
       gaps,
       dataGap: gaps.length > 0,
       basis,

@@ -1057,7 +1057,7 @@
     count('pending', pending, (data) => Object.values(data.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
     count('orders', orders, (data) => data.page && data.page.total || 0);
     count('searches', searches, (data) => (data.items || []).length);
-    count('manheim', manheim, (data) => data.upload && data.upload.lead_count || 0);
+    count('manheim', manheim, (data) => data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
     count('records', records, (data) => (data.items || []).length);
     const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
     if (failures.length) console.error('Contadores com falha', failures);
@@ -1675,6 +1675,7 @@
       const badges = element('div', 'badges');
       badges.append(makeBadge(kindLabel(match.match_kind), kindTone(match.match_kind)));
       if (match.match_reason) badges.append(makeBadge(match.match_reason));
+      if (match.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
       if (parsed.matchNotice) badges.append(makeBadge(parsed.matchNotice, 'yellow'));
       if (match.mmr_status) badges.append(makeBadge(mmrLabel(match.mmr_status), match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
       if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
@@ -1731,6 +1732,7 @@
       const badges = element('div', 'badges');
       badges.append(makeBadge(kindLabel(match.match_kind), kindTone(match.match_kind)));
       if (match.match_reason) badges.append(makeBadge(match.match_reason));
+      if (match.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
       if (parsed.matchNotice) badges.append(makeBadge(parsed.matchNotice, 'yellow'));
       if (match.mmr_status) badges.append(makeBadge(mmrLabel(match.mmr_status), match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
       if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
@@ -1754,8 +1756,9 @@
     manheimOrders = clientSort(data.orders || [],cardMode);
     manheimMatches = data.matches || [];
     renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas.'; });
-    setCount('manheim', data.upload && data.upload.lead_count || 0);
-    $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.lead_count} lead(s) · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
+    // B5: people served by today's combinations, not the count frozen at upload time.
+    setCount('manheim', data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
+    $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.current_lead_count ?? data.upload.lead_count} pessoa(s) com BATE ou POR VALOR hoje · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
     if(data.historyIncomplete)$('manheim-summary').textContent += ' · reenviar CSVs dos últimos 60 dias para completar o histórico';
     const root = $('manheim-results');
     root.replaceChildren();
@@ -1845,6 +1848,20 @@
   const manheimError = (code, details) => Object.assign(new Error(code), { code }, details || {});
   const MANHEIM_MAX_MATCHES = 100000;
 
+  // In-page confirmation (the panel never uses browser dialogs).
+  function askInline(anchor, text, confirmLabel) {
+    return new Promise((resolve) => {
+      const box = element('div', 'warning inline-confirm');
+      box.append(element('p', '', text));
+      const yes = element('button', 'small', confirmLabel), no = element('button', 'quiet small', 'Cancelar');
+      yes.type = 'button'; no.type = 'button';
+      const done = (value) => { box.remove(); resolve(value); };
+      yes.addEventListener('click', () => done(true)); no.addEventListener('click', () => done(false));
+      box.append(yes, no);
+      anchor.after(box);
+    });
+  }
+
   async function importManheim(files) {
     const selected = files.filter((file) => /\.csv$/i.test(file.name));
     if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
@@ -1875,10 +1892,21 @@
       ignoredRows += parsed.rows.length - normalized.length;
       vehicles.push(...normalized);
     }
+    // M19: an empty CSV, or one much smaller than the last one, replaces the combinations shown in
+    // BUSCAS; the operator confirms before sending.
+    const uniqueCount = new Set(vehicles.map((vehicle) => MCSManheim.fingerprint(vehicle))).size;
+    const previousCount = Number(fresh.upload && fresh.upload.vehicle_count) || 0;
+    const smaller = uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
+    if (!uniqueCount || smaller) {
+      status.textContent = 'Aguardando confirmação';
+      const question = !uniqueCount ? 'Este CSV não tem nenhum carro. As combinações atuais de BUSCAS serão substituídas' : `Este CSV tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
+      if (!(await askInline(status, question, 'Enviar mesmo assim'))) { status.textContent = 'Envio cancelado'; return; }
+    }
     status.textContent = `Comparando ${vehicles.length} carros…`;
     const matches = MCSManheimUpload.buildMatches(vehicles, targetJourneys, targetOrders, MCSManheim);
     if (matches.length > MANHEIM_MAX_MATCHES) throw manheimError('MANHEIM_MATCH_LIMIT', { matchCount: matches.length });
-    const base = { sourceFileCount: selected.length, vehicleCount: vehicles.length, headers: headerGroups, headerMap: { files: mappings } };
+    // M20: the same car in two CSVs is one car (the archive keeps one), so the count is of unique cars.
+    const base = { sourceFileCount: selected.length, vehicleCount: uniqueCount, headers: headerGroups, headerMap: { files: mappings } };
     const parts = MCSManheimUpload.planParts(matches, base);
     const result = await MCSManheimUpload.sendParts({ parts, base, request, onProgress: (partIndex, partCount) => { status.textContent = `Enviando parte ${partIndex} de ${partCount}…`; } });
     const seen = new Set();
@@ -1894,7 +1922,10 @@
       archived+=saved.archived||0;ignored+=saved.ignored||0;
     }
     const combinations = Number.isFinite(Number(result.matchedVehicleCount)) ? Number(result.matchedVehicleCount) : matches.length;
-    const discardedText = result.discardedTotal ? ` · ${result.discardedTotal} descartadas (critério mudou durante o envio)` : '';
+    // Each discard with its own reason (not everything is "critério mudou").
+    const DISCARD_LABELS = { CRITERIA_CHANGED: 'critério mudou', JOURNEY_DISABLED: 'ficha desligada', JOURNEY_DISCARDED: 'pessoa descartada', REF_LINKED_TO_FICHA: 'Ref já ligada a ficha', ORDER_UNAVAILABLE: 'pedido indisponível', JOURNEY_UNAVAILABLE: 'ficha indisponível', INVALID_ROW: 'linha inválida' };
+    const discardedDetail = Object.entries(result.discardedReasons || {}).map(([reason, count]) => `${count} ${DISCARD_LABELS[reason] || reason}`).join(', ');
+    const discardedText = result.discardedTotal ? ` · ${result.discardedTotal} descartadas${discardedDetail ? ` (${discardedDetail})` : ''}` : '';
     status.textContent = `${archived} carros arquivados, ${ignored} ignorados, ${combinations} combinações${discardedText}`;
     await loadCurrent();
     await refreshCounters();

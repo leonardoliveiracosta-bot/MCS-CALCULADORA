@@ -5,6 +5,7 @@ const { effectiveCriteria, mergeWishlists } = require('../../panel-domain');
 const vehicleMatch = require('../../vehicle-match');
 const { contactIndex } = require('../../panel-contact');
 const catalog = require('../../vehicle-catalog');
+const { dispositionIndex } = require('../../panel-disposition');
 module.exports = async (req, res) => {
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
@@ -20,7 +21,7 @@ module.exports = async (req, res) => {
       return send(res, 200, { saved: true });
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
-    const [journeys, contacts, phones, toggles, requests, saved, refs, calcRuns, messageLinks, messages] = await Promise.all([
+    const [journeys, contacts, phones, toggles, requests, saved, refs, calcRuns, messageLinks, messages, dispositions] = await Promise.all([
       allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,is_primary,is_current', environment: 'eq.' + ctx.environment }),
@@ -30,8 +31,12 @@ module.exports = async (req, res) => {
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment, undone_at:'is.null' }),
-      allRows(ctx, 'messages', { select: 'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment })
+      allRows(ctx, 'messages', { select: 'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at: 'is.null' })
     ]);
+    // Anexo A (surpresa 2): a discarded person or a paused ficha (PARADO) is not a search to save.
+    const personDisposition = dispositionIndex(dispositions);
+    const discardedJourney = (journey) => personDisposition(journey.id, [journey.reference_code, ...refs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].filter(Boolean))?.status === 'DISCARDED';
     const contact = contactIndex({ calcRuns, messages:messages.filter((message)=>!message.undone_at), messageLinks });
     const contactById = new Map(contacts.map((row) => [row.id, row]));
     const phonesFor = (contactId) => phones.filter((row) => row.contact_id === contactId && row.is_current !== false);
@@ -48,7 +53,7 @@ module.exports = async (req, res) => {
     // criteria win (R1/A3, wishlistOverride included); linked Refs only fill what is missing.
     const active = new Map();
     for (const journey of journeys) {
-      if (journey.status === 'ENCERRADO' || disabled.has(journey.id)) continue;
+      if (journey.status === 'ENCERRADO' || journey.status === 'PARADO' || disabled.has(journey.id) || discardedJourney(journey)) continue;
       const contactRow = contactById.get(journey.contact_id);
       if (contactRow && contactRow.is_lead === false) continue;
       const journeyRefs = refs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code);
@@ -65,7 +70,7 @@ module.exports = async (req, res) => {
     for (const order of requests) {
       if (order.disposition === 'DISCARDED' || closedRefs.has(refUpper(order.ref)) || closedRefs.has(order.ref) || Date.parse(order.occurredAt) < cutoff) continue;
       const linked = journeys.find((journey) => refUpper(journey.reference_code) === refUpper(order.ref)) || refs.map((row) => ({ row, journey: journeys.find((item) => item.id === row.journey_id) })).find((item) => refUpper(item.row.ref_code) === refUpper(order.ref))?.journey;
-      if (linked && (linked.status === 'ENCERRADO' || disabled.has(linked.id))) continue;
+      if (linked && (linked.status === 'ENCERRADO' || linked.status === 'PARADO' || disabled.has(linked.id) || discardedJourney(linked))) continue;
       const linkedRefs = linked ? refs.filter((row) => row.journey_id === linked.id).map((row) => row.ref_code) : [];
       const facts = contact.facts({ ref: order.ref, journeyId: linked?.id, refs: linkedRefs });
       if (!facts.entered) continue;

@@ -2,7 +2,6 @@
 
 const crypto = require('node:crypto');
 const calc = require('./calc-core');
-const catalog = require('./vehicle-catalog');
 const vehicleMatch = require('./vehicle-match');
 const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, normalizeDeadline, normalizePayment, REF_RE } = require('./panel-domain');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
@@ -95,10 +94,6 @@ function capture(handler, req, query) {
   return Promise.resolve(handler({ ...req, headers: req?.headers || {}, method: 'GET', query }, response)).then(() => response.code === 200 ? response.data : null);
 }
 
-function relevant(vehicle, wish) {
-  return (!wish.make || !vehicle.make || String(vehicle.make).toLowerCase() === String(wish.make).toLowerCase())
-    && catalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make);
-}
 
 const offerRank = (offer) => offer.kind === 'BATE' ? 0 : offer.kind === 'POR_VALOR' ? 1 : offer.dataGap ? 3 : 2;
 
@@ -209,9 +204,9 @@ async function leadData(ctx, req, refInput, idInput) {
     if (parsed && !unique.has(match.row_fingerprint)) unique.set(match.row_fingerprint, { ...parsed, rowFingerprint: match.row_fingerprint, matchId: match.id, uploadedAt: match.created_at });
   }
   const typical = wishes.map((wish) => {
-    const compared = [...unique.values()].filter((car) => relevant(car, wish) && (!wish.yearMin || car.year >= wish.yearMin - 1)
-      && (!wish.yearMax || car.year <= wish.yearMax + 1) && (!wish.yearMax || wish.yearMin || car.year >= wish.yearMax - 1)
-      && (!wish.maxMiles || Math.abs(car.miles - wish.maxMiles) <= 20000));
+    // A:P16: "MMR típico" uses the same rule as the offers and the CSV (tolerance included), never a
+    // car whose fit depends on missing data (unknown odometer, no MMR, customer not qualified).
+    const compared = [...unique.values()].filter((car) => { const result = vehicleMatch.matchWish(car, wish, maxBidCents); return Boolean(result && !result.dataGap); });
     return { ...wish, mmrCents: median(compared.map((car) => car.mmrCents)) };
   });
   // R3: offers use the maximum bid (never the total ceiling, R2) and the same match rule as
