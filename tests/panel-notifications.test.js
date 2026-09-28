@@ -30,5 +30,5 @@ test('five-minute throttle permits a contact only after the full window', () => 
   assert.equal(canSendForContact(new Date(now - THROTTLE_MS).toISOString(), now), true);
   const migration = fs.readFileSync(path.join(__dirname, '..', 'supabase/migrations/20260928023000_web_push.sql'), 'utf8');
   assert.match(migration, /interval '5 minutes'/);
-  assert.match(migration, /on conflict(environment,contact_id) do update/);
+  assert.match(migration, /on conflict\(environment,contact_id\) do update/);
 });
