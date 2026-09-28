@@ -633,46 +633,10 @@
       </div>
     </section>
 
-    <section class="card" id="resultado" aria-live="polite">
-      <h2 data-i18n="s4">Your cost breakdown</h2>
-      <div id="saida"><p class="empty">Enter your bid above to see the estimate.</p></div>
-    </section>
-
-    <div class="ct-flag">
-      <span class="k" data-i18n="ct_k">Clean title only</span>
-      <span class="rule"></span>
-      <span class="p" data-i18n="ct_p">We only bid on clean title with a documented odometer. No salvage, no rebuilt, no unverified miles, even when a client asks for it.</span>
-    </div>
 
 
 
-    <section class="card">
-      <h2 data-i18n="s1">Let&rsquo;s start here</h2>
 
-      <div class="field">
-        <fieldset>
-          <legend><span data-i18n="q_prazo">When are you planning to buy?</span>&nbsp;<span aria-hidden="true">*</span></legend>
-          <div class="opts">
-            <label class="opt"><input type="radio" name="prazo" value="now"> <span data-i18n="prazo_now">Ready to buy now</span></label>
-            <label class="opt"><input type="radio" name="prazo" value="30d"> <span data-i18n="prazo_30">Within 30 days</span></label>
-            <label class="opt"><input type="radio" name="prazo" value="3mo"> <span data-i18n="prazo_3m">Within 3 months</span></label>
-            <label class="opt"><input type="radio" name="prazo" value="none"> <span data-i18n="prazo_none">No set date yet</span></label>
-          </div>
-        </fieldset>
-        <p class="err" id="err-prazo" data-i18n="err_prazo">Choose when you are planning to buy.</p>
-      </div>
-
-      <div class="field">
-        <fieldset>
-          <legend><span data-i18n="q_exp">Is this your first time buying at a dealer auction?</span>&nbsp;<span aria-hidden="true">*</span></legend>
-          <div class="opts">
-            <label class="opt"><input type="radio" name="exp" value="1st"> <span data-i18n="exp_1">Yes, first time</span></label>
-            <label class="opt"><input type="radio" name="exp" value="repeat"> <span data-i18n="exp_r">No, I&rsquo;ve bought before</span></label>
-          </div>
-        </fieldset>
-        <p class="err" id="err-exp" data-i18n="err_exp">Let us know if this is your first time.</p>
-      </div>
-    </section>
 
     <section class="card">
       <h2 data-i18n="s2">Tell us what you&rsquo;re looking for</h2>
@@ -786,6 +750,30 @@
         </label>
       </div>
 
+      <div class="field">
+        <fieldset>
+          <legend><span data-i18n="q_prazo">When are you planning to buy?</span>&nbsp;<span aria-hidden="true">*</span></legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="prazo" value="now"> <span data-i18n="prazo_now">Ready to buy now</span></label>
+            <label class="opt"><input type="radio" name="prazo" value="30d"> <span data-i18n="prazo_30">Within 30 days</span></label>
+            <label class="opt"><input type="radio" name="prazo" value="3mo"> <span data-i18n="prazo_3m">Within 3 months</span></label>
+            <label class="opt"><input type="radio" name="prazo" value="none"> <span data-i18n="prazo_none">No set date yet</span></label>
+          </div>
+        </fieldset>
+        <p class="err" id="err-prazo" data-i18n="err_prazo">Choose when you are planning to buy.</p>
+      </div>
+
+      <div class="field">
+        <fieldset>
+          <legend><span data-i18n="q_exp">Is this your first time buying at a dealer auction?</span>&nbsp;<span aria-hidden="true">*</span></legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="exp" value="1st"> <span data-i18n="exp_1">Yes, first time</span></label>
+            <label class="opt"><input type="radio" name="exp" value="repeat"> <span data-i18n="exp_r">No, I&rsquo;ve bought before</span></label>
+          </div>
+        </fieldset>
+        <p class="err" id="err-exp" data-i18n="err_exp">Let us know if this is your first time.</p>
+      </div>
+
       <section class="contact-cta" aria-labelledby="contact-title-top">
         <h3 class="contact-cta__title" id="contact-title-top" data-i18n="contact_title">Your estimate is ready</h3>
         <p class="contact-cta__copy" data-i18n="contact_copy">Your estimate is already written into the message<br>Choose how to send it</p>
@@ -801,6 +789,17 @@
         </div>
       </section>
     </section>
+
+    <section class="card" id="resultado" aria-live="polite">
+      <h2 data-i18n="s4">Your cost breakdown</h2>
+      <div id="saida"><p class="empty">Enter your bid above to see the estimate.</p></div>
+    </section>
+
+    <div class="ct-flag">
+      <span class="k" data-i18n="ct_k">Clean title only</span>
+      <span class="rule"></span>
+      <span class="p" data-i18n="ct_p">We only bid on clean title with a documented odometer. No salvage, no rebuilt, no unverified miles, even when a client asks for it.</span>
+    </div>
 
 
 
@@ -1535,12 +1534,12 @@ function validar(){
   const baixo = d.lance > 0 && d.lance < CONFIG.lanceMinimo;
   const alto = d.lance > CONFIG.lanceMaximo;
   if (!marcar($("lance"), "err-lance", !(d.lance > 0) || baixo)){ ok = false; primeiro = primeiro || $("lance"); }
-  if (!marcarRadio("err-prazo", d.prazo === "")){ ok = false; primeiro = primeiro || $("err-prazo"); }
-  if (!marcarRadio("err-exp", d.exp === "")){ ok = false; primeiro = primeiro || $("err-exp"); }
   if (!marcar($("marca"), "err-marca", d.marca === "")){ ok = false; primeiro = primeiro || $("marca"); }
   const faltaModelo = !$("wrap-modelo").hidden && d.modelo === "";
   if (!marcar($("modelo"), "err-modelo", faltaModelo)){ ok = false; primeiro = primeiro || $("modelo"); }
   if (!marcar($("zip"), "err-zip", d.zip === "")){ ok = false; primeiro = primeiro || $("zip"); }
+  if (!marcarRadio("err-prazo", d.prazo === "")){ ok = false; primeiro = primeiro || $("err-prazo"); }
+  if (!marcarRadio("err-exp", d.exp === "")){ ok = false; primeiro = primeiro || $("err-exp"); }
   /* ZIP invalido nao bloqueia o envio, mas nao pode passar despercebido. */
   if (d.zip !== "" && !d.zipOk){
     zipTocado = true;
