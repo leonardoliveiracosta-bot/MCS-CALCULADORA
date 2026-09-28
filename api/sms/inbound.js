@@ -15,8 +15,11 @@ const REF = /\b[A-HJ-NP-Z2-9]{5}\b/g;
 const MIN_DATE = Date.parse('2009-01-01T00:00:00Z');
 
 function secretMatches(supplied, expected) {
-  if (!expected || typeof supplied !== 'string' || !supplied || Buffer.byteLength(supplied) > 256) return false;
-  return crypto.timingSafeEqual(crypto.createHash('sha256').update(supplied).digest(), crypto.createHash('sha256').update(expected).digest());
+  if (!expected || typeof supplied !== 'string' || !supplied) return false;
+  const given = Buffer.from(supplied), wanted = Buffer.from(expected);
+  // timingSafeEqual lança erro com tamanhos diferentes: tamanho diferente já é 401
+  if (given.length !== wanted.length) return false;
+  return crypto.timingSafeEqual(given, wanted);
 }
 
 const plainName = (value) => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -133,9 +136,9 @@ module.exports = async (req, res) => {
     const result = await receive({ config, environment: SERVER_ENVIRONMENT }, body, module.exports.services);
     if (result.push) (typeof req.waitUntil === 'function' ? req.waitUntil : waitUntil)(Promise.resolve(result.push).catch(() => null));
     return send(res, 200, result.duplicate ? { stored: false, duplicate: true } : { stored: Boolean(result.stored) });
-  } catch (error) {
-    // só o código do erro; nunca o corpo nem o texto
-    console.error('[sms-inbound]', { code: /^[A-Z_]{3,60}$/.test(String(error?.message)) ? error.message : 'UNKNOWN' });
+  } catch (_) {
+    // nenhum dado da mensagem nem do erro vai para log: remetente, nome, texto e corpo ficam fora
+    console.error('[sms-inbound] falha ao processar');
     return send(res, 200, { stored: false });
   }
 };

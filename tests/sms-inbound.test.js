@@ -135,9 +135,9 @@ test('ambiguous phone, phone of a chat owned by someone else, empty or long text
 });
 
 function fakeRes() { return { statusCode: 0, headers: {}, body: '', setHeader(k, v) { this.headers[k] = v; }, end(value) { this.body = value || ''; }, status(code) { this.statusCode = code; return this; }, json(value) { this.body = JSON.stringify(value); return this; } }; }
-async function callWith(target, headers, body, env = { SMS_INBOUND_SECRET: 'right-secret' }) {
+async function callWith(target, headers, body, env = { SMS_INBOUND_SECRET: 'right-secret' }, method = 'POST') {
   const saved = { ...process.env }; Object.assign(process.env, env);
-  const req = { method: 'POST', headers, body, [Symbol.asyncIterator]: async function* () { yield Buffer.from(JSON.stringify(body)); } };
+  const req = { method, headers, body, [Symbol.asyncIterator]: async function* () { yield Buffer.from(JSON.stringify(body)); } };
   const res = fakeRes();
   try { await target(req, res); } finally { for (const key of Object.keys(env)) { if (key in saved) process.env[key] = saved[key]; else delete process.env[key]; } }
   return { status: res.statusCode, body: res.body ? JSON.parse(res.body) : null };
@@ -164,8 +164,7 @@ test('bad or missing secret is 401; a valid secret always answers 200', async ()
     const realRows = db.services.rows; db.services.rows = async () => { throw Error('SUPABASE_DOWN'); };
     const failed = await captureLogs(() => callLive({ 'x-sms-secret': 'right-secret' }, { sender: '+13055550100', text: 'private words here' }, env));
     assert.deepEqual(failed.result, { status: 200, body: { stored: false } });
-    assert.equal(failed.lines.length, 1);
-    assert.ok(failed.lines.every((line) => !line.includes('private words') && !line.includes('3055550100')));
+    assert.deepEqual(failed.lines, ['"[sms-inbound] falha ao processar"']);
     db.services.rows = realRows;
     const stored = await callLive({ 'x-sms-secret': 'right-secret' }, { sender: '+13055550100', text: 'Real one' }, env);
     assert.deepEqual(stored, { status: 200, body: { stored: true } });
@@ -178,8 +177,41 @@ test('endpoint source: timing-safe secret, never logs the body, no panel auth, n
   assert.match(source, /process\.env\.SMS_INBOUND_SECRET/);
   assert.doesNotMatch(source, /requirePanel/);
   assert.doesNotMatch(source, /console\.(log|info|warn)\(/);
-  assert.doesNotMatch(source, /console\.error\([^)]*(body|text)/);
+  assert.deepEqual(source.match(/console\.\w+\([^;]*\);/g), ["console.error('[sms-inbound] falha ao processar');"]);
   assert.doesNotMatch(fs.readFileSync('vercel.json', 'utf8'), /sms\/inbound/);
   assert.equal(handler.messageDate('2008-12-31T00:00:00Z', now), now);
   assert.equal(handler.messageDate(new Date(now + 2 * 86400000).toISOString(), now), now);
+});
+
+test('GET and other methods answer 405 before touching the secret', async () => {
+  for (const method of ['GET', 'PUT', 'DELETE']) {
+    const out = await callWith(handler, { 'x-sms-secret': 'right-secret' }, {}, { SMS_INBOUND_SECRET: 'right-secret' }, method);
+    assert.equal(out.status, 405, method);
+  }
+});
+
+test('secret of a different size is 401 without calling timingSafeEqual; same size compares safely', async () => {
+  const crypto = require('node:crypto'), original = crypto.timingSafeEqual; const sizes = [];
+  crypto.timingSafeEqual = (a, b) => { sizes.push([a.length, b.length]); return original(a, b); };
+  try {
+    for (const secret of ['x', 'right-secre', 'right-secret-longer', 'ríght-secret']) {
+      const out = await callWith(handler, { 'x-sms-secret': secret }, { text: 'hi' });
+      assert.equal(out.status, 401, secret);
+    }
+    assert.deepEqual(sizes, []);
+    assert.equal((await callWith(handler, { 'x-sms-secret': 'wrong-secret' }, { text: 'hi' })).status, 401); // mesmo tamanho, conteúdo errado
+    assert.deepEqual(sizes, [[12, 12]]);
+    assert.equal(handler.secretMatches(['right-secret'], 'right-secret'), false);
+  } finally { crypto.timingSafeEqual = original; }
+});
+
+test('ref search uses word boundaries', async () => {
+  for (const text of ['REFXYZ23', 'XYZ23ABC', 'aXYZ23', 'XYZ234']) {
+    const db = memoryDb();
+    assert.deepEqual(await handler.receive(ctx, { sender: '+17865550199', text }, db.services, now), { stored: false }, text);
+  }
+  for (const text of ['XYZ23', '(XYZ23)', 'ref: XYZ23.', 'XYZ23, thanks']) {
+    const db = memoryDb();
+    assert.equal((await handler.receive(ctx, { sender: '+17865550199', text }, db.services, now)).stored, true, text);
+  }
 });
