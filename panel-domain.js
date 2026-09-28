@@ -105,6 +105,36 @@ function wishlistsForJourney(journey) {
   return sources.slice(0, 5).map(normalizeWishlist).filter((wishlist) => wishlist.model);
 }
 
+// R1: once a Ref is linked to a ficha (journey), the ficha is the source of truth. The
+// calculator only fills what the ficha does not have. R2: budget_cents is the maximum bid;
+// the confirmed total ceiling is never used as a bid here.
+function effectiveCriteria(journey, order) {
+  const journeyWishes = journey ? wishlistsForJourney(journey) : [];
+  const orderWishes = (order && Array.isArray(order.wishlists) ? order.wishlists : []).map(normalizeWishlist).filter((wish) => wish.model);
+  const journeyBid = Number(journey && journey.budget_cents) > 0 ? Number(journey.budget_cents) : null;
+  const orderBid = Number(order && order.budgetCents) > 0 ? Number(order.budgetCents) : null;
+  return {
+    wishes: journeyWishes.length ? journeyWishes : orderWishes,
+    wishesSource: journeyWishes.length ? 'FICHA' : orderWishes.length ? 'CALCULADORA' : null,
+    bidCents: journeyBid || orderBid,
+    bidSource: journeyBid ? 'FICHA' : orderBid ? 'CALCULADORA' : null,
+    ceilingCents: Number(journey && journey.confirmed_total_ceiling_cents) > 0 ? Number(journey.confirmed_total_ceiling_cents) : null
+  };
+}
+
+// R1: calculator values that differ from what the ficha already has. They are shown to the
+// operator as "nova informação da calculadora" and never written into the ficha automatically.
+function calculatorNews(journey, contactName, order) {
+  if (!journey || !order) return [];
+  const news = [];
+  const differs = (left, right) => clean(left) && clean(right) && fold(left) !== fold(right);
+  if (Number(journey.budget_cents) > 0 && Number(order.budgetCents) > 0 && Number(journey.budget_cents) !== Number(order.budgetCents)) news.push({ field: 'LANCE', fichaCents: Number(journey.budget_cents), calculatorCents: Number(order.budgetCents) });
+  if (differs(journey.payment_text, order.paymentText)) news.push({ field: 'PAGAMENTO', ficha: clean(journey.payment_text), calculator: clean(order.paymentText) });
+  if (differs(journey.vehicle_text, order.vehicleText)) news.push({ field: 'VEICULO', ficha: clean(journey.vehicle_text), calculator: clean(order.vehicleText) });
+  if (differs(contactName, order.contactName) && !/^contato da ref/i.test(clean(contactName))) news.push({ field: 'NOME', ficha: clean(contactName), calculator: clean(order.contactName) });
+  return news;
+}
+
 function wishlistForJourney(journey) {
   return wishlistsForJourney(journey)[0] || normalizeWishlist({});
 }
@@ -588,7 +618,7 @@ function buildConversationTimeline(messages, interactions, activities) {
 }
 
 module.exports = {
-  DAY_MS, REF_RE, buildConversationTimeline, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
+  DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, journeyLogicalMode, logicalMode,
   matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits,
   normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText

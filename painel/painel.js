@@ -877,7 +877,7 @@
   function directLeadBadge(item){const label=directLeadLabel(item);return label?makeBadge(label,'blue'):null;}
   /* dd/mm no horario da Florida */
   function floridaDayMonth(value){const date=new Date(value);if(Number.isNaN(date.getTime()))return '';const parts=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).formatToParts(date);const get=(type)=>parts.find((part)=>part.type===type)?.value||'';return `${get('day')}/${get('month')}`;}
-  function clientSort(items,mode){const missing=(v)=>v===null||v===undefined||v==='';const value=(x)=>Number(x.confirmed_total_ceiling_cents||x.budgetCents||x.budget_cents)||null;const hasSortAt=(x)=>Object.prototype.hasOwnProperty.call(x,'sortAt');const stamp=(x)=>hasSortAt(x)?(x.sortAt?Date.parse(x.sortAt)||null:null):(Date.parse(x.last_seen_at||x.updated_at||x.occurredAt||x.created_at||0)||0);const field=(x,kind)=>kind==='location'?(x.state||x.estado||x.contact?.location_text):kind==='vehicle'?(x.make||x.vehicleText||x.vehicle_text):value(x);return items.slice().sort((a,b)=>{if(mode==='recent'||mode==='oldest'){/* sortAt vem do servidor (ultima mensagem real); sem data vai para o fim */const sa=stamp(a),sb=stamp(b);if(sa===null)return sb===null?0:1;if(sb===null)return -1;return(sb-sa)*(mode==='recent'?1:-1);}const av=field(a,mode),bv=field(b,mode);if(missing(av))return missing(bv)?0:1;if(missing(bv))return -1;if(mode==='value_desc'||mode==='value_asc')return(av-bv)*(mode==='value_desc'?-1:1);return String(av).localeCompare(String(bv),'pt-BR');});}
+  function clientSort(items,mode){const missing=(v)=>v===null||v===undefined||v==='';const value=(x)=>Number(x.budgetCents||x.budget_cents)||null;const hasSortAt=(x)=>Object.prototype.hasOwnProperty.call(x,'sortAt');const stamp=(x)=>hasSortAt(x)?(x.sortAt?Date.parse(x.sortAt)||null:null):(Date.parse(x.last_seen_at||x.updated_at||x.occurredAt||x.created_at||0)||0);const field=(x,kind)=>kind==='location'?(x.state||x.estado||x.contact?.location_text):kind==='vehicle'?(x.make||x.vehicleText||x.vehicle_text):value(x);return items.slice().sort((a,b)=>{if(mode==='recent'||mode==='oldest'){/* sortAt vem do servidor (ultima mensagem real); sem data vai para o fim */const sa=stamp(a),sb=stamp(b);if(sa===null)return sb===null?0:1;if(sb===null)return -1;return(sb-sa)*(mode==='recent'?1:-1);}const av=field(a,mode),bv=field(b,mode);if(missing(av))return missing(bv)?0:1;if(missing(bv))return -1;if(mode==='value_desc'||mode==='value_asc')return(av-bv)*(mode==='value_desc'?-1:1);return String(av).localeCompare(String(bv),'pt-BR');});}
 
   function identityHeader(item, options = {}) {
     const ref = item.referenceCode || item.reference_code || item.ref || null;
@@ -1561,7 +1561,7 @@
       const miles = wish.maxMiles ? `até ${Number(wish.maxMiles).toLocaleString('pt-BR')} milhas` : 'sem limite de milhas';
       return `${wish.make || 'Marca não informada'} ${wish.model || 'modelo não informado'} · ${years} · ${miles}`;
     });
-    return `${vehicles.join(' | ')}${budgetCents ? ` · teto ${formatMoney(budgetCents)}` : ''}`;
+    return `${vehicles.join(' | ')}${budgetCents ? ` · lance até ${formatMoney(budgetCents)}` : ''}`;
   }
 
   function downloadShortlist(matches, referenceCode) {
@@ -1969,8 +1969,43 @@
       });
       wishlistForm.prepend(wishlistButton, addVehicle);
       menu.append(wishlistForm);
+      // Teto total (R2): the field starts empty, the amount is read locally and must be
+      // confirmed before it is saved in confirmed_total_ceiling_cents.
+      const ceilingRow = element('div', 'menu-action ceiling-action');
+      const ceilingValue = element('input');
+      ceilingValue.maxLength = 120;
+      ceilingValue.placeholder = 'Teto total (ex.: 35k, US$ 35.000)';
+      const ceilingReview = element('button', 'quiet small', 'Teto');
+      ceilingReview.type = 'button';
+      const ceilingConfirm = element('button', 'small hidden', '');
+      ceilingConfirm.type = 'button';
+      let ceilingCents = null;
+      ceilingValue.addEventListener('input', () => { ceilingCents = null; ceilingConfirm.classList.add('hidden'); });
+      ceilingReview.addEventListener('click', () => {
+        ceilingCents = window.MCSMoneyText ? MCSMoneyText.parseMoneyCents(ceilingValue.value) : null;
+        if (ceilingCents === null) { MCSAction.feedback(ceilingRow, 'Digite o valor do teto total (ex.: 35k ou US$ 35.000).', 'error', 'ceiling'); return; }
+        ceilingConfirm.textContent = `Confirmar teto total: ${MCSMoneyText.formatUsd(ceilingCents)}?`;
+        ceilingConfirm.classList.remove('hidden');
+      });
+      ceilingConfirm.addEventListener('click', async () => {
+        if (ceilingCents === null || ceilingConfirm.disabled) return;
+        ceilingConfirm.disabled = true;
+        try {
+          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'mark_message', journeyId, ref, messageId: message.id, kind: 'BUDGET', value: ceilingValue.value }) });
+          MCSAction.feedback(ceilingRow, `Teto total salvo: ${MCSMoneyText.formatUsd(ceilingCents)}`, '', 'ceiling');
+          ceilingConfirm.classList.add('hidden');
+          Promise.resolve(reload()).catch(() => {});
+        } catch (failure) {
+          const text = failure && failure.code === 'JOURNEY_CLOSED' ? 'Lead encerrado: reabra o lead antes de registrar o teto.'
+            : failure && failure.code === 'CEILING_VALUE_INVALID' ? 'Não encontrei um valor no texto. Digite só o teto total (ex.: 35k).'
+            : 'Não consegui salvar — tente de novo';
+          MCSAction.feedback(ceilingRow, text, 'error', 'ceiling');
+        } finally { ceilingConfirm.disabled = false; }
+      });
+      ceilingRow.append(ceilingReview, ceilingValue, ceilingConfirm);
+      menu.append(ceilingRow);
       const choices = [
-        ['BUDGET', 'Teto', true], ['PAYMENT', 'Pagamento', true],
+        ['PAYMENT', 'Pagamento', true],
         ['DEADLINE', 'Prazo', true], ['OUTSIDE_FLORIDA', 'Aceita fora da Flórida', false],
         ['NO_TEST_DRIVE', 'Entendeu sem test drive/devolução', false]
       ];
@@ -2058,7 +2093,7 @@
       wishlist.append(wishDefinitions);
     });
     const budgetDefinition = element('dl', 'definition-grid');
-    definition(budgetDefinition, 'Teto único', formatMoney(item.budget_cents));
+    definition(budgetDefinition, 'Lance máximo', formatMoney(item.budget_cents));
     wishlist.append(budgetDefinition);
     dataBlock.append(wishlist, journeySwitch(item, reload));
     if (!options.prepend) dataBlock.append(dispositionControls({ kind: 'JOURNEY', id: item.id, journeyId: item.id }));

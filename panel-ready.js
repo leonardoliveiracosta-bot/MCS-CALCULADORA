@@ -1,6 +1,6 @@
 'use strict';
 const { timezoneForZip, realisticBid, median } = require('./panel-lead');
-const { mergeWishlists } = require('./panel-domain');
+const { effectiveCriteria } = require('./panel-domain');
 const catalog = require('./vehicle-catalog');
 const calc = require('./calc-core');
 function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
@@ -15,7 +15,7 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   const messages=id?(data.messages||[]).filter((message)=>message.journey_id===id&&message.direction==='CUSTOMER'):[];
   const latestMessage=messages.reduce((stamp,message)=>Math.max(stamp,Date.parse(message.occurred_at_utc||message.created_at)||0),0);
   const latest=Math.max(latestMessage,Date.parse(item.occurredAt||0)||0);
-  const wishes=journey?.criteria_json?.wishlistOverride ? journey.criteria_json.wishlists||[] : mergeWishlists(journey?.criteria_json?.wishlists||[],item.wishlists||[]);
+  const criteria=effectiveCriteria(journey,item);const wishes=criteria.wishes;
   const wish=wishes[0];
   let mmr=null;
   if(wish?.model){
@@ -28,7 +28,7 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   const state=calc.zipEstado(zip);
   const payment=String(journey?.payment_text||item.paymentText||'cash').toLowerCase()==='fin'?'fin':'cash';
   const ceiling=Number(journey?.confirmed_total_ceiling_cents)||0;
-  const maxBid=Number(item.budgetCents||journey?.budget_cents)||0;
+  const maxBid=Number(criteria.bidCents)||0;
   const bid=ceiling?realisticBid(ceiling,{florida:state?state.uf==='FL':true,payment,plate:item.plate||'transf',zip,stateIndex:state?String(calc.CONFIG.estados.findIndex((entry)=>entry.nome===state.nome)):''}):maxBid?Math.floor(maxBid/100):null;
   const clientDate=(value)=>new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(value);
   const today=clientDate(now);

@@ -26,7 +26,18 @@
       .replace(/[^a-z0-9]+/g, '');
   }
 
+  // Export file names that say nothing about who the customer is. The iPhone always
+  // exports "_chat.txt", so these can never identify a chat or name a contact.
+  const GENERIC_TITLE_RE = /^(?:_+\s*)?(?:chat|whatsapp|whatsapp chat|conversa|conversa do whatsapp|mensagens|messages|export|exportar|txt)?$/i;
+
+  function isGenericTitle(value) {
+    const title = clean(String(value || '').replace(/\.(?:txt|zip)$/i, ''));
+    return !title || title.startsWith('_') || GENERIC_TITLE_RE.test(title)
+      || /^(?:whatsapp chat with|conversa do whatsapp com)\s*$/i.test(title);
+  }
+
   function contactNameFromTitle(value) {
+    if (isGenericTitle(value)) return '';
     return clean(String(value || '')
       .replace(/\.txt$/i, '')
       .replace(/^WhatsApp Chat with\s+/i, '')
@@ -192,19 +203,27 @@
     return parsed.entries.map((entry) => ({ ...entry, direction: normalizeSender(entry.sender) === chosen ? 'MCS' : 'CUSTOMER' }));
   }
 
+  // Automatic association needs a strong identifier: a specific (non generic) chat title
+  // AND a customer participant already confirmed for that chat (a name or phone the
+  // customer used before). The MCS sender is the operator and never identifies a customer.
+  // Anything weaker goes to manual review in ENTRADA.
   function automaticImportMatch(parsed, chatAliases, chats, senderAliases, contactName) {
     if (!parsed || !parsed.supported || parsed.requiresDateOrder || parsed.groupSignal) return null;
-    const alias = (Array.isArray(chatAliases) ? chatAliases : []).find((item) => normalizeSender(item.alias_text) === normalizeSender(parsed.title));
+    if (isGenericTitle(parsed.title)) return null;
+    const alias = (Array.isArray(chatAliases) ? chatAliases : []).find((item) => !isGenericTitle(item.alias_text) && normalizeSender(item.alias_text) === normalizeSender(parsed.title));
     const chat = alias && (Array.isArray(chats) ? chats : []).find((item) => item.id === alias.chat_id && !item.is_group && item.contact_id);
     if (!chat) return null;
-    const mcs = (Array.isArray(senderAliases) ? senderAliases : []).find((item) => item.chat_id === chat.id && item.direction === 'MCS' && parsed.senders.some((sender) => normalizeSender(sender) === normalizeSender(item.sender_text)));
+    const known = (Array.isArray(senderAliases) ? senderAliases : []).filter((item) => item.chat_id === chat.id);
+    const inFile = (item) => parsed.senders.some((sender) => normalizeSender(sender) === normalizeSender(item.sender_text));
+    const mcs = known.find((item) => item.direction === 'MCS' && inFile(item));
+    const customer = known.find((item) => item.direction === 'CUSTOMER' && inFile(item));
     const inferredContact = contactName || contactNameFromTitle(parsed.title);
-    if (!mcs || senderLooksLikeContact(mcs.sender_text, inferredContact)) return null;
+    if (!mcs || !customer || senderLooksLikeContact(mcs.sender_text, inferredContact)) return null;
     return { chat, mcsSender: mcs.sender_text };
   }
 
   return {
-    clean, normalizeSender, senderIdentity, contactNameFromTitle, senderLooksLikeContact, senderExample,
+    clean, normalizeSender, senderIdentity, contactNameFromTitle, isGenericTitle, senderLooksLikeContact, senderExample,
     inferDateOrder, resolveNewYork, parseWhatsApp, assignDirections, extractRefs, automaticImportMatch
   };
 });

@@ -4,7 +4,8 @@ const MODES=new Set(['ready','recent','oldest','name','ref','value_desc','value_
 const text=(value)=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR');
 const number=(value)=>Number.isFinite(Number(value))&&Number(value)>0?Number(value):null;
 const legacyStamp=(item)=>Date.parse(item.lastCustomerAt||item.latestMessage?.occurred_at_utc||item.latestMessage?.created_at||item.occurredAt||item.updated_at||item.created_at||0)||0;
-const value=(item)=>number(item.confirmed_total_ceiling_cents||item.totalCeilingCents||item.budgetCents||item.budget_cents);
+/* R2: "valor" é o lance máximo. O teto total nunca entra como lance; sem lance vai para o fim. */
+const value=(item)=>number(item.budgetCents||item.budget_cents||item.maxBidCents);
 const location=(item)=>[item.state||item.estado||item.contact?.location_text||'',item.city||''];
 const vehicle=(item)=>[item.make||item.vehicle?.make||item.wishlists?.[0]?.make||'',item.model||item.vehicle?.model||item.wishlists?.[0]?.model||'',item.vehicleText||item.vehicle_text||''];
 const name=(item)=>item.contact?.display_name||item.contactName||item.name||'';

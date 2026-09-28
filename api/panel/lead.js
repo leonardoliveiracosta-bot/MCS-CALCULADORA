@@ -136,6 +136,7 @@ module.exports = async (req, res) => {
       return send(res, 200, { saved: true });
     }
     if (body.action === 'total_ceiling') {
+      if(lead.record?.status==='ENCERRADO') return send(res,409,{error:'JOURNEY_CLOSED'});
       const amount=Number(body.amount);
       if(!Number.isFinite(amount)||amount<=0||amount>10000000) return send(res,400,{error:'CEILING_INVALID'});
       await patchRows(ctx,'journeys',{environment:'eq.'+ctx.environment,id:'eq.'+journey.id},{confirmed_total_ceiling_cents:Math.round(amount*100),updated_at:new Date().toISOString(),updated_by:ctx.panel.id});

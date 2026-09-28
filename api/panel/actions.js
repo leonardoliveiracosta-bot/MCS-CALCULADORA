@@ -1,11 +1,12 @@
 'use strict';
 
 const {
-  clientOkPatch, consolidateCalcRuns, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
-  mergeWishlists, nextStageForUnits, reactivationEligible, REF_RE, time, wishlistsForJourney, wishlistText
+  clientOkPatch, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
+  mergeWishlists, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
 const vehicleCatalog = require('../../vehicle-catalog');
+const { parseMoneyCents } = require('../../money-text');
 const { localToUtc, timezoneForZip } = require('../../panel-lead');
 const {
   allRows, insert, isUuid, jsonBody, patchRows, recordMutation, requirePanel,
@@ -40,6 +41,7 @@ function safeWishlists(value, requireVehicle = false) {
 
 function declarationKey(field, value, valueJson = {}) {
   if (field === 'TETO') {
+    if (Number.isFinite(Number(valueJson.ceilingCents))) return String(Math.round(Number(valueJson.ceilingCents)));
     if (Number.isFinite(Number(valueJson.cents))) return String(Math.round(Number(valueJson.cents)));
     const amount = Number(String(value || '').replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
     if (Number.isFinite(amount)) return String(Math.round(amount * 100));
@@ -205,8 +207,11 @@ async function actionDeclaration(ctx, journey, body) {
   });
   const valueJson = {};
   if (field === 'TETO') {
-    const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
-    if (Number.isFinite(amount) && amount >= 0) valueJson.cents = Math.round(amount * 100);
+    // TETO is the customer's total ceiling (R2): it never becomes the maximum bid.
+    if (journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_CLOSED' });
+    const ceilingCents = parseMoneyCents(value);
+    if (ceilingCents === null) return send(ctx.res, 400, { error: 'CEILING_VALUE_INVALID' });
+    valueJson.ceilingCents = ceilingCents;
   }
   const created = await insert(ctx, 'journey_declarations', {
     environment: ctx.environment, journey_id: journey.id, field, source: 'CONVERSATION',
@@ -229,10 +234,7 @@ async function actionDeclaration(ctx, journey, body) {
   const patch = { updated_at: at, updated_by: ctx.panel.id };
   if (field === 'VEICULO') patch.vehicle_text = value;
   if (field === 'PAGAMENTO') patch.payment_text = value;
-  if (field === 'TETO') {
-    const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
-    if (Number.isFinite(amount) && amount >= 0) patch.budget_cents = Math.round(amount * 100);
-  }
+  if (field === 'TETO') patch.confirmed_total_ceiling_cents = valueJson.ceilingCents;
   if (field === 'PRAZO') {
     patch.customer_deadline_text = value;
     if (time(body.deadlineAt)) patch.customer_deadline_at = new Date(time(body.deadlineAt)).toISOString();
@@ -261,8 +263,13 @@ async function actionMarkMessage(ctx, journey, body) {
   if (config.field && !value) return send(ctx.res, 400, { error: 'MESSAGE_MARK_VALUE_INVALID' });
   const valueJson = wishlists ? { wishlist: { wishlists } } : {};
   if (config.field === 'TETO') {
-    const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
-    if (Number.isFinite(amount) && amount >= 0) valueJson.cents = Math.round(amount * 100);
+    // The total ceiling goes only to confirmed_total_ceiling_cents (R2), written atomically by
+    // panel_mark_message_fact from value_json.ceilingCents; budget_cents (maximum bid) is untouched.
+    if (journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_CLOSED' });
+    // Only the amount the operator typed and confirmed; never the whole message text.
+    const ceilingCents = parseMoneyCents(body.value);
+    if (ceilingCents === null) return send(ctx.res, 400, { error: 'CEILING_VALUE_INVALID' });
+    valueJson.ceilingCents = ceilingCents;
   }
   const deadlineAt = time(body.deadlineAt) ? new Date(time(body.deadlineAt)).toISOString() : null;
   const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_mark_message_fact', {
@@ -279,7 +286,7 @@ async function actionMarkMessage(ctx, journey, body) {
     })
   });
   await recordMessageMenuEvent(ctx,journey,body,'MARK_'+kind,isoNow());
-  return send(ctx.res, 200, result);
+  return send(ctx.res, 200, config.field === 'TETO' ? { ...result, ceilingCents: valueJson.ceilingCents } : result);
 }
 
 async function actionNote(ctx, journey, body) {
@@ -399,7 +406,6 @@ async function actionLinkRequest(ctx, journey, body) {
 
     const declarationSid = sids[0] || request.sid;
     const declarations = [
-      request.budgetCents ? { field: 'TETO', value: String(request.budgetCents), json: { cents: request.budgetCents } } : null,
       request.vehicleText ? { field: 'VEICULO', value: request.vehicleText, json: {} } : null,
       request.paymentText ? { field: 'PAGAMENTO', value: request.paymentText, json: {} } : null,
       request.deadlineText ? { field: 'PRAZO', value: request.deadlineText, json: {} } : null

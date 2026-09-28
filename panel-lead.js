@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const calc = require('./calc-core');
 const catalog = require('./vehicle-catalog');
-const { consolidateCalcRuns, groupCalculatorByRef, mergeWishlists, REF_RE } = require('./panel-domain');
+const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, REF_RE } = require('./panel-domain');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 
@@ -183,9 +183,10 @@ async function leadData(ctx, req, refInput, idInput) {
   const aiReading=aiReadings[0]||null;
   const aiItems=aiReading?await allRows(ctx,'conversation_ai_items',{select:'id,item_json,evidence_text,manual_review,status,created_at',environment:'eq.'+ctx.environment,reading_id:'eq.'+aiReading.id,status:'eq.PENDING',order:'created_at.asc'}):[];
   const ai={reading:aiReading?{...aiReading,items:aiItems.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:aiSuggestions[0]||null};
-  const wishes = record?.criteria_json?.wishlistOverride
-    ? (record.wishlists || [])
-    : mergeWishlists(record && record.wishlists || [], order && order.wishlists || []);
+  // R1: the ficha's confirmed wishes and bid win; the calculator only fills what is missing.
+  const criteria = effectiveCriteria(record, order);
+  const wishes = criteria.wishes;
+  const news = calculatorNews(record, record?.contact?.display_name, order);
   const rawZip = order && order.zip || (record?.contact?.location_text || '').match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || '';
   const zip = String(rawZip).replace(/\D/g, '').slice(0, 5);
   const state = calc.zipEstado(zip);
@@ -194,7 +195,7 @@ async function leadData(ctx, req, refInput, idInput) {
   const plate = order && order.plate === 'nova' ? 'nova' : 'transf';
   const florida = state ? state.uf === 'FL' : true;
   const stateIndex = state ? String(calc.CONFIG.estados.findIndex((item) => item.nome === state.nome)) : '';
-  const maxBidCents = Number(order && order.budgetCents || record && record.budget_cents) || null;
+  const maxBidCents = criteria.bidCents;
   const totalCeilingCents = Number(record && record.confirmed_total_ceiling_cents) || null;
   const bid = totalCeilingCents ? realisticBid(totalCeilingCents, { florida, payment, plate, stateIndex, zip }) : maxBidCents ? Math.floor(maxBidCents / 100) : null;
   const costs = bid === null ? null : calc.calcular({ lance: bid, inspecao: false, florida, placa: plate, pgto: payment, estado: stateIndex, zip });
@@ -237,7 +238,7 @@ async function leadData(ctx, req, refInput, idInput) {
   const searchStage=journey?stageIndex.get(journey.id)||null:null;
   const dispositionKind=order?'REF':'JOURNEY',dispositionKey=order?ref:journey?.id;
   const disposition=dispositionKey?(await optionalRead('panel_item_dispositions',()=>rows(ctx,'panel_item_dispositions',{select:'status,discard_reason,updated_at',environment:'eq.'+ctx.environment,item_kind:'eq.'+dispositionKind,item_key:'eq.'+dispositionKey,cleared_at:'is.null',limit:'1'})))[0]||null:null;
-  return { ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
+  return { ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, calculatorNews: news, bidSource: criteria.bidSource, wishesSource: criteria.wishesSource, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
 }
 
 async function belongsToJourney(ctx, ref, journey) {

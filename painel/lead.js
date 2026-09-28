@@ -111,7 +111,9 @@
     const wishes=section(trio,2,'O QUE ELE QUER');
     if(!data.wishes.length) append(wishes,'p','muted','Carro ainda não informado.');
     data.wishes.forEach((wish,index)=>row(wishes,`${index+1}. ${model(wish)}`,`${wish.yearMin||'—'}–${wish.yearMax||'—'}`,wish.maxMiles?`até ${Number(wish.maxMiles).toLocaleString('en-US')} mi`:'milhas não informadas'));
-    append(wishes,'p','muted',`Lance máximo (calculadora): ${cents(data.maxBidCents)}`);
+    append(wishes,'p','muted',`Lance máximo${data.bidSource==='CALCULADORA'?' (calculadora)':data.bidSource==='FICHA'?' (ficha)':''}: ${data.maxBidCents?cents(data.maxBidCents):'não informado'}`);
+    if((data.calculatorNews||[]).length){const news=append(wishes,'div','calculator-news');append(news,'strong','','Nova informação da calculadora (a ficha não foi alterada)');
+      data.calculatorNews.forEach((item)=>append(news,'p','muted',item.field==='LANCE'?`Lance: calculadora ${cents(item.calculatorCents)} · ficha ${cents(item.fichaCents)}`:`${({PAGAMENTO:'Pagamento',VEICULO:'Veículo',NOME:'Nome'})[item.field]||item.field}: calculadora "${item.calculator}" · ficha "${item.ficha}"`));}
     append(wishes,'p','muted',`Teto total confirmado: ${cents(data.totalCeilingCents)}`);
     append(wishes,'p','muted',`${data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':'transferir'}`);
     const ceilingForm=append(wishes,'div','lead-actions');const ceilingInput=append(ceilingForm,'input');ceilingInput.type='number';ceilingInput.min='1';ceilingInput.step='1';ceilingInput.placeholder='Teto total confirmado (US$)';ceilingInput.value=data.totalCeilingCents?data.totalCeilingCents/100:'';
