@@ -36,6 +36,15 @@ async function customerMessageNotifications(ctx, after) {
     order: 'created_at.asc'
   });
   return messages.filter((message) => isEligibleCustomerMessage(message, allowedChatIds));
+}async function allowedCustomerChatIds(ctx) {
+  const chats = await allRows(ctx, 'chats', {
+    select: 'id', environment: 'eq.' + ctx.environment,
+    channel: 'eq.WHATSAPP', is_group: 'is.false'
+  });
+  return new Set(chats.map((chat) => chat.id));
 }
 
-module.exports = { MAX_CURSOR_AGE_MS, customerMessageNotifications, isEligibleCustomerMessage, notificationCursor };
+module.exports = {
+  MAX_CURSOR_AGE_MS, allowedCustomerChatIds, customerMessageNotifications,
+  isEligibleCustomerMessage, notificationCursor
+};
