@@ -23,6 +23,7 @@
 <script defer src="/_vercel/insights/script.js"></script>
 <script defer src="/_vercel/speed-insights/script.js"></script>
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&display=swap');
 
   :root{
@@ -551,6 +552,33 @@
   @media (min-width:900px){
     section.real-purchase{padding:48px 20px 56px}
   }
+
+  /* ---------- Bloco 2: prova real BMW X3 (Playfair + Inter, aprovado) ---------- */
+  section.real-purchase{background:#000}
+  .rpx{width:100%;max-width:390px;margin:0 auto;background:#000;color:#fff;font-family:"Inter",sans-serif;border-radius:10px;overflow:hidden}
+  .rpx-top{position:relative;isolation:isolate;padding:26px 22px 30px}
+  .rpx-photo{position:absolute;inset:0;z-index:-2;width:100%;height:100%;object-fit:cover;object-position:center 30%;display:block;
+    filter:brightness(.6) saturate(.35) contrast(.95)}
+  /* carro e so fundo: os numeros sao o foco */
+  .rpx-veil{position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(0,0,0,.74) 0%,rgba(0,0,0,.66) 50%,rgba(0,0,0,.72) 100%)}
+  .rpx-top > *{text-shadow:0 1px 3px rgba(0,0,0,.75),0 0 14px rgba(0,0,0,.45)}
+  .rpx-title{font-family:"Playfair Display",serif;font-weight:800;font-size:30px;line-height:1.1;color:#fff;margin:0}
+  .rpx-sub{font-size:11px;font-weight:600;letter-spacing:2.5px;color:#c9a227;margin:10px 0 0;text-transform:uppercase}
+  .rpx-why{font-family:"Playfair Display",serif;font-weight:700;font-size:17px;color:#d4af37;margin:12px 0 0}
+  .rpx-price{font-family:"Playfair Display",serif;font-weight:800;font-size:42px;line-height:1.05;color:#fff;margin:18px 0 0}
+  .rpx-label{font-size:10px;font-weight:700;letter-spacing:2.5px;color:#c9a227;margin:4px 0 0;text-transform:uppercase}
+  .rpx-ref{font-family:"Playfair Display",serif;font-size:22px;line-height:1.1;color:#9a9a9a;margin:14px 0 0;
+    text-decoration:line-through;text-decoration-color:#d4af37;text-decoration-thickness:2px}
+  .rpx-ref-label{font-size:10px;letter-spacing:1.8px;color:#9a9a9a;margin:4px 0 0;text-transform:uppercase}
+  .rpx-less{font-family:"Playfair Display",serif;font-weight:800;font-size:34px;line-height:1.1;color:#d4af37;margin:16px 0 0}
+  .rpx-less-sub{font-size:11px;font-weight:600;letter-spacing:2.5px;color:#fff;margin:4px 0 0;text-transform:uppercase}
+  .rpx-card{background:#050505;padding:20px 22px 18px}
+  .rpx-card-title{font-size:11px;font-weight:600;letter-spacing:3px;color:#c9a227;margin:0 0 12px;text-transform:uppercase}
+  .rpx-row{display:flex;justify-content:space-between;gap:14px;font-size:13px;line-height:2;color:#e6e6e6}
+  .rpx-row span:last-child{font-weight:600;color:#fff;white-space:nowrap}
+  .rpx-row--total{border-top:1px solid rgba(201,162,39,.45);margin-top:10px;padding-top:8px;font-weight:600}
+  .rpx-row--total span:last-child{font-size:16px;color:#d4af37}
+  .rpx-foot{font-size:9px;letter-spacing:1.5px;color:#6f6f6f;text-align:center;margin:16px 0 0;line-height:1.5;text-transform:uppercase}
   /* ---------- carrossel do Real Purchase ---------- */
   .purchase-carousel{position:relative;width:100%}
   .purchase-cards.purchase-cards--carousel{
@@ -563,6 +591,7 @@
   .purchase-cards.purchase-cards--carousel::-webkit-scrollbar{display:none}
   .purchase-cards.purchase-cards--carousel > .purchase-card-entry{
     flex:0 0 100%;scroll-snap-align:center;scroll-snap-stop:always;
+    padding:0 16px;box-sizing:border-box;
   }
   .purchase-dots{display:flex;justify-content:center;align-items:center;gap:9px;margin:18px 0 0}
   .purchase-dots button{
@@ -986,100 +1015,39 @@
     </div>
   </section>
 
-  <section class="reel">
-    <video class="reel-video" muted loop playsinline preload="none" poster="mcs-drone-poster.jpg" aria-hidden="true" data-src="mcs-drone.mp4"></video>
-    <div class="reel-veil"></div>
-    <div class="fade-top-dark"></div>
-    <div class="fade-bottom-dark"></div>
-    <div class="reel-inner">
-      <h2 data-i18n="reel_h">MORE THAN 100,000 CARS SELL BEHIND CLOSED DOORS EVERY WEEK</h2>
-      <p class="reel-sub"><span data-i18n="reel_s1">A larger market means more opportunities to find the right vehicle before it reaches a dealership</span><br>
-      <span data-i18n="reel_s2">MORE OPTIONS<br>MORE CONTROL<br>LESS REASON TO OVERPAY</span></p>
-      <div class="reel-nums">
-        <div class="n"><span class="v">80+</span><span class="t" data-i18n="st_auc">auctions</span></div>
-        <div class="n"><span class="v">8M+</span><span class="t" data-i18n="st_veh">vehicles a year</span></div>
-        <div class="n"><span class="v">80K+</span><span class="t" data-i18n="st_dea">dealers bidding</span></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="why" class="why">
-    <div class="why-bg bg-mustang"></div>
-    <div class="why-veil"></div>
-    <div class="fade-top-dark"></div>
-    <div class="fade-bottom-dark"></div>
-    <div class="wrap">
-      <p class="eyebrow reveal" data-i18n="why_k">WHY MY CAR SCOUT</p>
-      <div class="hook reveal d1" data-i18n="why_1">THE CAR DOESN'T GET BETTER WHEN A DEALER ADDS A MARKUP</div>
-      <div class="hook reveal d2" data-i18n="why_3">THE RIGHT CAR MAY BE AVAILABLE BEFORE IT EVER REACHES A DEALERSHIP</div>
-      <div class="hook reveal d3" data-i18n="why_2">YOU DECIDE THE VEHICLE AND THE LIMIT, WE NEVER GO OVER</div>
-      <div class="hook reveal d4" data-i18n="why_4">OUR ENTIRE FEE COSTS LESS THAN A DEALERSHIP CHARGES JUST FOR PAPERWORK</div>
-    </div>
-  </section>
-
   <section id="real-purchase" class="real-purchase">
     <div class="purchase-cards" id="purchaseCards" aria-live="polite">
-      <div class="purchase-card-entry">
-        <article class="purchase-card" aria-label="2021 BMW X3: real purchase comparison">
-          <img class="purchase-card__photo" src="img/compras/2021-bmw-x3.jpg" alt="" loading="lazy" decoding="async">
-          <div class="purchase-card__shade"></div>
-          <div class="purchase-card__content">
-            <header class="purchase-card__meta">
-              <p class="purchase-card__brand">MY CAR SCOUT</p>
-              <p class="purchase-card__vehicle">2021 BMW X3 · 57,347 MI</p>
-            </header>
-            <h3 class="purchase-card__title">WHY PAY<span>THOUSANDS MORE?</span></h3>
-            <div class="purchase-card__comparison">
-              <div class="purchase-card__panel">
-                <h4 class="purchase-card__panel-title">REAL PURCHASE</h4>
-                <div class="purchase-card__row"><span>Auction purchase</span><span>$17,900</span></div>
-                <div class="purchase-card__row"><span>Auction fee</span><span>$600</span></div>
-                <div class="purchase-card__row"><span>Environmental fee</span><span>$50</span></div>
-                <div class="purchase-card__row"><span>Title mailing</span><span>$45</span></div>
-                <div class="purchase-card__row"><span>Service fee</span><span>$800</span></div>
-                <div class="purchase-card__row purchase-card__row--total"><span>Total paid</span><span>$19,395</span></div>
-              </div>
-              <div class="purchase-card__scale">
-                <img class="purchase-card__scale-art" src="img/compras/balanca.png" alt="" decoding="async">
-                <div class="purchase-card__price purchase-card__price--paid">
-                  <span class="purchase-card__price-kicker">MY CAR SCOUT</span>
-                  <strong class="purchase-card__price-value">$19,395</strong>
-                  <span class="purchase-card__price-caption">PURCHASE + FEES</span>
-                </div>
-                <div class="purchase-card__price purchase-card__price--reference">
-                  <span class="purchase-card__price-kicker">Black Book XClean</span>
-                  <strong class="purchase-card__price-value">$25,800</strong>
-                  <span class="purchase-card__price-caption">RETAIL REFERENCE</span>
-                </div>
-              </div>
-            </div>
-            <div class="purchase-card__saving">
-              <div class="purchase-card__saving-main">
-                <strong class="purchase-card__saving-value">$6,405</strong>
-                <span class="purchase-card__saving-less">LESS</span>
-              </div>
-              <p class="purchase-card__saving-sub">24.83% BELOW REFERENCE</p>
-            </div>
-            <p class="purchase-card__foot">Black Book XClean · VEHICLE CONDITION TO BE CONFIRMED</p>
-          </div>
-        </article>
-        <div class="purchase-card-mobile-summary">
-          <h4>REAL PURCHASE</h4>
-          <div class="purchase-card-mobile-row"><span>Auction purchase</span><span>$17,900</span></div>
-          <div class="purchase-card-mobile-row"><span>Auction fee</span><span>$600</span></div>
-          <div class="purchase-card-mobile-row"><span>Environmental fee</span><span>$50</span></div>
-          <div class="purchase-card-mobile-row"><span>Title mailing</span><span>$45</span></div>
-          <div class="purchase-card-mobile-row"><span>Service fee</span><span>$800</span></div>
-          <div class="purchase-card-mobile-row purchase-card-mobile-total"><span>Total paid</span><span>$19,395</span></div>
-          <div class="purchase-card-mobile-saving">
-            <div class="purchase-card-mobile-saving-main">$6,405 LESS</div>
-            <p class="purchase-card-mobile-saving-sub">24.83% BELOW REFERENCE</p>
-          </div>
-        </div>
+    <div class="purchase-card-entry">
+    <article class="rpx" aria-label="2021 BMW X3: real purchase comparison">
+      <div class="rpx-top">
+        <img class="rpx-photo" src="img/compras/2021-bmw-x3.jpg" alt="2021 BMW X3" loading="lazy" decoding="async">
+        <div class="rpx-veil"></div>
+        <h3 class="rpx-title">2021 BMW X3</h3>
+        <p class="rpx-sub">57,347 MI · DOCUMENTED MCS CASE</p>
+        <p class="rpx-why">WHY PAY THOUSANDS MORE?</p>
+        <p class="rpx-price">$19,994</p>
+        <p class="rpx-label">MY CAR SCOUT · ALL IN</p>
+        <p class="rpx-ref">$25,800</p>
+        <p class="rpx-ref-label">BLACK BOOK XCLEAN · RETAIL REFERENCE</p>
+        <p class="rpx-less">$5,806 LESS</p>
+        <p class="rpx-less-sub">22.50% BELOW REFERENCE</p>
       </div>
+      <div class="rpx-card">
+        <h4 class="rpx-card-title">REAL PURCHASE</h4>
+        <div class="rpx-row"><span>Auction purchase</span><span>$17,900</span></div>
+        <div class="rpx-row"><span>Auction fee</span><span>$600</span></div>
+        <div class="rpx-row"><span>Environmental fee</span><span>$50</span></div>
+        <div class="rpx-row"><span>Purchase &amp; title</span><span>$644</span></div>
+        <div class="rpx-row"><span>Service fee</span><span>$800</span></div>
+        <div class="rpx-row rpx-row--total"><span>Total paid</span><span>$19,994</span></div>
+        <p class="rpx-foot">BLACK BOOK XCLEAN · VEHICLE CONDITION TO BE CONFIRMED</p>
+      </div>
+    </article>
+    </div>
     </div>
   </section>
 
+  <script src="calc-core.js"></script>
   <script>
   (function(){
     "use strict";
@@ -1096,104 +1064,62 @@
       return node;
     }
 
+    /* Taxas vem da calculadora (calc-core.js): a calculadora e a verdade.
+       Do compras.json usamos so os dados do carro, o lance e a referencia. */
+    var core=window.MCSCalcCore;
+
     function costRow(label,value,total){
-      var row=make("div","purchase-card__row"+(total?" purchase-card__row--total":""));
-      row.appendChild(make("span","",label));
-      row.appendChild(make("span","",money.format(value)));
-      return row;
-    }
-
-    function priceBoard(kind,kicker,value,caption){
-      var board=make("div","purchase-card__price purchase-card__price--"+kind);
-      board.appendChild(make("span","purchase-card__price-kicker",kicker));
-      board.appendChild(make("strong","purchase-card__price-value",money.format(value)));
-      board.appendChild(make("span","purchase-card__price-caption",caption));
-      return board;
-    }
-
-    function mobileCostRow(label,value,total){
-      var row=make("div","purchase-card-mobile-row"+(total?" purchase-card-mobile-total":""));
+      var row=make("div","rpx-row"+(total?" rpx-row--total":""));
       row.appendChild(make("span","",label));
       row.appendChild(make("span","",money.format(value)));
       return row;
     }
 
     function renderPurchase(d){
-      var totalPago=Number(d.lance)+Number(d.taxaLeilao)+Number(d.taxaAmbiental)+Number(d.envioTitulo)+Number(d.taxaServico);
-      var diferenca=Number(d.referencia)-totalPago;
-      var percentual=Number(d.referencia)>0?(diferenca/Number(d.referencia))*100:0;
+      var lance=Number(d.lance), referencia=Number(d.referencia);
+      var r=core.calcular({lance:lance,florida:false,estado:"other",pgto:"cash",inspecao:false,placa:"transfer",zip:""});
+      var ambiental=r.fixasLeilao.reduce(function(a,f){return a+Math.round(f.valor);},0);
+      var totalPago=r.totalProjetado;
+      var diferenca=referencia-totalPago;
+      var percentual=referencia>0?(diferenca/referencia)*100:0;
+      var fonte=String(d.fonteRef||"").toUpperCase();
+      var nome=d.ano+" "+d.marca+" "+d.modelo;
 
       var entry=make("div","purchase-card-entry");
-      var card=make("article","purchase-card");
-      card.setAttribute("aria-label",d.ano+" "+d.marca+" "+d.modelo+": real purchase comparison");
+      var card=make("article","rpx");
+      card.setAttribute("aria-label",nome+": real purchase comparison");
 
-      var photo=make("img","purchase-card__photo");
+      var top=make("div","rpx-top");
+      var photo=make("img","rpx-photo");
       photo.src=d.foto;
-      photo.alt="";
+      photo.alt=nome;
       photo.loading="lazy";
       photo.decoding="async";
-      card.appendChild(photo);
-      card.appendChild(make("div","purchase-card__shade"));
+      top.appendChild(photo);
+      top.appendChild(make("div","rpx-veil"));
+      top.appendChild(make("h3","rpx-title",nome));
+      top.appendChild(make("p","rpx-sub",number.format(d.milhas)+" MI · DOCUMENTED MCS CASE"));
+      top.appendChild(make("p","rpx-why","WHY PAY THOUSANDS MORE?"));
+      top.appendChild(make("p","rpx-price",money.format(totalPago)));
+      top.appendChild(make("p","rpx-label","MY CAR SCOUT · ALL IN"));
+      top.appendChild(make("p","rpx-ref",money.format(referencia)));
+      top.appendChild(make("p","rpx-ref-label",fonte+" · RETAIL REFERENCE"));
+      top.appendChild(make("p","rpx-less",money.format(diferenca)+" LESS"));
+      top.appendChild(make("p","rpx-less-sub",percentual.toFixed(2)+"% BELOW REFERENCE"));
+      card.appendChild(top);
 
-      var content=make("div","purchase-card__content");
-      var meta=make("header","purchase-card__meta");
-      meta.appendChild(make("p","purchase-card__brand","MY CAR SCOUT"));
-      meta.appendChild(make("p","purchase-card__vehicle",d.ano+" "+d.marca+" "+d.modelo+" · "+number.format(d.milhas)+" MI"));
-      content.appendChild(meta);
+      var box=make("div","rpx-card");
+      box.appendChild(make("h4","rpx-card-title","REAL PURCHASE"));
+      box.appendChild(costRow("Auction purchase",lance));
+      box.appendChild(costRow("Auction fee",r.taxaLeilao));
+      box.appendChild(costRow("Environmental fee",ambiental));
+      box.appendChild(costRow("Purchase & title",r.gGrupo));
+      box.appendChild(costRow("Service fee",r.dMcs));
+      box.appendChild(costRow("Total paid",totalPago,true));
+      box.appendChild(make("p","rpx-foot",fonte+" · VEHICLE CONDITION TO BE CONFIRMED"));
+      card.appendChild(box);
 
-      var title=make("h3","purchase-card__title");
-      title.appendChild(document.createTextNode("WHY PAY"));
-      title.appendChild(make("span","","THOUSANDS MORE?"));
-      content.appendChild(title);
-
-      var comparison=make("div","purchase-card__comparison");
-
-      var panel=make("div","purchase-card__panel");
-      panel.appendChild(make("h4","purchase-card__panel-title","REAL PURCHASE"));
-      panel.appendChild(costRow("Auction purchase",Number(d.lance)));
-      panel.appendChild(costRow("Auction fee",Number(d.taxaLeilao)));
-      panel.appendChild(costRow("Environmental fee",Number(d.taxaAmbiental)));
-      panel.appendChild(costRow("Title mailing",Number(d.envioTitulo)));
-      panel.appendChild(costRow("Service fee",Number(d.taxaServico)));
-      panel.appendChild(costRow("Total paid",totalPago,true));
-      comparison.appendChild(panel);
-
-      var scale=make("div","purchase-card__scale");
-      var scaleArt=make("img","purchase-card__scale-art");
-      scaleArt.src="img/compras/balanca.png";
-      scaleArt.alt="";
-      scaleArt.decoding="async";
-      scale.appendChild(scaleArt);
-      scale.appendChild(priceBoard("paid","MY CAR SCOUT",totalPago,"PURCHASE + FEES"));
-      scale.appendChild(priceBoard("reference",d.fonteRef,Number(d.referencia),"RETAIL REFERENCE"));
-      comparison.appendChild(scale);
-      content.appendChild(comparison);
-
-      var saving=make("div","purchase-card__saving");
-      var savingMain=make("div","purchase-card__saving-main");
-      savingMain.appendChild(make("strong","purchase-card__saving-value",money.format(diferenca)));
-      savingMain.appendChild(make("span","purchase-card__saving-less","LESS"));
-      saving.appendChild(savingMain);
-      saving.appendChild(make("p","purchase-card__saving-sub",percentual.toFixed(2)+"% BELOW REFERENCE"));
-      content.appendChild(saving);
-
-      content.appendChild(make("p","purchase-card__foot",d.fonteRef+" · VEHICLE CONDITION TO BE CONFIRMED"));
-      card.appendChild(content);
       entry.appendChild(card);
-
-      var mobileSummary=make("div","purchase-card-mobile-summary");
-      mobileSummary.appendChild(make("h4","","REAL PURCHASE"));
-      mobileSummary.appendChild(mobileCostRow("Auction purchase",Number(d.lance)));
-      mobileSummary.appendChild(mobileCostRow("Auction fee",Number(d.taxaLeilao)));
-      mobileSummary.appendChild(mobileCostRow("Environmental fee",Number(d.taxaAmbiental)));
-      mobileSummary.appendChild(mobileCostRow("Title mailing",Number(d.envioTitulo)));
-      mobileSummary.appendChild(mobileCostRow("Service fee",Number(d.taxaServico)));
-      mobileSummary.appendChild(mobileCostRow("Total paid",totalPago,true));
-      var mobileSaving=make("div","purchase-card-mobile-saving");
-      mobileSaving.appendChild(make("div","purchase-card-mobile-saving-main",money.format(diferenca)+" LESS"));
-      mobileSaving.appendChild(make("p","purchase-card-mobile-saving-sub",percentual.toFixed(2)+"% BELOW REFERENCE"));
-      mobileSummary.appendChild(mobileSaving);
-      entry.appendChild(mobileSummary);
       return entry;
     }
 
@@ -1315,6 +1241,7 @@
       .then(function(dados){
         var compras=Array.isArray(dados)?dados:(dados&&Array.isArray(dados.compras)?dados.compras:null);
         if(!compras) throw new Error("Invalid purchase data format");
+        if(!core) throw new Error("Calculator core not loaded");
         root.textContent="";
         compras.forEach(function(compra){root.appendChild(renderPurchase(compra));});
         carMontar();
@@ -1326,6 +1253,37 @@
     carMontar();
   })();
   </script>
+
+  <section class="reel">
+    <video class="reel-video" muted loop playsinline preload="none" poster="mcs-drone-poster.jpg" aria-hidden="true" data-src="mcs-drone.mp4"></video>
+    <div class="reel-veil"></div>
+    <div class="fade-top-dark"></div>
+    <div class="fade-bottom-dark"></div>
+    <div class="reel-inner">
+      <h2 data-i18n="reel_h">MORE THAN 100,000 CARS SELL BEHIND CLOSED DOORS EVERY WEEK</h2>
+      <p class="reel-sub"><span data-i18n="reel_s1">A larger market means more opportunities to find the right vehicle before it reaches a dealership</span><br>
+      <span data-i18n="reel_s2">MORE OPTIONS<br>MORE CONTROL<br>LESS REASON TO OVERPAY</span></p>
+      <div class="reel-nums">
+        <div class="n"><span class="v">80+</span><span class="t" data-i18n="st_auc">auctions</span></div>
+        <div class="n"><span class="v">8M+</span><span class="t" data-i18n="st_veh">vehicles a year</span></div>
+        <div class="n"><span class="v">80K+</span><span class="t" data-i18n="st_dea">dealers bidding</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="why" class="why">
+    <div class="why-bg bg-mustang"></div>
+    <div class="why-veil"></div>
+    <div class="fade-top-dark"></div>
+    <div class="fade-bottom-dark"></div>
+    <div class="wrap">
+      <p class="eyebrow reveal" data-i18n="why_k">WHY MY CAR SCOUT</p>
+      <div class="hook reveal d1" data-i18n="why_1">THE CAR DOESN'T GET BETTER WHEN A DEALER ADDS A MARKUP</div>
+      <div class="hook reveal d2" data-i18n="why_3">THE RIGHT CAR MAY BE AVAILABLE BEFORE IT EVER REACHES A DEALERSHIP</div>
+      <div class="hook reveal d3" data-i18n="why_2">YOU DECIDE THE VEHICLE AND THE LIMIT, WE NEVER GO OVER</div>
+      <div class="hook reveal d4" data-i18n="why_4">OUR ENTIRE FEE COSTS LESS THAN A DEALERSHIP CHARGES JUST FOR PAPERWORK</div>
+    </div>
+  </section>
 
   <section id="calculadora" class="calc-intro">
     <img class="calc-bg" loading="lazy" decoding="async" src="mcs-calculator-stage-bg.jpg" alt="">
