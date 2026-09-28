@@ -17,7 +17,7 @@ async function operational(ctx) {
       select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
       environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
     }),
-    allRows(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'contact_phones', { select: 'id,contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'message_journeys', {
@@ -40,13 +40,13 @@ async function operational(ctx) {
   return { journeys: journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).map((journey) => {
     const toggle = toggleByJourney.get(journey.id);
     const ownPhones=phones.filter((phone) => phone.contact_id === journey.contact_id),user=userIds.find((entry)=>entry.contact_id===journey.contact_id);
-    return { ...journey, enabled: toggleEnabled(journey.status, toggle), toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, contact: contactsById.get(journey.contact_id) || null, phones:ownPhones,whatsappUsername:user?.username||null,whatsappWithoutPhone:Boolean(user&&!ownPhones.some((phone)=>phone.is_current!==false)) };
+    return { ...journey, enabled: toggleEnabled(journey.status, toggle), toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, switchedAt: toggle && toggle.switched_at || null, contact: contactsById.get(journey.contact_id) || null, phones:ownPhones,whatsappUsername:user?.username||null,whatsappWithoutPhone:Boolean(user&&!ownPhones.some((phone)=>phone.is_current!==false)) };
   }), refs,excludedRefs, messages: flattenMessageLinks(messageLinks, messages.filter((message) => !message.undone_at)), checklist, promises, divergences, units, suppressions };
 }
 
 async function journeyExists(ctx, journeyId) {
   const found = await rows(ctx, 'journeys', {
-    select: 'id,contact_id,reference_code,stage,status,stage_frozen,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,next_action_at,next_action_text,next_action_missing_since,last_effective_contact_at,search_started_at,updated_at',
+    select: 'id,contact_id,reference_code,stage,status,stage_frozen,closed_reason,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,next_action_at,next_action_text,next_action_missing_since,last_effective_contact_at,search_started_at,updated_at',
     environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1'
   });
   if (!found[0]) return null;

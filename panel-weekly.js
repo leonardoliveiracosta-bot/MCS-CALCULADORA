@@ -33,14 +33,17 @@ function period(data,start,end){
     if(reply&&inWindow(messageAt(reply),start,end)){responded++;totalResponseMs+=Math.max(0,messageAt(reply)-inboundAt);}
   }
   const options=data.units.filter((item)=>inWindow(stamp(item.presented_at),start,end)).length;
-  const discarded=data.dispositions.filter((item)=>item.status==='DISCARDED'&&inWindow(stamp(item.updated_at),start,end));
+  // M9: an undone discard (cleared_at) is not a discard.
+  const discarded=data.dispositions.filter((item)=>!item.cleared_at&&item.status==='DISCARDED'&&inWindow(stamp(item.updated_at),start,end));
   const reasons=new Map();discarded.forEach((item)=>reasons.set(item.discard_reason||'OTHER',(reasons.get(item.discard_reason||'OTHER')||0)+1));
   return {leads,responded,averageResponseMinutes:responded?Math.round(totalResponseMs/responded/60000):null,options,discarded:discarded.length,reasons:[...reasons].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,3).map(([reason,count])=>({reason,count}))};
 }
 function buildWeeklySummary(input,now=Date.now()){
   const messagesByJourney=new Map();
   const messageById=new Map((input.messages||[]).filter((item)=>!item.undone_at).map((item)=>[item.id,item]));
-  for(const link of input.messageLinks||[]){if(link.undone_at)continue;const item=messageById.get(link.message_id);if(!item)continue;if(!messagesByJourney.has(link.journey_id))messagesByJourney.set(link.journey_id,[]);messagesByJourney.get(link.journey_id).push(item);}
+  // M9: only conversations of the journeys shown (never "não é lead").
+  const visible=new Set((input.journeys||[]).map((item)=>item.id));
+  for(const link of input.messageLinks||[]){if(link.undone_at||!visible.has(link.journey_id))continue;const item=messageById.get(link.message_id);if(!item)continue;if(!messagesByJourney.has(link.journey_id))messagesByJourney.set(link.journey_id,[]);messagesByJourney.get(link.journey_id).push(item);}
   messagesByJourney.forEach((list)=>list.sort((a,b)=>messageAt(a)-messageAt(b)||String(a.id).localeCompare(String(b.id))));
   const data={...input,messagesByJourney};
   const current=period(data,now-7*DAY,now),previous=period(data,now-14*DAY,now-7*DAY);

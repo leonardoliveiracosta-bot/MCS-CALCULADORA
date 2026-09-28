@@ -793,7 +793,10 @@
     if(Date.now()-Date.parse(readAt)>7200000&&customerAt<=mcsAt)wrap.append(makeBadge('leu e não respondeu','red'));
     return wrap;
   }
-  function nextQuickDate(kind){const date=new Date();date.setHours(17,0,0,0);if(kind==='tomorrow')date.setDate(date.getDate()+1);if(kind==='friday'){const add=(5-date.getDay()+7)%7||7;date.setDate(date.getDate()+add);}return date;}
+  // M30: the shortcuts are 17:00 on the Florida calendar (the panel's clock), whatever the phone's zone.
+  const FLORIDA='America/New_York';
+  function zoneToUtc(local,timeZone=FLORIDA){const guess=Date.parse(local+':00Z');if(!Number.isFinite(guess))return null;const parts=zonedInput(new Date(guess),timeZone);const asZone=Date.parse(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:00Z`);return new Date(guess-(asZone-guess)).toISOString();}
+  function nextQuickLocal(kind){const today=zonedInput(new Date(),FLORIDA);const date=new Date(Date.UTC(Number(today.year),Number(today.month)-1,Number(today.day)));if(kind==='tomorrow')date.setUTCDate(date.getUTCDate()+1);if(kind==='friday'){const add=(5-date.getUTCDay()+7)%7||7;date.setUTCDate(date.getUTCDate()+add);}return date.toISOString().slice(0,10)+'T17:00';}
   function nextActionNode(item,reload){
     if(item.enabled===false||item.status==='ENCERRADO')return null;
     const journeyId=item.journeyId||item.id;if(!journeyId)return null;
@@ -803,8 +806,8 @@
     define.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();if(block.querySelector('.next-action-editor'))return;
       const editor=element('div','next-action-editor'),text=element('input');text.type='text';text.maxLength=500;text.placeholder='Texto curto';text.value=item.next_action_text||'';
       const quick=element('select');[['today','Hoje'],['tomorrow','Amanhã'],['friday','Sexta'],['custom','Data']].forEach(([value,label])=>quick.append(new Option(label,value)));
-      const date=element('input');date.type='datetime-local';date.value=localInput(nextQuickDate('today'));date.classList.add('hidden');quick.addEventListener('change',()=>{date.classList.toggle('hidden',quick.value!=='custom');if(quick.value!=='custom')date.value=localInput(nextQuickDate(quick.value));});
-      const save=element('button','small','Salvar');save.type='button';MCSAction.bind(save,()=>({scope:block,optimistic:()=>{save.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'next_action',operation:'CREATE',journeyId,text:text.value,at:new Date(date.value).toISOString()})}),rollback:()=>{save.textContent='Salvar';},refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
+      const date=element('input');date.type='datetime-local';date.value=nextQuickLocal('today');date.title='Horário da Flórida';date.classList.add('hidden');quick.addEventListener('change',()=>{date.classList.toggle('hidden',quick.value!=='custom');if(quick.value!=='custom')date.value=nextQuickLocal(quick.value);});
+      const save=element('button','small','Salvar');save.type='button';MCSAction.bind(save,()=>({scope:block,optimistic:()=>{save.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'next_action',operation:'CREATE',journeyId,text:text.value,at:zoneToUtc(date.value)})}),rollback:()=>{save.textContent='Salvar';},refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
       editor.append(text,quick,date,save);block.append(editor);
     });
     return block;
@@ -813,13 +816,19 @@
 
   function renderClients(data){
     clientsData=data;const pendingByJourney=new Map((data.pending.items||[]).map((item)=>[item.journeyId,item]));
-    let items=(data.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id,latestMessage:item.latestMessage||null}));
+    // A9: heat and score come from the same read as every other screen (records), not from the pending summary.
+    let items=(data.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id,latestMessage:item.latestMessage||null,heat:item.heat,heatSource:item.heatSource,score:item.score}));
     const situation=$('clients-situation').value,checklist=$('clients-checklist').value,ref=$('clients-ref').value,heat=$('clients-heat').value;
     items=items.filter((item)=>(situation==='all'||item.situation===situation)&&(checklist==='all'||(checklist==='complete'?checklistCompleted(item)===6:checklistCompleted(item)<6))&&(ref==='all'||(ref==='with'?hasRef(item):!hasRef(item)))&&(heat==='all'||String(item.heat||'').toUpperCase()===heat));
     if(clientsOverdue24)items=items.filter((item)=>{const latest=item.latestMessage;if(!latest||latest.is_automatic||latest.direction!=='CUSTOMER')return false;return Date.now()-Date.parse(latest.occurred_at_utc||latest.occurred_at_local||latest.created_at)>86400000;});
     items=clientSort(items,$('clients-sort').value);if($('clients-sort').value==='hot')items.sort((a,b)=>({HOT:0,WARM:1,COLD:2}[a.heat]??3)-({HOT:0,WARM:1,COLD:2}[b.heat]??3));
     renderPendingGeneral(data.pending,'clients-general-card');const stats=$('clients-stats');stats.replaceChildren();[['NO_RESPONSE','Sem resposta'],['MCS_PENDING','Parado com você'],['CUSTOMER_PENDING','Parado com o cliente'],['IN_PROGRESS','Em andamento'],['CLOSED','Concluída']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.pending.counts?.[key]||0)),element('span','muted',label));stats.append(stat);});
-    const root=$('clients-list');root.replaceChildren();setCount('clients',(data.items||[]).length);if(!items.length)return empty(root,'Nenhum cliente neste filtro.');
+    // M5: "não é lead" stays reachable (to restore it) but at the end and outside the counter.
+    items=[...items.filter((item)=>item.isLead!==false),...items.filter((item)=>item.isLead===false)];
+    const root=$('clients-list');root.replaceChildren();setCount('clients',(data.items||[]).filter((item)=>item.isLead!==false).length);
+    // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
+    if(clientsOverdue24){const chip=element('button','chip active','Sem resposta há mais de 24 h ✕');chip.type='button';chip.addEventListener('click',()=>{clientsOverdue24=false;renderClients(clientsData);});root.append(chip);}
+    if(!items.length){if(clientsOverdue24)root.append(element('p','empty-state','Nenhum cliente neste filtro'));else empty(root,'Nenhum cliente neste filtro.');return;}
     items.forEach((item)=>{const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');head.append(identityHeader(item,{preview:item.latestMessage?.body_text||item.latestMessageText||''}));const badges=element('div','badges');badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)),makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));head.append(badges);card.append(head);if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`IA: ${item.aiSummary||item.summary}`));const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients());if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)card.append(copy);}const actions=element('div','inline-actions'),open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));actions.append(open,journeySwitch(item,()=>loadClients()));if(item.chatId){const resolved=Boolean(item.resolved),done=element('button','quiet small',resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>({scope:card,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:resolved?'unresolve':'resolve',journeyId:item.id,chatId:item.chatId})}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},refresh:()=>loadClients(),errorText:'Não consegui salvar — tente de novo'}));actions.append(done);}const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadClients(),errorText:'Não consegui salvar — tente de novo'};});actions.append(lead);card.append(actions,dispositionControls(item));makeCardClickable(card,()=>openDetail('ficha',item.id));root.append(card);});
   }
   async function loadClients(){const [records,pending]=await Promise.all([request('/api/panel/records?sort='+encodeURIComponent($('clients-sort').value)),request('/api/panel/pendencias?situation=all&sort=hot&withRef=false&includeResolved=true')]);updateMeta(records.meta);renderClients({items:records.items||[],pending});}
@@ -1409,13 +1418,15 @@
       block.append(element('strong', '', value), element('span', '', label));
       stats.append(block);
     };
-    stat(items.length, 'Para responder');
+    // M8: "aguardando você" counts only people whose last real message is theirs.
+    stat(items.filter((item) => item.awaitingReply).length, 'Aguardando você');
+    stat(items.length, 'Na lista');
     if (items.some((item) => item.heat)) stat(items.filter((item) => item.heat === 'HOT').length, 'Quentes');
     if (items.some((item) => item.searchStage)) {
       stat(items.filter((item) => item.searchStage === 'MISSING').length, 'Falta buscar');
       stat(items.filter((item) => item.searchStage === 'SENT').length, 'Opções enviadas');
     }
-    if (!items.length) return empty(root, 'Nenhum item nas últimas 24 horas.');
+    if (!items.length) return empty(root, 'Nada pendente para hoje');
     items.forEach((item) => {
       const heat = String(item.heat || '').toUpperCase();
       const card = element('article', `item-card today-card${heat ? ` heat-${heat.toLowerCase()}` : ''}`);
@@ -1435,6 +1446,7 @@
       if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
       if (item.wantsCar) badges.append(makeBadge('QUER ESTE CARRO', 'green'));
+      (item.todayReasons || []).forEach((reason) => badges.append(makeBadge(reason.detail ? `${reason.label} · ${reason.detail}` : reason.label, reason.urgency === 'red' ? 'red' : 'yellow')));
       if(item.returnedToTalk)badges.append(makeBadge('VOLTOU A FALAR','yellow'));
       if(item.pendingAiCount)badges.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
       if(item.aiLinkSuggested)badges.append(makeBadge('🔗 ligação sugerida','yellow'));
@@ -1641,7 +1653,7 @@
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
-      MCSAction.bind(reactivateButton,()=>{const payload=journey.status==='PARADO'?{action:'set_funnel',journeyId:journey.id,value:'EM_BUSCA'}:{action:'toggle_journey',journeyId:journey.id,enabled:true,reason:null};return{scope:card,optimistic:()=>{reactivateButton.textContent='Retomando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify(payload)}),rollback:()=>{reactivateButton.textContent=journey.status==='PARADO'?'Retomar busca':'Religar busca';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'};});
+      MCSAction.bind(reactivateButton,()=>{const payload=journey.status==='PARADO'?{action:'set_funnel',journeyId:journey.id,value:['DECIDINDO','QUALIFICADO'].includes(journey.stage)?journey.stage:'EM_BUSCA'}:{action:'toggle_journey',journeyId:journey.id,enabled:true,reason:null};return{scope:card,optimistic:()=>{reactivateButton.textContent='Retomando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify(payload)}),rollback:()=>{reactivateButton.textContent=journey.status==='PARADO'?'Retomar busca':'Religar busca';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'};});
       card.append(makeBadge(journey.status === 'PARADO' ? 'Parado — reativar' : 'Desligado — reativar', 'yellow'), reactivateButton);
     }
     const table = element('div', 'manheim-table');

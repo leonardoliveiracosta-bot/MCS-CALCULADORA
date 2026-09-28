@@ -29,7 +29,8 @@ test('stage source recognizes automatic saved and sent states plus manual marks 
   const source=read('panel-search-stage.js'),migration=read('supabase/migrations/20260927070000_panel_etapa5_search_help_attachment.sql');
   assert.match(source,/manheim_saved_searches/);
   assert.match(source,/event_type: 'eq\.CAR_PRESENTED'/);
-  assert.match(source,/status: 'eq\.PRESENTED'/);
+  // A11 (Lote 2): any unit not withdrawn keeps the badge at "sent".
+  assert.match(source,/status: 'neq\.WITHDRAWN'/);
   assert.match(source,/panel_search_marks/);
   assert.match(migration,/kind text not null check \(kind in \('SAVED','SENT'\)\)/);
   assert.match(migration,/undone_at timestamptz/);

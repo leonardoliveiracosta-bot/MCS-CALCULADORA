@@ -61,11 +61,25 @@ function heatFor(item) {
   const score = Number(item.score || 0);
   return { key: score >= 60 ? 'HOT' : score >= 35 ? 'WARM' : 'COLD', source: 'CALCULATED' };
 }
-function decorateContact(item, facts, insight) {
+// A13: the AI reading of a conversation is a snapshot. Its heat only counts while it is recent
+// (7 days), was made on the latest message, and the ficha was not closed or qualified after it.
+const INSIGHT_MAX_AGE_MS = 7 * 86400000;
+function insightUsable(insight, journey, latestMessageId, now = Date.now()) {
+  if (!insight || !insight.heat) return false;
+  if (journey && (journey.status === 'ENCERRADO' || journey.enabled === false)) return false;
+  if (latestMessageId && insight.last_ai_message_id && insight.last_ai_message_id !== latestMessageId) return false;
+  const updated = time(insight.updated_at);
+  if (!updated || now - updated > INSIGHT_MAX_AGE_MS) return false;
+  const changedAt = Math.max(time(journey?.closed_at) || 0, time(journey?.qualified_at) || 0);
+  return !(changedAt && updated < changedAt);
+}
+function decorateContact(item, facts, insight, journey) {
   const result = { ...item, contactAt: facts.latestAt ? new Date(facts.latestAt).toISOString() : null, contactFirstAt: facts.firstAt ? new Date(facts.firstAt).toISOString() : null, contactChannel: facts.channel || item.contactChannel || null, enteredContact: facts.entered };
-  if (insight?.heat) { result.aiHeat = insight.heat; result.aiSummary = insight.summary_text || ''; result.aiNextStep = insight.next_step_text || ''; }
+  const owner = journey || (item && item.status ? item : null);
+  const latestId = item?.latestMessage?.id || null;
+  if (insightUsable(insight, owner, latestId)) { result.aiHeat = insight.heat; result.aiSummary = insight.summary_text || ''; result.aiNextStep = insight.next_step_text || ''; }
   const heat = heatFor(result);
   return { ...result, heat: heat.key, heatSource: heat.source };
 }
 
-module.exports = { contactIndex, decorateContact, heatFor, messageChannel, clickChannel, refOf };
+module.exports = { contactIndex, decorateContact, heatFor, insightUsable, messageChannel, clickChannel, refOf, INSIGHT_SELECT: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at' };

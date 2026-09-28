@@ -1,6 +1,7 @@
 'use strict';
 const {allRows,requirePanel,send}=require('../../panel-server');
 const {buildWeeklySummary}=require('../../panel-weekly');
+const {toggleEnabled}=require('../../panel-domain');
 
 module.exports=async(req,res)=>{
   if(req.method!=='GET')return send(res,405,{error:'METHOD_NOT_ALLOWED'});
@@ -16,7 +17,7 @@ module.exports=async(req,res)=>{
       allRows(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment})
     ]);
     const contactById=new Map(contacts.map((item)=>[item.id,item])),toggleByJourney=new Map(toggles.map((item)=>[item.journey_id,item]));
-    const visible=journeys.filter((item)=>contactById.get(item.contact_id)?.is_lead!==false).map((item)=>({...item,enabled:toggleByJourney.has(item.id)?toggleByJourney.get(item.id).enabled:item.status!=='ENCERRADO'}));
+    const visible=journeys.filter((item)=>contactById.get(item.contact_id)?.is_lead!==false).map((item)=>({...item,enabled:toggleEnabled(item.status,toggleByJourney.get(item.id))}));
     return send(res,200,buildWeeklySummary({journeys:visible,messageLinks,messages,units,dispositions}));
   }catch(_){return send(res,500,{error:'PANEL_WEEKLY_ERROR'});}
 };

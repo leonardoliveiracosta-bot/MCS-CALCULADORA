@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 
 const { leadData, ensureJourney, localToUtc, addClientDays, cityForZip } = require('../../panel-lead');
 const { validItems, verified, prepareItems } = require('../../panel-note');
+const { forwardStage, normalizeDeadline } = require('../../panel-domain');
 const { insert, isUuid, jsonBody, patchRows, requirePanel, rows, safeText, send, supabase } = require('../../panel-server');
 
 async function delegate(req, payload) {
@@ -94,7 +95,7 @@ module.exports = async (req, res) => {
         }
       }
       const initial = { name: lead.order?.contactName, vehicle: lead.order?.vehicleText, wishes: lead.wishes,
-        maxBidCents: lead.maxBidCents, payment: lead.payment, deadline: lead.order?.deadlineText };
+        maxBidCents: lead.maxBidCents, payment: lead.paymentKnown || null, deadline: normalizeDeadline(lead.order?.deadlineText) || lead.order?.deadlineText || null };
       const saved = await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_confirm_lead_note',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
           p_environment:ctx.environment,p_actor:ctx.panel.id,p_ref:lead.ref,p_journey:journey?.id||null,
@@ -116,7 +117,8 @@ module.exports = async (req, res) => {
         if (!Number.isFinite(due) || due < Date.now()) return send(res, 400, { error: 'RETURN_DATE_INVALID' });
         dueAt = new Date(due).toISOString();
       } else if (['ANSWERED','NO_ANSWER','DEPOSIT'].includes(type)) {
-        dueAt = type === 'DEPOSIT' ? at : addClientDays(Date.now(), lead.timezone, type === 'ANSWERED' ? 2 : 1);
+        // B6: "vai pagar o depósito" asks for a check the next day, not a return already overdue.
+        dueAt = addClientDays(Date.now(), lead.timezone, type === 'ANSWERED' ? 2 : 1);
       }
       const event = await quick(ctx, lead, journey, type, dueAt, operationId);
       return send(res, event.duplicate?200:201, event);
@@ -152,6 +154,7 @@ module.exports = async (req, res) => {
       return send(res,200,{saved:true});
     }
     if (body.action === 'present') {
+      if (lead.record && (lead.record.enabled === false || lead.record.status === 'ENCERRADO')) return send(res, 409, { error: 'JOURNEY_DISABLED' });
       const found = await rows(ctx, 'manheim_vehicles', { select: 'vehicle_json', environment: 'eq.' + ctx.environment, row_fingerprint: 'eq.' + String(body.fingerprint || ''), order: 'uploaded_at.desc', limit: '1' });
       const vehicle = found[0]?.vehicle_json || lead.offers.find((item) => item.rowFingerprint === body.fingerprint);
       if (!vehicle || !lead.offers.some((item) => item.rowFingerprint === body.fingerprint)) return send(res, 400, { error: 'VEHICLE_NOT_COMPATIBLE' });
@@ -165,7 +168,12 @@ module.exports = async (req, res) => {
       catch(error) { if(error.status===409) { const prior=await rows(ctx,'units',{select:'id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,vehicle_identity:'eq.'+identity,limit:'1'});if(prior[0])return send(res,200,{unitId:prior[0].id,duplicate:true}); } throw error; }
       await patchRows(ctx, 'lead_tracking', { environment: 'eq.' + ctx.environment, ref_code: 'eq.' + lead.ref, step: 'lt.2' }, { step: 2, updated_at: at });
       await insert(ctx, 'lead_events', { environment: ctx.environment, ref_code: lead.ref, journey_id: journey.id, unit_id: unit.id, event_type: 'CAR_PRESENTED', detail_json: { vehicle: unit.vehicle_text }, occurred_at: at, created_by: ctx.panel.id }, false);
-      return send(res, 201, { unitId: unit.id });
+      // A10: presenting a car starts the search (stages only move forward).
+      const currentStage = lead.record?.stage || journey.stage || 'NOVO';
+      const stage = forwardStage(currentStage, 'EM_BUSCA');
+      const searchStart = lead.record?.search_started_at ? {} : { search_started_at: at };
+      if (stage !== currentStage || searchStart.search_started_at) await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { stage, ...searchStart, updated_at: at, updated_by: ctx.panel.id });
+      return send(res, 201, { unitId: unit.id, stage });
     }
     if (body.action === 'retail') {
       const unit = (await rows(ctx, 'units', { select: 'id,details_json', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + body.unitId, limit: '1' }))[0];
@@ -186,6 +194,8 @@ module.exports = async (req, res) => {
     }
     return send(res, 400, { error: 'LEAD_ACTION_INVALID' });
   } catch (error) {
+    // Lifecycle rules enforced by the database (closed or merged ficha) answer with their own code.
+    if (['JOURNEY_FROZEN','JOURNEY_CLOSED','JOURNEY_MERGED'].includes(error?.code)) return send(res, 409, { error: error.code });
     const status=Number(error?.status)||500;
     const requestId=crypto.randomUUID().slice(0,8);
     // Do not log request bodies: they can contain customer conversations and notes.

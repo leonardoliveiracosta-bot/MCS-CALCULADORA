@@ -449,7 +449,8 @@ function buildTodayItems(input, nowValue = new Date()) {
   const suppressions = Array.isArray(input.suppressions) ? input.suppressions : [];
   const result = [];
   for (const journey of journeys) {
-    if (!journeyEnabled(journey) || journey.stage === 'QUALIFICADO' || journey.stage_frozen) continue;
+    // QUALIFICADO stays active since "Cliente deu OK" no longer closes: its returns still count.
+    if (!journeyEnabled(journey) || journey.stage_frozen) continue;
     const ownMessages = messages.filter((item) => item.journey_id === journey.id && item.direction !== 'SYSTEM').sort((a, b) => (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0) - (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0));
     const latest = ownMessages.at(-1);
     const latestEvent = Math.max(time(latest && (latest.occurred_at_utc || latest.occurred_at_local || latest.created_at)) || 0, time(journey.last_effective_contact_at) || 0);
@@ -457,7 +458,8 @@ function buildTodayItems(input, nowValue = new Date()) {
     const add = (kind, label, anchor, extra = {}) => {
       if (!reasonSuppressed(suppressions, journey.id, kind, latestEvent, nowMs)) reasons.push({ kind, label, anchor: anchor || nowMs, ...extra });
     };
-    if (journey.next_action_at) {
+    // B1: an unreadable date is not an overdue return.
+    if (journey.next_action_at && time(journey.next_action_at) !== null) {
       const due = time(journey.next_action_at);
       if (due <= nowMs) add('NEXT_ACTION', 'RETORNO VENCIDO', due, { dueAt: journey.next_action_at, detail: clean(journey.next_action_text), urgency: 'red' });
       else if (due - nowMs <= 2 * 60 * 60 * 1000) add('NEXT_ACTION', 'RETORNO EM ATÉ 2H', due, { dueAt: journey.next_action_at, detail: clean(journey.next_action_text), urgency: 'yellow' });
@@ -465,8 +467,8 @@ function buildTodayItems(input, nowValue = new Date()) {
     const missingSince = time(journey.next_action_missing_since);
     if (!journey.next_action_at && missingSince && nowMs - missingSince >= 2 * DAY_MS) add('MISSING_NEXT_ACTION', 'SEM PRÓXIMA AÇÃO', missingSince + 2 * DAY_MS);
     for (const item of divergences.filter((value) => value.journey_id === journey.id && value.status === 'OPEN')) add('DIVERGENCE', `DIVERGÊNCIA: ${item.field}`, time(item.created_at));
-    for (const item of promises.filter((value) => value.journey_id === journey.id && value.status === 'OPEN')) {
-      const due = time(item.due_at) || 0;
+    for (const item of promises.filter((value) => value.journey_id === journey.id && value.status === 'OPEN' && time(value.due_at) !== null)) {
+      const due = time(item.due_at);
       if (due <= nowMs) add('PROMISE', 'RETORNO VENCIDO', due, { dueAt: item.due_at, detail: clean(item.promise_text), urgency: 'red' });
       else if (due - nowMs <= 2 * 60 * 60 * 1000) add('PROMISE', 'RETORNO EM ATÉ 2H', due, { dueAt: item.due_at, detail: clean(item.promise_text), urgency: 'yellow' });
     }
@@ -530,6 +532,28 @@ function checklistSummary(points) {
   return { completed, total: 6, label: completed === 6 ? 'checklist completo' : `${completed}/6` };
 }
 
+// M1: one vocabulary for the customer's deadline. The calculator sends "3mo" (Within 3 months);
+// the panel stores "3m". An empty value is unknown, never "sem prazo".
+function normalizeDeadline(value) {
+  const text = fold(value);
+  if (!text) return null;
+  if (['now', 'agora', 'ready to buy now'].includes(text)) return 'now';
+  if (['30d', '30 dias', 'within 30 days'].includes(text)) return '30d';
+  if (['3m', '3mo', '90d', '30–90 dias', '3 meses', 'within 3 months'].includes(text)) return '3m';
+  if (['none', 'sem prazo', 'no set date yet'].includes(text)) return 'none';
+  return ['6m', '12m'].includes(text) ? text : null;
+}
+
+// M11 / E:M4: payment is "cash", "fin" or unknown (null). Free text such as "financiado" or
+// "vou financiar" is financing, never cash by default.
+function normalizePayment(value) {
+  const text = fold(value);
+  if (!text) return null;
+  if (/\b(fin|financ\w*|loan|parcel\w*)/.test(text)) return 'fin';
+  if (/\b(cash|a vista|vista|dinheiro)\b/.test(text)) return 'cash';
+  return null;
+}
+
 function shortDeadline(deadline, nowValue = new Date()) {
   const due = time(deadline);
   const nowMs = nowValue instanceof Date ? nowValue.getTime() : time(nowValue);
@@ -553,20 +577,29 @@ function orderSearchMatches(query, order) {
   return [order && order.ref, order && order.vehicleText, order && order.zip].map(fold).some((value) => value.includes(needle));
 }
 
-function nextStageForUnits(currentStage, units) {
-  const reviewing = (Array.isArray(units) ? units : []).some((item) => item.status === 'UNDER_REVIEW');
-  if (reviewing) return 'DECIDINDO';
-  return currentStage === 'DECIDINDO' ? 'EM_BUSCA' : currentStage;
+// Stages only move forward on their own (owner's rule); a manual change is always possible.
+const STAGE_RANK = Object.freeze({ NOVO: 0, RESPONDIDO: 1, EM_BUSCA: 2, DECIDINDO: 3, QUALIFICADO: 4 });
+
+function forwardStage(currentStage, targetStage) {
+  const current = STAGE_RANK[currentStage], target = STAGE_RANK[targetStage];
+  if (target === undefined) return currentStage;
+  return current === undefined || target > current ? targetStage : currentStage;
 }
 
-function clientOkPatch(at, messageId) {
-  return {
-    stage: 'QUALIFICADO', status: 'ENCERRADO', stage_frozen: true,
-    qualified_at: at, qualified_message_id: messageId,
-    closed_at: at, closed_reason: 'CLIENTE_DEU_OK',
-    next_action_at: null, next_action_text: null, next_action_missing_since: null,
-    updated_at: at
-  };
+// A presented car (any unit not withdrawn) means the search is on; a customer reviewing or
+// accepting a car means the customer is deciding. Never moves a stage back.
+function nextStageForUnits(currentStage, units) {
+  const live = (Array.isArray(units) ? units : []).filter((item) => item && item.status !== 'WITHDRAWN');
+  if (live.some((item) => item.status === 'UNDER_REVIEW' || item.status === 'ACCEPTED')) return forwardStage(currentStage, 'DECIDINDO');
+  if (live.length) return forwardStage(currentStage, 'EM_BUSCA');
+  return currentStage;
+}
+
+// "Cliente deu OK" = the customer agreed to proceed: the journey becomes QUALIFICADO and stays
+// open (owner's decision). Closing is an explicit action (the on/off switch).
+function clientOkPatch(at, messageId, currentStage) {
+  if (currentStage === 'QUALIFICADO') return { updated_at: at };
+  return { stage: 'QUALIFICADO', qualified_at: at, qualified_message_id: messageId, updated_at: at };
 }
 
 const INTERACTION_TIMELINE_LABELS = Object.freeze({
@@ -583,7 +616,7 @@ const INTERACTION_TIMELINE_LABELS = Object.freeze({
 
 const SYSTEM_TIMELINE_LABELS = Object.freeze({
   JOURNEY_FUNNEL_CHANGED: 'Etapa alterada',
-  CLIENT_GAVE_OK: 'Jornada qualificada e encerrada',
+  CLIENT_GAVE_OK: 'Cliente deu OK: jornada qualificada',
   PROMISE_RECORDED: 'Promessa registrada',
   PROMISE_FULFILLED: 'Promessa cumprida',
   UNIT_UPDATED: 'Unidade atualizada'
@@ -619,6 +652,6 @@ function buildConversationTimeline(messages, interactions, activities) {
 module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, toggleEnabled, journeyLogicalMode, logicalMode,
-  matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits,
+  matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
   normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };

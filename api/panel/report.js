@@ -46,6 +46,8 @@ const inside = (value, selected) => {
 
 function budgetBucket(cents) {
   const dollars = Number(cents || 0) / 100;
+  // M9: no value is not "up to 10k".
+  if (!dollars) return 'sem valor';
   if (dollars <= 10000) return 'até 10k';
   if (dollars <= 25000) return '10–25k';
   if (dollars <= 50000) return '25–50k';
@@ -127,10 +129,10 @@ module.exports = async (req, res) => {
       const whatsapp = calcScoped.filter((item) => ['WHATSAPP','WHATSAPP_HISTORY'].includes(item.contactChannel)).length;
       const sms = calcScoped.filter((item) => item.contactChannel === 'SMS').length;
       const pending = scoped.filter((item) => !item.disposition).length;
-      const budgetRanges = { 'até 10k': 0, '10–25k': 0, '25–50k': 0, '50k+': 0 };
+      const budgetRanges = { 'sem valor': 0, 'até 10k': 0, '10–25k': 0, '25–50k': 0, '50k+': 0 };
       scoped.forEach((item) => { budgetRanges[budgetBucket(item.budgetCents)] += 1; });
       summary = { total: scoped.length, byValue, byCar, whatsappClicked: whatsapp, smsClicked: sms, pending, budgetRanges };
-      text = `PEDIDOS: ${scoped.length} total; por valor ${byValue}; carro ideal ${byCar}; WhatsApp clicado ${whatsapp}; SMS clicado ${sms}; pendentes ${pending}; orçamento — até 10k: ${budgetRanges['até 10k']}, 10–25k: ${budgetRanges['10–25k']}, 25–50k: ${budgetRanges['25–50k']}, 50k+: ${budgetRanges['50k+']}.`;
+      text = `PEDIDOS: ${scoped.length} total; por valor ${byValue}; carro ideal ${byCar}; WhatsApp clicado ${whatsapp}; SMS clicado ${sms}; pendentes ${pending}; orçamento: sem valor ${budgetRanges['sem valor']}, até 10k: ${budgetRanges['até 10k']}, 10–25k: ${budgetRanges['10–25k']}, 25–50k: ${budgetRanges['25–50k']}, 50k+: ${budgetRanges['50k+']}.`;
     } else if (view === 'qualification' || view === 'records') {
       const leads = contactedJourneys.filter((item) => inside(item.created_at, selected)).length;
       const qualified = contactedJourneys.filter((item) => inside(item.qualified_at, selected)).length;

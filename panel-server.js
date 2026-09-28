@@ -41,9 +41,12 @@ async function supabase(url, key, path, options = {}) {
     }
   });
   if (!response.ok) {
-    await response.text().catch(() => '');
+    const detail = await response.text().catch(() => '');
     const failure = new Error('SUPABASE_REQUEST_FAILED');
     failure.status = response.status;
+    // A RAISE inside an RPC arrives as {"code":"P0001","message":"JOURNEY_FROZEN"}: keep only
+    // that business code (never the body) so handlers can answer with it.
+    try { const parsed = JSON.parse(detail); if (/^[A-Z][A-Z0-9_]{2,60}$/.test(String(parsed?.message || ''))) failure.code = parsed.message; } catch (_) {}
     throw failure;
   }
   if (response.status === 204) return null;

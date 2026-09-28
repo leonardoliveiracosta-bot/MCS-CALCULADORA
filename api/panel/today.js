@@ -1,6 +1,7 @@
 'use strict';
 
-const { consolidateCalcRuns, groupCalculatorByRef, standardBudget, time } = require('../../panel-domain');
+const { buildTodayItems, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, standardBudget, time } = require('../../panel-domain');
+const { dispositionIndex, refKey } = require('../../panel-disposition');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { score } = require('../../panel-ready');
@@ -28,13 +29,14 @@ module.exports = async (req, res) => {
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       panelMeta(ctx),
-      allRows(ctx, 'lead_events', { select: 'ref_code,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(cutoff).toISOString() }),
+      // A12: "quero este carro" stays until it is handled, not only for 24 hours (30 days at most).
+      allRows(ctx, 'lead_events', { select: 'ref_code,journey_id,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(now - 30 * 86400000).toISOString() }),
       allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() }),
-      allRows(ctx, 'lead_promises', { select: 'ref_code,journey_id,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
+      allRows(ctx, 'lead_promises', { select: 'ref_code,journey_id,promise_text,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
       allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + new Date(now - 60 * 86400000).toISOString() }),
       allRows(ctx, 'conversation_ai_items', { select: 'journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' }),
       allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' })
-      ,allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text', environment: 'eq.' + ctx.environment })
+      ,allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment })
     ]);
     const contacts = contactIndex({ calcRuns, messages: data.messages, messageLinks: data.messages.map((message) => ({ journey_id: message.journey_id, message_id: message.id })) });
     const insightByJourney = new Map(pendingInsights.map((item) => [item.journey_id, item]));
@@ -45,7 +47,14 @@ module.exports = async (req, res) => {
       if (ref && stamp >= (wantedAtByRef.get(ref) || 0)) wantedAtByRef.set(ref, stamp);
     }
     const eventAfterDisposition = (eventAt, dispositionAt) => !dispositionAt || Number(eventAt || 0) > (time(dispositionAt) || 0);
-    const wantedAfterDisposition = (ref, dispositionAt) => { const stamp=wantedAtByRef.get(String(ref || '').trim().toUpperCase());return Boolean(stamp)&&eventAfterDisposition(stamp,dispositionAt); };
+    // "Quero este carro" is handled by a disposition or by a real MCS message sent after it.
+    const latestMcsAt = new Map();
+    for (const message of data.messages) {
+      if (message.direction !== 'MCS' || message.is_automatic) continue;
+      const stamp = time(message.occurred_at_utc || message.occurred_at_local || message.created_at) || 0;
+      if (stamp > (latestMcsAt.get(message.journey_id) || 0)) latestMcsAt.set(message.journey_id, stamp);
+    }
+    const wantedAfterDisposition = (ref, dispositionAt) => { const key=refKey(ref);const stamp=wantedAtByRef.get(key);if(!stamp||!eventAfterDisposition(stamp,dispositionAt))return false;const journey=journeyByRef.get(key);return !(journey&&(latestMcsAt.get(journey.id)||0)>stamp); };
     const firstSimulation=new Map(), firstCalculatorEvent=new Map();
     for(const run of calcRuns){
       if(run.is_test===true)continue;
@@ -74,25 +83,39 @@ module.exports = async (req, res) => {
     }
 
     const calcModes = consolidateCalcRuns(calcRuns, links).map((item) => {
-      const journey = item.link && item.link.journeyId ? journeyMap.get(item.link.journeyId) : null;
+      // B2: a Ref linked through journey_refs is also a conversation, not only calculator_request_links.
+      const journey = item.link && item.link.journeyId ? journeyMap.get(item.link.journeyId) : journeyByRef.get(refKey(item.ref)) || null;
       const latest = journey ? latestByJourney.get(journey.id) : null;
       return {
         ...item,
-        status: item.link && latest ? (latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO') : item.eventStatus,
+        status: journey && latest ? (latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO') : item.eventStatus,
         contactName: journey && journey.contact ? journey.contact.display_name : item.contactName
       };
     });
-    const returnedForJourney=(journey,dispositionAt)=>{const latest=journey&&latestByJourney.get(journey.id);const stamp=time(latest?.occurred_at_utc||latest?.occurred_at_local||latest?.created_at)||0;return Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&stamp>=cutoff&&eventAfterDisposition(stamp,dispositionAt));};
-    const returnedForRef=(ref,dispositionAt)=>returnedForJourney(journeyByRef.get(String(ref||'').trim().toUpperCase()),dispositionAt);
+    // M3: "voltou a falar" only when the customer wrote after the ficha was closed or switched off.
+    const returnedForJourney=(journey,dispositionAt)=>{const latest=journey&&latestByJourney.get(journey.id);const stamp=time(latest?.occurred_at_utc||latest?.occurred_at_local||latest?.created_at)||0;const closedAt=Math.max(time(journey?.closed_at)||0,time(journey?.switchedAt)||0);return Boolean(journey&&(journey.enabled===false||journey.status==='ENCERRADO')&&latest?.direction==='CUSTOMER'&&stamp>=cutoff&&stamp>closedAt&&eventAfterDisposition(stamp,dispositionAt));};
+    // A12: overdue returns and promises, and a ficha without a next action for 2 days, belong in HOJE.
+    const promiseRows=data.promises.concat(leadPromises.map((row)=>({...row,journey_id:row.journey_id||journeyByRef.get(refKey(row.ref_code))?.id||null})));
+    const overdueByJourney=new Map(buildTodayItems({journeys:data.journeys,messages:data.messages,promises:promiseRows},new Date(now))
+      .map((item)=>[item.id,item.reasons.filter((reason)=>['NEXT_ACTION','PROMISE','MISSING_NEXT_ACTION'].includes(reason.kind))]).filter(([,reasons])=>reasons.length));
+    const overdueAfter=(journey,dispositionAt)=>Boolean(journey&&(overdueByJourney.get(journey.id)||[]).some((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)));
+    // A8: one disposition per person (ficha + linked Refs).
+    const personDisposition=dispositionIndex(dispositions);
+    const refsOf=(journey)=>journey?[journey.reference_code,...(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code)].filter(Boolean).map(refKey):[];
+    const dispositionFor=(journey,ref)=>personDisposition(journey?.id,[...new Set([...refsOf(journey),...(ref?[refKey(ref)]:[])])]);
+    // A contact after the disposition brings the person back ("Tratado" means handled until now).
+    const activeFor=(journey,ref,facts,dispositionAt)=>wantedAfterDisposition(ref,dispositionAt)||returnedForJourney(journey,dispositionAt)||overdueAfter(journey,dispositionAt)
+      ||Boolean(facts.entered&&facts.latestAt>=cutoff&&eventAfterDisposition(facts.latestAt,dispositionAt)&&(!journey||journey.enabled!==false));
     const grouped=groupCalculatorByRef(calcModes, dispositions)
       .filter((item)=>!(data.excludedRefs||[]).includes(item.ref))
-      .filter((item)=>!item.disposition||wantedAfterDisposition(item.ref,item.dispositionUpdatedAt)||returnedForRef(item.ref,item.dispositionUpdatedAt))
-      .map((item)=>{const journey=journeyByRef.get(item.ref);return journey?{...item,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents}:item;});
+      .map((item)=>{const journey=journeyByRef.get(item.ref);const disposition=dispositionFor(journey,item.ref);const person=disposition?{...item,disposition:disposition.status,discardReason:disposition.discard_reason||null,dispositionUpdatedAt:disposition.updated_at||null}:item;
+        // A9 + R1: the card shows the same bid as the ficha (the ficha's bid wins over the calculator's).
+        return journey?{...person,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents,budgetCents:effectiveCriteria(journey,item).bidCents||item.budgetCents}:person;});
     const ordersByRef=new Map(grouped.map((item)=>[item.ref,item]));
     const arrival=(order)=>firstSimulation.get(order.ref)||firstCalculatorEvent.get(order.ref)||
       Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));
     const orders = grouped
-      .filter((item) => { const facts=contacts.facts({ref:item.ref,journeyId:item.journeyId}); return wantedAfterDisposition(item.ref,item.dispositionUpdatedAt) || (facts.entered && (facts.latestAt>=cutoff || returnedForRef(item.ref,item.dispositionUpdatedAt))); })
+      .filter((item) => { const journey=item.journeyId?journeyMap.get(item.journeyId):null;const facts=contacts.facts({ref:item.ref,journeyId:item.journeyId,refs:refsOf(journey)}); return activeFor(journey,item.ref,facts,item.dispositionUpdatedAt); })
       .map((item) => ({
         ...item,
         kind: 'CALCULATOR_ORDER',
@@ -103,17 +126,14 @@ module.exports = async (req, res) => {
       }));
 
     const orderRefs = new Set(orders.map((item) => item.ref).filter(Boolean));
-    const dispositionByJourney = new Map(dispositions.filter((item) => item.item_kind === 'JOURNEY').map((item) => [item.item_key, item]));
     const journeys = data.journeys
       .filter((item) => item.closed_reason !== 'WHATSAPP_LINKED')
-      .filter((item) => {const disposition=dispositionByJourney.get(item.id);const ref=String(item.reference_code||'').trim().toUpperCase();if(wantedAfterDisposition(ref,disposition?.updated_at))return true;
-        if(returnedForJourney(item,disposition?.updated_at))return true;
-        const facts=contacts.facts({journeyId:item.id,ref,refs:(data.refs||[]).filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});
-        return facts.entered && facts.latestAt>=cutoff;})
-      .filter((item) => {const disposition=dispositionByJourney.get(item.id);const ownRefs=[item.reference_code,...(data.refs||[]).filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)].filter(Boolean);return !disposition||ownRefs.some((ref)=>wantedAfterDisposition(ref,disposition.updated_at))||returnedForJourney(item,disposition.updated_at);})
-      .filter((item) => {const ownRefs=[item.reference_code,...(data.refs||[]).filter(r=>r.journey_id===item.id).map(r=>r.ref_code)].filter(Boolean).map(r=>String(r).trim().toUpperCase());return !ownRefs.some(ref=>orderRefs.has(ref));})
+      .filter((item) => {const disposition=dispositionFor(item);const refs=refsOf(item);
+        const facts=contacts.facts({journeyId:item.id,ref:item.reference_code,refs});
+        return refs.some((ref)=>wantedAfterDisposition(ref,disposition?.updated_at))||activeFor(item,null,facts,disposition?.updated_at);})
+      .filter((item) => !refsOf(item).some((ref)=>orderRefs.has(ref)))
       .map((item) => ({
-        ...item, disposition:dispositionByJourney.get(item.id)?.status||null, discardReason:dispositionByJourney.get(item.id)?.discard_reason||null, dispositionUpdatedAt:dispositionByJourney.get(item.id)?.updated_at||null,
+        ...item, disposition:dispositionFor(item)?.status||null, discardReason:dispositionFor(item)?.discard_reason||null, dispositionUpdatedAt:dispositionFor(item)?.updated_at||null,
         kind: 'JOURNEY',
         name: item.contact && item.contact.display_name || 'Contato sem nome',
         referenceCode: item.reference_code,
@@ -131,13 +151,15 @@ module.exports = async (req, res) => {
       const journey = journeyMap.get(item.journeyId || item.id) || journeyByRef.get(String(item.ref || item.referenceCode || '').trim().toUpperCase());
       const ref = String(item.ref || item.referenceCode || '').trim().toUpperCase();
       const ready = score(item, journey, { ...data, promises:data.promises.concat(leadPromises) }, vehicles, now);
-      const dispositionAt=item.dispositionUpdatedAt||dispositionByJourney.get(journey?.id)?.updated_at;const returned=returnedForJourney(journey,dispositionAt);
+      const dispositionAt=item.dispositionUpdatedAt||dispositionFor(journey,ref)?.updated_at;const returned=returnedForJourney(journey,dispositionAt);
       const journeyId=journey?.id;
       const facts=contacts.facts({journeyId:journey?.id,ref,refs:journey?(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});
       const ownMessages=journeyId?data.messages.filter((message)=>message.journey_id===journeyId).sort((a,b)=>(time(b.occurred_at_utc||b.created_at)||0)-(time(a.occurred_at_utc||a.created_at)||0)):[];
       const latestMessage=ownMessages.find((message)=>!message.is_automatic)||ownMessages[0]||null,latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
       return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wantedAfterDisposition(ref,dispositionAt),
-        pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false }, facts, insightByJourney.get(journeyId));
+        todayReasons:journeyId?(overdueByJourney.get(journeyId)||[]).filter((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)).map(({kind,label,dueAt,detail,urgency})=>({kind,label,dueAt:dueAt||null,detail:detail||null,urgency:urgency||'yellow'})):[],
+        awaitingReply:Boolean(latestMessage&&latestMessage.direction==='CUSTOMER'),
+        pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false }, facts, insightByJourney.get(journeyId), journey);
     }).sort((left, right) => {
       const wants = Number(Boolean(right.wantsCar)) - Number(Boolean(left.wantsCar));
       if (wants) return wants;

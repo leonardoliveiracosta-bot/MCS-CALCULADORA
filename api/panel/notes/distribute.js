@@ -1,4 +1,5 @@
 'use strict';
+const { normalizeDeadline } = require('../../../panel-domain');
 const crypto=require('node:crypto');
 const { digest, validItems, prepareItems } = require('../../../panel-note');
 const { jsonBody, requirePanel, safeText, send, supabase, isUuid } = require('../../../panel-server');
@@ -18,7 +19,7 @@ module.exports=async(req,res)=>{
     lead=await Promise.race([leadData(ctx,req,ref,body.journeyId),new Promise((_,reject)=>controller.signal.addEventListener('abort',()=>reject(new Error('TIMEOUT')),{once:true}))]);
     if(!lead)return send(res,404,{error:'LEAD_NOT_FOUND'});
     const current={ref:lead.ref,timezone:lead.timezone,name:lead.record?.contact?.display_name||lead.order?.contactName||null,
-      maxBid:lead.maxBidCents?lead.maxBidCents/100:null,totalCeiling:lead.totalCeilingCents?lead.totalCeilingCents/100:null,payment:lead.payment,
+      maxBid:lead.maxBidCents?lead.maxBidCents/100:null,totalCeiling:lead.totalCeilingCents?lead.totalCeilingCents/100:null,payment:lead.paymentKnown||'não informado',
       deadline:lead.record?.customer_deadline_text||lead.order?.deadlineText||null,wishes:lead.wishes,checklist:lead.checklist,stage:lead.record?.stage||'NOVO'};
     await reserveCall(ctx);
     const parsed=await anthropicJson(
@@ -33,7 +34,7 @@ module.exports=async(req,res)=>{
         const key=isUuid(body?.fallbackKey)?body.fallbackKey:crypto.randomUUID();
         await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_confirm_lead_note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
           p_environment:ctx.environment,p_actor:ctx.panel.id,p_ref:ref,p_journey:body.journeyId||null,p_body:note,p_items:[],p_key:key,
-          p_initial:lead?{name:lead.order?.contactName,vehicle:lead.order?.vehicleText,wishes:lead.wishes,maxBidCents:lead.maxBidCents,payment:lead.payment,deadline:lead.order?.deadlineText}:{}
+          p_initial:lead?{name:lead.order?.contactName,vehicle:lead.order?.vehicleText,wishes:lead.wishes,maxBidCents:lead.maxBidCents,payment:lead.paymentKnown||null,deadline:normalizeDeadline(lead.order?.deadlineText)||lead.order?.deadlineText||null}:{}
         })});
         return send(res,200,{saved:true,message:'Anotação salva; distribuição indisponível agora — tentar de novo'});
       }catch(error){return send(res,error.status||503,{error:'DISTRIBUTION_AND_SAVE_FAILED'});}
