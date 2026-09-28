@@ -4,6 +4,7 @@ const { consolidateCalcRuns, groupCalculatorByRef, orderSearchMatches, searchMat
 const { allRows, requirePanel, safeText, send } = require('../../panel-server');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
+const { dispositionIndex } = require('../../panel-disposition');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 
 module.exports = async (req, res) => {
@@ -17,17 +18,21 @@ module.exports = async (req, res) => {
       allRows(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,stage,status,budget_cents,confirmed_total_ceiling_cents,updated_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,vehicle_text,stage,status,budget_cents,confirmed_total_ceiling_cents,closed_at,qualified_at,updated_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment,undone_at:'is.null'}),
-      allRows(ctx,'messages',{select:'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at',environment:'eq.'+ctx.environment}),
+      allRows(ctx,'messages',{select:'id,direction,is_automatic,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at',environment:'eq.'+ctx.environment}),
       allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment})
     ]);
     const contactIndexData=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
     const journeyMap = new Map(journeys.map((item) => [item.id, item]));
-    const dispositionByJourney=new Map(dispositions.filter((item)=>item.item_kind==='JOURNEY').map((item)=>[item.item_key,item]));
+    // A8: one disposition per person; A13: the AI heat is checked against the latest real message.
+    const personDisposition=dispositionIndex(dispositions);
+    const refsOfJourney=(journey)=>[journey.reference_code,...refs.filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code)].filter(Boolean);
+    const messageById=new Map(messages.filter((message)=>!message.undone_at&&!message.is_automatic).map((message)=>[message.id,message]));
+    const latestByJourney=new Map();messageLinks.forEach((link)=>{const message=messageById.get(link.message_id);if(!message)return;const current=latestByJourney.get(link.journey_id);const at=(row)=>Date.parse(row.occurred_at_utc||row.occurred_at_local||row.created_at)||0;if(!current||at(message)>=at(current))latestByJourney.set(link.journey_id,message);});
     const contactMap = new Map(contacts.filter((item)=>item.is_lead!==false).map((item) => [item.id, item]));
     const hits = new Map();
     const add = (contactId, journeyId, matchedBy) => {
@@ -36,7 +41,7 @@ module.exports = async (req, res) => {
       if (!contact || hits.has(key)) return;
       const journey = journeyId ? journeyMap.get(journeyId) : null;
       const facts=contactIndexData.facts({journeyId,ref:journey?.reference_code,refs:journey?refs.filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});if(!facts.entered)return;
-      const disposition=journeyId?dispositionByJourney.get(journeyId):null;
+      const disposition=journey?personDisposition(journey.id,refsOfJourney(journey)):null;
       hits.set(key, decorateContact({
         kind: 'JOURNEY', contactId, journeyId: journeyId || null,
         name: contact.display_name || 'Contato sem nome',
@@ -44,7 +49,7 @@ module.exports = async (req, res) => {
         referenceCode: journey ? journey.reference_code : null,
         stage: journey ? journey.stage : null,
         status: journey ? journey.status : null, budget_cents:journey?.budget_cents,confirmed_total_ceiling_cents:journey?.confirmed_total_ceiling_cents,
-        contact,phones:phones.filter((p)=>p.contact_id===contactId),disposition:disposition?.status||null,discardReason:disposition?.discard_reason||null,dispositionUpdatedAt:disposition?.updated_at||null,updated_at:journey?.updated_at,matchedBy
+        contact,latestMessage:journeyId?latestByJourney.get(journeyId)||null:null,phones:phones.filter((p)=>p.contact_id===contactId),disposition:disposition?.status||null,discardReason:disposition?.discard_reason||null,dispositionUpdatedAt:disposition?.updated_at||null,updated_at:journey?.updated_at,matchedBy
       },facts,insightByJourney.get(journeyId),journey));
     };
     for (const contact of contacts) {
@@ -86,7 +91,7 @@ module.exports = async (req, res) => {
       logicalMode: item.logicalMode,
       logicalModes: item.logicalModes,
       simulationCount: item.simulationCount,
-      disposition: item.disposition,
+      disposition: journey?(personDisposition(journey.id,[...refsOfJourney(journey),item.ref])?.status||null):item.disposition,
       contactName:contact?.display_name,phones:journey?phones.filter((p)=>p.contact_id===journey.contact_id):[],confirmed_total_ceiling_cents:journey?.confirmed_total_ceiling_cents,budgetCents:item.budgetCents,updated_at:journey?.updated_at||item.occurredAt,
       matchedBy: foldMatch(q, item)
     },facts,insightByJourney.get(journey?.id),journey)];});

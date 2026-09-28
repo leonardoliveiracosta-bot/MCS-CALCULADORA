@@ -2,7 +2,7 @@
 
 const {
   clientOkPatch, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
-  mergeWishlists, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
+  mergeWishlists, nextStageForUnits, forwardStage, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
 const vehicleCatalog = require('../../vehicle-catalog');
@@ -151,7 +151,7 @@ async function actionStartSearch(ctx, journey) {
   if (journey.stage_frozen || journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_FROZEN' });
   const at = isoNow();
   await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, {
-    stage: 'EM_BUSCA', search_started_at: journey.search_started_at || at,
+    stage: forwardStage(journey.stage, 'EM_BUSCA'), search_started_at: journey.search_started_at || at,
     updated_at: at, updated_by: ctx.panel.id
   });
   await insert(ctx, 'interactions', { environment: ctx.environment, journey_id: journey.id, type: 'SEARCH_STARTED', occurred_at: at, detail_text: null, created_at: at, created_by: ctx.panel.id }, false);
@@ -820,6 +820,27 @@ async function actionManheimArchive(ctx, body) {
 }
 
 
+async function personDispositionKeys(ctx, itemKind, itemKey) {
+  const ref = itemKind === 'REF' ? itemKey.toUpperCase() : null;
+  let journeyIds = itemKind === 'JOURNEY' ? [itemKey] : [];
+  if (ref) {
+    const [owners, linked] = await Promise.all([
+      rows(ctx, 'journeys', { select: 'id', environment: 'eq.' + ctx.environment, reference_code: 'eq.' + ref }),
+      rows(ctx, 'journey_refs', { select: 'journey_id', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + ref })
+    ]);
+    journeyIds = [...new Set([...owners.map((row) => row.id), ...linked.map((row) => row.journey_id)])];
+  }
+  const refs = new Set(ref ? [ref] : []);
+  for (const id of journeyIds) {
+    const [own, linked] = await Promise.all([
+      rows(ctx, 'journeys', { select: 'reference_code', environment: 'eq.' + ctx.environment, id: 'eq.' + id, limit: '1' }),
+      rows(ctx, 'journey_refs', { select: 'ref_code', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id })
+    ]);
+    [own[0]?.reference_code, ...linked.map((row) => row.ref_code)].filter(Boolean).forEach((value) => refs.add(String(value).trim().toUpperCase()));
+  }
+  return [...journeyIds.map((key) => ({ kind: 'JOURNEY', key })), ...[...refs].map((key) => ({ kind: 'REF', key }))];
+}
+
 async function actionDisposition(ctx, body) {
   const itemKind = String(body.itemKind || '');
   const itemKey = safeText(body.itemKey, 200, true);
@@ -834,10 +855,15 @@ async function actionDisposition(ctx, body) {
   if (itemKind === 'REF' && !REF_RE.test(itemKey.toUpperCase())) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
   if (itemKind === 'JOURNEY' && !isUuid(itemKey)) return send(ctx.res, 400, { error: 'DISPOSITION_INVALID' });
   if(status==='DISCARDED'&&!allowedReasons.has(discardReason))return send(ctx.res,400,{error:'DISPOSITION_REASON_INVALID'});
-  const endpoint = '/rest/v1/panel_item_dispositions?environment=eq.' + ctx.environment + '&item_kind=eq.' + itemKind + '&item_key=eq.' + encodeURIComponent(itemKey);
   const at = isoNow();
   if (!status) {
-    await supabase(ctx.config.url, ctx.config.secretKey, endpoint, { method: 'PATCH', headers: { 'content-type':'application/json',prefer: 'return=minimal' },body:JSON.stringify({cleared_at:at,cleared_by:ctx.panel.id,updated_at:at,updated_by:ctx.panel.id}) });
+    // A8: "Voltar para pendente" clears the person (ficha + every linked Ref), because the lists
+    // show the most recent disposition of any of them.
+    const keys = await personDispositionKeys(ctx, itemKind, itemKey);
+    for (const key of keys) {
+      const path = '/rest/v1/panel_item_dispositions?environment=eq.' + ctx.environment + '&item_kind=eq.' + key.kind + '&item_key=eq.' + encodeURIComponent(key.key) + '&cleared_at=is.null';
+      await supabase(ctx.config.url, ctx.config.secretKey, path, { method: 'PATCH', headers: { 'content-type':'application/json',prefer: 'return=minimal' },body:JSON.stringify({cleared_at:at,cleared_by:ctx.panel.id,updated_at:at,updated_by:ctx.panel.id}) });
+    }
     return send(ctx.res, 200, { status: null });
   }
   await supabase(ctx.config.url, ctx.config.secretKey,

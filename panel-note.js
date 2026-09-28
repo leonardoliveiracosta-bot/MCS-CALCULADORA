@@ -59,7 +59,8 @@ function prepareItems(items, lead) {
       const raw=item.type==='call_result'?item.dueAt:item.value?.at;
       if(raw) prepared.dueUtc=/^\d{4}-\d\d-\d\dT\d\d:\d\d(?:Z|[+-]\d\d:\d\d)$/.test(raw)?new Date(raw).toISOString():localToUtc(String(raw).slice(0,16),lead.timezone);
       if(item.type==='call_result'&&!prepared.dueUtc&&['ANSWERED','NO_ANSWER'].includes(item.value)) prepared.dueUtc=addClientDays(Date.now(),lead.timezone,item.value==='ANSWERED'?2:1);
-      if(item.type==='call_result'&&item.value==='DEPOSIT') prepared.dueUtc=new Date().toISOString();
+      // B6: "vai pagar o depósito" asks for a check the next day, not a return already overdue.
+      if(item.type==='call_result'&&item.value==='DEPOSIT'&&!prepared.dueUtc) prepared.dueUtc=addClientDays(Date.now(),lead.timezone,1);
       if((item.type==='promise'||item.type==='return'||item.value==='LATER')&&!prepared.dueUtc) prepared.manualReview=true;
     }
     return prepared;

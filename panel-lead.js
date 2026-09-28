@@ -199,9 +199,7 @@ async function leadData(ctx, req, refInput, idInput) {
   const stateIndex = state ? String(calc.CONFIG.estados.findIndex((item) => item.nome === state.nome)) : '';
   const maxBidCents = criteria.bidCents;
   const totalCeilingCents = Number(record && record.confirmed_total_ceiling_cents) || null;
-  // R1 + R2 (same rule as the score): the bid confirmed on the ficha, then the bid derived from the
-  // confirmed total ceiling, then the calculator bid.
-  const bid = criteria.bidSource === 'FICHA' && maxBidCents ? Math.floor(maxBidCents / 100) : totalCeilingCents ? realisticBid(totalCeilingCents, { florida, payment, plate, stateIndex, zip }) : maxBidCents ? Math.floor(maxBidCents / 100) : null;
+  const bid = totalCeilingCents ? realisticBid(totalCeilingCents, { florida, payment, plate, stateIndex, zip }) : maxBidCents ? Math.floor(maxBidCents / 100) : null;
   const costs = bid === null ? null : calc.calcular({ lance: bid, inspecao: false, florida, placa: plate, pgto: payment, estado: stateIndex, zip });
   const vehicles = archive.map((entry) => ({ ...entry.vehicle_json, rowFingerprint: entry.row_fingerprint, uploadedAt: entry.uploaded_at }));
   const unique = new Map();
@@ -245,7 +243,8 @@ async function leadData(ctx, req, refInput, idInput) {
   const searchStage=journey?stageIndex.get(journey.id)||null:null;
   // A8: a ficha and its Refs are one person; the most recent disposition of either wins, and the
   // "Tratado/Descartado" buttons act on that same row.
-  const personKeys=[order?{kind:'REF',key:ref}:null,journey?{kind:'JOURNEY',key:journey.id}:null].filter(Boolean);
+  const personRefs=[...new Set([order?ref:null,record?.reference_code,...(record?.refs||[]).map((row)=>row.ref_code)].filter(Boolean).map((value)=>String(value).trim().toUpperCase()))];
+  const personKeys=[...personRefs.map((key)=>({kind:'REF',key})),journey?{kind:'JOURNEY',key:journey.id}:null].filter(Boolean);
   const found=(await Promise.all(personKeys.map((entry)=>optionalRead('panel_item_dispositions',()=>rows(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,discard_reason,updated_at',environment:'eq.'+ctx.environment,item_kind:'eq.'+entry.kind,item_key:'eq.'+entry.key,cleared_at:'is.null',limit:'1'}))))).flat();
   const disposition=found.sort((left,right)=>(Date.parse(right.updated_at)||0)-(Date.parse(left.updated_at)||0))[0]||null;
   const dispositionKind=disposition?disposition.item_kind:order?'REF':'JOURNEY',dispositionKey=disposition?disposition.item_key:order?ref:journey?.id;

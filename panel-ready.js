@@ -55,10 +55,9 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   const payment=normalizePayment(journey?.payment_text)||normalizePayment(item.paymentText)||'cash';
   const ceiling=Number(journey?.confirmed_total_ceiling_cents)||0;
   const maxBid=Number(criteria.bidCents)||0;
-  // R1 + R2: the maximum bid confirmed on the ficha wins; then the bid derived from the total ceiling
-  // confirmed on the ficha; the calculator bid is only the fallback.
-  const fichaBid=criteria.bidSource==='FICHA'?maxBid:0;
-  const bid=fichaBid?Math.floor(fichaBid/100):ceiling?realisticBid(ceiling,{florida:state?state.uf==='FL':true,payment,plate:item.plate||'transf',zip,stateIndex:state?String(calc.CONFIG.estados.findIndex((entry)=>entry.nome===state.nome)):''}):maxBid?Math.floor(maxBid/100):null;
+  // R2: a total ceiling confirmed by the operator wins (budget_cents is usually the calculator bid
+  // copied into the ficha); without it, the maximum bid.
+  const bid=ceiling?realisticBid(ceiling,{florida:state?state.uf==='FL':true,payment,plate:item.plate||'transf',zip,stateIndex:state?String(calc.CONFIG.estados.findIndex((entry)=>entry.nome===state.nome)):''}):maxBid?Math.floor(maxBid/100):null;
   const clientDate=(value)=>new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(value);
   const today=clientDate(now);
   const promiseToday=Boolean(id&&(data.promises||[]).some((p)=>p.journey_id===id&&p.status==='OPEN'&&clientDate(new Date(p.due_at))===today));

@@ -2,7 +2,8 @@
 --  * panel_set_journey_enabled: switching a closed journey on reopens it (A7). Before, a journey
 --    closed by "Cliente deu OK", close or SMS print undo raised JOURNEY_RESUME_STATE_MISSING, and one
 --    with the switch already on answered changed=false and stayed closed. A journey merged into
---    another (WHATSAPP_LINKED) is refused with JOURNEY_MERGED. Stage and qualified_at are kept.
+--    another (WHATSAPP_LINKED, or contact marked "não é lead") is refused with JOURNEY_MERGED.
+--    Stage and qualified_at are kept; without a next action it starts counting "sem próxima ação".
 --  * panel_quick_result and panel_confirm_lead_note refuse to change a closed journey (M6); a note
 --    on a closed journey can still add a phone or a suggestion. The note accepts deadline "3mo" (M1).
 --    Answered / no answer / in person keep a manual return that is still in the future (B6).
@@ -10,6 +11,8 @@
 --    calls as effective contact (M6).
 --  * panel_customer_unit_response: "I want this car" moves the stage forward to DECIDINDO (A10).
 --  * panel_mark_message_fact_v2: every kind refuses a closed journey, not only the ceiling (M6).
+--  * panel_finalize_import_resolution: an imported chat can be linked to an open QUALIFICADO ficha
+--    (QUALIFICADO no longer means closed).
 --  * panel_mark_message_fact (V1) loses EXECUTE for service_role: the published panel only calls the
 --    V2, and the V1 still writes the ceiling into budget_cents (maximum bid).
 
@@ -102,8 +105,10 @@ begin
       values (p_environment, p_journey_id, 'JOURNEY_CLOSED', v_now, v_now, p_actor_id);
     end if;
   else
-    if v_journey.status = 'ENCERRADO' and v_journey.closed_reason = 'WHATSAPP_LINKED' then
-      -- A journey merged into another one must stay closed; reopening would duplicate the person.
+    if v_journey.status = 'ENCERRADO' and (v_journey.closed_reason = 'WHATSAPP_LINKED'
+       or exists (select 1 from public.contacts c where c.id = v_journey.contact_id and c.environment = p_environment and c.is_lead = false)) then
+      -- A journey merged into another one (or whose contact is "não é lead") must stay closed;
+      -- reopening would duplicate the person.
       raise exception 'JOURNEY_MERGED';
     end if;
     if found and not v_state.enabled and jsonb_typeof(v_state.resume_snapshot) = 'object' and v_state.resume_snapshot ? 'status' then
@@ -129,6 +134,7 @@ begin
     if (select j.status from public.journeys j where j.id = p_journey_id and j.environment = p_environment) = 'ENCERRADO' then
       update public.journeys
          set status = 'ATIVO', stage_frozen = false, closed_at = null, closed_reason = null,
+             next_action_missing_since = case when next_action_at is null then coalesce(next_action_missing_since, v_now) else next_action_missing_since end,
              updated_at = v_now, updated_by = p_actor_id
        where id = p_journey_id and environment = p_environment;
       v_reopened := true;
@@ -192,7 +198,7 @@ begin
    -- B6: an automatic follow-up (answered / no answer) never replaces a manual return still in the future.
    next_action_at=case when p_type in ('ANSWERED','NO_ANSWER','IN_PERSON') and next_action_at>at_time then next_action_at else coalesce(p_due,next_action_at) end,
    next_action_text=case when p_type in ('ANSWERED','NO_ANSWER','IN_PERSON') and next_action_at>at_time then next_action_text when p_due is null then next_action_text else label_text end,
-   next_action_missing_since=case when p_due is null and not (next_action_at>at_time) then next_action_missing_since else null end,
+   next_action_missing_since=case when p_due is null and not coalesce(next_action_at>at_time,false) then next_action_missing_since else null end,
    updated_at=at_time,updated_by=p_actor where id=j.id;
  insert into public.lead_events(environment,ref_code,journey_id,event_type,detail_json,occurred_at,created_by)
    values(p_environment,p_ref,j.id,'QUICK_'||p_type,jsonb_build_object('label',label_text,'interactionId',interaction_id,'snapshot',prior,'dueAt',p_due,'source','button','operationId',p_operation),at_time,p_actor)
@@ -238,7 +244,8 @@ begin
    insert into public.journey_checklist(environment,journey_id,point_number,point_label,status,created_at,updated_at)
      select p_environment,j.id,k, (array['Carro e critérios confirmados','Teto confirmado','Pagamento confirmado','Prazo confirmado','Aceita busca fora da Flórida','Entende inspeção limitada e sem devolução'])[k], 'OPEN'::public.panel_checklist_status,at_time,at_time from generate_series(1,6) k;
  end if;
- -- M6: a closed journey keeps the note, a phone or a suggestion, but its state does not change.
+ -- M6: a closed journey only takes a note that adds a phone or a suggestion; anything that would
+ -- change its state is refused (JOURNEY_FROZEN) and nothing is saved.
  if (j.status='ENCERRADO' or j.stage_frozen) and exists(select 1 from jsonb_array_elements(p_items) e where e.value->>'type' not in ('phone','disable')) then
    raise exception 'JOURNEY_FROZEN';
  end if;
@@ -315,8 +322,10 @@ begin
      update public.journeys set stage=case when result_text='DEPOSIT' then 'QUALIFICADO'::public.panel_journey_stage when result_text in ('ANSWERED','IN_PERSON') and stage='NOVO' then 'RESPONDIDO'::public.panel_journey_stage else stage end,
        qualified_at=case when result_text='DEPOSIT' then coalesce(qualified_at,at_time) else qualified_at end,
        last_effective_contact_at=case when result_text in ('NO_ANSWER','LATER') then last_effective_contact_at else at_time end,
-       next_action_at=coalesce(due_time,next_action_at),next_action_text=case when due_time is null then next_action_text else result_text end,
-       next_action_missing_since=case when due_time is null then next_action_missing_since else null end,updated_at=at_time,updated_by=p_actor where id=j.id;
+       -- B6: an automatic follow-up never replaces a manual return still in the future.
+       next_action_at=case when result_text in ('ANSWERED','NO_ANSWER','IN_PERSON') and next_action_at>at_time then next_action_at else coalesce(due_time,next_action_at) end,
+       next_action_text=case when result_text in ('ANSWERED','NO_ANSWER','IN_PERSON') and next_action_at>at_time then next_action_text when due_time is null then next_action_text else result_text end,
+       next_action_missing_since=case when due_time is null and not coalesce(next_action_at>at_time,false) then next_action_missing_since else null end,updated_at=at_time,updated_by=p_actor where id=j.id;
      insert into public.lead_events(environment,ref_code,journey_id,event_type,detail_json,occurred_at,created_by)
        values(p_environment,p_ref,j.id,'QUICK_'||result_text,jsonb_build_object('label',result_text,'interactionId',interaction_id,'snapshot',prior,'dueAt',due_time,'source','annotation','confirmationKey',p_key),at_time,p_actor);
    else raise exception 'ITEM_TYPE_INVALID: %',typ;
@@ -336,7 +345,8 @@ begin
    and m.direction='MCS' and not m.is_automatic and m.undone_at is null;
  -- An answered call or an in-person talk is effective contact too (it is not a WhatsApp message).
  select max(i.occurred_at) into latest_call from public.interactions i
- where i.environment=p_environment and i.journey_id=p_journey and i.undone_at is null and i.type in ('CALL_ANSWERED','IN_PERSON');
+ where i.environment=p_environment and i.journey_id=p_journey and i.undone_at is null and coalesce(i.detail_text,'')<>'Desfeito'
+   and i.type in ('CALL_ANSWERED','IN_PERSON');
  -- M6: marking a message as automatic updates the date but never moves the stage back.
  update public.journeys x set
    last_effective_contact_at=nullif(greatest(coalesce(latest_message,'-infinity'::timestamptz),coalesce(latest_call,'-infinity'::timestamptz)),'-infinity'::timestamptz),
@@ -559,6 +569,115 @@ begin
   end;
 end;
 $$;
+
+
+create or replace function public.panel_finalize_import_resolution(
+  p_environment public.panel_environment,
+  p_import_job_id uuid,
+  p_contact_id uuid,
+  p_journey_id uuid,
+  p_create_new boolean,
+  p_refs text[],
+  p_actor_id uuid
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_job public.import_jobs%rowtype;
+  v_chat public.chats%rowtype;
+  v_journey_id uuid;
+  v_ref text;
+  v_source public.panel_journey_source;
+  v_message_id uuid;
+  v_labels text[] := array[
+    'Carro ou faixa de valor definido',
+    'Teto confirmado pelo cliente depois da conversa',
+    'Forma de pagamento', 'Prazo',
+    'Aceita carro fora da Flórida com custo de transporte',
+    'Entendeu o modelo sem test drive e sem devolução'
+  ];
+  v_point integer;
+begin
+  if not exists (
+    select 1 from public.panel_users pu
+    where pu.id=p_actor_id and pu.environment=p_environment and pu.active
+  ) then raise exception 'PANEL_ACTOR_NOT_AUTHORIZED'; end if;
+
+  select * into v_job from public.import_jobs
+  where id=p_import_job_id and environment=p_environment for update;
+  if not found or v_job.chat_id is null then raise exception 'PANEL_IMPORT_JOB_NOT_FOUND'; end if;
+  select * into v_chat from public.chats
+  where id=v_job.chat_id and environment=p_environment for update;
+  if not found or v_chat.is_group or v_chat.resolution_status='GROUP' then
+    raise exception 'PANEL_GROUP_HAS_NO_JOURNEY';
+  end if;
+  if v_chat.contact_id is distinct from p_contact_id then
+    raise exception 'PANEL_CONTACT_MISMATCH';
+  end if;
+
+  if p_create_new then
+    v_source := case when v_job.channel='SMS' then 'SMS_DIRECT'::public.panel_journey_source else 'WHATSAPP_DIRECT'::public.panel_journey_source end;
+    insert into public.journeys (
+      environment, contact_id, source, stage, status, criteria_json,
+      stage_frozen, created_at, updated_at, created_by, updated_by
+    ) values (
+      p_environment, p_contact_id, v_source, 'NOVO', 'ATIVO', '{}',
+      false, now(), now(), p_actor_id, p_actor_id
+    ) returning id into v_journey_id;
+    for v_point in 1..6 loop
+      insert into public.journey_checklist (
+        environment, journey_id, point_number, point_label, status, created_at, updated_at
+      ) values (p_environment, v_journey_id, v_point, v_labels[v_point], 'OPEN', now(), now());
+    end loop;
+    insert into public.activity_log(environment, journey_id, contact_id, chat_id, activity_type, summary, metadata, occurred_at, actor_user_id)
+      values (p_environment, v_journey_id, p_contact_id, v_chat.id, 'JOURNEY_CREATED_FROM_ENTRY', 'Jornada criada pela resolução da entrada', '{}', now(), p_actor_id);
+    insert into public.audit_log(environment, actor_user_id, entity_type, entity_id, action, after_json)
+      values (p_environment, p_actor_id, 'journey', v_journey_id, 'CREATE_FROM_ENTRY', jsonb_build_object('source', v_source));
+  else
+    select j.id into v_journey_id from public.journeys j
+    where j.id=p_journey_id and j.environment=p_environment and j.contact_id=p_contact_id
+      and j.status <> 'ENCERRADO' and not j.stage_frozen
+    for update;
+    if not found then raise exception 'PANEL_ACTIVE_JOURNEY_NOT_FOUND'; end if;
+  end if;
+
+  insert into public.message_journeys(environment, message_id, journey_id, association_source, associated_at, associated_by)
+    select p_environment, m.id, v_journey_id, 'ENTRY_CONFIRMED', now(), p_actor_id
+    from public.messages m
+    where m.environment=p_environment and m.import_job_id=p_import_job_id and not m.time_uncertain
+    on conflict (environment, message_id, journey_id) do nothing;
+
+  foreach v_ref in array coalesce(p_refs, array[]::text[]) loop
+    v_ref := upper(trim(v_ref));
+    if v_ref !~ '^[A-HJ-NP-Z2-9]{5}$' then raise exception 'PANEL_REF_INVALID'; end if;
+    select m.id into v_message_id from public.messages m
+      where m.environment=p_environment and m.import_job_id=p_import_job_id
+        and m.body_text ~* ('Ref\\s*:\\s*' || v_ref || '\\M')
+      order by m.original_order limit 1;
+    if not exists (
+      select 1 from public.journey_refs r
+      where r.environment=p_environment and r.journey_id=v_journey_id
+        and r.ref_code=v_ref and r.calculator_sid is null
+    ) then
+      insert into public.journey_refs(environment, journey_id, ref_code, source_message_id, calculator_sid, created_at, created_by)
+        values (p_environment, v_journey_id, v_ref, v_message_id, null, now(), p_actor_id);
+    end if;
+  end loop;
+
+  insert into public.activity_log(environment, journey_id, contact_id, chat_id, activity_type, summary, metadata, occurred_at, actor_user_id)
+    values (p_environment, v_journey_id, p_contact_id, v_chat.id, 'IMPORT_ASSOCIATED', 'Importação associada à jornada', jsonb_build_object('import_job_id', p_import_job_id), now(), p_actor_id);
+  return v_journey_id;
+end;
+$$;
+revoke all on function public.panel_finalize_import_resolution(
+  public.panel_environment, uuid, uuid, uuid, boolean, text[], uuid
+) from public, anon, authenticated;
+grant execute on function public.panel_finalize_import_resolution(
+  public.panel_environment, uuid, uuid, uuid, boolean, text[], uuid
+) to service_role;
 
 revoke all on function public.panel_set_journey_enabled(public.panel_environment, uuid, boolean, text, uuid) from public, anon, authenticated;
 grant execute on function public.panel_set_journey_enabled(public.panel_environment, uuid, boolean, text, uuid) to service_role;

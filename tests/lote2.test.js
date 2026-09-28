@@ -197,3 +197,42 @@ test('Lote 2 · score igual em todas as telas: ZIP único, sem hora do dia, praz
   assert.equal(domain.normalizeDeadline('3mo'), '3m');
   assert.equal(domain.normalizeDeadline(''), null);
 });
+
+test('Lote 2 · revisão: presencial mantém "sem próxima ação"; contato "não é lead" não reabre; reabrir começa a contar', async () => {
+  const { db, ids, journey, toggle } = await database();
+  try {
+    const missing = await journey({ reference_code: 'ABC25' });
+    await db.query(`update public.journeys set next_action_missing_since=now()-interval '3 days' where id=$1`, [missing]);
+    await db.query(`select public.panel_quick_result('preview',$1,'ABC25',$2,'IN_PERSON',null,$3)`, [ids.actor, missing, crypto.randomUUID()]);
+    assert.equal((await db.query(`select next_action_missing_since is not null as kept from public.journeys where id=$1`, [missing])).rows[0].kept, true);
+    const closed = await journey({ status: 'ENCERRADO', closed_at: '2026-09-20T12:00:00Z', closed_reason: 'CLIENTE_DEU_OK', stage: 'QUALIFICADO', qualified_at: '2026-09-20T12:00:00Z', stage_frozen: true });
+    await toggle(closed, true);
+    assert.equal((await db.query(`select next_action_missing_since is not null as counting from public.journeys where id=$1`, [closed])).rows[0].counting, true);
+    await db.query(`update public.contacts set is_lead=false where id=$1`, [ids.contact]);
+    const merged = await journey({ status: 'ENCERRADO', closed_at: '2026-09-20T12:00:00Z', closed_reason: 'DESLIGADO_DESISTIU', stage_frozen: true });
+    await assert.rejects(() => toggle(merged, true), /JOURNEY_MERGED/);
+  } finally { await db.close(); }
+});
+
+test('Lote 2 · revisão: "Voltar para pendente" limpa a pessoa inteira (ficha + todas as Refs ligadas)', async () => {
+  const patched = [];
+  const real = require('../panel-server');
+  const server = { ...real,
+    requirePanel: async () => ({ environment: 'preview', panel: { id: uuid(1) }, config: { url: 'https://example.invalid', secretKey: 'x' } }),
+    jsonBody: async (req) => req.body,
+    rows: async (_ctx, table, params) => {
+      if (table === 'journeys' && params.reference_code === 'eq.ABC23') return [{ id: JOURNEY }];
+      if (table === 'journeys' && params.id) return [{ reference_code: 'ABC23' }];
+      if (table === 'journey_refs' && params.ref_code) return [];
+      if (table === 'journey_refs' && params.journey_id) return [{ ref_code: 'XYZ45' }];
+      return [];
+    },
+    supabase: async (_url, _key, path, options) => { if (options?.method === 'PATCH') patched.push(decodeURIComponent(path)); return null; }
+  };
+  const handler = loadWith('api/panel/actions.js', { '../../panel-server': server });
+  const res = output();
+  await handler({ method: 'POST', body: { action: 'set_disposition', itemKind: 'REF', itemKey: 'ABC23', status: null } }, res);
+  assert.equal(res.code, 200);
+  const keys = patched.map((path) => /item_kind=eq\.(\w+)&item_key=eq\.([^&]+)/.exec(path).slice(1).join(':')).sort();
+  assert.deepEqual(keys, ['JOURNEY:' + JOURNEY, 'REF:ABC23', 'REF:XYZ45']);
+});

@@ -61,7 +61,6 @@ module.exports = async (req, res) => {
         allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' })
       ]);
-      const dispositionByJourney=new Map(dispositions.filter((item)=>item.item_kind==='JOURNEY').map((item)=>[item.item_key,item]));
       const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});
       const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});
       const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
@@ -82,7 +81,7 @@ module.exports = async (req, res) => {
       items.forEach((item)=>{const linked=linkedOrders.get(item.id)||[];const merged=linked.length?{wishlists:mergeWishlists([],linked.flatMap((order)=>order.wishlists||[])),budgetCents:linked.map((order)=>order.budgetCents).find((value)=>Number(value)>0)||null}:null;const criteria=effectiveCriteria(item,merged);item.matchWishes=criteria.wishes;item.matchBidCents=criteria.bidCents;item.linkedRefs=linked.map((order)=>order.ref);});
       const orders = allOrders
         .filter((order) => order.disposition !== 'DISCARDED'&&!excludedRefs.has(order.ref)).flatMap(order=>{const j=journeyByRef.get(order.ref);const facts=contact.facts({ref:order.ref,journeyId:j?.id,refs:j?refs.filter((row)=>row.journey_id===j.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const complete=j?{...order,journeyId:j.id,linkedJourneyStatus:j.status,matchTarget:false,contactName:j.contact?.display_name,phones:j.phones,confirmed_total_ceiling_cents:j.confirmed_total_ceiling_cents}:{...order,matchTarget:!order.journeyId};return [withContactHeat(complete,facts,j)];});
-      const contactedItems=items.flatMap((item)=>{const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});const disposition=dispositionByJourney.get(item.id);return facts.entered?[withContactHeat({...item,disposition:disposition?.status||null,discardReason:disposition?.discard_reason||null,dispositionUpdatedAt:disposition?.updated_at||null},facts,item)]:[];});
+      const personDispositionManheim=dispositionIndex(dispositions);const contactedItems=items.flatMap((item)=>{const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});const disposition=personDispositionManheim(item.id,[item.reference_code,...refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)].filter(Boolean));return facts.entered?[withContactHeat({...item,disposition:disposition?.status||null,discardReason:disposition?.discard_reason||null,dispositionUpdatedAt:disposition?.updated_at||null},facts,item)]:[];});
       const itemIds=new Set(contactedItems.map((item)=>item.id)),orderRefs=new Set(orders.map((item)=>item.ref));
       const contactedMatchesRaw=matches.filter((match)=>(match.journey_id&&itemIds.has(match.journey_id))||(match.calc_ref&&orderRefs.has(String(match.calc_ref).trim().toUpperCase())));
       /* BUSCAS: cabe no lance (valor medio do leilao <= lance maximo da ficha) e mesmo VIN em outra ficha ativa */
@@ -215,9 +214,9 @@ module.exports = async (req, res) => {
     const toggle = toggleStates[0];
     const enabled = toggleEnabled(journey.status, toggle);
     const facts = contactIndex({ calcRuns: filteredRuns, messages: messages.filter((message)=>!message.undone_at), messageLinks: links.map((link) => ({ journey_id: journey.id, message_id: link.message_id })) }).facts({ journeyId: journey.id, ref: journey.reference_code, refs: refs.map((row) => row.ref_code) });
-    const journeyDisposition=dispositions.find((item)=>item.item_kind==='JOURNEY'&&item.item_key===journey.id)||null;
-    const refDisposition=calculatorRequests.map((item)=>dispositions.find((entry)=>entry.item_kind==='REF'&&String(entry.item_key).trim().toUpperCase()===item.ref)).find(Boolean)||null;
-    const disposition=refDisposition||journeyDisposition;
+    // A8: the most recent disposition of the person (ficha or any linked Ref) wins.
+    const disposition=dispositionIndex(dispositions)(journey.id,[...refSet]);
+    const refDisposition=disposition&&disposition.item_kind==='REF'?disposition:null;
     return send(res, 200, {
       environment: ctx.environment,
       item: {

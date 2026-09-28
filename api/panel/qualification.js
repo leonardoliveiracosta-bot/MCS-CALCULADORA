@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
       allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment, undone_at:'is.null' }),
-      allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_checklist', { select: 'id,journey_id,point_number,point_label,status,completed_at', environment: 'eq.' + ctx.environment, order: 'point_number.asc' }),
       allRows(ctx, 'checklist_evidence', { select: 'id,checklist_id,message_id,excerpt_text,created_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_divergences', { select: 'id,journey_id,field,status,operational_declaration_id,created_at', environment: 'eq.' + ctx.environment }),
@@ -57,7 +57,7 @@ module.exports = async (req, res) => {
       const ready=score({zip:complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:complete.budget_cents},complete,{checklist,messages:ownMessages.map((message)=>({...message,journey_id:journey.id}))},scoreVehicles);
       return [decorateContact({
         ...journey, kind:calculatorRef?'CALCULATOR_ORDER':'JOURNEY', ref:calculatorRef||journey.reference_code, disposition:null, dispositionUpdatedAt:null, enabled: toggleEnabled(journey.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,
-        phones: phones.filter((phone) => phone.contact_id === journey.contact_id), latestMessage: ownMessages[0] || null,
+        phones: phones.filter((phone) => phone.contact_id === journey.contact_id), latestMessage: ownMessages.find((message) => !message.is_automatic) || ownMessages[0] || null,
         lastCustomerAt: ownMessages.find((message) => message.direction === 'CUSTOMER')?.occurred_at_utc || ownMessages.find((message) => message.direction === 'CUSTOMER')?.occurred_at_local || ownMessages.find((message) => message.direction === 'CUSTOMER')?.created_at || null,
         refs: refs.filter((item) => item.journey_id === journey.id),
         checklist: points, checklistSummary: checklistSummary(points),

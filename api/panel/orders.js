@@ -75,7 +75,7 @@ module.exports = async (req, res) => {
     const personDisposition = dispositionIndex(dispositions);
     const refsOfJourney = (journey) => [journey.reference_code, ...(data.refs || []).filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].filter(Boolean).map(refKey);
     const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const person=linked?personDisposition(linked.id,[...refsOfJourney(linked),item.ref]):null;const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},scoreVehicles);return [decorateContact({
-      ...item,...(person?{disposition:person.status,discardReason:person.discard_reason||null,dispositionUpdatedAt:person.updated_at||null,pending:false}:{}),journeyId:linked?.id||item.journeyId,budgetCents:linked?effectiveCriteria(linked,item).bidCents||item.budgetCents:item.budgetCents,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
+      ...item,...(person?{disposition:person.status,discardReason:person.discard_reason||null,dispositionUpdatedAt:person.updated_at||null,pending:false}:{}),journeyId:linked?.id||item.journeyId,latestMessage:linked?latestByJourney.get(linked.id)||null:null,budgetCents:linked?effectiveCriteria(linked,item).bidCents||item.budgetCents:item.budgetCents,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
       lastCustomerAt: Math.max(time(item.occurredAt)||0, time(latestCustomerByJourney.get(linked?.id)?.occurred_at_utc || latestCustomerByJourney.get(linked?.id)?.occurred_at_local || latestCustomerByJourney.get(linked?.id)?.created_at)||0) || null,
       lastRealMessageAt: lastRealByJourney(linked?.id||item.journeyId), sortAt: lastRealByJourney(linked?.id||item.journeyId) || item.occurredAt || null,
       sourceLabel: 'Calculadora',
@@ -88,7 +88,7 @@ module.exports = async (req, res) => {
       const latest = latestByJourney.get(item.id);
       const disposition = personDisposition(item.id, refsOfJourney(item));
       const complete={...item,phones:item.phones||[]};const ready=score(complete,complete,{checklist:data.checklist,promises:data.promises,messages:data.messages},scoreVehicles);return [decorateContact({
-        key: 'direct:' + item.id, kind: 'DIRECT', journeyId: item.id,
+        key: 'direct:' + item.id, kind: 'DIRECT', journeyId: item.id, latestMessage: latest || null,
         sourceLabel: item.source === 'SMS_DIRECT' ? 'SMS direto' : 'WhatsApp direto',
         logicalMode: journeyLogicalMode(item), logicalModes: [journeyLogicalMode(item)],
         simulationCount: 0, simulations: [],
@@ -109,9 +109,10 @@ module.exports = async (req, res) => {
     });
 
     const cutoff = filter === 'Pendentes' || period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
-    // M4: a direct ficha that also has a calculator order is one person: keep the order card only.
+    // M4: a direct ficha that also has a calculator order is one person: keep the order card only
+    // (except in the "WhatsApp direto" filter, which shows the direct card).
     const orderJourneys=new Set(calculator.map((item)=>item.journeyId).filter(Boolean));
-    let filtered = calculator.concat(direct.filter((item)=>!orderJourneys.has(item.journeyId)));
+    let filtered = calculator.concat(filter === 'WhatsApp direto' ? direct : direct.filter((item)=>!orderJourneys.has(item.journeyId)));
     if (exactRef) filtered = filtered.filter((item) => String(item.ref || item.referenceCode || '').toUpperCase() === exactRef);
     else {
       filtered = filtered.filter((item) => {
