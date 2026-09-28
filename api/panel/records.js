@@ -9,6 +9,7 @@ const { timezoneForZip } = require('../../panel-lead');
 const { sortItems, lastRealMessageAt } = require('../../panel-sort');
 const { roundedMmr } = require('../../vitrine-domain');
 const { contactIndex, decorateContact } = require('../../panel-contact');
+const { dispositionIndex } = require('../../panel-disposition');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 
 function newPromiseToday(promises, ref, zip) {
@@ -62,12 +63,12 @@ module.exports = async (req, res) => {
       ]);
       const dispositionByJourney=new Map(dispositions.filter((item)=>item.item_kind==='JOURNEY').map((item)=>[item.item_key,item]));
       const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});
-      const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment});
+      const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});
       const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
       const withContactHeat=(item,facts,journey)=>{
         const target=journey||item;
         const ready=score({...item,zip:item.zip||target.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||''},target,{messages:[]},[]);
-        return decorateContact({...item,...ready},facts,insightByJourney.get(target.id));
+        return decorateContact({...item,...ready},facts,insightByJourney.get(target.id),journey||(item.status?item:null));
       };
       const journeyMap=new Map(items.map(x=>[x.id,x])),journeyByRef=new Map(items.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));refs.forEach(r=>{const j=journeyMap.get(r.journey_id);if(j)journeyByRef.set(String(r.ref_code).trim().toUpperCase(),j);});
       const allOrders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions);
@@ -132,7 +133,7 @@ module.exports = async (req, res) => {
         allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' })
       ]);
       const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});
-      const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
+      const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
       const [latestMatches,recentVehicles]=await Promise.all([
         uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id }) : Promise.resolve([]),
         allRows(ctx,'manheim_matches',{select:'row_fingerprint,vehicle_json',environment:'eq.'+ctx.environment,created_at:'gte.'+new Date(Date.now()-60*86400000).toISOString()})
@@ -141,8 +142,7 @@ module.exports = async (req, res) => {
       recentVehicles.forEach((entry)=>{if(entry.vehicle_json?.parsed&&!vehicleMap.has(entry.row_fingerprint))vehicleMap.set(entry.row_fingerprint,entry.vehicle_json.parsed);});
       const scoredVehicles=[...vehicleMap.values()];
       const contactsById = new Map(contacts.map((item) => [item.id, item]));
-      const dispositionByJourney=new Map(dispositions.filter((item)=>item.item_kind==='JOURNEY').map((item)=>[item.item_key,item]));
-      const dispositionByRef=new Map(dispositions.filter((item)=>item.item_kind==='REF').map((item)=>[String(item.item_key).trim().toUpperCase(),item]));
+      const personDisposition=dispositionIndex(dispositions);
       const messagesById = new Map(messages.map((item) => [item.id, item]));
       const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
       const ordersByRef = new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks)).map((order) => [order.ref, order]));
@@ -156,11 +156,12 @@ module.exports = async (req, res) => {
         const order = [item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>ordersByRef.get(String(ref||'').trim().toUpperCase())).find(Boolean);
         const scoring = { ...complete, ...order, zip: order?.zip || complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0] || '', plate: order?.plate || 'transf', wishlists: wishlistsForJourney(complete) };
         const ready = score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, scoredVehicles);
-        const disposition=(order&&dispositionByRef.get(order.ref))||dispositionByJourney.get(item.id)||null;
+        // A8: one disposition per person (ficha + linked Refs), the most recent wins.
+        const disposition=personDisposition(item.id,[item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code),order?.ref].filter(Boolean));
         const latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
         /* ordem Mais recentes/antigas: ultima mensagem real; sem mensagem, a simulacao; sem nada, fim da lista */
         const lastRealAt=lastRealMessageAt(ownMessages);
-        return [decorateContact({ ...complete, ...ready, isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id))];
+        return [decorateContact({ ...complete, ...ready, isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id),complete)];
       });const stageIndex=await loadSearchStageIndex(ctx);return send(res, 200, { environment: ctx.environment, items:sortItems(listed,String(req.query?.sort||'ready'),'ready').map((item)=>decorateWithSearchStage(item,stageIndex)), meta });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });

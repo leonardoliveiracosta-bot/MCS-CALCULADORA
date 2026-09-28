@@ -7,6 +7,7 @@ const { sortItems, lastRealMessageAt } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 const { score } = require('../../panel-ready');
+const { dispositionIndex, refKey } = require('../../panel-disposition');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -29,7 +30,7 @@ module.exports = async (req, res) => {
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       operational(ctx),
       panelMeta(ctx),
-      allRows(ctx, 'conversation_pending_insights', { select:'journey_id,heat,summary_text,next_step_text', environment:'eq.' + ctx.environment })
+      allRows(ctx, 'conversation_pending_insights', { select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment:'eq.' + ctx.environment })
     ]);
     const contact=contactIndex({calcRuns,messages:data.messages,messageLinks:data.messages.map((message)=>({journey_id:message.journey_id,message_id:message.id}))});
     const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
@@ -58,29 +59,32 @@ module.exports = async (req, res) => {
     const lastRealByJourney = (id) => (id ? lastRealMessageAt(messagesByJourney.get(id)) : null);
 
     const calcModes = consolidateCalcRuns(calcRuns, links).map((item) => {
-      const journey = item.link && item.link.journeyId ? journeys.get(item.link.journeyId) : null;
+      // B2: a Ref linked through journey_refs is also a conversation, not only calculator_request_links.
+      const journey = item.link && item.link.journeyId ? journeys.get(item.link.journeyId) : journeyByRef.get(refKey(item.ref)) || null;
       const latest = journey ? latestByJourney.get(journey.id) : null;
       return {
         ...item,
         sourceLabel: 'Calculadora',
-        status: item.link && latest ? (latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO') : item.eventStatus,
+        status: journey && latest ? (latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO') : item.eventStatus,
         contactName: journey && journey.contact ? journey.contact.display_name : item.contactName
       };
     });
-    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},[]);return [decorateContact({
-      ...item,journeyId:linked?.id||item.journeyId,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
+    // A8: one disposition per person (ficha + linked Refs).
+    const personDisposition = dispositionIndex(dispositions);
+    const refsOfJourney = (journey) => [journey.reference_code, ...(data.refs || []).filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].filter(Boolean).map(refKey);
+    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const person=linked?personDisposition(linked.id,[...refsOfJourney(linked),item.ref]):null;const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},[]);return [decorateContact({
+      ...item,...(person?{disposition:person.status,discardReason:person.discard_reason||null,dispositionUpdatedAt:person.updated_at||null,pending:false}:{}),journeyId:linked?.id||item.journeyId,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
       lastCustomerAt: Math.max(time(item.occurredAt)||0, time(latestCustomerByJourney.get(linked?.id)?.occurred_at_utc || latestCustomerByJourney.get(linked?.id)?.occurred_at_local || latestCustomerByJourney.get(linked?.id)?.created_at)||0) || null,
       lastRealMessageAt: lastRealByJourney(linked?.id||item.journeyId), sortAt: lastRealByJourney(linked?.id||item.journeyId) || item.occurredAt || null,
       sourceLabel: 'Calculadora',
-      status: item.disposition === 'TREATED' ? 'TRATADO' : item.disposition === 'DISCARDED' ? 'DESCARTADO' : item.status,
+      status: (person?person.status:item.disposition) === 'TREATED' ? 'TRATADO' : (person?person.status:item.disposition) === 'DISCARDED' ? 'DESCARTADO' : item.status,
       standardBudget: standardBudget(item.budgetCents),score:ready.score,goodHour:ready.goodHour
-    },facts,insightByJourney.get(linked?.id))];});
+    },facts,insightByJourney.get(linked?.id),linked)];});
 
-    const dispositionByJourney = new Map(dispositions.filter((item) => item.item_kind === 'JOURNEY').map((item) => [item.item_key, item]));
     const direct = data.journeys.filter((item) => ['WHATSAPP_DIRECT', 'SMS_DIRECT'].includes(item.source)).flatMap((item) => {
       const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:(data.refs||[]).filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
       const latest = latestByJourney.get(item.id);
-      const disposition = dispositionByJourney.get(item.id) || null;
+      const disposition = personDisposition(item.id, refsOfJourney(item));
       const complete={...item,phones:item.phones||[]};const ready=score(complete,complete,{checklist:data.checklist,promises:data.promises,messages:data.messages},[]);return [decorateContact({
         key: 'direct:' + item.id, kind: 'DIRECT', journeyId: item.id,
         sourceLabel: item.source === 'SMS_DIRECT' ? 'SMS direto' : 'WhatsApp direto',
@@ -99,11 +103,13 @@ module.exports = async (req, res) => {
         phones:item.phones||[],confirmed_total_ceiling_cents:item.confirmed_total_ceiling_cents,
         lastRealMessageAt: lastRealByJourney(item.id), sortAt: lastRealByJourney(item.id),
         lastCustomerAt: latestCustomerByJourney.get(item.id)?.occurred_at_utc || latestCustomerByJourney.get(item.id)?.occurred_at_local || latestCustomerByJourney.get(item.id)?.created_at || item.created_at,score:ready.score,goodHour:ready.goodHour
-      },facts,insightByJourney.get(item.id))];
+      },facts,insightByJourney.get(item.id),complete)];
     });
 
     const cutoff = filter === 'Pendentes' || period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
-    let filtered = calculator.concat(direct);
+    // M4: a direct ficha that also has a calculator order is one person: keep the order card only.
+    const orderJourneys=new Set(calculator.map((item)=>item.journeyId).filter(Boolean));
+    let filtered = calculator.concat(direct.filter((item)=>!orderJourneys.has(item.journeyId)));
     if (exactRef) filtered = filtered.filter((item) => String(item.ref || item.referenceCode || '').toUpperCase() === exactRef);
     else {
       filtered = filtered.filter((item) => {
@@ -113,12 +119,14 @@ module.exports = async (req, res) => {
         if (filter === 'Valor') return (item.logicalModes || [item.logicalMode]).includes('VALOR');
         if (filter === 'Pendentes') return item.pending;
         return true;
-      }).filter((item) => cutoff === null || (time(item.occurredAt) || 0) >= cutoff);
+        // B4: the period counts the latest activity (simulation or real message), not only the simulation.
+      }).filter((item) => cutoff === null || Math.max(time(item.occurredAt) || 0, time(item.lastRealMessageAt) || 0) >= cutoff);
     }
     filtered=sortItems(filtered,sort,'recent');
 
     const items = exactRef ? filtered.slice(0, 1) : filtered.slice(offset, offset + limit);
-    const linkTargets = data.journeys.filter((item) => item.status !== 'ENCERRADO' && item.stage !== 'QUALIFICADO').map((item) => ({
+    // QUALIFICADO stays open since "Cliente deu OK" no longer closes: it can still receive a Ref.
+    const linkTargets = data.journeys.filter((item) => item.status !== 'ENCERRADO').map((item) => ({
       journeyId: item.id, contactId: item.contact_id,
       label: `${item.contact && item.contact.display_name ? item.contact.display_name : 'Contato sem nome'} · Ref ${item.reference_code || '—'} — ${item.vehicle_text || 'busca sem veículo'}`
     }));

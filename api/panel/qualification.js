@@ -28,7 +28,7 @@ module.exports = async (req, res) => {
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment }),
       panelMeta(ctx),
       allRows(ctx,'calc_runs',{select:'id,created_at,dados,is_test',order:'created_at.asc'}),
-      allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment}),
+      allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment}),
       allRows(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,updated_at',environment:'eq.'+ctx.environment,cleared_at:'is.null'})
     ]);
     const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
@@ -62,7 +62,7 @@ module.exports = async (req, res) => {
         checklist: points, checklistSummary: checklistSummary(points),
         divergences: divergences.filter((item) => item.journey_id === journey.id),
         shortDeadline: shortDeadline(journey.customer_deadline_at),score:ready.score,goodHour:ready.goodHour
-      },facts,insightByJourney.get(journey.id))];
+      },facts,insightByJourney.get(journey.id),complete)];
     });
     const stageIndex=await loadSearchStageIndex(ctx);
     return send(res, 200, { environment: ctx.environment, items:sortItems(items,String(req.query?.sort||'recent'),'recent').map((item)=>decorateWithSearchStage(item,stageIndex)), meta });

@@ -449,7 +449,8 @@ function buildTodayItems(input, nowValue = new Date()) {
   const suppressions = Array.isArray(input.suppressions) ? input.suppressions : [];
   const result = [];
   for (const journey of journeys) {
-    if (!journeyEnabled(journey) || journey.stage === 'QUALIFICADO' || journey.stage_frozen) continue;
+    // QUALIFICADO stays active since "Cliente deu OK" no longer closes: its returns still count.
+    if (!journeyEnabled(journey) || journey.stage_frozen) continue;
     const ownMessages = messages.filter((item) => item.journey_id === journey.id && item.direction !== 'SYSTEM').sort((a, b) => (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0) - (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0));
     const latest = ownMessages.at(-1);
     const latestEvent = Math.max(time(latest && (latest.occurred_at_utc || latest.occurred_at_local || latest.created_at)) || 0, time(journey.last_effective_contact_at) || 0);
@@ -457,7 +458,8 @@ function buildTodayItems(input, nowValue = new Date()) {
     const add = (kind, label, anchor, extra = {}) => {
       if (!reasonSuppressed(suppressions, journey.id, kind, latestEvent, nowMs)) reasons.push({ kind, label, anchor: anchor || nowMs, ...extra });
     };
-    if (journey.next_action_at) {
+    // B1: an unreadable date is not an overdue return.
+    if (journey.next_action_at && time(journey.next_action_at) !== null) {
       const due = time(journey.next_action_at);
       if (due <= nowMs) add('NEXT_ACTION', 'RETORNO VENCIDO', due, { dueAt: journey.next_action_at, detail: clean(journey.next_action_text), urgency: 'red' });
       else if (due - nowMs <= 2 * 60 * 60 * 1000) add('NEXT_ACTION', 'RETORNO EM ATÉ 2H', due, { dueAt: journey.next_action_at, detail: clean(journey.next_action_text), urgency: 'yellow' });
@@ -465,8 +467,8 @@ function buildTodayItems(input, nowValue = new Date()) {
     const missingSince = time(journey.next_action_missing_since);
     if (!journey.next_action_at && missingSince && nowMs - missingSince >= 2 * DAY_MS) add('MISSING_NEXT_ACTION', 'SEM PRÓXIMA AÇÃO', missingSince + 2 * DAY_MS);
     for (const item of divergences.filter((value) => value.journey_id === journey.id && value.status === 'OPEN')) add('DIVERGENCE', `DIVERGÊNCIA: ${item.field}`, time(item.created_at));
-    for (const item of promises.filter((value) => value.journey_id === journey.id && value.status === 'OPEN')) {
-      const due = time(item.due_at) || 0;
+    for (const item of promises.filter((value) => value.journey_id === journey.id && value.status === 'OPEN' && time(value.due_at) !== null)) {
+      const due = time(item.due_at);
       if (due <= nowMs) add('PROMISE', 'RETORNO VENCIDO', due, { dueAt: item.due_at, detail: clean(item.promise_text), urgency: 'red' });
       else if (due - nowMs <= 2 * 60 * 60 * 1000) add('PROMISE', 'RETORNO EM ATÉ 2H', due, { dueAt: item.due_at, detail: clean(item.promise_text), urgency: 'yellow' });
     }

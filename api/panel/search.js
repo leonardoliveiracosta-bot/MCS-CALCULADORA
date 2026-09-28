@@ -23,7 +23,7 @@ module.exports = async (req, res) => {
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment,undone_at:'is.null'}),
       allRows(ctx,'messages',{select:'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at',environment:'eq.'+ctx.environment}),
-      allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text',environment:'eq.'+ctx.environment})
+      allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment})
     ]);
     const contactIndexData=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
     const journeyMap = new Map(journeys.map((item) => [item.id, item]));
@@ -45,7 +45,7 @@ module.exports = async (req, res) => {
         stage: journey ? journey.stage : null,
         status: journey ? journey.status : null, budget_cents:journey?.budget_cents,confirmed_total_ceiling_cents:journey?.confirmed_total_ceiling_cents,
         contact,phones:phones.filter((p)=>p.contact_id===contactId),disposition:disposition?.status||null,discardReason:disposition?.discard_reason||null,dispositionUpdatedAt:disposition?.updated_at||null,updated_at:journey?.updated_at,matchedBy
-      },facts,insightByJourney.get(journeyId)));
+      },facts,insightByJourney.get(journeyId),journey));
     };
     for (const contact of contacts) {
       if (searchMatches(q, contact)) {
@@ -89,10 +89,18 @@ module.exports = async (req, res) => {
       disposition: item.disposition,
       contactName:contact?.display_name,phones:journey?phones.filter((p)=>p.contact_id===journey.contact_id):[],confirmed_total_ceiling_cents:journey?.confirmed_total_ceiling_cents,budgetCents:item.budgetCents,updated_at:journey?.updated_at||item.occurredAt,
       matchedBy: foldMatch(q, item)
-    },facts,insightByJourney.get(journey?.id))];});
+    },facts,insightByJourney.get(journey?.id),journey)];});
+    // M4: a Ref linked to a ficha is the same person: one result (the ficha), not ficha + pedido.
+    const journeyHits=new Map([...hits.values()].filter((hit)=>hit.journeyId).map((hit)=>[hit.journeyId,hit]));
+    const seenJourneys=new Set();
+    const personOrderHits=orderHits.filter((hit)=>{const journey=journeyByRef.get(String(hit.ref||'').trim().toUpperCase());if(!journey)return true;
+      const existing=journeyHits.get(journey.id);if(existing){if(!existing.ref)existing.ref=hit.ref;return false;}
+      if(seenJourneys.has(journey.id))return false;seenJourneys.add(journey.id);hit.journeyId=journey.id;return true;});
     const sort=String(req.query?.sort||'recent');
     const stageIndex=await loadSearchStageIndex(ctx);
-    return send(res, 200, { environment: ctx.environment, items: sortItems([...hits.values()].concat(orderHits),sort,'recent').slice(0, 100).map((item)=>decorateWithSearchStage(item,stageIndex)) });
+    return send(res, 200, { environment: ctx.environment, items: sortItems([...hits.values()].concat(personOrderHits),sort,'recent').slice(0, 100).map((item)=>decorateWithSearchStage(item,stageIndex))
+      // A9: the search does not compute the score, so it shows only a valid AI heat (never a false "frio").
+      .map((item)=>item.heatSource==='CALCULATED'?{...item,heat:null,heatSource:null}:item) });
   } catch (_) {
     return send(res, 500, { error: 'PANEL_SEARCH_ERROR' });
   }

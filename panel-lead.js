@@ -239,8 +239,12 @@ async function leadData(ctx, req, refInput, idInput) {
   }, [...unique.values()]);
   const city = cityCache.get(zip) || null;
   const searchStage=journey?stageIndex.get(journey.id)||null:null;
-  const dispositionKind=order?'REF':'JOURNEY',dispositionKey=order?ref:journey?.id;
-  const disposition=dispositionKey?(await optionalRead('panel_item_dispositions',()=>rows(ctx,'panel_item_dispositions',{select:'status,discard_reason,updated_at',environment:'eq.'+ctx.environment,item_kind:'eq.'+dispositionKind,item_key:'eq.'+dispositionKey,cleared_at:'is.null',limit:'1'})))[0]||null:null;
+  // A8: a ficha and its Refs are one person; the most recent disposition of either wins, and the
+  // "Tratado/Descartado" buttons act on that same row.
+  const personKeys=[order?{kind:'REF',key:ref}:null,journey?{kind:'JOURNEY',key:journey.id}:null].filter(Boolean);
+  const found=(await Promise.all(personKeys.map((entry)=>optionalRead('panel_item_dispositions',()=>rows(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,discard_reason,updated_at',environment:'eq.'+ctx.environment,item_kind:'eq.'+entry.kind,item_key:'eq.'+entry.key,cleared_at:'is.null',limit:'1'}))))).flat();
+  const disposition=found.sort((left,right)=>(Date.parse(right.updated_at)||0)-(Date.parse(left.updated_at)||0))[0]||null;
+  const dispositionKind=disposition?disposition.item_kind:order?'REF':'JOURNEY',dispositionKey=disposition?disposition.item_key:order?ref:journey?.id;
   return { ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, calculatorNews: news, bidSource: criteria.bidSource, wishesSource: criteria.wishesSource, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
 }
 
