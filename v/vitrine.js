@@ -27,7 +27,11 @@
     const tags = vehicle.cleanTitle || vehicle.odometerOk ? `<div class="tags">${vehicle.cleanTitle ? '<span>✓ Clean title</span>' : ''}${vehicle.odometerOk ? '<span>✓ Odometer OK</span>' : ''}</div>` : '';
     const limit = isV2 && car.customerLimitCents ? `<section class="limit"><div class="label">Your limit</div><div class="value">Up to ${money(car.customerLimitCents)}</div>${lines("You set the limit, we do the bidding\nYour limit is the most we'll bid, not what you pay\nIf we win it for less, you pay based on the winning bid")}</section>` : '';
     const note = isV2 && car.note ? `<p class="note">${escape(car.note)}</p>` : '';
-    return `<article class="car"><h2>${escape(carName)}</h2><p class="muted">${[vehicle.miles && Number(vehicle.miles).toLocaleString() + ' mi', vehicle.exteriorColor, vehicle.state].filter(Boolean).map(escape).join(' · ')}</p>${gallery(car.photos, carName)}${tags}<section class="auction"><div class="label">Auction day</div><div class="value">${escape(date(vehicle.startsAt))}</div><b>${escape(countdown(vehicle.startsAt))}</b></section><section><div class="label">Average auction value</div><div class="value">~ ${money((car.averageAuctionValue || 0) * 100)}</div>${lines('A reference, not a fixed price\nThe final price is set on auction day')}</section>${isV2 ? specs(vehicle) : ''}${limit}${note}<button data-code="${car.code}" data-bid="${isV2}">${isV2 ? 'I want to bid' : 'Show me this car'}</button><p class="muted">Opens WhatsApp with a ready message to our team</p></article>`;
+    const auction = `<section class="auction"><div class="label">Auction day</div><div class="value">${escape(date(vehicle.startsAt))}</div><b>${escape(countdown(vehicle.startsAt))}</b></section>`;
+    const average = `<section><div class="label">Average auction value</div><div class="value">~ ${money((car.averageAuctionValue || 0) * 100)}</div>${lines('A reference, not a fixed price\nThe final price is set on auction day')}</section>`;
+    // V2: o nome do carro ja e o titulo da pagina; ordem aprovada: galeria, selos, especificacoes, leilao, valor, limite, nota
+    const head = isV2 ? '' : `<h2>${escape(carName)}</h2><p class="muted">${[vehicle.miles && Number(vehicle.miles).toLocaleString() + ' mi', vehicle.exteriorColor, vehicle.state].filter(Boolean).map(escape).join(' · ')}</p>`;
+    return `<article class="car">${head}${gallery(car.photos, carName)}${tags}${isV2 ? specs(vehicle) + auction + average : auction + average}${limit}${note}<button data-code="${car.code}" data-bid="${isV2}">${isV2 ? 'I want to bid' : 'Show me this car'}</button><p class="muted">Opens WhatsApp with a ready message to our team</p></article>`;
   }
   async function load() {
     const response = await fetch('/api/vitrine?token=' + encodeURIComponent(token));
@@ -41,7 +45,7 @@
     }
     event('OPEN');
     const version = data.version;
-    app.innerHTML = `<div class="eyebrow">My Car Scout · Ref ${escape(data.referenceCode)}</div><h1 class="title">${version === 'V2' ? escape(name(data.cars[0]?.vehicle || {})) : `${escape(data.customerName || 'Customer')}, ${data.cars.length} cars for you`}</h1><p class="sub">${version === 'V2' ? `${escape(data.customerName || 'There')}, here's the car you asked to see` : 'Found by our team at wholesale auctions'}</p>${data.cars.map((car) => card(car, version)).join('')}<p class="footer">Tap the car you like and send the message\nOur team replies with photos and full details</p>`;
+    app.innerHTML = `<div class="eyebrow">My Car Scout · Ref ${escape(data.referenceCode)}</div><h1 class="title">${version === 'V2' ? escape(name(data.cars[0]?.vehicle || {})) : `${escape(data.customerName || 'Customer')}, ${data.cars.length} cars for you`}</h1><p class="sub">${version === 'V2' ? `${escape(data.customerName || 'There')}, here's the car you asked to see` : 'Found by our team at wholesale auctions'}</p>${data.cars.map((car) => card(car, version)).join('')}${version === 'V2' ? '' : '<p class="footer">Tap the car you like and send the message\nOur team replies with photos and full details</p>'}`;
     app.querySelectorAll('button[data-code]').forEach((button) => { button.onclick = () => openWhatsApp(data.cars.find((car) => car.code === button.dataset.code), button.dataset.bid === 'true'); });
   }
   load().catch(() => { app.textContent = 'This link is unavailable'; });

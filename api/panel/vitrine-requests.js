@@ -1,7 +1,7 @@
 'use strict';
 
 const {allRows,isUuid,jsonBody,patchRows,requirePanel,send}=require('../../panel-server');
-const {vehicleName}=require('../../vitrine-domain');
+const {deposit,vehicleName}=require('../../vitrine-domain');
 
 const since=(value,now=Date.now())=>{
   const elapsed=Math.max(0,now-Date.parse(value||now));
@@ -13,19 +13,21 @@ const since=(value,now=Date.now())=>{
 };
 
 async function payload(ctx){
-  const [requests,vitrines,cars,contacts,phones,events]=await Promise.all([
+  const [requests,vitrines,cars,contacts,phones,events,journeys]=await Promise.all([
     allRows(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,contact_id,journey_id,request_kind,referred,created_at,treated_at',environment:'eq.'+ctx.environment,treated_at:'is.null',order:'created_at.desc'}),
     allRows(ctx,'vitrines',{select:'id,contact_id,journey_id,reference_code,customer_name,version,created_at',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'vitrine_cars',{select:'id,vitrine_id,vehicle_snapshot',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'vitrine_cars',{select:'id,vitrine_id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contacts',{select:'id,display_name',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current,retired_at',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'vitrine_events',{select:'vitrine_id,vitrine_car_id,event_type,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'})
+    allRows(ctx,'vitrine_events',{select:'vitrine_id,vitrine_car_id,event_type,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
+    allRows(ctx,'journeys',{select:'id,budget_cents',environment:'eq.'+ctx.environment})
   ]);
+  const budgetByJourney=new Map(journeys.map((row)=>[row.id,row.budget_cents||null]));
   const vitrinesById=new Map(vitrines.map((row)=>[row.id,row]));
   const carsById=new Map(cars.map((row)=>[row.id,row]));
   const contactsById=new Map(contacts.map((row)=>[row.id,row]));
   const phoneFor=(contactId)=>{const values=phones.filter((row)=>row.contact_id===contactId&&row.is_current!==false&&!row.retired_at);const row=values.find((row)=>row.is_primary)||values[0];return row&&(row.phone_e164||row.phone_raw)||null;};
-  const openRequests=requests.map((request)=>{const vitrine=vitrinesById.get(request.vitrine_id)||{};const car=carsById.get(request.vitrine_car_id)||{};const vehicle=car.vehicle_snapshot||{};const contact=contactsById.get(request.contact_id)||{};return {id:request.id,kind:request.request_kind,createdAt:request.created_at,ago:since(request.created_at),referred:Boolean(request.referred),name:contact.display_name||phoneFor(request.contact_id)||'Cliente',phone:phoneFor(request.contact_id),referenceCode:vitrine.reference_code||'',journeyId:request.journey_id||vitrine.journey_id||null,car:vehicleName(vehicle),startsAt:vehicle.startsAt||vehicle.saleDate||null,endsAt:vehicle.endsAt||null,ownerName:vitrine.customer_name||'cliente',ownerRef:vitrine.reference_code||''};});
+  const openRequests=requests.map((request)=>{const vitrine=vitrinesById.get(request.vitrine_id)||{};const car=carsById.get(request.vitrine_car_id)||{};const vehicle=car.vehicle_snapshot||{};const contact=contactsById.get(request.contact_id)||{};const limit=car.customer_limit_cents||null,journeyId=request.journey_id||vitrine.journey_id||null;return {id:request.id,vitrineId:request.vitrine_id,vitrineCarId:request.vitrine_car_id,customerLimitCents:limit,budgetCents:journeyId?budgetByJourney.get(journeyId)||null:null,depositUsd:limit?deposit(limit):null,kind:request.request_kind,createdAt:request.created_at,ago:since(request.created_at),referred:Boolean(request.referred),name:contact.display_name||phoneFor(request.contact_id)||'Cliente',phone:phoneFor(request.contact_id),referenceCode:vitrine.reference_code||'',journeyId:request.journey_id||vitrine.journey_id||null,car:vehicleName(vehicle),startsAt:vehicle.startsAt||vehicle.saleDate||null,endsAt:vehicle.endsAt||null,ownerName:vitrine.customer_name||'cliente',ownerRef:vitrine.reference_code||''};});
   const requestsByCar=new Map();
   requests.forEach((request)=>requestsByCar.set(request.vitrine_car_id,true));
   const signals=[];

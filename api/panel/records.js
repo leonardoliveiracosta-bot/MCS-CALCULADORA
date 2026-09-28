@@ -7,6 +7,7 @@ const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../
 const { score } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems, lastRealMessageAt } = require('../../panel-sort');
+const { roundedMmr } = require('../../vitrine-domain');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 
@@ -29,7 +30,7 @@ module.exports = async (req, res) => {
   try {
     if (String((req.query && req.query.view) || '') === 'manheim') {
       const [journeys, contacts, phones, refs, toggleStates, uploads, meta, messageLinks, messages, userIds] = await Promise.all([
-        allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,vehicle_text,updated_at', environment: 'eq.' + ctx.environment, order: 'updated_at.desc' }),
+        allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,vehicle_text,created_at,updated_at', environment: 'eq.' + ctx.environment, order: 'updated_at.desc' }),
         allRows(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: 'eq.' + ctx.environment }),
         allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current',environment:'eq.'+ctx.environment}),
         allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
@@ -73,7 +74,22 @@ module.exports = async (req, res) => {
         .filter((order) => order.disposition !== 'DISCARDED'&&!excludedRefs.has(order.ref)).flatMap(order=>{const j=journeyByRef.get(order.ref);const facts=contact.facts({ref:order.ref,journeyId:j?.id,refs:j?refs.filter((row)=>row.journey_id===j.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const complete=j?{...order,journeyId:j.id,contactName:j.contact?.display_name,phones:j.phones,confirmed_total_ceiling_cents:j.confirmed_total_ceiling_cents}:order;return [withContactHeat(complete,facts,j)];});
       const contactedItems=items.flatMap((item)=>{const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});const disposition=dispositionByJourney.get(item.id);return facts.entered?[withContactHeat({...item,disposition:disposition?.status||null,discardReason:disposition?.discard_reason||null,dispositionUpdatedAt:disposition?.updated_at||null},facts,item)]:[];});
       const itemIds=new Set(contactedItems.map((item)=>item.id)),orderRefs=new Set(orders.map((item)=>item.ref));
-      const contactedMatches=matches.filter((match)=>(match.journey_id&&itemIds.has(match.journey_id))||(match.calc_ref&&orderRefs.has(String(match.calc_ref).trim().toUpperCase())));
+      const contactedMatchesRaw=matches.filter((match)=>(match.journey_id&&itemIds.has(match.journey_id))||(match.calc_ref&&orderRefs.has(String(match.calc_ref).trim().toUpperCase())));
+      /* BUSCAS: cabe no lance (valor medio do leilao <= lance maximo da ficha) e mesmo VIN em outra ficha ativa */
+      const vitrineRows=await allRows(ctx,'vitrines',{select:'journey_id',environment:'eq.'+ctx.environment});
+      const withVitrine=new Set(vitrineRows.map((row)=>row.journey_id).filter(Boolean));
+      const journeyById=new Map(journeys.map((journey)=>[journey.id,journey]));
+      const recentCut=Date.now()-60*86400000;
+      const activeOther=(journey)=>journey&&journey.status!=='ENCERRADO'&&stateByJourney.get(journey.id)?.enabled!==false&&(Date.parse(journey.created_at||0)>=recentCut||withVitrine.has(journey.id));
+      const journeysByVin=new Map();matches.forEach((match)=>{const vin=String(match.vehicle_json?.parsed?.vin||'').trim().toUpperCase();if(!vin||!match.journey_id)return;if(!journeysByVin.has(vin))journeysByVin.set(vin,new Set());journeysByVin.get(vin).add(match.journey_id);});
+      const contactedMatches=contactedMatchesRaw.map((match)=>{
+        const parsed=match.vehicle_json?.parsed||{},own=journeyById.get(match.journey_id);
+        const average=roundedMmr(parsed.mmrCents),budget=Number(own?.budget_cents)||0;
+        const fitsBid=average&&budget?average*100<=budget:null;
+        const vin=String(parsed.vin||'').trim().toUpperCase();
+        const alsoFitsFor=vin?[...new Set([...(journeysByVin.get(vin)||[])].filter((id)=>id!==match.journey_id).map((id)=>journeyById.get(id)).filter((journey)=>activeOther(journey)&&journey.contact_id!==own?.contact_id).map((journey)=>contactsById.get(journey.contact_id)?.display_name||journey.reference_code||'outro cliente'))]:[];
+        return {...match,fitsBid,alsoFitsFor};
+      });
       const cutoff=new Date(Date.now()-60*86400000).toISOString();
       const [history,stored]=await Promise.all([
         allRows(ctx,'manheim_uploads',{select:'id,vehicle_count,uploaded_at',environment:'eq.'+ctx.environment,uploaded_at:'gte.'+cutoff}),

@@ -2,7 +2,7 @@
 const {allRows,insert,isUuid,jsonBody,patchRows,requirePanel,rows,safeText,send}=require('../../panel-server');
 const {expiresAt,publicVehicle,randomCode,randomToken,vehicleName}=require('../../vitrine-domain');
 
-async function uniqueCode(ctx){ for(let i=0;i<20;i++){const code=randomCode();const found=await rows(ctx,'vitrine_cars',{select:'id',environment:'eq.'+ctx.environment,short_code:'eq.'+code,limit:'1'});if(!found[0])return code;} throw Error('VITRINE_CODE_EXHAUSTED'); }
+async function uniqueCode(ctx,services={rows}){ for(let i=0;i<20;i++){const code=randomCode();const found=await services.rows(ctx,'vitrine_cars',{select:'id',environment:'eq.'+ctx.environment,short_code:'eq.'+code,limit:'1'});if(!found[0])return code;} throw Error('VITRINE_CODE_EXHAUSTED'); }
 async function create(ctx,body){
   if(!isUuid(body.journeyId)||!Array.isArray(body.matchIds)||!body.matchIds.length||body.matchIds.length>12)return null;
   const [journey]=await rows(ctx,'journeys',{select:'id,contact_id,reference_code,budget_cents',environment:'eq.'+ctx.environment,id:'eq.'+body.journeyId,limit:'1'});
@@ -15,10 +15,38 @@ async function create(ctx,body){
   for(const car of cars) await insert(ctx,'vitrine_cars',{environment:ctx.environment,vitrine_id:vitrine.id,source_match_id:car.match.id,short_code:await uniqueCode(ctx),vehicle_snapshot:car.vehicle,customer_limit_cents:journey.budget_cents||null,photo_paths:[]},false);
   return {token,link:'/v/'+token,referenceCode:journey.reference_code,cars:cars.map((item)=>vehicleName(item.vehicle))};
 }
+/* V2: vitrine NOVA (token novo) so com o carro pedido, ligada a V1 de origem.
+   A V1 nunca e alterada: o link V1 do cliente continua sendo V1. */
+function limitCents(body,journey){
+  if(!Object.hasOwn(body,'customerLimitCents'))return journey?.budget_cents||null;
+  const value=Math.round(Number(body.customerLimitCents));
+  return body.customerLimitCents===null||body.customerLimitCents===''||!Number.isFinite(value)||value<=0?null:value;
+}
+async function createV2(ctx,body,services={rows,insert}){
+  if(!isUuid(body.requestId))return {error:'VITRINE_V2_INVALID'};
+  const [request]=await services.rows(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,treated_at',environment:'eq.'+ctx.environment,id:'eq.'+body.requestId,limit:'1'});
+  if(!request)return {error:'VITRINE_REQUEST_NOT_FOUND'};
+  if(request.treated_at)return {error:'VITRINE_REQUEST_TREATED'};
+  const [[origin],[car]]=await Promise.all([
+    services.rows(ctx,'vitrines',{select:'id,journey_id,contact_id,reference_code,customer_name',environment:'eq.'+ctx.environment,id:'eq.'+request.vitrine_id,limit:'1'}),
+    services.rows(ctx,'vitrine_cars',{select:'id,vitrine_id,source_match_id,vehicle_snapshot',environment:'eq.'+ctx.environment,id:'eq.'+request.vitrine_car_id,vitrine_id:'eq.'+request.vitrine_id,limit:'1'})
+  ]);
+  if(!origin)return {error:'VITRINE_NOT_FOUND'};
+  if(!car||!car.vehicle_snapshot)return {error:'VITRINE_CAR_MISSING'};
+  const [journey]=origin.journey_id?await services.rows(ctx,'journeys',{select:'id,budget_cents',environment:'eq.'+ctx.environment,id:'eq.'+origin.journey_id,limit:'1'}):[];
+  const token=randomToken();
+  const created=await services.insert(ctx,'vitrines',{environment:ctx.environment,token,version:'V2',parent_vitrine_id:origin.id,journey_id:origin.journey_id,contact_id:origin.contact_id,reference_code:origin.reference_code||'',customer_name:origin.customer_name||null,expires_at:expiresAt([car.vehicle_snapshot]),created_by:ctx.panel.id});
+  const vitrine=created[0];
+  const note=safeText(body.noteText,1200)||null;
+  const [newCar]=await services.insert(ctx,'vitrine_cars',{environment:ctx.environment,vitrine_id:vitrine.id,source_match_id:car.source_match_id||null,short_code:await uniqueCode(ctx,services),vehicle_snapshot:car.vehicle_snapshot,customer_limit_cents:limitCents(body,journey),note_text:note,photo_paths:[]});
+  return {token,link:'/v/'+token,vitrineId:vitrine.id,carId:newCar.id};
+}
 async function update(ctx,body){
   if(!safeText(body.token,100,true))return null; const list=await rows(ctx,'vitrines',{select:'id',environment:'eq.'+ctx.environment,token:'eq.'+body.token,limit:'1'});if(!list[0])return null;
   const version=body.version==='V2'?'V2':'V1'; await patchRows(ctx,'vitrines',{id:'eq.'+list[0].id,environment:'eq.'+ctx.environment},{version,updated_at:new Date().toISOString()});
   if(Array.isArray(body.cars)) for(const item of body.cars){ if(!isUuid(item.id))continue; const patch={};if(Object.hasOwn(item,'customerLimitCents'))patch.customer_limit_cents=Math.max(0,Math.round(Number(item.customerLimitCents)||0))||null;if(Object.hasOwn(item,'note'))patch.note_text=safeText(item.note,1200)||null;if(Object.keys(patch).length)await patchRows(ctx,'vitrine_cars',{id:'eq.'+item.id,environment:'eq.'+ctx.environment,vitrine_id:'eq.'+list[0].id},patch); }
   return {token:body.token,link:'/v/'+body.token,version};
 }
-module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const out=await create(ctx,await jsonBody(req,65536));return out?send(res,201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
+module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,65536);if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,out.error==='VITRINE_REQUEST_NOT_FOUND'||out.error==='VITRINE_NOT_FOUND'?404:out.error==='VITRINE_REQUEST_TREATED'?409:400,{error:out.error}):send(res,201,out);}const out=await create(ctx,body);return out?send(res,201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
+module.exports.createV2=createV2;
+module.exports.limitCents=limitCents;
