@@ -183,7 +183,7 @@ async function processRaw(ctx,row,options={}){
   const claimed=await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+row.id,environment:'eq.'+ctx.environment,status:'in.(PENDING,ERROR)'},{status:'PROCESSING',attempts:(row.attempts||0)+1,error_code:null,processing_started_at:new Date().toISOString()},true);
   if(!claimed.length)return {skipped:true};
   try{
-    const sourceKind=sourceKindFor(row,options),parsed=normalizeParsed(row.payload_json,{sourceKind});let imported=0,duplicates=0,reviews=0,itemFailures=0;
+    const sourceKind=sourceKindFor(row,options),parsed=normalizeParsed(row.payload_json,{sourceKind});let imported=0,duplicates=0,reviews=0,itemFailures=0;const pushMessages=[];
     await saveAddressBook(ctx,parsed.addressBook);
     for(const status of parsed.statuses||[]){try{await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_apply_status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_status:status})});}catch(_){itemFailures++;}}
     for(const failure of parsed.itemErrors){await saveItemError(ctx,row.id,failure);itemFailures++;}
@@ -197,7 +197,10 @@ async function processRaw(ctx,row,options={}){
         const result=await processItem(ctx,row.id,item);if(result.review){reviews++;continue;}
         if(result.duplicate)duplicates++;else imported++;
         await resolveItemError(ctx,row.id,item.itemIndex).catch(()=>null);
-        if(options.live&&item.direction==='CUSTOMER'&&item.eventField==='messages')await maybeAutoReply(ctx,row.id,item,result).catch(()=>null);
+        if(options.live&&item.direction==='CUSTOMER'&&item.eventField==='messages'){
+          if(!result?.duplicate&&result?.messageId)pushMessages.push({messageId:result.messageId,contactId:result.contactId||null,journeyId:result.journeyId||null,phone:item.phone||null});
+          await maybeAutoReply(ctx,row.id,item,result).catch(()=>null);
+        }
         if(item.media&&(item.media.id||item.media.url)&&result?.messageId){try{const {enqueueMediaJob}=require('./whatsapp-media');await enqueueMediaJob(ctx,item,result.messageId);}catch(error){console.error('[whatsapp-media]',{operation:'enqueue',message:String(error?.message||'UNKNOWN')});}}
       }catch(error){
         const ambiguous=/PHONE_AMBIGUOUS/.test(String(error&&error.message||''));
@@ -211,7 +214,7 @@ async function processRaw(ctx,row,options={}){
     }
     const ignored=parsed.ignoredFields.length?`IGNORED:${parsed.ignoredFields.join(',').slice(0,180)}`:itemFailures?'ITEM_ERRORS:'+itemFailures:null;
     await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+row.id,environment:'eq.'+ctx.environment},{status:parsed.type==='UNKNOWN'||parsed.type==='statuses'?'IGNORED':'DONE',event_type:parsed.type,error_code:ignored,processed_at:new Date().toISOString(),processing_started_at:null});
-    return {imported,duplicates,reviews,itemErrors:itemFailures,ignoredFields:parsed.ignoredFields};
+    return {imported,duplicates,reviews,itemErrors:itemFailures,ignoredFields:parsed.ignoredFields,pushMessages};
   }catch(error){
     await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+row.id,environment:'eq.'+ctx.environment},{status:'ERROR',error_code:/^[A-Z_:, -]{3,190}$/.test(error.message)?error.message:'PROCESSING_FAILED',processing_started_at:null});
     return {error:true};
