@@ -255,6 +255,8 @@ async function actionMarkMessage(ctx, journey, body) {
     PAYMENT: { point: 3, field: 'PAGAMENTO' }, DEADLINE: { point: 4, field: 'PRAZO' },
     OUTSIDE_FLORIDA: { point: 5 }, NO_TEST_DRIVE: { point: 6 }
   }[kind];
+  // M6: nothing marked on a message changes a closed journey.
+  if (config && (journey.stage_frozen || journey.status === 'ENCERRADO')) return send(ctx.res, 409, { error: 'JOURNEY_CLOSED' });
   const message = await customerMessage(ctx, journey, body.messageId);
   if (!config || !message) return send(ctx.res, 400, { error: 'MESSAGE_MARK_INVALID' });
   const wishlists = kind === 'VEHICLE' ? safeWishlists(body.wishlists || body.wishlist, true) : null;
@@ -355,19 +357,19 @@ async function actionClientOk(ctx, journey, body) {
   if (!message) return send(ctx.res, 400, { error: 'CUSTOMER_OK_EVIDENCE_INVALID' });
   const at = isoNow();
   const openPoints = await rows(ctx, 'journey_checklist', { select: 'point_number', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, status: 'eq.OPEN' });
-  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { ...clientOkPatch(at, message.id), updated_by: ctx.panel.id });
+  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { ...clientOkPatch(at, message.id, journey.stage), updated_by: ctx.panel.id });
   await insert(ctx, 'interactions', { environment: ctx.environment, journey_id: journey.id, message_id: message.id, type: 'JOURNEY_QUALIFIED', occurred_at: at, detail_text: null, created_at: at, created_by: ctx.panel.id }, false);
   await cancelSuppressions(ctx, journey.id, at);
   await recordMutation(ctx, {
     at, journeyId: journey.id, contactId: journey.contact_id, chatId: message.chat_id,
-    activityType: 'CLIENT_GAVE_OK', summary: 'Cliente deu OK; jornada qualificada e encerrada',
+    activityType: 'CLIENT_GAVE_OK', summary: 'Cliente deu OK; jornada qualificada',
     metadata: { evidence_message_id: message.id, open_checklist_points: openPoints.map((item) => item.point_number) },
     entityType: 'journey', entityId: journey.id, action: 'CLIENT_GAVE_OK',
     before: { stage: journey.stage, status: journey.status },
-    after: { stage: 'QUALIFICADO', status: 'ENCERRADO', closed_reason: 'CLIENTE_DEU_OK', evidence_message_id: message.id }
+    after: { stage: 'QUALIFICADO', status: journey.status, evidence_message_id: message.id }
   });
   await recordMessageMenuEvent(ctx,journey,body,'CLIENT_OK',isoNow());
-  return send(ctx.res, 200, { stage: 'QUALIFICADO', status: 'ENCERRADO', closedReason: 'CLIENTE_DEU_OK', openChecklistPoints: openPoints.map((item) => item.point_number) });
+  return send(ctx.res, 200, { stage: 'QUALIFICADO', status: journey.status, openChecklistPoints: openPoints.map((item) => item.point_number) });
 }
 
 async function actionLinkRequest(ctx, journey, body) {
@@ -508,7 +510,9 @@ async function actionUnit(ctx, journey, body) {
   }
   const units = await allRows(ctx, 'units', { select: 'id,status', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
   const stage = nextStageForUnits(journey.stage, units);
-  if (stage !== journey.stage) await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { stage, updated_at: at, updated_by: ctx.panel.id });
+  // A10: presenting a car starts the search (only forward); the first presentation dates it.
+  const searchStart = !journey.search_started_at && units.some((item) => item.status !== 'WITHDRAWN') ? { search_started_at: at } : {};
+  if (stage !== journey.stage || searchStart.search_started_at) await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { stage, ...searchStart, updated_at: at, updated_by: ctx.panel.id });
   await recordMutation(ctx, {
     at, journeyId: journey.id, contactId: journey.contact_id,
     activityType: 'UNIT_UPDATED', summary: 'Unidade apresentada atualizada', metadata: { unit_id: unitId, status, customer_responded: body.customerResponded === true },
@@ -584,6 +588,7 @@ async function actionSetStatus(ctx, journey, body) {
 async function actionToggleJourney(ctx, journey, body) {
   if (typeof body.enabled !== 'boolean') return send(ctx.res, 400, { error: 'JOURNEY_SWITCH_INVALID' });
   if (!body.enabled && !journeyEnabled(journey)) return send(ctx.res, 409, { error: 'JOURNEY_ALREADY_DISABLED' });
+  if (body.enabled && journey.status === 'ENCERRADO' && journey.closed_reason === 'WHATSAPP_LINKED') return send(ctx.res, 409, { error: 'JOURNEY_MERGED' });
   const reason = body.reason === null || body.reason === undefined || body.reason === '' ? null : String(body.reason);
   if (reason && !['MCS_PURCHASE', 'OTHER_PURCHASE', 'GAVE_UP', 'NO_RESPONSE'].includes(reason)) return send(ctx.res, 400, { error: 'JOURNEY_SWITCH_REASON_INVALID' });
   const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_set_journey_enabled', {
@@ -900,6 +905,8 @@ module.exports = async (req, res) => {
     }
   } catch (failure) {
     if (failure && failure.message === 'PAYLOAD_TOO_LARGE') return send(res, 413, { error: 'PAYLOAD_TOO_LARGE' });
+    // Lifecycle rules enforced by the database answer with their own code, not a generic 500.
+    if (['JOURNEY_FROZEN', 'JOURNEY_CLOSED', 'JOURNEY_MERGED', 'JOURNEY_NOT_FOUND'].includes(failure?.code)) return send(res, 409, { error: failure.code });
     return send(res, 500, { error: 'PANEL_ACTION_FAILED' });
   }
 };

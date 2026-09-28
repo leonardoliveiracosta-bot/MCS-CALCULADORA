@@ -113,12 +113,14 @@ test('clicked WhatsApp or SMS calculator requests appear in HOJE only while unli
   assert.equal(items[0].reasons[0].label, 'WHATSAPP CLICADO');
 });
 
-test('Cliente deu OK freezes as QUALIFICADO + ENCERRADO with exact reason', () => {
-  const result = clientOkPatch('2026-09-25T12:00:00Z', '00000000-0000-4000-8000-000000000001');
+test('Cliente deu OK qualifies without closing (owner decision) and never rewrites an earlier qualification', () => {
+  const result = clientOkPatch('2026-09-25T12:00:00Z', '00000000-0000-4000-8000-000000000001', 'RESPONDIDO');
   assert.equal(result.stage, 'QUALIFICADO');
-  assert.equal(result.status, 'ENCERRADO');
-  assert.equal(result.closed_reason, 'CLIENTE_DEU_OK');
-  assert.equal(result.stage_frozen, true);
+  assert.equal(result.qualified_at, '2026-09-25T12:00:00Z');
+  assert.equal(result.status, undefined);
+  assert.equal(result.closed_reason, undefined);
+  assert.equal(result.stage_frozen, undefined);
+  assert.deepEqual(clientOkPatch('2026-09-26T12:00:00Z', 'x', 'QUALIFICADO'), { updated_at: '2026-09-26T12:00:00Z' });
 });
 
 test('six evidence points are only checklist completo and short deadline is informational', () => {
@@ -128,10 +130,10 @@ test('six evidence points are only checklist completo and short deadline is info
   assert.equal(shortDeadline(new Date(now.getTime() + 30 * DAY_MS).toISOString(), now), true);
 });
 
-test('unit transitions return to EM_BUSCA only when none remains under review', () => {
+test('unit transitions only move the stage forward (A10, Lote 2)', () => {
   assert.equal(nextStageForUnits('EM_BUSCA', [{ status: 'UNDER_REVIEW' }]), 'DECIDINDO');
   assert.equal(nextStageForUnits('DECIDINDO', [{ status: 'DECLINED' }, { status: 'UNDER_REVIEW' }]), 'DECIDINDO');
-  assert.equal(nextStageForUnits('DECIDINDO', [{ status: 'DECLINED' }]), 'EM_BUSCA');
+  assert.equal(nextStageForUnits('DECIDINDO', [{ status: 'DECLINED' }]), 'DECIDINDO');
 });
 
 test('global search matches name accents, phone digits, and Ref', () => {

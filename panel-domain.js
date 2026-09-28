@@ -553,20 +553,29 @@ function orderSearchMatches(query, order) {
   return [order && order.ref, order && order.vehicleText, order && order.zip].map(fold).some((value) => value.includes(needle));
 }
 
-function nextStageForUnits(currentStage, units) {
-  const reviewing = (Array.isArray(units) ? units : []).some((item) => item.status === 'UNDER_REVIEW');
-  if (reviewing) return 'DECIDINDO';
-  return currentStage === 'DECIDINDO' ? 'EM_BUSCA' : currentStage;
+// Stages only move forward on their own (owner's rule); a manual change is always possible.
+const STAGE_RANK = Object.freeze({ NOVO: 0, RESPONDIDO: 1, EM_BUSCA: 2, DECIDINDO: 3, QUALIFICADO: 4 });
+
+function forwardStage(currentStage, targetStage) {
+  const current = STAGE_RANK[currentStage], target = STAGE_RANK[targetStage];
+  if (target === undefined) return currentStage;
+  return current === undefined || target > current ? targetStage : currentStage;
 }
 
-function clientOkPatch(at, messageId) {
-  return {
-    stage: 'QUALIFICADO', status: 'ENCERRADO', stage_frozen: true,
-    qualified_at: at, qualified_message_id: messageId,
-    closed_at: at, closed_reason: 'CLIENTE_DEU_OK',
-    next_action_at: null, next_action_text: null, next_action_missing_since: null,
-    updated_at: at
-  };
+// A presented car (any unit not withdrawn) means the search is on; a customer reviewing or
+// accepting a car means the customer is deciding. Never moves a stage back.
+function nextStageForUnits(currentStage, units) {
+  const live = (Array.isArray(units) ? units : []).filter((item) => item && item.status !== 'WITHDRAWN');
+  if (live.some((item) => item.status === 'UNDER_REVIEW' || item.status === 'ACCEPTED')) return forwardStage(currentStage, 'DECIDINDO');
+  if (live.length) return forwardStage(currentStage, 'EM_BUSCA');
+  return currentStage;
+}
+
+// "Cliente deu OK" = the customer agreed to proceed: the journey becomes QUALIFICADO and stays
+// open (owner's decision). Closing is an explicit action (the on/off switch).
+function clientOkPatch(at, messageId, currentStage) {
+  if (currentStage === 'QUALIFICADO') return { updated_at: at };
+  return { stage: 'QUALIFICADO', qualified_at: at, qualified_message_id: messageId, updated_at: at };
 }
 
 const INTERACTION_TIMELINE_LABELS = Object.freeze({
@@ -583,7 +592,7 @@ const INTERACTION_TIMELINE_LABELS = Object.freeze({
 
 const SYSTEM_TIMELINE_LABELS = Object.freeze({
   JOURNEY_FUNNEL_CHANGED: 'Etapa alterada',
-  CLIENT_GAVE_OK: 'Jornada qualificada e encerrada',
+  CLIENT_GAVE_OK: 'Cliente deu OK: jornada qualificada',
   PROMISE_RECORDED: 'Promessa registrada',
   PROMISE_FULFILLED: 'Promessa cumprida',
   UNIT_UPDATED: 'Unidade atualizada'
@@ -619,6 +628,6 @@ function buildConversationTimeline(messages, interactions, activities) {
 module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, toggleEnabled, journeyLogicalMode, logicalMode,
-  matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits,
+  matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK,
   normalizeState, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };

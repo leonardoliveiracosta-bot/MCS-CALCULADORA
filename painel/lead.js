@@ -279,9 +279,12 @@
     append(history,'h3','','Promessas');allPromises.forEach((promise)=>{const line=row(history,promise.promise_text,date(promise.due_at,data.timezone),({OPEN:'Aberta',FULFILLED:'Concluída',CANCELLED:'Cancelada'})[promise.status]||promise.status);if(promise.status==='OPEN')button(line,'Concluir',async()=>{await api('promise_complete',{promiseId:promise.id,kind:promise.message_id?'OLD':'NEW'});await reload();});});
     append(history,'h3','','Linha do tempo');const timeline=append(history,'ul','lead-timeline');timelineRows(data).forEach((item)=>append(timeline,'li','',`${date(item.at,data.timezone)} — ${item.text}`));
     const power=append(history,'div','lead-actions');
-    if(record.enabled===false)button(power,'Ligar lead',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:true}});await reload();});
+    // A7: a closed ficha is reopened explicitly; one merged into another conversation stays closed.
+    if(record.status==='ENCERRADO'&&record.closed_reason==='WHATSAPP_LINKED')append(power,'p','muted','Ficha juntada a outra conversa');
+    else if(record.enabled===false)button(power,record.status==='ENCERRADO'?'Reabrir ficha':'Ligar lead',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:true}});await reload();});
     else {const reason=append(power,'select');[['','Desligar com motivo'],['MCS_PURCHASE','Comprou com a MCS'],['OTHER_PURCHASE','Comprou em outro lugar'],['GAVE_UP','Desistiu'],['NO_RESPONSE','Sem resposta']].forEach(([v,label])=>reason.append(new Option(label,v)));
-      button(power,'Desligar',async()=>{if(!reason.value)return;await api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:reason.value}});await reload();});}
+      const off=button(power,'Desligar',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:reason.value}});await reload();});
+      off.disabled=true;off.title='Escolha o motivo';reason.addEventListener('change',()=>{off.disabled=!reason.value;});}
     if(downloadShortlist){const matching=(data.offers||[]).map((car)=>({vehicle_json:{parsed:car}}));if(matching.length)button(history,'Baixar PDF',()=>downloadShortlist(matching,ref));}
   }
   window.MCSLead={open};

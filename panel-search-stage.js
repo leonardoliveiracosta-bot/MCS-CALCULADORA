@@ -2,7 +2,7 @@
 
 // The same deterministic search identity is used by BUSCAS and Manheim saves.
 const { allRows } = require('./panel-server');
-const { wishlistsForJourney } = require('./panel-domain');
+const { toggleEnabled, wishlistsForJourney } = require('./panel-domain');
 const catalog = require('./vehicle-catalog');
 
 function searchableWish(wishes) {
@@ -34,16 +34,19 @@ function directLeadSource(journey, hasOrder) {
 }
 
 async function loadSearchStageIndex(ctx) {
-  const [journeys, refs, calcRuns, saved, marks, events, units, confirmedPrints] = await Promise.all([
-    allRows(ctx, 'journeys', { select: 'id,reference_code,source,criteria_json,created_at', environment: 'eq.' + ctx.environment }),
+  const [journeys, refs, calcRuns, saved, marks, events, units, confirmedPrints, toggles] = await Promise.all([
+    allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,created_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'calc_runs', { select: 'dados', order: 'created_at.asc' }),
     allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' }),
     allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at', environment: 'eq.' + ctx.environment, undone_at: 'is.null' }).catch(() => []),
     allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
-    allRows(ctx, 'units', { select: 'journey_id,status,presented_at,created_at', environment: 'eq.' + ctx.environment, status: 'eq.PRESENTED' }),
-    allRows(ctx, 'sms_print_reads', { select: 'confirmed_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.CONFIRMED' })
+    // A11: a car stays "sent" whatever the customer answered (only a withdrawn unit does not count).
+    allRows(ctx, 'units', { select: 'journey_id,status,presented_at,created_at', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),
+    allRows(ctx, 'sms_print_reads', { select: 'confirmed_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.CONFIRMED' }),
+    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment })
   ]);
+  const toggleByJourney = new Map(toggles.map((row) => [row.journey_id, row]));
   const savedByKey = new Map(saved.map((row) => [row.search_key, row.updated_at || null]));
   const marksByJourney = new Map();
   marks.forEach((mark) => {
@@ -62,7 +65,8 @@ async function loadSearchStageIndex(ctx) {
     const source=directLeadSource(journey,hasOrder);
     const wish = searchableWish(wishlistsForJourney(journey));
     const key = searchKey(wish);
-    if (!key) {
+    // A closed or switched-off journey has no search to do: no badge.
+    if (!key || !toggleEnabled(journey.status, toggleByJourney.get(journey.id))) {
       index.set(journey.id, { hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
       return;
     }

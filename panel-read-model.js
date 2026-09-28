@@ -46,7 +46,7 @@ async function operational(ctx) {
 
 async function journeyExists(ctx, journeyId) {
   const found = await rows(ctx, 'journeys', {
-    select: 'id,contact_id,reference_code,stage,status,stage_frozen,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,next_action_at,next_action_text,next_action_missing_since,last_effective_contact_at,search_started_at,updated_at',
+    select: 'id,contact_id,reference_code,stage,status,stage_frozen,closed_reason,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,next_action_at,next_action_text,next_action_missing_since,last_effective_contact_at,search_started_at,updated_at',
     environment: 'eq.' + ctx.environment, id: 'eq.' + journeyId, limit: '1'
   });
   if (!found[0]) return null;
