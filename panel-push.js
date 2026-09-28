@@ -7,7 +7,7 @@ const { allowedCustomerChatIds, isEligibleCustomerMessage } = require('./panel-n
 const THROTTLE_MS = 5 * 60 * 1000;
 
 function clean(value, maximum = 160) {
-  const text = String(value || '').normalize('NFC').replace(/s+/g, ' ').trim();
+  const text = String(value || '').normalize('NFC').replace(/\s+/g, ' ').trim();
   return text ? text.slice(0, maximum) : null;
 }
 
@@ -29,7 +29,7 @@ function vapidDetails() {
   const publicKey = clean(process.env.VAPID_PUBLIC_KEY, 300);
   const privateKey = clean(process.env.VAPID_PRIVATE_KEY, 300);
   const subject = clean(process.env.VAPID_SUBJECT, 320);
-  if (!publicKey || !privateKey || !subject || !/^mailto:|^https:///.test(subject)) return null;
+  if (!publicKey || !privateKey || !subject || !/^mailto:|^https:\/\//.test(subject)) return null;
   return { publicKey, privateKey, subject };
 }
 
