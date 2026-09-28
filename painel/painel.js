@@ -99,6 +99,10 @@
     node.textContent = String(count);
     node.classList.toggle('count-positive', count > 0);
   });
+  const setCountUnknown = (view) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => {
+    node.textContent = '—';
+    node.classList.remove('count-positive');
+  });
 
   const PAYMENT_LABELS = Object.freeze({ cash: 'À vista', fin: 'Financiado', financing: 'Financiado' });
   const DEADLINE_LABELS = Object.freeze({ none: 'Sem prazo', now: 'Agora', '30d': '30 dias', '3m': '3 meses', '6m': '6 meses', '12m': '12 meses' });
@@ -877,7 +881,7 @@
   function directLeadBadge(item){const label=directLeadLabel(item);return label?makeBadge(label,'blue'):null;}
   /* dd/mm no horario da Florida */
   function floridaDayMonth(value){const date=new Date(value);if(Number.isNaN(date.getTime()))return '';const parts=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).formatToParts(date);const get=(type)=>parts.find((part)=>part.type===type)?.value||'';return `${get('day')}/${get('month')}`;}
-  function clientSort(items,mode){const missing=(v)=>v===null||v===undefined||v==='';const value=(x)=>Number(x.confirmed_total_ceiling_cents||x.budgetCents||x.budget_cents)||null;const hasSortAt=(x)=>Object.prototype.hasOwnProperty.call(x,'sortAt');const stamp=(x)=>hasSortAt(x)?(x.sortAt?Date.parse(x.sortAt)||null:null):(Date.parse(x.last_seen_at||x.updated_at||x.occurredAt||x.created_at||0)||0);const field=(x,kind)=>kind==='location'?(x.state||x.estado||x.contact?.location_text):kind==='vehicle'?(x.make||x.vehicleText||x.vehicle_text):value(x);return items.slice().sort((a,b)=>{if(mode==='recent'||mode==='oldest'){/* sortAt vem do servidor (ultima mensagem real); sem data vai para o fim */const sa=stamp(a),sb=stamp(b);if(sa===null)return sb===null?0:1;if(sb===null)return -1;return(sb-sa)*(mode==='recent'?1:-1);}const av=field(a,mode),bv=field(b,mode);if(missing(av))return missing(bv)?0:1;if(missing(bv))return -1;if(mode==='value_desc'||mode==='value_asc')return(av-bv)*(mode==='value_desc'?-1:1);return String(av).localeCompare(String(bv),'pt-BR');});}
+  function clientSort(items,mode){const missing=(v)=>v===null||v===undefined||v==='';const value=(x)=>Number(x.budgetCents||x.budget_cents)||null;const hasSortAt=(x)=>Object.prototype.hasOwnProperty.call(x,'sortAt');const stamp=(x)=>hasSortAt(x)?(x.sortAt?Date.parse(x.sortAt)||null:null):(Date.parse(x.last_seen_at||x.updated_at||x.occurredAt||x.created_at||0)||0);const field=(x,kind)=>kind==='location'?(x.state||x.estado||x.contact?.location_text):kind==='vehicle'?(x.make||x.vehicleText||x.vehicle_text):value(x);return items.slice().sort((a,b)=>{if(mode==='recent'||mode==='oldest'){/* sortAt vem do servidor (ultima mensagem real); sem data vai para o fim */const sa=stamp(a),sb=stamp(b);if(sa===null)return sb===null?0:1;if(sb===null)return -1;return(sb-sa)*(mode==='recent'?1:-1);}const av=field(a,mode),bv=field(b,mode);if(missing(av))return missing(bv)?0:1;if(missing(bv))return -1;if(mode==='value_desc'||mode==='value_asc')return(av-bv)*(mode==='value_desc'?-1:1);return String(av).localeCompare(String(bv),'pt-BR');});}
 
   function identityHeader(item, options = {}) {
     const ref = item.referenceCode || item.reference_code || item.ref || null;
@@ -919,7 +923,7 @@
   }
 
   function journeySwitch(item, reload) {
-    const enabled = typeof item.enabled === 'boolean' ? item.enabled : item.status !== 'ENCERRADO';
+    const enabled = item.status !== 'ENCERRADO' && (typeof item.enabled === 'boolean' ? item.enabled : true);
     const wrap = element('div', 'journey-switch');
     const canReactivate = enabled || item.toggleManaged !== false;
     const toggle = element('button', enabled ? 'switch-on small' : 'switch-off small', enabled ? 'Ligado' : canReactivate ? 'Desligado — religar' : 'Desligado');
@@ -1024,8 +1028,9 @@
     }
   }
 
+  // C5: one failing counter never breaks the others nor the session; it shows "—".
   async function refreshCounters() {
-    const [today, entry, pending, orders, searches, manheim, records, vitrineData] = await Promise.all([
+    const settled = await Promise.allSettled([
       request('/api/panel/today'),
       request('/api/panel/entry'),
       request('/api/panel/pendencias'),
@@ -1035,14 +1040,19 @@
       request('/api/panel/records'),
       request('/api/panel/vitrine-requests')
     ]);
-    setCount('today',(today.items||[]).length+(vitrineData.requests||[]).length);
-    setCount('entry', (entry.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (entry.reviews || []).length);
-    setCount('clients', (records.items || []).length);
-    setCount('pending', Object.values(pending.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
-    setCount('orders', orders.page && orders.page.total || 0);
-    setCount('searches', (searches.items || []).length);
-    setCount('manheim', manheim.upload && manheim.upload.lead_count || 0);
-    setCount('records', (records.items || []).length);
+    const [today, entry, pending, orders, searches, manheim, records, vitrineData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
+    if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
+    count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
+    count('clients', records, (data) => (data.items || []).length);
+    count('pending', pending, (data) => Object.values(data.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
+    count('orders', orders, (data) => data.page && data.page.total || 0);
+    count('searches', searches, (data) => (data.items || []).length);
+    count('manheim', manheim, (data) => data.upload && data.upload.lead_count || 0);
+    count('records', records, (data) => (data.items || []).length);
+    const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
+    if (failures.length) console.error('Contadores com falha', failures);
+    return { failed: failures.length };
   }
 
   async function loadCaptureWarning() {
@@ -1237,7 +1247,7 @@
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
-        actionMessage, downloadShortlist, dispositionControls,
+        actionMessage, downloadShortlist, dispositionControls, replyComposer,
         mediaObjectUrl:async(messageId)=>{const response=await fetch('/api/panel/media?messageId='+encodeURIComponent(messageId),{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('MEDIA_NOT_AVAILABLE');return URL.createObjectURL(await response.blob());} });
       if(requestVersion!==detailRequestVersion)return;
       if(leadDetailData?.record?.whatsappWithoutPhone){const identity=$('record-detail').querySelector('.lead-head-name');if(identity)identity.append(element('p','muted whatsapp-no-phone-note','Responda pela conversa no app WhatsApp Business'));}
@@ -1557,11 +1567,11 @@
   function wishlistSummary(wishlist, budgetCents) {
     const wishes = Array.isArray(wishlist) ? wishlist : [wishlist || {}];
     const vehicles = wishes.slice(0, 5).map((wish) => {
-      const years = wish.yearMin && wish.yearMax ? `${wish.yearMin}–${wish.yearMax}` : wish.yearMin || wish.yearMax || 'qualquer ano';
-      const miles = wish.maxMiles ? `até ${Number(wish.maxMiles).toLocaleString('pt-BR')} milhas` : 'sem limite de milhas';
+      const years = wish.yearMin && wish.yearMax ? `${wish.yearMin}–${wish.yearMax}` : wish.yearMin ? `${wish.yearMin} ou mais novo` : wish.yearMax ? `até ${wish.yearMax}` : 'ano não informado';
+      const miles = wish.maxMiles ? `até ${Number(wish.maxMiles).toLocaleString('pt-BR')} milhas` : 'milhagem não informada';
       return `${wish.make || 'Marca não informada'} ${wish.model || 'modelo não informado'} · ${years} · ${miles}`;
     });
-    return `${vehicles.join(' | ')}${budgetCents ? ` · teto ${formatMoney(budgetCents)}` : ''}`;
+    return `${vehicles.join(' | ')}${budgetCents ? ` · lance até ${formatMoney(budgetCents)}` : ''}`;
   }
 
   function downloadShortlist(matches, referenceCode) {
@@ -1593,6 +1603,20 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // Unknown odometer is shown as unknown, never as 0 miles (R3e).
+  const milesText = (miles) => miles === null || miles === undefined || miles === '' || !Number.isFinite(Number(miles)) ? 'milhagem não informada' : `${Number(miles).toLocaleString('pt-BR')} milhas`;
+  const mmrLabel = (code) => window.MCSVehicleMatch ? MCSVehicleMatch.mmrStatusLabel(code) : code;
+  // Match kinds: BATE (criteria met), POR_VALOR (bid range; call to define year/mileage), QUASE.
+  const kindLabel = (kind) => window.MCSVehicleMatch ? MCSVehicleMatch.kindLabel(kind) : kind;
+  const kindTone = (kind) => kind === 'BATE' ? 'green' : kind === 'POR_VALOR' ? 'blue' : 'yellow';
+  const kindClass = (kind) => kind === 'BATE' ? 'match' : kind === 'POR_VALOR' ? 'value' : 'near';
+  const kindSummaryBadge = (matches) => {
+    const count = (kind) => matches.filter((match) => match.match_kind === kind).length;
+    const parts = [`${count('BATE')} BATE`];
+    if (count('POR_VALOR')) parts.push(`${count('POR_VALOR')} POR VALOR`);
+    parts.push(`${count('QUASE')} QUASE`);
+    return makeBadge(parts.join(' · '), count('BATE') ? 'green' : count('POR_VALOR') ? 'blue' : 'yellow');
+  };
   const MANHEIM_VISIBLE_ROWS = 10;
   // BATE first, then QUASE, lowest mileage first; the first 10 are visible and the rest open on "Ver mais".
   function appendManheimRows(table, matches, renderRow) {
@@ -1612,8 +1636,8 @@
   function renderManheimGroup(root, journey, matches, reactivation) {
     const card = element('article', 'item-card manheim-lead');
     const head = element('div', 'item-head');
-    head.append(identityHeader(journey), makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));if(journey.searchStageLabel)head.append(makeBadge(journey.searchStageLabel,journey.searchStage==='SENT'?'green':journey.searchStage==='SAVED'?'blue':'yellow'));
-    card.append(head, element('p', 'muted', wishlistSummary(journey.wishlists || journey.wishlist, journey.budget_cents)));
+    head.append(identityHeader(journey), kindSummaryBadge(matches));if(journey.searchStageLabel)head.append(makeBadge(journey.searchStageLabel,journey.searchStage==='SENT'?'green':journey.searchStage==='SAVED'?'blue':'yellow'));
+    card.append(head, element('p', 'muted', wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents)));
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
@@ -1623,12 +1647,12 @@
     const table = element('div', 'manheim-table');
     appendManheimRows(table, matches, (match) => {
       const parsed = match.vehicle_json.parsed || {};
-      const row = element('div', `manheim-row ${match.match_kind === 'BATE' ? 'match' : 'near'}`);
+      const row = element('div', `manheim-row ${kindClass(match.match_kind)}`);
       const select = element('input'); select.type = 'checkbox'; select.className = 'manheim-select'; select.dataset.matchId = match.id;
       const vehicle = element('div');
       vehicle.append(
         element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
-        element('span', 'muted', `${Number(parsed.miles || 0).toLocaleString('pt-BR')} milhas${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}${parsed.saleDate ? ` · ${parsed.saleDate}` : ''}`)
+        element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}${parsed.saleDate ? ` · ${parsed.saleDate}` : ''}`)
       );
       if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
       if (parsed.matchedWishlistLabel) vehicle.append(element('span', 'muted', `Lista: ${parsed.matchedWishlistLabel}`));
@@ -1637,9 +1661,10 @@
       if (parsed.buyNowPrice) vehicle.append(element('span', 'muted', `Buy Now: ${parsed.buyNowPrice}`));
       if (parsed.conditionGrade) vehicle.append(element('span', 'muted', `Nota de condição: ${parsed.conditionGrade}`));
       const badges = element('div', 'badges');
-      badges.append(makeBadge(match.match_kind, match.match_kind === 'BATE' ? 'green' : 'yellow'));
+      badges.append(makeBadge(kindLabel(match.match_kind), kindTone(match.match_kind)));
       if (match.match_reason) badges.append(makeBadge(match.match_reason));
-      if (match.mmr_status) badges.append(makeBadge(match.mmr_status, match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
+      if (parsed.matchNotice) badges.append(makeBadge(parsed.matchNotice, 'yellow'));
+      if (match.mmr_status) badges.append(makeBadge(mmrLabel(match.mmr_status), match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
       if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
       else if (match.fitsBid === false) badges.append(makeBadge('passa do lance', 'red'));
       if (Array.isArray(match.alsoFitsFor) && match.alsoFitsFor.length) badges.append(makeBadge(`também bate para ${match.alsoFitsFor.join(', ')}`, 'blue'));
@@ -1674,7 +1699,7 @@
     head.append(identity);
     card.append(head);
     const summary = element('div', 'badges');
-    summary.append(makeBadge(`${matches.filter((match) => match.match_kind === 'BATE').length} BATE · ${matches.filter((match) => match.match_kind === 'QUASE').length} QUASE`, matches.some((match) => match.match_kind === 'BATE') ? 'green' : 'yellow'));
+    summary.append(kindSummaryBadge(matches));
     summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
     card.append(summary, element('p', 'muted', order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
     const contact=contactMeta(order);if(contact)card.append(contact);
@@ -1683,18 +1708,19 @@
     const table = element('div', 'manheim-table');
     appendManheimRows(table, matches, (match) => {
       const parsed = match.vehicle_json.parsed || {};
-      const row = element('div', `manheim-row ${match.match_kind === 'BATE' ? 'match' : 'near'}`);
+      const row = element('div', `manheim-row ${kindClass(match.match_kind)}`);
       const vehicle = element('div');
       vehicle.append(
         element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
-        element('span', 'muted', `${Number(parsed.miles || 0).toLocaleString('pt-BR')} milhas${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}`)
+        element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}`)
       );
       if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
       vehicle.append(element('span', 'muted', `Ref do pedido: ${order.ref}`));
       const badges = element('div', 'badges');
-      badges.append(makeBadge(match.match_kind, match.match_kind === 'BATE' ? 'green' : 'yellow'));
+      badges.append(makeBadge(kindLabel(match.match_kind), kindTone(match.match_kind)));
       if (match.match_reason) badges.append(makeBadge(match.match_reason));
-      if (match.mmr_status) badges.append(makeBadge(match.mmr_status, match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
+      if (parsed.matchNotice) badges.append(makeBadge(parsed.matchNotice, 'yellow'));
+      if (match.mmr_status) badges.append(makeBadge(mmrLabel(match.mmr_status), match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
       if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
       else if (match.fitsBid === false) badges.append(makeBadge('passa do lance', 'red'));
       if (Array.isArray(match.alsoFitsFor) && match.alsoFitsFor.length) badges.append(makeBadge(`também bate para ${match.alsoFitsFor.join(', ')}`, 'blue'));
@@ -1775,16 +1801,28 @@
     savedSearchesData = data;
     const root = $('manheim-saved-searches');
     root.replaceChildren(element('h2', '', 'QUAIS BUSCAS SALVAR NO MANHEIM'));
-    root.append(element('p','muted','Cada linha é uma busca para você salvar no Manheim. As primeiras atendem mais clientes. Conta só quem entrou em contato.'));
+    root.append(element('p','muted','Cada linha é uma busca para você salvar no Manheim. As primeiras atendem mais clientes. Conta só quem entrou em contato. Busca (ano/milhagem) e Simulação (lance, faixa de MMR) têm porcentagens separadas; "precisa qualificar" não entra no %.'));
     if (!data.groups.length) return root.append(element('p', 'muted', 'Nenhum lead ativo com marca e modelo.'));
     const mode=$('manheim-sort')?.value||'customers';
-    const groups=data.groups.slice().sort((a,b)=>mode==='vehicle'?`${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`,'pt-BR'):mode==='recent'?(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)||a.searches-b.searches):a.searches-b.searches);
+    const rankOf=(group)=>group.searches===null||group.searches===undefined?Infinity:group.searches;
+    const basisOrder=(group)=>group.basis==='CRITERIA'?0:group.basis==='VALUE'?1:2;
+    const groups=data.groups.slice().sort((a,b)=>(basisOrder(a)-basisOrder(b))||(mode==='vehicle'?`${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`,'pt-BR'):mode==='recent'?(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)||rankOf(a)-rankOf(b)):rankOf(a)-rankOf(b)));
+    const yearsText=(group)=>group.yearsKnown?(group.yearFrom&&group.yearTo?`${group.yearFrom}–${group.yearTo}`:group.yearFrom?`${group.yearFrom} ou mais novo`:group.yearTo?`até ${group.yearTo}`:'faixas de ano abertas'):group.yearsPartial?'anos variados (alguns não informaram)':null;
+    const searchTitle=(group)=>{
+      const parts=[group.needsQualify?'Precisa qualificar':group.basis==='VALUE'?`Por valor #${group.searches}`:`Por critério #${group.searches}`,`${group.make} ${group.model}`];
+      if(group.basis==='CRITERIA'){parts.push(yearsText(group)||'ano não informado');parts.push(group.milesMax?`até ${Number(group.milesMax).toLocaleString('pt-BR')} milhas`:'milhagem não informada');}
+      else if(group.basis==='VALUE'){const years=yearsText(group);if(years)parts.push(years);parts.push(`por valor (MMR ${formatMoney(group.mmrMinCents)}–${formatMoney(group.mmrMaxCents)})`);}
+      else parts.push('ano/milhagem não informados e sem lance');
+      return parts.join(' · ');
+    };
     groups.forEach((group) => {
-      const line = element('article', 'saved-search-line');
-      const text = element('span'); const title=`#${group.searches} · ${group.make} ${group.model} · ${group.yearFrom}–${group.yearTo} · até ${Number(group.milesMax).toLocaleString('pt-BR')} milhas`;
+      const line = element('article', 'saved-search-line'+(group.needsQualify?' needs-qualify':''));
+      const text = element('span'); const title=searchTitle(group);
       const clients=element('button','quiet small',`👥 ${group.leads} ${group.leads===1?'cliente quer':'clientes querem'} este carro`); clients.type='button';
       const people=element('div','saved-search-clients hidden'); (group.clients||[]).forEach((client)=>{const person=element('button','quiet small',`${client.name||'Pedido'} · 📞 ${client.phone?phoneDisplay(client.phone):'falta o número'} · Ref ${client.ref||'—'}`);person.type='button';person.addEventListener('click',()=>{if(client.journeyId)openDetail('ficha',client.journeyId);});people.append(person);}); clients.addEventListener('click',()=>people.classList.toggle('hidden'));
-      text.append(element('strong','',title),clients,element('span','muted',mode==='customers'?`Salvando da #1 até esta, você atende ${group.percent}% dos clientes ativos.`:`Esta busca sozinha atende ${group.individualPercent}% dos clientes ativos.`),people);
+      const basisText=group.basis==='VALUE'?'clientes por valor (Simulação)':'clientes por critério (Busca)';
+      const coverage=group.needsQualify?'Fora do %: falta ano/milhagem e lance. Qualifique antes de buscar.':mode==='customers'?`Salvando da #1 até esta, você atende ${group.percent}% dos ${basisText}.`:`Esta busca sozinha atende ${group.individualPercent}% dos ${basisText}.`;
+      text.append(element('strong','',title),clients,element('span','muted',coverage),people);
       const toggle=element('button',group.created?'quiet small':'small',group.created?'✓ Busca criada':'Já criei esta busca'); toggle.type='button';
       const undo=element('button','quiet small','Desfazer');undo.type='button';undo.classList.toggle('hidden',!group.created);undo.addEventListener('click',()=>toggle.click());
       MCSAction.bind(toggle,()=>{const before=group.created;return{scope:line,optimistic:()=>{group.created=!before;toggle.textContent=group.created?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!group.created);return before;},commit:()=>request('/api/panel/manheim-searches',{method:'POST',body:JSON.stringify({key:group.key,created:group.created})}),rollback:()=>{group.created=before;toggle.textContent=before?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!before);},onSuccess:()=>{if(savedSearchesData?.groups){const cached=savedSearchesData.groups.find((entry)=>entry.key===group.key);if(cached)cached.created=group.created;}},errorText:'Não consegui salvar — tente de novo'};});
@@ -1802,11 +1840,11 @@
     const status = $('manheim-status');
     status.classList.remove('error');
     status.textContent = 'Lendo…';
-    if (!manheimJourneys.length && !manheimOrders.length) {
-      const data = await request('/api/panel/records?view=manheim');
-      manheimJourneys = data.items || [];
-      manheimOrders = data.orders || [];
-    }
+    // A19: always compare with the criteria the server has now, never with the list cached
+    // when the tab was opened.
+    const fresh = await request('/api/panel/records?view=manheim');
+    const targetJourneys = fresh.items || [];
+    const targetOrders = fresh.orders || [];
     const vehicles = [];
     const headerGroups = [];
     const mappings = [];
@@ -1826,7 +1864,7 @@
       vehicles.push(...normalized);
     }
     status.textContent = `Comparando ${vehicles.length} carros…`;
-    const matches = MCSManheimUpload.buildMatches(vehicles, manheimJourneys, manheimOrders, MCSManheim);
+    const matches = MCSManheimUpload.buildMatches(vehicles, targetJourneys, targetOrders, MCSManheim);
     if (matches.length > MANHEIM_MAX_MATCHES) throw manheimError('MANHEIM_MATCH_LIMIT', { matchCount: matches.length });
     const base = { sourceFileCount: selected.length, vehicleCount: vehicles.length, headers: headerGroups, headerMap: { files: mappings } };
     const parts = MCSManheimUpload.planParts(matches, base);
@@ -1844,7 +1882,8 @@
       archived+=saved.archived||0;ignored+=saved.ignored||0;
     }
     const combinations = Number.isFinite(Number(result.matchedVehicleCount)) ? Number(result.matchedVehicleCount) : matches.length;
-    status.textContent = `${archived} carros arquivados, ${ignored} ignorados, ${combinations} combinações`;
+    const discardedText = result.discardedTotal ? ` · ${result.discardedTotal} descartadas (critério mudou durante o envio)` : '';
+    status.textContent = `${archived} carros arquivados, ${ignored} ignorados, ${combinations} combinações${discardedText}`;
     await loadCurrent();
     await refreshCounters();
   }
@@ -1969,8 +2008,43 @@
       });
       wishlistForm.prepend(wishlistButton, addVehicle);
       menu.append(wishlistForm);
+      // Teto total (R2): the field starts empty, the amount is read locally and must be
+      // confirmed before it is saved in confirmed_total_ceiling_cents.
+      const ceilingRow = element('div', 'menu-action ceiling-action');
+      const ceilingValue = element('input');
+      ceilingValue.maxLength = 120;
+      ceilingValue.placeholder = 'Teto total (ex.: 35k, US$ 35.000)';
+      const ceilingReview = element('button', 'quiet small', 'Teto');
+      ceilingReview.type = 'button';
+      const ceilingConfirm = element('button', 'small hidden', '');
+      ceilingConfirm.type = 'button';
+      let ceilingCents = null;
+      ceilingValue.addEventListener('input', () => { ceilingCents = null; ceilingConfirm.classList.add('hidden'); });
+      ceilingReview.addEventListener('click', () => {
+        ceilingCents = window.MCSMoneyText ? MCSMoneyText.parseMoneyCents(ceilingValue.value) : null;
+        if (ceilingCents === null) { MCSAction.feedback(ceilingRow, 'Digite o valor do teto total (ex.: 35k ou US$ 35.000).', 'error', 'ceiling'); return; }
+        ceilingConfirm.textContent = `Confirmar teto total: ${MCSMoneyText.formatUsd(ceilingCents)}?`;
+        ceilingConfirm.classList.remove('hidden');
+      });
+      ceilingConfirm.addEventListener('click', async () => {
+        if (ceilingCents === null || ceilingConfirm.disabled) return;
+        ceilingConfirm.disabled = true;
+        try {
+          await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'mark_message', journeyId, ref, messageId: message.id, kind: 'BUDGET', value: ceilingValue.value }) });
+          MCSAction.feedback(ceilingRow, `Teto total salvo: ${MCSMoneyText.formatUsd(ceilingCents)}`, '', 'ceiling');
+          ceilingConfirm.classList.add('hidden');
+          Promise.resolve(reload()).catch(() => {});
+        } catch (failure) {
+          const text = failure && failure.code === 'JOURNEY_CLOSED' ? 'Lead encerrado: reabra o lead antes de registrar o teto.'
+            : failure && failure.code === 'CEILING_VALUE_INVALID' ? 'Não encontrei um valor no texto. Digite só o teto total (ex.: 35k).'
+            : 'Não consegui salvar — tente de novo';
+          MCSAction.feedback(ceilingRow, text, 'error', 'ceiling');
+        } finally { ceilingConfirm.disabled = false; }
+      });
+      ceilingRow.append(ceilingReview, ceilingValue, ceilingConfirm);
+      menu.append(ceilingRow);
       const choices = [
-        ['BUDGET', 'Teto', true], ['PAYMENT', 'Pagamento', true],
+        ['PAYMENT', 'Pagamento', true],
         ['DEADLINE', 'Prazo', true], ['OUTSIDE_FLORIDA', 'Aceita fora da Flórida', false],
         ['NO_TEST_DRIVE', 'Entendeu sem test drive/devolução', false]
       ];
@@ -2058,7 +2132,7 @@
       wishlist.append(wishDefinitions);
     });
     const budgetDefinition = element('dl', 'definition-grid');
-    definition(budgetDefinition, 'Teto único', formatMoney(item.budget_cents));
+    definition(budgetDefinition, 'Lance máximo', formatMoney(item.budget_cents));
     wishlist.append(budgetDefinition);
     dataBlock.append(wishlist, journeySwitch(item, reload));
     if (!options.prepend) dataBlock.append(dispositionControls({ kind: 'JOURNEY', id: item.id, journeyId: item.id }));
@@ -2271,6 +2345,13 @@
   async function replyComposer(block, journeyId, reload) {
     let state;
     try { state = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'window', journeyId }) }); } catch (_) { return; }
+    // A20: the composer only appears while the 24 h window (last customer message) is open.
+    if (!state || !state.allowed || !(Date.parse(state.openUntil) > Date.now())) {
+      const note = element('p', 'reply-window muted', 'Responder pelo painel: só com mensagem do cliente nas últimas 24 h · fora disso, responda pelo app do WhatsApp');
+      note.dataset.replyClosed = 'true';
+      block.append(note);
+      return;
+    }
     const box = element('div', 'reply-composer');
     box.append(element('h4', '', 'Responder pelo painel'));
     const windowLine = element('p', 'reply-window muted');
@@ -2433,13 +2514,27 @@
       clearSession();
     }
   }
+  // A24: the automatic refresh keeps running after an error and never redraws the screen
+  // while the operator is typing (it would erase the text being written).
+  let lastTyping = { at: 0, node: null };
+  document.addEventListener('input', (event) => {
+    const node = event.target;
+    if (node && (node.matches?.('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),textarea') || node.isContentEditable)) lastTyping = { at: Date.now(), node };
+  }, true);
+  const operatorIsTyping = () => {
+    const active = document.activeElement;
+    if (active && (active.matches?.('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="button"]),textarea,select') || active.isContentEditable)) return true;
+    const node = lastTyping.node;
+    return Boolean(node && node.isConnected && String(node.value ?? node.textContent ?? '').trim() && Date.now() - lastTyping.at < 10 * 60000);
+  };
   const startSafeRefresh = () => {
     clearInterval(refreshTimer);
     refreshTimer = setInterval(async () => {
+      if (operatorIsTyping()) return;
       try {
         await loadCurrent();
         await loadCaptureWarning();
-      } catch (_) { clearInterval(refreshTimer); }
+      } catch (failure) { console.error('Atualização automática falhou; tento de novo no próximo ciclo', failure); }
     }, 120000);
   };
   async function routeFromHash(push = false) {
@@ -2472,23 +2567,40 @@
     await restoreOrigin(state.panelOrigin || detailOrigin || { view: currentView || 'today', scrollY: 0 });
   }
 
+  // C5: only the session check can send the operator back to login. A real 401 is handled by
+  // request() after the token refresh fails; any other failure keeps the session and the panel.
   async function routeSession() {
     if (!accessToken) return show('login-view');
+    let session;
     try {
-      const session = await request('/api/panel/session');
-      if (session.mustChangePassword) return show('password-view');
-      show('app-view');
-      await switchPanel('today');
-      if (!history.state) history.replaceState({ panelOrigin: captureOrigin() }, '', location.pathname + location.search + (location.hash || ''));
-      await routeFromHash(false);
-      await refreshCounters();
-      await loadAutomaticMessages();
-      startSafeRefresh();
+      session = await request('/api/panel/session');
     } catch (failure) {
-      clearSession();
+      if (['AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED'].includes(failure && failure.code) || !accessToken) {
+        clearSession();
+        show('login-view');
+        if (failure && failure.code === 'PANEL_ACCESS_DENIED') error('login-error', 'Esta conta não tem acesso ao painel.');
+        return;
+      }
       show('login-view');
-      if (failure.code === 'PANEL_ACCESS_DENIED') error('login-error', 'Esta conta não tem acesso ao painel.');
+      error('login-error', 'Não consegui confirmar a sessão agora. Tente de novo em instantes.');
+      return;
     }
+    if (session.mustChangePassword) return show('password-view');
+    show('app-view');
+    const step = async (label, run) => { try { await run(); } catch (failure) { console.error(`Falha ao carregar ${label}`, failure); bootWarning(); } };
+    await step('a aba inicial', () => switchPanel('today'));
+    if (!history.state) history.replaceState({ panelOrigin: captureOrigin() }, '', location.pathname + location.search + (location.hash || ''));
+    await step('o endereço aberto', () => routeFromHash(false));
+    await step('os contadores', async () => { const result = await refreshCounters(); if (result && result.failed) bootWarning(); });
+    await step('as mensagens automáticas', () => loadAutomaticMessages());
+    startSafeRefresh();
+  }
+  function bootWarning() {
+    if ($('boot-warning')) return;
+    const warning = element('p', 'status error', 'Parte do painel não carregou agora (contadores com "—"). Você continua conectado; a próxima atualização tenta de novo.');
+    warning.id = 'boot-warning';
+    warning.setAttribute('role', 'alert');
+    $('app-view').prepend(warning);
   }
   async function loadAutomaticMessages(){
     const list=$('automatic-message-list');if(!list)return;

@@ -3,7 +3,8 @@
 const crypto = require('node:crypto');
 const calc = require('./calc-core');
 const catalog = require('./vehicle-catalog');
-const { consolidateCalcRuns, groupCalculatorByRef, mergeWishlists, REF_RE } = require('./panel-domain');
+const vehicleMatch = require('./vehicle-match');
+const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, REF_RE } = require('./panel-domain');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 
@@ -99,13 +100,12 @@ function relevant(vehicle, wish) {
     && catalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make);
 }
 
-function offerKind(vehicle, wish) {
-  if (!relevant(vehicle, wish)) return null;
-  const yearDelta = wish.yearMin && vehicle.year < wish.yearMin ? wish.yearMin - vehicle.year : wish.yearMax && vehicle.year > wish.yearMax ? vehicle.year - wish.yearMax : 0;
-  const milesDelta = wish.maxMiles && vehicle.miles > wish.maxMiles ? vehicle.miles - wish.maxMiles : 0;
-  if (yearDelta === 0 && milesDelta === 0) return 'BATE';
-  if (yearDelta <= 1 && milesDelta <= 15000) return 'QUASE';
-  return null;
+const offerRank = (offer) => offer.kind === 'BATE' ? 0 : offer.kind === 'POR_VALOR' ? 1 : offer.dataGap ? 3 : 2;
+
+// Same rule as the CSV match (R3, vehicle-match.js): kind of one car for one wish.
+function offerKind(vehicle, wish, bidCents) {
+  const result = vehicleMatch.matchWish(vehicle, wish || {}, bidCents);
+  return result ? result.kind : null;
 }
 
 function realisticBid(ceilingCents, options) {
@@ -183,9 +183,10 @@ async function leadData(ctx, req, refInput, idInput) {
   const aiReading=aiReadings[0]||null;
   const aiItems=aiReading?await allRows(ctx,'conversation_ai_items',{select:'id,item_json,evidence_text,manual_review,status,created_at',environment:'eq.'+ctx.environment,reading_id:'eq.'+aiReading.id,status:'eq.PENDING',order:'created_at.asc'}):[];
   const ai={reading:aiReading?{...aiReading,items:aiItems.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:aiSuggestions[0]||null};
-  const wishes = record?.criteria_json?.wishlistOverride
-    ? (record.wishlists || [])
-    : mergeWishlists(record && record.wishlists || [], order && order.wishlists || []);
+  // R1: the ficha's confirmed wishes and bid win; the calculator only fills what is missing.
+  const criteria = effectiveCriteria(record, order);
+  const wishes = criteria.wishes;
+  const news = calculatorNews(record, record?.contact?.display_name, order);
   const rawZip = order && order.zip || (record?.contact?.location_text || '').match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || '';
   const zip = String(rawZip).replace(/\D/g, '').slice(0, 5);
   const state = calc.zipEstado(zip);
@@ -194,7 +195,7 @@ async function leadData(ctx, req, refInput, idInput) {
   const plate = order && order.plate === 'nova' ? 'nova' : 'transf';
   const florida = state ? state.uf === 'FL' : true;
   const stateIndex = state ? String(calc.CONFIG.estados.findIndex((item) => item.nome === state.nome)) : '';
-  const maxBidCents = Number(order && order.budgetCents || record && record.budget_cents) || null;
+  const maxBidCents = criteria.bidCents;
   const totalCeilingCents = Number(record && record.confirmed_total_ceiling_cents) || null;
   const bid = totalCeilingCents ? realisticBid(totalCeilingCents, { florida, payment, plate, stateIndex, zip }) : maxBidCents ? Math.floor(maxBidCents / 100) : null;
   const costs = bid === null ? null : calc.calcular({ lance: bid, inspecao: false, florida, placa: plate, pgto: payment, estado: stateIndex, zip });
@@ -211,11 +212,14 @@ async function leadData(ctx, req, refInput, idInput) {
       && (!wish.maxMiles || Math.abs(car.miles - wish.maxMiles) <= 20000));
     return { ...wish, mmrCents: median(compared.map((car) => car.mmrCents)) };
   });
+  // R3: offers use the maximum bid (never the total ceiling, R2) and the same match rule as
+  // the CSV. A QUASE caused by missing data keeps its notice so it is not read as a fit.
   const offers = [...unique.values()].flatMap((vehicle) => {
-    const kind = wishes.map((wish) => offerKind(vehicle, wish)).find((value) => value === 'BATE') || wishes.map((wish) => offerKind(vehicle, wish)).find(Boolean);
-    return kind && bid !== null && Number(vehicle.mmrCents) > 0 && vehicle.mmrCents <= bid * 100 ? [{ ...vehicle, kind }] : [];
-  }).slice(0, 80);
-  const fits = [...unique.values()].filter((vehicle) => bid !== null && vehicle.mmrCents > 0 && vehicle.mmrCents <= bid * 100 && wishes.some((wish) => relevant(vehicle, wish)))
+    const result = vehicleMatch.matchVehicle(vehicle, wishes, maxBidCents);
+    return result ? [{ ...vehicle, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap }] : [];
+  }).sort((a, b) => offerRank(a) - offerRank(b)).slice(0, 80);
+  // "Cabe" = BATE or POR_VALOR (real opportunities); QUASE never counts as a fit.
+  const fits = offers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind))
     .map((vehicle) => ({ year: vehicle.year, miles: vehicle.miles, make: vehicle.make, model: vehicle.model })).slice(0, 8);
   const lastCustomer = record && [...(record.conversation || [])].reverse().find((message) => message.direction === 'CUSTOMER');
   const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
@@ -237,7 +241,7 @@ async function leadData(ctx, req, refInput, idInput) {
   const searchStage=journey?stageIndex.get(journey.id)||null:null;
   const dispositionKind=order?'REF':'JOURNEY',dispositionKey=order?ref:journey?.id;
   const disposition=dispositionKey?(await optionalRead('panel_item_dispositions',()=>rows(ctx,'panel_item_dispositions',{select:'status,discard_reason,updated_at',environment:'eq.'+ctx.environment,item_kind:'eq.'+dispositionKind,item_key:'eq.'+dispositionKey,cleared_at:'is.null',limit:'1'})))[0]||null:null;
-  return { ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
+  return { ref, hasCalculatorRef:hasRef, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, calculatorNews: news, bidSource: criteria.bidSource, wishesSource: criteria.wishesSource, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
 }
 
 async function belongsToJourney(ctx, ref, journey) {

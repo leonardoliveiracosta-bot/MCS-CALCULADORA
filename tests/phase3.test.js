@@ -90,7 +90,8 @@ test('calculator consolidation uses event mode, merges duplicate Ref, and reads 
   const car = result.find((item) => item.ref === 'RHD4F');
   assert.equal(car.logicalMode, 'CARRO');
   assert.equal(car.state, 'FL');
-  assert.equal(car.vehicleText, '2016–2024 Fiat 500 · 2016–2024 Cadillac XT4');
+  // A6: newest request of the Ref first.
+  assert.equal(car.vehicleText, '2016–2024 Cadillac XT4 · 2016–2024 Fiat 500');
   assert.equal(car.contactChannel, 'SMS');
   assert.equal(result.some((item) => item.ref === 'ABCDE'), false);
   assert.equal(logicalMode({ dados: { evento: 'share' } }), 'VALOR');

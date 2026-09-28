@@ -14,9 +14,15 @@ test('known WhatsApp chat and MCS alias can import without repeated questions', 
   const match = parser.automaticImportMatch(parsed,
     [{ chat_id: 'chat-1', alias_text: 'Cliente' }],
     [{ id: 'chat-1', contact_id: 'contact-1', is_group: false }],
-    [{ chat_id: 'chat-1', sender_text: 'MCS', direction: 'MCS' }]);
+    [{ chat_id: 'chat-1', sender_text: 'MCS', direction: 'MCS' }, { chat_id: 'chat-1', sender_text: 'Cliente', direction: 'CUSTOMER' }]);
   assert.equal(match.chat.id, 'chat-1');
   assert.equal(match.mcsSender, 'MCS');
+  // C4: title + operator name alone are not a strong identifier; the customer participant must
+  // already be known for that chat. Without it the file goes to review in ENTRADA.
+  assert.equal(parser.automaticImportMatch(parsed,
+    [{ chat_id: 'chat-1', alias_text: 'Cliente' }],
+    [{ id: 'chat-1', contact_id: 'contact-1', is_group: false }],
+    [{ chat_id: 'chat-1', sender_text: 'MCS', direction: 'MCS' }]), null);
 });
 
 test('a new contact always defaults to a new journey during simplified review', () => {

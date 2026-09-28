@@ -70,7 +70,7 @@ test('CSV do Manheim com milhares de combinações importa inteiro, em partes, s
         if (body.partIndex < body.partCount) return json({ uploadId: server.draft.id, complete: false, partIndex: body.partIndex, partCount: body.partCount }, 202);
         const matches = server.draft.matches.map((match, index) => ({
           id: `5b000000-0000-4000-8000-${String(index).padStart(12, '0')}`, journey_id: match.journeyId || null, calc_ref: match.calcRef || null,
-          match_kind: match.kind, match_reason: match.reason, mmr_status: match.mmrStatus, row_fingerprint: match.fingerprint, vehicle_json: match.vehicle
+          match_kind: match.kind, match_reason: match.reason, mmr_status: match.mmrStatus, row_fingerprint: match.fingerprint, vehicle_json: match.vehicle, dataGap: match.dataGap === true
         }));
         const leads = new Set(matches.map((match) => match.journey_id || match.calc_ref)).size;
         server.uploads.push({ id: server.draft.id, matches, summary: { id: server.draft.id, vehicle_count: body.vehicleCount, matched_vehicle_count: matches.length, lead_count: leads, uploaded_at: new Date().toISOString() } });
@@ -92,7 +92,8 @@ test('CSV do Manheim com milhares de combinações importa inteiro, em partes, s
   const status = page.locator('#manheim-status');
   await expect(status).toContainText('arquivados', { timeout: 150000 });
   const text = await status.textContent();
-  console.log('Status final:', text, '| partes:', server.parts.length, '| maior parte:', Math.max(...server.parts.map((part) => part.bytes)), 'bytes');
+  const kinds = server.uploads[0] ? server.uploads[0].matches.reduce((acc, match) => { const key = match.match_kind + (match.dataGap ? ' (falta de dado)' : ''); acc[key] = (acc[key] || 0) + 1; return acc; }, {}) : {};
+  console.log('Status final:', text, '| partes:', server.parts.length, '| maior parte:', Math.max(...server.parts.map((part) => part.bytes)), 'bytes', '| tipos:', JSON.stringify(kinds));
 
   await expect(status).not.toHaveClass(/error/);
   expect(text).toMatch(/^\d+ carros arquivados, \d+ ignorados, \d+ combinações$/);
@@ -121,12 +122,13 @@ test('CSV do Manheim com milhares de combinações importa inteiro, em partes, s
   await more.click();
   expect(await card.locator('.manheim-row').count()).toBe(10 + hidden);
   const rows = await card.locator('.manheim-row').evaluateAll((list) => list.map((row) => ({
-    kind: row.classList.contains('match') ? 'BATE' : 'QUASE',
+    kind: row.classList.contains('match') ? 'BATE' : row.classList.contains('value') ? 'POR_VALOR' : 'QUASE',
     miles: Number(([...row.querySelectorAll('span')].map((span) => /^([\d.,\s\u00a0]+) milhas/.exec(span.textContent)).find(Boolean) || ['', ''])[1].replace(/\D/g, '') || NaN)
   })));
   expect(rows.every((row) => Number.isFinite(row.miles))).toBe(true);
-  const firstNear = rows.findIndex((row) => row.kind === 'QUASE');
-  if (firstNear >= 0) expect(rows.slice(firstNear).every((row) => row.kind === 'QUASE')).toBe(true);
+  // Order: BATE, then POR VALOR, then QUASE.
+  const order = { BATE: 0, POR_VALOR: 1, QUASE: 2 };
+  for (let index = 1; index < rows.length; index += 1) expect(order[rows[index].kind]).toBeGreaterThanOrEqual(order[rows[index - 1].kind]);
   for (let index = 1; index < rows.length; index += 1) {
     if (rows[index].kind === rows[index - 1].kind) expect(rows[index].miles).toBeGreaterThanOrEqual(rows[index - 1].miles);
   }

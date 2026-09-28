@@ -1,6 +1,6 @@
 'use strict';
 
-const { checklistSummary, shortDeadline } = require('../../panel-domain');
+const { checklistSummary, shortDeadline, toggleEnabled } = require('../../panel-domain');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
@@ -55,7 +55,7 @@ module.exports = async (req, res) => {
       const complete={...journey,contact:contactsById.get(journey.contact_id)||null,phones:phones.filter((phone)=>phone.contact_id===journey.contact_id)};
       const ready=score({zip:complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:complete.budget_cents},complete,{checklist,messages:ownMessages.map((message)=>({...message,journey_id:journey.id}))},[]);
       return [decorateContact({
-        ...journey, kind:calculatorRef?'CALCULATOR_ORDER':'JOURNEY', ref:calculatorRef||journey.reference_code, disposition:null, dispositionUpdatedAt:null, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,
+        ...journey, kind:calculatorRef?'CALCULATOR_ORDER':'JOURNEY', ref:calculatorRef||journey.reference_code, disposition:null, dispositionUpdatedAt:null, enabled: toggleEnabled(journey.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,
         phones: phones.filter((phone) => phone.contact_id === journey.contact_id), latestMessage: ownMessages[0] || null,
         lastCustomerAt: ownMessages.find((message) => message.direction === 'CUSTOMER')?.occurred_at_utc || ownMessages.find((message) => message.direction === 'CUSTOMER')?.occurred_at_local || ownMessages.find((message) => message.direction === 'CUSTOMER')?.created_at || null,
         refs: refs.filter((item) => item.journey_id === journey.id),

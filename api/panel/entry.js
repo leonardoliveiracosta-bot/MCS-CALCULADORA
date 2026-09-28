@@ -5,6 +5,7 @@ const { consolidateCalcRuns } = require('../../panel-domain');
 const { allRows, requirePanel, send, supabase, isUuid } = require('../../panel-server');
 const { normalizePhone } = require('../../panel-phone');
 const { lastRealMessageAt } = require('../../panel-sort');
+const { isGenericTitle } = require('../../painel/parser');
 
 const json = async (req) => {
   if (typeof req.body === 'object' && req.body !== null) return req.body;
@@ -16,7 +17,7 @@ const now = () => new Date().toISOString();
 const query = (params) => new URLSearchParams(params).toString();
 const normalized = (value) => String(value || '').normalize('NFC').replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, '').trim().toLocaleLowerCase('pt-BR');
 const identityName = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^~+\s*/, '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]+/g, '');
-const inferredContactName = (value) => String(value || '').replace(/\.txt$/i, '').replace(/^WhatsApp Chat with\s+/i, '').replace(/^Conversa do WhatsApp com\s+/i, '').replace(/^chat(?:\s+with)?\s+/i, '').trim();
+const inferredContactName = (value) => isGenericTitle(value) ? '' : String(value || '').replace(/\.txt$/i, '').replace(/^WhatsApp Chat with\s+/i, '').replace(/^Conversa do WhatsApp com\s+/i, '').replace(/^chat(?:\s+with)?\s+/i, '').trim();
 
 async function rows(ctx, table, params) {
   return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + query(params));
@@ -48,7 +49,8 @@ async function ensureContact(ctx, chat, channel) {
 
 async function storeAlias(ctx, chatId, aliasText) {
   const alias = String(aliasText || '').normalize('NFC').trim().slice(0, 255);
-  if (!alias) return;
+  // Generic export names ("_chat" from the iPhone) never become a chat alias.
+  if (!alias || isGenericTitle(alias)) return;
   await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chat_aliases?on_conflict=environment,chat_id,alias_normalized', {
     method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify({
@@ -437,17 +439,17 @@ module.exports = async (req, res) => {
   ctx.res = res;
   let action = null;
   try {
-    if (req.method === 'GET') return queue(ctx, res);
+    if (req.method === 'GET') return await queue(ctx, res);
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const input = await json(req);
     action = input.action;
-    if (action === 'start') return createJob(ctx, input);
-    if (action === 'review') return createReview(ctx, input);
-    if (action === 'batch') return receiveBatch(ctx, input);
-    if (action === 'finish') return finishJob(ctx, input);
-    if (action === 'resolve') return resolveChat(ctx, input);
-    if (['review_link', 'review_create', 'review_dismiss'].includes(action)) return applyReviewAction(ctx, input);
-    if (action === 'review_undo') return undoReviewAction(ctx, input);
+    if (action === 'start') return await createJob(ctx, input);
+    if (action === 'review') return await createReview(ctx, input);
+    if (action === 'batch') return await receiveBatch(ctx, input);
+    if (action === 'finish') return await finishJob(ctx, input);
+    if (action === 'resolve') return await resolveChat(ctx, input);
+    if (['review_link', 'review_create', 'review_dismiss'].includes(action)) return await applyReviewAction(ctx, input);
+    if (action === 'review_undo') return await undoReviewAction(ctx, input);
     return send(res, 400, { error: 'IMPORT_ACTION_INVALID' });
   } catch (_) {
     const safeErrors = {

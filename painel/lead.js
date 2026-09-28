@@ -48,7 +48,7 @@
     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
   }
   async function open(options) {
-    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl} = options;
+    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     root.replaceChildren(); root.classList.add('lead-detail');
     const record=data.record||{},order=data.order||{},track=data.track||null,ref=data.ref,hasCalculatorRef=data.hasCalculatorRef!==false&&Boolean(data.order),journeyId=record.id;
@@ -111,7 +111,9 @@
     const wishes=section(trio,2,'O QUE ELE QUER');
     if(!data.wishes.length) append(wishes,'p','muted','Carro ainda não informado.');
     data.wishes.forEach((wish,index)=>row(wishes,`${index+1}. ${model(wish)}`,`${wish.yearMin||'—'}–${wish.yearMax||'—'}`,wish.maxMiles?`até ${Number(wish.maxMiles).toLocaleString('en-US')} mi`:'milhas não informadas'));
-    append(wishes,'p','muted',`Lance máximo (calculadora): ${cents(data.maxBidCents)}`);
+    append(wishes,'p','muted',`Lance máximo${data.bidSource==='CALCULADORA'?' (calculadora)':data.bidSource==='FICHA'?' (ficha)':''}: ${data.maxBidCents?cents(data.maxBidCents):'não informado'}`);
+    if((data.calculatorNews||[]).length){const news=append(wishes,'div','calculator-news');append(news,'strong','','Nova informação da calculadora (a ficha não foi alterada)');
+      data.calculatorNews.forEach((item)=>append(news,'p','muted',item.field==='LANCE'?`Lance: calculadora ${cents(item.calculatorCents)} · ficha ${cents(item.fichaCents)}`:`${({PAGAMENTO:'Pagamento',VEICULO:'Veículo',NOME:'Nome'})[item.field]||item.field}: calculadora "${item.calculator}" · ficha "${item.ficha}"`));}
     append(wishes,'p','muted',`Teto total confirmado: ${cents(data.totalCeilingCents)}`);
     append(wishes,'p','muted',`${data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':'transferir'}`);
     const ceilingForm=append(wishes,'div','lead-actions');const ceilingInput=append(ceilingForm,'input');ceilingInput.type='number';ceilingInput.min='1';ceilingInput.step='1';ceilingInput.placeholder='Teto total confirmado (US$)';ceilingInput.value=data.totalCeilingCents?data.totalCeilingCents/100:'';
@@ -132,9 +134,10 @@
     if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)) append(questions,'p','',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);
     if(!questions.querySelector('p'))append(questions,'p','muted','Checklist completo.');
     const offers=section(second,6,'O QUE OFERECER');
-    if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível dentro do lance realista.');
-    data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind,car.kind==='BATE'?'green':'yellow'));
-      append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${Number(car.miles).toLocaleString('en-US')} mi · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
+    if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes.');
+    data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind==='POR_VALOR'?'POR VALOR · ligar':car.kind,car.kind==='BATE'?'green':car.kind==='POR_VALOR'?'blue':'yellow'));
+      append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('en-US')+' mi'} · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
+      if(car.matchNotice)line.append(badge(car.matchNotice,'yellow'));else if(car.matchReason)append(line,'span','muted',car.matchReason);
       button(line,'Apresentar',async()=>{await api('present',{fingerprint:car.rowFingerprint});await reload();}); });
     const context=section(second,7,'CONTEXTO RÁPIDO');
     const allPromises=[...(record.promises||[]),...(data.promises||[])];
@@ -246,6 +249,8 @@
         if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref,data.timezone));});
       if(!list.length)append(thread,'p','muted','Nenhuma mensagem neste filtro.');};
     sort.addEventListener('change',()=>{localStorage.setItem('mcs_conversation_sort',sort.value);draw();});filter.addEventListener('change',draw);draw();
+    // A20: reply from the panel (review in Portuguese, translation, 24 h window checked by the server).
+    if(journeyId&&replyComposer)replyComposer(conversation,journeyId,reload);
 
     const history=section(finalGrid,12,'DADOS E HISTÓRICO','lead-highlight');
     attachmentButton(history);

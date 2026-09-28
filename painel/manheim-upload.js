@@ -51,16 +51,18 @@
       const reactivation = journey.reactivationEligible || journey.status === 'PARADO';
       if (!enabled && !reactivation) continue;
       for (const vehicle of vehicles) {
-        const result = manheim.matchVehicle(vehicle, journey.wishlists || journey.wishlist, journey.budget_cents);
+        // matchWishes/matchBidCents are the ficha's effective criteria (R1) computed by the server.
+        const result = manheim.matchVehicle(vehicle, journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents);
         if (!result || (reactivation && result.kind !== 'BATE')) continue;
-        matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, ...payload(vehicle) });
+        matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, dataGap: result.dataGap, ...payload(vehicle) });
       }
     }
-    for (const order of (orders || []).filter((item) => item.disposition !== 'DISCARDED')) {
+    // A4: a Ref linked to a ficha is already matched through the ficha.
+    for (const order of (orders || []).filter((item) => item.disposition !== 'DISCARDED' && item.matchTarget !== false && !item.journeyId)) {
       for (const vehicle of vehicles) {
         const result = manheim.matchOrder(vehicle, order);
         if (!result) continue;
-        matches.push({ targetType: 'ORDER', calcRef: order.ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, ...payload(vehicle) });
+        matches.push({ targetType: 'ORDER', calcRef: order.ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, dataGap: result.dataGap, ...payload(vehicle) });
       }
     }
     return matches;
@@ -100,6 +102,7 @@
     const delay = options.retryDelayMs === undefined ? LIMITS.retryDelayMs : options.retryDelayMs;
     let uploadId = null;
     let result = null;
+    let discarded = 0;
     for (let index = 0; index < parts.length; index += 1) {
       const partIndex = index + 1;
       if (onProgress) onProgress(partIndex, parts.length);
@@ -119,19 +122,21 @@
       if (lastFailure) throw codedError('MANHEIM_UPLOAD_INCOMPLETE', { partIndex, partCount: parts.length, uploadId, cause: lastFailure });
       if (!result || !result.uploadId) throw codedError('MANHEIM_UPLOAD_INCOMPLETE', { partIndex, partCount: parts.length, uploadId, cause: codedError('MANHEIM_UPLOAD_ID_MISSING') });
       uploadId = result.uploadId;
+      discarded += Number(result.discarded && result.discarded.total) || 0;
     }
     if (!result || !result.complete) throw codedError('MANHEIM_UPLOAD_INCOMPLETE', { partIndex: parts.length, partCount: parts.length, uploadId, cause: codedError('MANHEIM_UPLOAD_NOT_COMPLETE') });
-    return result;
+    return { ...result, discardedTotal: discarded };
   }
 
-  // BATE before QUASE, then lowest mileage first.
+  // BATE, then POR_VALOR, then QUASE; lowest mileage first inside each.
   function sortForDisplay(matches) {
     const miles = (match) => {
       const value = Number(match && match.vehicle_json && match.vehicle_json.parsed && match.vehicle_json.parsed.miles);
       return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
     };
     return (matches || []).slice().sort((left, right) => {
-      const kind = (left.match_kind === 'BATE' ? 0 : 1) - (right.match_kind === 'BATE' ? 0 : 1);
+      const order = (kind) => kind === 'BATE' ? 0 : kind === 'POR_VALOR' ? 1 : 2;
+      const kind = order(left.match_kind) - order(right.match_kind);
       return kind || miles(left) - miles(right);
     });
   }

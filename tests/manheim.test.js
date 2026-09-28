@@ -64,14 +64,18 @@ test('calculator wishlist fills only empty fields', () => {
     ano_de: 2021, ano_ate: 2025, milhas_ate: 45000
   } }];
   const request = consolidateCalcRuns(rows)[0];
-  const incoming = request.wishlist;
+  // A6: inside a Ref the newest request comes first.
+  assert.deepEqual(request.wishlist, { make: 'Toyota', model: 'Camry', yearMin: 2021, yearMax: 2025, maxMiles: 45000 });
+  const incoming = request.wishlists.find((wish) => wish.model === 'Civic');
   assert.deepEqual(incoming, { make: 'Honda', model: 'Civic', yearMin: 2020, yearMax: 2024, maxMiles: 50000 });
   assert.equal(request.wishlists.length, 2);
+  // A6: the year range is one unit. A ficha that already has a year never receives the other
+  // year from another source (that mix produced impossible ranges such as 2023-2021).
   assert.deepEqual(mergeWishlist({ make: 'Toyota', yearMin: 2021 }, incoming), {
-    make: 'Toyota', model: 'Civic', yearMin: 2021, yearMax: 2024, maxMiles: 50000
+    make: 'Toyota', model: 'Civic', yearMin: 2021, maxMiles: 50000
   });
   assert.deepEqual(mergeWishlists([{ make: 'Honda', model: 'Civic', yearMin: 2022 }], request.wishlists), [
-    { make: 'Honda', model: 'Civic', yearMin: 2022, yearMax: 2024, maxMiles: 50000 },
+    { make: 'Honda', model: 'Civic', yearMin: 2022, yearMax: null, maxMiles: 50000 },
     { make: 'Toyota', model: 'Camry', yearMin: 2021, yearMax: 2025, maxMiles: 45000 }
   ]);
   assert.deepEqual(wishlistForJourney({ criteria_json: { wishlist: incoming } }), incoming);
@@ -120,11 +124,12 @@ test('model matching is whole-word tolerant and ignores Make plus Class', () => 
 
 test('BATE, QUASE and MMR are independent and deterministic', () => {
   const wish = [{ make: 'Toyota', model: 'Camry', yearMin: 2020, yearMax: 2024, maxMiles: 50000 }, { make: 'Honda', model: 'Civic', yearMin: 2020, yearMax: 2024, maxMiles: 50000 }];
+  // R3: complete criteria (year + mileage) are matched by criteria; the result also says why.
   assert.deepEqual(matchManheimVehicle({ year: 2022, make: 'HONDA', model: 'Cívic', miles: 45000, mmrCents: 2100000 }, wish, 2000000), {
-    kind: 'BATE', reason: null, mmrStatus: 'MMR acima do teto', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
+    kind: 'BATE', reason: null, notice: null, gaps: [], dataGap: false, basis: 'CRITERIA', mmrStatus: 'MMR acima do teto', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
   });
   assert.deepEqual(matchManheimVehicle({ year: 2025, make: 'Honda', model: 'Civic', miles: 45000, mmrCents: 1900000 }, wish, 2000000), {
-    kind: 'QUASE', reason: 'ano 1 acima', mmrStatus: 'MMR dentro do teto', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
+    kind: 'QUASE', reason: 'ano 1 acima', notice: null, gaps: [], dataGap: false, basis: 'CRITERIA', mmrStatus: 'MMR dentro do teto', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
   });
   assert.equal(matchManheimVehicle({ year: 2025, make: 'Honda', model: 'Civic', miles: 56000 }, wish, 2000000), null);
   assert.equal(matchManheimVehicle({ year: 2022, make: 'Honda', model: 'Accord', miles: 45000 }, wish, 2000000), null);

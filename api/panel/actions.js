@@ -1,11 +1,12 @@
 'use strict';
 
 const {
-  clientOkPatch, consolidateCalcRuns, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
-  mergeWishlists, nextStageForUnits, reactivationEligible, REF_RE, time, wishlistsForJourney, wishlistText
+  clientOkPatch, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
+  mergeWishlists, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
 const vehicleCatalog = require('../../vehicle-catalog');
+const { parseMoneyCents } = require('../../money-text');
 const { localToUtc, timezoneForZip } = require('../../panel-lead');
 const {
   allRows, insert, isUuid, jsonBody, patchRows, recordMutation, requirePanel,
@@ -40,6 +41,7 @@ function safeWishlists(value, requireVehicle = false) {
 
 function declarationKey(field, value, valueJson = {}) {
   if (field === 'TETO') {
+    if (Number.isFinite(Number(valueJson.ceilingCents))) return String(Math.round(Number(valueJson.ceilingCents)));
     if (Number.isFinite(Number(valueJson.cents))) return String(Math.round(Number(valueJson.cents)));
     const amount = Number(String(value || '').replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
     if (Number.isFinite(amount)) return String(Math.round(amount * 100));
@@ -205,8 +207,11 @@ async function actionDeclaration(ctx, journey, body) {
   });
   const valueJson = {};
   if (field === 'TETO') {
-    const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
-    if (Number.isFinite(amount) && amount >= 0) valueJson.cents = Math.round(amount * 100);
+    // TETO is the customer's total ceiling (R2): it never becomes the maximum bid.
+    if (journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_CLOSED' });
+    const ceilingCents = parseMoneyCents(value);
+    if (ceilingCents === null) return send(ctx.res, 400, { error: 'CEILING_VALUE_INVALID' });
+    valueJson.ceilingCents = ceilingCents;
   }
   const created = await insert(ctx, 'journey_declarations', {
     environment: ctx.environment, journey_id: journey.id, field, source: 'CONVERSATION',
@@ -229,10 +234,7 @@ async function actionDeclaration(ctx, journey, body) {
   const patch = { updated_at: at, updated_by: ctx.panel.id };
   if (field === 'VEICULO') patch.vehicle_text = value;
   if (field === 'PAGAMENTO') patch.payment_text = value;
-  if (field === 'TETO') {
-    const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
-    if (Number.isFinite(amount) && amount >= 0) patch.budget_cents = Math.round(amount * 100);
-  }
+  if (field === 'TETO') patch.confirmed_total_ceiling_cents = valueJson.ceilingCents;
   if (field === 'PRAZO') {
     patch.customer_deadline_text = value;
     if (time(body.deadlineAt)) patch.customer_deadline_at = new Date(time(body.deadlineAt)).toISOString();
@@ -261,11 +263,16 @@ async function actionMarkMessage(ctx, journey, body) {
   if (config.field && !value) return send(ctx.res, 400, { error: 'MESSAGE_MARK_VALUE_INVALID' });
   const valueJson = wishlists ? { wishlist: { wishlists } } : {};
   if (config.field === 'TETO') {
-    const amount = Number(String(value).replace(/[^0-9.,-]/g, '').replace(/,/g, ''));
-    if (Number.isFinite(amount) && amount >= 0) valueJson.cents = Math.round(amount * 100);
+    // The total ceiling goes only to confirmed_total_ceiling_cents (R2), written atomically by
+    // panel_mark_message_fact_v2 from value_json.ceilingCents; budget_cents (maximum bid) is untouched.
+    if (journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_CLOSED' });
+    // Only the amount the operator typed and confirmed; never the whole message text.
+    const ceilingCents = parseMoneyCents(body.value);
+    if (ceilingCents === null) return send(ctx.res, 400, { error: 'CEILING_VALUE_INVALID' });
+    valueJson.ceilingCents = ceilingCents;
   }
   const deadlineAt = time(body.deadlineAt) ? new Date(time(body.deadlineAt)).toISOString() : null;
-  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_mark_message_fact', {
+  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_mark_message_fact_v2', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
       p_environment: ctx.environment,
       p_journey_id: journey.id,
@@ -279,7 +286,7 @@ async function actionMarkMessage(ctx, journey, body) {
     })
   });
   await recordMessageMenuEvent(ctx,journey,body,'MARK_'+kind,isoNow());
-  return send(ctx.res, 200, result);
+  return send(ctx.res, 200, config.field === 'TETO' ? { ...result, ceilingCents: valueJson.ceilingCents } : result);
 }
 
 async function actionNote(ctx, journey, body) {
@@ -399,7 +406,6 @@ async function actionLinkRequest(ctx, journey, body) {
 
     const declarationSid = sids[0] || request.sid;
     const declarations = [
-      request.budgetCents ? { field: 'TETO', value: String(request.budgetCents), json: { cents: request.budgetCents } } : null,
       request.vehicleText ? { field: 'VEICULO', value: request.vehicleText, json: {} } : null,
       request.paymentText ? { field: 'PAGAMENTO', value: request.paymentText, json: {} } : null,
       request.deadlineText ? { field: 'PRAZO', value: request.deadlineText, json: {} } : null
@@ -627,7 +633,8 @@ function safeManheimVehicle(value) {
     exteriorColor: safeText(parsedSource.exteriorColor, 120) || '', interiorColor: safeText(parsedSource.interiorColor, 120) || '',
     buyNowPrice: safeText(parsedSource.buyNowPrice, 120) || '', conditionGrade: safeText(parsedSource.conditionGrade, 120) || '', startsAt:safeText(parsedSource.startsAt,100)||safeText(parsedSource.saleDate,100)||'', endsAt:safeText(parsedSource.endsAt,100)||'', drivetrain:safeText(parsedSource.drivetrain,80)||'', transmission:safeText(parsedSource.transmission,80)||'', engine:safeText(parsedSource.engine,120)||'', cleanTitle:parsedSource.cleanTitle===true, odometerOk:parsedSource.odometerOk===true
   };
-  if (!headers.length || !parsed.year || !parsed.model || parsed.miles === null || parsed.miles < 0) return null;
+  // Unknown odometer stays null (R3e); it is never turned into 0 miles.
+  if (!headers.length || !parsed.year || !parsed.model || (parsed.miles !== null && parsed.miles < 0)) return null;
   if (parsed.makeInferred) {
     const inferred = vehicleCatalog.inferMake(parsed.model);
     parsed.make = inferred.make;
@@ -647,52 +654,84 @@ function manheimUploadHeader(body) {
   return valid ? { fileCount, vehicleCount, headers, headerMap } : null;
 }
 
-// Revalidates every requested match against the current journeys and calculator orders.
+// Revalidates every requested match against the current journeys and calculator orders with
+// the same rule the browser uses (vehicle-match.js, R3). A match that is no longer valid
+// (criteria changed, ficha closed or switched off, Ref now linked to a ficha) is dropped and
+// counted instead of failing the whole upload (A19).
 async function validateManheimMatches(ctx, requested) {
-  const [journeys, toggleStates, calcRuns, calcLinks, dispositions] = await Promise.all([
-    allRows(ctx, 'journeys', { select: 'id,status,stage,criteria_json,budget_cents', environment: 'eq.' + ctx.environment }),
+  const [journeys, toggleStates, calcRuns, calcLinks, dispositions, journeyRefs] = await Promise.all([
+    allRows(ctx, 'journeys', { select: 'id,status,stage,reference_code,criteria_json,budget_cents,confirmed_total_ceiling_cents', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' })
+    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
+    allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment })
   ]);
   const states = new Map(toggleStates.map((state) => [state.journey_id, state]));
   const byId = new Map(journeys.map((journey) => {
     const state = states.get(journey.id);
-    return [journey.id, { ...journey, enabled: state ? state.enabled : journey.status !== 'ENCERRADO', offReason: state && state.off_reason || null }];
+    return [journey.id, { ...journey, enabled: toggleEnabled(journey.status, state), offReason: state && state.off_reason || null }];
   }));
-  const orderByRef = new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions)
-    .filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
+  const refOwner = new Map();
+  journeys.forEach((journey) => { const ref = String(journey.reference_code || '').trim().toUpperCase(); if (ref) refOwner.set(ref, journey.id); });
+  journeyRefs.forEach((row) => { const ref = String(row.ref_code || '').trim().toUpperCase(); if (ref && byId.has(row.journey_id)) refOwner.set(ref, row.journey_id); });
+  const allOrders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions);
+  const linked = new Map();
+  allOrders.forEach((order) => {
+    const owner = refOwner.get(order.ref) || order.journeyId;
+    if (!owner || !byId.has(owner)) return;
+    if (!linked.has(owner)) linked.set(owner, []);
+    linked.get(owner).push(order);
+  });
+  const criteriaFor = new Map();
+  const journeyCriteria = (journey) => {
+    if (!criteriaFor.has(journey.id)) {
+      const orders = linked.get(journey.id) || [];
+      const merged = orders.length ? { wishlists: mergeWishlists([], orders.flatMap((order) => order.wishlists || [])), budgetCents: orders.map((order) => order.budgetCents).find((value) => Number(value) > 0) || null } : null;
+      criteriaFor.set(journey.id, effectiveCriteria(journey, merged));
+    }
+    return criteriaFor.get(journey.id);
+  };
+  const orderByRef = new Map(allOrders.filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
   const matches = [];
   const orderMatches = [];
-  for (const item of requested) {
-    const vehicle = safeManheimVehicle(item && item.vehicle);
-    const fingerprint = safeText(item && item.fingerprint, 200, true);
-    if (!vehicle || !fingerprint) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
-    if (item && item.targetType === 'ORDER') {
-      const ref = String(item.calcRef || '').trim().toUpperCase();
-      const order = orderByRef.get(ref);
-      const result = order && matchManheimOrder(vehicle.parsed, order);
-      if (!order || !result) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
-      vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
-      vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
-      vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
-      orderMatches.push({ calcRef: ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
-      continue;
-    }
-    if (!isUuid(item && item.journeyId)) return { status: 400, error: 'MANHEIM_JOURNEY_ID_INVALID' };
-    const journey = byId.get(item.journeyId);
-    if (!journey) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
-    const result = matchManheimVehicle(vehicle.parsed, wishlistsForJourney(journey), journey.budget_cents);
-    if (!result) return { status: 400, error: 'MANHEIM_MATCH_INVALID' };
-    if (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE')) return { status: 409, error: 'MANHEIM_JOURNEY_DISABLED' };
-    if (journey.status === 'PARADO' && result.kind !== 'BATE') continue;
+  const discarded = { total: 0, reasons: {} };
+  const discard = (reason) => { discarded.total += 1; discarded.reasons[reason] = (discarded.reasons[reason] || 0) + 1; };
+  const annotate = (vehicle, result) => {
     vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
     vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
     vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
-    matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, fingerprint, vehicle });
+    vehicle.parsed.matchNotice = result.notice || '';
+    vehicle.parsed.matchBasis = result.basis;
+    vehicle.parsed.dataGap = result.dataGap === true;
+  };
+  for (const item of requested) {
+    const vehicle = safeManheimVehicle(item && item.vehicle);
+    const fingerprint = safeText(item && item.fingerprint, 200, true);
+    if (!vehicle || !fingerprint) { discard('INVALID_ROW'); continue; }
+    if (item && item.targetType === 'ORDER') {
+      const ref = String(item.calcRef || '').trim().toUpperCase();
+      const order = orderByRef.get(ref);
+      if (!order) { discard('ORDER_UNAVAILABLE'); continue; }
+      if (refOwner.has(ref) || order.journeyId) { discard('REF_LINKED_TO_FICHA'); continue; }
+      const result = matchManheimOrder(vehicle.parsed, order);
+      if (!result) { discard('CRITERIA_CHANGED'); continue; }
+      annotate(vehicle, result);
+      orderMatches.push({ calcRef: ref, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
+      continue;
+    }
+    if (!isUuid(item && item.journeyId)) { discard('INVALID_ROW'); continue; }
+    const journey = byId.get(item.journeyId);
+    if (!journey) { discard('JOURNEY_UNAVAILABLE'); continue; }
+    const criteria = journeyCriteria(journey);
+    const result = matchManheimVehicle(vehicle.parsed, criteria.wishes, criteria.bidCents);
+    if (!result) { discard('CRITERIA_CHANGED'); continue; }
+    if (journey.status === 'ENCERRADO' || (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE'))) { discard('JOURNEY_DISABLED'); continue; }
+    if (journey.status === 'PARADO' && result.kind !== 'BATE') { discard('JOURNEY_DISABLED'); continue; }
+    annotate(vehicle, result);
+    matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
   }
-  return { matches: matches.concat(orderMatches.map((item) => ({
+  return { discarded, matches: matches.concat(orderMatches.map((item) => ({
     targetType: 'ORDER', calcRef: item.calcRef, kind: item.kind, reason: item.reason,
     mmrStatus: item.mmrStatus, fingerprint: item.fingerprint, vehicle: item.vehicle
   }))) };
@@ -712,8 +751,7 @@ async function actionManheimUpload(ctx, body) {
   const requested = Array.isArray(body.matches) ? body.matches : [];
   if (!header || requested.length > 2000) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
   const validated = await validateManheimMatches(ctx, requested);
-  if (validated.error) return send(ctx.res, validated.status, { error: validated.error });
-  return send(ctx.res, 201, await storeManheimUpload(ctx, header, validated.matches));
+  return send(ctx.res, 201, { ...await storeManheimUpload(ctx, header, validated.matches), discarded: validated.discarded });
 }
 
 const MANHEIM_PART_ITEMS = 250;
@@ -730,9 +768,8 @@ async function actionManheimUploadPart(ctx, body) {
       || !Number.isInteger(partIndex) || partIndex < 1 || partIndex > partCount || (uploadId !== null && !isUuid(uploadId))
       || (uploadId === null && partIndex !== 1)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
   const validated = await validateManheimMatches(ctx, requested);
-  if (validated.error) return send(ctx.res, validated.status, { error: validated.error });
   // A single part is already atomic: keep using the original RPC.
-  if (partCount === 1) return send(ctx.res, 201, { ...await storeManheimUpload(ctx, header, validated.matches), complete: true, partIndex: 1, partCount: 1 });
+  if (partCount === 1) return send(ctx.res, 201, { ...await storeManheimUpload(ctx, header, validated.matches), complete: true, partIndex: 1, partCount: 1, discarded: validated.discarded });
   let result;
   try {
     result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload_part', {
@@ -747,7 +784,7 @@ async function actionManheimUploadPart(ctx, body) {
     if (failure && failure.status === 404) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
     throw failure;
   }
-  return send(ctx.res, result && result.complete ? 201 : 202, result);
+  return send(ctx.res, result && result.complete ? 201 : 202, { ...result, discarded: validated.discarded });
 }
 
 async function actionManheimArchive(ctx, body) {
@@ -758,7 +795,7 @@ async function actionManheimArchive(ctx, body) {
   const vehicles = body.vehicles.map((item) => {
     const parsed = item && item.vehicle || {};
     const fingerprint = safeText(item && item.fingerprint, 200, true);
-    if (!fingerprint || !safeText(parsed.model, 120, true) || !finiteInteger(parsed.year) || finiteInteger(parsed.miles) === null) return null;
+    if (!fingerprint || !safeText(parsed.model, 120, true) || !finiteInteger(parsed.year) || (finiteInteger(parsed.miles) !== null && finiteInteger(parsed.miles) < 0)) return null;
     return {
       environment: ctx.environment, upload_id: upload[0].id, row_fingerprint: fingerprint,
       vehicle_json: {
@@ -832,33 +869,33 @@ module.exports = async (req, res) => {
   ctx.res = res;
   try {
     const body = await jsonBody(req, 2 * 1024 * 1024);
-    if (body.action === 'manheim_upload') return actionManheimUpload(ctx, body);
-    if (body.action === 'manheim_upload_part') return actionManheimUploadPart(ctx, body);
-    if (body.action === 'manheim_archive') return actionManheimArchive(ctx, body);
-    if (body.action === 'set_disposition') return actionDisposition(ctx, body);
+    if (body.action === 'manheim_upload') return await actionManheimUpload(ctx, body);
+    if (body.action === 'manheim_upload_part') return await actionManheimUploadPart(ctx, body);
+    if (body.action === 'manheim_archive') return await actionManheimArchive(ctx, body);
+    if (body.action === 'set_disposition') return await actionDisposition(ctx, body);
     const journey = await journeyContext(ctx, body.journeyId);
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
     switch (body.action) {
-      case 'suppress': return actionSuppression(ctx, journey, body);
-      case 'next_action': return actionNext(ctx, journey, body);
-      case 'start_search': return actionStartSearch(ctx, journey);
-      case 'checklist_evidence': return actionEvidence(ctx, journey, body);
-      case 'declaration': return actionDeclaration(ctx, journey, body);
-      case 'mark_message': return actionMarkMessage(ctx, journey, body);
-      case 'update_note': return actionNote(ctx, journey, body);
-      case 'set_funnel': return actionFunnel(ctx, journey, body);
-      case 'promise': return actionPromise(ctx, journey, body);
-      case 'fulfill_promise': return actionFulfillPromise(ctx, journey, body);
-      case 'client_ok': return actionClientOk(ctx, journey, body);
-      case 'link_request': return actionLinkRequest(ctx, journey, body);
-      case 'unit': return actionUnit(ctx, journey, body);
-      case 'resolve_divergence': return actionResolveDivergence(ctx, journey, body);
-      case 'interaction': return actionInteraction(ctx, journey, body);
-      case 'set_status': return actionSetStatus(ctx, journey, body);
-      case 'close_journey': return actionClose(ctx, journey, body);
-      case 'toggle_journey': return actionToggleJourney(ctx, journey, body);
-      case 'return_update': return actionReturn(ctx, journey, body);
-      case 'invert_senders': return actionInvertSenders(ctx, journey, body);
+      case 'suppress': return await actionSuppression(ctx, journey, body);
+      case 'next_action': return await actionNext(ctx, journey, body);
+      case 'start_search': return await actionStartSearch(ctx, journey);
+      case 'checklist_evidence': return await actionEvidence(ctx, journey, body);
+      case 'declaration': return await actionDeclaration(ctx, journey, body);
+      case 'mark_message': return await actionMarkMessage(ctx, journey, body);
+      case 'update_note': return await actionNote(ctx, journey, body);
+      case 'set_funnel': return await actionFunnel(ctx, journey, body);
+      case 'promise': return await actionPromise(ctx, journey, body);
+      case 'fulfill_promise': return await actionFulfillPromise(ctx, journey, body);
+      case 'client_ok': return await actionClientOk(ctx, journey, body);
+      case 'link_request': return await actionLinkRequest(ctx, journey, body);
+      case 'unit': return await actionUnit(ctx, journey, body);
+      case 'resolve_divergence': return await actionResolveDivergence(ctx, journey, body);
+      case 'interaction': return await actionInteraction(ctx, journey, body);
+      case 'set_status': return await actionSetStatus(ctx, journey, body);
+      case 'close_journey': return await actionClose(ctx, journey, body);
+      case 'toggle_journey': return await actionToggleJourney(ctx, journey, body);
+      case 'return_update': return await actionReturn(ctx, journey, body);
+      case 'invert_senders': return await actionInvertSenders(ctx, journey, body);
       default: return send(res, 400, { error: 'PANEL_ACTION_INVALID' });
     }
   } catch (failure) {

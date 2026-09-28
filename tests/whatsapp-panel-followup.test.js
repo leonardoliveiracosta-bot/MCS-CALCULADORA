@@ -14,9 +14,11 @@ test('US phones normalize to E.164 and display consistently',()=>{
 });
 
 test('server list ordering keeps missing values last in both directions',()=>{
-  const items=[{id:'none'},{id:'small',budgetCents:100},{id:'large',confirmed_total_ceiling_cents:300}];
-  assert.deepEqual(sortItems(items,'value_desc').map(x=>x.id),['large','small','none']);
-  assert.deepEqual(sortItems(items,'value_asc').map(x=>x.id),['small','large','none']);
+  // R2: value = maximum bid. A total ceiling alone is not a bid, so it sorts with the unknowns.
+  const items=[{id:'none'},{id:'small',budgetCents:100},{id:'large',budget_cents:300},{id:'ceilingOnly',confirmed_total_ceiling_cents:900}];
+  const desc=sortItems(items,'value_desc').map(x=>x.id),asc=sortItems(items,'value_asc').map(x=>x.id);
+  assert.deepEqual(desc.slice(0,2),['large','small']);assert.deepEqual(new Set(desc.slice(2)),new Set(['none','ceilingOnly']));
+  assert.deepEqual(asc.slice(0,2),['small','large']);assert.deepEqual(new Set(asc.slice(2)),new Set(['none','ceilingOnly']));
 });
 
 test('server list ordering supports stable name and Ref modes',()=>{
