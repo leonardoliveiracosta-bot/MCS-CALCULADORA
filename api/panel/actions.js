@@ -869,33 +869,33 @@ module.exports = async (req, res) => {
   ctx.res = res;
   try {
     const body = await jsonBody(req, 2 * 1024 * 1024);
-    if (body.action === 'manheim_upload') return actionManheimUpload(ctx, body);
-    if (body.action === 'manheim_upload_part') return actionManheimUploadPart(ctx, body);
-    if (body.action === 'manheim_archive') return actionManheimArchive(ctx, body);
-    if (body.action === 'set_disposition') return actionDisposition(ctx, body);
+    if (body.action === 'manheim_upload') return await actionManheimUpload(ctx, body);
+    if (body.action === 'manheim_upload_part') return await actionManheimUploadPart(ctx, body);
+    if (body.action === 'manheim_archive') return await actionManheimArchive(ctx, body);
+    if (body.action === 'set_disposition') return await actionDisposition(ctx, body);
     const journey = await journeyContext(ctx, body.journeyId);
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
     switch (body.action) {
-      case 'suppress': return actionSuppression(ctx, journey, body);
-      case 'next_action': return actionNext(ctx, journey, body);
-      case 'start_search': return actionStartSearch(ctx, journey);
-      case 'checklist_evidence': return actionEvidence(ctx, journey, body);
-      case 'declaration': return actionDeclaration(ctx, journey, body);
-      case 'mark_message': return actionMarkMessage(ctx, journey, body);
-      case 'update_note': return actionNote(ctx, journey, body);
-      case 'set_funnel': return actionFunnel(ctx, journey, body);
-      case 'promise': return actionPromise(ctx, journey, body);
-      case 'fulfill_promise': return actionFulfillPromise(ctx, journey, body);
-      case 'client_ok': return actionClientOk(ctx, journey, body);
-      case 'link_request': return actionLinkRequest(ctx, journey, body);
-      case 'unit': return actionUnit(ctx, journey, body);
-      case 'resolve_divergence': return actionResolveDivergence(ctx, journey, body);
-      case 'interaction': return actionInteraction(ctx, journey, body);
-      case 'set_status': return actionSetStatus(ctx, journey, body);
-      case 'close_journey': return actionClose(ctx, journey, body);
-      case 'toggle_journey': return actionToggleJourney(ctx, journey, body);
-      case 'return_update': return actionReturn(ctx, journey, body);
-      case 'invert_senders': return actionInvertSenders(ctx, journey, body);
+      case 'suppress': return await actionSuppression(ctx, journey, body);
+      case 'next_action': return await actionNext(ctx, journey, body);
+      case 'start_search': return await actionStartSearch(ctx, journey);
+      case 'checklist_evidence': return await actionEvidence(ctx, journey, body);
+      case 'declaration': return await actionDeclaration(ctx, journey, body);
+      case 'mark_message': return await actionMarkMessage(ctx, journey, body);
+      case 'update_note': return await actionNote(ctx, journey, body);
+      case 'set_funnel': return await actionFunnel(ctx, journey, body);
+      case 'promise': return await actionPromise(ctx, journey, body);
+      case 'fulfill_promise': return await actionFulfillPromise(ctx, journey, body);
+      case 'client_ok': return await actionClientOk(ctx, journey, body);
+      case 'link_request': return await actionLinkRequest(ctx, journey, body);
+      case 'unit': return await actionUnit(ctx, journey, body);
+      case 'resolve_divergence': return await actionResolveDivergence(ctx, journey, body);
+      case 'interaction': return await actionInteraction(ctx, journey, body);
+      case 'set_status': return await actionSetStatus(ctx, journey, body);
+      case 'close_journey': return await actionClose(ctx, journey, body);
+      case 'toggle_journey': return await actionToggleJourney(ctx, journey, body);
+      case 'return_update': return await actionReturn(ctx, journey, body);
+      case 'invert_senders': return await actionInvertSenders(ctx, journey, body);
       default: return send(res, 400, { error: 'PANEL_ACTION_INVALID' });
     }
   } catch (failure) {

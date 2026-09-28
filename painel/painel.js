@@ -99,6 +99,10 @@
     node.textContent = String(count);
     node.classList.toggle('count-positive', count > 0);
   });
+  const setCountUnknown = (view) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => {
+    node.textContent = '—';
+    node.classList.remove('count-positive');
+  });
 
   const PAYMENT_LABELS = Object.freeze({ cash: 'À vista', fin: 'Financiado', financing: 'Financiado' });
   const DEADLINE_LABELS = Object.freeze({ none: 'Sem prazo', now: 'Agora', '30d': '30 dias', '3m': '3 meses', '6m': '6 meses', '12m': '12 meses' });
@@ -1024,8 +1028,9 @@
     }
   }
 
+  // C5: one failing counter never breaks the others nor the session; it shows "—".
   async function refreshCounters() {
-    const [today, entry, pending, orders, searches, manheim, records, vitrineData] = await Promise.all([
+    const settled = await Promise.allSettled([
       request('/api/panel/today'),
       request('/api/panel/entry'),
       request('/api/panel/pendencias'),
@@ -1035,14 +1040,19 @@
       request('/api/panel/records'),
       request('/api/panel/vitrine-requests')
     ]);
-    setCount('today',(today.items||[]).length+(vitrineData.requests||[]).length);
-    setCount('entry', (entry.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (entry.reviews || []).length);
-    setCount('clients', (records.items || []).length);
-    setCount('pending', Object.values(pending.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
-    setCount('orders', orders.page && orders.page.total || 0);
-    setCount('searches', (searches.items || []).length);
-    setCount('manheim', manheim.upload && manheim.upload.lead_count || 0);
-    setCount('records', (records.items || []).length);
+    const [today, entry, pending, orders, searches, manheim, records, vitrineData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
+    if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
+    count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
+    count('clients', records, (data) => (data.items || []).length);
+    count('pending', pending, (data) => Object.values(data.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
+    count('orders', orders, (data) => data.page && data.page.total || 0);
+    count('searches', searches, (data) => (data.items || []).length);
+    count('manheim', manheim, (data) => data.upload && data.upload.lead_count || 0);
+    count('records', records, (data) => (data.items || []).length);
+    const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
+    if (failures.length) console.error('Contadores com falha', failures);
+    return { failed: failures.length };
   }
 
   async function loadCaptureWarning() {
@@ -1237,7 +1247,7 @@
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
-        actionMessage, downloadShortlist, dispositionControls,
+        actionMessage, downloadShortlist, dispositionControls, replyComposer,
         mediaObjectUrl:async(messageId)=>{const response=await fetch('/api/panel/media?messageId='+encodeURIComponent(messageId),{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('MEDIA_NOT_AVAILABLE');return URL.createObjectURL(await response.blob());} });
       if(requestVersion!==detailRequestVersion)return;
       if(leadDetailData?.record?.whatsappWithoutPhone){const identity=$('record-detail').querySelector('.lead-head-name');if(identity)identity.append(element('p','muted whatsapp-no-phone-note','Responda pela conversa no app WhatsApp Business'));}
@@ -2322,6 +2332,13 @@
   async function replyComposer(block, journeyId, reload) {
     let state;
     try { state = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'window', journeyId }) }); } catch (_) { return; }
+    // A20: the composer only appears while the 24 h window (last customer message) is open.
+    if (!state || !state.allowed || !(Date.parse(state.openUntil) > Date.now())) {
+      const note = element('p', 'reply-window muted', 'Responder pelo painel: só com mensagem do cliente nas últimas 24 h · fora disso, responda pelo app do WhatsApp');
+      note.dataset.replyClosed = 'true';
+      block.append(note);
+      return;
+    }
     const box = element('div', 'reply-composer');
     box.append(element('h4', '', 'Responder pelo painel'));
     const windowLine = element('p', 'reply-window muted');
@@ -2484,13 +2501,27 @@
       clearSession();
     }
   }
+  // A24: the automatic refresh keeps running after an error and never redraws the screen
+  // while the operator is typing (it would erase the text being written).
+  let lastTyping = { at: 0, node: null };
+  document.addEventListener('input', (event) => {
+    const node = event.target;
+    if (node && (node.matches?.('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),textarea') || node.isContentEditable)) lastTyping = { at: Date.now(), node };
+  }, true);
+  const operatorIsTyping = () => {
+    const active = document.activeElement;
+    if (active && (active.matches?.('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="button"]),textarea,select') || active.isContentEditable)) return true;
+    const node = lastTyping.node;
+    return Boolean(node && node.isConnected && String(node.value ?? node.textContent ?? '').trim() && Date.now() - lastTyping.at < 10 * 60000);
+  };
   const startSafeRefresh = () => {
     clearInterval(refreshTimer);
     refreshTimer = setInterval(async () => {
+      if (operatorIsTyping()) return;
       try {
         await loadCurrent();
         await loadCaptureWarning();
-      } catch (_) { clearInterval(refreshTimer); }
+      } catch (failure) { console.error('Atualização automática falhou; tento de novo no próximo ciclo', failure); }
     }, 120000);
   };
   async function routeFromHash(push = false) {
@@ -2523,23 +2554,40 @@
     await restoreOrigin(state.panelOrigin || detailOrigin || { view: currentView || 'today', scrollY: 0 });
   }
 
+  // C5: only the session check can send the operator back to login. A real 401 is handled by
+  // request() after the token refresh fails; any other failure keeps the session and the panel.
   async function routeSession() {
     if (!accessToken) return show('login-view');
+    let session;
     try {
-      const session = await request('/api/panel/session');
-      if (session.mustChangePassword) return show('password-view');
-      show('app-view');
-      await switchPanel('today');
-      if (!history.state) history.replaceState({ panelOrigin: captureOrigin() }, '', location.pathname + location.search + (location.hash || ''));
-      await routeFromHash(false);
-      await refreshCounters();
-      await loadAutomaticMessages();
-      startSafeRefresh();
+      session = await request('/api/panel/session');
     } catch (failure) {
-      clearSession();
+      if (['AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED'].includes(failure && failure.code) || !accessToken) {
+        clearSession();
+        show('login-view');
+        if (failure && failure.code === 'PANEL_ACCESS_DENIED') error('login-error', 'Esta conta não tem acesso ao painel.');
+        return;
+      }
       show('login-view');
-      if (failure.code === 'PANEL_ACCESS_DENIED') error('login-error', 'Esta conta não tem acesso ao painel.');
+      error('login-error', 'Não consegui confirmar a sessão agora. Tente de novo em instantes.');
+      return;
     }
+    if (session.mustChangePassword) return show('password-view');
+    show('app-view');
+    const step = async (label, run) => { try { await run(); } catch (failure) { console.error(`Falha ao carregar ${label}`, failure); bootWarning(); } };
+    await step('a aba inicial', () => switchPanel('today'));
+    if (!history.state) history.replaceState({ panelOrigin: captureOrigin() }, '', location.pathname + location.search + (location.hash || ''));
+    await step('o endereço aberto', () => routeFromHash(false));
+    await step('os contadores', async () => { const result = await refreshCounters(); if (result && result.failed) bootWarning(); });
+    await step('as mensagens automáticas', () => loadAutomaticMessages());
+    startSafeRefresh();
+  }
+  function bootWarning() {
+    if ($('boot-warning')) return;
+    const warning = element('p', 'status error', 'Parte do painel não carregou agora (contadores com "—"). Você continua conectado; a próxima atualização tenta de novo.');
+    warning.id = 'boot-warning';
+    warning.setAttribute('role', 'alert');
+    $('app-view').prepend(warning);
   }
   async function loadAutomaticMessages(){
     const list=$('automatic-message-list');if(!list)return;

@@ -439,17 +439,17 @@ module.exports = async (req, res) => {
   ctx.res = res;
   let action = null;
   try {
-    if (req.method === 'GET') return queue(ctx, res);
+    if (req.method === 'GET') return await queue(ctx, res);
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const input = await json(req);
     action = input.action;
-    if (action === 'start') return createJob(ctx, input);
-    if (action === 'review') return createReview(ctx, input);
-    if (action === 'batch') return receiveBatch(ctx, input);
-    if (action === 'finish') return finishJob(ctx, input);
-    if (action === 'resolve') return resolveChat(ctx, input);
-    if (['review_link', 'review_create', 'review_dismiss'].includes(action)) return applyReviewAction(ctx, input);
-    if (action === 'review_undo') return undoReviewAction(ctx, input);
+    if (action === 'start') return await createJob(ctx, input);
+    if (action === 'review') return await createReview(ctx, input);
+    if (action === 'batch') return await receiveBatch(ctx, input);
+    if (action === 'finish') return await finishJob(ctx, input);
+    if (action === 'resolve') return await resolveChat(ctx, input);
+    if (['review_link', 'review_create', 'review_dismiss'].includes(action)) return await applyReviewAction(ctx, input);
+    if (action === 'review_undo') return await undoReviewAction(ctx, input);
     return send(res, 400, { error: 'IMPORT_ACTION_INVALID' });
   } catch (_) {
     const safeErrors = {

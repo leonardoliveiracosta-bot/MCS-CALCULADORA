@@ -48,7 +48,7 @@
     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
   }
   async function open(options) {
-    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl} = options;
+    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     root.replaceChildren(); root.classList.add('lead-detail');
     const record=data.record||{},order=data.order||{},track=data.track||null,ref=data.ref,hasCalculatorRef=data.hasCalculatorRef!==false&&Boolean(data.order),journeyId=record.id;
@@ -249,6 +249,8 @@
         if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref,data.timezone));});
       if(!list.length)append(thread,'p','muted','Nenhuma mensagem neste filtro.');};
     sort.addEventListener('change',()=>{localStorage.setItem('mcs_conversation_sort',sort.value);draw();});filter.addEventListener('change',draw);draw();
+    // A20: reply from the panel (review in Portuguese, translation, 24 h window checked by the server).
+    if(journeyId&&replyComposer)replyComposer(conversation,journeyId,reload);
 
     const history=section(finalGrid,12,'DADOS E HISTÓRICO','lead-highlight');
     attachmentButton(history);
