@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { consolidateCalcRuns } = require('../../panel-domain');
 const { allRows, requirePanel, send, supabase, isUuid } = require('../../panel-server');
 const { normalizePhone } = require('../../panel-phone');
+const { lastRealMessageAt } = require('../../panel-sort');
 
 const json = async (req) => {
   if (typeof req.body === 'object' && req.body !== null) return req.body;
@@ -275,7 +276,7 @@ async function finishJob(ctx, body) {
 }
 
 async function queue(ctx, res) {
-  const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews] = await Promise.all([
+  const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews, chatMessages] = await Promise.all([
     allRows(ctx, 'chats', { select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact_id', environment: 'eq.' + ctx.environment, order: 'last_seen_at.desc' }),
     supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_last_import_counts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment }) }),
     allRows(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: 'eq.' + ctx.environment, order: 'display_name.asc' }),
@@ -283,12 +284,16 @@ async function queue(ctx, res) {
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'chat_aliases', { select: 'chat_id,alias_text,alias_normalized', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc' })
+    allRows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc' }),
+    allRows(ctx, 'messages', { select: 'chat_id,is_automatic,occurred_at_utc,occurred_at_local,undone_at', environment: 'eq.' + ctx.environment })
   ]);
+  /* ordem Mais recentes/antigas: ultima mensagem real da conversa (last_seen_at foi atualizado pela importacao) */
+  const messagesByChat = new Map();
+  chatMessages.forEach((message) => { if (!messagesByChat.has(message.chat_id)) messagesByChat.set(message.chat_id, []); messagesByChat.get(message.chat_id).push(message); });
   const byChat = Object.fromEntries(counts.map((item) => [item.chat_id, item]));
   const contactsById = new Map(contacts.map((item) => [item.id, item]));
   return send(res, 200, {
-    chats: chats.map((chat) => ({ ...chat, contact: contactsById.get(chat.contact_id) || null, newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
+    chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
     reviews, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), chatAliases, senderAliases
   });
 }

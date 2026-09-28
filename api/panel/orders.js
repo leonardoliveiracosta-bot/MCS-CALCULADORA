@@ -3,7 +3,7 @@
 const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, standardBudget, time } = require('../../panel-domain');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
-const { sortItems } = require('../../panel-sort');
+const { sortItems, lastRealMessageAt } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 const { score } = require('../../panel-ready');
@@ -52,6 +52,11 @@ module.exports = async (req, res) => {
       }
     }
 
+    /* ordem Mais recentes/antigas: ultima mensagem real da conversa; sem mensagem, a simulacao; sem nada, fim */
+    const messagesByJourney = new Map();
+    for (const message of data.messages) { if (!messagesByJourney.has(message.journey_id)) messagesByJourney.set(message.journey_id, []); messagesByJourney.get(message.journey_id).push(message); }
+    const lastRealByJourney = (id) => (id ? lastRealMessageAt(messagesByJourney.get(id)) : null);
+
     const calcModes = consolidateCalcRuns(calcRuns, links).map((item) => {
       const journey = item.link && item.link.journeyId ? journeys.get(item.link.journeyId) : null;
       const latest = journey ? latestByJourney.get(journey.id) : null;
@@ -65,6 +70,7 @@ module.exports = async (req, res) => {
     const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},[]);return [decorateContact({
       ...item,journeyId:linked?.id||item.journeyId,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
       lastCustomerAt: Math.max(time(item.occurredAt)||0, time(latestCustomerByJourney.get(linked?.id)?.occurred_at_utc || latestCustomerByJourney.get(linked?.id)?.occurred_at_local || latestCustomerByJourney.get(linked?.id)?.created_at)||0) || null,
+      lastRealMessageAt: lastRealByJourney(linked?.id||item.journeyId), sortAt: lastRealByJourney(linked?.id||item.journeyId) || item.occurredAt || null,
       sourceLabel: 'Calculadora',
       status: item.disposition === 'TREATED' ? 'TRATADO' : item.disposition === 'DISCARDED' ? 'DESCARTADO' : item.status,
       standardBudget: standardBudget(item.budgetCents),score:ready.score,goodHour:ready.goodHour
@@ -91,6 +97,7 @@ module.exports = async (req, res) => {
         outOfStandard: !standardBudget(item.budget_cents),
         status: disposition ? (disposition.status === 'TREATED' ? 'TRATADO' : 'DESCARTADO') : latest && latest.direction === 'CUSTOMER' ? 'SEM RESPOSTA' : 'RESPONDIDO',
         phones:item.phones||[],confirmed_total_ceiling_cents:item.confirmed_total_ceiling_cents,
+        lastRealMessageAt: lastRealByJourney(item.id), sortAt: lastRealByJourney(item.id),
         lastCustomerAt: latestCustomerByJourney.get(item.id)?.occurred_at_utc || latestCustomerByJourney.get(item.id)?.occurred_at_local || latestCustomerByJourney.get(item.id)?.created_at || item.created_at,score:ready.score,goodHour:ready.goodHour
       },facts,insightByJourney.get(item.id))];
     });
