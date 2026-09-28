@@ -70,7 +70,7 @@ test('all mutating panel flows are wired through the single action helper',()=>{
   assert.match(action,/options\.optimistic/);
   assert.match(action,/options\.rollback/);
   assert.match(action,/Não consegui salvar — tente de novo/);
-  for(const marker of ['setDisposition','review_link','review_create','review_dismiss','automatic-messages','phone_review','toggle_journey','manheim_upload','sms-print','increase_budget'])assert.match(panel,new RegExp(marker.replace('-','\\-')));
+  for(const marker of ['setDisposition','review_link','review_create','review_dismiss','automatic-messages','phone_review','toggle_journey','manheim_upload','sms-print','increase_budget'])assert.match(panel+read('painel/manheim-upload.js'),new RegExp(marker.replace('-','\\-')));
   assert.match(panel,/MCSAction\.(?:bind|run)/);
   assert.match(lead,/MCSAction\.bind/);
   assert.match(entry,/undone_at/);

@@ -73,12 +73,6 @@
     if (text !== undefined && text !== null) node.textContent = String(text);
     return node;
   };
-  function askCleanStatus() {
-    const dialog=element('dialog',''); const form=element('form',''); form.method='dialog';
-    form.append(element('h2','', 'Esta busca tem clean title e odometer OK?'));
-    const yes=element('button','small','Sim');yes.value='yes'; const no=element('button','quiet small','Não');no.value='no';form.append(yes,no);dialog.append(form);document.body.append(dialog);dialog.showModal();
-    return new Promise((resolve)=>dialog.addEventListener('close',()=>{const value=dialog.returnValue==='yes';dialog.remove();resolve(value);},{once:true}));
-  }
   const formatDate = (value) => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
   const formatMoney = (cents) => Number(cents) ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(Number(cents) / 100) : '—';
   const updateFloridaClock = () => {
@@ -1599,6 +1593,22 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  const MANHEIM_VISIBLE_ROWS = 10;
+  // BATE first, then QUASE, lowest mileage first; the first 10 are visible and the rest open on "Ver mais".
+  function appendManheimRows(table, matches, renderRow) {
+    const sorted = window.MCSManheimUpload ? MCSManheimUpload.sortForDisplay(matches) : matches.slice();
+    sorted.slice(0, MANHEIM_VISIBLE_ROWS).forEach((match) => table.append(renderRow(match)));
+    const hidden = sorted.slice(MANHEIM_VISIBLE_ROWS);
+    if (!hidden.length) return;
+    const more = element('button', 'quiet small manheim-more', `Ver mais (${hidden.length})`);
+    more.type = 'button';
+    more.addEventListener('click', (event) => {
+      event.stopPropagation();
+      more.replaceWith(...hidden.map(renderRow));
+    });
+    table.append(more);
+  }
+
   function renderManheimGroup(root, journey, matches, reactivation) {
     const card = element('article', 'item-card manheim-lead');
     const head = element('div', 'item-head');
@@ -1611,7 +1621,7 @@
       card.append(makeBadge(journey.status === 'PARADO' ? 'Parado — reativar' : 'Desligado — reativar', 'yellow'), reactivateButton);
     }
     const table = element('div', 'manheim-table');
-    matches.forEach((match) => {
+    appendManheimRows(table, matches, (match) => {
       const parsed = match.vehicle_json.parsed || {};
       const row = element('div', `manheim-row ${match.match_kind === 'BATE' ? 'match' : 'near'}`);
       const select = element('input'); select.type = 'checkbox'; select.className = 'manheim-select'; select.dataset.matchId = match.id;
@@ -1637,7 +1647,7 @@
       presented.type = 'button'; presented.disabled = Boolean(match.presented_unit_id) || journey.enabled === false;
       MCSAction.bind(presented,()=>({scope:row,optimistic:()=>{presented.textContent='Apresentado';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:journey.id,manheimMatchId:match.id,status:'PRESENTED'})}),rollback:()=>{presented.textContent='Apresentei ao cliente';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'}));
       row.append(select, vehicle, badges, presented);
-      table.append(row);
+      return row;
     });
     card.append(table);
     const exportButton = element('button', 'quiet small', 'Baixar PDF');
@@ -1671,7 +1681,7 @@
     const smsMissing=smsPrintMissing(order); if(smsMissing)card.append(smsMissing);
 
     const table = element('div', 'manheim-table');
-    matches.forEach((match) => {
+    appendManheimRows(table, matches, (match) => {
       const parsed = match.vehicle_json.parsed || {};
       const row = element('div', `manheim-row ${match.match_kind === 'BATE' ? 'match' : 'near'}`);
       const vehicle = element('div');
@@ -1690,7 +1700,7 @@
       if (Array.isArray(match.alsoFitsFor) && match.alsoFitsFor.length) badges.append(makeBadge(`também bate para ${match.alsoFitsFor.join(', ')}`, 'blue'));
       row.append(vehicle, badges);
       makeCardClickable(row, () => openDetail('order', order.ref));
-      table.append(row);
+      return row;
     });
     const actions=element('div','inline-actions');
     const open=element('button','small','Abrir pedido');open.type='button';open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('order',order.ref);});
@@ -1782,110 +1792,104 @@
     });
   }
 
+  const manheimError = (code, details) => Object.assign(new Error(code), { code }, details || {});
+  const MANHEIM_MAX_MATCHES = 100000;
+
   async function importManheim(files) {
     const selected = files.filter((file) => /\.csv$/i.test(file.name));
-    if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw new Error('MANHEIM_FILES_INVALID');
-    if (!window.MCSManheim) throw new Error('MANHEIM_READER_UNAVAILABLE');
-    $('manheim-status').classList.remove('error');
-    $('manheim-status').textContent = 'Lendo e comparando no navegador…';
+    if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
+    if (!window.MCSManheim || !window.MCSManheimUpload) throw manheimError('MANHEIM_READER_UNAVAILABLE');
+    const status = $('manheim-status');
+    status.classList.remove('error');
+    status.textContent = 'Lendo…';
     if (!manheimJourneys.length && !manheimOrders.length) {
       const data = await request('/api/panel/records?view=manheim');
       manheimJourneys = data.items || [];
       manheimOrders = data.orders || [];
     }
-    const cleanAndOdometerOk = await askCleanStatus();
     const vehicles = [];
     const headerGroups = [];
     const mappings = [];
-    const parsedCounts = [];
+    let ignoredRows = 0;
     for (const file of selected) {
-      if (file.size > MAX_TEXT) throw new Error('MANHEIM_FILE_TOO_LARGE');
+      if (file.size > MAX_TEXT) throw manheimError('MANHEIM_FILE_TOO_LARGE');
       let contents;
       try { contents = await file.text(); }
-      catch { throw new Error('MANHEIM_FILE_READ_FAILED'); }
+      catch (cause) { throw manheimError('MANHEIM_FILE_READ_FAILED', { cause }); }
       const parsed = MCSManheim.parseCsv(contents);
       const mapping = MCSManheim.mapHeaders(parsed.headers);
-      if (mapping.missing.length) {
-        $('manheim-status').classList.add('error');
-        $('manheim-status').textContent = `CSV incompleto: faltam ${mapping.missing.join(', ')}.`;
-        return;
-      }
+      if (mapping.missing.length) throw manheimError('MANHEIM_CSV_COLUMNS_MISSING', { missing: mapping.missing });
       headerGroups.push(parsed.headers);
       mappings.push(mapping.fields);
-      const normalized=MCSManheim.chooseAuctionRows(MCSManheim.normalizeRows(parsed, mapping)).map((vehicle)=>({...vehicle,cleanTitle:cleanAndOdometerOk,odometerOk:cleanAndOdometerOk}));parsedCounts.push({ignored:parsed.rows.length-normalized.length});vehicles.push(...normalized);
+      const normalized = MCSManheimUpload.markSearchFiltered(MCSManheim.chooseAuctionRows(MCSManheim.normalizeRows(parsed, mapping)));
+      ignoredRows += parsed.rows.length - normalized.length;
+      vehicles.push(...normalized);
     }
-    const ignoredRows = headerGroups.reduce((sum,_,index)=>sum+(parsedCounts[index]?.ignored||0),0);
-    const matches = [];
-    for (const journey of manheimJourneys) {
-      const enabled = journey.enabled !== false;
-      const reactivation = journey.reactivationEligible || journey.status === 'PARADO';
-      if (!enabled && !reactivation) continue;
-      for (const vehicle of vehicles) {
-        const result = MCSManheim.matchVehicle(vehicle, journey.wishlists || journey.wishlist, journey.budget_cents);
-        if (!result || (reactivation && result.kind !== 'BATE')) continue;
-        matches.push({
-          journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus,
-          fingerprint: MCSManheim.fingerprint(vehicle),
-          vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
-            vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
-            model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-            saleDate: vehicle.saleDate, startsAt:vehicle.startsAt, endsAt:vehicle.endsAt, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
-            drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
-          } }
-        });
-      }
+    status.textContent = `Comparando ${vehicles.length} carros…`;
+    const matches = MCSManheimUpload.buildMatches(vehicles, manheimJourneys, manheimOrders, MCSManheim);
+    if (matches.length > MANHEIM_MAX_MATCHES) throw manheimError('MANHEIM_MATCH_LIMIT', { matchCount: matches.length });
+    const base = { sourceFileCount: selected.length, vehicleCount: vehicles.length, headers: headerGroups, headerMap: { files: mappings } };
+    const parts = MCSManheimUpload.planParts(matches, base);
+    const result = await MCSManheimUpload.sendParts({ parts, base, request, onProgress: (partIndex, partCount) => { status.textContent = `Enviando parte ${partIndex} de ${partCount}…`; } });
+    const seen = new Set();
+    const archive = vehicles.filter((vehicle) => { const id = MCSManheim.fingerprint(vehicle); if (seen.has(id)) return false; seen.add(id); return true; });
+    let archived = 0, ignored = ignoredRows;
+    for (let index = 0; index < archive.length; index += 100) {
+      const saved=await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_archive', uploadId: result.uploadId,
+        vehicles: archive.slice(index, index + 100).map((vehicle) => ({ fingerprint: MCSManheim.fingerprint(vehicle), vehicle: {
+          vin: vehicle.vin, year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim,
+          miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
+          saleDate: vehicle.saleDate,startsAt:vehicle.startsAt,endsAt:vehicle.endsAt,mmrCents: vehicle.mmrCents,exteriorColor:vehicle.exteriorColor,interiorColor:vehicle.interiorColor,drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
+        } })) }) }).catch((cause) => { throw manheimError('MANHEIM_ARCHIVE_FAILED', { cause, uploadId: result.uploadId }); });
+      archived+=saved.archived||0;ignored+=saved.ignored||0;
     }
-    for (const order of manheimOrders.filter((item) => item.disposition !== 'DISCARDED')) {
-      for (const vehicle of vehicles) {
-        const result = MCSManheim.matchOrder(vehicle, order);
-        if (!result) continue;
-        matches.push({
-          targetType: 'ORDER', calcRef: order.ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus,
-          fingerprint: MCSManheim.fingerprint(vehicle),
-          vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
-            vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
-            model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-            saleDate: vehicle.saleDate, startsAt:vehicle.startsAt, endsAt:vehicle.endsAt, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
-            drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
-          } }
-        });
-      }
-    }
-    if (matches.length > 2000) throw new Error('MANHEIM_MATCH_LIMIT');
-    const result = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_upload', sourceFileCount: selected.length, vehicleCount: vehicles.length, headers: headerGroups, headerMap: { files: mappings }, matches }) });
-    if (result.uploadId) {
-      const seen = new Set();
-      const archive = vehicles.filter((vehicle) => { const id = MCSManheim.fingerprint(vehicle); if (seen.has(id)) return false; seen.add(id); return true; });
-      let archived=0, ignored=ignoredRows;
-      for (let index = 0; index < archive.length; index += 100) {
-        const saved=await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_archive', uploadId: result.uploadId,
-          vehicles: archive.slice(index, index + 100).map((vehicle) => ({ fingerprint: MCSManheim.fingerprint(vehicle), vehicle: {
-            vin: vehicle.vin, year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim,
-            miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-            saleDate: vehicle.saleDate,startsAt:vehicle.startsAt,endsAt:vehicle.endsAt,mmrCents: vehicle.mmrCents,exteriorColor:vehicle.exteriorColor,interiorColor:vehicle.interiorColor,drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
-          } })) }) });
-        archived+=saved.archived||0;ignored+=saved.ignored||0;
-      }
-      $('manheim-status').textContent = `${archived} carros arquivados, ${ignored} ignorados`;
-    }
+    const combinations = Number.isFinite(Number(result.matchedVehicleCount)) ? Number(result.matchedVehicleCount) : matches.length;
+    status.textContent = `${archived} carros arquivados, ${ignored} ignorados, ${combinations} combinações`;
     await loadCurrent();
     await refreshCounters();
   }
 
+  const MANHEIM_FAILURE_MESSAGES = {
+    MANHEIM_FILES_INVALID: 'Selecione de 1 a ' + MAX_FILES + ' arquivos .csv do Manheim (outros formatos não são aceitos).',
+    MANHEIM_READER_UNAVAILABLE: 'O leitor de CSV não carregou. Atualize a página e tente novamente.',
+    MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido.',
+    MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado. Selecione o arquivo novamente.',
+    MANHEIM_MATCH_LIMIT: 'O CSV gerou mais de ' + MANHEIM_MAX_MATCHES.toLocaleString('pt-BR') + ' combinações; divida o arquivo.',
+    MANHEIM_MATCH_TOO_LARGE: 'Uma linha do CSV é grande demais para ser enviada.',
+    MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação.',
+    MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação.',
+    MANHEIM_JOURNEY_ID_INVALID: 'Uma combinação veio com identificador de cliente inválido. Atualize a página e envie de novo.',
+    MANHEIM_JOURNEY_DISABLED: 'Uma busca não está disponível para comparação.',
+    MANHEIM_UPLOAD_NOT_FOUND: 'O servidor não encontrou este envio. Envie o CSV de novo.',
+    MANHEIM_MIGRATION_PENDING: 'O banco ainda não tem o envio em partes (migração pendente). Avise o responsável.',
+    MANHEIM_ARCHIVE_INVALID: 'Os carros foram comparados, mas o arquivo de carros não passou na validação.',
+    PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio.',
+    PANEL_ACTION_FAILED: 'A comparação foi lida, mas não pôde ser gravada. Tente novamente.',
+    AUTHENTICATION_REQUIRED: 'A sessão expirou. Entre novamente.'
+  };
+
+  function manheimFailureText(failure) {
+    const code = failure && failure.code;
+    if (code === 'MANHEIM_CSV_COLUMNS_MISSING') return `CSV incompleto: faltam ${(failure.missing || []).join(', ')}.`;
+    if (code === 'MANHEIM_UPLOAD_INCOMPLETE') {
+      const cause = failure.cause;
+      const detail = MANHEIM_FAILURE_MESSAGES[cause && cause.code] || `${cause && (cause.code || cause.message) || 'sem resposta'}`;
+      const retried = !(window.MCSManheimUpload && MCSManheimUpload.FINAL_ERRORS.has(cause && cause.code));
+      return `Envio incompleto: a parte ${failure.partIndex} de ${failure.partCount} falhou${retried ? ' depois de 3 tentativas' : ''} (${detail}). O último upload continua sendo o anterior.`;
+    }
+    if (code === 'MANHEIM_ARCHIVE_FAILED') {
+      const cause = failure.cause;
+      return `As combinações foram gravadas, mas o arquivo de carros falhou (${MANHEIM_FAILURE_MESSAGES[cause && cause.code] || cause && (cause.code || cause.message) || 'sem resposta'}).`;
+    }
+    if (code && MANHEIM_FAILURE_MESSAGES[code]) return MANHEIM_FAILURE_MESSAGES[code];
+    if (failure && failure.message === 'MCSManheim is not defined') return MANHEIM_FAILURE_MESSAGES.MANHEIM_READER_UNAVAILABLE;
+    return `Erro inesperado: ${code || (failure && failure.message) || String(failure)}`;
+  }
+
   function showManheimFailure(failure) {
-    const messages = {
-      MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido.',
-      MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado. Selecione o arquivo novamente.',
-      MANHEIM_MATCH_LIMIT: 'O CSV gerou combinações demais; reduza o arquivo.',
-      MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação.',
-      MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação.',
-      MANHEIM_JOURNEY_DISABLED: 'Uma busca não está disponível para comparação.',
-      PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio.',
-      PANEL_ACTION_FAILED: 'A comparação foi lida, mas não pôde ser gravada. Tente novamente.'
-    };
-    const moduleMissing = failure && failure.message === 'MCSManheim is not defined';
+    console.error(failure);
     $('manheim-status').classList.add('error');
-    $('manheim-status').textContent = moduleMissing ? 'O leitor de CSV não carregou. Atualize a página e tente novamente.' : messages[failure && failure.code] || 'Não foi possível ler ou comparar este CSV.';
+    $('manheim-status').textContent = manheimFailureText(failure);
   }
 
   function renderRecords(items) {
