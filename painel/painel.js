@@ -16,6 +16,7 @@
   let senderAliases = [];
   let chatAliases = [];
   let todayItems = [];
+  let vitrineRequestCount = 0;
   let recordItems = [];
   let clientsData = { items: [], pending: { items: [], counts: {} } };
   let todayRefFilter = localStorage.getItem('mcs_today_ref_filter') || 'all';
@@ -72,6 +73,12 @@
     if (text !== undefined && text !== null) node.textContent = String(text);
     return node;
   };
+  function askCleanStatus() {
+    const dialog=element('dialog',''); const form=element('form',''); form.method='dialog';
+    form.append(element('h2','', 'Esta busca tem clean title e odometer OK?'));
+    const yes=element('button','small','Sim');yes.value='yes'; const no=element('button','quiet small','Não');no.value='no';form.append(yes,no);dialog.append(form);document.body.append(dialog);dialog.showModal();
+    return new Promise((resolve)=>dialog.addEventListener('close',()=>{const value=dialog.returnValue==='yes';dialog.remove();resolve(value);},{once:true}));
+  }
   const formatDate = (value) => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
   const formatMoney = (cents) => Number(cents) ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(Number(cents) / 100) : '—';
   const updateFloridaClock = () => {
@@ -987,9 +994,10 @@
     if (view === 'pending') return loadPending();
     if (view === 'clients') return loadClients();
     if (view === 'today') {
-      const [data]=await Promise.all([request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value)),loadWeekly()]);
+      const [data,vitrineData]=await Promise.all([request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value)),request('/api/panel/vitrine-requests'),loadWeekly()]);
       if (!current()) return;
       updateMeta(data.meta);
+      renderVitrineRequests(vitrineData);
       return renderToday(data.items || []);
     }
     if (view === 'orders') {
@@ -1021,16 +1029,17 @@
   }
 
   async function refreshCounters() {
-    const [today, entry, pending, orders, searches, manheim, records] = await Promise.all([
+    const [today, entry, pending, orders, searches, manheim, records, vitrineData] = await Promise.all([
       request('/api/panel/today'),
       request('/api/panel/entry'),
       request('/api/panel/pendencias'),
       request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
       request('/api/panel/searches'),
       request('/api/panel/records?view=manheim'),
-      request('/api/panel/records')
+      request('/api/panel/records'),
+      request('/api/panel/vitrine-requests')
     ]);
-    setCount('today',(today.items||[]).length);
+    setCount('today',(today.items||[]).length+(vitrineData.requests||[]).length);
     setCount('entry', (entry.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (entry.reviews || []).length);
     setCount('clients', (records.items || []).length);
     setCount('pending', Object.values(pending.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
@@ -1313,6 +1322,32 @@
     root.replaceChildren(intro);
   }
 
+  function renderVitrineRequests(data) {
+    const root=$('vitrine-requests'),signals=$('vitrine-signals');if(!root||!signals)return;
+    root.replaceChildren();signals.replaceChildren();
+    const requests=Array.isArray(data?.requests)?data.requests:[];
+    vitrineRequestCount=requests.length;
+    const group=(kind,title)=>{
+      const list=requests.filter((request)=>request.kind===kind);const block=element('section','request-group');block.append(element('h3','',`${title} (${list.length})`));
+      list.forEach((request)=>{
+        const card=element('article','vitrine-request-card');
+        card.append(element('strong','',request.name),element('span','muted',`${request.phone||'Sem telefone'} · Ref ${request.referenceCode||'—'} · pediu pelo WhatsApp ${request.ago||''}`),element('span','',request.car||'Carro não informado'));
+        const auction=request.endsAt||request.startsAt;if(auction)card.append(element('span','auction-alert',`Leilão ${relativeAuction(auction)} · ${formatDate(auction)}`));
+        if(request.referred)card.append(makeBadge(`Número novo pelo link de ${request.ownerName} (${request.ownerRef||'sem Ref'}) · provável indicação`,'yellow'));
+        const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2 (em breve)');build.type='button';build.disabled=true;
+        const open=element('button','quiet small','Abrir conversa');open.type='button';open.addEventListener('click',()=>request.journeyId&&openDetail('ficha',request.journeyId));open.disabled=!request.journeyId;
+        const treated=element('button','small','Tratado');treated.type='button';treated.addEventListener('click',async()=>{card.remove();try{await requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:request.id});showUndoNotice('Marcado como tratado',async()=>{await requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:request.id});loadCurrent('today',viewRequestVersion);});}catch(_){loadCurrent('today',viewRequestVersion);}});actions.append(build,open,treated);card.append(actions);block.append(card);
+      });
+      root.append(block);
+    };
+    group('VIEW','V1 · Pediram para ver o carro');group('BID','V2 · Querem dar lance');
+    (data?.signals||[]).forEach((signal)=>signals.append(element('span','vitrine-signal',`Ref ${signal.referenceCode||'—'} · ${signal.text}`)));
+  }
+
+  function relativeAuction(value){const hours=Math.max(0,Math.ceil((Date.parse(value)-Date.now())/3600000));return hours>=24?`em ${Math.floor(hours/24)} dia${Math.floor(hours/24)===1?'':'s'} ${hours%24} h`:`em ${hours} h`;}
+  async function requestApi(url,body){return request(url,{method:'POST',body:JSON.stringify(body)});}
+  function showUndoNotice(text,undo){const notice=element('div','warning',text);const button=element('button','quiet small','Desfazer');button.type='button';button.addEventListener('click',async()=>{button.disabled=true;await undo();notice.remove();});notice.append(button);$('vitrine-requests')?.prepend(notice);}
+
   function renderToday(items, preserveAll=false) {
     const root = $('today-list');
     const stats = $('today-stats');
@@ -1322,7 +1357,7 @@
     const all=preserveAll?todayItems:items.slice(),counts={all:all.length,with:all.filter(hasRef).length,without:all.filter((item)=>!hasRef(item)).length};
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);const count=button.querySelector('span');if(count)count.textContent=String(counts[button.dataset.todayRef]||0);});
     items=all.filter((item)=>todayRefFilter==='all'||(todayRefFilter==='with'?hasRef(item):!hasRef(item))).sort((a,b)=>{const ao=a.next_action_at&&Date.parse(a.next_action_at)<Date.now()?1:0,bo=b.next_action_at&&Date.parse(b.next_action_at)<Date.now()?1:0;return bo-ao;});
-    setCount('today', all.length);
+    setCount('today', all.length+vitrineRequestCount);
     const stat = (value, label) => {
       const block = element('div', 'today-stat');
       block.append(element('strong', '', value), element('span', '', label));
@@ -1566,7 +1601,9 @@
       const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => matches.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
       downloadShortlist(selected, journey.reference_code);
     });
-    card.append(exportButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
+    const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';await navigator.clipboard?.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';});
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();const selected=[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent='Selecione pelo menos um carro';return;}vitrineButton.disabled=true;try{const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected})});const absolute=location.origin+created.link;await navigator.clipboard?.writeText(absolute);copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Não consegui gerar o link';}finally{vitrineButton.disabled=false;}});
+    card.append(exportButton,vitrineButton,copyMessageButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
   }
@@ -1708,6 +1745,7 @@
       manheimJourneys = data.items || [];
       manheimOrders = data.orders || [];
     }
+    const cleanAndOdometerOk = await askCleanStatus();
     const vehicles = [];
     const headerGroups = [];
     const mappings = [];
@@ -1726,7 +1764,7 @@
       }
       headerGroups.push(parsed.headers);
       mappings.push(mapping.fields);
-      const normalized=MCSManheim.normalizeRows(parsed, mapping);parsedCounts.push({ignored:parsed.rows.length-normalized.length});vehicles.push(...normalized);
+      const normalized=MCSManheim.chooseAuctionRows(MCSManheim.normalizeRows(parsed, mapping)).map((vehicle)=>({...vehicle,cleanTitle:cleanAndOdometerOk,odometerOk:cleanAndOdometerOk}));parsedCounts.push({ignored:parsed.rows.length-normalized.length});vehicles.push(...normalized);
     }
     const ignoredRows = headerGroups.reduce((sum,_,index)=>sum+(parsedCounts[index]?.ignored||0),0);
     const matches = [];
@@ -1743,8 +1781,8 @@
           vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
             vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
             model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
-            buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade
+            saleDate: vehicle.saleDate, startsAt:vehicle.startsAt, endsAt:vehicle.endsAt, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
+            drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
           } }
         });
       }
@@ -1759,8 +1797,8 @@
           vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: {
             vin: vehicle.vin, year: vehicle.year, make: vehicle.make, makeInferred: vehicle.makeInferred, makeNotice: vehicle.makeNotice,
             model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
-            buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade
+            saleDate: vehicle.saleDate, startsAt:vehicle.startsAt, endsAt:vehicle.endsAt, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
+            drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
           } }
         });
       }
@@ -1776,7 +1814,7 @@
           vehicles: archive.slice(index, index + 100).map((vehicle) => ({ fingerprint: MCSManheim.fingerprint(vehicle), vehicle: {
             vin: vehicle.vin, year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim,
             miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-            saleDate: vehicle.saleDate, mmrCents: vehicle.mmrCents
+            saleDate: vehicle.saleDate,startsAt:vehicle.startsAt,endsAt:vehicle.endsAt,mmrCents: vehicle.mmrCents,exteriorColor:vehicle.exteriorColor,interiorColor:vehicle.interiorColor,drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
           } })) }) });
         archived+=saved.archived||0;ignored+=saved.ignored||0;
       }

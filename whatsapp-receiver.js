@@ -179,6 +179,7 @@ async function processItem(ctx,rawId,item){
   }
 }
 function sourceKindFor(row,options={}){return options.sourceKind||(row.event_type==='history'?'WHATSAPP_HISTORY':'WHATSAPP_WEBHOOK');}
+function removePushMessage(messages,messageId){const index=(messages||[]).findIndex((item)=>item.messageId===messageId);if(index>=0)messages.splice(index,1);return index>=0;}
 async function processRaw(ctx,row,options={}){
   const claimed=await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+row.id,environment:'eq.'+ctx.environment,status:'in.(PENDING,ERROR)'},{status:'PROCESSING',attempts:(row.attempts||0)+1,error_code:null,processing_started_at:new Date().toISOString()},true);
   if(!claimed.length)return {skipped:true};
@@ -199,6 +200,7 @@ async function processRaw(ctx,row,options={}){
         await resolveItemError(ctx,row.id,item.itemIndex).catch(()=>null);
         if(options.live&&item.direction==='CUSTOMER'&&item.eventField==='messages'){
           if(!result?.duplicate&&result?.messageId)pushMessages.push({messageId:result.messageId,contactId:result.contactId||null,journeyId:result.journeyId||null,phone:item.phone||null});
+          try{const {captureVitrineInterest}=require('./vitrine-webhook');const vitrine=await captureVitrineInterest(ctx,item,result);if(vitrine?.handled){result.vitrineHandled=true;removePushMessage(pushMessages,result.messageId);}}catch(_){/* Vitrine must never affect WhatsApp processing. */}
           await maybeAutoReply(ctx,row.id,item,result).catch(()=>null);
         }
         if(item.media&&(item.media.id||item.media.url)&&result?.messageId){try{const {enqueueMediaJob}=require('./whatsapp-media');await enqueueMediaJob(ctx,item,result.messageId);}catch(error){console.error('[whatsapp-media]',{operation:'enqueue',message:String(error?.message||'UNKNOWN')});}}
@@ -226,4 +228,4 @@ async function rawEvent(ctx,payload){
   const existing=await rows(ctx,'whatsapp_raw_events',{select:'id,status,attempts,payload_json',environment:'eq.'+ctx.environment,event_key:'eq.'+key,limit:'1'});
   return existing[0]?.status==='ERROR'?existing[0]:null;
 }
-module.exports={phone,content,parse,normalizeParsed,normalizedItems,eventKey,processRaw,rawEvent,prepareItem,processItem,saveItemError,resolveItemError,sourceKindFor,webhookItems,shouldUpgradeHistoryMedia,HISTORY_MEDIA_PLACEHOLDER,HISTORY_MEDIA_BODIES};
+module.exports={phone,content,parse,normalizeParsed,normalizedItems,eventKey,processRaw,rawEvent,prepareItem,processItem,saveItemError,resolveItemError,sourceKindFor,removePushMessage,webhookItems,shouldUpgradeHistoryMedia,HISTORY_MEDIA_PLACEHOLDER,HISTORY_MEDIA_BODIES};

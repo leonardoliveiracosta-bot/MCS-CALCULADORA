@@ -16,12 +16,16 @@
     trim: ['trim', 'series', 'style', 'version', 'versao'],
     miles: ['odometer', 'odometer miles', 'odometer value', 'mileage', 'mileage value', 'miles', 'mi', 'milhas'],
     location: ['location', 'location name', 'vehicle location', 'pickup location', 'auction', 'auction location', 'sale location', 'local', 'leilao'],
-    saleDate: ['sale date', 'auction date', 'date of sale', 'data da venda', 'data venda'],
+    saleDate: ['sale date', 'auction date', 'date of sale', 'data da venda', 'data venda', 'starts at', 'start at'],
+    endsAt: ['ends at', 'end at'],
     mmr: ['mmr', 'adjusted mmr', 'base mmr', 'manheim market report'],
     exteriorColor: ['exterior color', 'exterior colour'],
     interiorColor: ['interior color', 'interior colour'],
     buyNowPrice: ['buy now price', 'buy now'],
     conditionGrade: ['condition report grade', 'condition grade', 'cr grade']
+    ,drivetrain: ['drivetrain', 'drive train']
+    ,transmission: ['transmission type', 'transmission']
+    ,engine: ['engine type', 'engine']
   });
 
   function clean(value) {
@@ -102,11 +106,16 @@
         location,
         locationDisplay: catalog ? catalog.readableLocation(location) : location,
         saleDate: fields.saleDate ? clean(raw[fields.saleDate]) : '',
+        startsAt: fields.saleDate ? clean(raw[fields.saleDate]) : '',
+        endsAt: fields.endsAt ? clean(raw[fields.endsAt]) : '',
         mmrCents: mmr === null ? null : Math.round(mmr * 100),
         exteriorColor: fields.exteriorColor ? clean(raw[fields.exteriorColor]) : '',
         interiorColor: fields.interiorColor ? clean(raw[fields.interiorColor]) : '',
         buyNowPrice: fields.buyNowPrice ? clean(raw[fields.buyNowPrice]) : '',
         conditionGrade: fields.conditionGrade ? clean(raw[fields.conditionGrade]) : ''
+        ,drivetrain: fields.drivetrain ? clean(raw[fields.drivetrain]) : ''
+        ,transmission: fields.transmission ? clean(raw[fields.transmission]) : ''
+        ,engine: fields.engine ? clean(raw[fields.engine]) : ''
       };
     }).filter((row) => row.year && row.model && row.miles !== null);
   }
@@ -176,5 +185,10 @@
     return '\uFEFF' + lines.join('\r\n');
   }
 
-  return { HEADER_ALIASES, fingerprint, fold, mapHeaders, matchOrder, matchVehicle, normalizeRows, parseCsv, toCsv };
+  function chooseAuctionRows(rows) {
+    const byVin=new Map();
+    for (const row of rows||[]) { const key=clean(row.vin)||fingerprint(row); const prior=byVin.get(key); if (!prior || (/simulcast/i.test(row.raw?.Inventory||'') && !/simulcast/i.test(prior.raw?.Inventory||''))) byVin.set(key,row); }
+    return [...byVin.values()].map((row)=>({ ...row, hasBuyNow:Boolean((rows||[]).find((candidate)=>clean(candidate.vin)===clean(row.vin)&&clean(candidate.buyNowPrice))?.buyNowPrice) }));
+  }
+  return { HEADER_ALIASES, chooseAuctionRows, fingerprint, fold, mapHeaders, matchOrder, matchVehicle, normalizeRows, parseCsv, toCsv };
 }));
