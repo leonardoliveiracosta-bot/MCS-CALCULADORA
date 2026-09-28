@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
       ? send(res,409,{error:'SEARCH_CLOSED',message:'This search is closed'}) : send(res, 200, { closed: true });
     if (req.method === 'POST') {
       const body = await jsonBody(req, 4096);
-      if (!journey || !['WANT','DECLINE'].includes(body.response)) return send(res,400,{error:'RESPONSE_INVALID'});
+      if (!journey || !['WANT','DECLINE'].includes(body.response)) return send(res,400,{error:'RESPONSE_INVALID',message:'We could not read this answer, please reload the page'});
       const result=await supabase(config.url,config.secretKey,'/rest/v1/rpc/panel_customer_unit_response',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:SERVER_ENVIRONMENT,p_code:code,p_unit:body.unitId,p_response:body.response})
       });
@@ -42,8 +42,13 @@ module.exports = async (req, res) => {
     return send(res, 200, { firstName: String(contacts[0]?.display_name || fallback?.contactName || '').trim().split(/\s+/)[0] || 'there', ref: String(track.ref_code).trim(),
       step: Math.max(track.step, safeUnits.length ? 2 : 1), result: track.result, updatedAt: track.updated_at, cars: safeUnits });
   } catch (error) {
-    if (error.message === 'SEARCH_CLOSED') return send(res,409,{error:'SEARCH_CLOSED',message:'This search is closed'});
-    if (error.message === 'RESPONSE_ALREADY_SET') return send(res,409,{error:'ALREADY_ANSWERED',message:'You already answered this car'});
+    // panel-server keeps the RPC's RAISE code in error.code (P0001 message); older paths used message.
+    const reason = error.code || error.message;
+    if (reason === 'SEARCH_CLOSED') return send(res,409,{error:'SEARCH_CLOSED',message:'This search is closed'});
+    if (reason === 'RESPONSE_ALREADY_SET') return send(res,409,{error:'ALREADY_ANSWERED',message:'You already answered this car'});
+    if (reason === 'UNIT_UNAVAILABLE') return send(res,409,{error:'UNIT_UNAVAILABLE',message:'This car is no longer available'});
+    if (reason === 'RESPONSE_INVALID') return send(res,400,{error:'RESPONSE_INVALID',message:'We could not read this answer, please reload the page'});
+    if (reason === 'TRACKING_NOT_FOUND') return send(res,404,{error:'NOT_FOUND',message:'This link is no longer available'});
     return send(res, 500, { error: 'TRACKING_UNAVAILABLE' });
   }
 };
