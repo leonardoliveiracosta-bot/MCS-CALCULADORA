@@ -213,3 +213,35 @@ test('Lote 3 · print de SMS: nome igual sem telefone igual vai para revisão na
   assert.equal(res.payload.candidateJourneyId, uuid(62));
   assert.deepEqual(patches.map((row) => row.payload.error_code), ['NAME_MATCH_REVIEW']);
 });
+
+test('Lote 3 · marcar "Carro ou faixa" mantém os carros que vieram da Ref da calculadora', async () => {
+  const sent = [];
+  const real = require('../panel-server');
+  const journey = { id: uuid(70), contact_id: uuid(71), reference_code: 'ABC23', status: 'ATIVO', stage: 'RESPONDIDO', criteria_json: {} };
+  const run = (id, at, marca, modelo) => ({ id, created_at: new Date(at).toISOString(), dados: { sid: 's1', ref: 'ABC23', evento: 'busca', canal: 'whatsapp', marca, modelo, quando: new Date(at).toISOString() } });
+  const server = { ...real,
+    requirePanel: async () => ({ environment: 'preview', panel: { id: uuid(1) }, config: { url: 'https://example.invalid', secretKey: 'x' } }),
+    jsonBody: async (req) => req.body,
+    rows: async (_ctx, table) => table === 'messages' ? [{ id: uuid(72), chat_id: uuid(73), direction: 'CUSTOMER', body_text: 'Civic 2018' }] : [],
+    allRows: async (_ctx, table) => table === 'calc_runs' ? [run('1', 1000, 'Honda', 'Civic'), run('2', 2000, 'Toyota', 'Corolla')] : [],
+    insert: async () => [], recordMutation: async () => {}, patchRows: async () => [],
+    supabase: async (_url, _key, pathName, options) => { sent.push({ pathName, body: JSON.parse(options.body || '{}') }); return { pointNumber: 1 }; }
+  };
+  const handler = loadWith('api/panel/actions.js', { '../../panel-server': server, '../../panel-read-model': { journeyExists: async () => journey, messageForJourney: async () => ({ id: uuid(72), chat_id: uuid(73), direction: 'CUSTOMER', body_text: 'Civic 2018' }) } });
+  const res = output();
+  await handler({ method: 'POST', body: { action: 'mark_message', journeyId: journey.id, messageId: uuid(72), kind: 'VEHICLE', wishlists: [{ make: 'Honda', model: 'Civic', yearMin: 2018 }] } }, res);
+  assert.equal(res.code, 200, JSON.stringify(res.payload));
+  const call = sent.find((entry) => entry.pathName.includes('panel_mark_message_fact_v2'));
+  assert.deepEqual(call.body.p_value_json.confirmedWishlists.map((wish) => `${wish.model}:${wish.yearMin || ''}`), ['Civic:2018', 'Corolla:']);
+});
+
+test('Lote 3 · nomes antigos e carrocerias longas continuam sendo o mesmo carro', () => {
+  const same = (a, am, b, bm) => catalog.modelsMatch(a, b, am, bm);
+  assert.equal(same('Crosstrek', 'Subaru', 'XV Crosstrek', 'Subaru'), true);
+  assert.equal(same('WRX', 'Subaru', 'Impreza WRX', 'Subaru'), true);
+  assert.equal(same('Yukon', 'GMC', 'Yukon XL', 'GMC'), true);
+  assert.equal(same('Escalade', 'Cadillac', 'Escalade ESV', 'Cadillac'), true);
+  assert.equal(same('Grand Cherokee', 'Jeep', 'Grand Cherokee L', 'Jeep'), true);
+  assert.equal(same('Santa Fe', 'Hyundai', 'Santa Fe Sport', 'Hyundai'), true);
+  assert.equal(same('Grand Cherokee L', 'Jeep', 'Cherokee', 'Jeep'), false);
+});

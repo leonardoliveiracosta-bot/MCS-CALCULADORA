@@ -356,6 +356,8 @@ begin
      and ((wid is not null and m.source_kind in ('WHATSAPP_ZIP','WHATSAPP_TXT','IMPORT'))
        or (wid is null and m.source_kind in ('WHATSAPP_ZIP','WHATSAPP_TXT','IMPORT',source_key)))
      and m.direction=dir and lower(trim(regexp_replace(m.body_normalized,'\s+',' ','g')))=norm and date_trunc('minute',m.occurred_at_utc)=date_trunc('minute',stamp)
+     -- one imported message stands for one webhook message: a second "ok" in the same minute is kept
+     and not exists(select 1 from public.whatsapp_message_ids w where w.environment=p_environment and w.message_id=m.id)
    order by m.created_at limit 1;
  if message_id is null then
    insert into public.messages(environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,time_uncertain,signature_base,occurrence_index,source_kind,created_at)

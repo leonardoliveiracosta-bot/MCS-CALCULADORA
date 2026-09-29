@@ -249,6 +249,23 @@ async function actionDeclaration(ctx, journey, body) {
   return send(ctx.res, 201, { declarationId: created[0].id, field });
 }
 
+// The ficha's effective wishes (R1): its own cars, or the cars of its linked calculator Refs.
+// Marking a car on a message keeps the others, including the ones that came from a Ref.
+async function effectiveWishes(ctx, journey) {
+  const own = wishlistsForJourney(journey);
+  const refs = await allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
+  const codes = [journey.reference_code, ...refs.map((row) => row.ref_code)].map((value) => String(value || '').trim().toUpperCase()).filter(Boolean);
+  if (!codes.length) return own;
+  const [calcRuns, calcLinks, dispositions] = await Promise.all([
+    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+    allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at: 'is.null' })
+  ]);
+  const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions).filter((order) => codes.includes(order.ref));
+  const merged = orders.length ? { wishlists: mergeWishlists([], orders.flatMap((order) => order.wishlists || [])), budgetCents: null } : null;
+  return effectiveCriteria(journey, merged).wishes.map((wish) => normalizeWishlist(wish));
+}
+
 async function actionMarkMessage(ctx, journey, body) {
   const kind = String(body.kind || '');
   const config = {
@@ -270,7 +287,7 @@ async function actionMarkMessage(ctx, journey, body) {
     // come first; the ficha's other cars stay (the form starts empty, so nothing is lost).
     const same = (left, right) => vehicleCatalog.fold(left.make) === vehicleCatalog.fold(right.make) && vehicleCatalog.modelTokens(left.model, left.make).join(' ') === vehicleCatalog.modelTokens(right.model, right.make).join(' ');
     const marked = wishlists.map((wish) => normalizeWishlist(wish)).filter((wish) => wish.model);
-    const kept = wishlistsForJourney(journey).filter((wish) => !marked.some((candidate) => same(candidate, wish)));
+    const kept = (await effectiveWishes(ctx, journey)).filter((wish) => !marked.some((candidate) => same(candidate, wish)));
     valueJson.confirmedWishlists = marked.concat(kept).slice(0, 5);
   }
   if (config.field === 'TETO') {

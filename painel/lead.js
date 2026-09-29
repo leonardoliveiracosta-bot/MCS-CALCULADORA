@@ -196,7 +196,7 @@
       let operationId=sessionStorage.getItem(key);
       if(!operationId){operationId=crypto.randomUUID();sessionStorage.setItem(key,operationId);}
       const event=await api('quick',{type,dueLocal,operationId});sessionStorage.removeItem(key);
-      if(event.duplicate)append(quick,'p','muted','Resultado já registrado');else undo(event);
+      if(event.duplicate){const toast=append(document.body,'div','undo-toast');append(toast,'span','','Resultado já registrado');setTimeout(()=>toast.remove(),6000);await reload();return;}undo(event);
       await reload();
     }
     [['Atendeu','ANSWERED'],['Não atendeu','NO_ANSWER'],['Conversa presencial','IN_PERSON'],['Vai pagar o depósito','DEPOSIT']].forEach(([label,type])=>button(quickActions,label,()=>quickResult(type)));

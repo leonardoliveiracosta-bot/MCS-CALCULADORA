@@ -3,6 +3,7 @@ begin;
 do $$
 declare
   raw_one uuid:=gen_random_uuid();
+  raw_two uuid:=gen_random_uuid();
   v_contact uuid:=gen_random_uuid();
   v_journey uuid:=gen_random_uuid();
   v_chat uuid:=gen_random_uuid();
@@ -31,6 +32,15 @@ begin
     'body','quero uma x5','direction','CUSTOMER','timestamp',extract(epoch from stamp+interval '41 seconds')::text));
   if (select count(*) from public.messages m join public.message_journeys l on l.message_id=m.id where l.journey_id=v_journey)<>1 then
     raise exception 'FALHA: a mensagem do webhook duplicou a mensagem importada';
+  end if;
+  -- a second, genuine identical message in the same minute is a new message
+  insert into public.whatsapp_raw_events(id,environment,event_key,event_type,payload_json)
+    values(raw_two,'preview','lote3-import-'||raw_two,'messages','{}');
+  perform public.panel_whatsapp_apply_message('preview',raw_two,jsonb_build_object(
+    'phone',phone,'name','Cliente Import','messageId','wamid.lote3.'||raw_two,
+    'body','quero uma x5','direction','CUSTOMER','timestamp',extract(epoch from stamp+interval '50 seconds')::text));
+  if (select count(*) from public.messages m join public.message_journeys l on l.message_id=m.id where l.journey_id=v_journey)<>2 then
+    raise exception 'FALHA: a segunda mensagem igual no mesmo minuto foi engolida';
   end if;
 end $$;
 rollback;

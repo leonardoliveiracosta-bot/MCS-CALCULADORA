@@ -353,15 +353,25 @@
     const totals = messages.reduce((all, item) => { all[item.signature_base] = (all[item.signature_base] || 0) + 1; return all; }, {});
     messages.forEach((item) => { item.file_occurrence_total = totals[item.signature_base]; });
     let inserted = 0;
-    let cursor = 0;
     let batch = 1;
-    while (cursor < messages.length) {
-      const chunk = [];
-      while (cursor < messages.length && chunk.length < 500) {
-        const candidate = chunk.concat(messages[cursor]);
-        if (chunk.length && new Blob([JSON.stringify(candidate)]).size > 1024 * 1024) break;
-        chunk.push(messages[cursor++]);
+    // A16: identical messages (same signature) always travel in the same batch, so the server
+    // counts them against the webhook copies once, never split across two batches
+    const groups = new Map();
+    messages.forEach((item) => { if (!groups.has(item.signature_base)) groups.set(item.signature_base, []); groups.get(item.signature_base).push(item); });
+    const encoder = new TextEncoder(), sizeOf = (item) => encoder.encode(JSON.stringify(item)).length + 1;
+    const chunks = [];
+    let current = [], currentBytes = 2;
+    for (const group of groups.values()) {
+      const groupBytes = group.reduce((total, item) => total + sizeOf(item), 0);
+      if (current.length && (current.length + group.length > 500 || currentBytes + groupBytes > 1024 * 1024)) { chunks.push(current); current = []; currentBytes = 2; }
+      for (const item of group) {
+        const itemBytes = sizeOf(item);
+        if (current.length && (current.length >= 500 || currentBytes + itemBytes > 1024 * 1024)) { chunks.push(current); current = []; currentBytes = 2; }
+        current.push(item); currentBytes += itemBytes;
       }
+    }
+    if (current.length) chunks.push(current);
+    for (const chunk of chunks) {
       const result = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'batch', importJobId: start.importJobId, batchNumber: batch++, messages: chunk }) });
       inserted += result.inserted;
       importProgress.inserted += result.inserted;
@@ -432,26 +442,32 @@
     const item = element('article', 'queue-item');
     const header = element('header', '');
     header.append(element('strong', '', `Print de SMS · ${print.name || print.phone || print.filename || 'sem nome'}`), element('span', 'badge', 'revisão'));
-    item.append(header, element('span', 'muted', print.candidate ? `O nome bate com ${print.candidate.name}${print.candidate.ref ? ` · Ref ${print.candidate.ref}` : ''}, mas o telefone não` : 'O nome bate com um lead que não está aberto'));
+    item.append(header, element('span', 'muted', print.candidate ? `O nome bate com ${print.candidate.name}${print.candidate.ref ? ` · Ref ${print.candidate.ref}` : ''}, mas o telefone não` : 'O nome bate com um lead encerrado. Para guardar nele, reabra a ficha e anexe o print lá'));
     if (print.phone) item.append(element('span', 'muted', `Telefone do print: ${print.phone}`));
+    // The confirm needs the customer's phone: when the print shows none, the operator types it
+    let phoneInput = null;
+    if (!print.phone && print.message) { const label = element('label', '', 'Telefone do cliente (o print não mostra)'); phoneInput = element('input'); phoneInput.type = 'tel'; phoneInput.inputMode = 'tel'; phoneInput.placeholder = '+1 305 555 0000'; label.append(phoneInput); item.append(label); }
     if (print.message) item.append(element('p', '', print.message.length > 280 ? `${print.message.slice(0, 280)}…` : print.message));
     const actions = element('div', 'inline-actions');
-    const values = { phone: print.phone || '', name: print.name || '', ref: print.ref || '', message: print.message || '', translation: print.translation || '' };
-    const run = (button, body, successText) => MCSAction.bind(button, () => ({
+    const values = () => ({ phone: print.phone || phoneInput?.value.trim() || '', name: print.name || '', ref: print.ref || '', message: print.message || '', translation: print.translation || '' });
+    const run = (button, bodyFor, successText) => MCSAction.bind(button, () => {
+      const body = typeof bodyFor === 'function' ? bodyFor() : bodyFor;
+      if (body.action === 'confirm' && !body.phone) return { scope: item, commit: () => Promise.reject(new Error('PHONE_REQUIRED')), errorText: 'Digite o telefone do cliente antes de salvar' };
+      return {
       scope: item, successScope: document.body,
       optimistic: () => { item.classList.add('action-optimistic-hidden'); const before = countValue('entry'); setCount('entry', Math.max(0, before - 1)); return before; },
       commit: () => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId: print.id, ...body }) }),
       rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('entry', before); },
       successText, refresh: () => loadQueue(), errorText: 'Não consegui salvar, tente de novo'
-    }));
+    }; });
     if (print.candidate) {
       const keep = element('button', 'small', `Guardar em ${print.candidate.name}`); keep.type = 'button';
-      run(keep, print.message ? { action: 'confirm', targetJourneyId: print.candidate.journeyId, keepSource: true, ...values } : { action: 'photo', targetJourneyId: print.candidate.journeyId }, 'Print guardado no lead');
+      run(keep, () => print.message ? { action: 'confirm', targetJourneyId: print.candidate.journeyId, keepSource: true, ...values() } : { action: 'photo', targetJourneyId: print.candidate.journeyId }, 'Print guardado no lead');
       actions.append(keep);
     }
     if (print.message) {
       const create = element('button', 'quiet small', 'Criar lead novo'); create.type = 'button';
-      run(create, { action: 'confirm', auto: true, newLead: true, ...values }, 'Lead novo criado com o print');
+      run(create, () => ({ action: 'confirm', auto: true, newLead: true, ...values() }), 'Lead novo criado com o print');
       actions.append(create);
     }
     const discard = element('button', 'quiet small', 'Descartar print'); discard.type = 'button';

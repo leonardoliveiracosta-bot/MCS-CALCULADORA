@@ -140,3 +140,26 @@ test('Lote 3: no celular (360 px) o menu ⋯ da mensagem fica dentro da tela', a
   expect(box.x + box.width).toBeLessThanOrEqual(360);
   expect(errors).toEqual([]);
 });
+
+test('Lote 3: print sem telefone pede o número antes de salvar', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (failure) => errors.push(failure.message));
+  await session(page);
+  const calls = await mockApi(page, {
+    '/api/panel/entry': ({ json }) => json({ chats: [], reviews: [], contacts: [], journeys: [], chatAliases: [], senderAliases: [], printReviews: [
+      { id: READ, filename: 'print.png', name: 'Maria Silva', phone: null, ref: null, message: 'Hi, any Tacoma?', translation: '', candidate: { journeyId: JOURNEY, name: 'Maria Silva', ref: null } }
+    ] }),
+    '/api/panel/sms-print': ({ json }) => json({ journeyId: JOURNEY, contactId: JOURNEY }, 201)
+  });
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="entry"]').click();
+  const card = page.locator('#entry-queue .queue-item', { hasText: 'Print de SMS · Maria Silva' });
+  await expect(card).toBeVisible({ timeout: 30000 });
+  await card.getByRole('button', { name: 'Guardar em Maria Silva' }).click();
+  await expect(card).toContainText('Digite o telefone do cliente antes de salvar');
+  expect(calls.some((call) => call.path === '/api/panel/sms-print')).toBe(false);
+  await card.getByLabel('Telefone do cliente (o print não mostra)').fill('+13055553333');
+  await card.getByRole('button', { name: 'Guardar em Maria Silva' }).click();
+  await expect.poll(() => calls.find((call) => call.path === '/api/panel/sms-print')?.body).toMatchObject({ action: 'confirm', targetJourneyId: JOURNEY, keepSource: true, phone: '+13055553333' });
+  expect(errors).toEqual([]);
+});

@@ -104,8 +104,14 @@
       if (/^[a-z]{2}$/.test(first) && /^\d{3}[a-z]*$/.test(second)) return [first, ...rest];
     }
     if (key === 'Mercedes-Benz') { const match = /^([a-z]{1,3})\d{2,3}[a-z]*$/.exec(first); if (match) return [match[1], ...(second ? [second] : []), ...rest]; }
+    // Older names of the same car: "Impreza WRX" is a WRX (2008-14)
+    if (key === 'Subaru' && first === 'impreza' && second === 'wrx') return tokens.slice(1);
     return tokens;
   }
+  // Catalog entries that are the same car under an older or longer-body name. They match the base
+  // model, as they did before the catalog rule (a customer who wants a Yukon is shown a Yukon XL).
+  const SAME_CAR = Object.freeze({ 'Subaru|xv crosstrek': 'crosstrek', 'GMC|yukon xl': 'yukon', 'Cadillac|escalade esv': 'escalade', 'Jeep|grand cherokee l': 'grand cherokee', 'Hyundai|santa fe sport': 'santa fe' });
+  const sameCar = (model, key) => model && (SAME_CAR[key + '|' + model] || model);
   // The longest catalog model of the make contained in the name ("Grand Cherokee Limited" is a
   // Grand Cherokee, never a Cherokee; "Range Rover Sport" is not a "Range Rover").
   function catalogModel(tokens, key) {
@@ -139,7 +145,7 @@
     }
     if (key) {
       a = aliasTokens(a, key); b = aliasTokens(b, key);
-      const canonicalA = catalogModel(a, key), canonicalB = catalogModel(b, key);
+      const canonicalA = sameCar(catalogModel(a, key), key), canonicalB = sameCar(catalogModel(b, key), key);
       if (canonicalA && canonicalB) return canonicalA === canonicalB;
     }
     return containsWords(a, b) || containsWords(b, a);
