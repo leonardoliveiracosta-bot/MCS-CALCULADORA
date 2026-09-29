@@ -14,39 +14,14 @@ const path = require('node:path');
 Object.assign(process.env, { VERCEL_ENV: 'preview', SUPABASE_URL: 'http://banco-simulado.local', SUPABASE_PUBLISHABLE_KEY: 'publica-simulada', SUPABASE_SECRET_KEY: 'secreta-simulada' });
 for (const key of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'MANHEIM_OPENAI_ENABLED', 'MANHEIM_MATCH_AUDIT_ENABLED', 'ENTRADA_OPENAI_ENABLED', 'AUTO_REPLY_ENABLED', 'D360_API_KEY']) delete process.env[key];
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
-const { MODELS, volumeFiles } = require('./fixtures/manheim-volume');
+const { volumeFiles, volumeSeed, volumeJourneyId: journeyId } = require('./fixtures/manheim-volume');
 const manheim = require('../painel/manheim');
 const upload = require('../painel/manheim-upload');
 
 const ACTOR = '6e400000-0000-4000-8000-000000000001';
-const journeyId = (n) => `6e410000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const REFS = ['VAAA2', 'VBBB3', 'VCCC4', 'VDDD5'];
 const REPORT = process.env.VOLUME_REPORT || '';
 
-// 16 CARRO and 16 VALOR fichas (two per model) and 4 VALOR orders without ficha.
-function seed() {
-  const lines = [`insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password) values('${ACTOR}','preview','68000000-0000-4000-8000-00000000a001','teste@example.test','admin',true,false);`];
-  let n = 0;
-  MODELS.forEach(([make, model]) => {
-    [[2014, 2019, 10000, 70000], [2019, 2025, 1000, 60000]].forEach(([yearMin, yearMax, minMiles, maxMiles]) => { n += 1; lines.push(person(n, { wishlists: [{ make, model, yearMin, yearMax, minMiles, maxMiles }], logical_modes: ['CARRO'] }, null)); });
-    [2000000, 4500000].forEach((bid) => { n += 1; lines.push(person(n, { wishlists: [{ make, model }], logical_modes: ['VALOR'] }, bid)); });
-  });
-  REFS.forEach((ref, index) => {
-    const [make, model] = MODELS[index];
-    lines.push(`insert into public.calc_runs(created_at,zip,estado,lance,pagamento,dados,is_test) values(now()-interval '2 days','32801','FL',30000,'cash','${JSON.stringify({ sid: 's-' + ref, ref, evento: 'simulacao', logical_mode: 'VALOR', marca: make, modelo: model, lance: 30000 })}',false),(now()-interval '1 day','32801','FL',null,null,'${JSON.stringify({ sid: 's-' + ref, ref, evento: 'whatsapp', logical_mode: 'VALOR' })}',false);`);
-  });
-  return lines.join('\n');
-}
-function person(n, criteria, bid) {
-  const journey = journeyId(n), contact = journeyId(1000 + n), chat = journeyId(2000 + n), message = journeyId(3000 + n);
-  return [
-    `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${contact}','preview','Cliente Volume ${n}','WHATSAPP_DIRECT',now(),now());`,
-    `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,budget_cents,created_at,updated_at) values('${journey}','preview','${contact}','WHATSAPP_DIRECT','RESPONDIDO','ATIVO','${JSON.stringify(criteria)}',${bid || 'null'},now(),now());`,
-    `insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,is_group,first_seen_at,last_seen_at,created_at,updated_at) values('${chat}','preview','WHATSAPP','${contact}','vol-${n}','RESOLVED',false,now(),now(),now(),now());`,
-    `insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${message}','preview','${chat}','WHATSAPP','CUSTOMER','Quero um carro','x',now(),'v${n}',1,'WHATSAPP_WEBHOOK',now());`,
-    `insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${message}','${journey}','IMPORT',now());`
-  ].join('\n');
-}
+const seed = () => volumeSeed(ACTOR);
 
 let backend;
 const metrics = { api: [], memoryPeakMb: 0, uploadMs: 0, parseMs: 0, chunks: 0, requestBytesMax: 0 };

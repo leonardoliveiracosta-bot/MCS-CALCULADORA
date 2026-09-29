@@ -102,7 +102,7 @@
       node.textContent = text;
       node.classList.toggle('count-positive', Boolean(entry && entry.value > 0));
       node.classList.toggle('count-stale', Boolean(entry && entry.stale));
-      node.title = entry && entry.stale ? (Number.isFinite(entry.value) ? 'Não foi possível atualizar; mostrando o último valor confirmado' : 'Não foi possível atualizar') : entry && entry.at ? 'Atualizado às ' + new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(entry.at) : '';
+      node.title = entry && entry.stale ? (Number.isFinite(entry.value) ? 'Não foi possível atualizar; mostrando o último valor confirmado' : 'Não foi possível atualizar') : entry && entry.at ? 'Atualizado às ' + new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }).format(entry.at) : '';
     });
   };
   const nextCount = (previous, outcome) => window.MCSRefresh ? MCSRefresh.nextCounter(previous, outcome) : (outcome && outcome.ok ? { value: Number(outcome.value), stale: false, at: Date.now() } : { ...(previous || { value: null }), stale: true });
@@ -1263,7 +1263,7 @@
     let note = $('counters-note');
     if (!failed) { countersOkAt = Date.now(); if (note) note.remove(); return; }
     if (!note) { note = element('span', 'counters-note error'); note.id = 'counters-note'; note.setAttribute('role', 'status'); holder.append(note); }
-    note.replaceChildren(element('span', '', 'Não foi possível atualizar' + (countersOkAt ? ` · contadores de ${new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(countersOkAt)}` : '')));
+    note.replaceChildren(element('span', '', 'Não foi possível atualizar' + (countersOkAt ? ` · contadores de ${new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }).format(countersOkAt)}` : '')));
     const retry = element('button', 'quiet small', 'Tentar novamente'); retry.type = 'button';
     retry.addEventListener('click', () => { retry.disabled = true; retry.textContent = 'Atualizando…'; if (requestPool) requestPool.invalidate(); refreshCounters().catch(() => {}); });
     note.append(retry);
@@ -3134,7 +3134,7 @@
       onSuccess: () => refreshNote(''),
       onFailure: (failure, nextMs) => { console.error('Atualização automática falhou', failure); refreshNote(`Não foi possível atualizar · os dados mostrados são os últimos confirmados · nova tentativa em ${Math.round(nextMs / 60000) || 1} min`, true); }
     }).start();
-    window.__mcsRefresh = { coordinator: refreshCoordinator, scheduler: refreshScheduler };
+    window.__mcsRefresh = { coordinator: refreshCoordinator, scheduler: refreshScheduler, counters: () => refreshCounters() };
   };
   async function routeFromHash(push = false) {
     const hash = String(location.hash || '');
@@ -3171,7 +3171,7 @@
   // C5: only the session check can send the operator back to login. A real 401 is handled by
   // request() after the token refresh fails; any other failure keeps the session and offers to try
   // again. The session check is light (no Manheim, no lists) and has its own time limit.
-  const SESSION_TIMEOUT_MS = 12000;
+  const SESSION_TIMEOUT_MS = Number(window.MCS_SESSION_TIMEOUT_MS) > 0 ? Number(window.MCS_SESSION_TIMEOUT_MS) : 12000;
   function sessionRetry(show) {
     let retry = $('login-retry');
     if (!retry && show) {

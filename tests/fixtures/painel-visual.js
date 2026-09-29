@@ -1,4 +1,5 @@
 'use strict';
+const { asSummary, optionsPage } = require('./buscas-simulado');
 
 // Painel com dados fictícios para os testes visuais: os handlers reais de api/panel rodam contra o
 // banco PGlite simulado (tests/fixtures/banco-simulado.js). Nomes, telefones (555-01xx) e Refs são
@@ -136,7 +137,9 @@ async function createPanel() {
       const name = url.pathname.replace('/api/panel/', '');
       if (name === 'config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-simulada' });
       if (name === 'session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
-      if (name === 'records' && url.searchParams.get('view') === 'manheim') return json(manheim());
+      // BUSCAS in the server format: a summary without cars, options page by page.
+      if (name === 'records' && url.searchParams.get('view') === 'manheim') return json(asSummary(manheim()));
+      if (name === 'manheim-options') return json(optionsPage(manheim(), url));
       if (name === 'searches') return json(searches);
       if (name === 'manheim-searches') return json(saved);
       if (request.method() !== 'GET') return json({ ok: true });

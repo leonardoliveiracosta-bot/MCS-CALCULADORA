@@ -9,6 +9,7 @@
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
 const { createPanel } = require('./fixtures/painel-visual');
+const { openAllOptions } = require('./fixtures/buscas-simulado');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
@@ -36,7 +37,11 @@ async function show(page, view) {
     if (!(await page.locator('#entry-orders').evaluate((node) => node.open))) await page.locator('#entry-orders > summary').click();
   }
   if (view === 'clients') await expect(page.locator('#clients-list .client-card').first()).toBeVisible({ timeout: 30000 });
-  if (view === 'searches') await expect(page.locator('#buscas-valor .manheim-lead').first()).toBeVisible({ timeout: 30000 });
+  if (view === 'searches') {
+    await expect(page.locator('#buscas-valor .manheim-lead').first()).toBeVisible({ timeout: 30000 });
+    // The options of each demand are opened, as the operator would, so they are measured too.
+    await openAllOptions(page);
+  }
   await page.waitForTimeout(400);
 }
 
