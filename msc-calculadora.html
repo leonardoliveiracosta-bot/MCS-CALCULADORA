@@ -1924,7 +1924,7 @@ function iniciarFind(){
   function prepararContatoFind(ev,canal){
     if(!validarFind(true)){ev.preventDefault();["find-year-from","find-year-to","find-marca","find-modelo","find-marca-other","find-modelo-other","find-modelo-custom","find-miles-from","find-miles-to","find-zip","find-prazo","find-exp"].forEach(function(id){FIND_TOCADOS[id]=true;});findBloquear(true);return;}
     var d=lerFindForm(),z=d.zip;
-    if(d.zipOk&&!(ZIP_LOCAL[z]&&ZIP_LOCAL[z].exato)){ev.preventDefault();buscarLocalZip(z).then(function(){var a=lerFindForm(),url=canal==="sms"?linkSmsFind(a):linkWhatsAppFind(a);atualizarFindLink();registrarBusca(a,canal);window.location.href=url;});return;}
+    if(d.zipOk&&!(ZIP_LOCAL[z]&&ZIP_LOCAL[z].exato)){ev.preventDefault();buscarLocalZip(z).then(function(){if(!validarFind(true)){findBloquear(true);return;}var a=lerFindForm(),url=canal==="sms"?linkSmsFind(a):linkWhatsAppFind(a);atualizarFindLink();registrarBusca(a,canal);window.location.href=url;});return;}
     registrarBusca(d,canal);
   }
   $("find-wa").addEventListener("click",function(ev){prepararContatoFind(ev,"whatsapp");});
