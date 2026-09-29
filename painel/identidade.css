@@ -602,3 +602,48 @@ body.login-screen .error { color: var(--mcs-red); }
 /* Campo de arquivo nunca passa da borda do cartão */
 input[type="file"] { max-width: 100%; }
 .history-import label { min-width: 0; }
+
+/* Erros continuam vermelhos, inclusive nos avisos de status e nos avisos de ação */
+.status.error,
+.sr-status.error,
+.action-feedback.error,
+body > .action-feedback.error { color: var(--mcs-red); }
+.action-feedback.error { border-color: rgb(239 68 68 / 45%); }
+
+/* iPhone: conteúdo fora da barra de status e da faixa do indicador de início */
+body { padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+
+/* Campo de arquivo do 360dialog dentro do cartão em 390 px */
+.history-import label { grid-template-columns: minmax(0, 1fr); }
+
+/* Seções recolhíveis mantêm o indicador de abrir e fechar */
+.weekly-summary > summary,
+.entry-orders > summary,
+.entry-simulated > summary,
+.buscas-review > summary { list-style: none; }
+.weekly-summary > summary::-webkit-details-marker,
+.entry-orders > summary::-webkit-details-marker,
+.entry-simulated > summary::-webkit-details-marker,
+.buscas-review > summary::-webkit-details-marker { display: none; }
+.weekly-summary > summary::before,
+.entry-orders > summary::before,
+.entry-simulated > summary::before,
+.buscas-review > summary::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+}
+.weekly-summary[open] > summary::before,
+.entry-orders[open] > summary::before,
+.entry-simulated[open] > summary::before,
+.buscas-review[open] > summary::before { transform: rotate(45deg); }
+
+/* Números do resumo da semana continuam com cara de link, com 44 px de toque */
+button.weekly-value { min-height: var(--mcs-touch); padding: 0 4px; border: 0; background: transparent; color: var(--mcs-text); text-decoration: underline; text-underline-offset: 3px; }
+button.weekly-value:hover { background: transparent; text-decoration-color: var(--mcs-gold); }

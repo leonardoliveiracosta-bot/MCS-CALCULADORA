@@ -151,7 +151,20 @@ const measure = {
       .filter(({ rect }) => Math.round(rect.width) < 44 || Math.round(rect.height) < 44)
       .map(({ element, rect }) => `${Math.round(rect.width)}x${Math.round(rect.height)} ${element.tagName.toLowerCase()}${element.id ? '#' + element.id : ''}.${String(element.className).trim().replace(/\s+/g, '.')} "${element.textContent.trim().slice(0, 30)}"`);
   },
-  overflow: () => document.documentElement.scrollWidth - window.innerWidth
+  // html and body clip horizontal overflow, so scrollWidth alone can't fail: look for visible
+  // elements whose box leaves the screen, unless a scroll container of their own holds them.
+  overflow: () => {
+    const out = [];
+    const held = (element) => { for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) { const x = getComputedStyle(node).overflowX; if (['auto', 'scroll', 'hidden', 'clip'].includes(x)) return true; } return false; };
+    for (const element of document.querySelectorAll('body *')) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1 || element.closest('.visually-hidden, .visual-page-label, details:not([open]) > :not(summary)')) continue;
+      const style = getComputedStyle(element);
+      if (style.visibility === 'hidden' || style.position === 'fixed' && rect.width <= window.innerWidth) continue;
+      if ((rect.right > window.innerWidth + 1 || rect.left < -1) && !held(element)) out.push(`${element.tagName.toLowerCase()}${element.id ? '#' + element.id : ''}.${String(element.className).trim().replace(/\s+/g, '.')} ${Math.round(rect.left)}..${Math.round(rect.right)}`);
+    }
+    return out.slice(0, 8);
+  }
 };
 
 // ------------------------------------------------------------------ testes
@@ -173,6 +186,16 @@ test('contraste: texto de todas as abas, da ficha e do login com pelo menos 4,5:
   failures.push(...(await login.evaluate(measure.contrast)).map((line) => `login: ${line}`));
   failures.push(...(await login.evaluate(measure.fieldBorders)).map((line) => `login borda: ${line}`));
   await login.close();
+  // Error states the fixture does not render by itself: status errors and scoped action errors.
+  const states = await page.evaluate(() => {
+    const status = document.getElementById('import-status'); status.classList.add('error'); status.textContent = 'Falha na importação de teste';
+    const feedback = document.createElement('p'); feedback.className = 'status action-feedback error'; feedback.textContent = 'Não consegui salvar, tente de novo'; document.getElementById('entry-needs-empty').after(feedback);
+    return [status, feedback].map((node) => getComputedStyle(node).color);
+  });
+  expect(states).toEqual(['rgb(248, 113, 113)', 'rgb(248, 113, 113)']);
+  await show(page, 'entry');
+  failures.push(...(await page.evaluate(measure.contrast)).filter((line) => /Falha na importação de teste|Não consegui salvar, tente/.test(line)).map((line) => `erro: ${line}`));
+  expect(panel.failures, 'nenhum handler falhou no banco simulado').toEqual([]);
   console.log('CONTRASTE', failures.length ? failures.join('\n') : 'nenhuma falha');
   expect(failures).toEqual([]);
 });
@@ -197,11 +220,11 @@ test('responsivo: nenhuma rolagem horizontal de 390 a 1920 px, em todas as abas,
   const wide = [];
   for (const width of [390, 430, 1024, 1280, 1440, 1920]) {
     await open(page, width);
-    for (const view of VIEWS) { await show(page, view); const extra = await page.evaluate(measure.overflow); if (extra > 0) wide.push(`${width} ${view} +${extra}px`); }
+    for (const view of VIEWS) { await show(page, view); for (const line of await page.evaluate(measure.overflow)) wide.push(`${width} ${view}: ${line}`); }
     await openRecord(page);
-    const extra = await page.evaluate(measure.overflow); if (extra > 0) wide.push(`${width} ficha +${extra}px`);
+    for (const line of await page.evaluate(measure.overflow)) wide.push(`${width} ficha: ${line}`);
     const loginPage = await openLogin(browser, width);
-    const login = await loginPage.evaluate(measure.overflow); if (login > 0) wide.push(`${width} login +${login}px`);
+    for (const line of await loginPage.evaluate(measure.overflow)) wide.push(`${width} login: ${line}`);
     await loginPage.close();
   }
   expect(wide).toEqual([]);
@@ -234,7 +257,12 @@ test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com moti
   await menu.locator('summary').scrollIntoViewIfNeeded();
   await menu.locator('summary').click();
   await inside(menu.locator('.message-menu-panel'), 'menu da mensagem');
-  expect(await page.evaluate(measure.overflow)).toBeLessThanOrEqual(0);
+  // The open menu is not hidden behind the fixed tab bar.
+  const [panelBox, navBox] = await Promise.all([menu.locator('.message-menu-panel').boundingBox(), page.locator('nav[aria-label="Seções do painel"]').boundingBox()]);
+  if (panelBox.y + panelBox.height > navBox.y) { await page.evaluate((y) => window.scrollBy(0, y), panelBox.y + panelBox.height - navBox.y + 16); }
+  const [after, nav] = await Promise.all([menu.locator('.message-menu-panel').boundingBox(), page.locator('nav[aria-label="Seções do painel"]').boundingBox()]);
+  expect(after.y + after.height, 'menu acima da barra de abas').toBeLessThanOrEqual(nav.y);
+  expect(await page.evaluate(measure.overflow)).toEqual([]);
 });
 
 test('capturas: login, HOJE, ENTRADA, CLIENTES com prontuário e BUSCAS em 390 e 1280 px', async ({ page, browser }) => {
