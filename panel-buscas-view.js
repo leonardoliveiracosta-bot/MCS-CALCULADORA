@@ -58,7 +58,7 @@ async function manheimView(ctx) {
   };
 
   // People shown in BUSCAS: fichas and Refs without ficha that entered in contact.
-  const excluded = new Set(base.journeys.filter((journey) => journey.contact?.is_lead === false).map((journey) => journey.id));
+  const excluded = new Set(base.journeys.filter((journey) => journey.contact?.is_lead === false || journey.triageOut).map((journey) => journey.id));
   const excludedRefs = new Set(base.journeys.filter((journey) => excluded.has(journey.id)).flatMap((journey) => [journey.reference_code, ...base.refsOf(journey)]).filter(Boolean).map(upper));
   const items = base.journeys.filter((journey) => !excluded.has(journey.id)).flatMap((journey) => {
     const facts = base.contact.facts({ journeyId: journey.id, ref: journey.reference_code, refs: base.refsOf(journey) });

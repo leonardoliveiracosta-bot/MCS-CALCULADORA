@@ -2,6 +2,7 @@
 
 const { allRows, rows } = require('./panel-server');
 const { toggleEnabled } = require('./panel-domain');
+const { outOfFunnelIndex } = require('./panel-triage');
 
 function flattenMessageLinks(links, messages) {
   const byId = new Map((Array.isArray(messages) ? messages : []).map((message) => [message.id, message]));
@@ -34,10 +35,12 @@ async function operational(ctx) {
     allRows(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: 'eq.' + ctx.environment })
   ]);
   const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
-  const excludedJourneyIds=new Set(journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead===false).map((journey)=>journey.id));
+  // Triagem: a ficha cuja conversa ficou fora do funil comercial sai das listas (os dados ficam).
+  const triageOut = await outOfFunnelIndex(ctx, journeys, refs);
+  const excludedJourneyIds=new Set(journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead===false||triageOut.has(journey.id)).map((journey)=>journey.id));
   const excludedRefs=[...new Set(journeys.filter((journey)=>excludedJourneyIds.has(journey.id)).flatMap((journey)=>[journey.reference_code,...refs.filter((ref)=>ref.journey_id===journey.id).map((ref)=>ref.ref_code)]).filter(Boolean).map((ref)=>String(ref).trim().toUpperCase()))];
   const toggleByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
-  return { journeys: journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).map((journey) => {
+  return { journeys: journeys.filter((journey)=>!excludedJourneyIds.has(journey.id)).map((journey) => {
     const toggle = toggleByJourney.get(journey.id);
     const ownPhones=phones.filter((phone) => phone.contact_id === journey.contact_id),user=userIds.find((entry)=>entry.contact_id===journey.contact_id);
     return { ...journey, enabled: toggleEnabled(journey.status, toggle), toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, switchedAt: toggle && toggle.switched_at || null, contact: contactsById.get(journey.contact_id) || null, phones:ownPhones,whatsappUsername:user?.username||null,whatsappWithoutPhone:Boolean(user&&!ownPhones.some((phone)=>phone.is_current!==false)) };

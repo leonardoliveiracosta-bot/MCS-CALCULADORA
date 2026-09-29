@@ -7,6 +7,7 @@ const { buildSearchDemands, consolidateCalcRuns, groupCalculatorByRef, matchManh
 const vehicleMatch = require('./vehicle-match');
 const { contactIndex } = require('./panel-contact');
 const { dispositionIndex } = require('./panel-disposition');
+const { activeRows, outOfFunnelJourneys } = require('./panel-triage');
 
 const upper = (value) => String(value || '').trim().toUpperCase();
 
@@ -26,15 +27,18 @@ async function loadBuscasBase(ctx, services = {}) {
     read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }),
     read(ctx, 'messages', { select: 'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: env })
   ]);
-  return buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages });
+  const triage = await activeRows(ctx, read);
+  return buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage });
 }
 
 function buildBuscasBase(input) {
   const stateByJourney = new Map((input.toggleStates || []).map((state) => [state.journey_id, state]));
   const contactsById = new Map((input.contacts || []).map((row) => [row.id, row]));
+  // Triagem: a ficha cuja conversa ficou fora do funil não entra em BUSCAS; demandas e matches não mudam.
+  const triageOut = outOfFunnelJourneys(input.triage || [], input.journeys || [], input.refs || []);
   const journeys = (input.journeys || []).map((journey) => {
     const state = stateByJourney.get(journey.id);
-    const item = { ...journey, enabled: toggleEnabled(journey.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null };
+    const item = { ...journey, enabled: toggleEnabled(journey.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null, triageOut: triageOut.has(journey.id) };
     return { ...item, reactivationEligible: reactivationEligible(item) };
   });
   const refs = input.refs || [];

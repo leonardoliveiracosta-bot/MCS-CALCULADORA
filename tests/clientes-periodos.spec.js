@@ -5,9 +5,11 @@
 // o período, e os demais filtros continuam funcionando junto. Desktop e 390 px.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/clientes-periodos.spec.js
 const fs = require('node:fs');
+const path = require('node:path');
 const { test, expect } = require('@playwright/test');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
+const SHOTS = process.env.VISUAL_SHOTS || '';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
 
 const DAY = 86400000;
@@ -86,6 +88,8 @@ for (const width of [1280, 390]) {
     await page.locator('#clients-activity').selectOption('all');
     await expect(stat(page, 'Sem resposta')).toHaveText('2');
     await expect(stat(page, 'Concluída')).toHaveText('1');
+    await page.locator('#clients-activity').selectOption('30');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `clientes-periodo-${width}.png`), fullPage: width !== 390 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(0);
     expect(errors).toEqual([]);

@@ -6,6 +6,7 @@ const {runCron}=require('../../panel-ai');
 const {generalBatch,generalStatus}=require('../../panel-pendencias');
 const {runCaptureCheck,recordCaptureFailure}=require('../../panel-capture');
 const {recoverStalledEvents,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
+const {runTriage}=require('../../panel-triage');
 
 function equalSecret(actual,expected){
   const left=Buffer.from(String(actual||'')),right=Buffer.from(String(expected||''));
@@ -39,7 +40,11 @@ module.exports=async(req,res)=>{
     let capture;
     try { capture=await runCaptureCheck(ctx); }
     catch (error) { capture={error:'CAPTURE_CHECK_FAILED'}; await recordCaptureFailure(ctx,error.message).catch(()=>{}); }
-    return send(res,200,{...result,pending,capture,whatsappMaintenance});
+    // Triagem da ENTRADA (OpenAI): só com ENTRADA_OPENAI_ENABLED=1; falha nunca derruba o cron.
+    let triage;
+    try { triage=await runTriage(ctx); }
+    catch (error) { triage={error:'TRIAGE_FAILED'};console.error('[panel-triage]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
+    return send(res,200,{...result,pending,capture,whatsappMaintenance,triage});
   }catch(error){
     const requestId=crypto.randomUUID().slice(0,8);
     console.error('[panel-ai-cron]',{requestId,route:'/api/panel/ai-cron',message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});

@@ -561,6 +561,44 @@
     journeys.filter((journey) => contactId !== 'new' && journey.contact_id === contactId).forEach((journey) => option(select, journey.vehicle_text || 'Busca existente', journey.id));
   }
 
+  // Triagem da ENTRADA: REVISAR fica em "Precisa de você"; o que saiu do funil fica recolhido,
+  // sempre com a categoria, o motivo curto, a correção manual e o desfazer.
+  // ENTRADA badge = conversations waiting in the queue + triage items in REVISAR; both sources update it.
+  let entryQueueCount=null,triageReviewCount=0;
+  const renderEntryCount=()=>{if(entryQueueCount!==null)setCount('entry',entryQueueCount+triageReviewCount);};
+  const TRIAGE_OPTIONS=[['PRE_COMPRA_MCS','Pré-compra MCS'],['POS_VENDA','Pós-venda'],['PESSOAL','Pessoal'],['OUTRO_NEGOCIO','Outro negócio'],['NAO_CLIENTE','Não é cliente'],['REVISAR','Manter pendente']];
+  function triageCard(item,refresh){
+    const row=element('div','queue-item triage-item');row.dataset.triageId=item.id;
+    const head=element('div','triage-head');head.append(element('strong','',item.name),makeBadge(item.label,item.decision==='FORA_DO_FUNIL'?'':item.decision==='PENDENTE'?'yellow':'green'));row.append(head);
+    const who=item.source==='MANUAL'?'Decisão manual':'IA';
+    const why=item.errorCode?'Leitura automática falhou, decida manualmente':item.reason&&item.reason!==who?`${who} · ${item.reason}`:who;
+    row.append(element('p','muted triage-reason',why));
+    (item.evidence||[]).forEach((quote)=>row.append(element('p','evidence',quote)));
+    const actions=element('div','inline-actions');
+    const apply=(category,button)=>MCSAction.bind(button,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'set',chatId:item.chatId,category})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh,errorText:'Não consegui salvar, tente de novo'}));
+    if(item.decision!=='FUNIL'){const funnel=element('button','small','É pré-compra');funnel.type='button';apply('PRE_COMPRA_MCS',funnel);actions.append(funnel);}
+    const choose=element('select','triage-choice');choose.setAttribute('aria-label','Corrigir a classificação');TRIAGE_OPTIONS.filter(([value])=>value!==item.category&&(item.decision==='FUNIL'||value!=='PRE_COMPRA_MCS')).forEach(([value,label])=>choose.append(new Option(label,value)));
+    const fix=element('button','quiet small','Corrigir');fix.type='button';MCSAction.bind(fix,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'set',chatId:item.chatId,category:choose.value})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh,errorText:'Não consegui salvar, tente de novo'}));
+    actions.append(choose,fix);
+    if(item.source==='MANUAL'){const back=element('button','quiet small','Desfazer');back.type='button';MCSAction.bind(back,()=>({scope:row,commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'undo',triageId:item.id})}),refresh,errorText:'Não consegui desfazer, tente de novo'}));actions.append(back);}
+    if(item.journeyId){const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));actions.append(open);}
+    row.append(actions);return row;
+  }
+  async function loadTriage(){
+    const data=await request('/api/panel/triage').catch(()=>null);
+    const review=$('triage-review'),out=$('triage-out-list');review.replaceChildren();out.replaceChildren();
+    if(!data){$('triage-state').textContent='';$('triage-out-count').textContent='0';return {review:[],out:[]};}
+    triageReviewCount=(data.review||[]).length;renderEntryCount();
+    const refresh=()=>Promise.all([loadTriage(),loadWhatsApp()]).then(()=>refreshCounters().catch(()=>{}));
+    (data.review||[]).forEach((item)=>review.append(triageCard(item,refresh)));
+    (data.out||[]).forEach((item)=>out.append(triageCard(item,refresh)));
+    if(!(data.out||[]).length)out.append(element('p','muted','Nenhuma conversa fora do funil'));
+    $('triage-out-count').textContent=String((data.out||[]).length);
+    $('triage-state').textContent=data.state==='LIGADA'?'':'Triagem automática desligada: as conversas novas seguem o fluxo normal';
+    $('entry-needs-empty').classList.toggle('hidden',Boolean($('whatsapp-errors').childElementCount||$('whatsapp-suggestions').childElementCount||review.childElementCount));
+    return data;
+  }
+
   async function loadWhatsApp() {
     const data = await request('/api/panel/whatsapp');
     const ago = (stamp) => {
@@ -597,7 +635,7 @@
       suggestions.append(row);
     });
     (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';MCSAction.bind(choose,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'}));const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=candidate.isLead!==false;return{scope:row,optimistic:()=>{candidate.isLead=!before;lead.textContent=candidate.isLead?'Não é lead':'Restaurar';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:!before})}),rollback:(value)=>{candidate.isLead=value;lead.textContent=value?'Não é lead':'Restaurar';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'};});group.append(choose,lead);row.append(group);});suggestions.append(row);});
-    $('entry-needs-empty').classList.toggle('hidden', Boolean(errors.childElementCount || suggestions.childElementCount));
+    $('entry-needs-empty').classList.toggle('hidden', Boolean(errors.childElementCount || suggestions.childElementCount || $('triage-review').childElementCount));
   }
 
   const historyPhone = '13055400742';
@@ -724,7 +762,8 @@
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
-    setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + printReviews.length);
+    entryQueueCount = chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + printReviews.length;
+    renderEntryCount();
     if (render) renderQueue(chats, data.reviews || []);
     return data;
   }
@@ -1093,6 +1132,7 @@
       if (!current()) return;
       renderQueue(data.chats || [], data.reviews || []);
       refreshEntryOrders().catch(() => { $('entry-orders-count').textContent = '?'; empty($('entry-orders-list'), 'Não foi possível carregar'); });
+      loadTriage().catch(() => {});
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp.'; });
     }
     if (view === 'pending') return loadPending();
@@ -1137,12 +1177,15 @@
       request('/api/panel/entry'),
       request('/api/panel/searches'),
       request('/api/panel/records'),
-      request('/api/panel/vitrine-requests')
+      request('/api/panel/vitrine-requests'),
+      request('/api/panel/triage')
     ]);
-    const [today, entry, searches, records, vitrineData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const [today, entry, searches, records, vitrineData, triageData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
     if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
-    count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + (data.printReviews || []).length);
+    // Conversations the triage left in REVISAR also wait for a decision in ENTRADA.
+    if (triageData) triageReviewCount = (triageData.review || []).length;
+    count('entry', entry, (data) => { entryQueueCount = (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + (data.printReviews || []).length; return entryQueueCount + triageReviewCount; });
     // Same rule as the list: leads only, inside the CLIENTES period.
     count('clients', records, (data) => clientsInPeriod(data.items).length);
     // One person with a VALOR and a CARRO card is one person in the badge.

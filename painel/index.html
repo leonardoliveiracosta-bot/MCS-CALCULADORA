@@ -94,7 +94,14 @@
           <p id="entry-needs-empty" class="entry-empty">Nada pendente ✓</p>
           <div id="whatsapp-errors" class="queue" aria-live="polite"></div>
           <div id="whatsapp-suggestions" class="queue" aria-live="polite"></div>
+          <div id="triage-review" class="queue triage-review" aria-live="polite"></div>
+          <p id="triage-state" class="muted triage-state"></p>
         </section>
+        <details id="triage-out" class="card triage-out">
+          <summary><strong>Fora do funil comercial</strong> <span id="triage-out-count" class="badge">0</span></summary>
+          <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente. As conversas continuam guardadas e aparecem na busca global</p>
+          <div id="triage-out-list" class="queue" aria-live="polite"></div>
+        </details>
         <details id="entry-orders" class="card entry-orders">
           <summary><strong>Pediram contato, sem conversa</strong> <span id="entry-orders-count" class="badge">…</span></summary>
           <p class="muted">Entraram em contato pela calculadora e ainda não têm ficha. Conta o clique em SMS e o clique em WhatsApp de antes do WhatsApp entrar direto no painel</p>

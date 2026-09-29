@@ -13,6 +13,7 @@ const { clientOrigin } = require('../../panel-origin');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 const { manheimView } = require('../../panel-buscas-view');
 const { activeFilter } = require('../../panel-manheim-state');
+const { outOfFunnelIndex } = require('../../panel-triage');
 
 function newPromiseToday(promises, ref, zip) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -60,6 +61,8 @@ module.exports = async (req, res) => {
         allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' })
       ]);
       const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});
+      // Triagem: conversa fora do funil comercial não entra em CLIENTES (continua na busca global).
+      const triageOut=await outOfFunnelIndex(ctx,items,refs);
       const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
       const [latestMatches,recentVehicles]=await Promise.all([
         uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...activeBatch }) : Promise.resolve([]),
@@ -75,6 +78,7 @@ module.exports = async (req, res) => {
       const ordersByRef = new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks)).map((order) => [order.ref, order]));
       refs.forEach((ref)=>{const own=items.find((item)=>item.id===ref.journey_id);if(own&&own.reference_code&&ordersByRef.has(String(ref.ref_code).trim().toUpperCase())&&!ordersByRef.has(String(own.reference_code).trim().toUpperCase()))ordersByRef.set(String(own.reference_code).trim().toUpperCase(),ordersByRef.get(String(ref.ref_code).trim().toUpperCase()));});
       const listed=items.flatMap((item) => {
+        if(triageOut.has(item.id))return [];
         const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
         const ownMessages = messageLinks.filter((link) => link.journey_id === item.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0) - (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0));
         const state = stateByJourney.get(item.id);
