@@ -10,14 +10,15 @@
   // One rule per mode for every place that compares a car with what a customer wants (browser
   // CSV import, server revalidation, ficha offers, score, saved searches). The two modes never
   // share criteria:
+  //  MMR is mandatory in both modes: a car without a valid MMR (empty, zero, negative, "N/A",
+  //    "desconhecido" or any text that is not a number) is never an option, in any mode.
   //  VALOR (Calculate My Cost): make, model and the bid of the VALOR flow only. The car is an
   //    option when its MMR is inside the bid range: bid <= US$ 60.000: MMR between 70% and 115%;
-  //    above: 75% to 110% (POR_VALOR). A car without MMR is QUASE "sem MMR para comparar" and
-  //    never counts as serving the customer. Year and mileage are never used.
+  //    above: 75% to 110% (POR_VALOR). Year and mileage are never used.
   //  CARRO (Find One For Me): make, model, minimum and maximum year, minimum and maximum
   //    mileage, all given and in order. Every limit is inclusive, there is no tolerance, the
-  //    odometer must be a number and bid, budget and MMR never include or exclude a car (BATE).
-  //    Anything else is not a match. Trim is kept as information only.
+  //    odometer must be a number (BATE). The MMR must exist but its amount never includes or
+  //    excludes a car, and bid or budget are never read. Trim is kept as information only.
 
   const VALUE_THRESHOLD_CENTS = 6000000;
   const MODES = Object.freeze(['VALOR', 'CARRO']);
@@ -55,6 +56,17 @@
     const parsed = integer(value);
     return parsed !== null && parsed > 0 ? parsed : null;
   }
+
+  // Valid MMR in cents: a finite positive number, or a plain money text ("21500", "$21,500",
+  // "21500.00"). Anything else (null, "", 0, negative, "N/A", "desconhecido", "21k") is null.
+  function validMmrCents(value) {
+    if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+    const text = clean(value);
+    if (!/^\$?\s*\d[\d,]*(\.\d+)?$/.test(text)) return null;
+    const number = Number(text.replace(/[$,\s]/g, ''));
+    return Number.isFinite(number) && number > 0 ? Math.round(number) : null;
+  }
+  const hasValidMmr = (vehicle) => validMmrCents(vehicle && vehicle.mmrCents) !== null;
 
   function normalizedMode(value) {
     const mode = clean(value).toUpperCase();
@@ -116,6 +128,8 @@
 
   function matchCarroWish(vehicle, wish, index = 0) {
     if (carroWishIssue(wish) || !sameVehicle(vehicle, wish)) return null;
+    // MMR is required in CARRO too (its amount never decides the match).
+    if (!hasValidMmr(vehicle)) return null;
     const year = positive(vehicle && vehicle.year);
     const miles = integer(vehicle && vehicle.miles);
     // An unknown odometer is never 0 and never a match in CARRO.
@@ -128,13 +142,11 @@
   function matchValorWish(vehicle, wish, bidCents, index = 0) {
     if (valorWishIssue(wish, bidCents) || !sameVehicle(vehicle, wish)) return null;
     const band = valueBand(bidCents);
-    const mmrCents = positive(vehicle && vehicle.mmrCents);
+    const mmrCents = validMmrCents(vehicle && vehicle.mmrCents);
     const miles = integer(vehicle && vehicle.miles);
     const notes = [];
-    if (!mmrCents) {
-      notes.push(NOTICE.NO_MMR);
-      return { kind: 'QUASE', reason: null, notice: notes.join(' · '), gaps: ['NO_MMR'], dataGap: true, basis: 'VALUE', mmrStatus: null, ...baseResult(vehicle, wish, index, 'VALOR') };
-    }
+    // No valid MMR: never an option (it used to be QUASE "sem MMR").
+    if (!mmrCents) return null;
     if (!inBand(mmrCents, band)) return null;
     // A POR VALOR car with an unknown odometer is still an opportunity; the gap is said out loud.
     if (miles === null || miles < 0) notes.push(NOTICE.NO_ODOMETER);
@@ -181,5 +193,5 @@
     return code === 'MMR acima do teto' ? 'MMR acima do lance' : code === 'MMR dentro do teto' ? 'MMR dentro do lance' : code || '';
   }
 
-  return { ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
+  return { ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, validMmrCents, hasValidMmr, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
 }));

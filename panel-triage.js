@@ -18,6 +18,7 @@
 
 const crypto = require('node:crypto');
 const { allRows, supabase } = require('./panel-server');
+const aiClaim = require('./panel-ai-claim');
 
 const RULE_VERSION = 'triagem-v1';
 const CATEGORIES = Object.freeze(['PRE_COMPRA_MCS', 'POS_VENDA', 'PESSOAL', 'OUTRO_NEGOCIO', 'NAO_CLIENTE', 'REVISAR']);
@@ -255,11 +256,15 @@ async function runTriage(ctx, options = {}) {
   const state = status(env);
   if (state !== 'LIGADA') return { skipped: state, processed: 0 };
   const pending = (await candidates(ctx, { ...options, env })).slice(0, options.limit || BATCH_LIMIT);
-  const result = { processed: 0, funnel: 0, out: 0, review: 0, failed: 0, costUsd: 0 };
+  const result = { processed: 0, funnel: 0, out: 0, review: 0, failed: 0, costUsd: 0, inProgress: 0 };
+  const claims = options.claims || aiClaim;
   for (const item of pending) {
     // Never start a paid call that the function could be stopped in the middle of.
-    if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred = pending.length - result.processed; break; }
-    let entry;
+    if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred = pending.length - result.processed - result.inProgress; break; }
+    // Only the run that wins the reservation calls OpenAI (cron and button at the same time).
+    const claim = await claims.claimTask(ctx, { kind: 'ENTRADA_TRIAGE', subject: item.chatId, hash: item.contentHash, rule: RULE_VERSION });
+    if (!claim.claimed) { result.inProgress += 1; continue; }
+    let entry, retryable = false;
     try {
       const answer = await classify(item.evidence, { env, fetchImpl: options.fetchImpl });
       entry = { ...item, source: 'AI', category: answer.category, reason: answer.reason, evidence: answer.evidence, model: answer.model,
@@ -269,8 +274,12 @@ async function runTriage(ctx, options = {}) {
       // Failure, timeout or invalid answer: the conversation stays pending in REVISAR.
       entry = { ...item, source: 'AI', category: 'REVISAR', reason: 'IA indisponível, decidir manualmente', evidence: [], model: model(env), errorCode: failure?.code || 'OPENAI_FAILED' };
       result.failed += 1;
+      retryable = true;
     }
-    await (options.record || record)(ctx, entry);
+    try { await (options.record || record)(ctx, entry); }
+    catch (error) { await claims.finishTask(ctx, claim, false).catch(() => null); throw error; }
+    // A failure without an answer may be retried; an answer (valid or not) is final for this content.
+    await claims.finishTask(ctx, claim, !retryable);
     result.processed += 1;
     if (entry.category === 'PRE_COMPRA_MCS') result.funnel += 1; else if (entry.category === 'REVISAR') result.review += 1; else result.out += 1;
   }

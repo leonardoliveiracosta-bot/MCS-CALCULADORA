@@ -7,6 +7,7 @@ const {
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
 const { loadBuscasBase } = require('../../panel-buscas');
 const manheimAi = require('../../panel-manheim-ai');
+const vehicleMatchRule = require('../../vehicle-match');
 const { activeFilter, undoSupported } = require('../../panel-manheim-state');
 const { dispositionIndex } = require('../../panel-disposition');
 const vehicleCatalog = require('../../vehicle-catalog');
@@ -450,6 +451,8 @@ async function actionUnit(ctx, journey, body) {
       if (!match) return send(ctx.res, 404, { error: 'MANHEIM_MATCH_NOT_FOUND' });
       if (match.presented_unit_id) return send(ctx.res, 200, { unitId: match.presented_unit_id, status: 'PRESENTED', stage: journey.stage, repeated: true });
       const parsed = match.vehicle_json && match.vehicle_json.parsed || {};
+      // MMR is mandatory: a car without a valid MMR is never presented as an option.
+      if (!vehicleMatchRule.hasValidMmr(parsed)) return send(ctx.res, 409, { error: 'MANHEIM_MATCH_WITHOUT_MMR' });
       vehicle = safeText([parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' '), 500, true);
       details = {
         manheim_match_id: match.id, miles: finiteInteger(parsed.miles), location: safeText(parsed.location, 200) || null,
@@ -650,21 +653,31 @@ async function validateManheimMatches(ctx, requested) {
 
 // OpenAI for ambiguous CSV rows only (server side; the key never reaches the browser). When it
 // is off or fails, the browser keeps importing the valid rows and sends only these to review.
+// Every OpenAI call of the CSV reading is recorded on the server (provider, model, tokens, cost,
+// row count), whether or not the browser later sends its batch summary. Never a cell or a prompt.
+async function recordManheimAiCall(ctx, action, result, rowsSent, failure) {
+  await insert(ctx, 'audit_log', { environment: ctx.environment, actor_user_id: ctx.panel.id, entity_type: 'manheim_openai', entity_id: null, action,
+    after_json: { provider: 'openai', model: result ? result.model : manheimAi.model(), inputTokens: result ? result.usage.inputTokens : 0, outputTokens: result ? result.usage.outputTokens : 0,
+      costUsd: result ? result.costUsd : 0, rowsSent, ms: result ? result.ms : null, errorCode: failure ? failure.code || 'OPENAI_FAILED' : null } }, false).catch(() => null);
+}
+
 async function actionManheimAiRows(ctx, body) {
   if (body.headerMap) {
     const input = manheimAi.sanitizeHeaders(body.headerMap);
     if (!input) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
     if (!manheimAi.enabled()) return send(ctx.res, 200, { available: false, reason: 'OPENAI_NOT_ENABLED', mapping: null });
-    try { return send(ctx.res, 200, { available: true, provider: 'openai', ...await manheimAi.suggestHeaders(input) }); }
-    catch (failure) { return send(ctx.res, 200, { available: false, reason: failure && failure.code || 'OPENAI_FAILED', mapping: null }); }
+    try { const result = await manheimAi.suggestHeaders(input); await recordManheimAiCall(ctx, 'AI_HEADERS', result, 0); return send(ctx.res, 200, { available: true, provider: 'openai', ...result }); }
+    catch (failure) { await recordManheimAiCall(ctx, 'AI_HEADERS', null, 0, failure); return send(ctx.res, 200, { available: false, reason: failure && failure.code || 'OPENAI_FAILED', mapping: null }); }
   }
   const rowsIn = manheimAi.sanitizeRows(body.rows);
   if (!rowsIn) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
   if (!manheimAi.enabled()) return send(ctx.res, 200, { available: false, reason: 'OPENAI_NOT_ENABLED', suggestions: [] });
   try {
     const result = await manheimAi.suggestRows(rowsIn);
+    await recordManheimAiCall(ctx, 'AI_ROWS', result, rowsIn.length);
     return send(ctx.res, 200, { available: true, provider: 'openai', ...result });
   } catch (failure) {
+    await recordManheimAiCall(ctx, 'AI_ROWS', null, rowsIn.length, failure);
     return send(ctx.res, 200, { available: false, reason: failure && failure.code || 'OPENAI_FAILED', suggestions: [] });
   }
 }
