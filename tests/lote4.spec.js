@@ -119,7 +119,7 @@ test('Lote 4: tocar no cartão ou em "Abrir pedido" abre o pedido; ação manté
   expect(errors).toEqual([]);
 });
 
-test('Lote 4: CLIENTES filtra por Origem, Tipo e Última atividade', async ({ page }) => {
+test('Lote 4: CLIENTES filtra por Origem, Tipo e Período', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await session(page);
@@ -135,7 +135,11 @@ test('Lote 4: CLIENTES filtra por Origem, Tipo e Última atividade', async ({ pa
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="clients"]').click();
   const list = page.locator('#clients-list');
-  await expect(list.locator('.client-card')).toHaveCount(3, { timeout: 30000 });
+  // CLIENTES opens in 30 days: Davi (60 days) waits for a longer period.
+  await expect(list.locator('.client-card')).toHaveCount(2, { timeout: 30000 });
+  await expect(page.locator('#clients-activity')).toHaveValue('30');
+  await page.locator('#clients-activity').selectOption('all');
+  await expect(list.locator('.client-card')).toHaveCount(3);
   await expect(list.locator('.client-card', { hasText: 'Bruno Calc' })).toContainText('Calculadora · Simulação');
   await page.locator('#clients-origin').selectOption('SMS');
   await expect(list.locator('.client-card')).toHaveCount(1);
@@ -147,9 +151,9 @@ test('Lote 4: CLIENTES filtra por Origem, Tipo e Última atividade', async ({ pa
   await page.locator('#clients-type').selectOption('all');
   await page.locator('#clients-activity').selectOption('30');
   await expect(list.locator('.client-card')).toHaveCount(2);
-  await page.locator('#clients-activity').selectOption('7');
-  await expect(list.locator('.client-card')).toHaveCount(1);
-  await expect(list).toContainText('Bruno Calc');
+  await expect(list).not.toContainText('Davi SMS');
+  await page.locator('#clients-activity').selectOption('90');
+  await expect(list.locator('.client-card')).toHaveCount(3);
   expect(errors).toEqual([]);
 });
 

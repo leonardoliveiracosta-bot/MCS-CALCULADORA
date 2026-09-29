@@ -195,10 +195,11 @@
           <label>Ref<select id="clients-ref"><option value="all">Todos</option><option value="with">Com Ref</option><option value="without">Sem Ref</option></select></label>
           <label>Origem<select id="clients-origin"><option value="all">Todas</option><option value="CALCULADORA">Calculadora</option><option value="WHATSAPP">WhatsApp direto</option><option value="SMS">SMS direto</option></select></label>
           <label>Tipo<select id="clients-type"><option value="all">Todos</option><option value="SIMULACAO">Simulação</option><option value="BUSCA">Busca</option><option value="SEM_CALCULADORA">Sem calculadora</option></select></label>
-          <label>Última atividade<select id="clients-activity"><option value="all">Tudo</option><option value="7">7 dias</option><option value="30">30 dias</option></select></label>
+          <label>Período<select id="clients-activity"><option value="30" selected>30 dias</option><option value="90">90 dias</option><option value="6m">6 meses</option><option value="12m">1 ano</option><option value="all">Tudo</option></select></label>
           <label>Calor<select id="clients-heat"><option value="all">Todos</option><option value="HOT">Quente</option><option value="WARM">Morno</option><option value="COLD">Frio</option></select></label>
           <label>Ordenar<select id="clients-sort"><option value="ready">Pronto para ligar</option><option value="hot">Quentes primeiro</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label>
         </div>
+        <p id="clients-period-note" class="muted clients-period-note" aria-live="polite"></p>
         <div id="clients-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="pending-panel" class="panel-view hidden" aria-label="Pendências">
@@ -298,7 +299,7 @@
   <script src="/painel/manheim.js?v=4" defer></script>
   <script src="/painel/manheim-upload.js?v=2" defer></script>
   <script src="/money-text.js?v=1" defer></script>
-  <script src="/panel-origin.js?v=1" defer></script>
+  <script src="/panel-origin.js?v=2" defer></script>
   <script src="/painel/action.js" defer></script>
   <script src="/painel/lead.js" defer></script>
   <script src="/painel/painel.js" defer></script>

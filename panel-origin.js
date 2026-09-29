@@ -27,17 +27,32 @@
     };
   }
 
-  // The three CLIENTES filters. "all" keeps everything; days is 7, 30 or "all".
+  // CLIENTES period: a number of days ("30", "90") or calendar months ("6m", "12m"); "all" has no cut.
+  // Periods are cumulative: every ficha inside 30 days is also inside 90 days, 6 months and 1 year.
+  function periodCutoff(period, now = Date.now()) {
+    const value = String(period || 'all');
+    if (value === 'all') return null;
+    const months = value.match(/^(\d{1,2})m$/);
+    if (months) { const date = new Date(now); date.setMonth(date.getMonth() - Number(months[1])); return date.getTime(); }
+    const days = Number(value);
+    return Number.isFinite(days) && days > 0 ? now - days * 86400000 : null;
+  }
+  const PERIOD_LABELS = { 30: 'nos últimos 30 dias', 90: 'nos últimos 90 dias', '6m': 'nos últimos 6 meses', '12m': 'no último ano', all: 'em qualquer data' };
+  function periodLabel(period) { return PERIOD_LABELS[String(period || 'all')] || `nos últimos ${period} dias`; }
+  function insidePeriod(item, period, now = Date.now()) {
+    const cutoff = periodCutoff(period, now);
+    if (cutoff === null) return true;
+    const at = stamp(item && item.lastActivityAt);
+    return Boolean(at) && at >= cutoff;
+  }
+
+  // The CLIENTES filters. "all" keeps everything; days is the period above.
   function matchesClientFilters(item, filters, now = Date.now()) {
     const origin = filters && filters.origin || 'all', type = filters && filters.type || 'all', days = filters && filters.days || 'all';
     if (origin !== 'all' && !(item.origins || []).includes(origin)) return false;
     if (type !== 'all' && !(item.calculatorTypes || []).includes(type)) return false;
-    if (days !== 'all') {
-      const at = stamp(item.lastActivityAt);
-      if (!at || now - at > Number(days) * 86400000) return false;
-    }
-    return true;
+    return insidePeriod(item, days, now);
   }
 
-  return { clientOrigin, matchesClientFilters };
+  return { clientOrigin, matchesClientFilters, periodCutoff, periodLabel, insidePeriod };
 }));

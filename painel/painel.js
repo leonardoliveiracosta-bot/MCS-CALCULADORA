@@ -893,6 +893,11 @@
     return (situation==='all'||item.situation===situation)&&(checklist==='all'||(checklist==='complete'?checklistCompleted(item)===6:checklistCompleted(item)<6))&&(ref==='all'||(ref==='with'?hasRef(item):!hasRef(item)))&&(heat==='all'||String(item.heat||'').toUpperCase()===heat)
       &&MCSOrigin.matchesClientFilters(item,{origin:$('clients-origin')?.value||'all',type:$('clients-type')?.value||'all',days:$('clients-activity')?.value||'all'});
   }
+  // CLIENTES period (30 dias, 90 dias, 6 meses, 1 ano, Tudo): the last real activity of the ficha
+  // (message from the client or from the MCS, or a calculator event). It filters the list, the badge,
+  // the counters, the spreadsheet and the report; never the conversation inside the ficha.
+  const clientsPeriod=()=>$('clients-activity')?.value||'30';
+  const clientsInPeriod=(items)=>(items||[]).filter((item)=>item.isLead!==false&&MCSOrigin.insidePeriod(item,clientsPeriod()));
   function renderClients(data){
     clientsData=data;const pendingByJourney=new Map((data.pending.items||[]).map((item)=>[item.journeyId,item]));
     // A9: heat and score come from the same read as every other screen (records), not from the pending summary.
@@ -900,10 +905,11 @@
     items=items.filter(clientFilterMatch);
     if(clientsOverdue24)items=items.filter((item)=>{const latest=item.latestMessage;if(!latest||latest.is_automatic||latest.direction!=='CUSTOMER')return false;return Date.now()-Date.parse(latest.occurred_at_utc||latest.occurred_at_local||latest.created_at)>86400000;});
     items=clientSort(items,$('clients-sort').value);if($('clients-sort').value==='hot')items.sort((a,b)=>({HOT:0,WARM:1,COLD:2}[a.heat]??3)-({HOT:0,WARM:1,COLD:2}[b.heat]??3));
-    renderPendingGeneral(data.pending,'clients-general-card');const stats=$('clients-stats');stats.replaceChildren();[['NO_RESPONSE','Sem resposta'],['MCS_PENDING','Parado com você'],['CUSTOMER_PENDING','Parado com o cliente'],['IN_PROGRESS','Em andamento'],['CLOSED','Concluída']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.pending.counts?.[key]||0)),element('span','muted',label));stats.append(stat);});
+    renderPendingGeneral(data.pending,'clients-general-card');const stats=$('clients-stats');stats.replaceChildren();const periodLeads=clientsInPeriod((data.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id})));const situationCount=(key)=>periodLeads.filter((item)=>item.situation===key).length;[['NO_RESPONSE','Sem resposta'],['MCS_PENDING','Parado com você'],['CUSTOMER_PENDING','Parado com o cliente'],['IN_PROGRESS','Em andamento'],['CLOSED','Concluída']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(situationCount(key))),element('span','muted',label));stats.append(stat);});
+    const allLeads=(data.items||[]).filter((item)=>item.isLead!==false).length;$('clients-period-note').textContent=clientsPeriod()==='all'?`Período: tudo, sem corte por data · ${allLeads} clientes`:`Período: atividade real ${MCSOrigin.periodLabel(clientsPeriod())} · ${periodLeads.length} de ${allLeads} clientes`;
     // M5: "não é lead" stays reachable (to restore it) but at the end and outside the counter.
     items=[...items.filter((item)=>item.isLead!==false),...items.filter((item)=>item.isLead===false)];
-    const root=$('clients-list');root.replaceChildren();setCount('clients',(data.items||[]).filter((item)=>item.isLead!==false).length);
+    const root=$('clients-list');root.replaceChildren();setCount('clients',periodLeads.length);
     // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
     if(clientsOverdue24){const chip=element('button','chip active','Sem resposta há mais de 24 h ✕');chip.type='button';chip.addEventListener('click',()=>{clientsOverdue24=false;renderClients(clientsData);});root.append(chip);}
     if(!items.length){if(clientsOverdue24)root.append(element('p','empty-state','Nenhum cliente neste filtro'));else empty(root,'Nenhum cliente neste filtro.');return;}
@@ -1137,7 +1143,8 @@
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
     if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
     count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + (data.printReviews || []).length);
-    count('clients', records, (data) => (data.items || []).length);
+    // Same rule as the list: leads only, inside the CLIENTES period.
+    count('clients', records, (data) => clientsInPeriod(data.items).length);
     // One person with a VALOR and a CARRO card is one person in the badge.
     count('searches', searches, (data) => new Set((data.items || []).map((item) => item.journeyId || item.key)).size);
     const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
@@ -2749,6 +2756,13 @@
 
   function openReport(view) {
     reportView = view;
+    if (view === 'records' && currentView === 'clients') {
+      const period = clientsPeriod(), cutoff = MCSOrigin.periodCutoff(period);
+      const day = (stamp) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(stamp));
+      if (period === '30') $('report-period').value = '30';
+      else { $('report-period').value = 'custom'; $('report-from').value = cutoff === null ? '2020-01-01' : day(cutoff); $('report-to').value = day(Date.now()); }
+      $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom');
+    }
     $('report-text').value = '';
     $('report-status').textContent = '';
     $('report-dialog').showModal();
@@ -2982,7 +2996,8 @@
     $('entry-simulated-more').addEventListener('click', () => loadEntryOrders('simulated', true).catch(() => { $('entry-simulated-more').textContent = 'Não foi possível carregar'; }));
     $('entry-simulated').addEventListener('toggle', () => { if ($('entry-simulated').open) loadEntryOrders('simulated').catch(() => empty($('entry-simulated-list'), 'Não foi possível carregar')); });
     ['today','entry','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')renderClients(clientsData);return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
-    ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type','clients-activity'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')renderClients(clientsData);});});
+    $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(currentView==='clients')renderClients(clientsData);refreshCounters().catch(()=>{});});
+    ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')renderClients(clientsData);});});
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
     const weekly=$('weekly-summary');weekly.open=localStorage.getItem('mcs_weekly_open')==='true';weekly.addEventListener('toggle',()=>localStorage.setItem('mcs_weekly_open',String(weekly.open)));
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
