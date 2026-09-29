@@ -406,7 +406,7 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', searches: 'manheim-summary', manheim: 'manheim-summary', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
   }
 
@@ -426,7 +426,8 @@
     $('page-title').textContent = labels[view];
     document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
     renderLoading(view);
-    try { await loadCurrent(view, requestVersion); } catch (_) {
+    try { await loadCurrent(view, requestVersion); } catch (failure) {
+      console.error(failure);
       if (currentView === view && viewRequestVersion === requestVersion) renderFailure(view);
     }
   }
@@ -1050,29 +1051,33 @@
   }
 
   function renderFailure(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', searches: 'searches-list', manheim: 'manheim-results', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', searches: 'manheim-summary', manheim: 'manheim-summary', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
   }
 
   async function loadSearches() {
     const data=await request('/api/panel/searches');
-    const summary=$('searches-summary'),root=$('searches-list');summary.replaceChildren();root.replaceChildren();
+    // One card per ficha and mode: the VALOR card and the CARRO card of the same person keep their
+    // own stage, and every action sends its mode.
+    const summaries={VALOR:modeRoot('VALOR','summary'),CARRO:modeRoot('CARRO','summary')},roots={VALOR:modeRoot('VALOR','clients'),CARRO:modeRoot('CARRO','clients')};
+    Object.values(summaries).forEach((root)=>root.replaceChildren());Object.values(roots).forEach((root)=>root.replaceChildren());
     const makeButton=(label,handler,className='small')=>{const control=element('button',className,label);control.type='button';control.addEventListener('click',handler);return control;};
-    [['MISSING','🔍 Falta buscar'],['SAVED','💾 Busca salva'],['SENT','📤 Opções enviadas']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.counts?.[key]||0)),element('span','muted',label));summary.append(stat);});
+    ['VALOR','CARRO'].forEach((mode)=>[['MISSING','🔍 Falta buscar'],['SAVED','💾 Busca salva'],['SENT','📤 Opções enviadas']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.countsByMode?.[mode]?.[key]||0)),element('span','muted',label));summaries[mode].append(stat);}));
     (data.items||[]).forEach((item)=>{
-      const card=element('article','item-card search-card');const head=element('div','item-head');head.append(element('strong','identity-name',item.name),phoneNode({phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[]}),element('span','muted',`Ref ${item.ref||'—'}`));const direct=directLeadBadge(item);if(direct)head.append(direct);head.append(element('span','search-stage '+item.stage,`${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days===1?'':'s'}` : ''}`));card.append(head);
-      card.append(element('strong','',item.exactSearch));
+      const root=roots[item.mode];if(!root)return;
+      const card=element('article','item-card search-card');card.dataset.mode=item.mode;const head=element('div','item-head');head.append(element('strong','identity-name',item.name),phoneNode({phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[]}),element('span','muted',`Ref ${item.ref||'—'}`));const direct=directLeadBadge(item);if(direct)head.append(direct);head.append(element('span','search-stage '+item.stage,`${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days===1?'':'s'}` : ''}`));card.append(head);
+      card.append(makeBadge(item.mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM',item.mode==='VALOR'?'blue':'green'),element('strong','',item.exactSearch));
       if(item.alsoServes?.length){const names=item.alsoServes.slice(0,2).map((peer)=>`${peer.name} (Ref ${peer.ref||'—'})`).join(' e ');card.append(element('p','muted',`Também serve para: ${names}${item.alsoServes.length>2?` e mais ${item.alsoServes.length-2}`:''} — mesma busca no Manheim`));}
       if(item.stage==='SAVED')card.append(element('p','muted',`${item.matchCount} carro${item.matchCount===1?'':'s'} no último CSV do Manheim batem com esta busca`));
       const actions=element('div','inline-actions');
-      const stageAction=(control,kind)=>MCSAction.bind(control,()=>{const previous=item.stage,next=kind==='SAVED'?'SAVED':'SENT';return{scope:card,optimistic:()=>{item.stage=next;card.querySelector('.search-stage').textContent=next==='SAVED'?'💾 Busca salva':'📤 Opções enviadas';return previous;},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind})}),rollback:(value)=>{item.stage=value;card.querySelector('.search-stage').textContent=item.stageLabel;},refresh:()=>loadSearches(),errorText:'Não consegui salvar — tente de novo'};});
+      const stageAction=(control,kind)=>MCSAction.bind(control,()=>{const previous=item.stage,next=kind==='SAVED'?'SAVED':'SENT';return{scope:card,optimistic:()=>{item.stage=next;card.querySelector('.search-stage').textContent=next==='SAVED'?'💾 Busca salva':'📤 Opções enviadas';return previous;},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:(value)=>{item.stage=value;card.querySelector('.search-stage').textContent=item.stageLabel;},refresh:()=>loadSearches(),errorText:'Não consegui salvar — tente de novo'};});
       if(item.stage==='MISSING'){const saved=makeButton('💾 Salvei a busca no Manheim',null);stageAction(saved,'SAVED');actions.append(saved);}
       if(item.stage!=='SENT'){const sent=makeButton('📤 Enviei opções ao cliente',null,'quiet small');stageAction(sent,'SENT');actions.append(sent);}
       if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>switchPanel('searches'),'quiet small'));
-      if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED',undo=makeButton('Desfazer',null,'quiet small');if(item.stageSource==='MARK')MCSAction.bind(undo,()=>({scope:card,optimistic:()=>{undo.textContent='Desfazendo…';},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind})}),rollback:()=>{undo.textContent='Desfazer';},refresh:()=>loadSearches(),errorText:'Não consegui desfazer — tente de novo'}));else undo.addEventListener('click',()=>MCSAction.feedback(card,item.stageSource==='MANHEIM'?'Esta busca foi marcada no MANHEIM. Desfaça em “Quais buscas salvar”.':'As opções foram registradas pela ficha do cliente; desfaça na ficha.','error','search-origin'));actions.append(undo);}
+      if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED',undo=makeButton('Desfazer',null,'quiet small');if(item.stageSource==='MARK')MCSAction.bind(undo,()=>({scope:card,optimistic:()=>{undo.textContent='Desfazendo…';},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:()=>{undo.textContent='Desfazer';},refresh:()=>loadSearches(),errorText:'Não consegui desfazer — tente de novo'}));else undo.addEventListener('click',()=>MCSAction.feedback(card,item.stageSource==='MANHEIM'?'Esta busca foi marcada no MANHEIM. Desfaça em “Quais buscas salvar”.':'As opções foram registradas pela ficha do cliente; desfaça na ficha.','error','search-origin'));actions.append(undo);}
       actions.append(makeButton('Abrir lead',()=>openDetail('ficha',item.journeyId),'quiet small'));card.append(actions);root.append(card);
     });
-    if(!(data.items||[]).length)empty(root,'Nenhum cliente ativo com desejo completo e contato registrado.');
+    Object.entries(roots).forEach(([mode,root])=>{if(!root.childElementCount)empty(root,'Nenhum cliente com busca ativa neste modo');});
   }
 
   async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
@@ -1610,6 +1615,15 @@
     });
   }
 
+  // One demand = one person in one mode. VALOR shows make, model and bid; CARRO shows make,
+  // model, trim, years and mileage. The two never borrow each other's criteria.
+  function demandSummary(demand) {
+    const wishes = (demand && demand.wishes || []).slice(0, 5);
+    const number = (value) => Number(value).toLocaleString('pt-BR');
+    if (demand && demand.mode === 'VALOR') return `${wishes.map((wish) => [wish.make, wish.model].filter(Boolean).join(' ')).join(' | ')}${demand.bidCents ? ` · lance até ${formatMoney(demand.bidCents)}` : ''}`;
+    return wishes.map((wish) => [[wish.make, wish.model, wish.trim].filter(Boolean).join(' '), `${wish.yearMin} a ${wish.yearMax}`, `${number(wish.minMiles)} a ${number(wish.maxMiles)} milhas`].join(' · ')).join(' | ');
+  }
+
   function wishlistSummary(wishlist, budgetCents) {
     const wishes = Array.isArray(wishlist) ? wishlist : [wishlist || {}];
     const vehicles = wishes.slice(0, 5).map((wish) => {
@@ -1682,11 +1696,13 @@
     table.append(more);
   }
 
-  function renderManheimGroup(root, journey, matches, reactivation) {
+  function renderManheimGroup(root, journey, matches, reactivation, demand = null) {
     const card = element('article', 'item-card manheim-lead');
+    card.dataset.mode = demand?.mode || '';
     const head = element('div', 'item-head');
-    head.append(identityHeader(journey), kindSummaryBadge(matches));if(journey.searchStageLabel)head.append(makeBadge(journey.searchStageLabel,journey.searchStage==='SENT'?'green':journey.searchStage==='SAVED'?'blue':'yellow'));
-    card.append(head, element('p', 'muted', wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents)));
+    const stageLabel = demand ? demand.stageLabel : journey.searchStageLabel, stage = demand ? demand.stage : journey.searchStage;
+    head.append(identityHeader(journey), kindSummaryBadge(matches));if(stageLabel)head.append(makeBadge(stageLabel,stage==='SENT'?'green':stage==='SAVED'?'blue':'yellow'));
+    card.append(head, element('p', 'muted', demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents)));
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
@@ -1738,8 +1754,9 @@
     root.append(card);
   }
 
-  function renderManheimOrderGroup(root, order, matches) {
+  function renderManheimOrderGroup(root, order, matches, demand = null) {
     const card = element('article', 'item-card manheim-lead');
+    card.dataset.mode = demand?.mode || '';
     const head = element('div', 'item-head');
     const identity = element('div', 'identity');
     identity.append(element('span', 'order-icon', orderIcon(order)));
@@ -1751,7 +1768,7 @@
     const summary = element('div', 'badges');
     summary.append(kindSummaryBadge(matches));
     summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
-    card.append(summary, element('p', 'muted', order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
+    card.append(summary, element('p', 'muted', demand ? demandSummary(demand) : order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
     const contact=contactMeta(order);if(contact)card.append(contact);
     const smsMissing=smsPrintMissing(order); if(smsMissing)card.append(smsMissing);
 
@@ -1786,95 +1803,203 @@
     root.append(card);
   }
 
+  const MODE_ROOTS = { VALOR: 'valor', CARRO: 'carro' };
+  const modeRoot = (mode, part) => $(`buscas-${MODE_ROOTS[mode]}-${part}`);
+  let manheimData = null;
+
   function renderManheim(data) {
+    manheimData = data;
     const mode=$('manheim-sort')?.value||'recent';
     const cardMode=mode==='customers'?'recent':mode;
     manheimJourneys = clientSort(data.items || [],cardMode);
     manheimOrders = clientSort(data.orders || [],cardMode);
     manheimMatches = data.matches || [];
-    renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas.'; });
+    renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas'; });
     // B5: people served by today's combinations, not the count frozen at upload time.
     setCount('manheim', data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
-    $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.current_lead_count ?? data.upload.lead_count} pessoa(s) com BATE ou POR VALOR hoje · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
+    $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma importação ativa';
     if(data.historyIncomplete)$('manheim-summary').textContent += ' · reenviar CSVs dos últimos 60 dias para completar o histórico';
-    const root = $('manheim-results');
-    root.replaceChildren();
-    if (!manheimMatches.length) return empty(root, 'Nenhum carro compatível no último upload.');
+    renderBuscasCounters(data.counts);
+    renderBatches(data.uploads || [], data.undoAvailable !== false);
+    renderReview(data.review || []);
 
+    const demandsByKey = new Map((data.demands || []).map((demand) => [demand.key, demand]));
     const byJourney = new Map(manheimJourneys.map((journey) => [journey.id, journey]));
     const byOrder = new Map(manheimOrders.map((order) => [order.ref, order]));
-    const journeyGroups = new Map();
-    const orderGroups = new Map();
-
+    const groups = { VALOR: new Map(), CARRO: new Map() };
     manheimMatches.forEach((match) => {
-      if (match.calc_ref) {
-        const ref = String(match.calc_ref).trim();
-        if (!orderGroups.has(ref)) orderGroups.set(ref, []);
-        orderGroups.get(ref).push(match);
-      } else if (match.journey_id) {
-        if (!journeyGroups.has(match.journey_id)) journeyGroups.set(match.journey_id, []);
-        journeyGroups.get(match.journey_id).push(match);
+      const matchMode = match.logical_mode;
+      if (!groups[matchMode]) return;
+      const key = match.demandKey || (match.calc_ref ? `ref:${String(match.calc_ref).trim()}:${matchMode}` : `journey:${match.journey_id}:${matchMode}`);
+      if (!groups[matchMode].has(key)) groups[matchMode].set(key, []);
+      groups[matchMode].get(key).push(match);
+    });
+    const position = (key) => { const demand = demandsByKey.get(key); return demand?.journeyId ? manheimJourneys.findIndex((item) => item.id === demand.journeyId) : 10000 + manheimOrders.findIndex((item) => item.ref === demand?.ref); };
+    ['VALOR', 'CARRO'].forEach((mode) => {
+      const root = modeRoot(mode, 'results');
+      root.replaceChildren();
+      const standard = element('section', 'stack'), reactivate = element('section', 'stack');
+      reactivate.append(element('h4', '', 'Reativar'));
+      let standardCount = 0, reactivateCount = 0;
+      [...groups[mode].entries()].sort((a, b) => position(a[0]) - position(b[0])).forEach(([key, matches]) => {
+        const demand = demandsByKey.get(key) || null;
+        const first = matches[0];
+        if (first.calc_ref) {
+          const order = byOrder.get(String(first.calc_ref).trim());
+          if (!order) return;
+          renderManheimOrderGroup(standard, order, matches, demand);
+          standardCount += 1;
+          return;
+        }
+        const journey = byJourney.get(first.journey_id);
+        if (!journey) return;
+        if (journey.reactivationEligible || journey.status === 'PARADO') {
+          const exact = matches.filter((match) => match.match_kind === 'BATE');
+          if (exact.length) { renderManheimGroup(reactivate, journey, exact, true, demand); reactivateCount += 1; }
+        } else { renderManheimGroup(standard, journey, matches, false, demand); standardCount += 1; }
+      });
+      if (standardCount) root.append(standard);
+      if (reactivateCount) root.append(reactivate);
+      if (!standardCount && !reactivateCount) empty(root, data.upload ? 'Nenhum carro compatível neste modo no lote ativo' : 'Nenhuma importação ativa');
+    });
+  }
+
+  function renderBuscasCounters(counts) {
+    const total = $('buscas-total');
+    if (total) {
+      total.replaceChildren();
+      const all = counts && counts.total || {};
+      total.append(element('strong', '', 'Total geral'), element('span', 'muted', `${all.people || 0} pessoa(s) com busca ativa · ${all.served || 0} atendida(s) no lote ativo · ${all.matches || 0} combinação(ões) · ${all.review || 0} para revisar`));
+    }
+    ['VALOR', 'CARRO'].forEach((mode) => {
+      const root = modeRoot(mode, 'counters');
+      if (!root) return;
+      const value = counts && counts[mode] || {};
+      root.replaceChildren();
+      [[value.demands, 'demandas'], [value.served, 'pessoas atendidas'], [value.matches, 'matches']].forEach(([number, label]) => {
+        const stat = element('div', 'pending-stat');
+        stat.dataset.counter = label;
+        stat.append(element('strong', '', String(number || 0)), element('span', 'muted', label));
+        root.append(stat);
+      });
+    });
+  }
+
+  // One row per import batch (a batch can have several CSV files). Undo is reversible and
+  // audited: nothing is deleted, cars and matches of the batch leave every screen.
+  function renderBatches(batches, undoAvailable) {
+    const root = $('manheim-batches');
+    if (!root) return;
+    root.replaceChildren(element('h3', '', 'Lotes de importação'));
+    if (!batches.length) return root.append(element('p', 'muted', 'Nenhum lote importado'));
+    batches.slice(0, 10).forEach((batch) => {
+      const line = element('article', 'batch-line' + (batch.status === 'UNDONE' ? ' undone' : ''));
+      line.dataset.batchId = batch.id;
+      const text = element('div', 'batch-text');
+      const files = `${batch.fileCount} arquivo${batch.fileCount === 1 ? '' : 's'}`;
+      text.append(element('strong', '', `${formatDate(batch.uploadedAt)} · ${files}`), element('span', 'muted', `${batch.vehicleCount} veículos · ${batch.matchCount} matches`));
+      if (batch.ai && Number(batch.ai.rowsSentToAi) > 0) text.append(element('span', 'muted', `IA: OpenAI ${batch.ai.model || ''} · ${batch.ai.rowsSentToAi} linha(s)`));
+      const state = makeBadge(batch.status === 'UNDONE' ? 'Desfeito' : batch.current ? 'Ativo · em uso' : 'Ativo', batch.status === 'UNDONE' ? '' : 'green');
+      text.append(state);
+      if (batch.status === 'UNDONE' && batch.undoSummary) text.append(element('span', 'muted', undoSummaryText(batch.undoSummary)));
+      line.append(text);
+      if (batch.status === 'ACTIVE' && undoAvailable) {
+        const undo = element('button', 'quiet small', 'Desfazer importação');
+        undo.type = 'button';
+        undo.addEventListener('click', () => confirmUndoBatch(line, batch, undo));
+        line.append(undo);
       }
+      root.append(line);
     });
+  }
 
-    const standard = element('section', 'stack');
-    standard.append(element('h3', '', 'Compatíveis'));
-    const reactivate = element('section', 'stack');
-    reactivate.append(element('h3', '', 'Reativar'));
-    let standardCount = 0;
-    let reactivateCount = 0;
+  function undoSummaryText(summary) {
+    const parts = [`${summary.vehiclesWithdrawn || 0} veículos e ${summary.matchesWithdrawn || 0} matches retirados do uso`];
+    if (summary.unitsPreserved || summary.vitrinesPreserved) parts.push(`${summary.unitsPreserved || 0} unidade(s) e ${summary.vitrinesPreserved || 0} vitrine(s) preservadas para auditoria`);
+    return parts.join(' · ');
+  }
 
-    [...orderGroups.entries()].sort((a,b)=>manheimOrders.findIndex(x=>x.ref===a[0])-manheimOrders.findIndex(x=>x.ref===b[0])).forEach(([ref,matches]) => {
-      const order = byOrder.get(ref);
-      if (!order) return;
-      renderManheimOrderGroup(standard, order, matches);
-      standardCount += 1;
-    });
+  async function confirmUndoBatch(line, batch, button) {
+    const question = `Desfazer a importação de ${formatDate(batch.uploadedAt)} (${batch.fileCount} arquivo${batch.fileCount === 1 ? '' : 's'}, ${batch.vehicleCount} veículos, ${batch.matchCount} matches)? Os veículos e matches deste lote saem de BUSCAS, HOJE, fichas, score e relatórios. Unidades e vitrines já criadas ficam preservadas. Os outros lotes não mudam`;
+    button.disabled = true;
+    const confirmed = await askInline(line, question, 'Desfazer importação');
+    if (!confirmed) { button.disabled = false; return; }
+    button.textContent = 'Desfazendo…';
+    try {
+      const result = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_undo', uploadId: batch.id }) });
+      $('manheim-status').classList.remove('error');
+      $('manheim-status').textContent = result.alreadyUndone ? 'Esta importação já estava desfeita' : `Importação desfeita · ${undoSummaryText(result.summary || {})}`;
+      await loadCurrent();
+      await refreshCounters();
+    } catch (failure) {
+      button.disabled = false; button.textContent = 'Desfazer importação';
+      $('manheim-status').classList.add('error');
+      $('manheim-status').textContent = failure && failure.code === 'MANHEIM_MIGRATION_PENDING' ? 'O banco ainda não tem o desfazer lote (migração pendente)' : 'Não consegui desfazer a importação, tente de novo';
+    }
+  }
 
-    [...journeyGroups.entries()].sort((a,b)=>manheimJourneys.findIndex(x=>x.id===a[0])-manheimJourneys.findIndex(x=>x.id===b[0])).forEach(([journeyId,matches]) => {
-      const journey = byJourney.get(journeyId);
-      if (!journey) return;
-      const isReactivation = journey.reactivationEligible || journey.status === 'PARADO';
-      if (isReactivation) {
-        const exact = matches.filter((match) => match.match_kind === 'BATE');
-        if (exact.length) { renderManheimGroup(reactivate, journey, exact, true); reactivateCount += 1; }
-      } else {
-        renderManheimGroup(standard, journey, matches, false);
-        standardCount += 1;
+  // "Revisar tipo de busca": the mode is never guessed. CARRO or VALOR is set by the operator;
+  // incomplete criteria only open the ficha or the order to be fixed there.
+  function renderReview(items) {
+    const root = $('buscas-review-list');
+    if (!root) return;
+    root.replaceChildren();
+    $('buscas-review-count').textContent = String(items.length);
+    if (!items.length) return empty(root, 'Nada para revisar');
+    items.forEach((item) => {
+      const line = element('article', 'item-card review-line');
+      line.dataset.reviewKey = item.key;
+      line.append(element('strong', 'identity-name', item.name || 'Cliente'), element('span', 'muted', `Ref ${item.ref || 'sem Ref'} · ${item.mode === 'REVIEW' ? 'tipo indefinido' : MCSVehicleMatch.modeLabel(item.mode)}`));
+      const reasons = element('div', 'badges');
+      (item.issues || []).forEach((issue) => reasons.append(makeBadge(issue.wish ? `${issue.wish}: ${issue.text}` : issue.text, 'yellow')));
+      line.append(reasons);
+      const actions = element('div', 'inline-actions');
+      if (item.canDefineMode) {
+        [['CARRO', 'Definir como CARRO'], ['VALOR', 'Definir como VALOR']].forEach(([mode, label]) => {
+          const button = element('button', 'small', label); button.type = 'button';
+          MCSAction.bind(button, () => ({ scope: line, optimistic: () => { button.textContent = 'Salvando…'; }, commit: () => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_search_mode', journeyId: item.journeyId, mode }) }), rollback: () => { button.textContent = label; }, refresh: () => loadCurrent(), errorText: 'Não consegui salvar, tente de novo' }));
+          actions.append(button);
+        });
+        const keep = element('button', 'quiet small', 'Manter pendente'); keep.type = 'button';
+        keep.addEventListener('click', () => MCSAction.feedback(line, 'Continua pendente', 'success', 'review-keep'));
+        actions.append(keep);
       }
+      const open = element('button', 'quiet small', item.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
+      open.addEventListener('click', () => item.journeyId ? openDetail('ficha', item.journeyId) : openDetail('order', item.ref));
+      actions.append(open);
+      line.append(actions);
+      root.append(line);
     });
-
-    if (standardCount) root.append(standard);
-    if (reactivateCount) root.append(reactivate);
   }
 
   async function renderSavedSearches() {
     const data = savedSearchesData || await request('/api/panel/manheim-searches');
     savedSearchesData = data;
-    const root = $('manheim-saved-searches');
-    root.replaceChildren(element('h2', '', 'QUAIS BUSCAS SALVAR NO MANHEIM'));
-    root.append(element('p','muted','Cada linha é uma busca para você salvar no Manheim. As primeiras atendem mais clientes. Conta só quem entrou em contato. Busca (ano/milhagem) e Simulação (lance, faixa de MMR) têm porcentagens separadas; "precisa qualificar" não entra no %.'));
-    if (!data.groups.length) return root.append(element('p', 'muted', 'Nenhum lead ativo com marca e modelo.'));
+    const intro = $('manheim-saved-searches');
+    intro.replaceChildren(element('p','muted','Cada linha é uma busca para você salvar no Manheim. As primeiras atendem mais clientes. Conta só quem entrou em contato. POR VALOR e POR ANO E MILHAGEM têm porcentagens separadas; o que está em revisão não entra no %'));
+    const roots = { VALOR: modeRoot('VALOR', 'saved'), CARRO: modeRoot('CARRO', 'saved') };
+    Object.entries(roots).forEach(([mode, root]) => { root.replaceChildren(); if (!data.groups.some((group) => group.mode === mode)) empty(root, 'Nenhuma busca ativa neste modo'); });
     const mode=$('manheim-sort')?.value||'customers';
     const rankOf=(group)=>group.searches===null||group.searches===undefined?Infinity:group.searches;
-    const basisOrder=(group)=>group.basis==='CRITERIA'?0:group.basis==='VALUE'?1:2;
-    const groups=data.groups.slice().sort((a,b)=>(basisOrder(a)-basisOrder(b))||(mode==='vehicle'?`${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`,'pt-BR'):mode==='recent'?(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)||rankOf(a)-rankOf(b)):rankOf(a)-rankOf(b)));
-    const yearsText=(group)=>group.yearsKnown?(group.yearFrom&&group.yearTo?`${group.yearFrom}–${group.yearTo}`:group.yearFrom?`${group.yearFrom} ou mais novo`:group.yearTo?`até ${group.yearTo}`:'faixas de ano abertas'):group.yearsPartial?'anos variados (alguns não informaram)':null;
+    const groups=data.groups.slice().sort((a,b)=>(mode==='vehicle'?`${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`,'pt-BR'):mode==='recent'?(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)||rankOf(a)-rankOf(b)):rankOf(a)-rankOf(b)));
     const searchTitle=(group)=>{
-      const parts=[group.needsQualify?'Precisa qualificar':group.basis==='VALUE'?`Por valor #${group.searches}`:`Por critério #${group.searches}`,`${group.make} ${group.model}`];
-      if(group.basis==='CRITERIA'){parts.push(yearsText(group)||'ano não informado');parts.push(group.milesMax?`até ${Number(group.milesMax).toLocaleString('pt-BR')} milhas`:'milhagem não informada');}
-      else if(group.basis==='VALUE'){const years=yearsText(group);if(years)parts.push(years);parts.push(`por valor (MMR ${formatMoney(group.mmrMinCents)}–${formatMoney(group.mmrMaxCents)})`);}
-      else parts.push('ano/milhagem não informados e sem lance');
+      const parts=[group.mode==='VALOR'?`POR VALOR #${group.searches}`:`POR ANO E MILHAGEM #${group.searches}`,`${group.make} ${group.model}`];
+      if(group.mode==='CARRO'){parts.push(`${group.yearFrom} a ${group.yearTo}`);parts.push(`${Number(group.milesFrom).toLocaleString('pt-BR')} a ${Number(group.milesTo).toLocaleString('pt-BR')} milhas`);}
+      else parts.push(`MMR ${formatMoney(group.mmrMinCents)} a ${formatMoney(group.mmrMaxCents)}`);
       return parts.join(' · ');
     };
     groups.forEach((group) => {
-      const line = element('article', 'saved-search-line'+(group.needsQualify?' needs-qualify':''));
+      const root = roots[group.mode];
+      if (!root) return;
+      const line = element('article', 'saved-search-line');
+      line.dataset.mode = group.mode;
       const text = element('span'); const title=searchTitle(group);
       const clients=element('button','quiet small',`👥 ${group.leads} ${group.leads===1?'cliente quer':'clientes querem'} este carro`); clients.type='button';
       const people=element('div','saved-search-clients hidden'); (group.clients||[]).forEach((client)=>{const person=element('button','quiet small',`${client.name||'Pedido'} · 📞 ${client.phone?phoneDisplay(client.phone):'falta o número'} · Ref ${client.ref||'—'}`);person.type='button';person.addEventListener('click',()=>{if(client.journeyId)openDetail('ficha',client.journeyId);});people.append(person);}); clients.addEventListener('click',()=>people.classList.toggle('hidden'));
-      const basisText=group.basis==='VALUE'?'clientes por valor (Simulação)':'clientes por critério (Busca)';
-      const coverage=group.needsQualify?'Fora do %: falta ano/milhagem e lance. Qualifique antes de buscar.':mode==='customers'?`Salvando da #1 até esta, você atende ${group.percent}% dos ${basisText}.`:`Esta busca sozinha atende ${group.individualPercent}% dos ${basisText}.`;
-      text.append(element('strong','',title),clients,element('span','muted',coverage),people);
+      const basisText=group.mode==='VALOR'?'clientes POR VALOR':'clientes POR ANO E MILHAGEM';
+      const coverage=mode==='customers'?`Salvando da #1 até esta, você atende ${group.percent}% dos ${basisText}`:`Esta busca sozinha atende ${group.individualPercent}% dos ${basisText}`;
+      const note=group.mode==='CARRO'?'A faixa amplia a busca no Manheim; cada carro do CSV é conferido de novo com o critério de cada cliente':null;
+      text.append(element('strong','',title),clients,element('span','muted',coverage),people);if(note)text.append(element('span','muted',note));
       const toggle=element('button',group.created?'quiet small':'small',group.created?'✓ Busca criada':'Já criei esta busca'); toggle.type='button';
       const undo=element('button','quiet small','Desfazer');undo.type='button';undo.classList.toggle('hidden',!group.created);undo.addEventListener('click',()=>toggle.click());
       MCSAction.bind(toggle,()=>{const before=group.created;return{scope:line,optimistic:()=>{group.created=!before;toggle.textContent=group.created?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!group.created);return before;},commit:()=>request('/api/panel/manheim-searches',{method:'POST',body:JSON.stringify({key:group.key,created:group.created})}),rollback:()=>{group.created=before;toggle.textContent=before?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!before);},onSuccess:()=>{if(savedSearchesData?.groups){const cached=savedSearchesData.groups.find((entry)=>entry.key===group.key);if(cached)cached.created=group.created;}},errorText:'Não consegui salvar — tente de novo'};});
@@ -1909,24 +2034,31 @@
     // A19: always compare with the criteria the server has now, never with the list cached
     // when the tab was opened.
     const fresh = await request('/api/panel/records?view=manheim');
-    const targetJourneys = fresh.items || [];
-    const targetOrders = fresh.orders || [];
+    // One target per person and mode (VALOR or CARRO); each car is checked against each one.
+    const targets = fresh.targets || [];
     const vehicles = [];
     const headerGroups = [];
     const mappings = [];
     let ignoredRows = 0;
+    const ai = newAiRun();
     for (const file of selected) {
       if (file.size > MAX_TEXT) throw manheimError('MANHEIM_FILE_TOO_LARGE');
       let contents;
       try { contents = await file.text(); }
       catch (cause) { throw manheimError('MANHEIM_FILE_READ_FAILED', { cause }); }
       const parsed = MCSManheim.parseCsv(contents);
-      const mapping = MCSManheim.mapHeaders(parsed.headers);
+      let mapping = MCSManheim.mapHeaders(parsed.headers);
+      // An unknown header may be read by OpenAI (only the column names are sent).
+      if (mapping.missing.length) mapping = await aiHeaderMapping(ai, parsed.headers, mapping, status);
       if (mapping.missing.length) throw manheimError('MANHEIM_CSV_COLUMNS_MISSING', { missing: mapping.missing });
       headerGroups.push(parsed.headers);
       mappings.push(mapping.fields);
-      const normalized = MCSManheimUpload.markSearchFiltered(MCSManheim.chooseAuctionRows(MCSManheim.normalizeRows(parsed, mapping)));
-      ignoredRows += parsed.rows.length - normalized.length;
+      const classified = MCSManheim.classifyRows(parsed, mapping);
+      ai.rowsTotal += parsed.rows.length;
+      ai.rowsDeterministic += classified.vehicles.length;
+      const resolved = await resolveAmbiguousRows(ai, classified.ambiguous, mapping, file.name, status);
+      const normalized = MCSManheimUpload.markSearchFiltered(MCSManheim.chooseAuctionRows([...classified.vehicles, ...resolved]));
+      ignoredRows += parsed.rows.length - normalized.length - (classified.ambiguous.length - resolved.length);
       vehicles.push(...normalized);
     }
     // M19: an empty CSV, or one much smaller than the last one, replaces the combinations shown in
@@ -1941,7 +2073,7 @@
       if (!(await askInline(status, question, 'Enviar mesmo assim'))) { status.textContent = 'Envio cancelado'; return; }
     }
     status.textContent = `Comparando ${vehicles.length} carros…`;
-    const matches = MCSManheimUpload.buildMatches(vehicles, targetJourneys, targetOrders, MCSManheim);
+    const matches = MCSManheimUpload.buildMatches(vehicles, targets, MCSManheim);
     if (matches.length > MANHEIM_MAX_MATCHES) throw manheimError('MANHEIM_MATCH_LIMIT', { matchCount: matches.length });
     // M20: the same car in two CSVs is one car (the archive keeps one), so the count is of unique cars.
     const base = { sourceFileCount: selected.length, vehicleCount: uniqueCount, headers: headerGroups, headerMap: { files: mappings } };
@@ -1955,7 +2087,7 @@
         vehicles: archive.slice(index, index + 100).map((vehicle) => ({ fingerprint: MCSManheim.fingerprint(vehicle), vehicle: {
           vin: vehicle.vin, year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim,
           miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-          saleDate: vehicle.saleDate,startsAt:vehicle.startsAt,endsAt:vehicle.endsAt,mmrCents: vehicle.mmrCents,exteriorColor:vehicle.exteriorColor,interiorColor:vehicle.interiorColor,drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk
+          saleDate: vehicle.saleDate,startsAt:vehicle.startsAt,endsAt:vehicle.endsAt,mmrCents: vehicle.mmrCents,exteriorColor:vehicle.exteriorColor,interiorColor:vehicle.interiorColor,drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk,...(vehicle.ai?{ai:vehicle.ai}:{})
         } })) }) }).catch((cause) => { throw manheimError('MANHEIM_ARCHIVE_FAILED', { cause, uploadId: result.uploadId }); });
       archived+=saved.archived||0;ignored+=saved.ignored||0;
     }
@@ -1965,8 +2097,82 @@
     const discardedDetail = Object.entries(result.discardedReasons || {}).map(([reason, count]) => `${count} ${DISCARD_LABELS[reason] || reason}`).join(', ');
     const discardedText = result.discardedTotal ? ` · ${result.discardedTotal} descartadas${discardedDetail ? ` (${discardedDetail})` : ''}` : '';
     status.textContent = `${archived} carros arquivados, ${ignored} ignorados, ${combinations} combinações${discardedText}`;
+    renderImportSummary(ai, vehicles.length);
+    if (ai.rowsSentToAi || ai.review.length) await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_summary', uploadId: result.uploadId, summary: aiSummary(ai) }) }).catch(() => null);
     await loadCurrent();
     await refreshCounters();
+  }
+
+  // OpenAI for ambiguous rows only. Rows the parser reads with safety never go to the AI; the AI
+  // answer goes back through the same parser; what is still ambiguous goes to review. When the
+  // AI is off or fails, the valid rows are imported and only the ambiguous ones go to review.
+  function newAiRun() {
+    return { rowsTotal: 0, rowsDeterministic: 0, rowsSentToAi: 0, rowsAccepted: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, ms: 0, errors: 0, timeouts: 0, unavailable: false, model: null, review: [], cache: new Map(), at: new Date().toISOString() };
+  }
+  function aiUsage(ai, answer) {
+    if (!answer || !answer.available) { ai.unavailable = true; if (answer && answer.reason === 'OPENAI_TIMEOUT') ai.timeouts += 1; else if (answer && answer.reason !== 'OPENAI_NOT_ENABLED') ai.errors += 1; return; }
+    ai.model = answer.model || ai.model;
+    ai.inputTokens += Number(answer.usage?.inputTokens) || 0; ai.outputTokens += Number(answer.usage?.outputTokens) || 0;
+    ai.costUsd += Number(answer.costUsd) || 0; ai.ms += Number(answer.ms) || 0;
+  }
+  async function aiHeaderMapping(ai, headers, mapping, status) {
+    status.textContent = 'Lendo cabeçalho desconhecido…';
+    const answer = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_rows', headerMap: { headers, missing: mapping.missing } }) }).catch(() => ({ available: false, reason: 'OPENAI_FAILED' }));
+    aiUsage(ai, answer);
+    return answer && answer.available && answer.mapping ? MCSManheim.mapHeadersWith(headers, answer.mapping) : mapping;
+  }
+  async function resolveAmbiguousRows(ai, rows, mapping, fileName, status) {
+    if (!rows.length) return [];
+    const keyOf = (row) => JSON.stringify([row.ambiguous, MCSManheim.AI_FIELDS.map((field) => row.cells[field])]);
+    // The same normalized input is asked once per batch.
+    const pending = [...new Map(rows.filter((row) => !ai.cache.has(keyOf(row))).map((row) => [keyOf(row), row])).values()];
+    for (let index = 0; index < pending.length && !ai.unavailable; index += 25) {
+      status.textContent = `Lendo ${rows.length} linha(s) ambígua(s)…`;
+      const chunk = pending.slice(index, index + 25);
+      const answer = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_rows', rows: chunk.map((row, position) => ({ id: String(position), cells: row.cells, ambiguous: row.ambiguous })) }) }).catch(() => ({ available: false, reason: 'OPENAI_FAILED' }));
+      aiUsage(ai, answer);
+      if (!answer || !answer.available) break;
+      ai.rowsSentToAi += chunk.length;
+      chunk.forEach((row, position) => ai.cache.set(keyOf(row), (answer.suggestions || []).find((item) => item.id === String(position)) || null));
+    }
+    const accepted = [];
+    rows.forEach((row) => {
+      const key = keyOf(row);
+      if (!ai.cache.has(key)) { ai.review.push({ row: row.rowNumber, file: fileName, reason: ai.unavailable ? 'leitura automática indisponível' : 'não analisada' }); return; }
+      const outcome = MCSManheim.applySuggestion(row, ai.cache.get(key), mapping, ai.model);
+      if (outcome.vehicle) { accepted.push(outcome.vehicle); ai.rowsAccepted += 1; }
+      else ai.review.push({ row: row.rowNumber, file: fileName, reason: outcome.review });
+    });
+    return accepted;
+  }
+  function aiSummary(ai) {
+    return { provider: 'openai', model: ai.model, at: ai.at, rowsTotal: ai.rowsTotal, rowsDeterministic: ai.rowsDeterministic, rowsSentToAi: ai.rowsSentToAi, rowsAccepted: ai.rowsAccepted, rowsReview: ai.review.length, inputTokens: ai.inputTokens, outputTokens: ai.outputTokens, costUsd: ai.costUsd, ms: ai.ms, errors: ai.errors, timeouts: ai.timeouts, unavailable: ai.unavailable, review: ai.review.slice(0, 200) };
+  }
+  function renderImportSummary(ai, imported) {
+    const root = $('manheim-import-summary');
+    if (!root) return;
+    root.replaceChildren();
+    const usedAi = ai.rowsSentToAi > 0;
+    if (!usedAi && !ai.review.length) { root.classList.add('hidden'); return; }
+    root.classList.remove('hidden');
+    const line = (text) => root.append(element('span', '', text));
+    line(`${imported.toLocaleString('pt-BR')} linhas importadas`);
+    line(`${ai.rowsDeterministic.toLocaleString('pt-BR')} resolvidas automaticamente`);
+    if (usedAi) {
+      line(`${ai.rowsSentToAi} analisadas pela OpenAI`);
+      line(`${ai.rowsAccepted} confirmadas`);
+    }
+    line(`${ai.review.length} enviadas para revisão`);
+    if (usedAi) {
+      line(`Modelo: ${ai.model || 'não informado'}`);
+      line(`Custo estimado: US$ ${ai.costUsd.toFixed(4)}`);
+      line(`Tempo com IA: ${(ai.ms / 1000).toFixed(1)} s`);
+    }
+    if (ai.review.length) {
+      const details = element('details', 'import-review');
+      details.append(element('summary', '', 'Linhas para revisão'), ...ai.review.slice(0, 50).map((item) => element('p', 'muted', `${item.file} · linha ${item.row} · ${item.reason}`)));
+      root.append(details);
+    }
   }
 
   const MANHEIM_FAILURE_MESSAGES = {
@@ -2756,7 +2962,7 @@
     $('entry-orders-more').addEventListener('click', () => loadEntryOrders('contacted', true).catch(() => { $('entry-orders-more').textContent = 'Não foi possível carregar'; }));
     $('entry-simulated-more').addEventListener('click', () => loadEntryOrders('simulated', true).catch(() => { $('entry-simulated-more').textContent = 'Não foi possível carregar'; }));
     $('entry-simulated').addEventListener('toggle', () => { if ($('entry-simulated').open) loadEntryOrders('simulated').catch(() => empty($('entry-simulated-list'), 'Não foi possível carregar')); });
-    ['today','entry','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')renderClients(clientsData);return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim({items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
+    ['today','entry','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')renderClients(clientsData);return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
     ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type','clients-activity'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')renderClients(clientsData);});});
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
     const weekly=$('weekly-summary');weekly.open=localStorage.getItem('mcs_weekly_open')==='true';weekly.addEventListener('toggle',()=>localStorage.setItem('mcs_weekly_open',String(weekly.open)));

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  buildReturns, buildTodayItems, consolidateCalcRuns, journeyEnabled, matchManheimVehicle,
+  buildReturns, buildTodayItems, consolidateCalcRuns, journeyEnabled, matchManheimDemand,
   mergeWishlist, mergeWishlists, reactivationEligible, wishlistForJourney, wishlistsForJourney
 } = require('../panel-domain');
 const manheim = require('../painel/manheim');
@@ -65,18 +65,18 @@ test('calculator wishlist fills only empty fields', () => {
   } }];
   const request = consolidateCalcRuns(rows)[0];
   // A6: inside a Ref the newest request comes first.
-  assert.deepEqual(request.wishlist, { make: 'Toyota', model: 'Camry', yearMin: 2021, yearMax: 2025, maxMiles: 45000 });
+  assert.deepEqual(request.wishlist, { make: 'Toyota', model: 'Camry', yearMin: 2021, yearMax: 2025, minMiles: null, maxMiles: 45000, trim: '' });
   const incoming = request.wishlists.find((wish) => wish.model === 'Civic');
-  assert.deepEqual(incoming, { make: 'Honda', model: 'Civic', yearMin: 2020, yearMax: 2024, maxMiles: 50000 });
+  assert.deepEqual(incoming, { make: 'Honda', model: 'Civic', yearMin: 2020, yearMax: 2024, minMiles: null, maxMiles: 50000, trim: '' });
   assert.equal(request.wishlists.length, 2);
   // A6: the year range is one unit. A ficha that already has a year never receives the other
   // year from another source (that mix produced impossible ranges such as 2023-2021).
   assert.deepEqual(mergeWishlist({ make: 'Toyota', yearMin: 2021 }, incoming), {
-    make: 'Toyota', model: 'Civic', yearMin: 2021, maxMiles: 50000
+    make: 'Toyota', model: 'Civic', yearMin: 2021, minMiles: null, maxMiles: 50000
   });
   assert.deepEqual(mergeWishlists([{ make: 'Honda', model: 'Civic', yearMin: 2022 }], request.wishlists), [
-    { make: 'Honda', model: 'Civic', yearMin: 2022, yearMax: null, maxMiles: 50000 },
-    { make: 'Toyota', model: 'Camry', yearMin: 2021, yearMax: 2025, maxMiles: 45000 }
+    { make: 'Honda', model: 'Civic', yearMin: 2022, yearMax: null, minMiles: null, maxMiles: 50000, trim: '' },
+    { make: 'Toyota', model: 'Camry', yearMin: 2021, yearMax: 2025, minMiles: null, maxMiles: 45000, trim: '' }
   ]);
   assert.deepEqual(wishlistForJourney({ criteria_json: { wishlist: incoming } }), incoming);
   assert.equal(wishlistsForJourney({ criteria_json: { wishlists: request.wishlists } }).length, 2);
@@ -108,7 +108,7 @@ test('unknown or ambiguous model stays comparable by model with a visible Make w
   assert.equal(row.make, '');
   assert.equal(row.makeNotice, 'marca não informada no arquivo');
   assert.equal(catalog.inferMake('1500').ambiguous, true);
-  assert.equal(matchManheimVehicle(row, [{ make: 'Ram', model: '1500', yearMin: 2020, yearMax: 2024, maxMiles: 50000 }], null).kind, 'BATE');
+  assert.equal(matchManheimDemand(row, { mode: 'CARRO', wishes: [{ make: 'Ram', model: '1500', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }] }).kind, 'BATE');
 });
 
 test('model matching is whole-word tolerant and ignores Make plus Class', () => {
@@ -116,23 +116,27 @@ test('model matching is whole-word tolerant and ignores Make plus Class', () => 
   assert.equal(catalog.modelsMatch('Ram 1500', '1500', '', 'Ram'), true);
   assert.equal(catalog.modelsMatch('3 Series', '3 Series', '', 'BMW'), true);
   assert.equal(catalog.modelsMatch('X50', 'X5', '', 'BMW'), false);
-  assert.equal(manheim.matchVehicle({ year: 2022, make: 'Mercedes-Benz', model: 'GLE-Class', miles: 20000 }, [
-    { make: 'BMW', model: 'X5' }, { make: 'Mercedes-Benz', model: 'GLE', yearMin: 2020, yearMax: 2024, maxMiles: 50000 }
-  ], null).matchedWishlistIndex, 1);
-  assert.equal(manheim.matchVehicle({ year: 2022, make: 'BMW', model: 'X50', miles: 20000 }, [{ make: 'BMW', model: 'X5' }], null), null);
+  assert.equal(manheim.matchDemand({ year: 2022, make: 'Mercedes-Benz', model: 'GLE-Class', miles: 20000 }, { mode: 'CARRO', wishes: [
+    { make: 'BMW', model: 'X5', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }, { make: 'Mercedes-Benz', model: 'GLE', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }
+  ] }).matchedWishlistIndex, 1);
+  assert.equal(manheim.matchDemand({ year: 2022, make: 'BMW', model: 'X50', miles: 20000, mmrCents: 2000000 }, { mode: 'VALOR', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 2000000 }), null);
 });
 
-test('BATE, QUASE and MMR are independent and deterministic', () => {
-  const wish = [{ make: 'Toyota', model: 'Camry', yearMin: 2020, yearMax: 2024, maxMiles: 50000 }, { make: 'Honda', model: 'Civic', yearMin: 2020, yearMax: 2024, maxMiles: 50000 }];
-  // R3: complete criteria (year + mileage) are matched by criteria; the result also says why.
-  assert.deepEqual(matchManheimVehicle({ year: 2022, make: 'HONDA', model: 'Cívic', miles: 45000, mmrCents: 2100000 }, wish, 2000000), {
-    kind: 'BATE', reason: null, notice: null, gaps: [], dataGap: false, basis: 'CRITERIA', mmrStatus: 'MMR acima do teto', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
+test('BATE (CARRO), POR VALOR and MMR are independent and deterministic', () => {
+  const wishes = [{ make: 'Toyota', model: 'Camry', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }, { make: 'Honda', model: 'Civic', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }];
+  const carro = { mode: 'CARRO', wishes, bidCents: 2000000 };
+  // CARRO: complete criteria, no money. The bid given here is ignored.
+  assert.deepEqual(matchManheimDemand({ year: 2022, make: 'HONDA', model: 'Cívic', miles: 45000, mmrCents: 2100000 }, carro), {
+    kind: 'BATE', reason: null, notice: null, gaps: [], dataGap: false, basis: 'CRITERIA', mmrStatus: null, mode: 'CARRO', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
   });
-  assert.deepEqual(matchManheimVehicle({ year: 2025, make: 'Honda', model: 'Civic', miles: 45000, mmrCents: 1900000 }, wish, 2000000), {
-    kind: 'QUASE', reason: 'ano 1 acima', notice: null, gaps: [], dataGap: false, basis: 'CRITERIA', mmrStatus: 'MMR dentro do teto', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
-  });
-  assert.equal(matchManheimVehicle({ year: 2025, make: 'Honda', model: 'Civic', miles: 56000 }, wish, 2000000), null);
-  assert.equal(matchManheimVehicle({ year: 2022, make: 'Honda', model: 'Accord', miles: 45000 }, wish, 2000000), null);
+  // One year above is not a QUASE anymore: it is simply not a match.
+  assert.equal(matchManheimDemand({ year: 2025, make: 'Honda', model: 'Civic', miles: 45000, mmrCents: 1900000 }, carro), null);
+  assert.equal(matchManheimDemand({ year: 2025, make: 'Honda', model: 'Civic', miles: 56000 }, carro), null);
+  assert.equal(matchManheimDemand({ year: 2022, make: 'Honda', model: 'Accord', miles: 45000 }, carro), null);
+  // VALOR: the MMR against the bid, year and mileage never used.
+  const valor = { mode: 'VALOR', wishes: [{ make: 'Honda', model: 'Civic', yearMin: 2023, yearMax: 2023 }], bidCents: 2000000 };
+  const result = matchManheimDemand({ year: 2015, make: 'Honda', model: 'Civic', miles: 190000, mmrCents: 1900000 }, valor);
+  assert.deepEqual([result.kind, result.mmrStatus, result.mode], ['POR_VALOR', 'MMR dentro do teto', 'VALOR']);
 });
 
 test('shortlist preserves CSV columns and escaping', () => {
@@ -154,7 +158,7 @@ test('returns are unified and HOJE colors overdue and next-two-hour deadlines', 
 test('UI and server wire structured wishlist, grouping, presenting, Reativar, and no start-search button', () => {
   assert.match(client, /const wishlists = wishlistRows/);
   assert.match(client, /journey\.wishlists \|\| journey\.wishlist/);
-  assert.match(client, /Compatíveis/);
+  assert.match(read('painel/index.html'), /Compatíveis/);
   assert.match(client, /Reativar/);
   assert.match(client, /Apresentei ao cliente/);
   assert.match(client, /Baixar PDF/);
@@ -181,8 +185,9 @@ test('new Manheim tables force RLS and allow no direct writes from browser roles
 
 test('saved searches reuse the contact index and expose cumulative versus individual explanations', () => {
   const searches=read('api/panel/manheim-searches.js');
-  assert.match(searches,/const \{ contactIndex \} = require/);
-  assert.match(searches,/if \(!facts\.entered\) continue/);
+  assert.match(read('panel-buscas.js'),/const \{ contactIndex \} = require/);
+  assert.match(searches,/!base\.journeyEntered\(journey\)/);
+  assert.match(searches,/!base\.orderEntered\(demand\.ref\)/);
   assert.match(searches,/individualPercent/);
   assert.match(searches,/clients: \[\.\.\.group\.leads\.values\(\)\]/);
   assert.match(client,/Conta só quem entrou em contato/);
@@ -198,5 +203,5 @@ test('saved search actions are optimistic, sortable, and let the owner open each
   assert.match(client,/group\.created=!before/);
   assert.match(client,/group\.created=before/);
   assert.match(client,/openDetail\('ficha',client\.journeyId\)/);
-  assert.match(searches,/phone: primaryPhone/);
+  assert.match(read('panel-buscas.js'),/phone: journey \? base\.primaryPhone\(journey\.contact_id\)/);
 });

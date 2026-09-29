@@ -95,7 +95,10 @@ function normalizeWishlist(source) {
     model: clean(value.model),
     yearMin: finiteInteger(value.yearMin),
     yearMax: finiteInteger(value.yearMax),
-    maxMiles: finiteInteger(value.maxMiles)
+    // milhas_de is the minimum mileage the customer accepts (CARRO); it is never the limit.
+    minMiles: finiteInteger(value.minMiles),
+    maxMiles: finiteInteger(value.maxMiles),
+    trim: clean(value.trim)
   };
 }
 
@@ -153,7 +156,8 @@ function wishlistForJourney(journey) {
 
 // Fills what `current` does not have from `incoming`. The year range is one unit: both years
 // come from the same source, so two sources never mix into an impossible range (A6).
-const WISH_FIELD_GROUPS = [['make'], ['model'], ['yearMin', 'yearMax'], ['maxMiles']];
+// The mileage range is one unit too: minimum and maximum always come from the same source.
+const WISH_FIELD_GROUPS = [['make'], ['model'], ['trim'], ['yearMin', 'yearMax'], ['minMiles', 'maxMiles']];
 function mergeWishlist(current, incoming) {
   const existing = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
   const proposed = incoming && typeof incoming === 'object' && !Array.isArray(incoming) ? incoming : {};
@@ -186,9 +190,9 @@ function wishlistText(wishlist) {
   }).filter(Boolean).join(' · ');
 }
 
-// R3 lives in vehicle-match.js, shared with the browser. budgetCents is the maximum bid (R2).
-function matchManheimVehicle(vehicle, wishlist, budgetCents) {
-  return vehicleMatch.matchVehicle(vehicle, wishlist, budgetCents);
+// The rule per mode lives in vehicle-match.js, shared with the browser.
+function matchManheimDemand(vehicle, demand) {
+  return demand && demand.active !== false ? vehicleMatch.matchDemand(vehicle, demand) : null;
 }
 
 // A5: ENCERRADO always wins over the on/off switch. A closed ficha only comes back through an
@@ -281,7 +285,9 @@ function wishlistsFromCalculatorEvents(events) {
         yearMin: source.ano_de ?? source.yearMin,
         yearMax: source.ano_ate ?? source.yearMax,
         // A:P10: milhas_de is the minimum the customer accepts, never the mileage limit.
-        maxMiles: source.milhas_ate ?? source.maxMiles
+        minMiles: source.milhas_de ?? source.minMiles,
+        maxMiles: source.milhas_ate ?? source.maxMiles,
+        trim: /^(not sure|n[ãa]o tenho certeza|no estoy seguro|n[ãa]o sei)$/i.test(clean(source.trim)) ? '' : source.trim
       });
       if (wishlist.model) collected.push(wishlist);
     }
@@ -417,16 +423,6 @@ function groupCalculatorByRef(orders, dispositions = []) {
       outOfStandard: Number(newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null)) > 0 && !standardBudget(newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null))
     };
   }).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0) || a.ref.localeCompare(b.ref));
-}
-
-// A calculator order is matched once, with the Ref's combined criteria (newest value of each
-// field) and the Ref's newest bid (A6). A simulation without year/mileage no longer opens the
-// filter of a search in the same Ref.
-function matchManheimOrder(vehicle, order) {
-  if (!order) return null;
-  const wishlists = Array.isArray(order.wishlists) ? order.wishlists : order.wishlist ? [order.wishlist] : [];
-  const result = vehicleMatch.matchVehicle(vehicle, wishlists, order.budgetCents);
-  return result ? { ...result, logicalMode: order.logicalMode || null, ref: order.ref || null } : null;
 }
 
 function standardBudget(budgetCents) {
@@ -655,9 +651,107 @@ function buildConversationTimeline(messages, interactions, activities) {
   });
 }
 
+// ---------------------------------------------------------------------------------------------
+// Search demands (BUSCAS and Manheim). A demand is one person (a ficha or a Ref without ficha)
+// in one logical mode. VALOR and CARRO of the same person are two independent demands and
+// never share criteria: VALOR keeps make, model and the VALOR bid; CARRO keeps make, model,
+// trim (information only), and both year and mileage ranges. There is no MIXED demand.
+const SEARCH_MODES = Object.freeze(['VALOR', 'CARRO']);
+
+function valorWishes(wishes) {
+  return (wishes || []).map(normalizeWishlist).filter((wish) => wish.model).map((wish) => ({ make: wish.make, model: wish.model, trim: wish.trim, yearMin: null, yearMax: null, minMiles: null, maxMiles: null }));
+}
+
+function carroWishes(wishes) {
+  return (wishes || []).map(normalizeWishlist).filter((wish) => wish.model);
+}
+
+function finalizeDemand(demand) {
+  const issues = [];
+  const active = [];
+  const wishes = demand.wishes || [];
+  if (demand.mode === 'REVIEW') issues.push({ code: 'MODE_UNKNOWN', text: vehicleMatch.ISSUE_TEXT.MODE_UNKNOWN });
+  else if (!wishes.length) issues.push({ code: 'MODEL_MISSING', text: vehicleMatch.ISSUE_TEXT.MODEL_MISSING });
+  else wishes.forEach((wish) => {
+    const code = demand.mode === 'CARRO' ? vehicleMatch.carroWishIssue(wish) : vehicleMatch.valorWishIssue(wish, demand.bidCents);
+    if (code) issues.push({ code, text: vehicleMatch.ISSUE_TEXT[code], wish: clean([wish.make, wish.model].filter(Boolean).join(' ')) || null });
+    else active.push(wish);
+  });
+  return { ...demand, activeWishes: active, issues, active: demand.mode !== 'REVIEW' && active.length > 0 };
+}
+
+// One demand per (Ref, mode) for a Ref without ficha. `item` is one entry of consolidateCalcRuns
+// (already split by logical mode), never the grouped MIXED view.
+function orderDemand(item) {
+  const mode = item && SEARCH_MODES.includes(item.logicalMode) ? item.logicalMode : null;
+  if (!mode) return null;
+  return finalizeDemand({
+    key: `ref:${item.ref}:${mode}`, targetType: 'ORDER', ref: item.ref, journeyId: null, mode,
+    wishes: mode === 'CARRO' ? carroWishes(item.wishlists) : valorWishes(item.wishlists),
+    bidCents: mode === 'VALOR' && Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null,
+    occurredAt: item.occurredAt || null, sids: item.sids || [], source: 'CALCULADORA'
+  });
+}
+
+// Modes the operator confirmed for a ficha in "Revisar tipo de busca".
+function confirmedJourneyModes(journey) {
+  const criteria = journey && journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
+  const list = Array.isArray(criteria.logical_modes) ? criteria.logical_modes : criteria.logical_mode ? [criteria.logical_mode] : [];
+  return [...new Set(list.map((value) => clean(value).toUpperCase()).filter((value) => SEARCH_MODES.includes(value)))];
+}
+
+// The demands of a ficha. Its modes come from its linked calculator Refs (split by mode) and
+// from a confirmed choice. The ficha stays the source of truth for the wishes (R1): for the
+// same model, a missing range is filled only from a Ref of the SAME mode. Without any mode, a
+// ficha that has something to search is one REVIEW demand; the mode is never guessed.
+function journeyDemands(journey, linkedItems) {
+  if (!journey) return [];
+  const items = (Array.isArray(linkedItems) ? linkedItems : []).filter((item) => SEARCH_MODES.includes(item.logicalMode));
+  const modes = new Set([...items.map((item) => item.logicalMode), ...confirmedJourneyModes(journey)]);
+  const ownWishes = wishlistsForJourney(journey);
+  const budget = Number(journey.budget_cents) > 0 ? Number(journey.budget_cents) : null;
+  const base = { targetType: 'JOURNEY', journeyId: journey.id, ref: clean(journey.reference_code).toUpperCase() || (items[0] && items[0].ref) || null, source: journey.source || null, occurredAt: journey.updated_at || journey.created_at || null };
+  if (!modes.size) {
+    if (!ownWishes.length && !budget) return [];
+    return [finalizeDemand({ ...base, key: `journey:${journey.id}:REVIEW`, mode: 'REVIEW', wishes: ownWishes, bidCents: budget })];
+  }
+  return SEARCH_MODES.filter((mode) => modes.has(mode)).map((mode) => {
+    const own = items.filter((item) => item.logicalMode === mode).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0));
+    const merged = own.length ? { wishlists: mergeWishlists([], own.flatMap((item) => item.wishlists || [])), budgetCents: mode === 'VALOR' ? own.map((item) => item.budgetCents).find((value) => Number(value) > 0) || null : null } : null;
+    const criteria = effectiveCriteria(journey, merged);
+    return finalizeDemand({
+      ...base, key: `journey:${journey.id}:${mode}`, mode, linkedRefs: [...new Set(own.map((item) => item.ref))],
+      wishes: mode === 'CARRO' ? carroWishes(criteria.wishes) : valorWishes(criteria.wishes),
+      // R2: only the bid; the confirmed total ceiling is never a bid. CARRO never has a bid.
+      bidCents: mode === 'VALOR' ? criteria.bidCents : null
+    });
+  });
+}
+
+// Every demand of the environment. `modeItems` is consolidateCalcRuns(...) (one entry per Ref and
+// mode). A Ref owned by a ficha (reference_code, journey_refs or a calculator link) is matched
+// through the ficha (A4); the other Refs are demands of their own.
+function buildSearchDemands({ journeys, refs, modeItems }) {
+  const journeyList = Array.isArray(journeys) ? journeys : [];
+  const byId = new Map(journeyList.map((journey) => [journey.id, journey]));
+  const owner = new Map();
+  journeyList.forEach((journey) => { const ref = clean(journey.reference_code).toUpperCase(); if (ref) owner.set(ref, journey.id); });
+  (Array.isArray(refs) ? refs : []).forEach((row) => { const ref = clean(row.ref_code).toUpperCase(); if (ref && byId.has(row.journey_id)) owner.set(ref, row.journey_id); });
+  const linked = new Map();
+  const orders = [];
+  (Array.isArray(modeItems) ? modeItems : []).forEach((item) => {
+    const journeyId = owner.get(clean(item.ref).toUpperCase()) || (item.link && byId.has(item.link.journeyId) ? item.link.journeyId : null);
+    if (journeyId) { if (!linked.has(journeyId)) linked.set(journeyId, []); linked.get(journeyId).push(item); return; }
+    const demand = orderDemand(item);
+    if (demand) orders.push(demand);
+  });
+  const byJourney = new Map(journeyList.map((journey) => [journey.id, journeyDemands(journey, linked.get(journey.id) || [])]));
+  return { byJourney, orders, owner, linkedItems: linked };
+}
+
 module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, toggleEnabled, journeyLogicalMode, logicalMode,
-  matchManheimOrder, matchManheimVehicle, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
+  buildSearchDemands, carroWishes, confirmedJourneyModes, finalizeDemand, journeyDemands, matchManheimDemand, orderDemand, SEARCH_MODES, valorWishes, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
   normalizeState, normalizeWishlist, wishlistsFromCalculatorEvents, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };

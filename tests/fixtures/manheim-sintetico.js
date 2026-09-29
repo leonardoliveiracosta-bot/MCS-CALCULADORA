@@ -73,12 +73,12 @@ function porscheCustomers(journeyCount = 30, orderCount = 4) {
     return {
       id: uuid('51000000', index + 1), contactId: uuid('52000000', index + 1), status: 'ATIVO', stage: 'NOVO',
       budget_cents: 6000000 + index * 100000,
-      criteria_json: { wishlists: [{ make: 'Porsche', model: '911', yearMin, yearMax: yearMin + 7, maxMiles: 60000 + (index % 5) * 8000 }] }
+      criteria_json: { logical_modes: ['CARRO'], wishlists: [{ make: 'Porsche', model: '911', yearMin, yearMax: yearMin + 7, minMiles: 1000, maxMiles: 60000 + (index % 5) * 8000 }] }
     };
   });
   const calcRuns = Array.from({ length: orderCount }, (_, index) => ({
     id: String(9000 + index), created_at: `2026-09-2${index}T12:00:00Z`, zip: '32801', estado: 'FL', lance: 70000, pagamento: 'avista', is_test: false,
-    dados: { sid: `sintetico-${index}`, ref: fakeRef(index), evento: 'busca', marca: 'Porsche', modelo: '911', ano_de: 2014 + index, ano_ate: 2022 + index, milhas_ate: 70000, lance: 70000 + index * 5000 }
+    dados: { sid: `sintetico-${index}`, ref: fakeRef(index), evento: 'busca', marca: 'Porsche', modelo: '911', ano_de: 2014 + index, ano_ate: 2022 + index, milhas_de: 1000, milhas_ate: 70000, lance: 70000 + index * 5000 }
   }));
   return { journeys, calcRuns };
 }

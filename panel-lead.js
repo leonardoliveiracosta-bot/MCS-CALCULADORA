@@ -3,7 +3,8 @@
 const crypto = require('node:crypto');
 const calc = require('./calc-core');
 const vehicleMatch = require('./vehicle-match');
-const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, normalizeDeadline, normalizePayment, REF_RE } = require('./panel-domain');
+const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, journeyDemands, normalizeDeadline, normalizePayment, orderDemand, REF_RE } = require('./panel-domain');
+const { activeFilter } = require('./panel-manheim-state');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 
@@ -97,9 +98,9 @@ function capture(handler, req, query) {
 
 const offerRank = (offer) => offer.kind === 'BATE' ? 0 : offer.kind === 'POR_VALOR' ? 1 : offer.dataGap ? 3 : 2;
 
-// Same rule as the CSV match (R3, vehicle-match.js): kind of one car for one wish.
-function offerKind(vehicle, wish, bidCents) {
-  const result = vehicleMatch.matchWish(vehicle, wish || {}, bidCents);
+// Same rule as the CSV match (vehicle-match.js): kind of one car for one wish in one mode.
+function offerKind(vehicle, wish, bidCents, mode = 'CARRO') {
+  const result = vehicleMatch.matchDemand(vehicle, { mode, wishes: [wish || {}], bidCents });
   return result ? result.kind : null;
 }
 
@@ -164,12 +165,13 @@ async function leadData(ctx, req, refInput, idInput) {
     try{return await read();}
     catch(error){console.error('[panel-lead-read]',{label,ref,journeyId:journey?.id||null,message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});return [];}
   };
+  const activeBatch = await activeFilter(ctx).catch(() => ({}));
   const [notes, events, promises, archive, recentMatches, aiReadings, aiSuggestions, aiHelp, stageIndex] = await Promise.all([
     optionalRead('lead_notes',()=>allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'created_at.desc' })),
     optionalRead('lead_events',()=>allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ...scope, undone_at: 'is.null', order: 'occurred_at.desc' })),
     optionalRead('lead_promises',()=>allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'due_at.asc' })),
-    optionalRead('manheim_vehicles',()=>allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, order: 'uploaded_at.desc' })),
-    optionalRead('manheim_matches',()=>allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, created_at: 'gte.' + cutoff })),
+    optionalRead('manheim_vehicles',()=>allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, ...activeBatch, order: 'uploaded_at.desc' })),
+    optionalRead('manheim_matches',()=>allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, created_at: 'gte.' + cutoff, ...activeBatch })),
     journey ? optionalRead('conversation_ai_readings',()=>rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('whatsapp_link_suggestions',()=>rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('lead_ai_help',()=>allRows(ctx,'lead_ai_help',{select:'id,question,answer_json,created_at',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,order:'created_at.desc'})) : Promise.resolve([]),
@@ -203,20 +205,25 @@ async function leadData(ctx, req, refInput, idInput) {
     const parsed = match.vehicle_json && match.vehicle_json.parsed;
     if (parsed && !unique.has(match.row_fingerprint)) unique.set(match.row_fingerprint, { ...parsed, rowFingerprint: match.row_fingerprint, matchId: match.id, uploadedAt: match.created_at });
   }
+  // The person's demands, one per mode: VALOR (make, model, bid) and CARRO (make, model, year
+  // and mileage ranges). The same car can be an offer in both modes; each mode uses its own rule.
+  const modeEntries = order && Array.isArray(order.simulations) ? order.simulations : [];
+  const demands = (record ? journeyDemands(record, modeEntries) : modeEntries.map(orderDemand).filter(Boolean)).filter((demand) => demand.active);
+  const matchesFor = (car) => demands.map((demand) => ({ demand, result: vehicleMatch.matchDemand(car, { ...demand, wishes: demand.activeWishes }) })).filter((entry) => entry.result);
   const typical = wishes.map((wish) => {
-    // A:P16: "MMR típico" uses the same rule as the offers and the CSV (tolerance included), never a
-    // car whose fit depends on missing data (unknown odometer, no MMR, customer not qualified).
-    const compared = [...unique.values()].filter((car) => { const result = vehicleMatch.matchWish(car, wish, maxBidCents); return Boolean(result && !result.dataGap); });
+    // A:P16: "MMR típico" uses the same rule as the offers and the CSV, never a car whose fit
+    // depends on missing data. The MMR is information only; in CARRO it never selects a car.
+    const label = [wish.make, wish.model].filter(Boolean).join(' ').trim();
+    const compared = [...unique.values()].filter((car) => matchesFor(car).some(({ result }) => !result.dataGap && result.matchedWishlistLabel === label));
     return { ...wish, mmrCents: median(compared.map((car) => car.mmrCents)) };
   });
-  // R3: offers use the maximum bid (never the total ceiling, R2) and the same match rule as
-  // the CSV. A QUASE caused by missing data keeps its notice so it is not read as a fit.
-  const offers = [...unique.values()].flatMap((vehicle) => {
-    const result = vehicleMatch.matchVehicle(vehicle, wishes, maxBidCents);
-    return result ? [{ ...vehicle, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap }] : [];
-  }).sort((a, b) => offerRank(a) - offerRank(b)).slice(0, 80);
+  // Offers use each demand's own rule (VALOR: the maximum bid, never the total ceiling, R2).
+  // A QUASE caused by missing data keeps its notice so it is not read as a fit.
+  const offers = [...unique.values()].flatMap((vehicle) => matchesFor(vehicle).map(({ demand, result }) => ({ ...vehicle, mode: demand.mode, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap })))
+    .sort((a, b) => offerRank(a) - offerRank(b)).slice(0, 80);
   // "Cabe" = BATE or POR_VALOR (real opportunities); QUASE never counts as a fit.
-  const fits = offers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind))
+  const fitSeen = new Set();
+  const fits = offers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind) && !fitSeen.has(vehicle.rowFingerprint) && fitSeen.add(vehicle.rowFingerprint))
     .map((vehicle) => ({ year: vehicle.year, miles: vehicle.miles, make: vehicle.make, model: vehicle.model })).slice(0, 8);
   const lastCustomer = record && [...(record.conversation || [])].reverse().find((message) => message.direction === 'CUSTOMER');
   const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(new Date()));

@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
 const { porsche911Csv, porscheCustomers } = require('./fixtures/manheim-sintetico');
-const { consolidateCalcRuns, groupCalculatorByRef, wishlistsForJourney } = require('../panel-domain');
+const { buildSearchDemands, consolidateCalcRuns, groupCalculatorByRef, wishlistsForJourney } = require('../panel-domain');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 // Lets the test use a preinstalled Chromium when the pinned Playwright build is not downloaded.
@@ -28,13 +28,15 @@ function customers() {
       ...journey, reference_code: null, enabled: true, contact: { display_name: `Cliente Ficticio ${index + 1}` }, phones: [],
       wishlist: wishlistsForJourney(journey)[0], wishlists: wishlistsForJourney(journey)
     })),
-    orders: groupCalculatorByRef(consolidateCalcRuns(calcRuns, []), []).map((order, index) => ({ ...order, contactName: `Pedido Ficticio ${index + 1}` }))
+    orders: groupCalculatorByRef(consolidateCalcRuns(calcRuns, []), []).map((order, index) => ({ ...order, contactName: `Pedido Ficticio ${index + 1}` })),
+    // The same per-mode targets the server sends (records?view=manheim).
+    targets: (() => { const built = buildSearchDemands({ journeys, refs: [], modeItems: consolidateCalcRuns(calcRuns, []) }); return [...[...built.byJourney.values()].flat(), ...built.orders].filter((demand) => demand.active).map((demand) => ({ key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId, ref: demand.ref, wishes: demand.activeWishes, bidCents: demand.bidCents })); })()
   };
 }
 
 test('CSV do Manheim com milhares de combinações importa inteiro, em partes, sem abrir dialog', async ({ page }) => {
   test.setTimeout(180000);
-  const { items, orders } = customers();
+  const { items, orders, targets } = customers();
   const server = { parts: [], uploads: [], archived: 0, draft: null };
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
@@ -55,7 +57,7 @@ test('CSV do Manheim com milhares de combinações importa inteiro, em partes, s
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
     if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') {
       const latest = server.uploads.at(-1) || null;
-      return json({ items, orders, matches: latest ? latest.matches : [], upload: latest && latest.summary, meta: {} });
+      return json({ items, orders, targets, matches: latest ? latest.matches : [], upload: latest && latest.summary, meta: {} });
     }
     if (url.pathname === '/api/panel/actions' && route.request().method() === 'POST') {
       const raw = route.request().postData() || '';
@@ -69,7 +71,7 @@ test('CSV do Manheim com milhares de combinações importa inteiro, em partes, s
         server.draft.matches.push(...body.matches);
         if (body.partIndex < body.partCount) return json({ uploadId: server.draft.id, complete: false, partIndex: body.partIndex, partCount: body.partCount }, 202);
         const matches = server.draft.matches.map((match, index) => ({
-          id: `5b000000-0000-4000-8000-${String(index).padStart(12, '0')}`, journey_id: match.journeyId || null, calc_ref: match.calcRef || null,
+          id: `5b000000-0000-4000-8000-${String(index).padStart(12, '0')}`, journey_id: match.journeyId || null, calc_ref: match.calcRef || null, logical_mode: match.mode,
           match_kind: match.kind, match_reason: match.reason, mmr_status: match.mmrStatus, row_fingerprint: match.fingerprint, vehicle_json: match.vehicle, dataGap: match.dataGap === true
         }));
         const leads = new Set(matches.map((match) => match.journey_id || match.calc_ref)).size;

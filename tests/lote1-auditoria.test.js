@@ -28,11 +28,13 @@ const response = () => ({ code: 0, payload: null, setHeader() {}, status(code) {
 const panelCtx = async () => ({ config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' });
 const car = (overrides) => ({ year: 2020, make: 'BMW', model: 'X5', miles: 40000, mmrCents: null, ...overrides });
 
-// ---------------------------------------------------------------- R3: faixa de MMR
+// ---------------------------------------------------------------- R3: faixa de MMR (modo VALOR)
+// buscas-split: VALOR (Calculate My Cost) usa só marca, modelo e lance; CARRO (Find One For Me)
+// só marca, modelo, anos e milhagens. As regras antigas que misturavam os dois foram trocadas.
+const valor = (vehicle, bidCents) => vehicleMatch.matchDemand(vehicle, { mode: 'VALOR', wishes: [{ make: 'BMW', model: 'X5' }], bidCents });
+const carro = (vehicle, wish) => vehicleMatch.matchDemand(vehicle, { mode: 'CARRO', wishes: [{ make: 'BMW', model: 'X5', ...wish }] });
 test('R3b: faixa de MMR do lance (US$ 20.000, 60.000 e 80.000), bordas inclusivas', () => {
-  const wish = [{ make: 'BMW', model: 'X5' }];
-  // Simulação path: inside the bid range = POR_VALOR (not BATE: the customer never gave year/mileage).
-  const kind = (bidUsd, mmrUsd) => vehicleMatch.matchVehicle(car({ mmrCents: mmrUsd * 100 }), wish, bidUsd * 100)?.kind || null;
+  const kind = (bidUsd, mmrUsd) => valor(car({ mmrCents: mmrUsd * 100 }), bidUsd * 100)?.kind || null;
   assert.equal(kind(20000, 14000), 'POR_VALOR');
   assert.equal(kind(20000, 23000), 'POR_VALOR');
   assert.equal(kind(20000, 13999), null);
@@ -45,7 +47,7 @@ test('R3b: faixa de MMR do lance (US$ 20.000, 60.000 e 80.000), bordas inclusiva
   assert.equal(kind(80000, 88000), 'POR_VALOR');
   assert.equal(kind(80000, 59999), null);
   assert.equal(kind(80000, 88001), null);
-  const byValue = vehicleMatch.matchVehicle(car({ mmrCents: 2000000 }), wish, 2000000);
+  const byValue = valor(car({ mmrCents: 2000000 }), 2000000);
   assert.equal(byValue.reason, 'por valor: MMR US$ 20,000 na faixa do lance US$ 20,000');
   assert.equal(byValue.basis, 'VALUE');
   assert.equal(byValue.kind, 'POR_VALOR');
@@ -55,63 +57,61 @@ test('R3b: faixa de MMR do lance (US$ 20.000, 60.000 e 80.000), bordas inclusiva
   assert.equal(byValue.dataGap, false);
 });
 
-test('R3c/d: sem MMR → QUASE "sem MMR para comparar"; sem lance → QUASE "precisa qualificar"', () => {
-  const wish = [{ make: 'BMW', model: 'X5' }];
-  const noMmr = vehicleMatch.matchVehicle(car({ mmrCents: null }), wish, 2000000);
+test('R3c/d: VALOR sem MMR → QUASE "sem MMR para comparar"; VALOR sem lance não é buscável', () => {
+  const noMmr = valor(car({ mmrCents: null }), 2000000);
   assert.deepEqual([noMmr.kind, noMmr.notice, noMmr.dataGap], ['QUASE', 'sem MMR para comparar', true]);
-  const noBid = vehicleMatch.matchVehicle(car({ mmrCents: 2000000 }), wish, null);
-  assert.deepEqual([noBid.kind, noBid.notice, noBid.dataGap], ['QUASE', 'precisa qualificar: ano/milhagem não informados', true]);
-  // Nothing informed never becomes BATE, whatever the car (the old rule said BATE for a 2004 with 240k).
-  assert.notEqual(vehicleMatch.matchVehicle(car({ year: 2004, miles: 240000, mmrCents: 500000 }), wish, null)?.kind, 'BATE');
-  // Total ceiling is never turned into a bid (R3d): only budget/bid enters the rule.
-  assert.equal(vehicleMatch.matchVehicle(car({ mmrCents: 2000000 }), wish, 0).notice, 'precisa qualificar: ano/milhagem não informados');
+  assert.equal(valor(car({ mmrCents: 2000000 }), null), null);
+  assert.equal(valor(car({ mmrCents: 2000000 }), 0), null);
+  assert.equal(vehicleMatch.valorWishIssue({ make: 'BMW', model: 'X5' }, null), 'BID_MISSING');
+  // Nothing informed never becomes BATE, whatever the car.
+  assert.notEqual(valor(car({ year: 2004, miles: 240000, mmrCents: 500000 }), null)?.kind, 'BATE');
 });
 
-test('R3a: critérios informados são usados; ano informado sem milhagem usa ano + faixa de MMR', () => {
-  const full = [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2021, maxMiles: 50000 }];
-  assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, miles: 40000 }), full, null).kind, 'BATE');
-  assert.equal(vehicleMatch.matchVehicle(car({ year: 2015, miles: 40000 }), full, null), null);
-  const yearOnly = [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2021 }];
-  assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, mmrCents: 3000000 }), yearOnly, 3000000).kind, 'POR_VALOR');
-  // Busca path: complete criteria = BATE even without bid and even when the car has no MMR.
-  assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, miles: 40000, mmrCents: null }), full, null).kind, 'BATE');
-  assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, miles: 40000, mmrCents: null }), full, 3000000).kind, 'BATE');
-  assert.equal(vehicleMatch.matchVehicle(car({ year: 2020, mmrCents: 9000000 }), yearOnly, 3000000), null);
-  assert.equal(vehicleMatch.matchVehicle(car({ year: 2010, mmrCents: 3000000 }), yearOnly, 3000000), null);
+test('R3a: CARRO usa só os critérios informados, sem tolerância e sem MMR', () => {
+  const full = { yearMin: 2019, yearMax: 2021, minMiles: 1000, maxMiles: 50000 };
+  assert.equal(carro(car({ year: 2020, miles: 40000 }), full).kind, 'BATE');
+  assert.equal(carro(car({ year: 2015, miles: 40000 }), full), null);
+  assert.equal(carro(car({ year: 2022, miles: 40000 }), full), null, 'um ano acima não é tolerado');
+  assert.equal(carro(car({ year: 2020, miles: 51000 }), full), null, '2% acima da milhagem não é tolerado');
+  assert.equal(carro(car({ year: 2020, miles: 40000, mmrCents: null }), full).kind, 'BATE');
+  assert.equal(carro(car({ year: 2020, miles: 40000, mmrCents: 99000000 }), full).kind, 'BATE', 'MMR não inclui nem exclui em CARRO');
+  // Incomplete criteria are never searched: no year range, no mileage range.
+  assert.equal(carro(car({ year: 2020, mmrCents: 3000000 }), { yearMin: 2019, yearMax: 2021 }), null);
+  assert.equal(vehicleMatch.carroWishIssue({ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2021 }), 'MILES_MISSING');
 });
 
 // ---------------------------------------------------------------- R3e: odômetro
-test('R3e: odômetro vazio, "TMU" ou "Exempt" é desconhecido, nunca 0, e nunca BATE por milhagem', () => {
+test('R3e: odômetro vazio, "TMU" ou "Exempt" é desconhecido, nunca 0, e nunca entra em CARRO', () => {
   const csv = 'Year,Make,Model,Odometer Value,MMR\n2020,BMW,X5,,40000\n2020,BMW,X5,TMU,40000\n2020,BMW,X5,Exempt,40000\n2020,BMW,X5,30000,40000';
   const parsed = manheim.parseCsv(csv);
   const rows = manheim.normalizeRows(parsed, manheim.mapHeaders(parsed.headers));
   assert.deepEqual(rows.map((row) => row.miles), [null, null, null, 30000]);
-  const wish = [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2021, maxMiles: 50000 }];
-  for (const row of rows.slice(0, 3)) {
-    const result = manheim.matchVehicle(row, wish, 4000000);
-    assert.equal(result.kind, 'QUASE');
-    assert.equal(result.notice, 'milhagem não informada no leilão');
-    assert.equal(result.dataGap, true);
-  }
-  assert.equal(manheim.matchVehicle(rows[3], wish, 4000000).kind, 'BATE');
+  const demand = { mode: 'CARRO', wishes: [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2021, minMiles: 1, maxMiles: 50000 }] };
+  for (const row of rows.slice(0, 3)) assert.equal(manheim.matchDemand(row, demand), null);
+  assert.equal(manheim.matchDemand(rows[3], demand).kind, 'BATE');
 });
 
 // ---------------------------------------------------------------- A6: busca + simulação na mesma Ref
-test('A6: Ref com busca e simulação combina ano/milhagem da busca com o lance da simulação', () => {
+test('A6: Ref com busca e simulação vira duas demandas; nenhuma empresta critério da outra', () => {
   const rows = [
     { id: '1', created_at: '2026-09-20T10:00:00Z', dados: { sid: 's1', ref: 'ABC23', evento: 'simulacao', marca: 'BMW', modelo: 'X5', lance: 30000 } },
     { id: '2', created_at: '2026-09-21T10:00:00Z', dados: { sid: 's2-find-x', ref: 'ABC23', evento: 'busca', marca: 'BMW', modelo: 'X5', ano_de: 2021, ano_ate: 2023, milhas_de: 5000, milhas_ate: 40000 } }
   ];
-  const order = domain.groupCalculatorByRef(domain.consolidateCalcRuns(rows), [])[0];
-  assert.equal(order.budgetCents, 3000000);
-  assert.deepEqual(order.wishlists, [{ make: 'BMW', model: 'X5', yearMin: 2021, yearMax: 2023, maxMiles: 40000 }]);
-  // The old per-simulation rule let the simulation (no years) accept this 2008 with 240k miles.
-  assert.equal(domain.matchManheimOrder(car({ year: 2008, miles: 240000, mmrCents: 2500000 }), order), null);
-  assert.equal(domain.matchManheimOrder(car({ year: 2022, miles: 30000, mmrCents: 2500000 }), order).kind, 'BATE');
-  // The newest value of each field wins and a year range never mixes two sources.
+  const demands = domain.consolidateCalcRuns(rows).map(domain.orderDemand);
+  const byMode = Object.fromEntries(demands.map((demand) => [demand.mode, demand]));
+  assert.deepEqual(Object.keys(byMode).sort(), ['CARRO', 'VALOR']);
+  assert.equal(byMode.VALOR.bidCents, 3000000);
+  assert.deepEqual([byMode.VALOR.wishes[0].yearMin, byMode.VALOR.wishes[0].maxMiles], [null, null]);
+  assert.equal(byMode.CARRO.bidCents, null);
+  assert.deepEqual(byMode.CARRO.wishes[0], { make: 'BMW', model: 'X5', yearMin: 2021, yearMax: 2023, minMiles: 5000, maxMiles: 40000, trim: '' });
+  const old = car({ year: 2008, miles: 240000, mmrCents: 2500000 });
+  assert.equal(domain.matchManheimDemand(old, byMode.CARRO), null);
+  assert.equal(domain.matchManheimDemand(old, byMode.VALOR).kind, 'POR_VALOR', 'VALOR não usa ano nem milhagem');
+  assert.equal(domain.matchManheimDemand(car({ year: 2022, miles: 30000, mmrCents: 9000000 }), byMode.CARRO).kind, 'BATE');
+  // The newest value of each field wins and a range never mixes two sources.
   const newer = [...rows, { id: '3', created_at: '2026-09-22T10:00:00Z', dados: { sid: 's2-find-x', ref: 'ABC23', evento: 'busca', marca: 'BMW', modelo: 'X5', ano_de: 2017, ano_ate: 2019, milhas_de: 5000, milhas_ate: 80000 } }];
-  const latest = domain.groupCalculatorByRef(domain.consolidateCalcRuns(newer), [])[0];
-  assert.deepEqual(latest.wishlists[0], { make: 'BMW', model: 'X5', yearMin: 2017, yearMax: 2019, maxMiles: 80000 });
+  const latest = domain.consolidateCalcRuns(newer).find((item) => item.logicalMode === 'CARRO');
+  assert.deepEqual([latest.wishlists[0].yearMin, latest.wishlists[0].yearMax, latest.wishlists[0].maxMiles], [2017, 2019, 80000]);
   assert.equal(latest.yearsText, '2017–2019');
 });
 
@@ -149,8 +149,9 @@ test('R2: teto total nunca vira lance nem o contrário em nenhuma tela', () => {
   // Labels: budget_cents is shown as bid, never as "teto".
   assert.doesNotMatch(panel, /· teto \$\{formatMoney\(budgetCents\)\}/);
   assert.doesNotMatch(panel, /'Teto único'/);
-  // Offers use the maximum bid, not the bid derived from the total ceiling.
-  assert.match(lead, /vehicleMatch\.matchVehicle\(vehicle, wishes, maxBidCents\)/);
+  // Offers use each demand's own rule; VALOR uses the maximum bid, never the total ceiling.
+  assert.match(lead, /vehicleMatch\.matchDemand\(car, \{ \.\.\.demand, wishes: demand\.activeWishes \}\)/);
+  assert.doesNotMatch(read('panel-domain.js'), /bidCents: mode === 'VALOR' \? criteria\.ceilingCents/);
   // Sorting by value uses the bid only.
   assert.doesNotMatch(read('panel-sort.js'), /confirmed_total_ceiling_cents\|\|/);
   assert.equal(vehicleMatch.mmrStatusLabel('MMR acima do teto'), 'MMR acima do lance');
@@ -234,93 +235,95 @@ test('A5: ficha encerrada continua encerrada com o interruptor ligado; desligar 
 
 // ---------------------------------------------------------------- A4 no CSV
 test('A4: Ref ligada a uma ficha casa só pela ficha (uma pessoa, um alvo)', () => {
-  const journey = { id: uuid(1), enabled: true, status: 'ATIVO', matchWishes: [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2022, maxMiles: 60000 }], matchBidCents: 3000000 };
-  const linkedOrder = { ref: 'ABC23', journeyId: uuid(1), matchTarget: false, wishlists: [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2022, maxMiles: 60000 }], budgetCents: 3000000 };
-  const freeOrder = { ref: 'XYZ23', matchTarget: true, wishlists: [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2022, maxMiles: 60000 }], budgetCents: 3000000 };
+  const rows = [
+    { id: '1', created_at: '2026-09-20T10:00:00Z', dados: { sid: 'a-find-1', ref: 'ABC23', evento: 'busca', marca: 'BMW', modelo: 'X5', ano_de: 2019, ano_ate: 2022, milhas_de: 1, milhas_ate: 60000 } },
+    { id: '2', created_at: '2026-09-20T10:00:00Z', dados: { sid: 'b-find-1', ref: 'XYZ23', evento: 'busca', marca: 'BMW', modelo: 'X5', ano_de: 2019, ano_ate: 2022, milhas_de: 1, milhas_ate: 60000 } }
+  ];
+  const journey = { id: uuid(1), reference_code: 'ABC23', status: 'ATIVO', criteria_json: {} };
+  const built = domain.buildSearchDemands({ journeys: [journey], refs: [], modeItems: domain.consolidateCalcRuns(rows) });
+  const targets = [...built.byJourney.get(uuid(1)), ...built.orders].map((demand) => ({ key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId, ref: demand.ref, wishes: demand.activeWishes }));
   const vehicles = [{ ...car({ year: 2020, miles: 30000, mmrCents: 3000000 }), headers: ['Year'], raw: { Year: '2020' }, vin: 'VIN1' }];
-  const matches = upload.buildMatches(vehicles, [journey], [linkedOrder, freeOrder], manheim);
-  assert.deepEqual(matches.map((match) => match.journeyId || match.calcRef), [uuid(1), 'XYZ23']);
+  const matches = upload.buildMatches(vehicles, targets, manheim);
+  assert.deepEqual(matches.map((match) => [match.journeyId || match.calcRef, match.mode]), [[uuid(1), 'CARRO'], ['XYZ23', 'CARRO']]);
 });
 
 // ---------------------------------------------------------------- A19 no servidor
 test('A19: combinação que deixou de valer é descartada e contada, sem derrubar o envio', async () => {
   const stored = [];
+  const wish = { make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2022, minMiles: 1, maxMiles: 60000 };
   const journeys = [
-    { id: uuid(1), status: 'ATIVO', stage: 'NOVO', reference_code: null, criteria_json: { wishlists: [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2022, maxMiles: 60000 }] }, budget_cents: null },
+    { id: uuid(1), status: 'ATIVO', stage: 'NOVO', reference_code: null, criteria_json: { wishlists: [wish], logical_modes: ['CARRO'] }, budget_cents: null },
     // Criteria changed after the browser loaded them: now wants an Audi.
-    { id: uuid(2), status: 'ATIVO', stage: 'NOVO', reference_code: null, criteria_json: { wishlists: [{ make: 'Audi', model: 'Q5', yearMin: 2019, yearMax: 2022, maxMiles: 60000 }] }, budget_cents: null },
-    { id: uuid(3), status: 'ENCERRADO', stage: 'NOVO', reference_code: null, criteria_json: { wishlists: [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2022, maxMiles: 60000 }] }, budget_cents: null }
+    { id: uuid(2), status: 'ATIVO', stage: 'NOVO', reference_code: null, criteria_json: { wishlists: [{ ...wish, make: 'Audi', model: 'Q5' }], logical_modes: ['CARRO'] }, budget_cents: null },
+    { id: uuid(3), status: 'ENCERRADO', stage: 'NOVO', reference_code: null, criteria_json: { wishlists: [wish], logical_modes: ['CARRO'] }, budget_cents: null }
   ];
-  const handler = loadWith('api/panel/actions.js', { '../../panel-server': { ...realServer, requirePanel: panelCtx,
-    allRows: async (_ctx, table) => table === 'journeys' ? journeys : [],
-    supabase: async (_u, _k, _p, options) => { stored.push(...JSON.parse(options.body).p_matches); return { uploadId: uuid(99), matchedVehicleCount: stored.length, leadCount: 1 }; } } });
+  const handler = loadWith('api/panel/actions.js', {
+    '../../panel-server': { ...realServer, requirePanel: panelCtx, supabase: async (_u, _k, _p, options) => { stored.push(...JSON.parse(options.body).p_matches); return { uploadId: uuid(99), matchedVehicleCount: stored.length, leadCount: 1 }; } },
+    '../../panel-buscas': { ...require('../panel-buscas'), loadBuscasBase: async () => require('../panel-buscas').buildBuscasBase({ journeys }) }
+  });
   const vehicle = { headers: ['Year', 'Model'], raw: { Year: '2020', Model: 'X5' }, parsed: { year: 2020, make: 'BMW', model: 'X5', miles: 30000, vin: 'VIN1' } };
   const body = { action: 'manheim_upload_part', uploadId: null, partIndex: 1, partCount: 1, sourceFileCount: 1, vehicleCount: 1, headers: [['Year', 'Model']], headerMap: {},
-    matches: [1, 2, 3].map((n) => ({ journeyId: uuid(n), kind: 'BATE', fingerprint: 'vin:VIN1', vehicle })) };
+    matches: [...[1, 2, 3].map((n) => ({ journeyId: uuid(n), mode: 'CARRO', kind: 'BATE', fingerprint: 'vin:VIN1', vehicle })), { journeyId: uuid(1), mode: 'VALOR', kind: 'POR_VALOR', fingerprint: 'vin:VIN1', vehicle }, { journeyId: uuid(1), kind: 'BATE', fingerprint: 'vin:VIN1', vehicle }] };
   const res = response();
   await handler({ method: 'POST', headers: {}, body }, res);
   assert.equal(res.code, 201, JSON.stringify(res.payload));
   assert.equal(stored.length, 1);
-  assert.equal(stored[0].journeyId, uuid(1));
-  assert.deepEqual(res.payload.discarded, { total: 2, reasons: { CRITERIA_CHANGED: 1, JOURNEY_DISABLED: 1 } });
+  assert.deepEqual([stored[0].journeyId, stored[0].mode], [uuid(1), 'CARRO']);
+  assert.deepEqual(res.payload.discarded, { total: 4, reasons: { CRITERIA_CHANGED: 2, JOURNEY_DISABLED: 1, MODE_MISSING: 1 } });
   // The browser always reads fresh criteria at the start of each import.
   assert.match(read('painel/painel.js'), /const fresh = await request\('\/api\/panel\/records\?view=manheim'\);/);
 });
 
 // ---------------------------------------------------------------- C2: Quais buscas salvar
-test('C2: "Quais buscas salvar" não inventa faixa e deixa "precisa qualificar" fora do %', async () => {
+test('C2: "Quais buscas salvar" separa VALOR e CARRO, não inventa faixa e deixa revisão fora do %', async () => {
   const now = Date.now();
   const iso = (hoursAgo) => new Date(now - hoursAgo * 3600000).toISOString();
   const busca = (id, ref, extra) => ({ id, created_at: iso(10), dados: { sid: ref + '-find-x', ref, evento: 'busca', canal: 'sms', marca: 'BMW', modelo: 'X5', milhas_de: 1000, ...extra } });
   const calcRuns = [
     busca('1', 'AAAA2', { ano_de: 2019, ano_ate: 2022, milhas_ate: 60000 }),
-    busca('2', 'CCCC4', { ano_ate: 2015, milhas_ate: 90000 }),
+    busca('2', 'CCCC4', { ano_de: 2010, ano_ate: 2015, milhas_de: 5000, milhas_ate: 90000 }),
+    // Incomplete: no maximum year. Never searched, goes to review.
     busca('3', 'DDDD5', { ano_de: 2020, milhas_ate: 50000 }),
     { id: '4', created_at: iso(9), dados: { sid: 's-b', ref: 'BBBB3', evento: 'simulacao', marca: 'BMW', modelo: 'X5', lance: 40000 } },
     { id: '5', created_at: iso(8), dados: { sid: 's-b', ref: 'BBBB3', evento: 'sms' } },
     busca('6', 'EEEE6', { ano_de: 2019, ano_ate: 2022, milhas_ate: 60000 })
   ];
   const journeys = [
-    // No year, no mileage, no bid: needs qualifying.
+    // Mode never confirmed: review, never guessed.
     { id: uuid(1), contact_id: uuid(11), reference_code: null, status: 'ATIVO', criteria_json: { wishlists: [{ make: 'BMW', model: 'X5' }] }, budget_cents: null, created_at: iso(5), updated_at: iso(5) },
     // Linked to EEEE6 (a BMW X5 search) but the confirmed wish is now an Audi Q5 (A3 + A4).
-    { id: uuid(2), contact_id: uuid(12), reference_code: null, status: 'ATIVO', criteria_json: { wishlists: [{ make: 'Audi', model: 'Q5', yearMin: 2020, yearMax: 2023, maxMiles: 40000 }], wishlistOverride: true }, budget_cents: null, created_at: iso(5), updated_at: iso(5) }
+    { id: uuid(2), contact_id: uuid(12), reference_code: null, status: 'ATIVO', criteria_json: { wishlists: [{ make: 'Audi', model: 'Q5', yearMin: 2020, yearMax: 2023, minMiles: 1000, maxMiles: 40000 }], wishlistOverride: true }, budget_cents: null, created_at: iso(5), updated_at: iso(5) }
   ];
   const messages = [{ id: 'm1', direction: 'CUSTOMER', occurred_at_utc: iso(2), source_kind: 'WHATSAPP_WEBHOOK' }, { id: 'm2', direction: 'CUSTOMER', occurred_at_utc: iso(2), source_kind: 'WHATSAPP_WEBHOOK' }];
   const tables = { journeys, contacts: [{ id: uuid(11), display_name: 'Qualificar', is_lead: true }, { id: uuid(12), display_name: 'Troca', is_lead: true }], contact_phones: [], journey_toggle_states: [],
     manheim_saved_searches: [], journey_refs: [{ journey_id: uuid(2), ref_code: 'EEEE6' }], calc_runs: calcRuns,
     message_journeys: [{ journey_id: uuid(1), message_id: 'm1' }, { journey_id: uuid(2), message_id: 'm2' }], messages };
+  const server = { ...realServer, requirePanel: panelCtx, allRows: async (_ctx, table) => tables[table] || [] };
   const handler = loadWith('api/panel/manheim-searches.js', {
-    '../../panel-server': { ...realServer, requirePanel: panelCtx, allRows: async (_ctx, table) => tables[table] || [] },
-    '../../panel-lead': { orders: async () => domain.groupCalculatorByRef(domain.consolidateCalcRuns(calcRuns), []) }
+    '../../panel-server': server,
+    '../../panel-buscas': loadWith('panel-buscas.js', { './panel-server': server })
   });
   const res = response();
   await handler({ method: 'GET', headers: {}, query: {} }, res);
   assert.equal(res.code, 200, JSON.stringify(res.payload));
   const groups = res.payload.groups;
   const byKey = Object.fromEntries(groups.map((group) => [group.key, group]));
-  assert.ok(groups.every((group) => group.milesMax !== 100000), 'nenhuma milhagem inventada');
   const criteria = byKey['bmw|x5'];
-  assert.deepEqual(criteria.clients.map((client) => client.ref).sort(), ['AAAA2', 'CCCC4', 'DDDD5']);
-  // "<=2015" and ">=2020" keep the range open on both sides: it covers every customer.
-  assert.deepEqual([criteria.yearFrom, criteria.yearTo, criteria.milesMax], [null, null, 90000]);
+  assert.equal(criteria.mode, 'CARRO');
+  assert.deepEqual(criteria.clients.map((client) => client.ref).sort(), ['AAAA2', 'CCCC4']);
+  // The Manheim search covers every customer of the group; each car is checked again per customer.
+  assert.deepEqual([criteria.yearFrom, criteria.yearTo, criteria.milesFrom, criteria.milesTo], [2010, 2022, 1000, 90000]);
   const value = byKey['bmw|x5|valor'];
-  assert.deepEqual([value.leads, value.mmrMinCents, value.mmrMaxCents], [1, 2800000, 4600000]);
-  const qualify = byKey['bmw|x5|qualificar'];
-  assert.deepEqual([qualify.leads, qualify.percent, qualify.needsQualify], [1, null, true]);
-  // % counts only criteria + value customers: AAAA2, CCCC4, DDDD5, BBBB3 and the Q5 ficha,
-  // separately by basis: criteria (Busca) 4 and value (Simulação) 1.
-  assert.equal(res.payload.activeLeads, 5);
-  assert.deepEqual([res.payload.activeLeadsCriteria, res.payload.activeLeadsValue], [4, 1]);
+  assert.deepEqual([value.mode, value.leads, value.mmrMinCents, value.mmrMaxCents], ['VALOR', 1, 2800000, 4600000]);
+  assert.equal(byKey['bmw|x5|qualificar'], undefined);
+  assert.equal(res.payload.activeLeads, 4);
+  assert.deepEqual([res.payload.activeLeadsCriteria, res.payload.activeLeadsValue], [3, 1]);
   assert.equal(value.percent, 100, 'o % do grupo por valor usa só os clientes por valor');
-  assert.equal(res.payload.needsQualifyLeads, 1);
-  const q5 = byKey['audi|q5'];
-  assert.equal(q5.leads, 1);
+  assert.equal(res.payload.needsQualifyLeads, 2);
+  assert.deepEqual(res.payload.review.map((item) => [item.mode, item.issues[0].code]).sort(), [['CARRO', 'YEAR_MISSING'], ['REVIEW', 'MODE_UNKNOWN']]);
+  assert.equal(byKey['audi|q5'].leads, 1);
   assert.ok(!criteria.clients.some((client) => client.journeyId === uuid(2)), 'a ficha que trocou para Q5 não conta como X5');
-  const lastCriteria = groups.filter((group) => group.basis === 'CRITERIA').at(-1);
-  assert.equal(lastCriteria.percent, 100);
-  // Groups come criteria first, then value, then "precisa qualificar".
-  assert.deepEqual([...new Set(groups.map((group) => group.basis))], ['CRITERIA', 'VALUE', 'QUALIFY']);
+  assert.deepEqual([...new Set(groups.map((group) => group.mode))], ['VALOR', 'CARRO']);
 });
 
 // ---------------------------------------------------------------- C5 / A24 / A14 / A20 (estáticos; Playwright cobre o fluxo)
@@ -357,11 +360,11 @@ test('migração de limites da calculadora é restritiva, aditiva e aceita o for
 test('Bloco 1 · R1: ficha parcial é completada pela Ref do mesmo modelo, sem acrescentar modelos', () => {
   const ref = { wishlists: [{ make: 'BMW', model: 'X5', yearMin: 2021, yearMax: 2023, maxMiles: 40000 }], budgetCents: 3000000 };
   assert.deepEqual(domain.effectiveCriteria({ criteria_json: { wishlists: [{ make: 'BMW', model: 'X5' }] } }, ref).wishes,
-    [{ make: 'BMW', model: 'X5', yearMin: 2021, yearMax: 2023, maxMiles: 40000 }]);
+    [{ make: 'BMW', model: 'X5', yearMin: 2021, yearMax: 2023, minMiles: null, maxMiles: 40000, trim: '' }]);
   assert.deepEqual(domain.effectiveCriteria({ criteria_json: { wishlists: [{ make: 'Audi', model: 'Q5', yearMin: 2020, yearMax: 2022, maxMiles: 30000 }], wishlistOverride: true } }, ref).wishes.map((wish) => wish.model), ['Q5']);
   // A value the ficha has is never overwritten, and the year range is not mixed across sources.
   assert.deepEqual(domain.effectiveCriteria({ criteria_json: { wishlists: [{ make: 'BMW', model: 'X5', yearMin: 2019, maxMiles: 90000 }] } }, ref).wishes,
-    [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: null, maxMiles: 90000 }]);
+    [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: null, minMiles: null, maxMiles: 90000, trim: '' }]);
 });
 
 test('Bloco 1 · aliases: só nomes genéricos conhecidos; nome real com "_" é preservado', () => {
@@ -418,7 +421,7 @@ test('Bloco 1 · banco real: V2 grava só o teto total; função antiga intacta;
 test('Bloco 1 · painel mostra POR VALOR separado de BATE e QUASE', () => {
   const panel = read('painel/painel.js');
   assert.match(panel, /const kindClass = \(kind\) => kind === 'BATE' \? 'match' : kind === 'POR_VALOR' \? 'value' : 'near';/);
-  assert.match(panel, /Por valor #\$\{group\.searches\}/);
+  assert.match(panel, /POR VALOR #\$\{group\.searches\}/);
   assert.match(read('painel/painel.css'), /\.manheim-row\.value/);
   const rows = [{ match_kind: 'QUASE', vehicle_json: { parsed: { miles: 1 } } }, { match_kind: 'POR_VALOR', vehicle_json: { parsed: { miles: 1 } } }, { match_kind: 'BATE', vehicle_json: { parsed: { miles: 9 } } }];
   assert.deepEqual(upload.sortForDisplay(rows).map((row) => row.match_kind), ['BATE', 'POR_VALOR', 'QUASE']);

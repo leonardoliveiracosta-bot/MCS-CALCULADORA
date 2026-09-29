@@ -22,9 +22,10 @@ test('BUSCAS uses contact facts, excludes inactive or incomplete leads, and prop
   // Lote 3: active, not paused, not discarded; the saved mark follows the same search identity
   // (criteria / value) as "Quais buscas salvar".
   assert.match(api,/!activeStatus\(journey, disabled\) \|\| journey\.status === 'PARADO'/);
-  assert.match(api,/entry\.searchKey === key/);
+  // buscas-split: the saved mark follows the identity of ONE mode (VALOR or CARRO).
+  assert.match(api,/entry\.modes\?\.\[mode\]\?\.searchKey === key/);
   assert.match(api,/kind==='SAVED'/);
-  assert.match(api,/own\.basis === 'QUALIFY'/);
+  assert.match(api,/logical_mode: 'eq\.' \+ mode/);
 });
 
 test('stage source recognizes automatic saved and sent states plus manual marks and undo',()=>{
@@ -93,7 +94,7 @@ test('undo is additive: it retires only created phone data and filters effective
   assert.match(migration,/set undone_at=at_time/);
   assert.match(migration,/status='UNDONE'/);
   assert.doesNotMatch(api.match(/if\(body\.action==='discard'\)[\s\S]*?return send\(res,200,\{discarded:true\}\);/)[0],/method:'DELETE'/);
-  for(const file of ['panel-read-model.js','panel-capture.js','api/panel/records.js','api/panel/search.js','api/panel/manheim-searches.js']) assert.match(read(file),/undone_at/);
+  for(const file of ['panel-read-model.js','panel-capture.js','api/panel/records.js','api/panel/search.js','panel-buscas.js']) assert.match(read(file),/undone_at/);
 });
 
 test('manual fallback keeps the quarantined print and retry does not re-upload it',()=>{
