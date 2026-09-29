@@ -2,9 +2,10 @@
 
 const {
   clientOkPatch, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
-  mergeWishlists, nextStageForUnits, forwardStage, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
+  mergeWishlists, normalizeWishlist, nextStageForUnits, forwardStage, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
+const { dispositionIndex } = require('../../panel-disposition');
 const vehicleCatalog = require('../../vehicle-catalog');
 const { parseMoneyCents } = require('../../money-text');
 const { localToUtc, timezoneForZip } = require('../../panel-lead');
@@ -248,6 +249,23 @@ async function actionDeclaration(ctx, journey, body) {
   return send(ctx.res, 201, { declarationId: created[0].id, field });
 }
 
+// The ficha's effective wishes (R1): its own cars, or the cars of its linked calculator Refs.
+// Marking a car on a message keeps the others, including the ones that came from a Ref.
+async function effectiveWishes(ctx, journey) {
+  const own = wishlistsForJourney(journey);
+  const refs = await allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
+  const codes = [journey.reference_code, ...refs.map((row) => row.ref_code)].map((value) => String(value || '').trim().toUpperCase()).filter(Boolean);
+  if (!codes.length) return own;
+  const [calcRuns, calcLinks, dispositions] = await Promise.all([
+    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+    allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at: 'is.null' })
+  ]);
+  const orders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions).filter((order) => codes.includes(order.ref));
+  const merged = orders.length ? { wishlists: mergeWishlists([], orders.flatMap((order) => order.wishlists || [])), budgetCents: null } : null;
+  return effectiveCriteria(journey, merged).wishes.map((wish) => normalizeWishlist(wish));
+}
+
 async function actionMarkMessage(ctx, journey, body) {
   const kind = String(body.kind || '');
   const config = {
@@ -264,6 +282,14 @@ async function actionMarkMessage(ctx, journey, body) {
   const value = safeText(kind === 'VEHICLE' ? wishlistText(wishlists) : body.value || message.body_text, kind === 'VEHICLE' ? 1200 : 500, true);
   if (config.field && !value) return send(ctx.res, 400, { error: 'MESSAGE_MARK_VALUE_INVALID' });
   const valueJson = wishlists ? { wishlist: { wishlists } } : {};
+  if (wishlists) {
+    // A:P17: the cars marked on the message become the ficha's confirmed wishes. The marked cars
+    // come first; the ficha's other cars stay (the form starts empty, so nothing is lost).
+    const same = (left, right) => vehicleCatalog.fold(left.make) === vehicleCatalog.fold(right.make) && vehicleCatalog.modelTokens(left.model, left.make).join(' ') === vehicleCatalog.modelTokens(right.model, right.make).join(' ');
+    const marked = wishlists.map((wish) => normalizeWishlist(wish)).filter((wish) => wish.model);
+    const kept = (await effectiveWishes(ctx, journey)).filter((wish) => !marked.some((candidate) => same(candidate, wish)));
+    valueJson.confirmedWishlists = marked.concat(kept).slice(0, 5);
+  }
   if (config.field === 'TETO') {
     // The total ceiling goes only to confirmed_total_ceiling_cents (R2), written atomically by
     // panel_mark_message_fact_v2 from value_json.ceilingCents; budget_cents (maximum bid) is untouched.
@@ -698,6 +724,7 @@ async function validateManheimMatches(ctx, requested) {
     return criteriaFor.get(journey.id);
   };
   const orderByRef = new Map(allOrders.filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
+  const personDisposition = dispositionIndex(dispositions);
   const matches = [];
   const orderMatches = [];
   const discarded = { total: 0, reasons: {} };
@@ -731,6 +758,7 @@ async function validateManheimMatches(ctx, requested) {
     const criteria = journeyCriteria(journey);
     const result = matchManheimVehicle(vehicle.parsed, criteria.wishes, criteria.bidCents);
     if (!result) { discard('CRITERIA_CHANGED'); continue; }
+    if (personDisposition(journey.id, [journey.reference_code, ...journeyRefs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].filter(Boolean))?.status === 'DISCARDED') { discard('JOURNEY_DISCARDED'); continue; }
     if (journey.status === 'ENCERRADO' || (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE'))) { discard('JOURNEY_DISABLED'); continue; }
     if (journey.status === 'PARADO' && result.kind !== 'BATE') { discard('JOURNEY_DISABLED'); continue; }
     annotate(vehicle, result);

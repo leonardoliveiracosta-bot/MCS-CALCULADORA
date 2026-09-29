@@ -1031,3 +1031,17 @@ nav[aria-label="Seções do painel"]::-webkit-scrollbar { display: none; }
 .reply-composer textarea[readonly] { opacity:.85; }
 .reply-window, .reply-status { margin:0; font-size:.85rem; }
 .reply-status:empty { display:none; }
+
+/* M33/D16: the vitrine block used fixed dark colors and was unreadable in the light theme.
+   Same layout, colors taken from the theme tokens (works in light and dark). */
+.vitrine-requests { border-color: var(--mcs-gold); background: var(--mcs-gold-tint); }
+.vitrine-requests h3,
+.vitrine-signal,
+.v2-deposit { color: var(--mcs-gold-text); }
+.vitrine-request-card { border-color: var(--mcs-gold); background: var(--mcs-card); color: var(--mcs-text); }
+.vitrine-request-card .muted { color: var(--mcs-muted); }
+.vitrine-request-card .auction-alert { color: var(--mcs-red); }
+.vitrine-signal { border-color: var(--mcs-gold); }
+
+/* D20: page-wide action notices stay near the thumb, at the bottom of the screen */
+body > .action-feedback { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 60; margin: 0; padding: 10px 12px; border: 1px solid var(--mcs-line); border-radius: 10px; background: var(--mcs-card); color: var(--mcs-text); box-shadow: 0 6px 20px rgb(0 0 0 / 18%); }

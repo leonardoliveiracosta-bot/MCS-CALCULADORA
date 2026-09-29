@@ -19,10 +19,12 @@ test('search identity is stable for peers and only complete wishes enter BUSCAS'
 test('BUSCAS uses contact facts, excludes inactive or incomplete leads, and propagates saved marks by search key',()=>{
   const api=read('api/panel/searches.js');
   assert.match(api,/if \(!facts\.entered\) return/);
-  assert.match(api,/!activeStatus\(journey, disabled\) \|\| !wish/);
-  assert.match(api,/kind === 'SAVED' \? all\.filter/);
+  // Lote 3: active, not paused, not discarded; the saved mark follows the same search identity
+  // (criteria / value) as "Quais buscas salvar".
+  assert.match(api,/!activeStatus\(journey, disabled\) \|\| journey\.status === 'PARADO'/);
+  assert.match(api,/entry\.searchKey === key/);
   assert.match(api,/kind==='SAVED'/);
-  assert.match(api,/journeyIds=all\.filter/);
+  assert.match(api,/own\.basis === 'QUALIFY'/);
 });
 
 test('stage source recognizes automatic saved and sent states plus manual marks and undo',()=>{

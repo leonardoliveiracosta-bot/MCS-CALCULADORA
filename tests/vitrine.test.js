@@ -92,7 +92,7 @@ test('public V2 response keeps the allowlist (no VIN, no mmrCents) and shows lim
 });
 test('HOJE card deposit line: deposit() over the car limit',()=>{
   assert.equal(deposit(1800000),1800);assert.equal(deposit(400000),500);assert.equal(deposit(500000),500);assert.equal(deposit(500100),500);
-  assert.match(read('api/panel/vitrine-requests.js'),/depositUsd:limit\?deposit\(limit\):null/);
+  assert.match(read('api/panel/vitrine-requests.js'),/depositUsd:request\.referred\?null:limit\?deposit\(limit\):null/);
   assert.match(read('api/panel/vitrine-requests.js'),/vitrineId:request\.vitrine_id,vitrineCarId:request\.vitrine_car_id/);
   assert.match(read('painel/painel.js'),/Próximo passo: pedir o depósito · US\$ /);
 });

@@ -16,7 +16,15 @@
     notice.dataset.actionKey = key;
     notice.setAttribute('role', tone === 'error' ? 'alert' : 'status');
     notice.textContent = message;
+    // D20: a notice for the whole page (scope = body) is pinned to the bottom of the screen by CSS
+    // (body > .action-feedback); a scoped notice is scrolled into view next to the card.
     scope.append(notice);
+    if (scope !== document.body && typeof notice.scrollIntoView === 'function') notice.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    else if (scope === document.body) {
+      // pinned notices leave on their own: 12 s, or 30 s when they carry a Desfazer button
+      [setTimeout(() => { if (notice.isConnected && !notice.querySelector?.('button')) notice.remove(); }, 12000),
+        setTimeout(() => { if (notice.isConnected) notice.remove(); }, 30000)].forEach((timer) => timer?.unref?.());
+    }
     return notice;
   }
 
@@ -57,7 +65,8 @@
       return { ok: true, result };
     } catch (error) {
       if (options.rollback) await options.rollback(snapshot, error);
-      feedback(scope, options.errorText || 'Não consegui salvar — tente de novo', 'error', options.feedbackKey);
+      const errorText = typeof options.errorText === 'function' ? options.errorText(error) : options.errorText;
+      feedback(scope, errorText || 'Não consegui salvar — tente de novo', 'error', options.feedbackKey);
       if (options.onError) options.onError(error, snapshot);
       return { ok: false, error };
     } finally {

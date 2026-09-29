@@ -2,12 +2,11 @@
 
 const crypto = require('node:crypto');
 
-const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, mergeWishlists, journeyEnabled, reactivationEligible, shortDeadline, time, toggleEnabled, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
+const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, matchManheimOrder, matchManheimVehicle, mergeWishlists, journeyEnabled, reactivationEligible, shortDeadline, time, toggleEnabled, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
 const { score, loadScoreVehicles } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems, lastRealMessageAt } = require('../../panel-sort');
-const { roundedMmr } = require('../../vitrine-domain');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { dispositionIndex } = require('../../panel-disposition');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
@@ -91,10 +90,27 @@ module.exports = async (req, res) => {
       const recentCut=Date.now()-60*86400000;
       const activeOther=(journey)=>journey&&journey.status!=='ENCERRADO'&&stateByJourney.get(journey.id)?.enabled!==false&&(Date.parse(journey.created_at||0)>=recentCut||withVitrine.has(journey.id));
       const journeysByVin=new Map();matches.forEach((match)=>{const vin=String(match.vehicle_json?.parsed?.vin||'').trim().toUpperCase();if(!vin||!match.journey_id)return;if(!journeysByVin.has(vin))journeysByVin.set(vin,new Set());journeysByVin.get(vin).add(match.journey_id);});
-      const contactedMatches=contactedMatchesRaw.map((match)=>{
+      // M17: combinations are read with today's state. A ficha closed or switched off since the
+      // upload leaves "Compatíveis"; the kind (BATE / POR VALOR / QUASE) is recomputed with today's
+      // criteria, and a combination that no longer fits is flagged "critério mudou".
+      const itemById=new Map(contactedItems.map((item)=>[item.id,item])),orderByRef=new Map(orders.map((order)=>[String(order.ref||'').trim().toUpperCase(),order]));
+      const liveMatches=contactedMatchesRaw.flatMap((match)=>{
+        const parsed=match.vehicle_json?.parsed||{};
+        if(match.journey_id){
+          const item=itemById.get(match.journey_id);
+          if(!item||item.status==='ENCERRADO'||(item.enabled===false&&!item.reactivationEligible))return [];
+          const result=matchManheimVehicle(parsed,item.matchWishes,item.matchBidCents);
+          return [{...match,match_kind:result?result.kind:match.match_kind,match_reason:result?(result.reason||result.notice||match.match_reason):match.match_reason,criteriaChanged:!result,bidCents:item.matchBidCents||null}];
+        }
+        const order=orderByRef.get(String(match.calc_ref||'').trim().toUpperCase());
+        const result=order?matchManheimOrder(parsed,order):null;
+        return [{...match,match_kind:result?result.kind:match.match_kind,criteriaChanged:!result,bidCents:order?.budgetCents||null}];
+      });
+      const contactedMatches=liveMatches.map((match)=>{
         const parsed=match.vehicle_json?.parsed||{},own=journeyById.get(match.journey_id);
-        const average=roundedMmr(parsed.mmrCents),budget=Number(own?.budget_cents)||0;
-        const fitsBid=average&&budget?average*100<=budget:null;
+        // A:P13: "cabe no lance" uses the same bid as the match (ficha, filled by the Ref) and the exact MMR.
+        const mmr=Number(parsed.mmrCents)||0,budget=Number(match.bidCents)||0;
+        const fitsBid=mmr&&budget?mmr<=budget:null;
         const vin=String(parsed.vin||'').trim().toUpperCase();
         const alsoFitsFor=vin?[...new Set([...(journeysByVin.get(vin)||[])].filter((id)=>id!==match.journey_id).map((id)=>journeyById.get(id)).filter((journey)=>activeOther(journey)&&journey.contact_id!==own?.contact_id).map((journey)=>contactsById.get(journey.contact_id)?.display_name||journey.reference_code||'outro cliente'))]:[];
         return {...match,fitsBid,alsoFitsFor};
@@ -107,6 +123,9 @@ module.exports = async (req, res) => {
       const storedByUpload=new Map();stored.forEach((row)=>storedByUpload.set(row.upload_id,(storedByUpload.get(row.upload_id)||0)+1));
       const historyIncomplete=history.some((upload)=>Number(upload.vehicle_count)>0&&(storedByUpload.get(upload.id)||0)<Number(upload.vehicle_count));
       const stageIndex=await loadSearchStageIndex(ctx);
+      // B5: the BUSCAS summary counts people served by today's combinations (BATE or POR VALOR).
+      const servedTargets=new Set(contactedMatches.filter((match)=>['BATE','POR_VALOR'].includes(match.match_kind)&&!match.criteriaChanged).map((match)=>match.journey_id?'j:'+match.journey_id:'r:'+String(match.calc_ref||'').trim().toUpperCase()));
+      if(latest)latest.current_lead_count=servedTargets.size;
       return send(res, 200, { environment: ctx.environment, items:contactedItems.map((item)=>decorateWithSearchStage(item,stageIndex)), orders:orders.map((item)=>decorateWithSearchStage(item,stageIndex)), upload: latest, matches:contactedMatches, historyIncomplete, meta });
     }
     const id = String((req.query && req.query.id) || '');

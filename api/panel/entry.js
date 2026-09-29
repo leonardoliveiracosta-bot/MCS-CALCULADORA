@@ -80,7 +80,30 @@ async function storeSenders(ctx, chatId, senderAliases, contactName, sourceName)
   });
 }
 
+// A15: "start" writes contact, phone, chat, aliases and the job in several requests. When one of
+// them fails, only what THIS attempt created is removed, so a retry never leaves orphan contacts
+// or chats. Existing rows are never touched.
 async function createJob(ctx, body) {
+  const created = { contactId: null, phone: null, chatId: null, startedAt: now() };
+  try {
+    const result = await createJobSteps(ctx, body, created);
+    if (Number(ctx.res.statusCode) >= 400) await rollbackStart(ctx, created).catch(() => {});
+    return result;
+  } catch (error) { await rollbackStart(ctx, created).catch(() => {}); throw error; }
+}
+
+async function rollbackStart(ctx, created) {
+  const remove = (table, params) => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + query({ environment: 'eq.' + ctx.environment, ...params }), { method: 'DELETE', headers: { prefer: 'return=minimal' } });
+  if (created.chatId) {
+    await remove('chat_sender_aliases', { chat_id: 'eq.' + created.chatId });
+    await remove('chat_aliases', { chat_id: 'eq.' + created.chatId });
+    await remove('chats', { id: 'eq.' + created.chatId });
+  }
+  if (created.phone) await remove('contact_phones', { contact_id: 'eq.' + created.phone.contactId, phone_e164: 'eq.' + created.phone.e164, created_at: 'gte.' + created.startedAt });
+  if (created.contactId) await remove('contacts', { id: 'eq.' + created.contactId });
+}
+
+async function createJobSteps(ctx, body, created) {
   const sourceKind = ['WHATSAPP_ZIP', 'WHATSAPP_TXT', 'SMS_PASTE'].includes(body.sourceKind) ? body.sourceKind : null;
   const chat = body.chat || {};
   const sourceSha = String(body.sourceSha256 || '');
@@ -92,6 +115,8 @@ async function createJob(ctx, body) {
   if(sourceKind==='SMS_PASTE'&&!chat.contactId&&!newPhone)return send(ctx.res,400,{error:'PHONE_REQUIRED'});
   const contact = await ensureContact(ctx, chat, chat.channel);
   if (contact === false) return send(ctx.res, 400, { error: 'CONTACT_NOT_FOUND' });
+  if (contact && !chat.contactId) created.contactId = contact.id;
+  if (newPhone && contact) created.phone = { contactId: contact.id, e164: newPhone };
   if(newPhone)await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/contact_phones',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({environment:ctx.environment,contact_id:contact.id,phone_raw:chat.phone,phone_e164:newPhone,is_current:true,is_primary:true,created_at:now(),created_by:ctx.panel.id})});
   let storedChat;
   if (chat.chatId) {
@@ -106,7 +131,7 @@ async function createJob(ctx, body) {
       body: JSON.stringify({ contact_id: contact ? contact.id : null, resolution_status: chat.isGroup ? 'GROUP' : 'RESOLVED', last_seen_at: now(), updated_at: now() })
     });
   } else {
-    const created = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats', {
+    const createdChat = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats', {
       method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
       body: JSON.stringify({
         environment: ctx.environment, channel: chat.channel, canonical_key: crypto.randomUUID(),
@@ -114,7 +139,8 @@ async function createJob(ctx, body) {
         is_group: chat.isGroup, first_seen_at: now(), last_seen_at: now(), created_at: now(), updated_at: now()
       })
     });
-    storedChat = created[0];
+    storedChat = createdChat[0];
+    created.chatId = storedChat.id;
   }
   await storeAlias(ctx, storedChat.id, chat.aliasText);
   if (chat.channel === 'WHATSAPP') await storeSenders(ctx, storedChat.id, chat.senderAliases, contact && contact.display_name, chat.aliasText || body.sourceFilename);
@@ -154,15 +180,65 @@ async function receiveBatch(ctx, body) {
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const bytes = Buffer.byteLength(JSON.stringify(messages), 'utf8');
   if (!messages.length || messages.length > 500 || bytes > 1024 * 1024) return send(ctx.res, 400, { error: 'IMPORT_BATCH_LIMIT' });
+  const { fresh, known } = await withoutWebhookCopies(ctx, body.importJobId, messages);
+  if (!fresh.length) return send(ctx.res, 200, { inserted: 0, alreadyPresent: known });
   const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_reconcile_import_batch', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
       p_environment: ctx.environment, p_import_job_id: body.importJobId,
       p_batch_number: Number(body.batchNumber),
       p_payload_sha256: crypto.createHash('sha256').update(JSON.stringify(messages)).digest('hex'),
-      p_messages: messages
+      p_messages: fresh
     })
   });
-  return send(ctx.res, 200, { inserted: result[0] ? result[0].inserted_count : 0, alreadyPresent: result[0] ? result[0].already_present_count : 0 });
+  return send(ctx.res, 200, { inserted: result[0] ? result[0].inserted_count : 0, alreadyPresent: (result[0] ? result[0].already_present_count : 0) + known });
+}
+
+// A16: an export imported after the webhook already delivered the same messages must not duplicate them.
+// Same person, same direction, same minute and same text (case and spacing ignored), counted one for one.
+const sameText = (value) => String(value || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR');
+const minuteKey = (value) => { const stamp = Date.parse(value || ''); return Number.isFinite(stamp) ? Math.floor(stamp / 60000) : null; };
+const copyKey = (direction, at, text) => { const minute = minuteKey(at); return minute === null || !text ? null : direction + '|' + minute + '|' + text; };
+
+async function withoutWebhookCopies(ctx, importJobId, messages) {
+  const stamps = messages.map((item) => Date.parse(item && item.occurred_at_utc || '')).filter(Number.isFinite);
+  if (!stamps.length) return { fresh: messages, known: 0 };
+  const jobs = await rows(ctx, 'import_jobs', { select: 'chat_id', id: 'eq.' + importJobId, environment: 'eq.' + ctx.environment, limit: '1' });
+  const chats = jobs[0] && isUuid(jobs[0].chat_id) ? await rows(ctx, 'chats', { select: 'contact_id', id: 'eq.' + jobs[0].chat_id, environment: 'eq.' + ctx.environment, limit: '1' }) : [];
+  const contactId = chats[0] && chats[0].contact_id;
+  if (!isUuid(contactId)) return { fresh: messages, known: 0 };
+  const personChats = await rows(ctx, 'chats', { select: 'id', contact_id: 'eq.' + contactId, environment: 'eq.' + ctx.environment });
+  const chatIds = personChats.map((item) => item.id).filter(isUuid);
+  if (!chatIds.length) return { fresh: messages, known: 0 };
+  const from = new Date(Math.floor(Math.min(...stamps) / 60000) * 60000).toISOString();
+  const until = new Date((Math.floor(Math.max(...stamps) / 60000) + 1) * 60000).toISOString();
+  const delivered = await allRows(ctx, 'messages', {
+    select: 'direction,body_normalized,body_text,occurred_at_utc', environment: 'eq.' + ctx.environment,
+    chat_id: 'in.(' + chatIds.join(',') + ')', source_kind: 'in.(WHATSAPP_WEBHOOK,WHATSAPP_HISTORY)',
+    and: '(occurred_at_utc.gte.' + from + ',occurred_at_utc.lt.' + until + ')'
+  });
+  const available = new Map();
+  for (const item of delivered) {
+    const key = copyKey(item.direction, item.occurred_at_utc, sameText(item.body_normalized || item.body_text));
+    if (key) available.set(key, (available.get(key) || 0) + 1);
+  }
+  if (!available.size) return { fresh: messages, known: 0 };
+  let known = 0;
+  const removedBySignature = new Map();
+  const fresh = messages.filter((item) => {
+    const key = item && copyKey(item.direction, item.occurred_at_utc, sameText(item.body_normalized || item.body_text));
+    if (!key || !available.get(key)) return true;
+    available.set(key, available.get(key) - 1); known += 1;
+    removedBySignature.set(item.signature_base, (removedBySignature.get(item.signature_base) || 0) + 1);
+    return false;
+  });
+  // The RPC inserts file_occurrence_total minus what the import already stored; copies that
+  // stay with the webhook leave the file total, so a later reimport does not add them back.
+  const adjusted = fresh.map((item) => {
+    const removed = removedBySignature.get(item.signature_base);
+    if (!removed) return item;
+    return { ...item, file_occurrence_total: Math.max(1, Number(item.file_occurrence_total || 1) - removed) };
+  });
+  return { fresh: adjusted, known };
 }
 
 async function recordImportedInteractions(ctx, importJobId, journeyId) {
@@ -201,14 +277,13 @@ async function recordImportedInteractions(ctx, importJobId, journeyId) {
   if (!journey || journey.stage_frozen || journey.status === 'ENCERRADO') return;
   if (effective) {
     const effectiveAt = effective.occurred_at_utc || effective.created_at;
-    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journeys?id=eq.' + journeyId + '&environment=eq.' + ctx.environment, {
+    // M16: an older export never moves the last contact back in time
+    const newer = !journey.last_effective_contact_at || Date.parse(effectiveAt) > Date.parse(journey.last_effective_contact_at);
+    const patch = { stage: journey.stage === 'NOVO' ? 'RESPONDIDO' : journey.stage, updated_at: now(), updated_by: ctx.panel.id };
+    if (newer) Object.assign(patch, { last_effective_contact_at: effectiveAt, next_action_missing_since: journey.next_action_at ? null : effectiveAt });
+    if (newer || patch.stage !== journey.stage) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journeys?id=eq.' + journeyId + '&environment=eq.' + ctx.environment, {
       method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
-      body: JSON.stringify({
-        stage: journey.stage === 'NOVO' ? 'RESPONDIDO' : journey.stage,
-        last_effective_contact_at: effectiveAt,
-        next_action_missing_since: journey.next_action_at ? null : effectiveAt,
-        updated_at: now(), updated_by: ctx.panel.id
-      })
+      body: JSON.stringify(patch)
     });
   }
   const eventAt = latestEvent.occurred_at_utc || latestEvent.created_at;
@@ -246,7 +321,7 @@ async function linkUniqueCalculatorRef(ctx, journeyId, refs) {
 
 async function finishJob(ctx, body) {
   if (!isUuid(body.importJobId)) return send(ctx.res, 400, { error: 'IMPORT_JOB_ID_INVALID' });
-  const jobs = await rows(ctx, 'import_jobs', { select: 'id,chat_id', id: 'eq.' + body.importJobId, environment: 'eq.' + ctx.environment, limit: '1' });
+  const jobs = await rows(ctx, 'import_jobs', { select: 'id,chat_id,message_count', id: 'eq.' + body.importJobId, environment: 'eq.' + ctx.environment, limit: '1' });
   if (!jobs[0]) return send(ctx.res, 404, { error: 'IMPORT_JOB_NOT_FOUND' });
   const chats = await rows(ctx, 'chats', { select: 'id,contact_id,resolution_status,is_group', id: 'eq.' + jobs[0].chat_id, environment: 'eq.' + ctx.environment, limit: '1' });
   const chat = chats[0];
@@ -254,9 +329,22 @@ async function finishJob(ctx, body) {
   const uncertain = await rows(ctx, 'messages', { select: 'id', environment: 'eq.' + ctx.environment, import_job_id: 'eq.' + body.importJobId, time_uncertain: 'is.true', limit: '1' });
   let journeyId = null;
   if (!chat.is_group) {
-    const journey = body.journey || {};
+    let journey = body.journey || {};
     if (!chat.contact_id || !['new', 'existing'].includes(journey.mode)) return send(ctx.res, 400, { error: 'JOURNEY_CHOICE_REQUIRED' });
     if (journey.mode === 'existing' && !isUuid(journey.journeyId)) return send(ctx.res, 400, { error: 'JOURNEY_ID_INVALID' });
+    // A17: a reimport that brought no new message never opens an empty ficha. It stays with the
+    // person's open ficha, or finishes without one when the person has none open.
+    if (journey.mode === 'new' && !Number(jobs[0].message_count)) {
+      const open = await rows(ctx, 'journeys', { select: 'id', environment: 'eq.' + ctx.environment, contact_id: 'eq.' + chat.contact_id, status: 'neq.ENCERRADO', stage_frozen: 'is.false', order: 'updated_at.desc', limit: '1' });
+      if (!open[0]) {
+        await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + encodeURIComponent(body.importJobId) + '&environment=eq.' + ctx.environment, {
+          method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
+          body: JSON.stringify({ status: 'COMPLETED', completed_at: now(), review_reason: null })
+        });
+        return send(ctx.res, 200, { pending: false, destination: 'ENTRADA', journeyId: null, nothingNew: true });
+      }
+      journey = { mode: 'existing', journeyId: open[0].id };
+    }
     const refs = Array.isArray(body.refs) ? body.refs.map((item) => String(item).toUpperCase()).filter((item) => /^[A-HJ-NP-Z2-9]{5}$/.test(item)).slice(0, 20) : [];
     const resolved = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_finalize_import_resolution', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
@@ -270,15 +358,31 @@ async function finishJob(ctx, body) {
     await linkUniqueCalculatorRef(ctx, journeyId, refs);
   }
   const pending = Boolean(chat.is_group || uncertain.length);
-  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + encodeURIComponent(body.importJobId), {
+  await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + encodeURIComponent(body.importJobId) + '&environment=eq.' + ctx.environment, {
     method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
     body: JSON.stringify({ status: pending ? 'REVIEW' : 'COMPLETED', completed_at: now(), review_reason: chat.is_group ? 'grupo do WhatsApp exige revisão' : uncertain.length ? 'hora incerta exige revisão' : null })
   });
   return send(ctx.res, 200, { pending, destination: pending ? 'ENTRADA' : 'FICHAS', journeyId });
 }
 
+// A18: SMS prints whose only link to a lead is the name wait here for the operator
+function smsPrintReviews(reads, contacts, journeys) {
+  return reads.map((read) => {
+    const values = read.extracted_json || {};
+    const name = String(values.name || '').trim();
+    const sameName = name ? contacts.filter((contact) => contact.display_name === name) : [];
+    const candidate = sameName.length === 1 ? journeys.find((journey) => journey.contact_id === sameName[0].id) || null : null;
+    return {
+      id: read.id, filename: read.original_filename, createdAt: read.created_at,
+      name: name || null, phone: values.phone || null, ref: values.ref || null,
+      message: values.message || '', translation: values.translation || '',
+      candidate: candidate ? { journeyId: candidate.id, name, ref: candidate.reference_code || null } : null
+    };
+  });
+}
+
 async function queue(ctx, res) {
-  const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews, chatMessages] = await Promise.all([
+  const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews, chatMessages, printReads] = await Promise.all([
     allRows(ctx, 'chats', { select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact_id', environment: 'eq.' + ctx.environment, order: 'last_seen_at.desc' }),
     supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_last_import_counts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment }) }),
     allRows(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: 'eq.' + ctx.environment, order: 'display_name.asc' }),
@@ -287,8 +391,10 @@ async function queue(ctx, res) {
     allRows(ctx, 'chat_aliases', { select: 'chat_id,alias_text,alias_normalized', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc' }),
-    allRows(ctx, 'messages', { select: 'chat_id,is_automatic,occurred_at_utc,occurred_at_local,undone_at', environment: 'eq.' + ctx.environment })
+    allRows(ctx, 'messages', { select: 'chat_id,is_automatic,occurred_at_utc,occurred_at_local,undone_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'sms_print_reads', { select: 'id,original_filename,extracted_json,created_at', environment: 'eq.' + ctx.environment, status: 'eq.READY', error_code: 'eq.NAME_MATCH_REVIEW', order: 'created_at.desc' })
   ]);
+  const printReviews = smsPrintReviews(printReads, contacts, journeys);
   /* ordem Mais recentes/antigas: ultima mensagem real da conversa (last_seen_at foi atualizado pela importacao) */
   const messagesByChat = new Map();
   chatMessages.forEach((message) => { if (!messagesByChat.has(message.chat_id)) messagesByChat.set(message.chat_id, []); messagesByChat.get(message.chat_id).push(message); });
@@ -296,7 +402,7 @@ async function queue(ctx, res) {
   const contactsById = new Map(contacts.map((item) => [item.id, item]));
   return send(res, 200, {
     chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
-    reviews, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), chatAliases, senderAliases
+    reviews, printReviews, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), chatAliases, senderAliases
   });
 }
 
@@ -428,6 +534,14 @@ async function undoReviewAction(ctx, body) {
     await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/chats?id=eq.' + undo.id + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ contact_id: isUuid(undo.previousContactId) ? undo.previousContactId : null, resolution_status: ['UNIDENTIFIED', 'REVIEW', 'GROUP', 'RESOLVED'].includes(undo.previousResolution) ? undo.previousResolution : 'REVIEW', updated_at: now() }) });
     if (isUuid(undo.previousContactId) && typeof undo.contactWasLead === 'boolean') await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/contacts?id=eq.' + undo.previousContactId + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ is_lead: undo.contactWasLead, updated_at: now(), updated_by: ctx.panel.id }) });
   } else await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/import_jobs?id=eq.' + undo.id + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ status: undo.previousStatus || 'REVIEW', review_reason: undo.previousReason || 'formato não suportado', completed_at: now() }) });
+  // P19.14: undo only touches a ficha/contact this operator just created from ENTRADA (last 30 min)
+  const recentOwn = async (table, id, extra = {}) => {
+    if (!isUuid(id)) return false;
+    const found = await rows(ctx, table, { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + id, created_by: 'eq.' + ctx.panel.id, created_at: 'gte.' + new Date(Date.now() - 30 * 60 * 1000).toISOString(), ...extra, limit: '1' });
+    return Boolean(found[0]);
+  };
+  if (!await recentOwn('journeys', undo.createdJourneyId, { status: 'eq.ATIVO' })) undo.createdJourneyId = null;
+  if (!await recentOwn('contacts', undo.createdContactId)) undo.createdContactId = null;
   if (isUuid(undo.createdJourneyId)) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/journeys?id=eq.' + undo.createdJourneyId + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ status: 'ENCERRADO', closed_at: now(), closed_reason: 'Ação da entrada desfeita', updated_at: now(), updated_by: ctx.panel.id }) });
   if (isUuid(undo.createdContactId)) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/contacts?id=eq.' + undo.createdContactId + '&environment=eq.' + ctx.environment, { method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ is_lead: false, updated_at: now(), updated_by: ctx.panel.id }) });
   return send(ctx.res, 200, { undone: true });

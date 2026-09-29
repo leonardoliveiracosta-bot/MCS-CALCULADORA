@@ -36,7 +36,9 @@
 
   // The Manheim saved search already filters clean title and odometer.
   function markSearchFiltered(vehicles) {
-    return vehicles.map((vehicle) => ({ ...vehicle, cleanTitle: true, odometerOk: true }));
+    // The saved Manheim search only brings clean titles; the odometer is only "OK" when the export
+    // actually has a mileage (an unknown odometer is never shown as verified).
+    return vehicles.map((vehicle) => ({ ...vehicle, cleanTitle: true, odometerOk: Number.isFinite(Number(vehicle.miles)) && vehicle.miles !== null && vehicle.miles !== '' && Number(vehicle.miles) >= 0 }));
   }
 
   function buildMatches(vehicles, journeys, orders, manheim) {
@@ -49,7 +51,7 @@
     for (const journey of journeys || []) {
       const enabled = journey.enabled !== false;
       const reactivation = journey.reactivationEligible || journey.status === 'PARADO';
-      if (!enabled && !reactivation) continue;
+      if ((!enabled && !reactivation) || journey.disposition === 'DISCARDED') continue;
       for (const vehicle of vehicles) {
         // matchWishes/matchBidCents are the ficha's effective criteria (R1) computed by the server.
         const result = manheim.matchVehicle(vehicle, journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents);
@@ -103,6 +105,7 @@
     let uploadId = null;
     let result = null;
     let discarded = 0;
+    const reasons = {};
     for (let index = 0; index < parts.length; index += 1) {
       const partIndex = index + 1;
       if (onProgress) onProgress(partIndex, parts.length);
@@ -123,9 +126,10 @@
       if (!result || !result.uploadId) throw codedError('MANHEIM_UPLOAD_INCOMPLETE', { partIndex, partCount: parts.length, uploadId, cause: codedError('MANHEIM_UPLOAD_ID_MISSING') });
       uploadId = result.uploadId;
       discarded += Number(result.discarded && result.discarded.total) || 0;
+      Object.entries((result.discarded && result.discarded.reasons) || {}).forEach(([reason, count]) => { reasons[reason] = (reasons[reason] || 0) + (Number(count) || 0); });
     }
     if (!result || !result.complete) throw codedError('MANHEIM_UPLOAD_INCOMPLETE', { partIndex: parts.length, partCount: parts.length, uploadId, cause: codedError('MANHEIM_UPLOAD_NOT_COMPLETE') });
-    return { ...result, discardedTotal: discarded };
+    return { ...result, discardedTotal: discarded, discardedReasons: reasons };
   }
 
   // BATE, then POR_VALOR, then QUASE; lowest mileage first inside each.

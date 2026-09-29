@@ -4,7 +4,8 @@ const { isUuid, jsonBody, requirePanel, send, supabase } = require('../../panel-
 const { generalBatch, generalStatus, pendingSnapshot, resolvePending, unresolvePending, sortPending, startGeneralRead } = require('../../panel-pendencias');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 
-function csvCell(value) { const text=String(value ?? '');return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text; }
+// M24: a cell that starts like a formula is read as text by spreadsheets (numbers and phones stay as they are)
+function csvCell(value) { const raw=String(value ?? ''),text=/^[=+\-@\t\r]/.test(raw)&&!/^[+-]?[\d\s().,-]+$/.test(raw)?"'"+raw:raw;return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text; }
 function sheet(items) {
   const header=['nome','telefone','Ref','situação','dias parado','última mensagem','tradução','resumo','próximo passo'];
   const text=[header.join(',')];

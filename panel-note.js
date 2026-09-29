@@ -47,7 +47,10 @@ function wishlistAfter(wishes, value) {
   if (op==='remove') { if(index>=0) list.splice(index,1); }
   else if(op==='include') { if(index<0) list.push(car); else list[index]={...list[index],...Object.fromEntries(Object.entries(car).filter(([,v])=>v!==null&&v!==''))}; }
   else { if(index<0) throw new Error('WISHLIST_CAR_NOT_FOUND'); const existing=list.splice(index,1)[0];list.splice(op==='reorder'?Math.max(0,Math.min(list.length,(Number(value.preference)||1)-1)):index,0,op==='update'?{...existing,...Object.fromEntries(Object.entries(car).filter(([,v])=>v!==null&&v!==''))}:existing); }
-  return list.slice(0,10);
+  // A:P18: the panel keeps 5 wishes (matcher, BUSCAS and ficha). A sixth goes to manual review
+  // instead of being dropped in silence.
+  if (list.length > 5) throw new Error('WISHLIST_TOO_MANY');
+  return list;
 }
 function prepareItems(items, lead) {
   const { localToUtc, addClientDays }=require('./panel-lead');

@@ -84,15 +84,71 @@
     }
     return false;
   }
-  function modelsMatch(left, right, leftMake, rightMake) {
+  function looseMatch(left, right, leftMake, rightMake) {
     const a = modelTokens(left, leftMake);
     const b = modelTokens(right, rightMake);
     if (!a.length || !b.length) return false;
     return containsWords(a, b) || containsWords(b, a);
   }
+  function makeKey(make) {
+    const folded = fold(make).replace(/ /g, '');
+    if (!folded) return null;
+    return Object.keys(MODELS_BY_MAKE).find((key) => fold(key).replace(/ /g, '') === folded || (folded === 'mercedes' && key === 'Mercedes-Benz') || (folded === 'chevy' && key === 'Chevrolet')) || null;
+  }
+  // Auction exports write engine versions as the model: 330i is a 3 Series, RX350 an RX, C300 a C-Class.
+  function aliasTokens(tokens, key) {
+    const [first = '', second = '', ...rest] = tokens;
+    if (key === 'BMW') { const match = /^([1-8])\d\d[a-z]*$/.exec(first); if (match) return [match[1], 'series', ...(second ? [second] : []), ...rest]; }
+    if (key === 'Lexus') {
+      const match = /^([a-z]{2})\d{3}[a-z]*$/.exec(first); if (match) return [match[1], ...(second ? [second] : []), ...rest];
+      if (/^[a-z]{2}$/.test(first) && /^\d{3}[a-z]*$/.test(second)) return [first, ...rest];
+    }
+    if (key === 'Mercedes-Benz') { const match = /^([a-z]{1,3})\d{2,3}[a-z]*$/.exec(first); if (match) return [match[1], ...(second ? [second] : []), ...rest]; }
+    // Older names of the same car: "Impreza WRX" is a WRX (2008-14)
+    if (key === 'Subaru' && first === 'impreza' && second === 'wrx') return tokens.slice(1);
+    return tokens;
+  }
+  // Catalog entries that are the same car under an older or longer-body name. They match the base
+  // model, as they did before the catalog rule (a customer who wants a Yukon is shown a Yukon XL).
+  const SAME_CAR = Object.freeze({ 'Subaru|xv crosstrek': 'crosstrek', 'GMC|yukon xl': 'yukon', 'Cadillac|escalade esv': 'escalade', 'Jeep|grand cherokee l': 'grand cherokee', 'Hyundai|santa fe sport': 'santa fe' });
+  const sameCar = (model, key) => model && (SAME_CAR[key + '|' + model] || model);
+  // The longest catalog model of the make contained in the name ("Grand Cherokee Limited" is a
+  // Grand Cherokee, never a Cherokee; "Range Rover Sport" is not a "Range Rover").
+  function catalogModel(tokens, key) {
+    let best = null;
+    for (const model of MODELS_BY_MAKE[key] || []) {
+      const candidate = modelTokens(model, key);
+      if (candidate.length && containsWords(tokens, candidate) && (!best || candidate.length > best.length)) best = candidate;
+    }
+    return best ? best.join(' ') : null;
+  }
   function inferMake(model) {
-    const matches = Object.entries(MODELS_BY_MAKE).filter(([make, models]) => models.some((candidate) => modelsMatch(model, candidate, '', make))).map(([make]) => make);
+    const matches = Object.entries(MODELS_BY_MAKE).filter(([make, models]) => models.some((candidate) => looseMatch(model, candidate, '', make))).map(([make]) => make);
     return { make: matches.length === 1 ? matches[0] : '', ambiguous: matches.length > 1, candidates: matches };
+  }
+  // M1 (audit A:P11): one model rule for every match.
+  function modelsMatch(left, right, leftMake, rightMake) {
+    const leftKey = makeKey(leftMake), rightKey = makeKey(rightMake);
+    let a = modelTokens(left, leftMake), b = modelTokens(right, rightMake);
+    if (!a.length || !b.length) return false;
+    if (leftKey && rightKey && leftKey !== rightKey) return false;
+    // A side without make only matches when its model points to the other make without doubt
+    // (a CSV row "Model S" is not an S-Class; "3" is not a Model 3).
+    const key = leftKey || rightKey;
+    if (key && (!leftKey || !rightKey)) {
+      const loose = leftKey ? right : left;
+      if (inferMake(loose).make !== key) {
+        // Still the same model when the name only repeats the make ("Ram 1500" and "1500").
+        const looseTokens = aliasTokens(modelTokens(loose, key), key), keyed = aliasTokens(leftKey ? a : b, key);
+        return looseTokens.join(' ') === keyed.join(' ');
+      }
+    }
+    if (key) {
+      a = aliasTokens(a, key); b = aliasTokens(b, key);
+      const canonicalA = sameCar(catalogModel(a, key), key), canonicalB = sameCar(catalogModel(b, key), key);
+      if (canonicalA && canonicalB) return canonicalA === canonicalB;
+    }
+    return containsWords(a, b) || containsWords(b, a);
   }
   function readableLocation(value) {
     const source = clean(value);
@@ -102,5 +158,5 @@
     return `${city}, ${match[1].toUpperCase()}`;
   }
 
-  return { MODELS_BY_MAKE, clean, fold, inferMake, modelTokens, modelsMatch, readableLocation };
+  return { MODELS_BY_MAKE, clean, fold, inferMake, makeKey, modelTokens, modelsMatch, readableLocation };
 }));

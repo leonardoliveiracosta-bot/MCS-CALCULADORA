@@ -13,6 +13,7 @@
   let contacts = [];
   let chats = [];
   let journeys = [];
+  let printReviews = [];
   let senderAliases = [];
   let chatAliases = [];
   let todayItems = [];
@@ -59,13 +60,18 @@
       PANEL_ACCESS_DENIED: 'esta conta não tem acesso ao painel',
       AUTHENTICATION_REQUIRED: 'a sessão expirou; entre novamente'
     };
-    const detail = messages[failure && failure.code] || 'não foi possível concluir a gravação';
-    return `Falha na importação: ${detail}. Nenhum sucesso foi confirmado.`;
+    // M23: local errors (file too big, bad ZIP) carry a readable message and no code
+    const local = failure && !failure.code && failure.message && !/^[A-Z0-9_]+$/.test(failure.message) ? failure.message.replace(/\.$/, '') : '';
+    const detail = messages[failure && failure.code] || local || 'não foi possível concluir a gravação';
+    const saved = importProgress.inserted;
+    return saved ? `Falha na importação: ${detail}. ${saved} mensagem(ns) já ficaram gravadas; importe o mesmo arquivo de novo para completar, sem duplicar` : `Falha na importação: ${detail}. Nada foi gravado`;
   };
+  const importProgress = { inserted: 0 };
   const showImportFailure = (failure) => {
     const status = $('import-status');
     status.classList.add('error');
     status.textContent = importFailureMessage(failure);
+    $('whatsapp-files').value = '';
   };
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -182,11 +188,13 @@
     chats.filter((chat) => chat.channel === 'WHATSAPP' && Boolean(chat.is_group) === group && (group || !chosenContact || chosenContact === 'new' || chat.contact_id === chosenContact)).forEach((chat) => option(chatSelect, `${chat.contact && chat.contact.display_name ? chat.contact.display_name : group ? 'Grupo existente' : 'Chat existente'} — ${chat.channel}`, chat.id));
     journeySelect.replaceChildren(new Option('Escolha', ''));
     option(journeySelect, 'Nova jornada', 'new');
-    journeys.filter((journey) => chosenContact !== 'new' && journey.contact_id === chosenContact).forEach((journey) => {
+    const ownJourneys = journeys.filter((journey) => chosenContact !== 'new' && journey.contact_id === chosenContact);
+    ownJourneys.forEach((journey) => {
       const refs = [journey.reference_code, ...(journey.refs || []).map((item) => item.ref_code)].filter(Boolean).join(', ');
       option(journeySelect, `${journey.vehicle_text || 'Busca sem veículo'}${refs ? ` — Ref ${refs}` : ''}`, journey.id);
     });
-    journeySelect.value = 'new';
+    // A17: the person's most recent open ficha comes selected; a new ficha is an explicit choice
+    journeySelect.value = ownJourneys[0] ? ownJourneys[0].id : 'new';
     $('contact-name-label').hidden = chosenContact !== 'new';
   }
 
@@ -303,7 +311,9 @@
     }
     const inferredName = inferredContactName(initial.title || filename);
     const automatic = MCSParser.automaticImportMatch(initial, chatAliases, chats, senderAliases, inferredName);
-    const knownChat = automatic && automatic.chat;
+    // C4 residue: a Ref in the file that belongs to someone else sends the file to review
+    const foreignRef = automatic && initial.refs.some((ref) => journeys.some((item) => item.contact_id !== automatic.chat.contact_id && (ref === item.reference_code || (item.refs || []).some((stored) => stored.ref_code === ref))));
+    const knownChat = automatic && !foreignRef && automatic.chat;
     const knownMcs = automatic && { sender_text: automatic.mcsSender };
     let choice;
     if (knownChat && knownMcs && !initial.requiresDateOrder) {
@@ -343,23 +353,35 @@
     const totals = messages.reduce((all, item) => { all[item.signature_base] = (all[item.signature_base] || 0) + 1; return all; }, {});
     messages.forEach((item) => { item.file_occurrence_total = totals[item.signature_base]; });
     let inserted = 0;
-    let cursor = 0;
     let batch = 1;
-    while (cursor < messages.length) {
-      const chunk = [];
-      while (cursor < messages.length && chunk.length < 500) {
-        const candidate = chunk.concat(messages[cursor]);
-        if (chunk.length && new Blob([JSON.stringify(candidate)]).size > 1024 * 1024) break;
-        chunk.push(messages[cursor++]);
+    // A16: identical messages (same signature) always travel in the same batch, so the server
+    // counts them against the webhook copies once, never split across two batches
+    const groups = new Map();
+    messages.forEach((item) => { if (!groups.has(item.signature_base)) groups.set(item.signature_base, []); groups.get(item.signature_base).push(item); });
+    const encoder = new TextEncoder(), sizeOf = (item) => encoder.encode(JSON.stringify(item)).length + 1;
+    const chunks = [];
+    let current = [], currentBytes = 2;
+    for (const group of groups.values()) {
+      const groupBytes = group.reduce((total, item) => total + sizeOf(item), 0);
+      if (current.length && (current.length + group.length > 500 || currentBytes + groupBytes > 1024 * 1024)) { chunks.push(current); current = []; currentBytes = 2; }
+      for (const item of group) {
+        const itemBytes = sizeOf(item);
+        if (current.length && (current.length >= 500 || currentBytes + itemBytes > 1024 * 1024)) { chunks.push(current); current = []; currentBytes = 2; }
+        current.push(item); currentBytes += itemBytes;
       }
+    }
+    if (current.length) chunks.push(current);
+    for (const chunk of chunks) {
       const result = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'batch', importJobId: start.importJobId, batchNumber: batch++, messages: chunk }) });
       inserted += result.inserted;
+      importProgress.inserted += result.inserted;
     }
     const done = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'finish', importJobId: start.importJobId, journey: choice.journey, refs: choice.parsed.refs }) });
-    return { inserted, pending: done.pending, journeyId: done.journeyId || null };
+    return { inserted, pending: done.pending, journeyId: done.journeyId || null, nothingNew: Boolean(done.nothingNew) };
   }
 
   async function importFiles(files) {
+    importProgress.inserted = 0;
     if (!files.length || files.length > MAX_FILES) throw new Error('Selecione de 1 a 20 arquivos.');
     await loadQueue(false);
     let inserted = 0;
@@ -368,8 +390,8 @@
     for (const file of files) {
       $('import-status').classList.remove('error');
       $('import-status').textContent = `Lendo ${file.name}…`;
-      const sourceSha = await sha256(await file.arrayBuffer());
       const extracted = await extract(file);
+      const sourceSha = await sha256(await file.arrayBuffer());
       for (const item of extracted) {
         const result = await submitConversation(item.text, item.name, file.name.toLowerCase().endsWith('.zip') ? 'WHATSAPP_ZIP' : 'WHATSAPP_TXT', file.name, sourceSha);
         inserted += result.inserted;
@@ -378,8 +400,10 @@
       }
     }
     $('import-status').classList.remove('error');
-    $('import-status').textContent = `${inserted} mensagem(ns) nova(s). ${pending ? 'Há uma dúvida real para revisar.' : 'Importação concluída.'}`;
+    $('whatsapp-files').value = '';
+    $('import-status').textContent = !inserted && !pending ? 'Nenhuma mensagem nova, a conversa já estava no painel' : `${inserted} mensagem(ns) nova(s). ${pending ? 'Há uma dúvida real para revisar.' : 'Importação concluída.'}`;
     await loadQueue();
+    await refreshCounters().catch(() => {});
     if (!pending && lastJourneyId) await openDetail('ficha',lastJourneyId);
   }
 
@@ -398,6 +422,7 @@
     if (!['today', 'entry', 'clients', 'orders', 'searches'].includes(view)) return;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     currentView = view;
+    $('search-results')?.classList.add('hidden');
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
     const labels = { today: 'HOJE', entry: 'ENTRADA', clients: 'CLIENTES', orders: 'PEDIDOS', searches: 'BUSCAS' };
@@ -412,11 +437,53 @@
     }
   }
 
+  // A18: a print that only matches a lead by name waits for the operator
+  function printReviewCard(print) {
+    const item = element('article', 'queue-item');
+    const header = element('header', '');
+    header.append(element('strong', '', `Print de SMS · ${print.name || print.phone || print.filename || 'sem nome'}`), element('span', 'badge', 'revisão'));
+    item.append(header, element('span', 'muted', print.candidate ? `O nome bate com ${print.candidate.name}${print.candidate.ref ? ` · Ref ${print.candidate.ref}` : ''}, mas o telefone não` : 'O nome bate com um lead encerrado. Para guardar nele, reabra a ficha e anexe o print lá'));
+    if (print.phone) item.append(element('span', 'muted', `Telefone do print: ${print.phone}`));
+    // The confirm needs the customer's phone: when the print shows none, the operator types it
+    let phoneInput = null;
+    if (!print.phone && print.message) { const label = element('label', '', 'Telefone do cliente (o print não mostra)'); phoneInput = element('input'); phoneInput.type = 'tel'; phoneInput.inputMode = 'tel'; phoneInput.placeholder = '+1 305 555 0000'; label.append(phoneInput); item.append(label); }
+    if (print.message) item.append(element('p', '', print.message.length > 280 ? `${print.message.slice(0, 280)}…` : print.message));
+    const actions = element('div', 'inline-actions');
+    const values = () => ({ phone: print.phone || phoneInput?.value.trim() || '', name: print.name || '', ref: print.ref || '', message: print.message || '', translation: print.translation || '' });
+    const run = (button, bodyFor, successText) => MCSAction.bind(button, () => {
+      const body = typeof bodyFor === 'function' ? bodyFor() : bodyFor;
+      if (body.action === 'confirm' && !body.phone) return { scope: item, commit: () => Promise.reject(new Error('PHONE_REQUIRED')), errorText: 'Digite o telefone do cliente antes de salvar' };
+      return {
+      scope: item, successScope: document.body,
+      optimistic: () => { item.classList.add('action-optimistic-hidden'); const before = countValue('entry'); setCount('entry', Math.max(0, before - 1)); return before; },
+      commit: () => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId: print.id, ...body }) }),
+      rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('entry', before); },
+      successText, refresh: () => loadQueue(), errorText: 'Não consegui salvar, tente de novo'
+    }; });
+    if (print.candidate) {
+      const keep = element('button', 'small', `Guardar em ${print.candidate.name}`); keep.type = 'button';
+      run(keep, () => print.message ? { action: 'confirm', targetJourneyId: print.candidate.journeyId, keepSource: true, ...values() } : { action: 'photo', targetJourneyId: print.candidate.journeyId }, 'Print guardado no lead');
+      actions.append(keep);
+    }
+    if (print.message) {
+      const create = element('button', 'quiet small', 'Criar lead novo'); create.type = 'button';
+      run(create, () => ({ action: 'confirm', auto: true, newLead: true, ...values() }), 'Lead novo criado com o print');
+      actions.append(create);
+    }
+    const discard = element('button', 'quiet small', 'Descartar print'); discard.type = 'button';
+    run(discard, { action: 'discard' }, 'Print descartado');
+    actions.append(discard);
+    item.append(actions);
+    return item;
+  }
+
   function renderQueue(items, reviews) {
     items=clientSort(items,$('entry-sort')?.value||'recent');
     const root = $('entry-queue');
     root.replaceChildren();
+    printReviews.forEach((print) => root.append(printReviewCard(print)));
     if (!items.length && !reviews.length) {
+      if (printReviews.length) return;
       const empty = document.createElement('p');
       empty.className = 'muted';
       empty.textContent = 'Nenhuma conversa importada.';
@@ -585,8 +652,11 @@
   function historyBatches(ordered) {
     const batches = [], encoder = new TextEncoder();
     let batch = [], bytes = 0;
+    Object.defineProperty(batches, 'skipped', { value: 0, writable: true, enumerable: false });
     for (const item of ordered) {
       const itemBytes = encoder.encode(JSON.stringify(item)).length;
+      // P19.3: an item above the server limit is skipped and reported, the rest of the file still goes
+      if (itemBytes > 800000) { batches.skipped++; continue; }
       if (batch.length && (batch.length === 10 || bytes + itemBytes > 500000)) { batches.push(batch); batch = []; bytes = 0; }
       batch.push(item); bytes += itemBytes;
     }
@@ -610,6 +680,7 @@
   async function import360History() {
     const status = $('history-import-status'), errors = $('history-import-errors'), sendButton = $('history-import-send');
     if (!historyImportFile) return;
+    if (historyImportFile.size > 100 * 1024 * 1024) throw new Error('HISTORY_FILE_TOO_LARGE');
     let entries;
     try { entries = JSON.parse(await historyImportFile.text()); } catch (_) { throw new Error('HISTORY_FILE_INVALID'); }
     if (!Array.isArray(entries) || !entries.length || !entries.every(validHistoryObject)) throw new Error('HISTORY_FILE_INVALID');
@@ -619,12 +690,14 @@
     const ordered = states.concat(histories, mediaHistories), totals = { conversations: 0, imported: 0, alreadyExists: 0, errors: 0 };
     errors.replaceChildren(); sendButton.disabled = true;
     let completed = 0;
-    for (const originalBatch of historyBatches(ordered)) {
+    const threads = new Set(), batches = historyBatches(ordered);
+    totals.errors += batches.skipped; completed += batches.skipped;
+    for (const originalBatch of batches) {
       let batch = originalBatch, attempts = 0;
       while (batch.length) {
         status.textContent = `Importando ${Math.min(completed, ordered.length)} de ${ordered.length}…`;
         const result = await requestHistoryBatch(batch, request, pause);
-        totals.conversations += Number(result.conversations || 0); totals.imported += Number(result.imported || 0); totals.alreadyExists += Number(result.alreadyExists || 0); totals.errors += Number(result.errors || 0);
+        (result.threadIds || []).forEach((id) => threads.add(id)); totals.imported += Number(result.imported || 0); totals.alreadyExists += Number(result.alreadyExists || 0); totals.errors += Number(result.errors || 0);
         if (result.more) { const processed = Math.max(1, Number(result.nextIndex || 1)); completed += Math.min(processed, batch.length); batch = batch.slice(processed); continue; }
         if (result.inProgress && attempts++ < 8) { await pause(1000); continue; }
         if (result.inProgress) totals.errors += batch.length;
@@ -633,11 +706,13 @@
       }
       status.textContent = `Importando ${Math.min(completed, ordered.length)} de ${ordered.length}…`;
     }
-    const summary = `Importado: ${totals.conversations} conversas, ${totals.imported} mensagens novas, ${totals.alreadyExists} já existiam, ${totals.errors} com erro`;
+    totals.conversations = threads.size;
+    const summary = `Importado: ${totals.conversations} conversas, ${totals.imported} mensagens novas, ${totals.alreadyExists} já existiam, ${totals.errors} com erro${batches.skipped ? ` (${batches.skipped} grande(s) demais, pulado(s))` : ''}`;
     status.textContent = summary;
     if (totals.errors) { const viewErrors = element('button', 'quiet small', 'ver erros'); viewErrors.type = 'button'; viewErrors.addEventListener('click', () => loadWhatsApp().catch(() => {})); errors.append(viewErrors); }
     historyImportFile = null; $('history-import-file').value = ''; sendButton.disabled = true;
     await Promise.all([loadWhatsApp(), loadQueue(false)]);
+    await refreshCounters().catch(() => {});
   }
 
   async function loadQueue(render = true) {
@@ -653,7 +728,8 @@
     contacts.forEach((contact) => option(select, contact.display_name || 'Sem nome', contact.id));
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
-    setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
+    printReviews = data.printReviews || [];
+    setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + printReviews.length);
     if (render) renderQueue(chats, data.reviews || []);
     return data;
   }
@@ -698,10 +774,11 @@
   function clearAutoPrint(){const input=$('auto-print-file');input.value='';autoPrintContext=null;$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;$('auto-print-result').classList.add('hidden');}
   function showAutoPrintChoice(files){const info=$('auto-print-file-info');info.replaceChildren();[...files].forEach((file)=>info.append(element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`)));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=!files.length;}
   function autoPrintResult(filename,text,saved){const resultRoot=arguments[3],root=resultRoot||$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',`${filename||'Print'} — ${text}`));root.append(row);return row;}
-  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} — Desfeito. O arquivo permanece guardado.`,errorText:'Não consegui desfazer — tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters();return saved;}
+  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});if(saved.review){autoPrintResult(filename,'O nome bate com um lead, mas o telefone não. Ficou em ENTRADA para você decidir',false,resultRoot);await loadQueue(currentView==='entry').catch(()=>{});return saved;}const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');if(!saved.duplicate)[saved.journeyId,context?.journeyId].filter(Boolean).forEach((key)=>recentPrints.set(key,{readId:read.id,text:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,at:Date.now()}));const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} — Desfeito. O arquivo permanece guardado.`,errorText:'Não consegui desfazer — tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters().catch(()=>{});return saved;}
   async function handleAutoPrintRead(result,context,filename,resultRoot){if(result.manual){const root=autoPrintResult(filename||result.read?.original_filename,'Não consegui ler agora — tente mais tarde ou use outra imagem.',false,resultRoot);const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),onSuccess:(next)=>handleAutoPrintRead(next,context,filename,resultRoot),errorText:'Não consegui ler agora — tente de novo'}));root.append(retry);return false;}return saveAutoPrint(result.read,context,filename,resultRoot);}
   async function uploadAutoPrint(file,context={},resultRoot){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');return handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context,file.name,resultRoot);}
-  async function sendAutoPrint(){const files=[...$('auto-print-file').files];if(!files.length)return;const status=$('auto-print-status'),result=$('auto-print-result');let failures=0;status.classList.remove('error');result.replaceChildren();result.classList.remove('hidden');$('auto-print-send').disabled=true;for(let index=0;index<files.length;index++){const file=files[index];status.textContent=`${index+1} de ${files.length}…`;try{if(await uploadAutoPrint(file,autoPrintContext||{})===false)failures++;}catch(error){failures++;autoPrintResult(file.name,error.code==='SMS_PRINT_INVALID_IMAGE'?'Use uma imagem válida, até 10 MB.':'Não consegui enviar agora. O arquivo não foi apagado.',false);}}$('auto-print-file').value='';$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;autoPrintContext=null;status.textContent=`${files.length} de ${files.length} prontos${failures?` · ${failures} com erro`:''}`;}
+  function printErrorText(error){return {SMS_PRINT_TOO_LARGE:'A imagem passa de 5 MB. Tire um print novo ou reduza a imagem',SMS_PRINT_HEIC:'Foto HEIC do iPhone não é aceita. Use um print da tela (PNG) ou exporte como JPEG',SMS_PRINT_INVALID_IMAGE:'Use uma imagem JPEG, PNG ou WebP de até 5 MB'}[error?.code]||'Não consegui enviar agora. O arquivo não foi apagado';}
+  async function sendAutoPrint(){const files=[...$('auto-print-file').files];if(!files.length)return;const status=$('auto-print-status'),result=$('auto-print-result');let failures=0;status.classList.remove('error');result.replaceChildren();result.classList.remove('hidden');$('auto-print-send').disabled=true;for(let index=0;index<files.length;index++){const file=files[index];status.textContent=`${index+1} de ${files.length}…`;try{if(await uploadAutoPrint(file,autoPrintContext||{})===false)failures++;}catch(error){failures++;autoPrintResult(file.name,printErrorText(error),false);}}$('auto-print-file').value='';$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;autoPrintContext=null;status.textContent=`${files.length} de ${files.length} prontos${failures?` · ${failures} com erro`:''}`;}
 
   function updateMeta(meta) {
     if (!meta) return;
@@ -852,7 +929,7 @@
     let items=(clientsData.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id}));
     const situation=$('clients-situation').value,checklist=$('clients-checklist').value,ref=$('clients-ref').value,heat=$('clients-heat').value;
     items=items.filter((item)=>(situation==='all'||item.situation===situation)&&(checklist==='all'||(checklist==='complete'?checklistCompleted(item)===6:checklistCompleted(item)<6))&&(ref==='all'||(ref==='with'?hasRef(item):!hasRef(item)))&&(heat==='all'||String(item.heat||'').toUpperCase()===heat));
-    const csvCell=(value)=>{const text=String(value??'');return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;};
+    const csvCell=(value)=>{const raw=String(value??''),text=/^[=+\-@\t\r]/.test(raw)&&!/^[+-]?[\d\s().,-]+$/.test(raw)?"'"+raw:raw;return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;};
     const rows=[['nome','telefone','Ref','situação','checklist','calor','etapa da busca','resumo da IA'],...items.map((item)=>[item.name||item.contact?.display_name||'',primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||'',item.ref||item.referenceCode||item.reference_code||'',pendingSituationLabel(item.situation),`${checklistCompleted(item)}/6`,pendingHeatLabel(item.heat),item.searchStageLabel||'',item.aiSummary||item.summary||''])];
     const blob=new Blob(['\uFEFF'+rows.map((row)=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='clientes-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
@@ -908,13 +985,24 @@
     return wrap;
   }
 
+  // M27: a print just saved keeps its "Guardado" and "Desfazer" for 2 minutes, even after the list reloads
+  const recentPrints=new Map();
+  function recentPrintBlock(key,recent){
+    const block=element('section','sms-print-missing');const row=element('div','inline-actions');row.append(element('strong','',recent.text));
+    const undo=element('button','quiet small','Desfazer');undo.type='button';
+    MCSAction.bind(undo,()=>({scope:block,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:recent.readId})}),successText:'Desfeito. O arquivo permanece guardado',errorText:'Não consegui desfazer, tente de novo',onSuccess:()=>{recentPrints.delete(key);row.remove();},refresh:()=>refreshCounters().catch(()=>{})}));
+    row.append(undo);block.append(row);return block;
+  }
   function smsPrintMissing(item) {
+    const printKey=item.journeyId||item.id,recent=printKey&&recentPrints.get(printKey);
+    if(recent&&Date.now()-recent.at<120000&&item.smsPrintConfirmed)return recentPrintBlock(printKey,recent);
     if(item.contactChannel!=='SMS_CLICK'||item.smsPrintConfirmed||item.disposition)return null;
     const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui.'));
-    const attach=element('label','small','📷 Anexar print do SMS'),input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;attach.append(input);const absent=element('button','quiet small','Não chegou SMS'); absent.type='button';
+    const attach=element('label','small','📷 Anexar print do SMS'),input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;attach.append(input);const absent=element('button','quiet small','Não chegou SMS · descartar'); absent.type='button';
     const resultRoot=element('div','card-action-result');
-    input.addEventListener('change',()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null};MCSAction.run({button:attach,scope:block,optimistic:()=>attach.classList.add('disabled'),commit:async()=>{let last;for(const file of files)last=await uploadAutoPrint(file,context,resultRoot);return last;},rollback:()=>attach.classList.remove('disabled'),onSuccess:()=>{attach.classList.remove('disabled');input.value='';},errorText:'Não consegui salvar — tente de novo'});});
-    absent.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED',absent);});
+    input.addEventListener('change',()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null};MCSAction.run({button:attach,scope:block,optimistic:()=>attach.classList.add('disabled'),commit:async()=>{let last;for(const file of files)last=await uploadAutoPrint(file,context,resultRoot);return last;},rollback:()=>{attach.classList.remove('disabled');input.value='';},onSuccess:()=>{attach.classList.remove('disabled');input.value='';},errorText:(error)=>printErrorText(error)});});
+    // A21: this button discards the lead, so it says so and asks first; the reason is recorded as "Outro"
+    absent.addEventListener('click',async(event)=>{event.preventDefault();event.stopPropagation();if(block.querySelector('.inline-confirm'))return;if(!(await askInline(actions,'Isso descarta o lead com o motivo "Outro". Ele sai de HOJE e das listas, e dá para desfazer','Descartar lead')))return;setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED',absent,'OTHER');});
     const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions,resultRoot);
     return block;
   }
@@ -1039,26 +1127,22 @@
 
   // C5: one failing counter never breaks the others nor the session; it shows "—".
   async function refreshCounters() {
+    // C5: only the five visible tabs are counted; the hidden PENDÊNCIAS and Manheim screens cost two heavy GETs for nothing
     const settled = await Promise.allSettled([
       request('/api/panel/today'),
       request('/api/panel/entry'),
-      request('/api/panel/pendencias'),
       request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
       request('/api/panel/searches'),
-      request('/api/panel/records?view=manheim'),
       request('/api/panel/records'),
       request('/api/panel/vitrine-requests')
     ]);
-    const [today, entry, pending, orders, searches, manheim, records, vitrineData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const [today, entry, orders, searches, records, vitrineData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
     if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
-    count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
+    count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + (data.printReviews || []).length);
     count('clients', records, (data) => (data.items || []).length);
-    count('pending', pending, (data) => Object.values(data.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
     count('orders', orders, (data) => data.page && data.page.total || 0);
     count('searches', searches, (data) => (data.items || []).length);
-    count('manheim', manheim, (data) => data.upload && data.upload.lead_count || 0);
-    count('records', records, (data) => (data.items || []).length);
     const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
     if (failures.length) console.error('Contadores com falha', failures);
     return { failed: failures.length };
@@ -1257,7 +1341,7 @@
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
         actionMessage, downloadShortlist, dispositionControls, replyComposer,
-        mediaObjectUrl:async(messageId)=>{const response=await fetch('/api/panel/media?messageId='+encodeURIComponent(messageId),{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('MEDIA_NOT_AVAILABLE');return URL.createObjectURL(await response.blob());} });
+        mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
       if(leadDetailData?.record?.whatsappWithoutPhone){const identity=$('record-detail').querySelector('.lead-head-name');if(identity)identity.append(element('p','muted whatsapp-no-phone-note','Responda pela conversa no app WhatsApp Business'));}
     } catch (failure) {
@@ -1350,7 +1434,7 @@
     const input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.className='visually-hidden';drop.append(input);
     const thumbs=element('div','v2-thumbs');
     const paint=()=>{thumbs.replaceChildren();photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.addEventListener('click',()=>{URL.revokeObjectURL(photo.url);photos.splice(index,1);paint();});item.append(img,remove);if(index===0)item.append(element('span','v2-cover','Capa'));thumbs.append(item);});};
-    const add=async(files)=>{for(const file of [...files]){if(photos.length>=V2_MAX_PHOTOS){status.textContent='Máximo de 12 fotos';break;}try{const blob=await resizePhoto(file);photos.push({blob,url:URL.createObjectURL(blob)});}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':'Um dos arquivos não é uma imagem';}}paint();};
+    const add=async(files)=>{for(const file of [...files]){if(photos.length>=V2_MAX_PHOTOS){status.textContent='Máximo de 12 fotos';break;}try{const blob=await resizePhoto(file);photos.push({blob,url:URL.createObjectURL(blob)});}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':/\.hei[cf]$/i.test(file.name||'')||/hei[cf]/i.test(file.type||'')?'Foto HEIC não abriu neste navegador. Use JPEG ou PNG':'Um dos arquivos não é uma imagem';}}paint();};
     input.addEventListener('change',()=>{add(input.files);input.value='';});
     drop.addEventListener('dragover',(event)=>{event.preventDefault();drop.classList.add('over');});
     drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
@@ -1359,19 +1443,24 @@
     const noteLabel=element('label','','Nota (opcional)');const note=element('textarea');note.rows=2;note.maxLength=1200;noteLabel.append(note);
     const generate=element('button','small','Gerar link da V2');generate.type='button';
     const result=element('div','inline-actions v2-result hidden');
+    // A22: a retry reuses the same V2 (server side) and only sends the photos that did not go yet
+    const sent={vitrineId:null,blobs:new Set()};
     generate.addEventListener('click',async()=>{
       generate.disabled=true;status.textContent='Criando a V2…';
-      const digits=limit.value.replace(/[^0-9]/g,'');
+      // B4: the typed amount goes as text; the server reads "20,000.50", "25k" and "US$ 25.000"
+      const typedLimit=limit.value.trim();
       try{
-        const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({requestId:request.id,customerLimitCents:digits?Number(digits)*100:null,noteText:note.value.trim()||null})});
-        for(let index=0;index<photos.length;index++){status.textContent=`Enviando foto ${index+1} de ${photos.length}…`;await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(created.vitrineId)+'&carId='+encodeURIComponent(created.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photos[index].blob});}
+        const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({requestId:request.id,customerLimitCents:typedLimit||null,noteText:note.value.trim()||null})});
+        if(sent.vitrineId!==created.vitrineId){sent.vitrineId=created.vitrineId;sent.blobs=new Set();}
+        for(let index=0;index<photos.length;index++){if(sent.blobs.has(photos[index].blob))continue;status.textContent=`Enviando foto ${index+1} de ${photos.length}…`;await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(created.vitrineId)+'&carId='+encodeURIComponent(created.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photos[index].blob});sent.blobs.add(photos[index].blob);}
         const link=location.origin+created.link,message=`${request.name}, here's the car you asked to see\n${link}`;
         status.textContent='V2 pronta';result.replaceChildren();
         const view=element('button','quiet small','Ver como o cliente vê');view.type='button';view.addEventListener('click',()=>window.open(created.link,'_blank','noopener'));
-        const copyLink=element('button','quiet small','Copiar link');copyLink.type='button';copyLink.addEventListener('click',async()=>{await navigator.clipboard?.writeText(link);status.textContent='Link copiado';});
-        const copyMessage=element('button','small','Copiar mensagem com link');copyMessage.type='button';copyMessage.addEventListener('click',async()=>{await navigator.clipboard?.writeText(message);status.textContent='Mensagem copiada';});
+        const copyText=async(text,done)=>{try{await navigator.clipboard.writeText(text);status.textContent=done;}catch(_){status.textContent=`Não consegui copiar. Link: ${link}`;}};
+        const copyLink=element('button','quiet small','Copiar link');copyLink.type='button';copyLink.addEventListener('click',()=>copyText(link,'Link copiado'));
+        const copyMessage=element('button','small','Copiar mensagem com link');copyMessage.type='button';copyMessage.addEventListener('click',()=>copyText(message,'Mensagem copiada'));
         result.append(view,copyLink,copyMessage);result.classList.remove('hidden');
-      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
+      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido. Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
     });
     box.append(drop,thumbs,limitLabel,noteLabel,generate,status,result);
     card.append(box);
@@ -1389,9 +1478,18 @@
         card.append(element('strong','',request.name),element('span','muted',`${request.phone||'Sem telefone'} · Ref ${request.referenceCode||'—'} · pediu pelo WhatsApp ${request.ago||''}`),element('span','',request.car||'Carro não informado'));
         const auction=request.endsAt||request.startsAt;if(auction)card.append(element('span','auction-alert',`Leilão ${relativeAuction(auction)} · ${formatDate(auction)}`));
         if(request.referred)card.append(makeBadge(`Número novo pelo link de ${request.ownerName} (${request.ownerRef||'sem Ref'}) · provável indicação`,'yellow'));
-        if(request.kind==='BID'&&request.depositUsd)card.append(element('span','v2-deposit',`Próximo passo: pedir o depósito · US$ ${Number(request.depositUsd).toLocaleString('en-US')}`));const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2');build.type='button';build.disabled=!request.vitrineCarId;build.addEventListener('click',()=>openV2Builder(request,card));
+        if(request.kind==='BID'&&request.depositUsd)card.append(element('span','v2-deposit',`Próximo passo: pedir o depósito · US$ ${Number(request.depositUsd).toLocaleString('en-US')}`));else if(request.kind==='BID'&&request.referred)card.append(element('span','v2-deposit','Próximo passo: pedir o depósito · valor a definir com o cliente novo'));const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2');build.type='button';build.disabled=!request.vitrineCarId;build.addEventListener('click',()=>openV2Builder(request,card));
         const open=element('button','quiet small','Abrir conversa');open.type='button';open.addEventListener('click',()=>request.journeyId&&openDetail('ficha',request.journeyId));open.disabled=!request.journeyId;
-        const treated=element('button','small','Tratado');treated.type='button';treated.addEventListener('click',async()=>{card.remove();try{await requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:request.id});showUndoNotice('Marcado como tratado',async()=>{await requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:request.id});loadCurrent('today',viewRequestVersion);});}catch(_){loadCurrent('today',viewRequestVersion);}});actions.append(build,open,treated);card.append(actions);block.append(card);
+        const treated=element('button','small','Tratado');treated.type='button';
+        // M26/D18: the failure is shown on the card, Desfazer handles its own failure and the counters follow
+        MCSAction.bind(treated,()=>({scope:card,successScope:root,feedbackKey:`vitrine-request:${request.id}`,
+          optimistic:()=>{card.classList.add('action-optimistic-hidden');},
+          commit:()=>requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:request.id}),
+          rollback:()=>{card.classList.remove('action-optimistic-hidden');},
+          successText:'Marcado como tratado',
+          undo:{commit:()=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:request.id}),successText:'Voltou para a lista',refresh:()=>{loadCurrent('today',viewRequestVersion);refreshCounters().catch(()=>{});}},
+          refresh:()=>refreshCounters().catch(()=>{}),
+          errorText:'Não consegui marcar como tratado, tente de novo'}));actions.append(build,open,treated);card.append(actions);block.append(card);
       });
       root.append(block);
     };
@@ -1401,7 +1499,6 @@
 
   function relativeAuction(value){const hours=Math.max(0,Math.ceil((Date.parse(value)-Date.now())/3600000));return hours>=24?`em ${Math.floor(hours/24)} dia${Math.floor(hours/24)===1?'':'s'} ${hours%24} h`:`em ${hours} h`;}
   async function requestApi(url,body){return request(url,{method:'POST',body:JSON.stringify(body)});}
-  function showUndoNotice(text,undo){const notice=element('div','warning',text);const button=element('button','quiet small','Desfazer');button.type='button';button.addEventListener('click',async()=>{button.disabled=true;await undo();notice.remove();});notice.append(button);$('vitrine-requests')?.prepend(notice);}
 
   function renderToday(items, preserveAll=false) {
     const root = $('today-list');
@@ -1591,12 +1688,15 @@
     const plain = (value) => String(value || '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').slice(0, 105);
     const escape = (value) => plain(value).replace(/[\\()]/g, '\\$&');
     const lines = [`MY CAR SCOUT - SHORTLIST - REF ${plain(referenceCode || '')}`,
-      ...matches.slice(0, 45).map((match) => {
+      ...matches.slice(0, 44).map((match) => {
         const vehicle = match.vehicle_json.parsed || match.vehicle_json.raw || {};
+        const miles = vehicle.miles ?? vehicle.Miles;
         return [vehicle.year || vehicle.Year, vehicle.make || vehicle.Make, vehicle.model || vehicle.Model,
-          vehicle.miles || vehicle.Miles ? `${Number(vehicle.miles || vehicle.Miles).toLocaleString('en-US')} mi` : '',
+          miles !== null && miles !== undefined && miles !== '' && Number.isFinite(Number(miles)) ? `${Number(miles).toLocaleString('en-US')} mi` : '',
           vehicle.locationDisplay || vehicle.location || ''].filter(Boolean).join(' | ');
-      })];
+      }),
+      // P19.10: the page holds 44 cars; the rest is said, never cut in silence
+      ...(matches.length > 44 ? [`+ ${matches.length - 44} more cars not listed on this page`] : [])];
     const content = `BT /F1 11 Tf 40 790 Td 14 TL ${lines.map((line,index) => `${index?'T* ':''}(${escape(line)}) Tj`).join('\n')} ET`;
     const objects = ['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
       '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
@@ -1675,6 +1775,7 @@
       const badges = element('div', 'badges');
       badges.append(makeBadge(kindLabel(match.match_kind), kindTone(match.match_kind)));
       if (match.match_reason) badges.append(makeBadge(match.match_reason));
+      if (match.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
       if (parsed.matchNotice) badges.append(makeBadge(parsed.matchNotice, 'yellow'));
       if (match.mmr_status) badges.append(makeBadge(mmrLabel(match.mmr_status), match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
       if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
@@ -1693,8 +1794,8 @@
       const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => matches.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
       downloadShortlist(selected, journey.reference_code);
     });
-    const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';await navigator.clipboard?.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();const selected=[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent='Selecione pelo menos um carro';return;}vitrineButton.disabled=true;try{const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected})});const absolute=location.origin+created.link;await navigator.clipboard?.writeText(absolute);copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Não consegui gerar o link';}finally{vitrineButton.disabled=false;}});
+    const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';}catch(_){$('manheim-status').textContent='Não consegui copiar. Link: '+link;}});
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();const selected=[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent='Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected})});}catch(_){$('manheim-status').textContent='Não consegui gerar o link';vitrineButton.disabled=false;return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=false;}});
     card.append(exportButton,vitrineButton,copyMessageButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
@@ -1731,6 +1832,7 @@
       const badges = element('div', 'badges');
       badges.append(makeBadge(kindLabel(match.match_kind), kindTone(match.match_kind)));
       if (match.match_reason) badges.append(makeBadge(match.match_reason));
+      if (match.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
       if (parsed.matchNotice) badges.append(makeBadge(parsed.matchNotice, 'yellow'));
       if (match.mmr_status) badges.append(makeBadge(mmrLabel(match.mmr_status), match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
       if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
@@ -1754,8 +1856,9 @@
     manheimOrders = clientSort(data.orders || [],cardMode);
     manheimMatches = data.matches || [];
     renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas.'; });
-    setCount('manheim', data.upload && data.upload.lead_count || 0);
-    $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.lead_count} lead(s) · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
+    // B5: people served by today's combinations, not the count frozen at upload time.
+    setCount('manheim', data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
+    $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${data.upload.current_lead_count ?? data.upload.lead_count} pessoa(s) com BATE ou POR VALOR hoje · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma exportação processada.';
     if(data.historyIncomplete)$('manheim-summary').textContent += ' · reenviar CSVs dos últimos 60 dias para completar o histórico';
     const root = $('manheim-results');
     root.replaceChildren();
@@ -1845,6 +1948,20 @@
   const manheimError = (code, details) => Object.assign(new Error(code), { code }, details || {});
   const MANHEIM_MAX_MATCHES = 100000;
 
+  // In-page confirmation (the panel never uses browser dialogs).
+  function askInline(anchor, text, confirmLabel) {
+    return new Promise((resolve) => {
+      const box = element('div', 'warning inline-confirm');
+      box.append(element('p', '', text));
+      const yes = element('button', 'small', confirmLabel), no = element('button', 'quiet small', 'Cancelar');
+      yes.type = 'button'; no.type = 'button';
+      const done = (value) => { box.remove(); resolve(value); };
+      yes.addEventListener('click', () => done(true)); no.addEventListener('click', () => done(false));
+      box.append(yes, no);
+      anchor.after(box);
+    });
+  }
+
   async function importManheim(files) {
     const selected = files.filter((file) => /\.csv$/i.test(file.name));
     if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
@@ -1875,10 +1992,22 @@
       ignoredRows += parsed.rows.length - normalized.length;
       vehicles.push(...normalized);
     }
+    // M19: an empty CSV, or one much smaller than the last one, replaces the combinations shown in
+    // BUSCAS; the operator confirms before sending.
+    const uniqueCount = new Set(vehicles.map((vehicle) => MCSManheim.fingerprint(vehicle))).size;
+    const previousCount = Number(fresh.upload && fresh.upload.vehicle_count) || 0;
+    const smaller = uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
+    if (uniqueCount > 100000) throw manheimError('MANHEIM_TOO_MANY_VEHICLES', { vehicleCount: uniqueCount });
+    if (!uniqueCount || smaller) {
+      status.textContent = 'Aguardando confirmação';
+      const question = !uniqueCount ? 'Este CSV não tem nenhum carro. As combinações atuais de BUSCAS serão substituídas' : `Este CSV tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
+      if (!(await askInline(status, question, 'Enviar mesmo assim'))) { status.textContent = 'Envio cancelado'; return; }
+    }
     status.textContent = `Comparando ${vehicles.length} carros…`;
     const matches = MCSManheimUpload.buildMatches(vehicles, targetJourneys, targetOrders, MCSManheim);
     if (matches.length > MANHEIM_MAX_MATCHES) throw manheimError('MANHEIM_MATCH_LIMIT', { matchCount: matches.length });
-    const base = { sourceFileCount: selected.length, vehicleCount: vehicles.length, headers: headerGroups, headerMap: { files: mappings } };
+    // M20: the same car in two CSVs is one car (the archive keeps one), so the count is of unique cars.
+    const base = { sourceFileCount: selected.length, vehicleCount: uniqueCount, headers: headerGroups, headerMap: { files: mappings } };
     const parts = MCSManheimUpload.planParts(matches, base);
     const result = await MCSManheimUpload.sendParts({ parts, base, request, onProgress: (partIndex, partCount) => { status.textContent = `Enviando parte ${partIndex} de ${partCount}…`; } });
     const seen = new Set();
@@ -1894,7 +2023,10 @@
       archived+=saved.archived||0;ignored+=saved.ignored||0;
     }
     const combinations = Number.isFinite(Number(result.matchedVehicleCount)) ? Number(result.matchedVehicleCount) : matches.length;
-    const discardedText = result.discardedTotal ? ` · ${result.discardedTotal} descartadas (critério mudou durante o envio)` : '';
+    // Each discard with its own reason (not everything is "critério mudou").
+    const DISCARD_LABELS = { CRITERIA_CHANGED: 'critério mudou', JOURNEY_DISABLED: 'ficha desligada', JOURNEY_DISCARDED: 'pessoa descartada', REF_LINKED_TO_FICHA: 'Ref já ligada a ficha', ORDER_UNAVAILABLE: 'pedido indisponível', JOURNEY_UNAVAILABLE: 'ficha indisponível', INVALID_ROW: 'linha inválida' };
+    const discardedDetail = Object.entries(result.discardedReasons || {}).map(([reason, count]) => `${count} ${DISCARD_LABELS[reason] || reason}`).join(', ');
+    const discardedText = result.discardedTotal ? ` · ${result.discardedTotal} descartadas${discardedDetail ? ` (${discardedDetail})` : ''}` : '';
     status.textContent = `${archived} carros arquivados, ${ignored} ignorados, ${combinations} combinações${discardedText}`;
     await loadCurrent();
     await refreshCounters();
@@ -1907,6 +2039,7 @@
     MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado. Selecione o arquivo novamente.',
     MANHEIM_MATCH_LIMIT: 'O CSV gerou mais de ' + MANHEIM_MAX_MATCHES.toLocaleString('pt-BR') + ' combinações; divida o arquivo.',
     MANHEIM_MATCH_TOO_LARGE: 'Uma linha do CSV é grande demais para ser enviada.',
+    MANHEIM_TOO_MANY_VEHICLES: 'Os CSVs somam mais de 100.000 carros. Envie menos arquivos de cada vez',
     MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação.',
     MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação.',
     MANHEIM_JOURNEY_ID_INVALID: 'Uma combinação veio com identificador de cliente inválido. Atualize a página e envie de novo.',
@@ -2424,7 +2557,11 @@
     const searchSort=localStorage.getItem('mcs_sort_search')||'recent';
     const result = await request('/api/panel/search?q=' + encodeURIComponent(q)+'&sort='+encodeURIComponent(searchSort));
     const root = $('search-results');
-    root.replaceChildren(element('h2', '', 'Resultados da busca'));
+    // M29: the results have a close button, and a hit without a ficha says so instead of doing nothing
+    const head = element('div', 'inline-actions'), close = element('button', 'quiet small', 'Fechar busca');
+    close.type = 'button'; close.addEventListener('click', () => { root.classList.add('hidden'); $('global-search-input').value = ''; });
+    head.append(element('h2', '', 'Resultados da busca'), close);
+    root.replaceChildren(head);
     const sortLabel=element('label','','Ordenar');const sortSelect=element('select');[['recent','Mais recentes'],['oldest','Mais antigas'],['value_desc','Maior valor'],['value_asc','Menor valor'],['location','Localização'],['vehicle','Marca do carro']].forEach(([v,l])=>sortSelect.append(new Option(l,v)));sortSelect.value=searchSort;sortSelect.addEventListener('change',()=>{localStorage.setItem('mcs_sort_search',sortSelect.value);globalSearch(new Event('submit'));});sortLabel.append(sortSelect);root.append(sortLabel);
     if (!result.items.length) root.append(element('p', 'muted', 'Nenhum resultado.'));
     result.items.forEach((item) => {
@@ -2434,6 +2571,7 @@
         ? `${referencePhone(item)}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
         : `${item.name} · ${referencePhone(item)}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
       button.append(element('span', '', label), makeBadge(item.matchedBy));const direct=directLeadBadge(item);if(direct)button.append(direct);if(item.disposition)button.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));if(item.searchStageLabel)button.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
+      if (item.kind !== 'ORDER' && !item.journeyId) { button.disabled = true; button.append(makeBadge('sem ficha aberta', 'yellow')); }
       button.addEventListener('click', () => {
         const origin=captureOrigin();
         root.classList.add('hidden');
@@ -2541,12 +2679,22 @@
   };
   const startSafeRefresh = () => {
     clearInterval(refreshTimer);
+    // A24: one refresh at a time, and a failure is shown next to "Dados atualizados" until the next success
+    let refreshing = false;
+    const refreshNote = (text) => {
+      let note = $('refresh-note');
+      if (!note && text) { note = element('span', 'muted'); note.id = 'refresh-note'; document.querySelector('.freshness')?.append(note); }
+      if (note) note.textContent = text;
+    };
     refreshTimer = setInterval(async () => {
-      if (operatorIsTyping()) return;
+      if (refreshing || operatorIsTyping()) return;
+      refreshing = true;
       try {
         await loadCurrent();
         await loadCaptureWarning();
-      } catch (failure) { console.error('Atualização automática falhou; tento de novo no próximo ciclo', failure); }
+        refreshNote('');
+      } catch (failure) { console.error('Atualização automática falhou; tento de novo no próximo ciclo', failure); refreshNote('Atualização automática falhou, tento de novo em 2 min'); }
+      finally { refreshing = false; }
     }, 120000);
   };
   async function routeFromHash(push = false) {
@@ -2694,14 +2842,14 @@
       $('history-import-status').textContent = historyImportFile ? `${historyImportFile.name} pronto para importar.` : '';
     });
     $('history-import-send').addEventListener('click', () => import360History().catch((failure) => {
-      $('history-import-status').textContent = failure?.code === 'HISTORY_IMPORT_INVALID' || failure?.message === 'HISTORY_FILE_INVALID' ? 'Este não é o arquivo do histórico do 360dialog para o número configurado.' : 'Não foi possível importar agora. Você pode tentar de novo sem duplicar.';
+      $('history-import-status').textContent = failure?.code === 'HISTORY_IMPORT_INVALID' || failure?.message === 'HISTORY_FILE_INVALID' ? 'Este não é o arquivo do histórico do 360dialog para o número configurado.' : failure?.message === 'HISTORY_FILE_TOO_LARGE' ? 'O arquivo passa de 100 MB. Exporte o histórico em partes' : failure?.code === 'HISTORY_ITEM_TOO_LARGE' ? 'Uma parte do arquivo é grande demais. O que já foi importado ficou gravado' : 'Não foi possível importar agora. Você pode tentar de novo sem duplicar.';
       $('history-import-send').disabled = !historyImportFile;
     }));
     const zone = $('drop-zone');
     ['dragenter', 'dragover'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
-    $('manheim-files').addEventListener('change', (event) => importManheim([...event.target.files]).catch(showManheimFailure));
+    $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
     const manheimZone = $('manheim-drop-zone');
     ['dragenter', 'dragover'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.remove('dragging'); }));

@@ -281,7 +281,7 @@ test('WhatsApp import makes confirmation and storage failures explicit', () => {
   assert.match(client, /await loadQueue\(false\);/);
   assert.match(client, /arquivo lido\. Confirme os dados abaixo para gravar a conversa/);
   assert.match(client, /scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
-  assert.match(client, /Falha na importação:[\s\S]*Nenhum sucesso foi confirmado/);
+  assert.match(client, /Falha na importação:[\s\S]*já ficaram gravadas[\s\S]*Nada foi gravado/);
   assert.match(server, /start: 'IMPORT_START_FAILED'/);
   assert.match(server, /batch: 'IMPORT_BATCH_FAILED'/);
   assert.match(server, /finish: 'IMPORT_FINISH_FAILED'/);

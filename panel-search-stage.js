@@ -2,7 +2,8 @@
 
 // The same deterministic search identity is used by BUSCAS and Manheim saves.
 const { allRows } = require('./panel-server');
-const { toggleEnabled, wishlistsForJourney } = require('./panel-domain');
+const { consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, mergeWishlists, toggleEnabled, wishlistsForJourney } = require('./panel-domain');
+const vehicleMatch = require('./vehicle-match');
 const catalog = require('./vehicle-catalog');
 
 function searchableWish(wishes) {
@@ -16,7 +17,23 @@ function searchKey(wish) {
   const model = catalog.modelTokens(wish.model, wish.make).join(' ');
   return make && model ? `${make}|${model}` : null;
 }
-function stageLabel(stage) { return ({ MISSING: '🔍 Falta buscar', SAVED: '💾 Busca salva', SENT: '📤 Opções enviadas' })[stage] || ''; }
+// The same identity as "Quais buscas salvar": a search by criteria (make|model), by value
+// (make|model|valor) or one that still needs qualifying (make|model|qualificar, never saved).
+function searchIdentity(wish, bidCents) {
+  const base = searchKey(wish);
+  if (!base) return null;
+  const { basis } = vehicleMatch.wishSearchBasis(wish, bidCents);
+  return { basis, key: basis === 'CRITERIA' ? base : base + (basis === 'VALUE' ? '|valor' : '|qualificar') };
+}
+// The ficha's effective criteria (R1): its own wishes and bid, filled by its linked calculator Refs.
+function journeyCriteria(journey, refs, ordersByRef) {
+  const own = [journey?.reference_code, ...(refs || []).filter((row) => row.journey_id === journey?.id).map((row) => row.ref_code)]
+    .map((value) => String(value || '').trim().toUpperCase()).filter(Boolean);
+  const linked = own.map((ref) => ordersByRef.get(ref)).filter(Boolean);
+  const merged = linked.length ? { wishlists: mergeWishlists([], linked.flatMap((order) => order.wishlists || [])), budgetCents: linked.map((order) => order.budgetCents).find((value) => Number(value) > 0) || null } : null;
+  return effectiveCriteria(journey, merged);
+}
+function stageLabel(stage, basis) { if (stage === 'MISSING' && basis === 'QUALIFY') return '❓ Precisa qualificar'; return ({ MISSING: '🔍 Falta buscar', SAVED: '💾 Busca salva', SENT: '📤 Opções enviadas' })[stage] || ''; }
 function floridaDays(at, now = Date.now()) {
   const stamp = Date.parse(at || '');
   return Number.isFinite(stamp) ? Math.max(0, Math.floor((now - stamp) / 86400000)) : 0;
@@ -35,9 +52,9 @@ function directLeadSource(journey, hasOrder) {
 
 async function loadSearchStageIndex(ctx) {
   const [journeys, refs, calcRuns, saved, marks, events, units, confirmedPrints, toggles] = await Promise.all([
-    allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,created_at', environment: 'eq.' + ctx.environment }),
+    allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'calc_runs', { select: 'dados', order: 'created_at.asc' }),
+    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' }),
     allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at', environment: 'eq.' + ctx.environment, undone_at: 'is.null' }).catch(() => []),
     allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
@@ -59,12 +76,15 @@ async function loadSearchStageIndex(ctx) {
     .forEach((row) => { if (!sentByJourney.get(row.id) || Date.parse(sentByJourney.get(row.id)) < Date.parse(row.at)) sentByJourney.set(row.id, row.at); });
   const confirmedByJourney = new Set(confirmedPrints.map((row) => row.confirmed_journey_id).filter(Boolean));
   const refsFromCalculator=calculatorRefs(calcRuns);
+  const ordersByRef=new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, [])).map((order)=>[String(order.ref||'').trim().toUpperCase(),order]));
   const index = new Map();
   journeys.forEach((journey) => {
     const hasOrder=hasCalculatorOrder(journey,refs,refsFromCalculator);
     const source=directLeadSource(journey,hasOrder);
-    const wish = searchableWish(wishlistsForJourney(journey));
-    const key = searchKey(wish);
+    const criteria = journeyCriteria(journey, refs, ordersByRef);
+    const wish = searchableWish(criteria.wishes);
+    const identity = searchIdentity(wish, criteria.bidCents);
+    const key = identity && identity.key;
     // A closed or switched-off journey has no search to do: no badge.
     if (!key || !toggleEnabled(journey.status, toggleByJourney.get(journey.id))) {
       index.set(journey.id, { hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
@@ -72,12 +92,13 @@ async function loadSearchStageIndex(ctx) {
     }
     const marksFor = marksByJourney.get(journey.id) || {};
     const sentFromEvent=sentByJourney.get(journey.id)||null;
-    const savedFromManheim=savedByKey.get(key)||null;
+    // A search that still needs qualifying is never "saved" (there is nothing to search yet).
+    const savedFromManheim=identity.basis==='QUALIFY'?null:savedByKey.get(key)||null;
     const sentAt = sentFromEvent || marksFor.SENT || null;
     const savedAt = savedFromManheim || marksFor.SAVED || null;
     const stage = sentAt ? 'SENT' : savedAt ? 'SAVED' : 'MISSING';
     const stageSource=stage==='SENT'?(sentFromEvent?'EVENT':'MARK'):stage==='SAVED'?(savedFromManheim?'MANHEIM':'MARK'):null;
-    index.set(journey.id, { stage, stageSource, label: stageLabel(stage), at: sentAt || savedAt || journey.created_at, searchKey: key, wish, hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
+    index.set(journey.id, { stage, stageSource, label: stageLabel(stage, identity.basis), basis: identity.basis, at: sentAt || savedAt || journey.created_at, searchKey: key, wish, wishes: criteria.wishes, bidCents: criteria.bidCents, hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
   });
   return index;
 }
@@ -88,4 +109,4 @@ function decorateWithSearchStage(item, index) {
   return stage ? { ...item, searchStage: stage.stage, searchStageSource:stage.stageSource, searchStageLabel: stage.label, searchStageAt: stage.at, searchKey: stage.searchKey, hasCalculatorOrder:stage.hasCalculatorOrder, directLeadSource:stage.directLeadSource, smsPrintConfirmed: stage.smsPrintConfirmed } : item;
 }
 
-module.exports = { searchableWish, searchKey, stageLabel, floridaDays, calculatorRefs, hasCalculatorOrder, directLeadSource, loadSearchStageIndex, decorateWithSearchStage };
+module.exports = { searchableWish, searchKey, searchIdentity, journeyCriteria, stageLabel, floridaDays, calculatorRefs, hasCalculatorOrder, directLeadSource, loadSearchStageIndex, decorateWithSearchStage };

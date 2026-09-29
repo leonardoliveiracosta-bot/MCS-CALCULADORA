@@ -33,7 +33,7 @@
             button.disabled = true;
             try {
               const reply = await fetch('/api/tracking?code=' + encodeURIComponent(code), { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({unitId:car.id,response:value}) });
-              if (!reply.ok) {const failed=await reply.json().catch(()=>({}));throw new Error(reply.status===409?failed.message||'You already answered this car':'Please try again.');}
+              if (!reply.ok) {const failed=await reply.json().catch(()=>({}));throw new Error([400,404,409].includes(reply.status)&&failed.message?failed.message:reply.status===409?'You already answered this car':'Please try again.');}
               card.querySelectorAll('button').forEach((item) => item.remove());
               add(card, 'p', 'confirm', "Got it — we'll reach out shortly");
             } catch (error) { button.disabled = false; add(card, 'p', 'muted', error.message||'Please try again.'); }

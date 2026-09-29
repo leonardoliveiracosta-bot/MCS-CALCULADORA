@@ -131,3 +131,7 @@ nav[aria-label="Seções do painel"]{
 .v2-thumb button{position:absolute;top:4px;right:4px;min-width:28px;padding:2px 6px}
 .v2-cover{position:absolute;left:4px;bottom:4px;background:#c9a34e;color:#0b0d10;font-size:.72rem;font-weight:700;padding:1px 6px;border-radius:999px}
 .v2-deposit{color:#ffe19a;font-weight:700}
+/* A25: on a phone the message menu stays inside the screen */
+@media (max-width:699px){.message-menu{justify-self:stretch}.message-menu-panel{min-width:0;max-width:calc(100vw - 32px)}.wishlist-row{grid-template-columns:1fr 1fr}}
+/* M32: checklist point and its button side by side */
+.lead-check{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}

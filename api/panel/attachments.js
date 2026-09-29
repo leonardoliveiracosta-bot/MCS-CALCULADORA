@@ -74,6 +74,8 @@ async function handler(req, res) {
     if (existing[0]) {
       const sameRelation = (!input.contactId || existing[0].contact_id === input.contactId) && (!input.journeyId || existing[0].journey_id === input.journeyId);
       if (!sameRelation || existing[0].original_filename !== safeName(input.filename)) return send(res, 409, { error: 'ATTACHMENT_ID_REUSED' });
+      // P19.11: a repeated finalize still clears its quarantine copy (the stored file is elsewhere)
+      if (existing[0].storage_path !== `quarantine/${ctx.environment}/${input.attachmentId}/${safeName(input.filename)}`) await removeObject(ctx, `quarantine/${ctx.environment}/${input.attachmentId}/${safeName(input.filename)}`).catch(() => {});
       return send(res, 200, { attachmentId: existing[0].id, duplicate: true });
     }
     const filename = safeName(input.filename);
