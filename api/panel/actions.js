@@ -2,7 +2,7 @@
 
 const {
   clientOkPatch, confirmedJourneyModes, journeyDemands, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimDemand,
-  mergeWishlists, SEARCH_MODES, normalizeWishlist, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
+  mergeWishlists, modeVehicleText, modeWishText, SEARCH_MODES, normalizeWishlist, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
 const { loadBuscasBase } = require('../../panel-buscas');
@@ -187,9 +187,10 @@ async function actionMarkMessage(ctx, journey, body) {
   // A car, range or bid belongs to one search. With both searches on the ficha the mode is
   // required and the change goes only to that mode (criteria_json.mode_overrides); it is never
   // applied to both.
-  let perMode = null, modeDemand = null;
+  let perMode = null, modeDemand = null, modeItems = [];
   if (wishlists) {
-    const demands = journeyDemands(journey, await journeyModeItems(ctx, journey)).filter((demand) => SEARCH_MODES.includes(demand.mode));
+    modeItems = await journeyModeItems(ctx, journey);
+    const demands = journeyDemands(journey, modeItems).filter((demand) => SEARCH_MODES.includes(demand.mode));
     const modes = demands.map((demand) => demand.mode);
     const requested = String(body.mode || '').toUpperCase();
     if (requested && !SEARCH_MODES.includes(requested)) return send(ctx.res, 400, { error: 'SEARCH_MODE_INVALID' });
@@ -214,8 +215,21 @@ async function actionMarkMessage(ctx, journey, body) {
     // Written atomically by panel_mark_message_fact_v2 (migration 20261001010000). Before that
     // migration the RPC would ignore the mode, so the change is refused instead of lost.
     if (!(await undoSupported(ctx, { rows }))) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
+    // A mark for ONE search never reaches the ficha's generic fields: no value_json.wishlist
+    // (the old declaration trigger copies it to criteria_json.wishlist) and no confirmedWishlists.
+    delete valueJson.wishlist;
     valueJson.mode = perMode;
     valueJson.modeWishlists = modeWishes;
+    // vehicle_text is the summary of the ficha AFTER this mark: the same override the RPC writes,
+    // read through the same demand rule BUSCAS uses (with two modes the generic wishes no longer
+    // feed any mode, so they never reach the summary).
+    const criteria = journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
+    const overrides = criteria.mode_overrides && typeof criteria.mode_overrides === 'object' && !Array.isArray(criteria.mode_overrides) ? criteria.mode_overrides : {};
+    const after = { ...journey, criteria_json: { ...criteria, mode_overrides: { ...overrides, [perMode]: { wishlists: modeWishes, wishlistOverride: true } } } };
+    const demandsAfter = journeyDemands(after, modeItems).filter((demand) => SEARCH_MODES.includes(demand.mode));
+    const modesAfter = demandsAfter.map((demand) => demand.mode);
+    const vehicleText = modeVehicleText(modesAfter, Object.fromEntries(demandsAfter.map((demand) => [demand.mode, modeWishText(demand.mode, demand.wishes)])));
+    if (vehicleText && vehicleText.length <= 500) valueJson.vehicleText = vehicleText;
   }
   if (config.field === 'TETO') {
     // The total ceiling goes only to confirmed_total_ceiling_cents (R2), written atomically by

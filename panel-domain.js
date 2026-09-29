@@ -395,7 +395,7 @@ function groupCalculatorByRef(orders, dispositions = []) {
     const newest = (getter, list = sorted) => { for (const item of list) { const value = getter(item); if (value !== null && value !== undefined && value !== '') return value; } return null; };
     const modeText = (mode) => compactWishlistText(modeWishes(mode)) || byMode(mode).map((item) => item.vehicleText).find(Boolean) || null;
     const vehicleText = modes.length > 1
-      ? [['VALOR', 'Por valor'], ['CARRO', 'Por ano e milhagem']].map(([mode, label]) => modeText(mode) ? `${label}: ${modeText(mode)}` : null).filter(Boolean).join(' · ')
+      ? modeVehicleText(modes, { VALOR: modeText('VALOR'), CARRO: modeText('CARRO') })
       : compactWishlistText(wishlists) || latest.vehicleText;
     const valorBid = newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null, byMode('VALOR'));
     return {
@@ -668,6 +668,21 @@ function buildConversationTimeline(messages, interactions, activities) {
 // trim (information only), and both year and mileage ranges. There is no combined demand.
 const SEARCH_MODES = Object.freeze(['VALOR', 'CARRO']);
 
+// The vehicle text of a person with searches: with both modes each one is labelled, VALOR first
+// ("Por valor: X · Por ano e milhagem: Y"); with one mode, only that mode's text. BUSCAS and the
+// ficha's vehicle_text use this same rule.
+const MODE_TEXT_LABELS = [['VALOR', 'Por valor'], ['CARRO', 'Por ano e milhagem']];
+function modeVehicleText(modes, textByMode) {
+  const list = MODE_TEXT_LABELS.filter(([mode]) => (modes || []).includes(mode));
+  if (list.length > 1) return list.map(([mode, label]) => textByMode[mode] ? `${label}: ${textByMode[mode]}` : null).filter(Boolean).join(' · ');
+  return list.length ? textByMode[list[0][0]] || '' : '';
+}
+
+// Text of one mode's wishes as BUSCAS shows it: VALOR never shows years or mileage.
+function modeWishText(mode, wishes) {
+  return compactWishlistText(mode === 'VALOR' ? valorWishes(wishes) : carroWishes(wishes));
+}
+
 function valorWishes(wishes) {
   return (wishes || []).map(normalizeWishlist).filter((wish) => wish.model).map((wish) => ({ make: wish.make, model: wish.model, trim: wish.trim, yearMin: null, yearMax: null, minMiles: null, maxMiles: null }));
 }
@@ -816,6 +831,6 @@ function buildSearchDemands({ journeys, refs, modeItems }) {
 module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, toggleEnabled, journeyLogicalMode, logicalMode,
-  buildSearchDemands, carroWishes, derivedFromRefs, modeOverrides, confirmedJourneyModes, finalizeDemand, journeyDemands, matchManheimDemand, orderDemand, SEARCH_MODES, valorWishes, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
+  buildSearchDemands, carroWishes, modeVehicleText, modeWishText, derivedFromRefs, modeOverrides, confirmedJourneyModes, finalizeDemand, journeyDemands, matchManheimDemand, orderDemand, SEARCH_MODES, valorWishes, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
   normalizeState, normalizeWishlist, wishlistsFromCalculatorEvents, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };
