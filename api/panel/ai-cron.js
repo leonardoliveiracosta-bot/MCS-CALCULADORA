@@ -49,7 +49,8 @@ module.exports=async(req,res)=>{
     catch (error) { triage={error:'TRIAGE_FAILED'};console.error('[panel-triage]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
     // Conferência dos matches do Manheim: segurança do disparo feito logo depois do upload.
     let matchAudit;
-    try { matchAudit=manheimAudit.status()==='LIGADA'?await manheimAudit.runAudit(ctx,await manheimView(ctx,{auditInput:true}),{deadlineAt:startedAt+55000}):{skipped:manheimAudit.status()}; }
+    // Only with time left: the BUSCAS base is a large read; the next cron picks it up otherwise.
+    try { matchAudit=manheimAudit.status()!=='LIGADA'?{skipped:manheimAudit.status()}:Date.now()>startedAt+25000?{skipped:'SEM_TEMPO'}:await manheimAudit.runAudit(ctx,await manheimView(ctx,{auditInput:true}),{deadlineAt:startedAt+55000}); }
     catch (error) { matchAudit={error:'AUDIT_FAILED'};console.error('[manheim-audit]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
     return send(res,200,{...result,pending,capture,whatsappMaintenance,triage,matchAudit});
   }catch(error){

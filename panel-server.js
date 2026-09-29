@@ -90,6 +90,7 @@ function topLevelFields(select) {
   return fields;
 }
 const ISO_STAMP = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/;
+// The database collation is ICU en-US (checked in production), the same as this collator.
 const collator = new Intl.Collator('en-US');
 function compareValues(a, b) {
   if (typeof a === 'number' && typeof b === 'number') return a - b;
@@ -132,7 +133,9 @@ async function allRows(ctx, table, params = {}, pageSize = 1000) {
   const { order, ...filters } = params;
   const keys = PAGE_KEYS[table] || ['id'];
   const fields = filters.select ? topLevelFields(filters.select) : ['*'];
-  const missing = fields.includes('*') ? [] : keys.filter((key) => !fields.includes(key));
+  // The order columns are read too (then removed), so the sort never runs on absent values.
+  const orderColumns = String(order || '').split(',').map((part) => part.trim().split('.')[0]).filter(Boolean);
+  const missing = fields.includes('*') ? [] : [...new Set([...keys, ...orderColumns])].filter((key) => !fields.includes(key));
   const select = missing.length ? fields.concat(missing).join(',') : filters.select;
   const request = { ...filters, ...(select ? { select } : {}) };
   const result = [];

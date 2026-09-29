@@ -22,7 +22,7 @@
 //  * Com a função desligada nada muda: V1 e V2 seguem como antes.
 
 const crypto = require('node:crypto');
-const { insert, patchRows, rows, supabase } = require('./panel-server');
+const { allRows, insert, patchRows, rows, supabase } = require('./panel-server');
 const { matchManheimDemand } = require('./panel-domain');
 const { PRICES } = require('./panel-triage');
 
@@ -31,11 +31,17 @@ const DEFAULT_MODEL = 'gpt-6-luna';
 const APPROVED_MODELS = Object.freeze(['gpt-6-luna']);
 const LIMIT_USD = 2;
 const MAX_ATTEMPTS = 3;
-const MAX_OPTIONS = 150;
+// Options per call; a broad demand (hundreds of cars) is checked in several calls.
+const CHUNK_OPTIONS = 100;
+const MAX_OPTIONS = 1000;
 const TIMEOUT_MS = 25000;
 const STALE_CLAIM_MS = 5 * 60 * 1000;
 const OK = Object.freeze(['CONFERIDO', 'APROVADO_MANUAL']);
 const FINAL_ERRORS = new Set(['OPENAI_RESPONSE_INVALID']);
+// Facts found by the server that no manual approval can override. The others (a repeated VIN or row
+// from overlapping CSV splits, too many options) can be approved by hand with a reason.
+const HARD_CODES = new Set(['DEMAND_MISSING', 'DEMAND_INCOMPLETE', 'MODE_MISSING', 'OTHER_MODE_MATCH', 'PERSON_MISMATCH', 'JOURNEY_CLOSED', 'NOT_LEAD', 'TEST_RECORD', 'BATCH_UNDONE', 'CRITERIA_MISMATCH', 'BID_IS_CEILING', 'MMR_MISSING', 'ODOMETER_UNKNOWN']);
+const hardDivergence = (divergences) => (divergences || []).some((item) => item.source === 'LOCAL' && HARD_CODES.has(item.code));
 
 const CODES = Object.freeze({
   DEMAND_MISSING: 'demanda não encontrada',
@@ -108,7 +114,9 @@ function optionOf(match, index) {
   return { id: 'm' + (index + 1), tipo: match.match_kind || '', marca: parsed.make || '', modelo: parsed.model || '', ano: parsed.year ?? null, milhagem: parsed.miles ?? null, mmr_usd: dollars(parsed.mmrCents), vin: parsed.vin || '', lote: lotOf(match) };
 }
 function contentHash(group) {
-  const body = [RULE_VERSION, group.uploadId, group.key, group.mode || '', JSON.stringify(group.criteria), JSON.stringify(group.options.map((option, index) => [group.matches[index].id, group.matches[index].row_fingerprint || '', option]))].join('\u001f');
+  // The server's own findings are part of the content: when a fact changes, the demand is read again.
+  const facts = group.divergences.map((item) => item.code + ':' + item.option).sort();
+  const body = [RULE_VERSION, group.uploadId, group.key, group.mode || '', JSON.stringify(group.criteria), JSON.stringify(group.options.map((option, index) => [group.matches[index].id, group.matches[index].row_fingerprint || '', option])), JSON.stringify(facts)].join('\u001f');
   return crypto.createHash('sha256').update(body).digest('hex');
 }
 
@@ -153,7 +161,8 @@ function buildGroups(input) {
     matches.slice(0, MAX_OPTIONS).forEach((match, index) => {
       const option = 'm' + (index + 1);
       const parsed = match.vehicle_json && match.vehicle_json.parsed || {};
-      if (!match.logical_mode) add('MODE_MISSING', option);
+      // A stored match without its own mode (historical) is shown under a mode but never approved.
+      if (!match.logical_mode || match.historicalMode) add('MODE_MISSING', option);
       else if (demand && match.logical_mode !== demand.mode) add('OTHER_MODE_MATCH', option);
       if (match.undone_at) add('BATCH_UNDONE', option);
       if (demand && demand.journeyId && match.journey_id !== demand.journeyId) add('PERSON_MISMATCH', option);
@@ -195,23 +204,32 @@ const INSTRUCTIONS = [
   'aprovado: true só quando todas as opções cumprem a regra do modo. Cada divergência traz a opção (id, ou vazio para a demanda inteira), o código e um motivo curto em português, sem ponto final.'
 ].join('\n');
 
-function payloadOf(group) {
-  return { versao_regra: RULE_VERSION, demanda: group.demand && group.demand.ref ? 'Ref ' + group.demand.ref : 'ficha ' + String(group.journeyId || '').slice(0, 8), modo: group.mode, criterios: group.criteria, opcoes: group.options };
+const chunksOf = (group) => {
+  const chunks = [];
+  for (let index = 0; index < group.options.length; index += CHUNK_OPTIONS) chunks.push(group.options.slice(index, index + CHUNK_OPTIONS));
+  return chunks.length ? chunks : [[]];
+};
+function payloadOf(group, options = group.options) {
+  return { versao_regra: RULE_VERSION, demanda: group.demand && group.demand.ref ? 'Ref ' + group.demand.ref : 'ficha ' + String(group.journeyId || '').slice(0, 8), modo: group.mode, criterios: group.criteria, opcoes: options };
 }
 function estimateGroup(group, modelId = DEFAULT_MODEL) {
-  const input = Math.ceil(INSTRUCTIONS.length / 4) + 150 + Math.ceil(JSON.stringify(payloadOf(group)).length / 3);
-  const output = 60 + group.options.length * 12;
+  let input = 0, output = 0;
+  chunksOf(group).forEach((chunk) => {
+    input += Math.ceil(INSTRUCTIONS.length / 4) + 150 + Math.ceil(JSON.stringify(payloadOf(group, chunk)).length / 3);
+    output += 60 + chunk.length * 12;
+  });
   return { inputTokens: input, outputTokens: output, costUsd: costUsd(modelId, input, output) };
 }
 
-function validated(parsed, group) {
-  const known = new Set(group.options.map((option) => option.id));
+// chunk: the options sent in this call; ids outside it are invalid answers.
+function validated(parsed, group, chunk = group.options) {
+  const known = new Set(chunk.map((option) => option.id));
   if (!parsed || typeof parsed.aprovado !== 'boolean' || !Array.isArray(parsed.divergencias)) return { errorCode: 'OPENAI_RESPONSE_INVALID' };
   const divergences = [];
   for (const item of parsed.divergencias.slice(0, 50)) {
     const option = typeof item?.opcao === 'string' ? item.opcao.trim() : '';
     if (!MODEL_CODES.includes(item?.codigo) || (option && !known.has(option))) return { errorCode: 'OPENAI_RESPONSE_INVALID' };
-    const text = String(item.motivo || '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s*[—–]\s*/g, ', ').trim().slice(0, 200).replace(/[.\s]+$/, '') || CODES[item.codigo];
+    const text = String(item.motivo || '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s*[\u2014\u2013]\s*/g, ', ').trim().slice(0, 200).replace(/[.\s]+$/, '') || CODES[item.codigo];
     divergences.push({ code: item.codigo, option, matchId: option ? (group.matches[Number(option.slice(1)) - 1] || {}).id || null : null, text, source: 'OPENAI' });
   }
   if (!parsed.aprovado && !divergences.length) divergences.push({ code: 'OTHER', option: '', matchId: null, text: 'A IA não aprovou e não detalhou', source: 'OPENAI' });
@@ -219,7 +237,7 @@ function validated(parsed, group) {
   return { status: parsed.aprovado && !divergences.length ? 'CONFERIDO' : 'REVISAR', divergences };
 }
 
-async function callOpenAI(group, options = {}) {
+async function callChunk(group, chunk, options) {
   const env = options.env || process.env;
   const fetchImpl = options.fetchImpl || fetch;
   const modelId = model(env);
@@ -230,7 +248,7 @@ async function callOpenAI(group, options = {}) {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
-      body: JSON.stringify({ model: modelId, messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify(payloadOf(group)) }],
+      body: JSON.stringify({ model: modelId, messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify(payloadOf(group, chunk)) }],
         response_format: { type: 'json_schema', json_schema: { name: 'conferencia_manheim', strict: true, schema: SCHEMA } } })
     });
     if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
@@ -238,11 +256,31 @@ async function callOpenAI(group, options = {}) {
     const inputTokens = Number(payload?.usage?.prompt_tokens) || 0, outputTokens = Number(payload?.usage?.completion_tokens) || 0;
     let parsed = null;
     try { parsed = JSON.parse(payload?.choices?.[0]?.message?.content || ''); } catch (_) { parsed = null; }
-    return { ...validated(parsed, group), model: modelId, inputTokens, outputTokens, costUsd: costUsd(modelId, inputTokens, outputTokens) };
+    return { ...validated(parsed, group, chunk), inputTokens, outputTokens, costUsd: costUsd(modelId, inputTokens, outputTokens) };
   } catch (failure) {
     if (failure && failure.name === 'AbortError') { const timeout = new Error('OPENAI_TIMEOUT'); timeout.code = 'OPENAI_TIMEOUT'; throw timeout; }
     throw failure;
   } finally { clearTimeout(timer); }
+}
+
+// One demand, in calls of up to 100 options. Approved only when every call approves. A failure
+// keeps what was already paid on the record (failure.spent).
+async function callOpenAI(group, options = {}) {
+  const modelId = model(options.env || process.env);
+  const total = { model: modelId, inputTokens: 0, outputTokens: 0, costUsd: 0, divergences: [], status: 'CONFERIDO', errorCode: null };
+  for (const chunk of chunksOf(group)) {
+    if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) {
+      const failure = new Error('AUDIT_DEADLINE'); failure.code = 'AUDIT_DEADLINE'; failure.spent = total; throw failure;
+    }
+    let answer;
+    try { answer = await callChunk(group, chunk, options); } catch (failure) { failure.spent = total; throw failure; }
+    total.inputTokens += answer.inputTokens; total.outputTokens += answer.outputTokens; total.costUsd += answer.costUsd;
+    if (answer.errorCode) { total.errorCode = answer.errorCode; total.status = null; break; }
+    total.divergences.push(...answer.divergences);
+    if (answer.status !== 'CONFERIDO') total.status = 'REVISAR';
+  }
+  total.costUsd = Math.round(total.costUsd * 1e6) / 1e6;
+  return total;
 }
 
 // ------------------------------------------------------------------ banco
@@ -250,6 +288,12 @@ const env = (ctx) => 'eq.' + ctx.environment;
 async function auditRows(ctx, uploadId, read = rows) {
   if (!uploadId) return [];
   return read(ctx, 'manheim_match_audits', { select: 'id,upload_id,journey_id,logical_mode,demand_key,content_hash,status,divergences,reason,error_code,attempts,approved_reason,approved_at,provider,model,cost_usd,updated_at,created_at', environment: env(ctx), upload_id: 'eq.' + uploadId, order: 'created_at.asc' });
+}
+// Real spending of the batch: the sum of what every reading of it cost (never a counter that
+// concurrent runs could overwrite). Read again before each paid call.
+async function spentOf(ctx, uploadId) {
+  const list = await allRows(ctx, 'manheim_match_audits', { select: 'cost_usd', environment: env(ctx), upload_id: 'eq.' + uploadId, cost_usd: 'not.is.null' });
+  return Math.round(list.reduce((sum, row) => sum + (Number(row.cost_usd) || 0), 0) * 1e6) / 1e6;
 }
 async function runRow(ctx, uploadId) {
   const found = await rows(ctx, 'manheim_audit_runs', { select: 'id,upload_id,status,estimate_usd,limit_usd,spent_usd,authorized_by,authorized_at', environment: env(ctx), upload_id: 'eq.' + uploadId, limit: '1' });
@@ -299,16 +343,25 @@ async function viewState(ctx, input, options = {}) {
   const byDemand = {};
   let estimate = 0;
   groups.forEach((group) => {
+    // The hash carries the server's findings, so a stored row always matches today's facts.
     const row = byHash.get(group.hash);
     if (!row && !group.divergences.length) estimate += estimateGroup(group).costUsd;
     const statusCode = row ? row.status : group.divergences.length ? 'REVISAR' : run && run.status === 'AGUARDANDO_AUTORIZACAO' ? 'AGUARDANDO_AUTORIZACAO' : 'CONFERINDO';
-    const divergences = row ? row.divergences || [] : group.divergences;
+    const divergences = row && row.status !== 'CONFERINDO' ? row.divergences || [] : group.divergences;
     byDemand[group.key] = { status: statusCode, label: LABELS[statusCode], divergences, errorCode: row && row.error_code || null, approvedReason: row && row.approved_reason || null, auditId: row && row.id || null,
-      canApprove: ['PENDENTE', 'REVISAR', 'AGUARDANDO_AUTORIZACAO'].includes(statusCode) && !divergences.some((item) => item.source === 'LOCAL'), canRetry: statusCode === 'PENDENTE' };
+      canApprove: ['PENDENTE', 'REVISAR', 'AGUARDANDO_AUTORIZACAO'].includes(statusCode) && !hardDivergence(group.divergences), canRetry: statusCode === 'PENDENTE' };
   });
   return { state, uploadId: input.upload.id, limitUsd: LIMIT_USD, estimateUsd: Math.round(estimate * 1e6) / 1e6, run: run ? { status: run.status, estimateUsd: Number(run.estimate_usd), spentUsd: Number(run.spent_usd) } : null, byDemand };
 }
 const usable = (entry) => !entry || OK.includes(entry.status);
+// V1 and V2 gate for one car of the active batch. demandKey (sent by the BUSCAS card) checks that
+// demand only; without it every demand the car belongs to must be released. null: not in the batch.
+function heldFor(state, liveMatches, matchId, demandKey = null) {
+  const keys = (liveMatches || []).filter((match) => match.id === matchId).map((match) => match.demandKey);
+  if (!keys.length) return null;
+  const checked = demandKey && keys.includes(demandKey) ? [demandKey] : keys;
+  return checked.some((key) => { const entry = state.byDemand[key]; return !entry || !OK.includes(entry.status); });
+}
 
 // ------------------------------------------------------------------ execução
 // Runs the pending readings of the active batch. Never above the limit without authorization,
@@ -343,34 +396,45 @@ async function runAudit(ctx, input, options = {}) {
   // options.limitUsd exists only so the tests can prove the block without millions of tokens.
   const baseLimit = Number.isFinite(options.limitUsd) ? options.limitUsd : LIMIT_USD;
   const limit = run.status === 'AUTORIZADO' ? Number(run.limit_usd) : baseLimit;
-  let spent = Number(run.spent_usd) || 0;
-  if (run.status !== 'AUTORIZADO' && spent + estimate > baseLimit) {
-    await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AGUARDANDO_AUTORIZACAO', estimate_usd: estimate, updated_at: new Date().toISOString() });
+  const spentBefore = await spentOf(ctx, input.upload.id);
+  // Above the limit (or past what was authorized): nothing is called, the estimate waits for a
+  // new authorization.
+  if (spentBefore + estimate > limit) {
+    await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AGUARDANDO_AUTORIZACAO', estimate_usd: estimate, authorized_by: null, authorized_at: null, updated_at: new Date().toISOString() });
     return { ...result, awaitingAuthorization: true, estimateUsd: estimate, limitUsd: LIMIT_USD };
   }
   for (const group of pending) {
     if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred += 1; continue; }
     const next = estimateGroup(group, modelId).costUsd;
-    if (spent + next > limit) { result.deferred += 1; continue; }
+    if (await spentOf(ctx, input.upload.id) + next > limit) { result.deferred += 1; continue; }
     const row = await claim(ctx, group, byHash.get(group.hash), options.manual);
     if (!row) continue;
-    let patch;
+    let patch, paid;
     try {
-      const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl });
-      spent += answer.costUsd;
-      result.costUsd += answer.costUsd;
-      const tokens = { provider: 'openai', model: answer.model, input_tokens: (Number(row.input_tokens) || 0) + answer.inputTokens, output_tokens: (Number(row.output_tokens) || 0) + answer.outputTokens, cost_usd: (Number(row.cost_usd) || 0) + answer.costUsd };
+      const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl, deadlineAt: options.deadlineAt });
+      paid = answer;
       patch = answer.errorCode
-        ? { ...tokens, status: 'PENDENTE', error_code: answer.errorCode, reason: 'Resposta da IA inválida' }
-        : { ...tokens, status: answer.status, divergences: answer.divergences, error_code: null, reason: answer.status === 'CONFERIDO' ? 'Conferido pela IA' : 'Divergência apontada pela IA' };
+        ? { status: 'PENDENTE', error_code: answer.errorCode, reason: 'Resposta da IA inválida' }
+        : { status: answer.status, divergences: answer.divergences, error_code: null, reason: answer.status === 'CONFERIDO' ? 'Conferido pela IA' : 'Divergência apontada pela IA' };
     } catch (failure) {
-      patch = { provider: 'openai', model: modelId, status: 'PENDENTE', error_code: failure && failure.code || 'OPENAI_FAILED', reason: 'IA indisponível' };
+      paid = failure && failure.spent || null;
+      patch = { status: 'PENDENTE', error_code: failure && failure.code || 'OPENAI_FAILED', reason: 'IA indisponível' };
     }
-    await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + row.id }, { ...patch, updated_at: new Date().toISOString() });
+    const cost = paid ? { input_tokens: (Number(row.input_tokens) || 0) + paid.inputTokens, output_tokens: (Number(row.output_tokens) || 0) + paid.outputTokens, cost_usd: Math.round(((Number(row.cost_usd) || 0) + paid.costUsd) * 1e6) / 1e6 } : {};
+    result.costUsd += paid ? paid.costUsd : 0;
+    const at = new Date().toISOString();
+    try {
+      // Only over our own reservation: a manual approval made meanwhile wins (the cost is still kept).
+      const written = await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + row.id, status: 'eq.CONFERINDO' }, { provider: 'openai', model: modelId, ...cost, ...patch, updated_at: at }, true);
+      if (!(Array.isArray(written) && written[0]) && paid) await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + row.id }, { provider: 'openai', model: modelId, ...cost, updated_at: at });
+    } catch (error) {
+      console.error('[manheim-audit]', { operation: 'record', message: String(error?.code || error?.message || 'UNKNOWN') });
+      continue;
+    }
     result.processed += 1;
     if (patch.status === 'CONFERIDO') result.approved += 1; else if (patch.status === 'REVISAR') result.review += 1; else result.pending += 1;
   }
-  await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { spent_usd: Math.round(spent * 1e6) / 1e6, status: run.status === 'AUTORIZADO' ? 'AUTORIZADO' : 'ABERTO', updated_at: new Date().toISOString() });
+  await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { spent_usd: await spentOf(ctx, input.upload.id), status: run.status === 'AUTORIZADO' ? 'AUTORIZADO' : 'ABERTO', updated_at: new Date().toISOString() });
   result.costUsd = Math.round(result.costUsd * 1e6) / 1e6;
   return result;
 }
@@ -379,7 +443,7 @@ async function runAudit(ctx, input, options = {}) {
 async function authorize(ctx, uploadId, actorId) {
   const run = await runRow(ctx, uploadId);
   if (!run || run.status !== 'AGUARDANDO_AUTORIZACAO') { const failure = new Error('AUDIT_NOTHING_TO_AUTHORIZE'); failure.code = 'AUDIT_NOTHING_TO_AUTHORIZE'; throw failure; }
-  const limit = Math.round((Number(run.spent_usd) + Number(run.estimate_usd) * 1.25) * 1e6) / 1e6;
+  const limit = Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 1.25) * 1e6) / 1e6;
   await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AUTORIZADO', limit_usd: limit, authorized_by: actorId, authorized_at: new Date().toISOString(), updated_at: new Date().toISOString() });
   return { authorized: true, limitUsd: limit };
 }
@@ -391,8 +455,9 @@ async function approve(ctx, input, key, reason, actorId) {
   if (text.length < 5) { const failure = new Error('AUDIT_REASON_REQUIRED'); failure.code = 'AUDIT_REASON_REQUIRED'; throw failure; }
   const group = buildGroups(input).find((item) => item.key === key);
   if (!group) { const failure = new Error('AUDIT_DEMAND_NOT_FOUND'); failure.code = 'AUDIT_DEMAND_NOT_FOUND'; throw failure; }
-  if (group.divergences.length) { const failure = new Error('AUDIT_LOCAL_DIVERGENCE'); failure.code = 'AUDIT_LOCAL_DIVERGENCE'; throw failure; }
+  if (hardDivergence(group.divergences)) { const failure = new Error('AUDIT_LOCAL_DIVERGENCE'); failure.code = 'AUDIT_LOCAL_DIVERGENCE'; throw failure; }
   const existing = (await auditRows(ctx, group.uploadId)).find((row) => row.content_hash === group.hash);
+  if (existing && existing.status === 'CONFERINDO' && Date.parse(existing.updated_at || 0) >= Date.now() - STALE_CLAIM_MS) { const failure = new Error('AUDIT_IN_PROGRESS'); failure.code = 'AUDIT_IN_PROGRESS'; throw failure; }
   const at = new Date().toISOString();
   const patch = { status: 'APROVADO_MANUAL', approved_by: actorId, approved_reason: text, approved_at: at, updated_at: at };
   if (existing) await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + existing.id }, patch);
@@ -402,5 +467,5 @@ async function approve(ctx, input, key, reason, actorId) {
 
 module.exports = {
   RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, LIMIT_USD, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS,
-  model, status, buildGroups, payloadOf, estimateGroup, validated, callOpenAI, viewState, usable, runAudit, authorize, approve, auditRows
+  model, status, buildGroups, payloadOf, estimateGroup, validated, callOpenAI, viewState, usable, heldFor, runAudit, authorize, approve, auditRows
 };

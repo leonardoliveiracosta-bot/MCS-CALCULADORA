@@ -9,16 +9,18 @@ const activeBatch=async(ctx,services)=>services.activeFilter?services.activeFilt
 // MANHEIM_MATCH_AUDIT: with the audit on, a V1 or V2 comes only from a demand that was conferida
 // (or approved by hand with a reason). Only that demand is held; the others stay usable. Off:
 // nothing changes. A match of an older batch is held only when its own audit says so.
-async function auditGate(ctx,matchIds){
+// demandKey (from the BUSCAS card) checks exactly that demand. Without it (V2), every demand the
+// car belongs to must be released: a car that fits VALOR and CARRO appears once per demand.
+async function auditGate(ctx,matchIds,demandKey=null){
   const manheimAudit=require('../../panel-manheim-audit');
   if(manheimAudit.status()!=='LIGADA')return null;
   const {manheimView}=require('../../panel-buscas-view');
   const input=await manheimView(ctx,{auditInput:true});
   const state=await manheimAudit.viewState(ctx,input);
-  const live=new Map((input.matches||[]).map((match)=>[match.id,match]));
   for(const id of matchIds){
-    const match=live.get(id);
-    if(match){const entry=state.byDemand[match.demandKey];if(!entry||!manheimAudit.usable(entry))return 'MANHEIM_AUDIT_PENDING';continue;}
+    const held=manheimAudit.heldFor(state,input.matches,id,demandKey);
+    if(held===true)return 'MANHEIM_AUDIT_PENDING';
+    if(held===false)continue;
     const [stored]=await rows(ctx,'manheim_matches',{select:'upload_id,journey_id,logical_mode',environment:'eq.'+ctx.environment,id:'eq.'+id,limit:'1'});
     if(!stored||!stored.journey_id||!stored.logical_mode)continue;
     const [last]=await rows(ctx,'manheim_match_audits',{select:'status',environment:'eq.'+ctx.environment,upload_id:'eq.'+stored.upload_id,demand_key:'eq.journey:'+stored.journey_id+':'+stored.logical_mode,order:'created_at.desc',limit:'1'}).catch(()=>[]);
@@ -68,7 +70,8 @@ async function create(ctx,body,services={rows,insert},now=Date.now()){
   const active=await activeBatch(ctx,services);
   const [contact,...matches]=await Promise.all([services.rows(ctx,'contacts',{select:'display_name',environment:'eq.'+ctx.environment,id:'eq.'+journey.contact_id,limit:'1'}),...body.matchIds.map((id)=>isUuid(id)?services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+id,journey_id:'eq.'+journey.id,...active,limit:'1'}):Promise.resolve([]))]);
   const selected=matches.flat(); if(selected.length!==body.matchIds.length)return null;
-  const held=await (services.auditGate||auditGate)(ctx,selected.map((match)=>match.id)); if(held)return {error:held};
+  const demandKey=typeof body.demandKey==='string'&&/^journey:[0-9a-f-]{36}:(VALOR|CARRO)$/.test(body.demandKey)?body.demandKey:null;
+  const held=await (services.auditGate||auditGate)(ctx,selected.map((match)=>match.id),demandKey); if(held)return {error:held};
   const cars=selected.map((match)=>({match,vehicle:publicVehicle(match.vehicle_json?.parsed||{})}));
   const existing=await recentWithCars(ctx,{journey_id:'eq.'+journey.id,version:'eq.V1'},selected.map((match)=>'match:'+match.id),services,now);
   if(existing)return {token:existing.vitrine.token,link:'/v/'+existing.vitrine.token,referenceCode:journey.reference_code,cars:cars.map((item)=>vehicleName(item.vehicle)),reused:true};

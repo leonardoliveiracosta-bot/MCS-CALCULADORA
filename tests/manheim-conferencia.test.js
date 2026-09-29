@@ -227,6 +227,13 @@ test('limite por importação: acima dele nada é chamado, mostra a estimativa e
   await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: 0.00001 });
   assert.equal(calls.length, 1);
   assert.equal((await audit.viewState(ctx, view, { env: ENV })).byDemand[valorKey].status, 'CONFERIDO');
+  // The authorized amount is used up: a new reading of the batch waits for a new authorization.
+  const more = input({ mutate: (value) => { value.demands[0].bidCents = 3150000; return value; } });
+  const again = await audit.runAudit(ctx, more, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: 0.00001 });
+  assert.equal(again.awaitingAuthorization, true);
+  assert.equal(calls.length, 1);
+  assert.equal((await audit.viewState(ctx, more, { env: ENV })).run.status, 'AGUARDANDO_AUTORIZACAO');
+  await backend.db.query("update public.manheim_audit_runs set status='ABERTO', authorized_by=null, authorized_at=null, limit_usd=2 where upload_id=$1", [UPLOAD]);
   // Deadline: never start a call the function could be stopped in the middle of.
   const late = input({ mutate: (value) => { value.demands[0].bidCents = 3200000; return value; } });
   const deferred = await audit.runAudit(ctx, late, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), deadlineAt: Date.now() + 1000 });
@@ -256,4 +263,67 @@ test('nenhum dado real alterado: matches, fichas e contatos intactos; nenhuma re
   const counts = (await backend.db.query('select (select count(*) from public.manheim_matches) m, (select count(*) from public.vitrines) v, (select count(*) from public.journeys where status<>\'ATIVO\') j, (select count(*) from public.contacts where is_lead=false) c')).rows[0];
   assert.deepEqual([Number(counts.m), Number(counts.v), Number(counts.j), Number(counts.c)], [0, 0, 0, 0]);
   assert.deepEqual(backend.refused, []);
+});
+
+// Correções da revisão independente.
+test('demanda ampla: conferida em blocos de até 100 opções e aprovada só se todos aprovarem', async () => {
+  const valorKey = `journey:${J.valor}:VALOR`;
+  const wide = input({ mutate: (value) => {
+    for (let n = 0; n < 230; n += 1) value.matches.push({ ...car(3000 + n, J.valor, 'VALOR', 'POR_VALOR', { vin: 'VINWIDE' + String(n).padStart(6, '0'), year: 2021, make: 'Toyota', model: 'RAV4', miles: 30000 + n, mmrCents: 2800000 }), demandKey: valorKey });
+    return value;
+  } });
+  const group = audit.buildGroups(wide).find((item) => item.key === valorKey);
+  assert.equal(group.options.length, 232);
+  assert.deepEqual(group.divergences, [], 'muitas opções não viram divergência');
+  const calls = [];
+  const second = (payload) => payload.opcoes[0].id === 'm101' ? { aprovado: false, divergencias: [{ opcao: 'm150', codigo: 'MMR_OUT_OF_RANGE', motivo: 'MMR fora da faixa' }] } : approveAll();
+  await audit.runAudit(ctx, wide, { env: ENV, fetchImpl: fakeOpenAI(second, calls), onlyKey: valorKey });
+  assert.deepEqual(calls.map((entry) => entry.payload.opcoes.length), [100, 100, 32]);
+  const state = await audit.viewState(ctx, wide, { env: ENV });
+  assert.equal(state.byDemand[valorKey].status, 'REVISAR');
+  assert.deepEqual(state.byDemand[valorKey].divergences.map((item) => [item.code, item.matchId]), [['MMR_OUT_OF_RANGE', group.matches[149].id]]);
+  const row = await statusOf(valorKey);
+  assert.deepEqual([row.input_tokens, row.output_tokens], [1500, 240], 'tokens das três chamadas somados');
+});
+
+test('match histórico sem modo vai para Revisar; fato mudou, demanda relida; duplicata aprovável com motivo, fato duro não', async () => {
+  const carroKey = `journey:${J.carro}:CARRO`;
+  const historical = input({ mutate: (value) => { value.matches.find((match) => match.journey_id === J.carro).historicalMode = true; return value; } });
+  const group = audit.buildGroups(historical).find((item) => item.key === carroKey);
+  assert.deepEqual(group.divergences.map((item) => item.code), ['MODE_MISSING']);
+  assert.notEqual(group.hash, audit.buildGroups(input()).find((item) => item.key === carroKey).hash, 'o fato entra no hash');
+  let state = await audit.viewState(ctx, historical, { env: ENV });
+  assert.deepEqual([state.byDemand[carroKey].status, state.byDemand[carroKey].canApprove], ['REVISAR', false]);
+  await assert.rejects(audit.approve(ctx, historical, carroKey, 'Liberar mesmo assim', ACTOR), { code: 'AUDIT_LOCAL_DIVERGENCE' });
+  // A repeated VIN from overlapping CSV splits can be approved by hand with a reason.
+  const duplicated = input({ mutate: (value) => { const own = value.matches.find((match) => match.journey_id === J.carro); value.matches.push({ ...own, id: id(1999), row_fingerprint: 'split-2' }); return value; } });
+  await audit.runAudit(ctx, duplicated, { env: ENV, fetchImpl: fakeOpenAI(approveAll, []) });
+  state = await audit.viewState(ctx, duplicated, { env: ENV });
+  assert.deepEqual([state.byDemand[carroKey].status, state.byDemand[carroKey].canApprove], ['REVISAR', true]);
+  await audit.approve(ctx, duplicated, carroKey, 'Mesmo carro repetido entre as divisões', ACTOR);
+  assert.equal((await audit.viewState(ctx, duplicated, { env: ENV })).byDemand[carroKey].status, 'APROVADO_MANUAL');
+});
+
+test('V1 checa a demanda do cartão: carro que serve VALOR e CARRO não troca a demanda conferida', () => {
+  const car = { id: 'x', demandKey: 'journey:a:VALOR' }, same = { id: 'x', demandKey: 'journey:a:CARRO' };
+  const state = { byDemand: { 'journey:a:VALOR': { status: 'CONFERIDO' }, 'journey:a:CARRO': { status: 'PENDENTE' } } };
+  assert.equal(audit.heldFor(state, [car, same], 'x', 'journey:a:VALOR'), false);
+  assert.equal(audit.heldFor(state, [car, same], 'x', 'journey:a:CARRO'), true);
+  assert.equal(audit.heldFor(state, [car, same], 'x'), true, 'sem a demanda (V2) todas precisam estar liberadas');
+  assert.equal(audit.heldFor(state, [car, same], 'outro'), null);
+});
+
+test('gasto do lote é a soma real das conferências e nenhuma aprovação passa por cima de uma leitura em andamento', async () => {
+  const valorKey = `journey:${J.valor}:VALOR`;
+  const spent = (await backend.db.query('select coalesce(sum(cost_usd),0) s from public.manheim_match_audits where upload_id=$1', [UPLOAD])).rows[0].s;
+  const view = input({ mutate: (value) => { value.demands[0].bidCents = 3300000; return value; } });
+  // Already spent (by any run) counts against the limit: a limit just below it blocks every call.
+  const calls = [];
+  await backend.db.query("update public.manheim_audit_runs set status='ABERTO', authorized_by=null, authorized_at=null where upload_id=$1", [UPLOAD]);
+  const blocked = await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: Number(spent) });
+  assert.equal(blocked.awaitingAuthorization, true);
+  assert.equal(calls.length, 0);
+  const group = audit.buildGroups(view).find((item) => item.key === valorKey);
+  await backend.db.query(`insert into public.manheim_match_audits(environment,upload_id,journey_id,logical_mode,demand_key,content_hash,rule_version,status,attempts) values('preview',$1,$2,'VALOR',$3,$4,$5,'CONFERINDO',1)`, [UPLOAD, J.valor, valorKey, group.hash, audit.RULE_VERSION]);
+  await assert.rejects(audit.approve(ctx, view, valorKey, 'Aprovar durante a leitura', ACTOR), { code: 'AUDIT_IN_PROGRESS' });
 });

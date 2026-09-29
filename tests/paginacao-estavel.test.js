@@ -80,3 +80,10 @@ test('atualização durante a leitura não pula nem repete fichas', async () => 
   assert.equal(stable.length, TOTAL);
   assert.equal(new Set(stable.map((row) => row.id)).size, TOTAL, 'nenhuma ficha pulada ou repetida');
 });
+
+test('coluna de ordenação fora do select: a ordem pedida vale e a coluna não aparece no resultado', async () => {
+  const want = (await backend.db.query(`select display_name from public.contacts where environment='preview' order by updated_at desc, id asc`)).rows.map((row) => row.display_name);
+  const got = await allRows(ctx, 'contacts', { select: 'display_name', environment: 'eq.preview', order: 'updated_at.desc' }, 4);
+  assert.deepEqual(got.map((row) => row.display_name), want);
+  assert.ok(got.every((row) => Object.keys(row).join() === 'display_name'));
+});
