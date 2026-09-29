@@ -249,29 +249,32 @@ test('A4: Ref ligada a uma ficha casa só pela ficha (uma pessoa, um alvo)', () 
 
 // ---------------------------------------------------------------- A19 no servidor
 test('A19: combinação que deixou de valer é descartada e contada, sem derrubar o envio', async () => {
-  const stored = [];
+  // The single batch compares every block on the server with the demands of TODAY (the snapshot
+  // taken when the batch starts), never with criteria cached in the browser.
   const wish = { make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2022, minMiles: 1, maxMiles: 60000 };
   const journeys = [
     { id: uuid(1), status: 'ATIVO', stage: 'NOVO', reference_code: null, criteria_json: { wishlists: [wish], logical_modes: ['CARRO'] }, budget_cents: null },
-    // Criteria changed after the browser loaded them: now wants an Audi.
+    // Criteria changed after the page was opened: now wants an Audi.
     { id: uuid(2), status: 'ATIVO', stage: 'NOVO', reference_code: null, criteria_json: { wishlists: [{ ...wish, make: 'Audi', model: 'Q5' }], logical_modes: ['CARRO'] }, budget_cents: null },
     { id: uuid(3), status: 'ENCERRADO', stage: 'NOVO', reference_code: null, criteria_json: { wishlists: [wish], logical_modes: ['CARRO'] }, budget_cents: null }
   ];
-  const handler = loadWith('api/panel/actions.js', {
-    '../../panel-server': { ...realServer, requirePanel: panelCtx, supabase: async (_u, _k, _p, options) => { stored.push(...JSON.parse(options.body).p_matches); return { uploadId: uuid(99), matchedVehicleCount: stored.length, leadCount: 1 }; } },
-    '../../panel-buscas': { ...require('../panel-buscas'), loadBuscasBase: async () => require('../panel-buscas').buildBuscasBase({ journeys }) }
-  });
-  const vehicle = { headers: ['Year', 'Model'], raw: { Year: '2020', Model: 'X5' }, parsed: { year: 2020, make: 'BMW', model: 'X5', miles: 30000, mmrCents: 3500000, vin: 'VIN1' } };
-  const body = { action: 'manheim_upload_part', uploadId: null, partIndex: 1, partCount: 1, sourceFileCount: 1, vehicleCount: 1, headers: [['Year', 'Model']], headerMap: {},
-    matches: [...[1, 2, 3].map((n) => ({ journeyId: uuid(n), mode: 'CARRO', kind: 'BATE', fingerprint: 'vin:VIN1', vehicle })), { journeyId: uuid(1), mode: 'VALOR', kind: 'POR_VALOR', fingerprint: 'vin:VIN1', vehicle }, { journeyId: uuid(1), kind: 'BATE', fingerprint: 'vin:VIN1', vehicle }] };
-  const res = response();
-  await handler({ method: 'POST', headers: {}, body }, res);
-  assert.equal(res.code, 201, JSON.stringify(res.payload));
-  assert.equal(stored.length, 1);
-  assert.deepEqual([stored[0].journeyId, stored[0].mode], [uuid(1), 'CARRO']);
-  assert.deepEqual(res.payload.discarded, { total: 4, reasons: { CRITERIA_CHANGED: 2, JOURNEY_DISABLED: 1, MODE_MISSING: 1 } });
-  // The browser always reads fresh criteria at the start of each import.
-  assert.match(read('painel/painel.js'), /const fresh = await request\('\/api\/panel\/records\?view=manheim'\);/);
+  const base = require('../panel-buscas').buildBuscasBase({ journeys, messages: [], messageLinks: [] });
+  // Every ficha "entered" (the rule of who is shown is tested elsewhere).
+  base.contact.facts = () => ({ entered: true });
+  const batch = require('../panel-manheim-batch');
+  const targets = batch.snapshotTargets(require('../panel-buscas-view').demandContext(base).targets);
+  assert.deepEqual(targets.map((target) => target.key), [`journey:${uuid(1)}:CARRO`, `journey:${uuid(2)}:CARRO`]);
+  const entry = batch.sanitizeVehicle({ fingerprint: 'vin:VIN1', vehicle: { year: 2020, make: 'BMW', model: 'X5', miles: 30000, mmrCents: 3500000, vin: 'VIN1' } });
+  const matches = batch.matchChunk([entry], targets);
+  assert.deepEqual(matches.map((match) => [match.journeyId, match.mode, match.kind]), [[uuid(1), 'CARRO', 'BATE']]);
+  // A ficha closed or switched off while the blocks are being sent is discarded and counted by the
+  // database, without failing the block.
+  const sql = read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql');
+  assert.match(sql, /'discarded', v_requested - v_valid/);
+  assert.match(sql, /j\.status <> 'ENCERRADO'/);
+  // The browser never compares cars itself anymore: it starts the batch and sends the blocks.
+  assert.match(read('painel/painel.js'), /await request\('\/api\/panel\/manheim-batch'\)/);
+  assert.doesNotMatch(read('painel/painel.js'), /MCSManheimUpload\.buildMatches\(/);
 });
 
 // ---------------------------------------------------------------- C2: Quais buscas salvar
@@ -335,7 +338,9 @@ test('C5/A24/A14/A20: sessão, atualização automática, await e responder pelo
   assert.equal((routeSession.match(/clearSession\(\)/g) || []).length, 1, 'só a checagem de sessão pode deslogar');
   assert.match(routeSession, /\['AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED'\]\.includes/);
   assert.doesNotMatch(panel, /catch \(_\) \{ clearInterval\(refreshTimer\); \}/);
-  assert.match(panel, /if \(refreshing \|\| operatorIsTyping\(\)\) return;/);
+  // One refresh at a time (the scheduler), never while the operator is typing.
+  assert.match(panel, /isBusy: operatorIsTyping/);
+  assert.match(panel, /MCSRefresh\.createScheduler\(/);
   const actions = read('api/panel/actions.js');
   assert.doesNotMatch(actions.slice(actions.indexOf('module.exports = async')), /return action[A-Za-z]+\(/);
   const entry = read('api/panel/entry.js');

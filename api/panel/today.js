@@ -1,11 +1,10 @@
 'use strict';
 
-const { activeFilter } = require('../../panel-manheim-state');
 const { buildTodayItems, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, standardBudget, time } = require('../../panel-domain');
 const { dispositionIndex, refKey } = require('../../panel-disposition');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
-const { score } = require('../../panel-ready');
+const { score, loadScoreIndex } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
@@ -24,9 +23,9 @@ module.exports = async (req, res) => {
   try {
     const now = Date.now();
     const cutoff = now - 24 * 60 * 60 * 1000;
-    // An undone Manheim import batch never feeds HOJE.
-    const activeBatch = await activeFilter(ctx, { allRows });
-    const [data, calcRuns, links, dispositions, meta, responses, archive, leadPromises, recentMatches, aiItems, aiSuggestions, pendingInsights] = await Promise.all([
+    // HOJE never reads Manheim cars: the score gets one reference MMR per person from the database
+    // (live batches only; an undone or unfinished batch never feeds HOJE).
+    const [data, calcRuns, links, dispositions, meta, responses, vehicles, leadPromises, aiItems, aiSuggestions, pendingInsights] = await Promise.all([
       operational(ctx),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
@@ -34,9 +33,8 @@ module.exports = async (req, res) => {
       panelMeta(ctx),
       // A12: "quero este carro" stays until it is handled, not only for 24 hours (30 days at most).
       allRows(ctx, 'lead_events', { select: 'ref_code,journey_id,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(now - 30 * 86400000).toISOString() }),
-      allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(now - 60 * 86400000).toISOString(), ...activeBatch }),
+      loadScoreIndex(ctx, now).catch(() => []),
       allRows(ctx, 'lead_promises', { select: 'ref_code,journey_id,promise_text,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
-      allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + new Date(now - 60 * 86400000).toISOString(), ...activeBatch }),
       allRows(ctx, 'conversation_ai_items', { select: 'journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' }),
       allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' })
       ,allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment })
@@ -68,10 +66,6 @@ module.exports = async (req, res) => {
       if(['simulacao','busca'].includes(String(data.evento||'').toLowerCase()))
         firstSimulation.set(ref,Math.min(firstSimulation.get(ref)||Infinity,stamp));
     }
-    const uniqueVehicles=new Map();
-    archive.forEach((entry)=>uniqueVehicles.set(entry.row_fingerprint,entry.vehicle_json));
-    recentMatches.forEach((entry)=>{if(entry.vehicle_json?.parsed&&!uniqueVehicles.has(entry.row_fingerprint))uniqueVehicles.set(entry.row_fingerprint,entry.vehicle_json.parsed);});
-    const vehicles=[...uniqueVehicles.values()];
 
     const journeyMap = new Map(data.journeys.map((item) => [item.id, item]));
     const journeyByRef = new Map(data.journeys.filter((item) => item.reference_code).map((item) => [String(item.reference_code).trim().toUpperCase(), item]));

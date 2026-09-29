@@ -142,7 +142,7 @@ test('HOJE includes a wanted car after the order was treated',async()=>{
   const now=new Date().toISOString(),order={ref:'ABC23',key:'ABC23',pending:false,disposition:'TREATED',dispositionUpdatedAt:'2020-01-02T00:00:00Z',occurredAt:'2020-01-01T00:00:00Z',simulations:[{occurredAt:'2020-01-01T00:00:00Z'}],budgetCents:2500000};
   const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?[order]:table==='lead_events'?[{ref_code:'ABC23',occurred_at:now}]:[],panelMeta:async()=>({})});
   const handler=loadWith('api/panel/today.js',{'../../panel-manheim-state':manheimState,'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:(runs)=>runs,groupCalculatorByRef:(runs)=>runs,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[],effectiveCriteria:(journey,item)=>({bidCents:item?.budgetCents||null})},
-    '../../panel-read-model':{operational:async()=>({journeys:[],messages:[],checklist:[],promises:[]})},'../../panel-ready':{score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
+    '../../panel-read-model':{operational:async()=>({journeys:[],messages:[],checklist:[],promises:[]})},'../../panel-ready':{loadScoreIndex:async()=>[],score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
   const res=output();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.payload.items.length,1);assert.equal(res.payload.items[0].disposition,'TREATED');assert.equal(res.payload.items[0].wantsCar,true);
 });
 
@@ -153,7 +153,7 @@ test('HOJE includes an old linked order when a disabled lead writes again',async
   const message={journey_id:journeyId,direction:'CUSTOMER',occurred_at_utc:now};
   const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?[order]:[],panelMeta:async()=>({})});
   const handler=loadWith('api/panel/today.js',{'../../panel-manheim-state':manheimState,'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:(runs)=>runs,groupCalculatorByRef:(runs)=>runs,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[],effectiveCriteria:(journey,item)=>({bidCents:item?.budgetCents||null})},
-    '../../panel-read-model':{operational:async()=>({journeys:[journey],refs:[],messages:[message],checklist:[],promises:[]})},'../../panel-ready':{score:()=>({score:null,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
+    '../../panel-read-model':{operational:async()=>({journeys:[journey],refs:[],messages:[message],checklist:[],promises:[]})},'../../panel-ready':{loadScoreIndex:async()=>[],score:()=>({score:null,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
   const res=output();await handler({method:'GET',query:{}},res);
   assert.equal(res.code,200);assert.equal(res.payload.items.length,1);assert.equal(res.payload.items[0].returnedToTalk,true);assert.equal(res.payload.items[0].disposition,'DISCARDED');
 });
@@ -184,13 +184,18 @@ test('presenting a unit twice uses the existing VIN identity',async()=>{
 });
 
 test('archive skips invalid rows and reports ignored count',async()=>{
-  const valid={fingerprint:'vin:OK',vehicle:{vin:'OK',year:2020,make:'BMW',model:'X5',miles:65000}};
-  let archive=[];const server=mockServer({rows:async()=>[{id:journeyId}],supabase:async(_url,_key,_path,options)=>{archive=JSON.parse(options.body);return[];}});
-  const handler=loadWith('api/panel/actions.js',{'../../panel-manheim-state':manheimState,'../../panel-server':server});
-  // R3e: a car without odometer is archived with unknown mileage (null), never dropped nor 0.
+  // The cars of a batch are stored by the block of the single batch (manheim-batch); the old archive
+  // action answers as replaced. R3e: a car without odometer keeps unknown mileage (null), never 0.
+  const batch=require('../panel-manheim-batch');
+  const valid={fingerprint:'vin:OK',vehicle:{vin:'OK',year:2020,make:'BMW',model:'X5',miles:65000,mmrCents:4000000}};
   const noOdometer={fingerprint:'vin:TMU',vehicle:{vin:'TMU',year:2020,model:'X5'}};
-  const res=output();await handler({method:'POST',body:{action:'manheim_archive',uploadId:journeyId,vehicles:[valid,noOdometer,{fingerprint:'bad',vehicle:{model:'X5',miles:1000}}]}},res);
-  assert.equal(res.code,200);assert.deepEqual([res.payload.archived,res.payload.ignored],[2,1]);assert.equal(archive.length,2);assert.equal(archive[1].vehicle_json.miles,null);
+  const entries=[valid,noOdometer,{fingerprint:'bad',vehicle:{model:'X5',miles:1000}}].map(batch.sanitizeVehicle);
+  assert.deepEqual(entries.map((entry)=>Boolean(entry)),[true,true,false]);
+  assert.equal(entries[1].vehicle.miles,null);
+  const server=mockServer({rows:async()=>[{id:journeyId}],supabase:async()=>[]});
+  const handler=loadWith('api/panel/actions.js',{'../../panel-manheim-state':manheimState,'../../panel-server':server});
+  const res=output();await handler({method:'POST',body:{action:'manheim_archive',uploadId:journeyId,vehicles:[valid]}},res);
+  assert.equal(res.code,410);assert.equal(res.payload.error,'MANHEIM_FLOW_REPLACED');
 });
 
 test('manual return date reaches delegated action as customer-zone UTC',async()=>{
@@ -241,6 +246,6 @@ test('a WhatsApp click counts while the webhook has never received an inbound me
   const journey={id:journeyId,reference_code:'ABC23',source:'CALCULATOR',created_at:now,contact:{display_name:'Cliente'}};
   const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?runs:[],panelMeta:async()=>({})});
   const handler=loadWith('api/panel/today.js',{'../../panel-manheim-state':manheimState,'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:()=>[order],groupCalculatorByRef:(rows)=>rows,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[],effectiveCriteria:(journey,item)=>({bidCents:item?.budgetCents||null})},
-    '../../panel-read-model':{operational:async()=>({journeys:[journey],messages:[],checklist:[],promises:[]})},'../../panel-ready':{score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
+    '../../panel-read-model':{operational:async()=>({journeys:[journey],messages:[],checklist:[],promises:[]})},'../../panel-ready':{loadScoreIndex:async()=>[],score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
   const res=output();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.payload.items.length,1);
 });

@@ -6,6 +6,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-conferencia.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { asSummary, optionsPage, openAllOptions } = require('./fixtures/buscas-simulado');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 const SHOTS = process.env.VISUAL_SHOTS || '';
@@ -54,7 +55,8 @@ async function open(page, width, audit) {
     const json = (payload, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
     if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
-    if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') return json(manheimData(audit));
+    if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') return json(asSummary(manheimData(audit)));
+    if (url.pathname === '/api/panel/manheim-options') return json(optionsPage(manheimData(audit), url));
     if (url.pathname === '/api/panel/manheim-audit') { posts.push(body); return json({ processed: 1 }); }
     if (url.pathname === '/api/panel/vitrines') { posts.push({ vitrine: body }); return json({ error: 'MANHEIM_AUDIT_PENDING' }, 409); }
     return json({ items: [], orders: [], matches: [], groups: [], chats: [], reviews: [], requests: [], review: [], countsByMode: {}, meta: {} });
@@ -62,6 +64,8 @@ async function open(page, width, audit) {
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   await expect(page.locator('#buscas-valor .manheim-lead').first()).toBeVisible({ timeout: 30000 });
+  // The options of a demand are loaded when the operator opens it.
+  await openAllOptions(page);
   return posts;
 }
 const card = (page, side, text) => page.locator(`#buscas-${side} .manheim-lead`, { hasText: text });

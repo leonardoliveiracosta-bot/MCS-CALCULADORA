@@ -1,14 +1,13 @@
 'use strict';
 
 const {
-  clientOkPatch, confirmedJourneyModes, journeyDemands, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimDemand,
-  mergeWishlists, modeVehicleText, modeWishText, SEARCH_MODES, normalizeWishlist, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
+  clientOkPatch, confirmedJourneyModes, journeyDemands, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled,
+  mergeWishlists, modeVehicleText, modeWishText, SEARCH_MODES, normalizeWishlist, nextStageForUnits, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
-const { loadBuscasBase } = require('../../panel-buscas');
 const manheimAi = require('../../panel-manheim-ai');
 const vehicleMatchRule = require('../../vehicle-match');
-const { activeFilter, undoSupported } = require('../../panel-manheim-state');
+const { activeFilter, matchIsLive, undoSupported } = require('../../panel-manheim-state');
 const { dispositionIndex } = require('../../panel-disposition');
 const vehicleCatalog = require('../../vehicle-catalog');
 const { parseMoneyCents } = require('../../money-text');
@@ -444,11 +443,12 @@ async function actionUnit(ctx, journey, body) {
       if (!isUuid(body.manheimMatchId)) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_ID_INVALID' });
       // A match of an undone import batch is never presented.
       const matches = await rows(ctx, 'manheim_matches', {
-        select: 'id,vehicle_json,presented_unit_id', environment: 'eq.' + ctx.environment,
+        select: 'id,upload_id,undone_at,vehicle_json,presented_unit_id', environment: 'eq.' + ctx.environment,
         journey_id: 'eq.' + journey.id, id: 'eq.' + body.manheimMatchId, ...(await activeFilter(ctx, { rows })), limit: '1'
       });
       match = matches[0];
-      if (!match) return send(ctx.res, 404, { error: 'MANHEIM_MATCH_NOT_FOUND' });
+      // ...and never one of a batch still being assembled.
+      if (!match || !(await matchIsLive(ctx, match, { rows }))) return send(ctx.res, 404, { error: 'MANHEIM_MATCH_NOT_FOUND' });
       if (match.presented_unit_id) return send(ctx.res, 200, { unitId: match.presented_unit_id, status: 'PRESENTED', stage: journey.stage, repeated: true });
       const parsed = match.vehicle_json && match.vehicle_json.parsed || {};
       // MMR is mandatory: a car without a valid MMR is never presented as an option.
@@ -550,105 +550,6 @@ async function actionReturn(ctx, journey, body) {
     before: { status: found[0].status }, after: { status }
   });
   return send(ctx.res, 200, { status });
-}
-
-function safeManheimVehicle(value) {
-  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  const parsedSource = source.parsed && typeof source.parsed === 'object' && !Array.isArray(source.parsed) ? source.parsed : {};
-  const headers = Array.isArray(source.headers) ? source.headers.map((entry) => safeText(entry, 160, true)).filter(Boolean).slice(0, 100) : [];
-  const rawSource = source.raw && typeof source.raw === 'object' && !Array.isArray(source.raw) ? source.raw : {};
-  const raw = {};
-  for (const header of headers) raw[header] = safeText(rawSource[header], 1000) || '';
-  const parsed = {
-    vin: safeText(parsedSource.vin, 40) || '',
-    year: finiteInteger(parsedSource.year), make: safeText(parsedSource.make, 80) || '', model: safeText(parsedSource.model, 120, true),
-    trim: safeText(parsedSource.trim, 120) || '', miles: finiteInteger(parsedSource.miles),
-    location: safeText(parsedSource.location, 200) || '', saleDate: safeText(parsedSource.saleDate, 100) || '',
-    locationDisplay: safeText(parsedSource.locationDisplay, 200) || '', mmrCents: finiteInteger(parsedSource.mmrCents),
-    makeNotice: safeText(parsedSource.makeNotice, 160) || '', makeInferred: parsedSource.makeInferred === true,
-    exteriorColor: safeText(parsedSource.exteriorColor, 120) || '', interiorColor: safeText(parsedSource.interiorColor, 120) || '',
-    buyNowPrice: safeText(parsedSource.buyNowPrice, 120) || '', conditionGrade: safeText(parsedSource.conditionGrade, 120) || '', startsAt:safeText(parsedSource.startsAt,100)||safeText(parsedSource.saleDate,100)||'', endsAt:safeText(parsedSource.endsAt,100)||'', drivetrain:safeText(parsedSource.drivetrain,80)||'', transmission:safeText(parsedSource.transmission,80)||'', engine:safeText(parsedSource.engine,120)||'', cleanTitle:parsedSource.cleanTitle===true, odometerOk:parsedSource.odometerOk===true
-  };
-  // Unknown odometer stays null (R3e); it is never turned into 0 miles.
-  if (!headers.length || !parsed.year || !parsed.model || (parsed.miles !== null && parsed.miles < 0)) return null;
-  if (parsed.makeInferred) {
-    const inferred = vehicleCatalog.inferMake(parsed.model);
-    parsed.make = inferred.make;
-    parsed.makeNotice = inferred.make ? '' : 'marca não informada no arquivo';
-  }
-  parsed.locationDisplay = vehicleCatalog.readableLocation(parsed.location);
-  // OpenAI metadata of a row that needed it (never the prompt): provider, model, what it
-  // suggested and whether the deterministic parser accepted it.
-  const ai = source.ai && typeof source.ai === 'object' && !Array.isArray(source.ai) ? source.ai : null;
-  if (ai && ai.used === true) parsed.ai = { used: true, provider: 'openai', model: safeText(ai.model, 80) || '', result: ai.result === 'VALIDATED' ? 'VALIDATED' : 'REVIEW', fields: Array.isArray(ai.fields) ? ai.fields.map((field) => safeText(field, 20)).filter(Boolean).slice(0, 8) : [], suggestion: ai.suggestion && typeof ai.suggestion === 'object' ? Object.fromEntries(Object.entries(ai.suggestion).slice(0, 8).map(([key, value]) => [safeText(key, 20) || 'x', safeText(value, 120) || ''])) : null };
-  const output = { headers, raw, parsed };
-  return Buffer.byteLength(JSON.stringify(output), 'utf8') <= 65536 ? output : null;
-}
-
-function manheimUploadHeader(body) {
-  const fileCount = Number(body.sourceFileCount);
-  const vehicleCount = Number(body.vehicleCount);
-  const headers = Array.isArray(body.headers) ? body.headers.map((group) => Array.isArray(group) ? group.map((entry) => safeText(entry, 160, true)).filter(Boolean).slice(0, 100) : []).filter((group) => group.length).slice(0, 20) : [];
-  const headerMap = body.headerMap && typeof body.headerMap === 'object' && !Array.isArray(body.headerMap) ? body.headerMap : {};
-  const valid = Number.isInteger(fileCount) && fileCount >= 1 && fileCount <= 20 && Number.isInteger(vehicleCount) && vehicleCount >= 0 && vehicleCount <= 100000 && headers.length > 0;
-  return valid ? { fileCount, vehicleCount, headers, headerMap } : null;
-}
-
-// Revalidates every requested match against today's demands with the same rule per mode the
-// browser uses (vehicle-match.js). Each match names its mode; a CARRO match is checked only with
-// the CARRO criteria and a VALOR match only with the VALOR bid. A match that is no longer valid
-// (criteria changed, ficha closed or switched off, Ref now linked to a ficha, mode without a
-// demand) is dropped and counted instead of failing the whole upload (A19).
-async function validateManheimMatches(ctx, requested) {
-  const base = await loadBuscasBase(ctx, { allRows });
-  const demandsByKey = new Map();
-  base.demands.byJourney.forEach((list) => list.forEach((demand) => demandsByKey.set(demand.key, demand)));
-  base.demands.orders.forEach((demand) => demandsByKey.set(demand.key, demand));
-  const orderByRef = new Map(base.grouped.filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
-  const matches = [];
-  const orderMatches = [];
-  const discarded = { total: 0, reasons: {} };
-  const discard = (reason) => { discarded.total += 1; discarded.reasons[reason] = (discarded.reasons[reason] || 0) + 1; };
-  const annotate = (vehicle, result) => {
-    vehicle.parsed.matchedWishlistIndex = result.matchedWishlistIndex;
-    vehicle.parsed.matchedWishlistLabel = result.matchedWishlistLabel;
-    vehicle.parsed.makeNotice = result.makeNotice || vehicle.parsed.makeNotice;
-    vehicle.parsed.matchNotice = result.notice || '';
-    vehicle.parsed.matchBasis = result.basis;
-    vehicle.parsed.dataGap = result.dataGap === true;
-  };
-  const judge = (demand, vehicle) => demand && demand.active ? matchManheimDemand(vehicle.parsed, { ...demand, wishes: demand.activeWishes }) : null;
-  for (const item of requested) {
-    const vehicle = safeManheimVehicle(item && item.vehicle);
-    const fingerprint = safeText(item && item.fingerprint, 200, true);
-    const mode = String(item && item.mode || '').toUpperCase();
-    if (!vehicle || !fingerprint) { discard('INVALID_ROW'); continue; }
-    if (!SEARCH_MODES.includes(mode)) { discard('MODE_MISSING'); continue; }
-    if (item && item.targetType === 'ORDER') {
-      const ref = String(item.calcRef || '').trim().toUpperCase();
-      if (!orderByRef.has(ref)) { discard('ORDER_UNAVAILABLE'); continue; }
-      if (base.demands.owner.has(ref) || orderByRef.get(ref).journeyId) { discard('REF_LINKED_TO_FICHA'); continue; }
-      const result = judge(demandsByKey.get(`ref:${ref}:${mode}`), vehicle);
-      if (!result) { discard('CRITERIA_CHANGED'); continue; }
-      annotate(vehicle, result);
-      orderMatches.push({ calcRef: ref, mode, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
-      continue;
-    }
-    if (!isUuid(item && item.journeyId)) { discard('INVALID_ROW'); continue; }
-    const journey = base.journeyById.get(item.journeyId);
-    if (!journey) { discard('JOURNEY_UNAVAILABLE'); continue; }
-    const result = judge(demandsByKey.get(`journey:${journey.id}:${mode}`), vehicle);
-    if (!result) { discard('CRITERIA_CHANGED'); continue; }
-    if (base.journeyDisposition(journey)?.status === 'DISCARDED') { discard('JOURNEY_DISCARDED'); continue; }
-    if (journey.status === 'ENCERRADO' || (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE'))) { discard('JOURNEY_DISABLED'); continue; }
-    if (journey.status === 'PARADO' && result.kind !== 'BATE') { discard('JOURNEY_DISABLED'); continue; }
-    annotate(vehicle, result);
-    matches.push({ journeyId: journey.id, mode, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
-  }
-  return { discarded, matches: matches.concat(orderMatches.map((item) => ({
-    targetType: 'ORDER', calcRef: item.calcRef, mode: item.mode, kind: item.kind, reason: item.reason,
-    mmrStatus: item.mmrStatus, fingerprint: item.fingerprint, vehicle: item.vehicle
-  }))) };
 }
 
 // OpenAI for ambiguous CSV rows only (server side; the key never reaches the browser). When it
@@ -765,76 +666,10 @@ async function actionAssignManualMode(ctx, journey, body) {
   return send(ctx.res, 200, { journeyId: journey.id, mode });
 }
 
-function storeManheimUpload(ctx, header, matches) {
-  return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
-      p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_source_file_count: header.fileCount,
-      p_vehicle_count: header.vehicleCount, p_headers: header.headers, p_header_map: header.headerMap, p_matches: matches
-    })
-  });
-}
-
-
-const MANHEIM_PART_ITEMS = 250;
-const MANHEIM_MAX_PARTS = 400;
-
-// One part of a chunked Manheim upload. The upload becomes the latest one only when its last part is stored.
-async function actionManheimUploadPart(ctx, body) {
-  const header = manheimUploadHeader(body);
-  const partIndex = Number(body.partIndex);
-  const partCount = Number(body.partCount);
-  const uploadId = body.uploadId === null || body.uploadId === undefined || body.uploadId === '' ? null : body.uploadId;
-  const requested = Array.isArray(body.matches) ? body.matches : null;
-  if (!header || !requested || requested.length > MANHEIM_PART_ITEMS || !Number.isInteger(partCount) || partCount < 1 || partCount > MANHEIM_MAX_PARTS
-      || !Number.isInteger(partIndex) || partIndex < 1 || partIndex > partCount || (uploadId !== null && !isUuid(uploadId))
-      || (uploadId === null && partIndex !== 1)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
-  const validated = await validateManheimMatches(ctx, requested);
-  // A single part is already atomic: keep using the original RPC.
-  if (partCount === 1) return send(ctx.res, 201, { ...await storeManheimUpload(ctx, header, validated.matches), complete: true, partIndex: 1, partCount: 1, discarded: validated.discarded });
-  let result;
-  try {
-    result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_store_manheim_upload_part', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
-        p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: uploadId, p_part_index: partIndex, p_part_count: partCount,
-        p_source_file_count: header.fileCount, p_vehicle_count: header.vehicleCount, p_headers: header.headers,
-        p_header_map: header.headerMap, p_matches: validated.matches
-      })
-    });
-  } catch (failure) {
-    // PostgREST answers 404 when the RPC does not exist yet (migration not applied).
-    if (failure && failure.status === 404) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
-    throw failure;
-  }
-  return send(ctx.res, result && result.complete ? 201 : 202, { ...result, discarded: validated.discarded });
-}
-
-async function actionManheimArchive(ctx, body) {
-  if (!isUuid(body.uploadId) || !Array.isArray(body.vehicles) || body.vehicles.length > 100) return send(ctx.res, 400, { error: 'MANHEIM_ARCHIVE_INVALID' });
-  const upload = await rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId, ...(await activeFilter(ctx, { rows })), limit: '1' });
-  if (!upload[0]) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
-  const at = isoNow();
-  const vehicles = body.vehicles.map((item) => {
-    const parsed = item && item.vehicle || {};
-    const fingerprint = safeText(item && item.fingerprint, 200, true);
-    if (!fingerprint || !safeText(parsed.model, 120, true) || !finiteInteger(parsed.year) || (finiteInteger(parsed.miles) !== null && finiteInteger(parsed.miles) < 0)) return null;
-    return {
-      environment: ctx.environment, upload_id: upload[0].id, row_fingerprint: fingerprint,
-      vehicle_json: {
-        vin: safeText(parsed.vin, 40) || '', year: finiteInteger(parsed.year), make: safeText(parsed.make, 80) || '',
-        model: safeText(parsed.model, 120), trim: safeText(parsed.trim, 120) || '', miles: finiteInteger(parsed.miles),
-        location: safeText(parsed.location, 200) || '', locationDisplay: safeText(parsed.locationDisplay, 200) || '',
-        saleDate: safeText(parsed.saleDate, 100) || '', startsAt: safeText(parsed.startsAt, 100) || safeText(parsed.saleDate,100) || '', endsAt: safeText(parsed.endsAt,100) || '',
-        mmrCents: finiteInteger(parsed.mmrCents), exteriorColor:safeText(parsed.exteriorColor,80)||'', interiorColor:safeText(parsed.interiorColor,80)||'', drivetrain:safeText(parsed.drivetrain,80)||'', transmission:safeText(parsed.transmission,80)||'', engine:safeText(parsed.engine,120)||'', cleanTitle:parsed.cleanTitle===true,odometerOk:parsed.odometerOk===true
-      }, uploaded_at: at
-    };
-  });
-  const valid = vehicles.filter(Boolean);
-  if (valid.length) await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/manheim_vehicles?on_conflict=environment,upload_id,row_fingerprint', {
-    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(valid)
-  });
-  return send(ctx.res, 200, { archived: valid.length, ignored: vehicles.length - valid.length });
-}
-
+// The old import in parts (manheim_upload_part) and the separate car archive (manheim_archive)
+// were replaced by the single batch in blocks (api/panel/manheim-batch.js): the old path read the
+// whole panel base again for every part. An old tab that still calls them gets a clear answer.
+const RETIRED_MANHEIM_ACTIONS = new Set(['manheim_upload_part', 'manheim_archive']);
 
 async function personDispositionKeys(ctx, itemKind, itemKey) {
   const ref = itemKind === 'REF' ? itemKey.toUpperCase() : null;
@@ -918,8 +753,7 @@ module.exports = async (req, res) => {
   ctx.res = res;
   try {
     const body = await jsonBody(req, 2 * 1024 * 1024);
-    if (body.action === 'manheim_upload_part') return await actionManheimUploadPart(ctx, body);
-    if (body.action === 'manheim_archive') return await actionManheimArchive(ctx, body);
+    if (RETIRED_MANHEIM_ACTIONS.has(body.action)) return send(ctx.res, 410, { error: 'MANHEIM_FLOW_REPLACED' });
     if (body.action === 'manheim_undo') return await actionManheimUndo(ctx, body);
     if (body.action === 'manheim_ai_rows') return await actionManheimAiRows(ctx, body);
     if (body.action === 'manheim_ai_summary') return await actionManheimAiSummary(ctx, body);

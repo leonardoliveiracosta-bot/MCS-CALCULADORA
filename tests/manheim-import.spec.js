@@ -1,137 +1,121 @@
 'use strict';
 
-// Imports a Manheim CSV through the real panel with /api/** simulated.
-// Run: PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-import.spec.js
-// By default it uses the synthetic 911 export; MANHEIM_CSV=/path/to/Export.csv uses a local file (never commit real CSVs).
+// Importação do Manheim em lote único no navegador real, com os handlers reais do painel
+// (api/panel/*.js) contra um banco PGlite com todas as migrações. 19 CSVs sintéticos (~70 mil
+// linhas) escolhidos juntos; a rede cai num bloco do arquivo 13; o operador escolhe os mesmos
+// arquivos de novo e o envio continua de onde parou; o lote ativa inteiro de uma vez; BUSCAS abre
+// sem carros e mostra as opções 10 por vez. Nada sai da máquina.
+// Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-import.spec.js
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { porsche911Csv, porscheCustomers } = require('./fixtures/manheim-sintetico');
-const { buildSearchDemands, consolidateCalcRuns, groupCalculatorByRef, wishlistsForJourney } = require('../panel-domain');
+const { BASE, createBackend } = require('./fixtures/banco-simulado');
+const { volumeFiles, volumeSeed } = require('./fixtures/manheim-volume');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
-// Lets the test use a preinstalled Chromium when the pinned Playwright build is not downloaded.
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
+const SHOTS = process.env.LOTE_SHOTS || '';
+const ACTOR = '6e400000-0000-4000-8000-000000000001';
+test.setTimeout(420000);
+test.describe.configure({ mode: 'serial' });
 
-function csvFile() {
-  if (process.env.MANHEIM_CSV) return process.env.MANHEIM_CSV;
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'manheim-')), 'Export_sintetico.csv');
-  fs.writeFileSync(file, porsche911Csv());
-  return file;
+let backend, handlers, files;
+test.beforeAll(async () => {
+  backend = await createBackend({ seed: volumeSeed(ACTOR) });
+  Object.assign(process.env, { VERCEL_ENV: 'preview', SUPABASE_URL: BASE, SUPABASE_PUBLISHABLE_KEY: 'publica-simulada', SUPABASE_SECRET_KEY: 'secreta-simulada' });
+  for (const key of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'MANHEIM_OPENAI_ENABLED', 'MANHEIM_MATCH_AUDIT_ENABLED', 'ENTRADA_OPENAI_ENABLED', 'AUTO_REPLY_ENABLED']) delete process.env[key];
+  globalThis.fetch = backend.fetch;
+  require('../panel-manheim-state').resetUndoSupport();
+  handlers = Object.fromEntries(['session', 'records', 'today', 'entry', 'searches', 'manheim-batch', 'manheim-options', 'manheim-searches', 'vitrine-requests', 'triage', 'actions', 'capture', 'automatic-messages', 'weekly', 'orders', 'pendencias', 'whatsapp'].map((name) => ['/api/panel/' + name, require('../api/panel/' + name)]));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lote-unico-'));
+  files = volumeFiles().files.map((file) => { const target = path.join(dir, file.name); fs.writeFileSync(target, file.text); return target; });
+});
+test.afterAll(async () => { if (backend) await backend.db.close(); });
+
+async function run(handler, request) {
+  const url = new URL(request.url());
+  const res = { statusCode: 200, payload: null, setHeader() {}, status(code) { this.statusCode = code; return this; }, json(value) { this.payload = value; return value; }, end() { return null; } };
+  const req = { method: request.method(), url: url.pathname + url.search, headers: { authorization: 'Bearer token-simulado' }, query: Object.fromEntries(url.searchParams), body: request.postData() ? JSON.parse(request.postData()) : undefined };
+  await handler(req, res);
+  return res;
 }
 
-function customers() {
-  const { journeys, calcRuns } = porscheCustomers();
-  return {
-    items: journeys.map((journey, index) => ({
-      ...journey, reference_code: null, enabled: true, contact: { display_name: `Cliente Ficticio ${index + 1}` }, phones: [],
-      wishlist: wishlistsForJourney(journey)[0], wishlists: wishlistsForJourney(journey)
-    })),
-    orders: groupCalculatorByRef(consolidateCalcRuns(calcRuns, []), []).map((order, index) => ({ ...order, contactName: `Pedido Ficticio ${index + 1}` })),
-    // The same per-mode targets the server sends (records?view=manheim).
-    targets: (() => { const built = buildSearchDemands({ journeys, refs: [], modeItems: consolidateCalcRuns(calcRuns, []) }); return [...[...built.byJourney.values()].flat(), ...built.orders].filter((demand) => demand.active).map((demand) => ({ key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId, ref: demand.ref, wishes: demand.activeWishes, bidCents: demand.bidCents })); })()
-  };
-}
-
-test('CSV do Manheim com milhares de combinações importa inteiro, em partes, sem abrir dialog', async ({ page }) => {
-  test.setTimeout(180000);
-  const { items, orders, targets } = customers();
-  const server = { parts: [], uploads: [], archived: 0, draft: null };
-  const errors = [];
-  page.on('pageerror', (failure) => errors.push(failure.message));
-  let dialogs = 0;
-  page.on('dialog', async (dialog) => { dialogs += 1; await dialog.dismiss(); });
-
-  await page.addInitScript(() => {
-    localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-teste', refreshToken: 'refresh-teste', accessExpiresAt: Date.now() + 3600000 }));
-    window.__dialogsCreated = 0;
-    new MutationObserver((records) => records.forEach((record) => record.addedNodes.forEach((node) => { if (node.nodeName === 'DIALOG') window.__dialogsCreated += 1; })))
-      .observe(document, { childList: true, subtree: true });
+async function openPanel(page, width, log, options = {}) {
+  await page.setViewportSize({ width, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-simulado', refreshToken: 'refresh', accessExpiresAt: Date.now() + 3600000 })));
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (!url.href.startsWith(base)) return route.abort();
+    if (!url.pathname.startsWith('/api/')) return route.continue();
+    const body = request.postData() ? JSON.parse(request.postData()) : null;
+    const key = body && body.action === 'chunk' ? `${body.fileIndex}:${body.chunkIndex}` : body && body.action;
+    log.push({ path: url.pathname, key });
+    if (options.dropChunk && options.dropChunk(key)) return route.abort('failed');
+    const json = (payload, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
+    if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-simulada' });
+    if (handlers[url.pathname]) { const res = await run(handlers[url.pathname], request); return json(res.payload, res.statusCode); }
+    return json({ items: [], orders: [], groups: [], chats: [], reviews: [], requests: [], review: [], meta: {} });
   });
-
-  await page.route('**/api/**', async (route) => {
-    const url = new URL(route.request().url());
-    const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-    if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
-    if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
-    if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') {
-      const latest = server.uploads.at(-1) || null;
-      return json({ items, orders, targets, matches: latest ? latest.matches : [], upload: latest && latest.summary, meta: {} });
-    }
-    if (url.pathname === '/api/panel/actions' && route.request().method() === 'POST') {
-      const raw = route.request().postData() || '';
-      const body = JSON.parse(raw);
-      if (body.action === 'manheim_upload_part') {
-        const bytes = Buffer.byteLength(raw, 'utf8');
-        server.parts.push({ index: body.partIndex, count: body.partCount, items: body.matches.length, bytes, uploadId: body.uploadId });
-        if (bytes >= 1500000 || body.matches.length > 250) return json({ error: 'MANHEIM_UPLOAD_INVALID' }, 400);
-        if (body.partIndex === 1 && !body.uploadId) server.draft = { id: '5a000000-0000-4000-8000-00000000000' + (server.uploads.length + 1), matches: [] };
-        if (!server.draft || (body.uploadId && body.uploadId !== server.draft.id)) return json({ error: 'MANHEIM_UPLOAD_NOT_FOUND' }, 400);
-        server.draft.matches.push(...body.matches);
-        if (body.partIndex < body.partCount) return json({ uploadId: server.draft.id, complete: false, partIndex: body.partIndex, partCount: body.partCount }, 202);
-        const matches = server.draft.matches.map((match, index) => ({
-          id: `5b000000-0000-4000-8000-${String(index).padStart(12, '0')}`, journey_id: match.journeyId || null, calc_ref: match.calcRef || null, logical_mode: match.mode,
-          match_kind: match.kind, match_reason: match.reason, mmr_status: match.mmrStatus, row_fingerprint: match.fingerprint, vehicle_json: match.vehicle, dataGap: match.dataGap === true
-        }));
-        const leads = new Set(matches.map((match) => match.journey_id || match.calc_ref)).size;
-        server.uploads.push({ id: server.draft.id, matches, summary: { id: server.draft.id, vehicle_count: body.vehicleCount, matched_vehicle_count: matches.length, lead_count: leads, uploaded_at: new Date().toISOString() } });
-        return json({ uploadId: server.draft.id, complete: true, partIndex: body.partIndex, partCount: body.partCount, matchedVehicleCount: matches.length, leadCount: leads }, 201);
-      }
-      if (body.action === 'manheim_archive') {
-        server.archived += body.vehicles.length;
-        return json({ archived: body.vehicles.length, ignored: 0 });
-      }
-      return json({ error: 'PANEL_ACTION_INVALID' }, 400);
-    }
-    return json({ items: [], orders: [], matches: [], groups: [], meta: {} });
-  });
-
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#app-view')).toBeVisible({ timeout: 30000 });
-  const dialogsBefore = await page.evaluate(() => window.__dialogsCreated);
-  await page.locator('#manheim-files').setInputFiles(csvFile());
+  await page.locator('[data-view="searches"]').click();
+  await expect(page.locator('#manheim-summary')).toContainText(/Nenhuma importação ativa|carro\(s\) analisado\(s\)/, { timeout: 60000 });
+}
+
+test('19 arquivos viram um lote; a rede cai no arquivo 13 e o envio continua dos mesmos arquivos', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  const log = [];
+  let dropping = true;
+  await openPanel(page, 1366, log, { dropChunk: (key) => dropping && key === '12:3' });
+  await page.locator('#manheim-files').setInputFiles(files);
+  // Interrupted: nothing is activated; the message says where it stopped and how to continue.
   const status = page.locator('#manheim-status');
-  await expect(status).toContainText('arquivados', { timeout: 150000 });
-  const text = await status.textContent();
-  const kinds = server.uploads[0] ? server.uploads[0].matches.reduce((acc, match) => { const key = match.match_kind + (match.dataGap ? ' (falta de dado)' : ''); acc[key] = (acc[key] || 0) + 1; return acc; }, {}) : {};
-  console.log('Status final:', text, '| partes:', server.parts.length, '| maior parte:', Math.max(...server.parts.map((part) => part.bytes)), 'bytes', '| tipos:', JSON.stringify(kinds));
-
-  await expect(status).not.toHaveClass(/error/);
-  expect(text).toMatch(/^\d+ carros arquivados, \d+ ignorados, \d+ combinações$/);
-  const combinations = Number(/ignorados, (\d+) combinações/.exec(text)[1]);
-  expect(combinations).toBeGreaterThan(2000);
-  expect(server.parts.length).toBeGreaterThan(1);
-  expect(server.parts.every((part) => part.items <= 250 && part.bytes < 1500000)).toBe(true);
-  expect(server.parts[0].uploadId).toBeNull();
-  expect(server.parts.slice(1).every((part) => part.uploadId === server.uploads[0].id)).toBe(true);
-  expect(server.uploads).toHaveLength(1);
-  expect(server.uploads[0].matches).toHaveLength(combinations);
-  expect(dialogs).toBe(0);
-  expect(await page.evaluate(() => window.__dialogsCreated)).toBe(dialogsBefore);
-  expect(await page.locator('dialog[open]').count()).toBe(0);
+  await expect(status).toContainText('Envio interrompido em MCS_VOLUME_13.csv, bloco 4', { timeout: 240000 });
+  await expect(status).toContainText('Selecione os mesmos arquivos de novo para continuar de onde parou');
+  await expect(page.getByRole('button', { name: 'Descartar este envio' })).toBeVisible();
+  await expect(page.locator('#manheim-summary')).toHaveText('Nenhuma importação ativa');
+  if (SHOTS) await page.locator('#searches-panel > section.card').first().screenshot({ path: path.join(SHOTS, 'lote-interrompido-1366.png') });
+  const firstRound = log.filter((entry) => entry.key && /^\d+:\d+$/.test(entry.key));
+  // Same files again: only the missing blocks travel.
+  dropping = false;
+  await page.locator('#manheim-files').setInputFiles(files);
+  await expect(page.locator('#manheim-progress')).toContainText('Lote único · 19 arquivos', { timeout: 60000 });
+  if (SHOTS) await page.locator('#manheim-progress').screenshot({ path: path.join(SHOTS, 'lote-retomado-progresso.png') }).catch(() => {});
+  await expect(status).toContainText('Lote ativo · 19 arquivo(s)', { timeout: 240000 });
+  const chunks = log.filter((entry) => entry.key && /^\d+:\d+$/.test(entry.key));
+  const successful = new Set(firstRound.filter((entry) => entry.key !== '12:3').map((entry) => entry.key));
+  const resent = chunks.slice(firstRound.length).filter((entry) => successful.has(entry.key));
+  expect(resent, 'bloco já confirmado não é reenviado').toEqual([]);
+  // The interrupted round never reached the activation: one activation, at the end.
+  expect(log.filter((entry) => entry.key === 'finalize').length).toBe(1);
+  // BUSCAS: the active batch, no car in the first answer, 10 options when a demand is opened.
+  await expect(page.locator('#manheim-summary')).toContainText('carro(s) analisado(s)', { timeout: 60000 });
+  const { rows: [db] } = await backend.db.query(`select count(*)::int uploads, count(*) filter (where activated_at is not null)::int live, max(source_file_count)::int files from public.manheim_uploads`);
+  expect(db).toEqual({ uploads: 1, live: 1, files: 19 });
+  const card = page.locator('#buscas-valor .manheim-lead').first();
+  await expect(card.locator('.manheim-row')).toHaveCount(0);
+  await card.locator('.manheim-options-toggle').click();
+  await expect(card.locator('.manheim-row')).toHaveCount(10);
+  await card.locator('.manheim-options-toggle').click();
+  await expect(card.locator('.manheim-row')).toHaveCount(20);
+  await expect(page.locator('#manheim-batches')).toContainText('19 arquivos');
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'lote-ativo-1366.png'), fullPage: false });
   expect(errors).toEqual([]);
+  expect(backend.refused).toEqual([]);
+});
 
-  // BUSCAS: at most 10 visible rows per customer, the rest behind "Ver mais (N)".
-  await page.evaluate(() => document.querySelector('[data-view="searches"]')?.click());
-  await expect(page.locator('#manheim-results .manheim-more').first()).toBeVisible({ timeout: 30000 });
-  const cards = page.locator('#manheim-results .manheim-lead');
-  const cardIndex = await cards.evaluateAll((list) => list.findIndex((item) => item.querySelector('.manheim-more')));
-  const card = cards.nth(cardIndex);
-  expect(await card.locator('.manheim-row').count()).toBe(10);
-  const more = card.locator('.manheim-more');
-  const hidden = Number(/\((\d+)\)/.exec(await more.textContent())[1]);
-  await more.click();
-  expect(await card.locator('.manheim-row').count()).toBe(10 + hidden);
-  const rows = await card.locator('.manheim-row').evaluateAll((list) => list.map((row) => ({
-    kind: row.classList.contains('match') ? 'BATE' : row.classList.contains('value') ? 'POR_VALOR' : 'QUASE',
-    miles: Number(([...row.querySelectorAll('span')].map((span) => /^([\d.,\s\u00a0]+) milhas/.exec(span.textContent)).find(Boolean) || ['', ''])[1].replace(/\D/g, '') || NaN)
-  })));
-  expect(rows.every((row) => Number.isFinite(row.miles))).toBe(true);
-  // Order: BATE, then POR VALOR, then QUASE.
-  const order = { BATE: 0, POR_VALOR: 1, QUASE: 2 };
-  for (let index = 1; index < rows.length; index += 1) expect(order[rows[index].kind]).toBeGreaterThanOrEqual(order[rows[index - 1].kind]);
-  for (let index = 1; index < rows.length; index += 1) {
-    if (rows[index].kind === rows[index - 1].kind) expect(rows[index].miles).toBeGreaterThanOrEqual(rows[index - 1].miles);
-  }
+test('390 px: BUSCAS do lote ativo cabe na tela, opções por página e alvos grandes', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  await openPanel(page, 390, []);
+  await expect(page.locator('#manheim-summary')).toContainText('carro(s) analisado(s)', { timeout: 60000 });
+  const card = page.locator('#buscas-carro .manheim-lead').first();
+  await card.locator('.manheim-options-toggle').click();
+  await expect(card.locator('.manheim-row')).toHaveCount(10);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  const toggle = await card.locator('.manheim-options-toggle').boundingBox();
+  expect(toggle.height).toBeGreaterThanOrEqual(32);
+  if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'lote-opcoes-390.png') });
+  expect(errors).toEqual([]);
 });

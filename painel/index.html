@@ -50,10 +50,10 @@
         </picture>
         <h1 id="page-title" class="visual-page-label" aria-live="polite">HOJE</h1>
         <nav aria-label="Seções do painel">
-          <button class="tab active" type="button" data-view="today">HOJE <span data-count="today">0</span></button>
-          <button class="tab" type="button" data-view="entry">ENTRADA <span data-count="entry">0</span></button>
-          <button class="tab" type="button" data-view="clients">CLIENTES <span data-count="clients">0</span></button>
-          <button class="tab" type="button" data-view="searches">BUSCAS <span data-count="searches">0</span></button>
+          <button class="tab active" type="button" data-view="today">HOJE <span data-count="today" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="entry">ENTRADA <span data-count="entry" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="clients">CLIENTES <span data-count="clients" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="searches">BUSCAS <span data-count="searches" title="Carregando">—</span></button>
         </nav>
         <form id="global-search" class="global-search" role="search">
           <label class="visually-hidden" for="global-search-input">Busca global</label>
@@ -70,9 +70,9 @@
         <section id="vitrine-requests" class="vitrine-requests card" aria-live="polite"></section>
         <section id="vitrine-signals" class="vitrine-signals" aria-live="polite"></section>
         <div id="today-ref-filters" class="filters ref-filters" aria-label="Filtrar Hoje por Ref">
-          <button type="button" class="chip active" data-today-ref="all">Todos <span>0</span></button>
-          <button type="button" class="chip" data-today-ref="with">Com Ref <span>0</span></button>
-          <button type="button" class="chip" data-today-ref="without">Sem Ref <span>0</span></button>
+          <button type="button" class="chip active" data-today-ref="all">Todos <span>—</span></button>
+          <button type="button" class="chip" data-today-ref="with">Com Ref <span>—</span></button>
+          <button type="button" class="chip" data-today-ref="without">Sem Ref <span>—</span></button>
         </div>
         <div id="today-list" class="stack" aria-live="polite"></div>
         <details id="weekly-summary" class="card weekly-summary">
@@ -99,7 +99,7 @@
           <button id="triage-run-pending" class="quiet small hidden" type="button">Classificar só as conversas de Precisa de você</button>
         </section>
         <details id="triage-out" class="card triage-out">
-          <summary><strong>Fora do funil comercial</strong> <span id="triage-out-count" class="badge">0</span></summary>
+          <summary><strong>Fora do funil comercial</strong> <span id="triage-out-count" class="badge">—</span></summary>
           <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente. As conversas continuam guardadas e aparecem na busca global</p>
           <div id="triage-out-list" class="queue" aria-live="polite"></div>
         </details>
@@ -270,7 +270,7 @@
         </div>
         <section id="manheim-saved-searches" class="card"></section>
         <details id="buscas-review" class="card buscas-review">
-          <summary>Revisar tipo de busca <span id="buscas-review-count" class="badge">0</span></summary>
+          <summary>Revisar tipo de busca <span id="buscas-review-count" class="badge">—</span></summary>
           <p class="muted">Pedidos sem tipo definido ou com critério incompleto. Nada é adivinhado: defina CARRO ou VALOR, ou abra a ficha para completar</p>
           <div id="buscas-review-list" class="stack"></div>
         </details>
@@ -306,8 +306,9 @@
   <script src="/painel/parser.js" defer></script>
   <script src="/vehicle-catalog.js?v=1" defer></script>
   <script src="/vehicle-match.js?v=2" defer></script>
-  <script src="/painel/manheim.js?v=4" defer></script>
-  <script src="/painel/manheim-upload.js?v=2" defer></script>
+  <script src="/painel/manheim.js?v=5" defer></script>
+  <script src="/painel/manheim-upload.js?v=4" defer></script>
+  <script src="/painel/refresh-coordinator.js?v=1" defer></script>
   <script src="/money-text.js?v=1" defer></script>
   <script src="/panel-origin.js?v=2" defer></script>
   <script src="/painel/action.js" defer></script>

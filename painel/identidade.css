@@ -669,3 +669,19 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 .audit-reason{min-width:0;flex:1 1 180px;min-height:var(--mcs-touch)}
 .manheim-audit-note{display:grid;gap:8px;margin:8px 0;padding:10px 12px;border:1px solid var(--mcs-amber);border-radius:10px;color:var(--mcs-text)}
 .manheim-audit-note button{justify-self:start}
+
+/* Contadores: valor antigo confirmado aparece marcado; aviso de atualização com botão */
+[data-count].count-stale { color: var(--mcs-muted); text-decoration: underline dotted; }
+.counters-note, .refresh-note { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.counters-note { color: var(--mcs-red); }
+#login-retry { margin-top: 8px; }
+
+/* Importação do Manheim em lote único: progresso por arquivo */
+.manheim-progress { display: grid; gap: 6px; margin-top: 8px; }
+.manheim-progress-file { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--mcs-text-2); flex-wrap: wrap; }
+.manheim-progress progress { width: 100%; accent-color: var(--mcs-gold); }
+.manheim-progress .inline-actions { margin-top: 4px; }
+
+/* BUSCAS: opções carregadas só quando a demanda é aberta */
+.manheim-options-toggle { justify-self: start; }
+.manheim-options-note { color: var(--mcs-text-2); font-size: 13px; }

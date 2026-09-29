@@ -189,13 +189,15 @@ test('13 · os testes antigos passam sem rede e sem Supabase (fetch responde 403
 });
 
 test('14 · lote desfeito some de todos os usos operacionais e 15 · o lote vizinho fica intacto', () => {
+  // Undone (or unfinished) batches leave every operational read: score, HOJE, CLIENTES, the report
+  // and the ficha read only live batches, and never the whole inventory.
   for (const [file, pattern] of [
-    ['panel-ready.js', /manheim_vehicles'[^\n]*\.\.\.active/], ['panel-ready.js', /manheim_matches'[^\n]*\.\.\.active/],
-    ['api/panel/today.js', /manheim_vehicles'[^\n]*\.\.\.activeBatch/], ['api/panel/today.js', /manheim_matches'[^\n]*\.\.\.activeBatch/],
-    ['api/panel/report.js', /manheim_uploads'[^\n]*\.\.\.activeBatch/], ['api/panel/records.js', /manheim_uploads'[^\n]*\.\.\.activeBatch/],
-    ['panel-lead.js', /manheim_vehicles'[^\n]*\.\.\.activeBatch/], ['panel-buscas-view.js', /undone_at: 'is\.null'/],
+    ['panel-ready.js', /panel_manheim_score_mmr/], ['supabase/migrations/20261005010000_panel_manheim_lote_unico.sql', /u\.undone_at is null and u\.activated_at is not null/],
+    ['api/panel/report.js', /manheim_uploads'[^\n]*\.\.\.liveBatch/], ['api/panel/records.js', /latestActiveUpload\(ctx/],
+    ['panel-lead.js', /liveUploadIds\(ctx/], ['panel-manheim-state.js', /activated_at: 'not\.is\.null'/], ['panel-buscas-view.js', /liveUploadFilter\(ctx/],
     ['api/panel/vitrines.js', /VITRINE_SOURCE_UNDONE/], ['api/panel/actions.js', /A match of an undone import batch is never presented/]
   ]) assert.match(read(file), pattern, file);
+  for (const file of ['panel-ready.js', 'api/panel/today.js', 'api/panel/records.js', 'api/panel/report.js']) assert.doesNotMatch(read(file), /allRows\(ctx, 'manheim_(vehicles|matches)'/, file);
   const scenario = read('tests/sql/teste-buscas-split-desfazer-lote.sql');
   assert.match(scenario, /o outro lote foi alterado/);
   assert.match(scenario, /histórico do lote vizinho alterado/);

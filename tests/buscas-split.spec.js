@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { asSummary, optionsPage, openAllOptions } = require('./fixtures/buscas-simulado');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
@@ -75,7 +76,8 @@ async function openBuscas(page, state, calls, extra = {}) {
     if (extra[url.pathname]) return extra[url.pathname]({ body, json, url });
     if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
-    if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') return json(manheimData(state));
+    if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') return json(asSummary(manheimData(state)));
+    if (url.pathname === '/api/panel/manheim-options') return json(optionsPage(manheimData(state), url));
     if (url.pathname === '/api/panel/searches') return json(searchesData);
     if (url.pathname === '/api/panel/manheim-searches') return json(savedData);
     if (url.pathname === '/api/panel/actions' && body?.action === 'manheim_undo') { state.undone = true; return json({ uploadId: body.uploadId, alreadyUndone: false, summary: { vehiclesWithdrawn: 312, matchesWithdrawn: 4, unitsPreserved: 1, vitrinesPreserved: 1 } }); }
@@ -86,6 +88,8 @@ async function openBuscas(page, state, calls, extra = {}) {
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   await expect(page.locator('#buscas-valor .manheim-lead').first()).toBeVisible({ timeout: 30000 });
+  // The options of a demand are loaded when the operator opens it.
+  await openAllOptions(page);
 }
 
 test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à direita, mesma Ref separada', async ({ page }) => {
@@ -199,12 +203,19 @@ function csvFile(text) {
 }
 const CSV = 'Vin,Year,Make,Model,Trim,Odometer Value,MMR\nSYNVALID00000001,2022,BMW,X5,xDrive40i,70000,45000\nSYNAMBIG00000002,2022,BMW,X5,xDrive40i,70k mi,45000\n';
 function importRoutes(ai, calls) {
+  // The single batch: the server compares the cars (the browser only reads and sends them).
+  const batch = { chunks: [] };
   return {
-    '/api/panel/records': ({ json, url }) => json(url.searchParams.get('view') === 'manheim' ? { ...manheimData({ undone: false }), targets: [{ key: `journey:${JOURNEY}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: JOURNEY, wishes: [{ make: 'BMW', model: 'X5', yearMin: 2020, yearMax: 2025, minMiles: 50000, maxMiles: 90000 }] }] } : { items: [], meta: {} }),
+    '/api/panel/records': ({ json, url }) => json(url.searchParams.get('view') === 'manheim' ? asSummary(manheimData({ undone: false })) : { items: [], meta: {} }),
+    '/api/panel/manheim-batch': ({ body, json }) => {
+      if (!body) return json({ latest: { id: BATCH_NEW, vehicleCount: 312, uploadedAt: '2026-09-29T10:00:00Z', fileCount: 3 } });
+      if (body.action === 'start') return json({ uploadId: BATCH_NEW, resumed: false, received: [], targetCount: 1 }, 201);
+      if (body.action === 'chunk') { batch.chunks.push(body); return json({ storedVehicles: body.vehicles.length, storedMatches: body.vehicles.length, discarded: 0 }); }
+      if (body.action === 'finalize') return json({ uploadId: BATCH_NEW, complete: true, fileCount: 1, vehicleCount: batch.chunks.flatMap((chunk) => chunk.vehicles).length, matchedVehicleCount: batch.chunks.flatMap((chunk) => chunk.vehicles).length, leadCount: 1, discarded: 0 });
+      return json({ error: 'MANHEIM_BATCH_ACTION_INVALID' }, 400);
+    },
     '/api/panel/actions': ({ body, json }) => {
       if (body.action === 'manheim_ai_rows') return json(ai(body));
-      if (body.action === 'manheim_upload_part') return json({ uploadId: BATCH_NEW, complete: true, partIndex: 1, partCount: 1, matchedVehicleCount: body.matches.length, leadCount: 1 }, 201);
-      if (body.action === 'manheim_archive') return json({ archived: body.vehicles.length, ignored: 0 });
       if (body.action === 'manheim_ai_summary') return json({ saved: true });
       return json({ error: 'PANEL_ACTION_INVALID' }, 400);
     }
@@ -218,17 +229,18 @@ test('35-42 · só a linha ambígua vai para a OpenAI, a resposta é revalidada 
   await page.locator('#manheim-files').setInputFiles(csvFile(CSV));
   // M19: this CSV is much smaller than the previous batch, so the panel asks first (in the page).
   await page.locator('.inline-confirm').getByRole('button', { name: 'Enviar mesmo assim' }).click();
-  await expect(page.locator('#manheim-status')).toContainText('arquivados', { timeout: 30000 });
+  await expect(page.locator('#manheim-status')).toContainText('Lote ativo', { timeout: 30000 });
   const sent = calls.filter((call) => call.body?.action === 'manheim_ai_rows');
   expect(sent).toHaveLength(1);
   expect(sent[0].body.rows).toHaveLength(1);
   expect(Object.keys(sent[0].body.rows[0].cells).sort()).toEqual(['make', 'miles', 'mmr', 'model', 'trim', 'year']);
   expect(JSON.stringify(sent[0].body)).not.toContain('SYNVALID');
   expect(JSON.stringify(sent[0].body)).not.toContain('SYNAMBIG');
-  const partMatches = calls.find((call) => call.body?.action === 'manheim_upload_part').body.matches;
-  expect(partMatches).toHaveLength(2);
-  expect(partMatches.every((item) => item.mode === 'CARRO' && item.journeyId === JOURNEY)).toBe(true);
-  expect(partMatches.filter((item) => item.vehicle.parsed.ai?.provider === 'openai')).toHaveLength(1);
+  // Both cars go in the block (the AI answer went back through the parser); the server compares them.
+  const chunkCars = calls.filter((call) => call.body?.action === 'chunk').flatMap((call) => call.body.vehicles);
+  expect(chunkCars).toHaveLength(2);
+  expect(chunkCars.filter((item) => item.vehicle.ai?.provider === 'openai')).toHaveLength(1);
+  expect(calls.some((call) => call.body?.action === 'manheim_upload_part' || call.body?.action === 'manheim_archive')).toBe(false);
   const summary = page.locator('#manheim-import-summary');
   for (const text of ['2 linhas importadas', '1 resolvidas automaticamente', '1 analisadas pela OpenAI', '1 confirmadas', '0 enviadas para revisão', 'Modelo: gpt-5.4-nano', 'Custo estimado: US$ 0.0001']) await expect(summary).toContainText(text);
   const stored = calls.find((call) => call.body?.action === 'manheim_ai_summary').body.summary;
@@ -241,10 +253,10 @@ test('39 · OpenAI indisponível: as linhas válidas entram, só a ambígua vai 
   await page.locator('#manheim-files').setInputFiles(csvFile(CSV));
   // M19: this CSV is much smaller than the previous batch, so the panel asks first (in the page).
   await page.locator('.inline-confirm').getByRole('button', { name: 'Enviar mesmo assim' }).click();
-  await expect(page.locator('#manheim-status')).toContainText('arquivados', { timeout: 30000 });
+  await expect(page.locator('#manheim-status')).toContainText('Lote ativo', { timeout: 30000 });
   await expect(page.locator('#manheim-status')).not.toHaveClass(/error/);
-  const partMatches = calls.find((call) => call.body?.action === 'manheim_upload_part').body.matches;
-  expect(partMatches).toHaveLength(1);
+  const chunkCars = calls.filter((call) => call.body?.action === 'chunk').flatMap((call) => call.body.vehicles);
+  expect(chunkCars).toHaveLength(1);
   const summary = page.locator('#manheim-import-summary');
   await expect(summary).toContainText('1 enviadas para revisão');
   await expect(summary).not.toContainText('OpenAI');

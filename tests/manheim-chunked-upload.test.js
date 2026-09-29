@@ -1,247 +1,167 @@
 'use strict';
 
+// Envio do Manheim em lote único (navegador): blocos de até 500 carros por arquivo, deduplicação
+// entre arquivos em tempo linear, repetição de bloco com espera crescente, retomada dos blocos já
+// confirmados, recuperação quando a ativação acusa bloco faltando, cancelamento pelo operador,
+// mensagens de erro e as migrações (antiga e nova) aditivas e restritas ao service_role.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const manheim = require('../painel/manheim');
 const upload = require('../painel/manheim-upload');
-const { buildSearchDemands, consolidateCalcRuns } = require('../panel-domain');
-const realServer = require('../panel-server');
-const { migratedDatabase } = require('./sql/run');
-const { malibuCsv, porsche911Csv, porscheCustomers, uuid } = require('./fixtures/manheim-sintetico');
 
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
-const ACTOR = uuid('50000000', 1);
 const MAX_REQUEST_BYTES = 1500000;
 
-function loadWith(relative, mocks) {
-  const file = path.join(root, relative), mod = { exports: {} };
-  const req = (name) => Object.hasOwn(mocks, name) ? mocks[name] : require(name.startsWith('.') ? path.resolve(path.dirname(file), name) : name);
-  new Function('require', 'module', 'exports', fs.readFileSync(file, 'utf8'))(req, mod, mod.exports);
-  return mod.exports;
-}
+const car = (n, fileIndex, extra = {}) => ({ vin: 'VIN' + String(n).padStart(14, '0'), year: 2020, make: 'BMW', model: 'X5', trim: 'xDrive40i', miles: 1000 + n, mmrCents: 4000000,
+  location: 'FL - Orlando', saleDate: '2026-10-01', fileIndex, raw: { 'Lot #': 'L' + n, Inventory: '' }, headers: ['Vin', 'Lot #'], ...extra });
 
-function response() {
-  return { code: 0, payload: null, setHeader() {}, status(code) { this.code = code; return this; }, json(value) { this.payload = value; return value; } };
-}
+test('plano do lote: blocos de até 500 por arquivo, só o carro lido (sem a linha crua) e o lote do leilão', () => {
+  const files = [{ name: 'A.csv', size: 10, rowCount: 1200 }, { name: 'B.csv', size: 10, rowCount: 3 }];
+  const vehicles = [...Array.from({ length: 1200 }, (_, n) => car(n, 0)), car(5000, 1), car(5001, 1), car(5002, 1)];
+  const plan = upload.planBatch(files, vehicles, manheim);
+  assert.deepEqual(plan.map((file) => [file.name, file.vehicleCount, file.chunkCount, file.chunks.map((chunk) => chunk.length)]), [['A.csv', 1200, 3, [500, 500, 200]], ['B.csv', 3, 1, [3]]]);
+  const first = plan[0].chunks[0][0];
+  assert.equal(first.fingerprint, manheim.fingerprint(car(0, 0)));
+  assert.equal(first.vehicle.lot, 'L0');
+  assert.equal(first.vehicle.raw, undefined);
+  assert.equal(first.vehicle.headers, undefined);
+  // A heavy block of 500 cars stays far below the request limit.
+  const heavy = upload.planBatch([{ name: 'H.csv' }], Array.from({ length: 500 }, (_, n) => car(n, 0, { trim: 'x'.repeat(120), location: 'y'.repeat(200), conditionGrade: 'z'.repeat(120) })), manheim);
+  assert.ok(Buffer.byteLength(JSON.stringify({ action: 'chunk', vehicles: heavy[0].chunks[0] })) < MAX_REQUEST_BYTES);
+});
 
-// actions.js wired to a real Postgres (PGlite) with every migration applied.
-async function harness(customers = porscheCustomers()) {
-  const { db } = await migratedDatabase();
-  const { journeys, calcRuns } = customers;
-  await db.query(`insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password) values($1,'preview',$2,'manheim@example.test','admin',true,false)`, [ACTOR, uuid('50000000', 2)]);
-  for (const journey of journeys) {
-    await db.query(`insert into public.contacts(id,environment,display_name,created_at,updated_at) values($1,'preview','Cliente Ficticio',now(),now())`, [journey.contactId]);
-    await db.query(`insert into public.journeys(id,environment,contact_id,source,status,stage,criteria_json,budget_cents,created_at,updated_at) values($1,'preview',$2,'MANUAL','ATIVO','NOVO',$3::jsonb,$4,now(),now())`, [journey.id, journey.contactId, JSON.stringify(journey.criteria_json), journey.budget_cents]);
+test('o mesmo carro em dois arquivos é um carro (simulcast vence, "buy now" preservado), em tempo linear', () => {
+  const a = car(1, 0, { buyNowPrice: '' }), b = car(1, 1, { raw: { Inventory: 'Simulcast' }, buyNowPrice: '$40,000' }), c = car(2, 1);
+  const { vehicles, duplicates } = upload.dedupeAcrossFiles([a, b, c], manheim);
+  assert.equal(duplicates, 1);
+  assert.equal(vehicles.length, 2);
+  const kept = vehicles.find((vehicle) => vehicle.vin === a.vin);
+  assert.equal(kept.raw.Inventory, 'Simulcast');
+  assert.equal(kept.fileIndex, 0, 'fica no arquivo em que apareceu primeiro');
+  assert.equal(kept.buyNowPrice, '$40,000');
+  // 70.000 cars (half repeated between files) in well under a second.
+  const many = Array.from({ length: 70000 }, (_, n) => car(n % 35000, n < 35000 ? 0 : 1));
+  const started = Date.now();
+  const result = upload.dedupeAcrossFiles(many, manheim);
+  assert.equal(result.vehicles.length, 35000);
+  assert.ok(Date.now() - started < 3000, `levou ${Date.now() - started} ms`);
+});
+
+// A fake server with the same answers as api/panel/manheim-batch.js.
+function fakeServer(options = {}) {
+  const state = { calls: [], received: new Set(options.received || []), failures: { ...(options.failures || {}) }, finalized: false, missing: options.missing || null };
+  const request = async (_path, init) => {
+    const body = JSON.parse(init.body);
+    state.calls.push(body.action + (body.action === 'chunk' ? ` ${body.fileIndex}:${body.chunkIndex}` : ''));
+    const key = body.action === 'chunk' ? `${body.fileIndex}:${body.chunkIndex}` : body.action;
+    if (state.failures[key]) { const failure = state.failures[key].shift(); if (!state.failures[key].length) delete state.failures[key]; throw Object.assign(new Error(failure), { code: failure }); }
+    if (body.action === 'start') return { uploadId: '7a000000-0000-4000-8000-000000000001', resumed: state.received.size > 0, received: [...state.received].map((item) => item.split(':').map(Number)) };
+    if (body.action === 'chunk') { state.received.add(key); return { storedVehicles: body.vehicles.length, storedMatches: 1, discarded: 0 }; }
+    if (body.action === 'status') return { received: [...state.received].map((item) => item.split(':').map(Number)) };
+    if (body.action === 'finalize') {
+      if (state.missing && state.received.has(state.missing)) { state.received.delete(state.missing); state.missing = null; throw Object.assign(new Error('MANHEIM_BATCH_INCOMPLETE'), { code: 'MANHEIM_BATCH_INCOMPLETE' }); }
+      state.finalized = true;
+      return { complete: true, fileCount: 2, vehicleCount: 1203, matchedVehicleCount: 4 };
+    }
+    throw new Error('ACAO_DESCONHECIDA');
+  };
+  return { state, request };
+}
+const plan = () => upload.planBatch([{ name: 'A.csv' }, { name: 'B.csv' }], [...Array.from({ length: 1200 }, (_, n) => car(n, 0)), car(5000, 1), car(5001, 1), car(5002, 1)], manheim);
+const base = { clientKey: 'f'.repeat(32), manifest: { files: [], manifestHash: 'f'.repeat(64) }, vehicleCount: 1203, headers: [['Vin']], headerMap: {}, wait: async () => {}, retryDelayMs: 0 };
+
+test('manifesto: hash canônico igual no navegador e no servidor, por bloco, e enviado no início do lote', async () => {
+  const crypto = require('node:crypto');
+  const { contentHash } = require('../panel-manheim-batch');
+  const hashText = async (text) => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+  // Key order and absent fields do not change the hash; any value does.
+  assert.equal(upload.canonicalJson({ b: 1, a: [{ y: 2, x: undefined, z: 'ç' }] }), '{"a":[{"y":2,"z":"ç"}],"b":1}');
+  assert.equal(upload.canonicalJson({ a: 1, b: 2 }), upload.canonicalJson({ b: 2, a: 1 }));
+  const sealed = plan();
+  const manifest = await upload.sealPlan(sealed, hashText);
+  assert.deepEqual(manifest.files.map((file) => file.chunks.map((chunk) => chunk.count)), [[500, 500, 200], [3]]);
+  // What the server recalculates from the block as it arrives (after JSON) is the same hash.
+  const arrived = JSON.parse(JSON.stringify(sealed[0].chunks[1]));
+  assert.equal(contentHash(arrived), manifest.files[0].chunks[1].hash);
+  assert.equal(contentHash(JSON.parse(JSON.stringify(manifest.files))), manifest.manifestHash);
+  const changed = JSON.parse(JSON.stringify(sealed[0].chunks[1])); changed[0].vehicle.mmrCents += 1;
+  assert.notEqual(contentHash(changed), manifest.files[0].chunks[1].hash, 'um centavo muda o hash');
+  const server = fakeServer();
+  const bodies = [];
+  const spy = async (path, init) => { bodies.push(JSON.parse(init.body)); return server.request(path, init); };
+  await upload.sendBatch({ ...base, plan: sealed, manifest, request: spy });
+  assert.deepEqual(bodies[0].files, manifest.files);
+  assert.equal(bodies[0].manifestHash, manifest.manifestHash);
+  await assert.rejects(() => upload.sendBatch({ ...base, manifest: null, plan: plan(), request: spy }), (failure) => failure.code === 'MANHEIM_UPLOAD_INVALID');
+});
+
+test('recusas de integridade param na hora e guardam o lote para o operador descartar', async () => {
+  for (const code of ['MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH']) {
+    const server = fakeServer({ failures: { '0:1': [code] } });
+    await assert.rejects(() => upload.sendBatch({ ...base, plan: plan(), request: server.request }), (failure) => failure.code === 'MANHEIM_UPLOAD_INCOMPLETE' && failure.cause.code === code && Boolean(failure.uploadId));
+    assert.deepEqual(server.state.calls, ['start', 'chunk 0:0', 'chunk 0:1'], `${code} não repete`);
   }
-  for (const run of calcRuns) await db.query(`insert into public.calc_runs(created_at,zip,estado,lance,pagamento,dados,is_test) values($1,$2,$3,$4,$5,$6::jsonb,false)`, [run.created_at, run.zip, run.estado, run.lance, run.pagamento, JSON.stringify(run.dados)]);
-
-  const environmentTables = new Set(['journeys', 'journey_toggle_states', 'calculator_request_links', 'panel_item_dispositions']);
-  const allRows = async (_ctx, table, params) => {
-    const where = [];
-    if (environmentTables.has(table)) where.push(`environment='preview'`);
-    if (params.cleared_at === 'is.null') where.push('cleared_at is null');
-    return (await db.query(`select ${params.select} from public.${table}${where.length ? ' where ' + where.join(' and ') : ''}`)).rows;
-  };
-  const rpcCalls = [];
-  const supabase = async (_url, _key, requestPath, options) => {
-    const name = requestPath.replace('/rest/v1/rpc/', '');
-    const exists = (await db.query(`select 1 from pg_proc where proname=$1`, [name])).rows.length;
-    if (!exists) throw Object.assign(new Error('SUPABASE_REQUEST_FAILED'), { status: 404 });
-    const body = JSON.parse(options.body);
-    const keys = Object.keys(body);
-    const args = keys.map((key, index) => `${key} => $${index + 1}${body[key] !== null && typeof body[key] === 'object' ? '::jsonb' : ''}`);
-    const values = keys.map((key) => body[key] !== null && typeof body[key] === 'object' ? JSON.stringify(body[key]) : body[key]);
-    rpcCalls.push({ name, partIndex: body.p_part_index || null });
-    try { return (await db.query(`select public.${name}(${args.join(', ')}) as result`, values)).rows[0].result; }
-    catch (cause) { throw Object.assign(new Error('SUPABASE_REQUEST_FAILED'), { status: 400, cause }); }
-  };
-  const handler = loadWith('api/panel/actions.js', { '../../panel-server': {
-    ...realServer, allRows, supabase,
-    requirePanel: async () => ({ config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' })
-  } });
-
-  const sent = [];
-  const request = async (_path, options) => {
-    assert.ok(Buffer.byteLength(options.body, 'utf8') < MAX_REQUEST_BYTES, 'cada parte fica abaixo de 1,5 MB');
-    const body = JSON.parse(options.body);
-    if (body.action === 'manheim_upload_part') assert.ok(body.matches.length <= 250, 'cada parte tem no máximo 250 combinações');
-    sent.push(body);
-    const res = response();
-    await handler({ method: 'POST', body, headers: {} }, res);
-    if (res.code >= 400) throw Object.assign(new Error(res.payload.error), { code: res.payload.error });
-    return res.payload;
-  };
-
-  // The same demands the server sends to the browser (one per person and mode).
-  const built = buildSearchDemands({ journeys, refs: [], modeItems: consolidateCalcRuns(calcRuns, []) });
-  const targets = [...[...built.byJourney.values()].flat(), ...built.orders].filter((demand) => demand.active).map(asTarget);
-  const latest = async () => (await db.query(`select id,matched_vehicle_count,lead_count,vehicle_count from public.manheim_uploads where environment='preview' order by uploaded_at desc limit 1`)).rows[0] || null;
-  return { db, handler, request, sent, rpcCalls, latest, targets, people: journeys.length + built.orders.length };
-}
-
-function asTarget(demand) {
-  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId, ref: demand.ref, wishes: demand.activeWishes, bidCents: demand.bidCents };
-}
-const MALIBU = { make: 'Chevrolet', model: 'Malibu', yearMin: 2018, yearMax: 2024, minMiles: 1000, maxMiles: 80000 };
-const malibuTarget = (id) => ({ key: `journey:${id}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: id, wishes: [MALIBU] });
-
-function prepare(text, targets) {
-  const parsed = manheim.parseCsv(text);
-  const mapping = manheim.mapHeaders(parsed.headers);
-  const vehicles = upload.markSearchFiltered(manheim.chooseAuctionRows(manheim.normalizeRows(parsed, mapping)));
-  const matches = upload.buildMatches(vehicles, targets, manheim);
-  const base = { sourceFileCount: 1, vehicleCount: vehicles.length, headers: [parsed.headers], headerMap: { files: [mapping.fields] } };
-  return { parsed, vehicles, matches, base, parts: upload.planParts(matches, base) };
-}
-
-test('312 Porsche 911 x 34 pedidos 911: mais de 4.000 combinações importadas inteiras, em partes', async () => {
-  const h = await harness();
-  try {
-    const run = prepare(porsche911Csv(), h.targets);
-    assert.equal(run.parsed.rows.length, 322);
-    assert.equal(run.vehicles.length, 312);
-    assert.equal(h.people, 34);
-    assert.ok(run.matches.length > 4000, `combinações: ${run.matches.length}`);
-    assert.ok(run.matches.some((match) => match.targetType === 'ORDER'));
-    assert.ok(run.vehicles.every((vehicle) => vehicle.cleanTitle === true && vehicle.odometerOk === true));
-    assert.ok(run.parts.length > 1);
-    assert.deepEqual(run.parts.flat(), run.matches);
-
-    const progress = [];
-    const result = await upload.sendParts({ parts: run.parts, base: run.base, request: h.request, wait: async () => assert.fail('nenhuma parte deveria falhar'), onProgress: (index, count) => progress.push(`${index}/${count}`) });
-    assert.equal(result.complete, true);
-    assert.equal(result.matchedVehicleCount, run.matches.length);
-    assert.equal(progress.length, run.parts.length);
-    assert.equal(h.sent[0].uploadId, null);
-    assert.ok(h.sent.slice(1).every((body) => body.uploadId === result.uploadId), 'as partes seguintes anexam ao mesmo uploadId');
-    assert.ok(h.rpcCalls.every((call) => call.name === 'panel_store_manheim_upload_part'));
-
-    const latest = await h.latest();
-    assert.equal(latest.id, result.uploadId);
-    assert.equal(latest.matched_vehicle_count, run.matches.length);
-    assert.equal(latest.vehicle_count, 312);
-    assert.equal(latest.lead_count, 34);
-    const stored = (await h.db.query(`select count(*)::int as total from public.manheim_matches where upload_id=$1`, [result.uploadId])).rows[0].total;
-    assert.equal(stored, run.matches.length);
-    assert.equal((await h.db.query(`select count(*)::int as total from public.manheim_upload_draft_parts`)).rows[0].total, 0, 'partes temporárias apagadas');
-
-    // Resending the last part (lost response) returns the same upload and stores nothing twice.
-    const last = h.sent.at(-1);
-    const again = await h.request('/api/panel/actions', { method: 'POST', body: JSON.stringify(last) });
-    assert.equal(again.uploadId, result.uploadId);
-    assert.equal(again.complete, true);
-    assert.equal((await h.db.query(`select count(*)::int as total from public.manheim_uploads`)).rows[0].total, 1);
-  } finally { await h.db.close(); }
+  const integrity = fakeServer({ failures: { finalize: ['MANHEIM_BATCH_INTEGRITY_ERROR'] } });
+  await assert.rejects(() => upload.sendBatch({ ...base, plan: plan(), request: integrity.request }), (failure) => failure.code === 'MANHEIM_BATCH_INTEGRITY_ERROR' && failure.uploadId === '7a000000-0000-4000-8000-000000000001');
+  assert.equal(integrity.state.calls.filter((call) => call === 'finalize').length, 1, 'recusa de integridade não repete');
+  const mismatch = fakeServer({ failures: { start: ['MANHEIM_BATCH_RESUME_MISMATCH'] } });
+  await assert.rejects(() => upload.sendBatch({ ...base, plan: plan(), request: mismatch.request }), (failure) => failure.code === 'MANHEIM_BATCH_RESUME_MISMATCH');
+  assert.deepEqual(mismatch.state.calls, ['start'], 'retomada recusada não envia bloco nenhum');
 });
 
-test('20.000+ combinações passam pelo banco inteiras (MANHEIM_HEAVY=1)', { skip: process.env.MANHEIM_HEAVY !== '1' }, async () => {
-  const h = await harness(porscheCustomers(100, 4));
-  try {
-    const run = prepare(porsche911Csv(), h.targets);
-    assert.ok(run.matches.length >= 20000, `combinações: ${run.matches.length}`);
-    const started = Date.now();
-    const result = await upload.sendParts({ parts: run.parts, base: run.base, request: h.request });
-    console.log(`${run.matches.length} combinações, ${run.parts.length} partes, ${Date.now() - started} ms`);
-    assert.equal((await h.latest()).matched_vehicle_count, run.matches.length);
-    assert.equal(result.matchedVehicleCount, run.matches.length);
-  } finally { await h.db.close(); }
+test('envio: todos os blocos, falha passageira repete, ativação só no fim', async () => {
+  const server = fakeServer({ failures: { '0:1': ['NETWORK_ERROR', 'REQUEST_TIMEOUT'] } });
+  const waits = [];
+  const progress = [];
+  const result = await upload.sendBatch({ ...base, plan: plan(), request: server.request, wait: async (ms) => { waits.push(ms); }, retryDelayMs: 1000, onProgress: (event) => progress.push(event.done) });
+  assert.equal(result.complete, true);
+  assert.deepEqual(server.state.calls, ['start', 'chunk 0:0', 'chunk 0:1', 'chunk 0:1', 'chunk 0:1', 'chunk 0:2', 'chunk 1:0', 'finalize']);
+  assert.deepEqual(waits, [1000, 2000], 'espera crescente entre tentativas');
+  assert.deepEqual(progress, [0, 1, 2, 3, 4]);
+  assert.equal(result.totals.storedVehicles, 1203);
 });
 
-test('o último upload só muda quando a última parte é gravada: falha na parte 3 mantém o anterior', async () => {
-  const h = await harness();
-  try {
-    const small = prepare(malibuCsv(), [malibuTarget(uuid('51000000', 1))]);
-    assert.equal(small.parts.length, 1);
-    // The panel journey wants a 911, so this Malibu upload has no match but still becomes the previous upload.
-    await h.db.query(`update public.journeys set criteria_json=$1::jsonb where id=$2`, [JSON.stringify({ logical_modes: ['CARRO'], wishlists: [MALIBU] }), uuid('51000000', 1)]);
-    const previous = await upload.sendParts({ parts: small.parts, base: small.base, request: h.request });
-    assert.equal(previous.complete, true);
-    assert.equal(previous.matchedVehicleCount, small.matches.length);
-    assert.ok(small.matches.length > 0);
-    await h.db.query(`update public.journeys set criteria_json=$1::jsonb where id=$2`, [JSON.stringify(porscheCustomers().journeys[0].criteria_json), uuid('51000000', 1)]);
-
-    const run = prepare(porsche911Csv(), h.targets);
-    assert.ok(run.parts.length > 3);
-    const attempts = [];
-    const waits = [];
-    const flaky = async (requestPath, options) => {
-      const body = JSON.parse(options.body);
-      attempts.push(body.partIndex);
-      if (body.partIndex === 3) throw Object.assign(new Error('PANEL_ACTION_FAILED'), { code: 'PANEL_ACTION_FAILED' });
-      return h.request(requestPath, options);
-    };
-    await assert.rejects(
-      () => upload.sendParts({ parts: run.parts, base: run.base, request: flaky, wait: async (ms) => waits.push(ms) }),
-      (failure) => failure.code === 'MANHEIM_UPLOAD_INCOMPLETE' && failure.partIndex === 3 && failure.partCount === run.parts.length && failure.cause.code === 'PANEL_ACTION_FAILED'
-    );
-    assert.deepEqual(attempts, [1, 2, 3, 3, 3], 'parte 3 tenta 3 vezes e nada depois dela é enviado');
-    assert.deepEqual(waits, [2000, 2000]);
-
-    const latest = await h.latest();
-    assert.equal(latest.id, previous.uploadId, 'o painel continua mostrando o upload anterior');
-    assert.equal((await h.db.query(`select count(*)::int as total from public.manheim_uploads`)).rows[0].total, 1);
-    const draft = (await h.db.query(`select received_parts, completed_at from public.manheim_upload_drafts`)).rows;
-    assert.equal(draft.length, 1);
-    assert.equal(draft[0].received_parts, 2);
-    assert.equal(draft[0].completed_at, null);
-    assert.equal((await h.db.query(`select count(*)::int as total from public.manheim_matches where upload_id<>$1`, [previous.uploadId])).rows[0].total, 0);
-  } finally { await h.db.close(); }
+test('retomada: blocos já confirmados não são reenviados; erro definitivo para na hora', async () => {
+  const server = fakeServer({ received: ['0:0', '0:1'] });
+  const progress = [];
+  await upload.sendBatch({ ...base, plan: plan(), request: server.request, onProgress: (event) => progress.push(event.resumed || event.done) });
+  assert.deepEqual(server.state.calls, ['start', 'chunk 0:2', 'chunk 1:0', 'finalize']);
+  assert.deepEqual(progress[0], [[0, 0], [0, 1]], 'o progresso começa com os blocos já confirmados');
+  const final = fakeServer({ failures: { '0:1': ['MANHEIM_BATCH_CANCELED'] } });
+  await assert.rejects(() => upload.sendBatch({ ...base, plan: plan(), request: final.request }), (failure) => failure.code === 'MANHEIM_UPLOAD_INCOMPLETE' && failure.fileIndex === 0 && failure.chunkIndex === 1 && failure.fileName === 'A.csv' && failure.cause.code === 'MANHEIM_BATCH_CANCELED' && Boolean(failure.uploadId));
+  assert.deepEqual(final.state.calls, ['start', 'chunk 0:0', 'chunk 0:1'], 'erro definitivo não repete e nada é ativado');
+  assert.equal(final.state.finalized, false);
 });
 
-test('Export pequeno (269 Malibu) segue em uma parte pela RPC original', async () => {
-  const h = await harness();
-  try {
-    await h.db.query(`update public.journeys set criteria_json=$1::jsonb where id=$2`, [JSON.stringify({ logical_modes: ['CARRO'], wishlists: [MALIBU] }), uuid('51000000', 2)]);
-    const run = prepare(malibuCsv(), [malibuTarget(uuid('51000000', 2))]);
-    assert.equal(run.parsed.rows.length, 269);
-    assert.equal(run.parts.length, 1);
-    const result = await upload.sendParts({ parts: run.parts, base: run.base, request: h.request });
-    assert.equal(result.complete, true);
-    assert.deepEqual(h.rpcCalls.map((call) => call.name), ['panel_store_manheim_upload']);
-    assert.equal((await h.latest()).matched_vehicle_count, run.matches.length);
-  } finally { await h.db.close(); }
+test('ativação acusa bloco faltando: o navegador pergunta quais faltam, reenvia e ativa', async () => {
+  const server = fakeServer({ missing: '1:0' });
+  const result = await upload.sendBatch({ ...base, plan: plan(), request: server.request });
+  assert.equal(result.complete, true);
+  assert.deepEqual(server.state.calls.slice(-4), ['finalize', 'status', 'chunk 1:0', 'finalize']);
 });
 
-test('sem a migração aplicada, envio em partes responde MANHEIM_MIGRATION_PENDING', async () => {
-  const handler = loadWith('api/panel/actions.js', { '../../panel-server': {
-    ...realServer, allRows: async () => [],
-    supabase: async () => { throw Object.assign(new Error('SUPABASE_REQUEST_FAILED'), { status: 404 }); },
-    requirePanel: async () => ({ config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' })
-  } });
-  const res = response();
-  await handler({ method: 'POST', headers: {}, body: { action: 'manheim_upload_part', uploadId: null, partIndex: 1, partCount: 2, sourceFileCount: 1, vehicleCount: 1, headers: [['Year']], headerMap: {}, matches: [] } }, res);
-  assert.equal(res.code, 503);
-  assert.equal(res.payload.error, 'MANHEIM_MIGRATION_PENDING');
-  const tooMany = response();
-  await handler({ method: 'POST', headers: {}, body: { action: 'manheim_upload_part', uploadId: null, partIndex: 1, partCount: 2, sourceFileCount: 1, vehicleCount: 1, headers: [['Year']], headerMap: {}, matches: Array(251).fill({}) } }, tooMany);
-  assert.equal(tooMany.payload.error, 'MANHEIM_UPLOAD_INVALID');
+test('cancelar pelo operador para o envio antes do próximo bloco', async () => {
+  const server = fakeServer();
+  let sent = 0;
+  await assert.rejects(() => upload.sendBatch({ ...base, plan: plan(), request: server.request, canceled: () => sent >= 2, onProgress: (event) => { if (event.fileIndex !== null) sent += 1; } }), (failure) => failure.code === 'MANHEIM_BATCH_CANCELED_BY_OPERATOR');
+  assert.equal(server.state.finalized, false);
+  assert.deepEqual(server.state.calls, ['start', 'chunk 0:0', 'chunk 0:1']);
 });
 
-test('20.000 combinações cabem no plano de partes', () => {
-  const vehicle = { headers: ['Vin'], raw: { Vin: 'x'.repeat(900) }, parsed: { year: 2020, model: '911', miles: 1 } };
-  const matches = Array.from({ length: 20000 }, (_, index) => ({ journeyId: uuid('51000000', 1), kind: 'BATE', fingerprint: 'vin:' + index, vehicle }));
-  const parts = upload.planParts(matches, { sourceFileCount: 1, vehicleCount: 20000, headers: [['Vin']], headerMap: {} });
-  assert.equal(parts.length, 80);
-  assert.ok(parts.length <= 400);
-  assert.ok(parts.every((part) => part.length <= 250));
-  const heavy = Array.from({ length: 600 }, (_, index) => ({ kind: 'BATE', fingerprint: 'vin:' + index, vehicle: { ...vehicle, raw: { Vin: 'y'.repeat(20000) } } }));
-  const heavyParts = upload.planParts(heavy, {});
-  assert.ok(heavyParts.every((part) => Buffer.byteLength(JSON.stringify({ action: 'manheim_upload_part', matches: part })) < MAX_REQUEST_BYTES));
-  assert.ok(heavyParts.length > 3);
-});
-
-test('BUSCAS: BATE antes de QUASE, menor milhagem primeiro, 10 visíveis e "Ver mais"', () => {
+test('BUSCAS: ordem de exibição e opções carregadas por página, 10 de cada vez', () => {
   const row = (kind, miles) => ({ match_kind: kind, vehicle_json: { parsed: { miles } } });
   const sorted = upload.sortForDisplay([row('QUASE', 100), row('BATE', 5000), row('QUASE', 50), row('BATE', 10)]);
   assert.deepEqual(sorted.map((item) => `${item.match_kind}:${item.vehicle_json.parsed.miles}`), ['BATE:10', 'BATE:5000', 'QUASE:50', 'QUASE:100']);
   const client = read('painel/painel.js');
-  assert.match(client, /const MANHEIM_VISIBLE_ROWS = 10;/);
-  assert.match(client, /`Ver mais \(\$\{hidden\.length\}\)`/);
-  assert.match(client, /more\.replaceWith\(\.\.\.hidden\.map\(renderRow\)\)/);
-  assert.equal((client.match(/appendManheimRows\(table, matches, \(match\)/g) || []).length, 2);
+  assert.match(client, /const MANHEIM_PAGE_ROWS = 10;/);
+  assert.match(client, /'\/api\/panel\/manheim-options\?' \+ params\.toString\(\)/);
+  assert.match(client, /`Ver mais \(\$\{Math\.max\(demand\.matchCount - loaded\.length, 1\)\}\)`/);
+  assert.equal((client.match(/const table = lazyOptions\(card, demand, loaded,/g) || []).length, 2);
+  // The same order is kept by the database page (BATE, POR VALOR, lowest mileage, then id).
+  assert.match(read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql'), /order by coalesce\(m\.sort_rank::integer, case m\.match_kind when 'BATE' then 0 when 'POR_VALOR' then 1 else 2 end\), coalesce\(m\.sort_miles,/);
 });
 
 function panelSnippet(source, name) {
@@ -258,37 +178,63 @@ test('todo erro da importação do Manheim tem código ou vira "Erro inesperado:
   const importer = panelSnippet(client, 'importManheim');
   assert.doesNotMatch(importer, /throw new Error\(/, 'importManheim só lança erros com código');
   assert.doesNotMatch(importer, /askCleanStatus|showModal|<dialog/);
-  assert.doesNotMatch(client, /function askCleanStatus|Esta busca tem clean title/);
-  assert.doesNotMatch(client, /Não foi possível ler ou comparar este CSV\./);
-  assert.doesNotMatch(client, /matches\.length > 2000/);
+  // The screen is reloaded once, after the whole batch (never after each file).
+  assert.equal((importer.match(/await loadCurrent\(\)/g) || []).length, 1);
+  assert.match(importer, /MCSManheimUpload\.sendBatch\(/);
+  assert.doesNotMatch(importer, /buildMatches|manheim_archive|manheim_upload_part/);
   const messages = /const MANHEIM_FAILURE_MESSAGES = (\{[\s\S]*?\n {2}\});/.exec(client)[1];
+  const refusals = /const CHUNK_REFUSALS = (\{[\s\S]*?\n {2}\});/.exec(client)[1];
+  const reasons = /const RESUME_REASONS = (\{[\s\S]*?\n {2}\});/.exec(client)[1];
   const failureText = new Function('MAX_FILES', 'MANHEIM_MAX_MATCHES', 'window', 'MCSManheimUpload',
-    `const MANHEIM_FAILURE_MESSAGES = ${messages};\nreturn (${panelSnippet(client, 'manheimFailureText')});`)(20, 100000, { MCSManheimUpload: upload }, upload);
+    `const MANHEIM_FAILURE_MESSAGES = ${messages};\nconst CHUNK_REFUSALS = ${refusals};\nconst RESUME_REASONS = ${reasons};\nreturn (${panelSnippet(client, 'manheimFailureText')});`)(20, 100000, { MCSManheimUpload: upload }, upload);
   const coded = (code, extra) => Object.assign(new Error(code), { code }, extra || {});
-  for (const code of ['MANHEIM_FILES_INVALID', 'MANHEIM_READER_UNAVAILABLE', 'MANHEIM_JOURNEY_ID_INVALID', 'MANHEIM_FILE_TOO_LARGE', 'MANHEIM_FILE_READ_FAILED', 'MANHEIM_MATCH_LIMIT', 'MANHEIM_UPLOAD_INVALID', 'MANHEIM_MATCH_INVALID', 'MANHEIM_JOURNEY_DISABLED', 'MANHEIM_MIGRATION_PENDING', 'PAYLOAD_TOO_LARGE', 'PANEL_ACTION_FAILED']) {
+  for (const code of ['MANHEIM_FILES_INVALID', 'MANHEIM_READER_UNAVAILABLE', 'MANHEIM_FILE_TOO_LARGE', 'MANHEIM_FILE_READ_FAILED', 'MANHEIM_UPLOAD_INVALID', 'MANHEIM_MATCH_INVALID', 'MANHEIM_MIGRATION_PENDING', 'MANHEIM_UPLOAD_RUNNING', 'MANHEIM_BATCH_CANCELED', 'PAYLOAD_TOO_LARGE']) {
     const text = failureText(coded(code));
     assert.ok(text && !text.startsWith('Erro inesperado'), `${code} tem mensagem própria`);
   }
   assert.equal(failureText(coded('MANHEIM_CSV_COLUMNS_MISSING', { missing: ['year', 'model'] })), 'CSV incompleto: faltam year, model.');
-  assert.match(failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { partIndex: 3, partCount: 9, cause: coded('PANEL_ACTION_FAILED') })), /^Envio incompleto: a parte 3 de 9 falhou depois de 3 tentativas \(.+\)\. O último upload continua sendo o anterior\.$/);
-  assert.match(failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { partIndex: 1, partCount: 2, cause: coded('MANHEIM_MIGRATION_PENDING') })), /parte 1 de 2 falhou \(O banco/);
+  const interrupted = failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'MCS_HOJE_12.csv', chunkIndex: 3, uploadId: 'x', cause: coded('REQUEST_TIMEOUT') }));
+  assert.equal(interrupted, 'Envio interrompido em MCS_HOJE_12.csv, bloco 4 (O servidor demorou para responder). Nada foi ativado e o lote ativo não mudou. Selecione os mesmos arquivos de novo para continuar de onde parou');
+  // The integrity refusals say what happened and what to do.
+  for (const code of ['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_BATCH_RESUME_MISMATCH']) {
+    const text = failureText(coded(code, { uploadId: 'x' }));
+    assert.match(text, /Nada foi ativado|não será continuado/, code);
+    assert.match(text, /Descarte|descarte/, code);
+    assert.doesNotMatch(text, /\.$|—/, code);
+  }
+  assert.match(failureText(coded('MANHEIM_BATCH_RESUME_MISMATCH', { uploadId: 'x', reason: 'TARGETS' })), /as buscas dos clientes mudaram/);
+  assert.match(failureText(coded('MANHEIM_BATCH_RESUME_MISMATCH', { uploadId: 'x', reason: 'MANIFEST' })), /conteúdo lido agora é diferente/);
+  const conflict = failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'MCS_HOJE_12.csv', chunkIndex: 3, uploadId: 'x', cause: coded('MANHEIM_CHUNK_CONFLICT') }));
+  assert.equal(conflict, 'O bloco 4 de MCS_HOJE_12.csv já tinha sido recebido com outro conteúdo: os arquivos mudaram desde o primeiro envio. Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou. Descarte este envio e selecione os arquivos de novo para começar outro lote');
+  assert.match(failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'A.csv', chunkIndex: 0, uploadId: 'x', cause: coded('MANHEIM_CHUNK_HASH_MISMATCH') })), /não confere com o que foi declarado/);
   assert.equal(failureText(new TypeError('x is not a function')), 'Erro inesperado: x is not a function');
   assert.equal(failureText(coded('ALGO_NOVO')), 'Erro inesperado: ALGO_NOVO');
-  assert.equal(failureText(undefined), 'Erro inesperado: undefined');
   const shower = panelSnippet(client, 'showManheimFailure');
   assert.match(shower, /console\.error\(failure\)/);
-  assert.match(client, /status\.textContent = 'Lendo…'/);
-  assert.match(client, /`Comparando \$\{vehicles\.length\} carros…`/);
-  assert.match(client, /`Enviando parte \$\{partIndex\} de \$\{partCount\}…`/);
-  assert.match(client, /`\$\{archived\} carros arquivados, \$\{ignored\} ignorados, \$\{combinations\} combinações\$\{discardedText\}`/);
-  assert.match(read('painel/index.html'), /manheim\.js[\s\S]*manheim-upload\.js[\s\S]*painel\.js/);
+  assert.match(shower, /Descartar este envio/);
+  assert.match(read('painel/index.html'), /manheim\.js[\s\S]*manheim-upload\.js[\s\S]*refresh-coordinator\.js[\s\S]*painel\.js/);
 });
 
-test('migração do envio em partes: aditiva, RLS forçado e só service_role executa', () => {
-  const sql = read('supabase/migrations/20260929020000_panel_manheim_upload_parts.sql');
-  for (const table of ['manheim_upload_drafts', 'manheim_upload_draft_parts']) assert.match(sql, new RegExp(`alter table public\\.${table} force row level security`));
-  assert.match(sql, /revoke all on table public\.manheim_upload_drafts, public\.manheim_upload_draft_parts from public, anon, authenticated/);
-  assert.match(sql, /grant execute on function public\.panel_store_manheim_upload_part\([^)]*\)\s+to service_role/);
-  assert.doesNotMatch(sql, /drop table|drop function|alter table public\.manheim_uploads|create or replace function public\.panel_store_manheim_upload\(/i);
-  assert.match(sql, /jsonb_array_length\(p_matches\) > 250/);
+test('migrações: a antiga continua como estava; a nova é aditiva, com RLS forçado e só service_role executa', () => {
+  const old = read('supabase/migrations/20260929020000_panel_manheim_upload_parts.sql');
+  assert.match(old, /jsonb_array_length\(p_matches\) > 250/);
+  const sql = read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql');
+  assert.doesNotMatch(sql, /\bdrop\s+(table|function|column|index)\b/i);
+  assert.doesNotMatch(sql, /\bdelete\s+from\b/i, 'nada é apagado');
+  assert.doesNotMatch(sql, /\btruncate\b/i);
+  assert.match(sql, /alter table public\.manheim_upload_chunks force row level security/);
+  assert.match(sql, /revoke all on table public\.manheim_upload_chunks from public, anon, authenticated/);
+  assert.match(sql, /execute format\('revoke all on function %s from public, anon, authenticated', v_signature\)/);
+  assert.match(sql, /execute format\('grant execute on function %s to service_role', v_signature\)/);
+  const functions = [...sql.matchAll(/create or replace function (public\.panel_manheim_[a-z_]+)\(/g)].map((match) => match[1]);
+  const granted = [...sql.matchAll(/'(public\.panel_manheim_[a-z_]+)\(/g)].map((match) => match[1]);
+  assert.deepEqual([...new Set(functions)].sort(), [...new Set(granted)].sort(), 'toda função nova tem permissão revogada e dada só ao service_role');
+  // Integrity: additive too. It only replaces the two signatures never used outside the tests.
+  const integrity = read('supabase/migrations/20261005020000_panel_manheim_lote_integridade.sql');
+  assert.doesNotMatch(integrity, /\bdrop\s+(table|column|index)\b/i);
+  assert.deepEqual([...integrity.matchAll(/drop function if exists (public\.[a-z_]+)\(/g)].map((match) => match[1]), ['public.panel_manheim_batch_start', 'public.panel_manheim_batch_chunk']);
+  assert.doesNotMatch(integrity, /\bdelete\s+from\b|\btruncate\b|\bupdate\s+public\.manheim_(vehicles|matches)\b/i);
+  const replaced = [...integrity.matchAll(/create or replace function (public\.panel_manheim_[a-z_]+)\(/g)].map((match) => match[1]);
+  const regranted = [...integrity.matchAll(/'(public\.panel_manheim_[a-z_]+)\(/g)].map((match) => match[1]);
+  assert.deepEqual([...new Set(replaced)].sort(), [...new Set(regranted)].sort());
 });

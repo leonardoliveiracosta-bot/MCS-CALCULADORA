@@ -26,7 +26,8 @@ module.exports=async(req,res)=>{
     const ctx={config,environment:SERVER_ENVIRONMENT};
     let whatsappMaintenance={done:0,reprocessed:0,deferred:0,failed:0};
     try{
-      whatsappMaintenance=await recoverStalledEvents(ctx,{maxEvents:1,deadlineAt:Date.now()+20000});
+      // Up to 5 interrupted events per cycle, never past 20 seconds (it used to be one per cycle).
+      whatsappMaintenance=await recoverStalledEvents(ctx,{maxEvents:5,deadlineAt:Date.now()+20000});
       await resolveStoredItemErrors(ctx);
     }catch(error){console.error('[whatsapp-maintenance]',{operation:'cron',message:String(error?.message||'UNKNOWN')});}
     // A resumable full reading has priority only while it is actively running.

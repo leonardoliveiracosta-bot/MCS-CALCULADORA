@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const calc = require('./calc-core');
 const vehicleMatch = require('./vehicle-match');
 const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, journeyDemands, normalizeDeadline, normalizePayment, orderDemand, REF_RE } = require('./panel-domain');
-const { activeFilter } = require('./panel-manheim-state');
+const { batchSupported, liveUploadIds } = require('./panel-manheim-state');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 
@@ -165,13 +165,10 @@ async function leadData(ctx, req, refInput, idInput) {
     try{return await read();}
     catch(error){console.error('[panel-lead-read]',{label,ref,journeyId:journey?.id||null,message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});return [];}
   };
-  const activeBatch = await activeFilter(ctx, { rows }).catch(() => ({}));
-  const [notes, events, promises, archive, recentMatches, aiReadings, aiSuggestions, aiHelp, stageIndex] = await Promise.all([
+  const [notes, events, promises, aiReadings, aiSuggestions, aiHelp, stageIndex] = await Promise.all([
     optionalRead('lead_notes',()=>allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'created_at.desc' })),
     optionalRead('lead_events',()=>allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ...scope, undone_at: 'is.null', order: 'occurred_at.desc' })),
     optionalRead('lead_promises',()=>allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'due_at.asc' })),
-    optionalRead('manheim_vehicles',()=>allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, ...activeBatch, order: 'uploaded_at.desc' })),
-    optionalRead('manheim_matches',()=>allRows(ctx, 'manheim_matches', { select: 'id,vehicle_json,row_fingerprint,created_at', environment: 'eq.' + ctx.environment, created_at: 'gte.' + cutoff, ...activeBatch })),
     journey ? optionalRead('conversation_ai_readings',()=>rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('whatsapp_link_suggestions',()=>rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('lead_ai_help',()=>allRows(ctx,'lead_ai_help',{select:'id,question,answer_json,created_at',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,order:'created_at.desc'})) : Promise.resolve([]),
@@ -198,17 +195,21 @@ async function leadData(ctx, req, refInput, idInput) {
   const totalCeilingCents = Number(record && record.confirmed_total_ceiling_cents) || null;
   const bid = totalCeilingCents ? realisticBid(totalCeilingCents, { florida, payment, plate, stateIndex, zip }) : maxBidCents ? Math.floor(maxBidCents / 100) : null;
   const costs = bid === null ? null : calc.calcular({ lance: bid, inspecao: false, florida, placa: plate, pgto: payment, estado: stateIndex, zip });
-  const vehicles = archive.map((entry) => ({ ...entry.vehicle_json, rowFingerprint: entry.row_fingerprint, uploadedAt: entry.uploaded_at }));
-  const unique = new Map();
-  for (const vehicle of vehicles) if (!unique.has(vehicle.rowFingerprint)) unique.set(vehicle.rowFingerprint, vehicle);
-  for (const match of recentMatches) {
-    const parsed = match.vehicle_json && match.vehicle_json.parsed;
-    if (parsed && !unique.has(match.row_fingerprint)) unique.set(match.row_fingerprint, { ...parsed, rowFingerprint: match.row_fingerprint, matchId: match.id, uploadedAt: match.created_at });
-  }
   // The person's demands, one per mode: VALOR (make, model, bid) and CARRO (make, model, year
   // and mileage ranges). The same car can be an offer in both modes; each mode uses its own rule.
   const modeEntries = order && Array.isArray(order.simulations) ? order.simulations : [];
   const demands = (record ? journeyDemands(record, modeEntries) : modeEntries.map(orderDemand).filter(Boolean)).filter((demand) => demand.active);
+  // Cold inventory, read only for the makes this person asked for, in the live batches of the last
+  // 60 days (never the whole inventory; a car without make is kept, the matcher decides).
+  const makes = [...new Set(wishes.concat(demands.flatMap((demand) => demand.activeWishes || [])).map((wish) => vehicleMatch.fold(wish && wish.make)).filter(Boolean))];
+  const archive = await optionalRead('manheim_vehicles', async () => {
+    if (!makes.length || !(await batchSupported(ctx, { rows }))) return [];
+    const uploadIds = await liveUploadIds(ctx, { since: cutoff }, { rows });
+    if (!uploadIds.length) return [];
+    return allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, upload_id: 'in.(' + uploadIds.join(',') + ')', undone_at: 'is.null', make_key: 'in.(' + makes.concat(['']).map((make) => '"' + make.replace(/"/g, '') + '"').join(',') + ')', order: 'uploaded_at.desc' });
+  });
+  const unique = new Map();
+  for (const entry of archive) if (!unique.has(entry.row_fingerprint)) unique.set(entry.row_fingerprint, { ...entry.vehicle_json, rowFingerprint: entry.row_fingerprint, uploadedAt: entry.uploaded_at });
   const matchesFor = (car) => demands.map((demand) => ({ demand, result: vehicleMatch.matchDemand(car, { ...demand, wishes: demand.activeWishes }) })).filter((entry) => entry.result);
   const typical = wishes.map((wish) => {
     // A:P16: "MMR típico" uses the same rule as the offers and the CSV, never a car whose fit

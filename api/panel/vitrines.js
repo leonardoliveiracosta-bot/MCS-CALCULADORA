@@ -2,10 +2,18 @@
 const {insert,isUuid,jsonBody,patchRows,requirePanel,rows,safeText,send}=require('../../panel-server');
 const {expiresAt,publicVehicle,randomCode,randomToken,vehicleName}=require('../../vitrine-domain');
 const {parseMoneyCents}=require('../../money-text');
-const {activeFilter}=require('../../panel-manheim-state');
+const {activeFilter,liveUploadFilter}=require('../../panel-manheim-state');
 const {hasValidMmr}=require('../../vehicle-match');
 // An undone Manheim import batch never feeds a new V1 or V2 (vitrines already created stay).
 const activeBatch=async(ctx,services)=>services.activeFilter?services.activeFilter(ctx):activeFilter(ctx,{rows:services.rows||rows}).catch(()=>({}));
+// A match counts only while its import batch is live: activated after its last block and not undone.
+async function batchesLive(ctx,uploadIds,services){
+  const ids=[...new Set(uploadIds.filter(Boolean))];if(!ids.length)return true;
+  const filter=services.liveUploadFilter?await services.liveUploadFilter(ctx):await liveUploadFilter(ctx,{rows:services.rows||rows}).catch(()=>({}));
+  if(!Object.keys(filter).length)return true;
+  const found=await services.rows(ctx,'manheim_uploads',{select:'id',environment:'eq.'+ctx.environment,id:'in.('+ids.join(',')+')',...filter,limit:String(ids.length)});
+  return found.length===ids.length;
+}
 
 // MANHEIM_MATCH_AUDIT: with the audit on, a V1 or V2 comes only from a demand that was conferida
 // (or approved by hand with a reason). Only that demand is held; the others stay usable. Off:
@@ -69,8 +77,9 @@ async function create(ctx,body,services={rows,insert},now=Date.now()){
   const [journey]=await services.rows(ctx,'journeys',{select:'id,contact_id,reference_code,budget_cents',environment:'eq.'+ctx.environment,id:'eq.'+body.journeyId,limit:'1'});
   if(!journey)return null;
   const active=await activeBatch(ctx,services);
-  const [contact,...matches]=await Promise.all([services.rows(ctx,'contacts',{select:'display_name',environment:'eq.'+ctx.environment,id:'eq.'+journey.contact_id,limit:'1'}),...body.matchIds.map((id)=>isUuid(id)?services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+id,journey_id:'eq.'+journey.id,...active,limit:'1'}):Promise.resolve([]))]);
+  const [contact,...matches]=await Promise.all([services.rows(ctx,'contacts',{select:'display_name',environment:'eq.'+ctx.environment,id:'eq.'+journey.contact_id,limit:'1'}),...body.matchIds.map((id)=>isUuid(id)?services.rows(ctx,'manheim_matches',{select:'id,upload_id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+id,journey_id:'eq.'+journey.id,...active,limit:'1'}):Promise.resolve([]))]);
   const selected=matches.flat(); if(selected.length!==body.matchIds.length)return null;
+  if(!(await batchesLive(ctx,selected.map((match)=>match.upload_id),services)))return null;
   // MMR is mandatory: a car without a valid MMR never goes into a V1.
   if(selected.some((match)=>!hasValidMmr(match.vehicle_json?.parsed)))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};
   const demandKey=typeof body.demandKey==='string'&&/^journey:[0-9a-f-]{36}:(VALOR|CARRO)$/.test(body.demandKey)?body.demandKey:null;
@@ -108,7 +117,7 @@ async function createV2(ctx,body,services={rows,insert,patchRows},now=Date.now()
     const [source]=await services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+car.source_match_id,limit:'1'});
     if(!source)return {error:'VITRINE_SOURCE_MISSING'};
     if(!hasValidMmr(source.vehicle_json?.parsed))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};}
-  if(car.source_match_id){const active=await activeBatch(ctx,services);if(Object.keys(active).length){const [live]=await services.rows(ctx,'manheim_matches',{select:'id',environment:'eq.'+ctx.environment,id:'eq.'+car.source_match_id,...active,limit:'1'});if(!live)return {error:'VITRINE_SOURCE_UNDONE'};}}
+  if(car.source_match_id){const active=await activeBatch(ctx,services);if(Object.keys(active).length){const [live]=await services.rows(ctx,'manheim_matches',{select:'id,upload_id',environment:'eq.'+ctx.environment,id:'eq.'+car.source_match_id,...active,limit:'1'});if(!live||!(await batchesLive(ctx,[live.upload_id],services)))return {error:'VITRINE_SOURCE_UNDONE'};}}
   // A26: budget_cents is the maximum bid; confirmed_total_ceiling_cents is a total cost and is never read here.
   const [journey]=origin.journey_id?await services.rows(ctx,'journeys',{select:'id,budget_cents',environment:'eq.'+ctx.environment,id:'eq.'+origin.journey_id,limit:'1'}):[];
   const limit=limitCents(body,journey);

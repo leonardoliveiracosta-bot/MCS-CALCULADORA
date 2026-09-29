@@ -115,7 +115,7 @@ async function createBackend({ seed } = {}) {
     }
     const headers = Object.fromEntries(Object.entries(options.headers || {}).map(([key, value]) => [key.toLowerCase(), value]));
     const body = options.body ? JSON.parse(options.body) : null;
-    calls.push({ method, path: url.pathname, body });
+    calls.push({ method, path: url.pathname, search: decodeURIComponent(url.search), body });
     const reply = (status, payload) => ({ ok: status < 400, status, json: async () => payload, text: async () => payload === null ? '' : JSON.stringify(payload) });
     if (url.pathname === '/auth/v1/user') return reply(200, { id: '68000000-0000-4000-8000-00000000a001', email: 'teste@example.test' });
     try {

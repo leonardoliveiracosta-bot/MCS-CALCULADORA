@@ -49,7 +49,7 @@ async function main() {
   }
 }
 
-module.exports = { migratedDatabase };
+module.exports = { migratedDatabase, stubs };
 
 if (require.main === module) {
   main().catch((error) => {

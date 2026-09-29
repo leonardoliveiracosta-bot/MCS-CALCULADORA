@@ -58,13 +58,18 @@ async function resolveStoredItemErrors(ctx){
 
 async function recoverStalledEvents(ctx,options={}){
   const cutoff=new Date(Date.now()-120000).toISOString(),limit=String(options.maxEvents||3);
-  const [processing,deferred]=await Promise.all([
+  // Stuck in PROCESSING, deferred by a deadline, or never started (the webhook answered and its
+  // background work was lost): all come back here, oldest first, within the time limit.
+  const [processing,deferred,neverStarted]=await Promise.all([
     rows(ctx,'whatsapp_raw_events',{select:'id,event_type,payload_json,status,error_code,attempts,received_at,processing_started_at',environment:'eq.'+ctx.environment,status:'eq.PROCESSING',processing_started_at:'lt.'+cutoff,order:'processing_started_at.asc',limit}),
-    rows(ctx,'whatsapp_raw_events',{select:'id,event_type,payload_json,status,error_code,attempts,received_at,processing_started_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',error_code:'eq.PROCESSING_DEFERRED',order:'received_at.asc',limit})
+    rows(ctx,'whatsapp_raw_events',{select:'id,event_type,payload_json,status,error_code,attempts,received_at,processing_started_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',error_code:'eq.PROCESSING_DEFERRED',order:'received_at.asc',limit}),
+    rows(ctx,'whatsapp_raw_events',{select:'id,event_type,payload_json,status,error_code,attempts,received_at,processing_started_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',error_code:'is.null',received_at:'lt.'+cutoff,order:'received_at.asc',limit})
   ]);
-  const events=[...new Map(processing.concat(deferred).map((event)=>[event.id,event])).values()].slice(0,Number(limit));
+  const events=[...new Map(processing.concat(deferred,neverStarted).map((event)=>[event.id,event])).values()].sort((left,right)=>(Date.parse(left.received_at)||0)-(Date.parse(right.received_at)||0)).slice(0,Number(limit));
   const result={done:0,reprocessed:0,deferred:0,failed:0};
   for(const original of events){
+    // Time limit: an event that would start after the deadline waits for the next cycle.
+    if(options.deadlineAt&&Date.now()>=options.deadlineAt)break;
     let event=original;
     const wamids=parsedWamids(event.payload_json);
     if(wamids.length){

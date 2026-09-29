@@ -13,22 +13,27 @@ function leadZip(item, journey) {
   return location ? location[0] : '';
 }
 
-// A9: every screen scores with the same cars (last 60 days of Manheim exports).
-async function loadScoreVehicles(ctx, now = Date.now()) {
-  const { allRows, rows } = require('./panel-server');
-  const { activeFilter } = require('./panel-manheim-state');
-  const since = new Date(now - 60 * 86400000).toISOString();
-  // An undone import batch never feeds the score.
-  const active = await activeFilter(ctx, { rows });
-  const [archive, matches] = await Promise.all([
-    allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + since, ...active }),
-    allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + since, ...active })
-  ]);
-  const unique = new Map();
-  archive.forEach((entry) => unique.set(entry.row_fingerprint, entry.vehicle_json));
-  matches.forEach((entry) => { if (entry.vehicle_json?.parsed && !unique.has(entry.row_fingerprint)) unique.set(entry.row_fingerprint, entry.vehicle_json.parsed); });
-  return [...unique.values()].filter(Boolean);
+// A9: every screen scores with the same cars (last 60 days of live Manheim batches). The inventory
+// is never read here: the database answers one reference MMR per person (median of the cars that
+// serve the first wish of each demand), so CLIENTES, HOJE and the score never pull a batch.
+const SCORE_INDEX = Symbol('score-index');
+function scoreIndex(entries) {
+  const byPerson = new Map((entries || []).map((row) => [String(row.person || ''), Number(row.mmr_cents) || null]));
+  return { [SCORE_INDEX]: true, size: byPerson.size, mmrFor(keys) { for (const key of keys) { if (byPerson.has(key)) return byPerson.get(key); } return null; } };
 }
+const isScoreIndex = (value) => Boolean(value && value[SCORE_INDEX]);
+async function loadScoreIndex(ctx, now = Date.now()) {
+  const { rpc } = require('./panel-server');
+  const { batchSupported } = require('./panel-manheim-state');
+  // Before migration 20261005010000 there is no per-person answer: the score goes without the MMR
+  // part instead of reading the whole inventory.
+  if (!(await batchSupported(ctx).catch(() => false))) return scoreIndex([]);
+  const since = new Date(now - 60 * 86400000).toISOString();
+  const list = await rpc(ctx, 'panel_manheim_score_mmr', { p_environment: ctx.environment, p_since: since });
+  return scoreIndex(Array.isArray(list) ? list : []);
+}
+// Old name kept for the callers: it now returns the per-person index, never the cars.
+const loadScoreVehicles = loadScoreIndex;
 
 // The demands behind a score: a ficha with its linked calculator entries (split by mode), or
 // the Ref's own entries. `item.simulations` are the per-mode entries of a grouped Ref.
@@ -58,7 +63,9 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   // Only cars that serve one of the person's demands (each mode with its own rule, first wish of
   // each demand) are comparable; a demand that is not complete compares nothing.
   const demands=scoreDemands(item,journey).filter((demand)=>demand.active);
-  if(demands.length){
+  if(isScoreIndex(vehicles)){
+    if(demands.length)mmr=vehicles.mmrFor([id?'j:'+id:null,item.ref?'r:'+String(item.ref).trim().toUpperCase():null].filter(Boolean));
+  }else if(demands.length){
     const comparable=vehicles.filter((vehicle)=>demands.some((demand)=>vehicleMatch.countsAsServed(vehicleMatch.matchDemand(vehicle,{...demand,wishes:demand.activeWishes.slice(0,1)})?.kind)));
     mmr=median(comparable.map((vehicle)=>vehicle.mmrCents));
   }
@@ -77,4 +84,4 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
     +(mmr&&bid?mmr<=bid*100?15:mmr<=bid*120?5:0:0)+(latest&&now-latest<86400000?10:latest&&now-latest<72*3600000?5:0));
   return {score:value,goodHour,promiseToday,bid,mmr};
 }
-module.exports={score,scoreDemands,leadZip,loadScoreVehicles};
+module.exports={score,scoreDemands,leadZip,loadScoreVehicles,loadScoreIndex,scoreIndex,isScoreIndex};
