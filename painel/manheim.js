@@ -249,8 +249,11 @@
 
   function chooseAuctionRows(rows) {
     const byVin=new Map();
+    // "Buy now" of any row of the same VIN, looked up once (linear, even for 70.000 rows).
+    const buyNowByVin=new Map();
+    for (const row of rows||[]) { const vin=clean(row.vin); if (clean(row.buyNowPrice) && !buyNowByVin.has(vin)) buyNowByVin.set(vin,row.buyNowPrice); }
     for (const row of rows||[]) { const key=clean(row.vin)||fingerprint(row); const prior=byVin.get(key); if (!prior || (/simulcast/i.test(row.raw?.Inventory||'') && !/simulcast/i.test(prior.raw?.Inventory||''))) byVin.set(key,row); }
-    return [...byVin.values()].map((row)=>({ ...row, hasBuyNow:Boolean((rows||[]).find((candidate)=>clean(candidate.vin)===clean(row.vin)&&clean(candidate.buyNowPrice))?.buyNowPrice) }));
+    return [...byVin.values()].map((row)=>({ ...row, hasBuyNow:Boolean(buyNowByVin.get(clean(row.vin))) }));
   }
   return { AI_FIELDS, HEADER_ALIASES, applySuggestion, chooseAuctionRows, classifyRows, fingerprint, fold, mapHeaders, mapHeadersWith, matchDemand, normalizeRows, parseCsv, rowAmbiguity, supportedNumber, toCsv };
 }));
