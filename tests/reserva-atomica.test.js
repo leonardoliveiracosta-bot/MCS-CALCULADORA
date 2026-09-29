@@ -26,7 +26,7 @@ function seed() {
     `insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password) values('${ACTOR}','preview','68000000-0000-4000-8000-00000000a001','teste@example.test','admin',true,false);`,
     person(10, 'Quero comprar um carro pela MCS'), person(20, 'Outra conversa de compra'), person(30, 'Terceira conversa'),
     // The first person is also in "Precisa de você": the cron and the button both see her conversation.
-    `insert into public.whatsapp_link_suggestions(environment,source_contact_id,source_journey_id,target_contact_id,target_journey_id,phone_e164,status) values('preview','${id(11)}','${id(10)}','${id(21)}','${id(20)}','+14075550100','PENDING');`,
+    `insert into public.whatsapp_link_suggestions(environment,source_contact_id,source_journey_id,source_chat_id,target_contact_id,target_journey_id,phone_e164,status,suggestion_kind) values('preview','${id(11)}','${id(10)}','${id(12)}','${id(21)}','${id(20)}','+14075550100','PENDING','AI');`,
     `insert into public.manheim_uploads(id,environment,source_file_count,vehicle_count,created_by) values('${UPLOAD}','preview',1,10,'${ACTOR}');`
   ].join('\n');
 }
@@ -123,4 +123,39 @@ test('conferência Manheim: disparo do upload e cron ao mesmo tempo fazem uma ch
   const rows = (await backend.db.query('select status,cost_usd from public.manheim_match_audits where demand_key=$1', [key])).rows;
   assert.deepEqual(rows.map((row) => row.status), ['CONFERIDO']);
   assert.ok(Number(rows[0].cost_usd) > 0);
+});
+
+test('teto atômico por importação: duas demandas ao mesmo tempo nunca passam juntas do saldo', async () => {
+  const UPLOAD2 = id(3);
+  await backend.db.query(`insert into public.manheim_uploads(id,environment,source_file_count,vehicle_count,created_by) values('${UPLOAD2}','preview',1,10,'${ACTOR}')`);
+  const wish = { make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022, minMiles: 1000, maxMiles: 60000 };
+  const keyA = `journey:${id(10)}:CARRO`, keyB = `journey:${id(20)}:CARRO`;
+  const match = (n, journey, key) => ({ id: id(n), journey_id: journey, logical_mode: 'CARRO', demandKey: key, match_kind: 'BATE', row_fingerprint: 'f' + n, vehicle_json: { parsed: { vin: 'VIN' + n, year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } });
+  const input = {
+    upload: { id: UPLOAD2, undone_at: null },
+    demands: [keyA, keyB].map((key, index) => ({ key, mode: 'CARRO', journeyId: [id(10), id(20)][index], activeWishes: [wish], active: true, issues: [] })),
+    matches: [match(600, id(10), keyA), match(601, id(20), keyB)],
+    base: { journeyById: new Map([id(10), id(20)].map((journey) => [journey, { id: journey, status: 'ATIVO', contact: { is_lead: true } }])), refsOf: () => [], calcRuns: [] }
+  };
+  const holdOf = (key) => Math.round(audit.estimateGroup(audit.buildGroups(input).find((group) => group.key === key), 'gpt-6-luna').costUsd * 2 * 1e6) / 1e6;
+  // Remaining balance: enough for one demand's hold, not for both.
+  const limit = Math.round((holdOf(keyA) + holdOf(keyB) / 2) * 1e6) / 1e6;
+  assert.ok(limit < holdOf(keyA) + holdOf(keyB));
+  const calls = [];
+  const fetchImpl = slowOpenAI(calls, () => JSON.stringify({ aprovado: true, divergencias: [] }));
+  const [left, right] = await Promise.all([
+    audit.runAudit(ctx, input, { env: ENV, fetchImpl, onlyKey: keyA, limitUsd: limit }),
+    audit.runAudit(ctx, input, { env: ENV, fetchImpl, onlyKey: keyB, limitUsd: limit })
+  ]);
+  assert.equal(calls.length, 1, 'só a demanda que cabe no saldo chama a OpenAI');
+  assert.equal([left, right].filter((result) => result.awaitingAuthorization).length, 1, 'a outra fica aguardando autorização');
+  const holds = (await backend.db.query('select demand_key,amount_usd,status from public.manheim_audit_budget_holds where upload_id=$1', [UPLOAD2])).rows;
+  assert.equal(holds.length, 1, 'apenas o valor que cabe foi reservado');
+  assert.equal(holds[0].status, 'ENCERRADA');
+  const state = await audit.viewState(ctx, input, { env: ENV });
+  const statuses = [state.byDemand[keyA].status, state.byDemand[keyB].status].sort();
+  assert.deepEqual(statuses, ['AGUARDANDO_AUTORIZACAO', 'CONFERIDO']);
+  assert.equal(state.run.status, 'AGUARDANDO_AUTORIZACAO');
+  const spent = Number((await backend.db.query('select coalesce(sum(cost_usd),0) s from public.manheim_match_audits where upload_id=$1', [UPLOAD2])).rows[0].s);
+  assert.ok(spent > 0 && spent <= limit, `gasto ${spent} dentro do limite ${limit}`);
 });

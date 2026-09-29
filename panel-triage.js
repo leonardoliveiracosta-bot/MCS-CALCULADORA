@@ -205,7 +205,7 @@ async function outOfFunnelIndex(ctx, journeys, refs, read = allRows) {
 // Conversations with a real message after the cut-off date whose current content has no reading.
 async function candidates(ctx, options = {}) {
   const read = options.allRows || allRows;
-  // onlyContacts + ignoreCutoff: the separate run for the conversations in "Precisa de você".
+  // onlyChats + ignoreCutoff: the separate run for the conversations in "Precisa de você".
   const cutoff = options.ignoreCutoff ? null : options.since ?? since(options.env || process.env);
   const env = 'eq.' + ctx.environment;
   const [chats, messages, links, active, readings] = await Promise.all([
@@ -221,7 +221,7 @@ async function candidates(ctx, options = {}) {
   const done = new Set(readings.filter((row) => row.source === 'AI' && settled(row)).map((row) => row.chat_id + ':' + row.content_hash + ':' + row.rule_version));
   const activeByChat = new Map(active.map((row) => [row.chat_id, row]));
   const list = [];
-  chats.filter((chat) => !chat.is_group && (!options.onlyContacts || options.onlyContacts.has(chat.contact_id))).forEach((chat) => {
+  chats.filter((chat) => !chat.is_group && (!options.onlyChats || options.onlyChats.has(chat.id))).forEach((chat) => {
     const own = byChat.get(chat.id) || [];
     const customer = own.filter((message) => message.direction === 'CUSTOMER' && !message.undone_at && !message.is_automatic);
     if (!customer.length) return;
@@ -239,16 +239,17 @@ async function candidates(ctx, options = {}) {
   return list.sort((a, b) => Date.parse(b.lastMessageAt) - Date.parse(a.lastMessageAt));
 }
 
-// The conversations waiting in "Precisa de você" (pending AI link suggestions), read once and
-// apart from the rest of the backlog, which is never read without a new authorization.
-async function pendingContacts(ctx, read = allRows) {
-  const suggestions = await read(ctx, 'whatsapp_link_suggestions', { select: 'source_contact_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' });
-  return new Set(suggestions.map((row) => row.source_contact_id).filter(Boolean));
+// The conversations waiting in "Precisa de você": exactly the source chat of each pending AI
+// suggestion (never every chat of the same contact). Read once and apart from the rest of the
+// backlog, which is never read without a new authorization.
+async function pendingChats(ctx, read = allRows) {
+  const suggestions = await read(ctx, 'whatsapp_link_suggestions', { select: 'source_chat_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' });
+  return new Set(suggestions.map((row) => row.source_chat_id).filter(Boolean));
 }
 async function runPending(ctx, options = {}) {
-  const contacts = await pendingContacts(ctx, options.allRows);
-  if (!contacts.size) return { processed: 0, pendingConversations: 0 };
-  return runTriage(ctx, { ...options, onlyContacts: contacts, ignoreCutoff: true, limit: options.limit || 30 });
+  const chats = await pendingChats(ctx, options.allRows);
+  if (!chats.size) return { processed: 0, pendingConversations: 0 };
+  return runTriage(ctx, { ...options, onlyChats: chats, ignoreCutoff: true, limit: options.limit || 30 });
 }
 
 async function runTriage(ctx, options = {}) {
@@ -301,5 +302,5 @@ function estimate(conversations, modelId) {
 module.exports = {
   RULE_VERSION, CATEGORIES, OUT_OF_FUNNEL, LABELS, APPROVED_MODELS, PRICES, INSTRUCTIONS, MAX_ATTEMPTS,
   decisionOf, model, since, status, enabled, estimateCostUsd, redact, evidenceFor, contentHash, classify, validated,
-  record, undo, activeRows, outOfFunnelJourneys, outOfFunnelIndex, candidates, runTriage, runPending, pendingContacts, estimate
+  record, undo, activeRows, outOfFunnelJourneys, outOfFunnelIndex, candidates, runTriage, runPending, pendingChats, estimate
 };

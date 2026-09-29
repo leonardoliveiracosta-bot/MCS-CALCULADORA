@@ -295,6 +295,13 @@ async function spentOf(ctx, uploadId) {
   const list = await allRows(ctx, 'manheim_match_audits', { select: 'cost_usd', environment: env(ctx), upload_id: 'eq.' + uploadId, cost_usd: 'not.is.null' });
   return Math.round(list.reduce((sum, row) => sum + (Number(row.cost_usd) || 0), 0) * 1e6) / 1e6;
 }
+async function holdBudget(ctx, uploadId, demandKey, amountUsd, baseLimit) {
+  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_manheim_audit_budget_hold', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ p_environment: ctx.environment, p_upload_id: uploadId, p_demand_key: demandKey, p_amount: Math.round(amountUsd * 1e6) / 1e6, p_base_limit: baseLimit })
+  });
+  return result && result.held === true ? { held: true, id: result.id } : { held: false, remaining: result && result.remaining };
+}
 async function runRow(ctx, uploadId) {
   const found = await rows(ctx, 'manheim_audit_runs', { select: 'id,upload_id,status,estimate_usd,limit_usd,spent_usd,authorized_by,authorized_at', environment: env(ctx), upload_id: 'eq.' + uploadId, limit: '1' });
   return found[0] || null;
@@ -406,13 +413,16 @@ async function runAudit(ctx, input, options = {}) {
   }
   for (const group of pending) {
     if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred += 1; continue; }
-    const next = estimateGroup(group, modelId).costUsd;
-    if (await spentOf(ctx, input.upload.id) + next > limit) { result.deferred += 1; continue; }
     // Atomic reservation first (upload trigger, cron and button at the same time): only the winner calls.
     const task = await claims.claimTask(ctx, { kind: 'MANHEIM_MATCH_AUDIT', subject: group.key, hash: group.hash, rule: RULE_VERSION });
     if (!task.claimed) { result.inProgress += 1; continue; }
+    // Then the batch budget, atomically per upload: two demands at the same time never pass the
+    // remaining limit together. Twice the estimate is held, so the real cost never crosses the cap.
+    const hold = await holdBudget(ctx, input.upload.id, group.key, Math.max(estimateGroup(group, modelId).costUsd * 2, 0.000001), baseLimit);
+    if (!hold.held) { await claims.finishTask(ctx, task, false).catch(() => null); result.awaitingAuthorization = true; result.deferred += 1; continue; }
+    const release = () => patchRows(ctx, 'manheim_audit_budget_holds', { environment: env(ctx), id: 'eq.' + hold.id, status: 'eq.ABERTA' }, { status: 'ENCERRADA', closed_at: new Date().toISOString() }).catch(() => null);
     const row = await claim(ctx, group, byHash.get(group.hash), options.manual).catch(() => null);
-    if (!row) { await claims.finishTask(ctx, task, false).catch(() => null); result.inProgress += 1; continue; }
+    if (!row) { await release(); await claims.finishTask(ctx, task, false).catch(() => null); result.inProgress += 1; continue; }
     let patch, paid;
     try {
       const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl, deadlineAt: options.deadlineAt });
@@ -436,22 +446,27 @@ async function runAudit(ctx, input, options = {}) {
       await claims.finishTask(ctx, task, false).catch(() => null);
       continue;
     }
+    // The real cost is on the audit row now: the budget hold can close.
+    await release();
     // A pending reading is released (the automatic retry rules above still apply; the operator can
     // always ask again). A decided one is done for this content.
     await claims.finishTask(ctx, task, patch.status !== 'PENDENTE').catch(() => null);
     result.processed += 1;
     if (patch.status === 'CONFERIDO') result.approved += 1; else if (patch.status === 'REVISAR') result.review += 1; else result.pending += 1;
   }
-  await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { spent_usd: await spentOf(ctx, input.upload.id), status: run.status === 'AUTORIZADO' ? 'AUTORIZADO' : 'ABERTO', updated_at: new Date().toISOString() });
+  // Only the spending: the status belongs to the budget holds and to the operator's authorization
+  // (a concurrent run may have just set "aguardando autorização").
+  await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { spent_usd: await spentOf(ctx, input.upload.id), updated_at: new Date().toISOString() });
   result.costUsd = Math.round(result.costUsd * 1e6) / 1e6;
   return result;
 }
 
-// Operator authorizes a batch above the US$ 2 limit (up to the shown estimate plus 25%).
+// Operator authorizes a batch above the US$ 2 limit. The ceiling covers the safety hold (twice the
+// estimate per call); what is spent is always the real cost of each call.
 async function authorize(ctx, uploadId, actorId) {
   const run = await runRow(ctx, uploadId);
   if (!run || run.status !== 'AGUARDANDO_AUTORIZACAO') { const failure = new Error('AUDIT_NOTHING_TO_AUTHORIZE'); failure.code = 'AUDIT_NOTHING_TO_AUTHORIZE'; throw failure; }
-  const limit = Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 1.25) * 1e6) / 1e6;
+  const limit = Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 2.5) * 1e6) / 1e6;
   await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AUTORIZADO', limit_usd: limit, authorized_by: actorId, authorized_at: new Date().toISOString(), updated_at: new Date().toISOString() });
   return { authorized: true, limitUsd: limit };
 }

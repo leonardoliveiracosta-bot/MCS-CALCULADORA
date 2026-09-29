@@ -103,9 +103,11 @@ async function createV2(ctx,body,services={rows,insert,patchRows},now=Date.now()
   if(!origin)return {error:'VITRINE_NOT_FOUND'};
   if(!car||!car.vehicle_snapshot)return {error:'VITRINE_CAR_MISSING'};
   if(car.source_match_id){const held=await (services.auditGate||auditGate)(ctx,[car.source_match_id]);if(held)return {error:held};
-    // MMR is mandatory: a V2 is never built from a car that had no valid MMR.
+    // MMR is mandatory and must be confirmed on the original match: a missing original (or one
+    // without a valid MMR) never becomes a V2.
     const [source]=await services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+car.source_match_id,limit:'1'});
-    if(source&&!hasValidMmr(source.vehicle_json?.parsed))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};}
+    if(!source)return {error:'VITRINE_SOURCE_MISSING'};
+    if(!hasValidMmr(source.vehicle_json?.parsed))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};}
   if(car.source_match_id){const active=await activeBatch(ctx,services);if(Object.keys(active).length){const [live]=await services.rows(ctx,'manheim_matches',{select:'id',environment:'eq.'+ctx.environment,id:'eq.'+car.source_match_id,...active,limit:'1'});if(!live)return {error:'VITRINE_SOURCE_UNDONE'};}}
   // A26: budget_cents is the maximum bid; confirmed_total_ceiling_cents is a total cost and is never read here.
   const [journey]=origin.journey_id?await services.rows(ctx,'journeys',{select:'id,budget_cents',environment:'eq.'+ctx.environment,id:'eq.'+origin.journey_id,limit:'1'}):[];
@@ -134,7 +136,7 @@ async function update(ctx,body,services={rows,patchRows}){
   for(const [id,patch] of patches)await services.patchRows(ctx,'vitrine_cars',{id:'eq.'+id,environment:'eq.'+ctx.environment,vitrine_id:'eq.'+list[0].id},patch);
   return {token:body.token,link:'/v/'+body.token,version};
 }
-const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='VITRINE_REQUEST_TREATED'||error==='VITRINE_SOURCE_UNDONE'||error==='MANHEIM_AUDIT_PENDING'||error==='MANHEIM_MATCH_WITHOUT_MMR'?409:400;
+const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='VITRINE_REQUEST_TREATED'||error==='VITRINE_SOURCE_UNDONE'||error==='MANHEIM_AUDIT_PENDING'||error==='MANHEIM_MATCH_WITHOUT_MMR'||error==='VITRINE_SOURCE_MISSING'?409:400;
 module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,65536);if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,statusFor(out.error),{error:out.error}):send(res,out.reused?200:201,out);}const out=await create(ctx,body);if(out&&out.error)return send(res,statusFor(out.error),{error:out.error});return out?send(res,out.reused?200:201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?.error?send(res,400,{error:out.error}):out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
 module.exports.create=create;
 module.exports.auditGate=auditGate;

@@ -123,3 +123,38 @@ test('conferência: carro sem MMR é divergência dura nos dois modos', () => {
     groups.forEach((group) => assert.deepEqual(group.divergences.map((item) => item.code), ['MMR_MISSING'], group.mode + ' ' + String(value)));
   }
 });
+
+test('V2 com source_match_id cujo match original não existe: bloqueada, nenhuma vitrine nem vitrine_car', async () => {
+  const inserts = [];
+  const services = {
+    rows: async (_ctx, table, query = {}) => table === 'vitrine_requests' ? [{ id: id(30), vitrine_id: id(31), vitrine_car_id: id(32), treated_at: null }]
+      : table === 'vitrines' ? (query.parent_vitrine_id ? [] : [{ id: id(31), journey_id: JOURNEY, contact_id: CONTACT, reference_code: 'ABCDE' }])
+      : table === 'vitrine_cars' ? (query.short_code ? [] : [{ id: id(32), vitrine_id: id(31), source_match_id: id(33), vehicle_snapshot: { year: 2020, make: 'Honda', model: 'CR-V' } }])
+      : table === 'manheim_matches' ? [] : table === 'journeys' ? [{ id: JOURNEY, budget_cents: 3000000 }] : [],
+    insert: async (_ctx, table, row) => { inserts.push(table); return [{ id: id(34), ...row }]; },
+    patchRows: async () => null, activeFilter: async () => ({})
+  };
+  assert.deepEqual(await vitrines.createV2(ctx, { requestId: id(30) }, services), { error: 'VITRINE_SOURCE_MISSING' });
+  assert.deepEqual(inserts, [], 'nenhuma vitrine e nenhum vitrine_car');
+  // Same V1 car with its original match present and a valid MMR: the V2 is created.
+  services.rows = ((base) => async (context, table, query) => table === 'manheim_matches' ? [{ id: id(33), vehicle_json: { parsed: { year: 2020, mmrCents: 3000000 } } }] : base(context, table, query))(services.rows);
+  const created = await vitrines.createV2(ctx, { requestId: id(30) }, services);
+  assert.ok(created.token, JSON.stringify(created));
+  assert.deepEqual(inserts, ['vitrines', 'vitrine_cars']);
+});
+
+test('contador do lote: operacional recalculado com o MMR obrigatório, nunca o número congelado', async () => {
+  // An earlier batch, still active, frozen at 3 matched cars: one with MMR, two without.
+  const EARLIER = id(40);
+  await backend.db.query(`insert into public.manheim_uploads(id,environment,source_file_count,vehicle_count,matched_vehicle_count,created_by,uploaded_at) values('${EARLIER}','preview',1,50,3,'${ACTOR}',now()-interval '1 day')`);
+  const add = (n, vin, mmr) => backend.db.query(`insert into public.manheim_matches(id,environment,upload_id,journey_id,match_kind,row_fingerprint,vehicle_json,logical_mode) values('${id(n)}','preview','${EARLIER}','${JOURNEY}','BATE','vin:${vin}','${carJson(vin, mmr)}','CARRO')`);
+  await add(41, 'EARLYMMR', 2900000); await add(42, 'EARLYNULL', null); await add(43, 'EARLYNA', 'N/A');
+  // The active batch was also frozen with its three stored matches (one with MMR).
+  await backend.db.query(`update public.manheim_uploads set matched_vehicle_count=3 where id='${UPLOAD}'`);
+  const view = (await call('records', '/api/panel/records?view=manheim')).payload;
+  const earlier = view.uploads.find((batch) => batch.id === EARLIER);
+  assert.deepEqual([earlier.frozenMatchCount, earlier.matchCount], [3, 1], 'lote anterior: 1 operacional, não 3');
+  const current = view.uploads.find((batch) => batch.id === UPLOAD);
+  assert.deepEqual([current.frozenMatchCount, current.matchCount], [3, 1]);
+  assert.deepEqual([view.upload.frozen_matched_vehicle_count, view.upload.matched_vehicle_count], [3, 1], 'o resumo do lote ativo usa o operacional');
+});

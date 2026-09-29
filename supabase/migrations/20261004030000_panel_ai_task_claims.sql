@@ -74,3 +74,65 @@ revoke all on function public.panel_ai_task_claim(public.panel_environment, text
 grant execute on function public.panel_ai_task_claim(public.panel_environment, text, text, text, text, integer) to service_role;
 revoke all on function public.panel_ai_task_finish(public.panel_environment, uuid, uuid, text) from public, anon, authenticated;
 grant execute on function public.panel_ai_task_finish(public.panel_environment, uuid, uuid, text) to service_role;
+
+-- Teto atômico por importação (MANHEIM_MATCH_AUDIT): além da reserva por demanda, cada chamada
+-- reserva orçamento do lote. Sob uma trava por lote, soma o gasto real (manheim_match_audits) e as
+-- reservas abertas; só reserva se couber no limite (US$ 2, ou o autorizado). Duas demandas ao mesmo
+-- tempo nunca passam juntas do saldo: a que não cabe deixa o lote aguardando autorização.
+create table if not exists public.manheim_audit_budget_holds (
+  id uuid primary key default gen_random_uuid(),
+  environment public.panel_environment not null,
+  upload_id uuid not null references public.manheim_uploads(id),
+  demand_key text not null check (char_length(demand_key) between 1 and 200),
+  amount_usd numeric(12, 6) not null check (amount_usd > 0),
+  status text not null default 'ABERTA' check (status in ('ABERTA', 'ENCERRADA')),
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  closed_at timestamptz
+);
+create index if not exists manheim_audit_budget_holds_open
+  on public.manheim_audit_budget_holds (environment, upload_id) where status = 'ABERTA';
+alter table public.manheim_audit_budget_holds enable row level security;
+alter table public.manheim_audit_budget_holds force row level security;
+revoke all on table public.manheim_audit_budget_holds from public, anon, authenticated;
+grant select, insert, update on table public.manheim_audit_budget_holds to service_role;
+
+-- p_base_limit can only lower the US$ 2 limit (never raise it); the authorized limit is set by the
+-- operator's authorization on manheim_audit_runs.
+create or replace function public.panel_manheim_audit_budget_hold(
+  p_environment public.panel_environment,
+  p_upload_id uuid,
+  p_demand_key text,
+  p_amount numeric,
+  p_base_limit numeric default 2
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_run public.manheim_audit_runs%rowtype;
+  v_limit numeric;
+  v_spent numeric;
+  v_held numeric;
+  v_id uuid;
+begin
+  if p_amount is null or p_amount <= 0 then raise exception 'AUDIT_HOLD_AMOUNT_INVALID'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_environment::text || ':audit-budget:' || p_upload_id::text, 0));
+  select * into v_run from public.manheim_audit_runs where environment = p_environment and upload_id = p_upload_id for update;
+  if not found then
+    insert into public.manheim_audit_runs (environment, upload_id, status, estimate_usd, limit_usd, spent_usd)
+    values (p_environment, p_upload_id, 'ABERTO', 0, 2, 0) returning * into v_run;
+  end if;
+  v_limit := case when v_run.status = 'AUTORIZADO' then v_run.limit_usd else least(coalesce(p_base_limit, 2), 2) end;
+  select coalesce(sum(cost_usd), 0) into v_spent from public.manheim_match_audits where environment = p_environment and upload_id = p_upload_id;
+  select coalesce(sum(amount_usd), 0) into v_held from public.manheim_audit_budget_holds
+    where environment = p_environment and upload_id = p_upload_id and status = 'ABERTA' and expires_at > now();
+  if v_spent + v_held + p_amount > v_limit then
+    -- The shown estimate stays the one computed by the caller (never the safety hold).
+    update public.manheim_audit_runs set status = 'AGUARDANDO_AUTORIZACAO', authorized_by = null, authorized_at = null, updated_at = now() where id = v_run.id;
+    return jsonb_build_object('held', false, 'remaining', greatest(v_limit - v_spent - v_held, 0), 'limit', v_limit);
+  end if;
+  insert into public.manheim_audit_budget_holds (environment, upload_id, demand_key, amount_usd, expires_at)
+  values (p_environment, p_upload_id, p_demand_key, p_amount, now() + interval '10 minutes') returning id into v_id;
+  return jsonb_build_object('held', true, 'id', v_id, 'remaining', v_limit - v_spent - v_held - p_amount, 'limit', v_limit);
+end $$;
+
+revoke all on function public.panel_manheim_audit_budget_hold(public.panel_environment, uuid, text, numeric, numeric) from public, anon, authenticated;
+grant execute on function public.panel_manheim_audit_budget_hold(public.panel_environment, uuid, text, numeric, numeric) to service_role;
