@@ -66,9 +66,11 @@ test('calculadora: taxa e total da tabela nova em Florida e fora, sem gravar nad
   const message = await page.evaluate(() => decodeURIComponent(linkWhatsApp(lerForm(), calcular(lerForm())).split('?text=')[1]));
   expect(message).toContain('$40,000');
   expect(message).not.toMatch(/\$1,200|\$800 base/);
-  // Nothing outside the local server is ever reached (calc_runs, ZIP lookup, fonts): all aborted.
+  // Outside the local server everything is aborted (fonts, ZIP lookup and, on mycarscout.net only,
+  // the calc_runs log). The route really ran: the page's external requests were blocked.
   await page.waitForTimeout(2800);
-  expect(blocked.every((url) => !url.startsWith(base))).toBe(true);
+  expect(blocked.length).toBeGreaterThan(0);
+  expect(await page.evaluate(() => location.hostname)).toBe('127.0.0.1');
   if (shots) {
     for (const [zip, name] of [['33101', 'fl'], ['97201', 'fora']]) {
       await page.evaluate((value) => { document.getElementById('zip').value = value; document.getElementById('lance').value = '17900'; document.getElementById('form').dispatchEvent(new Event('input', { bubbles: true })); }, zip);
