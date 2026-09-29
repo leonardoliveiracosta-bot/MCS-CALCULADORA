@@ -289,7 +289,8 @@
       <dialog id="report-dialog">
         <form method="dialog" class="report-form">
           <div class="section-head"><h2>Relatório da aba</h2><button class="quiet" value="cancel">Fechar</button></div>
-          <label>Período<select id="report-period"><option value="today">Hoje</option><option value="7">7 dias</option><option value="30">30 dias</option><option value="custom">Personalizado</option></select></label>
+          <p id="report-origin-note" class="muted hidden"></p>
+          <label id="report-period-field">Período<select id="report-period"><option value="today">Hoje</option><option value="7">7 dias</option><option value="30">30 dias</option><option value="custom">Personalizado</option></select></label>
           <div id="report-custom" class="filters hidden"><label>De<input id="report-from" type="date"></label><label>Até<input id="report-to" type="date"></label></div>
           <button id="report-generate" type="button">Gerar</button>
           <textarea id="report-text" rows="6" readonly aria-label="Texto do relatório"></textarea>

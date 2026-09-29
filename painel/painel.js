@@ -975,7 +975,8 @@
   function downloadClientsCsv(){
     const pendingByJourney=new Map((clientsData.pending?.items||[]).map((item)=>[item.journeyId,item]));
     let items=(clientsData.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id}));
-    items=items.filter(clientFilterMatch);
+    // Same universe as the badge, the counters and the report: leads only ("não é lead" stays out).
+    items=items.filter((item)=>item.isLead!==false&&clientFilterMatch(item));
     const csvCell=(value)=>{const raw=String(value??''),text=/^[=+\-@\t\r]/.test(raw)&&!/^[+-]?[\d\s().,-]+$/.test(raw)?"'"+raw:raw;return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;};
     const rows=[['nome','telefone','Ref','situação','checklist','calor','etapa da busca','resumo da IA'],...items.map((item)=>[item.name||item.contact?.display_name||'',primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||'',item.ref||item.referenceCode||item.reference_code||'',pendingSituationLabel(item.situation),`${checklistCompleted(item)}/6`,pendingHeatLabel(item.heat),item.searchStageLabel||'',item.aiSummary||item.summary||''])];
     const blob=new Blob(['\uFEFF'+rows.map((row)=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='clientes-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -2799,15 +2800,15 @@
     root.classList.remove('hidden');
   }
 
+  // From CLIENTES the report follows the CLIENTES period (last real activity), not a date range.
+  let reportClients = null;
   function openReport(view) {
     reportView = view;
-    if (view === 'records' && currentView === 'clients') {
-      const period = clientsPeriod(), cutoff = MCSOrigin.periodCutoff(period);
-      const day = (stamp) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(stamp));
-      if (period === '30') $('report-period').value = '30';
-      else { $('report-period').value = 'custom'; $('report-from').value = cutoff === null ? '2020-01-01' : day(cutoff); $('report-to').value = day(Date.now()); }
-      $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom');
-    }
+    reportClients = view === 'records' && currentView === 'clients' ? { activity: clientsPeriod(), since: MCSOrigin.periodCutoff(clientsPeriod()) } : null;
+    $('report-period-field').classList.toggle('hidden', Boolean(reportClients));
+    $('report-custom').classList.toggle('hidden', Boolean(reportClients) || $('report-period').value !== 'custom');
+    $('report-origin-note').classList.toggle('hidden', !reportClients);
+    $('report-origin-note').textContent = reportClients ? (reportClients.activity === 'all' ? 'Período de CLIENTES: tudo, sem corte por data' : `Período de CLIENTES: atividade real ${MCSOrigin.periodLabel(reportClients.activity)}`) : '';
     $('report-text').value = '';
     $('report-status').textContent = '';
     $('report-dialog').showModal();
@@ -2815,8 +2816,9 @@
 
   async function generateReport() {
     const period = $('report-period').value;
-    const params = new URLSearchParams({ period, view: reportView });
-    if (period === 'custom') {
+    const params = reportClients ? new URLSearchParams({ view: 'records', origin: 'clients', activity: reportClients.activity }) : new URLSearchParams({ period, view: reportView });
+    if (reportClients && reportClients.since !== null) params.set('since', new Date(reportClients.since).toISOString());
+    if (!reportClients && period === 'custom') {
       params.set('from', $('report-from').value);
       params.set('to', $('report-to').value);
     }

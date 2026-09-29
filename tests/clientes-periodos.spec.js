@@ -113,15 +113,18 @@ test('período junto com os outros filtros, planilha e relatório acompanham o p
   expect(csv).toContain('Bia 31 dias');
   expect(csv).not.toContain('Caio 120 dias');
   expect(csv).not.toContain('Edu 500 dias');
-  // Report: opened from CLIENTES, it carries the period.
+  expect(csv).not.toContain('Gil não lead');
+  // Report: opened from CLIENTES, it follows the CLIENTES period (last real activity), not a date range.
   await page.locator('#clients-panel [data-report="records"]').click();
-  await expect(page.locator('#report-period')).toHaveValue('custom');
-  const cutoff = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() - 90 * DAY));
-  await expect(page.locator('#report-from')).toHaveValue(cutoff);
+  await expect(page.locator('#report-period-field')).toBeHidden();
+  await expect(page.locator('#report-origin-note')).toHaveText('Período de CLIENTES: atividade real nos últimos 90 dias');
   await page.locator('#report-generate').click();
-  await expect.poll(() => calls.filter((call) => call.path === '/api/panel/report' && call.params.view === 'records' && call.params.period === 'custom' && call.params.from === cutoff).length).toBe(1);
+  await expect.poll(() => calls.filter((call) => call.path === '/api/panel/report' && call.params.origin === 'clients' && call.params.view === 'records' && call.params.activity === '90' && !call.params.period
+    && Math.abs(Date.parse(call.params.since) - (Date.now() - 90 * DAY)) < 120000).length).toBe(1);
   await page.locator('#report-dialog button[value="cancel"]').click();
-  await page.locator('#clients-activity').selectOption('30');
+  await page.locator('#clients-activity').selectOption('all');
   await page.locator('#clients-panel [data-report="records"]').click();
-  await expect(page.locator('#report-period')).toHaveValue('30');
+  await expect(page.locator('#report-origin-note')).toHaveText('Período de CLIENTES: tudo, sem corte por data');
+  await page.locator('#report-generate').click();
+  await expect.poll(() => calls.filter((call) => call.path === '/api/panel/report' && call.params.origin === 'clients' && call.params.activity === 'all' && !call.params.since).length).toBe(1);
 });
