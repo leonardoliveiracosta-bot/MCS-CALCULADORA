@@ -14,6 +14,10 @@ const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-s
 const { manheimView } = require('../../panel-buscas-view');
 const { activeFilter } = require('../../panel-manheim-state');
 const { outOfFunnelIndex } = require('../../panel-triage');
+// MMR is mandatory: a stored match without a valid MMR is never counted, listed or used as an option.
+const { hasValidMmr } = require('../../vehicle-match');
+const withMmr = (match) => hasValidMmr(match && match.vehicle_json && match.vehicle_json.parsed);
+
 
 function newPromiseToday(promises, ref, zip) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -59,7 +63,7 @@ async function clientList(ctx, activeBatch) {
   const triageOut=await outOfFunnelIndex(ctx,items,refs);
   const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
   const [latestMatches,recentVehicles]=await Promise.all([
-    uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...activeBatch }) : Promise.resolve([]),
+    uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...activeBatch }).then((list) => list.filter(withMmr)) : Promise.resolve([]),
     allRows(ctx,'manheim_matches',{select:'row_fingerprint,vehicle_json',environment:'eq.'+ctx.environment,...activeBatch,created_at:'gte.'+new Date(Date.now()-60*86400000).toISOString()})
   ]);
   const vehicleMap=new Map(archive.map((entry)=>[entry.row_fingerprint,entry.vehicle_json]));
@@ -133,7 +137,7 @@ module.exports = async (req, res) => {
       panelMeta(ctx),
       rows(ctx,'whatsapp_user_ids',{select:'contact_id,username',environment:'eq.'+ctx.environment,contact_id:'eq.'+journey.contact_id,limit:'1'})
     ]);
-    const manheimMatches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'id,match_kind,row_fingerprint', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, journey_id: 'eq.' + id, ...activeBatch }) : [];
+    const manheimMatches = uploads[0] ? (await allRows(ctx, 'manheim_matches', { select: 'id,match_kind,row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, journey_id: 'eq.' + id, ...activeBatch })).filter(withMmr) : [];
     const [calcRuns, calcLinks, dispositions, senderAliases] = await Promise.all([
       Promise.resolve([]),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),

@@ -341,7 +341,7 @@ test('"Precisa de você": leitura separada só dessas conversas, mesmo antigas; 
   };
   await oldChat(700, 'Quero comprar um carro pela MCS');
   await oldChat(800, 'E aí, vamos no churrasco?');
-  await backend.db.query(`insert into public.whatsapp_link_suggestions(environment,source_contact_id,source_journey_id,target_contact_id,target_journey_id,phone_e164,status) values('preview','${id(701)}','${id(700)}','${id(11)}','${id(10)}','+14075550100','PENDING')`);
+  await backend.db.query(`insert into public.whatsapp_link_suggestions(environment,source_contact_id,source_journey_id,source_chat_id,target_contact_id,target_journey_id,phone_e164,status,suggestion_kind) values('preview','${id(701)}','${id(700)}','${id(702)}','${id(11)}','${id(10)}','+14075550100','PENDING','AI')`);
   const calls = [];
   // The regular run respects the cutoff: none of the two old conversations is read.
   await triage.runTriage(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, calls) });
@@ -355,4 +355,29 @@ test('"Precisa de você": leitura separada só dessas conversas, mesmo antigas; 
   // Once read, a second run pays nothing.
   await triage.runPending(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, calls) });
   assert.equal(calls.length - before, 1);
+});
+
+test('"Precisa de você": só o chat da sugestão de IA pendente, nunca os outros chats do mesmo contato', async () => {
+  // One contact with two chats (and a ficha each): only the second chat has a pending AI suggestion.
+  const contact = id(9001);
+  await backend.db.query(`insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${contact}','preview','Dois Chats','WHATSAPP_DIRECT',now(),now())`);
+  const chatOf = async (n, text) => {
+    await backend.db.query(`insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(n)}','preview','${contact}','WHATSAPP_DIRECT','RESPONDIDO','ATIVO','{}',now(),now())`);
+    await backend.db.query(`insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,is_group,first_seen_at,last_seen_at,created_at,updated_at) values('${id(n + 2)}','preview','WHATSAPP','${contact}','dois-${n}','RESOLVED',false,now(),now(),now(),now())`);
+    await backend.db.query(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(n + 3)}','preview','${id(n + 2)}','WHATSAPP','CUSTOMER','${text}','x','2025-05-01T12:00:00Z','d${n}',1,'IMPORT','2025-05-01T12:00:00Z')`);
+    await backend.db.query(`insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${id(n + 3)}','${id(n)}','IMPORT',now())`);
+  };
+  await chatOf(9100, 'Primeiro chat sem sugestão');
+  await chatOf(9200, 'Segundo chat com sugestão de IA');
+  await chatOf(9300, 'Terceiro chat com sugestão por nome');
+  await backend.db.query(`insert into public.whatsapp_link_suggestions(environment,source_contact_id,source_journey_id,source_chat_id,target_contact_id,target_journey_id,phone_e164,status,suggestion_kind) values('preview','${contact}','${id(9200)}','${id(9202)}','${id(11)}','${id(10)}','+14075550199','PENDING','AI')`);
+  // A pending suggestion of another kind (name match) is not "Precisa de você" for this run.
+  await backend.db.query(`insert into public.whatsapp_link_suggestions(environment,source_contact_id,source_journey_id,source_chat_id,target_contact_id,target_journey_id,phone_e164,status,suggestion_kind) values('preview','${contact}','${id(9300)}','${id(9302)}','${id(11)}','${id(20)}','+14075550198','PENDING','NAME_MATCH')`);
+  assert.deepEqual([...(await triage.pendingChats(ctx))].filter((chat) => [id(9102), id(9202), id(9302)].includes(chat)), [id(9202)]);
+  const calls = [];
+  await triage.runPending(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, calls) });
+  const sent = calls.map((entry) => JSON.stringify(entry.body));
+  assert.equal(sent.filter((body) => body.includes('Segundo chat com sugestão de IA')).length, 1, 'o chat da sugestão foi enviado');
+  assert.ok(!sent.some((body) => body.includes('Primeiro chat sem sugestão')), 'o outro chat do mesmo contato não foi enviado');
+  assert.ok(!sent.some((body) => body.includes('Terceiro chat com sugestão por nome')), 'sugestão que não é de IA não entra');
 });

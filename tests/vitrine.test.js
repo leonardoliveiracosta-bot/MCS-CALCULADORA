@@ -45,7 +45,7 @@ function memoryDb({treated=null,carMissing=false,undoneSource=false}={}){
     journeys:[{id:v2ids.journey,environment:'production',budget_cents:1800000}],
     // buscas-split: the V1 car came from a match of an active (not undone) import batch.
     manheim_uploads:[{id:'u1',environment:'production',undone_at:null}],
-    manheim_matches:[{id:v2ids.match,environment:'production',undone_at:undoneSource?'2026-09-29T00:00:00Z':null}]
+    manheim_matches:[{id:v2ids.match,environment:'production',vehicle_json:{parsed:{year:2021,make:'BMW',model:'X3',mmrCents:3000000}},undone_at:undoneSource?'2026-09-29T00:00:00Z':null}]
   };
   let seq=0;
   const match=(row,params)=>Object.entries(params).every(([key,value])=>['select','limit','order','offset'].includes(key)||(value==='is.null'?row[key]===null||row[key]===undefined:String(row[key])===String(value).replace(/^eq\./,'')));

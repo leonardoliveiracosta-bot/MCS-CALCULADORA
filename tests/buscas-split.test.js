@@ -143,7 +143,8 @@ test('9 · critérios CARRO não entram em VALOR e 10 · lance e MMR não entram
   assert.equal(domain.matchManheimDemand(car({ year: 1998, miles: 300000 }), valor).kind, 'POR_VALOR');
   // CARRO ignores money: MMR far outside any band, bid given anyway.
   assert.equal(vehicleMatch.matchDemand(car({ mmrCents: 99900000 }), { ...carro, wishes: carro.activeWishes, bidCents: 100 }).kind, 'BATE');
-  assert.equal(vehicleMatch.matchDemand(car({ mmrCents: null }), { ...carro, wishes: carro.activeWishes }).kind, 'BATE');
+  // MMR is mandatory in CARRO too: without it the car is never an option (its amount still decides nothing).
+  assert.equal(vehicleMatch.matchDemand(car({ mmrCents: null }), { ...carro, wishes: carro.activeWishes }), null);
 });
 
 test('11 · lance de US$ 50.000: faixa US$ 35.000 a US$ 57.500; MMR 15.000 e 70.000 ficam fora', () => {
@@ -340,14 +341,14 @@ test('39 · falha da OpenAI não bloqueia as linhas válidas; 40 · nenhuma info
   await handler({ method: 'POST', headers: {}, body: { action: 'manheim_ai_rows', rows: [{ id: '0', cells: { year: '2022', miles: '70k mi' }, ambiguous: ['miles'] }] } }, res);
   if (saved !== undefined) process.env.MANHEIM_OPENAI_ENABLED = saved;
   assert.deepEqual([res.code, res.payload.available, res.payload.reason], [200, false, 'OPENAI_NOT_ENABLED']);
-  const failing = await manheimAi.suggestRows(manheimAi.sanitizeRows([{ id: '0', cells: { miles: '7k' }, ambiguous: ['miles'] }]), { env: { MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k' }, fetchImpl: async () => ({ ok: false, status: 500 }) }).catch((failure) => failure.code);
+  const failing = await manheimAi.suggestRows(manheimAi.sanitizeRows([{ id: '0', cells: { year: '2022', model: 'X5', miles: '7k' }, ambiguous: ['miles'] }]), { env: { MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k', MANHEIM_OPENAI_MODEL: 'gpt-6-luna' }, fetchImpl: async () => ({ ok: false, status: 500 }) }).catch((failure) => failure.code);
   assert.equal(failing, 'OPENAI_FAILED');
   // Only the six parser cells leave the server; no name, phone, Ref, VIN, seller or location.
   const row = manheimAi.sanitizeRow({ id: '1', cells: { year: '2022', model: 'X5', miles: '7k', phone: '+13055550000', ref: 'ABC23', name: 'Ana', vin: 'WBA123', location: 'FL' }, ambiguous: ['miles'], phone: '+1305', ref: 'ABC23' });
   assert.deepEqual(Object.keys(row.cells).sort(), ['make', 'miles', 'mmr', 'model', 'trim', 'year']);
   assert.deepEqual(Object.keys(row).sort(), ['ambiguous', 'cells', 'id']);
   let body = '';
-  await manheimAi.suggestRows([row], { env: { MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k' }, fetchImpl: async (_url, options) => { body = options.body; return { ok: true, json: async () => ({ choices: [{ message: { content: '{"rows":[]}' } }], usage: {} }) }; } });
+  await manheimAi.suggestRows([row], { env: { MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k', MANHEIM_OPENAI_MODEL: 'gpt-6-luna' }, fetchImpl: async (_url, options) => { body = options.body; return { ok: true, json: async () => ({ choices: [{ message: { content: '{"rows":[]}' } }], usage: {} }) }; } });
   for (const secret of ['+1305', 'ABC23', 'Ana', 'WBA123', 'FL']) assert.ok(!body.includes(secret), secret);
   // The key only exists on the server: the browser never references it.
   for (const file of ['painel/painel.js', 'painel/manheim.js', 'painel/manheim-upload.js', 'painel/index.html']) assert.doesNotMatch(read(file), /OPENAI_API_KEY|api\.openai\.com/, file);
@@ -460,4 +461,34 @@ test('revisão 6 e 7 · contadores sem duplicar e leitura falha fechada quando o
   const ready = loadWith('panel-manheim-state.js', { './panel-server': { rows: async () => [] } });
   assert.deepEqual(await ready.activeFilter(ctx), { undone_at: 'is.null' });
   assert.match(read('painel/painel.js'), /AI_MAX_ROWS_PER_BATCH = 1000/);
+});
+
+test('OpenAI do CSV · cada chamada é registrada no servidor com provedor, modelo, tokens e custo; linha clara não é enviada', async () => {
+  const logged = [];
+  const handler = loadWith('api/panel/actions.js', { '../../panel-server': { ...realServer, requirePanel: panelCtx, jsonBody: async (req) => req.body, insert: async (_ctx, table, payload) => { logged.push({ table, payload }); return []; } } });
+  const saved = { ...process.env };
+  Object.assign(process.env, { MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'chave-simulada', MANHEIM_OPENAI_MODEL: 'gpt-6-luna' });
+  const realFetch = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { ok: true, status: 200, json: async () => ({ usage: { prompt_tokens: 300, completion_tokens: 40 }, choices: [{ message: { content: JSON.stringify({ rows: [{ id: '1', year: 2022, make: 'BMW', model: 'X5', trim: null, miles: 45000, mmr: null, confident: true }] }) } }] }) }; };
+  try {
+    const res = response();
+    await handler({ method: 'POST', headers: {}, body: { action: 'manheim_ai_rows', rows: [
+      { id: '0', cells: { year: '2022', make: 'BMW', model: 'X5', miles: '45000', mmr: '41500' }, ambiguous: ['miles'] },
+      { id: '1', cells: { year: '2022', make: 'BMW', model: 'X5', miles: '45k mi', mmr: '41500' }, ambiguous: ['miles'] }
+    ] } }, res);
+    assert.equal(res.payload.available, true);
+    assert.equal(res.payload.model, 'gpt-6-luna');
+    // Only the unclear row left the server.
+    assert.deepEqual(JSON.parse(sent[0].messages[1].content).rows.map((row) => row.id), ['1']);
+    assert.equal(sent[0].response_format.json_schema.strict, true);
+    const record = logged.find((item) => item.table === 'audit_log');
+    assert.deepEqual([record.payload.entity_type, record.payload.action], ['manheim_openai', 'AI_ROWS']);
+    assert.deepEqual([record.payload.after_json.provider, record.payload.after_json.model, record.payload.after_json.inputTokens, record.payload.after_json.outputTokens, record.payload.after_json.rowsSent], ['openai', 'gpt-6-luna', 300, 40, 1]);
+    assert.ok(record.payload.after_json.costUsd > 0);
+    assert.doesNotMatch(JSON.stringify(record.payload), /45k|X5|41500/, 'nenhuma célula no registro');
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const key of ['MANHEIM_OPENAI_ENABLED', 'OPENAI_API_KEY', 'MANHEIM_OPENAI_MODEL']) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
+  }
 });

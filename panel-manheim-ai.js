@@ -6,12 +6,16 @@
 // It only suggests a normalization. The browser runs the suggestion through the same parser and
 // rules again; what is still ambiguous goes to review. It never chooses CARRO or VALOR, never
 // chooses a customer and never creates a match. OpenAI is the only provider for this job; there
-// is no Anthropic fallback. Off unless MANHEIM_OPENAI_ENABLED=1 and OPENAI_API_KEY exist, so no
-// cost is created without the owner's decision.
+// is no Anthropic fallback. Off unless MANHEIM_OPENAI_ENABLED=1, OPENAI_API_KEY and an allowed
+// MANHEIM_OPENAI_MODEL exist, so no cost is created without the owner's decision. Its own flag and
+// model variable: never MANHEIM_MATCH_AUDIT_ENABLED or ENTRADA_OPENAI_ENABLED.
 
-const DEFAULT_MODEL = 'gpt-5.4-nano';
+// No default model: without an allowed MANHEIM_OPENAI_MODEL the function is off (never a silent choice).
+const DEFAULT_MODEL = null;
+const { rowAmbiguity } = require('./painel/manheim');
 // US$ per 1M tokens (standard tier), from OpenAI's pricing page. Used for the cost estimate only.
 const PRICES = Object.freeze({
+  'gpt-6-luna': { input: 0.10, output: 0.50 },
   'gpt-5.4-nano': { input: 0.20, output: 1.25 },
   'gpt-5.6-luna': { input: 0.20, output: 1.20 }
 });
@@ -22,11 +26,10 @@ const TIMEOUT_MS = 20000;
 
 // Only these models may be used. Any other name in MANHEIM_OPENAI_MODEL turns the AI off (the
 // ambiguous rows go to review); there is never a fallback to another, more expensive model.
-const APPROVED_MODELS = Object.freeze(['gpt-5.4-nano', 'gpt-5.6-luna']);
+const APPROVED_MODELS = Object.freeze(['gpt-6-luna', 'gpt-5.4-nano', 'gpt-5.6-luna']);
 
 function model(env = process.env) {
   const configured = String(env.MANHEIM_OPENAI_MODEL || '').trim();
-  if (!configured) return DEFAULT_MODEL;
   return APPROVED_MODELS.includes(configured) ? configured : null;
 }
 
@@ -50,15 +53,19 @@ function sanitizeRow(row) {
   if (!id) return null;
   const cells = {};
   for (const field of FIELDS) cells[field] = cellText(row.cells && row.cells[field]);
-  const ambiguous = (Array.isArray(row.ambiguous) ? row.ambiguous : []).filter((field) => FIELDS.includes(field));
+  // The server decides what is ambiguous, with the same parser rule as the browser: a row the
+  // parser reads with safety never goes to OpenAI, whatever the browser says.
+  const ambiguous = rowAmbiguity(cells).filter((field) => FIELDS.includes(field));
   if (!ambiguous.length || !Object.values(cells).some(Boolean)) return null;
   return { id, cells, ambiguous };
 }
 
+// Malformed input is refused; clear rows are left out (they stay with the parser's own reading).
 function sanitizeRows(rows) {
   if (!Array.isArray(rows) || !rows.length || rows.length > MAX_ROWS) return null;
-  const clean = rows.map(sanitizeRow);
-  return clean.every(Boolean) ? clean : null;
+  if (rows.some((row) => !row || typeof row !== 'object' || Array.isArray(row) || !cellText(row.id))) return null;
+  const clean = rows.map(sanitizeRow).filter(Boolean);
+  return clean.length ? clean : null;
 }
 
 const SCHEMA = {

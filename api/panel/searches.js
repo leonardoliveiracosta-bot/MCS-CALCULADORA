@@ -1,4 +1,5 @@
 'use strict';
+const { hasValidMmr } = require('../../vehicle-match');
 
 const { allRows, insert, isUuid, jsonBody, patchRows, requirePanel, rows, safeText, send } = require('../../panel-server');
 const { contactIndex } = require('../../panel-contact');
@@ -42,7 +43,8 @@ async function payload(ctx) {
   ]);
   // M18: "N carros no último CSV" counts only the latest upload.
   const supported = await undoSupported(ctx, { rows });
-  const matches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...(supported ? { undone_at: 'is.null' } : {}) }) : [];
+  // MMR is mandatory: a car without a valid MMR is never counted as an option.
+  const matches = uploads[0] ? (await allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint,vehicle_json' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...(supported ? { undone_at: 'is.null' } : {}) })).filter((match) => hasValidMmr(match.vehicle_json && match.vehicle_json.parsed)) : [];
   const personDisposition = dispositionIndex(dispositions);
   const triageOut = await outOfFunnelIndex(ctx, journeys, refs);
   const contact = contactIndex({ calcRuns, messages: messages.filter((message) => !message.undone_at), messageLinks });

@@ -34,14 +34,15 @@ async function estimateBacklog(ctx) {
   const [chats, messages, suggestions] = await Promise.all([
     allRows(ctx, 'chats', { select: 'id,contact_id,is_group', environment: env }),
     allRows(ctx, 'messages', { select: 'id,chat_id,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,created_at,undone_at', environment: env, order: 'id.asc' }),
-    allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_contact_id', environment: env, status: 'eq.PENDING' })
+    allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_chat_id', environment: env, status: 'eq.PENDING', suggestion_kind: 'eq.AI' })
   ]);
   const byChat = new Map();
   messages.forEach((message) => { if (!byChat.has(message.chat_id)) byChat.set(message.chat_id, []); byChat.get(message.chat_id).push(message); });
   const individual = chats.filter((chat) => !chat.is_group && (byChat.get(chat.id) || []).some((message) => message.direction === 'CUSTOMER' && !message.undone_at));
-  const pendingContacts = new Set(suggestions.map((row) => row.source_contact_id));
+  // Same selection as the separate run: exactly the source chat of each pending AI suggestion.
+  const pendingChatIds = new Set(suggestions.map((row) => row.source_chat_id).filter(Boolean));
   const all = individual.map((chat) => triage.evidenceFor(byChat.get(chat.id))).filter((evidence) => evidence.length);
-  const needsYou = individual.filter((chat) => pendingContacts.has(chat.contact_id)).map((chat) => triage.evidenceFor(byChat.get(chat.id))).filter((evidence) => evidence.length);
+  const needsYou = individual.filter((chat) => pendingChatIds.has(chat.id)).map((chat) => triage.evidenceFor(byChat.get(chat.id))).filter((evidence) => evidence.length);
   return Object.fromEntries(triage.APPROVED_MODELS.map((modelId) => [modelId, { todas: triage.estimate(all, modelId), precisaDeVoce: triage.estimate(needsYou, modelId) }]));
 }
 

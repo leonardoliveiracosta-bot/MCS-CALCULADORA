@@ -152,9 +152,23 @@ async function manheimView(ctx, options = {}) {
   const storedByUpload = new Map(); stored.forEach((row) => storedByUpload.set(row.upload_id, (storedByUpload.get(row.upload_id) || 0) + 1));
   const historyIncomplete = history.some((upload) => Number(upload.vehicle_count) > 0 && (storedByUpload.get(upload.id) || 0) < Number(upload.vehicle_count));
   // B5: people served by today's combinations (BATE or POR VALOR), not the count frozen at upload.
-  const upload = latest ? { ...latest, current_lead_count: allServed.size } : null;
+  // Operational count per active batch: the frozen matched_vehicle_count may include cars that
+  // are no longer eligible (no valid MMR). The active batch counts today's live matches; the other
+  // active batches count their stored matches that pass the mandatory MMR rule. Undone batches
+  // keep the number they had.
+  const operational = new Map();
+  if (latest) operational.set(latest.id, new Set(liveMatches.map((match) => match.row_fingerprint || match.id)).size);
+  const otherActive = uploads.filter((row) => !row.undone_at && (!latest || row.id !== latest.id)).map((row) => row.id);
+  if (otherActive.length) {
+    const stored = await allRows(ctx, 'manheim_matches', { select: 'upload_id,row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, upload_id: 'in.(' + otherActive.join(',') + ')', ...active });
+    const fingerprints = new Map(otherActive.map((uploadId) => [uploadId, new Set()]));
+    stored.filter((match) => vehicleMatch.hasValidMmr(match.vehicle_json && match.vehicle_json.parsed)).forEach((match) => fingerprints.get(match.upload_id)?.add(match.row_fingerprint));
+    fingerprints.forEach((set, uploadId) => operational.set(uploadId, set.size));
+  }
+  const upload = latest ? { ...latest, frozen_matched_vehicle_count: latest.matched_vehicle_count, matched_vehicle_count: operational.get(latest.id), current_lead_count: allServed.size } : null;
   const batches = uploads.map((row) => ({
-    id: row.id, uploadedAt: row.uploaded_at, fileCount: row.source_file_count, vehicleCount: row.vehicle_count, matchCount: row.matched_vehicle_count, leadCount: row.lead_count,
+    id: row.id, uploadedAt: row.uploaded_at, fileCount: row.source_file_count, vehicleCount: row.vehicle_count,
+    matchCount: operational.has(row.id) ? operational.get(row.id) : row.matched_vehicle_count, frozenMatchCount: row.matched_vehicle_count, leadCount: row.lead_count,
     status: row.undone_at ? 'UNDONE' : 'ACTIVE', undoneAt: row.undone_at || null, undoSummary: row.undo_summary || null, ai: row.ai_summary_json || null, current: Boolean(latest && latest.id === row.id)
   }));
   return {

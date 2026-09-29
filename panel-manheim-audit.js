@@ -24,7 +24,9 @@
 const crypto = require('node:crypto');
 const { allRows, insert, patchRows, rows, supabase } = require('./panel-server');
 const { matchManheimDemand } = require('./panel-domain');
+const { hasValidMmr } = require('./vehicle-match');
 const { PRICES } = require('./panel-triage');
+const aiClaim = require('./panel-ai-claim');
 
 const RULE_VERSION = 'conferencia-v1';
 const DEFAULT_MODEL = 'gpt-6-luna';
@@ -171,14 +173,12 @@ function buildGroups(input) {
       if (vin) { if (vins.has(vin)) add('VIN_DUPLICATE', option); vins.set(vin, option); }
       const signature = [parsed.year, upper(parsed.make), upper(parsed.model), parsed.miles, parsed.mmrCents, upper(parsed.location)].join('|');
       if (!vin) { if (rowsSeen.has(signature)) add('SPLIT_DUPLICATE', option); rowsSeen.set(signature, option); }
+      // MMR is mandatory in both modes (in CARRO its amount decides nothing).
+      if (!hasValidMmr(parsed)) { add('MMR_MISSING', option); return; }
       if (!demand || !demand.active) return;
       // The same deterministic rule the import used, applied again to the stored car.
       const result = matchManheimDemand(parsed, { ...demand, wishes: demand.activeWishes });
-      if (!result) {
-        if (demand.mode === 'VALOR' && !(Number(parsed.mmrCents) > 0)) add('MMR_MISSING', option);
-        else add('CRITERIA_MISMATCH', option);
-        return;
-      }
+      if (!result) { add('CRITERIA_MISMATCH', option); return; }
       if (demand.mode === 'CARRO' && (parsed.miles === null || parsed.miles === undefined || parsed.miles === '')) add('ODOMETER_UNKNOWN', option);
       if (match.match_kind && result.kind !== match.match_kind) add('CRITERIA_MISMATCH', option);
     });
@@ -198,8 +198,8 @@ const SCHEMA = {
 };
 const INSTRUCTIONS = [
   'Você confere as opções de carros de leilão (Manheim) que o sistema da My Car Scout separou para uma demanda de cliente. Responda só com o JSON pedido.',
-  'Modo VALOR: vale marca e modelo pedidos e o lance da própria demanda. O MMR precisa ser numérico. Lance até US$ 60.000: MMR entre 70% e 115% do lance; acima de US$ 60.000: entre 75% e 110%. O teto total nunca é lance. Ano e milhagem não contam em VALOR. Uma opção tipo QUASE sem MMR é só informativa e não é divergência.',
-  'Modo CARRO: vale marca e modelo, ano dentro da faixa e milhagem dentro da faixa, com odômetro informado. Não existe tolerância. MMR e lance não contam em CARRO.',
+  'Modo VALOR: vale marca e modelo pedidos e o lance da própria demanda. O MMR é obrigatório e numérico. Lance até US$ 60.000: MMR entre 70% e 115% do lance; acima de US$ 60.000: entre 75% e 110%. O teto total nunca é lance. Ano e milhagem não contam em VALOR.',
+  'Modo CARRO: vale marca e modelo, ano dentro da faixa e milhagem dentro da faixa, com odômetro informado. Não existe tolerância. O MMR precisa existir e ser numérico, mas o valor dele não decide; o lance não conta em CARRO.',
   'Aponte critério de um modo usado no outro, opção de outra pessoa, VIN repetido, carro repetido e demanda incompleta.',
   'aprovado: true só quando todas as opções cumprem a regra do modo. Cada divergência traz a opção (id, ou vazio para a demanda inteira), o código e um motivo curto em português, sem ponto final.'
 ].join('\n');
@@ -295,6 +295,13 @@ async function spentOf(ctx, uploadId) {
   const list = await allRows(ctx, 'manheim_match_audits', { select: 'cost_usd', environment: env(ctx), upload_id: 'eq.' + uploadId, cost_usd: 'not.is.null' });
   return Math.round(list.reduce((sum, row) => sum + (Number(row.cost_usd) || 0), 0) * 1e6) / 1e6;
 }
+async function holdBudget(ctx, uploadId, demandKey, amountUsd, baseLimit) {
+  const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_manheim_audit_budget_hold', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ p_environment: ctx.environment, p_upload_id: uploadId, p_demand_key: demandKey, p_amount: Math.round(amountUsd * 1e6) / 1e6, p_base_limit: baseLimit })
+  });
+  return result && result.held === true ? { held: true, id: result.id } : { held: false, remaining: result && result.remaining };
+}
 async function runRow(ctx, uploadId) {
   const found = await rows(ctx, 'manheim_audit_runs', { select: 'id,upload_id,status,estimate_usd,limit_usd,spent_usd,authorized_by,authorized_at', environment: env(ctx), upload_id: 'eq.' + uploadId, limit: '1' });
   return found[0] || null;
@@ -374,7 +381,8 @@ async function runAudit(ctx, input, options = {}) {
   const groups = buildGroups(input).filter((group) => !options.onlyKey || group.key === options.onlyKey);
   const stored = await auditRows(ctx, input.upload.id);
   const byHash = new Map(stored.map((row) => [row.content_hash, row]));
-  const result = { processed: 0, approved: 0, review: 0, pending: 0, costUsd: 0, deferred: 0 };
+  const result = { processed: 0, approved: 0, review: 0, pending: 0, costUsd: 0, deferred: 0, inProgress: 0 };
+  const claims = options.claims || aiClaim;
   // Facts found here: REVISAR at once, no call.
   for (const group of groups.filter((item) => item.divergences.length && !byHash.has(item.hash))) {
     await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/manheim_match_audits?on_conflict=environment,content_hash', {
@@ -405,10 +413,16 @@ async function runAudit(ctx, input, options = {}) {
   }
   for (const group of pending) {
     if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred += 1; continue; }
-    const next = estimateGroup(group, modelId).costUsd;
-    if (await spentOf(ctx, input.upload.id) + next > limit) { result.deferred += 1; continue; }
-    const row = await claim(ctx, group, byHash.get(group.hash), options.manual);
-    if (!row) continue;
+    // Atomic reservation first (upload trigger, cron and button at the same time): only the winner calls.
+    const task = await claims.claimTask(ctx, { kind: 'MANHEIM_MATCH_AUDIT', subject: group.key, hash: group.hash, rule: RULE_VERSION });
+    if (!task.claimed) { result.inProgress += 1; continue; }
+    // Then the batch budget, atomically per upload: two demands at the same time never pass the
+    // remaining limit together. Twice the estimate is held, so the real cost never crosses the cap.
+    const hold = await holdBudget(ctx, input.upload.id, group.key, Math.max(estimateGroup(group, modelId).costUsd * 2, 0.000001), baseLimit);
+    if (!hold.held) { await claims.finishTask(ctx, task, false).catch(() => null); result.awaitingAuthorization = true; result.deferred += 1; continue; }
+    const release = () => patchRows(ctx, 'manheim_audit_budget_holds', { environment: env(ctx), id: 'eq.' + hold.id, status: 'eq.ABERTA' }, { status: 'ENCERRADA', closed_at: new Date().toISOString() }).catch(() => null);
+    const row = await claim(ctx, group, byHash.get(group.hash), options.manual).catch(() => null);
+    if (!row) { await release(); await claims.finishTask(ctx, task, false).catch(() => null); result.inProgress += 1; continue; }
     let patch, paid;
     try {
       const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl, deadlineAt: options.deadlineAt });
@@ -429,21 +443,30 @@ async function runAudit(ctx, input, options = {}) {
       if (!(Array.isArray(written) && written[0]) && paid) await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + row.id }, { provider: 'openai', model: modelId, ...cost, updated_at: at });
     } catch (error) {
       console.error('[manheim-audit]', { operation: 'record', message: String(error?.code || error?.message || 'UNKNOWN') });
+      await claims.finishTask(ctx, task, false).catch(() => null);
       continue;
     }
+    // The real cost is on the audit row now: the budget hold can close.
+    await release();
+    // A pending reading is released (the automatic retry rules above still apply; the operator can
+    // always ask again). A decided one is done for this content.
+    await claims.finishTask(ctx, task, patch.status !== 'PENDENTE').catch(() => null);
     result.processed += 1;
     if (patch.status === 'CONFERIDO') result.approved += 1; else if (patch.status === 'REVISAR') result.review += 1; else result.pending += 1;
   }
-  await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { spent_usd: await spentOf(ctx, input.upload.id), status: run.status === 'AUTORIZADO' ? 'AUTORIZADO' : 'ABERTO', updated_at: new Date().toISOString() });
+  // Only the spending: the status belongs to the budget holds and to the operator's authorization
+  // (a concurrent run may have just set "aguardando autorização").
+  await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { spent_usd: await spentOf(ctx, input.upload.id), updated_at: new Date().toISOString() });
   result.costUsd = Math.round(result.costUsd * 1e6) / 1e6;
   return result;
 }
 
-// Operator authorizes a batch above the US$ 2 limit (up to the shown estimate plus 25%).
+// Operator authorizes a batch above the US$ 2 limit. The ceiling covers the safety hold (twice the
+// estimate per call); what is spent is always the real cost of each call.
 async function authorize(ctx, uploadId, actorId) {
   const run = await runRow(ctx, uploadId);
   if (!run || run.status !== 'AGUARDANDO_AUTORIZACAO') { const failure = new Error('AUDIT_NOTHING_TO_AUTHORIZE'); failure.code = 'AUDIT_NOTHING_TO_AUTHORIZE'; throw failure; }
-  const limit = Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 1.25) * 1e6) / 1e6;
+  const limit = Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 2.5) * 1e6) / 1e6;
   await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AUTORIZADO', limit_usd: limit, authorized_by: actorId, authorized_at: new Date().toISOString(), updated_at: new Date().toISOString() });
   return { authorized: true, limitUsd: limit };
 }

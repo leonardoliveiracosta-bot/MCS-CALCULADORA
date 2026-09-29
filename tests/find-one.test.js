@@ -101,9 +101,9 @@ test('CARRO: exemplo BMW X5 2020 a 2025 com 1.000 a 10.000 milhas', () => {
   assert.equal(match(car()).kind, 'BATE');
   assert.equal(match(car({ year: 2019 })), null);
   assert.equal(match(car({ miles: 20000 })), null);
-  // MMR outside any VALOR band, or missing, does not matter.
+  // The MMR amount outside any VALOR band does not matter, but the MMR must exist.
   assert.equal(match(car({ mmrCents: 99900000 })).kind, 'BATE');
-  assert.equal(match(car({ mmrCents: null })).kind, 'BATE');
+  for (const mmrCents of [null, undefined, '', 0, -100, 'N/A', 'desconhecido', 'abc']) assert.equal(match(car({ mmrCents })), null, 'CARRO sem MMR válido: ' + String(mmrCents));
   // Inclusive limits and no tolerance.
   assert.equal(match(car({ year: 2020, miles: 1000 })).kind, 'BATE');
   assert.equal(match(car({ year: 2025, miles: 10000 })).kind, 'BATE');
@@ -136,7 +136,8 @@ test('VALOR: marca, modelo e o lance da própria demanda; nunca ano, milhagem ou
   assert.equal(match(car({ mmrCents: 1400000, year: 1998, miles: 400000 })).kind, 'POR_VALOR');
   assert.equal(match(car({ mmrCents: 2300000, miles: null })).kind, 'POR_VALOR');
   assert.equal(match(car({ mmrCents: 2600000 })), null, 'o total de US$ 26.000 não vira lance');
-  assert.equal(match(car({ mmrCents: null })).kind, 'QUASE');
+  // No valid MMR: never an option in VALOR (it is no longer QUASE).
+  for (const mmrCents of [null, undefined, '', 0, -100, 'N/A', 'desconhecido', 'abc']) assert.equal(match(car({ mmrCents })), null, 'VALOR sem MMR válido: ' + String(mmrCents));
   assert.equal(match(car({ model: 'X3', mmrCents: 2000000 })), null);
   assert.deepEqual([vehicleMatch.valueBand(6000000).low, vehicleMatch.valueBand(6000000).high, vehicleMatch.valueBand(6000100).low, vehicleMatch.valueBand(6000100).high], [70, 115, 75, 110]);
 });

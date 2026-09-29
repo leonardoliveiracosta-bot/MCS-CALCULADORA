@@ -213,7 +213,7 @@ function memoryDb(){
     vitrine_requests:[{id:v2ids.request,environment:'production',vitrine_id:v2ids.v1,vitrine_car_id:v2ids.car,treated_at:null}],
     journeys:[{id:v2ids.journey,environment:'production',contact_id:v2ids.contact,reference_code:'3CG5P',budget_cents:1800000,confirmed_total_ceiling_cents:2500000}],
     contacts:[{id:v2ids.contact,environment:'production',display_name:'Carlos'}],
-    manheim_matches:[{id:v2ids.match,environment:'production',journey_id:v2ids.journey,vehicle_json:{parsed:{year:2021,make:'BMW',model:'X3',startsAt:'2099-01-01T12:00:00Z'}}},{id:v2ids.match2,environment:'production',journey_id:v2ids.journey,vehicle_json:{parsed:{year:2020,make:'Audi',model:'Q5'}}}]
+    manheim_matches:[{id:v2ids.match,environment:'production',journey_id:v2ids.journey,vehicle_json:{parsed:{year:2021,make:'BMW',model:'X3',mmrCents:3000000,startsAt:'2099-01-01T12:00:00Z'}}},{id:v2ids.match2,environment:'production',journey_id:v2ids.journey,vehicle_json:{parsed:{year:2020,make:'Audi',model:'Q5',mmrCents:2800000}}}]
   };
   let seq=0;const selects=[];const patches=[];
   const matches=(row,params)=>Object.entries(params).every(([key,raw])=>{

@@ -26,7 +26,7 @@ function loadWith(relative, mocks) {
 }
 const response = () => ({ code: 0, payload: null, setHeader() {}, status(code) { this.code = code; return this; }, json(value) { this.payload = value; return value; } });
 const panelCtx = async () => ({ config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' });
-const car = (overrides) => ({ year: 2020, make: 'BMW', model: 'X5', miles: 40000, mmrCents: null, ...overrides });
+const car = (overrides) => ({ year: 2020, make: 'BMW', model: 'X5', miles: 40000, mmrCents: 3000000, ...overrides });
 
 // ---------------------------------------------------------------- R3: faixa de MMR (modo VALOR)
 // buscas-split: VALOR (Calculate My Cost) usa só marca, modelo e lance; CARRO (Find One For Me)
@@ -57,9 +57,8 @@ test('R3b: faixa de MMR do lance (US$ 20.000, 60.000 e 80.000), bordas inclusiva
   assert.equal(byValue.dataGap, false);
 });
 
-test('R3c/d: VALOR sem MMR → QUASE "sem MMR para comparar"; VALOR sem lance não é buscável', () => {
-  const noMmr = valor(car({ mmrCents: null }), 2000000);
-  assert.deepEqual([noMmr.kind, noMmr.notice, noMmr.dataGap], ['QUASE', 'sem MMR para comparar', true]);
+test('R3c/d: VALOR sem MMR válido nunca é opção; VALOR sem lance não é buscável', () => {
+  for (const mmrCents of [null, undefined, '', 0, -100, 'N/A', 'desconhecido', 'abc']) assert.equal(valor(car({ mmrCents }), 2000000), null, String(mmrCents));
   assert.equal(valor(car({ mmrCents: 2000000 }), null), null);
   assert.equal(valor(car({ mmrCents: 2000000 }), 0), null);
   assert.equal(vehicleMatch.valorWishIssue({ make: 'BMW', model: 'X5' }, null), 'BID_MISSING');
@@ -67,13 +66,14 @@ test('R3c/d: VALOR sem MMR → QUASE "sem MMR para comparar"; VALOR sem lance n�
   assert.notEqual(valor(car({ year: 2004, miles: 240000, mmrCents: 500000 }), null)?.kind, 'BATE');
 });
 
-test('R3a: CARRO usa só os critérios informados, sem tolerância e sem MMR', () => {
+test('R3a: CARRO usa só os critérios informados, sem tolerância; MMR obrigatório sem definir faixa', () => {
   const full = { yearMin: 2019, yearMax: 2021, minMiles: 1000, maxMiles: 50000 };
   assert.equal(carro(car({ year: 2020, miles: 40000 }), full).kind, 'BATE');
   assert.equal(carro(car({ year: 2015, miles: 40000 }), full), null);
   assert.equal(carro(car({ year: 2022, miles: 40000 }), full), null, 'um ano acima não é tolerado');
   assert.equal(carro(car({ year: 2020, miles: 51000 }), full), null, '2% acima da milhagem não é tolerado');
-  assert.equal(carro(car({ year: 2020, miles: 40000, mmrCents: null }), full).kind, 'BATE');
+  // MMR is mandatory in CARRO; its amount never decides.
+  for (const mmrCents of [null, undefined, '', 0, -100, 'N/A', 'desconhecido', 'abc']) assert.equal(carro(car({ year: 2020, miles: 40000, mmrCents }), full), null, String(mmrCents));
   assert.equal(carro(car({ year: 2020, miles: 40000, mmrCents: 99000000 }), full).kind, 'BATE', 'MMR não inclui nem exclui em CARRO');
   // Incomplete criteria are never searched: no year range, no mileage range.
   assert.equal(carro(car({ year: 2020, mmrCents: 3000000 }), { yearMin: 2019, yearMax: 2021 }), null);
@@ -261,7 +261,7 @@ test('A19: combinação que deixou de valer é descartada e contada, sem derruba
     '../../panel-server': { ...realServer, requirePanel: panelCtx, supabase: async (_u, _k, _p, options) => { stored.push(...JSON.parse(options.body).p_matches); return { uploadId: uuid(99), matchedVehicleCount: stored.length, leadCount: 1 }; } },
     '../../panel-buscas': { ...require('../panel-buscas'), loadBuscasBase: async () => require('../panel-buscas').buildBuscasBase({ journeys }) }
   });
-  const vehicle = { headers: ['Year', 'Model'], raw: { Year: '2020', Model: 'X5' }, parsed: { year: 2020, make: 'BMW', model: 'X5', miles: 30000, vin: 'VIN1' } };
+  const vehicle = { headers: ['Year', 'Model'], raw: { Year: '2020', Model: 'X5' }, parsed: { year: 2020, make: 'BMW', model: 'X5', miles: 30000, mmrCents: 3500000, vin: 'VIN1' } };
   const body = { action: 'manheim_upload_part', uploadId: null, partIndex: 1, partCount: 1, sourceFileCount: 1, vehicleCount: 1, headers: [['Year', 'Model']], headerMap: {},
     matches: [...[1, 2, 3].map((n) => ({ journeyId: uuid(n), mode: 'CARRO', kind: 'BATE', fingerprint: 'vin:VIN1', vehicle })), { journeyId: uuid(1), mode: 'VALOR', kind: 'POR_VALOR', fingerprint: 'vin:VIN1', vehicle }, { journeyId: uuid(1), kind: 'BATE', fingerprint: 'vin:VIN1', vehicle }] };
   const res = response();

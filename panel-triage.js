@@ -18,6 +18,7 @@
 
 const crypto = require('node:crypto');
 const { allRows, supabase } = require('./panel-server');
+const aiClaim = require('./panel-ai-claim');
 
 const RULE_VERSION = 'triagem-v1';
 const CATEGORIES = Object.freeze(['PRE_COMPRA_MCS', 'POS_VENDA', 'PESSOAL', 'OUTRO_NEGOCIO', 'NAO_CLIENTE', 'REVISAR']);
@@ -204,7 +205,7 @@ async function outOfFunnelIndex(ctx, journeys, refs, read = allRows) {
 // Conversations with a real message after the cut-off date whose current content has no reading.
 async function candidates(ctx, options = {}) {
   const read = options.allRows || allRows;
-  // onlyContacts + ignoreCutoff: the separate run for the conversations in "Precisa de você".
+  // onlyChats + ignoreCutoff: the separate run for the conversations in "Precisa de você".
   const cutoff = options.ignoreCutoff ? null : options.since ?? since(options.env || process.env);
   const env = 'eq.' + ctx.environment;
   const [chats, messages, links, active, readings] = await Promise.all([
@@ -220,7 +221,7 @@ async function candidates(ctx, options = {}) {
   const done = new Set(readings.filter((row) => row.source === 'AI' && settled(row)).map((row) => row.chat_id + ':' + row.content_hash + ':' + row.rule_version));
   const activeByChat = new Map(active.map((row) => [row.chat_id, row]));
   const list = [];
-  chats.filter((chat) => !chat.is_group && (!options.onlyContacts || options.onlyContacts.has(chat.contact_id))).forEach((chat) => {
+  chats.filter((chat) => !chat.is_group && (!options.onlyChats || options.onlyChats.has(chat.id))).forEach((chat) => {
     const own = byChat.get(chat.id) || [];
     const customer = own.filter((message) => message.direction === 'CUSTOMER' && !message.undone_at && !message.is_automatic);
     if (!customer.length) return;
@@ -238,16 +239,17 @@ async function candidates(ctx, options = {}) {
   return list.sort((a, b) => Date.parse(b.lastMessageAt) - Date.parse(a.lastMessageAt));
 }
 
-// The conversations waiting in "Precisa de você" (pending AI link suggestions), read once and
-// apart from the rest of the backlog, which is never read without a new authorization.
-async function pendingContacts(ctx, read = allRows) {
-  const suggestions = await read(ctx, 'whatsapp_link_suggestions', { select: 'source_contact_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' });
-  return new Set(suggestions.map((row) => row.source_contact_id).filter(Boolean));
+// The conversations waiting in "Precisa de você": exactly the source chat of each pending AI
+// suggestion (never every chat of the same contact). Read once and apart from the rest of the
+// backlog, which is never read without a new authorization.
+async function pendingChats(ctx, read = allRows) {
+  const suggestions = await read(ctx, 'whatsapp_link_suggestions', { select: 'source_chat_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' });
+  return new Set(suggestions.map((row) => row.source_chat_id).filter(Boolean));
 }
 async function runPending(ctx, options = {}) {
-  const contacts = await pendingContacts(ctx, options.allRows);
-  if (!contacts.size) return { processed: 0, pendingConversations: 0 };
-  return runTriage(ctx, { ...options, onlyContacts: contacts, ignoreCutoff: true, limit: options.limit || 30 });
+  const chats = await pendingChats(ctx, options.allRows);
+  if (!chats.size) return { processed: 0, pendingConversations: 0 };
+  return runTriage(ctx, { ...options, onlyChats: chats, ignoreCutoff: true, limit: options.limit || 30 });
 }
 
 async function runTriage(ctx, options = {}) {
@@ -255,11 +257,15 @@ async function runTriage(ctx, options = {}) {
   const state = status(env);
   if (state !== 'LIGADA') return { skipped: state, processed: 0 };
   const pending = (await candidates(ctx, { ...options, env })).slice(0, options.limit || BATCH_LIMIT);
-  const result = { processed: 0, funnel: 0, out: 0, review: 0, failed: 0, costUsd: 0 };
+  const result = { processed: 0, funnel: 0, out: 0, review: 0, failed: 0, costUsd: 0, inProgress: 0 };
+  const claims = options.claims || aiClaim;
   for (const item of pending) {
     // Never start a paid call that the function could be stopped in the middle of.
-    if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred = pending.length - result.processed; break; }
-    let entry;
+    if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred = pending.length - result.processed - result.inProgress; break; }
+    // Only the run that wins the reservation calls OpenAI (cron and button at the same time).
+    const claim = await claims.claimTask(ctx, { kind: 'ENTRADA_TRIAGE', subject: item.chatId, hash: item.contentHash, rule: RULE_VERSION });
+    if (!claim.claimed) { result.inProgress += 1; continue; }
+    let entry, retryable = false;
     try {
       const answer = await classify(item.evidence, { env, fetchImpl: options.fetchImpl });
       entry = { ...item, source: 'AI', category: answer.category, reason: answer.reason, evidence: answer.evidence, model: answer.model,
@@ -269,8 +275,12 @@ async function runTriage(ctx, options = {}) {
       // Failure, timeout or invalid answer: the conversation stays pending in REVISAR.
       entry = { ...item, source: 'AI', category: 'REVISAR', reason: 'IA indisponível, decidir manualmente', evidence: [], model: model(env), errorCode: failure?.code || 'OPENAI_FAILED' };
       result.failed += 1;
+      retryable = true;
     }
-    await (options.record || record)(ctx, entry);
+    try { await (options.record || record)(ctx, entry); }
+    catch (error) { await claims.finishTask(ctx, claim, false).catch(() => null); throw error; }
+    // A failure without an answer may be retried; an answer (valid or not) is final for this content.
+    await claims.finishTask(ctx, claim, !retryable);
     result.processed += 1;
     if (entry.category === 'PRE_COMPRA_MCS') result.funnel += 1; else if (entry.category === 'REVISAR') result.review += 1; else result.out += 1;
   }
@@ -292,5 +302,5 @@ function estimate(conversations, modelId) {
 module.exports = {
   RULE_VERSION, CATEGORIES, OUT_OF_FUNNEL, LABELS, APPROVED_MODELS, PRICES, INSTRUCTIONS, MAX_ATTEMPTS,
   decisionOf, model, since, status, enabled, estimateCostUsd, redact, evidenceFor, contentHash, classify, validated,
-  record, undo, activeRows, outOfFunnelJourneys, outOfFunnelIndex, candidates, runTriage, runPending, pendingContacts, estimate
+  record, undo, activeRows, outOfFunnelJourneys, outOfFunnelIndex, candidates, runTriage, runPending, pendingChats, estimate
 };

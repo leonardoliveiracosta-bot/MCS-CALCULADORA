@@ -5,6 +5,7 @@ const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, time } = 
 const { allRows, requirePanel, send } = require('../../panel-server');
 const { operational } = require('../../panel-read-model');
 const { contactIndex } = require('../../panel-contact');
+const { hasValidMmr } = require('../../vehicle-match');
 const { periodCutoff, periodLabel } = require('../../panel-origin');
 
 // Report opened from CLIENTES (origin=clients): the same universe as the CLIENTES list, badge,
@@ -114,7 +115,8 @@ module.exports = async (req, res) => {
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,stage,status,budget_cents,created_at,qualified_at,closed_at,closed_reason', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,uploaded_at', environment: 'eq.' + ctx.environment, ...activeBatch, order: 'uploaded_at.asc' }),
-      view === 'manheim' ? allRows(ctx, 'manheim_matches', { select: 'upload_id,row_fingerprint', environment: 'eq.' + ctx.environment, ...activeBatch }) : Promise.resolve([]),
+      // MMR is mandatory: a car without a valid MMR is never a compatible car.
+      view === 'manheim' ? allRows(ctx, 'manheim_matches', { select: 'upload_id,row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, ...activeBatch }).then((list) => list.filter((match) => hasValidMmr(match.vehicle_json && match.vehicle_json.parsed))) : Promise.resolve([]),
       operational(ctx)
     ]);
 

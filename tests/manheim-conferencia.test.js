@@ -40,8 +40,8 @@ function input(extra = {}) {
     car(1, J.valor, 'VALOR', 'POR_VALOR', { vin: 'VINVALOR000000001', year: 2021, make: 'Toyota', model: 'RAV4', miles: 40000, mmrCents: 2800000 }),
     car(2, J.valor, 'VALOR', 'POR_VALOR', { vin: 'VINVALOR000000002', year: 2018, make: 'Toyota', model: 'RAV4', miles: 90000, mmrCents: 3300000 }),
     car(3, J.carro, 'CARRO', 'BATE', { vin: 'VINCARRO000000003', year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 9900000 }),
-    car(4, J.closed, 'CARRO', 'BATE', { vin: 'VINCLOSED00000004', year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: null }),
-    car(5, J.nolead, 'CARRO', 'BATE', { vin: 'VINNOLEAD00000005', year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: null })
+    car(4, J.closed, 'CARRO', 'BATE', { vin: 'VINCLOSED00000004', year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 }),
+    car(5, J.nolead, 'CARRO', 'BATE', { vin: 'VINNOLEAD00000005', year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 })
   ].map((match) => ({ ...match, demandKey: `journey:${match.journey_id}:${match.logical_mode}` }));
   const journeyById = new Map([
     [J.valor, { id: J.valor, status: 'ATIVO', reference_code: 'AAAAA', budget_cents: 3000000, confirmed_total_ceiling_cents: 4000000, contact: { is_lead: true, display_name: 'Maria Cliente 0' } }],
@@ -103,10 +103,10 @@ test('checagem local: ficha encerrada e contato não-lead vão para Revisar sem 
   const broken = audit.buildGroups(input({ mutate: (value) => {
     const [valor] = value.matches;
     value.matches.push({ ...valor, id: id(1101), row_fingerprint: 'dup' });
-    value.matches.push({ ...car(12, J.carro, 'CARRO', 'BATE', { vin: '', year: 2020, make: 'Honda', model: 'CR-V', miles: 20000 }), demandKey: `journey:${J.carro}:CARRO` });
-    value.matches.push({ ...car(13, J.carro, 'CARRO', 'BATE', { vin: '', year: 2020, make: 'Honda', model: 'CR-V', miles: 20000 }), demandKey: `journey:${J.carro}:CARRO` });
-    value.matches.push({ ...car(14, J.carro, 'CARRO', 'BATE', { vin: 'VINOLD', year: 2015, make: 'Honda', model: 'CR-V', miles: 20000 }), demandKey: `journey:${J.carro}:CARRO` });
-    value.matches.push({ ...car(15, J.carro, null, 'BATE', { vin: 'VINNOMODE', year: 2020, make: 'Honda', model: 'CR-V', miles: 20000 }), demandKey: `journey:${J.carro}:CARRO` });
+    value.matches.push({ ...car(12, J.carro, 'CARRO', 'BATE', { vin: '', year: 2020, make: 'Honda', model: 'CR-V', miles: 20000, mmrCents: 3000000 }), demandKey: `journey:${J.carro}:CARRO` });
+    value.matches.push({ ...car(13, J.carro, 'CARRO', 'BATE', { vin: '', year: 2020, make: 'Honda', model: 'CR-V', miles: 20000, mmrCents: 3000000 }), demandKey: `journey:${J.carro}:CARRO` });
+    value.matches.push({ ...car(14, J.carro, 'CARRO', 'BATE', { vin: 'VINOLD', year: 2015, make: 'Honda', model: 'CR-V', miles: 20000, mmrCents: 3000000 }), demandKey: `journey:${J.carro}:CARRO` });
+    value.matches.push({ ...car(15, J.carro, null, 'BATE', { vin: 'VINNOMODE', year: 2020, make: 'Honda', model: 'CR-V', miles: 20000, mmrCents: 3000000 }), demandKey: `journey:${J.carro}:CARRO` });
     value.demands[0].bidCents = 4000000;
     value.base.calcRuns = [{ is_test: true, dados: { ref: 'BBBBB' } }];
     value.demands[3].active = false;
@@ -159,7 +159,7 @@ test('fluxo: Conferindo, Conferido, Revisar; registro completo; mesma conferênc
   assert.equal(calls.length, 0);
   assert.equal(again.processed, 0);
   // A new car for the CARRO demand: only that demand is read again, and the AI finds a divergence.
-  const withNew = input({ mutate: (value) => { value.matches.push({ ...car(6, J.carro, 'CARRO', 'BATE', { vin: 'VINCARRO000000006', year: 2021, make: 'Honda', model: 'CR-V', miles: 50000 }), demandKey: carroKey }); return value; } });
+  const withNew = input({ mutate: (value) => { value.matches.push({ ...car(6, J.carro, 'CARRO', 'BATE', { vin: 'VINCARRO000000006', year: 2021, make: 'Honda', model: 'CR-V', miles: 50000, mmrCents: 3000000 }), demandKey: carroKey }); return value; } });
   const divergence = (payload) => ({ aprovado: false, divergencias: [{ opcao: payload.opcoes[1].id, codigo: 'MILES_OUT_OF_RANGE', motivo: 'Milhagem acima do limite.' }] });
   await audit.runAudit(ctx, withNew, { env: ENV, fetchImpl: fakeOpenAI(divergence, calls) });
   assert.equal(calls.length, 1);
@@ -176,7 +176,7 @@ test('fluxo: Conferindo, Conferido, Revisar; registro completo; mesma conferênc
 
 test('falha da OpenAI: Conferência pendente, opções visíveis, novas tentativas limitadas, tentar de novo e aprovação manual com motivo', async () => {
   const carroKey = `journey:${J.carro}:CARRO`;
-  const changed = (n) => input({ mutate: (value) => { value.matches.push({ ...car(n, J.carro, 'CARRO', 'BATE', { vin: 'VINNEW' + n, year: 2022, make: 'Honda', model: 'CR-V', miles: 15000 }), demandKey: carroKey }); return value; } });
+  const changed = (n) => input({ mutate: (value) => { value.matches.push({ ...car(n, J.carro, 'CARRO', 'BATE', { vin: 'VINNEW' + n, year: 2022, make: 'Honda', model: 'CR-V', miles: 15000, mmrCents: 3000000 }), demandKey: carroKey }); return value; } });
   const calls = [];
   const timeout = Object.assign(new Error('timeout'), { name: 'AbortError' });
   const view = changed(7);
@@ -244,7 +244,7 @@ test('limite por importação: acima dele nada é chamado, mostra a estimativa e
 test('V1 e V2 bloqueadas só para a demanda pendente ou reprovada', async () => {
   const insertCalls = [];
   const services = {
-    rows: async (_ctx, table) => table === 'journeys' ? [{ id: J.carro, contact_id: id(101), reference_code: 'BBBBB', budget_cents: null }] : table === 'contacts' ? [{ display_name: 'x' }] : table === 'manheim_matches' ? [{ id: id(1003), vehicle_json: { parsed: {} } }] : [],
+    rows: async (_ctx, table) => table === 'journeys' ? [{ id: J.carro, contact_id: id(101), reference_code: 'BBBBB', budget_cents: null }] : table === 'contacts' ? [{ display_name: 'x' }] : table === 'manheim_matches' ? [{ id: id(1003), vehicle_json: { parsed: { year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } }] : [],
     insert: async (...args) => { insertCalls.push(args); return [{ id: id(9) }]; },
     activeFilter: async () => ({}),
     auditGate: async () => 'MANHEIM_AUDIT_PENDING'
@@ -252,7 +252,7 @@ test('V1 e V2 bloqueadas só para a demanda pendente ou reprovada', async () => 
   assert.deepEqual(await vitrines.create(ctx, { journeyId: J.carro, matchIds: [id(1003)] }, services), { error: 'MANHEIM_AUDIT_PENDING' });
   assert.equal(insertCalls.length, 0, 'nenhuma vitrine criada');
   // Per demand: the approved VALOR demand stays usable while the CARRO one is held.
-  const view = input({ mutate: (value) => { value.matches.push({ ...car(9, J.carro, 'CARRO', 'BATE', { vin: 'VINHELD9', year: 2022, make: 'Honda', model: 'CR-V', miles: 15000 }), demandKey: `journey:${J.carro}:CARRO` }); return value; } });
+  const view = input({ mutate: (value) => { value.matches.push({ ...car(9, J.carro, 'CARRO', 'BATE', { vin: 'VINHELD9', year: 2022, make: 'Honda', model: 'CR-V', miles: 15000, mmrCents: 3000000 }), demandKey: `journey:${J.carro}:CARRO` }); return value; } });
   const state = await audit.viewState(ctx, view, { env: ENV });
   assert.equal(audit.usable(state.byDemand[`journey:${J.valor}:VALOR`]), true);
   assert.equal(audit.usable(state.byDemand[`journey:${J.carro}:CARRO`]), false);

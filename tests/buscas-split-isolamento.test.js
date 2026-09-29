@@ -201,15 +201,30 @@ test('14 · lote desfeito some de todos os usos operacionais e 15 · o lote vizi
   assert.match(scenario, /histórico do lote vizinho alterado/);
 });
 
-test('OpenAI · só modelos aprovados; nome desconhecido desliga a IA sem trocar de modelo', async () => {
-  assert.deepEqual(manheimAi.APPROVED_MODELS, ['gpt-5.4-nano', 'gpt-5.6-luna']);
-  assert.equal(manheimAi.model({}), 'gpt-5.4-nano');
+test('OpenAI · só modelos aprovados; nome desconhecido ou ausente desliga a IA sem trocar de modelo', async () => {
+  assert.deepEqual(manheimAi.APPROVED_MODELS, ['gpt-6-luna', 'gpt-5.4-nano', 'gpt-5.6-luna']);
+  assert.equal(manheimAi.model({}), null, 'sem modelo configurado não há escolha silenciosa');
+  assert.equal(manheimAi.model({ MANHEIM_OPENAI_MODEL: 'gpt-6-luna' }), 'gpt-6-luna');
   assert.equal(manheimAi.model({ MANHEIM_OPENAI_MODEL: 'gpt-5.6-luna' }), 'gpt-5.6-luna');
   assert.equal(manheimAi.model({ MANHEIM_OPENAI_MODEL: 'gpt-6-astra' }), null);
   assert.equal(manheimAi.enabled({ MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k', MANHEIM_OPENAI_MODEL: 'gpt-6-astra' }), false);
-  assert.equal(manheimAi.enabled({ MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k' }), true);
-  assert.equal(manheimAi.enabled({ OPENAI_API_KEY: 'k' }), false, 'desligada por padrão');
+  assert.equal(manheimAi.enabled({ MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k' }), false, 'modelo obrigatório');
+  assert.equal(manheimAi.enabled({ MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k', MANHEIM_OPENAI_MODEL: 'gpt-6-luna' }), true);
+  assert.equal(manheimAi.enabled({ OPENAI_API_KEY: 'k', MANHEIM_OPENAI_MODEL: 'gpt-6-luna' }), false, 'desligada por padrão');
+  // Its own flag: the audit and triage flags never turn it on.
+  assert.equal(manheimAi.enabled({ MANHEIM_MATCH_AUDIT_ENABLED: '1', ENTRADA_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k', MANHEIM_OPENAI_MODEL: 'gpt-6-luna' }), false);
+  assert.ok(manheimAi.PRICES['gpt-6-luna']);
   let called = false;
-  await assert.rejects(() => manheimAi.suggestRows([{ id: '0', cells: { miles: '7k' }, ambiguous: ['miles'] }], { env: { MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k', MANHEIM_OPENAI_MODEL: 'gpt-6-astra' }, fetchImpl: async () => { called = true; } }), (failure) => failure.code === 'OPENAI_NOT_ENABLED');
+  await assert.rejects(() => manheimAi.suggestRows([{ id: '0', cells: { year: '2022', model: 'X5', miles: '7k' }, ambiguous: ['miles'] }], { env: { MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'k', MANHEIM_OPENAI_MODEL: 'gpt-6-astra' }, fetchImpl: async () => { called = true; } }), (failure) => failure.code === 'OPENAI_NOT_ENABLED');
   assert.equal(called, false, 'nenhuma chamada');
+});
+
+test('OpenAI · o servidor decide o que é ambíguo: linha clara nunca é enviada', () => {
+  // The browser claims these are ambiguous; the server reads them with the same parser rule.
+  const clear = { id: '1', cells: { year: '2022', make: 'BMW', model: 'X5', miles: '45000', mmr: '$41,500' }, ambiguous: ['miles', 'mmr'] };
+  const unclear = { id: '2', cells: { year: '2022', make: 'BMW', model: 'X5', miles: '45k mi', mmr: '$41,500' }, ambiguous: ['miles', 'mmr', 'year'] };
+  assert.equal(manheimAi.sanitizeRow(clear), null);
+  assert.deepEqual(manheimAi.sanitizeRow(unclear).ambiguous, ['miles'], 'só o campo realmente ambíguo');
+  assert.deepEqual(manheimAi.sanitizeRows([clear, unclear]).map((row) => row.id), ['2']);
+  assert.equal(manheimAi.sanitizeRows([clear]), null);
 });

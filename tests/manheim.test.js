@@ -103,7 +103,7 @@ test('CSV mapping accepts the exact real Manheim header without Make and preserv
 });
 
 test('unknown or ambiguous model stays comparable by model with a visible Make warning', () => {
-  const parsed = manheim.parseCsv('Year,Model,Odometer Value\n2022,1500,25000');
+  const parsed = manheim.parseCsv('Year,Model,Odometer Value,MMR\n2022,1500,25000,30000');
   const row = manheim.normalizeRows(parsed, manheim.mapHeaders(parsed.headers))[0];
   assert.equal(row.make, '');
   assert.equal(row.makeNotice, 'marca não informada no arquivo');
@@ -116,7 +116,7 @@ test('model matching is whole-word tolerant and ignores Make plus Class', () => 
   assert.equal(catalog.modelsMatch('Ram 1500', '1500', '', 'Ram'), true);
   assert.equal(catalog.modelsMatch('3 Series', '3 Series', '', 'BMW'), true);
   assert.equal(catalog.modelsMatch('X50', 'X5', '', 'BMW'), false);
-  assert.equal(manheim.matchDemand({ year: 2022, make: 'Mercedes-Benz', model: 'GLE-Class', miles: 20000 }, { mode: 'CARRO', wishes: [
+  assert.equal(manheim.matchDemand({ year: 2022, make: 'Mercedes-Benz', model: 'GLE-Class', miles: 20000, mmrCents: 5000000 }, { mode: 'CARRO', wishes: [
     { make: 'BMW', model: 'X5', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }, { make: 'Mercedes-Benz', model: 'GLE', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }
   ] }).matchedWishlistIndex, 1);
   assert.equal(manheim.matchDemand({ year: 2022, make: 'BMW', model: 'X50', miles: 20000, mmrCents: 2000000 }, { mode: 'VALOR', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 2000000 }), null);
