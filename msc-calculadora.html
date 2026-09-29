@@ -373,6 +373,8 @@
   .find-check input{width:19px;height:19px;accent-color:var(--ink)}
   .find-zip-note{display:none;margin-top:8px;color:var(--accent-ink);font-size:13px;line-height:1.5}
   .find-zip-note.on{display:block}
+  #path-b .contact-choice.is-disabled{opacity:.45;filter:grayscale(.5);cursor:not-allowed}
+  #path-b .contact-choice.is-disabled:active{transform:none}
   @media (max-width:559px){
     .start-screen{min-height:calc(100svh - 20px);padding:28px 12px 38px}
     .start-screen .langbar{top:14px;right:12px}
@@ -883,7 +885,28 @@
 
     <form id="find-form" novalidate>
       <section class="card">
-        <h2 data-i18n="s1">Let&rsquo;s start here</h2>
+        <h2 data-i18n="find_vehicle_title">Tell us the car</h2>
+        <div class="field"><label for="find-marca"><span data-i18n="lbl_marca">Brand</span>&nbsp;*</label><select id="find-marca"><option value="" data-i18n="opt_marca">Select a brand</option></select><p class="err" id="find-err-marca" data-i18n="err_marca">Select a brand.</p></div>
+        <div id="find-other-brand" hidden>
+          <div class="field"><label for="find-marca-other"><span data-i18n="find_make">Make</span>&nbsp;*</label><input id="find-marca-other" type="text" autocomplete="off"><p class="err" id="find-err-marca-other" data-i18n="find_required">Required.</p></div>
+          <div class="field"><label for="find-modelo-other"><span data-i18n="lbl_modelo">Model</span>&nbsp;*</label><input id="find-modelo-other" type="text" autocomplete="off"><p class="err" id="find-err-modelo-other" data-i18n="find_required">Required.</p></div>
+        </div>
+        <div class="field" id="find-wrap-modelo" hidden><label for="find-modelo"><span data-i18n="lbl_modelo">Model</span>&nbsp;*</label><select id="find-modelo"><option value="" data-i18n="opt_modelo">Select a model</option></select><p class="err" id="find-err-modelo" data-i18n="err_modelo">Select a model.</p></div>
+        <div class="field" id="find-other-model" hidden><label for="find-modelo-custom"><span data-i18n="find_model_write">Write the model</span>&nbsp;*</label><input id="find-modelo-custom" type="text" autocomplete="off"><p class="err" id="find-err-modelo-custom" data-i18n="find_required">Required.</p></div>
+        <div class="field"><label for="find-trim"><span data-i18n="find_trim">Trim</span> <span data-i18n="optional">(optional)</span></label><input id="find-trim" type="text" placeholder="SE, XLE..." autocomplete="off"><label class="find-check"><input id="find-trim-unsure" type="checkbox"> <span data-i18n="find_not_sure">Not sure</span></label></div>
+        <div class="field row2">
+          <div><label for="find-year-from"><span data-i18n="find_year_from">Year from</span>&nbsp;*</label><select id="find-year-from"><option value="" data-i18n="find_select">Select</option></select><p class="err" id="find-err-year-from" data-i18n="find_required">Required.</p></div>
+          <div><label for="find-year-to"><span data-i18n="find_year_to">Year to</span>&nbsp;*</label><select id="find-year-to"><option value="" data-i18n="find_select">Select</option></select><p class="err" id="find-err-year-to" data-i18n="find_year_error">Choose a year equal to or later than Year from.</p></div>
+        </div>
+        <div class="field row2">
+          <div><label for="find-miles-from"><span data-i18n="find_miles_from">Miles from</span>&nbsp;*</label><input id="find-miles-from" type="text" inputmode="numeric" placeholder="20,000"><p class="err" id="find-err-miles-from" data-i18n="find_required">Required.</p></div>
+          <div><label for="find-miles-to"><span data-i18n="find_miles_to">Miles to</span>&nbsp;*</label><input id="find-miles-to" type="text" inputmode="numeric" placeholder="50,000"><p class="err" id="find-err-miles-to" data-i18n="find_miles_error">Enter a value equal to or greater than Miles from.</p></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="field"><label for="find-zip"><span data-i18n="lbl_zip">ZIP code where you'll register the car</span>&nbsp;*</label><input id="find-zip" type="text" inputmode="numeric" maxlength="5" autocomplete="postal-code"><p class="err" id="find-err-zip" data-i18n="err_zip">Enter your ZIP code.</p><p class="find-zip-note" id="find-zip-note" data-i18n="find_zip_note">ZIP code not recognized. You can still send your request.</p></div>
+        <div class="field"><label for="find-nome"><span data-i18n="lbl_nome">Your name</span> <span data-i18n="optional">(optional)</span></label><input id="find-nome" type="text" autocomplete="name"></div>
         <div class="field">
           <fieldset>
             <legend><span data-i18n="q_prazo">When are you planning to buy?</span>&nbsp;*</legend>
@@ -906,28 +929,6 @@
           </fieldset>
           <p class="err" id="find-err-exp" data-i18n="err_exp">Let us know if this is your first time.</p>
         </div>
-      </section>
-
-      <section class="card">
-        <h2 data-i18n="find_vehicle_title">Tell us the car</h2>
-        <div class="field row2">
-          <div><label for="find-year-from"><span data-i18n="find_year_from">Year from</span>&nbsp;*</label><select id="find-year-from"><option value="" data-i18n="find_select">Select</option></select><p class="err" id="find-err-year-from" data-i18n="find_required">Required.</p></div>
-          <div><label for="find-year-to"><span data-i18n="find_year_to">Year to</span>&nbsp;*</label><select id="find-year-to"><option value="" data-i18n="find_select">Select</option></select><p class="err" id="find-err-year-to" data-i18n="find_year_error">Choose a year equal to or later than Year from.</p></div>
-        </div>
-        <div class="field"><label for="find-marca"><span data-i18n="lbl_marca">Brand</span>&nbsp;*</label><select id="find-marca"><option value="" data-i18n="opt_marca">Select a brand</option></select><p class="err" id="find-err-marca" data-i18n="err_marca">Select a brand.</p></div>
-        <div id="find-other-brand" hidden>
-          <div class="field"><label for="find-marca-other"><span data-i18n="find_make">Make</span>&nbsp;*</label><input id="find-marca-other" type="text" autocomplete="off"><p class="err" id="find-err-marca-other" data-i18n="find_required">Required.</p></div>
-          <div class="field"><label for="find-modelo-other"><span data-i18n="lbl_modelo">Model</span>&nbsp;*</label><input id="find-modelo-other" type="text" autocomplete="off"><p class="err" id="find-err-modelo-other" data-i18n="find_required">Required.</p></div>
-        </div>
-        <div class="field" id="find-wrap-modelo" hidden><label for="find-modelo"><span data-i18n="lbl_modelo">Model</span>&nbsp;*</label><select id="find-modelo"><option value="" data-i18n="opt_modelo">Select a model</option></select><p class="err" id="find-err-modelo" data-i18n="err_modelo">Select a model.</p></div>
-        <div class="field" id="find-other-model" hidden><label for="find-modelo-custom"><span data-i18n="find_model_write">Write the model</span>&nbsp;*</label><input id="find-modelo-custom" type="text" autocomplete="off"><p class="err" id="find-err-modelo-custom" data-i18n="find_required">Required.</p></div>
-        <div class="field"><label for="find-trim"><span data-i18n="find_trim">Trim</span> <span data-i18n="optional">(optional)</span></label><input id="find-trim" type="text" placeholder="SE, XLE..." autocomplete="off"><label class="find-check"><input id="find-trim-unsure" type="checkbox"> <span data-i18n="find_not_sure">Not sure</span></label></div>
-        <div class="field row2">
-          <div><label for="find-miles-from"><span data-i18n="find_miles_from">Miles from</span>&nbsp;*</label><input id="find-miles-from" type="text" inputmode="numeric" placeholder="20,000"><p class="err" id="find-err-miles-from" data-i18n="find_required">Required.</p></div>
-          <div><label for="find-miles-to"><span data-i18n="find_miles_to">Miles to</span>&nbsp;*</label><input id="find-miles-to" type="text" inputmode="numeric" placeholder="50,000"><p class="err" id="find-err-miles-to" data-i18n="find_miles_error">Enter a value equal to or greater than Miles from.</p></div>
-        </div>
-        <div class="field"><label for="find-zip"><span data-i18n="lbl_zip">ZIP code where you'll register the car</span>&nbsp;*</label><input id="find-zip" type="text" inputmode="numeric" maxlength="5" autocomplete="postal-code"><p class="err" id="find-err-zip" data-i18n="err_zip">Enter your ZIP code.</p><p class="find-zip-note" id="find-zip-note" data-i18n="find_zip_note">ZIP code not recognized. You can still send your request.</p></div>
-        <div class="field"><label for="find-nome"><span data-i18n="lbl_nome">Your name</span> <span data-i18n="optional">(optional)</span></label><input id="find-nome" type="text" autocomplete="name"></div>
         <section class="contact-cta" aria-labelledby="find-contact-title">
           <h3 class="contact-cta__title" id="find-contact-title" data-i18n="find_contact_title">Your request is ready</h3>
           <p class="contact-cta__copy" data-i18n="find_contact_copy">Your request is already written into the message<br>Choose how to send it</p>
@@ -1807,10 +1808,12 @@ function findMostrarErro(id, mostrar){
   if (campo) campo.classList.toggle("invalid", !!mostrar);
   if (erro) erro.classList.toggle("on", !!mostrar);
 }
+var FIND_TOCADOS = {};
 function validarFind(marcar){
-  var d = lerFindForm(), primeiro = null;
+  var d = lerFindForm(), primeiro = null, todos = marcar === true;
   function erro(id, cond){
-    if (marcar) findMostrarErro(id, cond);
+    if (todos || (marcar && marcar[id])) findMostrarErro(id, cond);
+    else if (!cond) findMostrarErro(id, false);
     if (cond && !primeiro) primeiro = $(id);
   }
   erro("find-year-from", !d.anoDe);
@@ -1826,21 +1829,19 @@ function validarFind(marcar){
   erro("find-miles-to", !(d.milhasAte > 0) || (d.milhasDe > 0 && d.milhasAte < d.milhasDe));
   erro("find-zip", !d.zip);
   var prazoRuim = !d.prazo, expRuim = !d.exp;
-  if (marcar){
-    $("find-err-prazo").classList.toggle("on", prazoRuim);
-    $("find-err-exp").classList.toggle("on", expRuim);
-  }
+  $("find-err-prazo").classList.toggle("on", prazoRuim && (todos || !!(marcar && marcar["find-prazo"])));
+  $("find-err-exp").classList.toggle("on", expRuim && (todos || !!(marcar && marcar["find-exp"])));
   if ((prazoRuim || expRuim) && !primeiro){
     primeiro = document.querySelector('input[name="' + (prazoRuim ? "find-prazo" : "find-exp") + '"]');
   }
-  if (marcar && primeiro){ primeiro.focus(); primeiro.scrollIntoView({behavior:"smooth",block:"center"}); }
+  if (todos && primeiro){ primeiro.focus(); primeiro.scrollIntoView({behavior:"smooth",block:"center"}); }
   return !primeiro;
 }
 function findCopy(){
   var c = {
-    en:{hello:"Hello! I just ran a simulation on the My Car Scout calculator",name:"Name: ",planning:"Planning to buy: ",experience:"First time at a dealer auction: ",years:"Year range: ",vehicle:"Vehicle: ",trim:"Trim: ",miles:"Mileage range: ",zip:"ZIP code: ",talk:"I'd like to discuss this simulation",bad:"not recognized"},
-    es:{hello:"¡Hola! Acabo de hacer una simulación en la calculadora de My Car Scout",name:"Nombre: ",planning:"Pienso comprar: ",experience:"Primera vez en una subasta de concesionarios: ",years:"Rango de años: ",vehicle:"Vehículo: ",trim:"Versión: ",miles:"Rango de millas: ",zip:"ZIP code: ",talk:"Quiero conversar sobre esta simulación",bad:"no reconocido"},
-    pt:{hello:"Olá! Acabei de fazer uma simulação na calculadora da My Car Scout",name:"Nome: ",planning:"Pretendo comprar: ",experience:"Primeira vez em leilão de concessionárias: ",years:"Faixa de anos: ",vehicle:"Veículo: ",trim:"Versão: ",miles:"Faixa de milhas: ",zip:"ZIP code: ",talk:"Quero conversar sobre esta simulação",bad:"não reconhecido"}
+    en:{hello:"Hello! I just sent a vehicle search request through My Car Scout",name:"Name: ",planning:"Planning to buy: ",experience:"First time at a dealer auction: ",years:"Year range: ",vehicle:"Vehicle: ",trim:"Trim: ",miles:"Mileage range: ",zip:"ZIP code: ",talk:"I'd like to discuss this vehicle search",bad:"not recognized"},
+    es:{hello:"Hola, acabo de enviar una solicitud de búsqueda a My Car Scout",name:"Nombre: ",planning:"Pienso comprar: ",experience:"Primera vez en una subasta de concesionarios: ",years:"Rango de años: ",vehicle:"Vehículo: ",trim:"Versión: ",miles:"Rango de millas: ",zip:"ZIP code: ",talk:"Quiero hablar sobre esta búsqueda",bad:"no reconocido"},
+    pt:{hello:"Olá! Acabei de enviar uma solicitação de busca pela My Car Scout",name:"Nome: ",planning:"Pretendo comprar: ",experience:"Primeira vez em leilão de concessionárias: ",years:"Faixa de anos: ",vehicle:"Veículo: ",trim:"Versão: ",miles:"Faixa de milhas: ",zip:"ZIP code: ",talk:"Quero conversar sobre esta busca",bad:"não reconhecido"}
   };
   return c[LANG] || c.en;
 }
@@ -1867,12 +1868,25 @@ function linkSmsFind(d){
   var separador=/iPad|iPhone|iPod/.test(navigator.userAgent)?"&":"?";
   return "sms:"+(numero?"+"+numero:"")+separador+"body="+texto;
 }
+function findBloquear(bloqueado){
+  ["find-wa","find-sms"].forEach(function(id){
+    var a=$(id);a.classList.toggle("is-disabled",bloqueado);
+    if(bloqueado){a.setAttribute("aria-disabled","true");a.href="#";} else a.removeAttribute("aria-disabled");
+  });
+}
 function atualizarFindLink(){
   try {
-    var pronto=validarFind(false),d=pronto?lerFindForm():null;
-    $("find-wa").href=pronto?linkWhatsAppFind(d):"#";
-    $("find-sms").href=pronto?linkSmsFind(d):"#";
-  } catch(e){ $("find-wa").href="#";$("find-sms").href="#"; }
+    var pronto=validarFind(FIND_TOCADOS),d=pronto?lerFindForm():null;
+    findBloquear(!pronto);
+    if(pronto){$("find-wa").href=linkWhatsAppFind(d);$("find-sms").href=linkSmsFind(d);}
+  } catch(e){ findBloquear(true); }
+}
+/* Year to: só anos iguais ou posteriores a Year from; limpa se ficou inválido */
+function atualizarFindAnoAte(){
+  var de=parseInt($("find-year-from").value,10)||0, sel=$("find-year-to"), atual=sel.value, max=(new Date()).getFullYear()+1;
+  while(sel.options.length>1) sel.remove(1);
+  for(var y=max;y>=(de||1995);y--){var o=document.createElement("option");o.value=String(y);o.textContent=String(y);sel.appendChild(o);}
+  sel.value=(atual&&(!de||parseInt(atual,10)>=de))?atual:"";
 }
 function atualizarFindModelo(){
   var marca=$("find-marca").value, outra=marca === "Other brand", sel=$("find-modelo");
@@ -1893,19 +1907,24 @@ function atualizarFindIdioma(){
 function iniciarFind(){
   if (FIND_INICIADO) return;FIND_INICIADO=true;
   var atual=(new Date()).getFullYear()+1;
-  [$("find-year-from"),$("find-year-to")].forEach(function(sel){for(var y=atual;y>=1995;y--){var o=document.createElement("option");o.value=String(y);o.textContent=String(y);sel.appendChild(o);}});
+  for(var y=atual;y>=1995;y--){var o=document.createElement("option");o.value=String(y);o.textContent=String(y);$("find-year-from").appendChild(o);}
+  atualizarFindAnoAte();
+  $("find-year-from").addEventListener("change",atualizarFindAnoAte);
   Object.keys(MARCAS).sort().forEach(function(m){var o=document.createElement("option");o.value=m;o.textContent=m;$("find-marca").appendChild(o);});
   var outra=document.createElement("option");outra.value="Other brand";outra.textContent=T("marca_outra");$("find-marca").appendChild(outra);
   $("find-marca").addEventListener("change",function(){atualizarFindModelo();atualizarFindLink();});
   $("find-modelo").addEventListener("change",function(){$("find-other-model").hidden=this.value!=="Other model";atualizarFindLink();});
   $("find-trim-unsure").addEventListener("change",function(){$("find-trim").disabled=this.checked;if(this.checked) $("find-trim").value="";atualizarFindLink();});
-  ["find-miles-from","find-miles-to"].forEach(function(id){$(id).addEventListener("input",function(){this.value=findMilhas(this.value);});});
+  ["find-miles-from","find-miles-to"].forEach(function(id){$(id).addEventListener("input",function(){this.value=findMilhas(String(this.value).replace(/\D/g,"").slice(0,7));});});
   $("find-zip").addEventListener("input",function(){this.value=zipCinco(this.value);var z=this.value, conhecido=zipValido(z);$("find-zip-note").classList.toggle("on",z.length===5&&!conhecido);if(z.length===5&&conhecido) buscarLocalZip(z).then(atualizarFindLink);});
-  $("find-form").addEventListener("input",atualizarFindLink);$("find-form").addEventListener("change",atualizarFindLink);$("find-form").addEventListener("submit",function(e){e.preventDefault();});
+  function tocar(ev){var t=ev.target;if(t&&(t.id||t.name)) FIND_TOCADOS[t.type==="radio"?t.name:t.id]=true;}
+  $("find-form").addEventListener("change",function(ev){tocar(ev);atualizarFindLink();});
+  $("find-form").addEventListener("focusout",function(ev){if(ev.target&&ev.target.value) tocar(ev);atualizarFindLink();});
+  $("find-form").addEventListener("input",atualizarFindLink);$("find-form").addEventListener("submit",function(e){e.preventDefault();});
   function prepararContatoFind(ev,canal){
-    if(!validarFind(true)){ev.preventDefault();return;}
+    if(!validarFind(true)){ev.preventDefault();["find-year-from","find-year-to","find-marca","find-modelo","find-marca-other","find-modelo-other","find-modelo-custom","find-miles-from","find-miles-to","find-zip","find-prazo","find-exp"].forEach(function(id){FIND_TOCADOS[id]=true;});findBloquear(true);return;}
     var d=lerFindForm(),z=d.zip;
-    if(d.zipOk&&!(ZIP_LOCAL[z]&&ZIP_LOCAL[z].exato)){ev.preventDefault();buscarLocalZip(z).then(function(){var a=lerFindForm(),url=canal==="sms"?linkSmsFind(a):linkWhatsAppFind(a);atualizarFindLink();registrarBusca(a,canal);window.location.href=url;});return;}
+    if(d.zipOk&&!(ZIP_LOCAL[z]&&ZIP_LOCAL[z].exato)){ev.preventDefault();buscarLocalZip(z).then(function(){if(!validarFind(true)){findBloquear(true);return;}var a=lerFindForm(),url=canal==="sms"?linkSmsFind(a):linkWhatsAppFind(a);atualizarFindLink();registrarBusca(a,canal);window.location.href=url;});return;}
     registrarBusca(d,canal);
   }
   $("find-wa").addEventListener("click",function(ev){prepararContatoFind(ev,"whatsapp");});
