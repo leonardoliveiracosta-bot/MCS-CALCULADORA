@@ -3195,7 +3195,7 @@
         return;
       }
       show('login-view');
-      error('login-error', failure && failure.code === 'REQUEST_TIMEOUT' ? 'O painel demorou para responder. Sua senha está certa; tente de novo em instantes.' : 'Não consegui confirmar a sessão agora. Tente de novo em instantes.');
+      error('login-error', failure && failure.code === 'REQUEST_TIMEOUT' ? 'O painel demorou para responder. Sua senha está certa; tente de novo em instantes' : 'Não consegui confirmar a sessão agora. Tente de novo em instantes.');
       sessionRetry(true);
       return;
     }
@@ -3246,7 +3246,7 @@
         response = await fetch(config.url + '/auth/v1/token?grant_type=password', { method: 'POST', signal: controller.signal, headers: { apikey: config.publishableKey, 'content-type': 'application/json' }, body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value }) });
         data = await response.json().catch(() => ({}));
       } catch (_) {
-        return error('login-error', controller.signal.aborted ? 'O login demorou para responder. Tente de novo.' : 'Não consegui falar com o servidor de login. Confira a conexão e tente de novo.');
+        return error('login-error', controller.signal.aborted ? 'O login demorou para responder. Tente de novo' : 'Não consegui falar com o servidor de login. Confira a conexão e tente de novo');
       } finally { clearTimeout(timer); }
       if (!response.ok || !data.access_token) return error('login-error', 'E-mail ou senha inválidos.');
       acceptAuthSession(data, $('remember-login').checked);
@@ -3255,7 +3255,7 @@
       await routeSession();
     } catch (failure) {
       console.error('Falha ao entrar', failure);
-      error('login-error', 'Não consegui abrir o painel agora. Tente de novo.');
+      error('login-error', 'Não consegui abrir o painel agora. Tente de novo');
       sessionRetry(Boolean(accessToken));
     } finally {
       signingIn = false;

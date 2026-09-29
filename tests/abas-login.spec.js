@@ -93,7 +93,7 @@ test('sessão falha: erro claro e "Tentar novamente" recupera; tempo esgotado ta
   // Timeout: the check has its own limit and says so.
   failing = 'hang';
   await retry.click();
-  await expect(page.locator('#login-error')).toHaveText('O painel demorou para responder. Sua senha está certa; tente de novo em instantes.', { timeout: 10000 });
+  await expect(page.locator('#login-error')).toHaveText('O painel demorou para responder. Sua senha está certa; tente de novo em instantes', { timeout: 10000 });
   failing = false;
   await retry.click();
   await expect(page.locator('#app-view')).toBeVisible();

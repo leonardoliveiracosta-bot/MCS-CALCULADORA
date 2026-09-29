@@ -257,6 +257,8 @@ test('consultas dirigidas usam os índices novos (EXPLAIN com o lote de ~60 mil 
   metrics.planMs['score (MMR por pessoa)'] = ms(await plan('score (MMR por pessoa)', `select * from public.panel_manheim_score_mmr('preview', now() - interval '60 days')`, []));
   metrics.planMs['carros por pessoa'] = ms(await plan('carros por pessoa', `select * from public.panel_manheim_batch_people('preview', $1)`, [uploadId]));
   metrics.planMs['página (função, maior demanda)'] = ms(await plan('página (função, maior demanda)', `select id from public.panel_manheim_demand_options('preview', $1, $2, null, null, null, 11)`, [uploadId, key]));
+  // Space taken by the batch (cars + matches + their indexes), to size the database.
+  metrics.storageMb = Object.fromEntries((await backend.db.query(`select relname, round(pg_total_relation_size(c.oid) / 1048576.0, 1)::float mb from pg_class c where relname in ('manheim_vehicles','manheim_matches','manheim_upload_chunks')`)).rows.map((row) => [row.relname, row.mb]));
   metrics.planMs['carros por lote'] = ms(await plan('carros por lote', `select * from public.panel_manheim_batch_cars('preview', array[$1]::uuid[])`, [uploadId]));
   assert.ok(Object.values(metrics.planMs).every((value) => value < 1000), JSON.stringify(metrics.planMs));
 });
