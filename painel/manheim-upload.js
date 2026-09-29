@@ -30,7 +30,7 @@
       model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
       saleDate: vehicle.saleDate, startsAt: vehicle.startsAt, endsAt: vehicle.endsAt, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
       drivetrain: vehicle.drivetrain, transmission: vehicle.transmission, engine: vehicle.engine, buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade,
-      cleanTitle: vehicle.cleanTitle, odometerOk: vehicle.odometerOk
+      cleanTitle: vehicle.cleanTitle, odometerOk: vehicle.odometerOk, ...(vehicle.ai ? { ai: vehicle.ai } : {})
     };
   }
 
@@ -41,30 +41,27 @@
     return vehicles.map((vehicle) => ({ ...vehicle, cleanTitle: true, odometerOk: Number.isFinite(Number(vehicle.miles)) && vehicle.miles !== null && vehicle.miles !== '' && Number(vehicle.miles) >= 0 }));
   }
 
-  function buildMatches(vehicles, journeys, orders, manheim) {
+  // Each car of the CSV is checked against each demand on its own (one person in one mode),
+  // never against an aggregated range. The same car can match a person's CARRO and VALOR demands
+  // separately, and several people only when it passes each one's own criteria.
+  // `targets` come from the server (records?view=manheim): { key, mode, targetType, journeyId,
+  // ref, wishes, bidCents, reactivation }.
+  function buildMatches(vehicles, targets, manheim) {
     const matches = [];
     const payloads = new Map();
     const payload = (vehicle) => {
       if (!payloads.has(vehicle)) payloads.set(vehicle, { fingerprint: manheim.fingerprint(vehicle), vehicle: { headers: vehicle.headers, raw: vehicle.raw, parsed: parsedVehicle(vehicle) } });
       return payloads.get(vehicle);
     };
-    for (const journey of journeys || []) {
-      const enabled = journey.enabled !== false;
-      const reactivation = journey.reactivationEligible || journey.status === 'PARADO';
-      if ((!enabled && !reactivation) || journey.disposition === 'DISCARDED') continue;
+    for (const target of targets || []) {
+      if (!target || !['CARRO', 'VALOR'].includes(target.mode)) continue;
+      const demand = { mode: target.mode, wishes: target.wishes || [], bidCents: target.mode === 'VALOR' ? target.bidCents : null };
       for (const vehicle of vehicles) {
-        // matchWishes/matchBidCents are the ficha's effective criteria (R1) computed by the server.
-        const result = manheim.matchVehicle(vehicle, journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents);
-        if (!result || (reactivation && result.kind !== 'BATE')) continue;
-        matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, dataGap: result.dataGap, ...payload(vehicle) });
-      }
-    }
-    // A4: a Ref linked to a ficha is already matched through the ficha.
-    for (const order of (orders || []).filter((item) => item.disposition !== 'DISCARDED' && item.matchTarget !== false && !item.journeyId)) {
-      for (const vehicle of vehicles) {
-        const result = manheim.matchOrder(vehicle, order);
-        if (!result) continue;
-        matches.push({ targetType: 'ORDER', calcRef: order.ref, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, dataGap: result.dataGap, ...payload(vehicle) });
+        const result = manheim.matchDemand(vehicle, demand);
+        // A ficha switched off or paused only comes back with a BATE.
+        if (!result || (target.reactivation && result.kind !== 'BATE')) continue;
+        const common = { mode: target.mode, kind: result.kind, reason: result.reason, mmrStatus: result.mmrStatus, dataGap: result.dataGap, ...payload(vehicle) };
+        matches.push(target.targetType === 'ORDER' ? { targetType: 'ORDER', calcRef: target.ref, ...common } : { journeyId: target.journeyId, ...common });
       }
     }
     return matches;

@@ -37,15 +37,18 @@ test('special Vitrine handling removes the ordinary push candidate',()=>{const m
 const {createV2,limitCents}=require('../api/panel/vitrines');
 const {savePhoto,imageType,MAX_BYTES}=require('../api/panel/vitrine-photos');
 const v2ids={v1:'77777777-7777-4777-8777-777777777777',car:'88888888-8888-4888-8888-888888888888',request:'99999999-9999-4999-8999-999999999999',journey:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',contact:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',match:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'};
-function memoryDb({treated=null,carMissing=false}={}){
+function memoryDb({treated=null,carMissing=false,undoneSource=false}={}){
   const db={
     vitrines:[{id:v2ids.v1,environment:'production',token:'T'.repeat(43),version:'V1',journey_id:v2ids.journey,contact_id:v2ids.contact,reference_code:'3CG5P',customer_name:'Carlos',expires_at:'2099-01-01T00:00:00.000Z'}],
     vitrine_cars:carMissing?[]:[{id:v2ids.car,environment:'production',vitrine_id:v2ids.v1,source_match_id:v2ids.match,short_code:'MCS-7K2Q',vehicle_snapshot:{year:2021,make:'BMW',model:'X3',vin:'SECRETVIN',mmrCents:2580000,startsAt:'2099-01-01T12:00:00Z'},customer_limit_cents:1790000,note_text:null,photo_paths:[]}],
     vitrine_requests:[{id:v2ids.request,environment:'production',vitrine_id:v2ids.v1,vitrine_car_id:v2ids.car,treated_at:treated}],
-    journeys:[{id:v2ids.journey,environment:'production',budget_cents:1800000}]
+    journeys:[{id:v2ids.journey,environment:'production',budget_cents:1800000}],
+    // buscas-split: the V1 car came from a match of an active (not undone) import batch.
+    manheim_uploads:[{id:'u1',environment:'production',undone_at:null}],
+    manheim_matches:[{id:v2ids.match,environment:'production',undone_at:undoneSource?'2026-09-29T00:00:00Z':null}]
   };
   let seq=0;
-  const match=(row,params)=>Object.entries(params).every(([key,value])=>['select','limit','order','offset'].includes(key)||String(row[key])===String(value).replace(/^eq\./,''));
+  const match=(row,params)=>Object.entries(params).every(([key,value])=>['select','limit','order','offset'].includes(key)||(value==='is.null'?row[key]===null||row[key]===undefined:String(row[key])===String(value).replace(/^eq\./,'')));
   const services={
     rows:async(_ctx,table,params)=>(db[table]||[]).filter((row)=>match(row,params)).map((row)=>JSON.parse(JSON.stringify(row))),
     insert:async(_ctx,table,payload)=>{const row={id:'dddddddd-dddd-4ddd-8ddd-'+String(++seq).padStart(12,'0'),...payload};(db[table]=db[table]||[]).push(row);return [row];}
@@ -106,4 +109,11 @@ test('migration for V2 is additive and newer than the V1 migration',()=>{
   const files=fs.readdirSync(path.join(root,'supabase','migrations')).filter((name)=>name.endsWith('.sql')).sort();
   const v2=files.find((name)=>/vitrine_v2_parent/.test(name));assert.ok(v2);assert.ok(v2.split('_')[0]>'20260928030000');
   const sql=read('supabase/migrations/'+v2);assert.match(sql,/add column if not exists parent_vitrine_id uuid/);assert.doesNotMatch(sql,/drop |truncate |delete from/i);
+});
+
+test('V2 is refused when the V1 car came from an undone Manheim import batch',async()=>{
+  const {db,services}=memoryDb({undoneSource:true});const before=db.vitrines.length;
+  const out=await createV2(panelCtx,{requestId:v2ids.request,noteText:'Clean car'},services);
+  assert.deepEqual(out,{error:'VITRINE_SOURCE_UNDONE'});
+  assert.equal(db.vitrines.length,before,'nothing is created');
 });

@@ -3,9 +3,9 @@
 const { allRows, insert, isUuid, jsonBody, patchRows, requirePanel, rows, safeText, send } = require('../../panel-server');
 const { contactIndex } = require('../../panel-contact');
 const { ensureJourney, leadData, orders } = require('../../panel-lead');
-const { wishlistsForJourney } = require('../../panel-domain');
 const { dispositionIndex } = require('../../panel-disposition');
-const { floridaDays, loadSearchStageIndex, searchKey, searchableWish, stageLabel } = require('../../panel-search-stage');
+const { floridaDays, loadSearchStageIndex, searchableWish } = require('../../panel-search-stage');
+const { latestActiveUpload, undoSupported } = require('../../panel-manheim-state');
 
 const activeStatus = (journey, disabled) => journey && journey.status !== 'ENCERRADO' && !disabled.has(journey.id);
 const phoneFor = (phones, contactId) => {
@@ -13,11 +13,15 @@ const phoneFor = (phones, contactId) => {
   const phone = values.find((row) => row.is_primary) || values[0];
   return phone && (phone.phone_e164 || phone.phone_raw) || null;
 };
-const title = (wish, bid) => [
+const miles = (value) => Number(value).toLocaleString('pt-BR');
+// CARRO shows only year and mileage; VALOR shows only the bid (the two never share criteria).
+const title = (wish, bid, mode) => mode === 'VALOR' ? [
   [wish.make, wish.model].filter(Boolean).join(' '),
-  wish.yearMin || wish.yearMax ? `${wish.yearMin || '—'}–${wish.yearMax || '—'}` : '',
-  wish.maxMiles ? `até ${Number(wish.maxMiles).toLocaleString('pt-BR')} milhas` : '',
   bid ? `lance até US$ ${Number(bid).toLocaleString('pt-BR')}` : ''
+].filter(Boolean).join(' · ') : [
+  [wish.make, wish.model, wish.trim].filter(Boolean).join(' '),
+  wish.yearMin && wish.yearMax ? `${wish.yearMin} a ${wish.yearMax}` : '',
+  wish.minMiles && wish.maxMiles ? `${miles(wish.minMiles)} a ${miles(wish.maxMiles)} milhas` : ''
 ].filter(Boolean).join(' · ');
 
 async function payload(ctx) {
@@ -31,12 +35,13 @@ async function payload(ctx) {
     allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment, undone_at:'is.null' }),
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created', environment: 'eq.' + ctx.environment }),
-    rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, order: 'uploaded_at.desc', limit: '1' }),
+    latestActiveUpload(ctx, 'id', { rows }).then((upload) => upload ? [upload] : []),
     loadSearchStageIndex(ctx),
     allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at: 'is.null' })
   ]);
   // M18: "N carros no último CSV" counts only the latest upload.
-  const matches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id }) : [];
+  const supported = await undoSupported(ctx, { rows });
+  const matches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...(supported ? { undone_at: 'is.null' } : {}) }) : [];
   const personDisposition = dispositionIndex(dispositions);
   const contact = contactIndex({ calcRuns, messages: messages.filter((message) => !message.undone_at), messageLinks });
   const contactById = new Map(contacts.map((row) => [row.id, row]));
@@ -51,30 +56,33 @@ async function payload(ctx) {
     const facts = contact.facts({ journeyId: journey.id, ref: journey.reference_code, refs: refsFor(journey) });
     if (!facts.entered) return;
     const stage = stageIndex.get(journey.id);
-    if (!stage || !stage.wish) return;
-    // The ficha's effective criteria (R1: its own, filled by the linked Refs), all searchable wishes.
-    const wish = stage.wish;
-    const extraWishes = (stage.wishes || []).filter((other) => other !== wish && searchableWish([other])).map((other) => title(other, null));
-    rowsOut.push({
-      journeyId: journey.id, ref: journey.reference_code || refsFor(journey)[0] || null,
-      name: person?.display_name || `Pedido ${journey.reference_code || '—'}`,
-      phone: phoneFor(phones, journey.contact_id), wish, searchKey: stage.searchKey, basis: stage.basis, extraWishes,
-      exactSearch: title(wish, Number(stage.bidCents || 0) / 100),
-      stage: stage.stage, stageSource:stage.stageSource, stageLabel: stage.label, stageAt: stage.at, days: floridaDays(stage.at),
-      hasCalculatorOrder: stage.hasCalculatorOrder, directLeadSource: stage.directLeadSource,
-      matchCount: matches.filter((match) => match.journey_id === journey.id).length,
-      latestAt: journey.updated_at || journey.created_at
+    // One card per ficha and mode: VALOR and CARRO keep their own stage and search.
+    Object.values(stage && stage.modes || {}).forEach((entry) => {
+      const wish = entry.wish;
+      const extraWishes = (entry.wishes || []).filter((other) => other !== wish && searchableWish([other])).map((other) => title(other, null, entry.mode));
+      rowsOut.push({
+        key: journey.id + ':' + entry.mode, journeyId: journey.id, mode: entry.mode, ref: journey.reference_code || refsFor(journey)[0] || null,
+        name: person?.display_name || `Pedido ${journey.reference_code || '—'}`,
+        phone: phoneFor(phones, journey.contact_id), wish, searchKey: entry.searchKey, basis: entry.basis, extraWishes,
+        exactSearch: title(wish, Number(entry.bidCents || 0) / 100, entry.mode),
+        stage: entry.stage, stageSource: entry.stageSource, stageLabel: entry.label, stageAt: entry.at, days: floridaDays(entry.at),
+        hasCalculatorOrder: stage.hasCalculatorOrder, directLeadSource: stage.directLeadSource,
+        matchCount: matches.filter((match) => match.journey_id === journey.id && (!match.logical_mode || match.logical_mode === entry.mode)).length,
+        latestAt: journey.updated_at || journey.created_at
+      });
     });
   });
   const peers = new Map();
   rowsOut.forEach((row) => { if (!peers.has(row.searchKey)) peers.set(row.searchKey, []); peers.get(row.searchKey).push(row); });
-  // A:P14: the same saved search serves another customer only when its range covers theirs.
-  const covers = (outer, inner) => (!outer.yearMin || (inner.yearMin && inner.yearMin >= outer.yearMin)) && (!outer.yearMax || (inner.yearMax && inner.yearMax <= outer.yearMax))
-    && (!outer.maxMiles || (inner.maxMiles && inner.maxMiles <= outer.maxMiles));
-  rowsOut.forEach((row) => { row.alsoServes = row.basis === 'QUALIFY' ? [] : peers.get(row.searchKey).filter((peer) => peer.journeyId !== row.journeyId && covers(row.wish, peer.wish)).map((peer) => ({ name: peer.name, ref: peer.ref })); });
+  // A:P14: the same saved search serves another customer only when its range covers theirs
+  // (CARRO: year and mileage ranges; VALOR: same make and model, each with its own bid range).
+  const covers = (outer, inner, mode) => mode === 'VALOR' ? true : Number(inner.yearMin) >= Number(outer.yearMin) && Number(inner.yearMax) <= Number(outer.yearMax)
+    && Number(inner.minMiles) >= Number(outer.minMiles) && Number(inner.maxMiles) <= Number(outer.maxMiles);
+  rowsOut.forEach((row) => { row.alsoServes = peers.get(row.searchKey).filter((peer) => peer.journeyId !== row.journeyId && peer.mode === row.mode && covers(row.wish, peer.wish, row.mode)).map((peer) => ({ name: peer.name, ref: peer.ref })); });
   const counts = { MISSING: 0, SAVED: 0, SENT: 0 };
-  rowsOut.forEach((row) => { counts[row.stage]++; });
-  return { items: rowsOut.sort((a, b) => ({ MISSING: 0, SAVED: 1, SENT: 2 }[a.stage] - { MISSING: 0, SAVED: 1, SENT: 2 }[b.stage]) || Date.parse(b.latestAt) - Date.parse(a.latestAt)), counts, saved: new Set(saved.filter((row) => row.created).map((row) => row.search_key)) };
+  const countsByMode = { VALOR: { MISSING: 0, SAVED: 0, SENT: 0 }, CARRO: { MISSING: 0, SAVED: 0, SENT: 0 } };
+  rowsOut.forEach((row) => { counts[row.stage]++; countsByMode[row.mode][row.stage]++; });
+  return { countsByMode, items: rowsOut.sort((a, b) => ({ MISSING: 0, SAVED: 1, SENT: 2 }[a.stage] - { MISSING: 0, SAVED: 1, SENT: 2 }[b.stage]) || Date.parse(b.latestAt) - Date.parse(a.latestAt)), counts, saved: new Set(saved.filter((row) => row.created).map((row) => row.search_key)) };
 }
 
 async function mark(ctx, body) {
@@ -90,17 +98,22 @@ async function mark(ctx, body) {
   // The saved search is the same identity as "Quais buscas salvar" (criteria, value); a ficha that
   // still needs qualifying has nothing to save.
   const index = await loadSearchStageIndex(ctx);
-  const own = index.get(journeyId);
+  const modes = index.get(journeyId)?.modes || {};
+  // The mode is required when the ficha has both; with one demand it is that one.
+  const requested = String(body.mode || '').toUpperCase();
+  const mode = requested ? requested : Object.keys(modes).length === 1 ? Object.keys(modes)[0] : null;
+  const own = mode ? modes[mode] : null;
   const key = own && own.searchKey;
   if (!key) return null;
-  if (kind === 'SAVED' && own.basis === 'QUALIFY') return null;
-  const ids = kind === 'SAVED' ? [...index.entries()].filter(([, entry]) => entry.searchKey === key).map(([id]) => id) : [journeyId];
+  const supported = await undoSupported(ctx, { rows });
+  // Saving the search in the Manheim saves it for everyone in the SAME mode with the same key.
+  const ids = kind === 'SAVED' ? [...index.entries()].filter(([, entry]) => entry.modes?.[mode]?.searchKey === key).map(([id]) => id) : [journeyId];
   const at = new Date().toISOString();
   for (const id of ids) {
-    const existing = await rows(ctx, 'panel_search_marks', { select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id, kind: 'eq.' + kind, undone_at: 'is.null', limit: '1' });
-    if (!existing[0]) await insert(ctx, 'panel_search_marks', { environment: ctx.environment, journey_id: id, kind, created_at: at, created_by: ctx.panel.id }, false);
+    const existing = await rows(ctx, 'panel_search_marks', { select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id, kind: 'eq.' + kind, ...(supported ? { logical_mode: 'eq.' + mode } : {}), undone_at: 'is.null', limit: '1' });
+    if (!existing[0]) await insert(ctx, 'panel_search_marks', { environment: ctx.environment, journey_id: id, kind, ...(supported ? { logical_mode: mode } : {}), created_at: at, created_by: ctx.panel.id }, false);
   }
-  return { journeyId, kind, searchKey: key, markedJourneyIds: ids };
+  return { journeyId, kind, mode, searchKey: key, markedJourneyIds: ids };
 }
 
 module.exports = async (req, res) => {
@@ -113,13 +126,19 @@ module.exports = async (req, res) => {
     if (body.action === 'undo') {
       const kind = String(body.kind || '').toUpperCase();
       if (!isUuid(body.journeyId) || !['SAVED', 'SENT'].includes(kind)) return send(res, 400, { error: 'SEARCH_UNDO_INVALID' });
+      const index=await loadSearchStageIndex(ctx);const modes=index.get(body.journeyId)?.modes||{};
+      const requested=String(body.mode||'').toUpperCase();
+      const mode=requested?requested:Object.keys(modes).length===1?Object.keys(modes)[0]:null;
+      if(!mode||!['CARRO','VALOR'].includes(mode))return send(res, 400, { error: 'SEARCH_UNDO_INVALID' });
       let journeyIds=[body.journeyId];
       if(kind==='SAVED'){
-        const index=await loadSearchStageIndex(ctx);const key=index.get(body.journeyId)?.searchKey;
-        if(key)journeyIds=[...index.entries()].filter(([,entry])=>entry.searchKey===key).map(([id])=>id);
+        const key=modes[mode]?.searchKey;
+        if(key)journeyIds=[...index.entries()].filter(([,entry])=>entry.modes?.[mode]?.searchKey===key).map(([id])=>id);
       }
+      // Only the marks of this mode are undone; the other mode of the same ficha stays.
+      const supported=await undoSupported(ctx, { rows });
       let updated=[];
-      for(const journeyId of journeyIds) updated=updated.concat(await patchRows(ctx, 'panel_search_marks', { environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId, kind: 'eq.' + kind, undone_at: 'is.null' }, { undone_at: new Date().toISOString(), undone_by: ctx.panel.id }));
+      for(const journeyId of journeyIds) updated=updated.concat(await patchRows(ctx, 'panel_search_marks', { environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId, kind: 'eq.' + kind, ...(supported?{logical_mode:'eq.'+mode}:{}), undone_at: 'is.null' }, { undone_at: new Date().toISOString(), undone_by: ctx.panel.id }));
       return send(res, 200, { undone: Boolean(updated.length) });
     }
     return send(res, 400, { error: 'SEARCH_ACTION_INVALID' });

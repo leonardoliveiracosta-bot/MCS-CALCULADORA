@@ -1,10 +1,13 @@
 'use strict';
 
 const {
-  clientOkPatch, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
-  mergeWishlists, normalizeWishlist, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
+  clientOkPatch, confirmedJourneyModes, journeyDemands, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimDemand,
+  mergeWishlists, SEARCH_MODES, normalizeWishlist, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
+const { loadBuscasBase } = require('../../panel-buscas');
+const manheimAi = require('../../panel-manheim-ai');
+const { activeFilter, undoSupported } = require('../../panel-manheim-state');
 const { dispositionIndex } = require('../../panel-disposition');
 const vehicleCatalog = require('../../vehicle-catalog');
 const { parseMoneyCents } = require('../../money-text');
@@ -23,13 +26,17 @@ function safeWishlist(value, requireVehicle = false) {
   const yearMin = finiteInteger(source.yearMin);
   const yearMax = finiteInteger(source.yearMax);
   const maxMiles = finiteInteger(source.maxMiles);
+  const minMiles = finiteInteger(source.minMiles);
+  const trim = safeText(source.trim, 120) || '';
   const maximumYear = new Date().getUTCFullYear() + 2;
   if ((requireVehicle && !model)
       || (yearMin !== null && (yearMin < 1900 || yearMin > maximumYear))
       || (yearMax !== null && (yearMax < 1900 || yearMax > maximumYear))
       || (yearMin && yearMax && yearMin > yearMax)
-      || (maxMiles !== null && (maxMiles < 0 || maxMiles > 2000000))) return null;
-  return { make, model, yearMin, yearMax, maxMiles };
+      || (maxMiles !== null && (maxMiles < 0 || maxMiles > 2000000))
+      || (minMiles !== null && (minMiles < 0 || minMiles > 2000000))) return null;
+  // An inverted mileage range is kept as given (never swapped); BUSCAS sends it to review.
+  return { make, model, yearMin, yearMax, minMiles, maxMiles, trim };
 }
 
 function safeWishlists(value, requireVehicle = false) {
@@ -133,6 +140,18 @@ async function customerMessage(ctx, journey, messageId) {
 
 
 // The ficha's effective wishes (R1): its own cars, or the cars of its linked calculator Refs.
+// The ficha's calculator entries, split by mode (never the combined person view).
+async function journeyModeItems(ctx, journey) {
+  const refs = await allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
+  const codes = [journey.reference_code, ...refs.map((row) => row.ref_code)].map((value) => String(value || '').trim().toUpperCase()).filter(Boolean);
+  if (!codes.length) return [];
+  const [calcRuns, calcLinks] = await Promise.all([
+    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+    allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment })
+  ]);
+  return consolidateCalcRuns(calcRuns, calcLinks).filter((item) => codes.includes(item.ref));
+}
+
 // Marking a car on a message keeps the others, including the ones that came from a Ref.
 async function effectiveWishes(ctx, journey) {
   const own = wishlistsForJourney(journey);
@@ -165,13 +184,38 @@ async function actionMarkMessage(ctx, journey, body) {
   const value = safeText(kind === 'VEHICLE' ? wishlistText(wishlists) : body.value || message.body_text, kind === 'VEHICLE' ? 1200 : 500, true);
   if (config.field && !value) return send(ctx.res, 400, { error: 'MESSAGE_MARK_VALUE_INVALID' });
   const valueJson = wishlists ? { wishlist: { wishlists } } : {};
+  // A car, range or bid belongs to one search. With both searches on the ficha the mode is
+  // required and the change goes only to that mode (criteria_json.mode_overrides); it is never
+  // applied to both.
+  let perMode = null, modeDemand = null;
   if (wishlists) {
+    const demands = journeyDemands(journey, await journeyModeItems(ctx, journey)).filter((demand) => SEARCH_MODES.includes(demand.mode));
+    const modes = demands.map((demand) => demand.mode);
+    const requested = String(body.mode || '').toUpperCase();
+    if (requested && !SEARCH_MODES.includes(requested)) return send(ctx.res, 400, { error: 'SEARCH_MODE_INVALID' });
+    if (modes.length > 1 && !requested) return send(ctx.res, 400, { error: 'SEARCH_MODE_REQUIRED' });
+    perMode = requested || null;
+    modeDemand = perMode ? demands.find((demand) => demand.mode === perMode) || null : null;
+  }
+  if (wishlists && !perMode) {
     // A:P17: the cars marked on the message become the ficha's confirmed wishes. The marked cars
     // come first; the ficha's other cars stay (the form starts empty, so nothing is lost).
     const same = (left, right) => vehicleCatalog.fold(left.make) === vehicleCatalog.fold(right.make) && vehicleCatalog.modelTokens(left.model, left.make).join(' ') === vehicleCatalog.modelTokens(right.model, right.make).join(' ');
     const marked = wishlists.map((wish) => normalizeWishlist(wish)).filter((wish) => wish.model);
     const kept = (await effectiveWishes(ctx, journey)).filter((wish) => !marked.some((candidate) => same(candidate, wish)));
     valueJson.confirmedWishlists = marked.concat(kept).slice(0, 5);
+  }
+  let modeWishes = null;
+  if (wishlists && perMode) {
+    const same = (left, right) => vehicleCatalog.fold(left.make) === vehicleCatalog.fold(right.make) && vehicleCatalog.modelTokens(left.model, left.make).join(' ') === vehicleCatalog.modelTokens(right.model, right.make).join(' ');
+    const marked = wishlists.map((wish) => normalizeWishlist(wish)).filter((wish) => wish.model);
+    const kept = (modeDemand ? modeDemand.wishes : []).map(normalizeWishlist).filter((wish) => !marked.some((candidate) => same(candidate, wish)));
+    modeWishes = marked.concat(kept).slice(0, 5);
+    // Written atomically by panel_mark_message_fact_v2 (migration 20261001010000). Before that
+    // migration the RPC would ignore the mode, so the change is refused instead of lost.
+    if (!(await undoSupported(ctx, { rows }))) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
+    valueJson.mode = perMode;
+    valueJson.modeWishlists = modeWishes;
   }
   if (config.field === 'TETO') {
     // The total ceiling goes only to confirmed_total_ceiling_cents (R2), written atomically by
@@ -197,7 +241,7 @@ async function actionMarkMessage(ctx, journey, body) {
     })
   });
   await recordMessageMenuEvent(ctx,journey,body,'MARK_'+kind,isoNow());
-  return send(ctx.res, 200, config.field === 'TETO' ? { ...result, ceilingCents: valueJson.ceilingCents } : result);
+  return send(ctx.res, 200, config.field === 'TETO' ? { ...result, ceilingCents: valueJson.ceilingCents } : modeWishes ? { ...result, mode: perMode } : result);
 }
 
 async function actionNote(ctx, journey, body) {
@@ -383,9 +427,10 @@ async function actionUnit(ctx, journey, body) {
     let match = null;
     if (body.manheimMatchId) {
       if (!isUuid(body.manheimMatchId)) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_ID_INVALID' });
+      // A match of an undone import batch is never presented.
       const matches = await rows(ctx, 'manheim_matches', {
         select: 'id,vehicle_json,presented_unit_id', environment: 'eq.' + ctx.environment,
-        journey_id: 'eq.' + journey.id, id: 'eq.' + body.manheimMatchId, limit: '1'
+        journey_id: 'eq.' + journey.id, id: 'eq.' + body.manheimMatchId, ...(await activeFilter(ctx, { rows })), limit: '1'
       });
       match = matches[0];
       if (!match) return send(ctx.res, 404, { error: 'MANHEIM_MATCH_NOT_FOUND' });
@@ -515,6 +560,10 @@ function safeManheimVehicle(value) {
     parsed.makeNotice = inferred.make ? '' : 'marca não informada no arquivo';
   }
   parsed.locationDisplay = vehicleCatalog.readableLocation(parsed.location);
+  // OpenAI metadata of a row that needed it (never the prompt): provider, model, what it
+  // suggested and whether the deterministic parser accepted it.
+  const ai = source.ai && typeof source.ai === 'object' && !Array.isArray(source.ai) ? source.ai : null;
+  if (ai && ai.used === true) parsed.ai = { used: true, provider: 'openai', model: safeText(ai.model, 80) || '', result: ai.result === 'VALIDATED' ? 'VALIDATED' : 'REVIEW', fields: Array.isArray(ai.fields) ? ai.fields.map((field) => safeText(field, 20)).filter(Boolean).slice(0, 8) : [], suggestion: ai.suggestion && typeof ai.suggestion === 'object' ? Object.fromEntries(Object.entries(ai.suggestion).slice(0, 8).map(([key, value]) => [safeText(key, 20) || 'x', safeText(value, 120) || ''])) : null };
   const output = { headers, raw, parsed };
   return Buffer.byteLength(JSON.stringify(output), 'utf8') <= 65536 ? output : null;
 }
@@ -528,46 +577,17 @@ function manheimUploadHeader(body) {
   return valid ? { fileCount, vehicleCount, headers, headerMap } : null;
 }
 
-// Revalidates every requested match against the current journeys and calculator orders with
-// the same rule the browser uses (vehicle-match.js, R3). A match that is no longer valid
-// (criteria changed, ficha closed or switched off, Ref now linked to a ficha) is dropped and
-// counted instead of failing the whole upload (A19).
+// Revalidates every requested match against today's demands with the same rule per mode the
+// browser uses (vehicle-match.js). Each match names its mode; a CARRO match is checked only with
+// the CARRO criteria and a VALOR match only with the VALOR bid. A match that is no longer valid
+// (criteria changed, ficha closed or switched off, Ref now linked to a ficha, mode without a
+// demand) is dropped and counted instead of failing the whole upload (A19).
 async function validateManheimMatches(ctx, requested) {
-  const [journeys, toggleStates, calcRuns, calcLinks, dispositions, journeyRefs] = await Promise.all([
-    allRows(ctx, 'journeys', { select: 'id,status,stage,reference_code,criteria_json,budget_cents,confirmed_total_ceiling_cents', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
-    allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
-    allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment })
-  ]);
-  const states = new Map(toggleStates.map((state) => [state.journey_id, state]));
-  const byId = new Map(journeys.map((journey) => {
-    const state = states.get(journey.id);
-    return [journey.id, { ...journey, enabled: toggleEnabled(journey.status, state), offReason: state && state.off_reason || null }];
-  }));
-  const refOwner = new Map();
-  journeys.forEach((journey) => { const ref = String(journey.reference_code || '').trim().toUpperCase(); if (ref) refOwner.set(ref, journey.id); });
-  journeyRefs.forEach((row) => { const ref = String(row.ref_code || '').trim().toUpperCase(); if (ref && byId.has(row.journey_id)) refOwner.set(ref, row.journey_id); });
-  const allOrders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions);
-  const linked = new Map();
-  allOrders.forEach((order) => {
-    const owner = refOwner.get(order.ref) || order.journeyId;
-    if (!owner || !byId.has(owner)) return;
-    if (!linked.has(owner)) linked.set(owner, []);
-    linked.get(owner).push(order);
-  });
-  const criteriaFor = new Map();
-  const journeyCriteria = (journey) => {
-    if (!criteriaFor.has(journey.id)) {
-      const orders = linked.get(journey.id) || [];
-      const merged = orders.length ? { wishlists: mergeWishlists([], orders.flatMap((order) => order.wishlists || [])), budgetCents: orders.map((order) => order.budgetCents).find((value) => Number(value) > 0) || null } : null;
-      criteriaFor.set(journey.id, effectiveCriteria(journey, merged));
-    }
-    return criteriaFor.get(journey.id);
-  };
-  const orderByRef = new Map(allOrders.filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
-  const personDisposition = dispositionIndex(dispositions);
+  const base = await loadBuscasBase(ctx, { allRows });
+  const demandsByKey = new Map();
+  base.demands.byJourney.forEach((list) => list.forEach((demand) => demandsByKey.set(demand.key, demand)));
+  base.demands.orders.forEach((demand) => demandsByKey.set(demand.key, demand));
+  const orderByRef = new Map(base.grouped.filter((order) => order.disposition !== 'DISCARDED').map((order) => [order.ref, order]));
   const matches = [];
   const orderMatches = [];
   const discarded = { total: 0, reasons: {} };
@@ -580,37 +600,142 @@ async function validateManheimMatches(ctx, requested) {
     vehicle.parsed.matchBasis = result.basis;
     vehicle.parsed.dataGap = result.dataGap === true;
   };
+  const judge = (demand, vehicle) => demand && demand.active ? matchManheimDemand(vehicle.parsed, { ...demand, wishes: demand.activeWishes }) : null;
   for (const item of requested) {
     const vehicle = safeManheimVehicle(item && item.vehicle);
     const fingerprint = safeText(item && item.fingerprint, 200, true);
+    const mode = String(item && item.mode || '').toUpperCase();
     if (!vehicle || !fingerprint) { discard('INVALID_ROW'); continue; }
+    if (!SEARCH_MODES.includes(mode)) { discard('MODE_MISSING'); continue; }
     if (item && item.targetType === 'ORDER') {
       const ref = String(item.calcRef || '').trim().toUpperCase();
-      const order = orderByRef.get(ref);
-      if (!order) { discard('ORDER_UNAVAILABLE'); continue; }
-      if (refOwner.has(ref) || order.journeyId) { discard('REF_LINKED_TO_FICHA'); continue; }
-      const result = matchManheimOrder(vehicle.parsed, order);
+      if (!orderByRef.has(ref)) { discard('ORDER_UNAVAILABLE'); continue; }
+      if (base.demands.owner.has(ref) || orderByRef.get(ref).journeyId) { discard('REF_LINKED_TO_FICHA'); continue; }
+      const result = judge(demandsByKey.get(`ref:${ref}:${mode}`), vehicle);
       if (!result) { discard('CRITERIA_CHANGED'); continue; }
       annotate(vehicle, result);
-      orderMatches.push({ calcRef: ref, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
+      orderMatches.push({ calcRef: ref, mode, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
       continue;
     }
     if (!isUuid(item && item.journeyId)) { discard('INVALID_ROW'); continue; }
-    const journey = byId.get(item.journeyId);
+    const journey = base.journeyById.get(item.journeyId);
     if (!journey) { discard('JOURNEY_UNAVAILABLE'); continue; }
-    const criteria = journeyCriteria(journey);
-    const result = matchManheimVehicle(vehicle.parsed, criteria.wishes, criteria.bidCents);
+    const result = judge(demandsByKey.get(`journey:${journey.id}:${mode}`), vehicle);
     if (!result) { discard('CRITERIA_CHANGED'); continue; }
-    if (personDisposition(journey.id, [journey.reference_code, ...journeyRefs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].filter(Boolean))?.status === 'DISCARDED') { discard('JOURNEY_DISCARDED'); continue; }
+    if (base.journeyDisposition(journey)?.status === 'DISCARDED') { discard('JOURNEY_DISCARDED'); continue; }
     if (journey.status === 'ENCERRADO' || (!journeyEnabled(journey) && (!reactivationEligible(journey) || result.kind !== 'BATE'))) { discard('JOURNEY_DISABLED'); continue; }
     if (journey.status === 'PARADO' && result.kind !== 'BATE') { discard('JOURNEY_DISABLED'); continue; }
     annotate(vehicle, result);
-    matches.push({ journeyId: journey.id, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
+    matches.push({ journeyId: journey.id, mode, kind: result.kind, reason: result.reason || result.notice, mmrStatus: result.mmrStatus, fingerprint, vehicle });
   }
   return { discarded, matches: matches.concat(orderMatches.map((item) => ({
-    targetType: 'ORDER', calcRef: item.calcRef, kind: item.kind, reason: item.reason,
+    targetType: 'ORDER', calcRef: item.calcRef, mode: item.mode, kind: item.kind, reason: item.reason,
     mmrStatus: item.mmrStatus, fingerprint: item.fingerprint, vehicle: item.vehicle
   }))) };
+}
+
+// OpenAI for ambiguous CSV rows only (server side; the key never reaches the browser). When it
+// is off or fails, the browser keeps importing the valid rows and sends only these to review.
+async function actionManheimAiRows(ctx, body) {
+  if (body.headerMap) {
+    const input = manheimAi.sanitizeHeaders(body.headerMap);
+    if (!input) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
+    if (!manheimAi.enabled()) return send(ctx.res, 200, { available: false, reason: 'OPENAI_NOT_ENABLED', mapping: null });
+    try { return send(ctx.res, 200, { available: true, provider: 'openai', ...await manheimAi.suggestHeaders(input) }); }
+    catch (failure) { return send(ctx.res, 200, { available: false, reason: failure && failure.code || 'OPENAI_FAILED', mapping: null }); }
+  }
+  const rowsIn = manheimAi.sanitizeRows(body.rows);
+  if (!rowsIn) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
+  if (!manheimAi.enabled()) return send(ctx.res, 200, { available: false, reason: 'OPENAI_NOT_ENABLED', suggestions: [] });
+  try {
+    const result = await manheimAi.suggestRows(rowsIn);
+    return send(ctx.res, 200, { available: true, provider: 'openai', ...result });
+  } catch (failure) {
+    return send(ctx.res, 200, { available: false, reason: failure && failure.code || 'OPENAI_FAILED', suggestions: [] });
+  }
+}
+
+// The OpenAI summary of a batch, stored on the batch itself (no new table, no prompt).
+async function actionManheimAiSummary(ctx, body) {
+  if (!isUuid(body.uploadId)) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
+  if (!(await undoSupported(ctx, { rows }))) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
+  const summary = manheimAi.sanitizeSummary(body.summary);
+  const found = await rows(ctx, 'manheim_uploads', { select: 'id,ai_summary_json', environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId, limit: '1' });
+  if (!found[0]) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
+  await patchRows(ctx, 'manheim_uploads', { environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId }, { ai_summary_json: summary });
+  await insert(ctx, 'audit_log', { environment: ctx.environment, actor_user_id: ctx.panel.id, entity_type: 'manheim_upload', entity_id: body.uploadId, action: 'AI_SUMMARY', before_json: found[0].ai_summary_json || null, after_json: summary, created_at: isoNow() }, false);
+  return send(ctx.res, 200, { saved: true, summary });
+}
+
+// Undo of one import batch: transactional and idempotent in the database. Nothing is deleted.
+async function actionManheimUndo(ctx, body) {
+  if (!isUuid(body.uploadId)) return send(ctx.res, 400, { error: 'MANHEIM_UNDO_INVALID' });
+  if (!(await undoSupported(ctx, { rows }))) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
+  try {
+    const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_undo_manheim_upload', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: body.uploadId })
+    });
+    return send(ctx.res, 200, result);
+  } catch (failure) {
+    if (failure && failure.code === 'MANHEIM_UPLOAD_NOT_FOUND') return send(ctx.res, 404, { error: failure.code });
+    if (failure && failure.status === 404) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
+    throw failure;
+  }
+}
+
+// "Revisar tipo de busca": the operator defines CARRO or VALOR for a ficha whose mode is not
+// known. Only that demand changes; the ficha's other demand stays as it is. Operator, time,
+// previous and new value go to activity_log and audit_log.
+async function actionSetSearchMode(ctx, journey, body) {
+  const mode = String(body.mode || '').toUpperCase();
+  if (!SEARCH_MODES.includes(mode)) return send(ctx.res, 400, { error: 'SEARCH_MODE_INVALID' });
+  const [current] = await rows(ctx, 'journeys', { select: 'id,criteria_json', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id, limit: '1' });
+  if (!current) return send(ctx.res, 404, { error: 'JOURNEY_NOT_FOUND' });
+  const criteria = current.criteria_json && typeof current.criteria_json === 'object' && !Array.isArray(current.criteria_json) ? current.criteria_json : {};
+  const before = confirmedJourneyModes(current);
+  if (before.includes(mode)) return send(ctx.res, 200, { journeyId: journey.id, modes: before, unchanged: true });
+  const after = SEARCH_MODES.filter((value) => before.includes(value) || value === mode);
+  const at = isoNow();
+  // The first mode the operator defines owns the ficha's manual criteria from now on
+  // (mode_overrides), so a second mode added later never inherits them.
+  const overrides = criteria.mode_overrides && typeof criteria.mode_overrides === 'object' && !Array.isArray(criteria.mode_overrides) ? criteria.mode_overrides : {};
+  const generic = wishlistsForJourney(current);
+  const claim = !before.length && !Object.keys(overrides).length && (generic.length || criteria.wishlistOverride === true)
+    ? { mode_overrides: { ...overrides, [mode]: { wishlists: generic, wishlistOverride: criteria.wishlistOverride === true } } } : {};
+  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { criteria_json: { ...criteria, ...claim, logical_modes: after }, updated_at: at, updated_by: ctx.panel.id });
+  await recordMutation(ctx, {
+    at, journeyId: journey.id, contactId: journey.contact_id, activityType: 'SEARCH_MODE_DEFINED', summary: `Tipo de busca definido: ${mode}`,
+    metadata: { before, after, mode }, entityType: 'journey', entityId: journey.id, action: 'SET_SEARCH_MODE',
+    before: { logical_modes: before }, after: { logical_modes: after }
+  });
+  return send(ctx.res, 200, { journeyId: journey.id, modes: after });
+}
+
+// "Revisar tipo de busca" for a manual criterion saved without mode on a ficha with two modes:
+// the operator says which mode it belongs to. It moves to mode_overrides[mode] and leaves the
+// generic list; the other mode is not touched. Operator, time, before and after are audited.
+async function actionAssignManualMode(ctx, journey, body) {
+  const mode = String(body.mode || '').toUpperCase();
+  if (!SEARCH_MODES.includes(mode)) return send(ctx.res, 400, { error: 'SEARCH_MODE_INVALID' });
+  const [current] = await rows(ctx, 'journeys', { select: 'id,criteria_json', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id, limit: '1' });
+  if (!current) return send(ctx.res, 404, { error: 'JOURNEY_NOT_FOUND' });
+  const criteria = current.criteria_json && typeof current.criteria_json === 'object' && !Array.isArray(current.criteria_json) ? current.criteria_json : {};
+  const generic = wishlistsForJourney(current);
+  if (!generic.length && criteria.wishlistOverride !== true) return send(ctx.res, 200, { journeyId: journey.id, unchanged: true });
+  const overrides = criteria.mode_overrides && typeof criteria.mode_overrides === 'object' && !Array.isArray(criteria.mode_overrides) ? criteria.mode_overrides : {};
+  const own = overrides[mode] && Array.isArray(overrides[mode].wishlists) ? overrides[mode].wishlists : [];
+  const nextOverride = { wishlists: mergeWishlists(generic, own).slice(0, 5), wishlistOverride: true };
+  const { wishlist: _legacy, wishlistOverride: _generic, ...rest } = criteria;
+  const next = { ...rest, wishlists: [], mode_overrides: { ...overrides, [mode]: nextOverride } };
+  const at = isoNow();
+  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { criteria_json: next, updated_at: at, updated_by: ctx.panel.id });
+  await recordMutation(ctx, {
+    at, journeyId: journey.id, contactId: journey.contact_id, activityType: 'MANUAL_CRITERIA_MODE_DEFINED', summary: `Critério manual atribuído a ${mode}`,
+    metadata: { mode, wishes: generic.length }, entityType: 'journey', entityId: journey.id, action: 'ASSIGN_MANUAL_MODE',
+    before: { wishlists: generic, mode_overrides: overrides }, after: { wishlists: [], mode_overrides: next.mode_overrides }
+  });
+  return send(ctx.res, 200, { journeyId: journey.id, mode });
 }
 
 function storeManheimUpload(ctx, header, matches) {
@@ -658,7 +783,7 @@ async function actionManheimUploadPart(ctx, body) {
 
 async function actionManheimArchive(ctx, body) {
   if (!isUuid(body.uploadId) || !Array.isArray(body.vehicles) || body.vehicles.length > 100) return send(ctx.res, 400, { error: 'MANHEIM_ARCHIVE_INVALID' });
-  const upload = await rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId, limit: '1' });
+  const upload = await rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId, ...(await activeFilter(ctx, { rows })), limit: '1' });
   if (!upload[0]) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
   const at = isoNow();
   const vehicles = body.vehicles.map((item) => {
@@ -768,6 +893,9 @@ module.exports = async (req, res) => {
     const body = await jsonBody(req, 2 * 1024 * 1024);
     if (body.action === 'manheim_upload_part') return await actionManheimUploadPart(ctx, body);
     if (body.action === 'manheim_archive') return await actionManheimArchive(ctx, body);
+    if (body.action === 'manheim_undo') return await actionManheimUndo(ctx, body);
+    if (body.action === 'manheim_ai_rows') return await actionManheimAiRows(ctx, body);
+    if (body.action === 'manheim_ai_summary') return await actionManheimAiSummary(ctx, body);
     if (body.action === 'set_disposition') return await actionDisposition(ctx, body);
     // Lote 4: actions no screen, cron, webhook or database ever called (proved before removal).
     // They answer as invalid without touching the database.
@@ -788,6 +916,8 @@ module.exports = async (req, res) => {
       case 'toggle_journey': return await actionToggleJourney(ctx, journey, body);
       case 'return_update': return await actionReturn(ctx, journey, body);
       case 'invert_senders': return await actionInvertSenders(ctx, journey, body);
+      case 'set_search_mode': return await actionSetSearchMode(ctx, journey, body);
+      case 'assign_manual_mode': return await actionAssignManualMode(ctx, journey, body);
       default: return send(res, 400, { error: 'PANEL_ACTION_INVALID' });
     }
   } catch (failure) {

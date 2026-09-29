@@ -135,3 +135,25 @@ nav[aria-label="Seções do painel"]{
 @media (max-width:699px){.message-menu{justify-self:stretch}.message-menu-panel{min-width:0;max-width:calc(100vw - 32px)}.wishlist-row{grid-template-columns:1fr 1fr}}
 /* M32: checklist point and its button side by side */
 .lead-check{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+/* buscas-split: BUSCAS em duas colunas (VALOR à esquerda, CARRO à direita); no celular, VALOR e depois CARRO */
+.buscas-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;margin:12px 0}
+.buscas-column{min-width:0;display:grid;gap:10px;align-content:start;background:var(--mcs-card,#f7f5f1);color:var(--mcs-text,#0b0d10);border:1px solid var(--mcs-line,#e4ded3);border-radius:12px;padding:14px}
+.buscas-column-head h2{margin:0;font-size:1.1rem}.buscas-column-head p{margin:4px 0 0}
+.buscas-column h3{margin:10px 0 0;font-size:.95rem}.buscas-column h4{margin:8px 0 0;font-size:.9rem}
+.buscas-counters{grid-template-columns:repeat(3,minmax(0,1fr))}
+.buscas-column .pending-stats{margin:0}
+.buscas-column .manheim-table{overflow:visible}
+.buscas-column .manheim-row{background:var(--mcs-bg,#fff);color:var(--mcs-text,#0b0d10);border-color:var(--mcs-line,#e4ded3)}
+.buscas-column .manheim-row{min-width:0;display:flex;flex-wrap:wrap;gap:8px}
+.buscas-column .manheim-row>div{flex:1 1 200px;min-width:0;overflow-wrap:anywhere}
+.buscas-column .manheim-row>.badges{flex-basis:100%}
+.buscas-total{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-top:8px}
+.batches{display:grid;gap:8px}.batches h3{margin:0}
+.batch-line{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--mcs-line,#e4ded3);border-radius:10px;padding:10px}
+.batch-line.undone{opacity:.7}.batch-text{display:grid;gap:3px;min-width:0}
+.import-summary{display:grid;gap:3px;margin-top:8px}
+.buscas-review summary{cursor:pointer;font-weight:700;min-height:44px;display:flex;align-items:center;gap:8px}
+.review-line{display:grid;gap:6px}
+#searches-panel button,#searches-panel summary,#searches-panel select{min-height:44px}
+@media(max-width:820px){.buscas-columns{grid-template-columns:1fr}.buscas-counters{grid-template-columns:repeat(3,minmax(0,1fr))}.buscas-column{padding:10px}}
+#searches-panel .manheim-select{min-width:44px;min-height:44px;margin:0}

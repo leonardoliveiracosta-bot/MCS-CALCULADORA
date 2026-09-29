@@ -223,20 +223,47 @@
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="searches-panel" class="panel-view hidden" aria-label="Buscas">
-        <div class="section-head searches-subsection"><div><h2>Arquivo do Manheim</h2><p class="muted">Suba o CSV e veja os carros que batem.</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
+        <div class="section-head searches-subsection"><div><h2>Arquivo do Manheim</h2><p class="muted">Suba o CSV e veja os carros que batem</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
         <section class="card">
           <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
           <p id="manheim-status" class="status" role="status"></p>
+          <div id="manheim-import-summary" class="import-summary hidden" aria-live="polite"></div>
         </section>
+        <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
         <section class="card">
           <div id="manheim-summary" class="muted"></div>
-          <div id="manheim-results" class="stack" aria-live="polite"></div>
+          <div id="buscas-total" class="buscas-total" aria-live="polite"></div>
         </section>
-        <div class="section-head"><div><h2>Buscas por cliente</h2><p class="muted">Cada linha mostra o que buscar e em que etapa o cliente está.</p></div></div>
-        <div id="searches-summary" class="pending-stats" aria-live="polite"></div>
-        <div id="searches-list" class="stack" aria-live="polite"></div>
-        <div class="section-head searches-subsection"><div><h2>Quais buscas salvar no Manheim</h2><p class="muted">Listas de desejo prontas para pesquisa.</p></div></div>
+        <div id="manheim-results" class="buscas-columns" aria-live="polite">
+          <section id="buscas-valor" class="buscas-column" data-mode="VALOR" aria-label="Calculate My Cost">
+            <header class="buscas-column-head"><h2>Calculate My Cost</h2><p class="muted">POR VALOR · marca, modelo, lance e faixa de MMR</p></header>
+            <div id="buscas-valor-counters" class="pending-stats buscas-counters"></div>
+            <h3>Compatíveis</h3>
+            <div id="buscas-valor-results" class="stack"></div>
+            <h3>Buscas por cliente</h3>
+            <div id="buscas-valor-summary" class="pending-stats"></div>
+            <div id="buscas-valor-clients" class="stack"></div>
+            <h3>Quais buscas salvar no Manheim</h3>
+            <div id="buscas-valor-saved" class="stack saved-searches"></div>
+          </section>
+          <section id="buscas-carro" class="buscas-column" data-mode="CARRO" aria-label="Find One For Me">
+            <header class="buscas-column-head"><h2>Find One For Me</h2><p class="muted">POR ANO E MILHAGEM · marca, modelo, anos e milhagens</p></header>
+            <div id="buscas-carro-counters" class="pending-stats buscas-counters"></div>
+            <h3>Compatíveis</h3>
+            <div id="buscas-carro-results" class="stack"></div>
+            <h3>Buscas por cliente</h3>
+            <div id="buscas-carro-summary" class="pending-stats"></div>
+            <div id="buscas-carro-clients" class="stack"></div>
+            <h3>Quais buscas salvar no Manheim</h3>
+            <div id="buscas-carro-saved" class="stack saved-searches"></div>
+          </section>
+        </div>
         <section id="manheim-saved-searches" class="card"></section>
+        <details id="buscas-review" class="card buscas-review">
+          <summary>Revisar tipo de busca <span id="buscas-review-count" class="badge">0</span></summary>
+          <p class="muted">Pedidos sem tipo definido ou com critério incompleto. Nada é adivinhado: defina CARRO ou VALOR, ou abra a ficha para completar</p>
+          <div id="buscas-review-list" class="stack"></div>
+        </details>
       </section>
       <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
         <p class="visually-hidden">Conteúdo reunido na aba Buscas.</p>
@@ -267,9 +294,9 @@
   <script src="/painel/vendor/zip.min.js" defer></script>
   <script src="/painel/parser.js" defer></script>
   <script src="/vehicle-catalog.js?v=1" defer></script>
-  <script src="/vehicle-match.js?v=1" defer></script>
-  <script src="/painel/manheim.js?v=3" defer></script>
-  <script src="/painel/manheim-upload.js?v=1" defer></script>
+  <script src="/vehicle-match.js?v=2" defer></script>
+  <script src="/painel/manheim.js?v=4" defer></script>
+  <script src="/painel/manheim-upload.js?v=2" defer></script>
   <script src="/money-text.js?v=1" defer></script>
   <script src="/panel-origin.js?v=1" defer></script>
   <script src="/painel/action.js" defer></script>

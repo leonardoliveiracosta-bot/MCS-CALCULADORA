@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const manheim = require('../painel/manheim');
 const upload = require('../painel/manheim-upload');
-const { consolidateCalcRuns, groupCalculatorByRef, wishlistsForJourney } = require('../panel-domain');
+const { buildSearchDemands, consolidateCalcRuns } = require('../panel-domain');
 const realServer = require('../panel-server');
 const { migratedDatabase } = require('./sql/run');
 const { malibuCsv, porsche911Csv, porscheCustomers, uuid } = require('./fixtures/manheim-sintetico');
@@ -75,17 +75,24 @@ async function harness(customers = porscheCustomers()) {
     return res.payload;
   };
 
-  const clientJourneys = journeys.map((journey) => ({ ...journey, enabled: true, wishlists: wishlistsForJourney(journey) }));
-  const clientOrders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, []), []);
+  // The same demands the server sends to the browser (one per person and mode).
+  const built = buildSearchDemands({ journeys, refs: [], modeItems: consolidateCalcRuns(calcRuns, []) });
+  const targets = [...[...built.byJourney.values()].flat(), ...built.orders].filter((demand) => demand.active).map(asTarget);
   const latest = async () => (await db.query(`select id,matched_vehicle_count,lead_count,vehicle_count from public.manheim_uploads where environment='preview' order by uploaded_at desc limit 1`)).rows[0] || null;
-  return { db, handler, request, sent, rpcCalls, latest, clientJourneys, clientOrders };
+  return { db, handler, request, sent, rpcCalls, latest, targets, people: journeys.length + built.orders.length };
 }
 
-function prepare(text, journeys, orders) {
+function asTarget(demand) {
+  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId, ref: demand.ref, wishes: demand.activeWishes, bidCents: demand.bidCents };
+}
+const MALIBU = { make: 'Chevrolet', model: 'Malibu', yearMin: 2018, yearMax: 2024, minMiles: 1000, maxMiles: 80000 };
+const malibuTarget = (id) => ({ key: `journey:${id}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: id, wishes: [MALIBU] });
+
+function prepare(text, targets) {
   const parsed = manheim.parseCsv(text);
   const mapping = manheim.mapHeaders(parsed.headers);
   const vehicles = upload.markSearchFiltered(manheim.chooseAuctionRows(manheim.normalizeRows(parsed, mapping)));
-  const matches = upload.buildMatches(vehicles, journeys, orders, manheim);
+  const matches = upload.buildMatches(vehicles, targets, manheim);
   const base = { sourceFileCount: 1, vehicleCount: vehicles.length, headers: [parsed.headers], headerMap: { files: [mapping.fields] } };
   return { parsed, vehicles, matches, base, parts: upload.planParts(matches, base) };
 }
@@ -93,10 +100,10 @@ function prepare(text, journeys, orders) {
 test('312 Porsche 911 x 34 pedidos 911: mais de 4.000 combinações importadas inteiras, em partes', async () => {
   const h = await harness();
   try {
-    const run = prepare(porsche911Csv(), h.clientJourneys, h.clientOrders);
+    const run = prepare(porsche911Csv(), h.targets);
     assert.equal(run.parsed.rows.length, 322);
     assert.equal(run.vehicles.length, 312);
-    assert.equal(h.clientJourneys.length + h.clientOrders.length, 34);
+    assert.equal(h.people, 34);
     assert.ok(run.matches.length > 4000, `combinações: ${run.matches.length}`);
     assert.ok(run.matches.some((match) => match.targetType === 'ORDER'));
     assert.ok(run.vehicles.every((vehicle) => vehicle.cleanTitle === true && vehicle.odometerOk === true));
@@ -133,7 +140,7 @@ test('312 Porsche 911 x 34 pedidos 911: mais de 4.000 combinações importadas i
 test('20.000+ combinações passam pelo banco inteiras (MANHEIM_HEAVY=1)', { skip: process.env.MANHEIM_HEAVY !== '1' }, async () => {
   const h = await harness(porscheCustomers(100, 4));
   try {
-    const run = prepare(porsche911Csv(), h.clientJourneys, h.clientOrders);
+    const run = prepare(porsche911Csv(), h.targets);
     assert.ok(run.matches.length >= 20000, `combinações: ${run.matches.length}`);
     const started = Date.now();
     const result = await upload.sendParts({ parts: run.parts, base: run.base, request: h.request });
@@ -146,17 +153,17 @@ test('20.000+ combinações passam pelo banco inteiras (MANHEIM_HEAVY=1)', { ski
 test('o último upload só muda quando a última parte é gravada: falha na parte 3 mantém o anterior', async () => {
   const h = await harness();
   try {
-    const small = prepare(malibuCsv(), [{ id: uuid('51000000', 1), enabled: true, wishlists: [{ make: 'Chevrolet', model: 'Malibu', yearMin: 2018, maxMiles: 80000 }] }], []);
+    const small = prepare(malibuCsv(), [malibuTarget(uuid('51000000', 1))]);
     assert.equal(small.parts.length, 1);
     // The panel journey wants a 911, so this Malibu upload has no match but still becomes the previous upload.
-    await h.db.query(`update public.journeys set criteria_json=$1::jsonb where id=$2`, [JSON.stringify({ wishlists: [{ make: 'Chevrolet', model: 'Malibu', yearMin: 2018, maxMiles: 80000 }] }), uuid('51000000', 1)]);
+    await h.db.query(`update public.journeys set criteria_json=$1::jsonb where id=$2`, [JSON.stringify({ logical_modes: ['CARRO'], wishlists: [MALIBU] }), uuid('51000000', 1)]);
     const previous = await upload.sendParts({ parts: small.parts, base: small.base, request: h.request });
     assert.equal(previous.complete, true);
     assert.equal(previous.matchedVehicleCount, small.matches.length);
     assert.ok(small.matches.length > 0);
     await h.db.query(`update public.journeys set criteria_json=$1::jsonb where id=$2`, [JSON.stringify(porscheCustomers().journeys[0].criteria_json), uuid('51000000', 1)]);
 
-    const run = prepare(porsche911Csv(), h.clientJourneys, h.clientOrders);
+    const run = prepare(porsche911Csv(), h.targets);
     assert.ok(run.parts.length > 3);
     const attempts = [];
     const waits = [];
@@ -187,9 +194,8 @@ test('o último upload só muda quando a última parte é gravada: falha na part
 test('Export pequeno (269 Malibu) segue em uma parte pela RPC original', async () => {
   const h = await harness();
   try {
-    await h.db.query(`update public.journeys set criteria_json=$1::jsonb where id=$2`, [JSON.stringify({ wishlists: [{ make: 'Chevrolet', model: 'Malibu', yearMin: 2018, maxMiles: 80000 }] }), uuid('51000000', 2)]);
-    const journeys = [{ id: uuid('51000000', 2), enabled: true, wishlists: [{ make: 'Chevrolet', model: 'Malibu', yearMin: 2018, maxMiles: 80000 }] }];
-    const run = prepare(malibuCsv(), journeys, []);
+    await h.db.query(`update public.journeys set criteria_json=$1::jsonb where id=$2`, [JSON.stringify({ logical_modes: ['CARRO'], wishlists: [MALIBU] }), uuid('51000000', 2)]);
+    const run = prepare(malibuCsv(), [malibuTarget(uuid('51000000', 2))]);
     assert.equal(run.parsed.rows.length, 269);
     assert.equal(run.parts.length, 1);
     const result = await upload.sendParts({ parts: run.parts, base: run.base, request: h.request });

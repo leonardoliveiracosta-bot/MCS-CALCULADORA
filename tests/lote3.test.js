@@ -46,17 +46,17 @@ test('Lote 3 · critérios: override sem carro não volta à Ref; milhas_de não
   assert.equal(domain.reactivationEligible({ status: 'PARADO' }), true);
 });
 
-test('Lote 3 · busca salva: a mesma identidade de "Quais buscas salvar" (critério, valor, qualificar)', () => {
-  const wish = { make: 'BMW', model: 'X5', yearMin: 2020, yearMax: 2022, maxMiles: 40000 };
-  assert.deepEqual(stage.searchIdentity(wish, null), { basis: 'CRITERIA', key: 'bmw|x5' });
-  assert.deepEqual(stage.searchIdentity({ make: 'BMW', model: 'X5' }, 3000000), { basis: 'VALUE', key: 'bmw|x5|valor' });
-  assert.deepEqual(stage.searchIdentity({ make: 'BMW', model: 'X5' }, null), { basis: 'QUALIFY', key: 'bmw|x5|qualificar' });
+test('Lote 3 · busca salva: a mesma identidade de "Quais buscas salvar", uma por modo', () => {
+  const wish = { make: 'BMW', model: 'X5', yearMin: 2020, yearMax: 2022, minMiles: 1, maxMiles: 40000 };
+  assert.deepEqual(stage.searchIdentity(wish, 'CARRO'), { mode: 'CARRO', basis: 'CRITERIA', key: 'bmw|x5' });
+  assert.deepEqual(stage.searchIdentity({ make: 'BMW', model: 'X5' }, 'VALOR'), { mode: 'VALOR', basis: 'VALUE', key: 'bmw|x5|valor' });
+  assert.equal(stage.searchIdentity({ make: 'BMW', model: 'X5' }, 'MIXED'), null, 'não existe busca MIXED');
 });
 
 test('Lote 3 · CSV: odômetro desconhecido não aparece como "Odometer OK"; POR VALOR avisa a milhagem que falta', () => {
   const marked = upload.markSearchFiltered([{ miles: 30000 }, { miles: null }, { miles: '' }]);
   assert.deepEqual(marked.map((row) => row.odometerOk), [true, false, false]);
-  const result = vehicleMatch.matchWish({ year: 2021, make: 'BMW', model: 'X5', miles: null, mmrCents: 3000000 }, { make: 'BMW', model: 'X5' }, 3000000);
+  const result = vehicleMatch.matchValorWish({ year: 2021, make: 'BMW', model: 'X5', miles: null, mmrCents: 3000000 }, { make: 'BMW', model: 'X5' }, 3000000);
   assert.equal(result.kind, 'POR_VALOR');
   assert.match(result.notice, /milhagem não informada/);
 });

@@ -155,10 +155,13 @@ module.exports = async (req, res) => {
     }
     if (body.action === 'present') {
       if (lead.record && (lead.record.enabled === false || lead.record.status === 'ENCERRADO')) return send(res, 409, { error: 'JOURNEY_DISABLED' });
-      const found = await rows(ctx, 'manheim_vehicles', { select: 'vehicle_json', environment: 'eq.' + ctx.environment, row_fingerprint: 'eq.' + String(body.fingerprint || ''), order: 'uploaded_at.desc', limit: '1' });
+      const found = await rows(ctx, 'manheim_vehicles', { select: 'vehicle_json', environment: 'eq.' + ctx.environment, row_fingerprint: 'eq.' + String(body.fingerprint || ''), ...(await require('../../panel-manheim-state').activeFilter(ctx, { rows })), order: 'uploaded_at.desc', limit: '1' });
       const vehicle = found[0]?.vehicle_json || lead.offers.find((item) => item.rowFingerprint === body.fingerprint);
       if (!vehicle || !lead.offers.some((item) => item.rowFingerprint === body.fingerprint)) return send(res, 400, { error: 'VEHICLE_NOT_COMPATIBLE' });
-      const details = { year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.locationDisplay || vehicle.location, saleDate: vehicle.saleDate, vin: vehicle.vin, mmrCents: vehicle.mmrCents };
+      // The offer's mode (VALOR or CARRO) goes with the unit, so "enviei opções" marks only that mode.
+      const offerModes = [...new Set(lead.offers.filter((item) => item.rowFingerprint === body.fingerprint).map((item) => item.mode).filter(Boolean))];
+      const presentedMode = offerModes.includes(String(body.mode || '').toUpperCase()) ? String(body.mode).toUpperCase() : offerModes.length === 1 ? offerModes[0] : null;
+      const details = { year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.locationDisplay || vehicle.location, saleDate: vehicle.saleDate, vin: vehicle.vin, mmrCents: vehicle.mmrCents, ...(presentedMode ? { logical_mode: presentedMode } : {}) };
       const at = new Date().toISOString();
       const identity=vehicle.vin?'VIN:'+String(vehicle.vin).trim().toUpperCase():'CAR:'+ [vehicle.year,vehicle.make,vehicle.model,vehicle.miles,vehicle.saleDate].map((part)=>String(part||'').toLowerCase()).join('|');
       const existing=await rows(ctx,'units',{select:'id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,vehicle_identity:'eq.'+identity,limit:'1'});
@@ -167,7 +170,7 @@ module.exports = async (req, res) => {
       try { unit = (await insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(' '), details_json: details, vehicle_identity: identity, presented_at: at, status: 'PRESENTED', created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id }))[0]; }
       catch(error) { if(error.status===409) { const prior=await rows(ctx,'units',{select:'id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,vehicle_identity:'eq.'+identity,limit:'1'});if(prior[0])return send(res,200,{unitId:prior[0].id,duplicate:true}); } throw error; }
       await patchRows(ctx, 'lead_tracking', { environment: 'eq.' + ctx.environment, ref_code: 'eq.' + lead.ref, step: 'lt.2' }, { step: 2, updated_at: at });
-      await insert(ctx, 'lead_events', { environment: ctx.environment, ref_code: lead.ref, journey_id: journey.id, unit_id: unit.id, event_type: 'CAR_PRESENTED', detail_json: { vehicle: unit.vehicle_text }, occurred_at: at, created_by: ctx.panel.id }, false);
+      await insert(ctx, 'lead_events', { environment: ctx.environment, ref_code: lead.ref, journey_id: journey.id, unit_id: unit.id, event_type: 'CAR_PRESENTED', detail_json: { vehicle: unit.vehicle_text, ...(presentedMode ? { logical_mode: presentedMode } : {}) }, occurred_at: at, created_by: ctx.panel.id }, false);
       // A10: presenting a car starts the search (stages only move forward).
       const currentStage = lead.record?.stage || journey.stage || 'NOVO';
       const stage = forwardStage(currentStage, 'EM_BUSCA');

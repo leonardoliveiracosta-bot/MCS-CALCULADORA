@@ -2,7 +2,8 @@
 
 // The same deterministic search identity is used by BUSCAS and Manheim saves.
 const { allRows } = require('./panel-server');
-const { consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, mergeWishlists, toggleEnabled, wishlistsForJourney } = require('./panel-domain');
+const { buildSearchDemands, consolidateCalcRuns, effectiveCriteria, mergeWishlists, toggleEnabled } = require('./panel-domain');
+const { undoSupported } = require('./panel-manheim-state');
 const vehicleMatch = require('./vehicle-match');
 const catalog = require('./vehicle-catalog');
 
@@ -17,13 +18,14 @@ function searchKey(wish) {
   const model = catalog.modelTokens(wish.model, wish.make).join(' ');
   return make && model ? `${make}|${model}` : null;
 }
-// The same identity as "Quais buscas salvar": a search by criteria (make|model), by value
-// (make|model|valor) or one that still needs qualifying (make|model|qualificar, never saved).
-function searchIdentity(wish, bidCents) {
+// The same identity as "Quais buscas salvar", per mode: CARRO (make|model, searched by year and
+// mileage) and VALOR (make|model|valor, searched by the MMR range of the bid). The two modes of
+// one person never share a key, so saving one never saves the other.
+function searchIdentity(wish, mode) {
   const base = searchKey(wish);
-  if (!base) return null;
-  const { basis } = vehicleMatch.wishSearchBasis(wish, bidCents);
-  return { basis, key: basis === 'CRITERIA' ? base : base + (basis === 'VALUE' ? '|valor' : '|qualificar') };
+  const normalized = vehicleMatch.normalizedMode(mode);
+  if (!base || !normalized) return null;
+  return { mode: normalized, basis: normalized === 'CARRO' ? 'CRITERIA' : 'VALUE', key: normalized === 'CARRO' ? base : base + '|valor' };
 }
 // The ficha's effective criteria (R1): its own wishes and bid, filled by its linked calculator Refs.
 function journeyCriteria(journey, refs, ordersByRef) {
@@ -51,54 +53,61 @@ function directLeadSource(journey, hasOrder) {
 }
 
 async function loadSearchStageIndex(ctx) {
-  const [journeys, refs, calcRuns, saved, marks, events, units, confirmedPrints, toggles] = await Promise.all([
-    allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at', environment: 'eq.' + ctx.environment }),
+  const supported = await undoSupported(ctx, { allRows }).catch(() => false);
+  const [journeys, refs, calcRuns, calcLinks, saved, marks, events, units, confirmedPrints, toggles, presented] = await Promise.all([
+    allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+    allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }).catch(() => []),
     allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' }),
-    allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at', environment: 'eq.' + ctx.environment, undone_at: 'is.null' }).catch(() => []),
-    allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
+    allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, undone_at: 'is.null' }).catch(() => []),
+    allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at,detail_json', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
     // A11: a car stays "sent" whatever the customer answered (only a withdrawn unit does not count).
-    allRows(ctx, 'units', { select: 'journey_id,status,presented_at,created_at', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),
+    allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at,details_json', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),
     allRows(ctx, 'sms_print_reads', { select: 'confirmed_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.CONFIRMED' }),
-    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment })
+    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment }),
+    // A unit presented from a match belongs to that match's mode.
+    supported ? allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: 'not.is.null' }).catch(() => []) : Promise.resolve([])
   ]);
   const toggleByJourney = new Map(toggles.map((row) => [row.journey_id, row]));
   const savedByKey = new Map(saved.map((row) => [row.search_key, row.updated_at || null]));
-  const marksByJourney = new Map();
-  marks.forEach((mark) => {
-    const current = marksByJourney.get(mark.journey_id) || {};
-    if (!current[mark.kind] || Date.parse(current[mark.kind]) < Date.parse(mark.created_at)) current[mark.kind] = mark.created_at;
-    marksByJourney.set(mark.journey_id, current);
-  });
-  const sentByJourney = new Map();
-  [...events.map((row) => ({ id: row.journey_id, at: row.occurred_at })), ...units.map((row) => ({ id: row.journey_id, at: row.presented_at || row.created_at }))]
-    .forEach((row) => { if (!sentByJourney.get(row.id) || Date.parse(sentByJourney.get(row.id)) < Date.parse(row.at)) sentByJourney.set(row.id, row.at); });
+  const unitMode = new Map(presented.filter((row) => row.logical_mode).map((row) => [row.presented_unit_id, row.logical_mode]));
+  // A mark, event or unit without a mode (made before the split) counts for every mode of the ficha.
+  const latestFor = (list, journeyId, mode) => list.filter((row) => row.id === journeyId && (!row.mode || row.mode === mode)).reduce((best, row) => (!best || Date.parse(best) < Date.parse(row.at) ? row.at : best), null);
+  const markRows = marks.map((mark) => ({ id: mark.journey_id, kind: mark.kind, at: mark.created_at, mode: mark.logical_mode || null }));
+  const modeOf = (value) => vehicleMatch.normalizedMode(value && value.logical_mode);
+  const sentRows = [...events.map((row) => ({ id: row.journey_id, at: row.occurred_at, mode: modeOf(row.detail_json) })), ...units.map((row) => ({ id: row.journey_id, at: row.presented_at || row.created_at, mode: unitMode.get(row.id) || modeOf(row.details_json) || null }))];
   const confirmedByJourney = new Set(confirmedPrints.map((row) => row.confirmed_journey_id).filter(Boolean));
-  const refsFromCalculator=calculatorRefs(calcRuns);
-  const ordersByRef=new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, [])).map((order)=>[String(order.ref||'').trim().toUpperCase(),order]));
+  const refsFromCalculator = calculatorRefs(calcRuns);
+  const demands = buildSearchDemands({ journeys, refs, modeItems: consolidateCalcRuns(calcRuns, calcLinks) }).byJourney;
   const index = new Map();
   journeys.forEach((journey) => {
-    const hasOrder=hasCalculatorOrder(journey,refs,refsFromCalculator);
-    const source=directLeadSource(journey,hasOrder);
-    const criteria = journeyCriteria(journey, refs, ordersByRef);
-    const wish = searchableWish(criteria.wishes);
-    const identity = searchIdentity(wish, criteria.bidCents);
-    const key = identity && identity.key;
+    const hasOrder = hasCalculatorOrder(journey, refs, refsFromCalculator);
+    const source = directLeadSource(journey, hasOrder);
+    const common = { hasCalculatorOrder: hasOrder, directLeadSource: source, smsPrintConfirmed: confirmedByJourney.has(journey.id) };
+    const own = demands.get(journey.id) || [];
     // A closed or switched-off journey has no search to do: no badge.
-    if (!key || !toggleEnabled(journey.status, toggleByJourney.get(journey.id))) {
-      index.set(journey.id, { hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
+    if (!own.length || !toggleEnabled(journey.status, toggleByJourney.get(journey.id))) { index.set(journey.id, common); return; }
+    const modes = {};
+    own.filter((demand) => demand.active).forEach((demand) => {
+      const wish = searchableWish(demand.activeWishes);
+      const identity = searchIdentity(wish, demand.mode);
+      if (!identity) return;
+      const sentAt = latestFor(sentRows, journey.id, demand.mode) || latestFor(markRows.filter((row) => row.kind === 'SENT'), journey.id, demand.mode);
+      const sentFromEvent = latestFor(sentRows, journey.id, demand.mode);
+      const savedFromManheim = savedByKey.get(identity.key) || null;
+      const savedAt = savedFromManheim || latestFor(markRows.filter((row) => row.kind === 'SAVED'), journey.id, demand.mode);
+      const stage = sentAt ? 'SENT' : savedAt ? 'SAVED' : 'MISSING';
+      const stageSource = stage === 'SENT' ? (sentFromEvent ? 'EVENT' : 'MARK') : stage === 'SAVED' ? (savedFromManheim ? 'MANHEIM' : 'MARK') : null;
+      modes[demand.mode] = { mode: demand.mode, demandKey: demand.key, stage, stageSource, label: stageLabel(stage, identity.basis), basis: identity.basis, at: sentAt || savedAt || journey.created_at, searchKey: identity.key, wish, wishes: demand.activeWishes, bidCents: demand.mode === 'VALOR' ? demand.bidCents : null };
+    });
+    const first = modes.VALOR || modes.CARRO || null;
+    if (!first) {
+      // Only demands waiting for review (mode unknown or incomplete criteria): nothing to save yet.
+      index.set(journey.id, { ...common, stage: 'MISSING', stageSource: null, label: stageLabel('MISSING', 'QUALIFY'), basis: 'QUALIFY', at: journey.created_at, searchKey: null, wish: null, wishes: [], bidCents: null, modes, review: own.map((demand) => ({ mode: demand.mode, issues: demand.issues })) });
       return;
     }
-    const marksFor = marksByJourney.get(journey.id) || {};
-    const sentFromEvent=sentByJourney.get(journey.id)||null;
-    // A search that still needs qualifying is never "saved" (there is nothing to search yet).
-    const savedFromManheim=identity.basis==='QUALIFY'?null:savedByKey.get(key)||null;
-    const sentAt = sentFromEvent || marksFor.SENT || null;
-    const savedAt = savedFromManheim || marksFor.SAVED || null;
-    const stage = sentAt ? 'SENT' : savedAt ? 'SAVED' : 'MISSING';
-    const stageSource=stage==='SENT'?(sentFromEvent?'EVENT':'MARK'):stage==='SAVED'?(savedFromManheim?'MANHEIM':'MARK'):null;
-    index.set(journey.id, { stage, stageSource, label: stageLabel(stage, identity.basis), basis: identity.basis, at: sentAt || savedAt || journey.created_at, searchKey: key, wish, wishes: criteria.wishes, bidCents: criteria.bidCents, hasCalculatorOrder:hasOrder, directLeadSource:source, smsPrintConfirmed: confirmedByJourney.has(journey.id) });
+    index.set(journey.id, { ...common, ...first, modes });
   });
   return index;
 }

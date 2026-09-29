@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 
-const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, matchManheimOrder, matchManheimVehicle, mergeWishlists, journeyEnabled, reactivationEligible, shortDeadline, time, toggleEnabled, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
+const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, mergeWishlists, journeyEnabled, reactivationEligible, shortDeadline, time, toggleEnabled, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
 const { score, loadScoreVehicles } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
@@ -11,6 +11,8 @@ const { contactIndex, decorateContact } = require('../../panel-contact');
 const { dispositionIndex } = require('../../panel-disposition');
 const { clientOrigin } = require('../../panel-origin');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
+const { manheimView } = require('../../panel-buscas-view');
+const { activeFilter } = require('../../panel-manheim-state');
 
 function newPromiseToday(promises, ref, zip) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -29,107 +31,9 @@ module.exports = async (req, res) => {
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
   try {
-    if (String((req.query && req.query.view) || '') === 'manheim') {
-      const [journeys, contacts, phones, refs, toggleStates, uploads, meta, messageLinks, messages, userIds] = await Promise.all([
-        allRows(ctx, 'journeys', { select: 'id,contact_id,reference_code,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,qualified_at,closed_at,vehicle_text,created_at,updated_at', environment: 'eq.' + ctx.environment, order: 'updated_at.desc' }),
-        allRows(ctx, 'contacts', { select: 'id,display_name,is_lead,location_text', environment: 'eq.' + ctx.environment }),
-        allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,phone_owner,is_primary,is_current',environment:'eq.'+ctx.environment}),
-        allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
-        allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
-        rows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,headers_json,header_map,uploaded_at', environment: 'eq.' + ctx.environment, order: 'uploaded_at.desc', limit: '1' }),
-        panelMeta(ctx),
-        allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment,undone_at:'is.null'}),
-        allRows(ctx,'messages',{select:'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at',environment:'eq.'+ctx.environment}),
-        allRows(ctx,'whatsapp_user_ids',{select:'contact_id,username',environment:'eq.'+ctx.environment})
-      ]);
-      const latest = uploads[0] || null;
-      const matches = latest ? await allRows(ctx, 'manheim_matches', {
-        select: 'id,journey_id,calc_ref,match_kind,match_reason,mmr_status,row_fingerprint,vehicle_json,presented_unit_id,created_at',
-        environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id, order: 'created_at.asc'
-      }) : [];
-      const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
-      const excludedJourneyIds=new Set(journeys.filter(j=>contactsById.get(j.contact_id)?.is_lead===false).map(j=>j.id));
-      const excludedRefs=new Set(journeys.filter(j=>excludedJourneyIds.has(j.id)).flatMap(j=>[j.reference_code,...refs.filter(r=>r.journey_id===j.id).map(r=>r.ref_code)]).filter(Boolean).map(r=>String(r).trim().toUpperCase()));
-      const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
-      const items = journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).map((journey) => {
-        const state = stateByJourney.get(journey.id);
-        const item = withWhatsAppIdentity({ ...journey, enabled: toggleEnabled(journey.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,phones:phones.filter(p=>p.contact_id===journey.contact_id) },userIds);
-        return { ...item, wishlist: wishlistForJourney(item), wishlists: wishlistsForJourney(item), reactivationEligible: reactivationEligible(item) };
-      });
-      const [calcRuns, calcLinks, dispositions] = await Promise.all([
-        allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
-        allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-        allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' })
-      ]);
-      const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});
-      const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});
-      const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
-      // A9: BUSCAS scores with the same inputs as the other screens (checklist, messages, cars).
-      const [scoreVehicles,scoreChecklist]=await Promise.all([loadScoreVehicles(ctx).catch(()=>[]),allRows(ctx,'journey_checklist',{select:'journey_id,status',environment:'eq.'+ctx.environment})]);
-      const messageById=new Map(messages.filter((message)=>!message.undone_at).map((message)=>[message.id,message]));
-      const scoreMessages=messageLinks.map((link)=>{const message=messageById.get(link.message_id);return message?{...message,journey_id:link.journey_id}:null;}).filter(Boolean);
-      const withContactHeat=(item,facts,journey)=>{
-        const target=journey||item;
-        const ready=score(item,target,{checklist:scoreChecklist,messages:scoreMessages},scoreVehicles);
-        return decorateContact({...item,...ready},facts,insightByJourney.get(target.id),journey||(item.status?item:null));
-      };
-      const journeyMap=new Map(items.map(x=>[x.id,x])),journeyByRef=new Map(items.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));refs.forEach(r=>{const j=journeyMap.get(r.journey_id);if(j)journeyByRef.set(String(r.ref_code).trim().toUpperCase(),j);});
-      const allOrders = groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks), dispositions);
-      // A4 + R1: a Ref linked to a ficha is matched through the ficha (one person, one target).
-      // The ficha's criteria win; the linked Refs only fill what the ficha does not have.
-      const linkedOrders=new Map();allOrders.forEach((order)=>{const j=journeyByRef.get(order.ref)||(order.journeyId&&journeyMap.get(order.journeyId));if(!j)return;if(!linkedOrders.has(j.id))linkedOrders.set(j.id,[]);linkedOrders.get(j.id).push(order);});
-      items.forEach((item)=>{const linked=linkedOrders.get(item.id)||[];const merged=linked.length?{wishlists:mergeWishlists([],linked.flatMap((order)=>order.wishlists||[])),budgetCents:linked.map((order)=>order.budgetCents).find((value)=>Number(value)>0)||null}:null;const criteria=effectiveCriteria(item,merged);item.matchWishes=criteria.wishes;item.matchBidCents=criteria.bidCents;item.linkedRefs=linked.map((order)=>order.ref);});
-      const orders = allOrders
-        .filter((order) => order.disposition !== 'DISCARDED'&&!excludedRefs.has(order.ref)).flatMap(order=>{const j=journeyByRef.get(order.ref);const facts=contact.facts({ref:order.ref,journeyId:j?.id,refs:j?refs.filter((row)=>row.journey_id===j.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const complete=j?{...order,journeyId:j.id,linkedJourneyStatus:j.status,matchTarget:false,contactName:j.contact?.display_name,phones:j.phones,confirmed_total_ceiling_cents:j.confirmed_total_ceiling_cents}:{...order,matchTarget:!order.journeyId};return [withContactHeat(complete,facts,j)];});
-      const personDispositionManheim=dispositionIndex(dispositions);const contactedItems=items.flatMap((item)=>{const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});const disposition=personDispositionManheim(item.id,[item.reference_code,...refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)].filter(Boolean));return facts.entered?[withContactHeat({...item,disposition:disposition?.status||null,discardReason:disposition?.discard_reason||null,dispositionUpdatedAt:disposition?.updated_at||null},facts,item)]:[];});
-      const itemIds=new Set(contactedItems.map((item)=>item.id)),orderRefs=new Set(orders.map((item)=>item.ref));
-      const contactedMatchesRaw=matches.filter((match)=>(match.journey_id&&itemIds.has(match.journey_id))||(match.calc_ref&&orderRefs.has(String(match.calc_ref).trim().toUpperCase())));
-      /* BUSCAS: cabe no lance (valor medio do leilao <= lance maximo da ficha) e mesmo VIN em outra ficha ativa */
-      const vitrineRows=await allRows(ctx,'vitrines',{select:'journey_id',environment:'eq.'+ctx.environment});
-      const withVitrine=new Set(vitrineRows.map((row)=>row.journey_id).filter(Boolean));
-      const journeyById=new Map(journeys.map((journey)=>[journey.id,journey]));
-      const recentCut=Date.now()-60*86400000;
-      const activeOther=(journey)=>journey&&journey.status!=='ENCERRADO'&&stateByJourney.get(journey.id)?.enabled!==false&&(Date.parse(journey.created_at||0)>=recentCut||withVitrine.has(journey.id));
-      const journeysByVin=new Map();matches.forEach((match)=>{const vin=String(match.vehicle_json?.parsed?.vin||'').trim().toUpperCase();if(!vin||!match.journey_id)return;if(!journeysByVin.has(vin))journeysByVin.set(vin,new Set());journeysByVin.get(vin).add(match.journey_id);});
-      // M17: combinations are read with today's state. A ficha closed or switched off since the
-      // upload leaves "Compatíveis"; the kind (BATE / POR VALOR / QUASE) is recomputed with today's
-      // criteria, and a combination that no longer fits is flagged "critério mudou".
-      const itemById=new Map(contactedItems.map((item)=>[item.id,item])),orderByRef=new Map(orders.map((order)=>[String(order.ref||'').trim().toUpperCase(),order]));
-      const liveMatches=contactedMatchesRaw.flatMap((match)=>{
-        const parsed=match.vehicle_json?.parsed||{};
-        if(match.journey_id){
-          const item=itemById.get(match.journey_id);
-          if(!item||item.status==='ENCERRADO'||(item.enabled===false&&!item.reactivationEligible))return [];
-          const result=matchManheimVehicle(parsed,item.matchWishes,item.matchBidCents);
-          return [{...match,match_kind:result?result.kind:match.match_kind,match_reason:result?(result.reason||result.notice||match.match_reason):match.match_reason,criteriaChanged:!result,bidCents:item.matchBidCents||null}];
-        }
-        const order=orderByRef.get(String(match.calc_ref||'').trim().toUpperCase());
-        const result=order?matchManheimOrder(parsed,order):null;
-        return [{...match,match_kind:result?result.kind:match.match_kind,criteriaChanged:!result,bidCents:order?.budgetCents||null}];
-      });
-      const contactedMatches=liveMatches.map((match)=>{
-        const parsed=match.vehicle_json?.parsed||{},own=journeyById.get(match.journey_id);
-        // A:P13: "cabe no lance" uses the same bid as the match (ficha, filled by the Ref) and the exact MMR.
-        const mmr=Number(parsed.mmrCents)||0,budget=Number(match.bidCents)||0;
-        const fitsBid=mmr&&budget?mmr<=budget:null;
-        const vin=String(parsed.vin||'').trim().toUpperCase();
-        const alsoFitsFor=vin?[...new Set([...(journeysByVin.get(vin)||[])].filter((id)=>id!==match.journey_id).map((id)=>journeyById.get(id)).filter((journey)=>activeOther(journey)&&journey.contact_id!==own?.contact_id).map((journey)=>contactsById.get(journey.contact_id)?.display_name||journey.reference_code||'outro cliente'))]:[];
-        return {...match,fitsBid,alsoFitsFor};
-      });
-      const cutoff=new Date(Date.now()-60*86400000).toISOString();
-      const [history,stored]=await Promise.all([
-        allRows(ctx,'manheim_uploads',{select:'id,vehicle_count,uploaded_at',environment:'eq.'+ctx.environment,uploaded_at:'gte.'+cutoff}),
-        allRows(ctx,'manheim_vehicles',{select:'upload_id,row_fingerprint',environment:'eq.'+ctx.environment,uploaded_at:'gte.'+cutoff})
-      ]);
-      const storedByUpload=new Map();stored.forEach((row)=>storedByUpload.set(row.upload_id,(storedByUpload.get(row.upload_id)||0)+1));
-      const historyIncomplete=history.some((upload)=>Number(upload.vehicle_count)>0&&(storedByUpload.get(upload.id)||0)<Number(upload.vehicle_count));
-      const stageIndex=await loadSearchStageIndex(ctx);
-      // B5: the BUSCAS summary counts people served by today's combinations (BATE or POR VALOR).
-      const servedTargets=new Set(contactedMatches.filter((match)=>['BATE','POR_VALOR'].includes(match.match_kind)&&!match.criteriaChanged).map((match)=>match.journey_id?'j:'+match.journey_id:'r:'+String(match.calc_ref||'').trim().toUpperCase()));
-      if(latest)latest.current_lead_count=servedTargets.size;
-      return send(res, 200, { environment: ctx.environment, items:contactedItems.map((item)=>decorateWithSearchStage(item,stageIndex)), orders:orders.map((item)=>decorateWithSearchStage(item,stageIndex)), upload: latest, matches:contactedMatches, historyIncomplete, meta });
-    }
+    if (String((req.query && req.query.view) || '') === 'manheim') return send(res, 200, await manheimView(ctx));
     const id = String((req.query && req.query.id) || '');
+    const activeBatch = await activeFilter(ctx, { rows });
     if (!id) {
       const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta, checklist, promises, archive, calcRuns, calcLinks, leadPromises, aiItems, aiSuggestions, userIds, dispositions] = await Promise.all([
         allRows(ctx, 'journeys', {
@@ -142,11 +46,11 @@ module.exports = async (req, res) => {
         allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment, undone_at:'is.null' }),
         allRows(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,source_kind,whatsapp_delivered_at,whatsapp_read_at,created_at,undone_at', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
-        rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, order: 'uploaded_at.desc', limit: '1' }),
+        rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, ...activeBatch, order: 'uploaded_at.desc', limit: '1' }),
         panelMeta(ctx),
         allRows(ctx, 'journey_checklist', { select: 'journey_id,status', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'promises', { select: 'journey_id,status,due_at', environment: 'eq.' + ctx.environment }),
-        allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + new Date(Date.now() - 60 * 86400000).toISOString() }),
+        allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, ...activeBatch, uploaded_at: 'gte.' + new Date(Date.now() - 60 * 86400000).toISOString() }),
         allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
         allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
         allRows(ctx, 'lead_promises', { select: 'ref_code,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
@@ -158,8 +62,8 @@ module.exports = async (req, res) => {
       const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});
       const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
       const [latestMatches,recentVehicles]=await Promise.all([
-        uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id }) : Promise.resolve([]),
-        allRows(ctx,'manheim_matches',{select:'row_fingerprint,vehicle_json',environment:'eq.'+ctx.environment,created_at:'gte.'+new Date(Date.now()-60*86400000).toISOString()})
+        uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...activeBatch }) : Promise.resolve([]),
+        allRows(ctx,'manheim_matches',{select:'row_fingerprint,vehicle_json',environment:'eq.'+ctx.environment,...activeBatch,created_at:'gte.'+new Date(Date.now()-60*86400000).toISOString()})
       ]);
       const vehicleMap=new Map(archive.map((entry)=>[entry.row_fingerprint,entry.vehicle_json]));
       recentVehicles.forEach((entry)=>{if(entry.vehicle_json?.parsed&&!vehicleMap.has(entry.row_fingerprint))vehicleMap.set(entry.row_fingerprint,entry.vehicle_json.parsed);});
@@ -174,7 +78,7 @@ module.exports = async (req, res) => {
         const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
         const ownMessages = messageLinks.filter((link) => link.journey_id === item.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0) - (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0));
         const state = stateByJourney.get(item.id);
-        const complete = withWhatsAppIdentity({ ...item, enabled: toggleEnabled(item.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: latestMatches.filter((match) =>match.journey_id === item.id).length, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages.find((message)=>!message.is_automatic) || ownMessages[0] || null,
+        const complete = withWhatsAppIdentity({ ...item, enabled: toggleEnabled(item.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: new Set(latestMatches.filter((match) =>match.journey_id === item.id).map((match) => match.row_fingerprint || match.id)).size, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages.find((message)=>!message.is_automatic) || ownMessages[0] || null,
           pendingAiCount: aiItems.filter((entry)=>entry.journey_id===item.id).length, aiLinkSuggested: aiSuggestions.some((entry)=>entry.source_journey_id===item.id) },userIds);
         const order = [item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>ordersByRef.get(String(ref||'').trim().toUpperCase())).find(Boolean);
         const scoring = { ...complete, ...order, zip: order?.zip || complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0] || '', plate: order?.plate || 'transf', wishlists: wishlistsForJourney(complete) };
@@ -213,11 +117,11 @@ module.exports = async (req, res) => {
       allRows(ctx, 'messages', { select: 'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_local,timezone_assumed,occurred_at_utc,time_uncertain,original_order,whatsapp_delivered_at,whatsapp_read_at,media_kind,media_mime_type,media_byte_size,media_status,created_at,undone_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'attachments', { select: 'id,chat_id,message_id,kind,original_filename,mime_type,byte_size,verified_at,created_at,undone_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id }),
       rows(ctx, 'journey_toggle_states', { select: 'enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id, limit: '1' }),
-      rows(ctx, 'manheim_uploads', { select: 'id,uploaded_at', environment: 'eq.' + ctx.environment, order: 'uploaded_at.desc', limit: '1' }),
+      rows(ctx, 'manheim_uploads', { select: 'id,uploaded_at', environment: 'eq.' + ctx.environment, ...activeBatch, order: 'uploaded_at.desc', limit: '1' }),
       panelMeta(ctx),
       rows(ctx,'whatsapp_user_ids',{select:'contact_id,username',environment:'eq.'+ctx.environment,contact_id:'eq.'+journey.contact_id,limit:'1'})
     ]);
-    const manheimMatches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'id,match_kind', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, journey_id: 'eq.' + id }) : [];
+    const manheimMatches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'id,match_kind,row_fingerprint', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, journey_id: 'eq.' + id, ...activeBatch }) : [];
     const [calcRuns, calcLinks, dispositions, senderAliases] = await Promise.all([
       Promise.resolve([]),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
@@ -247,7 +151,7 @@ module.exports = async (req, res) => {
         shortDeadline: shortDeadline(journey.customer_deadline_at), promises, units,
         returns: buildReturns(journey, promises), interactions: interactions.filter((item)=>!item.undone_at), divergences, declarations, attachments: attachments.filter((item)=>!item.undone_at), conversation, timeline,
         calculatorRequests, senderAliases: senderAliases.filter((alias) => conversation.some((message) => message.chat_id === alias.chat_id)),
-        manheimMatchCount: manheimMatches.length, manheimUploadAt: uploads[0] && uploads[0].uploaded_at || null, contactChannel: facts.channel, enteredContact: facts.entered
+        manheimMatchCount: new Set(manheimMatches.map((match) => match.row_fingerprint || match.id)).size, manheimUploadAt: uploads[0] && uploads[0].uploaded_at || null, contactChannel: facts.channel, enteredContact: facts.entered
       },
       meta
     });

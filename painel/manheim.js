@@ -124,6 +124,98 @@
     }).filter((row) => row.year && row.model).map((row) => (row.miles !== null && row.miles < 0 ? { ...row, miles: null } : row));
   }
 
+  // Ambiguous rows (buscas-split, OpenAI). A row is ambiguous when a cell the parser needs has
+  // text it cannot read with safety: a year that is not a plain model year, a missing model, or
+  // a mileage/MMR with letters mixed with digits ("12k mi", "45,000 km", "$21.5k"). A cell with no
+  // digit at all ("TMU", "Exempt", empty) is a known unknown, never ambiguous. Ambiguous rows never
+  // enter the comparison as they are; they go to OpenAI (when on) and then back through this parser.
+  const AI_FIELDS = ['year', 'make', 'model', 'trim', 'miles', 'mmr'];
+  const maxModelYear = () => new Date().getFullYear() + 2;
+  const plainYear = (text) => /^\s*\d{4}\s*$/.test(text) && Number(text) >= 1980 && Number(text) <= maxModelYear();
+  const plainMiles = (text) => /^\s*\d[\d,.\s]*\s*(mi|miles)?\s*$/i.test(text);
+  const plainMoney = (text) => /^\s*\$?\s*\d[\d,.\s]*\s*$/.test(text);
+
+  function rowCells(raw, fields) {
+    return Object.fromEntries(AI_FIELDS.map((field) => [field, fields[field] ? clean(raw[fields[field]]) : '']));
+  }
+
+  function rowAmbiguity(cells) {
+    const found = [];
+    if (!cells.year && !cells.model) return found;
+    if (!plainYear(cells.year)) found.push('year');
+    if (!cells.model) found.push('model');
+    if (/\d/.test(cells.miles) && !plainMiles(cells.miles)) found.push('miles');
+    if (/\d/.test(cells.mmr) && !plainMoney(cells.mmr)) found.push('mmr');
+    return found;
+  }
+
+  // Splits a parsed CSV into rows the parser reads with safety and ambiguous rows.
+  function classifyRows(parsed, mapping) {
+    const ok = [], ambiguous = [];
+    parsed.rows.forEach((raw, index) => {
+      const cells = rowCells(raw, mapping.fields);
+      const fields = rowAmbiguity(cells);
+      if (fields.length) ambiguous.push({ rowNumber: index + 2, raw, headers: parsed.headers.slice(), cells, ambiguous: fields });
+      else ok.push({ raw, rowNumber: index + 2 });
+    });
+    const vehicles = ok.flatMap((entry) => normalizeRows({ headers: parsed.headers, rows: [entry.raw] }, mapping).map((vehicle) => ({ ...vehicle, rowNumber: entry.rowNumber })));
+    return { vehicles, ambiguous, ignored: ok.length - vehicles.length };
+  }
+
+  const digitsOnly = (value) => String(value || '').replace(/\D/g, '');
+  // A number OpenAI returns must be written in the cell: its digits, or "12k" style thousands.
+  // Only the whole number written in the cell counts ("103,500" is 103500, never 3500; "12k" is
+  // 12000, never 12). Kilometers are never converted: they go to review.
+  function supportedNumber(value, cell) {
+    const text = String(cell || '');
+    if (!Number.isInteger(value) || value < 0 || /\bkm\b|kilomet|quil[oô]met/i.test(text)) return false;
+    const written = [];
+    const pattern = /(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s*(k\b)?/gi;
+    let found;
+    while ((found = pattern.exec(text))) {
+      const number = Number(found[1].replace(/,/g, '') + (found[2] ? '.' + found[2] : ''));
+      written.push(Math.round(found[3] ? number * 1000 : number));
+    }
+    return written.length === 1 && written[0] === value;
+  }
+
+  // Runs an OpenAI suggestion through the same parser. Returns the vehicle or the review reason.
+  function applySuggestion(row, suggestion, mapping, modelId) {
+    if (!suggestion || suggestion.confident !== true) return { review: 'OpenAI não teve certeza' };
+    const text = fold(Object.values(row.cells).join(' '));
+    for (const field of row.ambiguous) {
+      const value = suggestion[field];
+      if (value === null || value === undefined || value === '') return { review: `${field} não confirmado` };
+      if (field === 'year' && !(Number.isInteger(value) && value >= 1980 && value <= maxModelYear() && digitsOnly(row.cells.year).includes(String(value)))) return { review: 'ano não confirmado' };
+      if ((field === 'miles' || field === 'mmr') && !supportedNumber(value, row.cells[field])) return { review: `${field === 'miles' ? 'milhagem' : 'MMR'} não confirmado` };
+      if (field === 'model' && !fold(value).split(' ').every((token) => token && text.includes(token))) return { review: 'modelo não confirmado' };
+    }
+    const fields = mapping.fields;
+    const raw = { ...row.raw };
+    const write = (field, value) => { if (fields[field] && value !== null && value !== undefined && value !== '') raw[fields[field]] = String(value); };
+    row.ambiguous.forEach((field) => write(field, suggestion[field]));
+    const cells = rowCells(raw, fields);
+    if (rowAmbiguity(cells).length) return { review: 'continua ambígua depois da IA' };
+    const vehicle = normalizeRows({ headers: row.headers, rows: [raw] }, mapping)[0];
+    if (!vehicle) return { review: 'linha sem ano ou modelo' };
+    const kept = Object.fromEntries(row.ambiguous.map((field) => [field, String(suggestion[field])]));
+    return { vehicle: { ...vehicle, raw: row.raw, rowNumber: row.rowNumber, ai: { used: true, provider: 'openai', model: modelId || '', result: 'VALIDATED', fields: row.ambiguous.slice(), suggestion: kept } } };
+  }
+
+  // Header names OpenAI suggested for missing columns, accepted only when they exist in the file.
+  function mapHeadersWith(headers, suggested) {
+    const mapping = mapHeaders(headers);
+    const known = new Set(headers);
+    // A column already used by another field is never reused (odometer read from the MMR column).
+    const used = new Set(Object.values(mapping.fields));
+    Object.entries(suggested || {}).forEach(([field, header]) => {
+      if (mapping.fields[field] || !header || !known.has(header) || used.has(header) || !Object.prototype.hasOwnProperty.call(HEADER_ALIASES, field)) return;
+      mapping.fields[field] = header; used.add(header);
+    });
+    mapping.missing = ['year', 'model', 'miles'].filter((field) => !mapping.fields[field]);
+    return mapping;
+  }
+
   function fingerprint(vehicle) {
     const vin = clean(vehicle && vehicle.vin).toUpperCase().replace(/[^A-HJ-NPR-Z0-9]/g, '');
     if (vin) return 'vin:' + vin;
@@ -136,16 +228,10 @@
     return (hash >>> 0).toString(16).padStart(8, '0') + ':' + value.length;
   }
 
-  // R3 lives in vehicle-match.js, the same module the server uses.
-  function matchVehicle(vehicle, wishlist, budgetCents) {
-    return vehicleMatch.matchVehicle(vehicle, wishlist, budgetCents);
-  }
-
-  function matchOrder(vehicle, order) {
-    if (!order) return null;
-    const wishlists = Array.isArray(order.wishlists) ? order.wishlists : order.wishlist ? [order.wishlist] : [];
-    const result = vehicleMatch.matchVehicle(vehicle, wishlists, order.budgetCents);
-    return result ? { ...result, logicalMode: order.logicalMode || null, ref: order.ref || null } : null;
+  // The rule per mode lives in vehicle-match.js, the same module the server uses. A demand is
+  // { mode: 'CARRO' | 'VALOR', wishes, bidCents }; CARRO never looks at money.
+  function matchDemand(vehicle, demand) {
+    return vehicleMatch.matchDemand(vehicle, demand);
   }
 
   function csvCell(value) {
@@ -166,5 +252,5 @@
     for (const row of rows||[]) { const key=clean(row.vin)||fingerprint(row); const prior=byVin.get(key); if (!prior || (/simulcast/i.test(row.raw?.Inventory||'') && !/simulcast/i.test(prior.raw?.Inventory||''))) byVin.set(key,row); }
     return [...byVin.values()].map((row)=>({ ...row, hasBuyNow:Boolean((rows||[]).find((candidate)=>clean(candidate.vin)===clean(row.vin)&&clean(candidate.buyNowPrice))?.buyNowPrice) }));
   }
-  return { HEADER_ALIASES, chooseAuctionRows, fingerprint, fold, mapHeaders, matchOrder, matchVehicle, normalizeRows, parseCsv, toCsv };
+  return { AI_FIELDS, HEADER_ALIASES, applySuggestion, chooseAuctionRows, classifyRows, fingerprint, fold, mapHeaders, mapHeadersWith, matchDemand, normalizeRows, parseCsv, rowAmbiguity, supportedNumber, toCsv };
 }));

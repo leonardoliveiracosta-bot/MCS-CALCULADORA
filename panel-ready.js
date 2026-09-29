@@ -1,6 +1,6 @@
 'use strict';
 const { timezoneForZip, realisticBid, median } = require('./panel-lead');
-const { effectiveCriteria, normalizeDeadline, normalizePayment } = require('./panel-domain');
+const { effectiveCriteria, journeyDemands, normalizeDeadline, normalizePayment, orderDemand } = require('./panel-domain');
 const vehicleMatch = require('./vehicle-match');
 const calc = require('./calc-core');
 
@@ -15,16 +15,27 @@ function leadZip(item, journey) {
 
 // A9: every screen scores with the same cars (last 60 days of Manheim exports).
 async function loadScoreVehicles(ctx, now = Date.now()) {
-  const { allRows } = require('./panel-server');
+  const { allRows, rows } = require('./panel-server');
+  const { activeFilter } = require('./panel-manheim-state');
   const since = new Date(now - 60 * 86400000).toISOString();
+  // An undone import batch never feeds the score.
+  const active = await activeFilter(ctx, { rows });
   const [archive, matches] = await Promise.all([
-    allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + since }),
-    allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + since })
+    allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + since, ...active }),
+    allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + since, ...active })
   ]);
   const unique = new Map();
   archive.forEach((entry) => unique.set(entry.row_fingerprint, entry.vehicle_json));
   matches.forEach((entry) => { if (entry.vehicle_json?.parsed && !unique.has(entry.row_fingerprint)) unique.set(entry.row_fingerprint, entry.vehicle_json.parsed); });
   return [...unique.values()].filter(Boolean);
+}
+
+// The demands behind a score: a ficha with its linked calculator entries (split by mode), or
+// the Ref's own entries. `item.simulations` are the per-mode entries of a grouped Ref.
+function scoreDemands(item={}, journey) {
+  const entries=Array.isArray(item.simulations)?item.simulations:['CARRO','VALOR'].includes(item.logicalMode)?[item]:[];
+  if(journey&&journey.id)return journeyDemands(journey,entries);
+  return entries.map(orderDemand).filter(Boolean);
 }
 
 function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
@@ -42,12 +53,13 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   const messages=id?(data.messages||[]).filter((message)=>message.journey_id===id&&message.direction==='CUSTOMER'):[];
   const latestMessage=messages.reduce((stamp,message)=>Math.max(stamp,Date.parse(message.occurred_at_utc||message.created_at)||0),0);
   const latest=Math.max(latestMessage,Date.parse(item.occurredAt||0)||0);
-  const criteria=effectiveCriteria(journey,item);const wishes=criteria.wishes;
-  const wish=wishes[0];
+  const criteria=effectiveCriteria(journey,item);
   let mmr=null;
-  if(wish?.model){
-    // R3: only cars the shared rule calls BATE or POR VALOR are comparable; unknown criteria are not "any".
-    const comparable=vehicles.filter((vehicle)=>vehicleMatch.countsAsServed(vehicleMatch.matchWish(vehicle,wish,criteria.bidCents)?.kind));
+  // Only cars that serve one of the person's demands (each mode with its own rule, first wish of
+  // each demand) are comparable; a demand that is not complete compares nothing.
+  const demands=scoreDemands(item,journey).filter((demand)=>demand.active);
+  if(demands.length){
+    const comparable=vehicles.filter((vehicle)=>demands.some((demand)=>vehicleMatch.countsAsServed(vehicleMatch.matchDemand(vehicle,{...demand,wishes:demand.activeWishes.slice(0,1)})?.kind)));
     mmr=median(comparable.map((vehicle)=>vehicle.mmrCents));
   }
   const state=calc.zipEstado(zip);
@@ -65,4 +77,4 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
     +(mmr&&bid?mmr<=bid*100?15:mmr<=bid*120?5:0:0)+(latest&&now-latest<86400000?10:latest&&now-latest<72*3600000?5:0));
   return {score:value,goodHour,promiseToday,bid,mmr};
 }
-module.exports={score,leadZip,loadScoreVehicles};
+module.exports={score,scoreDemands,leadZip,loadScoreVehicles};

@@ -2,6 +2,9 @@
 const {insert,isUuid,jsonBody,patchRows,requirePanel,rows,safeText,send}=require('../../panel-server');
 const {expiresAt,publicVehicle,randomCode,randomToken,vehicleName}=require('../../vitrine-domain');
 const {parseMoneyCents}=require('../../money-text');
+const {activeFilter}=require('../../panel-manheim-state');
+// An undone Manheim import batch never feeds a new V1 or V2 (vitrines already created stay).
+const activeBatch=async(ctx,services)=>services.activeFilter?services.activeFilter(ctx):activeFilter(ctx,{rows:services.rows||rows}).catch(()=>({}));
 
 // Public limit of a vitrine car: between US$ 1.000 and US$ 10.000.000 (customer_limit_cents is an integer).
 const LIMIT_MIN_CENTS=100000;
@@ -41,7 +44,8 @@ async function create(ctx,body,services={rows,insert},now=Date.now()){
   // A26: the public limit is the maximum bid (journeys.budget_cents), never confirmed_total_ceiling_cents.
   const [journey]=await services.rows(ctx,'journeys',{select:'id,contact_id,reference_code,budget_cents',environment:'eq.'+ctx.environment,id:'eq.'+body.journeyId,limit:'1'});
   if(!journey)return null;
-  const [contact,...matches]=await Promise.all([services.rows(ctx,'contacts',{select:'display_name',environment:'eq.'+ctx.environment,id:'eq.'+journey.contact_id,limit:'1'}),...body.matchIds.map((id)=>isUuid(id)?services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+id,journey_id:'eq.'+journey.id,limit:'1'}):Promise.resolve([]))]);
+  const active=await activeBatch(ctx,services);
+  const [contact,...matches]=await Promise.all([services.rows(ctx,'contacts',{select:'display_name',environment:'eq.'+ctx.environment,id:'eq.'+journey.contact_id,limit:'1'}),...body.matchIds.map((id)=>isUuid(id)?services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+id,journey_id:'eq.'+journey.id,...active,limit:'1'}):Promise.resolve([]))]);
   const selected=matches.flat(); if(selected.length!==body.matchIds.length)return null;
   const cars=selected.map((match)=>({match,vehicle:publicVehicle(match.vehicle_json?.parsed||{})}));
   const existing=await recentWithCars(ctx,{journey_id:'eq.'+journey.id,version:'eq.V1'},selected.map((match)=>'match:'+match.id),services,now);
@@ -70,6 +74,7 @@ async function createV2(ctx,body,services={rows,insert,patchRows},now=Date.now()
   ]);
   if(!origin)return {error:'VITRINE_NOT_FOUND'};
   if(!car||!car.vehicle_snapshot)return {error:'VITRINE_CAR_MISSING'};
+  if(car.source_match_id){const active=await activeBatch(ctx,services);if(Object.keys(active).length){const [live]=await services.rows(ctx,'manheim_matches',{select:'id',environment:'eq.'+ctx.environment,id:'eq.'+car.source_match_id,...active,limit:'1'});if(!live)return {error:'VITRINE_SOURCE_UNDONE'};}}
   // A26: budget_cents is the maximum bid; confirmed_total_ceiling_cents is a total cost and is never read here.
   const [journey]=origin.journey_id?await services.rows(ctx,'journeys',{select:'id,budget_cents',environment:'eq.'+ctx.environment,id:'eq.'+origin.journey_id,limit:'1'}):[];
   const limit=limitCents(body,journey);
@@ -97,7 +102,7 @@ async function update(ctx,body,services={rows,patchRows}){
   for(const [id,patch] of patches)await services.patchRows(ctx,'vitrine_cars',{id:'eq.'+id,environment:'eq.'+ctx.environment,vitrine_id:'eq.'+list[0].id},patch);
   return {token:body.token,link:'/v/'+body.token,version};
 }
-const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='VITRINE_REQUEST_TREATED'?409:400;
+const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='VITRINE_REQUEST_TREATED'||error==='VITRINE_SOURCE_UNDONE'?409:400;
 module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,65536);if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,statusFor(out.error),{error:out.error}):send(res,out.reused?200:201,out);}const out=await create(ctx,body);return out?send(res,out.reused?200:201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?.error?send(res,400,{error:out.error}):out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
 module.exports.create=create;
 module.exports.createV2=createV2;

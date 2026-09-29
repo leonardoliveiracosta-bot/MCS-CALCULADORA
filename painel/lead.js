@@ -141,7 +141,8 @@
     data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind==='POR_VALOR'?'POR VALOR · ligar':car.kind,car.kind==='BATE'?'green':car.kind==='POR_VALOR'?'blue':'yellow'));
       append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('en-US')+' mi'} · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
       if(car.matchNotice)line.append(badge(car.matchNotice,'yellow'));else if(car.matchReason)append(line,'span','muted',car.matchReason);
-      button(line,'Apresentar',async()=>{await api('present',{fingerprint:car.rowFingerprint});await reload();}); });
+      if(car.mode)line.append(badge(car.mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM',car.mode==='VALOR'?'blue':'green'));
+      button(line,'Apresentar',async()=>{await api('present',{fingerprint:car.rowFingerprint,mode:car.mode||null});await reload();}); });
     const context=section(second,7,'CONTEXTO RÁPIDO');
     const allPromises=[...(record.promises||[]),...(data.promises||[])];
     const promises=allPromises.filter((promise)=>promise.status==='OPEN');

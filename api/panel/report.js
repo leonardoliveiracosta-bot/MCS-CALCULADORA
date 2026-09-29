@@ -1,4 +1,5 @@
 'use strict';
+const { activeFilter } = require('../../panel-manheim-state');
 
 const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, time } = require('../../panel-domain');
 const { allRows, requirePanel, send } = require('../../panel-server');
@@ -64,14 +65,16 @@ module.exports = async (req, res) => {
   if (!['today', 'orders', 'qualification', 'records', 'manheim'].includes(view)) return send(res, 400, { error: 'REPORT_VIEW_INVALID' });
 
   try {
+    // An undone Manheim import batch never enters a report.
+    const activeBatch = await activeFilter(ctx, { allRows });
     const [calcRuns, links, dispositions, journeys, toggles, uploads, manheimMatches, data] = await Promise.all([
       allRows(ctx, 'calc_runs', { select: 'id,created_at,lance,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,stage,status,budget_cents,created_at,qualified_at,closed_at,closed_reason', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,uploaded_at', environment: 'eq.' + ctx.environment, order: 'uploaded_at.asc' }),
-      view === 'manheim' ? allRows(ctx, 'manheim_matches', { select: 'upload_id,row_fingerprint', environment: 'eq.' + ctx.environment }) : Promise.resolve([]),
+      allRows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,uploaded_at', environment: 'eq.' + ctx.environment, ...activeBatch, order: 'uploaded_at.asc' }),
+      view === 'manheim' ? allRows(ctx, 'manheim_matches', { select: 'upload_id,row_fingerprint', environment: 'eq.' + ctx.environment, ...activeBatch }) : Promise.resolve([]),
       operational(ctx)
     ]);
 

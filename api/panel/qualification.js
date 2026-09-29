@@ -1,6 +1,6 @@
 'use strict';
 
-const { checklistSummary, shortDeadline, toggleEnabled } = require('../../panel-domain');
+const { checklistSummary, consolidateCalcRuns, shortDeadline, toggleEnabled } = require('../../panel-domain');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
@@ -44,6 +44,9 @@ module.exports = async (req, res) => {
     const dispositionByJourney=new Map(dispositions.filter((item)=>item.item_kind==='JOURNEY').map((item)=>[item.item_key,item]));
     const dispositionByRef=new Map(dispositions.filter((item)=>item.item_kind==='REF').map((item)=>[String(item.item_key).trim().toUpperCase(),item]));
     const messagesById = new Map(messages.map((item) => [item.id, item]));
+    // The score compares with the person's own demands (VALOR and/or CARRO), so it needs the
+    // calculator entries of the ficha's Refs, split by mode.
+    const modeItems = consolidateCalcRuns(calcRuns);
     const items = journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead!==false).flatMap((journey) => {
       const ownRefs=[journey.reference_code,...refs.filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code)].filter(Boolean).map((ref)=>String(ref).trim().toUpperCase());
       const calculatorRef=ownRefs.find((ref)=>calculatorRefs.has(ref))||null;
@@ -54,7 +57,7 @@ module.exports = async (req, res) => {
       const ownMessages = messageLinks.filter((link) => link.journey_id === journey.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => Date.parse(b.occurred_at_utc || b.occurred_at_local || b.created_at) - Date.parse(a.occurred_at_utc || a.occurred_at_local || a.created_at));
       const state = stateByJourney.get(journey.id);
       const complete={...journey,contact:contactsById.get(journey.contact_id)||null,phones:phones.filter((phone)=>phone.contact_id===journey.contact_id)};
-      const ready=score({zip:complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:complete.budget_cents},complete,{checklist,messages:ownMessages.map((message)=>({...message,journey_id:journey.id}))},scoreVehicles);
+      const ready=score({zip:complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:complete.budget_cents,simulations:modeItems.filter((item)=>ownRefs.includes(item.ref))},complete,{checklist,messages:ownMessages.map((message)=>({...message,journey_id:journey.id}))},scoreVehicles);
       return [decorateContact({
         ...journey, kind:calculatorRef?'CALCULATOR_ORDER':'JOURNEY', ref:calculatorRef||journey.reference_code, disposition:null, dispositionUpdatedAt:null, enabled: toggleEnabled(journey.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, contact: contactsById.get(journey.contact_id) || null,
         phones: phones.filter((phone) => phone.contact_id === journey.contact_id), latestMessage: ownMessages.find((message) => !message.is_automatic) || ownMessages[0] || null,
