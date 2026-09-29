@@ -1,7 +1,7 @@
 -- Find One For Me (CARRO): database defense for new anonymous inserts into calc_runs.
 -- Extends the RESTRICTIVE policy calc_runs_insert_limits (migration 20260929030000). Every
 -- previous condition is kept word for word; one condition is added:
---   * logical_mode, when present, is VALOR or CARRO (no MIXED);
+--   * logical_mode, when present, is VALOR or CARRO and nothing else;
 --   * a busca row must say logical_mode CARRO, and a CARRO row must be a busca;
 --   * a CARRO row carries ano_de and ano_ate (4 digits, positive, ano_de <= ano_ate) and
 --     milhas_de and milhas_ate (1 to 7 digits, positive, milhas_de <= milhas_ate).
