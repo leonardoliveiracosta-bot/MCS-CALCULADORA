@@ -103,10 +103,12 @@ test('19 CSVs, ~70 mil linhas: um lote, falha no meio e retomada, sem duplicar n
   read = readFiles(files);
   deduped = upload.dedupeAcrossFiles(read.vehicles, manheim);
   plan = upload.planBatch(read.meta, deduped.vehicles, manheim);
+  // The manifest: per block, count and content hash (the server recalculates each one).
+  const manifest = await upload.sealPlan(plan, async (text) => require('node:crypto').createHash('sha256').update(text, 'utf8').digest('hex'));
   metrics.parseMs = Date.now() - parseStarted;
   metrics.rows = rows; metrics.vehiclesRead = read.vehicles.length; metrics.uniqueVehicles = deduped.vehicles.length; metrics.duplicatesBetweenFiles = deduped.duplicates; metrics.ambiguousToReview = read.ambiguous;
   assert.ok(deduped.duplicates > 5000, `repetidos entre arquivos: ${deduped.duplicates}`);
-  const common = { clientKey: '0123456789abcdef0123456789abcdef', vehicleCount: deduped.vehicles.length, headers: read.headers, headerMap: { files: read.mappings }, wait: async () => {}, retryDelayMs: 0 };
+  const common = { clientKey: '0123456789abcdef0123456789abcdef', manifest, vehicleCount: deduped.vehicles.length, headers: read.headers, headerMap: { files: read.mappings }, wait: async () => {}, retryDelayMs: 0 };
 
   // Network down at file 13, block 4 (the cases of the incident: files 12 and 13 never imported).
   const screensDuring = [];

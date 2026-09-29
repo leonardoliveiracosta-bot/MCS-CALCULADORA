@@ -147,7 +147,8 @@
   // cada bloco com as demandas e só ativa o lote quando todos os blocos chegaram.
   const BATCH = Object.freeze({ chunkVehicles: 500, attempts: 4, retryDelayMs: 2000 });
   const BATCH_FINAL_ERRORS = new Set(['MANHEIM_BATCH_CANCELED', 'MANHEIM_UPLOAD_NOT_FOUND', 'MANHEIM_UPLOAD_INVALID', 'MANHEIM_MATCH_INVALID',
-    'MANHEIM_MIGRATION_PENDING', 'PAYLOAD_TOO_LARGE', 'AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED', 'PASSWORD_CHANGE_REQUIRED', 'PANEL_NOT_CONFIGURED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_BATCH_INCOMPLETE']);
+    'MANHEIM_MIGRATION_PENDING', 'PAYLOAD_TOO_LARGE', 'AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED', 'PASSWORD_CHANGE_REQUIRED', 'PANEL_NOT_CONFIGURED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_BATCH_INCOMPLETE',
+    'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_RESUME_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR']);
   const LOT_HEADER = /^lot\b|lot ?#|lot number|n[uú]mero do lote/i;
 
   // The car as it travels (parsed fields plus the auction lot); the raw row stays in the browser.
@@ -182,6 +183,26 @@
     });
   }
 
+  // Canonical JSON of what travels (JSON semantics, object keys sorted): the browser and the
+  // server hash the same bytes for the same block, whatever the key order.
+  function canonicalJson(value) {
+    const plain = JSON.parse(JSON.stringify(value === undefined ? null : value));
+    const walk = (node) => Array.isArray(node) ? '[' + node.map(walk).join(',') + ']'
+      : node && typeof node === 'object' ? '{' + Object.keys(node).sort().map((key) => JSON.stringify(key) + ':' + walk(node[key])).join(',') + '}'
+      : JSON.stringify(node);
+    return walk(plain);
+  }
+  // The batch manifest: per file, per block, how many cars and the hash of the block content.
+  // hashText: async (text) => sha256 hex.
+  async function sealPlan(plan, hashText) {
+    for (const file of plan) {
+      file.manifestChunks = [];
+      for (const chunk of file.chunks) file.manifestChunks.push({ count: chunk.length, hash: await hashText(canonicalJson(chunk)) });
+    }
+    const files = plan.map((file) => ({ name: file.name, size: file.size, rowCount: file.rowCount, vehicleCount: file.vehicleCount, chunkCount: file.chunkCount, chunks: file.manifestChunks }));
+    return { files, manifestHash: await hashText(canonicalJson(files)) };
+  }
+
   async function withRetry(run, options) {
     const wait = options.wait || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     const attempts = options.attempts || BATCH.attempts;
@@ -204,8 +225,10 @@
     const { plan, request, onProgress } = options;
     const post = (body) => request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify(body), timeoutMs: options.timeoutMs || 60000 });
     const totalChunks = plan.reduce((sum, file) => sum + file.chunkCount, 0);
+    const { manifest } = options;
+    if (!manifest || !Array.isArray(manifest.files) || !manifest.manifestHash) throw codedError('MANHEIM_UPLOAD_INVALID');
     const started = await withRetry(() => post({ action: 'start', clientKey: options.clientKey, vehicleCount: options.vehicleCount, headers: options.headers, headerMap: options.headerMap,
-      files: plan.map((file) => ({ name: file.name, size: file.size, rowCount: file.rowCount, vehicleCount: file.vehicleCount, chunkCount: file.chunkCount })) }), options);
+      files: manifest.files, manifestHash: manifest.manifestHash }), options);
     const uploadId = started.uploadId;
     const received = new Set((started.received || []).map(([file, chunk]) => file + ':' + chunk));
     const totals = { storedVehicles: 0, storedMatches: 0, discarded: 0, withoutMmr: 0, resumedChunks: received.size };
@@ -228,20 +251,22 @@
       }
     }
     let result;
+    // A final refusal keeps the batch id, so the operator can discard it.
+    const withBatch = (failure) => { if (failure && typeof failure === 'object' && !failure.uploadId) failure.uploadId = uploadId; return failure; };
     try {
       result = await withRetry(() => post({ action: 'finalize', uploadId }), options);
     } catch (failure) {
-      if (!failure || failure.code !== 'MANHEIM_BATCH_INCOMPLETE') throw failure;
+      if (!failure || failure.code !== 'MANHEIM_BATCH_INCOMPLETE') throw withBatch(failure);
       // The server is missing a block the browser thought was sent: ask which ones and send them.
       const status = await post({ action: 'status', uploadId });
       const have = new Set((status.received || []).map(([file, chunk]) => file + ':' + chunk));
       for (let fileIndex = 0; fileIndex < plan.length; fileIndex += 1) {
         for (let chunkIndex = 0; chunkIndex < plan[fileIndex].chunkCount; chunkIndex += 1) if (!have.has(fileIndex + ':' + chunkIndex)) await sendChunk(fileIndex, chunkIndex);
       }
-      result = await withRetry(() => post({ action: 'finalize', uploadId }), options);
+      result = await withRetry(() => post({ action: 'finalize', uploadId }), options).catch((again) => { throw withBatch(again); });
     }
     return { ...result, uploadId, totals };
   }
 
-  return { BATCH, BATCH_FINAL_ERRORS, FINAL_ERRORS, LIMITS, buildMatches, byteLength, codedError, compactVehicle, dedupeAcrossFiles, markSearchFiltered, parsedVehicle, planBatch, planParts, sendBatch, sendParts, sortForDisplay };
+  return { BATCH, BATCH_FINAL_ERRORS, FINAL_ERRORS, LIMITS, buildMatches, byteLength, canonicalJson, codedError, compactVehicle, sealPlan, dedupeAcrossFiles, markSearchFiltered, parsedVehicle, planBatch, planParts, sendBatch, sendParts, sortForDisplay };
 }));

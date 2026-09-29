@@ -45,10 +45,16 @@ const batch = (body) => call('manheim-batch', '/api/panel/manheim-batch', 'POST'
 const car = (vin, extra = {}) => ({ fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 30000, mmrCents: 2500000, location: 'FL - Orlando', lot: 'L' + vin.slice(-3), cleanTitle: true, odometerOk: true, ...extra } });
 const camry = (vin, mmrCents) => car(vin, { make: 'Toyota', model: 'Camry', mmrCents });
 
+// files: [{ name, size, chunks: [[car, ...], ...] }] -> the manifest the browser builds.
+const { contentHash } = require('../panel-manheim-batch');
 function startBody(files, clientKey) {
+  const manifest = files.map((file) => {
+    const vehicleCount = file.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    return { name: file.name, size: file.size, rowCount: vehicleCount, vehicleCount, chunkCount: file.chunks.length, chunks: file.chunks.map((chunk) => ({ count: chunk.length, hash: contentHash(chunk) })) };
+  });
   return {
-    action: 'start', clientKey, vehicleCount: files.reduce((sum, file) => sum + file.vehicleCount, 0),
-    files, headers: [['Vin', 'Year', 'Make', 'Model', 'Odometer', 'MMR']], headerMap: { files: [{ vin: 'Vin' }] }
+    action: 'start', clientKey, vehicleCount: manifest.reduce((sum, file) => sum + file.vehicleCount, 0),
+    files: manifest, manifestHash: contentHash(manifest), headers: [['Vin', 'Year', 'Make', 'Model', 'Odometer', 'MMR']], headerMap: { files: [{ vin: 'Vin' }] }
   };
 }
 
@@ -63,23 +69,19 @@ test.after(async () => { if (backend) await backend.db.close(); });
 
 let uploadId;
 test('dois arquivos formam um lote; montagem invisível; bloco reenviado não duplica; ativação só no fim', async () => {
-  // File 1: 2 blocks. File 2: 1 block with a VIN already in file 1 and one car without MMR.
+  // File 1: 2 blocks. File 2: 1 block with cars without MMR. The VIN repeated between the files was
+  // already removed by the browser (the integrity tests cover a repeat that slips through).
   const fileA1 = [car('VINA00000000001'), car('VINA00000000002', { miles: 70000 }), camry('VINC00000000001', 2000000)];
   const fileA2 = [car('VINA00000000003', { year: 2021, miles: 12000 }), camry('VINC00000000002', 9000000)];
-  const fileB = [car('VINA00000000001'), car('VINB00000000001', { mmrCents: null }), car('VINB00000000002', { mmrCents: 0 }), camry('VINC00000000003', 1500000)];
-  const started = await batch(startBody([
-    { name: 'MCS_01.csv', size: 1000, rowCount: 5, vehicleCount: 5, chunkCount: 2 },
-    { name: 'MCS_02.csv', size: 800, rowCount: 4, vehicleCount: 4, chunkCount: 1 }
-  ], 'a'.repeat(32)));
+  const fileB = [car('VINB00000000001', { mmrCents: null }), car('VINB00000000002', { mmrCents: 0 }), camry('VINC00000000003', 1500000)];
+  const files = [{ name: 'MCS_01.csv', size: 1000, chunks: [fileA1, fileA2] }, { name: 'MCS_02.csv', size: 800, chunks: [fileB] }];
+  const started = await batch(startBody(files, 'a'.repeat(32)));
   assert.equal(started.statusCode, 201, JSON.stringify(started.payload));
   uploadId = started.payload.uploadId;
   assert.ok(started.payload.targetCount >= 2);
 
   // Same selection again (page reload): same batch, nothing duplicated.
-  const again = await batch(startBody([
-    { name: 'MCS_01.csv', size: 1000, rowCount: 5, vehicleCount: 5, chunkCount: 2 },
-    { name: 'MCS_02.csv', size: 800, rowCount: 4, vehicleCount: 4, chunkCount: 1 }
-  ], 'a'.repeat(32)));
+  const again = await batch(startBody(files, 'a'.repeat(32)));
   assert.equal(again.payload.uploadId, uploadId);
   assert.equal(again.payload.resumed, true);
 
@@ -100,6 +102,7 @@ test('dois arquivos formam um lote; montagem invisível; bloco reenviado não du
   // A failure after the block reached the server: the client sends it again.
   const repeat = await batch({ action: 'chunk', uploadId, fileIndex: 0, chunkIndex: 1, vehicles: fileA2 });
   assert.equal(repeat.statusCode, 200);
+  assert.equal(repeat.payload.duplicate, true);
   assert.equal(repeat.payload.storedVehicles, 0);
   assert.equal(repeat.payload.storedMatches, 0);
   const status = (await batch({ action: 'status', uploadId })).payload;
@@ -109,7 +112,7 @@ test('dois arquivos formam um lote; montagem invisível; bloco reenviado não du
 
   res = await batch({ action: 'chunk', uploadId, fileIndex: 1, chunkIndex: 0, vehicles: fileB });
   assert.equal(res.statusCode, 200);
-  assert.equal(res.payload.storedVehicles, 3, 'o VIN repetido entre arquivos não entra de novo');
+  assert.equal(res.payload.storedVehicles, 3);
   const done = await batch({ action: 'finalize', uploadId });
   assert.equal(done.statusCode, 200, JSON.stringify(done.payload));
   assert.equal(done.payload.fileCount, 2);
@@ -187,10 +190,11 @@ test('critério mudou: "Conferir novamente" e nova comparação dirigida só da 
 });
 
 test('montagem cancelada nunca aparece; retomada responde os blocos confirmados', async () => {
-  const started = await batch(startBody([{ name: 'X.csv', size: 10, rowCount: 1, vehicleCount: 1, chunkCount: 1 }], 'b'.repeat(32)));
+  const xFiles = [{ name: 'X.csv', size: 10, chunks: [[car('VINZ00000000001')]] }];
+  const started = await batch(startBody(xFiles, 'b'.repeat(32)));
   const other = started.payload.uploadId;
   await batch({ action: 'chunk', uploadId: other, fileIndex: 0, chunkIndex: 0, vehicles: [car('VINZ00000000001')] });
-  const resumed = await batch(startBody([{ name: 'X.csv', size: 10, rowCount: 1, vehicleCount: 1, chunkCount: 1 }], 'b'.repeat(32)));
+  const resumed = await batch(startBody(xFiles, 'b'.repeat(32)));
   assert.deepEqual(resumed.payload.received, [[0, 0]]);
   const canceled = await batch({ action: 'cancel', uploadId: other });
   assert.equal(canceled.payload.canceled, true);
@@ -201,7 +205,7 @@ test('montagem cancelada nunca aparece; retomada responde os blocos confirmados'
 });
 
 test('ficha desligada durante o envio: o match dela é descartado e contado, o bloco não cai', async () => {
-  const started = await batch(startBody([{ name: 'Y.csv', size: 10, rowCount: 2, vehicleCount: 2, chunkCount: 1 }], 'c'.repeat(32)));
+  const started = await batch(startBody([{ name: 'Y.csv', size: 10, chunks: [[camry('VINY00000000001', 2000000), car('VINY00000000002')]] }], 'c'.repeat(32)));
   const other = started.payload.uploadId;
   // The snapshot was taken with the VALOR ficha active; it is switched off (bought elsewhere)
   // before the block arrives.

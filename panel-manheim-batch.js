@@ -7,6 +7,7 @@
 const crypto = require('node:crypto');
 const vehicleMatch = require('./vehicle-match');
 const vehicleCatalog = require('./vehicle-catalog');
+const { canonicalJson } = require('./painel/manheim-upload');
 
 const CHUNK_VEHICLES = 500;
 const MAX_MILES_SORT = 2147483647;
@@ -48,6 +49,9 @@ function snapshotTargets(targets) {
 function targetsHash(targets) {
   return crypto.createHash('sha256').update(JSON.stringify((targets || []).map((target) => [target.key, target.criteriaHash]).sort())).digest('hex').slice(0, 32);
 }
+
+// Hash canônico do conteúdo: o mesmo que o navegador calcula para o manifesto do lote.
+const contentHash = (value) => crypto.createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex');
 
 // Carro vindo do navegador, já lido pelo parser do painel. Só campos conhecidos, com limite.
 function sanitizeVehicle(source) {
@@ -127,4 +131,4 @@ function matchChunk(entries, targets, index = indexTargets(targets)) {
   return matches;
 }
 
-module.exports = { CHUNK_VEHICLES, MAX_MILES_SORT, criteriaHash, indexTargets, makeKey, matchChunk, matchOne, matchRow, sanitizeVehicle, snapshotTargets, sortMiles, sortRank, targetsHash };
+module.exports = { CHUNK_VEHICLES, MAX_MILES_SORT, canonicalJson, contentHash, criteriaHash, indexTargets, makeKey, matchChunk, matchOne, matchRow, sanitizeVehicle, snapshotTargets, sortMiles, sortRank, targetsHash };

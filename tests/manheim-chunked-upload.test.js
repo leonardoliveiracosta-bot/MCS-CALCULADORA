@@ -71,7 +71,46 @@ function fakeServer(options = {}) {
   return { state, request };
 }
 const plan = () => upload.planBatch([{ name: 'A.csv' }, { name: 'B.csv' }], [...Array.from({ length: 1200 }, (_, n) => car(n, 0)), car(5000, 1), car(5001, 1), car(5002, 1)], manheim);
-const base = { clientKey: 'f'.repeat(32), vehicleCount: 1203, headers: [['Vin']], headerMap: {}, wait: async () => {}, retryDelayMs: 0 };
+const base = { clientKey: 'f'.repeat(32), manifest: { files: [], manifestHash: 'f'.repeat(64) }, vehicleCount: 1203, headers: [['Vin']], headerMap: {}, wait: async () => {}, retryDelayMs: 0 };
+
+test('manifesto: hash canônico igual no navegador e no servidor, por bloco, e enviado no início do lote', async () => {
+  const crypto = require('node:crypto');
+  const { contentHash } = require('../panel-manheim-batch');
+  const hashText = async (text) => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+  // Key order and absent fields do not change the hash; any value does.
+  assert.equal(upload.canonicalJson({ b: 1, a: [{ y: 2, x: undefined, z: 'ç' }] }), '{"a":[{"y":2,"z":"ç"}],"b":1}');
+  assert.equal(upload.canonicalJson({ a: 1, b: 2 }), upload.canonicalJson({ b: 2, a: 1 }));
+  const sealed = plan();
+  const manifest = await upload.sealPlan(sealed, hashText);
+  assert.deepEqual(manifest.files.map((file) => file.chunks.map((chunk) => chunk.count)), [[500, 500, 200], [3]]);
+  // What the server recalculates from the block as it arrives (after JSON) is the same hash.
+  const arrived = JSON.parse(JSON.stringify(sealed[0].chunks[1]));
+  assert.equal(contentHash(arrived), manifest.files[0].chunks[1].hash);
+  assert.equal(contentHash(JSON.parse(JSON.stringify(manifest.files))), manifest.manifestHash);
+  const changed = JSON.parse(JSON.stringify(sealed[0].chunks[1])); changed[0].vehicle.mmrCents += 1;
+  assert.notEqual(contentHash(changed), manifest.files[0].chunks[1].hash, 'um centavo muda o hash');
+  const server = fakeServer();
+  const bodies = [];
+  const spy = async (path, init) => { bodies.push(JSON.parse(init.body)); return server.request(path, init); };
+  await upload.sendBatch({ ...base, plan: sealed, manifest, request: spy });
+  assert.deepEqual(bodies[0].files, manifest.files);
+  assert.equal(bodies[0].manifestHash, manifest.manifestHash);
+  await assert.rejects(() => upload.sendBatch({ ...base, manifest: null, plan: plan(), request: spy }), (failure) => failure.code === 'MANHEIM_UPLOAD_INVALID');
+});
+
+test('recusas de integridade param na hora e guardam o lote para o operador descartar', async () => {
+  for (const code of ['MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH']) {
+    const server = fakeServer({ failures: { '0:1': [code] } });
+    await assert.rejects(() => upload.sendBatch({ ...base, plan: plan(), request: server.request }), (failure) => failure.code === 'MANHEIM_UPLOAD_INCOMPLETE' && failure.cause.code === code && Boolean(failure.uploadId));
+    assert.deepEqual(server.state.calls, ['start', 'chunk 0:0', 'chunk 0:1'], `${code} não repete`);
+  }
+  const integrity = fakeServer({ failures: { finalize: ['MANHEIM_BATCH_INTEGRITY_ERROR'] } });
+  await assert.rejects(() => upload.sendBatch({ ...base, plan: plan(), request: integrity.request }), (failure) => failure.code === 'MANHEIM_BATCH_INTEGRITY_ERROR' && failure.uploadId === '7a000000-0000-4000-8000-000000000001');
+  assert.equal(integrity.state.calls.filter((call) => call === 'finalize').length, 1, 'recusa de integridade não repete');
+  const mismatch = fakeServer({ failures: { start: ['MANHEIM_BATCH_RESUME_MISMATCH'] } });
+  await assert.rejects(() => upload.sendBatch({ ...base, plan: plan(), request: mismatch.request }), (failure) => failure.code === 'MANHEIM_BATCH_RESUME_MISMATCH');
+  assert.deepEqual(mismatch.state.calls, ['start'], 'retomada recusada não envia bloco nenhum');
+});
 
 test('envio: todos os blocos, falha passageira repete, ativação só no fim', async () => {
   const server = fakeServer({ failures: { '0:1': ['NETWORK_ERROR', 'REQUEST_TIMEOUT'] } });
@@ -144,8 +183,10 @@ test('todo erro da importação do Manheim tem código ou vira "Erro inesperado:
   assert.match(importer, /MCSManheimUpload\.sendBatch\(/);
   assert.doesNotMatch(importer, /buildMatches|manheim_archive|manheim_upload_part/);
   const messages = /const MANHEIM_FAILURE_MESSAGES = (\{[\s\S]*?\n {2}\});/.exec(client)[1];
+  const refusals = /const CHUNK_REFUSALS = (\{[\s\S]*?\n {2}\});/.exec(client)[1];
+  const reasons = /const RESUME_REASONS = (\{[\s\S]*?\n {2}\});/.exec(client)[1];
   const failureText = new Function('MAX_FILES', 'MANHEIM_MAX_MATCHES', 'window', 'MCSManheimUpload',
-    `const MANHEIM_FAILURE_MESSAGES = ${messages};\nreturn (${panelSnippet(client, 'manheimFailureText')});`)(20, 100000, { MCSManheimUpload: upload }, upload);
+    `const MANHEIM_FAILURE_MESSAGES = ${messages};\nconst CHUNK_REFUSALS = ${refusals};\nconst RESUME_REASONS = ${reasons};\nreturn (${panelSnippet(client, 'manheimFailureText')});`)(20, 100000, { MCSManheimUpload: upload }, upload);
   const coded = (code, extra) => Object.assign(new Error(code), { code }, extra || {});
   for (const code of ['MANHEIM_FILES_INVALID', 'MANHEIM_READER_UNAVAILABLE', 'MANHEIM_FILE_TOO_LARGE', 'MANHEIM_FILE_READ_FAILED', 'MANHEIM_UPLOAD_INVALID', 'MANHEIM_MATCH_INVALID', 'MANHEIM_MIGRATION_PENDING', 'MANHEIM_UPLOAD_RUNNING', 'MANHEIM_BATCH_CANCELED', 'PAYLOAD_TOO_LARGE']) {
     const text = failureText(coded(code));
@@ -154,6 +195,18 @@ test('todo erro da importação do Manheim tem código ou vira "Erro inesperado:
   assert.equal(failureText(coded('MANHEIM_CSV_COLUMNS_MISSING', { missing: ['year', 'model'] })), 'CSV incompleto: faltam year, model.');
   const interrupted = failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'MCS_HOJE_12.csv', chunkIndex: 3, uploadId: 'x', cause: coded('REQUEST_TIMEOUT') }));
   assert.equal(interrupted, 'Envio interrompido em MCS_HOJE_12.csv, bloco 4 (O servidor demorou para responder). Nada foi ativado e o lote ativo não mudou. Selecione os mesmos arquivos de novo para continuar de onde parou');
+  // The integrity refusals say what happened and what to do.
+  for (const code of ['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_BATCH_RESUME_MISMATCH']) {
+    const text = failureText(coded(code, { uploadId: 'x' }));
+    assert.match(text, /Nada foi ativado|não será continuado/, code);
+    assert.match(text, /Descarte|descarte/, code);
+    assert.doesNotMatch(text, /\.$|—/, code);
+  }
+  assert.match(failureText(coded('MANHEIM_BATCH_RESUME_MISMATCH', { uploadId: 'x', reason: 'TARGETS' })), /as buscas dos clientes mudaram/);
+  assert.match(failureText(coded('MANHEIM_BATCH_RESUME_MISMATCH', { uploadId: 'x', reason: 'MANIFEST' })), /conteúdo lido agora é diferente/);
+  const conflict = failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'MCS_HOJE_12.csv', chunkIndex: 3, uploadId: 'x', cause: coded('MANHEIM_CHUNK_CONFLICT') }));
+  assert.equal(conflict, 'O bloco 4 de MCS_HOJE_12.csv já tinha sido recebido com outro conteúdo: os arquivos mudaram desde o primeiro envio. Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou. Descarte este envio e selecione os arquivos de novo para começar outro lote');
+  assert.match(failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'A.csv', chunkIndex: 0, uploadId: 'x', cause: coded('MANHEIM_CHUNK_HASH_MISMATCH') })), /não confere com o que foi declarado/);
   assert.equal(failureText(new TypeError('x is not a function')), 'Erro inesperado: x is not a function');
   assert.equal(failureText(coded('ALGO_NOVO')), 'Erro inesperado: ALGO_NOVO');
   const shower = panelSnippet(client, 'showManheimFailure');
@@ -176,4 +229,12 @@ test('migrações: a antiga continua como estava; a nova é aditiva, com RLS for
   const functions = [...sql.matchAll(/create or replace function (public\.panel_manheim_[a-z_]+)\(/g)].map((match) => match[1]);
   const granted = [...sql.matchAll(/'(public\.panel_manheim_[a-z_]+)\(/g)].map((match) => match[1]);
   assert.deepEqual([...new Set(functions)].sort(), [...new Set(granted)].sort(), 'toda função nova tem permissão revogada e dada só ao service_role');
+  // Integrity: additive too. It only replaces the two signatures never used outside the tests.
+  const integrity = read('supabase/migrations/20261005020000_panel_manheim_lote_integridade.sql');
+  assert.doesNotMatch(integrity, /\bdrop\s+(table|column|index)\b/i);
+  assert.deepEqual([...integrity.matchAll(/drop function if exists (public\.[a-z_]+)\(/g)].map((match) => match[1]), ['public.panel_manheim_batch_start', 'public.panel_manheim_batch_chunk']);
+  assert.doesNotMatch(integrity, /\bdelete\s+from\b|\btruncate\b|\bupdate\s+public\.manheim_(vehicles|matches)\b/i);
+  const replaced = [...integrity.matchAll(/create or replace function (public\.panel_manheim_[a-z_]+)\(/g)].map((match) => match[1]);
+  const regranted = [...integrity.matchAll(/'(public\.panel_manheim_[a-z_]+)\(/g)].map((match) => match[1]);
+  assert.deepEqual([...new Set(replaced)].sort(), [...new Set(regranted)].sort());
 });

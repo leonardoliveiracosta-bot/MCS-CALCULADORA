@@ -161,6 +161,9 @@
       failure.code = result.error || (response.status >= 500 ? 'SERVER_ERROR' : 'REQUEST_FAILED');
       failure.status = response.status;
       failure.requestId = result.requestId || null;
+      // A batch the server refused to continue: its id lets the operator discard it.
+      if (result.uploadId) failure.uploadId = result.uploadId;
+      if (result.reason) failure.reason = result.reason;
       throw failure;
     }
     return result;
@@ -2265,6 +2268,8 @@
         let contents;
         try { contents = await file.text(); }
         catch (cause) { throw manheimError('MANHEIM_FILE_READ_FAILED', { cause, fileName: file.name }); }
+        // The batch key comes from the real content of the files, not only name and size.
+        const contentHash = await sha256(contents);
         const parsed = MCSManheim.parseCsv(contents);
         contents = null;
         let mapping = MCSManheim.mapHeaders(parsed.headers);
@@ -2284,7 +2289,7 @@
           const compact = MCSManheimUpload.compactVehicle(vehicle);
           vehicles.push({ ...compact, fileIndex, raw: { Inventory: vehicle.raw && vehicle.raw.Inventory || '' }, hasBuyNow: vehicle.hasBuyNow });
         });
-        fileMeta.push({ name: file.name, size: file.size, lastModified: file.lastModified || 0, rowCount: parsed.rows.length });
+        fileMeta.push({ name: file.name, size: file.size, lastModified: file.lastModified || 0, rowCount: parsed.rows.length, contentHash });
       }
       // The same car in two files is one car.
       const deduped = MCSManheimUpload.dedupeAcrossFiles(vehicles, MCSManheim);
@@ -2301,8 +2306,10 @@
         if (!(await askInline(status, question, 'Enviar mesmo assim'))) { status.textContent = 'Envio cancelado'; return; }
       }
       const plan = MCSManheimUpload.planBatch(fileMeta, deduped.vehicles, MCSManheim);
-      // Same files chosen again (after a failure or a reload): same key, the batch continues.
-      const clientKey = (await sha256(JSON.stringify([fileMeta.map((file) => [file.name, file.size, file.lastModified]), uniqueCount]))).slice(0, 32);
+      // Manifest: per block, how many cars and the hash of its content. The same files chosen again
+      // (after a failure or a reload) give the same key and the same manifest, and the batch continues.
+      const manifest = await MCSManheimUpload.sealPlan(plan, sha256);
+      const clientKey = (await sha256(MCSManheimUpload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash])))).slice(0, 32);
       const doneByFile = plan.map(() => 0);
       status.textContent = `Enviando ${uniqueCount} carros de ${plan.length} arquivo${plan.length === 1 ? '' : 's'} como um lote…`;
       const cancel = () => { manheimCancelRequested = true; };
@@ -2310,7 +2317,7 @@
       let result;
       try {
         result = await MCSManheimUpload.sendBatch({
-          plan, clientKey, vehicleCount: uniqueCount, headers: headerGroups, headerMap: { files: mappings }, request,
+          plan, manifest, clientKey, vehicleCount: uniqueCount, headers: headerGroups, headerMap: { files: mappings }, request,
           canceled: () => manheimCancelRequested,
           onProgress: (event) => {
             uploadId = event.uploadId;
@@ -2440,6 +2447,9 @@
     MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação em andamento nesta aba. Espere terminar ou cancele',
     MANHEIM_BATCH_CANCELED: 'Esta importação foi cancelada. Selecione os arquivos de novo para começar outra',
     MANHEIM_BATCH_ALREADY_ACTIVE: 'Este lote já estava ativo; nada foi enviado de novo',
+    MANHEIM_BATCH_INCOMPLETE: 'Faltam blocos deste envio no servidor. Nada foi ativado e o lote ativo não mudou. Selecione os mesmos arquivos de novo para completar o envio ou descarte-o',
+    MANHEIM_BATCH_INTEGRITY_ERROR: 'A conferência final encontrou diferença entre os carros recebidos e os declarados no início do envio. Nada foi ativado e o lote ativo não mudou. Descarte este envio e selecione os arquivos de novo; se repetir, confira se os arquivos não foram alterados',
+    MANHEIM_BATCH_RESUME_MISMATCH: 'Existe um envio interrompido destes arquivos, mas ele não confere com o que foi lido agora. Ele não será continuado. Descarte o envio anterior e selecione os arquivos de novo para começar outro lote',
     REQUEST_TIMEOUT: 'O servidor demorou para responder',
     NETWORK_ERROR: 'Sem conexão com o servidor',
     MANHEIM_ARCHIVE_INVALID: 'Os carros foram comparados, mas o arquivo de carros não passou na validação.',
@@ -2448,8 +2458,19 @@
     AUTHENTICATION_REQUIRED: 'A sessão expirou. Entre novamente.'
   };
 
+  // What happened and what to do, for the refusals that protect the integrity of the batch.
+  const CHUNK_REFUSALS = {
+    MANHEIM_CHUNK_CONFLICT: (where) => `O bloco ${where} já tinha sido recebido com outro conteúdo: os arquivos mudaram desde o primeiro envio. Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou. Descarte este envio e selecione os arquivos de novo para começar outro lote`,
+    MANHEIM_CHUNK_HASH_MISMATCH: (where) => `O conteúdo do bloco ${where} não confere com o que foi declarado no início do envio. Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou. Descarte este envio e selecione os arquivos de novo; se repetir, confira se o arquivo não está sendo alterado`
+  };
+  const RESUME_REASONS = {
+    MANIFEST: 'Existe um envio interrompido destes arquivos, mas o conteúdo lido agora é diferente do primeiro envio. Ele não será continuado. Descarte o envio anterior e selecione os arquivos de novo para começar outro lote',
+    TARGETS: 'Existe um envio interrompido destes arquivos, mas as buscas dos clientes mudaram desde que ele começou. Para não misturar critérios, ele não será continuado. Descarte o envio anterior e selecione os arquivos de novo para começar outro lote'
+  };
   function manheimFailureText(failure) {
     const code = failure && failure.code;
+    if (code === 'MANHEIM_BATCH_RESUME_MISMATCH' && RESUME_REASONS[failure.reason]) return RESUME_REASONS[failure.reason];
+    if (code === 'MANHEIM_UPLOAD_INCOMPLETE' && failure.fileName && CHUNK_REFUSALS[failure.cause && failure.cause.code]) return CHUNK_REFUSALS[failure.cause.code](`${Number(failure.chunkIndex) + 1} de ${failure.fileName}`);
     if (code === 'MANHEIM_CSV_COLUMNS_MISSING') return `CSV incompleto: faltam ${(failure.missing || []).join(', ')}.`;
     if (code === 'MANHEIM_UPLOAD_INCOMPLETE') {
       const cause = failure.cause;
@@ -2471,9 +2492,9 @@
   function showManheimFailure(failure) {
     console.error(failure);
     renderUploadProgress(null);
-    // An interrupted batch waits on the server (never active). The operator may continue (same
-    // files again) or discard it.
-    if (failure && failure.code === 'MANHEIM_UPLOAD_INCOMPLETE' && failure.uploadId) {
+    // An interrupted or refused batch waits on the server (never active). The operator may continue
+    // (same files again, when that is possible) or discard it.
+    if (failure && failure.uploadId && ['MANHEIM_UPLOAD_INCOMPLETE', 'MANHEIM_BATCH_RESUME_MISMATCH', 'MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_INTEGRITY_ERROR'].includes(failure.code)) {
       const holder = element('div', 'manheim-progress'); holder.id = 'manheim-progress';
       const discard = element('button', 'quiet small', 'Descartar este envio'); discard.type = 'button';
       MCSAction.bind(discard, () => ({ scope: holder, commit: () => request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'cancel', uploadId: failure.uploadId }) }), onSuccess: () => { $('manheim-status').classList.remove('error'); $('manheim-status').textContent = 'Envio descartado. O lote ativo não mudou'; holder.remove(); }, errorText: 'Não consegui descartar, tente de novo' }));

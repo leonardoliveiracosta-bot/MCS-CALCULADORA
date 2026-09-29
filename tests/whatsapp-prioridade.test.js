@@ -40,10 +40,13 @@ test.before(async () => {
 test.after(async () => { if (backend) await backend.db.close(); });
 
 test('webhook do cliente e eco da equipe entram durante o envio de um lote do Manheim', async () => {
-  const started = await call('panel/manheim-batch', 'POST', { action: 'start', clientKey: 'd'.repeat(32), vehicleCount: 1500, headers: [['Vin']], headerMap: {}, files: [{ name: 'Z.csv', size: 1, rowCount: 1500, vehicleCount: 1500, chunkCount: 3 }] });
+  const { contentHash } = require('../panel-manheim-batch');
+  const blocks = [0, 1, 2].map((chunkIndex) => Array.from({ length: 500 }, (_, n) => car(chunkIndex * 500 + n)));
+  const files = [{ name: 'Z.csv', size: 1, rowCount: 1500, vehicleCount: 1500, chunkCount: 3, chunks: blocks.map((block) => ({ count: block.length, hash: contentHash(block) })) }];
+  const started = await call('panel/manheim-batch', 'POST', { action: 'start', clientKey: 'd'.repeat(32), vehicleCount: 1500, headers: [['Vin']], headerMap: {}, files, manifestHash: contentHash(files) });
   assert.equal(started.res.statusCode, 201, JSON.stringify(started.res.payload));
   const uploadId = started.res.payload.uploadId;
-  const chunks = [0, 1, 2].map((chunkIndex) => call('panel/manheim-batch', 'POST', { action: 'chunk', uploadId, fileIndex: 0, chunkIndex, vehicles: Array.from({ length: 500 }, (_, n) => car(chunkIndex * 500 + n)) }));
+  const chunks = blocks.map((vehicles, chunkIndex) => call('panel/manheim-batch', 'POST', { action: 'chunk', uploadId, fileIndex: 0, chunkIndex, vehicles }));
   const secret = { 'x-mcs-webhook-secret': 'segredo-simulado' };
   const webhookStarted = Date.now();
   const [inbound, outbound] = await Promise.all([call('whatsapp/webhook', 'POST', customerMessage('wamid.cliente.1', 'Oi, ainda tem o CR-V?'), secret), call('whatsapp/webhook', 'POST', echo('wamid.eco.1', 'Temos sim, vou te mandar'), secret)]);
