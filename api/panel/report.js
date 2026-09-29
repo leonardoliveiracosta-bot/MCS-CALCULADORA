@@ -1,11 +1,10 @@
 'use strict';
-const { activeFilter } = require('../../panel-manheim-state');
+const { activeFilter, liveUploadFilter } = require('../../panel-manheim-state');
 
 const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, time } = require('../../panel-domain');
 const { allRows, requirePanel, send } = require('../../panel-server');
 const { operational } = require('../../panel-read-model');
 const { contactIndex } = require('../../panel-contact');
-const { hasValidMmr } = require('../../vehicle-match');
 const { periodCutoff, periodLabel } = require('../../panel-origin');
 
 // Report opened from CLIENTES (origin=clients): the same universe as the CLIENTES list, badge,
@@ -107,16 +106,16 @@ module.exports = async (req, res) => {
 
   try {
     // An undone Manheim import batch never enters a report.
-    const activeBatch = await activeFilter(ctx, { allRows });
-    const [calcRuns, links, dispositions, journeys, toggles, uploads, manheimMatches, data] = await Promise.all([
+    const liveBatch = await liveUploadFilter(ctx, { allRows });
+    const [calcRuns, links, dispositions, journeys, toggles, uploads, data] = await Promise.all([
       allRows(ctx, 'calc_runs', { select: 'id,created_at,lance,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
       allRows(ctx, 'journeys', { select: 'id,reference_code,source,stage,status,budget_cents,created_at,qualified_at,closed_at,closed_reason', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,uploaded_at', environment: 'eq.' + ctx.environment, ...activeBatch, order: 'uploaded_at.asc' }),
-      // MMR is mandatory: a car without a valid MMR is never a compatible car.
-      view === 'manheim' ? allRows(ctx, 'manheim_matches', { select: 'upload_id,row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, ...activeBatch }).then((list) => list.filter((match) => hasValidMmr(match.vehicle_json && match.vehicle_json.parsed))) : Promise.resolve([]),
+      // Batch totals only (never the cars): each live batch keeps its count of different compatible
+      // cars with a valid MMR.
+      allRows(ctx, 'manheim_uploads', { select: 'id,source_file_count,vehicle_count,matched_vehicle_count,lead_count,uploaded_at', environment: 'eq.' + ctx.environment, ...liveBatch, order: 'uploaded_at.asc' }),
       operational(ctx)
     ]);
 
@@ -189,8 +188,7 @@ module.exports = async (req, res) => {
       text = `${view === 'qualification' ? 'QUALIFICAÇÃO' : 'FICHAS'}: ${leads} leads; ${qualified} qualificados; ${disabled.length} desligados (${reasons}).`;
     } else if (view === 'manheim') {
       const scoped = uploads.filter((item) => inside(item.uploaded_at, selected));
-      const uploadIds = new Set(scoped.map((item) => item.id));
-      const compatibleCars = new Set(manheimMatches.filter((item) => uploadIds.has(item.upload_id)).map((item) => item.upload_id + ':' + item.row_fingerprint)).size;
+      const compatibleCars = scoped.reduce((sum, item) => sum + (Number(item.matched_vehicle_count) || 0), 0);
       summary = {
         csvsProcessed: scoped.reduce((sum, item) => sum + Number(item.source_file_count || 0), 0),
         uploads: scoped.length,

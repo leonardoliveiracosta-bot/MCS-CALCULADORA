@@ -107,6 +107,9 @@ function criteriaOf(demand) {
   return demand.mode === 'VALOR' ? { desejos: wishes, lance_usd: dollars(demand.bidCents) } : { desejos: wishes };
 }
 function lotOf(match) {
+  // Batches in blocks keep the lot inside the parsed car; older rows keep the raw CSV cells.
+  const parsedLot = match && match.vehicle_json && match.vehicle_json.parsed && match.vehicle_json.parsed.lot;
+  if (parsedLot) return String(parsedLot).slice(0, 40);
   const raw = match && match.vehicle_json && match.vehicle_json.raw || {};
   const header = Object.keys(raw).find((name) => /^lot\b|lot ?#|lot number|n[uú]mero do lote/i.test(name));
   return header ? String(raw[header]).slice(0, 40) : '';

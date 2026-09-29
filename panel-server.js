@@ -162,6 +162,13 @@ async function allRows(ctx, table, params = {}, pageSize = 1000) {
   return result;
 }
 
+// One database function (RPC), with the service key. Business errors keep their code.
+async function rpc(ctx, name, args) {
+  return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/' + name, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args || {})
+  });
+}
+
 async function jsonBody(req, maximum = 128 * 1024) {
   if (typeof req.body === 'object' && req.body !== null) {
     if (Buffer.byteLength(JSON.stringify(req.body), 'utf8') > maximum) throw new Error('PAYLOAD_TOO_LARGE');
@@ -288,6 +295,6 @@ async function requirePanel(req, res, options = {}) {
 
 module.exports = {
   SERVER_ENVIRONMENT, allRows, orderComparator, bearer, configuration, insert, isUuid, jsonBody,
-  panelMeta, patchRows, query, recordMutation, requirePanel, rows, safeText, send,
+  panelMeta, patchRows, query, recordMutation, requirePanel, rows, rpc, safeText, send,
   supabase
 };

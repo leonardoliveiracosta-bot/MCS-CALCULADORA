@@ -3,8 +3,8 @@
 const crypto = require('node:crypto');
 
 const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, mergeWishlists, journeyEnabled, reactivationEligible, shortDeadline, time, toggleEnabled, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
-const { allRows, isUuid, panelMeta, requirePanel, rows, send } = require('../../panel-server');
-const { score, loadScoreVehicles } = require('../../panel-ready');
+const { allRows, isUuid, panelMeta, requirePanel, rows, rpc, send } = require('../../panel-server');
+const { score, loadScoreIndex } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems, lastRealMessageAt } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
@@ -12,11 +12,19 @@ const { dispositionIndex } = require('../../panel-disposition');
 const { clientOrigin } = require('../../panel-origin');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 const { manheimView } = require('../../panel-buscas-view');
-const { activeFilter } = require('../../panel-manheim-state');
+const { activeFilter, batchSupported, latestActiveUpload } = require('../../panel-manheim-state');
 const { outOfFunnelIndex } = require('../../panel-triage');
-// MMR is mandatory: a stored match without a valid MMR is never counted, listed or used as an option.
-const { hasValidMmr } = require('../../vehicle-match');
-const withMmr = (match) => hasValidMmr(match && match.vehicle_json && match.vehicle_json.parsed);
+
+// Cars of the latest live batch per person, counted by the database (never the cars themselves).
+// MMR is mandatory: a stored match without a valid MMR is never counted.
+async function manheimCounts(ctx, journeyId) {
+  if (!(await batchSupported(ctx, { rows }).catch(() => false))) return { byJourney: new Map(), upload: null };
+  const upload = await latestActiveUpload(ctx, 'id,uploaded_at');
+  if (!upload) return { byJourney: new Map(), upload: null };
+  const list = await rpc(ctx, 'panel_manheim_batch_people', { p_environment: ctx.environment, p_upload_id: upload.id });
+  const byJourney = new Map((list || []).filter((row) => row.journey_id && !row.logical_mode && (!journeyId || row.journey_id === journeyId)).map((row) => [row.journey_id, Number(row.vehicle_count) || 0]));
+  return { byJourney, upload };
+}
 
 
 function newPromiseToday(promises, ref, zip) {
@@ -34,7 +42,7 @@ function withWhatsAppIdentity(item,userIds){
 // The CLIENTES list (every ficha that entered the panel), shared by the list and by the report
 // opened from CLIENTES so both always count the same universe.
 async function clientList(ctx, activeBatch) {
-  const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta, checklist, promises, archive, calcRuns, calcLinks, leadPromises, aiItems, aiSuggestions, userIds, dispositions] = await Promise.all([
+  const [items, contacts, phones, refs, messageLinks, messages, toggleStates, manheim, meta, checklist, promises, scoreIndex, calcRuns, calcLinks, leadPromises, aiItems, aiSuggestions, userIds, dispositions] = await Promise.all([
     allRows(ctx, 'journeys', {
       select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_at,closed_reason,updated_at',
       environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
@@ -45,11 +53,11 @@ async function clientList(ctx, activeBatch) {
     allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment, undone_at:'is.null' }),
     allRows(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,source_kind,whatsapp_delivered_at,whatsapp_read_at,created_at,undone_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
-    rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, ...activeBatch, order: 'uploaded_at.desc', limit: '1' }),
+    manheimCounts(ctx).catch(() => ({ byJourney: new Map(), upload: null })),
     panelMeta(ctx),
     allRows(ctx, 'journey_checklist', { select: 'journey_id,status', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'promises', { select: 'journey_id,status,due_at', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, ...activeBatch, uploaded_at: 'gte.' + new Date(Date.now() - 60 * 86400000).toISOString() }),
+    loadScoreIndex(ctx).catch(() => []),
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'lead_promises', { select: 'ref_code,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
@@ -62,13 +70,6 @@ async function clientList(ctx, activeBatch) {
   // Triagem: conversa fora do funil comercial não entra em CLIENTES (continua na busca global).
   const triageOut=await outOfFunnelIndex(ctx,items,refs);
   const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
-  const [latestMatches,recentVehicles]=await Promise.all([
-    uploads[0] ? allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...activeBatch }).then((list) => list.filter(withMmr)) : Promise.resolve([]),
-    allRows(ctx,'manheim_matches',{select:'row_fingerprint,vehicle_json',environment:'eq.'+ctx.environment,...activeBatch,created_at:'gte.'+new Date(Date.now()-60*86400000).toISOString()})
-  ]);
-  const vehicleMap=new Map(archive.map((entry)=>[entry.row_fingerprint,entry.vehicle_json]));
-  recentVehicles.forEach((entry)=>{if(entry.vehicle_json?.parsed&&!vehicleMap.has(entry.row_fingerprint))vehicleMap.set(entry.row_fingerprint,entry.vehicle_json.parsed);});
-  const scoredVehicles=[...vehicleMap.values()];
   const contactsById = new Map(contacts.map((item) => [item.id, item]));
   const personDisposition=dispositionIndex(dispositions);
   const messagesById = new Map(messages.map((item) => [item.id, item]));
@@ -80,11 +81,11 @@ async function clientList(ctx, activeBatch) {
     const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
     const ownMessages = messageLinks.filter((link) => link.journey_id === item.id).map((link) => messagesById.get(link.message_id)).filter(Boolean).sort((a, b) => (time(b.occurred_at_utc || b.occurred_at_local || b.created_at) || 0) - (time(a.occurred_at_utc || a.occurred_at_local || a.created_at) || 0));
     const state = stateByJourney.get(item.id);
-    const complete = withWhatsAppIdentity({ ...item, enabled: toggleEnabled(item.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: new Set(latestMatches.filter((match) =>match.journey_id === item.id).map((match) => match.row_fingerprint || match.id)).size, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages.find((message)=>!message.is_automatic) || ownMessages[0] || null,
+    const complete = withWhatsAppIdentity({ ...item, enabled: toggleEnabled(item.status, state), toggleManaged: Boolean(state), offReason: state && state.off_reason || null, manheimMatchCount: manheim.byJourney.get(item.id) || 0, contact: contactsById.get(item.contact_id) || null, phones: phones.filter((phone) => phone.contact_id === item.contact_id), refs: refs.filter((ref) => ref.journey_id === item.id), latestMessage: ownMessages.find((message)=>!message.is_automatic) || ownMessages[0] || null,
       pendingAiCount: aiItems.filter((entry)=>entry.journey_id===item.id).length, aiLinkSuggested: aiSuggestions.some((entry)=>entry.source_journey_id===item.id) },userIds);
     const order = [item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>ordersByRef.get(String(ref||'').trim().toUpperCase())).find(Boolean);
     const scoring = { ...complete, ...order, zip: order?.zip || complete.contact?.location_text?.match(/\b\d{5}\b/)?.[0] || '', plate: order?.plate || 'transf', wishlists: wishlistsForJourney(complete) };
-    const ready = score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, scoredVehicles);
+    const ready = score(scoring, complete, { checklist, promises, messages: ownMessages.map((message) => ({ ...message, journey_id: item.id })) }, scoreIndex);
     // A8: one disposition per person (ficha + linked Refs), the most recent wins.
     const disposition=personDisposition(item.id,[item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code),order?.ref].filter(Boolean));
     const latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
@@ -117,7 +118,7 @@ module.exports = async (req, res) => {
     });
     const journey = found[0];
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
-    const [contacts, phones, refs, checklist, evidence, promises, units, interactions, activities, divergences, declarations, links, messages, attachments, toggleStates, uploads, meta, userIds] = await Promise.all([
+    const [contacts, phones, refs, checklist, evidence, promises, units, interactions, activities, divergences, declarations, links, messages, attachments, toggleStates, manheim, meta, userIds] = await Promise.all([
       rows(ctx, 'contacts', { select: 'id,display_name,location_text,profile_text,notes,is_lead', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.contact_id, limit: '1' }),
       allRows(ctx, 'contact_phones', { select: 'id,phone_e164,phone_raw,phone_owner,is_primary,is_current,confirmed_at,retired_at', environment: 'eq.' + ctx.environment, contact_id: 'eq.' + journey.contact_id }),
       allRows(ctx, 'journey_refs', { select: 'id,ref_code,calculator_sid,source_message_id,created_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id }),
@@ -133,11 +134,10 @@ module.exports = async (req, res) => {
       allRows(ctx, 'messages', { select: 'id,chat_id,channel,direction,body_text,is_automatic,occurred_at_local,timezone_assumed,occurred_at_utc,time_uncertain,original_order,whatsapp_delivered_at,whatsapp_read_at,media_kind,media_mime_type,media_byte_size,media_status,created_at,undone_at', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'attachments', { select: 'id,chat_id,message_id,kind,original_filename,mime_type,byte_size,verified_at,created_at,undone_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id }),
       rows(ctx, 'journey_toggle_states', { select: 'enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id, limit: '1' }),
-      rows(ctx, 'manheim_uploads', { select: 'id,uploaded_at', environment: 'eq.' + ctx.environment, ...activeBatch, order: 'uploaded_at.desc', limit: '1' }),
+      manheimCounts(ctx, id).catch(() => ({ byJourney: new Map(), upload: null })),
       panelMeta(ctx),
       rows(ctx,'whatsapp_user_ids',{select:'contact_id,username',environment:'eq.'+ctx.environment,contact_id:'eq.'+journey.contact_id,limit:'1'})
     ]);
-    const manheimMatches = uploads[0] ? (await allRows(ctx, 'manheim_matches', { select: 'id,match_kind,row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, journey_id: 'eq.' + id, ...activeBatch })).filter(withMmr) : [];
     const [calcRuns, calcLinks, dispositions, senderAliases] = await Promise.all([
       Promise.resolve([]),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
@@ -167,7 +167,7 @@ module.exports = async (req, res) => {
         shortDeadline: shortDeadline(journey.customer_deadline_at), promises, units,
         returns: buildReturns(journey, promises), interactions: interactions.filter((item)=>!item.undone_at), divergences, declarations, attachments: attachments.filter((item)=>!item.undone_at), conversation, timeline,
         calculatorRequests, senderAliases: senderAliases.filter((alias) => conversation.some((message) => message.chat_id === alias.chat_id)),
-        manheimMatchCount: new Set(manheimMatches.map((match) => match.row_fingerprint || match.id)).size, manheimUploadAt: uploads[0] && uploads[0].uploaded_at || null, contactChannel: facts.channel, enteredContact: facts.entered
+        manheimMatchCount: manheim.byJourney.get(id) || 0, manheimUploadAt: manheim.upload && manheim.upload.uploaded_at || null, contactChannel: facts.channel, enteredContact: facts.entered
       },
       meta
     });

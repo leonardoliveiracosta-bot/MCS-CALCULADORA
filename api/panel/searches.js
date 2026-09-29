@@ -1,7 +1,6 @@
 'use strict';
-const { hasValidMmr } = require('../../vehicle-match');
 
-const { allRows, insert, isUuid, jsonBody, patchRows, requirePanel, rows, safeText, send } = require('../../panel-server');
+const { allRows, insert, isUuid, jsonBody, patchRows, requirePanel, rows, rpc, safeText, send } = require('../../panel-server');
 const { contactIndex } = require('../../panel-contact');
 const { ensureJourney, leadData, orders } = require('../../panel-lead');
 const { dispositionIndex } = require('../../panel-disposition');
@@ -41,10 +40,10 @@ async function payload(ctx) {
     loadSearchStageIndex(ctx),
     allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at: 'is.null' })
   ]);
-  // M18: "N carros no último CSV" counts only the latest upload.
-  const supported = await undoSupported(ctx, { rows });
-  // MMR is mandatory: a car without a valid MMR is never counted as an option.
-  const matches = uploads[0] ? (await allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint,vehicle_json' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...(supported ? { undone_at: 'is.null' } : {}) })).filter((match) => hasValidMmr(match.vehicle_json && match.vehicle_json.parsed)) : [];
+  // M18: "N carros no último CSV" counts only the latest upload, answered by the database per
+  // person and mode (MMR mandatory); the cars never come here.
+  const counted = uploads[0] ? await rpc(ctx, 'panel_manheim_batch_people', { p_environment: ctx.environment, p_upload_id: uploads[0].id }).catch(() => []) : [];
+  const matchCountFor = (journeyId, mode) => (counted || []).filter((row) => row.journey_id === journeyId && row.logical_mode === mode).reduce((sum, row) => sum + (Number(row.vehicle_count) || 0), 0);
   const personDisposition = dispositionIndex(dispositions);
   const triageOut = await outOfFunnelIndex(ctx, journeys, refs);
   const contact = contactIndex({ calcRuns, messages: messages.filter((message) => !message.undone_at), messageLinks });
@@ -71,7 +70,7 @@ async function payload(ctx) {
         exactSearch: title(wish, Number(entry.bidCents || 0) / 100, entry.mode),
         stage: entry.stage, stageSource: entry.stageSource, stageLabel: entry.label, stageAt: entry.at, days: floridaDays(entry.at),
         hasCalculatorOrder: stage.hasCalculatorOrder, directLeadSource: stage.directLeadSource,
-        matchCount: matches.filter((match) => match.journey_id === journey.id && (!match.logical_mode || match.logical_mode === entry.mode)).length,
+        matchCount: matchCountFor(journey.id, entry.mode),
         latestAt: journey.updated_at || journey.created_at
       });
     });
