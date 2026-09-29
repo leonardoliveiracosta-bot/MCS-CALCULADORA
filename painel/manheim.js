@@ -164,11 +164,19 @@
 
   const digitsOnly = (value) => String(value || '').replace(/\D/g, '');
   // A number OpenAI returns must be written in the cell: its digits, or "12k" style thousands.
+  // Only the whole number written in the cell counts ("103,500" is 103500, never 3500; "12k" is
+  // 12000, never 12). Kilometers are never converted: they go to review.
   function supportedNumber(value, cell) {
-    if (!Number.isInteger(value) || value < 0) return false;
-    if (digitsOnly(cell).includes(String(value))) return true;
-    const thousands = /(\d+(?:[.,]\d+)?)\s*k\b/i.exec(String(cell || ''));
-    return Boolean(thousands && Math.round(Number(thousands[1].replace(',', '.')) * 1000) === value);
+    const text = String(cell || '');
+    if (!Number.isInteger(value) || value < 0 || /\bkm\b|kilomet|quil[oô]met/i.test(text)) return false;
+    const written = [];
+    const pattern = /(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s*(k\b)?/gi;
+    let found;
+    while ((found = pattern.exec(text))) {
+      const number = Number(found[1].replace(/,/g, '') + (found[2] ? '.' + found[2] : ''));
+      written.push(Math.round(found[3] ? number * 1000 : number));
+    }
+    return written.length === 1 && written[0] === value;
   }
 
   // Runs an OpenAI suggestion through the same parser. Returns the vehicle or the review reason.
@@ -198,7 +206,12 @@
   function mapHeadersWith(headers, suggested) {
     const mapping = mapHeaders(headers);
     const known = new Set(headers);
-    Object.entries(suggested || {}).forEach(([field, header]) => { if (!mapping.fields[field] && header && known.has(header) && Object.prototype.hasOwnProperty.call(HEADER_ALIASES, field === 'mmr' ? 'mmr' : field)) mapping.fields[field] = header; });
+    // A column already used by another field is never reused (odometer read from the MMR column).
+    const used = new Set(Object.values(mapping.fields));
+    Object.entries(suggested || {}).forEach(([field, header]) => {
+      if (mapping.fields[field] || !header || !known.has(header) || used.has(header) || !Object.prototype.hasOwnProperty.call(HEADER_ALIASES, field)) return;
+      mapping.fields[field] = header; used.add(header);
+    });
     mapping.missing = ['year', 'model', 'miles'].filter((field) => !mapping.fields[field]);
     return mapping;
   }

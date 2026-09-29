@@ -61,9 +61,9 @@ async function loadSearchStageIndex(ctx) {
     allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }).catch(() => []),
     allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' }),
     allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, undone_at: 'is.null' }).catch(() => []),
-    allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
+    allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at,detail_json', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
     // A11: a car stays "sent" whatever the customer answered (only a withdrawn unit does not count).
-    allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),
+    allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at,details_json', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),
     allRows(ctx, 'sms_print_reads', { select: 'confirmed_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.CONFIRMED' }),
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment }),
     // A unit presented from a match belongs to that match's mode.
@@ -75,7 +75,8 @@ async function loadSearchStageIndex(ctx) {
   // A mark, event or unit without a mode (made before the split) counts for every mode of the ficha.
   const latestFor = (list, journeyId, mode) => list.filter((row) => row.id === journeyId && (!row.mode || row.mode === mode)).reduce((best, row) => (!best || Date.parse(best) < Date.parse(row.at) ? row.at : best), null);
   const markRows = marks.map((mark) => ({ id: mark.journey_id, kind: mark.kind, at: mark.created_at, mode: mark.logical_mode || null }));
-  const sentRows = [...events.map((row) => ({ id: row.journey_id, at: row.occurred_at, mode: null })), ...units.map((row) => ({ id: row.journey_id, at: row.presented_at || row.created_at, mode: unitMode.get(row.id) || null }))];
+  const modeOf = (value) => vehicleMatch.normalizedMode(value && value.logical_mode);
+  const sentRows = [...events.map((row) => ({ id: row.journey_id, at: row.occurred_at, mode: modeOf(row.detail_json) })), ...units.map((row) => ({ id: row.journey_id, at: row.presented_at || row.created_at, mode: unitMode.get(row.id) || modeOf(row.details_json) || null }))];
   const confirmedByJourney = new Set(confirmedPrints.map((row) => row.confirmed_journey_id).filter(Boolean));
   const refsFromCalculator = calculatorRefs(calcRuns);
   const demands = buildSearchDemands({ journeys, refs, modeItems: consolidateCalcRuns(calcRuns, calcLinks) }).byJourney;

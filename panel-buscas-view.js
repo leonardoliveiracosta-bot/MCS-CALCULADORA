@@ -41,7 +41,8 @@ async function manheimView(ctx) {
     allRows(ctx, 'vitrines', { select: 'journey_id', environment: 'eq.' + ctx.environment }),
     loadSearchStageIndex(ctx)
   ]);
-  const latest = uploads.find((upload) => !upload.undone_at) || null;
+  // "O último upload" is the most recent ACTIVE batch, even beyond the history shown.
+  const latest = uploads.find((upload) => !upload.undone_at) || (supported ? (await rows(ctx, 'manheim_uploads', { select: UPLOAD_COLUMNS + UNDO_COLUMNS, environment: 'eq.' + ctx.environment, undone_at: 'is.null', order: 'uploaded_at.desc', limit: '1' }))[0] || null : null);
   const matches = latest ? await allRows(ctx, 'manheim_matches', {
     select: 'id,journey_id,calc_ref,match_kind,match_reason,mmr_status,row_fingerprint,vehicle_json,presented_unit_id,created_at' + (supported ? ',logical_mode' : ''),
     environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id, ...active, order: 'created_at.asc'
@@ -77,14 +78,15 @@ async function manheimView(ctx) {
 
   // Demands of those people. A ficha closed, switched off (and not eligible to come back) or
   // discarded is not a match target.
-  const journeyDemandList = items.flatMap((item) => (base.demands.byJourney.get(item.id) || []).map((demand) => ({ demand, item })));
+  // A ficha closed, discarded or switched off (and not eligible to come back) has no search:
+  // it is not a target, not counted and not sent to review.
+  const usableJourney = (item) => item.status !== 'ENCERRADO' && item.disposition !== 'DISCARDED' && (item.enabled !== false || item.reactivationEligible || item.status === 'PARADO');
+  const journeyDemandList = items.filter(usableJourney).flatMap((item) => (base.demands.byJourney.get(item.id) || []).map((demand) => ({ demand, item })));
   const orderDemandList = base.demands.orders.filter((demand) => orderByRef.has(upper(demand.ref))).map((demand) => ({ demand, order: orderByRef.get(upper(demand.ref)) }));
   const targets = [];
   const demandsByTarget = new Map();
   const addTargetDemand = (targetKey, demand) => { if (!demandsByTarget.has(targetKey)) demandsByTarget.set(targetKey, []); demandsByTarget.get(targetKey).push(demand); };
   journeyDemandList.forEach(({ demand, item }) => {
-    const usable = item.status !== 'ENCERRADO' && item.disposition !== 'DISCARDED' && (item.enabled !== false || item.reactivationEligible || item.status === 'PARADO');
-    if (!usable) return;
     addTargetDemand('j:' + item.id, demand);
     if (demand.active) targets.push(matchTarget(demand, { reactivation: item.enabled === false || item.status === 'PARADO' }));
   });

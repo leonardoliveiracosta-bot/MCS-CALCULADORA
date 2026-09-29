@@ -58,7 +58,7 @@ test('1 · o Calculate My Cost envia logical_mode VALOR e 2 · o Find One For Me
 
 // ------------------------------------------------------------------ 3-5, 18 BUSCAS por modo
 async function buscasView(tables) {
-  const server = { ...realServer, allRows: async (_ctx, table) => tables[table] || [], rows: async (_ctx, table) => tables[table] || [], panelMeta: async () => ({}) };
+  const server = { ...realServer, allRows: async (_ctx, table) => tables[table] || [], rows: async (_ctx, table, params = {}) => (tables[table] || []).filter((row) => params.undone_at !== 'is.null' || !row.undone_at), panelMeta: async () => ({}) };
   const view = loadWith('panel-buscas-view.js', {
     './panel-server': server,
     './panel-ready': { score: () => ({}), loadScoreVehicles: async () => [] },
@@ -394,4 +394,66 @@ test('34 · D1 a D4 do Lote 4 e 45 · os testes anteriores continuam no pacote',
   assert.match(read('panel-domain.js'), /logicalMode: modes\.length === 1 \? modes\[0\] : 'MIXED'/);
   assert.doesNotMatch(read('panel-buscas.js'), /groupCalculatorByRef\([^)]*\)\.map\(orderDemand/);
   assert.ok(buscas.buildBuscasBase);
+});
+
+// ------------------------------------------------------------------ achados da revisão independente
+test('revisão 1 · a milhagem da OpenAI tem de ser o número inteiro escrito na célula; km nunca vira milha', () => {
+  assert.equal(manheim.supportedNumber(12000, '12k mi'), true);
+  assert.equal(manheim.supportedNumber(12, '12k mi'), false);
+  assert.equal(manheim.supportedNumber(103500, '103,500 mi (TMU)'), true);
+  assert.equal(manheim.supportedNumber(3500, '103,500 mi (TMU)'), false);
+  assert.equal(manheim.supportedNumber(45000, '45,000 km'), false);
+  assert.equal(manheim.supportedNumber(21500, '$21.5k'), true);
+  assert.equal(manheim.supportedNumber(70000, '70000 or 80000'), false, 'dois números: ambíguo');
+});
+
+test('revisão 2 · o cabeçalho sugerido nunca reaproveita uma coluna já usada', () => {
+  const headers = ['Year', 'Make', 'Model', 'Trim', 'Odo Reading', 'MMR'];
+  assert.equal(manheim.mapHeadersWith(headers, { miles: 'MMR' }).fields.miles, undefined);
+  assert.deepEqual(manheim.mapHeadersWith(headers, { miles: 'MMR' }).missing, ['miles']);
+  assert.equal(manheim.mapHeadersWith(headers, { miles: 'Odo Reading' }).fields.miles, 'Odo Reading');
+  assert.equal(manheim.mapHeadersWith(headers, { miles: 'Nope' }).fields.miles, undefined);
+});
+
+test('revisão 3 · ficha encerrada não conta como busca ativa nem vai para revisão', async () => {
+  const closed = { id: uuid(80), contact_id: uuid(81), reference_code: 'DCCC4', status: 'ENCERRADO', criteria_json: {}, created_at: iso(9), updated_at: iso(9) };
+  const review = { id: uuid(82), contact_id: uuid(83), reference_code: null, status: 'ENCERRADO', criteria_json: { wishlists: [{ make: 'BMW', model: 'X5' }] }, created_at: iso(9), updated_at: iso(9) };
+  const data = await buscasView({ journeys: [closed, review], contacts: [{ id: uuid(81), display_name: 'Fechada', is_lead: true }, { id: uuid(83), display_name: 'Fechada 2', is_lead: true }],
+    calc_runs: [valorRow('DCCC4'), clickRow('DCCC4')], message_journeys: [{ journey_id: uuid(82), message_id: 'm1' }], messages: [{ id: 'm1', direction: 'CUSTOMER', occurred_at_utc: iso(1), source_kind: 'WHATSAPP_WEBHOOK' }], manheim_uploads: [], manheim_matches: [] });
+  assert.deepEqual([data.counts.VALOR.demands, data.counts.total.people, data.review.length, data.targets.length], [0, 0, 0, 0]);
+});
+
+test('revisão 4 · apresentar um carro pela ficha marca como enviado só o modo da oferta', async () => {
+  const journey = { id: uuid(84), reference_code: 'DCCC4', status: 'ATIVO', source: 'CALCULATOR', criteria_json: {}, created_at: iso(10) };
+  const tables = { journeys: [journey], calc_runs: [valorRow('DCCC4'), carroRow('DCCC4')], lead_events: [{ journey_id: uuid(84), event_type: 'CAR_PRESENTED', occurred_at: iso(1), detail_json: { logical_mode: 'VALOR' } }],
+    units: [{ id: uuid(85), journey_id: uuid(84), status: 'PRESENTED', presented_at: iso(1), details_json: { logical_mode: 'VALOR' } }] };
+  const server = { ...realServer, allRows: async (_ctx, table) => tables[table] || [] };
+  const stage = loadWith('panel-search-stage.js', { './panel-server': server, './panel-manheim-state': { undoSupported: async () => true } });
+  const modes = (await stage.loadSearchStageIndex(ctx)).get(uuid(84)).modes;
+  assert.deepEqual([modes.VALOR.stage, modes.CARRO.stage], ['SENT', 'MISSING']);
+  assert.match(read('api/panel/lead.js'), /detail_json: \{ vehicle: unit\.vehicle_text, \.\.\.\(presentedMode \? \{ logical_mode: presentedMode \} : \{\}\) \}/);
+  assert.match(read('painel/lead.js'), /api\('present',\{fingerprint:car\.rowFingerprint,mode:car\.mode\|\|null\}\)/);
+});
+
+test('revisão 5 · o score da ficha usa as demandas da Ref ligada (QUALIFICAÇÃO e HOJE passam as entradas por modo)', () => {
+  const { score } = require('../panel-ready');
+  const journey = { id: uuid(86), reference_code: 'VAAA2', status: 'ATIVO', criteria_json: { wishlists: [{ make: 'BMW', model: 'X5' }] }, budget_cents: 5000000, phones: [] };
+  const simulations = domain.consolidateCalcRuns([valorRow('VAAA2')]);
+  const cars = [car({ mmrCents: 4500000 })];
+  assert.equal(score({ simulations }, journey, {}, cars).mmr, 4500000);
+  assert.equal(score({}, journey, {}, cars).mmr, null, 'sem modo conhecido não há comparação');
+  assert.match(read('api/panel/qualification.js'), /simulations:modeItems\.filter\(\(item\)=>ownRefs\.includes\(item\.ref\)\)/);
+  assert.match(read('api/panel/today.js'), /score\(\{ \.\.\.item, simulations \}, journey/);
+});
+
+test('revisão 6 e 7 · contadores sem duplicar e leitura falha fechada quando o banco responde erro', async () => {
+  assert.match(read('painel/painel.js'), /count\('searches', searches, \(data\) => new Set\(\(data\.items \|\| \[\]\)\.map\(\(item\) => item\.journeyId \|\| item\.key\)\)\.size\)/);
+  assert.match(read('api/panel/records.js'), /manheimMatchCount: new Set\(/);
+  const state = loadWith('panel-manheim-state.js', { './panel-server': { rows: async () => { throw Object.assign(new Error('x'), { status: 503 }); } } });
+  await assert.rejects(() => state.activeFilter(ctx), (failure) => failure.status === 503);
+  const missing = loadWith('panel-manheim-state.js', { './panel-server': { rows: async () => { throw Object.assign(new Error('x'), { status: 400 }); } } });
+  assert.deepEqual(await missing.activeFilter(ctx), {});
+  const ready = loadWith('panel-manheim-state.js', { './panel-server': { rows: async () => [] } });
+  assert.deepEqual(await ready.activeFilter(ctx), { undone_at: 'is.null' });
+  assert.match(read('painel/painel.js'), /AI_MAX_ROWS_PER_BATCH = 1000/);
 });

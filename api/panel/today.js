@@ -153,7 +153,8 @@ module.exports = async (req, res) => {
     let items = orders.concat(journeys).map((item) => {
       const journey = journeyMap.get(item.journeyId || item.id) || journeyByRef.get(String(item.ref || item.referenceCode || '').trim().toUpperCase());
       const ref = String(item.ref || item.referenceCode || '').trim().toUpperCase();
-      const ready = score(item, journey, { ...data, promises:data.promises.concat(leadPromises) }, vehicles, now);
+      const simulations = item.simulations || (journey ? refsOf(journey).flatMap((own) => ordersByRef.get(own)?.simulations || []) : []);
+      const ready = score({ ...item, simulations }, journey, { ...data, promises:data.promises.concat(leadPromises) }, vehicles, now);
       const dispositionAt=item.dispositionUpdatedAt||dispositionFor(journey,ref)?.updated_at;const returned=returnedForJourney(journey,dispositionAt);
       const journeyId=journey?.id;
       const facts=contacts.facts({journeyId:journey?.id,ref,refs:journey?(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});

@@ -1065,16 +1065,16 @@
     ['VALOR','CARRO'].forEach((mode)=>[['MISSING','🔍 Falta buscar'],['SAVED','💾 Busca salva'],['SENT','📤 Opções enviadas']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.countsByMode?.[mode]?.[key]||0)),element('span','muted',label));summaries[mode].append(stat);}));
     (data.items||[]).forEach((item)=>{
       const root=roots[item.mode];if(!root)return;
-      const card=element('article','item-card search-card');card.dataset.mode=item.mode;const head=element('div','item-head');head.append(element('strong','identity-name',item.name),phoneNode({phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[]}),element('span','muted',`Ref ${item.ref||'—'}`));const direct=directLeadBadge(item);if(direct)head.append(direct);head.append(element('span','search-stage '+item.stage,`${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days===1?'':'s'}` : ''}`));card.append(head);
+      const card=element('article','item-card search-card');card.dataset.mode=item.mode;const head=element('div','item-head');head.append(element('strong','identity-name',item.name),phoneNode({phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[]}),element('span','muted',item.ref?`Ref ${item.ref}`:'sem Ref'));const direct=directLeadBadge(item);if(direct)head.append(direct);head.append(element('span','search-stage '+item.stage,`${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days===1?'':'s'}` : ''}`));card.append(head);
       card.append(makeBadge(item.mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM',item.mode==='VALOR'?'blue':'green'),element('strong','',item.exactSearch));
-      if(item.alsoServes?.length){const names=item.alsoServes.slice(0,2).map((peer)=>`${peer.name} (Ref ${peer.ref||'—'})`).join(' e ');card.append(element('p','muted',`Também serve para: ${names}${item.alsoServes.length>2?` e mais ${item.alsoServes.length-2}`:''} — mesma busca no Manheim`));}
+      if(item.alsoServes?.length){const names=item.alsoServes.slice(0,2).map((peer)=>`${peer.name} (${peer.ref?`Ref ${peer.ref}`:'sem Ref'})`).join(' e ');card.append(element('p','muted',`Também serve para: ${names}${item.alsoServes.length>2?` e mais ${item.alsoServes.length-2}`:''} · mesma busca no Manheim`));}
       if(item.stage==='SAVED')card.append(element('p','muted',`${item.matchCount} carro${item.matchCount===1?'':'s'} no último CSV do Manheim batem com esta busca`));
       const actions=element('div','inline-actions');
-      const stageAction=(control,kind)=>MCSAction.bind(control,()=>{const previous=item.stage,next=kind==='SAVED'?'SAVED':'SENT';return{scope:card,optimistic:()=>{item.stage=next;card.querySelector('.search-stage').textContent=next==='SAVED'?'💾 Busca salva':'📤 Opções enviadas';return previous;},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:(value)=>{item.stage=value;card.querySelector('.search-stage').textContent=item.stageLabel;},refresh:()=>loadSearches(),errorText:'Não consegui salvar — tente de novo'};});
+      const stageAction=(control,kind)=>MCSAction.bind(control,()=>{const previous=item.stage,next=kind==='SAVED'?'SAVED':'SENT';return{scope:card,optimistic:()=>{item.stage=next;card.querySelector('.search-stage').textContent=next==='SAVED'?'💾 Busca salva':'📤 Opções enviadas';return previous;},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:(value)=>{item.stage=value;card.querySelector('.search-stage').textContent=item.stageLabel;},refresh:()=>loadSearches(),errorText:'Não consegui salvar, tente de novo'};});
       if(item.stage==='MISSING'){const saved=makeButton('💾 Salvei a busca no Manheim',null);stageAction(saved,'SAVED');actions.append(saved);}
       if(item.stage!=='SENT'){const sent=makeButton('📤 Enviei opções ao cliente',null,'quiet small');stageAction(sent,'SENT');actions.append(sent);}
       if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>switchPanel('searches'),'quiet small'));
-      if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED',undo=makeButton('Desfazer',null,'quiet small');if(item.stageSource==='MARK')MCSAction.bind(undo,()=>({scope:card,optimistic:()=>{undo.textContent='Desfazendo…';},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:()=>{undo.textContent='Desfazer';},refresh:()=>loadSearches(),errorText:'Não consegui desfazer — tente de novo'}));else undo.addEventListener('click',()=>MCSAction.feedback(card,item.stageSource==='MANHEIM'?'Esta busca foi marcada no MANHEIM. Desfaça em “Quais buscas salvar”.':'As opções foram registradas pela ficha do cliente; desfaça na ficha.','error','search-origin'));actions.append(undo);}
+      if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED',undo=makeButton('Desfazer',null,'quiet small');if(item.stageSource==='MARK')MCSAction.bind(undo,()=>({scope:card,optimistic:()=>{undo.textContent='Desfazendo…';},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:()=>{undo.textContent='Desfazer';},refresh:()=>loadSearches(),errorText:'Não consegui desfazer, tente de novo'}));else undo.addEventListener('click',()=>MCSAction.feedback(card,item.stageSource==='MANHEIM'?'Esta busca foi marcada no MANHEIM, desfaça em “Quais buscas salvar”':'As opções foram registradas pela ficha do cliente, desfaça na ficha','error','search-origin'));actions.append(undo);}
       actions.append(makeButton('Abrir lead',()=>openDetail('ficha',item.journeyId),'quiet small'));card.append(actions);root.append(card);
     });
     Object.entries(roots).forEach(([mode,root])=>{if(!root.childElementCount)empty(root,'Nenhum cliente com busca ativa neste modo');});
@@ -1138,7 +1138,8 @@
     if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
     count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + (data.printReviews || []).length);
     count('clients', records, (data) => (data.items || []).length);
-    count('searches', searches, (data) => (data.items || []).length);
+    // One person with a VALOR and a CARRO card is one person in the badge.
+    count('searches', searches, (data) => new Set((data.items || []).map((item) => item.journeyId || item.key)).size);
     const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
     if (failures.length) console.error('Contadores com falha', failures);
     return { failed: failures.length };
@@ -2107,7 +2108,7 @@
   // answer goes back through the same parser; what is still ambiguous goes to review. When the
   // AI is off or fails, the valid rows are imported and only the ambiguous ones go to review.
   function newAiRun() {
-    return { rowsTotal: 0, rowsDeterministic: 0, rowsSentToAi: 0, rowsAccepted: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, ms: 0, errors: 0, timeouts: 0, unavailable: false, model: null, review: [], cache: new Map(), at: new Date().toISOString() };
+    return { rowsTotal: 0, rowsDeterministic: 0, rowsSentToAi: 0, rowsAccepted: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, ms: 0, errors: 0, timeouts: 0, unavailable: false, model: null, review: [], cache: new Map(), headers: new Map(), at: new Date().toISOString() };
   }
   function aiUsage(ai, answer) {
     if (!answer || !answer.available) { ai.unavailable = true; if (answer && answer.reason === 'OPENAI_TIMEOUT') ai.timeouts += 1; else if (answer && answer.reason !== 'OPENAI_NOT_ENABLED') ai.errors += 1; return; }
@@ -2115,10 +2116,15 @@
     ai.inputTokens += Number(answer.usage?.inputTokens) || 0; ai.outputTokens += Number(answer.usage?.outputTokens) || 0;
     ai.costUsd += Number(answer.costUsd) || 0; ai.ms += Number(answer.ms) || 0;
   }
+  // Cost control: at most this many ambiguous rows per batch go to OpenAI; the rest go to review.
+  const AI_MAX_ROWS_PER_BATCH = 1000;
   async function aiHeaderMapping(ai, headers, mapping, status) {
+    const signature = JSON.stringify([headers, mapping.missing]);
+    if (ai.headers.has(signature)) return MCSManheim.mapHeadersWith(headers, ai.headers.get(signature));
     status.textContent = 'Lendo cabeçalho desconhecido…';
     const answer = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_rows', headerMap: { headers, missing: mapping.missing } }) }).catch(() => ({ available: false, reason: 'OPENAI_FAILED' }));
     aiUsage(ai, answer);
+    if (answer && answer.available && answer.mapping) ai.headers.set(signature, answer.mapping);
     return answer && answer.available && answer.mapping ? MCSManheim.mapHeadersWith(headers, answer.mapping) : mapping;
   }
   async function resolveAmbiguousRows(ai, rows, mapping, fileName, status) {
@@ -2126,9 +2132,9 @@
     const keyOf = (row) => JSON.stringify([row.ambiguous, MCSManheim.AI_FIELDS.map((field) => row.cells[field])]);
     // The same normalized input is asked once per batch.
     const pending = [...new Map(rows.filter((row) => !ai.cache.has(keyOf(row))).map((row) => [keyOf(row), row])).values()];
-    for (let index = 0; index < pending.length && !ai.unavailable; index += 25) {
+    for (let index = 0; index < pending.length && !ai.unavailable && ai.rowsSentToAi < AI_MAX_ROWS_PER_BATCH; index += 25) {
       status.textContent = `Lendo ${rows.length} linha(s) ambígua(s)…`;
-      const chunk = pending.slice(index, index + 25);
+      const chunk = pending.slice(index, Math.min(index + 25, index + AI_MAX_ROWS_PER_BATCH - ai.rowsSentToAi));
       const answer = await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_rows', rows: chunk.map((row, position) => ({ id: String(position), cells: row.cells, ambiguous: row.ambiguous })) }) }).catch(() => ({ available: false, reason: 'OPENAI_FAILED' }));
       aiUsage(ai, answer);
       if (!answer || !answer.available) break;
@@ -2138,7 +2144,7 @@
     const accepted = [];
     rows.forEach((row) => {
       const key = keyOf(row);
-      if (!ai.cache.has(key)) { ai.review.push({ row: row.rowNumber, file: fileName, reason: ai.unavailable ? 'leitura automática indisponível' : 'não analisada' }); return; }
+      if (!ai.cache.has(key)) { ai.review.push({ row: row.rowNumber, file: fileName, reason: ai.unavailable ? 'leitura automática indisponível' : 'limite de leitura automática do lote' }); return; }
       const outcome = MCSManheim.applySuggestion(row, ai.cache.get(key), mapping, ai.model);
       if (outcome.vehicle) { accepted.push(outcome.vehicle); ai.rowsAccepted += 1; }
       else ai.review.push({ row: row.rowNumber, file: fileName, reason: outcome.review });

@@ -15,10 +15,11 @@ async function undoSupported(ctx) {
   try {
     await rows(ctx, 'manheim_uploads', { select: 'id,undone_at', limit: '1' });
   } catch (failure) {
-    // 400/42703 = column missing (migration not applied): remembered for a minute. Any other
-    // failure is not a verdict and is asked again next time; the reads that follow fail on
-    // their own if the database is unreachable.
-    if (failure && (failure.status === 400 || failure.status === 404)) cache.set(key, { value: false, at: Date.now() });
+    // 400/42703 = column missing (migration not applied): remembered for a minute.
+    if (failure && (failure.status === 400 || failure.status === 404)) { cache.set(key, { value: false, at: Date.now() }); return false; }
+    // Any other HTTP answer is not a verdict: fail closed instead of reading undone batches.
+    if (failure && failure.status) throw failure;
+    // No answer at all (network): every read that follows fails the same way.
     return false;
   }
   cache.set(key, { value: true, at: Date.now() });
