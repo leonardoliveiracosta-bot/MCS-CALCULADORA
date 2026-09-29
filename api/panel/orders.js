@@ -20,6 +20,7 @@ module.exports = async (req, res) => {
     const limit = Math.min(100, Math.max(1, Number.parseInt(req.query && req.query.limit, 10) || 30));
     const offset = Math.max(0, Number.parseInt(req.query && req.query.offset, 10) || 0);
     const sort=String(req.query?.sort||'recent');
+    const scope = String((req.query && req.query.scope) || '');
     if (!['Todos', 'Calculadora', 'WhatsApp direto', 'Carro', 'Valor', 'Pendentes'].includes(filter)) return send(res, 400, { error: 'ORDER_FILTER_INVALID' });
     if (!['7', '30', '90', 'all'].includes(period)) return send(res, 400, { error: 'ORDER_PERIOD_INVALID' });
     if (exactRef && !/^[A-HJ-NP-Z2-9]{5}$/.test(exactRef)) return send(res, 400, { error: 'ORDER_REF_INVALID' });
@@ -74,7 +75,7 @@ module.exports = async (req, res) => {
     const scoreVehicles = await loadScoreVehicles(ctx).catch(() => []);
     const personDisposition = dispositionIndex(dispositions);
     const refsOfJourney = (journey) => [journey.reference_code, ...(data.refs || []).filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].filter(Boolean).map(refKey);
-    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const person=linked?personDisposition(linked.id,[...refsOfJourney(linked),item.ref]):null;const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered)return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},scoreVehicles);return [decorateContact({
+    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const person=linked?personDisposition(linked.id,[...refsOfJourney(linked),item.ref]):null;const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered&&!(scope==='unlinked'&&!linked))return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},scoreVehicles);return [decorateContact({
       ...item,...(person?{disposition:person.status,discardReason:person.discard_reason||null,dispositionUpdatedAt:person.updated_at||null,pending:false}:{}),journeyId:linked?.id||item.journeyId,latestMessage:linked?latestByJourney.get(linked.id)||null:null,budgetCents:linked?effectiveCriteria(linked,item).bidCents||item.budgetCents:item.budgetCents,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
       lastCustomerAt: Math.max(time(item.occurredAt)||0, time(latestCustomerByJourney.get(linked?.id)?.occurred_at_utc || latestCustomerByJourney.get(linked?.id)?.occurred_at_local || latestCustomerByJourney.get(linked?.id)?.created_at)||0) || null,
       lastRealMessageAt: lastRealByJourney(linked?.id||item.journeyId), sortAt: lastRealByJourney(linked?.id||item.journeyId) || item.occurredAt || null,
@@ -107,6 +108,30 @@ module.exports = async (req, res) => {
         lastCustomerAt: latestCustomerByJourney.get(item.id)?.occurred_at_utc || latestCustomerByJourney.get(item.id)?.occurred_at_local || latestCustomerByJourney.get(item.id)?.created_at || item.created_at,score:ready.score,goodHour:ready.goodHour
       },facts,insightByJourney.get(item.id),complete)];
     });
+
+    // Lote 4 (PEDIDOS fundido em ENTRADA): calculator Refs with no ficha yet, still to handle.
+    // "contacted" entered in contact through the calculator; "simulated" only simulated. Counts
+    // come with the page so the ENTRADA section shows its own number (never the tab badge).
+    if (scope === 'unlinked') {
+      const group = String((req.query && req.query.group) || 'contacted');
+      if (!['contacted', 'simulated'].includes(group)) return send(res, 400, { error: 'ORDER_GROUP_INVALID' });
+      const since = period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
+      const open = calculator.filter((item) => !item.journeyId && !item.disposition && (since === null || (time(item.occurredAt) || 0) >= since));
+      // "Entered in contact" is the panel's single rule (panel-contact.js): an SMS click always,
+      // a WhatsApp click only before the WhatsApp webhook cutover. The rest only simulated.
+      const groups = { contacted: open.filter((item) => item.enteredContact), simulated: open.filter((item) => !item.enteredContact) };
+      const listed = sortItems(groups[group], sort, 'recent');
+      const page = listed.slice(offset, offset + limit);
+      const linkTargets = data.journeys.filter((item) => item.status !== 'ENCERRADO').map((item) => ({
+        journeyId: item.id, contactId: item.contact_id,
+        label: `${item.contact && item.contact.display_name ? item.contact.display_name : 'Contato sem nome'} · Ref ${item.reference_code || '—'} — ${item.vehicle_text || 'busca sem veículo'}`
+      }));
+      return send(res, 200, {
+        environment: ctx.environment, scope, group, period, items: page, linkTargets, meta,
+        counts: { contacted: groups.contacted.length, simulated: groups.simulated.length },
+        page: { offset, limit, total: listed.length, hasMore: offset + page.length < listed.length }
+      });
+    }
 
     const cutoff = filter === 'Pendentes' || period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
     // M4: a direct ficha that also has a calculator order is one person: keep the order card only

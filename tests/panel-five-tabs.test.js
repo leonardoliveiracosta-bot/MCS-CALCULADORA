@@ -8,9 +8,13 @@ const html=fs.readFileSync(path.join(root,'painel/index.html'),'utf8');
 const js=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
 const css=fs.readFileSync(path.join(root,'painel/tema-mcs.css'),'utf8');
 
-test('painel publica exatamente cinco abas e mantém os ids legados',()=>{
+test('painel publica quatro abas (PEDIDOS fundido em ENTRADA e CLIENTES) e mantém os ids legados',()=>{
   const tabs=[...html.matchAll(/class="tab(?: active)?"[^>]+data-view="([^"]+)"/g)].map((match)=>match[1]);
-  assert.deepEqual(tabs,['today','entry','clients','orders','searches']);
+  assert.deepEqual(tabs,['today','entry','clients','searches']);
+  // Lote 4: old links to PEDIDOS open ENTRADA; the order detail keeps its own address.
+  assert.match(js,/if \(view === 'orders'\) view = 'entry';/);
+  assert.match(js,/pedidos:'entry'/);
+  assert.match(js,/#pedido\//);
   for(const id of ['pending-panel','qualification-panel','records-panel','manheim-panel','pending-list','qualification-list','records-list','manheim-results'])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(js,/fichas:'clients'.*qualificacao:'clients'.*pendencias:'clients'/);
   assert.match(js,/manheim:'searches'.*buscas:'searches'/);

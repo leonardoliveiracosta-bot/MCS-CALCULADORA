@@ -2,7 +2,7 @@
 
 const {
   clientOkPatch, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimOrder, matchManheimVehicle,
-  mergeWishlists, normalizeWishlist, nextStageForUnits, forwardStage, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
+  mergeWishlists, normalizeWishlist, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
 const { dispositionIndex } = require('../../panel-disposition');
@@ -87,30 +87,6 @@ async function cancelSuppressions(ctx, journeyId, at) {
   }, { cancelled_at: at, cancelled_by: ctx.panel.id });
 }
 
-async function actionSuppression(ctx, journey, body) {
-  const kind = String(body.kind || '');
-  const action = String(body.suppressionAction || '');
-  if (!TODAY_KINDS.has(kind) || !['DEFER', 'DISMISS'].includes(action)) return send(ctx.res, 400, { error: 'SUPPRESSION_INVALID' });
-  let untilAt = null;
-  if (action === 'DEFER') {
-    const due = time(body.untilAt);
-    if (!due || due <= Date.now()) return send(ctx.res, 400, { error: 'SUPPRESSION_DATE_INVALID' });
-    untilAt = new Date(due).toISOString();
-  }
-  const reason = safeText(body.reason, 500) || null;
-  const at = isoNow();
-  const created = await insert(ctx, 'journey_alert_suppressions', {
-    environment: ctx.environment, journey_id: journey.id, kind, action,
-    until_at: untilAt, reason_text: reason, created_at: at, created_by: ctx.panel.id
-  });
-  await recordMutation(ctx, {
-    at, journeyId: journey.id, contactId: journey.contact_id,
-    activityType: 'TODAY_ALERT_' + action, summary: action === 'DEFER' ? 'Alerta adiado' : 'Alerta dispensado',
-    metadata: { kind, until_at: untilAt }, entityType: 'journey_alert_suppression',
-    entityId: created[0].id, action, after: { kind, action, until_at: untilAt }
-  });
-  return send(ctx.res, 201, { id: created[0].id, status: action });
-}
 
 async function actionNext(ctx, journey, body) {
   const operation = String(body.operation || '');
@@ -148,22 +124,6 @@ async function actionNext(ctx, journey, body) {
   return send(ctx.res, 200, { status: operation });
 }
 
-async function actionStartSearch(ctx, journey) {
-  if (journey.stage_frozen || journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_FROZEN' });
-  const at = isoNow();
-  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, {
-    stage: forwardStage(journey.stage, 'EM_BUSCA'), search_started_at: journey.search_started_at || at,
-    updated_at: at, updated_by: ctx.panel.id
-  });
-  await insert(ctx, 'interactions', { environment: ctx.environment, journey_id: journey.id, type: 'SEARCH_STARTED', occurred_at: at, detail_text: null, created_at: at, created_by: ctx.panel.id }, false);
-  await recordMutation(ctx, {
-    at, journeyId: journey.id, contactId: journey.contact_id,
-    activityType: 'SEARCH_STARTED', summary: 'Busca iniciada', metadata: {},
-    entityType: 'journey', entityId: journey.id, action: 'SEARCH_STARTED',
-    before: { stage: journey.stage }, after: { stage: 'EM_BUSCA', search_started_at: journey.search_started_at || at }
-  });
-  return send(ctx.res, 200, { stage: 'EM_BUSCA', searchStartedAt: journey.search_started_at || at });
-}
 
 async function customerMessage(ctx, journey, messageId) {
   if (!isUuid(messageId)) return null;
@@ -171,83 +131,7 @@ async function customerMessage(ctx, journey, messageId) {
   return message && message.direction === 'CUSTOMER' ? message : null;
 }
 
-async function actionEvidence(ctx, journey, body) {
-  const point = Number(body.pointNumber);
-  const message = await customerMessage(ctx, journey, body.messageId);
-  if (!message || !Number.isInteger(point) || point < 1 || point > 6) return send(ctx.res, 400, { error: 'EVIDENCE_INVALID' });
-  const points = await rows(ctx, 'journey_checklist', { select: 'id,status', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, point_number: 'eq.' + point, limit: '1' });
-  if (!points[0]) return send(ctx.res, 404, { error: 'CHECKLIST_POINT_NOT_FOUND' });
-  const existing = await rows(ctx, 'checklist_evidence', { select: 'id', environment: 'eq.' + ctx.environment, checklist_id: 'eq.' + points[0].id, message_id: 'eq.' + message.id, limit: '1' });
-  const at = isoNow();
-  let evidenceId = existing[0] && existing[0].id;
-  if (!evidenceId) {
-    const created = await insert(ctx, 'checklist_evidence', {
-      environment: ctx.environment, checklist_id: points[0].id, message_id: message.id,
-      excerpt_text: String(message.body_text).slice(0, 1000), created_at: at, created_by: ctx.panel.id
-    });
-    evidenceId = created[0].id;
-  }
-  await patchRows(ctx, 'journey_checklist', { environment: 'eq.' + ctx.environment, id: 'eq.' + points[0].id }, { status: 'COMPLETE', completed_at: at, updated_at: at });
-  await recordMutation(ctx, {
-    at, journeyId: journey.id, contactId: journey.contact_id, chatId: message.chat_id,
-    activityType: 'CHECKLIST_EVIDENCE_ADDED', summary: 'Evidência adicionada ao checklist', metadata: { point_number: point, message_id: message.id },
-    entityType: 'checklist_evidence', entityId: evidenceId, action: 'CREATE', after: { point_number: point, message_id: message.id }
-  });
-  return send(ctx.res, 201, { evidenceId, pointNumber: point, status: 'COMPLETE' });
-}
 
-async function actionDeclaration(ctx, journey, body) {
-  const field = String(body.field || '');
-  const value = safeText(body.value, 500, true);
-  const message = await customerMessage(ctx, journey, body.messageId);
-  if (!message || !['TETO', 'VEICULO', 'PAGAMENTO', 'PRAZO'].includes(field) || !value) return send(ctx.res, 400, { error: 'DECLARATION_INVALID' });
-  const at = isoNow();
-  const existing = await rows(ctx, 'journey_declarations', {
-    select: 'id,value_text,value_json,source', environment: 'eq.' + ctx.environment,
-    journey_id: 'eq.' + journey.id, field: 'eq.' + field, order: 'declared_at.desc', limit: '1'
-  });
-  const valueJson = {};
-  if (field === 'TETO') {
-    // TETO is the customer's total ceiling (R2): it never becomes the maximum bid.
-    if (journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_CLOSED' });
-    const ceilingCents = parseMoneyCents(value);
-    if (ceilingCents === null) return send(ctx.res, 400, { error: 'CEILING_VALUE_INVALID' });
-    valueJson.ceilingCents = ceilingCents;
-  }
-  const created = await insert(ctx, 'journey_declarations', {
-    environment: ctx.environment, journey_id: journey.id, field, source: 'CONVERSATION',
-    value_text: value, value_json: valueJson, message_id: message.id,
-    declared_at: message.occurred_at_utc || message.created_at || at,
-    created_at: at, created_by: ctx.panel.id
-  });
-  if (existing[0] && declarationKey(field, existing[0].value_text, existing[0].value_json) !== declarationKey(field, value, valueJson)) {
-    const duplicate = await rows(ctx, 'journey_divergences', {
-      select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id,
-      field: 'eq.' + field, left_declaration_id: 'eq.' + existing[0].id,
-      right_declaration_id: 'eq.' + created[0].id, limit: '1'
-    });
-    if (!duplicate[0]) await insert(ctx, 'journey_divergences', {
-      environment: ctx.environment, journey_id: journey.id, field,
-      left_declaration_id: existing[0].id, right_declaration_id: created[0].id,
-      status: 'OPEN', created_at: at
-    }, false);
-  }
-  const patch = { updated_at: at, updated_by: ctx.panel.id };
-  if (field === 'VEICULO') patch.vehicle_text = value;
-  if (field === 'PAGAMENTO') patch.payment_text = value;
-  if (field === 'TETO') patch.confirmed_total_ceiling_cents = valueJson.ceilingCents;
-  if (field === 'PRAZO') {
-    patch.customer_deadline_text = value;
-    if (time(body.deadlineAt)) patch.customer_deadline_at = new Date(time(body.deadlineAt)).toISOString();
-  }
-  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, patch);
-  await recordMutation(ctx, {
-    at, journeyId: journey.id, contactId: journey.contact_id, chatId: message.chat_id,
-    activityType: 'DECLARATION_RECORDED', summary: 'Declaração registrada', metadata: { field, message_id: message.id },
-    entityType: 'journey_declaration', entityId: created[0].id, action: 'CREATE', after: { field, source: 'CONVERSATION', message_id: message.id }
-  });
-  return send(ctx.res, 201, { declarationId: created[0].id, field });
-}
 
 // The ficha's effective wishes (R1): its own cars, or the cars of its linked calculator Refs.
 // Marking a car on a message keeps the others, including the ones that came from a Ref.
@@ -363,19 +247,6 @@ async function actionPromise(ctx, journey, body) {
   return send(ctx.res, 201, { promiseId: created[0].id, status: 'OPEN' });
 }
 
-async function actionFulfillPromise(ctx, journey, body) {
-  if (!isUuid(body.promiseId)) return send(ctx.res, 400, { error: 'PROMISE_ID_INVALID' });
-  const found = await rows(ctx, 'promises', { select: 'id,status', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + body.promiseId, limit: '1' });
-  if (!found[0]) return send(ctx.res, 404, { error: 'PROMISE_NOT_FOUND' });
-  const at = isoNow();
-  await patchRows(ctx, 'promises', { environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + body.promiseId }, { status: 'FULFILLED', fulfilled_at: at });
-  await recordMutation(ctx, {
-    at, journeyId: journey.id, contactId: journey.contact_id,
-    activityType: 'PROMISE_FULFILLED', summary: 'Promessa cumprida', metadata: {},
-    entityType: 'promise', entityId: body.promiseId, action: 'FULFILL', before: { status: found[0].status }, after: { status: 'FULFILLED' }
-  });
-  return send(ctx.res, 200, { status: 'FULFILLED' });
-}
 
 async function actionClientOk(ctx, journey, body) {
   if (journey.stage_frozen || journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_FROZEN' });
@@ -582,34 +453,7 @@ async function actionInteraction(ctx, journey, body) {
   return send(ctx.res, 201, { type, effective });
 }
 
-async function actionClose(ctx, journey, body) {
-  if (journey.stage_frozen || journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_FROZEN' });
-  const reason = safeText(body.reason, 500, true);
-  if (!reason) return send(ctx.res, 400, { error: 'CLOSE_REASON_REQUIRED' });
-  const at = isoNow();
-  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { status: 'ENCERRADO', closed_at: at, closed_reason: reason, stage_frozen: true, next_action_at: null, next_action_text: null, next_action_missing_since: null, updated_at: at, updated_by: ctx.panel.id });
-  await insert(ctx, 'interactions', { environment: ctx.environment, journey_id: journey.id, type: 'JOURNEY_CLOSED', occurred_at: at, detail_text: null, created_at: at, created_by: ctx.panel.id }, false);
-  await recordMutation(ctx, {
-    at, journeyId: journey.id, contactId: journey.contact_id,
-    activityType: 'JOURNEY_CLOSED', summary: 'Jornada encerrada', metadata: {},
-    entityType: 'journey', entityId: journey.id, action: 'CLOSE', before: { status: journey.status }, after: { status: 'ENCERRADO' }
-  });
-  return send(ctx.res, 200, { status: 'ENCERRADO' });
-}
 
-async function actionSetStatus(ctx, journey, body) {
-  const status = String(body.status || '');
-  if (journey.stage_frozen || journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_FROZEN' });
-  if (!['ATIVO', 'AGUARDANDO_CLIENTE', 'PARADO'].includes(status)) return send(ctx.res, 400, { error: 'JOURNEY_STATUS_INVALID' });
-  const at = isoNow();
-  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { status, updated_at: at, updated_by: ctx.panel.id });
-  await recordMutation(ctx, {
-    at, journeyId: journey.id, contactId: journey.contact_id,
-    activityType: 'JOURNEY_STATUS_CHANGED', summary: 'Status da jornada alterado', metadata: { status },
-    entityType: 'journey', entityId: journey.id, action: 'STATUS_CHANGE', before: { status: journey.status }, after: { status }
-  });
-  return send(ctx.res, 200, { status });
-}
 
 async function actionToggleJourney(ctx, journey, body) {
   if (typeof body.enabled !== 'boolean') return send(ctx.res, 400, { error: 'JOURNEY_SWITCH_INVALID' });
@@ -779,13 +623,6 @@ function storeManheimUpload(ctx, header, matches) {
   });
 }
 
-async function actionManheimUpload(ctx, body) {
-  const header = manheimUploadHeader(body);
-  const requested = Array.isArray(body.matches) ? body.matches : [];
-  if (!header || requested.length > 2000) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
-  const validated = await validateManheimMatches(ctx, requested);
-  return send(ctx.res, 201, { ...await storeManheimUpload(ctx, header, validated.matches), discarded: validated.discarded });
-}
 
 const MANHEIM_PART_ITEMS = 250;
 const MANHEIM_MAX_PARTS = 400;
@@ -921,6 +758,8 @@ async function actionInvertSenders(ctx, journey, body) {
   return send(ctx.res, 200, result);
 }
 
+const REMOVED_ACTIONS = new Set(['suppress', 'start_search', 'checklist_evidence', 'declaration', 'fulfill_promise', 'set_status', 'close_journey', 'manheim_upload']);
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   const ctx = await requirePanel(req, res);
@@ -928,30 +767,25 @@ module.exports = async (req, res) => {
   ctx.res = res;
   try {
     const body = await jsonBody(req, 2 * 1024 * 1024);
-    if (body.action === 'manheim_upload') return await actionManheimUpload(ctx, body);
     if (body.action === 'manheim_upload_part') return await actionManheimUploadPart(ctx, body);
     if (body.action === 'manheim_archive') return await actionManheimArchive(ctx, body);
     if (body.action === 'set_disposition') return await actionDisposition(ctx, body);
+    // Lote 4: actions no screen, cron, webhook or database ever called (proved before removal).
+    // They answer as invalid without touching the database.
+    if (REMOVED_ACTIONS.has(body.action)) return send(res, 400, { error: 'PANEL_ACTION_INVALID' });
     const journey = await journeyContext(ctx, body.journeyId);
     if (!journey) return send(res, 404, { error: 'JOURNEY_NOT_FOUND' });
     switch (body.action) {
-      case 'suppress': return await actionSuppression(ctx, journey, body);
       case 'next_action': return await actionNext(ctx, journey, body);
-      case 'start_search': return await actionStartSearch(ctx, journey);
-      case 'checklist_evidence': return await actionEvidence(ctx, journey, body);
-      case 'declaration': return await actionDeclaration(ctx, journey, body);
       case 'mark_message': return await actionMarkMessage(ctx, journey, body);
       case 'update_note': return await actionNote(ctx, journey, body);
       case 'set_funnel': return await actionFunnel(ctx, journey, body);
       case 'promise': return await actionPromise(ctx, journey, body);
-      case 'fulfill_promise': return await actionFulfillPromise(ctx, journey, body);
       case 'client_ok': return await actionClientOk(ctx, journey, body);
       case 'link_request': return await actionLinkRequest(ctx, journey, body);
       case 'unit': return await actionUnit(ctx, journey, body);
       case 'resolve_divergence': return await actionResolveDivergence(ctx, journey, body);
       case 'interaction': return await actionInteraction(ctx, journey, body);
-      case 'set_status': return await actionSetStatus(ctx, journey, body);
-      case 'close_journey': return await actionClose(ctx, journey, body);
       case 'toggle_journey': return await actionToggleJourney(ctx, journey, body);
       case 'return_update': return await actionReturn(ctx, journey, body);
       case 'invert_senders': return await actionInvertSenders(ctx, journey, body);
