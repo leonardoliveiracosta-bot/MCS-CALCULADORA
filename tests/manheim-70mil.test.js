@@ -237,6 +237,30 @@ test('critério alterado depois da importação: "Conferir novamente" e nova com
   assert.ok(rows.every(({ vehicle_json: { parsed } }) => parsed.year >= 2016 && parsed.year <= 2017 && parsed.miles >= 10000 && parsed.miles <= 40000));
 });
 
+test('consultas dirigidas usam os índices novos (EXPLAIN com o lote de ~60 mil carros)', async () => {
+  const key = (await backend.db.query(`select demand_key from public.manheim_matches where upload_id=$1 and undone_at is null group by 1 order by count(*) desc limit 1`, [uploadId])).rows[0].demand_key;
+  await backend.db.query('analyze');
+  const plan = async (label, sql, params) => {
+    const text = (await backend.db.query('explain (analyze, costs off, timing on, summary on) ' + sql, params)).rows.map((row) => row['QUERY PLAN']).join('\n');
+    metrics.plans = metrics.plans || {};
+    metrics.plans[label] = text;
+    return text;
+  };
+  const page = await plan('página de uma demanda', `select m.id from public.manheim_matches m where m.environment='preview' and m.upload_id=$1 and m.undone_at is null and m.demand_key=$2 order by m.sort_rank, m.sort_miles, m.id limit 11`, [uploadId, key]);
+  assert.match(page, /Index (Only )?Scan using manheim_matches_demand_page_idx/);
+  const summary = await plan('resumo por demanda', `select * from public.panel_manheim_batch_summary('preview', $1)`, [uploadId]);
+  assert.match(summary, /Execution Time/);
+  const make = await plan('inventário por marca (ficha)', `select row_fingerprint from public.manheim_vehicles where environment='preview' and upload_id=$1 and undone_at is null and make_key = any($2)`, [uploadId, ['honda', '']]);
+  assert.match(make, /manheim_vehicles_upload_make_idx/);
+  const ms = (text) => Number((/Execution Time: ([\d.]+) ms/.exec(text) || [])[1]);
+  metrics.planMs = Object.fromEntries(Object.entries(metrics.plans).map(([label, text]) => [label, ms(text)]));
+  metrics.planMs['score (MMR por pessoa)'] = ms(await plan('score (MMR por pessoa)', `select * from public.panel_manheim_score_mmr('preview', now() - interval '60 days')`, []));
+  metrics.planMs['carros por pessoa'] = ms(await plan('carros por pessoa', `select * from public.panel_manheim_batch_people('preview', $1)`, [uploadId]));
+  metrics.planMs['página (função, maior demanda)'] = ms(await plan('página (função, maior demanda)', `select id from public.panel_manheim_demand_options('preview', $1, $2, null, null, null, 11)`, [uploadId, key]));
+  metrics.planMs['carros por lote'] = ms(await plan('carros por lote', `select * from public.panel_manheim_batch_cars('preview', array[$1]::uuid[])`, [uploadId]));
+  assert.ok(Object.values(metrics.planMs).every((value) => value < 1000), JSON.stringify(metrics.planMs));
+});
+
 test('nenhuma chamada paga, nenhuma mensagem enviada, nenhum cliente alterado pelo lote', async () => {
   assert.deepEqual(backend.refused, [], 'nada saiu da máquina');
   const { rows: [facts] } = await backend.db.query(`select (select count(*)::int from public.audit_log where entity_type='manheim_openai') openai,

@@ -420,25 +420,8 @@ end;
 $$;
 
 -- ---------------------------------------------------------------- leituras dirigidas
--- Chave da demanda, ordem de exibição e MMR válido de um match. As linhas antigas (sem as colunas
--- novas) são lidas pelo mesmo critério a partir do que já guardavam.
-create or replace function public.panel_manheim_match_key(m public.manheim_matches)
-returns text language sql immutable set search_path = '' as $$
-  select coalesce(m.demand_key, case when m.journey_id is not null then 'journey:' || m.journey_id::text else 'ref:' || trim(m.calc_ref::text) end || ':' || coalesce(m.logical_mode::text, ''));
-$$;
-create or replace function public.panel_manheim_match_rank(m public.manheim_matches)
-returns integer language sql immutable set search_path = '' as $$
-  select coalesce(m.sort_rank::integer, case m.match_kind when 'BATE' then 0 when 'POR_VALOR' then 1 else 2 end);
-$$;
-create or replace function public.panel_manheim_match_miles(m public.manheim_matches)
-returns integer language sql immutable set search_path = '' as $$
-  select coalesce(m.sort_miles, case when m.vehicle_json #>> '{parsed,miles}' ~ '^[0-9]{1,9}$' then (m.vehicle_json #>> '{parsed,miles}')::integer else 2147483647 end);
-$$;
--- MMR obrigatório: sem MMR positivo o match nunca conta nem aparece.
-create or replace function public.panel_manheim_match_has_mmr(m public.manheim_matches)
-returns boolean language sql immutable set search_path = '' as $$
-  select coalesce(m.mmr_cents::bigint, case when m.vehicle_json #>> '{parsed,mmrCents}' ~ '^[0-9]{1,12}$' then (m.vehicle_json #>> '{parsed,mmrCents}')::bigint end, 0) > 0;
-$$;
+-- As linhas antigas (sem as colunas novas) são lidas pelo mesmo critério a partir do que já
+-- guardavam: chave da demanda (ficha ou Ref + modo), ordem (BATE, POR VALOR; milhagem) e MMR válido.
 
 -- Resumo por demanda do lote: contagens, sem veículo nenhum.
 create or replace function public.panel_manheim_batch_summary(
@@ -451,16 +434,20 @@ language sql
 stable
 security definer
 set search_path = ''
+set work_mem = '32MB'
 as $$
-  select public.panel_manheim_match_key(m), m.logical_mode::text, m.journey_id, trim(m.calc_ref::text),
-         count(*)::integer,
-         count(*) filter (where m.match_kind = 'BATE')::integer,
-         count(*) filter (where m.match_kind = 'POR_VALOR')::integer,
-         count(m.presented_unit_id)::integer,
-         array_remove(array_agg(distinct m.criteria_hash), null)
-    from public.manheim_matches m
-   where m.environment = p_environment and m.upload_id = p_upload_id and m.undone_at is null
-     and public.panel_manheim_match_has_mmr(m)
+  -- Two small aggregations (by demand and criterion, then by demand): no big sort of the batch.
+  with per_hash as (
+    select coalesce(m.demand_key, case when m.journey_id is not null then 'journey:' || m.journey_id::text else 'ref:' || trim(m.calc_ref::text) end || ':' || coalesce(m.logical_mode::text, '')) as demand_key, m.logical_mode::text as logical_mode, m.journey_id, trim(m.calc_ref::text) as calc_ref, m.criteria_hash,
+           count(*) as total, count(*) filter (where m.match_kind = 'BATE') as bate, count(*) filter (where m.match_kind = 'POR_VALOR') as por_valor, count(m.presented_unit_id) as presented
+      from public.manheim_matches m
+     where m.environment = p_environment and m.upload_id = p_upload_id and m.undone_at is null
+       and coalesce(m.mmr_cents::bigint, case when m.vehicle_json #>> '{parsed,mmrCents}' ~ '^[0-9]{1,12}$' then (m.vehicle_json #>> '{parsed,mmrCents}')::bigint end, 0) > 0
+     group by 1, 2, 3, 4, 5
+  )
+  select h.demand_key, h.logical_mode, h.journey_id, h.calc_ref, sum(h.total)::integer, sum(h.bate)::integer, sum(h.por_valor)::integer, sum(h.presented)::integer,
+         array_remove(array_agg(h.criteria_hash), null)
+    from per_hash h
    group by 1, 2, 3, 4;
 $$;
 
@@ -484,10 +471,10 @@ as $$
   select m.*
     from public.manheim_matches m
    where m.environment = p_environment and m.upload_id = p_upload_id and m.undone_at is null
-     and (m.demand_key = p_demand_key or (m.demand_key is null and public.panel_manheim_match_key(m) = p_demand_key))
-     and public.panel_manheim_match_has_mmr(m)
-     and (p_after_id is null or (public.panel_manheim_match_rank(m), public.panel_manheim_match_miles(m), m.id) > (p_after_rank, p_after_miles, p_after_id))
-   order by public.panel_manheim_match_rank(m), public.panel_manheim_match_miles(m), m.id
+     and (m.demand_key = p_demand_key or (m.demand_key is null and coalesce(m.demand_key, case when m.journey_id is not null then 'journey:' || m.journey_id::text else 'ref:' || trim(m.calc_ref::text) end || ':' || coalesce(m.logical_mode::text, '')) = p_demand_key))
+     and coalesce(m.mmr_cents::bigint, case when m.vehicle_json #>> '{parsed,mmrCents}' ~ '^[0-9]{1,12}$' then (m.vehicle_json #>> '{parsed,mmrCents}')::bigint end, 0) > 0
+     and (p_after_id is null or (coalesce(m.sort_rank::integer, case m.match_kind when 'BATE' then 0 when 'POR_VALOR' then 1 else 2 end), coalesce(m.sort_miles, case when m.vehicle_json #>> '{parsed,miles}' ~ '^[0-9]{1,9}$' then (m.vehicle_json #>> '{parsed,miles}')::integer else 2147483647 end), m.id) > (p_after_rank, p_after_miles, p_after_id))
+   order by coalesce(m.sort_rank::integer, case m.match_kind when 'BATE' then 0 when 'POR_VALOR' then 1 else 2 end), coalesce(m.sort_miles, case when m.vehicle_json #>> '{parsed,miles}' ~ '^[0-9]{1,9}$' then (m.vehicle_json #>> '{parsed,miles}')::integer else 2147483647 end), m.id
    limit least(greatest(coalesce(p_limit, 10), 1), 200);
 $$;
 
@@ -505,11 +492,11 @@ set search_path = ''
 as $$
   select (x.m).*
     from (
-      select m, row_number() over (partition by public.panel_manheim_match_key(m)
-                                   order by public.panel_manheim_match_rank(m), public.panel_manheim_match_miles(m), m.id) as position
+      select m, row_number() over (partition by coalesce(m.demand_key, case when m.journey_id is not null then 'journey:' || m.journey_id::text else 'ref:' || trim(m.calc_ref::text) end || ':' || coalesce(m.logical_mode::text, ''))
+                                   order by coalesce(m.sort_rank::integer, case m.match_kind when 'BATE' then 0 when 'POR_VALOR' then 1 else 2 end), coalesce(m.sort_miles, case when m.vehicle_json #>> '{parsed,miles}' ~ '^[0-9]{1,9}$' then (m.vehicle_json #>> '{parsed,miles}')::integer else 2147483647 end), m.id) as position
         from public.manheim_matches m
        where m.environment = p_environment and m.upload_id = p_upload_id and m.undone_at is null
-         and public.panel_manheim_match_has_mmr(m)
+         and coalesce(m.mmr_cents::bigint, case when m.vehicle_json #>> '{parsed,mmrCents}' ~ '^[0-9]{1,12}$' then (m.vehicle_json #>> '{parsed,mmrCents}')::bigint end, 0) > 0
     ) x
    where x.position <= least(greatest(coalesce(p_per_demand, 10), 1), 2000);
 $$;
@@ -525,11 +512,18 @@ language sql
 stable
 security definer
 set search_path = ''
+set work_mem = '32MB'
 as $$
-  select m.journey_id, trim(m.calc_ref::text), m.logical_mode::text, count(distinct m.row_fingerprint)::integer
-    from public.manheim_matches m
-   where m.environment = p_environment and m.upload_id = p_upload_id and m.undone_at is null and public.panel_manheim_match_has_mmr(m)
-   group by grouping sets ((m.journey_id, m.calc_ref, m.logical_mode), (m.journey_id, m.calc_ref));
+  with cars as (
+    select distinct m.journey_id, trim(m.calc_ref::text) as calc_ref, m.logical_mode::text as logical_mode, m.row_fingerprint
+      from public.manheim_matches m
+     where m.environment = p_environment and m.upload_id = p_upload_id and m.undone_at is null and coalesce(m.mmr_cents::bigint, case when m.vehicle_json #>> '{parsed,mmrCents}' ~ '^[0-9]{1,12}$' then (m.vehicle_json #>> '{parsed,mmrCents}')::bigint end, 0) > 0
+  )
+  select c.journey_id, c.calc_ref, c.logical_mode, count(*)::integer from cars c group by 1, 2, 3
+  union all
+  select d.journey_id, d.calc_ref, null::text, count(*)::integer
+    from (select distinct c.journey_id, c.calc_ref, c.row_fingerprint from cars c) d
+   group by 1, 2;
 $$;
 
 -- Carros diferentes com combinação válida (MMR obrigatório) por lote: número operacional do lote,
@@ -543,11 +537,12 @@ language sql
 stable
 security definer
 set search_path = ''
+set work_mem = '32MB'
 as $$
   select m.upload_id, count(distinct m.row_fingerprint)::integer
     from public.manheim_matches m
    where m.environment = p_environment and m.upload_id = any(p_upload_ids) and m.undone_at is null
-     and public.panel_manheim_match_has_mmr(m)
+     and coalesce(m.mmr_cents::bigint, case when m.vehicle_json #>> '{parsed,mmrCents}' ~ '^[0-9]{1,12}$' then (m.vehicle_json #>> '{parsed,mmrCents}')::bigint end, 0) > 0
    group by m.upload_id;
 $$;
 
@@ -562,6 +557,7 @@ language sql
 stable
 security definer
 set search_path = ''
+set work_mem = '32MB'
 as $$
   with live as (
     select u.id from public.manheim_uploads u
@@ -711,10 +707,6 @@ begin
     'public.panel_manheim_batch_finalize(public.panel_environment, uuid, uuid)',
     'public.panel_manheim_batch_cancel(public.panel_environment, uuid, uuid)',
     'public.panel_manheim_batch_summary(public.panel_environment, uuid)',
-    'public.panel_manheim_match_key(public.manheim_matches)',
-    'public.panel_manheim_match_rank(public.manheim_matches)',
-    'public.panel_manheim_match_miles(public.manheim_matches)',
-    'public.panel_manheim_match_has_mmr(public.manheim_matches)',
     'public.panel_manheim_demand_options(public.panel_environment, uuid, text, integer, integer, uuid, integer)',
     'public.panel_manheim_batch_top_options(public.panel_environment, uuid, integer)',
     'public.panel_manheim_batch_people(public.panel_environment, uuid)',

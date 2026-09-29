@@ -122,7 +122,7 @@ test('BUSCAS: ordem de exibição e opções carregadas por página, 10 de cada 
   assert.match(client, /`Ver mais \(\$\{Math\.max\(demand\.matchCount - loaded\.length, 1\)\}\)`/);
   assert.equal((client.match(/const table = lazyOptions\(card, demand, loaded,/g) || []).length, 2);
   // The same order is kept by the database page (BATE, POR VALOR, lowest mileage, then id).
-  assert.match(read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql'), /order by public\.panel_manheim_match_rank\(m\), public\.panel_manheim_match_miles\(m\), m\.id/);
+  assert.match(read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql'), /order by coalesce\(m\.sort_rank::integer, case m\.match_kind when 'BATE' then 0 when 'POR_VALOR' then 1 else 2 end\), coalesce\(m\.sort_miles,/);
 });
 
 function panelSnippet(source, name) {
