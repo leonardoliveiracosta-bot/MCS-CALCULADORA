@@ -7,6 +7,13 @@ const { allRows, isUuid, jsonBody, requirePanel, rows, send } = require('../../p
 const triage = require('../../panel-triage');
 
 const snippet = (text) => triage.redact(text).slice(0, 160);
+// Id lists go in small chunks so the query string never grows with the number of conversations.
+async function byIds(ctx, table, select, ids) {
+  const chunks = [];
+  for (let index = 0; index < ids.length; index += 100) chunks.push(ids.slice(index, index + 100));
+  return (await Promise.all(chunks.map((chunk) => rows(ctx, table, { select, environment: 'eq.' + ctx.environment, id: 'in.(' + chunk.join(',') + ')' })))).flat();
+}
+const stampOf = (message) => Date.parse(message.occurred_at_utc || message.occurred_at_local || message.created_at || '') || 0;
 
 async function conversation(ctx, chatId) {
   const env = 'eq.' + ctx.environment;
@@ -15,8 +22,9 @@ async function conversation(ctx, chatId) {
     allRows(ctx, 'message_journeys', { select: 'message_id,journey_id', environment: env, undone_at: 'is.null', order: 'message_id.asc' })
   ]);
   const evidence = triage.evidenceFor(messages);
-  const ids = new Set(messages.map((message) => message.id));
-  const journeyId = links.filter((link) => ids.has(link.message_id)).map((link) => link.journey_id).at(-1) || null;
+  // The ficha of the most recent message (same rule as the automatic reading).
+  const journeyOf = new Map(links.map((link) => [link.message_id, link.journey_id]));
+  const journeyId = [...messages].sort((a, b) => stampOf(b) - stampOf(a)).map((message) => journeyOf.get(message.id)).find(Boolean) || null;
   const last = evidence.at(-1);
   return { evidence, journeyId, contentHash: triage.contentHash(evidence), lastMessageAt: last ? new Date(last.at).toISOString() : null };
 }
@@ -46,11 +54,11 @@ module.exports = async (req, res) => {
       const active = await triage.activeRows(ctx);
       const shown = active.filter((row) => row.decision !== 'FUNIL');
       const chatIds = [...new Set(shown.map((row) => row.chat_id))];
-      const chats = chatIds.length ? await rows(ctx, 'chats', { select: 'id,contact_id', environment: 'eq.' + ctx.environment, id: 'in.(' + chatIds.join(',') + ')' }) : [];
+      const chats = await byIds(ctx, 'chats', 'id,contact_id', chatIds);
       const contactIds = [...new Set(chats.map((chat) => chat.contact_id).filter(Boolean))];
-      const contacts = contactIds.length ? await rows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, id: 'in.(' + contactIds.join(',') + ')' }) : [];
+      const contacts = await byIds(ctx, 'contacts', 'id,display_name', contactIds);
       const evidenceIds = [...new Set(shown.flatMap((row) => row.evidence_message_ids || []))];
-      const quotes = evidenceIds.length ? await rows(ctx, 'messages', { select: 'id,body_text', environment: 'eq.' + ctx.environment, id: 'in.(' + evidenceIds.slice(0, 200).join(',') + ')' }) : [];
+      const quotes = await byIds(ctx, 'messages', 'id,body_text', evidenceIds);
       const contactOf = new Map(chats.map((chat) => [chat.id, chat.contact_id]));
       const nameOf = new Map(contacts.map((contact) => [contact.id, contact.display_name]));
       const quoteOf = new Map(quotes.map((message) => [message.id, snippet(message.body_text)]));

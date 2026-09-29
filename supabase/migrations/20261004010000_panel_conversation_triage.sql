@@ -83,6 +83,7 @@ declare
 begin
   if p_source not in ('AI', 'MANUAL') then raise exception 'TRIAGE_SOURCE_INVALID'; end if;
   if not exists (select 1 from public.chats where id = p_chat_id and environment = p_environment) then raise exception 'TRIAGE_CHAT_NOT_FOUND'; end if;
+  if p_source = 'MANUAL' and (p_actor_id is null or not exists (select 1 from public.panel_users where id = p_actor_id and environment = p_environment and active)) then raise exception 'TRIAGE_ACTOR_INVALID'; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_environment::text || ':triage:' || p_chat_id::text, 0));
   select * into v_active from public.conversation_triage where environment = p_environment and chat_id = p_chat_id and status = 'ACTIVE' for update;
 
@@ -93,14 +94,34 @@ begin
       -- Same content, same rule: never a second call. A failed reading may be retried in place.
       if v_same.error_code is null or p_error_code is not null then
         if p_error_code is not null and v_same.error_code is not null then
-          update public.conversation_triage set attempts = least(attempts + 1, 3), error_code = p_error_code, updated_at = now() where id = v_same.id;
+          -- Tokens and cost add up: every paid attempt stays on the record.
+          update public.conversation_triage set attempts = least(attempts + 1, 3), error_code = p_error_code, updated_at = now(),
+            input_tokens = nullif(coalesce(input_tokens, 0) + coalesce(p_input_tokens, 0), 0), output_tokens = nullif(coalesce(output_tokens, 0) + coalesce(p_output_tokens, 0), 0),
+            cost_usd = nullif(coalesce(cost_usd, 0) + coalesce(p_cost_usd, 0), 0) where id = v_same.id;
         end if;
         return jsonb_build_object('id', v_same.id, 'applied', false, 'duplicate', true, 'status', v_same.status);
       end if;
       update public.conversation_triage set category = p_category, decision = v_decision, reason = left(coalesce(p_reason, ''), 400), evidence_message_ids = coalesce(p_evidence, '{}'),
-        model = p_model, input_tokens = p_input_tokens, output_tokens = p_output_tokens, cost_usd = p_cost_usd, error_code = null, attempts = least(attempts + 1, 3), updated_at = now()
+        model = p_model, input_tokens = coalesce(input_tokens, 0) + coalesce(p_input_tokens, 0), output_tokens = coalesce(output_tokens, 0) + coalesce(p_output_tokens, 0),
+        cost_usd = coalesce(cost_usd, 0) + coalesce(p_cost_usd, 0), error_code = null, attempts = least(attempts + 1, 3), updated_at = now()
         where id = v_same.id;
-      return jsonb_build_object('id', v_same.id, 'applied', v_same.status = 'ACTIVE', 'duplicate', false, 'status', v_same.status);
+      if v_same.status = 'ACTIVE' then
+        return jsonb_build_object('id', v_same.id, 'applied', true, 'duplicate', false, 'status', 'ACTIVE');
+      end if;
+      -- The failed reading had been kept out by a manual decision: the successful retry goes
+      -- through the same precedence rule as a first reading (a new purchase intent reactivates).
+      if v_active.id is null then
+        v_apply := true;
+      elsif v_active.source = 'MANUAL' then
+        v_apply := p_category = 'PRE_COMPRA_MCS' and v_active.decision = 'FORA_DO_FUNIL' and p_last_message_at is not null and p_last_message_at > v_active.created_at;
+      else
+        v_apply := false;
+      end if;
+      if v_apply then
+        update public.conversation_triage set status = 'SUPERSEDED', superseded_at = now(), superseded_by = v_same.id, updated_at = now() where id = v_active.id;
+        update public.conversation_triage set status = 'ACTIVE', updated_at = now() where id = v_same.id;
+      end if;
+      return jsonb_build_object('id', v_same.id, 'applied', v_apply, 'duplicate', false, 'status', case when v_apply then 'ACTIVE' else v_same.status end);
     end if;
     -- A manual decision wins. Only a new purchase intent written after it may replace it.
     if v_active.id is not null and v_active.source = 'MANUAL' then
@@ -132,9 +153,11 @@ declare
   v_previous uuid;
 begin
   if p_actor_id is null or not exists (select 1 from public.panel_users where id = p_actor_id and environment = p_environment and active) then raise exception 'TRIAGE_ACTOR_INVALID'; end if;
-  select * into v_row from public.conversation_triage where id = p_triage_id and environment = p_environment for update;
+  -- Same lock order as the record function (advisory lock first, then the row) to avoid deadlocks.
+  select * into v_row from public.conversation_triage where id = p_triage_id and environment = p_environment;
   if not found then raise exception 'TRIAGE_NOT_FOUND'; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_environment::text || ':triage:' || v_row.chat_id::text, 0));
+  select * into v_row from public.conversation_triage where id = p_triage_id and environment = p_environment for update;
   if v_row.status <> 'ACTIVE' or v_row.source <> 'MANUAL' then raise exception 'TRIAGE_NOT_UNDOABLE'; end if;
   update public.conversation_triage set status = 'UNDONE', updated_at = now() where id = v_row.id;
   select id into v_previous from public.conversation_triage where environment = p_environment and chat_id = v_row.chat_id and superseded_by = v_row.id order by created_at desc limit 1;

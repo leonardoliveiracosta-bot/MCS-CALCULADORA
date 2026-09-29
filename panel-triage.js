@@ -67,7 +67,8 @@ function redact(text) {
   return String(text || '')
     .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[email]')
     .replace(/https?:\/\/\S+/gi, '[link]')
-    .replace(/\+?\d[\d\s().-]{7,}\d/g, '[telefone]')
+    // A phone has at least 10 digits; vehicle years such as "2018-2020" stay readable.
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, (match) => match.replace(/\D/g, '').length >= 10 ? '[telefone]' : match)
     .replace(/[\u0000-\u001f]/g, ' ')
     .trim()
     .slice(0, MAX_TEXT);
@@ -79,8 +80,12 @@ function evidenceFor(messages) {
   const chosen = real.slice(-MAX_MESSAGES);
   return chosen.map((message) => ({ id: message.id, from: message.direction === 'MCS' ? 'MCS' : message.direction === 'CUSTOMER' ? 'CLIENTE' : 'SISTEMA', text: redact(message.body_text), at: stampOf(message) }));
 }
+// The reading key is the newest customer message: a reply from MCS alone never triggers a new
+// (paid) reading, and neither does an older message leaving the evidence window.
 function contentHash(evidence) {
-  return crypto.createHash('sha256').update(JSON.stringify(evidence.map((item) => [item.id, item.from, item.text]))).digest('hex');
+  const customer = evidence.filter((item) => item.from === 'CLIENTE');
+  const newest = customer.at(-1) || evidence.at(-1) || { id: '' };
+  return crypto.createHash('sha256').update('triagem:' + newest.id).digest('hex');
 }
 
 // ------------------------------------------------------------------ OpenAI
@@ -140,7 +145,7 @@ async function classify(evidence, options = {}) {
 // that was not sent or a confidence below "alta" never decides anything (it becomes REVISAR).
 function validated(parsed, evidence) {
   const known = new Set(evidence.map((item) => item.id));
-  const reason = typeof parsed?.reason === 'string' ? parsed.reason.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 280) : '';
+  const reason = typeof parsed?.reason === 'string' ? parsed.reason.replace(/[\u0000-\u001f]/g, ' ').replace(/\s*[\u2014\u2013]\s*/g, ', ').trim().slice(0, 280).replace(/[.\s]+$/, '') : '';
   const ids = Array.isArray(parsed?.evidence_ids) ? [...new Set(parsed.evidence_ids.map(String))].filter((value) => known.has(value)) : [];
   if (!parsed || !CATEGORIES.includes(parsed.category)) return { category: 'REVISAR', reason: 'Resposta da IA inválida', evidence: [], errorCode: 'OPENAI_RESPONSE_INVALID' };
   if (!reason || (parsed.category !== 'REVISAR' && !ids.length)) return { category: 'REVISAR', reason: 'Resposta da IA sem justificativa', evidence: ids, errorCode: 'OPENAI_RESPONSE_INVALID' };
@@ -170,10 +175,16 @@ async function undo(ctx, triageId, actorId) {
 // ------------------------------------------------------------------ leitura
 // The table may not exist yet (migration not applied): then nothing is triaged and every list
 // stays exactly as before.
-async function activeRows(ctx, read = allRows) {
+// The lists tolerate it; the automatic reading does not (strict): a failed read never looks like
+// "nothing classified yet", which would pay again for conversations already read.
+async function activeRows(ctx, read = allRows, strict = false) {
   try { return await read(ctx, 'conversation_triage', { select: 'id,chat_id,journey_id,source,category,decision,reason,evidence_message_ids,last_message_at,content_hash,rule_version,model,error_code,attempts,created_at,created_by', environment: 'eq.' + ctx.environment, status: 'eq.ACTIVE' }) || []; }
-  catch (error) { if (process.env.MODO_DEBUG) console.warn('[triage] leitura indisponível', error?.code || error?.message); return []; }
+  catch (error) { if (strict) throw error; if (process.env.MODO_DEBUG) console.warn('[triage] leitura indisponível', error?.code || error?.message); return []; }
 }
+// A paid answer that came back invalid is final (REVISAR): retrying it would pay again for the
+// same content. Only failures without an answer (timeout, HTTP error) are retried.
+const FINAL_ERRORS = new Set(['OPENAI_RESPONSE_INVALID']);
+const settled = (row) => !row.error_code || FINAL_ERRORS.has(row.error_code) || row.attempts >= MAX_ATTEMPTS;
 // A ficha leaves the commercial lists only when every active triage of its conversations is out of
 // the funnel and it has no calculator Ref. REVISAR and PRE_COMPRA keep it in.
 function outOfFunnelJourneys(triage, journeys, refs) {
@@ -199,13 +210,13 @@ async function candidates(ctx, options = {}) {
     read(ctx, 'chats', { select: 'id,contact_id,is_group', environment: env }),
     read(ctx, 'messages', { select: 'id,chat_id,direction,body_text,is_automatic,occurred_at_utc,occurred_at_local,created_at,undone_at', environment: env, order: 'id.asc' }),
     read(ctx, 'message_journeys', { select: 'message_id,journey_id', environment: env, undone_at: 'is.null', order: 'message_id.asc' }),
-    activeRows(ctx, read),
-    read(ctx, 'conversation_triage', { select: 'chat_id,content_hash,rule_version,source,error_code,attempts', environment: env }).catch(() => [])
+    activeRows(ctx, read, true),
+    read(ctx, 'conversation_triage', { select: 'chat_id,content_hash,rule_version,source,error_code,attempts', environment: env })
   ]);
   const journeyOf = new Map(links.map((link) => [link.message_id, link.journey_id]));
   const byChat = new Map();
   messages.forEach((message) => { if (!byChat.has(message.chat_id)) byChat.set(message.chat_id, []); byChat.get(message.chat_id).push(message); });
-  const done = new Set(readings.filter((row) => row.source === 'AI' && (!row.error_code || row.attempts >= MAX_ATTEMPTS)).map((row) => row.chat_id + ':' + row.content_hash + ':' + row.rule_version));
+  const done = new Set(readings.filter((row) => row.source === 'AI' && settled(row)).map((row) => row.chat_id + ':' + row.content_hash + ':' + row.rule_version));
   const activeByChat = new Map(active.map((row) => [row.chat_id, row]));
   const list = [];
   chats.filter((chat) => !chat.is_group).forEach((chat) => {
@@ -219,7 +230,7 @@ async function candidates(ctx, options = {}) {
     const hash = contentHash(evidence);
     if (done.has(chat.id + ':' + hash + ':' + RULE_VERSION)) return;
     const current = activeByChat.get(chat.id);
-    if (current && current.content_hash === hash && (!current.error_code || current.attempts >= MAX_ATTEMPTS)) return;
+    if (current && current.content_hash === hash && settled(current)) return;
     const journeyId = [...own].sort((a, b) => stampOf(b) - stampOf(a)).map((message) => journeyOf.get(message.id)).find(Boolean) || null;
     list.push({ chatId: chat.id, journeyId, evidence, contentHash: hash, lastMessageAt: new Date(newest).toISOString() });
   });
@@ -233,6 +244,8 @@ async function runTriage(ctx, options = {}) {
   const pending = (await candidates(ctx, { ...options, env })).slice(0, options.limit || BATCH_LIMIT);
   const result = { processed: 0, funnel: 0, out: 0, review: 0, failed: 0, costUsd: 0 };
   for (const item of pending) {
+    // Never start a paid call that the function could be stopped in the middle of.
+    if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred = pending.length - result.processed; break; }
     let entry;
     try {
       const answer = await classify(item.evidence, { env, fetchImpl: options.fetchImpl });

@@ -22,8 +22,10 @@ module.exports=async(req,res)=>{
         ,allRows(ctx,'whatsapp_phone_reviews',{select:'id,phone_e164,candidate_contact_ids,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
       ]);
       // Triagem: a conversa classificada fora do funil comercial sai da pendência (a sugestão fica guardada).
-      const triage=await activeTriage(ctx);
-      const triageChats=triage.length?await rows(ctx,'chats',{select:'id,contact_id',environment:'eq.'+ctx.environment,id:'in.('+[...new Set(triage.map((row)=>row.chat_id))].join(',')+')'}):[];
+      // Only the chats of the suggestions' source contacts (a short list), never every triaged chat.
+      const sourceContacts=[...new Set(suggestions.map((item)=>item.source_contact_id).filter(isUuid))];
+      const triage=sourceContacts.length?await activeTriage(ctx):[];
+      const triageChats=triage.length?await allRows(ctx,'chats',{select:'id,contact_id',environment:'eq.'+ctx.environment,contact_id:'in.('+sourceContacts.join(',')+')'}):[];
       const contactOfChat=new Map(triageChats.map((chat)=>[chat.id,chat.contact_id]));
       const decisionsByContact=new Map();triage.forEach((row)=>{const contactId=contactOfChat.get(row.chat_id);if(!contactId)return;if(!decisionsByContact.has(contactId))decisionsByContact.set(contactId,[]);decisionsByContact.get(contactId).push(row.decision);});
       const outOfFunnel=(contactId)=>{const decisions=decisionsByContact.get(contactId)||[];return decisions.length>0&&decisions.every((decision)=>decision==='FORA_DO_FUNIL');};

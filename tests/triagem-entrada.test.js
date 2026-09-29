@@ -271,3 +271,62 @@ test('Ref da calculadora vinculada mantém a ficha no funil; o código interno d
   const result = triage.outOfFunnelJourneys(out, journeys, [{ journey_id: id(1002), ref_code: 'FGHJK' }]);
   assert.deepEqual([...result], [id(1001)]);
 });
+
+// Correções da revisão independente.
+const addMessage = async (n, chatN, journeyN, direction, text, minutes) => {
+  await backend.db.query(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(n)}','preview','${id(chatN)}','WHATSAPP','${direction}','${text}','x',now()+interval '${minutes} minutes','r${n}',1,'WHATSAPP_WEBHOOK',now()+interval '${minutes} minutes')`);
+  await backend.db.query(`insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${id(n)}','${id(journeyN)}','IMPORT',now())`);
+};
+
+test('resposta da MCS sozinha não gera nova leitura paga', async () => {
+  await addMessage(1099, 12, 10, 'MCS', 'Te mando as opções amanhã', 5);
+  assert.ok(!(await triage.candidates(ctx, { env: ENV })).some((item) => item.chatId === id(12)));
+});
+
+test('nova intenção de compra vence a decisão manual mesmo quando a primeira leitura falha', async () => {
+  await call('triage', '/api/panel/triage', 'POST', { action: 'set', chatId: id(52), category: 'OUTRO_NEGOCIO' });
+  await addMessage(5099, 52, 50, 'CUSTOMER', 'Agora quero comprar um carro pela MCS', 6);
+  const timeout = Object.assign(new Error('timeout'), { name: 'AbortError' });
+  await triage.runTriage(ctx, { env: ENV, fetchImpl: fakeOpenAI(timeout, []) });
+  assert.equal((await activeFor('fornecedor')).source, 'MANUAL');
+  await triage.runTriage(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, []) });
+  const active = await activeFor('fornecedor');
+  assert.deepEqual([active.source, active.category], ['AI', 'PRE_COMPRA_MCS']);
+  assert.ok((await listedIds()).includes(id(50)));
+});
+
+test('resposta inválida paga não é repetida e o custo das tentativas se soma', async () => {
+  await addMessage(4099, 42, 40, 'CUSTOMER', 'Oi de novo', 7);
+  const calls = [];
+  await triage.runTriage(ctx, { env: ENV, fetchImpl: fakeOpenAI('não é json', calls) });
+  await triage.runTriage(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, calls) });
+  assert.equal(calls.length, 1, 'resposta inválida fica em REVISAR sem nova cobrança');
+  const hash = 'f'.repeat(64);
+  const entry = { chatId: id(42), journeyId: id(40), source: 'AI', category: 'REVISAR', reason: 'x', evidence: [], contentHash: hash, model: 'gpt-6-luna', errorCode: 'OPENAI_FAILED', inputTokens: 100, outputTokens: 10, costUsd: 0.001 };
+  await triage.record(ctx, entry);
+  await triage.record(ctx, entry);
+  await triage.record(ctx, { ...entry, category: 'OUTRO_NEGOCIO', errorCode: null });
+  const row = (await backend.db.query('select input_tokens,output_tokens,cost_usd,attempts,error_code from public.conversation_triage where content_hash=$1', [hash])).rows[0];
+  assert.deepEqual([row.input_tokens, row.output_tokens, Number(row.cost_usd), row.attempts, row.error_code], [300, 30, 0.003, 3, null]);
+});
+
+test('prazo do cron e leitura com falha nunca iniciam chamada paga', async () => {
+  await addMessage(2099, 22, 20, 'CUSTOMER', 'Mais uma dúvida sobre a entrega', 8);
+  const calls = [];
+  const late = await triage.runTriage(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, calls), deadlineAt: Date.now() + 1000 });
+  assert.equal(calls.length, 0);
+  assert.equal(late.deferred, 1);
+  const broken = async (context, table, query) => { if (table === 'conversation_triage') throw Object.assign(new Error('x'), { code: 'READ_FAILED' }); return require('../panel-server').allRows(context, table, query); };
+  await assert.rejects(triage.runTriage(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, calls), allRows: broken }));
+  assert.equal(calls.length, 0);
+});
+
+test('ENTRADA: conversa fora do funil sai da fila; redação mantém anos de carro e esconde telefones', async () => {
+  const entry = await call('entry', '/api/panel/entry');
+  assert.equal(entry.statusCode, 200);
+  assert.equal(entry.payload.chats.find((chat) => chat.id === id(32)).triageOut, false);
+  assert.equal(entry.payload.chats.find((chat) => chat.id === id(62)).triageOut, false, 'REVISAR continua na fila');
+  assert.equal(entry.payload.chats.find((chat) => chat.id === id(82)).triageOut, true);
+  assert.equal(triage.redact('Procuro RAV4 2018-2020, liga 407 555 1234'), 'Procuro RAV4 2018-2020, liga [telefone]');
+  assert.equal(triage.validated({ category: 'PESSOAL', confidence: 'alta', reason: 'Conversa pessoal — amigos.', evidence_ids: ['a'] }, [{ id: 'a' }]).reason, 'Conversa pessoal, amigos');
+});

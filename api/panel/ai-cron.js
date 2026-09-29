@@ -19,6 +19,7 @@ module.exports=async(req,res)=>{
   if(!equalSecret(req.headers?.authorization,'Bearer '+process.env.CRON_SECRET))return send(res,401,{error:'UNAUTHORIZED'});
   const config=configuration();
   if(!config||SERVER_ENVIRONMENT!=='production')return send(res,503,{error:'CRON_NOT_CONFIGURED'});
+  const startedAt=Date.now();
   try{
     const ctx={config,environment:SERVER_ENVIRONMENT};
     let whatsappMaintenance={done:0,reprocessed:0,deferred:0,failed:0};
@@ -42,7 +43,7 @@ module.exports=async(req,res)=>{
     catch (error) { capture={error:'CAPTURE_CHECK_FAILED'}; await recordCaptureFailure(ctx,error.message).catch(()=>{}); }
     // Triagem da ENTRADA (OpenAI): só com ENTRADA_OPENAI_ENABLED=1; falha nunca derruba o cron.
     let triage;
-    try { triage=await runTriage(ctx); }
+    try { triage=await runTriage(ctx,{deadlineAt:startedAt+55000}); }
     catch (error) { triage={error:'TRIAGE_FAILED'};console.error('[panel-triage]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
     return send(res,200,{...result,pending,capture,whatsappMaintenance,triage});
   }catch(error){

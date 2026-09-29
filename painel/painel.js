@@ -575,10 +575,12 @@
     row.append(element('p','muted triage-reason',why));
     (item.evidence||[]).forEach((quote)=>row.append(element('p','evidence',quote)));
     const actions=element('div','inline-actions');
-    const apply=(category,button)=>MCSAction.bind(button,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'set',chatId:item.chatId,category})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh,errorText:'Não consegui salvar, tente de novo'}));
+    // Every manual decision offers "Desfazer" right away (a pre-compra card leaves both lists).
+    const undoLast={commit:(result)=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'undo',triageId:result.id})}),successText:'Decisão desfeita',refresh};
+    const apply=(category,button)=>MCSAction.bind(button,()=>({scope:row,successScope:document.body,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'set',chatId:item.chatId,category})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},successText:'Classificação salva',undo:undoLast,refresh,errorText:'Não consegui salvar, tente de novo'}));
     if(item.decision!=='FUNIL'){const funnel=element('button','small','É pré-compra');funnel.type='button';apply('PRE_COMPRA_MCS',funnel);actions.append(funnel);}
     const choose=element('select','triage-choice');choose.setAttribute('aria-label','Corrigir a classificação');TRIAGE_OPTIONS.filter(([value])=>value!==item.category&&(item.decision==='FUNIL'||value!=='PRE_COMPRA_MCS')).forEach(([value,label])=>choose.append(new Option(label,value)));
-    const fix=element('button','quiet small','Corrigir');fix.type='button';MCSAction.bind(fix,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'set',chatId:item.chatId,category:choose.value})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh,errorText:'Não consegui salvar, tente de novo'}));
+    const fix=element('button','quiet small','Corrigir');fix.type='button';MCSAction.bind(fix,()=>({scope:row,successScope:document.body,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'set',chatId:item.chatId,category:choose.value})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},successText:'Classificação salva',undo:undoLast,refresh,errorText:'Não consegui salvar, tente de novo'}));
     actions.append(choose,fix);
     if(item.source==='MANUAL'){const back=element('button','quiet small','Desfazer');back.type='button';MCSAction.bind(back,()=>({scope:row,commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'undo',triageId:item.id})}),refresh,errorText:'Não consegui desfazer, tente de novo'}));actions.append(back);}
     if(item.journeyId){const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));actions.append(open);}
@@ -587,7 +589,7 @@
   async function loadTriage(){
     const data=await request('/api/panel/triage').catch(()=>null);
     const review=$('triage-review'),out=$('triage-out-list');review.replaceChildren();out.replaceChildren();
-    if(!data){$('triage-state').textContent='';$('triage-out-count').textContent='0';return {review:[],out:[]};}
+    if(!data){$('triage-state').textContent='';$('triage-out-count').textContent='0';triageReviewCount=0;renderEntryCount();return {review:[],out:[]};}
     triageReviewCount=(data.review||[]).length;renderEntryCount();
     const refresh=()=>Promise.all([loadTriage(),loadWhatsApp()]).then(()=>refreshCounters().catch(()=>{}));
     (data.review||[]).forEach((item)=>review.append(triageCard(item,refresh)));
@@ -762,9 +764,9 @@
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
-    entryQueueCount = chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + printReviews.length;
+    entryQueueCount = chats.filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + printReviews.length;
     renderEntryCount();
-    if (render) renderQueue(chats, data.reviews || []);
+    if (render) renderQueue(chats.filter((chat) => !chat.triageOut), data.reviews || []);
     return data;
   }
 
@@ -1185,7 +1187,7 @@
     if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
     // Conversations the triage left in REVISAR also wait for a decision in ENTRADA.
     if (triageData) triageReviewCount = (triageData.review || []).length;
-    count('entry', entry, (data) => { entryQueueCount = (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + (data.printReviews || []).length; return entryQueueCount + triageReviewCount; });
+    count('entry', entry, (data) => { entryQueueCount = (data.chats || []).filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + (data.printReviews || []).length; return entryQueueCount + triageReviewCount; });
     // Same rule as the list: leads only, inside the CLIENTES period.
     count('clients', records, (data) => clientsInPeriod(data.items).length);
     // One person with a VALOR and a CARRO card is one person in the badge.
