@@ -28,14 +28,15 @@ test('Instrument Sans é local, licenciada e possui os três pesos', () => {
   assert.doesNotMatch(css, /https?:\/\//);
 });
 
-test('cabeçalho usa as duas variantes do logo e a escala do mockup', () => {
+test('cabeçalho usa o logo claro do tema escuro único e a escala do mockup', () => {
   const html = read('painel/index.html');
   const css = read('painel/tema-mcs.css');
-  const original = read('mcs-logo.svg');
-  const light = read('painel/mcs-logo-claro.svg');
-  assert.match(html, /<source media="\(prefers-color-scheme: dark\)" srcset="\/mcs-logo\.svg">/);
-  assert.match(html, /<img src="\/painel\/mcs-logo-claro\.svg" alt="My Car Scout">/);
-  assert.equal(light, original.replace('fill="#F2EDE1"', 'fill="#0B0D10"'));
+  // Tema escuro único: o logo com letras claras (#F2EDE1) sobre o fundo #0B0B0D.
+  assert.match(html, /<picture class="panel-logo">\s*<img src="\/mcs-logo\.svg" alt="My Car Scout">\s*<\/picture>/);
+  assert.match(read('mcs-logo.svg'), /fill="#F2EDE1"/);
+  assert.match(html, /<meta name="theme-color" content="#0B0B0D">/);
+  assert.equal((html.match(/name="theme-color"/g) || []).length, 1);
+  for (const file of ['painel/index.html', 'painel/tema-mcs.css', 'painel/painel.css', 'painel/identidade.css']) assert.doesNotMatch(read(file), /prefers-color-scheme/, file);
   assert.match(css, /\.today-heading h2,[\s\S]*?font-size:\s*40px/);
   assert.match(css, /@media \(max-width: 480px\)[\s\S]*?\.today-heading h2,[\s\S]*?font-size:\s*32px/);
   assert.match(css, /\.entry-tools\s*{[\s\S]*?grid-template-columns:\s*2fr 1fr 1fr/);
