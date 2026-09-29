@@ -5,6 +5,36 @@ const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, time } = 
 const { allRows, requirePanel, send } = require('../../panel-server');
 const { operational } = require('../../panel-read-model');
 const { contactIndex } = require('../../panel-contact');
+const { periodCutoff, periodLabel } = require('../../panel-origin');
+
+// Report opened from CLIENTES (origin=clients): the same universe as the CLIENTES list, badge,
+// counters and spreadsheet: leads whose last real activity is inside the selected period. It never
+// uses creation or qualification dates. Every other report keeps its own rule below.
+const CLIENT_PERIODS = new Set(['30', '90', '6m', '12m', 'all']);
+async function clientsReport(ctx, query) {
+  const activity = String(query.activity || '');
+  if (!CLIENT_PERIODS.has(activity)) return null;
+  // The browser sends the instant it used for the list, so both cut at the same moment.
+  const sent = Date.parse(String(query.since || ''));
+  const now = Date.now();
+  const cutoff = activity === 'all' ? null : Number.isFinite(sent) && sent <= now && sent >= periodCutoff(activity, now) - 86400000 ? sent : periodCutoff(activity, now);
+  const { clientList } = require('./records');
+  const { listed } = await clientList(ctx, await activeFilter(ctx, { allRows }));
+  const inside = (item) => item.isLead !== false && (cutoff === null || Date.parse(item.lastActivityAt || '') >= cutoff);
+  const universe = listed.filter(inside);
+  const count = (test) => universe.filter(test).length;
+  const summary = {
+    clients: universe.length,
+    qualified: count((item) => Boolean(item.qualified_at)),
+    disabled: count((item) => item.enabled === false),
+    calculator: count((item) => (item.origins || []).includes('CALCULADORA')),
+    whatsapp: count((item) => (item.origins || []).includes('WHATSAPP')),
+    sms: count((item) => (item.origins || []).includes('SMS'))
+  };
+  const label = activity === 'all' ? 'em qualquer data' : periodLabel(activity);
+  const text = `CLIENTES: ${summary.clients} clientes com atividade real ${label}; ${summary.qualified} qualificados; ${summary.disabled} desligados; origem: calculadora ${summary.calculator}, WhatsApp ${summary.whatsapp}, SMS ${summary.sms}`;
+  return { summary, text, range: { from: cutoff === null ? null : new Date(cutoff).toISOString(), to: new Date(now).toISOString() }, activity };
+}
 
 function newYorkBoundary(dateString, end) {
   const match = String(dateString || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -59,6 +89,16 @@ module.exports = async (req, res) => {
   if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
+  if (String(req.query?.origin || '') === 'clients') {
+    if (String(req.query?.view || '') !== 'records') return send(res, 400, { error: 'REPORT_VIEW_INVALID' });
+    try {
+      const report = await clientsReport(ctx, req.query || {});
+      if (!report) return send(res, 400, { error: 'REPORT_PERIOD_INVALID' });
+      return send(res, 200, { environment: ctx.environment, view: 'records', origin: 'clients', ...report });
+    } catch (_) {
+      return send(res, 500, { error: 'PANEL_REPORT_ERROR' });
+    }
+  }
   const selected = range(req.query || {});
   if (!selected) return send(res, 400, { error: 'REPORT_PERIOD_INVALID' });
   const view = String((req.query && req.query.view) || 'today');

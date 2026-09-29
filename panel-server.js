@@ -62,15 +62,104 @@ async function rows(ctx, table, params) {
   return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + query(params));
 }
 
-async function allRows(ctx, table, params, pageSize = 1000) {
-  const result = [];
-  let offset = 0;
-  for (;;) {
-    const page = await rows(ctx, table, { ...params, limit: String(pageSize), offset: String(offset) });
-    result.push(...page);
-    if (page.length < pageSize) return result;
-    offset += pageSize;
+// Stable paging. Offset pages over an unordered (or updatable) sort can skip or repeat rows when
+// something changes between pages. Pages are walked by the immutable key instead (id > last id),
+// so updates, deletes and the page size never change what was already read; the order the caller
+// asked for is applied afterwards, with id as the tiebreak, exactly as the database would.
+// Tables without an id column are small state tables keyed by their primary key, which never
+// changes: they are paged in primary-key order.
+const PAGE_KEYS = {
+  conversation_ai_attempt_state: ['environment', 'journey_id', 'chat_id'],
+  conversation_ai_link_state: ['environment', 'journey_id', 'chat_id'],
+  conversation_general_read_progress: ['environment', 'journey_id', 'chat_id'],
+  conversation_pending_insights: ['environment', 'journey_id', 'chat_id'],
+  conversation_pending_resolutions: ['environment', 'journey_id', 'chat_id'],
+  whatsapp_user_ids: ['environment', 'bsuid'],
+  whatsapp_address_book: ['environment', 'phone_e164'],
+  whatsapp_message_ids: ['environment', 'wa_message_id']
+};
+function topLevelFields(select) {
+  const fields = [];
+  let depth = 0, current = '';
+  for (const char of String(select)) {
+    if (char === '(') depth += 1;
+    if (char === ')') depth -= 1;
+    if (char === ',' && depth === 0) { fields.push(current.trim()); current = ''; } else current += char;
   }
+  if (current.trim()) fields.push(current.trim());
+  return fields;
+}
+const ISO_STAMP = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/;
+// The database collation is ICU en-US (checked in production), the same as this collator.
+const collator = new Intl.Collator('en-US');
+function compareValues(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  if (typeof a === 'boolean' && typeof b === 'boolean') return Number(a) - Number(b);
+  const left = String(a), right = String(b);
+  if (ISO_STAMP.test(left) && ISO_STAMP.test(right)) {
+    const difference = Date.parse(left.replace(' ', 'T')) - Date.parse(right.replace(' ', 'T'));
+    if (difference) return difference;
+    // Same millisecond: compare the sub-millisecond digits the database keeps.
+    const fraction = (value) => (value.match(/\.(\d+)/)?.[1] || '').padEnd(6, '0');
+    return fraction(left) < fraction(right) ? -1 : fraction(left) > fraction(right) ? 1 : 0;
+  }
+  if (/^-?\d+(?:\.\d+)?$/.test(left) && /^-?\d+(?:\.\d+)?$/.test(right)) return Number(left) - Number(right);
+  return collator.compare(left, right);
+}
+// PostgREST order syntax: "col.desc.nullslast,other.asc". Postgres puts nulls last when ascending
+// and first when descending unless told otherwise.
+function orderComparator(order, keys) {
+  const terms = String(order || '').split(',').map((part) => part.trim()).filter(Boolean).map((part) => {
+    const [column, ...flags] = part.split('.');
+    const desc = flags.includes('desc');
+    return { column, desc, nullsFirst: flags.includes('nullsfirst') || (desc && !flags.includes('nullslast')) };
+  });
+  keys.filter((key) => !terms.some((term) => term.column === key)).forEach((key) => terms.push({ column: key, desc: false, nullsFirst: false }));
+  return (a, b) => {
+    for (const term of terms) {
+      const left = a[term.column], right = b[term.column];
+      const leftNull = left === null || left === undefined, rightNull = right === null || right === undefined;
+      if (leftNull || rightNull) {
+        if (leftNull && rightNull) continue;
+        return leftNull === term.nullsFirst ? -1 : 1;
+      }
+      const result = compareValues(left, right);
+      if (result) return term.desc ? -result : result;
+    }
+    return 0;
+  };
+}
+async function allRows(ctx, table, params = {}, pageSize = 1000) {
+  const { order, ...filters } = params;
+  const keys = PAGE_KEYS[table] || ['id'];
+  const fields = filters.select ? topLevelFields(filters.select) : ['*'];
+  // The order columns are read too (then removed), so the sort never runs on absent values.
+  const orderColumns = String(order || '').split(',').map((part) => part.trim().split('.')[0]).filter(Boolean);
+  const missing = fields.includes('*') ? [] : [...new Set([...keys, ...orderColumns])].filter((key) => !fields.includes(key));
+  const select = missing.length ? fields.concat(missing).join(',') : filters.select;
+  const request = { ...filters, ...(select ? { select } : {}) };
+  const result = [];
+  if (keys.length === 1) {
+    const [key] = keys;
+    let last = null;
+    for (;;) {
+      // A caller filter on the key itself (never used today) is kept: the cursor then goes in "and".
+      const cursor = last === null ? {} : key in request ? { and: '(' + key + '.gt.' + last + ')' } : { [key]: 'gt.' + last };
+      const page = await rows(ctx, table, { ...request, ...cursor, order: key + '.asc', limit: String(pageSize) });
+      result.push(...page);
+      if (page.length < pageSize) break;
+      last = page[page.length - 1][key];
+    }
+  } else {
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await rows(ctx, table, { ...request, order: keys.map((key) => key + '.asc').join(','), limit: String(pageSize), offset: String(offset) });
+      result.push(...page);
+      if (page.length < pageSize) break;
+    }
+  }
+  if (order) result.sort(orderComparator(order, keys));
+  if (missing.length) result.forEach((row) => missing.forEach((key) => { delete row[key]; }));
+  return result;
 }
 
 async function jsonBody(req, maximum = 128 * 1024) {
@@ -198,7 +287,7 @@ async function requirePanel(req, res, options = {}) {
 }
 
 module.exports = {
-  SERVER_ENVIRONMENT, allRows, bearer, configuration, insert, isUuid, jsonBody,
+  SERVER_ENVIRONMENT, allRows, orderComparator, bearer, configuration, insert, isUuid, jsonBody,
   panelMeta, patchRows, query, recordMutation, requirePanel, rows, safeText, send,
   supabase
 };

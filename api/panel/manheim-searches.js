@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
 // range only widens what is searched in the Manheim, it never decides who a car serves (each car
 // of the CSV is checked again against each person's own criteria).
 function buildSavedSearches(base, saved, now = Date.now()) {
-  const closed = (journey) => !journey || journey.status === 'ENCERRADO' || journey.status === 'PARADO' || journey.enabled === false || base.journeyDisposition(journey)?.status === 'DISCARDED' || journey.contact?.is_lead === false;
+  const closed = (journey) => !journey || journey.status === 'ENCERRADO' || journey.status === 'PARADO' || journey.enabled === false || base.journeyDisposition(journey)?.status === 'DISCARDED' || journey.contact?.is_lead === false || journey.triageOut === true;
   const people = [];
   // Anexo A (surpresa 2): a discarded person or a paused ficha (PARADO) is not a search to save.
   base.journeys.forEach((journey) => {

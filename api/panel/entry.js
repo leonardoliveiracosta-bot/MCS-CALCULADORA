@@ -6,6 +6,7 @@ const { allRows, requirePanel, send, supabase, isUuid } = require('../../panel-s
 const { normalizePhone } = require('../../panel-phone');
 const { lastRealMessageAt } = require('../../panel-sort');
 const { isGenericTitle } = require('../../painel/parser');
+const { activeRows: activeTriage } = require('../../panel-triage');
 
 const json = async (req) => {
   if (typeof req.body === 'object' && req.body !== null) return req.body;
@@ -395,13 +396,15 @@ async function queue(ctx, res) {
     allRows(ctx, 'sms_print_reads', { select: 'id,original_filename,extracted_json,created_at', environment: 'eq.' + ctx.environment, status: 'eq.READY', error_code: 'eq.NAME_MATCH_REVIEW', order: 'created_at.desc' })
   ]);
   const printReviews = smsPrintReviews(printReads, contacts, journeys);
+  // Triagem: conversa fora do funil comercial sai da fila da ENTRADA (continua guardada e na busca global).
+  const triageOut = new Set((await activeTriage(ctx)).filter((row) => row.decision === 'FORA_DO_FUNIL').map((row) => row.chat_id));
   /* ordem Mais recentes/antigas: ultima mensagem real da conversa (last_seen_at foi atualizado pela importacao) */
   const messagesByChat = new Map();
   chatMessages.forEach((message) => { if (!messagesByChat.has(message.chat_id)) messagesByChat.set(message.chat_id, []); messagesByChat.get(message.chat_id).push(message); });
   const byChat = Object.fromEntries(counts.map((item) => [item.chat_id, item]));
   const contactsById = new Map(contacts.map((item) => [item.id, item]));
   return send(res, 200, {
-    chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
+    chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, triageOut: triageOut.has(chat.id), newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
     reviews, printReviews, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), chatAliases, senderAliases
   });
 }

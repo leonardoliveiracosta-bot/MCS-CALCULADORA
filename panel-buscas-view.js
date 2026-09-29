@@ -1,4 +1,5 @@
 'use strict';
+const manheimAudit = require('./panel-manheim-audit');
 
 // GET /api/panel/records?view=manheim: the BUSCAS tab. The latest ACTIVE import batch, its
 // matches read with today's demands (one per person and mode), the batch history and the
@@ -28,7 +29,7 @@ function emptyCounts() {
   return { demands: 0, people: 0, served: 0, matches: 0, review: 0 };
 }
 
-async function manheimView(ctx) {
+async function manheimView(ctx, options = {}) {
   const supported = await undoSupported(ctx, { rows });
   const active = supported ? { undone_at: 'is.null' } : {};
   const [base, uploads, meta, userIds, insights, checklist, vitrineRows, stageIndex] = await Promise.all([
@@ -58,7 +59,7 @@ async function manheimView(ctx) {
   };
 
   // People shown in BUSCAS: fichas and Refs without ficha that entered in contact.
-  const excluded = new Set(base.journeys.filter((journey) => journey.contact?.is_lead === false).map((journey) => journey.id));
+  const excluded = new Set(base.journeys.filter((journey) => journey.contact?.is_lead === false || journey.triageOut).map((journey) => journey.id));
   const excludedRefs = new Set(base.journeys.filter((journey) => excluded.has(journey.id)).flatMap((journey) => [journey.reference_code, ...base.refsOf(journey)]).filter(Boolean).map(upper));
   const items = base.journeys.filter((journey) => !excluded.has(journey.id)).flatMap((journey) => {
     const facts = base.contact.facts({ journeyId: journey.id, ref: journey.reference_code, refs: base.refsOf(journey) });
@@ -137,6 +138,12 @@ async function manheimView(ctx) {
     return { key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId || null, ref: demand.ref || null, wishes: demand.activeWishes, bidCents: demand.mode === 'VALOR' ? demand.bidCents : null, issues: demand.issues, ...demandPerson(base, demand), stage: stage && stage.stage || null, stageLabel: stage && stage.label || null };
   });
 
+  // MANHEIM_MATCH_AUDIT reads exactly what this screen shows: the live matches of the active batch
+  // grouped by demand. Off by default: then nothing is added and nothing is blocked.
+  const auditInput = { upload: latest || null, base, demands: listed, matches: liveMatches };
+  if (options.auditInput) return auditInput;
+  const audit = await manheimAudit.viewState(ctx, auditInput).catch(() => ({ state: 'ERRO', byDemand: {} }));
+
   const cutoff = new Date(Date.now() - 60 * 86400000).toISOString();
   const [history, stored] = await Promise.all([
     allRows(ctx, 'manheim_uploads', { select: 'id,vehicle_count,uploaded_at', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + cutoff, ...active }),
@@ -154,7 +161,7 @@ async function manheimView(ctx) {
     environment: ctx.environment,
     items: items.map((item) => decorateWithSearchStage(item, stageIndex)),
     orders: orders.map((item) => decorateWithSearchStage(item, stageIndex)),
-    upload, uploads: batches, undoAvailable: supported, matches: liveMatches, demands, targets, review, counts, historyIncomplete, meta
+    upload, uploads: batches, undoAvailable: supported, matches: liveMatches, demands, targets, review, counts, historyIncomplete, meta, audit
   };
 }
 

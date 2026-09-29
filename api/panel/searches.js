@@ -6,6 +6,7 @@ const { ensureJourney, leadData, orders } = require('../../panel-lead');
 const { dispositionIndex } = require('../../panel-disposition');
 const { floridaDays, loadSearchStageIndex, searchableWish } = require('../../panel-search-stage');
 const { latestActiveUpload, undoSupported } = require('../../panel-manheim-state');
+const { outOfFunnelIndex } = require('../../panel-triage');
 
 const activeStatus = (journey, disabled) => journey && journey.status !== 'ENCERRADO' && !disabled.has(journey.id);
 const phoneFor = (phones, contactId) => {
@@ -43,6 +44,7 @@ async function payload(ctx) {
   const supported = await undoSupported(ctx, { rows });
   const matches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...(supported ? { undone_at: 'is.null' } : {}) }) : [];
   const personDisposition = dispositionIndex(dispositions);
+  const triageOut = await outOfFunnelIndex(ctx, journeys, refs);
   const contact = contactIndex({ calcRuns, messages: messages.filter((message) => !message.undone_at), messageLinks });
   const contactById = new Map(contacts.map((row) => [row.id, row]));
   const disabled = new Set(toggles.filter((row) => !row.enabled).map((row) => row.journey_id));
@@ -51,7 +53,7 @@ async function payload(ctx) {
   journeys.forEach((journey) => {
     const person = contactById.get(journey.contact_id);
     // A:P14: a paused (PARADO) or discarded person has no search to do.
-    if (!activeStatus(journey, disabled) || journey.status === 'PARADO' || person?.is_lead === false) return;
+    if (!activeStatus(journey, disabled) || journey.status === 'PARADO' || person?.is_lead === false || triageOut.has(journey.id)) return;
     if (personDisposition(journey.id, [journey.reference_code, ...refsFor(journey)].filter(Boolean))?.status === 'DISCARDED') return;
     const facts = contact.facts({ journeyId: journey.id, ref: journey.reference_code, refs: refsFor(journey) });
     if (!facts.entered) return;

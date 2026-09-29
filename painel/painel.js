@@ -561,6 +561,47 @@
     journeys.filter((journey) => contactId !== 'new' && journey.contact_id === contactId).forEach((journey) => option(select, journey.vehicle_text || 'Busca existente', journey.id));
   }
 
+  // Triagem da ENTRADA: REVISAR fica em "Precisa de você"; o que saiu do funil fica recolhido,
+  // sempre com a categoria, o motivo curto, a correção manual e o desfazer.
+  // ENTRADA badge = conversations waiting in the queue + triage items in REVISAR; both sources update it.
+  let entryQueueCount=null,triageReviewCount=0;
+  const renderEntryCount=()=>{if(entryQueueCount!==null)setCount('entry',entryQueueCount+triageReviewCount);};
+  const TRIAGE_OPTIONS=[['PRE_COMPRA_MCS','Pré-compra MCS'],['POS_VENDA','Pós-venda'],['PESSOAL','Pessoal'],['OUTRO_NEGOCIO','Outro negócio'],['NAO_CLIENTE','Não é cliente'],['REVISAR','Manter pendente']];
+  function triageCard(item,refresh){
+    const row=element('div','queue-item triage-item');row.dataset.triageId=item.id;
+    const head=element('div','triage-head');head.append(element('strong','',item.name),makeBadge(item.label,item.decision==='FORA_DO_FUNIL'?'':item.decision==='PENDENTE'?'yellow':'green'));row.append(head);
+    const who=item.source==='MANUAL'?'Decisão manual':'IA';
+    const why=item.errorCode?'Leitura automática falhou, decida manualmente':item.reason&&item.reason!==who?`${who} · ${item.reason}`:who;
+    row.append(element('p','muted triage-reason',why));
+    (item.evidence||[]).forEach((quote)=>row.append(element('p','evidence',quote)));
+    const actions=element('div','inline-actions');
+    // Every manual decision offers "Desfazer" right away (a pre-compra card leaves both lists).
+    const undoLast={commit:(result)=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'undo',triageId:result.id})}),successText:'Decisão desfeita',refresh};
+    const apply=(category,button)=>MCSAction.bind(button,()=>({scope:row,successScope:document.body,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'set',chatId:item.chatId,category})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},successText:'Classificação salva',undo:undoLast,refresh,errorText:'Não consegui salvar, tente de novo'}));
+    if(item.decision!=='FUNIL'){const funnel=element('button','small','É pré-compra');funnel.type='button';apply('PRE_COMPRA_MCS',funnel);actions.append(funnel);}
+    const choose=element('select','triage-choice');choose.setAttribute('aria-label','Corrigir a classificação');TRIAGE_OPTIONS.filter(([value])=>value!==item.category&&(item.decision==='FUNIL'||value!=='PRE_COMPRA_MCS')).forEach(([value,label])=>choose.append(new Option(label,value)));
+    const fix=element('button','quiet small','Corrigir');fix.type='button';MCSAction.bind(fix,()=>({scope:row,successScope:document.body,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'set',chatId:item.chatId,category:choose.value})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},successText:'Classificação salva',undo:undoLast,refresh,errorText:'Não consegui salvar, tente de novo'}));
+    actions.append(choose,fix);
+    if(item.source==='MANUAL'){const back=element('button','quiet small','Desfazer');back.type='button';MCSAction.bind(back,()=>({scope:row,commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'undo',triageId:item.id})}),refresh,errorText:'Não consegui desfazer, tente de novo'}));actions.append(back);}
+    if(item.journeyId){const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));actions.append(open);}
+    row.append(actions);return row;
+  }
+  async function loadTriage(){
+    const data=await request('/api/panel/triage').catch(()=>null);
+    const review=$('triage-review'),out=$('triage-out-list');review.replaceChildren();out.replaceChildren();
+    if(!data){$('triage-state').textContent='';$('triage-out-count').textContent='0';triageReviewCount=0;renderEntryCount();return {review:[],out:[]};}
+    triageReviewCount=(data.review||[]).length;renderEntryCount();
+    const refresh=()=>Promise.all([loadTriage(),loadWhatsApp()]).then(()=>refreshCounters().catch(()=>{}));
+    (data.review||[]).forEach((item)=>review.append(triageCard(item,refresh)));
+    (data.out||[]).forEach((item)=>out.append(triageCard(item,refresh)));
+    if(!(data.out||[]).length)out.append(element('p','muted','Nenhuma conversa fora do funil'));
+    $('triage-out-count').textContent=String((data.out||[]).length);
+    $('triage-state').textContent=data.state==='LIGADA'?'':'Triagem automática desligada: as conversas novas seguem o fluxo normal';
+    $('triage-run-pending').classList.toggle('hidden',data.state!=='LIGADA');
+    $('entry-needs-empty').classList.toggle('hidden',Boolean($('whatsapp-errors').childElementCount||$('whatsapp-suggestions').childElementCount||review.childElementCount));
+    return data;
+  }
+
   async function loadWhatsApp() {
     const data = await request('/api/panel/whatsapp');
     const ago = (stamp) => {
@@ -597,7 +638,7 @@
       suggestions.append(row);
     });
     (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';MCSAction.bind(choose,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'}));const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=candidate.isLead!==false;return{scope:row,optimistic:()=>{candidate.isLead=!before;lead.textContent=candidate.isLead?'Não é lead':'Restaurar';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:!before})}),rollback:(value)=>{candidate.isLead=value;lead.textContent=value?'Não é lead':'Restaurar';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'};});group.append(choose,lead);row.append(group);});suggestions.append(row);});
-    $('entry-needs-empty').classList.toggle('hidden', Boolean(errors.childElementCount || suggestions.childElementCount));
+    $('entry-needs-empty').classList.toggle('hidden', Boolean(errors.childElementCount || suggestions.childElementCount || $('triage-review').childElementCount));
   }
 
   const historyPhone = '13055400742';
@@ -724,8 +765,9 @@
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
-    setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + printReviews.length);
-    if (render) renderQueue(chats, data.reviews || []);
+    entryQueueCount = chats.filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + printReviews.length;
+    renderEntryCount();
+    if (render) renderQueue(chats.filter((chat) => !chat.triageOut), data.reviews || []);
     return data;
   }
 
@@ -893,6 +935,11 @@
     return (situation==='all'||item.situation===situation)&&(checklist==='all'||(checklist==='complete'?checklistCompleted(item)===6:checklistCompleted(item)<6))&&(ref==='all'||(ref==='with'?hasRef(item):!hasRef(item)))&&(heat==='all'||String(item.heat||'').toUpperCase()===heat)
       &&MCSOrigin.matchesClientFilters(item,{origin:$('clients-origin')?.value||'all',type:$('clients-type')?.value||'all',days:$('clients-activity')?.value||'all'});
   }
+  // CLIENTES period (30 dias, 90 dias, 6 meses, 1 ano, Tudo): the last real activity of the ficha
+  // (message from the client or from the MCS, or a calculator event). It filters the list, the badge,
+  // the counters, the spreadsheet and the report; never the conversation inside the ficha.
+  const clientsPeriod=()=>$('clients-activity')?.value||'30';
+  const clientsInPeriod=(items)=>(items||[]).filter((item)=>item.isLead!==false&&MCSOrigin.insidePeriod(item,clientsPeriod()));
   function renderClients(data){
     clientsData=data;const pendingByJourney=new Map((data.pending.items||[]).map((item)=>[item.journeyId,item]));
     // A9: heat and score come from the same read as every other screen (records), not from the pending summary.
@@ -900,10 +947,11 @@
     items=items.filter(clientFilterMatch);
     if(clientsOverdue24)items=items.filter((item)=>{const latest=item.latestMessage;if(!latest||latest.is_automatic||latest.direction!=='CUSTOMER')return false;return Date.now()-Date.parse(latest.occurred_at_utc||latest.occurred_at_local||latest.created_at)>86400000;});
     items=clientSort(items,$('clients-sort').value);if($('clients-sort').value==='hot')items.sort((a,b)=>({HOT:0,WARM:1,COLD:2}[a.heat]??3)-({HOT:0,WARM:1,COLD:2}[b.heat]??3));
-    renderPendingGeneral(data.pending,'clients-general-card');const stats=$('clients-stats');stats.replaceChildren();[['NO_RESPONSE','Sem resposta'],['MCS_PENDING','Parado com você'],['CUSTOMER_PENDING','Parado com o cliente'],['IN_PROGRESS','Em andamento'],['CLOSED','Concluída']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.pending.counts?.[key]||0)),element('span','muted',label));stats.append(stat);});
+    renderPendingGeneral(data.pending,'clients-general-card');const stats=$('clients-stats');stats.replaceChildren();const periodLeads=clientsInPeriod((data.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id})));const situationCount=(key)=>periodLeads.filter((item)=>item.situation===key).length;[['NO_RESPONSE','Sem resposta'],['MCS_PENDING','Parado com você'],['CUSTOMER_PENDING','Parado com o cliente'],['IN_PROGRESS','Em andamento'],['CLOSED','Concluída']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(situationCount(key))),element('span','muted',label));stats.append(stat);});
+    const allLeads=(data.items||[]).filter((item)=>item.isLead!==false).length;$('clients-period-note').textContent=clientsPeriod()==='all'?`Período: tudo, sem corte por data · ${allLeads} clientes`:`Período: atividade real ${MCSOrigin.periodLabel(clientsPeriod())} · ${periodLeads.length} de ${allLeads} clientes`;
     // M5: "não é lead" stays reachable (to restore it) but at the end and outside the counter.
     items=[...items.filter((item)=>item.isLead!==false),...items.filter((item)=>item.isLead===false)];
-    const root=$('clients-list');root.replaceChildren();setCount('clients',(data.items||[]).filter((item)=>item.isLead!==false).length);
+    const root=$('clients-list');root.replaceChildren();setCount('clients',periodLeads.length);
     // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
     if(clientsOverdue24){const chip=element('button','chip active','Sem resposta há mais de 24 h ✕');chip.type='button';chip.addEventListener('click',()=>{clientsOverdue24=false;renderClients(clientsData);});root.append(chip);}
     if(!items.length){if(clientsOverdue24)root.append(element('p','empty-state','Nenhum cliente neste filtro'));else empty(root,'Nenhum cliente neste filtro.');return;}
@@ -928,7 +976,8 @@
   function downloadClientsCsv(){
     const pendingByJourney=new Map((clientsData.pending?.items||[]).map((item)=>[item.journeyId,item]));
     let items=(clientsData.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id}));
-    items=items.filter(clientFilterMatch);
+    // Same universe as the badge, the counters and the report: leads only ("não é lead" stays out).
+    items=items.filter((item)=>item.isLead!==false&&clientFilterMatch(item));
     const csvCell=(value)=>{const raw=String(value??''),text=/^[=+\-@\t\r]/.test(raw)&&!/^[+-]?[\d\s().,-]+$/.test(raw)?"'"+raw:raw;return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;};
     const rows=[['nome','telefone','Ref','situação','checklist','calor','etapa da busca','resumo da IA'],...items.map((item)=>[item.name||item.contact?.display_name||'',primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||'',item.ref||item.referenceCode||item.reference_code||'',pendingSituationLabel(item.situation),`${checklistCompleted(item)}/6`,pendingHeatLabel(item.heat),item.searchStageLabel||'',item.aiSummary||item.summary||''])];
     const blob=new Blob(['\uFEFF'+rows.map((row)=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='clientes-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -1087,6 +1136,7 @@
       if (!current()) return;
       renderQueue(data.chats || [], data.reviews || []);
       refreshEntryOrders().catch(() => { $('entry-orders-count').textContent = '?'; empty($('entry-orders-list'), 'Não foi possível carregar'); });
+      loadTriage().catch(() => {});
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp.'; });
     }
     if (view === 'pending') return loadPending();
@@ -1131,13 +1181,17 @@
       request('/api/panel/entry'),
       request('/api/panel/searches'),
       request('/api/panel/records'),
-      request('/api/panel/vitrine-requests')
+      request('/api/panel/vitrine-requests'),
+      request('/api/panel/triage')
     ]);
-    const [today, entry, searches, records, vitrineData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const [today, entry, searches, records, vitrineData, triageData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
     if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
-    count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + (data.printReviews || []).length);
-    count('clients', records, (data) => (data.items || []).length);
+    // Conversations the triage left in REVISAR also wait for a decision in ENTRADA.
+    if (triageData) triageReviewCount = (triageData.review || []).length;
+    count('entry', entry, (data) => { entryQueueCount = (data.chats || []).filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + (data.printReviews || []).length; return entryQueueCount + triageReviewCount; });
+    // Same rule as the list: leads only, inside the CLIENTES period.
+    count('clients', records, (data) => clientsInPeriod(data.items).length);
     // One person with a VALOR and a CARRO card is one person in the badge.
     count('searches', searches, (data) => new Set((data.items || []).map((item) => item.journeyId || item.key)).size);
     const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
@@ -1407,7 +1461,7 @@
         const copyLink=element('button','quiet small','Copiar link');copyLink.type='button';copyLink.addEventListener('click',()=>copyText(link,'Link copiado'));
         const copyMessage=element('button','small','Copiar mensagem com link');copyMessage.type='button';copyMessage.addEventListener('click',()=>copyText(message,'Mensagem copiada'));
         result.append(view,copyLink,copyMessage);result.classList.remove('hidden');
-      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido. Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
+      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V2':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido. Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
     });
     box.append(drop,thumbs,limitLabel,noteLabel,generate,status,result);
     card.append(box);
@@ -1684,6 +1738,37 @@
     parts.push(`${count('QUASE')} QUASE`);
     return makeBadge(parts.join(' · '), count('BATE') ? 'green' : count('POR_VALOR') ? 'blue' : 'yellow');
   };
+  // MANHEIM_MATCH_AUDIT on screen: one status per demand. Off, nothing shows and V1 works as before.
+  const AUDIT_OK=['CONFERIDO','APROVADO_MANUAL'];
+  const auditOn=()=>manheimData?.audit?.state==='LIGADA';
+  const auditEntry=(demand)=>auditOn()&&demand?manheimData.audit.byDemand?.[demand.key]||{status:'CONFERINDO',label:'Conferindo',divergences:[]}:null;
+  const auditAllows=(demand)=>!auditOn()||!demand||AUDIT_OK.includes(auditEntry(demand).status);
+  const AUDIT_TONES={CONFERIDO:'green',APROVADO_MANUAL:'green',REVISAR:'red'};
+  function auditBlock(demand,matches){
+    const entry=auditEntry(demand);if(!entry)return null;
+    const box=element('div','audit-block');box.dataset.auditStatus=entry.status;
+    box.append(makeBadge(entry.label||entry.status,AUDIT_TONES[entry.status]||'yellow'));
+    const carName=(matchId)=>{const parsed=(matches||[]).find((match)=>match.id===matchId)?.vehicle_json?.parsed;return parsed?[parsed.year,parsed.make,parsed.model].filter(Boolean).join(' ')+(parsed.vin?` · VIN final ${String(parsed.vin).slice(-6)}`:''):'';};
+    (entry.divergences||[]).slice(0,8).forEach((item)=>{const car=carName(item.matchId);box.append(element('p','audit-divergence',car?`${car}: ${item.text}`:item.text));});
+    if(entry.status==='PENDENTE')box.append(element('p','muted','A IA não respondeu. As opções continuam visíveis, sem aprovação automática'));
+    if(entry.approvedReason)box.append(element('p','muted',`Aprovado à mão · ${entry.approvedReason}`));
+    const actions=element('div','inline-actions');
+    if(entry.canRetry){const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:box,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'retry',key:demand.key})}),refresh:()=>loadCurrent(),errorText:'Não consegui conferir de novo, tente mais tarde'}));actions.append(retry);}
+    if(entry.canApprove){const reason=element('input','audit-reason');reason.type='text';reason.maxLength=300;reason.placeholder='Motivo da aprovação';reason.setAttribute('aria-label','Motivo da aprovação manual');const approve=element('button','quiet small','Aprovar com motivo');approve.type='button';MCSAction.bind(approve,()=>({scope:box,commit:()=>{if(reason.value.trim().length<5)throw Object.assign(Error('AUDIT_REASON_REQUIRED'),{code:'AUDIT_REASON_REQUIRED'});return request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'approve',key:demand.key,reason:reason.value.trim()})});},refresh:()=>loadCurrent(),errorText:(error)=>error?.code==='AUDIT_REASON_REQUIRED'?'Escreva o motivo, com pelo menos 5 letras':'Não consegui aprovar, tente de novo'}));actions.append(reason,approve);}
+    if(actions.childElementCount)box.append(actions);
+    if(!AUDIT_OK.includes(entry.status))box.append(element('p','muted','V1 e V2 desta demanda ficam liberadas depois da conferência'));
+    return box;
+  }
+  function renderAuditNote(audit){
+    const note=$('manheim-audit-note');if(!note)return;note.replaceChildren();
+    const waiting=audit&&audit.state==='LIGADA'&&audit.run&&audit.run.status==='AGUARDANDO_AUTORIZACAO';
+    note.classList.toggle('hidden',!waiting);if(!waiting)return;
+    const cost=(value)=>'US$ '+Number(value||0).toFixed(2);
+    note.append(element('p','',`Conferência estimada em ${cost(audit.run.estimateUsd)}, acima do limite de ${cost(audit.limitUsd)} por importação. Nada foi cobrado`));
+    const authorize=element('button','small','Autorizar conferência');authorize.type='button';
+    MCSAction.bind(authorize,()=>({scope:note,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'authorize'})}),refresh:()=>loadCurrent(),errorText:(error)=>error?.code==='AUDIT_ADMIN_ONLY'?'Só o administrador autoriza':'Não consegui autorizar, tente de novo'}));
+    note.append(authorize);
+  }
   const MANHEIM_VISIBLE_ROWS = 10;
   // BATE first, then QUASE, lowest mileage first; the first 10 are visible and the rest open on "Ver mais".
   function appendManheimRows(table, matches, renderRow) {
@@ -1707,6 +1792,7 @@
     const stageLabel = demand ? demand.stageLabel : journey.searchStageLabel, stage = demand ? demand.stage : journey.searchStage;
     head.append(identityHeader(journey), kindSummaryBadge(matches));if(stageLabel)head.append(makeBadge(stageLabel,stage==='SENT'?'green':stage==='SAVED'?'blue':'yellow'));
     card.append(head, element('p', 'muted', demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents)));
+    const audited=auditBlock(demand,matches);if(audited)card.append(audited);
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
@@ -1752,7 +1838,7 @@
       downloadShortlist(selected, journey.reference_code);
     });
     const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';}catch(_){$('manheim-status').textContent='Não consegui copiar. Link: '+link;}});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();const selected=[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent='Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected})});}catch(_){$('manheim-status').textContent='Não consegui gerar o link';vitrineButton.disabled=false;return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=false;}});
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();const selected=[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent='Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){$('manheim-status').textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
     card.append(exportButton,vitrineButton,copyMessageButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
@@ -1771,8 +1857,10 @@
     card.append(head);
     const summary = element('div', 'badges');
     summary.append(kindSummaryBadge(matches));
+    const orderAudit=auditBlock(demand,matches);
     summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
     card.append(summary, element('p', 'muted', demand ? demandSummary(demand) : order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
+    if (orderAudit) card.append(orderAudit);
     const contact=contactMeta(order);if(contact)card.append(contact);
     const smsMissing=smsPrintMissing(order); if(smsMissing)card.append(smsMissing);
 
@@ -1826,6 +1914,7 @@
     renderBuscasCounters(data.counts);
     renderBatches(data.uploads || [], data.undoAvailable !== false);
     renderReview(data.review || []);
+    renderAuditNote(data.audit);
 
     const demandsByKey = new Map((data.demands || []).map((demand) => [demand.key, demand]));
     const byJourney = new Map(manheimJourneys.map((journey) => [journey.id, journey]));
@@ -2109,6 +2198,8 @@
     if (ai.rowsSentToAi || ai.review.length) await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_summary', uploadId: result.uploadId, summary: aiSummary(ai) }) }).catch(() => null);
     await loadCurrent();
     await refreshCounters();
+    // MANHEIM_MATCH_AUDIT: the options show "Conferindo" and the check starts right after the upload.
+    if (manheimData?.audit?.state === 'LIGADA') request('/api/panel/manheim-audit', { method: 'POST', body: JSON.stringify({ action: 'run' }) }).then(() => loadCurrent()).catch(() => loadCurrent().catch(() => {}));
   }
 
   // OpenAI for ambiguous rows only. Rows the parser reads with safety never go to the AI; the AI
@@ -2747,8 +2838,15 @@
     root.classList.remove('hidden');
   }
 
+  // From CLIENTES the report follows the CLIENTES period (last real activity), not a date range.
+  let reportClients = null;
   function openReport(view) {
     reportView = view;
+    reportClients = view === 'records' && currentView === 'clients' ? { activity: clientsPeriod(), since: MCSOrigin.periodCutoff(clientsPeriod()) } : null;
+    $('report-period-field').classList.toggle('hidden', Boolean(reportClients));
+    $('report-custom').classList.toggle('hidden', Boolean(reportClients) || $('report-period').value !== 'custom');
+    $('report-origin-note').classList.toggle('hidden', !reportClients);
+    $('report-origin-note').textContent = reportClients ? (reportClients.activity === 'all' ? 'Período de CLIENTES: tudo, sem corte por data' : `Período de CLIENTES: atividade real ${MCSOrigin.periodLabel(reportClients.activity)}`) : '';
     $('report-text').value = '';
     $('report-status').textContent = '';
     $('report-dialog').showModal();
@@ -2756,8 +2854,9 @@
 
   async function generateReport() {
     const period = $('report-period').value;
-    const params = new URLSearchParams({ period, view: reportView });
-    if (period === 'custom') {
+    const params = reportClients ? new URLSearchParams({ view: 'records', origin: 'clients', activity: reportClients.activity }) : new URLSearchParams({ period, view: reportView });
+    if (reportClients && reportClients.since !== null) params.set('since', new Date(reportClients.since).toISOString());
+    if (!reportClients && period === 'custom') {
       params.set('from', $('report-from').value);
       params.set('to', $('report-to').value);
     }
@@ -2982,12 +3081,15 @@
     $('entry-simulated-more').addEventListener('click', () => loadEntryOrders('simulated', true).catch(() => { $('entry-simulated-more').textContent = 'Não foi possível carregar'; }));
     $('entry-simulated').addEventListener('toggle', () => { if ($('entry-simulated').open) loadEntryOrders('simulated').catch(() => empty($('entry-simulated-list'), 'Não foi possível carregar')); });
     ['today','entry','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')renderClients(clientsData);return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
-    ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type','clients-activity'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')renderClients(clientsData);});});
+    $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(currentView==='clients')renderClients(clientsData);refreshCounters().catch(()=>{});});
+    ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')renderClients(clientsData);});});
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
     const weekly=$('weekly-summary');weekly.open=localStorage.getItem('mcs_weekly_open')==='true';weekly.addEventListener('toggle',()=>localStorage.setItem('mcs_weekly_open',String(weekly.open)));
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
     $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});
     $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
+    // Separate, owner-authorized reading of the conversations in "Precisa de você" only.
+    MCSAction.bind($('triage-run-pending'),()=>({scope:$('triage-run-pending').parentElement,commit:async()=>{const result=await request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'run_pending'})});if(result.skipped)throw Object.assign(Error('TRIAGE_OFF'),{code:'TRIAGE_OFF'});if(result.failed||result.deferred)throw Object.assign(Error('TRIAGE_PARTIAL'),{code:'TRIAGE_PARTIAL'});return result;},successText:'Leitura concluída, confira Precisa de você',refresh:()=>loadTriage().then(()=>refreshCounters().catch(()=>{})),errorText:(error)=>error?.code==='TRIAGE_ADMIN_ONLY'?'Só o administrador pode iniciar':error?.code==='TRIAGE_OFF'?'Triagem desligada, nada foi lido':error?.code==='TRIAGE_PARTIAL'?'Parte das conversas ficou pendente, tente de novo':'Não consegui classificar, tente de novo'}));
     $('clients-download').addEventListener('click',()=>{const button=$('clients-download');button.disabled=true;try{downloadClientsCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
     document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar.')); $('search-results').classList.remove('hidden'); }));

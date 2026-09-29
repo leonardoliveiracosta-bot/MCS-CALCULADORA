@@ -3,6 +3,7 @@ const crypto=require('node:crypto');
 const {allRows,isUuid,jsonBody,patchRows,requirePanel,rows,send,supabase}=require('../../panel-server');
 const {normalizedItems,processItem,processRaw,resolveItemError,saveItemError}=require('../../whatsapp-receiver');
 const {recoverStalledEvents,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
+const {activeRows:activeTriage}=require('../../panel-triage');
 
 module.exports=async(req,res)=>{
   const ctx=await requirePanel(req,res);if(!ctx)return;
@@ -20,12 +21,21 @@ module.exports=async(req,res)=>{
         allRows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_contact_id,target_contact_id,target_journey_id,target_ref,motives,suggestion_kind,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
         ,allRows(ctx,'whatsapp_phone_reviews',{select:'id,phone_e164,candidate_contact_ids,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
       ]);
+      // Triagem: a conversa classificada fora do funil comercial sai da pendência (a sugestão fica guardada).
+      // Only the chats of the suggestions' source contacts (a short list), never every triaged chat.
+      const sourceContacts=[...new Set(suggestions.map((item)=>item.source_contact_id).filter(isUuid))];
+      const triage=sourceContacts.length?await activeTriage(ctx):[];
+      const triageChats=triage.length?await allRows(ctx,'chats',{select:'id,contact_id',environment:'eq.'+ctx.environment,contact_id:'in.('+sourceContacts.join(',')+')'}):[];
+      const contactOfChat=new Map(triageChats.map((chat)=>[chat.id,chat.contact_id]));
+      const decisionsByContact=new Map();triage.forEach((row)=>{const contactId=contactOfChat.get(row.chat_id);if(!contactId)return;if(!decisionsByContact.has(contactId))decisionsByContact.set(contactId,[]);decisionsByContact.get(contactId).push(row.decision);});
+      const outOfFunnel=(contactId)=>{const decisions=decisionsByContact.get(contactId)||[];return decisions.length>0&&decisions.every((decision)=>decision==='FORA_DO_FUNIL');};
+      const commercialSuggestions=suggestions.filter((item)=>!outOfFunnel(item.source_contact_id));
       const contactIds=[...new Set(suggestions.flatMap((item)=>[item.source_contact_id,item.target_contact_id]).filter(Boolean).concat(phoneReviews.flatMap((item)=>(item.candidate_contact_ids||[]).filter(Boolean))))];
       const contacts=contactIds.length?await rows(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment,id:'in.('+contactIds.join(',')+')'}):[];
       const names=new Map(contacts.map(x=>[x.id,x.display_name]));
       return send(res,200,{lastEventAt:latest[0]?.received_at||null,lastInboundAt:inbound[0]?.received_at||null,lastEchoAt:echo[0]?.received_at||null,
         errors:errors.filter(x=>x.status!=='PROCESSING'||Date.now()-Date.parse(x.processing_started_at||0)>120000),ignored,itemErrors,
-        suggestions:suggestions.map(x=>({...x,sourceName:names.get(x.source_contact_id),targetName:names.get(x.target_contact_id),sourceIsLead:contacts.find(c=>c.id===x.source_contact_id)?.is_lead!==false})),
+        suggestions:commercialSuggestions.map(x=>({...x,sourceName:names.get(x.source_contact_id),targetName:names.get(x.target_contact_id),sourceIsLead:contacts.find(c=>c.id===x.source_contact_id)?.is_lead!==false})),
         phoneReviews:phoneReviews.map(x=>({...x,candidates:(x.candidate_contact_ids||[]).map(id=>({id,name:names.get(id)||'Contato',isLead:contacts.find(c=>c.id===id)?.is_lead!==false}))}))});
     }
     if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});

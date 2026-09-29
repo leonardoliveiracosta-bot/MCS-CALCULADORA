@@ -63,10 +63,11 @@ async function createBackend({ seed } = {}) {
     if (table.startsWith('rpc/')) {
       const fn = table.slice(4);
       const args = Object.entries(body || {});
-      const values = args.map(([, value]) => value !== null && typeof value === 'object' ? JSON.stringify(value) : value);
       const signature = (await db.query(`select pg_get_function_arguments(p.oid) args, p.proretset retset from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname=$1`, [fn])).rows[0];
       if (!signature) throw Object.assign(new Error('RPC_NAO_EXISTE'), { status: 404 });
       const types = Object.fromEntries(signature.args.split(',').map((item) => item.trim().split(/\s+/)).map(([name, type]) => [name, type]));
+      // PostgREST takes a JSON array for an array parameter (uuid[], text[]); objects go as json.
+      const values = args.map(([name, value]) => Array.isArray(value) && String(types[name] || '').endsWith('[]') ? value : value !== null && typeof value === 'object' ? JSON.stringify(value) : value);
       const list = args.map(([name], index) => `${ident(name)} => $${index + 1}::${types[name] || 'text'}`).join(', ');
       // A set-returning function answers with its rows, as PostgREST does.
       if (signature.retset) return (await db.query(`select * from public.${ident(fn)}(${list})`, values)).rows;

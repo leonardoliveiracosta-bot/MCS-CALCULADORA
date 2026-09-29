@@ -118,7 +118,7 @@ test('Lote 4 · aba PEDIDOS saiu; ENTRADA e CLIENTES assumem as funções, links
   assert.match(html, /data-report="orders"/);
   assert.match(html, /id="clients-origin"[\s\S]*Calculadora[\s\S]*WhatsApp direto[\s\S]*SMS direto/);
   assert.match(html, /id="clients-type"[\s\S]*Simulação[\s\S]*Busca[\s\S]*Sem calculadora/);
-  assert.match(html, /id="clients-activity"[\s\S]*Tudo[\s\S]*7 dias[\s\S]*30 dias/);
+  assert.match(html, /id="clients-activity"[\s\S]*30 dias[\s\S]*90 dias[\s\S]*6 meses[\s\S]*1 ano[\s\S]*Tudo/);
   assert.match(html, /panel-origin\.js/);
   // D2: the section keeps its own number; the ENTRADA badge still counts only real doubts.
   assert.doesNotMatch(js, /setCount\('entry'[^;]*entryOrders/);

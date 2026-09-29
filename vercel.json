@@ -2,6 +2,8 @@
   "functions": {
     "api/panel/notes/distribute.js": { "maxDuration": 30 },
     "api/panel/ai-cron.js": { "maxDuration": 60 },
+    "api/panel/manheim-audit.js": { "maxDuration": 60 },
+    "api/panel/triage.js": { "maxDuration": 60 },
     "api/panel/ai-conversations.js": { "maxDuration": 30 },
     "api/panel/reply.js": { "maxDuration": 30 },
     "api/panel/history-import.js": { "maxDuration": 60 },
