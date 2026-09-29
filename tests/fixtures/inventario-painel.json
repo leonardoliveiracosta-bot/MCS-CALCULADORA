@@ -1,0 +1,1857 @@
+{
+ "ids": [
+  {
+   "name": "app-view",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote1.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "auto-print-file",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "auto-print-file-info",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "auto-print-remove",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "auto-print-result",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "auto-print-send",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "auto-print-status",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "automatic-message-list",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "automatic-message-save",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "automatic-message-text",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "boot-warning",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote1.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-carro",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-carro-clients",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-carro-counters",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-carro-saved",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-review",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-review-count",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "buscas-review-list",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-total",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-valor",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-valor-counters",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "buscas-valor-saved",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "capture-warning",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "chat-type",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "clients-activity",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "clients-checklist",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "clients-download",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "clients-heat",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "clients-list",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js",
+    "tests/marcacao-modo.spec.js"
+   ]
+  },
+  {
+   "name": "clients-origin",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "clients-ref",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "clients-situation",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "clients-sort",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "clients-stats",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "clients-type",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "confirm-password",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "contact-name-label",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "data-updated",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "date-order",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "date-order-label",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "detail-back",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "detail-panel",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "drop-zone",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "email",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "entry-needs-empty",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "entry-orders",
+   "usedBy": [
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "entry-orders-count",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "entry-orders-list",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "entry-orders-more",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "entry-panel",
+   "usedBy": [
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "entry-queue",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "entry-simulated",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "entry-simulated-count",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "entry-simulated-list",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "entry-simulated-more",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "entry-sort",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "environment-badge",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "global-search",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "global-search-input",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "history-import-errors",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "history-import-file",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "history-import-send",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "history-import-status",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "import-chat",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "import-contact",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "import-contact-name",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "import-journey",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "import-review-card",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "import-review-form",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "import-review-summary",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "import-status",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "last-whatsapp-import",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "lead-conversation",
+   "usedBy": [
+    "painel/lead.js",
+    "tests/lote1.spec.js"
+   ]
+  },
+  {
+   "name": "login-form",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "login-title",
+   "usedBy": [
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "login-view",
+   "usedBy": [
+    "tests/lote1.spec.js",
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "logout",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "manheim-batches",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-drop-zone",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-files",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js",
+    "tests/manheim-import.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-import-summary",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-results",
+   "usedBy": [
+    "tests/buscas-split.spec.js",
+    "tests/manheim-import.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-saved-searches",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "manheim-sort",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "manheim-status",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js",
+    "tests/manheim-import.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-summary",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "mcs-sender",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "new-password",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "page-title",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "password",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "password-form",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "password-view",
+   "usedBy": [
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "pending-download",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "pending-list",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "pending-sort",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "pending-stats",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "pending-with-ref",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "qualification-list",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "qualification-sort",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "record-detail",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/marcacao-modo.spec.js"
+   ]
+  },
+  {
+   "name": "records-list",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "records-sort",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "ref-warning",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "refresh-note",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "remember-login",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "report-copy",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "report-custom",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "report-dialog",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "report-from",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "report-generate",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "report-period",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "report-status",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "report-text",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "report-to",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "search-results",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "searches-panel",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "sms-contact",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-date",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-direction",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-form",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-journey",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-new-name",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-new-name-label",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-new-phone",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-new-phone-label",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-status",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "sms-text",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "today-florida-time",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "today-list",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote2.spec.js",
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "today-sort",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "today-stats",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote2.spec.js"
+   ]
+  },
+  {
+   "name": "vitrine-requests",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "vitrine-signals",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "weekly-summary",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "weekly-summary-content",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "whatsapp-echo",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "whatsapp-errors",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "whatsapp-files",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "whatsapp-received",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "whatsapp-signal",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "whatsapp-suggestions",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  }
+ ],
+ "classes": [
+  {
+   "name": "action-feedback",
+   "usedBy": [
+    "painel/action.js",
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "action-optimistic-hidden",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "active",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "ai-alternative-picker",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "card",
+   "usedBy": [
+    "tests/find-one.spec.js"
+   ]
+  },
+  {
+   "name": "clickable-card",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "client-card",
+   "usedBy": [
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "count-positive",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "custom",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "disabled",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "discard-reasons",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "disposition-controls",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "disposition-state",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "dragging",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "error",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/sms-inbound.test.js"
+   ]
+  },
+  {
+   "name": "evidence",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "eyebrow",
+   "usedBy": [
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "freshness",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "heat-badge",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "hidden",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "inline-actions",
+   "usedBy": [
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "inline-confirm",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "item-card",
+   "usedBy": [
+    "painel/action.js",
+    "painel/painel.js",
+    "tests/lote4.spec.js",
+    "tests/marcacao-modo.spec.js"
+   ]
+  },
+  {
+   "name": "lead-card",
+   "usedBy": [
+    "painel/action.js",
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "lead-context-link",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "lead-detail",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "lead-head-name",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "lead-message",
+   "usedBy": [
+    "tests/marcacao-modo.spec.js"
+   ]
+  },
+  {
+   "name": "login-screen",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "login-view",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "manheim-lead",
+   "usedBy": [
+    "tests/buscas-split.spec.js",
+    "tests/manheim-import.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-more",
+   "usedBy": [
+    "tests/manheim-import.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-row",
+   "usedBy": [
+    "tests/manheim-import.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-select",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "message",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "message-menu",
+   "usedBy": [
+    "tests/lote3.spec.js",
+    "tests/marcacao-modo.spec.js"
+   ]
+  },
+  {
+   "name": "message-menu-panel",
+   "usedBy": [
+    "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "muted",
+   "usedBy": [
+    "tests/buscas-split.spec.js",
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "next-action-editor",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "no-ref-phone",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "over",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "panel-view",
+   "usedBy": [
+    "painel/action.js"
+   ]
+  },
+  {
+   "name": "production",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "queue-item",
+   "usedBy": [
+    "painel/action.js",
+    "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "quiet",
+   "usedBy": [
+    "painel/lead.js",
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "record-block",
+   "usedBy": [
+    "painel/action.js",
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "ref",
+   "usedBy": [
+    "painel/lead.js",
+    "painel/painel.js",
+    "tests/find-one.test.js"
+   ]
+  },
+  {
+   "name": "reply-composer",
+   "usedBy": [
+    "tests/lote1.spec.js"
+   ]
+  },
+  {
+   "name": "report-period",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "review-line",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "search-hit",
+   "usedBy": [
+    "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "search-stage",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "small",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "sms-print-missing",
+   "usedBy": [
+    "painel/action.js"
+   ]
+  },
+  {
+   "name": "status",
+   "usedBy": [
+    "painel/lead.js",
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "tab",
+   "usedBy": [
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "today-card",
+   "usedBy": [
+    "tests/lote2.spec.js"
+   ]
+  },
+  {
+   "name": "today-heading",
+   "usedBy": [
+    "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "undo-toast",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "v2-builder",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "vitrine-request-card",
+   "usedBy": [
+    "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "wishlist-mode",
+   "usedBy": [
+    "tests/marcacao-modo.spec.js"
+   ]
+  },
+  {
+   "name": "wishlist-row",
+   "usedBy": [
+    "tests/marcacao-modo.spec.js"
+   ]
+  }
+ ],
+ "data": [
+  {
+   "name": "action-key",
+   "usedBy": [
+    "painel/action.js",
+    "tests/immediate-actions.test.js"
+   ]
+  },
+  {
+   "name": "batch-id",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "confirmed",
+   "usedBy": [
+    "painel/lead.js",
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "count",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote1.spec.js",
+    "tests/lote3.spec.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "counter",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "entry-orders-period",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "link",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "match-id",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "mode",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "order-key",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "pending-situation",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "reply-closed",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/lote1.spec.js"
+   ]
+  },
+  {
+   "name": "report",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "review-key",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "status",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "today-ref",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "undo-scope",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "view",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js",
+    "tests/lote3.spec.js",
+    "tests/lote4.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/marcacao-modo.spec.js"
+   ]
+  }
+ ],
+ "definedAtBase": {
+  "ids": [
+   "app-view",
+   "auto-print-card",
+   "auto-print-file",
+   "auto-print-file-info",
+   "auto-print-remove",
+   "auto-print-result",
+   "auto-print-send",
+   "auto-print-status",
+   "automatic-message-list",
+   "automatic-message-save",
+   "automatic-message-text",
+   "automatic-messages-card",
+   "boot-warning",
+   "buscas-carro",
+   "buscas-carro-clients",
+   "buscas-carro-counters",
+   "buscas-carro-results",
+   "buscas-carro-saved",
+   "buscas-carro-summary",
+   "buscas-review",
+   "buscas-review-count",
+   "buscas-review-list",
+   "buscas-total",
+   "buscas-valor",
+   "buscas-valor-clients",
+   "buscas-valor-counters",
+   "buscas-valor-results",
+   "buscas-valor-saved",
+   "buscas-valor-summary",
+   "capture-warning",
+   "chat-label",
+   "chat-type",
+   "clients-activity",
+   "clients-checklist",
+   "clients-download",
+   "clients-general-card",
+   "clients-heat",
+   "clients-list",
+   "clients-origin",
+   "clients-panel",
+   "clients-ref",
+   "clients-situation",
+   "clients-sort",
+   "clients-stats",
+   "clients-type",
+   "confirm-password",
+   "contact-label",
+   "contact-name-label",
+   "data-updated",
+   "date-order",
+   "date-order-label",
+   "detail-back",
+   "detail-panel",
+   "drop-zone",
+   "email",
+   "entry-add-title",
+   "entry-needs-empty",
+   "entry-needs-title",
+   "entry-orders",
+   "entry-orders-count",
+   "entry-orders-list",
+   "entry-orders-more",
+   "entry-panel",
+   "entry-queue",
+   "entry-simulated",
+   "entry-simulated-count",
+   "entry-simulated-list",
+   "entry-simulated-more",
+   "entry-sort",
+   "environment-badge",
+   "global-search",
+   "global-search-input",
+   "history-import-errors",
+   "history-import-file",
+   "history-import-send",
+   "history-import-status",
+   "history-import-title",
+   "import-chat",
+   "import-contact",
+   "import-contact-name",
+   "import-journey",
+   "import-review-card",
+   "import-review-form",
+   "import-review-summary",
+   "import-review-title",
+   "import-status",
+   "journey-label",
+   "last-whatsapp-import",
+   "lead-conversation",
+   "lead-manual-date-",
+   "login-error",
+   "login-form",
+   "login-title",
+   "login-view",
+   "logout",
+   "manheim-batches",
+   "manheim-drop-zone",
+   "manheim-files",
+   "manheim-import-summary",
+   "manheim-panel",
+   "manheim-results",
+   "manheim-saved-searches",
+   "manheim-sort",
+   "manheim-status",
+   "manheim-summary",
+   "mcs-sender",
+   "mcs-sender-label",
+   "new-password",
+   "notification-status",
+   "notification-test",
+   "notification-toggle",
+   "page-title",
+   "password",
+   "password-error",
+   "password-form",
+   "password-title",
+   "password-view",
+   "pending-download",
+   "pending-general-card",
+   "pending-list",
+   "pending-panel",
+   "pending-sort",
+   "pending-stats",
+   "pending-with-ref",
+   "qualification-list",
+   "qualification-panel",
+   "qualification-sort",
+   "record-detail",
+   "records-list",
+   "records-panel",
+   "records-sort",
+   "ref-warning",
+   "refresh-note",
+   "remember-login",
+   "report-copy",
+   "report-custom",
+   "report-dialog",
+   "report-from",
+   "report-generate",
+   "report-period",
+   "report-status",
+   "report-text",
+   "report-to",
+   "search-results",
+   "search-sort",
+   "searches-panel",
+   "sms-contact",
+   "sms-date",
+   "sms-direction",
+   "sms-form",
+   "sms-journey",
+   "sms-new-name",
+   "sms-new-name-label",
+   "sms-new-phone",
+   "sms-new-phone-label",
+   "sms-status",
+   "sms-text",
+   "today-florida-time",
+   "today-list",
+   "today-panel",
+   "today-ref-filters",
+   "today-sort",
+   "today-stats",
+   "vitrine-requests",
+   "vitrine-signals",
+   "weekly-period",
+   "weekly-summary",
+   "weekly-summary-content",
+   "whatsapp-echo",
+   "whatsapp-errors",
+   "whatsapp-files",
+   "whatsapp-received",
+   "whatsapp-signal",
+   "whatsapp-suggestions",
+   "whatsapp-title"
+  ],
+  "classes": [
+   "action-feedback",
+   "action-optimistic-hidden",
+   "active",
+   "ai-alternative-picker",
+   "ai-conversation-review",
+   "ai-link-suggestion",
+   "ai-route-title",
+   "ai-summary",
+   "alert",
+   "attachment-choice",
+   "auction-alert",
+   "avatar",
+   "badge",
+   "badges",
+   "batch-line",
+   "batch-text",
+   "batches",
+   "blue",
+   "buscas-column",
+   "buscas-column-head",
+   "buscas-columns",
+   "buscas-counters",
+   "buscas-review",
+   "buscas-total",
+   "calculator-news",
+   "capture-warning",
+   "card",
+   "card-action-result",
+   "ceiling-action",
+   "check-point",
+   "chip",
+   "clickable-card",
+   "client-card",
+   "client-last-message",
+   "clients-filters",
+   "contact-meta",
+   "conversation-controls",
+   "conversation-timeline",
+   "count-positive",
+   "custom",
+   "definition-grid",
+   "detail-simulation",
+   "detail-simulations",
+   "detail-toolbar",
+   "disabled",
+   "discard-reasons",
+   "disposition-controls",
+   "disposition-state",
+   "dragging",
+   "drop-zone",
+   "empty-state",
+   "entry-add",
+   "entry-empty",
+   "entry-group-title",
+   "entry-heading",
+   "entry-needs",
+   "entry-open-button",
+   "entry-orders",
+   "entry-review-actions",
+   "entry-signal",
+   "entry-simulated",
+   "entry-tool",
+   "entry-tool-copy",
+   "entry-tool-featured",
+   "entry-tool-icon",
+   "entry-tool-title",
+   "entry-tools",
+   "environment-badge",
+   "error",
+   "evidence",
+   "eyebrow",
+   "filters",
+   "freshness",
+   "global-search",
+   "heat-",
+   "heat-badge",
+   "hidden",
+   "history-import",
+   "identity",
+   "identity-name",
+   "identity-ref-phone",
+   "import-review",
+   "import-summary",
+   "inline-actions",
+   "inline-confirm",
+   "inline-form",
+   "item-card",
+   "item-head",
+   "journey-switch",
+   "lead-actions",
+   "lead-attachment",
+   "lead-attachment-thumb",
+   "lead-attachments",
+   "lead-badge",
+   "lead-badges",
+   "lead-call",
+   "lead-card",
+   "lead-check",
+   "lead-clock",
+   "lead-context-link",
+   "lead-detail",
+   "lead-grid",
+   "lead-head-name",
+   "lead-head-right",
+   "lead-header",
+   "lead-highlight",
+   "lead-label",
+   "lead-line",
+   "lead-manual-date",
+   "lead-message",
+   "lead-note",
+   "lead-offer",
+   "lead-phone",
+   "lead-review",
+   "lead-route",
+   "lead-route-value",
+   "lead-score",
+   "lead-steps",
+   "lead-thread",
+   "lead-three",
+   "lead-timeline",
+   "lead-two",
+   "lead-unit",
+   "login-screen",
+   "login-view",
+   "manheim-lead",
+   "manheim-more",
+   "manheim-notice",
+   "manheim-row",
+   "manheim-select",
+   "manheim-table",
+   "manual-entry",
+   "menu-action",
+   "message",
+   "message-body",
+   "message-menu",
+   "message-menu-panel",
+   "message-meta",
+   "message-preview",
+   "message-receipt",
+   "muted",
+   "next-action",
+   "next-action-editor",
+   "no-ref-phone",
+   "note-form",
+   "one-line",
+   "order-details",
+   "order-icon",
+   "over",
+   "panel-logo",
+   "panel-view",
+   "pending-ai",
+   "pending-bar",
+   "pending-card",
+   "pending-filters",
+   "pending-general",
+   "pending-ref-filter",
+   "pending-stat",
+   "pending-stats",
+   "phone-link",
+   "phone-missing",
+   "print-drop",
+   "production",
+   "queue",
+   "queue-card",
+   "queue-item",
+   "quiet",
+   "record-block",
+   "record-card-controls",
+   "record-conversation-column",
+   "record-data-column",
+   "record-detail",
+   "record-list-card",
+   "record-split",
+   "ref",
+   "ref-filters",
+   "remember-login",
+   "reply-composer",
+   "reply-status",
+   "reply-window",
+   "report-form",
+   "report-period",
+   "request-group",
+   "review-line",
+   "saved-search-clients",
+   "saved-search-line",
+   "saved-searches",
+   "search-card",
+   "search-hit",
+   "search-results",
+   "search-stage",
+   "searches-subsection",
+   "section-head",
+   "sender-example",
+   "shell",
+   "signal-dot",
+   "signal-live",
+   "signal-metric",
+   "small",
+   "sms-print-missing",
+   "sms-print-review",
+   "sr-status",
+   "stack",
+   "status",
+   "switch",
+   "switch-reasons",
+   "tab",
+   "temperature-details",
+   "temperature-explanation",
+   "timeline-",
+   "timeline-event",
+   "today-card",
+   "today-heading",
+   "today-primary",
+   "today-stat",
+   "today-stats",
+   "topbar",
+   "topbar-actions",
+   "undo-toast",
+   "v2-builder",
+   "v2-cover",
+   "v2-deposit",
+   "v2-drop",
+   "v2-result",
+   "v2-status",
+   "v2-thumb",
+   "v2-thumbs",
+   "visual-page-label",
+   "visually-hidden",
+   "vitrine-request-card",
+   "vitrine-requests",
+   "vitrine-signal",
+   "vitrine-signals",
+   "wait-clock",
+   "warning",
+   "weekly-metric",
+   "weekly-reasons",
+   "weekly-summary",
+   "whatsapp-card",
+   "whatsapp-media",
+   "whatsapp-media-image",
+   "whatsapp-no-phone-note",
+   "whatsapp-user-id",
+   "wishlist-block",
+   "wishlist-menu",
+   "wishlist-mode",
+   "wishlist-row",
+   "yellow"
+  ],
+  "data": [
+   "action-key",
+   "batch-id",
+   "confirmed",
+   "count",
+   "counter",
+   "entry-orders-period",
+   "link",
+   "match-id",
+   "mode",
+   "order-key",
+   "pending-situation",
+   "reply-closed",
+   "report",
+   "review-key",
+   "status",
+   "today-ref",
+   "undo-scope",
+   "view"
+  ]
+ }
+}

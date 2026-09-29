@@ -41,11 +41,11 @@ body.login-screen #login-view button[type="submit"] { background: #C9A34E; color
 .searches-subsection { margin-top: 32px; }
 .ref-filters .chip span { margin-left: 4px; opacity: .75; }
 .next-action { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.next-action.overdue { color: #a52020; }
+.next-action.overdue { color: var(--mcs-red); }
 .next-action-editor { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
 .next-action-editor input[type="text"] { flex: 1 1 220px; }
-.wait-clock.wait-orange { color: #a45f00; }
-.wait-clock.wait-red, .read-no-reply { color: #b42318; font-weight: 600; }
+.wait-clock.wait-orange { color: var(--mcs-amber); }
+.wait-clock.wait-red, .read-no-reply { color: var(--mcs-red); font-weight: 600; }
 .wait-clock.wait-gray { color: var(--muted); }
 .no-ref-phone { font-size: 20px; font-weight: 600; }
 .discard-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -97,55 +97,47 @@ button.weekly-value { min-height: 0; padding: 0; text-decoration: underline; }
 }
 
 :root {
+  /* Identidade My Car Scout: tema claro único, fundo branco */
   color-scheme: light;
-  --mcs-bg: #fff;
-  --mcs-surface: #f2efe9;
-  --mcs-card: #f7f5f1;
-  --mcs-line: #e4ded3;
-  --mcs-text: #0b0d10;
-  --mcs-text-2: #2e3036;
-  --mcs-muted: #62645f;
-  --mcs-gold: #c9a34e;
-  --mcs-gold-text: #8a6d3a;
-  --mcs-gold-tint: #f6eedc;
-  --mcs-red: #c62828;
-  --mcs-red-tint: #fbe9e7;
-  --mcs-amber: #d98a1b;
-  --mcs-green: #2e7d4f;
-  --mcs-green-tint: #e6f2ea;
-  --mcs-tag: #fff;
-  --mcs-tag-line: #ddd6c9;
-  --mcs-button: #0b0d10;
-  --mcs-button-text: #fff;
-  --mcs-nav-active: rgb(11 13 16 / 6%);
+  --mcs-bg: #FFFFFF;
+  --mcs-surface: #FFFFFF;
+  --mcs-card: #FFFFFF;
+  --mcs-elevated: #F4F4F5;
+  --mcs-line: #E4E4E7;
+  --mcs-field-line: #8A8A93;
+  --mcs-text: #0B0B0D;
+  --mcs-text-2: #52525B;
+  --mcs-muted: #52525B;
+  --mcs-faint: #6B6B74;
+  --mcs-gold: #C69632;
+  --mcs-gold-text: #8A6516;
+  --mcs-gold-tint: #FBF6EA;
+  --mcs-on-gold: #0B0B0D;
+  --mcs-red: #B91C1C;
+  --mcs-red-strong: #DC2626;
+  --mcs-red-tint: #FEF2F2;
+  --mcs-amber: #735C00;
+  --mcs-amber-strong: #EAB308;
+  --mcs-amber-tint: #FEF9E7;
+  --mcs-green: #15803D;
+  --mcs-green-tint: #EFFAF3;
+  --mcs-blue: #1D5FA3;
+  --mcs-blue-tint: #EEF5FC;
+  --mcs-neutral: #52525B;
+  --mcs-tag: #F4F4F5;
+  --mcs-tag-line: #E4E4E7;
+  --mcs-button: #F4F4F5;
+  --mcs-button-text: #0B0B0D;
+  --mcs-control-line: #D4D4D8;
+  --mcs-hover: #E9E9EC;
+  --mcs-nav-active: transparent;
+  --mcs-radius: 14px;
+  --mcs-radius-sm: 10px;
+  --mcs-shadow: 0 1px 2px rgb(11 11 13 / 6%), 0 4px 16px rgb(11 11 13 / 6%);
+  --mcs-touch: 44px;
   font-family: "Instrument Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--mcs-bg);
   color: var(--mcs-text);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --mcs-bg: #0b0d10;
-    --mcs-surface: #15171b;
-    --mcs-card: #15171b;
-    --mcs-line: #30343b;
-    --mcs-text: #f2efe9;
-    --mcs-text-2: #d9d4ca;
-    --mcs-muted: #aaa79f;
-    --mcs-gold-text: #d9b866;
-    --mcs-gold-tint: #2a2418;
-    --mcs-red: #ef5350;
-    --mcs-red-tint: #3a1c1c;
-    --mcs-amber: #e9a23b;
-    --mcs-green: #6acb92;
-    --mcs-green-tint: #16291e;
-    --mcs-tag: #1f2227;
-    --mcs-tag-line: #4a4e56;
-    --mcs-button: #c9a34e;
-    --mcs-button-text: #0b0d10;
-    --mcs-nav-active: rgb(242 239 233 / 8%);
-  }
 }
 
 html,
@@ -1024,7 +1016,7 @@ nav[aria-label="Seções do painel"]::-webkit-scrollbar { display: none; }
 }
 
 /* Resposta pelo painel (fim do bloco CONVERSA) */
-.reply-composer { display:grid; gap:10px; margin-top:16px; padding:14px; border:1px solid #31516d; border-radius:12px; }
+.reply-composer { display:grid; gap:10px; margin-top:16px; padding:14px; border:1px solid var(--mcs-line); border-radius:12px; }
 .reply-composer h4 { margin:0; }
 .reply-composer label { display:grid; gap:4px; margin:0; }
 .reply-composer textarea { width:100%; min-height:88px; resize:vertical; }
