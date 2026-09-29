@@ -124,7 +124,7 @@ module.exports = async (req, res) => {
       const page = listed.slice(offset, offset + limit);
       const linkTargets = data.journeys.filter((item) => item.status !== 'ENCERRADO').map((item) => ({
         journeyId: item.id, contactId: item.contact_id,
-        label: `${item.contact && item.contact.display_name ? item.contact.display_name : 'Contato sem nome'} · Ref ${item.reference_code || '—'} — ${item.vehicle_text || 'busca sem veículo'}`
+        label: `${item.contact && item.contact.display_name ? item.contact.display_name : 'Contato sem nome'} · Ref ${item.reference_code || 'sem Ref'} · ${item.vehicle_text || 'busca sem veículo'}`
       }));
       return send(res, 200, {
         environment: ctx.environment, scope, group, period, items: page, linkTargets, meta,

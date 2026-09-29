@@ -85,6 +85,40 @@ test('Lote 4: cartão do pedido na ENTRADA mantém Ligar a um lead e Tratado', a
   expect(errors).toEqual([]);
 });
 
+test('Lote 4: tocar no cartão ou em "Abrir pedido" abre o pedido; ação mantém os cartões já carregados', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (failure) => errors.push(failure.message));
+  await session(page);
+  const many = Array.from({ length: 25 }, (_, index) => order('P' + String.fromCharCode(65 + index) + 'A2'));
+  const calls = await mockApi(page, {
+    '/api/panel/orders': ({ url, json }) => {
+      const offset = Number(url.searchParams.get('offset')), limit = Number(url.searchParams.get('limit'));
+      const items = many.slice(offset, offset + limit);
+      return json({ items, counts: { contacted: many.length, simulated: 0 }, linkTargets: [], page: { total: many.length, hasMore: offset + items.length < many.length }, meta: {} });
+    },
+    '/api/panel/lead': ({ json }) => json({ ref: 'PAA2', order: null, notes: [], events: [], promises: [], checklist: [], wishes: [], typical: [], offers: [], fits: [], zip: '', timezone: 'America/New_York', calculatorNews: [], ai: { reading: null, suggestion: null }, aiHelp: [], record: null })
+  });
+  await page.goto(base + '/painel/#entrada', { waitUntil: 'domcontentloaded' });
+  await page.locator('#entry-orders > summary').click();
+  const list = page.locator('#entry-orders-list');
+  await expect(list.locator('.item-card')).toHaveCount(20, { timeout: 30000 });
+  await page.locator('#entry-orders-more').click();
+  await expect(list.locator('.item-card')).toHaveCount(25);
+  await list.locator('.item-card', { hasText: 'PWA2' }).getByRole('button', { name: 'Tratado' }).click();
+  await expect.poll(() => calls.filter((call) => call.body?.action === 'set_disposition').length).toBe(1);
+  await expect.poll(() => calls.filter((call) => call.params.scope === 'unlinked' && call.params.limit === '25').length).toBeGreaterThan(0);
+  await expect(list.locator('.item-card')).toHaveCount(25);
+  await list.locator('.item-card h3').first().click();
+  await expect(page.locator('#detail-panel')).toBeVisible();
+  await expect.poll(() => calls.some((call) => call.path === '/api/panel/lead' && call.params.ref === 'PAA2')).toBe(true);
+  await page.goto(base + '/painel/#entrada', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#entry-panel')).toBeVisible();
+  if (!(await page.locator('#entry-orders').evaluate((node) => node.open))) await page.locator('#entry-orders > summary').click();
+  await list.locator('.item-card').nth(1).getByRole('button', { name: 'Abrir pedido' }).click();
+  await expect.poll(() => calls.some((call) => call.path === '/api/panel/lead' && call.params.ref === 'PBA2')).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('Lote 4: CLIENTES filtra por Origem, Tipo e Última atividade', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));

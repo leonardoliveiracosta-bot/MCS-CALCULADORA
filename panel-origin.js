@@ -22,7 +22,7 @@
     const latest = Math.max(stamp(lastRealMessageAt), ...own.map((order) => stamp(order.occurredAt)), 0);
     return {
       origins,
-      calculatorTypes: own.length ? types : ['SEM_CALCULADORA'],
+      calculatorTypes: own.length || source === 'CALCULATOR' ? types : ['SEM_CALCULADORA'],
       lastActivityAt: latest ? new Date(latest).toISOString() : null
     };
   }

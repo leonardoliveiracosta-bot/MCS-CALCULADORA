@@ -14,7 +14,6 @@ const {
   rows, safeText, send, supabase
 } = require('../../panel-server');
 
-const TODAY_KINDS = new Set(['NO_RESPONSE', 'NEXT_ACTION', 'MISSING_NEXT_ACTION', 'DIVERGENCE', 'PROMISE', 'SEARCH_STALLED', 'UNIT_NO_RESPONSE']);
 const isoNow = () => new Date().toISOString();
 
 function safeWishlist(value, requireVehicle = false) {

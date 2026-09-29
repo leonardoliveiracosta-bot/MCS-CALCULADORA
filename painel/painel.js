@@ -1005,7 +1005,10 @@
     card.tabIndex = 0;
     card.classList.add('clickable-card');
     card.addEventListener('click', (event) => {
-      if (event.target.closest('button,input,select,textarea,a,details,summary')) return;
+      // A control stops the click unless it is an ancestor of the card (Lote 4: order cards now
+      // live inside a <details>). A button removed by its own click (Cancelar) still stops it.
+      const control = event.target.closest('button,input,select,textarea,a,details,summary');
+      if (control && !control.contains(card)) return;
       action();
     });
     card.addEventListener('keydown', (event) => {
@@ -1078,7 +1081,7 @@
       const data = await loadQueue(false);
       if (!current()) return;
       renderQueue(data.chats || [], data.reviews || []);
-      refreshEntryOrders().catch(() => { $('entry-orders-count').textContent = '—'; });
+      refreshEntryOrders().catch(() => { $('entry-orders-count').textContent = '?'; empty($('entry-orders-list'), 'Não foi possível carregar'); });
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp.'; });
     }
     if (view === 'pending') return loadPending();
@@ -1117,7 +1120,7 @@
 
   // C5: one failing counter never breaks the others nor the session; it shows "—".
   async function refreshCounters() {
-    // C5: only the five visible tabs are counted; the hidden PENDÊNCIAS and Manheim screens cost two heavy GETs for nothing
+    // C5: only the visible tabs are counted; the hidden PENDÊNCIAS and Manheim screens cost two heavy GETs for nothing
     const settled = await Promise.allSettled([
       request('/api/panel/today'),
       request('/api/panel/entry'),
@@ -1152,12 +1155,16 @@
   // Lote 4: PEDIDOS now lives in ENTRADA as a collapsed section. Calculator Refs with no ficha
   // that clicked WhatsApp/SMS ("contacted") and the ones that only simulated ("simulated").
   // The section has its own counter and never adds to the ENTRADA badge (owner decision D2).
-  const entryOrders = { period: '30', contacted: { items: [], hasMore: false }, simulated: { items: [], hasMore: false }, linkTargets: [] };
-  async function loadEntryOrders(group = 'contacted', append = false) {
-    const state = entryOrders[group];
+  const entryOrders = { period: '30', contacted: { items: [], hasMore: false, version: 0 }, simulated: { items: [], hasMore: false, version: 0 }, linkTargets: [] };
+  async function loadEntryOrders(group = 'contacted', append = false, keep = 0) {
+    const state = entryOrders[group], version = ++state.version, period = entryOrders.period;
     const offset = append ? state.items.length : 0;
-    const params = new URLSearchParams({ scope: 'unlinked', group, period: entryOrders.period, sort: 'recent', limit: '20', offset: String(offset) });
+    // After an action the list keeps as many cards as were loaded ("Carregar mais" is not lost)
+    const limit = Math.min(100, Math.max(20, keep));
+    const params = new URLSearchParams({ scope: 'unlinked', group, period, sort: 'recent', limit: String(limit), offset: String(offset) });
     const data = await request('/api/panel/orders?' + params.toString());
+    // A slower, older answer (other period chip, auto-refresh) never overwrites a newer one
+    if (version !== state.version || period !== entryOrders.period) return;
     state.items = append ? state.items.concat(data.items || []) : (data.items || []);
     state.hasMore = Boolean(data.page && data.page.hasMore);
     entryOrders.linkTargets = data.linkTargets || entryOrders.linkTargets;
@@ -1173,9 +1180,9 @@
     const refresh = () => refreshEntryOrders();
     state.items.forEach((item) => root.append(orderCard(item, entryOrders.linkTargets, refresh)));
   }
-  async function refreshEntryOrders() {
-    await loadEntryOrders('contacted');
-    if ($('entry-simulated')?.open) await loadEntryOrders('simulated');
+  async function refreshEntryOrders(keepLoaded = true) {
+    await loadEntryOrders('contacted', false, keepLoaded ? entryOrders.contacted.items.length : 0);
+    if ($('entry-simulated')?.open) await loadEntryOrders('simulated', false, keepLoaded ? entryOrders.simulated.items.length : 0);
   }
 
 
@@ -1559,7 +1566,9 @@
       card.append(form);
     }
 
-    card.append(dispositionControls(item));
+    const openOrder = element('button', 'quiet small', item.kind === 'CALCULATOR' ? 'Abrir pedido' : 'Abrir ficha'); openOrder.type = 'button';
+    openOrder.addEventListener('click', (event) => { event.stopPropagation(); if (item.kind === 'CALCULATOR') openDetail('order', item.ref); else if (item.journeyId) openDetail('ficha', item.journeyId); });
+    card.append(openOrder, dispositionControls(item));
 
     makeCardClickable(card, () => {
       if (item.kind === 'CALCULATOR') openDetail('order', item.ref);
@@ -2742,7 +2751,7 @@
     document.querySelectorAll('[data-entry-orders-period]').forEach((button) => button.addEventListener('click', () => {
       entryOrders.period = button.dataset.entryOrdersPeriod;
       document.querySelectorAll('[data-entry-orders-period]').forEach((item) => item.classList.toggle('active', item === button));
-      refreshEntryOrders().catch(() => { $('entry-orders-count').textContent = '—'; });
+      refreshEntryOrders(false).catch(() => { $('entry-orders-count').textContent = '?'; empty($('entry-orders-list'), 'Não foi possível carregar'); });
     }));
     $('entry-orders-more').addEventListener('click', () => loadEntryOrders('contacted', true).catch(() => { $('entry-orders-more').textContent = 'Não foi possível carregar'; }));
     $('entry-simulated-more').addEventListener('click', () => loadEntryOrders('simulated', true).catch(() => { $('entry-simulated-more').textContent = 'Não foi possível carregar'; }));
