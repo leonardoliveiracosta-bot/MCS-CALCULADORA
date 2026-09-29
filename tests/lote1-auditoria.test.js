@@ -332,7 +332,7 @@ test('C5/A24/A14/A20: sessão, atualização automática, await e responder pelo
   assert.equal((routeSession.match(/clearSession\(\)/g) || []).length, 1, 'só a checagem de sessão pode deslogar');
   assert.match(routeSession, /\['AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED'\]\.includes/);
   assert.doesNotMatch(panel, /catch \(_\) \{ clearInterval\(refreshTimer\); \}/);
-  assert.match(panel, /if \(operatorIsTyping\(\)\) return;/);
+  assert.match(panel, /if \(refreshing \|\| operatorIsTyping\(\)\) return;/);
   const actions = read('api/panel/actions.js');
   assert.doesNotMatch(actions.slice(actions.indexOf('module.exports = async')), /return action[A-Za-z]+\(/);
   const entry = read('api/panel/entry.js');

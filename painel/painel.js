@@ -412,6 +412,7 @@
     if (!['today', 'entry', 'clients', 'orders', 'searches'].includes(view)) return;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     currentView = view;
+    $('search-results')?.classList.add('hidden');
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
     const labels = { today: 'HOJE', entry: 'ENTRADA', clients: 'CLIENTES', orders: 'PEDIDOS', searches: 'BUSCAS' };
@@ -757,7 +758,7 @@
   function clearAutoPrint(){const input=$('auto-print-file');input.value='';autoPrintContext=null;$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;$('auto-print-result').classList.add('hidden');}
   function showAutoPrintChoice(files){const info=$('auto-print-file-info');info.replaceChildren();[...files].forEach((file)=>info.append(element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`)));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=!files.length;}
   function autoPrintResult(filename,text,saved){const resultRoot=arguments[3],root=resultRoot||$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',`${filename||'Print'} — ${text}`));root.append(row);return row;}
-  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});if(saved.review){autoPrintResult(filename,'O nome bate com um lead, mas o telefone não. Ficou em ENTRADA para você decidir',false,resultRoot);await loadQueue(currentView==='entry').catch(()=>{});return saved;}const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} — Desfeito. O arquivo permanece guardado.`,errorText:'Não consegui desfazer — tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters();return saved;}
+  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});if(saved.review){autoPrintResult(filename,'O nome bate com um lead, mas o telefone não. Ficou em ENTRADA para você decidir',false,resultRoot);await loadQueue(currentView==='entry').catch(()=>{});return saved;}const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');if(!saved.duplicate)[saved.journeyId,context?.journeyId].filter(Boolean).forEach((key)=>recentPrints.set(key,{readId:read.id,text:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,at:Date.now()}));const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} — Desfeito. O arquivo permanece guardado.`,errorText:'Não consegui desfazer — tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters().catch(()=>{});return saved;}
   async function handleAutoPrintRead(result,context,filename,resultRoot){if(result.manual){const root=autoPrintResult(filename||result.read?.original_filename,'Não consegui ler agora — tente mais tarde ou use outra imagem.',false,resultRoot);const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),onSuccess:(next)=>handleAutoPrintRead(next,context,filename,resultRoot),errorText:'Não consegui ler agora — tente de novo'}));root.append(retry);return false;}return saveAutoPrint(result.read,context,filename,resultRoot);}
   async function uploadAutoPrint(file,context={},resultRoot){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');return handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context,file.name,resultRoot);}
   function printErrorText(error){return {SMS_PRINT_TOO_LARGE:'A imagem passa de 5 MB. Tire um print novo ou reduza a imagem',SMS_PRINT_HEIC:'Foto HEIC do iPhone não é aceita. Use um print da tela (PNG) ou exporte como JPEG',SMS_PRINT_INVALID_IMAGE:'Use uma imagem JPEG, PNG ou WebP de até 5 MB'}[error?.code]||'Não consegui enviar agora. O arquivo não foi apagado';}
@@ -968,13 +969,24 @@
     return wrap;
   }
 
+  // M27: a print just saved keeps its "Guardado" and "Desfazer" for 2 minutes, even after the list reloads
+  const recentPrints=new Map();
+  function recentPrintBlock(key,recent){
+    const block=element('section','sms-print-missing');const row=element('div','inline-actions');row.append(element('strong','',recent.text));
+    const undo=element('button','quiet small','Desfazer');undo.type='button';
+    MCSAction.bind(undo,()=>({scope:block,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:recent.readId})}),successText:'Desfeito. O arquivo permanece guardado',errorText:'Não consegui desfazer, tente de novo',onSuccess:()=>{recentPrints.delete(key);row.remove();},refresh:()=>refreshCounters().catch(()=>{})}));
+    row.append(undo);block.append(row);return block;
+  }
   function smsPrintMissing(item) {
+    const printKey=item.journeyId||item.id,recent=printKey&&recentPrints.get(printKey);
+    if(recent&&Date.now()-recent.at<120000&&item.smsPrintConfirmed)return recentPrintBlock(printKey,recent);
     if(item.contactChannel!=='SMS_CLICK'||item.smsPrintConfirmed||item.disposition)return null;
     const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui.'));
-    const attach=element('label','small','📷 Anexar print do SMS'),input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;attach.append(input);const absent=element('button','quiet small','Não chegou SMS'); absent.type='button';
+    const attach=element('label','small','📷 Anexar print do SMS'),input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;attach.append(input);const absent=element('button','quiet small','Não chegou SMS · descartar'); absent.type='button';
     const resultRoot=element('div','card-action-result');
     input.addEventListener('change',()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null};MCSAction.run({button:attach,scope:block,optimistic:()=>attach.classList.add('disabled'),commit:async()=>{let last;for(const file of files)last=await uploadAutoPrint(file,context,resultRoot);return last;},rollback:()=>{attach.classList.remove('disabled');input.value='';},onSuccess:()=>{attach.classList.remove('disabled');input.value='';},errorText:(error)=>printErrorText(error)});});
-    absent.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED',absent);});
+    // A21: this button discards the lead, so it says so and asks first; the reason is recorded as "Outro"
+    absent.addEventListener('click',async(event)=>{event.preventDefault();event.stopPropagation();if(block.querySelector('.inline-confirm'))return;if(!(await askInline(actions,'Isso descarta o lead com o motivo "Outro". Ele sai de HOJE e das listas, e dá para desfazer','Descartar lead')))return;setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED',absent,'OTHER');});
     const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions,resultRoot);
     return block;
   }
@@ -1099,26 +1111,22 @@
 
   // C5: one failing counter never breaks the others nor the session; it shows "—".
   async function refreshCounters() {
+    // C5: only the five visible tabs are counted; the hidden PENDÊNCIAS and Manheim screens cost two heavy GETs for nothing
     const settled = await Promise.allSettled([
       request('/api/panel/today'),
       request('/api/panel/entry'),
-      request('/api/panel/pendencias'),
       request('/api/panel/orders?filter=Todos&period=30&limit=1&offset=0'),
       request('/api/panel/searches'),
-      request('/api/panel/records?view=manheim'),
       request('/api/panel/records'),
       request('/api/panel/vitrine-requests')
     ]);
-    const [today, entry, pending, orders, searches, manheim, records, vitrineData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const [today, entry, orders, searches, records, vitrineData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
     if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
-    count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
+    count('entry', entry, (data) => (data.chats || []).filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + (data.printReviews || []).length);
     count('clients', records, (data) => (data.items || []).length);
-    count('pending', pending, (data) => Object.values(data.counts || {}).reduce((total, value) => total + Number(value || 0), 0));
     count('orders', orders, (data) => data.page && data.page.total || 0);
     count('searches', searches, (data) => (data.items || []).length);
-    count('manheim', manheim, (data) => data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
-    count('records', records, (data) => (data.items || []).length);
     const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
     if (failures.length) console.error('Contadores com falha', failures);
     return { failed: failures.length };
@@ -1419,19 +1427,24 @@
     const noteLabel=element('label','','Nota (opcional)');const note=element('textarea');note.rows=2;note.maxLength=1200;noteLabel.append(note);
     const generate=element('button','small','Gerar link da V2');generate.type='button';
     const result=element('div','inline-actions v2-result hidden');
+    // A22: a retry reuses the same V2 (server side) and only sends the photos that did not go yet
+    const sent={vitrineId:null,blobs:new Set()};
     generate.addEventListener('click',async()=>{
       generate.disabled=true;status.textContent='Criando a V2…';
-      const digits=limit.value.replace(/[^0-9]/g,'');
+      // B4: the typed amount goes as text; the server reads "20,000.50", "25k" and "US$ 25.000"
+      const typedLimit=limit.value.trim();
       try{
-        const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({requestId:request.id,customerLimitCents:digits?Number(digits)*100:null,noteText:note.value.trim()||null})});
-        for(let index=0;index<photos.length;index++){status.textContent=`Enviando foto ${index+1} de ${photos.length}…`;await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(created.vitrineId)+'&carId='+encodeURIComponent(created.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photos[index].blob});}
+        const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({requestId:request.id,customerLimitCents:typedLimit||null,noteText:note.value.trim()||null})});
+        if(sent.vitrineId!==created.vitrineId){sent.vitrineId=created.vitrineId;sent.blobs=new Set();}
+        for(let index=0;index<photos.length;index++){if(sent.blobs.has(photos[index].blob))continue;status.textContent=`Enviando foto ${index+1} de ${photos.length}…`;await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(created.vitrineId)+'&carId='+encodeURIComponent(created.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photos[index].blob});sent.blobs.add(photos[index].blob);}
         const link=location.origin+created.link,message=`${request.name}, here's the car you asked to see\n${link}`;
         status.textContent='V2 pronta';result.replaceChildren();
         const view=element('button','quiet small','Ver como o cliente vê');view.type='button';view.addEventListener('click',()=>window.open(created.link,'_blank','noopener'));
-        const copyLink=element('button','quiet small','Copiar link');copyLink.type='button';copyLink.addEventListener('click',async()=>{await navigator.clipboard?.writeText(link);status.textContent='Link copiado';});
-        const copyMessage=element('button','small','Copiar mensagem com link');copyMessage.type='button';copyMessage.addEventListener('click',async()=>{await navigator.clipboard?.writeText(message);status.textContent='Mensagem copiada';});
+        const copyText=async(text,done)=>{try{await navigator.clipboard.writeText(text);status.textContent=done;}catch(_){status.textContent=`Não consegui copiar. Link: ${link}`;}};
+        const copyLink=element('button','quiet small','Copiar link');copyLink.type='button';copyLink.addEventListener('click',()=>copyText(link,'Link copiado'));
+        const copyMessage=element('button','small','Copiar mensagem com link');copyMessage.type='button';copyMessage.addEventListener('click',()=>copyText(message,'Mensagem copiada'));
         result.append(view,copyLink,copyMessage);result.classList.remove('hidden');
-      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
+      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido. Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
     });
     box.append(drop,thumbs,limitLabel,noteLabel,generate,status,result);
     card.append(box);
@@ -1449,9 +1462,18 @@
         card.append(element('strong','',request.name),element('span','muted',`${request.phone||'Sem telefone'} · Ref ${request.referenceCode||'—'} · pediu pelo WhatsApp ${request.ago||''}`),element('span','',request.car||'Carro não informado'));
         const auction=request.endsAt||request.startsAt;if(auction)card.append(element('span','auction-alert',`Leilão ${relativeAuction(auction)} · ${formatDate(auction)}`));
         if(request.referred)card.append(makeBadge(`Número novo pelo link de ${request.ownerName} (${request.ownerRef||'sem Ref'}) · provável indicação`,'yellow'));
-        if(request.kind==='BID'&&request.depositUsd)card.append(element('span','v2-deposit',`Próximo passo: pedir o depósito · US$ ${Number(request.depositUsd).toLocaleString('en-US')}`));const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2');build.type='button';build.disabled=!request.vitrineCarId;build.addEventListener('click',()=>openV2Builder(request,card));
+        if(request.kind==='BID'&&request.depositUsd)card.append(element('span','v2-deposit',`Próximo passo: pedir o depósito · US$ ${Number(request.depositUsd).toLocaleString('en-US')}`));else if(request.kind==='BID'&&request.referred)card.append(element('span','v2-deposit','Próximo passo: pedir o depósito · valor a definir com o cliente novo'));const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2');build.type='button';build.disabled=!request.vitrineCarId;build.addEventListener('click',()=>openV2Builder(request,card));
         const open=element('button','quiet small','Abrir conversa');open.type='button';open.addEventListener('click',()=>request.journeyId&&openDetail('ficha',request.journeyId));open.disabled=!request.journeyId;
-        const treated=element('button','small','Tratado');treated.type='button';treated.addEventListener('click',async()=>{card.remove();try{await requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:request.id});showUndoNotice('Marcado como tratado',async()=>{await requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:request.id});loadCurrent('today',viewRequestVersion);});}catch(_){loadCurrent('today',viewRequestVersion);}});actions.append(build,open,treated);card.append(actions);block.append(card);
+        const treated=element('button','small','Tratado');treated.type='button';
+        // M26/D18: the failure is shown on the card, Desfazer handles its own failure and the counters follow
+        MCSAction.bind(treated,()=>({scope:card,successScope:root,feedbackKey:`vitrine-request:${request.id}`,
+          optimistic:()=>{card.classList.add('action-optimistic-hidden');},
+          commit:()=>requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:request.id}),
+          rollback:()=>{card.classList.remove('action-optimistic-hidden');},
+          successText:'Marcado como tratado',
+          undo:{commit:()=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:request.id}),successText:'Voltou para a lista',refresh:()=>{loadCurrent('today',viewRequestVersion);refreshCounters().catch(()=>{});}},
+          refresh:()=>refreshCounters().catch(()=>{}),
+          errorText:'Não consegui marcar como tratado, tente de novo'}));actions.append(build,open,treated);card.append(actions);block.append(card);
       });
       root.append(block);
     };
@@ -1461,7 +1483,6 @@
 
   function relativeAuction(value){const hours=Math.max(0,Math.ceil((Date.parse(value)-Date.now())/3600000));return hours>=24?`em ${Math.floor(hours/24)} dia${Math.floor(hours/24)===1?'':'s'} ${hours%24} h`:`em ${hours} h`;}
   async function requestApi(url,body){return request(url,{method:'POST',body:JSON.stringify(body)});}
-  function showUndoNotice(text,undo){const notice=element('div','warning',text);const button=element('button','quiet small','Desfazer');button.type='button';button.addEventListener('click',async()=>{button.disabled=true;await undo();notice.remove();});notice.append(button);$('vitrine-requests')?.prepend(notice);}
 
   function renderToday(items, preserveAll=false) {
     const root = $('today-list');
@@ -1757,8 +1778,8 @@
       const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => matches.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
       downloadShortlist(selected, journey.reference_code);
     });
-    const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';await navigator.clipboard?.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();const selected=[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent='Selecione pelo menos um carro';return;}vitrineButton.disabled=true;try{const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected})});const absolute=location.origin+created.link;await navigator.clipboard?.writeText(absolute);copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Não consegui gerar o link';}finally{vitrineButton.disabled=false;}});
+    const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';}catch(_){$('manheim-status').textContent='Não consegui copiar. Link: '+link;}});
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();const selected=[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent='Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected})});}catch(_){$('manheim-status').textContent='Não consegui gerar o link';vitrineButton.disabled=false;return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=false;}});
     card.append(exportButton,vitrineButton,copyMessageButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
@@ -2520,7 +2541,11 @@
     const searchSort=localStorage.getItem('mcs_sort_search')||'recent';
     const result = await request('/api/panel/search?q=' + encodeURIComponent(q)+'&sort='+encodeURIComponent(searchSort));
     const root = $('search-results');
-    root.replaceChildren(element('h2', '', 'Resultados da busca'));
+    // M29: the results have a close button, and a hit without a ficha says so instead of doing nothing
+    const head = element('div', 'inline-actions'), close = element('button', 'quiet small', 'Fechar busca');
+    close.type = 'button'; close.addEventListener('click', () => { root.classList.add('hidden'); $('global-search-input').value = ''; });
+    head.append(element('h2', '', 'Resultados da busca'), close);
+    root.replaceChildren(head);
     const sortLabel=element('label','','Ordenar');const sortSelect=element('select');[['recent','Mais recentes'],['oldest','Mais antigas'],['value_desc','Maior valor'],['value_asc','Menor valor'],['location','Localização'],['vehicle','Marca do carro']].forEach(([v,l])=>sortSelect.append(new Option(l,v)));sortSelect.value=searchSort;sortSelect.addEventListener('change',()=>{localStorage.setItem('mcs_sort_search',sortSelect.value);globalSearch(new Event('submit'));});sortLabel.append(sortSelect);root.append(sortLabel);
     if (!result.items.length) root.append(element('p', 'muted', 'Nenhum resultado.'));
     result.items.forEach((item) => {
@@ -2530,6 +2555,7 @@
         ? `${referencePhone(item)}${item.simulationCount > 1 ? ` · ${item.simulationCount} simulações` : ''}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`
         : `${item.name} · ${referencePhone(item)}${item.vehicleText ? ` — ${displayModel(item.vehicleText)}` : ''}`;
       button.append(element('span', '', label), makeBadge(item.matchedBy));const direct=directLeadBadge(item);if(direct)button.append(direct);if(item.disposition)button.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));if(item.searchStageLabel)button.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
+      if (item.kind !== 'ORDER' && !item.journeyId) { button.disabled = true; button.append(makeBadge('sem ficha aberta', 'yellow')); }
       button.addEventListener('click', () => {
         const origin=captureOrigin();
         root.classList.add('hidden');
@@ -2637,12 +2663,22 @@
   };
   const startSafeRefresh = () => {
     clearInterval(refreshTimer);
+    // A24: one refresh at a time, and a failure is shown next to "Dados atualizados" until the next success
+    let refreshing = false;
+    const refreshNote = (text) => {
+      let note = $('refresh-note');
+      if (!note && text) { note = element('span', 'muted'); note.id = 'refresh-note'; document.querySelector('.freshness')?.append(note); }
+      if (note) note.textContent = text;
+    };
     refreshTimer = setInterval(async () => {
-      if (operatorIsTyping()) return;
+      if (refreshing || operatorIsTyping()) return;
+      refreshing = true;
       try {
         await loadCurrent();
         await loadCaptureWarning();
-      } catch (failure) { console.error('Atualização automática falhou; tento de novo no próximo ciclo', failure); }
+        refreshNote('');
+      } catch (failure) { console.error('Atualização automática falhou; tento de novo no próximo ciclo', failure); refreshNote('Atualização automática falhou, tento de novo em 2 min'); }
+      finally { refreshing = false; }
     }, 120000);
   };
   async function routeFromHash(push = false) {

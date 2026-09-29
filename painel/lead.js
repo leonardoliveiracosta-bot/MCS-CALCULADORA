@@ -6,7 +6,9 @@
   const cents = (value) => value ? fmt(Number(value)/100) : '—';
   const date = (value,tz='America/New_York') => value ? new Intl.DateTimeFormat('pt-BR',{timeZone:tz,dateStyle:'short',timeStyle:'short'}).format(new Date(value)) : '—';
   const badge = (text,cls) => e('span','lead-badge '+(cls||''),text);
-  const button = (parent,label,commit,cls='quiet small') => { const node=append(parent,'button',cls,label); node.type='button'; MCSAction.bind(node,()=>({scope:parent,commit,errorText:'Não consegui salvar — tente de novo'})); return node; };
+  const button = (parent,label,commit,cls='quiet small') => { const node=append(parent,'button',cls,label); node.type='button'; MCSAction.bind(node,()=>({scope:parent,commit,errorText:(error)=>error?.userMessage||'Não consegui salvar — tente de novo'})); return node; };
+  // M31: a button that cannot act yet says why instead of doing nothing
+  const needs = (message) => Object.assign(new Error('INPUT_REQUIRED'), { userMessage: message });
   const section = (root,n,title,cls='') => { const card=append(root,'section','lead-card '+cls); append(card,'span','lead-label',`${n} — ${title}`); return card; };
   const row = (root,...values) => { const line=append(root,'div','lead-line'); values.forEach((value)=> append(line,'span','',value || '—')); return line; };
   const stageNames = ['Searching','Cars presented','Bid scheduled','Result'];
@@ -194,13 +196,13 @@
       let operationId=sessionStorage.getItem(key);
       if(!operationId){operationId=crypto.randomUUID();sessionStorage.setItem(key,operationId);}
       const event=await api('quick',{type,dueLocal,operationId});sessionStorage.removeItem(key);
-      if(event.duplicate)alert('Resultado já registrado.');else undo(event);
+      if(event.duplicate)append(quick,'p','muted','Resultado já registrado');else undo(event);
       await reload();
     }
     [['Atendeu','ANSWERED'],['Não atendeu','NO_ANSWER'],['Conversa presencial','IN_PERSON'],['Vai pagar o depósito','DEPOSIT']].forEach(([label,type])=>button(quickActions,label,()=>quickResult(type)));
     const later=button(quickActions,'Pediu para ligar depois',()=>{laterForm.hidden=false;});
     const laterForm=append(quick,'div','lead-actions');laterForm.hidden=true;const laterDate=append(laterForm,'input');laterDate.type='datetime-local';append(laterForm,'small','muted','horário do cliente');
-    button(laterForm,'Registrar retorno',async()=>{if(laterDate.value)await quickResult('LATER',laterDate.value);},'small');
+    button(laterForm,'Registrar retorno',async()=>{if(!laterDate.value)throw needs('Escolha o dia e a hora do retorno');await quickResult('LATER',laterDate.value);},'small');
 
     const tracking=section(root,10,'PÁGINA DO CLIENTE','lead-highlight');
     const resultChoice=append(tracking,'div','lead-actions');resultChoice.hidden=true;
@@ -259,7 +261,8 @@
     (record.attachments||[]).forEach((item)=>{const card=append(attachments,'button','lead-attachment');card.type='button';if(item.kind==='IMAGE'){const thumb=append(card,'img','lead-attachment-thumb');thumb.alt='';request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'download',attachmentId:item.id})}).then((signed)=>{thumb.src=signed.url;}).catch(()=>{thumb.replaceWith(Object.assign(document.createElement('span'),{className:'lead-attachment-thumb',textContent:'🖼️'}));});}else append(card,'span','lead-attachment-thumb','📄');append(card,'span','',`${item.original_filename} · ${date(item.created_at,data.timezone)}`);card.addEventListener('click',async()=>{card.disabled=true;try{const signed=await request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'download',attachmentId:item.id})});window.open(signed.url,'_blank','noopener');}finally{card.disabled=false;}});});
     if(!record.attachments?.length)append(attachments,'p','muted','Nenhum anexo.');
     append(history,'h3','',`Checklist ${data.checklist.filter((point)=>point.status==='COMPLETE').length}/6`);
-    data.checklist.forEach((point)=>{const line=append(history,'div','lead-check');button(line,`${point.point_number}. ${point.point_label} · ${point.status==='COMPLETE'?'OK':'Pendente'}`,async()=>{await api('checklist',{point:point.point_number,complete:point.status!=='COMPLETE'});await reload();});});
+    // M32: the point is a label; marking and unmarking are separate, explicit buttons
+    data.checklist.forEach((point)=>{const line=append(history,'div','lead-check');const done=point.status==='COMPLETE';append(line,'span','',`${point.point_number}. ${point.point_label} · ${done?'OK':'Pendente'}`);button(line,done?'Desmarcar':'Marcar OK',async()=>{await api('checklist',{point:point.point_number,complete:!done});await reload();},done?'quiet small':'small');});
     const extraPhones=(data.events||[]).filter((item)=>item.event_type==='EXTRA_PHONE');
     if(extraPhones.length){append(history,'h3','','Telefones extras');extraPhones.forEach((item)=>row(history,item.detail_json?.owner||'Contato',item.detail_json?.number));}
     append(history,'h3','','Retornos');
