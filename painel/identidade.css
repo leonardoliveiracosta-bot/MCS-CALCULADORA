@@ -658,3 +658,14 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 .triage-out > summary::-webkit-details-marker { display: none; }
 .triage-out > summary::before { content: ""; width: 8px; height: 8px; margin-right: 4px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .15s ease; }
 .triage-out[open] > summary::before { transform: rotate(45deg); }
+
+/* Conferência dos matches do Manheim (MANHEIM_MATCH_AUDIT) */
+.audit-block{display:grid;gap:6px;margin:8px 0;padding:10px 12px;border:1px solid var(--mcs-line);border-radius:10px;background:var(--mcs-elevated)}
+.audit-block[data-audit-status="REVISAR"]{border-color:var(--mcs-red)}
+.audit-block[data-audit-status="CONFERIDO"],.audit-block[data-audit-status="APROVADO_MANUAL"]{border-color:var(--mcs-green)}
+.audit-block .badge{justify-self:start}
+.audit-divergence{margin:0;color:var(--mcs-red);font-size:.9rem;overflow-wrap:anywhere}
+.audit-block .inline-actions{flex-wrap:wrap}
+.audit-reason{min-width:0;flex:1 1 180px;min-height:var(--mcs-touch)}
+.manheim-audit-note{display:grid;gap:8px;margin:8px 0;padding:10px 12px;border:1px solid var(--mcs-amber);border-radius:10px;color:var(--mcs-text)}
+.manheim-audit-note button{justify-self:start}

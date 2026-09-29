@@ -7,6 +7,8 @@ const {generalBatch,generalStatus}=require('../../panel-pendencias');
 const {runCaptureCheck,recordCaptureFailure}=require('../../panel-capture');
 const {recoverStalledEvents,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
 const {runTriage}=require('../../panel-triage');
+const manheimAudit=require('../../panel-manheim-audit');
+const {manheimView}=require('../../panel-buscas-view');
 
 function equalSecret(actual,expected){
   const left=Buffer.from(String(actual||'')),right=Buffer.from(String(expected||''));
@@ -45,7 +47,11 @@ module.exports=async(req,res)=>{
     let triage;
     try { triage=await runTriage(ctx,{deadlineAt:startedAt+55000}); }
     catch (error) { triage={error:'TRIAGE_FAILED'};console.error('[panel-triage]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
-    return send(res,200,{...result,pending,capture,whatsappMaintenance,triage});
+    // Conferência dos matches do Manheim: segurança do disparo feito logo depois do upload.
+    let matchAudit;
+    try { matchAudit=manheimAudit.status()==='LIGADA'?await manheimAudit.runAudit(ctx,await manheimView(ctx,{auditInput:true}),{deadlineAt:startedAt+55000}):{skipped:manheimAudit.status()}; }
+    catch (error) { matchAudit={error:'AUDIT_FAILED'};console.error('[manheim-audit]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
+    return send(res,200,{...result,pending,capture,whatsappMaintenance,triage,matchAudit});
   }catch(error){
     const requestId=crypto.randomUUID().slice(0,8);
     console.error('[panel-ai-cron]',{requestId,route:'/api/panel/ai-cron',message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});
