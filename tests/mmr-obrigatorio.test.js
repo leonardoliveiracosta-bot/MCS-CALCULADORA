@@ -76,7 +76,10 @@ test('releitura do lote ativo, contadores e shortlist: só o carro com MMR', asy
   const view = (await call('records', '/api/panel/records?view=manheim')).payload;
   assert.equal(view.upload.id, UPLOAD);
   // Re-reading the active batch drops the stored cars without MMR (and the older batch is not active).
-  assert.deepEqual(view.matches.map((match) => match.id), [WITH]);
+  // No car travels in the summary: the options of the demand come page by page.
+  assert.equal(view.matches, undefined);
+  const options = (await call('manheim-options', `/api/panel/manheim-options?key=journey:${JOURNEY}:CARRO`)).payload.options;
+  assert.deepEqual(options.map((match) => match.id), [WITH]);
   assert.equal(view.counts.CARRO.matches, 1);
   assert.equal(view.counts.total.matches, 1);
   // CLIENTES list and ficha counters.

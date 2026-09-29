@@ -200,6 +200,21 @@ test('montagem cancelada nunca aparece; retomada responde os blocos confirmados'
   assert.ok(!view.uploads.some((row) => row.id === other));
 });
 
+test('ficha desligada durante o envio: o match dela é descartado e contado, o bloco não cai', async () => {
+  const started = await batch(startBody([{ name: 'Y.csv', size: 10, rowCount: 2, vehicleCount: 2, chunkCount: 1 }], 'c'.repeat(32)));
+  const other = started.payload.uploadId;
+  // The snapshot was taken with the VALOR ficha active; it is switched off (bought elsewhere)
+  // before the block arrives.
+  await backend.db.query(`insert into public.journey_toggle_states(environment,journey_id,enabled,off_reason,switched_by) values('preview',$1,false,'OTHER_PURCHASE',$2)`, [J.valor, ACTOR]);
+  const res = await batch({ action: 'chunk', uploadId: other, fileIndex: 0, chunkIndex: 0, vehicles: [camry('VINY00000000001', 2000000), car('VINY00000000002')] });
+  assert.equal(res.statusCode, 200, JSON.stringify(res.payload));
+  assert.equal(res.payload.discarded, 1);
+  const { rows } = await backend.db.query(`select journey_id from public.manheim_matches where upload_id=$1`, [other]);
+  assert.ok(!rows.some((row) => row.journey_id === J.valor));
+  await backend.db.query(`delete from public.journey_toggle_states where journey_id=$1`, [J.valor]);
+  await batch({ action: 'cancel', uploadId: other });
+});
+
 test('CLIENTES, HOJE, ficha e sessão nunca leem o inventário nem os matches', async () => {
   const before = backend.calls.length;
   await call('records', '/api/panel/records?sort=ready');

@@ -532,6 +532,25 @@ as $$
    group by grouping sets ((m.journey_id, m.calc_ref, m.logical_mode), (m.journey_id, m.calc_ref));
 $$;
 
+-- Carros diferentes com combinação válida (MMR obrigatório) por lote: número operacional do lote,
+-- sem trazer carro nenhum.
+create or replace function public.panel_manheim_batch_cars(
+  p_environment public.panel_environment,
+  p_upload_ids uuid[]
+)
+returns table(upload_id uuid, car_count integer)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select m.upload_id, count(distinct m.row_fingerprint)::integer
+    from public.manheim_matches m
+   where m.environment = p_environment and m.upload_id = any(p_upload_ids) and m.undone_at is null
+     and public.panel_manheim_match_has_mmr(m)
+   group by m.upload_id;
+$$;
+
 -- MMR de referência do score por pessoa: mediana do MMR dos carros que servem o primeiro desejo de
 -- cada demanda, nos lotes ativos da janela. Um carro repetido em dois lotes conta uma vez.
 create or replace function public.panel_manheim_score_mmr(
@@ -699,6 +718,7 @@ begin
     'public.panel_manheim_demand_options(public.panel_environment, uuid, text, integer, integer, uuid, integer)',
     'public.panel_manheim_batch_top_options(public.panel_environment, uuid, integer)',
     'public.panel_manheim_batch_people(public.panel_environment, uuid)',
+    'public.panel_manheim_batch_cars(public.panel_environment, uuid[])',
     'public.panel_manheim_score_mmr(public.panel_environment, timestamptz)',
     'public.panel_manheim_rematch_demand(public.panel_environment, uuid, uuid, text, jsonb)'
   ] loop

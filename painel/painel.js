@@ -9,7 +9,6 @@
   let refreshToken;
   let accessExpiresAt = 0;
   let persistentSession = false;
-  let refreshTimer;
   let contacts = [];
   let chats = [];
   let journeys = [];
@@ -93,15 +92,22 @@
   const localInputForZone = (date, timeZone) => { const parts=zonedInput(date,timeZone); return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`; };
   const normalize = (value) => MCSParser.normalizeSender(value);
   const inferredContactName = (title) => MCSParser.clean(String(title || '').replace(/^WhatsApp Chat with\s+/i, '').replace(/^Conversa do WhatsApp com\s+/i, '')).slice(0, 160) || 'Contato sem nome';
-  const setCount = (view, value) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => {
-    const count = Number(value) || 0;
-    node.textContent = String(count);
-    node.classList.toggle('count-positive', count > 0);
-  });
-  const setCountUnknown = (view) => document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => {
-    node.textContent = '—';
-    node.classList.remove('count-positive');
-  });
+  // Counters: "—" until the first valid answer; zero only when an answer says zero. A failed
+  // update keeps the last confirmed number (marked as not updated) and never turns into zero.
+  const counterState = new Map();
+  const paintCount = (view) => {
+    const entry = counterState.get(view);
+    const text = window.MCSRefresh ? MCSRefresh.counterText(entry) : (entry && Number.isFinite(entry.value) ? String(entry.value) : '—');
+    document.querySelectorAll(`[data-count="${view}"]`).forEach((node) => {
+      node.textContent = text;
+      node.classList.toggle('count-positive', Boolean(entry && entry.value > 0));
+      node.classList.toggle('count-stale', Boolean(entry && entry.stale));
+      node.title = entry && entry.stale ? (Number.isFinite(entry.value) ? 'Não foi possível atualizar; mostrando o último valor confirmado' : 'Não foi possível atualizar') : entry && entry.at ? 'Atualizado às ' + new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(entry.at) : '';
+    });
+  };
+  const nextCount = (previous, outcome) => window.MCSRefresh ? MCSRefresh.nextCounter(previous, outcome) : (outcome && outcome.ok ? { value: Number(outcome.value), stale: false, at: Date.now() } : { ...(previous || { value: null }), stale: true });
+  const setCount = (view, value) => { const number = Number(value); if (!Number.isFinite(number)) return; counterState.set(view, nextCount(counterState.get(view), { ok: true, value: Math.max(0, number), at: Date.now() })); paintCount(view); };
+  const setCountUnknown = (view) => { counterState.set(view, nextCount(counterState.get(view), { ok: false })); paintCount(view); };
 
   const PAYMENT_LABELS = Object.freeze({ cash: 'À vista', fin: 'Financiado', financing: 'Financiado' });
   const DEADLINE_LABELS = Object.freeze({ none: 'Sem prazo', now: 'Agora', '30d': '30 dias', '3m': '3 meses', '6m': '6 meses', '12m': '12 meses' });
@@ -113,32 +119,55 @@
   const orderIcon = (item) => item.logicalMode === 'VALOR' || (item.logicalModes || []).every((mode) => mode === 'VALOR') ? '💰' : '🚗';
 
 
+  // Every panel request has a time limit and can be canceled by a newer one (AbortController). A
+  // timeout, a network failure or a cancel arrive as a coded error; nothing waits forever.
+  const DEFAULT_TIMEOUT_MS = 30000;
   const request = async (path, options = {}) => {
-    const retryAuth = options.retryAuth !== false;
-    const fetchOptions = { ...options };
-    delete fetchOptions.retryAuth;
-    const response = await fetch(path, {
-      ...fetchOptions,
-      headers: { 'content-type': 'application/json', ...(fetchOptions.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) }
-    });
-    if (response.status === 401 && retryAuth && refreshToken && await refreshAccessToken()) {
-      return request(path, { ...fetchOptions, retryAuth: false });
+    const { retryAuth: retryOption, timeoutMs, signal: outer, ...fetchOptions } = options;
+    const retryAuth = retryOption !== false;
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, Number(timeoutMs) || DEFAULT_TIMEOUT_MS);
+    const forward = () => controller.abort();
+    if (outer) { if (outer.aborted) controller.abort(); else outer.addEventListener('abort', forward, { once: true }); }
+    const coded = (code, extra) => Object.assign(new Error(code), { code }, extra || {});
+    let response, result;
+    try {
+      try {
+        response = await fetch(path, {
+          ...fetchOptions, signal: controller.signal,
+          headers: { 'content-type': 'application/json', ...(fetchOptions.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) }
+        });
+      } catch (cause) {
+        throw coded(timedOut ? 'REQUEST_TIMEOUT' : outer && outer.aborted ? 'REQUEST_ABORTED' : 'NETWORK_ERROR', { cause });
+      }
+      if (response.status === 401 && retryAuth && refreshToken && await refreshAccessToken()) {
+        return request(path, { ...options, retryAuth: false });
+      }
+      result = await response.json().catch(() => (timedOut ? null : {}));
+      if (result === null) throw coded('REQUEST_TIMEOUT');
+    } finally {
+      clearTimeout(timer);
+      if (outer) outer.removeEventListener('abort', forward);
     }
-    const result = await response.json().catch(() => ({}));
     if (!response.ok) {
       if (response.status === 401 && path !== '/api/panel/config') {
-        clearInterval(refreshTimer);
+        stopAutoRefresh();
         clearSession();
         show('login-view');
         error('login-error', 'Sua sessão expirou. Entre novamente para continuar.');
       }
       const failure = new Error(result.error || 'REQUEST_FAILED');
-      failure.code = result.error;
+      failure.code = result.error || (response.status >= 500 ? 'SERVER_ERROR' : 'REQUEST_FAILED');
+      failure.status = response.status;
       failure.requestId = result.requestId || null;
       throw failure;
     }
     return result;
   };
+  // Same GET already running: one request for everyone. A counter can reuse a fresh answer.
+  const requestPool = window.MCSRefresh ? MCSRefresh.createRequestPool() : null;
+  const sharedGet = (path, ttlMs = 0) => requestPool ? requestPool.get(path, () => request(path), { ttlMs }) : request(path);
 
   const sha256 = async (value) => {
     const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
@@ -1100,8 +1129,14 @@
   }
 
   function renderFailure(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', searches: 'manheim-summary', manheim: 'manheim-summary', records: 'records-list' };
-    if (roots[view] && $(roots[view])) empty($(roots[view]), 'Não foi possível carregar esta aba.');
+    const roots = { today: 'pending-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', searches: 'manheim-summary', manheim: 'manheim-summary', records: 'records-list' };
+    const root = roots[view] && $(roots[view]);
+    if (!root) return;
+    // Nothing is shown as zero: the tab says it did not load and offers to try again.
+    empty(root, 'Não foi possível carregar esta aba.');
+    const retry = element('button', 'quiet small', 'Tentar novamente'); retry.type = 'button';
+    retry.addEventListener('click', () => { retry.disabled = true; retry.textContent = 'Carregando…'; switchPanel(view).catch(() => {}); });
+    root.append(retry);
   }
 
   async function loadSearches() {
@@ -1129,7 +1164,19 @@
     Object.entries(roots).forEach(([mode,root])=>{if(!root.childElementCount)empty(root,'Nenhum cliente com busca ativa neste modo');});
   }
 
+  // A newer load of the screen cancels the older one still running (AbortController): only the
+  // newest answer is drawn and the old request stops waiting.
+  let viewController = null;
+  const viewFetch = () => ({ signal: viewController ? viewController.signal : undefined });
   async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
+    if (viewController) viewController.abort();
+    const controller = new AbortController();
+    viewController = controller;
+    try { return await loadCurrentNow(view, requestVersion); }
+    catch (failure) { if (failure && failure.code === 'REQUEST_ABORTED') return; throw failure; }
+    finally { if (viewController === controller) viewController = null; }
+  }
+  async function loadCurrentNow(view, requestVersion) {
     const current = () => currentView === view && viewRequestVersion === requestVersion;
     if (view === 'entry') {
       const data = await loadQueue(false);
@@ -1142,31 +1189,31 @@
     if (view === 'pending') return loadPending();
     if (view === 'clients') return loadClients();
     if (view === 'today') {
-      const [data,vitrineData]=await Promise.all([request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value)),request('/api/panel/vitrine-requests'),loadWeekly()]);
+      const [data,vitrineData]=await Promise.all([request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value),viewFetch()),request('/api/panel/vitrine-requests',viewFetch()),loadWeekly()]);
       if (!current()) return;
       updateMeta(data.meta);
       renderVitrineRequests(vitrineData);
       return renderToday(data.items || []);
     }
     if (view === 'qualification') {
-      const data = await request('/api/panel/qualification?sort='+encodeURIComponent($('qualification-sort').value));
+      const data = await request('/api/panel/qualification?sort='+encodeURIComponent($('qualification-sort').value),viewFetch());
       if (!current()) return;
       updateMeta(data.meta);
       return renderQualification(data.items || []);
     }
     if (view === 'searches') {
-      const [,data]=await Promise.all([loadSearches(),request('/api/panel/records?view=manheim')]);
+      const [,data]=await Promise.all([loadSearches(),request('/api/panel/records?view=manheim',viewFetch())]);
       if (!current()) return;
       updateMeta(data.meta);renderManheim(data);return;
     }
     if (view === 'manheim') {
-      const data = await request('/api/panel/records?view=manheim');
+      const data = await request('/api/panel/records?view=manheim',viewFetch());
       if (!current()) return;
       updateMeta(data.meta);
       return renderManheim(data);
     }
     if (view === 'records') {
-      const data = await request('/api/panel/records?sort='+encodeURIComponent($('records-sort').value));
+      const data = await request('/api/panel/records?sort='+encodeURIComponent($('records-sort').value),viewFetch());
       if (!current()) return;
       updateMeta(data.meta);
       return renderRecords(data.items || []);
@@ -1174,29 +1221,52 @@
   }
 
   // C5: one failing counter never breaks the others nor the session; it shows "—".
+  let countersRunning = null;
   async function refreshCounters() {
+    // A second call while one is running waits for the same answer (actions in a row).
+    if (countersRunning) return countersRunning;
+    countersRunning = refreshCountersNow().finally(() => { countersRunning = null; });
+    return countersRunning;
+  }
+  async function refreshCountersNow() {
     // C5: only the visible tabs are counted; the hidden PENDÊNCIAS and Manheim screens cost two heavy GETs for nothing
+    // Each GET is shared with an identical one already running and reuses an answer of the last seconds.
     const settled = await Promise.allSettled([
-      request('/api/panel/today'),
-      request('/api/panel/entry'),
-      request('/api/panel/searches'),
-      request('/api/panel/records'),
-      request('/api/panel/vitrine-requests'),
-      request('/api/panel/triage')
+      sharedGet('/api/panel/today', 10000),
+      sharedGet('/api/panel/entry', 10000),
+      sharedGet('/api/panel/searches', 10000),
+      sharedGet('/api/panel/records', 10000),
+      sharedGet('/api/panel/vitrine-requests', 10000),
+      sharedGet('/api/panel/triage', 10000)
     ]);
     const [today, entry, searches, records, vitrineData, triageData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    // One failing counter never touches the others; it keeps its last confirmed number.
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
-    if (today) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
+    if (today && vitrineData) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
     // Conversations the triage left in REVISAR also wait for a decision in ENTRADA.
     if (triageData) triageReviewCount = (triageData.review || []).length;
-    count('entry', entry, (data) => { entryQueueCount = (data.chats || []).filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + (data.printReviews || []).length; return entryQueueCount + triageReviewCount; });
+    count('entry', triageData ? entry : null, (data) => { entryQueueCount = (data.chats || []).filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + (data.printReviews || []).length; return entryQueueCount + triageReviewCount; });
     // Same rule as the list: leads only, inside the CLIENTES period.
     count('clients', records, (data) => clientsInPeriod(data.items).length);
     // One person with a VALOR and a CARRO card is one person in the badge.
     count('searches', searches, (data) => new Set((data.items || []).map((item) => item.journeyId || item.key)).size);
     const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
     if (failures.length) console.error('Contadores com falha', failures);
+    renderCountersNote(failures.length);
     return { failed: failures.length };
+  }
+  // "Não foi possível atualizar" next to the counters, with the time of the last good update and a retry.
+  let countersOkAt = null;
+  function renderCountersNote(failed) {
+    const holder = document.querySelector('.freshness');
+    if (!holder) return;
+    let note = $('counters-note');
+    if (!failed) { countersOkAt = Date.now(); if (note) note.remove(); return; }
+    if (!note) { note = element('span', 'counters-note error'); note.id = 'counters-note'; note.setAttribute('role', 'status'); holder.append(note); }
+    note.replaceChildren(element('span', '', 'Não foi possível atualizar' + (countersOkAt ? ` · contadores de ${new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(countersOkAt)}` : '')));
+    const retry = element('button', 'quiet small', 'Tentar novamente'); retry.type = 'button';
+    retry.addEventListener('click', () => { retry.disabled = true; retry.textContent = 'Atualizando…'; if (requestPool) requestPool.invalidate(); refreshCounters().catch(() => {}); });
+    note.append(retry);
   }
 
   async function loadCaptureWarning() {
@@ -1307,7 +1377,8 @@
     return {itemKind,itemKey};
   }
 
-  function countValue(view){return Number(document.querySelector(`[data-count="${view}"]`)?.textContent)||0;}
+  // Unknown counter ("—"): NaN, so an optimistic step never invents a zero.
+  function countValue(view){const entry=counterState.get(view);return entry&&Number.isFinite(entry.value)?entry.value:NaN;}
   function applyDispositionVisual(button,item,status){
     const card=button.closest('.item-card,.lead-card,.record-block'),hide=Boolean(status)&&!currentDetail&&['today','clients'].includes(currentView);
     const snapshot={status:item.disposition||null,reason:item.discardReason||null,card,hidden:card?.classList.contains('action-optimistic-hidden'),count:countValue(currentView)};
@@ -1731,13 +1802,7 @@
   const kindLabel = (kind) => window.MCSVehicleMatch ? MCSVehicleMatch.kindLabel(kind) : kind;
   const kindTone = (kind) => kind === 'BATE' ? 'green' : kind === 'POR_VALOR' ? 'blue' : 'yellow';
   const kindClass = (kind) => kind === 'BATE' ? 'match' : kind === 'POR_VALOR' ? 'value' : 'near';
-  const kindSummaryBadge = (matches) => {
-    const count = (kind) => matches.filter((match) => match.match_kind === kind).length;
-    const parts = [`${count('BATE')} BATE`];
-    if (count('POR_VALOR')) parts.push(`${count('POR_VALOR')} POR VALOR`);
-    parts.push(`${count('QUASE')} QUASE`);
-    return makeBadge(parts.join(' · '), count('BATE') ? 'green' : count('POR_VALOR') ? 'blue' : 'yellow');
-  };
+
   // MANHEIM_MATCH_AUDIT on screen: one status per demand. Off, nothing shows and V1 works as before.
   const AUDIT_OK=['CONFERIDO','APROVADO_MANUAL'];
   const auditOn=()=>manheimData?.audit?.state==='LIGADA';
@@ -1769,38 +1834,73 @@
     MCSAction.bind(authorize,()=>({scope:note,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'authorize'})}),refresh:()=>loadCurrent(),errorText:(error)=>error?.code==='AUDIT_ADMIN_ONLY'?'Só o administrador autoriza':'Não consegui autorizar, tente de novo'}));
     note.append(authorize);
   }
-  const MANHEIM_VISIBLE_ROWS = 10;
-  // BATE first, then QUASE, lowest mileage first; the first 10 are visible and the rest open on "Ver mais".
-  function appendManheimRows(table, matches, renderRow) {
-    const sorted = window.MCSManheimUpload ? MCSManheimUpload.sortForDisplay(matches) : matches.slice();
-    sorted.slice(0, MANHEIM_VISIBLE_ROWS).forEach((match) => table.append(renderRow(match)));
-    const hidden = sorted.slice(MANHEIM_VISIBLE_ROWS);
-    if (!hidden.length) return;
-    const more = element('button', 'quiet small manheim-more', `Ver mais (${hidden.length})`);
-    more.type = 'button';
-    more.addEventListener('click', (event) => {
-      event.stopPropagation();
-      more.replaceWith(...hidden.map(renderRow));
-    });
-    table.append(more);
+  const MANHEIM_PAGE_ROWS = 10;
+  // Counts of a demand, answered by the server (no car is loaded for this).
+  const demandCountsBadge = (demand) => {
+    const parts = [`${demand.bateCount || 0} BATE`];
+    if (demand.porValorCount) parts.push(`${demand.porValorCount} POR VALOR`);
+    return makeBadge(parts.join(' · '), demand.bateCount ? 'green' : demand.porValorCount ? 'blue' : 'yellow');
+  };
+  // The options of ONE demand arrive only when the operator opens it, 10 at a time, in the order of
+  // the server (BATE, POR VALOR, lowest mileage) and with a stable cursor.
+  function lazyOptions(card, demand, loaded, renderRow, filter) {
+    const table = element('div', 'manheim-table');
+    const button = element('button', 'quiet small manheim-options-toggle', `Ver opções (${demand.matchCount})`);
+    button.type = 'button';
+    let cursor = null, busy = false, pages = 0;
+    const loadPage = async () => {
+      if (busy) return;
+      busy = true; button.disabled = true; button.textContent = 'Carregando…';
+      try {
+        const params = new URLSearchParams({ key: demand.key, limit: String(MANHEIM_PAGE_ROWS) });
+        if (cursor) params.set('cursor', cursor);
+        const page = await request('/api/panel/manheim-options?' + params.toString());
+        pages += 1;
+        (page.options || []).filter((option) => !filter || filter(option)).forEach((option) => { loaded.push(option); table.insertBefore(renderRow(option), button); });
+        cursor = page.nextCursor || null;
+        if (cursor) { button.textContent = `Ver mais (${Math.max(demand.matchCount - loaded.length, 1)})`; button.disabled = false; }
+        else { button.remove(); if (!loaded.length) table.append(element('p', 'muted manheim-options-note', 'Nenhuma opção nesta demanda agora')); }
+        card.dispatchEvent(new CustomEvent('options-loaded'));
+      } catch (failure) {
+        console.error(failure);
+        button.disabled = false;
+        button.textContent = pages ? 'Não consegui carregar mais, tentar de novo' : 'Não consegui carregar as opções, tentar de novo';
+      } finally { busy = false; }
+    };
+    button.addEventListener('click', (event) => { event.stopPropagation(); loadPage(); });
+    table.append(button);
+    return table;
+  }
+  // Criterion changed after the import: the options were compared with the old one.
+  function staleNotice(card, demand) {
+    if (!demand || !demand.stale) return null;
+    const box = element('div', 'warning inline-confirm');
+    box.append(element('p', '', 'O critério desta busca mudou depois da importação. As opções abaixo podem não servir mais'));
+    const again = element('button', 'small', 'Conferir novamente'); again.type = 'button';
+    MCSAction.bind(again, () => ({ scope: box, optimistic: () => { again.textContent = 'Conferindo…'; }, commit: () => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }), timeoutMs: 60000 }), rollback: () => { again.textContent = 'Conferir novamente'; }, successText: 'Opções comparadas de novo com o critério atual', refresh: () => loadCurrent(), errorText: 'Não consegui conferir de novo, tente mais tarde' }));
+    box.append(again);
+    return box;
   }
 
-  function renderManheimGroup(root, journey, matches, reactivation, demand = null) {
+  function renderManheimGroup(root, journey, reactivation, demand) {
     const card = element('article', 'item-card manheim-lead');
     card.dataset.mode = demand?.mode || '';
+    card.dataset.demandKey = demand?.key || '';
+    const loaded = [];
     const head = element('div', 'item-head');
     const stageLabel = demand ? demand.stageLabel : journey.searchStageLabel, stage = demand ? demand.stage : journey.searchStage;
-    head.append(identityHeader(journey), kindSummaryBadge(matches));if(stageLabel)head.append(makeBadge(stageLabel,stage==='SENT'?'green':stage==='SAVED'?'blue':'yellow'));
+    head.append(identityHeader(journey), demandCountsBadge(demand));if(stageLabel)head.append(makeBadge(stageLabel,stage==='SENT'?'green':stage==='SAVED'?'blue':'yellow'));
     card.append(head, element('p', 'muted', demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents)));
-    const audited=auditBlock(demand,matches);if(audited)card.append(audited);
+    const stale = staleNotice(card, demand); if (stale) card.append(stale);
+    let audited=auditBlock(demand,loaded);if(audited)card.append(audited);
+    card.addEventListener('options-loaded',()=>{const next=auditBlock(demand,loaded);if(audited&&next){audited.replaceWith(next);audited=next;}});
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
       MCSAction.bind(reactivateButton,()=>{const payload=journey.status==='PARADO'?{action:'set_funnel',journeyId:journey.id,value:['DECIDINDO','QUALIFICADO'].includes(journey.stage)?journey.stage:'EM_BUSCA'}:{action:'toggle_journey',journeyId:journey.id,enabled:true,reason:null};return{scope:card,optimistic:()=>{reactivateButton.textContent='Retomando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify(payload)}),rollback:()=>{reactivateButton.textContent=journey.status==='PARADO'?'Retomar busca':'Religar busca';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'};});
       card.append(makeBadge(journey.status === 'PARADO' ? 'Parado — reativar' : 'Desligado — reativar', 'yellow'), reactivateButton);
     }
-    const table = element('div', 'manheim-table');
-    appendManheimRows(table, matches, (match) => {
+    const table = lazyOptions(card, demand, loaded, (match) => {
       const parsed = match.vehicle_json.parsed || {};
       const row = element('div', `manheim-row ${kindClass(match.match_kind)}`);
       const select = element('input'); select.type = 'checkbox'; select.className = 'manheim-select'; select.dataset.matchId = match.id;
@@ -1829,12 +1929,13 @@
       MCSAction.bind(presented,()=>({scope:row,optimistic:()=>{presented.textContent='Apresentado';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:journey.id,manheimMatchId:match.id,status:'PRESENTED'})}),rollback:()=>{presented.textContent='Apresentei ao cliente';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'}));
       row.append(select, vehicle, badges, presented);
       return row;
-    });
+    }, reactivation ? (match) => match.match_kind === 'BATE' : null);
     card.append(table);
     const exportButton = element('button', 'quiet small', 'Baixar PDF');
     exportButton.type = 'button';
-    exportButton.addEventListener('click', () => {
-      const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => matches.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
+    exportButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => loaded.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
       downloadShortlist(selected, journey.reference_code);
     });
     const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';}catch(_){$('manheim-status').textContent='Não consegui copiar. Link: '+link;}});
@@ -1844,9 +1945,11 @@
     root.append(card);
   }
 
-  function renderManheimOrderGroup(root, order, matches, demand = null) {
+  function renderManheimOrderGroup(root, order, demand) {
     const card = element('article', 'item-card manheim-lead');
     card.dataset.mode = demand?.mode || '';
+    card.dataset.demandKey = demand?.key || '';
+    const loaded = [];
     const head = element('div', 'item-head');
     const identity = element('div', 'identity');
     identity.append(element('span', 'order-icon', orderIcon(order)));
@@ -1856,16 +1959,17 @@
     head.append(identity);
     card.append(head);
     const summary = element('div', 'badges');
-    summary.append(kindSummaryBadge(matches));
-    const orderAudit=auditBlock(demand,matches);
+    summary.append(demandCountsBadge(demand));
+    let orderAudit=auditBlock(demand,loaded);
     summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
     card.append(summary, element('p', 'muted', demand ? demandSummary(demand) : order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
+    const stale = staleNotice(card, demand); if (stale) card.append(stale);
     if (orderAudit) card.append(orderAudit);
+    card.addEventListener('options-loaded',()=>{const next=auditBlock(demand,loaded);if(orderAudit&&next){orderAudit.replaceWith(next);orderAudit=next;}});
     const contact=contactMeta(order);if(contact)card.append(contact);
     const smsMissing=smsPrintMissing(order); if(smsMissing)card.append(smsMissing);
 
-    const table = element('div', 'manheim-table');
-    appendManheimRows(table, matches, (match) => {
+    const table = lazyOptions(card, demand, loaded, (match) => {
       const parsed = match.vehicle_json.parsed || {};
       const row = element('div', `manheim-row ${kindClass(match.match_kind)}`);
       const vehicle = element('div');
@@ -1905,51 +2009,39 @@
     const cardMode=mode==='customers'?'recent':mode;
     manheimJourneys = clientSort(data.items || [],cardMode);
     manheimOrders = clientSort(data.orders || [],cardMode);
-    manheimMatches = data.matches || [];
+    manheimMatches = [];
     renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas'; });
     // B5: people served by today's combinations, not the count frozen at upload time.
     setCount('manheim', data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
-    $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} combinação(ões) · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma importação ativa';
-    if(data.historyIncomplete)$('manheim-summary').textContent += ' · reenviar CSVs dos últimos 60 dias para completar o histórico';
+    $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} carro(s) com combinação · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma importação ativa';
     renderBuscasCounters(data.counts);
     renderBatches(data.uploads || [], data.undoAvailable !== false);
     renderReview(data.review || []);
     renderAuditNote(data.audit);
 
-    const demandsByKey = new Map((data.demands || []).map((demand) => [demand.key, demand]));
     const byJourney = new Map(manheimJourneys.map((journey) => [journey.id, journey]));
     const byOrder = new Map(manheimOrders.map((order) => [order.ref, order]));
-    const groups = { VALOR: new Map(), CARRO: new Map() };
-    manheimMatches.forEach((match) => {
-      const matchMode = match.logical_mode;
-      if (!groups[matchMode]) return;
-      const key = match.demandKey || (match.calc_ref ? `ref:${String(match.calc_ref).trim()}:${matchMode}` : `journey:${match.journey_id}:${matchMode}`);
-      if (!groups[matchMode].has(key)) groups[matchMode].set(key, []);
-      groups[matchMode].get(key).push(match);
-    });
-    const position = (key) => { const demand = demandsByKey.get(key); return demand?.journeyId ? manheimJourneys.findIndex((item) => item.id === demand.journeyId) : 10000 + manheimOrders.findIndex((item) => item.ref === demand?.ref); };
+    const withOptions = (data.demands || []).filter((demand) => demand.matchCount > 0);
+    const position = (demand) => demand.journeyId ? manheimJourneys.findIndex((item) => item.id === demand.journeyId) : 10000 + manheimOrders.findIndex((item) => item.ref === demand.ref);
     ['VALOR', 'CARRO'].forEach((mode) => {
       const root = modeRoot(mode, 'results');
       root.replaceChildren();
       const standard = element('section', 'stack'), reactivate = element('section', 'stack');
       reactivate.append(element('h4', '', 'Reativar'));
       let standardCount = 0, reactivateCount = 0;
-      [...groups[mode].entries()].sort((a, b) => position(a[0]) - position(b[0])).forEach(([key, matches]) => {
-        const demand = demandsByKey.get(key) || null;
-        const first = matches[0];
-        if (first.calc_ref) {
-          const order = byOrder.get(String(first.calc_ref).trim());
+      withOptions.filter((demand) => demand.mode === mode).sort((a, b) => position(a) - position(b)).forEach((demand) => {
+        if (!demand.journeyId) {
+          const order = byOrder.get(String(demand.ref || '').trim());
           if (!order) return;
-          renderManheimOrderGroup(standard, order, matches, demand);
+          renderManheimOrderGroup(standard, order, demand);
           standardCount += 1;
           return;
         }
-        const journey = byJourney.get(first.journey_id);
+        const journey = byJourney.get(demand.journeyId);
         if (!journey) return;
         if (journey.reactivationEligible || journey.status === 'PARADO') {
-          const exact = matches.filter((match) => match.match_kind === 'BATE');
-          if (exact.length) { renderManheimGroup(reactivate, journey, exact, true, demand); reactivateCount += 1; }
-        } else { renderManheimGroup(standard, journey, matches, false, demand); standardCount += 1; }
+          if (demand.bateCount) { renderManheimGroup(reactivate, journey, true, { ...demand, matchCount: demand.bateCount }); reactivateCount += 1; }
+        } else { renderManheimGroup(standard, journey, false, demand); standardCount += 1; }
       });
       if (standardCount) root.append(standard);
       if (reactivateCount) root.append(reactivate);
@@ -2121,85 +2213,136 @@
     });
   }
 
+  // Manheim in high volume: every CSV chosen together is ONE batch (manheim-batch). The browser
+  // reads the files, removes the same car found in two files and sends blocks of 500 cars; the
+  // server compares them with the demands and only activates the batch after the last block. A
+  // failure keeps what was confirmed: choosing the same files again continues from there. The screen
+  // is reloaded once at the end, never after each file.
+  let manheimUploadRunning = false;
+  let manheimCancelRequested = false;
+  function renderUploadProgress(plan, event, onCancel) {
+    let root = $('manheim-progress');
+    if (!root) { root = element('div', 'manheim-progress'); root.id = 'manheim-progress'; root.setAttribute('aria-live', 'polite'); $('manheim-status').after(root); }
+    root.replaceChildren();
+    if (!plan) { root.remove(); return; }
+    const bar = element('progress'); bar.max = Math.max(1, event.total); bar.value = event.done;
+    root.append(element('strong', '', `Lote único · ${plan.length} arquivo${plan.length === 1 ? '' : 's'} · bloco ${event.done} de ${event.total}`), bar);
+    plan.forEach((file, index) => {
+      const sent = event.doneByFile ? event.doneByFile[index] || 0 : 0;
+      const line = element('div', 'manheim-progress-file');
+      line.append(element('span', '', file.name), element('span', 'muted', `${file.vehicleCount} carros · ${sent} de ${file.chunkCount} blocos${sent === file.chunkCount ? ' ✓' : ''}`));
+      root.append(line);
+    });
+    if (onCancel) {
+      const actions = element('div', 'inline-actions');
+      const cancel = element('button', 'quiet small', 'Cancelar importação'); cancel.type = 'button';
+      cancel.addEventListener('click', () => { cancel.disabled = true; cancel.textContent = 'Cancelando…'; onCancel(); });
+      actions.append(cancel); root.append(actions);
+    }
+  }
+
   async function importManheim(files) {
     const selected = files.filter((file) => /\.csv$/i.test(file.name));
     if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
     if (!window.MCSManheim || !window.MCSManheimUpload) throw manheimError('MANHEIM_READER_UNAVAILABLE');
+    if (manheimUploadRunning) throw manheimError('MANHEIM_UPLOAD_RUNNING');
+    manheimUploadRunning = true;
+    manheimCancelRequested = false;
     const status = $('manheim-status');
     status.classList.remove('error');
-    status.textContent = 'Lendo…';
-    // A19: always compare with the criteria the server has now, never with the list cached
-    // when the tab was opened.
-    const fresh = await request('/api/panel/records?view=manheim');
-    // One target per person and mode (VALOR or CARRO); each car is checked against each one.
-    const targets = fresh.targets || [];
-    const vehicles = [];
-    const headerGroups = [];
-    const mappings = [];
-    let ignoredRows = 0;
-    const ai = newAiRun();
-    for (const file of selected) {
-      if (file.size > MAX_TEXT) throw manheimError('MANHEIM_FILE_TOO_LARGE');
-      let contents;
-      try { contents = await file.text(); }
-      catch (cause) { throw manheimError('MANHEIM_FILE_READ_FAILED', { cause }); }
-      const parsed = MCSManheim.parseCsv(contents);
-      let mapping = MCSManheim.mapHeaders(parsed.headers);
-      // An unknown header may be read by OpenAI (only the column names are sent).
-      if (mapping.missing.length) mapping = await aiHeaderMapping(ai, parsed.headers, mapping, status);
-      if (mapping.missing.length) throw manheimError('MANHEIM_CSV_COLUMNS_MISSING', { missing: mapping.missing });
-      headerGroups.push(parsed.headers);
-      mappings.push(mapping.fields);
-      const classified = MCSManheim.classifyRows(parsed, mapping);
-      ai.rowsTotal += parsed.rows.length;
-      ai.rowsDeterministic += classified.vehicles.length;
-      const resolved = await resolveAmbiguousRows(ai, classified.ambiguous, mapping, file.name, status);
-      const normalized = MCSManheimUpload.markSearchFiltered(MCSManheim.chooseAuctionRows([...classified.vehicles, ...resolved]));
-      ignoredRows += parsed.rows.length - normalized.length - (classified.ambiguous.length - resolved.length);
-      vehicles.push(...normalized);
+    try {
+      const vehicles = [];
+      const headerGroups = [];
+      const mappings = [];
+      const fileMeta = [];
+      let ignoredRows = 0;
+      const ai = newAiRun();
+      for (let fileIndex = 0; fileIndex < selected.length; fileIndex += 1) {
+        const file = selected[fileIndex];
+        status.textContent = `Lendo ${fileIndex + 1} de ${selected.length}: ${file.name}…`;
+        if (file.size > MAX_TEXT) throw manheimError('MANHEIM_FILE_TOO_LARGE', { fileName: file.name });
+        let contents;
+        try { contents = await file.text(); }
+        catch (cause) { throw manheimError('MANHEIM_FILE_READ_FAILED', { cause, fileName: file.name }); }
+        const parsed = MCSManheim.parseCsv(contents);
+        contents = null;
+        let mapping = MCSManheim.mapHeaders(parsed.headers);
+        // An unknown header may be read by OpenAI (only the column names are sent).
+        if (mapping.missing.length) mapping = await aiHeaderMapping(ai, parsed.headers, mapping, status);
+        if (mapping.missing.length) throw manheimError('MANHEIM_CSV_COLUMNS_MISSING', { missing: mapping.missing, fileName: file.name });
+        headerGroups.push(parsed.headers);
+        mappings.push(mapping.fields);
+        const classified = MCSManheim.classifyRows(parsed, mapping);
+        ai.rowsTotal += parsed.rows.length;
+        ai.rowsDeterministic += classified.vehicles.length;
+        const resolved = await resolveAmbiguousRows(ai, classified.ambiguous, mapping, file.name, status);
+        const normalized = MCSManheimUpload.markSearchFiltered(MCSManheim.chooseAuctionRows([...classified.vehicles, ...resolved]));
+        ignoredRows += parsed.rows.length - normalized.length - (classified.ambiguous.length - resolved.length);
+        // Only what travels stays in memory (the lot and the simulcast mark of the raw row).
+        normalized.forEach((vehicle) => {
+          const compact = MCSManheimUpload.compactVehicle(vehicle);
+          vehicles.push({ ...compact, fileIndex, raw: { Inventory: vehicle.raw && vehicle.raw.Inventory || '' }, hasBuyNow: vehicle.hasBuyNow });
+        });
+        fileMeta.push({ name: file.name, size: file.size, lastModified: file.lastModified || 0, rowCount: parsed.rows.length });
+      }
+      // The same car in two files is one car.
+      const deduped = MCSManheimUpload.dedupeAcrossFiles(vehicles, MCSManheim);
+      const uniqueCount = deduped.vehicles.length;
+      if (uniqueCount > 100000) throw manheimError('MANHEIM_TOO_MANY_VEHICLES', { vehicleCount: uniqueCount });
+      // M19: an empty batch, or one much smaller than the active one, replaces the combinations shown
+      // in BUSCAS; the operator confirms before sending.
+      const current = await request('/api/panel/manheim-batch').catch((failure) => { if (failure && failure.code === 'MANHEIM_MIGRATION_PENDING') throw failure; return { latest: null }; });
+      const previousCount = Number(current.latest && current.latest.vehicleCount) || 0;
+      const smaller = uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
+      if (!uniqueCount || smaller) {
+        status.textContent = 'Aguardando confirmação';
+        const question = !uniqueCount ? 'Estes arquivos não têm nenhum carro. As combinações atuais de BUSCAS serão substituídas' : `Este lote tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
+        if (!(await askInline(status, question, 'Enviar mesmo assim'))) { status.textContent = 'Envio cancelado'; return; }
+      }
+      const plan = MCSManheimUpload.planBatch(fileMeta, deduped.vehicles, MCSManheim);
+      // Same files chosen again (after a failure or a reload): same key, the batch continues.
+      const clientKey = (await sha256(JSON.stringify([fileMeta.map((file) => [file.name, file.size, file.lastModified]), uniqueCount]))).slice(0, 32);
+      const doneByFile = plan.map(() => 0);
+      status.textContent = `Enviando ${uniqueCount} carros de ${plan.length} arquivo${plan.length === 1 ? '' : 's'} como um lote…`;
+      const cancel = () => { manheimCancelRequested = true; };
+      let uploadId = null;
+      let result;
+      try {
+        result = await MCSManheimUpload.sendBatch({
+          plan, clientKey, vehicleCount: uniqueCount, headers: headerGroups, headerMap: { files: mappings }, request,
+          canceled: () => manheimCancelRequested,
+          onProgress: (event) => {
+            uploadId = event.uploadId;
+            if (event.fileIndex !== null && event.fileIndex !== undefined) doneByFile[event.fileIndex] += 1;
+            else (event.resumed || []).forEach(([fileIndex]) => { if (doneByFile[fileIndex] !== undefined) doneByFile[fileIndex] += 1; });
+            renderUploadProgress(plan, { ...event, doneByFile }, cancel);
+          }
+        });
+      } catch (failure) {
+        if (failure && failure.code === 'MANHEIM_BATCH_CANCELED_BY_OPERATOR') {
+          const id = failure.uploadId || uploadId;
+          if (id) await request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'cancel', uploadId: id }) }).catch(() => null);
+          renderUploadProgress(null);
+          status.textContent = 'Importação cancelada. Nenhum carro deste lote entrou em BUSCAS e o lote ativo não mudou';
+          return;
+        }
+        throw failure;
+      }
+      renderUploadProgress(null);
+      const DISCARD_TEXT = result.discarded ? ` · ${result.discarded} descartada(s) porque a ficha mudou durante o envio` : '';
+      const duplicatesText = deduped.duplicates ? ` · ${deduped.duplicates} repetido(s) entre arquivos` : '';
+      status.textContent = `Lote ativo · ${result.fileCount || plan.length} arquivo(s) · ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`;
+      renderImportSummary(ai, uniqueCount);
+      if (ai.rowsSentToAi || ai.review.length) await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_summary', uploadId: result.uploadId, summary: aiSummary(ai) }) }).catch(() => null);
+      if (requestPool) requestPool.invalidate();
+      // One reload of the screen and of the counters, after the whole batch.
+      await loadCurrent().catch(() => {});
+      await refreshCounters().catch(() => {});
+      // MANHEIM_MATCH_AUDIT: the options show "Conferindo" and the check starts right after the upload.
+      if (manheimData?.audit?.state === 'LIGADA') request('/api/panel/manheim-audit', { method: 'POST', body: JSON.stringify({ action: 'run' }), timeoutMs: 60000 }).then(() => loadCurrent()).catch(() => loadCurrent().catch(() => {}));
+    } finally {
+      manheimUploadRunning = false;
     }
-    // M19: an empty CSV, or one much smaller than the last one, replaces the combinations shown in
-    // BUSCAS; the operator confirms before sending.
-    const uniqueCount = new Set(vehicles.map((vehicle) => MCSManheim.fingerprint(vehicle))).size;
-    const previousCount = Number(fresh.upload && fresh.upload.vehicle_count) || 0;
-    const smaller = uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
-    if (uniqueCount > 100000) throw manheimError('MANHEIM_TOO_MANY_VEHICLES', { vehicleCount: uniqueCount });
-    if (!uniqueCount || smaller) {
-      status.textContent = 'Aguardando confirmação';
-      const question = !uniqueCount ? 'Este CSV não tem nenhum carro. As combinações atuais de BUSCAS serão substituídas' : `Este CSV tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
-      if (!(await askInline(status, question, 'Enviar mesmo assim'))) { status.textContent = 'Envio cancelado'; return; }
-    }
-    status.textContent = `Comparando ${vehicles.length} carros…`;
-    const matches = MCSManheimUpload.buildMatches(vehicles, targets, MCSManheim);
-    if (matches.length > MANHEIM_MAX_MATCHES) throw manheimError('MANHEIM_MATCH_LIMIT', { matchCount: matches.length });
-    // M20: the same car in two CSVs is one car (the archive keeps one), so the count is of unique cars.
-    const base = { sourceFileCount: selected.length, vehicleCount: uniqueCount, headers: headerGroups, headerMap: { files: mappings } };
-    const parts = MCSManheimUpload.planParts(matches, base);
-    const result = await MCSManheimUpload.sendParts({ parts, base, request, onProgress: (partIndex, partCount) => { status.textContent = `Enviando parte ${partIndex} de ${partCount}…`; } });
-    const seen = new Set();
-    const archive = vehicles.filter((vehicle) => { const id = MCSManheim.fingerprint(vehicle); if (seen.has(id)) return false; seen.add(id); return true; });
-    let archived = 0, ignored = ignoredRows;
-    for (let index = 0; index < archive.length; index += 100) {
-      const saved=await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_archive', uploadId: result.uploadId,
-        vehicles: archive.slice(index, index + 100).map((vehicle) => ({ fingerprint: MCSManheim.fingerprint(vehicle), vehicle: {
-          vin: vehicle.vin, year: vehicle.year, make: vehicle.make, model: vehicle.model, trim: vehicle.trim,
-          miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
-          saleDate: vehicle.saleDate,startsAt:vehicle.startsAt,endsAt:vehicle.endsAt,mmrCents: vehicle.mmrCents,exteriorColor:vehicle.exteriorColor,interiorColor:vehicle.interiorColor,drivetrain:vehicle.drivetrain,transmission:vehicle.transmission,engine:vehicle.engine,cleanTitle:vehicle.cleanTitle,odometerOk:vehicle.odometerOk,...(vehicle.ai?{ai:vehicle.ai}:{})
-        } })) }) }).catch((cause) => { throw manheimError('MANHEIM_ARCHIVE_FAILED', { cause, uploadId: result.uploadId }); });
-      archived+=saved.archived||0;ignored+=saved.ignored||0;
-    }
-    const combinations = Number.isFinite(Number(result.matchedVehicleCount)) ? Number(result.matchedVehicleCount) : matches.length;
-    // Each discard with its own reason (not everything is "critério mudou").
-    const DISCARD_LABELS = { CRITERIA_CHANGED: 'critério mudou', JOURNEY_DISABLED: 'ficha desligada', JOURNEY_DISCARDED: 'pessoa descartada', REF_LINKED_TO_FICHA: 'Ref já ligada a ficha', ORDER_UNAVAILABLE: 'pedido indisponível', JOURNEY_UNAVAILABLE: 'ficha indisponível', INVALID_ROW: 'linha inválida' };
-    const discardedDetail = Object.entries(result.discardedReasons || {}).map(([reason, count]) => `${count} ${DISCARD_LABELS[reason] || reason}`).join(', ');
-    const discardedText = result.discardedTotal ? ` · ${result.discardedTotal} descartadas${discardedDetail ? ` (${discardedDetail})` : ''}` : '';
-    status.textContent = `${archived} carros arquivados, ${ignored} ignorados, ${combinations} combinações${discardedText}`;
-    renderImportSummary(ai, vehicles.length);
-    if (ai.rowsSentToAi || ai.review.length) await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_summary', uploadId: result.uploadId, summary: aiSummary(ai) }) }).catch(() => null);
-    await loadCurrent();
-    await refreshCounters();
-    // MANHEIM_MATCH_AUDIT: the options show "Conferindo" and the check starts right after the upload.
-    if (manheimData?.audit?.state === 'LIGADA') request('/api/panel/manheim-audit', { method: 'POST', body: JSON.stringify({ action: 'run' }) }).then(() => loadCurrent()).catch(() => loadCurrent().catch(() => {}));
   }
 
   // OpenAI for ambiguous rows only. Rows the parser reads with safety never go to the AI; the AI
@@ -2292,7 +2435,12 @@
     MANHEIM_JOURNEY_ID_INVALID: 'Uma combinação veio com identificador de cliente inválido. Atualize a página e envie de novo.',
     MANHEIM_JOURNEY_DISABLED: 'Uma busca não está disponível para comparação.',
     MANHEIM_UPLOAD_NOT_FOUND: 'O servidor não encontrou este envio. Envie o CSV de novo.',
-    MANHEIM_MIGRATION_PENDING: 'O banco ainda não tem o envio em partes (migração pendente). Avise o responsável.',
+    MANHEIM_MIGRATION_PENDING: 'O banco ainda não tem a importação em lote único (migração pendente). Nada foi enviado; avise o responsável',
+    MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação em andamento nesta aba. Espere terminar ou cancele',
+    MANHEIM_BATCH_CANCELED: 'Esta importação foi cancelada. Selecione os arquivos de novo para começar outra',
+    MANHEIM_BATCH_ALREADY_ACTIVE: 'Este lote já estava ativo; nada foi enviado de novo',
+    REQUEST_TIMEOUT: 'O servidor demorou para responder',
+    NETWORK_ERROR: 'Sem conexão com o servidor',
     MANHEIM_ARCHIVE_INVALID: 'Os carros foram comparados, mas o arquivo de carros não passou na validação.',
     PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio.',
     PANEL_ACTION_FAILED: 'A comparação foi lida, mas não pôde ser gravada. Tente novamente.',
@@ -2305,6 +2453,8 @@
     if (code === 'MANHEIM_UPLOAD_INCOMPLETE') {
       const cause = failure.cause;
       const detail = MANHEIM_FAILURE_MESSAGES[cause && cause.code] || `${cause && (cause.code || cause.message) || 'sem resposta'}`;
+      // Lote único: the blocks already confirmed stay on the server; the same files continue from there.
+      if (failure.fileName) return `Envio interrompido em ${failure.fileName}, bloco ${Number(failure.chunkIndex) + 1} (${detail}). Nada foi ativado e o lote ativo não mudou. Selecione os mesmos arquivos de novo para continuar de onde parou`;
       const retried = !(window.MCSManheimUpload && MCSManheimUpload.FINAL_ERRORS.has(cause && cause.code));
       return `Envio incompleto: a parte ${failure.partIndex} de ${failure.partCount} falhou${retried ? ' depois de 3 tentativas' : ''} (${detail}). O último upload continua sendo o anterior.`;
     }
@@ -2319,6 +2469,16 @@
 
   function showManheimFailure(failure) {
     console.error(failure);
+    renderUploadProgress(null);
+    // An interrupted batch waits on the server (never active). The operator may continue (same
+    // files again) or discard it.
+    if (failure && failure.code === 'MANHEIM_UPLOAD_INCOMPLETE' && failure.uploadId) {
+      const holder = element('div', 'manheim-progress'); holder.id = 'manheim-progress';
+      const discard = element('button', 'quiet small', 'Descartar este envio'); discard.type = 'button';
+      MCSAction.bind(discard, () => ({ scope: holder, commit: () => request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'cancel', uploadId: failure.uploadId }) }), onSuccess: () => { $('manheim-status').classList.remove('error'); $('manheim-status').textContent = 'Envio descartado. O lote ativo não mudou'; holder.remove(); }, errorText: 'Não consegui descartar, tente de novo' }));
+      const actions = element('div', 'inline-actions'); actions.append(discard); holder.append(actions);
+      $('manheim-status').after(holder);
+    }
     $('manheim-status').classList.add('error');
     $('manheim-status').textContent = manheimFailureText(failure);
   }
@@ -2940,25 +3100,41 @@
     const node = lastTyping.node;
     return Boolean(node && node.isConnected && String(node.value ?? node.textContent ?? '').trim() && Date.now() - lastTyping.at < 10 * 60000);
   };
+  // Automatic refresh: only the leader tab (visible) asks, one refresh at a time, never while the
+  // operator is typing, and after an error the wait doubles (up to 15 minutes) instead of insisting.
+  let refreshCoordinator = null, refreshScheduler = null;
+  const REFRESH_MS = Number(window.MCS_REFRESH_MS) > 0 ? Number(window.MCS_REFRESH_MS) : 120000;
+  const refreshNote = (text, retry) => {
+    let note = $('refresh-note');
+    if (!note && text) { note = element('span', 'muted refresh-note'); note.id = 'refresh-note'; note.setAttribute('role', 'status'); document.querySelector('.freshness')?.append(note); }
+    if (!note) return;
+    note.replaceChildren(text ? element('span', '', text) : '');
+    if (text && retry) {
+      const button = element('button', 'quiet small', 'Tentar novamente'); button.type = 'button';
+      button.addEventListener('click', () => { button.disabled = true; button.textContent = 'Atualizando…'; if (refreshScheduler) refreshScheduler.runNow(); else refreshCurrentPreservingState().catch(() => {}); });
+      note.append(button);
+    }
+  };
+  function stopAutoRefresh() {
+    if (refreshScheduler) refreshScheduler.stop();
+    if (refreshCoordinator) refreshCoordinator.stop();
+    refreshScheduler = null; refreshCoordinator = null;
+  }
   const startSafeRefresh = () => {
-    clearInterval(refreshTimer);
-    // A24: one refresh at a time, and a failure is shown next to "Dados atualizados" until the next success
-    let refreshing = false;
-    const refreshNote = (text) => {
-      let note = $('refresh-note');
-      if (!note && text) { note = element('span', 'muted'); note.id = 'refresh-note'; document.querySelector('.freshness')?.append(note); }
-      if (note) note.textContent = text;
-    };
-    refreshTimer = setInterval(async () => {
-      if (refreshing || operatorIsTyping()) return;
-      refreshing = true;
-      try {
-        await loadCurrent();
-        await loadCaptureWarning();
-        refreshNote('');
-      } catch (failure) { console.error('Atualização automática falhou; tento de novo no próximo ciclo', failure); refreshNote('Atualização automática falhou, tento de novo em 2 min'); }
-      finally { refreshing = false; }
-    }, 120000);
+    stopAutoRefresh();
+    if (!window.MCSRefresh) return;
+    let channel = null;
+    try { channel = 'BroadcastChannel' in window ? new BroadcastChannel('mcs-panel-refresh') : null; } catch (_) { channel = null; }
+    let storage = null;
+    try { storage = window.localStorage; } catch (_) { storage = null; }
+    refreshCoordinator = MCSRefresh.createCoordinator({ storage, document, window, channel }).start();
+    refreshScheduler = MCSRefresh.createScheduler({
+      coordinator: refreshCoordinator, intervalMs: REFRESH_MS, maxBackoffMs: 15 * 60000, isBusy: operatorIsTyping,
+      run: async () => { await loadCurrent(); await loadCaptureWarning(); },
+      onSuccess: () => refreshNote(''),
+      onFailure: (failure, nextMs) => { console.error('Atualização automática falhou', failure); refreshNote(`Não foi possível atualizar · os dados mostrados são os últimos confirmados · nova tentativa em ${Math.round(nextMs / 60000) || 1} min`, true); }
+    }).start();
+    window.__mcsRefresh = { coordinator: refreshCoordinator, scheduler: refreshScheduler };
   };
   async function routeFromHash(push = false) {
     const hash = String(location.hash || '');
@@ -2992,25 +3168,43 @@
 
   // C5: only the session check can send the operator back to login. A real 401 is handled by
   // request() after the token refresh fails; any other failure keeps the session and the panel.
+  // C5: only the session check can send the operator back to login. A real 401 is handled by
+  // request() after the token refresh fails; any other failure keeps the session and offers to try
+  // again. The session check is light (no Manheim, no lists) and has its own time limit.
+  const SESSION_TIMEOUT_MS = 12000;
+  function sessionRetry(show) {
+    let retry = $('login-retry');
+    if (!retry && show) {
+      retry = element('button', 'quiet', 'Tentar novamente'); retry.id = 'login-retry'; retry.type = 'button';
+      retry.addEventListener('click', async () => { retry.disabled = true; retry.textContent = 'Conferindo…'; try { await routeSession(); } finally { retry.disabled = false; retry.textContent = 'Tentar novamente'; } });
+      $('login-error').after(retry);
+    }
+    if (retry) retry.classList.toggle('hidden', !show);
+  }
   async function routeSession() {
-    if (!accessToken) return show('login-view');
+    if (!accessToken) { sessionRetry(false); return show('login-view'); }
     let session;
     try {
-      session = await request('/api/panel/session');
+      session = await request('/api/panel/session', { timeoutMs: SESSION_TIMEOUT_MS });
     } catch (failure) {
       if (['AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED'].includes(failure && failure.code) || !accessToken) {
         clearSession();
         show('login-view');
+        sessionRetry(false);
         if (failure && failure.code === 'PANEL_ACCESS_DENIED') error('login-error', 'Esta conta não tem acesso ao painel.');
         return;
       }
       show('login-view');
-      error('login-error', 'Não consegui confirmar a sessão agora. Tente de novo em instantes.');
+      error('login-error', failure && failure.code === 'REQUEST_TIMEOUT' ? 'O painel demorou para responder. Sua senha está certa; tente de novo em instantes.' : 'Não consegui confirmar a sessão agora. Tente de novo em instantes.');
+      sessionRetry(true);
       return;
     }
+    sessionRetry(false);
+    error('login-error');
     if (session.mustChangePassword) return show('password-view');
     show('app-view');
     const step = async (label, run) => { try { await run(); } catch (failure) { console.error(`Falha ao carregar ${label}`, failure); bootWarning(); } };
+    // The panel opens at once; the first tab and the counters arrive after, each on its own.
     await step('a aba inicial', () => switchPanel('today'));
     if (!history.state) history.replaceState({ panelOrigin: captureOrigin() }, '', location.pathname + location.search + (location.hash || ''));
     await step('o endereço aberto', () => routeFromHash(false));
@@ -3030,15 +3224,43 @@
     try{const data=await request('/api/panel/automatic-messages');list.replaceChildren();(data.items||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('span','',item.body_normalized));const remove=element('button','quiet small','Remover');remove.type='button';MCSAction.bind(remove,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'delete',id:item.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>loadAutomaticMessages(),errorText:'Não consegui salvar — tente de novo'}));row.append(remove);list.append(row);});}catch(_){list.textContent='Não foi possível carregar mensagens automáticas.';}
   }
   if($('automatic-message-save'))MCSAction.bind($('automatic-message-save'),()=>{const input=$('automatic-message-text'),value=input.value.trim();if(!value)return{scope:$('automatic-message-list'),commit:()=>Promise.reject(new Error('MESSAGE_REQUIRED')),errorText:'Digite a mensagem automática.'};return{scope:$('automatic-message-list'),commit:()=>request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'save',text:value})}),onSuccess:()=>{input.value='';},refresh:()=>loadAutomaticMessages(),errorText:'Não consegui salvar — tente de novo'};});
+  // The Entrar button always answers: "Entrando…" while Supabase checks the password, "Abrindo o
+  // painel…" while the session is confirmed, a clear message on any failure, and it can be pressed
+  // again. It never waits forever (time limit on both steps).
+  let signingIn = false;
   async function signIn(event) {
     event.preventDefault();
+    if (signingIn) return;
+    signingIn = true;
+    const button = $('login-form').querySelector('button[type="submit"]');
+    const label = button ? button.textContent : 'Entrar';
+    const busy = (text) => { if (button) { button.disabled = true; button.textContent = text; button.setAttribute('aria-busy', 'true'); } };
     error('login-error');
-    const response = await fetch(config.url + '/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: config.publishableKey, 'content-type': 'application/json' }, body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value }) });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.access_token) return error('login-error', 'E-mail ou senha inválidos.');
-    acceptAuthSession(data, $('remember-login').checked);
-    $('password').value = '';
-    await routeSession();
+    sessionRetry(false);
+    busy('Entrando…');
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      let response, data;
+      try {
+        response = await fetch(config.url + '/auth/v1/token?grant_type=password', { method: 'POST', signal: controller.signal, headers: { apikey: config.publishableKey, 'content-type': 'application/json' }, body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value }) });
+        data = await response.json().catch(() => ({}));
+      } catch (_) {
+        return error('login-error', controller.signal.aborted ? 'O login demorou para responder. Tente de novo.' : 'Não consegui falar com o servidor de login. Confira a conexão e tente de novo.');
+      } finally { clearTimeout(timer); }
+      if (!response.ok || !data.access_token) return error('login-error', 'E-mail ou senha inválidos.');
+      acceptAuthSession(data, $('remember-login').checked);
+      $('password').value = '';
+      busy('Entrando…');
+      await routeSession();
+    } catch (failure) {
+      console.error('Falha ao entrar', failure);
+      error('login-error', 'Não consegui abrir o painel agora. Tente de novo.');
+      sessionRetry(Boolean(accessToken));
+    } finally {
+      signingIn = false;
+      if (button) { button.disabled = false; button.textContent = label === 'Entrando…' ? 'Entrar' : label; button.removeAttribute('aria-busy'); }
+    }
   }
   async function changePassword(event) {
     event.preventDefault();
@@ -3057,7 +3279,7 @@
     await restoreSession();
     $('login-form').addEventListener('submit', signIn);
     $('password-form').addEventListener('submit', changePassword);
-    $('logout').addEventListener('click', () => { clearInterval(refreshTimer); clearSession(); show('login-view'); });
+    $('logout').addEventListener('click', () => { stopAutoRefresh(); clearSession(); show('login-view'); });
     document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', async () => {
       if(button.dataset.view!=='clients')clientsOverdue24=false;
       history.replaceState({ panelOrigin: { view: button.dataset.view, scrollY: 0 } }, '', location.pathname + location.search);

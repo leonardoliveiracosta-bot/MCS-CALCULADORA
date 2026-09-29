@@ -101,10 +101,11 @@ test('Lote 4 · ações sem consumidor respondem inválido sem ler o banco; as v
   }
   assert.equal(reads, 0);
   const source = read('api/panel/actions.js');
-  for (const live of ['manheim_upload_part', 'manheim_archive', 'set_disposition', 'resolve_divergence', 'link_request', 'next_action', 'toggle_journey']) assert.match(source, new RegExp(`'${live}'`));
-  // The CSV upload in parts (the one the panel sends) still saves through the same helper.
-  assert.match(source, /function storeManheimUpload/);
-  assert.match(read('painel/manheim-upload.js'), /action: 'manheim_upload_part'/);
+  for (const live of ['set_disposition', 'resolve_divergence', 'link_request', 'next_action', 'toggle_journey']) assert.match(source, new RegExp(`'${live}'`));
+  // The old upload in parts and the separate archive were replaced by the single batch in blocks.
+  assert.match(source, /const RETIRED_MANHEIM_ACTIONS = new Set\(\['manheim_upload_part', 'manheim_archive'\]\)/);
+  assert.match(read('api/panel/manheim-batch.js'), /panel_manheim_batch_chunk/);
+  assert.match(read('painel/manheim-upload.js'), /action: 'chunk'/);
   assert.doesNotMatch(read('painel/manheim-upload.js') + read('painel/painel.js'), /action: ?'manheim_upload'/);
   // "declaration" (removed) is not the divergence action, which stays wired to the ficha.
   assert.match(read('api/panel/lead.js'), /'resolve_divergence'/);

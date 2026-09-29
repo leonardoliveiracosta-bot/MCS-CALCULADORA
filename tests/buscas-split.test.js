@@ -57,13 +57,27 @@ test('1 · o Calculate My Cost envia logical_mode VALOR e 2 · o Find One For Me
 });
 
 // ------------------------------------------------------------------ 3-5, 18 BUSCAS por modo
+// The database answers the summary per demand (panel_manheim_batch_summary); simulated here over the
+// same rows, with the same rules (active rows only, MMR mandatory, key from target and mode).
+function summaryOf(tables, uploadId) {
+  const rows = (tables.manheim_matches || []).filter((row) => row.upload_id === undefined || row.upload_id === uploadId).filter((row) => !row.undone_at && vehicleMatch.hasValidMmr(row.vehicle_json && row.vehicle_json.parsed));
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = row.demand_key || (row.journey_id ? 'journey:' + row.journey_id : 'ref:' + String(row.calc_ref).trim()) + ':' + (row.logical_mode || '');
+    if (!groups.has(key)) groups.set(key, { demand_key: key, logical_mode: row.logical_mode, journey_id: row.journey_id || null, calc_ref: row.calc_ref ? String(row.calc_ref).trim() : null, match_count: 0, bate_count: 0, por_valor_count: 0, presented_count: 0, criteria_hashes: [] });
+    const group = groups.get(key);
+    group.match_count += 1; if (row.match_kind === 'BATE') group.bate_count += 1; if (row.match_kind === 'POR_VALOR') group.por_valor_count += 1; if (row.presented_unit_id) group.presented_count += 1;
+  });
+  return [...groups.values()];
+}
 async function buscasView(tables) {
-  const server = { ...realServer, allRows: async (_ctx, table) => tables[table] || [], rows: async (_ctx, table, params = {}) => (tables[table] || []).filter((row) => params.undone_at !== 'is.null' || !row.undone_at), panelMeta: async () => ({}) };
+  const server = { ...realServer, allRows: async (_ctx, table) => tables[table] || [], rows: async (_ctx, table, params = {}) => (tables[table] || []).filter((row) => params.undone_at !== 'is.null' || !row.undone_at),
+    panelMeta: async () => ({}), rpc: async (_ctx, name, args) => name === 'panel_manheim_batch_summary' ? summaryOf(tables, args.p_upload_id) : [] };
   const view = loadWith('panel-buscas-view.js', {
     './panel-server': server,
-    './panel-ready': { score: () => ({}), loadScoreVehicles: async () => [] },
+    './panel-ready': { score: () => ({}), loadScoreIndex: async () => [] },
     './panel-search-stage': { decorateWithSearchStage: (item) => item, loadSearchStageIndex: async () => new Map() },
-    './panel-manheim-state': { undoSupported: async () => true, activeFilter: async () => ({ undone_at: 'is.null' }) },
+    './panel-manheim-state': { undoSupported: async () => true, batchSupported: async () => true, activeFilter: async () => ({ undone_at: 'is.null' }), liveUploadFilter: async () => ({ undone_at: 'is.null' }) },
     './panel-buscas': loadWith('panel-buscas.js', { './panel-server': server })
   });
   return view.manheimView(ctx);
@@ -85,7 +99,9 @@ test('3 · Ref só VALOR aparece só em VALOR, 4 · Ref só CARRO só em CARRO, 
   assert.deepEqual(modesOf('VAAA2'), ['VALOR']);
   assert.deepEqual(modesOf('CBBB3'), ['CARRO']);
   assert.deepEqual(modesOf('DCCC4'), ['CARRO', 'VALOR']);
-  const liveModes = (ref) => data.matches.filter((match) => String(match.calc_ref).trim() === ref).map((match) => match.logical_mode).sort();
+  // No car travels in the BUSCAS answer: each demand carries its own counts.
+  assert.equal(data.matches, undefined);
+  const liveModes = (ref) => data.demands.filter((demand) => demand.ref === ref && demand.matchCount > 0).map((demand) => demand.mode).sort();
   assert.deepEqual(liveModes('VAAA2'), ['VALOR']);
   assert.deepEqual(liveModes('CBBB3'), ['CARRO']);
   assert.deepEqual(liveModes('DCCC4'), ['CARRO', 'VALOR']);
@@ -94,8 +110,8 @@ test('3 · Ref só VALOR aparece só em VALOR, 4 · Ref só CARRO só em CARRO, 
   assert.deepEqual([data.counts.CARRO.demands, data.counts.CARRO.served, data.counts.CARRO.matches], [2, 2, 2]);
   // The total counts people once: DCCC4 is served in both modes and is one person.
   assert.deepEqual([data.counts.total.people, data.counts.total.served, data.counts.total.matches], [3, 3, 4]);
-  // Targets for the browser: one per person and mode, never MIXED.
-  assert.deepEqual(data.targets.map((target) => target.key).sort(), ['ref:CBBB3:CARRO', 'ref:DCCC4:CARRO', 'ref:DCCC4:VALOR', 'ref:VAAA2:VALOR']);
+  // One demand per person and mode, never MIXED (they are also the targets of a new batch).
+  assert.deepEqual(data.demands.map((demand) => demand.key).sort(), ['ref:CBBB3:CARRO', 'ref:DCCC4:CARRO', 'ref:DCCC4:VALOR', 'ref:VAAA2:VALOR']);
   // 24 · a batch made of several CSV files is one batch.
   assert.deepEqual(data.uploads.map((batch) => [batch.fileCount, batch.status, batch.current]), [[2, 'ACTIVE', true]]);
 });
@@ -240,26 +256,30 @@ test('25 · lote desfeito sai do uso: o último upload é o último ATIVO; sem l
   assert.equal(typeof state.latestActiveUpload, 'function');
 });
 
-test('30 · score, 31 · HOJE e 32 · relatório só leem lotes ativos', async () => {
+test('30 · score, 31 · HOJE e 32 · relatório só leem lotes ativos (e nunca o inventário inteiro)', async () => {
   const seen = [];
-  const server = { ...realServer, allRows: async (_ctx, table, params) => { seen.push({ table, params }); return []; } };
-  const ready = loadWith('panel-ready.js', { './panel-manheim-state': { activeFilter: async () => ({ undone_at: 'is.null' }) } });
-  // loadScoreVehicles requires panel-server lazily; check the source uses the filter on both reads.
-  assert.match(read('panel-ready.js'), /manheim_vehicles', \{[^}]*\.\.\.active \}/);
-  assert.match(read('panel-ready.js'), /manheim_matches', \{[^}]*\.\.\.active \}/);
-  assert.equal(typeof ready.loadScoreVehicles, 'function');
-  for (const file of ['api/panel/today.js', 'api/panel/report.js', 'api/panel/records.js', 'panel-lead.js']) assert.match(read(file), /activeBatch/, file);
-  assert.match(read('api/panel/today.js'), /manheim_vehicles'[^\n]*\.\.\.activeBatch/);
-  assert.match(read('api/panel/today.js'), /manheim_matches'[^\n]*\.\.\.activeBatch/);
-  assert.match(read('api/panel/report.js'), /manheim_uploads'[^\n]*\.\.\.activeBatch/);
-  // New V1, new V2 and "apresentei" refuse a match of an undone batch.
+  // Score: one reference MMR per person answered by the database over the live batches only.
+  const ready = read('panel-ready.js');
+  assert.match(ready, /panel_manheim_score_mmr/);
+  assert.doesNotMatch(ready, /allRows\(ctx, 'manheim_(vehicles|matches)'/);
+  assert.match(read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql'), /u\.undone_at is null and u\.activated_at is not null and u\.uploaded_at >= p_since/);
+  // HOJE, CLIENTES and the report never read cars or matches.
+  for (const file of ['api/panel/today.js', 'api/panel/records.js', 'api/panel/report.js']) assert.doesNotMatch(read(file), /allRows\(ctx, 'manheim_(vehicles|matches)'/, file);
+  assert.match(read('api/panel/report.js'), /manheim_uploads'[^\n]*\.\.\.liveBatch/);
+  // The ficha reads only the makes the person asked for, in live batches.
+  assert.match(read('panel-lead.js'), /make_key: 'in\.\(/);
+  assert.match(read('panel-lead.js'), /liveUploadIds\(ctx/);
+  // New V1, new V2 and "apresentei" refuse a match of an undone (or unfinished) batch.
   assert.match(read('api/panel/vitrines.js'), /VITRINE_SOURCE_UNDONE/);
   assert.match(read('api/panel/actions.js'), /A match of an undone import batch is never presented/);
+  assert.match(read('api/panel/actions.js'), /matchIsLive\(ctx, match/);
   const vitrines = loadWith('api/panel/vitrines.js', { '../../panel-manheim-state': { activeFilter: async () => ({ undone_at: 'is.null' }) } });
-  const services = { activeFilter: async () => ({ undone_at: 'is.null' }), rows: async (_ctx, table, params) => { seen.push({ table, params }); return table === 'journeys' ? [{ id: uuid(50), contact_id: uuid(51), reference_code: 'AAAA2' }] : []; }, insert: async () => [{}] };
+  const services = { activeFilter: async () => ({ undone_at: 'is.null' }), liveUploadFilter: async () => ({ undone_at: 'is.null', activated_at: 'not.is.null' }), rows: async (_ctx, table, params) => { seen.push({ table, params }); return table === 'journeys' ? [{ id: uuid(50), contact_id: uuid(51), reference_code: 'AAAA2' }] : []; }, insert: async () => [{}] };
   assert.equal(await vitrines.create(ctx, { journeyId: uuid(50), matchIds: [uuid(52)] }, services), null, 'match de lote desfeito não vira V1');
   assert.equal(seen.find((call) => call.table === 'manheim_matches').params.undone_at, 'is.null');
-  assert.ok(server);
+  // A match whose batch is not live (undone or still being assembled) is refused too.
+  const live = { ...services, rows: async (_ctx, table) => table === 'journeys' ? [{ id: uuid(50), contact_id: uuid(51), reference_code: 'AAAA2' }] : table === 'manheim_matches' ? [{ id: uuid(52), upload_id: uuid(53), vehicle_json: { parsed: car({}) } }] : [] };
+  assert.equal(await vitrines.create(ctx, { journeyId: uuid(50), matchIds: [uuid(52)] }, live), null, 'lote em montagem não vira V1');
 });
 
 test('27 · desfazer duas vezes é idempotente no servidor e sem migração responde pendente', async () => {
@@ -388,8 +408,10 @@ test('44 · nenhum match é criado só pela decisão da IA', async () => {
   const demand = domain.orderDemand(item);
   // The AI normalized the row; the deterministic CARRO rule still says 120.000 > 90.000.
   assert.deepEqual(upload.buildMatches([accepted], targetsOf({ byJourney: new Map(), orders: [demand] }), manheim), []);
-  // And the server revalidates every match with the same rule (A19).
-  assert.match(read('api/panel/actions.js'), /const result = judge\(demandsByKey\.get/);
+  // And the server makes every match itself, with the same rule, from the parsed car (never from a
+  // decision sent by the browser or by the AI).
+  assert.match(read('api/panel/manheim-batch.js'), /const matches = batch\.matchChunk\(valid, targets, index\)/);
+  assert.match(read('panel-manheim-batch.js'), /vehicleMatch\.matchDemand\(vehicle, \{ mode: target\.mode/);
 });
 
 test('34 · D1 a D4 do Lote 4 e 45 · os testes anteriores continuam no pacote', () => {
@@ -425,7 +447,7 @@ test('revisão 3 · ficha encerrada não conta como busca ativa nem vai para rev
   const review = { id: uuid(82), contact_id: uuid(83), reference_code: null, status: 'ENCERRADO', criteria_json: { wishlists: [{ make: 'BMW', model: 'X5' }] }, created_at: iso(9), updated_at: iso(9) };
   const data = await buscasView({ journeys: [closed, review], contacts: [{ id: uuid(81), display_name: 'Fechada', is_lead: true }, { id: uuid(83), display_name: 'Fechada 2', is_lead: true }],
     calc_runs: [valorRow('DCCC4'), clickRow('DCCC4')], message_journeys: [{ journey_id: uuid(82), message_id: 'm1' }], messages: [{ id: 'm1', direction: 'CUSTOMER', occurred_at_utc: iso(1), source_kind: 'WHATSAPP_WEBHOOK' }], manheim_uploads: [], manheim_matches: [] });
-  assert.deepEqual([data.counts.VALOR.demands, data.counts.total.people, data.review.length, data.targets.length], [0, 0, 0, 0]);
+  assert.deepEqual([data.counts.VALOR.demands, data.counts.total.people, data.review.length, data.demands.length], [0, 0, 0, 0]);
 });
 
 test('revisão 4 · apresentar um carro pela ficha marca como enviado só o modo da oferta', async () => {
@@ -453,7 +475,9 @@ test('revisão 5 · o score da ficha usa as demandas da Ref ligada (QUALIFICAÇ�
 
 test('revisão 6 e 7 · contadores sem duplicar e leitura falha fechada quando o banco responde erro', async () => {
   assert.match(read('painel/painel.js'), /count\('searches', searches, \(data\) => new Set\(\(data\.items \|\| \[\]\)\.map\(\(item\) => item\.journeyId \|\| item\.key\)\)\.size\)/);
-  assert.match(read('api/panel/records.js'), /manheimMatchCount: new Set\(/);
+  // One count per person answered by the database (distinct cars, MMR mandatory).
+  assert.match(read('api/panel/records.js'), /manheimMatchCount: manheim\.byJourney\.get\(item\.id\) \|\| 0/);
+  assert.match(read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql'), /count\(distinct m\.row_fingerprint\)::integer/);
   const state = loadWith('panel-manheim-state.js', { './panel-server': { rows: async () => { throw Object.assign(new Error('x'), { status: 503 }); } } });
   await assert.rejects(() => state.activeFilter(ctx), (failure) => failure.status === 503);
   const missing = loadWith('panel-manheim-state.js', { './panel-server': { rows: async () => { throw Object.assign(new Error('x'), { status: 400 }); } } });

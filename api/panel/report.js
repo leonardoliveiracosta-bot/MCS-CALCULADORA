@@ -1,8 +1,8 @@
 'use strict';
-const { activeFilter, liveUploadFilter } = require('../../panel-manheim-state');
+const { activeFilter, batchSupported, liveUploadFilter } = require('../../panel-manheim-state');
 
 const { consolidateCalcRuns, groupCalculatorByRef, journeyLogicalMode, time } = require('../../panel-domain');
-const { allRows, requirePanel, send } = require('../../panel-server');
+const { allRows, requirePanel, rpc, send } = require('../../panel-server');
 const { operational } = require('../../panel-read-model');
 const { contactIndex } = require('../../panel-contact');
 const { periodCutoff, periodLabel } = require('../../panel-origin');
@@ -188,7 +188,10 @@ module.exports = async (req, res) => {
       text = `${view === 'qualification' ? 'QUALIFICAÇÃO' : 'FICHAS'}: ${leads} leads; ${qualified} qualificados; ${disabled.length} desligados (${reasons}).`;
     } else if (view === 'manheim') {
       const scoped = uploads.filter((item) => inside(item.uploaded_at, selected));
-      const compatibleCars = scoped.reduce((sum, item) => sum + (Number(item.matched_vehicle_count) || 0), 0);
+      // Different compatible cars with a valid MMR per live batch, counted by the database.
+      const counted = scoped.length && await batchSupported(ctx, { rows: (context, table, params) => allRows(context, table, params) }).catch(() => false)
+        ? await rpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: scoped.map((item) => item.id) }).catch(() => []) : [];
+      const compatibleCars = (counted || []).reduce((sum, row) => sum + (Number(row.car_count) || 0), 0);
       summary = {
         csvsProcessed: scoped.reduce((sum, item) => sum + Number(item.source_file_count || 0), 0),
         uploads: scoped.length,

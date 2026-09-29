@@ -177,10 +177,17 @@ async function manheimView(ctx, options = {}) {
     audit = await manheimAudit.viewState(ctx, { upload: latest, base, demands: context.listed, matches }).catch(() => ({ state: 'ERRO', byDemand: {} }));
   }
 
-  const upload = latest ? { ...latest, frozen_matched_vehicle_count: latest.matched_vehicle_count, current_lead_count: allServed.size } : null;
+  // Operational count of each active batch: different cars with a valid MMR, answered by the
+  // database (the number frozen at upload may include cars that are no longer eligible). Undone
+  // batches keep the number they had.
+  const activeIds = uploads.filter((row) => !row.undone_at).map((row) => row.id).concat(latest && !uploads.some((row) => row.id === latest.id) ? [latest.id] : []);
+  const operational = new Map();
+  if (batchOn && activeIds.length) (await rpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIds }).catch(() => []) || []).forEach((row) => operational.set(row.upload_id, Number(row.car_count) || 0));
+  activeIds.forEach((uploadId) => { if (batchOn && !operational.has(uploadId)) operational.set(uploadId, 0); });
+  const upload = latest ? { ...latest, frozen_matched_vehicle_count: latest.matched_vehicle_count, matched_vehicle_count: operational.has(latest.id) ? operational.get(latest.id) : latest.matched_vehicle_count, current_lead_count: allServed.size } : null;
   const batches = uploads.map((row) => ({
     id: row.id, uploadedAt: row.uploaded_at, fileCount: row.source_file_count, vehicleCount: row.vehicle_count,
-    matchCount: row.matched_vehicle_count, frozenMatchCount: row.matched_vehicle_count, leadCount: row.lead_count,
+    matchCount: operational.has(row.id) ? operational.get(row.id) : row.matched_vehicle_count, frozenMatchCount: row.matched_vehicle_count, leadCount: row.lead_count,
     status: row.undone_at ? 'UNDONE' : 'ACTIVE', undoneAt: row.undone_at || null, undoSummary: row.undo_summary || null, ai: row.ai_summary_json || null, current: Boolean(latest && latest.id === row.id)
   }));
   return {

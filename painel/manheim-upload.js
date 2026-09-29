@@ -142,5 +142,106 @@
     });
   }
 
-  return { FINAL_ERRORS, LIMITS, buildMatches, byteLength, codedError, markSearchFiltered, parsedVehicle, planParts, sendParts, sortForDisplay };
+  // ------------------------------------------------------------ lote único em blocos
+  // Todos os CSVs escolhidos juntos são UM lote. O navegador só lê e deduplica; o servidor compara
+  // cada bloco com as demandas e só ativa o lote quando todos os blocos chegaram.
+  const BATCH = Object.freeze({ chunkVehicles: 500, attempts: 4, retryDelayMs: 2000 });
+  const BATCH_FINAL_ERRORS = new Set(['MANHEIM_BATCH_CANCELED', 'MANHEIM_UPLOAD_NOT_FOUND', 'MANHEIM_UPLOAD_INVALID', 'MANHEIM_MATCH_INVALID',
+    'MANHEIM_MIGRATION_PENDING', 'PAYLOAD_TOO_LARGE', 'AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED', 'PASSWORD_CHANGE_REQUIRED', 'PANEL_NOT_CONFIGURED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_BATCH_INCOMPLETE']);
+  const LOT_HEADER = /^lot\b|lot ?#|lot number|n[uú]mero do lote/i;
+
+  // The car as it travels (parsed fields plus the auction lot); the raw row stays in the browser.
+  function compactVehicle(vehicle) {
+    const raw = vehicle && vehicle.raw && typeof vehicle.raw === 'object' ? vehicle.raw : {};
+    const lotHeader = Object.keys(raw).find((name) => LOT_HEADER.test(name));
+    return { ...parsedVehicle(vehicle), lot: lotHeader ? String(raw[lotHeader] || '').slice(0, 40) : '' };
+  }
+  // The same car in two files (same VIN, or the same fingerprint without VIN) is one car. The
+  // simulcast row wins, as inside one file; "buy now" is kept when any copy has it. O(n).
+  function dedupeAcrossFiles(vehicles, manheim) {
+    const byKey = new Map();
+    let duplicates = 0;
+    for (const vehicle of vehicles || []) {
+      const key = manheim.fingerprint(vehicle);
+      const prior = byKey.get(key);
+      if (!prior) { byKey.set(key, vehicle); continue; }
+      duplicates += 1;
+      const simulcast = (row) => /simulcast/i.test(String(row && row.raw && row.raw.Inventory || ''));
+      const keep = simulcast(vehicle) && !simulcast(prior) ? { ...vehicle, fileIndex: prior.fileIndex } : prior;
+      byKey.set(key, { ...keep, buyNowPrice: keep.buyNowPrice || prior.buyNowPrice || vehicle.buyNowPrice || '', hasBuyNow: Boolean(prior.hasBuyNow || vehicle.hasBuyNow || prior.buyNowPrice || vehicle.buyNowPrice) });
+    }
+    return { vehicles: [...byKey.values()], duplicates };
+  }
+  // Blocks of at most 500 cars per file, in the file order.
+  function planBatch(files, vehicles, manheim, size = BATCH.chunkVehicles) {
+    return files.map((file, fileIndex) => {
+      const own = vehicles.filter((vehicle) => vehicle.fileIndex === fileIndex).map((vehicle) => ({ fingerprint: manheim.fingerprint(vehicle), vehicle: compactVehicle(vehicle) }));
+      const chunks = [];
+      for (let index = 0; index < own.length; index += size) chunks.push(own.slice(index, index + size));
+      return { name: String(file.name || 'arquivo.csv').slice(0, 200), size: Number(file.size) || 0, rowCount: Number(file.rowCount) || own.length, vehicleCount: own.length, chunkCount: chunks.length, chunks };
+    });
+  }
+
+  async function withRetry(run, options) {
+    const wait = options.wait || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    const attempts = options.attempts || BATCH.attempts;
+    const delay = options.retryDelayMs === undefined ? BATCH.retryDelayMs : options.retryDelayMs;
+    let last = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      if (options.canceled && options.canceled()) throw codedError('MANHEIM_BATCH_CANCELED_BY_OPERATOR');
+      try { return await run(); } catch (failure) {
+        last = failure;
+        if (failure && BATCH_FINAL_ERRORS.has(failure.code)) break;
+        if (attempt < attempts) await wait(delay * Math.pow(2, attempt - 1));
+      }
+    }
+    throw last;
+  }
+
+  // Sends the batch. A block confirmed before (same files chosen again after a failure or a page
+  // reload) is not sent again; a block sent twice never duplicates anything on the server.
+  async function sendBatch(options) {
+    const { plan, request, onProgress } = options;
+    const post = (body) => request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify(body), timeoutMs: options.timeoutMs || 60000 });
+    const totalChunks = plan.reduce((sum, file) => sum + file.chunkCount, 0);
+    const started = await withRetry(() => post({ action: 'start', clientKey: options.clientKey, vehicleCount: options.vehicleCount, headers: options.headers, headerMap: options.headerMap,
+      files: plan.map((file) => ({ name: file.name, size: file.size, rowCount: file.rowCount, vehicleCount: file.vehicleCount, chunkCount: file.chunkCount })) }), options);
+    const uploadId = started.uploadId;
+    const received = new Set((started.received || []).map(([file, chunk]) => file + ':' + chunk));
+    const totals = { storedVehicles: 0, storedMatches: 0, discarded: 0, withoutMmr: 0, resumedChunks: received.size };
+    const progress = (fileIndex, chunkIndex, extra) => { if (onProgress) onProgress({ uploadId, fileIndex, chunkIndex, done: received.size, total: totalChunks, file: plan[fileIndex], ...(extra || {}) }); };
+    // Blocks already confirmed before (resumed batch), per file.
+    progress(null, null, { resumed: [...received].map((key) => key.split(':').map(Number)) });
+    const sendChunk = async (fileIndex, chunkIndex) => {
+      const answer = await withRetry(() => post({ action: 'chunk', uploadId, fileIndex, chunkIndex, vehicles: plan[fileIndex].chunks[chunkIndex] }), options)
+        .catch((cause) => { throw codedError('MANHEIM_UPLOAD_INCOMPLETE', { uploadId, fileIndex, chunkIndex, fileName: plan[fileIndex].name, cause }); });
+      totals.storedVehicles += Number(answer.storedVehicles) || 0; totals.storedMatches += Number(answer.storedMatches) || 0;
+      totals.discarded += Number(answer.discarded) || 0; totals.withoutMmr += Number(answer.withoutMmr) || 0;
+      received.add(fileIndex + ':' + chunkIndex);
+      progress(fileIndex, chunkIndex);
+    };
+    for (let fileIndex = 0; fileIndex < plan.length; fileIndex += 1) {
+      for (let chunkIndex = 0; chunkIndex < plan[fileIndex].chunkCount; chunkIndex += 1) {
+        if (received.has(fileIndex + ':' + chunkIndex)) continue;
+        if (options.canceled && options.canceled()) throw codedError('MANHEIM_BATCH_CANCELED_BY_OPERATOR', { uploadId });
+        await sendChunk(fileIndex, chunkIndex);
+      }
+    }
+    let result;
+    try {
+      result = await withRetry(() => post({ action: 'finalize', uploadId }), options);
+    } catch (failure) {
+      if (!failure || failure.code !== 'MANHEIM_BATCH_INCOMPLETE') throw failure;
+      // The server is missing a block the browser thought was sent: ask which ones and send them.
+      const status = await post({ action: 'status', uploadId });
+      const have = new Set((status.received || []).map(([file, chunk]) => file + ':' + chunk));
+      for (let fileIndex = 0; fileIndex < plan.length; fileIndex += 1) {
+        for (let chunkIndex = 0; chunkIndex < plan[fileIndex].chunkCount; chunkIndex += 1) if (!have.has(fileIndex + ':' + chunkIndex)) await sendChunk(fileIndex, chunkIndex);
+      }
+      result = await withRetry(() => post({ action: 'finalize', uploadId }), options);
+    }
+    return { ...result, uploadId, totals };
+  }
+
+  return { BATCH, BATCH_FINAL_ERRORS, FINAL_ERRORS, LIMITS, buildMatches, byteLength, codedError, compactVehicle, dedupeAcrossFiles, markSearchFiltered, parsedVehicle, planBatch, planParts, sendBatch, sendParts, sortForDisplay };
 }));
