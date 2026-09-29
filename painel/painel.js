@@ -1858,6 +1858,7 @@
         pages += 1;
         (page.options || []).filter((option) => !filter || filter(option)).forEach((option) => { loaded.push(option); table.insertBefore(renderRow(option), button); });
         cursor = page.nextCursor || null;
+        button.classList.toggle('manheim-more', Boolean(cursor));
         if (cursor) { button.textContent = `Ver mais (${Math.max(demand.matchCount - loaded.length, 1)})`; button.disabled = false; }
         else { button.remove(); if (!loaded.length) table.append(element('p', 'muted manheim-options-note', 'Nenhuma opção nesta demanda agora')); }
         card.dispatchEvent(new CustomEvent('options-loaded'));
