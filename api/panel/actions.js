@@ -187,9 +187,10 @@ async function actionMarkMessage(ctx, journey, body) {
   // A car, range or bid belongs to one search. With both searches on the ficha the mode is
   // required and the change goes only to that mode (criteria_json.mode_overrides); it is never
   // applied to both.
-  let perMode = null, modeDemand = null, demands = [];
+  let perMode = null, modeDemand = null, modeItems = [];
   if (wishlists) {
-    demands = journeyDemands(journey, await journeyModeItems(ctx, journey)).filter((demand) => SEARCH_MODES.includes(demand.mode));
+    modeItems = await journeyModeItems(ctx, journey);
+    const demands = journeyDemands(journey, modeItems).filter((demand) => SEARCH_MODES.includes(demand.mode));
     const modes = demands.map((demand) => demand.mode);
     const requested = String(body.mode || '').toUpperCase();
     if (requested && !SEARCH_MODES.includes(requested)) return send(ctx.res, 400, { error: 'SEARCH_MODE_INVALID' });
@@ -219,11 +220,15 @@ async function actionMarkMessage(ctx, journey, body) {
     delete valueJson.wishlist;
     valueJson.mode = perMode;
     valueJson.modeWishlists = modeWishes;
-    // vehicle_text is the final state of every mode of the ficha (this mode's new cars, the other
-    // mode as it is today), read from the demands and never from the generic fields.
-    const modesAfter = [...new Set([...demands.map((demand) => demand.mode), perMode])];
-    const textByMode = Object.fromEntries(modesAfter.map((mode) => [mode, modeWishText(mode, mode === perMode ? modeWishes : (demands.find((demand) => demand.mode === mode) || {}).wishes || [])]));
-    const vehicleText = modeVehicleText(modesAfter, textByMode);
+    // vehicle_text is the summary of the ficha AFTER this mark: the same override the RPC writes,
+    // read through the same demand rule BUSCAS uses (with two modes the generic wishes no longer
+    // feed any mode, so they never reach the summary).
+    const criteria = journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
+    const overrides = criteria.mode_overrides && typeof criteria.mode_overrides === 'object' && !Array.isArray(criteria.mode_overrides) ? criteria.mode_overrides : {};
+    const after = { ...journey, criteria_json: { ...criteria, mode_overrides: { ...overrides, [perMode]: { wishlists: modeWishes, wishlistOverride: true } } } };
+    const demandsAfter = journeyDemands(after, modeItems).filter((demand) => SEARCH_MODES.includes(demand.mode));
+    const modesAfter = demandsAfter.map((demand) => demand.mode);
+    const vehicleText = modeVehicleText(modesAfter, Object.fromEntries(demandsAfter.map((demand) => [demand.mode, modeWishText(demand.mode, demand.wishes)])));
     if (vehicleText && vehicleText.length <= 500) valueJson.vehicleText = vehicleText;
   }
   if (config.field === 'TETO') {

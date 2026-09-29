@@ -7,10 +7,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
 const domain = require('../panel-domain');
 const realServer = require('../panel-server');
 const { migratedDatabase } = require('./sql/run');
+// RPC bodies produced by the panel at 671ce07 (before this change), recorded once with this same harness.
+const PREVIOUS = require('./fixtures/marcacao-modo-payloads-671ce07.json');
 
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -129,25 +130,49 @@ test('3 · tirar o Saab do VALOR não cria falso critério manual (e a poluiçã
   assert.deepEqual(manual.wishes.map((wish) => wish.model), ['9-3']);
 });
 
-test('4 e 5 · sem modo (ficha com um modo ou sem modo): payload idêntico ao da main anterior', async (t) => {
-  let original;
-  try { original = execFileSync('git', ['show', '671ce07:api/panel/actions.js'], { cwd: root, encoding: 'utf8' }); } catch { return t.skip('git indisponível'); }
+test('4 e 5 · sem modo (ficha com um modo ou sem modo): payload idêntico ao da versão anterior', async () => {
   const carroRun = { id: 'c1', created_at: '2026-09-28T10:00:00Z', dados: { sid: 's-find-1', ref: 'HCAR2', evento: 'busca', logical_mode: 'CARRO', marca: 'Honda', modelo: 'Civic', ano_de: 2020, ano_ate: 2025, milhas_de: 50000, milhas_ate: 90000 } };
   const cases = [
-    { name: 'um modo', journey: { id: JOURNEY, contact_id: CONTACT, reference_code: 'HCAR2', status: 'ATIVO', stage: 'NOVO', criteria_json: {}, vehicle_text: 'Honda Civic' }, calcRuns: [carroRun] },
-    { name: 'sem modo', journey: { id: JOURNEY, contact_id: CONTACT, reference_code: null, status: 'ATIVO', stage: 'NOVO', criteria_json: { wishlists: [{ make: 'Kia', model: 'Soul' }] }, vehicle_text: 'Kia Soul' }, calcRuns: [] }
+    { key: 'umModo', journey: { id: JOURNEY, contact_id: CONTACT, reference_code: 'HCAR2', status: 'ATIVO', stage: 'NOVO', criteria_json: {}, vehicle_text: 'Honda Civic' }, calcRuns: [carroRun] },
+    { key: 'semModo', journey: { id: JOURNEY, contact_id: CONTACT, reference_code: null, status: 'ATIVO', stage: 'NOVO', criteria_json: { wishlists: [{ make: 'Kia', model: 'Soul' }] }, vehicle_text: 'Kia Soul' }, calcRuns: [] }
   ];
   for (const scenario of cases) {
-    const bodies = [];
-    for (const source of [original, read('api/panel/actions.js')]) {
-      const ui = panel({ journey: () => scenario.journey, calcRuns: scenario.calcRuns, source });
-      const res = await ui.call({ messageId: MESSAGES[0], wishlists: [{ make: 'Toyota', model: 'Corolla' }] });
-      assert.equal(res.code, 200, scenario.name);
-      bodies.push(ui.rpc.at(-1).body);
-    }
-    assert.deepEqual(bodies[1], bodies[0], scenario.name);
-    assert.ok(bodies[1].p_value_json.wishlist && bodies[1].p_value_json.confirmedWishlists && !bodies[1].p_value_json.mode, scenario.name);
+    const ui = panel({ journey: () => scenario.journey, calcRuns: scenario.calcRuns });
+    const res = await ui.call({ messageId: MESSAGES[0], wishlists: [{ make: 'Toyota', model: 'Corolla' }] });
+    assert.equal(res.code, 200, scenario.key);
+    assert.deepEqual(ui.rpc.at(-1).body, PREVIOUS[scenario.key], scenario.key);
+    assert.ok(PREVIOUS[scenario.key].p_value_json.wishlist && PREVIOUS[scenario.key].p_value_json.confirmedWishlists && !PREVIOUS[scenario.key].p_value_json.mode);
   }
+});
+
+test('resumo usa o estado depois da marcação: ficha que passa de um modo para dois', async () => {
+  // CARRO vem da Ref (Honda Civic 2020 a 2022) e a ficha tinha um critério genérico (Kia Soul).
+  // Com um modo só o genérico era a fonte; ao marcar VALOR a ficha passa a ter dois modos e o
+  // CARRO passa a vir da Ref. O resumo tem de mostrar o que BUSCAS mostra depois, não o de antes.
+  const carroRun = { id: 'c1', created_at: '2026-09-28T10:00:00Z', dados: { sid: 's-find-9', ref: 'HCAR2', evento: 'busca', logical_mode: 'CARRO', marca: 'Honda', modelo: 'Civic', ano_de: 2020, ano_ate: 2022, milhas_de: 1000, milhas_ate: 60000 } };
+  const journey = { id: JOURNEY, contact_id: CONTACT, reference_code: 'HCAR2', status: 'ATIVO', stage: 'NOVO', criteria_json: { wishlists: [{ make: 'Kia', model: 'Soul', yearMin: 2018, yearMax: 2019 }], wishlistOverride: true }, vehicle_text: 'Kia Soul' };
+  const ui = panel({ journey: () => journey, calcRuns: [carroRun] });
+  const res = await ui.call({ messageId: MESSAGES[0], mode: 'VALOR', wishlists: [SAAB] });
+  assert.equal(res.code, 200, JSON.stringify(res.payload));
+  const sent = ui.rpc.at(-1).body.p_value_json;
+  assert.equal(sent.vehicleText, 'Por valor: Saab 9-3 · Por ano e milhagem: 2020–2022 Honda Civic');
+  // What BUSCAS shows for the same state after the write.
+  const after = { ...journey, criteria_json: { ...journey.criteria_json, mode_overrides: { VALOR: { wishlists: sent.modeWishlists, wishlistOverride: true } } } };
+  const shown = domain.journeyDemands(after, domain.consolidateCalcRuns([carroRun]));
+  assert.deepEqual(shown.find((demand) => demand.mode === 'CARRO').wishes.map((wish) => wish.model), ['Civic']);
+  assert.ok(shown.some((demand) => demand.key.endsWith(':REVIEW_MANUAL')), 'o Kia Soul genérico vai para revisão, não para o resumo');
+});
+
+test('ficha com um modo só marcado com modo: resumo sem rótulo, só aquele modo', async () => {
+  const carroRun = { id: 'c1', created_at: '2026-09-28T10:00:00Z', dados: { sid: 's-find-1', ref: 'HCAR2', evento: 'busca', logical_mode: 'CARRO', marca: 'Honda', modelo: 'Civic', ano_de: 2020, ano_ate: 2025, milhas_de: 50000, milhas_ate: 90000 } };
+  const journey = { id: JOURNEY, contact_id: CONTACT, reference_code: 'HCAR2', status: 'ATIVO', stage: 'NOVO', criteria_json: {}, vehicle_text: 'Honda Civic' };
+  const ui = panel({ journey: () => journey, calcRuns: [carroRun] });
+  const res = await ui.call({ messageId: MESSAGES[0], mode: 'CARRO', wishlists: [SCION] });
+  assert.equal(res.code, 200);
+  const sent = ui.rpc.at(-1).body.p_value_json;
+  assert.equal(sent.wishlist, undefined);
+  assert.equal(sent.vehicleText, '2012–2014 Scion tC · 2020–2025 Honda Civic');
+  assert.doesNotMatch(sent.vehicleText, /Por valor|Por ano e milhagem/);
 });
 
 test('8 · código novo com a RPC antiga: nada genérico, mas o vehicle_text ainda leva o carro (por isso a migração vai antes)', async () => {
@@ -164,10 +189,7 @@ test('8 · código novo com a RPC antiga: nada genérico, mas o vehicle_text ain
 
 test('9 · RPC nova com o painel antigo: modo registrado, campos genéricos e vehicle_text intactos', async () => {
   const bank = await database();
-  const old = execFileSync('git', ['show', '671ce07:api/panel/actions.js'], { cwd: root, encoding: 'utf8' });
-  const ui = panel({ journey: async () => ({ id: JOURNEY, contact_id: CONTACT, reference_code: null, status: 'ATIVO', stage: 'NOVO', ...(await bank.state()) }), source: old });
-  await ui.call({ messageId: MESSAGES[0], mode: 'CARRO', wishlists: [SCION] });
-  const body = ui.rpc.at(-1).body;
+  const body = PREVIOUS.painelAntigoComModo;
   assert.ok(body.p_value_json.wishlist && body.p_value_json.mode && !body.p_value_json.vehicleText, 'payload do painel antigo');
   await bank.apply(body);
   const after = await bank.state();
