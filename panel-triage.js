@@ -204,7 +204,8 @@ async function outOfFunnelIndex(ctx, journeys, refs, read = allRows) {
 // Conversations with a real message after the cut-off date whose current content has no reading.
 async function candidates(ctx, options = {}) {
   const read = options.allRows || allRows;
-  const cutoff = options.since ?? since(options.env || process.env);
+  // onlyContacts + ignoreCutoff: the separate run for the conversations in "Precisa de você".
+  const cutoff = options.ignoreCutoff ? null : options.since ?? since(options.env || process.env);
   const env = 'eq.' + ctx.environment;
   const [chats, messages, links, active, readings] = await Promise.all([
     read(ctx, 'chats', { select: 'id,contact_id,is_group', environment: env }),
@@ -219,7 +220,7 @@ async function candidates(ctx, options = {}) {
   const done = new Set(readings.filter((row) => row.source === 'AI' && settled(row)).map((row) => row.chat_id + ':' + row.content_hash + ':' + row.rule_version));
   const activeByChat = new Map(active.map((row) => [row.chat_id, row]));
   const list = [];
-  chats.filter((chat) => !chat.is_group).forEach((chat) => {
+  chats.filter((chat) => !chat.is_group && (!options.onlyContacts || options.onlyContacts.has(chat.contact_id))).forEach((chat) => {
     const own = byChat.get(chat.id) || [];
     const customer = own.filter((message) => message.direction === 'CUSTOMER' && !message.undone_at && !message.is_automatic);
     if (!customer.length) return;
@@ -235,6 +236,18 @@ async function candidates(ctx, options = {}) {
     list.push({ chatId: chat.id, journeyId, evidence, contentHash: hash, lastMessageAt: new Date(newest).toISOString() });
   });
   return list.sort((a, b) => Date.parse(b.lastMessageAt) - Date.parse(a.lastMessageAt));
+}
+
+// The conversations waiting in "Precisa de você" (pending AI link suggestions), read once and
+// apart from the rest of the backlog, which is never read without a new authorization.
+async function pendingContacts(ctx, read = allRows) {
+  const suggestions = await read(ctx, 'whatsapp_link_suggestions', { select: 'source_contact_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' });
+  return new Set(suggestions.map((row) => row.source_contact_id).filter(Boolean));
+}
+async function runPending(ctx, options = {}) {
+  const contacts = await pendingContacts(ctx, options.allRows);
+  if (!contacts.size) return { processed: 0, pendingConversations: 0 };
+  return runTriage(ctx, { ...options, onlyContacts: contacts, ignoreCutoff: true, limit: options.limit || 30 });
 }
 
 async function runTriage(ctx, options = {}) {
@@ -279,5 +292,5 @@ function estimate(conversations, modelId) {
 module.exports = {
   RULE_VERSION, CATEGORIES, OUT_OF_FUNNEL, LABELS, APPROVED_MODELS, PRICES, INSTRUCTIONS, MAX_ATTEMPTS,
   decisionOf, model, since, status, enabled, estimateCostUsd, redact, evidenceFor, contentHash, classify, validated,
-  record, undo, activeRows, outOfFunnelJourneys, outOfFunnelIndex, candidates, runTriage, estimate
+  record, undo, activeRows, outOfFunnelJourneys, outOfFunnelIndex, candidates, runTriage, runPending, pendingContacts, estimate
 };

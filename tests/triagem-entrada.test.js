@@ -330,3 +330,29 @@ test('ENTRADA: conversa fora do funil sai da fila; redação mantém anos de car
   assert.equal(triage.redact('Procuro RAV4 2018-2020, liga 407 555 1234'), 'Procuro RAV4 2018-2020, liga [telefone]');
   assert.equal(triage.validated({ category: 'PESSOAL', confidence: 'alta', reason: 'Conversa pessoal — amigos.', evidence_ids: ['a'] }, [{ id: 'a' }]).reason, 'Conversa pessoal, amigos');
 });
+
+test('"Precisa de você": leitura separada só dessas conversas, mesmo antigas; o resto do acervo nunca é lido', async () => {
+  const oldChat = async (n, text) => {
+    await backend.db.query(`insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${id(n + 1)}','preview','Acervo ${n}','WHATSAPP_DIRECT',now(),now())`);
+    await backend.db.query(`insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(n)}','preview','${id(n + 1)}','WHATSAPP_DIRECT','RESPONDIDO','ATIVO','{}',now(),now())`);
+    await backend.db.query(`insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,is_group,first_seen_at,last_seen_at,created_at,updated_at) values('${id(n + 2)}','preview','WHATSAPP','${id(n + 1)}','old-${n}','RESOLVED',false,now(),now(),now(),now())`);
+    await backend.db.query(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(90000 + n)}','preview','${id(n + 2)}','WHATSAPP','CUSTOMER','${text}','x','2025-06-01T12:00:00Z','o${n}',1,'IMPORT','2025-06-01T12:00:00Z')`);
+    await backend.db.query(`insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${id(90000 + n)}','${id(n)}','IMPORT',now())`);
+  };
+  await oldChat(700, 'Quero comprar um carro pela MCS');
+  await oldChat(800, 'E aí, vamos no churrasco?');
+  await backend.db.query(`insert into public.whatsapp_link_suggestions(environment,source_contact_id,source_journey_id,target_contact_id,target_journey_id,phone_e164,status) values('preview','${id(701)}','${id(700)}','${id(11)}','${id(10)}','+14075550100','PENDING')`);
+  const calls = [];
+  // The regular run respects the cutoff: none of the two old conversations is read.
+  await triage.runTriage(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, calls) });
+  assert.ok(!calls.some((entry) => JSON.stringify(entry.body).includes('churrasco') || JSON.stringify(entry.body).includes('Quero comprar um carro pela MCS')));
+  const before = calls.length;
+  const result = await triage.runPending(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, calls) });
+  assert.equal(result.processed, 1);
+  assert.equal(calls.length - before, 1, 'só a conversa em "Precisa de você"');
+  assert.match(JSON.stringify(calls.at(-1).body), /Quero comprar um carro pela MCS/);
+  assert.equal((await backend.db.query('select count(*) n from public.conversation_triage where chat_id=$1', [id(802)])).rows[0].n, 0, 'o resto do acervo não foi lido');
+  // Once read, a second run pays nothing.
+  await triage.runPending(ctx, { env: ENV, fetchImpl: fakeOpenAI(byText, calls) });
+  assert.equal(calls.length - before, 1);
+});

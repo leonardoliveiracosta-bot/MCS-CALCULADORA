@@ -83,6 +83,13 @@ module.exports = async (req, res) => {
         lastMessageAt: current.lastMessageAt, contentHash: current.contentHash, actorId: ctx.panel.id });
       return send(res, 200, { ...result, category: body.category, decision: triage.decisionOf(body.category) });
     }
+    // Owner-authorized, separate run: only the conversations in "Precisa de você" (never the rest
+    // of the backlog). Needs the triage switched on; admin only.
+    if (body.action === 'run_pending') {
+      if (ctx.panel.role !== 'admin') return send(res, 403, { error: 'TRIAGE_ADMIN_ONLY' });
+      if (triage.status() !== 'LIGADA') return send(res, 200, { skipped: triage.status(), processed: 0 });
+      return send(res, 200, await triage.runPending(ctx, { deadlineAt: Date.now() + 50000 }));
+    }
     if (body.action === 'undo') {
       if (!isUuid(body.triageId)) return send(res, 400, { error: 'TRIAGE_ID_INVALID' });
       return send(res, 200, await triage.undo(ctx, body.triageId, ctx.panel.id));

@@ -597,6 +597,7 @@
     if(!(data.out||[]).length)out.append(element('p','muted','Nenhuma conversa fora do funil'));
     $('triage-out-count').textContent=String((data.out||[]).length);
     $('triage-state').textContent=data.state==='LIGADA'?'':'Triagem automática desligada: as conversas novas seguem o fluxo normal';
+    $('triage-run-pending').classList.toggle('hidden',data.state!=='LIGADA');
     $('entry-needs-empty').classList.toggle('hidden',Boolean($('whatsapp-errors').childElementCount||$('whatsapp-suggestions').childElementCount||review.childElementCount));
     return data;
   }
@@ -3087,6 +3088,8 @@
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
     $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});
     $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
+    // Separate, owner-authorized reading of the conversations in "Precisa de você" only.
+    MCSAction.bind($('triage-run-pending'),()=>({scope:$('triage-run-pending').parentElement,commit:()=>request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'run_pending'})}),successText:'Conversas de Precisa de você classificadas',refresh:()=>loadTriage().then(()=>refreshCounters().catch(()=>{})),errorText:(error)=>error?.code==='TRIAGE_ADMIN_ONLY'?'Só o administrador pode iniciar':'Não consegui classificar, tente de novo'}));
     $('clients-download').addEventListener('click',()=>{const button=$('clients-download');button.disabled=true;try{downloadClientsCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
     document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar.')); $('search-results').classList.remove('hidden'); }));
