@@ -93,4 +93,3 @@ function buildSavedSearches(base, saved, now = Date.now()) {
   };
 }
 module.exports.buildSavedSearches = buildSavedSearches;
-

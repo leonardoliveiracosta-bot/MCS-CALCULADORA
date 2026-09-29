@@ -407,12 +407,13 @@ test('Bloco 1 · banco real: V2 grava só o teto total; função antiga intacta;
     await call('panel_mark_message_fact', ids.open, await message(ids.open), { cents: 5500000 });
     assert.equal((await journeyRow(ids.open)).budget_cents, 5500000);
     // POR_VALOR is accepted by the table and by the upload RPC; lead_count counts BATE and POR_VALOR only.
+    // buscas-split: every new match names its mode (VALOR here); a match without mode is refused.
     const vehicle = { headers: ['Year'], raw: { Year: '2022' }, parsed: { year: 2022, make: 'BMW', model: 'X5', miles: 30000 } };
     const upload = (await db.query(`select public.panel_store_manheim_upload(p_environment => 'preview', p_actor_id => $1, p_source_file_count => 1, p_vehicle_count => 1, p_headers => '[["Year"]]'::jsonb, p_header_map => '{}'::jsonb, p_matches => $2::jsonb) as r`,
-      [ids.actor, JSON.stringify([{ journeyId: ids.open, kind: 'POR_VALOR', fingerprint: 'vin:A', vehicle }])])).rows[0].r;
+      [ids.actor, JSON.stringify([{ journeyId: ids.open, kind: 'POR_VALOR', mode: 'VALOR', fingerprint: 'vin:A', vehicle }])])).rows[0].r;
     assert.equal(upload.leadCount, 1);
     const quase = (await db.query(`select public.panel_store_manheim_upload(p_environment => 'preview', p_actor_id => $1, p_source_file_count => 1, p_vehicle_count => 1, p_headers => '[["Year"]]'::jsonb, p_header_map => '{}'::jsonb, p_matches => $2::jsonb) as r`,
-      [ids.actor, JSON.stringify([{ journeyId: ids.open, kind: 'QUASE', fingerprint: 'vin:B', vehicle }])])).rows[0].r;
+      [ids.actor, JSON.stringify([{ journeyId: ids.open, kind: 'QUASE', mode: 'VALOR', fingerprint: 'vin:B', vehicle }])])).rows[0].r;
     assert.equal(quase.leadCount, 0, 'QUASE nunca conta');
     assert.equal(quase.matchedVehicleCount, 1);
   } finally { await db.close(); }

@@ -217,10 +217,13 @@ test('21 · Revisar tipo define CARRO, 22 · define VALOR e 23 · definir um mod
   assert.equal((await call('MIXED')).code, 400);
   assert.equal((await call('VALOR')).payload.unchanged, true);
   assert.deepEqual(journeys.get(uuid(30)).criteria_json.wishlists, [{ make: 'BMW', model: 'X5' }], 'os desejos da ficha não mudam');
+  // The first mode defined owns the ficha's manual criteria; VALOR, added later, inherits nothing.
+  assert.deepEqual(journeys.get(uuid(30)).criteria_json.mode_overrides, { CARRO: { wishlists: [{ make: 'BMW', model: 'X5', yearMin: null, yearMax: null, minMiles: null, maxMiles: null, trim: '' }], wishlistOverride: false } });
   assert.deepEqual(audits.map((entry) => [entry.action, entry.before.logical_modes, entry.after.logical_modes]), [['SET_SEARCH_MODE', [], ['CARRO']], ['SET_SEARCH_MODE', ['CARRO'], ['VALOR', 'CARRO']]]);
   assert.ok(audits.every((entry) => entry.activityType === 'SEARCH_MODE_DEFINED'));
-  const after = domain.journeyDemands(journeys.get(uuid(30)), []).map((demand) => demand.mode);
-  assert.deepEqual(after, ['VALOR', 'CARRO']);
+  const after = domain.journeyDemands(journeys.get(uuid(30)), []);
+  assert.deepEqual(after.map((demand) => demand.mode), ['VALOR', 'CARRO']);
+  assert.deepEqual(after.map((demand) => [demand.mode, demand.wishes.map((wish) => wish.model), demand.issues.map((issue) => issue.code)]), [['VALOR', [], ['MODEL_MISSING']], ['CARRO', ['X5'], ['YEAR_MISSING']]]);
 });
 
 // ------------------------------------------------------------------ 25-32 lotes desfeitos
@@ -391,7 +394,8 @@ test('44 · nenhum match é criado só pela decisão da IA', async () => {
 test('34 · D1 a D4 do Lote 4 e 45 · os testes anteriores continuam no pacote', () => {
   for (const file of ['tests/lote4.test.js', 'tests/lote4.spec.js', 'tests/lote3.test.js', 'tests/manheim-chunked-upload.test.js']) assert.ok(fs.existsSync(path.join(root, file)), file);
   // groupCalculatorByRef (ENTRADA, CLIENTES, HOJE) keeps its shape; BUSCAS uses per-mode demands.
-  assert.match(read('panel-domain.js'), /logicalMode: modes\.length === 1 \? modes\[0\] : 'MIXED'/);
+  assert.doesNotMatch(read('panel-domain.js'), /'MIXED'/);
+  assert.match(read('panel-domain.js'), /logicalMode: modes\.length === 1 \? modes\[0\] : null/);
   assert.doesNotMatch(read('panel-buscas.js'), /groupCalculatorByRef\([^)]*\)\.map\(orderDemand/);
   assert.ok(buscas.buildBuscasBase);
 });

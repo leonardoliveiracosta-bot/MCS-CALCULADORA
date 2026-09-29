@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  clientOkPatch, confirmedJourneyModes, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimDemand,
+  clientOkPatch, confirmedJourneyModes, journeyDemands, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled, matchManheimDemand,
   mergeWishlists, SEARCH_MODES, normalizeWishlist, nextStageForUnits, reactivationEligible, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
@@ -140,6 +140,18 @@ async function customerMessage(ctx, journey, messageId) {
 
 
 // The ficha's effective wishes (R1): its own cars, or the cars of its linked calculator Refs.
+// The ficha's calculator entries, split by mode (never the combined person view).
+async function journeyModeItems(ctx, journey) {
+  const refs = await allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
+  const codes = [journey.reference_code, ...refs.map((row) => row.ref_code)].map((value) => String(value || '').trim().toUpperCase()).filter(Boolean);
+  if (!codes.length) return [];
+  const [calcRuns, calcLinks] = await Promise.all([
+    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+    allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment })
+  ]);
+  return consolidateCalcRuns(calcRuns, calcLinks).filter((item) => codes.includes(item.ref));
+}
+
 // Marking a car on a message keeps the others, including the ones that came from a Ref.
 async function effectiveWishes(ctx, journey) {
   const own = wishlistsForJourney(journey);
@@ -172,13 +184,38 @@ async function actionMarkMessage(ctx, journey, body) {
   const value = safeText(kind === 'VEHICLE' ? wishlistText(wishlists) : body.value || message.body_text, kind === 'VEHICLE' ? 1200 : 500, true);
   if (config.field && !value) return send(ctx.res, 400, { error: 'MESSAGE_MARK_VALUE_INVALID' });
   const valueJson = wishlists ? { wishlist: { wishlists } } : {};
+  // A car, range or bid belongs to one search. With both searches on the ficha the mode is
+  // required and the change goes only to that mode (criteria_json.mode_overrides); it is never
+  // applied to both.
+  let perMode = null, modeDemand = null;
   if (wishlists) {
+    const demands = journeyDemands(journey, await journeyModeItems(ctx, journey)).filter((demand) => SEARCH_MODES.includes(demand.mode));
+    const modes = demands.map((demand) => demand.mode);
+    const requested = String(body.mode || '').toUpperCase();
+    if (requested && !SEARCH_MODES.includes(requested)) return send(ctx.res, 400, { error: 'SEARCH_MODE_INVALID' });
+    if (modes.length > 1 && !requested) return send(ctx.res, 400, { error: 'SEARCH_MODE_REQUIRED' });
+    perMode = requested || null;
+    modeDemand = perMode ? demands.find((demand) => demand.mode === perMode) || null : null;
+  }
+  if (wishlists && !perMode) {
     // A:P17: the cars marked on the message become the ficha's confirmed wishes. The marked cars
     // come first; the ficha's other cars stay (the form starts empty, so nothing is lost).
     const same = (left, right) => vehicleCatalog.fold(left.make) === vehicleCatalog.fold(right.make) && vehicleCatalog.modelTokens(left.model, left.make).join(' ') === vehicleCatalog.modelTokens(right.model, right.make).join(' ');
     const marked = wishlists.map((wish) => normalizeWishlist(wish)).filter((wish) => wish.model);
     const kept = (await effectiveWishes(ctx, journey)).filter((wish) => !marked.some((candidate) => same(candidate, wish)));
     valueJson.confirmedWishlists = marked.concat(kept).slice(0, 5);
+  }
+  let modeWishes = null;
+  if (wishlists && perMode) {
+    const same = (left, right) => vehicleCatalog.fold(left.make) === vehicleCatalog.fold(right.make) && vehicleCatalog.modelTokens(left.model, left.make).join(' ') === vehicleCatalog.modelTokens(right.model, right.make).join(' ');
+    const marked = wishlists.map((wish) => normalizeWishlist(wish)).filter((wish) => wish.model);
+    const kept = (modeDemand ? modeDemand.wishes : []).map(normalizeWishlist).filter((wish) => !marked.some((candidate) => same(candidate, wish)));
+    modeWishes = marked.concat(kept).slice(0, 5);
+    // Written atomically by panel_mark_message_fact_v2 (migration 20261001010000). Before that
+    // migration the RPC would ignore the mode, so the change is refused instead of lost.
+    if (!(await undoSupported(ctx, { rows }))) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
+    valueJson.mode = perMode;
+    valueJson.modeWishlists = modeWishes;
   }
   if (config.field === 'TETO') {
     // The total ceiling goes only to confirmed_total_ceiling_cents (R2), written atomically by
@@ -204,7 +241,7 @@ async function actionMarkMessage(ctx, journey, body) {
     })
   });
   await recordMessageMenuEvent(ctx,journey,body,'MARK_'+kind,isoNow());
-  return send(ctx.res, 200, config.field === 'TETO' ? { ...result, ceilingCents: valueJson.ceilingCents } : result);
+  return send(ctx.res, 200, config.field === 'TETO' ? { ...result, ceilingCents: valueJson.ceilingCents } : modeWishes ? { ...result, mode: perMode } : result);
 }
 
 async function actionNote(ctx, journey, body) {
@@ -393,7 +430,7 @@ async function actionUnit(ctx, journey, body) {
       // A match of an undone import batch is never presented.
       const matches = await rows(ctx, 'manheim_matches', {
         select: 'id,vehicle_json,presented_unit_id', environment: 'eq.' + ctx.environment,
-        journey_id: 'eq.' + journey.id, id: 'eq.' + body.manheimMatchId, ...(await activeFilter(ctx)), limit: '1'
+        journey_id: 'eq.' + journey.id, id: 'eq.' + body.manheimMatchId, ...(await activeFilter(ctx, { rows })), limit: '1'
       });
       match = matches[0];
       if (!match) return send(ctx.res, 404, { error: 'MANHEIM_MATCH_NOT_FOUND' });
@@ -621,7 +658,7 @@ async function actionManheimAiRows(ctx, body) {
 // The OpenAI summary of a batch, stored on the batch itself (no new table, no prompt).
 async function actionManheimAiSummary(ctx, body) {
   if (!isUuid(body.uploadId)) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
-  if (!(await undoSupported(ctx))) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
+  if (!(await undoSupported(ctx, { rows }))) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
   const summary = manheimAi.sanitizeSummary(body.summary);
   const found = await rows(ctx, 'manheim_uploads', { select: 'id,ai_summary_json', environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId, limit: '1' });
   if (!found[0]) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
@@ -633,7 +670,7 @@ async function actionManheimAiSummary(ctx, body) {
 // Undo of one import batch: transactional and idempotent in the database. Nothing is deleted.
 async function actionManheimUndo(ctx, body) {
   if (!isUuid(body.uploadId)) return send(ctx.res, 400, { error: 'MANHEIM_UNDO_INVALID' });
-  if (!(await undoSupported(ctx))) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
+  if (!(await undoSupported(ctx, { rows }))) return send(ctx.res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
   try {
     const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_undo_manheim_upload', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -660,13 +697,45 @@ async function actionSetSearchMode(ctx, journey, body) {
   if (before.includes(mode)) return send(ctx.res, 200, { journeyId: journey.id, modes: before, unchanged: true });
   const after = SEARCH_MODES.filter((value) => before.includes(value) || value === mode);
   const at = isoNow();
-  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { criteria_json: { ...criteria, logical_modes: after }, updated_at: at, updated_by: ctx.panel.id });
+  // The first mode the operator defines owns the ficha's manual criteria from now on
+  // (mode_overrides), so a second mode added later never inherits them.
+  const overrides = criteria.mode_overrides && typeof criteria.mode_overrides === 'object' && !Array.isArray(criteria.mode_overrides) ? criteria.mode_overrides : {};
+  const generic = wishlistsForJourney(current);
+  const claim = !before.length && !Object.keys(overrides).length && (generic.length || criteria.wishlistOverride === true)
+    ? { mode_overrides: { ...overrides, [mode]: { wishlists: generic, wishlistOverride: criteria.wishlistOverride === true } } } : {};
+  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { criteria_json: { ...criteria, ...claim, logical_modes: after }, updated_at: at, updated_by: ctx.panel.id });
   await recordMutation(ctx, {
     at, journeyId: journey.id, contactId: journey.contact_id, activityType: 'SEARCH_MODE_DEFINED', summary: `Tipo de busca definido: ${mode}`,
     metadata: { before, after, mode }, entityType: 'journey', entityId: journey.id, action: 'SET_SEARCH_MODE',
     before: { logical_modes: before }, after: { logical_modes: after }
   });
   return send(ctx.res, 200, { journeyId: journey.id, modes: after });
+}
+
+// "Revisar tipo de busca" for a manual criterion saved without mode on a ficha with two modes:
+// the operator says which mode it belongs to. It moves to mode_overrides[mode] and leaves the
+// generic list; the other mode is not touched. Operator, time, before and after are audited.
+async function actionAssignManualMode(ctx, journey, body) {
+  const mode = String(body.mode || '').toUpperCase();
+  if (!SEARCH_MODES.includes(mode)) return send(ctx.res, 400, { error: 'SEARCH_MODE_INVALID' });
+  const [current] = await rows(ctx, 'journeys', { select: 'id,criteria_json', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id, limit: '1' });
+  if (!current) return send(ctx.res, 404, { error: 'JOURNEY_NOT_FOUND' });
+  const criteria = current.criteria_json && typeof current.criteria_json === 'object' && !Array.isArray(current.criteria_json) ? current.criteria_json : {};
+  const generic = wishlistsForJourney(current);
+  if (!generic.length && criteria.wishlistOverride !== true) return send(ctx.res, 200, { journeyId: journey.id, unchanged: true });
+  const overrides = criteria.mode_overrides && typeof criteria.mode_overrides === 'object' && !Array.isArray(criteria.mode_overrides) ? criteria.mode_overrides : {};
+  const own = overrides[mode] && Array.isArray(overrides[mode].wishlists) ? overrides[mode].wishlists : [];
+  const nextOverride = { wishlists: mergeWishlists(generic, own).slice(0, 5), wishlistOverride: true };
+  const { wishlist: _legacy, wishlistOverride: _generic, ...rest } = criteria;
+  const next = { ...rest, wishlists: [], mode_overrides: { ...overrides, [mode]: nextOverride } };
+  const at = isoNow();
+  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { criteria_json: next, updated_at: at, updated_by: ctx.panel.id });
+  await recordMutation(ctx, {
+    at, journeyId: journey.id, contactId: journey.contact_id, activityType: 'MANUAL_CRITERIA_MODE_DEFINED', summary: `Critério manual atribuído a ${mode}`,
+    metadata: { mode, wishes: generic.length }, entityType: 'journey', entityId: journey.id, action: 'ASSIGN_MANUAL_MODE',
+    before: { wishlists: generic, mode_overrides: overrides }, after: { wishlists: [], mode_overrides: next.mode_overrides }
+  });
+  return send(ctx.res, 200, { journeyId: journey.id, mode });
 }
 
 function storeManheimUpload(ctx, header, matches) {
@@ -714,7 +783,7 @@ async function actionManheimUploadPart(ctx, body) {
 
 async function actionManheimArchive(ctx, body) {
   if (!isUuid(body.uploadId) || !Array.isArray(body.vehicles) || body.vehicles.length > 100) return send(ctx.res, 400, { error: 'MANHEIM_ARCHIVE_INVALID' });
-  const upload = await rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId, ...(await activeFilter(ctx)), limit: '1' });
+  const upload = await rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, id: 'eq.' + body.uploadId, ...(await activeFilter(ctx, { rows })), limit: '1' });
   if (!upload[0]) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
   const at = isoNow();
   const vehicles = body.vehicles.map((item) => {
@@ -848,6 +917,7 @@ module.exports = async (req, res) => {
       case 'return_update': return await actionReturn(ctx, journey, body);
       case 'invert_senders': return await actionInvertSenders(ctx, journey, body);
       case 'set_search_mode': return await actionSetSearchMode(ctx, journey, body);
+      case 'assign_manual_mode': return await actionAssignManualMode(ctx, journey, body);
       default: return send(res, 400, { error: 'PANEL_ACTION_INVALID' });
     }
   } catch (failure) {

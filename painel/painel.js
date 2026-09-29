@@ -1536,7 +1536,10 @@
     if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
     if (item.sourceLabel) badges.append(makeBadge(item.sourceLabel));
     if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
-    else badges.append(makeBadge(item.logicalMode === 'CARRO' ? 'CARRO IDEAL' : item.logicalMode === 'VALOR' ? 'POR VALOR' : 'PEDIDO'));
+    // One person, two separate requests: each mode has its own badge (never a combined one).
+    const itemModes = (item.logicalModes && item.logicalModes.length ? item.logicalModes : [item.logicalMode]).filter((mode) => mode === 'VALOR' || mode === 'CARRO');
+    if (itemModes.length) itemModes.forEach((mode) => badges.append(makeBadge(mode === 'VALOR' ? 'Por valor' : 'Por ano e milhagem', mode === 'VALOR' ? 'blue' : 'green')));
+    else if (item.simulationCount <= 1) badges.append(makeBadge('PEDIDO'));
     if (item.status) badges.append(makeBadge(item.status, item.status === 'RESPONDIDO' ? 'blue' : item.status === 'SEM RESPOSTA' ? 'yellow' : item.status === 'ATIVO' ? 'green' : ''));
     if (item.disposition === 'TREATED') badges.append(makeBadge('Tratado', 'blue'));
     if (item.disposition === 'DISCARDED') badges.append(makeBadge(`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`));
@@ -1950,15 +1953,19 @@
     items.forEach((item) => {
       const line = element('article', 'item-card review-line');
       line.dataset.reviewKey = item.key;
-      line.append(element('strong', 'identity-name', item.name || 'Cliente'), element('span', 'muted', `Ref ${item.ref || 'sem Ref'} · ${item.mode === 'REVIEW' ? 'tipo indefinido' : MCSVehicleMatch.modeLabel(item.mode)}`));
+      line.append(element('strong', 'identity-name', item.name || 'Cliente'), element('span', 'muted', `${item.ref ? `Ref ${item.ref}` : 'sem Ref'} · ${item.manual ? 'critério sem modo' : item.mode === 'REVIEW' ? 'tipo indefinido' : MCSVehicleMatch.modeLabel(item.mode)}`));
       const reasons = element('div', 'badges');
       (item.issues || []).forEach((issue) => reasons.append(makeBadge(issue.wish ? `${issue.wish}: ${issue.text}` : issue.text, 'yellow')));
       line.append(reasons);
+      if (item.manual && (item.wishes || []).length) line.append(element('p', 'muted', 'Critério manual: ' + item.wishes.map((wish) => [[wish.make, wish.model, wish.trim].filter(Boolean).join(' '), wish.yearMin || wish.yearMax ? `${wish.yearMin || '?'} a ${wish.yearMax || '?'}` : '', wish.minMiles || wish.maxMiles ? `${wish.minMiles || '?'} a ${wish.maxMiles || '?'} milhas` : ''].filter(Boolean).join(' · ')).join(' | ')));
       const actions = element('div', 'inline-actions');
       if (item.canDefineMode) {
-        [['CARRO', 'Definir como CARRO'], ['VALOR', 'Definir como VALOR']].forEach(([mode, label]) => {
+        // A ficha without mode gets its mode; a manual criterion without mode (ficha with both
+        // searches) is assigned to ONE search. Nothing is applied to both.
+        const action = item.manual ? 'assign_manual_mode' : 'set_search_mode';
+        (item.manual ? [['CARRO', 'Aplicar a CARRO'], ['VALOR', 'Aplicar a VALOR']] : [['CARRO', 'Definir como CARRO'], ['VALOR', 'Definir como VALOR']]).forEach(([mode, label]) => {
           const button = element('button', 'small', label); button.type = 'button';
-          MCSAction.bind(button, () => ({ scope: line, optimistic: () => { button.textContent = 'Salvando…'; }, commit: () => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_search_mode', journeyId: item.journeyId, mode }) }), rollback: () => { button.textContent = label; }, refresh: () => loadCurrent(), errorText: 'Não consegui salvar, tente de novo' }));
+          MCSAction.bind(button, () => ({ scope: line, optimistic: () => { button.textContent = 'Salvando…'; }, commit: () => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action, journeyId: item.journeyId, mode }) }), rollback: () => { button.textContent = label; }, refresh: () => loadCurrent(), errorText: 'Não consegui salvar, tente de novo' }));
           actions.append(button);
         });
         const keep = element('button', 'quiet small', 'Manter pendente'); keep.type = 'button';
@@ -2278,9 +2285,10 @@
         const model = element('input'); model.placeholder = 'Modelo'; model.maxLength = 120;
         const yearMin = element('input'); yearMin.type = 'number'; yearMin.placeholder = 'Ano de'; yearMin.min = '1900'; yearMin.max = String(new Date().getFullYear() + 2);
         const yearMax = element('input'); yearMax.type = 'number'; yearMax.placeholder = 'Ano até'; yearMax.min = '1900'; yearMax.max = String(new Date().getFullYear() + 2);
+        const minMiles = element('input'); minMiles.type = 'number'; minMiles.placeholder = 'Milhas de'; minMiles.min = '0'; minMiles.max = '2000000';
         const maxMiles = element('input'); maxMiles.type = 'number'; maxMiles.placeholder = 'Milhas até'; maxMiles.min = '0'; maxMiles.max = '2000000';
-        row.append(make, model, yearMin, yearMax, maxMiles);
-        wishlistRows.push({ make, model, yearMin, yearMax, maxMiles });
+        row.append(make, model, yearMin, yearMax, minMiles, maxMiles);
+        wishlistRows.push({ make, model, yearMin, yearMax, minMiles, maxMiles });
         wishlistForm.append(row);
       };
       addWishlistRow();
@@ -2289,17 +2297,22 @@
       addVehicle.addEventListener('click', addWishlistRow);
       const wishlistButton = element('button', 'quiet small', 'Carro ou faixa');
       wishlistButton.type = 'button';
-      bindMutation(wishlistButton,async () => {
+      // Every change of car, range or bid says which search it belongs to. With both searches on
+      // the ficha, the server refuses a change without mode instead of applying it to both.
+      const wishlistMode = element('select', 'wishlist-mode');
+      wishlistMode.setAttribute('aria-label', 'Para qual busca');
+      [['', 'Para qual busca'], ['VALOR', 'Por valor'], ['CARRO', 'Por ano e milhagem']].forEach(([value, label]) => { const option = element('option', '', label); option.value = value; wishlistMode.append(option); });
+      MCSAction.bind(wishlistButton, () => ({ scope: menu, refresh: reload, errorText: (failure) => failure && failure.code === 'SEARCH_MODE_REQUIRED' ? 'Esta ficha tem busca por valor e por ano e milhagem, escolha para qual é a mudança' : 'Não consegui salvar, tente de novo', commit: async () => {
         const wishlists = wishlistRows.filter((row) => row.model.value.trim()).map((row) => ({
           make: row.make.value, model: row.model.value, yearMin: row.yearMin.value || null,
-          yearMax: row.yearMax.value || null, maxMiles: row.maxMiles.value || null
+          yearMax: row.yearMax.value || null, minMiles: row.minMiles.value || null, maxMiles: row.maxMiles.value || null
         }));
         await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({
           action: 'mark_message', journeyId, ref, messageId: message.id, kind: 'VEHICLE',
-          wishlists
+          wishlists, mode: wishlistMode.value || null
         }) });
-      });
-      wishlistForm.prepend(wishlistButton, addVehicle);
+      } }));
+      wishlistForm.prepend(wishlistButton, wishlistMode, addVehicle);
       menu.append(wishlistForm);
       // Teto total (R2): the field starts empty, the amount is read locally and must be
       // confirmed before it is saved in confirmed_total_ceiling_cents.

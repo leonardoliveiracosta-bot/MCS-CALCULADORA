@@ -33,7 +33,7 @@ module.exports = async (req, res) => {
   try {
     if (String((req.query && req.query.view) || '') === 'manheim') return send(res, 200, await manheimView(ctx));
     const id = String((req.query && req.query.id) || '');
-    const activeBatch = await activeFilter(ctx);
+    const activeBatch = await activeFilter(ctx, { rows });
     if (!id) {
       const [items, contacts, phones, refs, messageLinks, messages, toggleStates, uploads, meta, checklist, promises, archive, calcRuns, calcLinks, leadPromises, aiItems, aiSuggestions, userIds, dispositions] = await Promise.all([
         allRows(ctx, 'journeys', {

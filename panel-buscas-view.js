@@ -29,7 +29,7 @@ function emptyCounts() {
 }
 
 async function manheimView(ctx) {
-  const supported = await undoSupported(ctx);
+  const supported = await undoSupported(ctx, { rows });
   const active = supported ? { undone_at: 'is.null' } : {};
   const [base, uploads, meta, userIds, insights, checklist, vitrineRows, stageIndex] = await Promise.all([
     loadBuscasBase(ctx, { allRows }),

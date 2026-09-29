@@ -1,7 +1,7 @@
 'use strict';
 
 // BUSCAS and Manheim read the same demands: one per person (ficha or Ref without ficha) and
-// logical mode. VALOR and CARRO never share criteria and are never merged into MIXED.
+// logical mode. VALOR and CARRO never share criteria and are never merged into one demand.
 const { allRows } = require('./panel-server');
 const { buildSearchDemands, consolidateCalcRuns, groupCalculatorByRef, matchManheimDemand, reactivationEligible, toggleEnabled } = require('./panel-domain');
 const vehicleMatch = require('./vehicle-match');
@@ -87,7 +87,7 @@ function liveMatchesFor(match, demandsOfTarget) {
 }
 
 function reviewItem(base, demand) {
-  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, ...demandPerson(base, demand), issues: demand.issues, canDefineMode: demand.mode === 'REVIEW' && Boolean(demand.journeyId) };
+  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, ...demandPerson(base, demand), issues: demand.issues, manual: demand.manual === true, wishes: demand.manual ? demand.wishes : undefined, canDefineMode: demand.mode === 'REVIEW' && Boolean(demand.journeyId) };
 }
 
 module.exports = { buildBuscasBase, demandPerson, liveMatchesFor, loadBuscasBase, matchTarget, reviewItem, upper };

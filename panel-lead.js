@@ -165,7 +165,7 @@ async function leadData(ctx, req, refInput, idInput) {
     try{return await read();}
     catch(error){console.error('[panel-lead-read]',{label,ref,journeyId:journey?.id||null,message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});return [];}
   };
-  const activeBatch = await activeFilter(ctx).catch(() => ({}));
+  const activeBatch = await activeFilter(ctx, { rows }).catch(() => ({}));
   const [notes, events, promises, archive, recentMatches, aiReadings, aiSuggestions, aiHelp, stageIndex] = await Promise.all([
     optionalRead('lead_notes',()=>allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'created_at.desc' })),
     optionalRead('lead_events',()=>allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ...scope, undone_at: 'is.null', order: 'occurred_at.desc' })),

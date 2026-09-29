@@ -20,12 +20,18 @@ const MAX_ROWS = 25;
 const MAX_CELL = 120;
 const TIMEOUT_MS = 20000;
 
-function enabled(env = process.env) {
-  return env.MANHEIM_OPENAI_ENABLED === '1' && Boolean(env.OPENAI_API_KEY);
-}
+// Only these models may be used. Any other name in MANHEIM_OPENAI_MODEL turns the AI off (the
+// ambiguous rows go to review); there is never a fallback to another, more expensive model.
+const APPROVED_MODELS = Object.freeze(['gpt-5.4-nano', 'gpt-5.6-luna']);
 
 function model(env = process.env) {
-  return String(env.MANHEIM_OPENAI_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+  const configured = String(env.MANHEIM_OPENAI_MODEL || '').trim();
+  if (!configured) return DEFAULT_MODEL;
+  return APPROVED_MODELS.includes(configured) ? configured : null;
+}
+
+function enabled(env = process.env) {
+  return env.MANHEIM_OPENAI_ENABLED === '1' && Boolean(env.OPENAI_API_KEY) && Boolean(model(env));
 }
 
 function estimateCostUsd(modelId, inputTokens, outputTokens) {
@@ -175,4 +181,4 @@ function sanitizeSummary(value) {
   };
 }
 
-module.exports = { DEFAULT_MODEL, FIELDS, HEADER_FIELDS, sanitizeHeaders, suggestHeaders, INSTRUCTIONS, MAX_ROWS, PRICES, SCHEMA, enabled, estimateCostUsd, model, sanitizeRow, sanitizeRows, sanitizeSummary, suggestRows };
+module.exports = { APPROVED_MODELS, DEFAULT_MODEL, FIELDS, HEADER_FIELDS, sanitizeHeaders, suggestHeaders, INSTRUCTIONS, MAX_ROWS, PRICES, SCHEMA, enabled, estimateCostUsd, model, sanitizeRow, sanitizeRows, sanitizeSummary, suggestRows };

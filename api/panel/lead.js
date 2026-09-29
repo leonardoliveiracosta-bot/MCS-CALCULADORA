@@ -155,7 +155,7 @@ module.exports = async (req, res) => {
     }
     if (body.action === 'present') {
       if (lead.record && (lead.record.enabled === false || lead.record.status === 'ENCERRADO')) return send(res, 409, { error: 'JOURNEY_DISABLED' });
-      const found = await rows(ctx, 'manheim_vehicles', { select: 'vehicle_json', environment: 'eq.' + ctx.environment, row_fingerprint: 'eq.' + String(body.fingerprint || ''), ...(await require('../../panel-manheim-state').activeFilter(ctx)), order: 'uploaded_at.desc', limit: '1' });
+      const found = await rows(ctx, 'manheim_vehicles', { select: 'vehicle_json', environment: 'eq.' + ctx.environment, row_fingerprint: 'eq.' + String(body.fingerprint || ''), ...(await require('../../panel-manheim-state').activeFilter(ctx, { rows })), order: 'uploaded_at.desc', limit: '1' });
       const vehicle = found[0]?.vehicle_json || lead.offers.find((item) => item.rowFingerprint === body.fingerprint);
       if (!vehicle || !lead.offers.some((item) => item.rowFingerprint === body.fingerprint)) return send(res, 400, { error: 'VEHICLE_NOT_COMPATIBLE' });
       // The offer's mode (VALOR or CARRO) goes with the unit, so "enviei opções" marks only that mode.

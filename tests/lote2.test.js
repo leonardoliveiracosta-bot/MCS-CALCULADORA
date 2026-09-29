@@ -128,6 +128,8 @@ test('Lote 2 · contato efetivo nunca rebaixa a etapa; "quero o carro" leva a DE
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.join(__dirname, '..');
+// The Manheim batch state is mocked explicitly: no unit test reaches Supabase or the network.
+const manheimState = { activeFilter: async () => ({ undone_at: 'is.null' }), undoSupported: async () => true, latestActiveUpload: async () => null };
 function loadWith(relative, mocks) {
   const file = path.join(root, relative); const mod = { exports: {} };
   const localRequire = (name) => Object.prototype.hasOwnProperty.call(mocks, name) ? mocks[name] : require(name.startsWith('.') ? path.resolve(path.dirname(file), name) : name);
@@ -140,7 +142,7 @@ function hoje({ journey = {}, messages = [], dispositions = [], calcRuns = [], l
   const base = { id: JOURNEY, contact_id: CONTACT, reference_code: 'ABC23', source: 'CALCULATOR', stage: 'RESPONDIDO', status: 'ATIVO', enabled: true, created_at: '2026-09-01T00:00:00Z', criteria_json: {}, contact: { display_name: 'Ana' }, phones: [], ...journey };
   const server = { requirePanel: async () => ({ environment: 'preview', panel: { id: uuid(1) }, config: {} }), send: (res, code, payload) => res.status(code).json(payload), panelMeta: async () => ({}),
     allRows: async (_ctx, table) => ({ calc_runs: calcRuns, panel_item_dispositions: dispositions, lead_events: leadEvents })[table] || [] };
-  const handler = loadWith('api/panel/today.js', { '../../panel-server': server, '../../panel-read-model': { operational: async () => ({ journeys: [base], refs: [], messages, checklist: [], promises: [], excludedRefs: [] }) },
+  const handler = loadWith('api/panel/today.js', { '../../panel-server': server, '../../panel-manheim-state': manheimState, '../../panel-read-model': { operational: async () => ({ journeys: [base], refs: [], messages, checklist: [], promises: [], excludedRefs: [] }) },
     '../../panel-search-stage': { loadSearchStageIndex: async () => new Map(), decorateWithSearchStage: (item) => item } });
   return (async () => { const res = output(); await handler({ method: 'GET', query: {} }, res); return res.payload; })();
 }

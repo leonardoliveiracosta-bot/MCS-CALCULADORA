@@ -386,28 +386,38 @@ function groupCalculatorByRef(orders, dispositions = []) {
     const journeyIds = [...new Set(links)];
     const modes = [...new Set(sorted.map((item) => item.logicalMode).filter((mode) => ['CARRO', 'VALOR'].includes(mode)))];
     const disposition = dispositionMap.get(ref) || null;
-    // sorted is newest first, so the most recent value of each field wins (A6). A search
-    // (years/miles) and a value simulation (bid) of the same Ref are combined.
-    const wishlists = mergeWishlists([], sorted.flatMap((item) => item.wishlists || []));
-    const newest = (getter) => { for (const item of sorted) { const value = getter(item); if (value !== null && value !== undefined && value !== '') return value; } return null; };
+    // One person, one card. Inside it the two modes stay separate: the wishes of each mode are
+    // merged only with the same mode (newest value wins, A6) and tagged with it; the bid only
+    // comes from VALOR and years/mileage only from CARRO. Nothing is combined across modes.
+    const byMode = (mode) => sorted.filter((item) => item.logicalMode === mode);
+    const modeWishes = (mode) => mergeWishlists([], byMode(mode).flatMap((item) => item.wishlists || [])).map((wish) => ({ ...(mode === 'VALOR' ? { ...wish, yearMin: null, yearMax: null, minMiles: null, maxMiles: null } : wish), mode }));
+    const wishlists = [...modeWishes('VALOR'), ...modeWishes('CARRO')];
+    const newest = (getter, list = sorted) => { for (const item of list) { const value = getter(item); if (value !== null && value !== undefined && value !== '') return value; } return null; };
+    const modeText = (mode) => compactWishlistText(modeWishes(mode)) || byMode(mode).map((item) => item.vehicleText).find(Boolean) || null;
+    const vehicleText = modes.length > 1
+      ? [['VALOR', 'Por valor'], ['CARRO', 'Por ano e milhagem']].map(([mode, label]) => modeText(mode) ? `${label}: ${modeText(mode)}` : null).filter(Boolean).join(' · ')
+      : compactWishlistText(wishlists) || latest.vehicleText;
+    const valorBid = newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null, byMode('VALOR'));
     return {
       ...latest,
-      budgetCents: newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null),
+      budgetCents: valorBid,
       paymentText: newest((item) => item.paymentText),
       deadlineText: newest((item) => item.deadlineText),
       zip: newest((item) => item.zip),
       state: newest((item) => item.state),
-      yearsText: newest((item) => item.yearsText),
-      mileageText: newest((item) => item.mileageText),
+      yearsText: newest((item) => item.yearsText, byMode('CARRO')),
+      mileageText: newest((item) => item.mileageText, byMode('CARRO')),
       key: 'ref:' + ref,
       ref,
       kind: 'CALCULATOR',
       simulations: sorted,
       simulationCount: sorted.length,
       logicalModes: modes,
-      logicalMode: modes.length === 1 ? modes[0] : 'MIXED',
+      // A person with both modes has no single mode: logicalModes lists them, each demand separate.
+      logicalMode: modes.length === 1 ? modes[0] : null,
+      modeSummaries: Object.fromEntries(modes.map((mode) => [mode, { vehicleText: modeText(mode), budgetCents: mode === 'VALOR' ? valorBid : null, yearsText: mode === 'CARRO' ? newest((item) => item.yearsText, byMode('CARRO')) : null, mileageText: mode === 'CARRO' ? newest((item) => item.mileageText, byMode('CARRO')) : null }])),
       eventCount: sorted.reduce((sum, item) => sum + Number(item.eventCount || 0), 0),
-      vehicleText: compactWishlistText(wishlists) || latest.vehicleText,
+      vehicleText,
       wishlist: wishlists[0] || latest.wishlist,
       wishlists,
       clickedContact: sorted.some((item) => item.clickedContact),
@@ -420,7 +430,7 @@ function groupCalculatorByRef(orders, dispositions = []) {
       discardReason: disposition ? disposition.discard_reason || null : null,
       dispositionUpdatedAt: disposition ? disposition.updated_at : null,
       pending: !disposition,
-      outOfStandard: Number(newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null)) > 0 && !standardBudget(newest((item) => Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null))
+      outOfStandard: Number(valorBid) > 0 && !standardBudget(valorBid)
     };
   }).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0) || a.ref.localeCompare(b.ref));
 }
@@ -520,7 +530,7 @@ function buildTodayOrderItems(orders, nowValue = new Date()) {
       vehicleText: item.vehicleText,
       budgetCents: item.budgetCents || 0,
       checklistComplete: 0,
-      checklistLabel: item.logicalMode === 'CARRO' ? 'carro ideal' : 'por valor',
+      checklistLabel: (item.logicalModes || []).length > 1 ? 'por valor e por ano e milhagem' : item.logicalMode === 'CARRO' ? 'carro ideal' : 'por valor',
       waitingSince: new Date(occurred).toISOString(),
       waitMs: Math.max(0, nowMs - occurred),
       waitColor: nowMs - occurred < DAY_MS ? 'green' : nowMs - occurred < 3 * DAY_MS ? 'yellow' : 'red',
@@ -655,7 +665,7 @@ function buildConversationTimeline(messages, interactions, activities) {
 // Search demands (BUSCAS and Manheim). A demand is one person (a ficha or a Ref without ficha)
 // in one logical mode. VALOR and CARRO of the same person are two independent demands and
 // never share criteria: VALOR keeps make, model and the VALOR bid; CARRO keeps make, model,
-// trim (information only), and both year and mileage ranges. There is no MIXED demand.
+// trim (information only), and both year and mileage ranges. There is no combined demand.
 const SEARCH_MODES = Object.freeze(['VALOR', 'CARRO']);
 
 function valorWishes(wishes) {
@@ -670,7 +680,7 @@ function finalizeDemand(demand) {
   const issues = [];
   const active = [];
   const wishes = demand.wishes || [];
-  if (demand.mode === 'REVIEW') issues.push({ code: 'MODE_UNKNOWN', text: vehicleMatch.ISSUE_TEXT.MODE_UNKNOWN });
+  if (demand.mode === 'REVIEW') issues.push(...(demand.reviewIssues || [{ code: 'MODE_UNKNOWN', text: vehicleMatch.ISSUE_TEXT.MODE_UNKNOWN }]));
   else if (!wishes.length) issues.push({ code: 'MODEL_MISSING', text: vehicleMatch.ISSUE_TEXT.MODEL_MISSING });
   else wishes.forEach((wish) => {
     const code = demand.mode === 'CARRO' ? vehicleMatch.carroWishIssue(wish) : vehicleMatch.valorWishIssue(wish, demand.bidCents);
@@ -681,7 +691,7 @@ function finalizeDemand(demand) {
 }
 
 // One demand per (Ref, mode) for a Ref without ficha. `item` is one entry of consolidateCalcRuns
-// (already split by logical mode), never the grouped MIXED view.
+// (already split by logical mode), never the grouped person container.
 function orderDemand(item) {
   const mode = item && SEARCH_MODES.includes(item.logicalMode) ? item.logicalMode : null;
   if (!mode) return null;
@@ -700,25 +710,74 @@ function confirmedJourneyModes(journey) {
   return [...new Set(list.map((value) => clean(value).toUpperCase()).filter((value) => SEARCH_MODES.includes(value)))];
 }
 
-// The demands of a ficha. Its modes come from its linked calculator Refs (split by mode) and
-// from a confirmed choice. The ficha stays the source of truth for the wishes (R1): for the
-// same model, a missing range is filled only from a Ref of the SAME mode. Without any mode, a
-// ficha that has something to search is one REVIEW demand; the mode is never guessed.
+// Manual criteria the operator saved for ONE mode (criteria_json.mode_overrides.CARRO / .VALOR).
+// Additive and explicit; older fichas simply do not have it.
+function modeOverrides(journey) {
+  const criteria = journey && journey.criteria_json && typeof journey.criteria_json === 'object' && !Array.isArray(journey.criteria_json) ? journey.criteria_json : {};
+  const source = criteria.mode_overrides && typeof criteria.mode_overrides === 'object' && !Array.isArray(criteria.mode_overrides) ? criteria.mode_overrides : {};
+  const result = {};
+  SEARCH_MODES.forEach((mode) => {
+    const entry = source[mode];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return;
+    result[mode] = {
+      wishlists: (Array.isArray(entry.wishlists) ? entry.wishlists : []).slice(0, 5).map(normalizeWishlist).filter((wish) => wish.model),
+      override: entry.wishlistOverride === true || Array.isArray(entry.wishlists),
+      bidCents: mode === 'VALOR' && Number(entry.bidCents) > 0 ? Number(entry.bidCents) : null
+    };
+  });
+  return result;
+}
+
+// A generic ficha wish (without mode) that only repeats what the linked calculator Refs already
+// say: same model, and every value it has is one of the values those Refs have for that model.
+// Old fichas got such copies when a Ref was linked; they carry no manual decision.
+function derivedFromRefs(wish, refWishes) {
+  const sameModel = (refWishes || []).filter((ref) => vehicleCatalog.modelTokens(ref.model, ref.make).join(' ') === vehicleCatalog.modelTokens(wish.model, wish.make).join(' ')
+    && (!ref.make || !wish.make || fold(ref.make) === fold(wish.make)));
+  if (!sameModel.length) return false;
+  return ['yearMin', 'yearMax', 'minMiles', 'maxMiles', 'trim'].every((field) => {
+    const value = wish[field];
+    if (value === null || value === undefined || value === '') return true;
+    return sameModel.some((ref) => String(ref[field] ?? '') === String(value));
+  });
+}
+
+// The demands of a ficha. Its modes come from its linked calculator Refs (split by mode), from a
+// confirmed choice and from criteria saved for one mode. Each mode only reads its own data:
+//  * VALOR: make and model of the VALOR Refs (or of mode_overrides.VALOR) and the bid.
+//  * CARRO: make, model, trim, years and mileages of the CARRO Refs (or mode_overrides.CARRO).
+//  * With ONE mode the ficha's generic wishes stay the source of truth (R1), as before.
+//  * With TWO modes a generic wish is never applied to both: a copy of the Refs is ignored and
+//    a real manual criterion without mode goes to REVIEW. The mode is never guessed.
 function journeyDemands(journey, linkedItems) {
   if (!journey) return [];
   const items = (Array.isArray(linkedItems) ? linkedItems : []).filter((item) => SEARCH_MODES.includes(item.logicalMode));
-  const modes = new Set([...items.map((item) => item.logicalMode), ...confirmedJourneyModes(journey)]);
+  const overrides = modeOverrides(journey);
+  const modes = new Set([...items.map((item) => item.logicalMode), ...confirmedJourneyModes(journey), ...Object.keys(overrides)]);
   const ownWishes = wishlistsForJourney(journey);
+  const genericOverride = Boolean(journey.criteria_json && journey.criteria_json.wishlistOverride === true);
   const budget = Number(journey.budget_cents) > 0 ? Number(journey.budget_cents) : null;
   const base = { targetType: 'JOURNEY', journeyId: journey.id, ref: clean(journey.reference_code).toUpperCase() || (items[0] && items[0].ref) || null, source: journey.source || null, occurredAt: journey.updated_at || journey.created_at || null };
   if (!modes.size) {
     if (!ownWishes.length && !budget) return [];
     return [finalizeDemand({ ...base, key: `journey:${journey.id}:REVIEW`, mode: 'REVIEW', wishes: ownWishes, bidCents: budget })];
   }
-  return SEARCH_MODES.filter((mode) => modes.has(mode)).map((mode) => {
+  const twoModes = modes.size > 1;
+  const refWishes = items.flatMap((item) => item.wishlists || []).map(normalizeWishlist);
+  // A generic wish already assigned to a mode (the same values saved in mode_overrides) is not
+  // pending either.
+  const assigned = Object.values(overrides).flatMap((entry) => entry.wishlists);
+  const manual = twoModes ? ownWishes.filter((wish) => !derivedFromRefs(wish, refWishes) && !derivedFromRefs(wish, assigned)) : [];
+  const manualRemoval = twoModes && genericOverride && !ownWishes.length;
+  const demands = SEARCH_MODES.filter((mode) => modes.has(mode)).map((mode) => {
     const own = items.filter((item) => item.logicalMode === mode).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0));
     const merged = own.length ? { wishlists: mergeWishlists([], own.flatMap((item) => item.wishlists || [])), budgetCents: mode === 'VALOR' ? own.map((item) => item.budgetCents).find((value) => Number(value) > 0) || null : null } : null;
-    const criteria = effectiveCriteria(journey, merged);
+    // The bid only exists in VALOR, so the ficha's bid never reaches CARRO.
+    const bid = mode === 'VALOR' ? (overrides.VALOR && overrides.VALOR.bidCents) || budget : null;
+    const ficha = overrides[mode]
+      ? { ...journey, criteria_json: { wishlists: overrides[mode].wishlists, wishlistOverride: overrides[mode].override }, budget_cents: bid }
+      : twoModes ? { ...journey, criteria_json: {}, budget_cents: bid } : { ...journey, budget_cents: bid };
+    const criteria = effectiveCriteria(ficha, merged);
     return finalizeDemand({
       ...base, key: `journey:${journey.id}:${mode}`, mode, linkedRefs: [...new Set(own.map((item) => item.ref))],
       wishes: mode === 'CARRO' ? carroWishes(criteria.wishes) : valorWishes(criteria.wishes),
@@ -726,6 +785,11 @@ function journeyDemands(journey, linkedItems) {
       bidCents: mode === 'VALOR' ? criteria.bidCents : null
     });
   });
+  if (manual.length || manualRemoval) demands.push(finalizeDemand({
+    ...base, key: `journey:${journey.id}:REVIEW_MANUAL`, mode: 'REVIEW', manual: true, wishes: manual, bidCents: null,
+    reviewIssues: [{ code: 'MANUAL_MODE_UNKNOWN', text: manualRemoval ? 'remoção manual de carros sem modo definido' : 'critério manual sem modo definido' }]
+  }));
+  return demands;
 }
 
 // Every demand of the environment. `modeItems` is consolidateCalcRuns(...) (one entry per Ref and
@@ -752,6 +816,6 @@ function buildSearchDemands({ journeys, refs, modeItems }) {
 module.exports = {
   DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, toggleEnabled, journeyLogicalMode, logicalMode,
-  buildSearchDemands, carroWishes, confirmedJourneyModes, finalizeDemand, journeyDemands, matchManheimDemand, orderDemand, SEARCH_MODES, valorWishes, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
+  buildSearchDemands, carroWishes, derivedFromRefs, modeOverrides, confirmedJourneyModes, finalizeDemand, journeyDemands, matchManheimDemand, orderDemand, SEARCH_MODES, valorWishes, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
   normalizeState, normalizeWishlist, wishlistsFromCalculatorEvents, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
 };

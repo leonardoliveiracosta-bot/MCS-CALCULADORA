@@ -4,7 +4,7 @@ const {expiresAt,publicVehicle,randomCode,randomToken,vehicleName}=require('../.
 const {parseMoneyCents}=require('../../money-text');
 const {activeFilter}=require('../../panel-manheim-state');
 // An undone Manheim import batch never feeds a new V1 or V2 (vitrines already created stay).
-const activeBatch=async(ctx,services)=>services.activeFilter?services.activeFilter(ctx):activeFilter(ctx).catch(()=>({}));
+const activeBatch=async(ctx,services)=>services.activeFilter?services.activeFilter(ctx):activeFilter(ctx,{rows:services.rows||rows}).catch(()=>({}));
 
 // Public limit of a vitrine car: between US$ 1.000 and US$ 10.000.000 (customer_limit_cents is an integer).
 const LIMIT_MIN_CENTS=100000;

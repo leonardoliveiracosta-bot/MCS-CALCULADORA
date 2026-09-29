@@ -15,11 +15,11 @@ function leadZip(item, journey) {
 
 // A9: every screen scores with the same cars (last 60 days of Manheim exports).
 async function loadScoreVehicles(ctx, now = Date.now()) {
-  const { allRows } = require('./panel-server');
+  const { allRows, rows } = require('./panel-server');
   const { activeFilter } = require('./panel-manheim-state');
   const since = new Date(now - 60 * 86400000).toISOString();
   // An undone import batch never feeds the score.
-  const active = await activeFilter(ctx);
+  const active = await activeFilter(ctx, { rows });
   const [archive, matches] = await Promise.all([
     allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, uploaded_at: 'gte.' + since, ...active }),
     allRows(ctx, 'manheim_matches', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, created_at: 'gte.' + since, ...active })

@@ -92,6 +92,54 @@ begin
     if sqlerrm not like '%MANHEIM_UPLOAD_NOT_FOUND%' then raise; end if;
   end;
 
+  -- nova gravação sem modo é recusada (nas duas RPCs)
+  begin
+    perform public.panel_store_manheim_upload('preview',actor,1,1,'[["VIN"]]','{}',jsonb_build_array(
+      jsonb_build_object('journeyId',v_journey,'kind','BATE','fingerprint','vin:SEMMODO','vehicle',car)));
+    raise exception 'FALHA: match sem modo foi aceito';
+  exception when others then
+    if sqlerrm not like '%MANHEIM_MATCH_INVALID%' then raise; end if;
+  end;
+  begin
+    perform public.panel_store_manheim_upload_part('preview',actor,null,1,2,1,1,'[["VIN"]]','{}',jsonb_build_array(
+      jsonb_build_object('journeyId',v_journey,'kind','BATE','fingerprint','vin:SEMMODO','vehicle',car)));
+    raise exception 'FALHA: match sem modo foi aceito em partes';
+  exception when others then
+    if sqlerrm not like '%MANHEIM_MATCH_INVALID%' then raise; end if;
+  end;
+  -- CARRO e VALOR válidos continuam gravando
+  if (public.panel_store_manheim_upload('preview',actor,1,1,'[["VIN"]]','{}',jsonb_build_array(
+      jsonb_build_object('journeyId',v_journey,'kind','BATE','mode','CARRO','fingerprint','vin:OKCARRO','vehicle',car),
+      jsonb_build_object('journeyId',v_journey,'kind','POR_VALOR','mode','VALOR','fingerprint','vin:OKVALOR','vehicle',car)))->>'matchedVehicleCount')::int<>2 then
+    raise exception 'FALHA: CARRO e VALOR válidos não gravaram';
+  end if;
+  -- linha histórica com modo nulo continua existindo e legível
+  insert into public.manheim_matches(environment,upload_id,journey_id,match_kind,row_fingerprint,vehicle_json)
+    values('preview',second_id,v_journey,'QUASE','vin:HISTORICO',car);
+  if not exists(select 1 from public.manheim_matches where row_fingerprint='vin:HISTORICO' and logical_mode is null) then raise exception 'FALHA: histórico nulo perdido'; end if;
+  -- desfazer continua idempotente depois disso
+  if not (public.panel_undo_manheim_upload('preview',actor,first_id)->>'alreadyUndone')::boolean then raise exception 'FALHA: desfazer deixou de ser idempotente'; end if;
+  if not exists(select 1 from public.manheim_matches where row_fingerprint='vin:HISTORICO' and undone_at is null) then raise exception 'FALHA: histórico do lote vizinho alterado'; end if;
+
+  -- "Carro ou faixa" marcado para UM modo vai só para mode_overrides daquele modo
+  update public.journeys set criteria_json='{"wishlists":[{"make":"Honda","model":"Civic"}]}'::jsonb where id=v_journey;
+  declare
+    v_chat uuid:=gen_random_uuid();
+    v_message uuid:=gen_random_uuid();
+    marked jsonb;
+  begin
+    insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,created_at,updated_at) values(v_chat,'preview','WHATSAPP',v_contact,'modos-'||v_chat,'RESOLVED',now(),now());
+    insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at)
+      values(v_message,'preview',v_chat,'WHATSAPP','CUSTOMER','quero X5 até 50k','quero x5 ate 50k',now(),'sig-modos-'||v_message,1,'IMPORT',now());
+    insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview',v_message,v_journey,'IMPORT',now());
+    insert into public.journey_checklist(environment,journey_id,point_number,point_label,status,created_at,updated_at) values('preview',v_journey,1,'Carro e critérios confirmados','OPEN',now(),now());
+    marked:=public.panel_mark_message_fact_v2('preview',v_journey,v_message,'VEHICLE',actor,'BMW X5',
+      '{"mode":"VALOR","modeWishlists":[{"make":"BMW","model":"X5"}]}'::jsonb,null,false);
+    if (select criteria_json->'mode_overrides'->'VALOR'->'wishlists'->0->>'model' from public.journeys where id=v_journey)<>'X5' then raise exception 'FALHA: VALOR não recebeu o carro'; end if;
+    if (select criteria_json->'mode_overrides' ? 'CARRO' from public.journeys where id=v_journey) then raise exception 'FALHA: CARRO recebeu o carro do VALOR'; end if;
+    if (select criteria_json->'wishlists'->0->>'model' from public.journeys where id=v_journey)<>'Civic' then raise exception 'FALHA: lista genérica alterada'; end if;
+  end;
+
   -- marca de busca por modo
   insert into public.panel_search_marks(environment,journey_id,kind,logical_mode,created_by) values('preview',v_journey,'SAVED','VALOR',actor);
   if exists(select 1 from public.panel_search_marks where journey_id=v_journey and logical_mode='CARRO') then raise exception 'FALHA: marca VALOR alterou CARRO'; end if;

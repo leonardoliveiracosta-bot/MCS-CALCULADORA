@@ -66,7 +66,7 @@ module.exports = async (req, res) => {
 
   try {
     // An undone Manheim import batch never enters a report.
-    const activeBatch = await activeFilter(ctx);
+    const activeBatch = await activeFilter(ctx, { allRows });
     const [calcRuns, links, dispositions, journeys, toggles, uploads, manheimMatches, data] = await Promise.all([
       allRows(ctx, 'calc_runs', { select: 'id,created_at,lance,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),

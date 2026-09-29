@@ -35,12 +35,12 @@ async function payload(ctx) {
     allRows(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: 'eq.' + ctx.environment, undone_at:'is.null' }),
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created', environment: 'eq.' + ctx.environment }),
-    latestActiveUpload(ctx).then((upload) => upload ? [upload] : []),
+    latestActiveUpload(ctx, 'id', { rows }).then((upload) => upload ? [upload] : []),
     loadSearchStageIndex(ctx),
     allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,updated_at', environment: 'eq.' + ctx.environment, cleared_at: 'is.null' })
   ]);
   // M18: "N carros no último CSV" counts only the latest upload.
-  const supported = await undoSupported(ctx);
+  const supported = await undoSupported(ctx, { rows });
   const matches = uploads[0] ? await allRows(ctx, 'manheim_matches', { select: 'journey_id,row_fingerprint' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploads[0].id, ...(supported ? { undone_at: 'is.null' } : {}) }) : [];
   const personDisposition = dispositionIndex(dispositions);
   const contact = contactIndex({ calcRuns, messages: messages.filter((message) => !message.undone_at), messageLinks });
@@ -105,7 +105,7 @@ async function mark(ctx, body) {
   const own = mode ? modes[mode] : null;
   const key = own && own.searchKey;
   if (!key) return null;
-  const supported = await undoSupported(ctx);
+  const supported = await undoSupported(ctx, { rows });
   // Saving the search in the Manheim saves it for everyone in the SAME mode with the same key.
   const ids = kind === 'SAVED' ? [...index.entries()].filter(([, entry]) => entry.modes?.[mode]?.searchKey === key).map(([id]) => id) : [journeyId];
   const at = new Date().toISOString();
@@ -136,7 +136,7 @@ module.exports = async (req, res) => {
         if(key)journeyIds=[...index.entries()].filter(([,entry])=>entry.modes?.[mode]?.searchKey===key).map(([id])=>id);
       }
       // Only the marks of this mode are undone; the other mode of the same ficha stays.
-      const supported=await undoSupported(ctx);
+      const supported=await undoSupported(ctx, { rows });
       let updated=[];
       for(const journeyId of journeyIds) updated=updated.concat(await patchRows(ctx, 'panel_search_marks', { environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId, kind: 'eq.' + kind, ...(supported?{logical_mode:'eq.'+mode}:{}), undone_at: 'is.null' }, { undone_at: new Date().toISOString(), undone_by: ctx.panel.id }));
       return send(res, 200, { undone: Boolean(updated.length) });

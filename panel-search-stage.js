@@ -53,7 +53,7 @@ function directLeadSource(journey, hasOrder) {
 }
 
 async function loadSearchStageIndex(ctx) {
-  const supported = await undoSupported(ctx).catch(() => false);
+  const supported = await undoSupported(ctx, { allRows }).catch(() => false);
   const [journeys, refs, calcRuns, calcLinks, saved, marks, events, units, confirmedPrints, toggles, presented] = await Promise.all([
     allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),

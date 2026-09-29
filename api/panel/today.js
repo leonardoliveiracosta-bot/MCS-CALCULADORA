@@ -25,7 +25,7 @@ module.exports = async (req, res) => {
     const now = Date.now();
     const cutoff = now - 24 * 60 * 60 * 1000;
     // An undone Manheim import batch never feeds HOJE.
-    const activeBatch = await activeFilter(ctx);
+    const activeBatch = await activeFilter(ctx, { allRows });
     const [data, calcRuns, links, dispositions, meta, responses, archive, leadPromises, recentMatches, aiItems, aiSuggestions, pendingInsights] = await Promise.all([
       operational(ctx),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
@@ -124,7 +124,7 @@ module.exports = async (req, res) => {
         kind: 'CALCULATOR_ORDER',
         id: item.key,
         name: item.contactName || `Ref ${item.ref}`,
-        checklistLabel: item.simulationCount > 1 ? `${item.simulationCount} simulações` : item.logicalMode === 'CARRO' ? 'carro ideal' : 'por valor',
+        checklistLabel: item.simulationCount > 1 ? `${item.simulationCount} simulações` : (item.logicalModes || []).length > 1 ? 'por valor e por ano e milhagem' : item.logicalMode === 'CARRO' ? 'carro ideal' : 'por valor',
         standardBudget: standardBudget(item.budgetCents)
       }));
 

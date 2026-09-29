@@ -42,7 +42,10 @@ function manheimData(state) {
     items: [journey], orders: [order], demands, matches, targets: [],
     upload: { id: state.undone ? BATCH_OLD : BATCH_NEW, vehicle_count: state.undone ? 100 : 312, matched_vehicle_count: matches.length, uploaded_at: '2026-09-29T10:00:00Z', current_lead_count: 2 },
     uploads: batches, undoAvailable: true,
-    review: [{ key: `journey:${REVIEW}:REVIEW`, mode: 'REVIEW', targetType: 'JOURNEY', journeyId: REVIEW, name: 'Cliente Sem Tipo', ref: null, issues: [{ code: 'MODE_UNKNOWN', text: 'tipo de busca indefinido' }], canDefineMode: true }],
+    review: [
+      { key: `journey:${REVIEW}:REVIEW`, mode: 'REVIEW', targetType: 'JOURNEY', journeyId: REVIEW, name: 'Cliente Sem Tipo', ref: null, issues: [{ code: 'MODE_UNKNOWN', text: 'tipo de busca indefinido' }], canDefineMode: true },
+      { key: `journey:${JOURNEY}:REVIEW_MANUAL`, mode: 'REVIEW', targetType: 'JOURNEY', journeyId: JOURNEY, name: 'Cliente Dois Modos', ref: 'DCCC4', manual: true, wishes: [{ make: 'Honda', model: 'Civic', yearMin: 2015, yearMax: 2018 }], issues: [{ code: 'MANUAL_MODE_UNKNOWN', text: 'critério manual sem modo definido' }], canDefineMode: true }
+    ],
     counts: { VALOR: count('VALOR'), CARRO: count('CARRO'), total: { people: 2, served: 2, matches: matches.length, review: 1 } }, meta: {}
   };
 }
@@ -77,6 +80,7 @@ async function openBuscas(page, state, calls, extra = {}) {
     if (url.pathname === '/api/panel/manheim-searches') return json(savedData);
     if (url.pathname === '/api/panel/actions' && body?.action === 'manheim_undo') { state.undone = true; return json({ uploadId: body.uploadId, alreadyUndone: false, summary: { vehiclesWithdrawn: 312, matchesWithdrawn: 4, unitsPreserved: 1, vitrinesPreserved: 1 } }); }
     if (url.pathname === '/api/panel/actions' && body?.action === 'set_search_mode') return json({ journeyId: body.journeyId, modes: [body.mode] });
+    if (url.pathname === '/api/panel/actions' && body?.action === 'assign_manual_mode') return json({ journeyId: body.journeyId, mode: body.mode });
     return json({ items: [], orders: [], matches: [], groups: [], chats: [], reviews: [], requests: [], meta: {} });
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
@@ -116,6 +120,7 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
   await expect(page.locator('#buscas-carro-saved')).toContainText('POR ANO E MILHAGEM #1');
   await expect(page.locator('#buscas-carro-clients')).toContainText('POR ANO E MILHAGEM');
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscas-desktop.png'), fullPage: true });
+  if (SHOTS) await page.locator('#manheim-results').screenshot({ path: path.join(SHOTS, 'buscas-mesma-pessoa.png') });
   expect(errors).toEqual([]);
 });
 
@@ -145,6 +150,13 @@ test('21-23 · Revisar tipo de busca define CARRO ou VALOR só para aquela deman
   await expect(line.getByRole('button', { name: 'Definir como VALOR' })).toBeVisible();
   await expect(line.getByRole('button', { name: 'Manter pendente' })).toBeVisible();
   await expect(line.getByRole('button', { name: 'Abrir ficha' })).toBeVisible();
+  // A manual criterion without mode, on a ficha with both searches, is assigned to ONE search.
+  const manual = page.locator('#buscas-review-list .review-line', { hasText: 'critério manual sem modo definido' });
+  await expect(manual).toContainText('Critério manual: Honda Civic · 2015 a 2018');
+  await expect(manual.getByRole('button', { name: 'Definir como CARRO' })).toHaveCount(0);
+  if (SHOTS) await page.locator('#buscas-review').screenshot({ path: path.join(SHOTS, 'buscas-review.png') });
+  await manual.getByRole('button', { name: 'Aplicar a VALOR' }).click();
+  await expect.poll(() => calls.find((call) => call.body?.action === 'assign_manual_mode')?.body).toEqual({ action: 'assign_manual_mode', journeyId: JOURNEY, mode: 'VALOR' });
 });
 
 test('24-27 · lote com vários CSVs aparece como um lote; desfazer pede confirmação na página e o lote anterior fica igual', async ({ page }) => {
@@ -164,6 +176,7 @@ test('24-27 · lote com vários CSVs aparece como um lote; desfazer pede confirm
   await confirm.getByRole('button', { name: 'Cancelar' }).click();
   expect(calls.some((call) => call.body?.action === 'manheim_undo')).toBe(false);
   await newer.getByRole('button', { name: 'Desfazer importação' }).click();
+  if (SHOTS) await page.locator('#manheim-batches').screenshot({ path: path.join(SHOTS, 'buscas-confirmar-desfazer.png') });
   await page.locator('.inline-confirm').getByRole('button', { name: 'Desfazer importação' }).click();
   await expect.poll(() => calls.filter((call) => call.body?.action === 'manheim_undo').map((call) => call.body)).toEqual([{ action: 'manheim_undo', uploadId: BATCH_NEW }]);
   await expect(page.locator('#manheim-status')).toContainText('Importação desfeita');
