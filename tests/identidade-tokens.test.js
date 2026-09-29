@@ -2,7 +2,7 @@
 
 // Identidade visual: os tokens do painel e as combinações de cor usadas pelos componentes.
 // Texto >= 4,5:1, borda de campo >= 3:1, texto preto sobre dourado, sem laranja, sem fonte externa
-// e tema escuro único. O contraste do que está de fato na tela é medido em identidade-visual.spec.js.
+// e tema claro único (fundo branco). O contraste do que está de fato na tela é medido em identidade-visual.spec.js.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -22,9 +22,9 @@ const token = (name) => { assert.match(tokens[name] || '', /^#[0-9A-Fa-f]{6}$/, 
 
 test('tokens: valores da identidade My Car Scout', () => {
   const expected = {
-    'mcs-bg': '#0B0B0D', 'mcs-surface': '#141417', 'mcs-card': '#141417', 'mcs-elevated': '#1A1A1E', 'mcs-line': '#26262B', 'mcs-field-line': '#6B6B74',
-    'mcs-gold': '#C69632', 'mcs-text': '#F5F5F4', 'mcs-text-2': '#A1A1AA', 'mcs-muted': '#A1A1AA', 'mcs-faint': '#8A8A93',
-    'mcs-red': '#F87171', 'mcs-red-strong': '#EF4444', 'mcs-amber': '#EAB308', 'mcs-green': '#22C55E', 'mcs-blue': '#5AA9E6', 'mcs-neutral': '#A1A1AA', 'mcs-on-gold': '#0B0B0D'
+    'mcs-bg': '#FFFFFF', 'mcs-surface': '#FFFFFF', 'mcs-card': '#FFFFFF', 'mcs-elevated': '#F4F4F5', 'mcs-line': '#E4E4E7', 'mcs-field-line': '#8A8A93',
+    'mcs-gold': '#C69632', 'mcs-text': '#0B0B0D', 'mcs-text-2': '#52525B', 'mcs-muted': '#52525B', 'mcs-faint': '#6B6B74',
+    'mcs-red': '#B91C1C', 'mcs-red-strong': '#DC2626', 'mcs-amber': '#735C00', 'mcs-green': '#15803D', 'mcs-blue': '#1D5FA3', 'mcs-neutral': '#52525B', 'mcs-on-gold': '#0B0B0D'
   };
   for (const [name, value] of Object.entries(expected)) assert.equal(tokens[name], value, name);
 });
@@ -41,14 +41,14 @@ test('contraste: todo texto do tema passa de 4,5:1 nas três superfícies', () =
   console.log('CONTRASTE TOKENS', results.join(' · '));
 });
 
-test('contraste: selos com texto colorido sobre fundo escuro tingido passam de 4,5:1', () => {
+test('contraste: selos com texto escuro colorido sobre fundo claro tingido passam de 4,5:1', () => {
   const pairs = [['mcs-red', 'mcs-red-tint'], ['mcs-amber', 'mcs-amber-tint'], ['mcs-green', 'mcs-green-tint'], ['mcs-blue', 'mcs-blue-tint'], ['mcs-gold-text', 'mcs-gold-tint'], ['mcs-neutral', 'mcs-tag'], ['mcs-text-2', 'mcs-tag'], ['mcs-text', 'mcs-gold-tint']];
   for (const [text, tint] of pairs) {
     const value = ratio(token(text), token(tint));
     assert.ok(value >= 4.5, `${text} sobre ${tint}: ${value.toFixed(2)}`);
   }
-  // The tint is dark: colored text on it, never white on a vivid color.
-  for (const tint of ['mcs-red-tint', 'mcs-amber-tint', 'mcs-green-tint', 'mcs-blue-tint', 'mcs-gold-tint']) assert.ok(luminance(token(tint)) < 0.03, tint);
+  // The tint is light: dark colored text on it, never white on a vivid color.
+  for (const tint of ['mcs-red-tint', 'mcs-amber-tint', 'mcs-green-tint', 'mcs-blue-tint', 'mcs-gold-tint']) assert.ok(luminance(token(tint)) > 0.85, tint);
 });
 
 test('contraste: texto preto sobre dourado e branco nunca sobre dourado', () => {
@@ -80,8 +80,8 @@ test('sem laranja: nenhuma cor da camada nova nem dos tokens cai no laranja', ()
   assert.doesNotMatch(layer + theme, /:\s*orange\b/i);
 });
 
-test('tema escuro único, fontes locais e logo em SVG', () => {
-  assert.match(theme, /color-scheme:\s*dark/);
+test('tema claro único, fontes locais e logo em SVG', () => {
+  assert.match(theme, /color-scheme:\s*light/);
   for (const [file, text] of [['index.html', html], ['tema-mcs.css', theme], ['identidade.css', layer], ['painel.css', read('painel/painel.css')]]) {
     assert.doesNotMatch(text, /prefers-color-scheme/, file);
     assert.doesNotMatch(text, /Anton|fonts\.googleapis|fonts\.gstatic/, file);
@@ -89,5 +89,5 @@ test('tema escuro único, fontes locais e logo em SVG', () => {
   assert.doesNotMatch(layer, /https?:\/\//);
   assert.match(html, /href="\/painel\/tema-mcs\.css">\s*<link rel="stylesheet" href="\/painel\/identidade\.css">/);
   assert.ok(fs.existsSync(path.join(root, 'painel/mcs-logo-claro.svg')), 'nenhum SVG apagado');
-  assert.equal(JSON.parse(read('painel/manifest.webmanifest')).theme_color.toUpperCase(), '#0B0B0D');
+  assert.equal(JSON.parse(read('painel/manifest.webmanifest')).theme_color.toUpperCase(), '#FFFFFF');
 });

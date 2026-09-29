@@ -68,18 +68,18 @@ const measure = {
     const over = (top, bottom) => ({ r: top.r * top.a + bottom.r * (1 - top.a), g: top.g * top.a + bottom.g * (1 - top.a), b: top.b * top.a + bottom.b * (1 - top.a), a: 1 });
     const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
     const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-    const WHITE = { r: 255, g: 255, b: 255, a: 1 };
+    const BLACK = { r: 0, g: 0, b: 0, a: 1 };
     const backgroundOf = (element) => {
       const layers = [];
       for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
         const style = getComputedStyle(node);
-        // A photo behind the text: assume the worst case (white) for light text.
-        if (style.backgroundImage && style.backgroundImage !== 'none' && !/gradient/.test(style.backgroundImage) && node !== document.documentElement) { layers.push(WHITE); break; }
+        // A photo behind the text: assume the worst case (black) for dark text.
+        if (style.backgroundImage && style.backgroundImage !== 'none' && !/gradient/.test(style.backgroundImage) && node !== document.documentElement) { layers.push(BLACK); break; }
         const color = parse(style.backgroundColor);
         if (color && color.a > 0) { layers.push(color); if (color.a >= 1) break; }
       }
-      let result = parse(getComputedStyle(document.body).backgroundColor) || { r: 11, g: 11, b: 13, a: 1 };
-      if (result.a < 1) result = over(result, { r: 11, g: 11, b: 13, a: 1 });
+      let result = parse(getComputedStyle(document.body).backgroundColor) || { r: 255, g: 255, b: 255, a: 1 };
+      if (result.a < 1) result = over(result, { r: 255, g: 255, b: 255, a: 1 });
       for (let i = layers.length - 1; i >= 0; i -= 1) result = over(layers[i], result);
       return result;
     };
@@ -116,7 +116,7 @@ const measure = {
     const parse = (value) => { const m = String(value).match(/rgba?\(([^)]+)\)/); const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
     const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
     const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-    const surface = (element) => { for (let node = element.parentElement; node; node = node.parentElement) { const c = parse(getComputedStyle(node).backgroundColor); if (c.a >= 0.9) return c; } return { r: 11, g: 11, b: 13, a: 1 }; };
+    const surface = (element) => { for (let node = element.parentElement; node; node = node.parentElement) { const c = parse(getComputedStyle(node).backgroundColor); if (c.a >= 0.9) return c; } return { r: 255, g: 255, b: 255, a: 1 }; };
     const failures = [];
     for (const field of document.querySelectorAll('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, textarea')) {
       const rect = field.getBoundingClientRect();
@@ -192,7 +192,7 @@ test('contraste: texto de todas as abas, da ficha e do login com pelo menos 4,5:
     const feedback = document.createElement('p'); feedback.className = 'status action-feedback error'; feedback.textContent = 'Não consegui salvar, tente de novo'; document.getElementById('entry-needs-empty').after(feedback);
     return [status, feedback].map((node) => getComputedStyle(node).color);
   });
-  expect(states).toEqual(['rgb(248, 113, 113)', 'rgb(248, 113, 113)']);
+  expect(states).toEqual(['rgb(185, 28, 28)', 'rgb(185, 28, 28)']);
   await show(page, 'entry');
   failures.push(...(await page.evaluate(measure.contrast)).filter((line) => /Falha na importação de teste|Não consegui salvar, tente/.test(line)).map((line) => `erro: ${line}`));
   expect(panel.failures, 'nenhum handler falhou no banco simulado').toEqual([]);

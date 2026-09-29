@@ -1,4 +1,4 @@
-/* Identidade visual premium do painel My Car Scout.
+/* Identidade visual premium do painel My Car Scout (tema claro único, fundo branco).
    Camada final: só aparência, espaçamento, contraste e área de toque. Nenhuma classe, ID ou
    atributo data-* novo é exigido pelo JavaScript; tokens em tema-mcs.css (:root). */
 
@@ -61,7 +61,7 @@ dialog {
 .item-card { padding: 20px; gap: 12px; }
 .record-block { border-top-color: var(--mcs-line); }
 dialog { background: var(--mcs-elevated); }
-dialog::backdrop { background: rgb(0 0 0 / 70%); }
+dialog::backdrop { background: rgb(11 11 13 / 40%); }
 
 /* ---------- campos ---------- */
 input,
@@ -85,7 +85,7 @@ select:focus,
 textarea:focus,
 .lead-note:focus { border-color: var(--mcs-gold); outline: 2px solid var(--mcs-gold); outline-offset: 1px; }
 label { color: var(--mcs-text); font-weight: 500; }
-select { color-scheme: dark; }
+select { color-scheme: light; }
 
 /* ---------- botões ---------- */
 button,
@@ -93,7 +93,7 @@ button,
 .entry-open-button {
   min-height: var(--mcs-touch);
   padding: 10px 16px;
-  border: 1px solid #3F3F46;
+  border: 1px solid var(--mcs-control-line);
   border-radius: var(--mcs-radius-sm);
   background: var(--mcs-elevated);
   color: var(--mcs-text);
@@ -103,11 +103,11 @@ button,
   box-shadow: none;
   transition: border-color .15s ease, background-color .15s ease;
 }
-button:hover { border-color: var(--mcs-field-line); background: #222227; }
+button:hover { border-color: var(--mcs-field-line); background: var(--mcs-hover); }
 .small { padding: 10px 14px; font-size: 14px; }
 .quiet,
 button.quiet {
-  border: 1px solid #34343B;
+  border: 1px solid var(--mcs-control-line);
   background: transparent;
   color: var(--mcs-text);
 }
@@ -136,9 +136,9 @@ body.login-screen #password-view button[type="submit"] {
 button[type="submit"]:hover,
 .today-card .today-primary:hover,
 .client-card > .inline-actions > button:first-child:hover,
-.lead-call:hover { background: #D4A646; border-color: #D4A646; }
-#global-search button[type="submit"] { border-color: #3F3F46; background: var(--mcs-elevated); color: var(--mcs-text); }
-#global-search button[type="submit"]:hover { border-color: var(--mcs-field-line); background: #222227; }
+.lead-call:hover { background: #B8892A; border-color: #B8892A; }
+#global-search button[type="submit"] { border-color: var(--mcs-control-line); background: var(--mcs-elevated); color: var(--mcs-text); }
+#global-search button[type="submit"]:hover { border-color: var(--mcs-field-line); background: var(--mcs-hover); }
 
 /* Ações destrutivas: neutras, contornadas e afastadas das principais */
 .disposition-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 12px; border-top: 1px solid var(--mcs-line); }
@@ -171,7 +171,7 @@ button[type="submit"]:hover,
 
 /* ---------- topo e navegação ---------- */
 .topbar {
-  background: rgb(11 11 13 / 94%);
+  background: rgb(255 255 255 / 94%);
   border-bottom: 1px solid var(--mcs-line);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
@@ -217,7 +217,7 @@ button[type="submit"]:hover,
 .global-search button { height: var(--mcs-touch); }
 #logout,
 #notification-toggle,
-#notification-test { min-height: var(--mcs-touch); padding: 8px 12px; border: 1px solid #34343B; background: transparent; color: var(--mcs-muted); font-size: 13px; font-weight: 500; }
+#notification-test { min-height: var(--mcs-touch); padding: 8px 12px; border: 1px solid var(--mcs-control-line); background: transparent; color: var(--mcs-muted); font-size: 13px; font-weight: 500; }
 #logout:hover,
 #notification-toggle:hover,
 #notification-test:hover { color: var(--mcs-text); border-color: var(--mcs-field-line); }
@@ -246,7 +246,7 @@ button[type="submit"]:hover,
 .empty-state { border-color: var(--mcs-line); color: var(--mcs-muted); border-radius: var(--mcs-radius); }
 .action-feedback,
 body > .action-feedback,
-.undo-toast { background: var(--mcs-elevated); color: var(--mcs-text); border: 1px solid var(--mcs-field-line); border-radius: 12px; box-shadow: 0 12px 32px rgb(0 0 0 / 50%); }
+.undo-toast { background: var(--mcs-elevated); color: var(--mcs-text); border: 1px solid var(--mcs-field-line); border-radius: 12px; box-shadow: 0 12px 32px rgb(11 11 13 / 14%); }
 .undo-toast button { min-height: var(--mcs-touch); }
 
 /* ---------- HOJE: fila de ação ---------- */
@@ -284,7 +284,7 @@ body > .action-feedback,
 .chip {
   min-height: var(--mcs-touch);
   padding: 8px 16px;
-  border: 1px solid #34343B;
+  border: 1px solid var(--mcs-control-line);
   border-radius: 999px;
   background: transparent;
   color: var(--mcs-text);
@@ -330,7 +330,7 @@ body > .action-feedback,
 .entry-simulated { margin-top: 18px; padding: 12px 16px; border: 1px dashed var(--mcs-line); background: transparent; }
 .entry-simulated > summary { color: var(--mcs-muted); font-size: 15px; font-weight: 500; }
 .entry-tool-icon { filter: grayscale(.2); }
-.entry-open-button { display: inline-flex; align-items: center; border-color: #34343B; background: transparent; }
+.entry-open-button { display: inline-flex; align-items: center; border-color: var(--mcs-control-line); background: transparent; }
 .print-drop,
 .drop-zone {
   display: grid;
@@ -385,7 +385,7 @@ body > .action-feedback,
   color: var(--mcs-text);
   border: 1px solid var(--mcs-field-line);
   border-radius: 12px;
-  box-shadow: 0 16px 40px rgb(0 0 0 / 55%);
+  box-shadow: 0 12px 32px rgb(11 11 13 / 14%);
 }
 .message-menu > summary { display: inline-grid; place-items: center; min-width: var(--mcs-touch); min-height: var(--mcs-touch); color: var(--mcs-muted); }
 
@@ -432,7 +432,7 @@ body > .action-feedback,
 .timeline-interaction { color: var(--mcs-blue); border-color: rgb(90 169 230 / 35%); }
 .timeline-system { color: var(--mcs-muted); background: var(--mcs-elevated); border-color: var(--mcs-line); }
 .reply-composer { border-color: var(--mcs-line); background: var(--mcs-elevated); }
-.detail-toolbar { background: rgb(11 11 13 / 94%); }
+.detail-toolbar { background: rgb(255 255 255 / 94%); }
 .search-stage.MISSING { color: var(--mcs-amber); }
 .search-stage.SAVED { color: var(--mcs-blue); }
 .search-stage.SENT { color: var(--mcs-green); }
@@ -468,26 +468,26 @@ body.login-screen {
 body.login-screen #login-view,
 body.login-screen #password-view {
   padding: 32px;
-  border: 1px solid rgb(245 245 244 / 14%);
+  border: 1px solid var(--mcs-line);
   border-radius: 18px;
-  background: rgb(20 20 23 / 78%);
+  background: rgb(255 255 255 / 94%);
   color: var(--mcs-text);
-  box-shadow: 0 24px 60px rgb(0 0 0 / 55%);
+  box-shadow: 0 24px 60px rgb(11 11 13 / 35%);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
 }
 body.login-screen #login-view .eyebrow,
-body.login-screen #password-view .eyebrow { color: var(--mcs-gold); }
+body.login-screen #password-view .eyebrow { color: var(--mcs-gold-text); }
 body.login-screen #login-view h1,
 body.login-screen #password-view h1 { font-size: 34px; font-weight: 600; color: var(--mcs-text); }
 body.login-screen #login-view .muted,
-body.login-screen #password-view .muted { color: #D4D4D8; }
+body.login-screen #password-view .muted { color: var(--mcs-muted); }
 body.login-screen #login-view label,
 body.login-screen #password-view label { color: var(--mcs-text); }
 body.login-screen #login-view input:not([type="checkbox"]),
 body.login-screen #password-view input {
   border-color: var(--mcs-field-line);
-  background: rgb(11 11 13 / 88%);
+  background: var(--mcs-bg);
   color: var(--mcs-text);
 }
 body.login-screen #login-view button[type="submit"],
@@ -521,7 +521,7 @@ body.login-screen .error { color: var(--mcs-red); }
     padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
     overflow: visible;
     border-top: 1px solid var(--mcs-line);
-    background: rgb(11 11 13 / 96%);
+    background: rgb(255 255 255 / 96%);
     -webkit-backdrop-filter: blur(16px);
     backdrop-filter: blur(16px);
     -webkit-mask-image: none;
@@ -587,7 +587,7 @@ body.login-screen .error { color: var(--mcs-red); }
   min-height: var(--mcs-touch);
   margin: 0;
   padding: 8px 14px;
-  border: 1px solid #3F3F46;
+  border: 1px solid var(--mcs-control-line);
   border-radius: var(--mcs-radius-sm);
   background: var(--mcs-elevated);
   font-weight: 600;
