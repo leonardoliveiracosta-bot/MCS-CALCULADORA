@@ -35,7 +35,7 @@ test('GET WhatsApp ignores null suggestion contacts and remains available',async
 test('HOJE keeps contact metadata once for journeys and once for calculator orders, without technical click badges',()=>{
   const panel=read('painel/painel.js');
   const identity=panel.slice(panel.indexOf('function identityHeader'),panel.indexOf('function smsPrintMissing'));
-  const today=panel.slice(panel.indexOf('function renderToday'),panel.indexOf('function renderOrders'));
+  const today=panel.slice(panel.indexOf('function renderToday'),panel.indexOf('function orderCard'));
   assert.equal((identity.match(/contactMeta\(item\)/g)||[]).length,1);
   assert.match(today,/head\.append\(identityHeader\(item\)\)/);
   assert.match(today,/if\(item\.kind==='CALCULATOR_ORDER'\)\{const contact=contactMeta\(item\);if\(contact\)badges\.append\(contact\);\}/);

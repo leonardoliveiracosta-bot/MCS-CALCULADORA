@@ -53,7 +53,6 @@
           <button class="tab active" type="button" data-view="today">HOJE <span data-count="today">0</span></button>
           <button class="tab" type="button" data-view="entry">ENTRADA <span data-count="entry">0</span></button>
           <button class="tab" type="button" data-view="clients">CLIENTES <span data-count="clients">0</span></button>
-          <button class="tab" type="button" data-view="orders">PEDIDOS <span data-count="orders">0</span></button>
           <button class="tab" type="button" data-view="searches">BUSCAS <span data-count="searches">0</span></button>
         </nav>
         <form id="global-search" class="global-search" role="search">
@@ -96,6 +95,24 @@
           <div id="whatsapp-errors" class="queue" aria-live="polite"></div>
           <div id="whatsapp-suggestions" class="queue" aria-live="polite"></div>
         </section>
+        <details id="entry-orders" class="card entry-orders">
+          <summary><strong>Pediram contato, sem conversa</strong> <span id="entry-orders-count" class="badge">…</span></summary>
+          <p class="muted">Entraram em contato pela calculadora e ainda não têm ficha. Conta o clique em SMS e o clique em WhatsApp de antes do WhatsApp entrar direto no painel</p>
+          <div class="inline-actions"><button class="quiet small" type="button" data-report="orders">Gerar relatório de pedidos</button></div>
+          <div class="filters" aria-label="Período dos pedidos sem conversa">
+            <button type="button" class="chip" data-entry-orders-period="7">7 dias</button>
+            <button type="button" class="chip active" data-entry-orders-period="30">30 dias</button>
+            <button type="button" class="chip" data-entry-orders-period="all">Tudo</button>
+          </div>
+          <div id="entry-orders-list" class="stack" aria-live="polite"></div>
+          <button id="entry-orders-more" class="quiet small hidden" type="button">Carregar mais</button>
+          <details id="entry-simulated" class="entry-simulated">
+            <summary>Só simularam <span id="entry-simulated-count" class="muted">…</span></summary>
+            <p class="muted">Simularam sem contato registrado. Quem só clicou no WhatsApp e nunca escreveu também fica aqui</p>
+            <div id="entry-simulated-list" class="stack" aria-live="polite"></div>
+            <button id="entry-simulated-more" class="quiet small hidden" type="button">Carregar mais</button>
+          </details>
+        </details>
         <section class="entry-add" aria-labelledby="entry-add-title">
           <div class="entry-group-title"><p class="eyebrow">FERRAMENTAS</p><h2 id="entry-add-title">Adicionar ao painel</h2></div>
           <div class="entry-tools">
@@ -176,6 +193,9 @@
           <label>Situação<select id="clients-situation"><option value="all">Todas</option><option value="NO_RESPONSE">Sem resposta</option><option value="MCS_PENDING">Parado com você</option><option value="CUSTOMER_PENDING">Parado com o cliente</option><option value="IN_PROGRESS">Em andamento</option><option value="CLOSED">Concluída</option></select></label>
           <label>Checklist<select id="clients-checklist"><option value="all">Todos</option><option value="complete">Completo 6/6</option><option value="incomplete">Incompleto</option></select></label>
           <label>Ref<select id="clients-ref"><option value="all">Todos</option><option value="with">Com Ref</option><option value="without">Sem Ref</option></select></label>
+          <label>Origem<select id="clients-origin"><option value="all">Todas</option><option value="CALCULADORA">Calculadora</option><option value="WHATSAPP">WhatsApp direto</option><option value="SMS">SMS direto</option></select></label>
+          <label>Tipo<select id="clients-type"><option value="all">Todos</option><option value="SIMULACAO">Simulação</option><option value="BUSCA">Busca</option><option value="SEM_CALCULADORA">Sem calculadora</option></select></label>
+          <label>Última atividade<select id="clients-activity"><option value="all">Tudo</option><option value="7">7 dias</option><option value="30">30 dias</option></select></label>
           <label>Calor<select id="clients-heat"><option value="all">Todos</option><option value="HOT">Quente</option><option value="WARM">Morno</option><option value="COLD">Frio</option></select></label>
           <label>Ordenar<select id="clients-sort"><option value="ready">Pronto para ligar</option><option value="hot">Quentes primeiro</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label>
         </div>
@@ -197,26 +217,6 @@
           <button id="pending-download" class="quiet small" type="button">Baixar relatório (planilha)</button>
         </div>
         <div id="pending-list" class="stack" aria-live="polite"></div>
-      </section>
-      <section id="orders-panel" class="panel-view hidden" aria-label="Pedidos">
-        <div class="section-head"><div><h2>Pedidos</h2><p class="muted">Simulações não criam lead automaticamente.</p></div><div class="inline-actions"><label>Ordenar<select id="orders-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="orders">Gerar relatório desta aba</button></div></div>
-        <div id="order-filters" class="filters" aria-label="Filtros de pedidos">
-          <button type="button" class="chip active" data-order-filter="Todos">Todos</button>
-          <button type="button" class="chip" data-order-filter="Calculadora">Calculadora</button>
-          <button type="button" class="chip" data-order-filter="WhatsApp direto">WhatsApp direto</button>
-          <button type="button" class="chip" data-order-filter="Carro">Carro</button>
-          <button type="button" class="chip" data-order-filter="Valor">Valor</button>
-          <button type="button" class="chip" data-order-filter="Pendentes">Pendentes</button>
-        </div>
-        <div id="order-periods" class="filters" aria-label="Período dos pedidos">
-          <span class="filter-label">Período</span>
-          <button type="button" class="chip" data-order-period="7">7 dias</button>
-          <button type="button" class="chip active" data-order-period="30">30 dias</button>
-          <button type="button" class="chip" data-order-period="90">90 dias</button>
-          <button type="button" class="chip" data-order-period="all">Todo o histórico</button>
-        </div>
-        <div id="orders-list" class="stack" aria-live="polite"></div>
-        <button id="orders-more" class="quiet load-more hidden" type="button">Carregar mais</button>
       </section>
       <section id="qualification-panel" class="panel-view hidden" aria-label="Qualificação">
         <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo.</p></div><div class="inline-actions"><label>Ordenar<select id="qualification-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div></div>
@@ -271,6 +271,7 @@
   <script src="/painel/manheim.js?v=3" defer></script>
   <script src="/painel/manheim-upload.js?v=1" defer></script>
   <script src="/money-text.js?v=1" defer></script>
+  <script src="/panel-origin.js?v=1" defer></script>
   <script src="/painel/action.js" defer></script>
   <script src="/painel/lead.js" defer></script>
   <script src="/painel/painel.js" defer></script>

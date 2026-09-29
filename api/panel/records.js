@@ -9,6 +9,7 @@ const { timezoneForZip } = require('../../panel-lead');
 const { sortItems, lastRealMessageAt } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { dispositionIndex } = require('../../panel-disposition');
+const { clientOrigin } = require('../../panel-origin');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 
 function newPromiseToday(promises, ref, zip) {
@@ -183,7 +184,10 @@ module.exports = async (req, res) => {
         const latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
         /* ordem Mais recentes/antigas: ultima mensagem real; sem mensagem, a simulacao; sem nada, fim da lista */
         const lastRealAt=lastRealMessageAt(ownMessages);
-        return [decorateContact({ ...complete, ...ready, isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id),complete)];
+        // Lote 4: Origem, Tipo and Última atividade for the CLIENTES filters (PEDIDOS merged in).
+        const ownOrders=[...new Set([item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>String(ref||'').trim().toUpperCase()).filter(Boolean))].map((ref)=>ordersByRef.get(ref)).filter(Boolean);
+        const originInfo=clientOrigin(item,ownOrders,lastRealAt);
+        return [decorateContact({ ...complete, ...ready, ...originInfo, isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id),complete)];
       });const stageIndex=await loadSearchStageIndex(ctx);return send(res, 200, { environment: ctx.environment, items:sortItems(listed,String(req.query?.sort||'ready'),'ready').map((item)=>decorateWithSearchStage(item,stageIndex)), meta });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });
