@@ -27,16 +27,16 @@ const CONFIG = {
 
   servico: {
     faixas: [
-      { ate: 3000,  valor: 250 },
-      { ate: 5000,  valor: 350 },
-      { ate: 7500,  valor: 450 },
-      { ate: 10000, valor: 550 },
-      { ate: 15000, valor: 650 },
-      { ate: 20000, valor: 800 }
+      { ate: 3000,  valor: 300 },
+      { ate: 5000,  valor: 400 },
+      { ate: 7500,  valor: 550 },
+      { ate: 10000, valor: 650 },
+      { ate: 15000, valor: 750 },
+      { ate: 20000, valor: 900 }
     ],
 
     limite: 20000,
-    base: 800,
+    base: 900,
     blocoAdicional: 2500,
     valorPorBloco: 50
   },

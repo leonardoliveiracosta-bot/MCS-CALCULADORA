@@ -2,7 +2,8 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "test:sql": "node tests/sql/run.js",
-    "test:visual": "playwright test tests/panel-responsive.spec.js"
+    "test:visual": "playwright test tests/panel-responsive.spec.js",
+    "test:fee": "PANEL_VISUAL_LOCAL=1 playwright test tests/service-fee.spec.js"
   },
   "dependencies": {
     "@vercel/functions": "3.9.9",
