@@ -100,3 +100,116 @@ test('Lote 3 · banco: a V2 grava o desejo confirmado quando recebe confirmedWis
     assert.deepEqual(criteria.wishlists.map((wish) => wish.model), ['X5', 'Q5']);
   } finally { await db.close(); }
 });
+
+test('Lote 3 · importação depois do webhook: a mesma mensagem (pessoa, direção, minuto e texto) não duplica', async () => {
+  const real = require('../panel-server');
+  const calls = [];
+  const webhook = [{ direction: 'CUSTOMER', body_normalized: 'Quero  uma X5', occurred_at_utc: '2026-09-20T14:05:41Z' }];
+  const server = { ...real,
+    requirePanel: async () => ({ environment: 'preview', panel: { id: uuid(1) }, config: { url: 'https://example.invalid', secretKey: 'x' } }),
+    allRows: async (_ctx, table) => table === 'messages' ? webhook : [],
+    supabase: async (_url, _key, pathName, options) => {
+      if (pathName.startsWith('/rest/v1/import_jobs')) return [{ chat_id: uuid(31) }];
+      if (pathName.includes('chats?') && pathName.includes('contact_id=eq.')) return [{ id: uuid(31) }, { id: uuid(33) }];
+      if (pathName.includes('chats?')) return [{ contact_id: uuid(32) }];
+      calls.push(JSON.parse(options.body));
+      return [{ inserted_count: 1, already_present_count: 0 }];
+    }
+  };
+  const handler = loadWith('api/panel/entry.js', { '../../panel-server': server });
+  const item = (text, minute, signature) => ({ chat_id: uuid(31), direction: 'CUSTOMER', body_text: text, body_normalized: text, occurred_at_utc: `2026-09-20T14:0${minute}:00.000Z`, signature_base: signature, file_occurrence_total: 1 });
+  const res = output();
+  await handler({ method: 'POST', body: { action: 'batch', importJobId: uuid(30), batchNumber: 1, messages: [item('quero uma x5', 5, 'a'), item('e o preço?', 6, 'b')] } }, res);
+  assert.equal(res.code, 200, JSON.stringify(res.payload));
+  assert.deepEqual(res.payload, { inserted: 1, alreadyPresent: 1 });
+  assert.deepEqual(calls[0].p_messages.map((row) => row.body_text), ['e o preço?']);
+  calls.length = 0;
+  const only = output();
+  await handler({ method: 'POST', body: { action: 'batch', importJobId: uuid(30), batchNumber: 2, messages: [item('Quero uma X5', 5, 'a')] } }, only);
+  assert.deepEqual(only.payload, { inserted: 0, alreadyPresent: 1 });
+  assert.equal(calls.length, 0);
+});
+
+test('Lote 3 · importação automática: título de dois chats vai para revisão', () => {
+  const parser = require('../painel/parser');
+  const parsed = parser.parseWhatsApp('[25/09/2026, 14:30] Operador MCS: Olá\n[25/09/2026, 14:31] Ana: Oi', 'WhatsApp Chat with Ana.txt', {});
+  const chats = [{ id: 'a', contact_id: 'pa', is_group: false }, { id: 'b', contact_id: 'pb', is_group: false }];
+  const senders = ['a', 'b'].flatMap((chat) => [{ chat_id: chat, sender_text: 'Operador MCS', direction: 'MCS' }, { chat_id: chat, sender_text: 'Ana', direction: 'CUSTOMER' }]);
+  assert.equal(parser.automaticImportMatch(parsed, [{ chat_id: 'a', alias_text: 'WhatsApp Chat with Ana' }], chats, senders).chat.id, 'a');
+  assert.equal(parser.automaticImportMatch(parsed, [{ chat_id: 'a', alias_text: 'WhatsApp Chat with Ana' }, { chat_id: 'b', alias_text: 'WhatsApp Chat with Ana' }], chats, senders), null);
+});
+
+test('Lote 3 · início da importação: falha no meio apaga só o que esta tentativa criou', async () => {
+  const real = require('../panel-server');
+  const deleted = [];
+  const server = { ...real,
+    requirePanel: async () => ({ environment: 'preview', panel: { id: uuid(1) }, config: { url: 'https://example.invalid', secretKey: 'x' } }),
+    supabase: async (_url, _key, pathName, options = {}) => {
+      if (options.method === 'DELETE') { deleted.push(pathName.split('?')[0].replace('/rest/v1/', '')); return []; }
+      if (pathName.startsWith('/rest/v1/contacts') && options.method === 'POST') return [{ id: uuid(41), display_name: 'Cliente Novo' }];
+      if (pathName.startsWith('/rest/v1/chats') && options.method === 'POST') return [{ id: uuid(42) }];
+      if (pathName.startsWith('/rest/v1/import_jobs')) throw Object.assign(new Error('boom'), { status: 500 });
+      return [];
+    }
+  };
+  const handler = loadWith('api/panel/entry.js', { '../../panel-server': server });
+  const res = { ...output(), statusCode: 200, status(code) { this.code = code; this.statusCode = code; return this; } };
+  await handler({ method: 'POST', body: { action: 'start', sourceKind: 'WHATSAPP_TXT', sourceFilename: 'Cliente Novo.txt', sourceSha256: 'a'.repeat(64),
+    chat: { channel: 'WHATSAPP', isGroup: false, newContactName: 'Cliente Novo', aliasText: 'Cliente Novo', senderAliases: [{ senderText: 'MCS', direction: 'MCS' }, { senderText: 'Cliente Novo', direction: 'CUSTOMER' }] } } }, res);
+  assert.equal(res.code, 500);
+  assert.deepEqual(res.payload, { error: 'IMPORT_START_FAILED' });
+  assert.deepEqual(deleted, ['chat_sender_aliases', 'chat_aliases', 'chats', 'contacts']);
+});
+
+test('Lote 3 · reimportação sem mensagem nova não abre ficha vazia', async () => {
+  const real = require('../panel-server');
+  const calls = [];
+  let openJourneys = [{ id: uuid(53) }];
+  const server = { ...real,
+    requirePanel: async () => ({ environment: 'preview', panel: { id: uuid(1) }, config: { url: 'https://example.invalid', secretKey: 'x' } }),
+    allRows: async () => [],
+    supabase: async (_url, _key, pathName, options = {}) => {
+      calls.push({ pathName, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null });
+      if (pathName.startsWith('/rest/v1/import_jobs?') && !options.method) return [{ id: uuid(50), chat_id: uuid(51), message_count: 0 }];
+      if (pathName.startsWith('/rest/v1/chats?')) return [{ id: uuid(51), contact_id: uuid(52), resolution_status: 'RESOLVED', is_group: false }];
+      if (pathName.startsWith('/rest/v1/journeys?') && pathName.includes('contact_id=eq.')) return openJourneys;
+      if (pathName.includes('panel_finalize_import_resolution')) return uuid(53);
+      return [];
+    }
+  };
+  const handler = loadWith('api/panel/entry.js', { '../../panel-server': server });
+  const res = output();
+  await handler({ method: 'POST', body: { action: 'finish', importJobId: uuid(50), journey: { mode: 'new' } } }, res);
+  const finalize = calls.find((call) => call.pathName.includes('panel_finalize_import_resolution'));
+  assert.equal(finalize.body.p_create_new, false);
+  assert.equal(finalize.body.p_journey_id, uuid(53));
+  calls.length = 0; openJourneys = [];
+  const none = output();
+  await handler({ method: 'POST', body: { action: 'finish', importJobId: uuid(50), journey: { mode: 'new' } } }, none);
+  assert.equal(none.payload.nothingNew, true);
+  assert.equal(calls.some((call) => call.pathName.includes('panel_finalize_import_resolution')), false);
+});
+
+test('Lote 3 · print de SMS: nome igual sem telefone igual vai para revisão na ENTRADA', async () => {
+  const real = require('../panel-server');
+  const patches = [];
+  const record = { id: uuid(60), status: 'READY', sha256: null, extracted_json: {}, source_journey_id: null };
+  const server = { ...real,
+    requirePanel: async () => ({ environment: 'preview', panel: { id: uuid(1) }, config: { url: 'https://example.invalid', secretKey: 'x' } }),
+    jsonBody: async (req) => req.body,
+    patchRows: async (_ctx, table, _filters, payload) => { patches.push({ table, payload }); return []; },
+    rows: async (_ctx, table, params) => {
+      if (table === 'sms_print_reads') return [record];
+      if (table === 'contacts' && params.display_name) return [{ id: uuid(61) }];
+      if (table === 'journeys' && params.contact_id) return [{ id: uuid(62), contact_id: uuid(61) }];
+      return [];
+    },
+    supabase: async () => { throw new Error('não deveria gravar'); }
+  };
+  const handler = loadWith('api/panel/sms-print.js', { '../../panel-server': server, '../../panel-lead': { orders: async () => [] } });
+  const res = output();
+  await handler({ method: 'POST', body: { action: 'confirm', auto: true, readId: uuid(60), phone: '+13055550000', name: 'Ana Souza', message: 'oi' } }, res);
+  assert.equal(res.code, 202, JSON.stringify(res.payload));
+  assert.equal(res.payload.candidateJourneyId, uuid(62));
+  assert.deepEqual(patches.map((row) => row.payload.error_code), ['NAME_MATCH_REVIEW']);
+});

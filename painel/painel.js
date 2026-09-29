@@ -13,6 +13,7 @@
   let contacts = [];
   let chats = [];
   let journeys = [];
+  let printReviews = [];
   let senderAliases = [];
   let chatAliases = [];
   let todayItems = [];
@@ -59,13 +60,18 @@
       PANEL_ACCESS_DENIED: 'esta conta não tem acesso ao painel',
       AUTHENTICATION_REQUIRED: 'a sessão expirou; entre novamente'
     };
-    const detail = messages[failure && failure.code] || 'não foi possível concluir a gravação';
-    return `Falha na importação: ${detail}. Nenhum sucesso foi confirmado.`;
+    // M23: local errors (file too big, bad ZIP) carry a readable message and no code
+    const local = failure && !failure.code && failure.message && !/^[A-Z0-9_]+$/.test(failure.message) ? failure.message.replace(/\.$/, '') : '';
+    const detail = messages[failure && failure.code] || local || 'não foi possível concluir a gravação';
+    const saved = importProgress.inserted;
+    return saved ? `Falha na importação: ${detail}. ${saved} mensagem(ns) já ficaram gravadas; importe o mesmo arquivo de novo para completar, sem duplicar` : `Falha na importação: ${detail}. Nada foi gravado`;
   };
+  const importProgress = { inserted: 0 };
   const showImportFailure = (failure) => {
     const status = $('import-status');
     status.classList.add('error');
     status.textContent = importFailureMessage(failure);
+    $('whatsapp-files').value = '';
   };
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -182,11 +188,13 @@
     chats.filter((chat) => chat.channel === 'WHATSAPP' && Boolean(chat.is_group) === group && (group || !chosenContact || chosenContact === 'new' || chat.contact_id === chosenContact)).forEach((chat) => option(chatSelect, `${chat.contact && chat.contact.display_name ? chat.contact.display_name : group ? 'Grupo existente' : 'Chat existente'} — ${chat.channel}`, chat.id));
     journeySelect.replaceChildren(new Option('Escolha', ''));
     option(journeySelect, 'Nova jornada', 'new');
-    journeys.filter((journey) => chosenContact !== 'new' && journey.contact_id === chosenContact).forEach((journey) => {
+    const ownJourneys = journeys.filter((journey) => chosenContact !== 'new' && journey.contact_id === chosenContact);
+    ownJourneys.forEach((journey) => {
       const refs = [journey.reference_code, ...(journey.refs || []).map((item) => item.ref_code)].filter(Boolean).join(', ');
       option(journeySelect, `${journey.vehicle_text || 'Busca sem veículo'}${refs ? ` — Ref ${refs}` : ''}`, journey.id);
     });
-    journeySelect.value = 'new';
+    // A17: the person's most recent open ficha comes selected; a new ficha is an explicit choice
+    journeySelect.value = ownJourneys[0] ? ownJourneys[0].id : 'new';
     $('contact-name-label').hidden = chosenContact !== 'new';
   }
 
@@ -303,7 +311,9 @@
     }
     const inferredName = inferredContactName(initial.title || filename);
     const automatic = MCSParser.automaticImportMatch(initial, chatAliases, chats, senderAliases, inferredName);
-    const knownChat = automatic && automatic.chat;
+    // C4 residue: a Ref in the file that belongs to someone else sends the file to review
+    const foreignRef = automatic && initial.refs.some((ref) => journeys.some((item) => item.contact_id !== automatic.chat.contact_id && (ref === item.reference_code || (item.refs || []).some((stored) => stored.ref_code === ref))));
+    const knownChat = automatic && !foreignRef && automatic.chat;
     const knownMcs = automatic && { sender_text: automatic.mcsSender };
     let choice;
     if (knownChat && knownMcs && !initial.requiresDateOrder) {
@@ -354,12 +364,14 @@
       }
       const result = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'batch', importJobId: start.importJobId, batchNumber: batch++, messages: chunk }) });
       inserted += result.inserted;
+      importProgress.inserted += result.inserted;
     }
     const done = await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'finish', importJobId: start.importJobId, journey: choice.journey, refs: choice.parsed.refs }) });
-    return { inserted, pending: done.pending, journeyId: done.journeyId || null };
+    return { inserted, pending: done.pending, journeyId: done.journeyId || null, nothingNew: Boolean(done.nothingNew) };
   }
 
   async function importFiles(files) {
+    importProgress.inserted = 0;
     if (!files.length || files.length > MAX_FILES) throw new Error('Selecione de 1 a 20 arquivos.');
     await loadQueue(false);
     let inserted = 0;
@@ -368,8 +380,8 @@
     for (const file of files) {
       $('import-status').classList.remove('error');
       $('import-status').textContent = `Lendo ${file.name}…`;
-      const sourceSha = await sha256(await file.arrayBuffer());
       const extracted = await extract(file);
+      const sourceSha = await sha256(await file.arrayBuffer());
       for (const item of extracted) {
         const result = await submitConversation(item.text, item.name, file.name.toLowerCase().endsWith('.zip') ? 'WHATSAPP_ZIP' : 'WHATSAPP_TXT', file.name, sourceSha);
         inserted += result.inserted;
@@ -378,8 +390,10 @@
       }
     }
     $('import-status').classList.remove('error');
-    $('import-status').textContent = `${inserted} mensagem(ns) nova(s). ${pending ? 'Há uma dúvida real para revisar.' : 'Importação concluída.'}`;
+    $('whatsapp-files').value = '';
+    $('import-status').textContent = !inserted && !pending ? 'Nenhuma mensagem nova, a conversa já estava no painel' : `${inserted} mensagem(ns) nova(s). ${pending ? 'Há uma dúvida real para revisar.' : 'Importação concluída.'}`;
     await loadQueue();
+    await refreshCounters().catch(() => {});
     if (!pending && lastJourneyId) await openDetail('ficha',lastJourneyId);
   }
 
@@ -412,11 +426,47 @@
     }
   }
 
+  // A18: a print that only matches a lead by name waits for the operator
+  function printReviewCard(print) {
+    const item = element('article', 'queue-item');
+    const header = element('header', '');
+    header.append(element('strong', '', `Print de SMS · ${print.name || print.phone || print.filename || 'sem nome'}`), element('span', 'badge', 'revisão'));
+    item.append(header, element('span', 'muted', print.candidate ? `O nome bate com ${print.candidate.name}${print.candidate.ref ? ` · Ref ${print.candidate.ref}` : ''}, mas o telefone não` : 'O nome bate com um lead que não está aberto'));
+    if (print.phone) item.append(element('span', 'muted', `Telefone do print: ${print.phone}`));
+    if (print.message) item.append(element('p', '', print.message.length > 280 ? `${print.message.slice(0, 280)}…` : print.message));
+    const actions = element('div', 'inline-actions');
+    const values = { phone: print.phone || '', name: print.name || '', ref: print.ref || '', message: print.message || '', translation: print.translation || '' };
+    const run = (button, body, successText) => MCSAction.bind(button, () => ({
+      scope: item, successScope: document.body,
+      optimistic: () => { item.classList.add('action-optimistic-hidden'); const before = countValue('entry'); setCount('entry', Math.max(0, before - 1)); return before; },
+      commit: () => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId: print.id, ...body }) }),
+      rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('entry', before); },
+      successText, refresh: () => loadQueue(), errorText: 'Não consegui salvar, tente de novo'
+    }));
+    if (print.candidate) {
+      const keep = element('button', 'small', `Guardar em ${print.candidate.name}`); keep.type = 'button';
+      run(keep, print.message ? { action: 'confirm', targetJourneyId: print.candidate.journeyId, keepSource: true, ...values } : { action: 'photo', targetJourneyId: print.candidate.journeyId }, 'Print guardado no lead');
+      actions.append(keep);
+    }
+    if (print.message) {
+      const create = element('button', 'quiet small', 'Criar lead novo'); create.type = 'button';
+      run(create, { action: 'confirm', auto: true, newLead: true, ...values }, 'Lead novo criado com o print');
+      actions.append(create);
+    }
+    const discard = element('button', 'quiet small', 'Descartar print'); discard.type = 'button';
+    run(discard, { action: 'discard' }, 'Print descartado');
+    actions.append(discard);
+    item.append(actions);
+    return item;
+  }
+
   function renderQueue(items, reviews) {
     items=clientSort(items,$('entry-sort')?.value||'recent');
     const root = $('entry-queue');
     root.replaceChildren();
+    printReviews.forEach((print) => root.append(printReviewCard(print)));
     if (!items.length && !reviews.length) {
+      if (printReviews.length) return;
       const empty = document.createElement('p');
       empty.className = 'muted';
       empty.textContent = 'Nenhuma conversa importada.';
@@ -585,8 +635,11 @@
   function historyBatches(ordered) {
     const batches = [], encoder = new TextEncoder();
     let batch = [], bytes = 0;
+    Object.defineProperty(batches, 'skipped', { value: 0, writable: true, enumerable: false });
     for (const item of ordered) {
       const itemBytes = encoder.encode(JSON.stringify(item)).length;
+      // P19.3: an item above the server limit is skipped and reported, the rest of the file still goes
+      if (itemBytes > 800000) { batches.skipped++; continue; }
       if (batch.length && (batch.length === 10 || bytes + itemBytes > 500000)) { batches.push(batch); batch = []; bytes = 0; }
       batch.push(item); bytes += itemBytes;
     }
@@ -610,6 +663,7 @@
   async function import360History() {
     const status = $('history-import-status'), errors = $('history-import-errors'), sendButton = $('history-import-send');
     if (!historyImportFile) return;
+    if (historyImportFile.size > 100 * 1024 * 1024) throw new Error('HISTORY_FILE_TOO_LARGE');
     let entries;
     try { entries = JSON.parse(await historyImportFile.text()); } catch (_) { throw new Error('HISTORY_FILE_INVALID'); }
     if (!Array.isArray(entries) || !entries.length || !entries.every(validHistoryObject)) throw new Error('HISTORY_FILE_INVALID');
@@ -619,12 +673,14 @@
     const ordered = states.concat(histories, mediaHistories), totals = { conversations: 0, imported: 0, alreadyExists: 0, errors: 0 };
     errors.replaceChildren(); sendButton.disabled = true;
     let completed = 0;
-    for (const originalBatch of historyBatches(ordered)) {
+    const threads = new Set(), batches = historyBatches(ordered);
+    totals.errors += batches.skipped; completed += batches.skipped;
+    for (const originalBatch of batches) {
       let batch = originalBatch, attempts = 0;
       while (batch.length) {
         status.textContent = `Importando ${Math.min(completed, ordered.length)} de ${ordered.length}…`;
         const result = await requestHistoryBatch(batch, request, pause);
-        totals.conversations += Number(result.conversations || 0); totals.imported += Number(result.imported || 0); totals.alreadyExists += Number(result.alreadyExists || 0); totals.errors += Number(result.errors || 0);
+        (result.threadIds || []).forEach((id) => threads.add(id)); totals.imported += Number(result.imported || 0); totals.alreadyExists += Number(result.alreadyExists || 0); totals.errors += Number(result.errors || 0);
         if (result.more) { const processed = Math.max(1, Number(result.nextIndex || 1)); completed += Math.min(processed, batch.length); batch = batch.slice(processed); continue; }
         if (result.inProgress && attempts++ < 8) { await pause(1000); continue; }
         if (result.inProgress) totals.errors += batch.length;
@@ -633,11 +689,13 @@
       }
       status.textContent = `Importando ${Math.min(completed, ordered.length)} de ${ordered.length}…`;
     }
-    const summary = `Importado: ${totals.conversations} conversas, ${totals.imported} mensagens novas, ${totals.alreadyExists} já existiam, ${totals.errors} com erro`;
+    totals.conversations = threads.size;
+    const summary = `Importado: ${totals.conversations} conversas, ${totals.imported} mensagens novas, ${totals.alreadyExists} já existiam, ${totals.errors} com erro${batches.skipped ? ` (${batches.skipped} grande(s) demais, pulado(s))` : ''}`;
     status.textContent = summary;
     if (totals.errors) { const viewErrors = element('button', 'quiet small', 'ver erros'); viewErrors.type = 'button'; viewErrors.addEventListener('click', () => loadWhatsApp().catch(() => {})); errors.append(viewErrors); }
     historyImportFile = null; $('history-import-file').value = ''; sendButton.disabled = true;
     await Promise.all([loadWhatsApp(), loadQueue(false)]);
+    await refreshCounters().catch(() => {});
   }
 
   async function loadQueue(render = true) {
@@ -653,7 +711,8 @@
     contacts.forEach((contact) => option(select, contact.display_name || 'Sem nome', contact.id));
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
-    setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length);
+    printReviews = data.printReviews || [];
+    setCount('entry', chats.filter((chat) => chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain).length + (data.reviews || []).length + printReviews.length);
     if (render) renderQueue(chats, data.reviews || []);
     return data;
   }
@@ -698,10 +757,11 @@
   function clearAutoPrint(){const input=$('auto-print-file');input.value='';autoPrintContext=null;$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;$('auto-print-result').classList.add('hidden');}
   function showAutoPrintChoice(files){const info=$('auto-print-file-info');info.replaceChildren();[...files].forEach((file)=>info.append(element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`)));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=!files.length;}
   function autoPrintResult(filename,text,saved){const resultRoot=arguments[3],root=resultRoot||$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',`${filename||'Print'} — ${text}`));root.append(row);return row;}
-  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} — Desfeito. O arquivo permanece guardado.`,errorText:'Não consegui desfazer — tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters();return saved;}
+  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});if(saved.review){autoPrintResult(filename,'O nome bate com um lead, mas o telefone não. Ficou em ENTRADA para você decidir',false,resultRoot);await loadQueue(currentView==='entry').catch(()=>{});return saved;}const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} — Desfeito. O arquivo permanece guardado.`,errorText:'Não consegui desfazer — tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters();return saved;}
   async function handleAutoPrintRead(result,context,filename,resultRoot){if(result.manual){const root=autoPrintResult(filename||result.read?.original_filename,'Não consegui ler agora — tente mais tarde ou use outra imagem.',false,resultRoot);const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),onSuccess:(next)=>handleAutoPrintRead(next,context,filename,resultRoot),errorText:'Não consegui ler agora — tente de novo'}));root.append(retry);return false;}return saveAutoPrint(result.read,context,filename,resultRoot);}
   async function uploadAutoPrint(file,context={},resultRoot){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');return handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context,file.name,resultRoot);}
-  async function sendAutoPrint(){const files=[...$('auto-print-file').files];if(!files.length)return;const status=$('auto-print-status'),result=$('auto-print-result');let failures=0;status.classList.remove('error');result.replaceChildren();result.classList.remove('hidden');$('auto-print-send').disabled=true;for(let index=0;index<files.length;index++){const file=files[index];status.textContent=`${index+1} de ${files.length}…`;try{if(await uploadAutoPrint(file,autoPrintContext||{})===false)failures++;}catch(error){failures++;autoPrintResult(file.name,error.code==='SMS_PRINT_INVALID_IMAGE'?'Use uma imagem válida, até 10 MB.':'Não consegui enviar agora. O arquivo não foi apagado.',false);}}$('auto-print-file').value='';$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;autoPrintContext=null;status.textContent=`${files.length} de ${files.length} prontos${failures?` · ${failures} com erro`:''}`;}
+  function printErrorText(error){return {SMS_PRINT_TOO_LARGE:'A imagem passa de 5 MB. Tire um print novo ou reduza a imagem',SMS_PRINT_HEIC:'Foto HEIC do iPhone não é aceita. Use um print da tela (PNG) ou exporte como JPEG',SMS_PRINT_INVALID_IMAGE:'Use uma imagem JPEG, PNG ou WebP de até 5 MB'}[error?.code]||'Não consegui enviar agora. O arquivo não foi apagado';}
+  async function sendAutoPrint(){const files=[...$('auto-print-file').files];if(!files.length)return;const status=$('auto-print-status'),result=$('auto-print-result');let failures=0;status.classList.remove('error');result.replaceChildren();result.classList.remove('hidden');$('auto-print-send').disabled=true;for(let index=0;index<files.length;index++){const file=files[index];status.textContent=`${index+1} de ${files.length}…`;try{if(await uploadAutoPrint(file,autoPrintContext||{})===false)failures++;}catch(error){failures++;autoPrintResult(file.name,printErrorText(error),false);}}$('auto-print-file').value='';$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;autoPrintContext=null;status.textContent=`${files.length} de ${files.length} prontos${failures?` · ${failures} com erro`:''}`;}
 
   function updateMeta(meta) {
     if (!meta) return;
@@ -852,7 +912,7 @@
     let items=(clientsData.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id}));
     const situation=$('clients-situation').value,checklist=$('clients-checklist').value,ref=$('clients-ref').value,heat=$('clients-heat').value;
     items=items.filter((item)=>(situation==='all'||item.situation===situation)&&(checklist==='all'||(checklist==='complete'?checklistCompleted(item)===6:checklistCompleted(item)<6))&&(ref==='all'||(ref==='with'?hasRef(item):!hasRef(item)))&&(heat==='all'||String(item.heat||'').toUpperCase()===heat));
-    const csvCell=(value)=>{const text=String(value??'');return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;};
+    const csvCell=(value)=>{const raw=String(value??''),text=/^[=+\-@\t\r]/.test(raw)&&!/^[+-]?[\d\s().,-]+$/.test(raw)?"'"+raw:raw;return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;};
     const rows=[['nome','telefone','Ref','situação','checklist','calor','etapa da busca','resumo da IA'],...items.map((item)=>[item.name||item.contact?.display_name||'',primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||'',item.ref||item.referenceCode||item.reference_code||'',pendingSituationLabel(item.situation),`${checklistCompleted(item)}/6`,pendingHeatLabel(item.heat),item.searchStageLabel||'',item.aiSummary||item.summary||''])];
     const blob=new Blob(['\uFEFF'+rows.map((row)=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='clientes-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
@@ -913,7 +973,7 @@
     const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui.'));
     const attach=element('label','small','📷 Anexar print do SMS'),input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;attach.append(input);const absent=element('button','quiet small','Não chegou SMS'); absent.type='button';
     const resultRoot=element('div','card-action-result');
-    input.addEventListener('change',()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null};MCSAction.run({button:attach,scope:block,optimistic:()=>attach.classList.add('disabled'),commit:async()=>{let last;for(const file of files)last=await uploadAutoPrint(file,context,resultRoot);return last;},rollback:()=>attach.classList.remove('disabled'),onSuccess:()=>{attach.classList.remove('disabled');input.value='';},errorText:'Não consegui salvar — tente de novo'});});
+    input.addEventListener('change',()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null};MCSAction.run({button:attach,scope:block,optimistic:()=>attach.classList.add('disabled'),commit:async()=>{let last;for(const file of files)last=await uploadAutoPrint(file,context,resultRoot);return last;},rollback:()=>{attach.classList.remove('disabled');input.value='';},onSuccess:()=>{attach.classList.remove('disabled');input.value='';},errorText:(error)=>printErrorText(error)});});
     absent.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED',absent);});
     const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions,resultRoot);
     return block;
@@ -1257,7 +1317,7 @@
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
         actionMessage, downloadShortlist, dispositionControls, replyComposer,
-        mediaObjectUrl:async(messageId)=>{const response=await fetch('/api/panel/media?messageId='+encodeURIComponent(messageId),{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('MEDIA_NOT_AVAILABLE');return URL.createObjectURL(await response.blob());} });
+        mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
       if(leadDetailData?.record?.whatsappWithoutPhone){const identity=$('record-detail').querySelector('.lead-head-name');if(identity)identity.append(element('p','muted whatsapp-no-phone-note','Responda pela conversa no app WhatsApp Business'));}
     } catch (failure) {
@@ -1350,7 +1410,7 @@
     const input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.className='visually-hidden';drop.append(input);
     const thumbs=element('div','v2-thumbs');
     const paint=()=>{thumbs.replaceChildren();photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.addEventListener('click',()=>{URL.revokeObjectURL(photo.url);photos.splice(index,1);paint();});item.append(img,remove);if(index===0)item.append(element('span','v2-cover','Capa'));thumbs.append(item);});};
-    const add=async(files)=>{for(const file of [...files]){if(photos.length>=V2_MAX_PHOTOS){status.textContent='Máximo de 12 fotos';break;}try{const blob=await resizePhoto(file);photos.push({blob,url:URL.createObjectURL(blob)});}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':'Um dos arquivos não é uma imagem';}}paint();};
+    const add=async(files)=>{for(const file of [...files]){if(photos.length>=V2_MAX_PHOTOS){status.textContent='Máximo de 12 fotos';break;}try{const blob=await resizePhoto(file);photos.push({blob,url:URL.createObjectURL(blob)});}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':/\.hei[cf]$/i.test(file.name||'')||/hei[cf]/i.test(file.type||'')?'Foto HEIC não abriu neste navegador. Use JPEG ou PNG':'Um dos arquivos não é uma imagem';}}paint();};
     input.addEventListener('change',()=>{add(input.files);input.value='';});
     drop.addEventListener('dragover',(event)=>{event.preventDefault();drop.classList.add('over');});
     drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
@@ -1591,12 +1651,15 @@
     const plain = (value) => String(value || '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').slice(0, 105);
     const escape = (value) => plain(value).replace(/[\\()]/g, '\\$&');
     const lines = [`MY CAR SCOUT - SHORTLIST - REF ${plain(referenceCode || '')}`,
-      ...matches.slice(0, 45).map((match) => {
+      ...matches.slice(0, 44).map((match) => {
         const vehicle = match.vehicle_json.parsed || match.vehicle_json.raw || {};
+        const miles = vehicle.miles ?? vehicle.Miles;
         return [vehicle.year || vehicle.Year, vehicle.make || vehicle.Make, vehicle.model || vehicle.Model,
-          vehicle.miles || vehicle.Miles ? `${Number(vehicle.miles || vehicle.Miles).toLocaleString('en-US')} mi` : '',
+          miles !== null && miles !== undefined && miles !== '' && Number.isFinite(Number(miles)) ? `${Number(miles).toLocaleString('en-US')} mi` : '',
           vehicle.locationDisplay || vehicle.location || ''].filter(Boolean).join(' | ');
-      })];
+      }),
+      // P19.10: the page holds 44 cars; the rest is said, never cut in silence
+      ...(matches.length > 44 ? [`+ ${matches.length - 44} more cars not listed on this page`] : [])];
     const content = `BT /F1 11 Tf 40 790 Td 14 TL ${lines.map((line,index) => `${index?'T* ':''}(${escape(line)}) Tj`).join('\n')} ET`;
     const objects = ['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
       '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
@@ -1897,6 +1960,7 @@
     const uniqueCount = new Set(vehicles.map((vehicle) => MCSManheim.fingerprint(vehicle))).size;
     const previousCount = Number(fresh.upload && fresh.upload.vehicle_count) || 0;
     const smaller = uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
+    if (uniqueCount > 100000) throw manheimError('MANHEIM_TOO_MANY_VEHICLES', { vehicleCount: uniqueCount });
     if (!uniqueCount || smaller) {
       status.textContent = 'Aguardando confirmação';
       const question = !uniqueCount ? 'Este CSV não tem nenhum carro. As combinações atuais de BUSCAS serão substituídas' : `Este CSV tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
@@ -1938,6 +2002,7 @@
     MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado. Selecione o arquivo novamente.',
     MANHEIM_MATCH_LIMIT: 'O CSV gerou mais de ' + MANHEIM_MAX_MATCHES.toLocaleString('pt-BR') + ' combinações; divida o arquivo.',
     MANHEIM_MATCH_TOO_LARGE: 'Uma linha do CSV é grande demais para ser enviada.',
+    MANHEIM_TOO_MANY_VEHICLES: 'Os CSVs somam mais de 100.000 carros. Envie menos arquivos de cada vez',
     MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação.',
     MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação.',
     MANHEIM_JOURNEY_ID_INVALID: 'Uma combinação veio com identificador de cliente inválido. Atualize a página e envie de novo.',
@@ -2725,14 +2790,14 @@
       $('history-import-status').textContent = historyImportFile ? `${historyImportFile.name} pronto para importar.` : '';
     });
     $('history-import-send').addEventListener('click', () => import360History().catch((failure) => {
-      $('history-import-status').textContent = failure?.code === 'HISTORY_IMPORT_INVALID' || failure?.message === 'HISTORY_FILE_INVALID' ? 'Este não é o arquivo do histórico do 360dialog para o número configurado.' : 'Não foi possível importar agora. Você pode tentar de novo sem duplicar.';
+      $('history-import-status').textContent = failure?.code === 'HISTORY_IMPORT_INVALID' || failure?.message === 'HISTORY_FILE_INVALID' ? 'Este não é o arquivo do histórico do 360dialog para o número configurado.' : failure?.message === 'HISTORY_FILE_TOO_LARGE' ? 'O arquivo passa de 100 MB. Exporte o histórico em partes' : failure?.code === 'HISTORY_ITEM_TOO_LARGE' ? 'Uma parte do arquivo é grande demais. O que já foi importado ficou gravado' : 'Não foi possível importar agora. Você pode tentar de novo sem duplicar.';
       $('history-import-send').disabled = !historyImportFile;
     }));
     const zone = $('drop-zone');
     ['dragenter', 'dragover'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
-    $('manheim-files').addEventListener('change', (event) => importManheim([...event.target.files]).catch(showManheimFailure));
+    $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
     const manheimZone = $('manheim-drop-zone');
     ['dragenter', 'dragover'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.remove('dragging'); }));

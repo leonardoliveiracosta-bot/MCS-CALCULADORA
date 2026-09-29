@@ -37,15 +37,18 @@ async function importOne(ctx,payload,deadlineAt){
     row={...row,status:'ERROR',processing_started_at:null};
   }
   if(!['PENDING','ERROR'].includes(row.status))return {alreadyExists:1};
+  // P19.5: importing the file again is the operator asking for a new try, so the counter restarts
   if(Number(row.attempts||0)>=3){
-    await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+row.id,environment:'eq.'+ctx.environment},{status:'ERROR',error_code:'PROCESSING_RETRY_LIMIT',processing_started_at:null});
-    return {errors:1};
+    const reset=await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+row.id,environment:'eq.'+ctx.environment,status:'eq.ERROR'},{attempts:0,error_code:null,processing_started_at:null},true);
+    if(!reset.length)return {errors:1};
+    row={...row,attempts:0,error_code:null};
   }
   const result=await processRaw(ctx,row,{sourceKind:'WHATSAPP_HISTORY',deadlineAt});
   if(result.skipped)return {inProgress:true};
   if(result.pending)return {inProgress:true};
   if(result.error)return {errors:1};
-  return {conversations:new Set((payload.data?.history||[]).flatMap((chunk)=>chunk.threads||[]).map((thread)=>thread.id).filter(Boolean)).size,imported:Number(result.imported||0),alreadyExists:Number(result.duplicates||0),errors:Number(result.itemErrors||0)};
+  const threads=[...new Set((payload.data?.history||[]).flatMap((chunk)=>chunk.threads||[]).map((thread)=>thread.id).filter(Boolean))];
+  return {conversations:threads.length,threadIds:threads,imported:Number(result.imported||0),alreadyExists:Number(result.duplicates||0),errors:Number(result.itemErrors||0)};
 }
 
 module.exports=async(req,res)=>{
@@ -54,16 +57,17 @@ module.exports=async(req,res)=>{
   try{
     const body=await jsonBody(req,850000),items=body?.items;
     if(!Array.isArray(items)||!items.length||items.length>BATCH_LIMIT||!items.every(validObject))return send(res,400,{error:'HISTORY_IMPORT_INVALID'});
-    const started=Date.now(),summary={conversations:0,imported:0,alreadyExists:0,errors:0,inProgress:false,more:false,nextIndex:items.length};
+    const started=Date.now(),summary={conversations:0,threadIds:[],imported:0,alreadyExists:0,errors:0,inProgress:false,more:false,nextIndex:items.length};
     for(let index=0;index<items.length;index++){
       const result=await importOne(ctx,items[index],started+FUNCTION_BUDGET_MS);
-      summary.conversations+=result.conversations||0;summary.imported+=result.imported||0;summary.alreadyExists+=result.alreadyExists||0;summary.errors+=result.errors||0;
+      summary.conversations+=result.conversations||0;summary.threadIds.push(...(result.threadIds||[]));summary.imported+=result.imported||0;summary.alreadyExists+=result.alreadyExists||0;summary.errors+=result.errors||0;
       if(result.inProgress)summary.inProgress=true;
       if(Date.now()-started>FUNCTION_BUDGET_MS&&index+1<items.length){summary.more=true;summary.nextIndex=index+1;break;}
     }
     await resolveStoredItemErrors(ctx).catch((error)=>console.error('[history-import-maintenance]',{message:String(error?.message||'UNKNOWN')}));
     return send(res,200,summary);
   }catch(error){
+    if(error?.message==='PAYLOAD_TOO_LARGE')return send(res,413,{error:'HISTORY_ITEM_TOO_LARGE'});
     const requestId=crypto.randomUUID().slice(0,8);
     console.error('[history-import]',{requestId,route:'/api/panel/history-import',message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});
     return send(res,500,{error:'HISTORY_IMPORT_FAILED',requestId});

@@ -25,9 +25,9 @@ test('known WhatsApp chat and MCS alias can import without repeated questions', 
     [{ chat_id: 'chat-1', sender_text: 'MCS', direction: 'MCS' }]), null);
 });
 
-test('a new contact always defaults to a new journey during simplified review', () => {
+test('a new contact defaults to a new journey; a known contact to their most recent open ficha (A17)', () => {
   const client = read('painel/painel.js');
-  assert.match(client, /journeySelect\.replaceChildren[\s\S]*option\(journeySelect, 'Nova jornada', 'new'\)[\s\S]*journeySelect\.value = 'new'/);
+  assert.match(client, /journeySelect\.replaceChildren[\s\S]*option\(journeySelect, 'Nova jornada', 'new'\)[\s\S]*journeySelect\.value = ownJourneys\[0\] \? ownJourneys\[0\]\.id : 'new'/);
 });
 
 test('ambiguous date, group, unknown chat or unknown MCS remains in review', () => {

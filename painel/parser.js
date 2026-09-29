@@ -210,8 +210,10 @@
   function automaticImportMatch(parsed, chatAliases, chats, senderAliases, contactName) {
     if (!parsed || !parsed.supported || parsed.requiresDateOrder || parsed.groupSignal) return null;
     if (isGenericTitle(parsed.title)) return null;
-    const alias = (Array.isArray(chatAliases) ? chatAliases : []).find((item) => !isGenericTitle(item.alias_text) && normalizeSender(item.alias_text) === normalizeSender(parsed.title));
-    const chat = alias && (Array.isArray(chats) ? chats : []).find((item) => item.id === alias.chat_id && !item.is_group && item.contact_id);
+    const aliases = (Array.isArray(chatAliases) ? chatAliases : []).filter((item) => !isGenericTitle(item.alias_text) && normalizeSender(item.alias_text) === normalizeSender(parsed.title));
+    // C4 residue: a title shared by two chats (two people with the same name) always goes to review
+    if (new Set(aliases.map((item) => item.chat_id)).size !== 1) return null;
+    const chat = (Array.isArray(chats) ? chats : []).find((item) => item.id === aliases[0].chat_id && !item.is_group && item.contact_id);
     if (!chat) return null;
     const known = (Array.isArray(senderAliases) ? senderAliases : []).filter((item) => item.chat_id === chat.id);
     const inFile = (item) => parsed.senders.some((sender) => normalizeSender(sender) === normalizeSender(item.sender_text));

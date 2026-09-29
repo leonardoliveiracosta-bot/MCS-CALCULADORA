@@ -149,7 +149,8 @@
   }
 
   function csvCell(value) {
-    const text = String(value === null || value === undefined ? '' : value);
+    const raw = String(value === null || value === undefined ? '' : value);
+    const text = /^[=+\-@\t\r]/.test(raw) && !/^[+-]?[\d\s().,-]+$/.test(raw) ? `'${raw}` : raw;
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
 
