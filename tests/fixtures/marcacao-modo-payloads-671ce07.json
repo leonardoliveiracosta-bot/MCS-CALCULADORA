@@ -1,0 +1,129 @@
+{
+  "umModo": {
+    "p_environment": "preview",
+    "p_journey_id": "67000000-0000-4000-8000-000000000010",
+    "p_message_id": "67000000-0000-4000-8000-000000000091",
+    "p_kind": "VEHICLE",
+    "p_actor_id": "67000000-0000-4000-8000-000000000001",
+    "p_value": "Toyota Corolla",
+    "p_value_json": {
+      "wishlist": {
+        "wishlists": [
+          {
+            "make": "Toyota",
+            "model": "Corolla",
+            "yearMin": null,
+            "yearMax": null,
+            "minMiles": null,
+            "maxMiles": null,
+            "trim": ""
+          }
+        ]
+      },
+      "confirmedWishlists": [
+        {
+          "make": "Toyota",
+          "model": "Corolla",
+          "yearMin": null,
+          "yearMax": null,
+          "minMiles": null,
+          "maxMiles": null,
+          "trim": ""
+        },
+        {
+          "make": "Honda",
+          "model": "Civic",
+          "yearMin": 2020,
+          "yearMax": 2025,
+          "minMiles": 50000,
+          "maxMiles": 90000,
+          "trim": ""
+        }
+      ]
+    },
+    "p_deadline_at": null,
+    "p_simulate_failure": false
+  },
+  "semModo": {
+    "p_environment": "preview",
+    "p_journey_id": "67000000-0000-4000-8000-000000000010",
+    "p_message_id": "67000000-0000-4000-8000-000000000091",
+    "p_kind": "VEHICLE",
+    "p_actor_id": "67000000-0000-4000-8000-000000000001",
+    "p_value": "Toyota Corolla",
+    "p_value_json": {
+      "wishlist": {
+        "wishlists": [
+          {
+            "make": "Toyota",
+            "model": "Corolla",
+            "yearMin": null,
+            "yearMax": null,
+            "minMiles": null,
+            "maxMiles": null,
+            "trim": ""
+          }
+        ]
+      },
+      "confirmedWishlists": [
+        {
+          "make": "Toyota",
+          "model": "Corolla",
+          "yearMin": null,
+          "yearMax": null,
+          "minMiles": null,
+          "maxMiles": null,
+          "trim": ""
+        },
+        {
+          "make": "Kia",
+          "model": "Soul",
+          "yearMin": null,
+          "yearMax": null,
+          "minMiles": null,
+          "maxMiles": null,
+          "trim": ""
+        }
+      ]
+    },
+    "p_deadline_at": null,
+    "p_simulate_failure": false
+  },
+  "painelAntigoComModo": {
+    "p_environment": "preview",
+    "p_journey_id": "67000000-0000-4000-8000-000000000010",
+    "p_message_id": "67000000-0000-4000-8000-000000000091",
+    "p_kind": "VEHICLE",
+    "p_actor_id": "67000000-0000-4000-8000-000000000001",
+    "p_value": "2012–2014 Scion tC",
+    "p_value_json": {
+      "wishlist": {
+        "wishlists": [
+          {
+            "make": "Scion",
+            "model": "tC",
+            "yearMin": 2012,
+            "yearMax": 2014,
+            "minMiles": 1000,
+            "maxMiles": 90000,
+            "trim": ""
+          }
+        ]
+      },
+      "mode": "CARRO",
+      "modeWishlists": [
+        {
+          "make": "Scion",
+          "model": "tC",
+          "yearMin": 2012,
+          "yearMax": 2014,
+          "minMiles": 1000,
+          "maxMiles": 90000,
+          "trim": ""
+        }
+      ]
+    },
+    "p_deadline_at": null,
+    "p_simulate_failure": false
+  }
+}

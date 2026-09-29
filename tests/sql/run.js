@@ -26,10 +26,12 @@ create function storage.foldername(name text) returns text[] language sql as $$s
 create table public.calc_runs(id bigserial primary key, created_at timestamptz default now(), zip text, estado text, lance numeric, total numeric, pagamento text, idioma text, whatsapp text, origem text, dados jsonb);
 `;
 
-async function migratedDatabase() {
+// before: optional migration version; that migration and the later ones are not applied.
+async function migratedDatabase({ before } = {}) {
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(stubs);
-  const migrations = fs.readdirSync(migrationDirectory).filter((name) => name.endsWith('.sql')).sort();
+  const migrations = fs.readdirSync(migrationDirectory).filter((name) => name.endsWith('.sql')).sort()
+    .filter((name) => !before || name.slice(0, 14) < before);
   for (const migration of migrations) {
     await db.exec(fs.readFileSync(path.join(migrationDirectory, migration), 'utf8'));
   }
