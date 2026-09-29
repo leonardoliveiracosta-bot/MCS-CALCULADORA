@@ -223,11 +223,6 @@
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="searches-panel" class="panel-view hidden" aria-label="Buscas">
-        <div class="section-head"><div><h2>Buscas por cliente</h2><p class="muted">Cada linha mostra o que buscar e em que etapa o cliente está.</p></div></div>
-        <div id="searches-summary" class="pending-stats" aria-live="polite"></div>
-        <div id="searches-list" class="stack" aria-live="polite"></div>
-        <div class="section-head searches-subsection"><div><h2>Quais buscas salvar no Manheim</h2><p class="muted">Listas de desejo prontas para pesquisa.</p></div></div>
-        <section id="manheim-saved-searches" class="card"></section>
         <div class="section-head searches-subsection"><div><h2>Arquivo do Manheim</h2><p class="muted">Suba o CSV e veja os carros que batem.</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
         <section class="card">
           <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
@@ -237,6 +232,11 @@
           <div id="manheim-summary" class="muted"></div>
           <div id="manheim-results" class="stack" aria-live="polite"></div>
         </section>
+        <div class="section-head"><div><h2>Buscas por cliente</h2><p class="muted">Cada linha mostra o que buscar e em que etapa o cliente está.</p></div></div>
+        <div id="searches-summary" class="pending-stats" aria-live="polite"></div>
+        <div id="searches-list" class="stack" aria-live="polite"></div>
+        <div class="section-head searches-subsection"><div><h2>Quais buscas salvar no Manheim</h2><p class="muted">Listas de desejo prontas para pesquisa.</p></div></div>
+        <section id="manheim-saved-searches" class="card"></section>
       </section>
       <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
         <p class="visually-hidden">Conteúdo reunido na aba Buscas.</p>
