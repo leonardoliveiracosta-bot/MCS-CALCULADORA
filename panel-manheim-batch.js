@@ -66,6 +66,7 @@ function sanitizeVehicle(source) {
     mmrCents: integer(input.mmrCents), exteriorColor: text(input.exteriorColor, 120), interiorColor: text(input.interiorColor, 120),
     drivetrain: text(input.drivetrain, 80), transmission: text(input.transmission, 80), engine: text(input.engine, 120),
     buyNowPrice: text(input.buyNowPrice, 120), conditionGrade: text(input.conditionGrade, 120), lot: text(input.lot, 40),
+    lane: text(input.lane, 20), run: text(input.run, 20), saleType: text(input.saleType, 80), saleStatus: text(input.saleStatus, 80), eventSaleName: text(input.eventSaleName, 160),
     makeNotice: text(input.makeNotice, 160), makeInferred: input.makeInferred === true,
     cleanTitle: input.cleanTitle === true, odometerOk: input.odometerOk === true
   };

@@ -51,7 +51,9 @@ function publicResponse(vitrine,cars,urls=[],options={}){
   const v2=vitrine.version==='V2';
   return { token:vitrine.token, version:vitrine.version, referenceCode:vitrine.reference_code, customerName:publicFirstName(vitrine.customer_name), expired:false,
     cars:(cars||[]).map((car,index)=>{
-      const output={code:car.short_code, vehicle:publicVehicle(car.vehicle_snapshot), averageAuctionValue:car.vehicle_snapshot?.averageAuctionValue||roundedMmr(car.vehicle_snapshot?.mmrCents), photos:[urls[index]||[]].flat(2).filter((url)=>typeof url==='string'&&url.length>0)};
+      const reference=Number(car.vehicle_snapshot?.estimatedMarketReference)>0?Number(car.vehicle_snapshot.estimatedMarketReference):null;
+      // A selected car shows only the estimated market reference (MMR + markup); older cars keep their value.
+      const output={code:car.short_code, vehicle:publicVehicle(car.vehicle_snapshot), averageAuctionValue:reference?null:car.vehicle_snapshot?.averageAuctionValue||roundedMmr(car.vehicle_snapshot?.mmrCents), estimatedMarketReference:reference, photos:[urls[index]||[]].flat(2).filter((url)=>typeof url==='string'&&url.length>0)};
       if(v2){ output.customerLimitCents=car.customer_limit_cents||null; output.note=clean(car.note_text,800)||null; }
       return output;
     }) };

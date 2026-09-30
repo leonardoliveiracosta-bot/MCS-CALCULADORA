@@ -93,12 +93,14 @@ test('19 arquivos viram um lote; a rede cai no arquivo 13 e o envio continua dos
   await expect(page.locator('#manheim-summary')).toContainText('carro(s) analisado(s)', { timeout: 60000 });
   const { rows: [db] } = await backend.db.query(`select count(*)::int uploads, count(*) filter (where activated_at is not null)::int live, max(source_file_count)::int files from public.manheim_uploads`);
   expect(db).toEqual({ uploads: 1, live: 1, files: 19 });
+  // The synthetic CSVs have no Lane/Run: the cars stay in "Informação incompleta" (nothing invented).
   const card = page.locator('#buscas-valor .manheim-lead').first();
   await expect(card.locator('.manheim-row')).toHaveCount(0);
-  await card.locator('.manheim-options-toggle').click();
-  await expect(card.locator('.manheim-row')).toHaveCount(10);
-  await card.locator('.manheim-options-toggle').click();
-  await expect(card.locator('.manheim-row')).toHaveCount(20);
+  const incomplete = card.locator('.offer-group[data-group="INCOMPLETE"]');
+  await incomplete.locator('> summary').click();
+  await expect(incomplete.locator('.manheim-row')).toHaveCount(10);
+  await incomplete.locator('.manheim-options-toggle').click();
+  await expect(incomplete.locator('.manheim-row')).toHaveCount(20);
   await expect(page.locator('#manheim-batches')).toContainText('19 arquivos');
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'lote-ativo-1366.png'), fullPage: false });
   expect(errors).toEqual([]);
@@ -110,11 +112,11 @@ test('390 px: BUSCAS do lote ativo cabe na tela, opções por página e alvos gr
   await openPanel(page, 390, []);
   await expect(page.locator('#manheim-summary')).toContainText('carro(s) analisado(s)', { timeout: 60000 });
   const card = page.locator('#buscas-carro .manheim-lead').first();
-  await card.locator('.manheim-options-toggle').click();
+  await card.locator('.offer-group[data-group="INCOMPLETE"] > summary').click();
   await expect(card.locator('.manheim-row')).toHaveCount(10);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  const toggle = await card.locator('.manheim-options-toggle').boundingBox();
+  const toggle = await card.locator('.offer-group[data-group="INCOMPLETE"] .manheim-options-toggle').boundingBox();
   expect(toggle.height).toBeGreaterThanOrEqual(32);
   if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'lote-opcoes-390.png') });
   expect(errors).toEqual([]);

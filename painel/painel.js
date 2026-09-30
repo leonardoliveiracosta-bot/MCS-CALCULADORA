@@ -1886,6 +1886,129 @@
     return box;
   }
 
+  // ---------------------------------------------------------------- seleção para o cliente
+  // Match interno não é opção: cada demanda mostra três grupos (Lane/Run, Buy Now/Make Offer/fora de
+  // Lane-Run, informação incompleta), 10 carros por vez, e o operador escolhe no máximo 10 para a
+  // V1/V2. O servidor confere tudo de novo; nada é escolhido nem enviado sozinho.
+  const OFFER = window.MCSManheimOffer || null;
+  const OFFER_ERRORS = {
+    MANHEIM_SELECTION_LIMIT: 'Esta demanda já tem 10 carros selecionados. Remova um antes de selecionar outro',
+    MANHEIM_SELECTION_REASON_REQUIRED: 'Escreva o motivo da inclusão manual, com pelo menos 5 letras',
+    MANHEIM_SELECTION_PCT_INVALID: 'Percentual inválido: use de 0 a 50',
+    MANHEIM_MATCH_WITHOUT_MMR: 'Carro sem MMR válido não pode ser selecionado',
+    MANHEIM_MATCH_NOT_FOUND: 'Este carro não está mais no lote ativo',
+    MANHEIM_SELECTION_PENDING: 'A seleção fica disponível depois da migração do banco'
+  };
+  const offerError = (error) => OFFER_ERRORS[error && error.code] || 'Não consegui salvar, tente de novo';
+  const pctText = (value) => `${Number(value).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+  const OFFER_STATUS = { SELECTED: 'Selecionado para cliente', EXCLUDED: 'Mantido fora', AVAILABLE: '' };
+  function offerRow(option, state, groupKey) {
+    const parsed = option.vehicle_json.parsed || {};
+    const info = option.offer || {};
+    const row = element('div', `manheim-row offer-row ${kindClass(option.match_kind)}`);
+    row.dataset.matchId = option.id; row.dataset.status = info.status || 'AVAILABLE';
+    const vehicle = element('div');
+    vehicle.append(element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
+      element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}${parsed.startsAt || parsed.saleDate ? ` · ${parsed.startsAt || parsed.saleDate}` : ''}`));
+    if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
+    const saleFacts = [parsed.lane ? `Lane ${parsed.lane}` : '', parsed.run ? `Run ${parsed.run}` : '', parsed.saleType || '', parsed.buyNowPrice && OFFER && OFFER.buyNowCents(parsed) ? `Buy Now ${parsed.buyNowPrice}` : ''].filter(Boolean);
+    if (saleFacts.length) vehicle.append(element('span', 'muted', saleFacts.join(' · ')));
+    const badges = element('div', 'badges');
+    badges.append(makeBadge(kindLabel(option.match_kind), kindTone(option.match_kind)));
+    if (info.cr !== null && info.cr !== undefined) badges.append(makeBadge(`CR ${info.cr}`, info.belowMinimum ? 'yellow' : 'green'));
+    else badges.append(makeBadge('sem CR', 'yellow'));
+    if (info.belowMinimum) badges.append(makeBadge(`Abaixo do CR recomendado (mínimo ${info.crMinimum})`, 'yellow'));
+    if (option.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
+    if (info.manual) badges.append(makeBadge('Inclusão manual', 'blue'));
+    const statusBadge = makeBadge(OFFER_STATUS[info.status] || '', info.status === 'SELECTED' ? 'green' : 'yellow');
+    statusBadge.classList.add('offer-status'); statusBadge.hidden = !OFFER_STATUS[info.status];
+    badges.append(statusBadge);
+    // Price: internal MMR, default markup, operator's markup and the value the customer sees.
+    const price = element('div', 'offer-price');
+    const pctInput = element('input', 'offer-pct'); pctInput.type = 'number'; pctInput.min = '0'; pctInput.max = '50'; pctInput.step = '0.1';
+    pctInput.value = info.manualPct !== null && info.manualPct !== undefined ? String(info.manualPct) : String(info.defaultPct);
+    pctInput.setAttribute('aria-label', 'Percentual ajustado');
+    const finalValue = element('strong', 'offer-final', formatMoney(info.finalCents));
+    const updateFinal = () => { const pct = OFFER ? OFFER.validPct(pctInput.value) : Number(pctInput.value); finalValue.textContent = OFFER && Number.isFinite(pct) ? formatMoney(OFFER.finalCents(info.mmrCents, pct)) : '—'; };
+    pctInput.addEventListener('input', updateFinal);
+    const note = element('input', 'offer-note'); note.type = 'text'; note.maxLength = 500; note.placeholder = 'Observação interna (opcional)'; note.value = info.note || '';
+    price.append(element('span', 'muted', `MMR interno ${formatMoney(info.mmrCents)}`), element('span', 'muted', `Padrão ${pctText(info.defaultPct)}`),
+      element('label', 'offer-pct-label', 'Ajustado '), pctInput, element('span', 'muted', 'Referência estimada para o cliente'), finalValue, note);
+    price.querySelector('.offer-pct-label').append(pctInput);
+    const actions = element('div', 'inline-actions offer-actions');
+    const reason = element('input', 'offer-reason'); reason.type = 'text'; reason.maxLength = 300; reason.placeholder = 'Motivo da inclusão manual'; reason.value = info.manualReason || '';
+    const send = (action) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action, matchId: option.id, pct: pctInput.value === String(info.defaultPct) && info.manualPct === null ? null : pctInput.value, reason: reason.value.trim() || null, note: note.value.trim() || null }) });
+    const apply = (result) => {
+      Object.assign(info, { status: result.status, manual: result.manual, manualReason: result.manualReason, manualPct: result.manualPct, finalCents: result.finalCents, note: result.note });
+      row.dataset.status = result.status; statusBadge.textContent = OFFER_STATUS[result.status] || ''; statusBadge.hidden = !OFFER_STATUS[result.status];
+      finalValue.textContent = formatMoney(result.finalCents);
+      state.setSelected(option.id, result.status === 'SELECTED', result.selectedCount);
+      paintActions();
+    };
+    const button = (label, action, extra) => { const item = element('button', `small ${extra || ''}`.trim(), label); item.type = 'button'; item.dataset.offerAction = action;
+      MCSAction.bind(item, () => ({ scope: row, commit: () => send(action), onSuccess: apply, errorText: offerError })); return item; };
+    const selectButton = button('Selecionar para cliente', 'select');
+    const manualButton = button('Incluir manualmente', 'select', 'quiet');
+    const removeButton = button('Remover da seleção', 'remove', 'quiet');
+    const excludeButton = button('Manter fora', 'exclude', 'quiet');
+    const paintActions = () => {
+      const selected = info.status === 'SELECTED';
+      selectButton.hidden = selected || groupKey !== 'LANE';
+      manualButton.hidden = selected || groupKey === 'LANE';
+      reason.hidden = selected || groupKey === 'LANE';
+      removeButton.hidden = !selected;
+      excludeButton.hidden = info.status === 'EXCLUDED';
+    };
+    paintActions();
+    // A percentage typed is kept by the server even before the car is selected.
+    pctInput.addEventListener('change', () => { if (!OFFER || !Number.isFinite(OFFER.validPct(pctInput.value))) { finalValue.textContent = 'Percentual inválido'; return; }
+      request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, pct: pctInput.value, note: note.value.trim() || null }) }).then(apply).catch((error) => { finalValue.textContent = offerError(error); }); });
+    actions.append(reason, manualButton, selectButton, removeButton, excludeButton);
+    row.append(vehicle, badges, price, actions);
+    return row;
+  }
+  // One group of a demand: opened by the operator, 10 cars at a time, in the server's CR order.
+  function offerGroup(demand, groupKey, count, state) {
+    const details = element('details', 'offer-group');
+    details.dataset.group = groupKey;
+    details.append(element('summary', '', `${OFFER ? OFFER.GROUP_LABELS[groupKey] : groupKey} (${count})`));
+    const list = element('div', 'manheim-table');
+    const more = element('button', 'quiet small manheim-options-toggle', count ? `Ver opções (${count})` : 'Nenhum carro neste grupo');
+    more.type = 'button'; more.disabled = !count;
+    let cursor = null, loadedCount = 0, busy = false;
+    const loadPage = async () => {
+      if (busy) return; busy = true; more.disabled = true; more.textContent = 'Carregando…';
+      try {
+        const params = new URLSearchParams({ key: demand.key, group: groupKey, limit: String(MANHEIM_PAGE_ROWS) });
+        if (cursor) params.set('cursor', cursor);
+        const page = await request('/api/panel/manheim-options?' + params.toString());
+        (page.options || []).forEach((option) => { loadedCount += 1; state.loaded.push(option); list.insertBefore(offerRow(option, state, groupKey), more); });
+        cursor = page.nextCursor || null;
+        if (cursor) { more.textContent = `Ver mais (${Math.max(count - loadedCount, 1)})`; more.disabled = false; } else more.remove();
+      } catch (failure) {
+        console.error(failure); more.disabled = false;
+        more.textContent = failure && failure.code === 'MANHEIM_SELECTION_PENDING' ? OFFER_ERRORS.MANHEIM_SELECTION_PENDING : 'Não consegui carregar, tentar de novo';
+      } finally { busy = false; }
+    };
+    more.addEventListener('click', (event) => { event.stopPropagation(); loadPage(); });
+    details.addEventListener('toggle', () => { if (details.open && !loadedCount && count && !busy && cursor === null) loadPage(); });
+    list.append(more); details.append(list);
+    return details;
+  }
+  function offerSection(card, demand) {
+    const offerCounts = demand.offer;
+    const state = { loaded: [], selectedIds: new Set(offerCounts.selectedIds || []), listeners: [] };
+    const box = element('div', 'offer-section');
+    const counter = element('p', 'offer-counter');
+    const auditText = auditOn() ? `Conferência: ${auditEntry(demand).label || auditEntry(demand).status}` : 'Conferência desligada';
+    const paint = () => { counter.textContent = `${demand.matchCount} matches internos · ${offerCounts.lane} passam em Lane/Run · ${offerCounts.offLane} Buy Now / Make Offer / fora de Lane-Run · ${offerCounts.incomplete} incompletos · Selecionados ${state.selectedIds.size} de ${offerCounts.max || 10} · ${auditText}`; };
+    state.setSelected = (id, on, total) => { if (on) state.selectedIds.add(id); else state.selectedIds.delete(id); paint(); state.listeners.forEach((listener) => listener()); };
+    paint();
+    box.append(counter, offerGroup(demand, 'LANE', offerCounts.lane, state), offerGroup(demand, 'OFFLANE', offerCounts.offLane, state), offerGroup(demand, 'INCOMPLETE', offerCounts.incomplete, state));
+    card.offerState = state;
+    return box;
+  }
+
   function renderManheimGroup(root, journey, reactivation, demand) {
     const card = element('article', 'item-card manheim-lead');
     card.dataset.mode = demand?.mode || '';
@@ -1934,7 +2057,10 @@
       row.append(select, vehicle, badges, presented);
       return row;
     }, reactivation ? (match) => match.match_kind === 'BATE' : null);
-    card.append(table);
+    // With the selection (migration 20261006010000) the demand shows the three groups; before it, the
+    // list as it was.
+    const selection = demand && demand.offer && OFFER ? offerSection(card, demand) : null;
+    card.append(selection || table);
     const exportButton = element('button', 'quiet small', 'Baixar PDF');
     exportButton.type = 'button';
     exportButton.addEventListener('click', (event) => {
@@ -1943,7 +2069,7 @@
       downloadShortlist(selected, journey.reference_code);
     });
     const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';}catch(_){$('manheim-status').textContent='Não consegui copiar. Link: '+link;}});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();const selected=[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent='Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){$('manheim-status').textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){$('manheim-status').textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
     card.append(exportButton,vitrineButton,copyMessageButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
@@ -1998,7 +2124,8 @@
     });
     const actions=element('div','inline-actions');
     const open=element('button','small','Abrir pedido');open.type='button';open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('order',order.ref);});
-    actions.append(open);card.append(table,actions,dispositionControls({...order,kind:'CALCULATOR'}));
+    const orderSelection = demand && demand.offer && OFFER ? offerSection(card, demand) : null;
+    actions.append(open);card.append(orderSelection || table,actions,dispositionControls({...order,kind:'CALCULATOR'}));
     makeCardClickable(card, () => openDetail('order', order.ref));
     root.append(card);
   }
@@ -2408,16 +2535,19 @@
     if (!root) return;
     root.replaceChildren();
     const usedAi = ai.rowsSentToAi > 0;
-    if (!usedAi && !ai.review.length) { root.classList.add('hidden'); return; }
+    if (!usedAi && !ai.review.length && !ai.rowsTotal) { root.classList.add('hidden'); return; }
     root.classList.remove('hidden');
     const line = (text) => root.append(element('span', '', text));
-    line(`${imported.toLocaleString('pt-BR')} linhas importadas`);
-    line(`${ai.rowsDeterministic.toLocaleString('pt-BR')} resolvidas automaticamente`);
+    // Rows of the CSV and cars are different things: never call cars "rows".
+    const ignored = Math.max(ai.rowsTotal - imported - ai.review.length, 0);
+    line(`${ai.rowsTotal.toLocaleString('pt-BR')} linhas lidas do CSV`);
+    line(`${imported.toLocaleString('pt-BR')} veículos únicos importados`);
+    line(`${ignored.toLocaleString('pt-BR')} linhas duplicadas ou inválidas ignoradas`);
     if (usedAi) {
       line(`${ai.rowsSentToAi} analisadas pela OpenAI`);
       line(`${ai.rowsAccepted} confirmadas`);
     }
-    line(`${ai.review.length} enviadas para revisão`);
+    line(`${ai.review.length.toLocaleString('pt-BR')} linhas em revisão`);
     if (usedAi) {
       line(`Modelo: ${ai.model || 'não informado'}`);
       line(`Custo estimado: US$ ${ai.costUsd.toFixed(4)}`);
