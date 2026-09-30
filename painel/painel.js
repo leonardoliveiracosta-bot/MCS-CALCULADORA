@@ -1213,6 +1213,9 @@
     }
     // IMPORTAÇÕES reads the same batch data (the batch list and the import tools live there).
     if (view === 'imports') {
+      // The manual imports (SMS, WhatsApp conversation) choose among the contacts and fichas of
+      // ENTRADA: loaded here too, so opening IMPORTAÇÕES directly never shows empty choices.
+      loadQueue(false).catch(() => {});
       const data = await request('/api/panel/records?view=manheim', viewFetch());
       if (!current()) return;
       updateMeta(data.meta);renderManheim(data);return;
@@ -3970,6 +3973,7 @@
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
     $('requests-compare').addEventListener('click', (event) => compareRequests(event.currentTarget).catch(() => {}));
+    $('entry-go-imports')?.addEventListener('click', () => document.querySelector('[data-view="imports"]')?.click());
     $('requests-history').addEventListener('click', (event) => openHistoryAudit(event.currentTarget).catch(() => {}));
     $('requests-history-pause').addEventListener('click', () => { historyPaused = true; $('requests-history-text').textContent = 'Pausando depois deste lote…'; });
     $('requests-audit').addEventListener('toggle', () => { if ($('requests-audit').open) loadRequestsAudit().catch(() => {}); });
