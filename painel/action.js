@@ -55,7 +55,7 @@
           optimistic: options.undo.optimistic,
           commit: () => options.undo.commit(result, snapshot),
           rollback: options.undo.rollback,
-          successText: options.undo.successText || 'Ação desfeita.',
+          successText: options.undo.successText || 'Ação desfeita',
           errorText: options.errorText,
           refresh: options.undo.refresh || options.refresh
         }));
@@ -66,7 +66,7 @@
     } catch (error) {
       if (options.rollback) await options.rollback(snapshot, error);
       const errorText = typeof options.errorText === 'function' ? options.errorText(error) : options.errorText;
-      feedback(scope, errorText || 'Não consegui salvar — tente de novo', 'error', options.feedbackKey);
+      feedback(scope, errorText || 'Não consegui salvar, tente de novo', 'error', options.feedbackKey);
       if (options.onError) options.onError(error, snapshot);
       return { ok: false, error };
     } finally {

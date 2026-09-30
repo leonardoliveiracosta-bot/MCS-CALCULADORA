@@ -366,6 +366,18 @@ async function finishJob(ctx, body) {
   return send(ctx.res, 200, { pending, destination: pending ? 'ENTRADA' : 'FICHAS', journeyId });
 }
 
+// Prints kept but never saved to a lead: the reading failed (error code), or it was read and the
+// save did not happen (still READY long after the few seconds the normal flow takes). They stay
+// on file and wait here: read again, save with the automatic rules, or discard. Read only.
+const STALE_READY_MS = 30 * 60 * 1000;
+function smsPrintFailures(reads, now = Date.now()) {
+  return reads.filter((read) => read.error_code ? read.error_code !== 'NAME_MATCH_REVIEW' : now - Date.parse(read.updated_at || read.created_at) > STALE_READY_MS).map((read) => {
+    const values = read.extracted_json || {};
+    return { id: read.id, filename: read.original_filename, createdAt: read.created_at, errorCode: read.error_code || null,
+      name: String(values.name || '').trim() || null, phone: values.phone || null, ref: values.ref || null, message: values.message || '', translation: values.translation || '' };
+  });
+}
+
 // A18: SMS prints whose only link to a lead is the name wait here for the operator
 function smsPrintReviews(reads, contacts, journeys) {
   return reads.map((read) => {
@@ -393,9 +405,10 @@ async function queue(ctx, res) {
     allRows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc' }),
     allRows(ctx, 'messages', { select: 'chat_id,is_automatic,occurred_at_utc,occurred_at_local,undone_at', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'sms_print_reads', { select: 'id,original_filename,extracted_json,created_at', environment: 'eq.' + ctx.environment, status: 'eq.READY', error_code: 'eq.NAME_MATCH_REVIEW', order: 'created_at.desc' })
+    allRows(ctx, 'sms_print_reads', { select: 'id,original_filename,extracted_json,error_code,created_at,updated_at', environment: 'eq.' + ctx.environment, status: 'eq.READY', order: 'created_at.desc' })
   ]);
-  const printReviews = smsPrintReviews(printReads, contacts, journeys);
+  const printReviews = smsPrintReviews(printReads.filter((read) => read.error_code === 'NAME_MATCH_REVIEW'), contacts, journeys);
+  const failedPrints = smsPrintFailures(printReads);
   // Triagem: conversa fora do funil comercial sai da fila da ENTRADA (continua guardada e na busca global).
   const triageOut = new Set((await activeTriage(ctx)).filter((row) => row.decision === 'FORA_DO_FUNIL').map((row) => row.chat_id));
   /* ordem Mais recentes/antigas: ultima mensagem real da conversa (last_seen_at foi atualizado pela importacao) */
@@ -405,7 +418,7 @@ async function queue(ctx, res) {
   const contactsById = new Map(contacts.map((item) => [item.id, item]));
   return send(res, 200, {
     chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, triageOut: triageOut.has(chat.id), newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
-    reviews, printReviews, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), chatAliases, senderAliases
+    reviews, printReviews, failedPrints, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), chatAliases, senderAliases
   });
 }
 

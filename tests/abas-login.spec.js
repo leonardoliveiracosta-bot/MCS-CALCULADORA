@@ -86,14 +86,14 @@ test('sessão falha: erro claro e "Tentar novamente" recupera; tempo esgotado ta
   let failing = true;
   await preparePage(page, { sessionTimeout: 1500, api: { '/api/panel/session': async () => failing === 'hang' ? 'HANG' : failing ? { status: 500, body: { error: 'PANEL_SESSION_ERROR' } } : { body: { email: 'teste@example.test', role: 'admin', mustChangePassword: false } } } });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#login-error')).toHaveText('Não consegui confirmar a sessão agora. Tente de novo em instantes.');
+  await expect(page.locator('#login-error')).toHaveText('Não consegui confirmar a sessão agora · Tente de novo em instantes');
   const retry = page.locator('#login-retry');
   await expect(retry).toBeVisible();
   if (SHOTS) await page.locator('#login-view').screenshot({ path: path.join(SHOTS, 'login-sessao-falhou.png') });
   // Timeout: the check has its own limit and says so.
   failing = 'hang';
   await retry.click();
-  await expect(page.locator('#login-error')).toHaveText('O painel demorou para responder. Sua senha está certa; tente de novo em instantes', { timeout: 10000 });
+  await expect(page.locator('#login-error')).toHaveText('O painel demorou para responder · Sua senha está certa; tente de novo em instantes', { timeout: 10000 });
   failing = false;
   await retry.click();
   await expect(page.locator('#app-view')).toBeVisible();

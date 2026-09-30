@@ -6,7 +6,7 @@
   const cents = (value) => value ? fmt(Number(value)/100) : '—';
   const date = (value,tz='America/New_York') => value ? new Intl.DateTimeFormat('pt-BR',{timeZone:tz,dateStyle:'short',timeStyle:'short'}).format(new Date(value)) : '—';
   const badge = (text,cls) => e('span','lead-badge '+(cls||''),text);
-  const button = (parent,label,commit,cls='quiet small') => { const node=append(parent,'button',cls,label); node.type='button'; MCSAction.bind(node,()=>({scope:parent,commit,errorText:(error)=>error?.userMessage||'Não consegui salvar — tente de novo'})); return node; };
+  const button = (parent,label,commit,cls='quiet small') => { const node=append(parent,'button',cls,label); node.type='button'; MCSAction.bind(node,()=>({scope:parent,commit,errorText:(error)=>error?.userMessage||'Não consegui salvar, tente de novo'})); return node; };
   // M31: a button that cannot act yet says why instead of doing nothing
   const needs = (message) => Object.assign(new Error('INPUT_REQUIRED'), { userMessage: message });
   const section = (root,n,title,cls='') => { const card=append(root,'section','lead-card '+cls); append(card,'span','lead-label',`${n} — ${title}`); return card; };
@@ -77,7 +77,7 @@
     append(right,'span','muted',` horário do cliente · ${data.goodHour?'bom horário para ligar':'fora de horário'}`);
     const calling=append(right,'div','lead-actions');
     if(phones.length){phones.forEach((phone)=>{const line=append(calling,'div','lead-phone');const shown=formatPhone(phone.phone_e164||phone.phone_raw);const link=append(line,'a','lead-call',`${shown}${phone.phone_owner?' — '+phone.phone_owner:''}${phone.is_primary?' · principal':''}`);link.href='tel:'+safeString(phone.phone_e164||phone.phone_raw).replace(/[^\d+]/g,'');button(line,'Copiar',()=>navigator.clipboard.writeText(phone.phone_e164||phone.phone_raw));});}
-    else append(calling,'span','muted','Sem telefone — pedir no WhatsApp');
+    else append(calling,'span','muted','Sem telefone, pedir no WhatsApp');
     const badges=append(heading,'div','lead-badges');
     // M11: an unknown deadline or payment is shown as unknown, not as "sem prazo" or "à vista".
     badges.append(data.deadlineKnown?badge(deadlineLabel[data.deadlineKnown]||data.deadlineKnown,'green'):badge('Prazo não informado','yellow'),data.paymentKnown?badge(paymentLabel[data.paymentKnown],'green'):badge('Pagamento não informado','yellow'));
@@ -91,9 +91,9 @@
     const aiReading=data.ai?.reading;
     if(aiReading){
       const summary=append(heading,'div','lead-card lead-highlight ai-summary');append(summary,'span','lead-label','RESUMO DA IA');
-      const want=append(summary,'p');append(want,'b','','Quer: ');want.append(document.createTextNode(aiReading.summary_json?.want||'Ainda não identificado.'));
-      const money=append(summary,'p');append(money,'b','','Dinheiro: ');money.append(document.createTextNode(aiReading.summary_json?.money||'Ainda não identificado.'));
-      const missing=append(summary,'p');append(missing,'b','','Falta perguntar: ');missing.append(document.createTextNode(aiReading.summary_json?.missing||'Nada indicado pela leitura.'));
+      const want=append(summary,'p');append(want,'b','','Quer: ');want.append(document.createTextNode(aiReading.summary_json?.want||'Ainda não identificado'));
+      const money=append(summary,'p');append(money,'b','','Dinheiro: ');money.append(document.createTextNode(aiReading.summary_json?.money||'Ainda não identificado'));
+      const missing=append(summary,'p');append(missing,'b','','Falta perguntar: ');missing.append(document.createTextNode(aiReading.summary_json?.missing||'Nada indicado pela leitura'));
       append(summary,'div','muted',`Atualizado há ${elapsed(aiReading.created_at)} · ${aiReading.summary_json?.contextTruncated?'baseado nas últimas':'baseado em'} ${aiReading.message_count} mensagens`);
     }
     const aiSuggestion=data.ai?.suggestion;
@@ -113,7 +113,7 @@
 
     const trio=append(root,'div','lead-grid lead-three');
     const wishes=section(trio,2,'O QUE ELE QUER');
-    if(!data.wishes.length) append(wishes,'p','muted','Carro ainda não informado.');
+    if(!data.wishes.length) append(wishes,'p','muted','Carro ainda não informado');
     data.wishes.forEach((wish,index)=>row(wishes,`${index+1}. ${model(wish)}`,`${wish.yearMin||'—'}–${wish.yearMax||'—'}`,wish.maxMiles?`até ${Number(wish.maxMiles).toLocaleString('en-US')} mi`:'milhas não informadas'));
     append(wishes,'p','muted',`Lance máximo${data.bidSource==='CALCULADORA'?' (calculadora)':data.bidSource==='FICHA'?' (ficha)':''}: ${data.maxBidCents?cents(data.maxBidCents):'não informado'}`);
     if((data.calculatorNews||[]).length){const news=append(wishes,'div','calculator-news');append(news,'strong','','Nova informação da calculadora (a ficha não foi alterada)');
@@ -130,15 +130,15 @@
     append(reality,'p','muted','Cabe no teto: '+(data.fits.length?data.fits.map((car)=>`${car.make} ${car.model} ${car.year} · ${Number(car.miles).toLocaleString('en-US')} mi`).join(' · '):'sem combinação nos CSVs'));
     const numbers=section(trio,4,'NÚMEROS PRONTOS');
     if(data.costs){const c=data.costs;row(numbers,'Depósito',fmt(c.deposito));row(numbers,'Taxa de serviço',fmt(c.servico));row(numbers,'Taxa do leilão + fixas',fmt(c.gLeilao));row(numbers,'Tax, title & registration',fmt(c.gTaxReg));row(numbers,'Total estimado',fmt(c.totalProjetado));}
-    else append(numbers,'p','muted',data.totalCeilingCents?'O teto não cobre o lance mínimo e os custos.':'Lance máximo ainda não informado.');
+    else append(numbers,'p','muted',data.totalCeilingCents?'O teto não cobre o lance mínimo e os custos':'Lance máximo ainda não informado');
 
     const second=append(root,'div','lead-grid lead-three');
     const questions=section(second,5,'PERGUNTAR NA LIGAÇÃO');
     data.checklist.filter((point)=>point.status!=='COMPLETE').forEach((point)=>append(questions,'p','',`${point.point_number}. ${point.point_label}?`));
     if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)) append(questions,'p','',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);
-    if(!questions.querySelector('p'))append(questions,'p','muted','Checklist completo.');
+    if(!questions.querySelector('p'))append(questions,'p','muted','Checklist completo');
     const offers=section(second,6,'O QUE OFERECER');
-    if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes.');
+    if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes');
     data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind==='POR_VALOR'?'POR VALOR · ligar':car.kind,car.kind==='BATE'?'green':car.kind==='POR_VALOR'?'blue':'yellow'));
       append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('en-US')+' mi'} · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
       if(car.matchNotice)line.append(badge(car.matchNotice,'yellow'));else if(car.matchReason)append(line,'span','muted',car.matchReason);
@@ -154,7 +154,7 @@
       const link=button(context,`↓ ${safeString(message.body_text).slice(0,120)}`,()=>document.getElementById('lead-conversation')?.scrollIntoView({behavior:'smooth'}));link.classList.add('lead-context-link'); });
 
     const note=section(root,8,'ANOTAÇÕES E AJUDA DA IA','lead-highlight');
-    append(note,'p','muted','Escreva do seu jeito, em português. Peça uma opinião sobre este cliente, ou anote o que conversou por telefone ou pessoalmente.');
+    append(note,'p','muted','Escreva do seu jeito, em português · Peça uma opinião sobre este cliente, ou anote o que conversou por telefone ou pessoalmente');
     const textarea=append(note,'textarea','lead-note');textarea.placeholder='Anote a conversa aqui…';textarea.maxLength=12000;
     const draftKey='mcs_lead_draft_'+ref;textarea.value=sessionStorage.getItem(draftKey)||'';
     textarea.addEventListener('input',()=>sessionStorage.setItem(draftKey,textarea.value));
@@ -173,8 +173,8 @@
           const detail=append(line,'div','lead-route-value');append(detail,'span','',itemLabel(item,data.timezone));append(detail,'small','muted',`“${item.evidence}”`);if(item.manualReview)append(detail,'span','lead-badge yellow','confirmar manualmente');
           if(!item.dueUtc&&(item.type==='promise'||item.type==='return'||item.type==='call_result'&&item.value==='LATER')){
             input.checked=false;input.disabled=true;
-            const dateLabel=append(detail,'label','muted','Data e hora — horário do cliente');
-            const due=append(detail,'input','lead-manual-date');due.type='datetime-local';due.setAttribute('aria-label','Data e hora — horário do cliente');
+            const dateLabel=append(detail,'label','muted','Data e hora, horário do cliente');
+            const due=append(detail,'input','lead-manual-date');due.type='datetime-local';due.setAttribute('aria-label','Data e hora, horário do cliente');
             due.addEventListener('input',()=>{manualDates[index]=due.value;input.disabled=!due.value;if(!due.value)input.checked=false;});
             dateLabel.htmlFor=due.id='lead-manual-date-'+index;
           }
@@ -186,12 +186,12 @@
     },'small');
     const help=button(note,'💡 Pedir ajuda à IA',async()=>{
       const question=textarea.value.trim();if(!question){noteStatus.textContent='Escreva a pergunta para a IA na anotação';textarea.focus();return;}help.disabled=true;noteStatus.textContent='Pensando no contexto deste lead…';
-      try{const result=await request('/api/panel/lead-help',{method:'POST',body:JSON.stringify({ref,journeyId,question})});const answer=result.answer||{};const box=append(note,'div','ai-summary');append(box,'h3','','💡 Opinião da IA');append(box,'p','',`O que está acontecendo: ${answer.situacao}`);append(box,'p','',`O que eu faria: ${answer.sugestao}`);append(box,'p','',`Mensagem sugerida: ${answer.mensagem_en}`);append(box,'p','muted',`Tradução: ${answer.traducao_pt}`);button(box,'Copiar mensagem',()=>navigator.clipboard.writeText(answer.mensagem_en),'small');button(box,'Perguntar de novo',()=>{box.remove();textarea.focus();},'quiet small');noteStatus.textContent='';}catch(error){noteStatus.textContent=error.code==='AI_DAILY_LIMIT'?'Não consegui responder agora — tente mais tarde.':'Não consegui responder agora — tente mais tarde.';}finally{help.disabled=false;}
+      try{const result=await request('/api/panel/lead-help',{method:'POST',body:JSON.stringify({ref,journeyId,question})});const answer=result.answer||{};const box=append(note,'div','ai-summary');append(box,'h3','','💡 Opinião da IA');append(box,'p','',`O que está acontecendo: ${answer.situacao}`);append(box,'p','',`O que eu faria: ${answer.sugestao}`);append(box,'p','',`Mensagem sugerida: ${answer.mensagem_en}`);append(box,'p','muted',`Tradução: ${answer.traducao_pt}`);button(box,'Copiar mensagem',()=>navigator.clipboard.writeText(answer.mensagem_en),'small');button(box,'Perguntar de novo',()=>{box.remove();textarea.focus();},'quiet small');noteStatus.textContent='';}catch(error){noteStatus.textContent=error.code==='AI_DAILY_LIMIT'?'Não consegui responder agora, tente mais tarde':'Não consegui responder agora, tente mais tarde';}finally{help.disabled=false;}
     },'small');
     const helpHistory=data.aiHelp||[];if(helpHistory.length){append(note,'h3','','Histórico de ajuda deste lead');helpHistory.forEach((entry)=>append(note,'p','muted',`${date(entry.created_at,data.timezone)} — Você: ${safeString(entry.question).slice(0,150)} · IA: ${safeString(entry.answer_json?.sugestao).slice(0,180)}`));}
 
     const quick=section(root,9,'RESULTADO RÁPIDO');const quickActions=append(quick,'div','lead-actions');
-    function undo(event){if(activeUndo)activeUndo.remove();const toast=append(document.body,'div','undo-toast');activeUndo=toast;append(toast,'span','','Resultado registrado.');
+    function undo(event){if(activeUndo)activeUndo.remove();const toast=append(document.body,'div','undo-toast');activeUndo=toast;append(toast,'span','','Resultado registrado');
       button(toast,'Desfazer',async()=>{await api('undo',{eventId:event.eventId});toast.remove();await reload();});setTimeout(()=>{toast.remove();if(activeUndo===toast)activeUndo=null;},10000);}
     async function quickResult(type,dueLocal){
       const key='mcs_quick_'+ref+'_'+type+'_'+(dueLocal||'');
@@ -213,18 +213,18 @@
       button(resultChoice,'Won',async()=>{await api('tracking_step',{step:4,result:'WON'});await reload();});
       button(resultChoice,'Not won',async()=>{await api('tracking_step',{step:4,result:'NOT_WON'});await reload();});
       button(tracking,'Copiar link do cliente',()=>navigator.clipboard.writeText(location.origin+'/t/'+track.public_code));
-    }else append(tracking,'p','muted','Ligue ao pedido para criar a página do cliente.');
+    }else append(tracking,'p','muted','Ligue ao pedido para criar a página do cliente');
     const customerResponses=(data.events||[]).filter((entry)=>['WANT_CAR','NOT_FOR_ME'].includes(entry.event_type));
-    append(tracking,'p','muted',customerResponses.length?customerResponses.map((entry)=>`${entry.detail_json.vehicle}: ${entry.event_type==='WANT_CAR'?'I want this':'Not for me'}`).join(' · '):'O cliente ainda não respondeu aos carros.');
+    append(tracking,'p','muted',customerResponses.length?customerResponses.map((entry)=>`${entry.detail_json.vehicle}: ${entry.event_type==='WANT_CAR'?'I want this':'Not for me'}`).join(' · '):'O cliente ainda não respondeu aos carros');
 
     const finalGrid=append(root,'div','lead-grid lead-two');
     const conversation=section(finalGrid,11,'CONVERSA','lead-highlight');conversation.id='lead-conversation';
     const aiReview=append(conversation,'div','lead-card lead-highlight ai-conversation-review');append(aiReview,'span','lead-label','A IA LEU A CONVERSA');
-    append(aiReview,'p','muted','Roda sozinha depois de 10 mensagens da MCS, 10 min após a última mensagem do cliente e somente quando houver mensagem nova. Nada é gravado sem confirmação.');
+    append(aiReview,'p','muted','Roda sozinha depois de 10 mensagens da MCS, 10 min após a última mensagem do cliente e somente quando houver mensagem nova · Nada é gravado sem confirmação');
     const aiStatus=append(aiReview,'p','status','');
-    const readNow=append(aiReview,'button','quiet small','Ler conversa agora');readNow.type='button';MCSAction.bind(readNow,()=>({scope:aiReview,optimistic:()=>{aiStatus.textContent='Lendo conversa…';},commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'read',journeyId:record.id,chatId:aiReading?.chat_id||null})}),onSuccess:()=>reload(),onError:(error)=>{aiStatus.textContent=error.code==='AI_DAILY_LIMIT'?'limite do dia atingido':'IA indisponível';},errorText:'Não consegui salvar — tente de novo'}));
+    const readNow=append(aiReview,'button','quiet small','Ler conversa agora');readNow.type='button';MCSAction.bind(readNow,()=>({scope:aiReview,optimistic:()=>{aiStatus.textContent='Lendo conversa…';},commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'read',journeyId:record.id,chatId:aiReading?.chat_id||null})}),onSuccess:()=>reload(),onError:(error)=>{aiStatus.textContent=error.code==='AI_DAILY_LIMIT'?'limite do dia atingido':'IA indisponível';},errorText:'Não consegui salvar, tente de novo'}));
     if(aiReading){
-      if(!hasCalculatorRef)append(aiReview,'p','warning','Ligue ao pedido para confirmar.');
+      if(!hasCalculatorRef)append(aiReview,'p','warning','Ligue ao pedido para confirmar');
       if(aiReading.items?.length)append(aiReview,'div','ai-route-title','Vai para:');
       const selected=[];
       (aiReading.items||[]).forEach((item)=>{const line=append(aiReview,'label','lead-route');const input=append(line,'input');input.type='checkbox';input.checked=!item.manual_review&&item.type!=='budget';selected.push({input,id:item.id});
@@ -232,12 +232,12 @@
         const detail=append(line,'div','lead-route-value');append(detail,'span','',itemLabel(item,data.timezone));if(item.manual_review||item.type==='budget')append(detail,'span','lead-badge yellow','confirmar manualmente');append(detail,'small','muted',`Cliente: “${item.evidence}”`);
       });
       const aiActions=append(aiReview,'div','lead-actions');
-      const confirm=append(aiActions,'button','small','Confirmar');confirm.type='button';confirm.disabled=!hasCalculatorRef||!aiReading.items?.length;MCSAction.bind(confirm,()=>{const itemIds=selected.filter((entry)=>entry.input.checked).map((entry)=>entry.id);if(!itemIds.length){aiStatus.textContent='Marque pelo menos um item.';return{scope:aiActions,commit:()=>Promise.reject(new Error('NO_ITEMS')),errorText:'Marque pelo menos um item.'};}return{scope:aiActions,optimistic:()=>{aiStatus.textContent='Gravando…';},commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'confirm',journeyId:record.id,readingId:aiReading.id,itemIds,confirmationKey:crypto.randomUUID()})}),onSuccess:()=>reload(),onError:(error)=>{aiStatus.textContent=error.code==='AI_REF_REQUIRED'?'Ligue ao pedido para confirmar.':'Não foi possível confirmar.';},errorText:'Não consegui salvar — tente de novo'};});
-      const discard=append(aiActions,'button','quiet small','Descartar');discard.type='button';discard.disabled=!aiReading.items?.length;MCSAction.bind(discard,()=>({scope:aiActions,commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'discard',journeyId:record.id,readingId:aiReading.id})}),onSuccess:()=>reload(),onError:()=>{aiStatus.textContent='Não foi possível descartar.';},errorText:'Não consegui salvar — tente de novo'}));
+      const confirm=append(aiActions,'button','small','Confirmar');confirm.type='button';confirm.disabled=!hasCalculatorRef||!aiReading.items?.length;MCSAction.bind(confirm,()=>{const itemIds=selected.filter((entry)=>entry.input.checked).map((entry)=>entry.id);if(!itemIds.length){aiStatus.textContent='Marque pelo menos um item';return{scope:aiActions,commit:()=>Promise.reject(new Error('NO_ITEMS')),errorText:'Marque pelo menos um item'};}return{scope:aiActions,optimistic:()=>{aiStatus.textContent='Gravando…';},commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'confirm',journeyId:record.id,readingId:aiReading.id,itemIds,confirmationKey:crypto.randomUUID()})}),onSuccess:()=>reload(),onError:(error)=>{aiStatus.textContent=error.code==='AI_REF_REQUIRED'?'Ligue ao pedido para confirmar':'Não foi possível confirmar';},errorText:'Não consegui salvar, tente de novo'};});
+      const discard=append(aiActions,'button','quiet small','Descartar');discard.type='button';discard.disabled=!aiReading.items?.length;MCSAction.bind(discard,()=>({scope:aiActions,commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'discard',journeyId:record.id,readingId:aiReading.id})}),onSuccess:()=>reload(),onError:()=>{aiStatus.textContent='Não foi possível descartar';},errorText:'Não consegui salvar, tente de novo'}));
       aiActions.append(readNow);
     }
-    const uploadAttachment=async(files,status)=>{const ensured=journeyId?{journeyId,contactId:record.contact_id}:await api('ensure');for(const file of files){status.textContent='Enviando e lendo…';const head=new Uint8Array(await file.slice(0,64).arrayBuffer()),signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:ensured.journeyId,contactId:ensured.contactId})}),uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');const read=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});if(read.manual){status.textContent='Não consegui ler agora — tente mais tarde. O print ficou guardado.';continue;}const values=read.read.extracted_json||{},saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:signed.readId,phone:values.phone||'',name:values.name||'',ref:values.ref||'',message:values.message||'',translation:values.translation||''})});status.textContent=saved.duplicate?'Este print já foi guardado.':`✓ Guardado no lead de ${saved.name||'Pedido'} · Ref ${saved.ref||values.ref||'—'}`;button(status.parentElement,'Desfazer',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:signed.readId})});await reload();},'quiet small');}await reload();};
-    const attachmentButton=(parent)=>{const card=append(parent,'div','attachment-choice');append(card,'strong','','📷 Anexar print');append(card,'p','muted','Print de SMS, de WhatsApp ou foto. O painel lê a Ref e o número e coloca no cliente certo sozinho.');const picker=append(card,'label','small','📷 Escolher prints'),input=append(picker,'input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;const info=append(card,'span','muted','');const actions=append(card,'div','inline-actions');const remove=button(actions,'✕ Remover',()=>{input.value='';info.textContent='';send.disabled=true;remove.hidden=true;},'quiet small');remove.hidden=true;const send=button(actions,'Enviar',async()=>{await uploadAttachment([...input.files],status);},'small');send.disabled=true;const status=append(card,'span','status','');input.addEventListener('change',()=>{const files=[...input.files];info.textContent=files.map((file)=>`${file.name} · ${(file.size/1024/1024).toFixed(1)} MB`).join(' · ');send.disabled=!files.length;remove.hidden=!files.length;});};
+    const uploadAttachment=async(files,status)=>{const ensured=journeyId?{journeyId,contactId:record.contact_id}:await api('ensure');for(const file of files){status.textContent='Enviando e lendo…';const head=new Uint8Array(await file.slice(0,64).arrayBuffer()),signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:ensured.journeyId,contactId:ensured.contactId})}),uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');const read=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});if(read.manual){status.textContent='Não consegui ler agora, tente mais tarde · O print ficou guardado';continue;}const values=read.read.extracted_json||{},saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:signed.readId,phone:values.phone||'',name:values.name||'',ref:values.ref||'',message:values.message||'',translation:values.translation||''})});status.textContent=saved.duplicate?'Este print já foi guardado.':`✓ Guardado no lead de ${saved.name||'Pedido'} · Ref ${saved.ref||values.ref||'—'}`;button(status.parentElement,'Desfazer',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:signed.readId})});await reload();},'quiet small');}await reload();};
+    const attachmentButton=(parent)=>{const card=append(parent,'div','attachment-choice');append(card,'strong','','📷 Anexar print');append(card,'p','muted','Print de SMS, de WhatsApp ou foto · O painel lê a Ref e o número e coloca no cliente certo sozinho');const picker=append(card,'label','small','📷 Escolher prints'),input=append(picker,'input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;const info=append(card,'span','muted','');const actions=append(card,'div','inline-actions');const remove=button(actions,'✕ Remover',()=>{input.value='';info.textContent='';send.disabled=true;remove.hidden=true;},'quiet small');remove.hidden=true;const send=button(actions,'Enviar',async()=>{await uploadAttachment([...input.files],status);},'small');send.disabled=true;const status=append(card,'span','status','');input.addEventListener('change',()=>{const files=[...input.files];info.textContent=files.map((file)=>`${file.name} · ${(file.size/1024/1024).toFixed(1)} MB`).join(' · ');send.disabled=!files.length;remove.hidden=!files.length;});};
     attachmentButton(conversation);
     const controls=append(conversation,'div','lead-actions');
     const sort=append(controls,'select');[['recent','Mais recentes'],['oldest','Mais antigas']].forEach(([value,label])=>sort.append(new Option(label,value)));
@@ -252,7 +252,7 @@
         if(message.direction==='MCS'&&message.media_kind)append(bubble,'span','muted',({image:'Foto enviada',audio:'Áudio enviado',video:'Vídeo enviado',document:'Documento enviado',sticker:'Sticker enviado'}[message.media_kind]||'Mídia enviada'));else if(message.media_status==='STORED'&&mediaObjectUrl){const media=append(bubble,'div','whatsapp-media'),load=append(media,'button','quiet small',message.media_kind==='document'?'Baixar':'Carregar mídia');load.type='button';load.addEventListener('click',async()=>{load.disabled=true;try{const url=await mediaObjectUrl(message.id);load.remove();if(message.media_kind==='image'){const image=append(media,'img','whatsapp-media-image');image.alt='Foto da conversa';image.src=url;image.addEventListener('click',()=>window.open(url,'_blank','noopener'));}else if(message.media_kind==='audio'){const player=append(media,'audio');player.controls=true;player.src=url;}else if(message.media_kind==='video'){const player=append(media,'video');player.controls=true;player.src=url;}else{const link=append(media,'a','', 'Baixar');link.href=url;link.download='';link.target='_blank';link.rel='noopener';}}catch(_){load.disabled=false;load.textContent='Mídia não disponível';}});}else if(message.media_status==='FAILED')append(bubble,'span','muted','Mídia não disponível');
         if(message.direction==='MCS'){const automatic=button(bubble,message.is_automatic?'não é automática':'marcar como automática',async()=>{automatic.disabled=true;try{await request('/api/panel/messages',{method:'POST',body:JSON.stringify({messageId:message.id,automatic:!message.is_automatic})});await reload();}finally{automatic.disabled=false;}});automatic.classList.add('quiet','small');}
         if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref,data.timezone));});
-      if(!list.length)append(thread,'p','muted','Nenhuma mensagem neste filtro.');};
+      if(!list.length)append(thread,'p','muted','Nenhuma mensagem neste filtro');};
     sort.addEventListener('change',()=>{localStorage.setItem('mcs_conversation_sort',sort.value);draw();});filter.addEventListener('change',draw);draw();
     // A20: reply from the panel (review in Portuguese, translation, 24 h window checked by the server).
     if(journeyId&&replyComposer)replyComposer(conversation,journeyId,reload);
@@ -261,7 +261,7 @@
     attachmentButton(history);
     append(history,'h3','','Anexos');const attachments=append(history,'div','lead-attachments');
     (record.attachments||[]).forEach((item)=>{const card=append(attachments,'button','lead-attachment');card.type='button';if(item.kind==='IMAGE'){const thumb=append(card,'img','lead-attachment-thumb');thumb.alt='';request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'download',attachmentId:item.id})}).then((signed)=>{thumb.src=signed.url;}).catch(()=>{thumb.replaceWith(Object.assign(document.createElement('span'),{className:'lead-attachment-thumb',textContent:'🖼️'}));});}else append(card,'span','lead-attachment-thumb','📄');append(card,'span','',`${item.original_filename} · ${date(item.created_at,data.timezone)}`);card.addEventListener('click',async()=>{card.disabled=true;try{const signed=await request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'download',attachmentId:item.id})});window.open(signed.url,'_blank','noopener');}finally{card.disabled=false;}});});
-    if(!record.attachments?.length)append(attachments,'p','muted','Nenhum anexo.');
+    if(!record.attachments?.length)append(attachments,'p','muted','Nenhum anexo');
     append(history,'h3','',`Checklist ${data.checklist.filter((point)=>point.status==='COMPLETE').length}/6`);
     // M32: the point is a label; marking and unmarking are separate, explicit buttons
     data.checklist.forEach((point)=>{const line=append(history,'div','lead-check');const done=point.status==='COMPLETE';append(line,'span','',`${point.point_number}. ${point.point_label} · ${done?'OK':'Pendente'}`);button(line,done?'Desmarcar':'Marcar OK',async()=>{await api('checklist',{point:point.point_number,complete:!done});await reload();},done?'quiet small':'small');});
@@ -276,7 +276,7 @@
       const fields=append(line,'div','lead-actions');const value=append(fields,'input');value.type='number';value.placeholder='Retail comparison (US$)';value.value=unit.details_json?.retailValue||'';
       const link=append(fields,'input');link.type='url';link.placeholder='Link da página de comparativos MCS';link.value=unit.details_json?.retailUrl||'';
       button(fields,'Salvar comparativo',async()=>{await api('retail',{unitId:unit.id,value:value.value,url:link.value});await reload();});});
-    if(!record.units?.length)append(history,'p','muted','Nenhuma unidade apresentada.');
+    if(!record.units?.length)append(history,'p','muted','Nenhuma unidade apresentada');
     append(history,'h3','','Etapa operacional');const stage=append(history,'select');
     [['NOVO','Novo'],['RESPONDIDO','Respondido'],['EM_BUSCA','Em busca'],['DECIDINDO','Decidindo'],['QUALIFICADO','Qualificado']].forEach(([v,label])=>stage.append(new Option(label,v)));
     stage.value=record.stage||'NOVO';button(history,'Salvar etapa',async()=>{await api('manual',{panelAction:'set_funnel',payload:{value:stage.value}});await reload();});

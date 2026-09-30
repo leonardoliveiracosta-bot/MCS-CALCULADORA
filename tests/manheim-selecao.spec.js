@@ -151,11 +151,11 @@ test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote
   await chooser.setFiles({ name: 'COMPLEMENTO.csv', mimeType: 'text/csv', buffer: Buffer.from(CSV_TEXT) });
   const status = page.locator('#manheim-complement-status');
   const confirm = page.locator('.inline-confirm');
-  await expect(confirm).toContainText('7 carros do lote ativo conferidos com o manifesto. 7 vão receber Lane, Run, Inventory, Status e Event Sale Name: 4 com Lane/Run, 2 Buy Now / Make Offer, 1 ainda incompletos');
+  await expect(confirm).toContainText('7 carros do lote ativo conferidos com o manifesto · 7 vão receber Lane, Run, Inventory, Status e Event Sale Name: 4 com Lane/Run, 2 Buy Now / Make Offer, 1 ainda incompletos');
   expect((await q(`select count(*)::int n from public.manheim_sale_current`)).n, 'nada gravado antes da confirmação').toBe(0);
   if (SHOTS) await page.locator('#imports-panel > section.card').first().screenshot({ path: path.join(SHOTS, 'complemento-confirmacao.png') });
   await confirm.getByRole('button', { name: 'Complementar agora' }).click();
-  await expect(status).toHaveText('Complemento concluído · 7 carros complementados · 4 com Lane/Run · 2 Buy Now / Make Offer · 1 ainda incompletos · 6 matches', { timeout: 30000 });
+  await expect(status).toHaveText('Complemento concluído · 7 carros complementados · 4 com Lane/Run · 2 Buy Now / Make Offer · 1 ainda incompletos · 6 combinações', { timeout: 30000 });
   await page.locator('[data-view="searches"]').click();
   await expect(card.locator('.offer-counter')).toContainText('3 passam em Lane/Run · 2 Buy Now / Make Offer / fora de Lane-Run · 1 incompletos', { timeout: 30000 });
   if (SHOTS) await page.locator('#searches-panel').screenshot({ path: path.join(SHOTS, 'complemento-concluido.png') });

@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="MCS Painel">
-  <title>My Car Scout — Painel</title>
+  <title>My Car Scout · Painel</title>
   <link rel="manifest" href="/painel/manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="/painel/icons/mcs-painel-180.png">
   <link rel="stylesheet" href="/painel/painel.css">
@@ -21,7 +21,7 @@
     <section id="login-view" class="card" aria-labelledby="login-title">
       <p class="eyebrow">MY CAR SCOUT</p>
       <h1 id="login-title">Painel</h1>
-      <p class="muted">Acesso restrito à equipe.</p>
+      <p class="muted">Acesso restrito à equipe</p>
       <form id="login-form">
         <label>E-mail<input id="email" type="email" autocomplete="email" required></label>
         <label>Senha<input id="password" type="password" autocomplete="current-password" required minlength="8"></label>
@@ -34,7 +34,7 @@
     <section id="password-view" class="card hidden" aria-labelledby="password-title">
       <p class="eyebrow">PRIMEIRO ACESSO</p>
       <h1 id="password-title">Crie sua senha</h1>
-      <p class="muted">A senha temporária só vale para o primeiro acesso.</p>
+      <p class="muted">A senha temporária só vale para o primeiro acesso</p>
       <form id="password-form">
         <label>Nova senha<input id="new-password" type="password" autocomplete="new-password" required minlength="12"></label>
         <label>Confirme a nova senha<input id="confirm-password" type="password" autocomplete="new-password" required minlength="12"></label>
@@ -84,7 +84,7 @@
         </details>
       </section>
       <section id="entry-panel" class="hidden" aria-label="Entrada">
-        <div class="section-head entry-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Entrada</h2><p class="muted">Tudo que chega ao painel. Só pede sua ação quando houver dúvida real.</p></div><label>Ordenar<select id="entry-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
+        <div class="section-head entry-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Entrada</h2><p class="muted">Tudo que chega ao painel · Só pede sua ação quando houver dúvida real</p></div><label>Ordenar<select id="entry-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
         <section class="card whatsapp-card entry-signal" aria-labelledby="whatsapp-title">
           <h2 id="whatsapp-title" class="visually-hidden">Sinal do WhatsApp</h2>
           <div class="signal-live"><span class="signal-dot" aria-hidden="true"></span><p id="whatsapp-signal">Verificando sinal…</p></div>
@@ -102,12 +102,12 @@
         </section>
         <details id="triage-out" class="card triage-out">
           <summary><strong>Fora do funil comercial</strong> <span id="triage-out-count" class="badge">—</span></summary>
-          <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente. As conversas continuam guardadas e aparecem na busca global</p>
+          <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente · As conversas continuam guardadas e aparecem na busca global</p>
           <div id="triage-out-list" class="queue" aria-live="polite"></div>
         </details>
         <details id="entry-orders" class="card entry-orders">
           <summary><strong>Pediram contato, sem conversa</strong> <span id="entry-orders-count" class="badge">…</span></summary>
-          <p class="muted">Entraram em contato pela calculadora e ainda não têm ficha. Conta o clique em SMS e o clique em WhatsApp de antes do WhatsApp entrar direto no painel</p>
+          <p class="muted">Entraram em contato pela calculadora e ainda não têm ficha · Conta o clique em SMS e o clique em WhatsApp de antes do WhatsApp entrar direto no painel</p>
           <div class="inline-actions"><button class="quiet small" type="button" data-report="orders">Gerar relatório de pedidos</button></div>
           <div class="filters" aria-label="Período dos pedidos sem conversa">
             <button type="button" class="chip" data-entry-orders-period="7">7 dias</button>
@@ -118,7 +118,7 @@
           <button id="entry-orders-more" class="quiet small hidden" type="button">Carregar mais</button>
           <details id="entry-simulated" class="entry-simulated">
             <summary>Só simularam <span id="entry-simulated-count" class="muted">…</span></summary>
-            <p class="muted">Simularam sem contato registrado. Quem só clicou no WhatsApp e nunca escreveu também fica aqui</p>
+            <p class="muted">Simularam sem contato registrado · Quem só clicou no WhatsApp e nunca escreveu também fica aqui</p>
             <div id="entry-simulated-list" class="stack" aria-live="polite"></div>
             <button id="entry-simulated-more" class="quiet small hidden" type="button">Carregar mais</button>
           </details>
@@ -126,48 +126,14 @@
         <section class="entry-add" aria-labelledby="entry-add-title">
           <div class="entry-group-title"><p class="eyebrow">FERRAMENTAS</p><h2 id="entry-add-title">Adicionar ao painel</h2></div>
           <div class="entry-tools">
-          <section id="auto-print-card" class="card entry-tool entry-tool-featured">
-            <span class="entry-tool-icon" aria-hidden="true">📷</span><h2>Anexar print</h2>
-            <p class="muted">Print de SMS, de WhatsApp ou foto. O painel lê a Ref e o número e coloca no cliente certo sozinho.</p>
-            <label class="print-drop">Arraste o print aqui ou toque para escolher<input id="auto-print-file" type="file" accept="image/*" multiple></label>
-            <div id="auto-print-file-info" class="attachment-choice hidden"></div>
-            <div class="inline-actions"><button id="auto-print-remove" class="quiet small hidden" type="button">Remover</button><button id="auto-print-send" type="button" disabled>Enviar</button></div>
-            <p id="auto-print-status" class="status" role="status"></p>
-            <section id="auto-print-result" class="sms-print-review hidden" aria-live="polite"></section>
-          </section>
-          <details class="card manual-entry entry-tool">
-            <summary><span class="entry-tool-icon" aria-hidden="true">✉️</span><span class="entry-tool-title">Colar SMS</span><span class="entry-tool-copy">Cole o texto de um SMS e escolha o cliente.</span><span class="entry-open-button">Colar SMS</span></summary>
-            <section>
-              <form id="sms-form">
-                <label>Contato<select id="sms-contact"><option value="new">Novo contato</option></select></label>
-                <label id="sms-new-name-label">Nome do novo contato<input id="sms-new-name" maxlength="160"></label>
-                <label id="sms-new-phone-label">Telefone do novo contato<input id="sms-new-phone" inputmode="tel" autocomplete="tel"></label>
-                <label>Busca<select id="sms-journey"><option value="new">Nova jornada</option></select></label>
-                <label>Quem falou<select id="sms-direction"><option value="CUSTOMER">Cliente</option><option value="MCS">My Car Scout</option></select></label>
-                <label>Data e hora<input id="sms-date" type="datetime-local" required></label>
-                <label>Mensagem<textarea id="sms-text" required maxlength="25000"></textarea></label>
-                <button type="submit">Adicionar SMS</button>
-              </form>
-              <p id="sms-status" class="status" role="status"></p>
-            </section>
-          </details>
-          <section class="card entry-tool">
-            <span class="entry-tool-icon" aria-hidden="true">💬</span><h2>Importar conversa</h2>
-            <p class="muted">ZIPs ou TXT do WhatsApp. Os arquivos são lidos neste navegador e nunca seguem para a Vercel.</p>
-            <label id="drop-zone" class="drop-zone" for="whatsapp-files">Arraste ZIPs/TXT aqui ou selecione arquivos<input id="whatsapp-files" type="file" accept=".zip,.txt,text/plain,application/zip" multiple></label>
-            <p id="import-status" class="status" role="status"></p>
-          </section>
-          <section class="card history-import entry-tool" aria-labelledby="history-import-title">
-            <span class="entry-tool-icon" aria-hidden="true">📥</span><h2 id="history-import-title">Histórico do 360dialog</h2>
-            <p class="muted">Use o arquivo baixado em 360dialog → Details → Coexistence Webhooks.</p>
-            <label for="history-import-file">Escolher arquivo .json<input id="history-import-file" type="file" accept="application/json,.json"></label>
-            <button id="history-import-send" class="small" type="button" disabled>Importar</button>
-            <p id="history-import-status" class="status" role="status"></p>
-            <div id="history-import-errors" class="queue" aria-live="polite"></div>
+          <section id="entry-imports-link" class="card entry-tool entry-tool-featured">
+            <span class="entry-tool-icon" aria-hidden="true">📥</span><h2 data-draft>Importar prints, SMS e conversas</h2>
+            <p class="muted" data-draft>Prints, SMS colado, conversas do WhatsApp e o histórico do 360dialog agora ficam na aba IMPORTAÇÕES</p>
+            <div class="inline-actions"><button id="entry-go-imports" class="small" type="button" data-draft>Abrir IMPORTAÇÕES</button></div>
           </section>
           <details class="card manual-entry entry-tool" id="automatic-messages-card">
-            <summary><span class="entry-tool-icon" aria-hidden="true">🤖</span><span class="entry-tool-title">Mensagens automáticas</span><span class="entry-tool-copy">Nunca contam como resposta.</span><span class="entry-open-button">Gerenciar</span></summary>
-            <p class="muted">Cole aqui saudações e ausências do WhatsApp Business. Elas nunca contam como resposta.</p>
+            <summary><span class="entry-tool-icon" aria-hidden="true">🤖</span><span class="entry-tool-title">Mensagens automáticas</span><span class="entry-tool-copy">Nunca contam como resposta</span><span class="entry-open-button">Gerenciar</span></summary>
+            <p class="muted">Cole aqui saudações e ausências do WhatsApp Business · Elas nunca contam como resposta</p>
             <textarea id="automatic-message-text" maxlength="25000" placeholder="Texto automático completo"></textarea>
             <button id="automatic-message-save" type="button">Adicionar mensagem automática</button>
             <div id="automatic-message-list" class="queue"></div>
@@ -176,27 +142,12 @@
         </section>
         <section class="card queue-card">
           <h2>Revisão final</h2>
-          <p class="muted">Conversa lida, não identificada ou em revisão. Grupo não cria lead.</p>
-          <section id="import-review-card" class="hidden" aria-labelledby="import-review-title">
-            <h3 id="import-review-title">Confirmar conversa</h3>
-            <p id="import-review-summary" class="muted"></p>
-            <form id="import-review-form">
-              <label id="date-order-label" class="hidden">Formato da data<select id="date-order"><option value="">Escolha</option><option value="DMY">DD/MM</option><option value="MDY">MM/DD</option></select></label>
-              <label>Tipo de conversa<select id="chat-type" required><option value="">Escolha</option><option value="individual">Conversa individual</option><option value="group">Grupo</option></select></label>
-              <label id="mcs-sender-label">Qual remetente é a MCS?<select id="mcs-sender"><option value="">Escolha</option></select></label>
-              <label id="contact-label">Contato<select id="import-contact"><option value="new">Novo contato</option></select></label>
-              <label id="contact-name-label">Nome do novo contato<input id="import-contact-name" maxlength="160"></label>
-              <label id="chat-label">Chat<select id="import-chat"><option value="new">Novo chat</option></select></label>
-              <label id="journey-label">Busca<select id="import-journey"><option value="new">Nova jornada</option></select></label>
-              <p id="ref-warning" class="warning hidden">Ref encontrada: escolha manualmente mesma busca ou nova jornada.</p>
-              <button type="submit">Confirmar e importar</button>
-            </form>
-          </section>
+          <p class="muted">Conversa lida, não identificada ou em revisão · Grupo não cria lead</p>
           <div id="entry-queue" class="queue" aria-live="polite"></div>
         </section>
       </section>
       <section id="clients-panel" class="panel-view hidden" aria-label="Clientes">
-        <div class="section-head"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Conversa, qualificação e próximos passos em uma única lista.</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
+        <div class="section-head"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Conversa, qualificação e próximos passos em uma única lista</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
         <section id="clients-general-card" class="card pending-general" aria-live="polite"></section>
         <div id="clients-stats" class="pending-stats" aria-live="polite"></div>
         <div class="filters clients-filters" aria-label="Filtros de clientes">
@@ -213,7 +164,7 @@
         <div id="clients-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="pending-panel" class="panel-view hidden" aria-label="Pendências">
-        <div class="section-head"><div><h2>Pendências</h2><p class="muted">Todas as conversas individuais do WhatsApp, com situação atualizada quando chega mensagem.</p></div></div>
+        <div class="section-head"><div><h2>Pendências</h2><p class="muted">Todas as conversas individuais do WhatsApp, com situação atualizada quando chega mensagem</p></div></div>
         <section id="pending-general-card" class="card pending-general" aria-live="polite"></section>
         <div id="pending-stats" class="pending-stats" aria-live="polite"></div>
         <div class="filters pending-filters" aria-label="Filtros de pendências">
@@ -230,7 +181,7 @@
         <div id="pending-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="qualification-panel" class="panel-view hidden" aria-label="Qualificação">
-        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo.</p></div><div class="inline-actions"><label>Ordenar<select id="qualification-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div></div>
+        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo</p></div><div class="inline-actions"><label>Ordenar<select id="qualification-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div></div>
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="requests-panel" class="panel-view hidden" aria-label="Pesquisas">
@@ -248,13 +199,91 @@
       </section>
       <section id="imports-panel" class="panel-view hidden" aria-label="Importações">
         <div class="section-head"><div><h2>Importações</h2><p class="muted">Arquivos do Manheim, lote ativo e histórico de lotes</p></div></div>
-        <section class="card">
-          <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
-          <p id="manheim-status" class="status" role="status"></p>
-          <div class="inline-actions manheim-complement"><button id="manheim-complement" class="quiet small" type="button">Complementar dados do lote ativo</button><span class="muted">Os mesmos CSVs do lote ativo, só para acrescentar Lane, Run, Inventory, Status e Event Sale Name</span><input id="manheim-complement-files" type="file" accept=".csv,text/csv" multiple hidden></div>
-          <p id="manheim-complement-status" class="status" role="status"></p>
-          <div id="manheim-import-summary" class="import-summary hidden" aria-live="polite"></div>
-        </section>
+        <p class="import-draft-note" data-draft>Prévia: os textos novos desta aba são provisórios e aguardam aprovação</p>
+        <div class="entry-tools import-cards">
+          <section id="import-card-manheim" class="card entry-tool import-card">
+            <span class="entry-tool-icon" aria-hidden="true">🚗</span><h2 data-draft>Arquivos do Manheim</h2>
+            <ul class="import-facts" data-import-facts="manheim" data-draft><li>Aceita arquivos .csv do Manheim, até 20 por vez e 25 MB cada</li><li>Até 100 mil carros por lote</li><li>O lote só vira ativo quando todos os arquivos chegam inteiros</li><li>Carro repetido entre arquivos entra uma vez só</li><li>Se a conexão cair, escolha os mesmos arquivos e o envio continua de onde parou</li><li>Lote vazio ou bem menor que o anterior pede confirmação antes do envio</li><li>Os carros aparecem em OPÇÕES e o lote aparece na lista abaixo</li><li>Complementar dados usa os mesmos arquivos do lote ativo e mostra uma prévia antes de gravar</li></ul>
+            <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
+            <p id="manheim-status" class="status" role="status"></p>
+            <div class="inline-actions manheim-complement"><button id="manheim-complement" class="quiet small" type="button">Complementar dados do lote ativo</button><span class="muted">Os mesmos CSVs do lote ativo, só para acrescentar Lane, Run, Inventory, Status e Event Sale Name</span><input id="manheim-complement-files" type="file" accept=".csv,text/csv" multiple hidden></div>
+            <p id="manheim-complement-status" class="status" role="status"></p>
+            <div id="manheim-import-summary" class="import-summary hidden" aria-live="polite"></div>
+          </section>
+          <section id="auto-print-card" class="card entry-tool entry-tool-featured import-card">
+            <span class="entry-tool-icon" aria-hidden="true">📷</span><h2>Anexar print</h2>
+            <p class="muted">Print de SMS, de WhatsApp ou foto · O painel lê a Ref e o número e coloca no cliente certo sozinho</p>
+            <label class="print-drop">Arraste o print aqui ou toque para escolher<input id="auto-print-file" type="file" accept="image/*" multiple></label>
+            <div id="auto-print-file-info" class="attachment-choice hidden"></div>
+            <div class="inline-actions"><button id="auto-print-remove" class="quiet small hidden" type="button">Remover</button><button id="auto-print-send" type="button" disabled>Enviar</button></div>
+            <p id="auto-print-status" class="status" role="status"></p>
+            <section id="auto-print-result" class="sms-print-review hidden" aria-live="polite"></section>
+            <ul class="import-facts" data-import-facts="print" data-draft><li>Aceita fotos JPG, PNG ou WebP de até 5 MB, várias de uma vez</li><li>Foto HEIC do iPhone não é aceita</li><li>O painel lê a Ref, o telefone e o nome que aparecem no print</li><li>Guarda sozinho quando a Ref ou o telefone apontam um único cliente</li><li>Sem cliente encontrado e com telefone no print, cria um lead novo</li><li>Se só o nome bate, o print fica em ENTRADA, Revisão final, para você decidir</li><li>Print repetido não é guardado de novo</li><li>O resultado aparece aqui, com Abrir lead e Desfazer</li><li>Dentro da ficha, Anexar print continua funcionando</li></ul>
+          </section>
+          <details id="import-card-sms" class="card manual-entry entry-tool import-card">
+            <summary><span class="entry-tool-icon" aria-hidden="true">✉️</span><span class="entry-tool-title">Colar SMS</span><span class="entry-tool-copy">Cole o texto de um SMS e escolha o cliente</span><span class="entry-open-button">Colar SMS</span></summary>
+            <section>
+              <ul class="import-facts" data-import-facts="sms" data-draft><li>Aceita o texto de um SMS, até 25 mil caracteres</li><li>Você escolhe o contato, a busca, quem falou e a data</li><li>Contato novo precisa de nome e telefone</li><li>O mesmo SMS com a mesma data não entra duas vezes</li><li>A mensagem aparece na conversa da ficha</li></ul>
+              <form id="sms-form">
+                <label>Contato<select id="sms-contact"><option value="new">Novo contato</option></select></label>
+                <label id="sms-new-name-label">Nome do novo contato<input id="sms-new-name" maxlength="160"></label>
+                <label id="sms-new-phone-label">Telefone do novo contato<input id="sms-new-phone" inputmode="tel" autocomplete="tel"></label>
+                <label>Busca<select id="sms-journey"><option value="new">Nova jornada</option></select></label>
+                <label>Quem falou<select id="sms-direction"><option value="CUSTOMER">Cliente</option><option value="MCS">My Car Scout</option></select></label>
+                <label>Data e hora<input id="sms-date" type="datetime-local" required></label>
+                <label>Mensagem<textarea id="sms-text" required maxlength="25000"></textarea></label>
+                <button type="submit">Adicionar SMS</button>
+              </form>
+              <p id="sms-status" class="status" role="status"></p>
+            </section>
+          </details>
+          <section id="import-card-whatsapp" class="card entry-tool import-card">
+            <span class="entry-tool-icon" aria-hidden="true">💬</span><h2>Importar conversa</h2>
+            <p class="muted">ZIPs ou TXT do WhatsApp · O arquivo é lido neste navegador e só as conversas importadas são enviadas ao painel</p>
+            <label id="drop-zone" class="drop-zone" for="whatsapp-files">Arraste ZIPs/TXT aqui ou selecione arquivos<input id="whatsapp-files" type="file" accept=".zip,.txt,text/plain,application/zip" multiple></label>
+            <p id="import-status" class="status" role="status"></p>
+            <ul class="import-facts" data-import-facts="whatsapp" data-draft><li>Aceita arquivos .zip ou .txt exportados do WhatsApp, até 20 por vez</li><li>ZIP de até 100 MB e TXT de até 25 MB</li><li>Os arquivos são lidos neste navegador</li><li>Quando a conversa e a MCS são reconhecidas, grava sozinho e abre a ficha</li><li>Nos outros casos, Confirmar conversa aparece aqui para você escolher contato e busca</li><li>Cancelar este arquivo pula só esse arquivo, sem gravar nada</li><li>Grupo e horário incerto ficam em ENTRADA, Revisão final</li><li>Mensagem que já está no painel não entra de novo</li><li>Formato não reconhecido vai para ENTRADA, Revisão final, sem gravar mensagens</li></ul>
+            <section id="import-review-card" class="hidden" aria-labelledby="import-review-title">
+              <h3 id="import-review-title">Confirmar conversa</h3>
+              <p id="import-review-summary" class="muted"></p>
+              <form id="import-review-form">
+                <label id="date-order-label" class="hidden">Formato da data<select id="date-order"><option value="">Escolha</option><option value="DMY">DD/MM</option><option value="MDY">MM/DD</option></select></label>
+                <label>Tipo de conversa<select id="chat-type" required><option value="">Escolha</option><option value="individual">Conversa individual</option><option value="group">Grupo</option></select></label>
+                <label id="mcs-sender-label">Qual remetente é a MCS?<select id="mcs-sender"><option value="">Escolha</option></select></label>
+                <label id="contact-label">Contato<select id="import-contact"><option value="new">Novo contato</option></select></label>
+                <label id="contact-name-label">Nome do novo contato<input id="import-contact-name" maxlength="160"></label>
+                <label id="chat-label">Conversa<select id="import-chat"><option value="new">Nova conversa</option></select></label>
+                <label id="journey-label">Busca<select id="import-journey"><option value="new">Nova jornada</option></select></label>
+                <p id="ref-warning" class="warning hidden">Ref encontrada: escolha manualmente mesma busca ou nova jornada</p>
+                <div class="inline-actions"><button type="submit">Confirmar e importar</button><button id="import-review-cancel" class="quiet" type="reset">Cancelar este arquivo</button></div>
+              </form>
+            </section>
+          </section>
+          <section id="import-card-history" class="card history-import entry-tool import-card" aria-labelledby="history-import-title">
+            <span class="entry-tool-icon" aria-hidden="true">📥</span><h2 id="history-import-title">Histórico do 360dialog</h2>
+            <p class="muted">No 360dialog, abra Details e depois Coexistence Webhooks · Baixe o arquivo e escolha aqui</p>
+            <label for="history-import-file">Escolher o arquivo do 360dialog (.json)<input id="history-import-file" type="file" accept="application/json,.json"></label>
+            <button id="history-import-send" class="small" type="button" disabled>Importar</button>
+            <p id="history-import-status" class="status" role="status"></p>
+            <div id="history-import-errors" class="queue" aria-live="polite"></div>
+            <ul class="import-facts" data-import-facts="history" data-draft><li>Aceita um arquivo .json do 360dialog, de até 100 MB</li><li>Só aceita o histórico do número da MCS</li><li>Grava sem prévia, em partes, e mostra o resumo aqui</li><li>Mensagem que já existia não entra de novo</li><li>Dúvida de telefone ou de ligação vai para ENTRADA, Precisa de você</li><li>As mensagens aparecem nas fichas</li></ul>
+          </section>
+          <section id="import-card-automatic" class="card entry-tool import-card import-info">
+            <span class="entry-tool-icon" aria-hidden="true">🔄</span><h2 data-draft>Entram sozinhos</h2>
+            <ul class="import-facts" data-import-facts="automatic" data-draft><li>Mensagens do WhatsApp chegam sozinhas pelo 360dialog</li><li>Fotos, áudios e documentos do cliente são baixados sozinhos em seguida</li><li>SMS enviados pelo atalho do iPhone entram sozinhos quando o remetente é conhecido</li><li>Nada disso precisa ser importado aqui</li><li>Problemas aparecem em ENTRADA, Precisa de você</li></ul>
+          </section>
+          <section id="import-card-v2" class="card entry-tool import-card">
+            <span class="entry-tool-icon" aria-hidden="true">🖼️</span><h2 data-draft>Fotos da V2</h2>
+            <ul class="import-facts" data-import-facts="v2" data-draft><li>Escolha uma V2 já criada e acrescente fotos ao carro dela</li><li>Até 12 fotos por carro, reduzidas no próprio navegador</li><li>As fotos aparecem no link que o cliente já tem</li><li>Nova V2 continua saindo do pedido do cliente, em HOJE, com Montar V2</li></ul>
+            <label>V2<select id="import-v2-select"><option value="">Carregando V2…</option></select></label>
+            <div id="import-v2-body" class="hidden">
+              <label id="import-v2-drop" class="v2-drop">Arraste as fotos aqui ou toque para escolher<input id="import-v2-file" class="visually-hidden" type="file" accept="image/*" multiple></label>
+              <div id="import-v2-thumbs" class="v2-thumbs"></div>
+              <div class="inline-actions"><button id="import-v2-send" type="button" disabled>Enviar fotos</button><button id="import-v2-open" class="quiet" type="button">Ver como o cliente vê</button></div>
+            </div>
+            <p id="import-v2-status" class="muted" aria-live="polite"></p>
+          </section>
+        </div>
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
       </section>
       <section id="searches-panel" class="panel-view hidden" aria-label="Opções">
@@ -291,15 +320,15 @@
         <section id="manheim-saved-searches" class="card"></section>
         <details id="buscas-review" class="card buscas-review">
           <summary>Revisar tipo de busca <span id="buscas-review-count" class="badge">—</span></summary>
-          <p class="muted">Pedidos sem tipo definido ou com critério incompleto. Nada é adivinhado: defina CARRO ou VALOR, ou abra a ficha para completar</p>
+          <p class="muted">Pedidos sem tipo definido ou com critério incompleto · Nada é adivinhado: defina CARRO ou VALOR, ou abra a ficha para completar</p>
           <div id="buscas-review-list" class="stack"></div>
         </details>
       </section>
       <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
-        <p class="visually-hidden">Conteúdo reunido na aba Buscas.</p>
+        <p class="visually-hidden">Conteúdo reunido nas abas OPÇÕES e IMPORTAÇÕES</p>
       </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
-        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
+        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
         <div id="records-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="detail-panel" class="panel-view hidden" aria-label="Detalhe">

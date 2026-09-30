@@ -59,8 +59,8 @@
     const available = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     if (toggle()) toggle().disabled = !available || Notification.permission === 'denied';
     if (testButton()) testButton().disabled = !available || !accessToken();
-    if (!available) status('Este navegador não oferece avisos.');
-    else if (Notification.permission === 'denied') status('Os avisos estão bloqueados neste dispositivo.');
+    if (!available) status('Este navegador não oferece avisos');
+    else if (Notification.permission === 'denied') status('Os avisos estão bloqueados neste dispositivo');
   }
 
   async function registerWorker() {
@@ -82,14 +82,14 @@
       await api('/api/panel/push-subscriptions', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(subscription.toJSON())
       });
-      status('Avisos ativados neste dispositivo.');
+      status('Avisos ativados neste dispositivo');
     } catch (error) {
       const messages = {
-        PUSH_UNSUPPORTED: 'Este dispositivo não oferece avisos.',
-        PUSH_PERMISSION_DENIED: 'A permissão de avisos não foi concedida.',
-        PUSH_NOT_CONFIGURED: 'Os avisos ainda não estão configurados no servidor.'
+        PUSH_UNSUPPORTED: 'Este dispositivo não oferece avisos',
+        PUSH_PERMISSION_DENIED: 'A permissão de avisos não foi concedida',
+        PUSH_NOT_CONFIGURED: 'Os avisos ainda não estão configurados no servidor'
       };
-      status(messages[error.message] || 'Não foi possível ativar os avisos.');
+      status(messages[error.message] || 'Não foi possível ativar os avisos');
     } finally { buttonState(); }
   }
 
@@ -98,7 +98,7 @@
       const result = await api('/api/panel/push-test', { method: 'POST' });
       status('Aviso de teste enviado (' + result.data.accepted + ').');
     } catch (error) {
-      status(error.message === 'PUSH_TEST_NOT_DELIVERED' ? 'Ative os avisos neste dispositivo antes do teste.' : 'Não foi possível enviar o teste.');
+      status(error.message === 'PUSH_TEST_NOT_DELIVERED' ? 'Ative os avisos neste dispositivo antes do teste' : 'Não foi possível enviar o teste');
     }
   }
 
@@ -112,7 +112,7 @@
     try {
       const result = await api('/api/panel/notifications?after=' + encodeURIComponent(cursor));
       const received = pushIds();
-      for (const message of result.data.items || []) if (!received.has(message.id)) status('Nova mensagem de cliente no painel.');
+      for (const message of result.data.items || []) if (!received.has(message.id)) status('Nova mensagem de cliente no painel');
       if (result.data.cursor) {
         cursor = result.data.cursor;
         sessionStorage.setItem(CURSOR_KEY, cursor);
@@ -136,7 +136,7 @@
       const data = event.data || {};
       if (data.type === 'MCS_PUSH_RECEIVED') {
         rememberPush(data.messageId);
-        status('Nova mensagem de cliente no painel.');
+        status('Nova mensagem de cliente no painel');
       }
     });
     document.addEventListener('visibilitychange', schedulePolling);

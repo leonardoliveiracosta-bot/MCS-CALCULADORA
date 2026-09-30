@@ -115,7 +115,7 @@ test('helper dá efeito em até 300 ms, bloqueia clique duplo, desfaz e reverte 
   expect(await page.evaluate(()=>window.actionStatus)).toBe('TREATED');
   await page.locator('#fail').click();
   await expect(page.locator('#failure')).toBeVisible();
-  await expect(page.locator('#failure .action-feedback')).toHaveText('Não consegui salvar — tente de novo');
+  await expect(page.locator('#failure .action-feedback')).toHaveText('Não consegui salvar, tente de novo');
 });
 
 for (const width of [1024, 1280, 1440, 1920]) {
