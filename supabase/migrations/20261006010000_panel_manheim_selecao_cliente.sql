@@ -7,10 +7,13 @@
 --    verificável e indicação de Buy Now/Make Offer no CSV) e INCOMPLETE (o resto). CR não muda o grupo,
 --    só a ordem. Fora de LANE só entra com inclusão manual e motivo.
 --  * CR só ordena candidatos já compatíveis: até 5 com CR no mínimo recomendado pelo MMR, depois até
---    5 abaixo, depois o resto. Empate: leilão mais cedo, Lane, Run, VIN, id.
+--    5 abaixo, depois o resto; sem CR no fim. Empate: leilão mais cedo, Lane e Run mais próximos, identificador estável.
 --  * Preço para o cliente: MMR + acréscimo padrão da faixa (ou o percentual do operador). O cliente
 --    vê só o valor final; o MMR e o percentual ficam internos.
 --  * Toda mudança fica no audit_log com o operador, o estado anterior e o novo.
+--  * Dados de venda (Lane, Run, Inventory, Status, Event Sale Name) de um lote importado antes deles
+--    ficam em manheim_sale_info, gravados de uma vez pelo complemento (20261006020000). O carro e o
+--    match nunca são reescritos: a leitura junta os dois.
 
 create table if not exists public.manheim_option_selections (
   id uuid primary key default gen_random_uuid(),
@@ -41,6 +44,23 @@ alter table public.manheim_option_selections enable row level security;
 alter table public.manheim_option_selections force row level security;
 revoke all on table public.manheim_option_selections from public, anon, authenticated;
 grant select, insert, update on table public.manheim_option_selections to service_role;
+
+-- Dados de venda complementados por carro do lote (só as cinco chaves). Escrita só pelo complemento.
+create table if not exists public.manheim_sale_info (
+  environment public.panel_environment not null,
+  upload_id uuid not null references public.manheim_uploads(id),
+  row_fingerprint text not null,
+  sale jsonb not null check (jsonb_typeof(sale) = 'object' and sale - array['lane','run','saleType','saleStatus','eventSaleName'] = '{}'::jsonb),
+  updated_by uuid references public.panel_users(id),
+  updated_at timestamptz not null default now(),
+  primary key (environment, upload_id, row_fingerprint)
+);
+create index if not exists manheim_sale_info_upload_idx on public.manheim_sale_info(upload_id);
+create index if not exists manheim_sale_info_updated_by_idx on public.manheim_sale_info(updated_by);
+alter table public.manheim_sale_info enable row level security;
+alter table public.manheim_sale_info force row level security;
+revoke all on table public.manheim_sale_info from public, anon, authenticated;
+grant select on table public.manheim_sale_info to service_role;
 
 -- ---------------------------------------------------------------- regras (iguais a manheim-offer.js)
 create or replace function public.panel_manheim_offer_cr(p_parsed jsonb)
@@ -93,8 +113,9 @@ returns table(demand_key text, lane_count integer, offlane_count integer, incomp
 language sql stable security definer set search_path = '' set work_mem = '32MB' as $$
   with options as (
     select coalesce(m.demand_key, case when m.journey_id is not null then 'journey:' || m.journey_id::text else 'ref:' || trim(m.calc_ref::text) end || ':' || coalesce(m.logical_mode::text, '')) as demand_key,
-           public.panel_manheim_offer_group(m.vehicle_json -> 'parsed') as grp
+           public.panel_manheim_offer_group(coalesce(m.vehicle_json -> 'parsed', '{}'::jsonb) || coalesce(si.sale, '{}'::jsonb)) as grp
       from public.manheim_matches m
+      left join public.manheim_sale_info si on si.environment = m.environment and si.upload_id = m.upload_id and si.row_fingerprint = m.row_fingerprint
      where m.environment = p_environment and m.upload_id = p_upload_id and m.undone_at is null
        and public.panel_manheim_offer_mmr(m.mmr_cents, m.vehicle_json -> 'parsed') is not null
   ), counts as (
@@ -120,19 +141,24 @@ returns table(id uuid, journey_id uuid, calc_ref text, logical_mode text, match_
   tier integer, mmr_cents bigint, default_pct numeric, selection_status text, manual boolean, manual_reason text, manual_pct numeric,
   final_cents integer, note text, total_in_group integer)
 language sql stable security definer set search_path = '' set work_mem = '32MB' as $$
-  with options as (
-    select m.*, public.panel_manheim_offer_group(m.vehicle_json -> 'parsed') as grp,
-           public.panel_manheim_offer_cr(m.vehicle_json -> 'parsed') as cr_value,
-           public.panel_manheim_offer_mmr(m.mmr_cents, m.vehicle_json -> 'parsed') as mmr_value
+  with source as (
+    select m.*, coalesce(m.vehicle_json -> 'parsed', '{}'::jsonb) || coalesce(si.sale, '{}'::jsonb) as parsed
       from public.manheim_matches m
+      left join public.manheim_sale_info si on si.environment = m.environment and si.upload_id = m.upload_id and si.row_fingerprint = m.row_fingerprint
      where m.environment = p_environment and m.upload_id = p_upload_id and m.undone_at is null
        and (m.demand_key = p_demand_key or (m.demand_key is null and (case when m.journey_id is not null then 'journey:' || m.journey_id::text else 'ref:' || trim(m.calc_ref::text) end || ':' || coalesce(m.logical_mode::text, '')) = p_demand_key))
+  ), options as (
+    select o.*, public.panel_manheim_offer_group(o.parsed) as grp, public.panel_manheim_offer_cr(o.parsed) as cr_value,
+           public.panel_manheim_offer_mmr(o.mmr_cents, o.parsed) as mmr_value,
+           -- Empate: leilão mais cedo, depois Lane e Run mais próximos (ordem natural), depois o identificador estável.
+           nullif(o.parsed ->> 'startsAt', '') as starts_key,
+           lpad(nullif(trim(coalesce(o.parsed ->> 'lane', '')), ''), 20, '0') as lane_key,
+           lpad(nullif(trim(coalesce(o.parsed ->> 'run', '')), ''), 20, '0') as run_key
+      from source o
   ), ranked as (
     select o.*, public.panel_manheim_offer_cr_min(o.mmr_value) as cr_min,
            row_number() over (partition by (o.cr_value >= public.panel_manheim_offer_cr_min(o.mmr_value))
-             order by o.cr_value desc nulls last, nullif(o.vehicle_json #>> '{parsed,startsAt}', '') nulls last,
-                      nullif(o.vehicle_json #>> '{parsed,lane}', '') nulls last, nullif(o.vehicle_json #>> '{parsed,run}', '') nulls last,
-                      o.vin nulls last, o.id) as position
+             order by o.cr_value desc nulls last, o.starts_key nulls last, o.lane_key nulls last, o.run_key nulls last, o.row_fingerprint, o.id) as position
       from options o
      where o.mmr_value is not null and o.grp = p_group
   ), tiered as (
@@ -144,14 +170,13 @@ language sql stable security definer set search_path = '' set work_mem = '32MB' 
       from ranked r
   )
   select t.id, t.journey_id, trim(t.calc_ref::text), t.logical_mode::text, t.match_kind, t.match_reason, t.mmr_status, t.row_fingerprint,
-         t.presented_unit_id, t.vehicle_json, t.grp, t.cr_value, t.cr_min, case when t.cr_value is null then null else t.cr_value < t.cr_min end,
+         t.presented_unit_id, jsonb_set(t.vehicle_json, '{parsed}', t.parsed), t.grp, t.cr_value, t.cr_min, case when t.cr_value is null then null else t.cr_value < t.cr_min end,
          t.tier_value, t.mmr_value, public.panel_manheim_offer_default_pct(t.mmr_value),
          coalesce(s.status, 'AVAILABLE'), coalesce(s.manual, false), s.manual_reason, s.manual_pct,
          coalesce(s.final_cents, round(t.mmr_value * (100 + public.panel_manheim_offer_default_pct(t.mmr_value)) / 100)::integer), s.note, t.total
     from tiered t
     left join public.manheim_option_selections s on s.environment = p_environment and s.match_id = t.id
-   order by t.tier_value, t.cr_value desc nulls last, nullif(t.vehicle_json #>> '{parsed,startsAt}', '') nulls last,
-            nullif(t.vehicle_json #>> '{parsed,lane}', '') nulls last, nullif(t.vehicle_json #>> '{parsed,run}', '') nulls last, t.vin nulls last, t.id
+   order by t.tier_value, t.cr_value desc nulls last, t.starts_key nulls last, t.lane_key nulls last, t.run_key nulls last, t.row_fingerprint, t.id
   offset greatest(coalesce(p_offset, 0), 0) limit least(greatest(coalesce(p_limit, 10), 1), 50);
 $$;
 
@@ -192,7 +217,8 @@ begin
   v_mmr := public.panel_manheim_offer_mmr(v_match.mmr_cents, v_match.vehicle_json -> 'parsed');
   if v_mmr is null then raise exception 'MANHEIM_MATCH_WITHOUT_MMR'; end if;
   v_demand := coalesce(v_match.demand_key, case when v_match.journey_id is not null then 'journey:' || v_match.journey_id::text else 'ref:' || trim(v_match.calc_ref::text) end || ':' || coalesce(v_match.logical_mode::text, ''));
-  v_group := public.panel_manheim_offer_group(v_match.vehicle_json -> 'parsed');
+  v_group := public.panel_manheim_offer_group(coalesce(v_match.vehicle_json -> 'parsed', '{}'::jsonb) || coalesce((select si.sale from public.manheim_sale_info si
+    where si.environment = p_environment and si.upload_id = v_match.upload_id and si.row_fingerprint = v_match.row_fingerprint), '{}'::jsonb));
   v_default := public.panel_manheim_offer_default_pct(v_mmr);
 
   -- Uma demanda por vez: o limite de 10 não é furado por duas abas ao mesmo tempo.

@@ -132,29 +132,10 @@ const CSV_ROWS = [
 ];
 const CSV_TEXT = [CSV_HEADERS, ...CSV_ROWS].map((row) => row.join(',')).join('\n') + '\n';
 
-async function importLegacyBatch() {
-  const crypto = require('node:crypto');
-  const manheim = require('../painel/manheim');
-  const upload = require('../painel/manheim-upload');
-  const parsed = manheim.parseCsv(CSV_TEXT);
-  const mapping = manheim.mapHeaders(parsed.headers);
-  const vehicles = upload.markSearchFiltered(manheim.chooseAuctionRows(manheim.classifyRows(parsed, mapping).vehicles))
-    .map((vehicle) => ({ ...upload.compactVehicle(vehicle), fileIndex: 0, raw: { Inventory: vehicle.raw && vehicle.raw.Inventory || '' }, hasBuyNow: vehicle.hasBuyNow }));
-  const deduped = upload.dedupeAcrossFiles(vehicles, manheim);
-  const plan = upload.planBatch([{ name: 'COMPLEMENTO.csv', size: Buffer.byteLength(CSV_TEXT), rowCount: parsed.rows.length }], deduped.vehicles, manheim);
-  const manifest = await upload.sealPlan(plan, async (value) => crypto.createHash('sha256').update(value, 'utf8').digest('hex'));
-  const started = await direct('manheim-batch', { action: 'start', clientKey: 'a'.repeat(32), vehicleCount: deduped.vehicles.length, files: manifest.files, manifestHash: manifest.manifestHash, headers: [parsed.headers], headerMap: {} });
-  await direct('manheim-batch', { action: 'chunk', uploadId: started.payload.uploadId, fileIndex: 0, chunkIndex: 0, vehicles: plan[0].chunks[0] });
-  const done = await direct('manheim-batch', { action: 'finalize', uploadId: started.payload.uploadId });
-  expect(done.statusCode, JSON.stringify(done.payload)).toBe(200);
-  await backend.db.exec(`update public.manheim_vehicles set vehicle_json = vehicle_json - array['lane','run','saleType','saleStatus','eventSaleName'];
-    update public.manheim_matches set vehicle_json = jsonb_set(vehicle_json, '{parsed}', (vehicle_json -> 'parsed') - array['lane','run','saleType','saleStatus','eventSaleName']);`);
-  return deduped.vehicles.length;
-}
-
 test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote nem match', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
-  expect(await importLegacyBatch()).toBe(7);
+  const legacy = await require('./fixtures/manheim-csv').importLegacy((body) => direct('manheim-batch', body), [{ name: 'COMPLEMENTO.csv', text: CSV_TEXT }]);
+  expect(legacy.vehicleCount).toBe(7);
   const q = async (sql) => (await backend.db.query(sql)).rows[0];
   const before = await q(`select (select count(*) from public.manheim_uploads)::int uploads, (select count(*) from public.manheim_matches)::int matches, (select count(*) from public.manheim_vehicles)::int vehicles`);
   await openPanel(page);
@@ -168,11 +149,11 @@ test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote
   await chooser.setFiles({ name: 'COMPLEMENTO.csv', mimeType: 'text/csv', buffer: Buffer.from(CSV_TEXT) });
   const status = page.locator('#manheim-complement-status');
   const confirm = page.locator('.inline-confirm');
-  await expect(confirm).toContainText('7 carros do lote ativo serão complementados');
-  expect((await q(`select count(*)::int n from public.manheim_vehicles where vehicle_json ? 'lane'`)).n, 'nada gravado antes da confirmação').toBe(0);
+  await expect(confirm).toContainText('7 carros do lote ativo conferidos com o manifesto. 7 vão receber Lane, Run, Inventory, Status e Event Sale Name: 4 com Lane/Run, 2 Buy Now / Make Offer, 1 ainda incompletos');
+  expect((await q(`select count(*)::int n from public.manheim_sale_info`)).n, 'nada gravado antes da confirmação').toBe(0);
   if (SHOTS) await page.locator('#searches-panel > section.card').first().screenshot({ path: path.join(SHOTS, 'complemento-confirmacao.png') });
   await confirm.getByRole('button', { name: 'Complementar agora' }).click();
-  await expect(status).toHaveText('Complemento concluído · 7 carros conferidos · 4 com Lane/Run · 2 Buy Now / Make Offer · 1 ainda incompletos', { timeout: 30000 });
+  await expect(status).toHaveText('Complemento concluído · 7 carros · 4 com Lane/Run · 2 Buy Now / Make Offer · 1 ainda incompletos', { timeout: 30000 });
   await expect(card.locator('.offer-counter')).toContainText('3 passam em Lane/Run · 2 Buy Now / Make Offer / fora de Lane-Run · 1 incompletos', { timeout: 30000 });
   if (SHOTS) await page.locator('#searches-panel').screenshot({ path: path.join(SHOTS, 'complemento-concluido.png') });
   const after = await q(`select (select count(*) from public.manheim_uploads)::int uploads, (select count(*) from public.manheim_matches)::int matches, (select count(*) from public.manheim_vehicles)::int vehicles`);

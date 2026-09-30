@@ -164,6 +164,7 @@
       // A batch the server refused to continue: its id lets the operator discard it.
       if (result.uploadId) failure.uploadId = result.uploadId;
       if (result.reason) failure.reason = result.reason;
+      if (Number.isInteger(result.fileIndex)) failure.fileIndex = result.fileIndex;
       throw failure;
     }
     return result;
@@ -1995,6 +1996,11 @@
     list.append(more); details.append(list);
     return details;
   }
+  // Selection not available on this database (migration pending): the list below is only internal
+  // matches and V1 stays blocked by the server.
+  function offerPendingNote() {
+    return element('p', 'warning offer-pending', 'Seleção para o cliente indisponível: migração pendente. A lista abaixo mostra só matches internos e a V1 fica bloqueada');
+  }
   function offerSection(card, demand) {
     const offerCounts = demand.offer;
     const state = { loaded: [], selectedIds: new Set(offerCounts.selectedIds || []), listeners: [] };
@@ -2060,6 +2066,7 @@
     // With the selection (migration 20261006010000) the demand shows the three groups; before it, the
     // list as it was.
     const selection = demand && demand.offer && OFFER ? offerSection(card, demand) : null;
+    if (!selection && demand && demand.offerPending) card.append(offerPendingNote());
     card.append(selection || table);
     const exportButton = element('button', 'quiet small', 'Baixar PDF');
     exportButton.type = 'button';
@@ -2069,7 +2076,7 @@
       downloadShortlist(selected, journey.reference_code);
     });
     const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';}catch(_){$('manheim-status').textContent='Não consegui copiar. Link: '+link;}});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){$('manheim-status').textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){$('manheim-status').textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente com migração pendente':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
     card.append(exportButton,vitrineButton,copyMessageButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
@@ -2125,6 +2132,7 @@
     const actions=element('div','inline-actions');
     const open=element('button','small','Abrir pedido');open.type='button';open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('order',order.ref);});
     const orderSelection = demand && demand.offer && OFFER ? offerSection(card, demand) : null;
+    if (!orderSelection && demand && demand.offerPending) card.append(offerPendingNote());
     actions.append(open);card.append(orderSelection || table,actions,dispositionControls({...order,kind:'CALCULATOR'}));
     makeCardClickable(card, () => openDetail('order', order.ref));
     root.append(card);
@@ -2620,16 +2628,22 @@
   }
 
   // Complemento do lote ativo: os MESMOS CSVs lidos de novo só acrescentam Lane, Run, Inventory,
-  // Status e Event Sale Name aos carros que o lote já tem. Primeiro conta (nada é gravado), mostra
-  // quantos carros serão complementados e só grava depois da confirmação do operador. Não cria lote
-  // nem match, não mexe em MMR, critérios, seleção, V1/V2 ou histórico, não chama OpenAI e não envia
-  // mensagem. Arquivo que não corresponde ao lote ativo é recusado sem gravar nada.
-  const COMPLEMENT_ITEMS = 1000;
+  // Status e Event Sale Name aos carros que o lote já tem. Cada arquivo é comparado com o manifesto
+  // gravado no lote (hash canônico do conteúdo, a mesma normalização da importação); o servidor
+  // confere de novo bloco a bloco. A prévia só lê. Depois do "Complementar agora" os blocos vão para
+  // uma área de conferência e a gravação é uma transação só: faltou um carro, nada é gravado. Não cria
+  // lote nem match, não mexe em MMR, critérios, seleção, V1/V2 ou histórico, não chama OpenAI e não
+  // envia mensagem.
+  const SALE_KEYS = ['lane', 'run', 'saleType', 'saleStatus', 'eventSaleName'];
   const COMPLEMENT_MESSAGES = {
     MANHEIM_COMPLEMENT_NOT_ACTIVE: 'Não há lote ativo para complementar, ou o lote ativo mudou. Nada foi gravado',
-    MANHEIM_COMPLEMENT_MISMATCH: 'Estes arquivos não correspondem ao lote ativo (nomes, linhas ou carros diferentes). Nada foi gravado. Selecione exatamente os mesmos CSVs importados no lote ativo',
+    MANHEIM_COMPLEMENT_MISMATCH: 'Estes arquivos não conferem com o manifesto do lote ativo. Nada foi gravado. Selecione exatamente os mesmos CSVs importados no lote ativo',
+    MANHEIM_COMPLEMENT_FILES_DIFFER: 'A seleção não tem exatamente os arquivos do lote ativo (falta arquivo, sobra arquivo ou o nome mudou). Nada foi gravado',
     MANHEIM_COMPLEMENT_COLUMNS_MISSING: 'Estes CSVs não têm as colunas Lane e Run. Nada foi gravado',
+    MANHEIM_COMPLEMENT_INCOMPLETE: 'Nem todos os blocos chegaram para a conferência. Nada foi gravado. Selecione os mesmos arquivos de novo',
+    MANHEIM_COMPLEMENT_CANCELED: 'Este complemento foi cancelado. Nada foi gravado. Selecione os mesmos arquivos de novo',
     MANHEIM_COMPLEMENT_CONFIRM_REQUIRED: 'O complemento precisa da sua confirmação antes de gravar. Nada foi gravado',
+    MANHEIM_COMPLEMENT_PENDING: 'O banco ainda não tem o complemento do lote (migração pendente). Nada foi lido nem gravado; avise o responsável',
     MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação ou um complemento em andamento nesta aba. Espere terminar',
     MANHEIM_FILES_INVALID: 'Selecione só os arquivos CSV do Manheim'
   };
@@ -2637,7 +2651,8 @@
     const status = $('manheim-complement-status');
     status.classList.add('error');
     const code = failure && failure.code;
-    status.textContent = COMPLEMENT_MESSAGES[code] || (MANHEIM_FAILURE_MESSAGES[code] ? MANHEIM_FAILURE_MESSAGES[code] + '. O complemento parou' : `O complemento parou: ${code || (failure && failure.message) || 'erro inesperado'}`);
+    if (code === 'MANHEIM_COMPLEMENT_FILE_MISMATCH') { status.textContent = `O arquivo ${failure.fileName} não confere com o que foi importado no lote ativo (conteúdo diferente). Nada foi gravado`; return; }
+    status.textContent = COMPLEMENT_MESSAGES[code] || (MANHEIM_FAILURE_MESSAGES[code] ? MANHEIM_FAILURE_MESSAGES[code] + '. O complemento parou e nada foi gravado' : `O complemento parou e nada foi gravado: ${code || (failure && failure.message) || 'erro inesperado'}`);
   }
   async function complementManheim(files) {
     const selected = files.filter((file) => /\.csv$/i.test(file.name));
@@ -2647,58 +2662,84 @@
     manheimUploadRunning = true;
     const status = $('manheim-complement-status');
     status.classList.remove('error');
+    const post = (body) => request('/api/panel/manheim-batch', { method: 'POST', timeoutMs: 60000, body: JSON.stringify(body) });
+    let runId = null;
     try {
       const { latest } = await request('/api/panel/manheim-batch');
       if (!latest || !Array.isArray(latest.files) || !latest.files.length) throw manheimError('MANHEIM_COMPLEMENT_NOT_ACTIVE');
-      // The files are read in the order of the active batch (the same car in two files resolves the same way).
-      const names = latest.files.map((file) => file.name);
-      const ordered = names.map((name) => selected.find((file) => file.name === name));
-      if (ordered.some((file) => !file) || selected.length !== names.length) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
+      // Read in the order of the batch (a car in two files resolves as in the import). The name only
+      // orders; the proof is the content hash of each file compared with the manifest.
+      const ordered = latest.files.map((entry) => selected.find((file) => file.name === entry.name));
+      if (ordered.some((file) => !file) || selected.length !== latest.files.length) throw manheimError('MANHEIM_COMPLEMENT_FILES_DIFFER');
       const vehicles = [];
       const fileMeta = [];
       for (let fileIndex = 0; fileIndex < ordered.length; fileIndex += 1) {
         const file = ordered[fileIndex];
         status.textContent = `Lendo ${fileIndex + 1} de ${ordered.length}: ${file.name}…`;
         if (file.size > MAX_TEXT) throw manheimError('MANHEIM_FILE_TOO_LARGE', { fileName: file.name });
-        const parsed = MCSManheim.parseCsv(await file.text());
+        const contents = await file.text();
+        const contentHash = await sha256(contents);
+        const parsed = MCSManheim.parseCsv(contents);
         const mapping = MCSManheim.mapHeaders(parsed.headers);
-        if (mapping.missing.length) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
+        if (mapping.missing.length) throw manheimError('MANHEIM_COMPLEMENT_FILE_MISMATCH', { fileName: file.name });
         if (!mapping.fields.lane || !mapping.fields.run) throw manheimError('MANHEIM_COMPLEMENT_COLUMNS_MISSING');
         // Only the rows read without OpenAI, as in the import (rows in review stay out).
         const classified = MCSManheim.classifyRows(parsed, mapping);
         MCSManheimUpload.markSearchFiltered(MCSManheim.chooseAuctionRows(classified.vehicles)).forEach((vehicle) => {
           vehicles.push({ ...MCSManheimUpload.compactVehicle(vehicle), fileIndex, raw: { Inventory: vehicle.raw && vehicle.raw.Inventory || '' }, hasBuyNow: vehicle.hasBuyNow });
         });
-        fileMeta.push({ name: file.name, size: file.size, rowCount: parsed.rows.length });
+        fileMeta.push({ name: file.name, size: file.size, rowCount: parsed.rows.length, contentHash });
       }
+      status.textContent = 'Conferindo cada arquivo com o manifesto do lote ativo…';
       const deduped = MCSManheimUpload.dedupeAcrossFiles(vehicles, MCSManheim);
       const plan = MCSManheimUpload.planBatch(fileMeta, deduped.vehicles, MCSManheim);
-      const filesSummary = plan.map((file) => ({ name: file.name, size: file.size, rowCount: file.rowCount, vehicleCount: file.vehicleCount }));
-      const same = filesSummary.length === latest.files.length && filesSummary.every((file, index) => ['name', 'size', 'rowCount', 'vehicleCount'].every((key) => file[key] === latest.files[index][key]));
-      if (!same || deduped.vehicles.length !== Number(latest.vehicleCount)) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
-      const items = plan.flatMap((file) => file.chunks.flat()).map((entry) => ({ fingerprint: entry.fingerprint, lane: entry.vehicle.lane || '', run: entry.vehicle.run || '', saleType: entry.vehicle.saleType || '', saleStatus: entry.vehicle.saleStatus || '', eventSaleName: entry.vehicle.eventSaleName || '' }));
+      // The manifest as the batch was imported: without the sale data (older batch) or with it.
+      const stripped = plan.map((file) => ({ ...file, chunks: file.chunks.map((chunk) => chunk.map((entry) => { const vehicle = { ...entry.vehicle }; SALE_KEYS.forEach((key) => { delete vehicle[key]; }); return { ...entry, vehicle }; })) }));
+      const variants = [await MCSManheimUpload.sealPlan(stripped, sha256), await MCSManheimUpload.sealPlan(plan.map((file) => ({ ...file })), sha256)];
+      const fileHashes = await Promise.all(variants.map((variant) => Promise.all(variant.files.map((entry) => sha256(MCSManheimUpload.canonicalJson(entry))))));
+      const variant = fileHashes.findIndex((hashes) => hashes.every((hash, index) => hash === latest.files[index].hash));
+      if (variant < 0) {
+        const index = latest.files.findIndex((entry, position) => fileHashes.every((hashes) => hashes[position] !== entry.hash));
+        throw manheimError('MANHEIM_COMPLEMENT_FILE_MISMATCH', { fileName: (latest.files[index] || latest.files[0]).name });
+      }
+      const manifestHash = variants[variant].manifestHash;
+      const clientKey = (await sha256(MCSManheimUpload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash])))).slice(0, 32);
       const blocks = [];
-      for (let index = 0; index < items.length; index += COMPLEMENT_ITEMS) blocks.push(items.slice(index, index + COMPLEMENT_ITEMS));
-      const run = async (apply, label) => {
-        const totals = { found: 0, missing: 0, changed: 0, lane: 0, offLane: 0, incomplete: 0, vehiclesUpdated: 0, matchesUpdated: 0 };
-        for (let index = 0; index < blocks.length; index += 1) {
-          status.textContent = `${label} · bloco ${index + 1} de ${blocks.length}`;
-          const answer = await request('/api/panel/manheim-batch', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'complement', uploadId: latest.id, apply, confirmed: apply, files: filesSummary, vehicleCount: deduped.vehicles.length, items: blocks[index] }) });
-          Object.keys(totals).forEach((key) => { totals[key] += Number(answer[key]) || 0; });
-        }
-        return totals;
-      };
-      // 1) Count only. A car the active batch does not have stops everything before any write.
-      const preview = await run(false, 'Conferindo com o lote ativo');
-      if (preview.missing || preview.found !== items.length) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
+      plan.forEach((file, fileIndex) => file.chunks.forEach((vehiclesOfChunk, chunkIndex) => blocks.push({ fileIndex, chunkIndex, vehicles: vehiclesOfChunk })));
+      const keys = { uploadId: latest.id, clientKey, manifestHash };
+      // 1) Preview, read only.
+      const preview = { received: 0, found: 0, missing: 0, changed: 0, lane: 0, offLane: 0, incomplete: 0 };
+      for (let index = 0; index < blocks.length; index += 1) {
+        status.textContent = `Conferindo com o lote ativo · bloco ${index + 1} de ${blocks.length}`;
+        const answer = await post({ action: 'complement-check', ...keys, ...blocks[index] }).catch((failure) => {
+          if (failure && failure.code === 'MANHEIM_COMPLEMENT_MISMATCH' && Number.isInteger(failure.fileIndex)) throw manheimError('MANHEIM_COMPLEMENT_FILE_MISMATCH', { fileName: plan[failure.fileIndex].name });
+          throw failure;
+        });
+        Object.keys(preview).forEach((key) => { preview[key] += Number(answer[key]) || 0; });
+      }
+      if (preview.missing || !preview.found) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
+      if (!preview.changed) { status.textContent = `Nada a complementar · os ${preview.found} carros do lote ativo já têm estes dados`; return; }
       status.textContent = 'Aguardando confirmação';
-      const question = `${preview.found} carros do lote ativo serão complementados com Lane, Run, Inventory, Status e Event Sale Name (${preview.changed} com dados novos). Nenhum lote, match, MMR, seleção ou V1/V2 muda e nenhuma mensagem é enviada`;
+      const question = `${preview.found} carros do lote ativo conferidos com o manifesto. ${preview.changed} vão receber Lane, Run, Inventory, Status e Event Sale Name: ${preview.lane} com Lane/Run, ${preview.offLane} Buy Now / Make Offer, ${preview.incomplete} ainda incompletos. Nenhum lote, match, MMR, seleção ou V1/V2 muda e nenhuma mensagem é enviada`;
       if (!(await askInline(status, question, 'Complementar agora'))) { status.textContent = 'Complemento cancelado. Nada foi gravado'; return; }
-      // 2) Write, block by block (the same block twice changes nothing).
-      const done = await run(true, 'Complementando');
-      status.textContent = `Complemento concluído · ${done.found} carros conferidos · ${done.lane} com Lane/Run · ${done.offLane} Buy Now / Make Offer · ${done.incomplete} ainda incompletos`;
+      // 2) Conference area, then one transaction.
+      const started = await post({ action: 'complement-start', ...keys, confirmed: true });
+      runId = started.runId;
+      const have = new Set((started.received || []).map(([file, chunk]) => file + ':' + chunk));
+      for (let index = 0; index < blocks.length; index += 1) {
+        if (have.has(blocks[index].fileIndex + ':' + blocks[index].chunkIndex)) continue;
+        status.textContent = `Complementando · conferindo bloco ${index + 1} de ${blocks.length}`;
+        await post({ action: 'complement-stage', ...keys, runId, ...blocks[index] });
+      }
+      status.textContent = 'Complementando · gravando tudo de uma vez…';
+      const done = await post({ action: 'complement-apply', runId, confirmed: true });
+      runId = null;
+      status.textContent = `Complemento concluído · ${done.cars} carros · ${done.lane} com Lane/Run · ${done.offLane} Buy Now / Make Offer · ${done.incomplete} ainda incompletos`;
       if (requestPool) requestPool.invalidate();
       await loadCurrent().catch(() => {});
+    } catch (failure) {
+      if (runId) await post({ action: 'complement-cancel', runId }).catch(() => null);
+      throw failure;
     } finally {
       manheimUploadRunning = false;
     }
