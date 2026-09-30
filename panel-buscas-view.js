@@ -98,6 +98,32 @@ async function liveOptions(ctx, uploadId, context, perDemand) {
   });
 }
 
+// Options the audit reads: every option (up to AUDIT_OPTIONS) of the demands with cars selected for
+// the customer, the only ones a V1 or V2 can come from. One jsonb value per group of people, so the
+// PostgREST row limit (1000) never cuts a demand; before this the audit read the first 1000 rows of
+// the batch (6 of 349 demands) and every other demand stayed "Conferindo" forever. Without the
+// selection table (migration not applied) it keeps the old reading.
+const SCOPE_TARGETS_PER_CALL = 20;
+async function auditOptions(ctx, uploadId, context, services = { allRows, rpc }) {
+  let selected;
+  try { selected = await services.allRows(ctx, 'manheim_option_selections', { select: 'demand_key', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId, status: 'eq.SELECTED' }); }
+  catch (_) { return { matches: await liveOptions(ctx, uploadId, context, AUDIT_OPTIONS), scope: null }; }
+  const scope = [...new Set(selected.map((row) => row.demand_key))].filter((key) => /^(journey:[0-9a-f-]{36}|ref:[A-Z0-9]{5}):(VALOR|CARRO)$/.test(key));
+  const targets = [...new Set(scope.map((key) => key.split(':').slice(0, 2).join(':')))];
+  const matches = [];
+  for (let index = 0; index < targets.length; index += SCOPE_TARGETS_PER_CALL) {
+    const part = targets.slice(index, index + SCOPE_TARGETS_PER_CALL);
+    const stored = await services.rpc(ctx, 'panel_manheim_batch_demand_options', { p_environment: ctx.environment, p_upload_id: uploadId,
+      p_journey_ids: part.filter((key) => key.startsWith('journey:')).map((key) => key.slice(8)), p_refs: part.filter((key) => key.startsWith('ref:')).map((key) => key.slice(4)), p_per_demand: AUDIT_OPTIONS });
+    (Array.isArray(stored) ? stored : []).forEach((match) => {
+      const demands = context.demandsByTarget.get(match.journey_id ? 'j:' + match.journey_id : 'r:' + upper(match.calc_ref));
+      if (demands) matches.push(...liveMatchesFor(match, demands));
+    });
+  }
+  const wanted = new Set(scope);
+  return { matches: matches.filter((match) => wanted.has(match.demandKey)), scope };
+}
+
 // Input of MANHEIM_MATCH_AUDIT: the options of the active batch grouped by demand. Server only.
 async function auditInputFor(ctx) {
   const supported = await undoSupported(ctx, { rows });
@@ -105,8 +131,8 @@ async function auditInputFor(ctx) {
   const [base, uploads] = await Promise.all([loadBuscasBase(ctx, { allRows }), loadUploads(ctx, supported, 20, batchOn)]);
   const latest = await latestLiveUpload(ctx, uploads, supported, batchOn);
   const context = demandContext(base);
-  const matches = latest ? await liveOptions(ctx, latest.id, context, AUDIT_OPTIONS) : [];
-  return { upload: latest || null, base, demands: context.listed, matches };
+  const read = latest ? await auditOptions(ctx, latest.id, context) : { matches: [], scope: [] };
+  return { upload: latest || null, base, demands: context.listed, matches: read.matches, scope: read.scope };
 }
 
 async function manheimView(ctx, options = {}) {
@@ -183,8 +209,8 @@ async function manheimView(ctx, options = {}) {
   // server reads the options of each demand itself (never the browser).
   let audit = { state: manheimAudit.status(), byDemand: {} };
   if (audit.state === 'LIGADA' && latest) {
-    const matches = await liveOptions(ctx, latest.id, context, AUDIT_OPTIONS).catch(() => []);
-    audit = await manheimAudit.viewState(ctx, { upload: latest, base, demands: context.listed, matches }).catch(() => ({ state: 'ERRO', byDemand: {} }));
+    const read = await auditOptions(ctx, latest.id, context).catch(() => ({ matches: [], scope: [] }));
+    audit = await manheimAudit.viewState(ctx, { upload: latest, base, demands: context.listed, matches: read.matches, scope: read.scope }).catch(() => ({ state: 'ERRO', byDemand: {} }));
   }
 
   // Operational count of each active batch: different cars with a valid MMR, answered by the
@@ -211,4 +237,4 @@ async function manheimView(ctx, options = {}) {
   };
 }
 
-module.exports = { manheimView, loadUploads, loadMatchTargets, demandContext, auditInputFor, latestLiveUpload, liveOptions };
+module.exports = { manheimView, loadUploads, loadMatchTargets, demandContext, auditInputFor, auditOptions, latestLiveUpload, liveOptions };

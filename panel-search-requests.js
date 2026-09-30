@@ -70,13 +70,19 @@ async function failureOf(response) {
   else failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : response.status === 401 ? 'OPENAI_KEY_INVALID' : 'OPENAI_FAILED';
   return failure;
 }
+// options.guard: the reservation of the US$ 50 OpenAI ceiling (panel-openai-budget.paidCall).
 async function openAiChat(body, options = {}) {
+  const env = options.env || process.env;
+  const modelId = env.SEARCH_EXTRACTION_MODEL;
+  return require('./panel-openai-budget').paidCall(options.guard, { modelId, body: { model: modelId, ...body }, send: (capped) => openAiSend(capped, options) });
+}
+async function openAiSend(fullBody, options = {}) {
   const env = options.env || process.env;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const response = await (options.fetchImpl || fetch)('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY }, body: JSON.stringify({ model: env.SEARCH_EXTRACTION_MODEL, ...body })
+      method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY }, body: JSON.stringify(fullBody)
     });
     if (!response.ok) throw await failureOf(response);
     const payload = await response.json();
@@ -128,10 +134,17 @@ async function extractChat(ctx, chatId, options = {}) {
     const [previous] = await services.rows(ctx, 'vehicle_request_runs', { select: 'id,status', environment: 'eq.' + ctx.environment, chat_id: 'eq.' + chatId, input_hash: 'eq.' + hash, rule_version: 'eq.' + requests.RULE_VERSION, provider: 'eq.' + provider, limit: '1' });
     if (previous) return { status, alreadyRead: true, runId: previous.id };
   }
+  // A paid reading: one caller per conversation content (cron and button at the same time), and the
+  // US$ 50 OpenAI reservation around the call.
+  const claims = options.claims || require('./panel-ai-claim');
+  const task = provider === 'OPENAI' && !options.dryRun ? await claims.claimTask(ctx, { kind: 'PESQUISAS', subject: chatId, hash, rule: requests.RULE_VERSION }) : null;
+  if (task && !task.claimed) return { status, inProgress: true };
+  const guard = provider === 'OPENAI' ? require('./panel-openai-budget').guard(ctx, 'PESQUISAS', chatId, options.budgetServices) : null;
   let reading;
   try {
-    reading = provider === 'OPENAI' ? await (options.readWithAi || readWithAi)(conversation, { env }) : { raw: requests.simulateExtraction(conversation), model: null, usage: null, costUsd: 0 };
+    reading = provider === 'OPENAI' ? await (options.readWithAi || readWithAi)(conversation, { env, guard, fetchImpl: options.fetchImpl }) : { raw: requests.simulateExtraction(conversation), model: null, usage: null, costUsd: 0 };
   } catch (failure) {
+    if (task) await claims.finishTask(ctx, task, false).catch(() => null);
     if (options.dryRun) return { status, error: failure.code || 'EXTRACTION_FAILED' };
     await services.insert(ctx, 'vehicle_request_runs', { environment: ctx.environment, chat_id: chatId, contact_id: chat.contact_id, provider, model: env.SEARCH_EXTRACTION_MODEL || null, rule_version: requests.RULE_VERSION, input_hash: hash, messages_read: conversation.length, status: 'FAILED', error_code: failure.code || 'EXTRACTION_FAILED', created_by: ctx.panel?.id || null }, false);
     return { status, error: failure.code || 'EXTRACTION_FAILED' };
@@ -139,9 +152,20 @@ async function extractChat(ctx, chatId, options = {}) {
   const checked = requests.validateExtraction(reading.raw, conversation);
   const evidenceText = new Map(conversation.map((item) => [item.id, item]));
   if (options.dryRun) return { status, provider, messagesRead: conversation.length, ...checked, evidence: [...new Set(checked.requests.flatMap((item) => Object.values(item.evidence).flat()))].map((id) => evidenceText.get(id)) };
-  const [run] = await services.insert(ctx, 'vehicle_request_runs', { environment: ctx.environment, chat_id: chatId, contact_id: chat.contact_id, provider, model: reading.model, rule_version: requests.RULE_VERSION, input_hash: hash,
-    messages_read: conversation.length, status: checked.requests.length ? 'DONE' : 'NO_REQUEST', request_count: checked.requests.length, error_code: checked.errorCode,
-    input_tokens: reading.usage?.input ?? null, output_tokens: reading.usage?.output ?? null, cost_usd: reading.costUsd ?? null, created_by: ctx.panel?.id || null });
+  let run;
+  try {
+    [run] = await services.insert(ctx, 'vehicle_request_runs', { environment: ctx.environment, chat_id: chatId, contact_id: chat.contact_id, provider, model: reading.model, rule_version: requests.RULE_VERSION, input_hash: hash,
+      messages_read: conversation.length, status: checked.requests.length ? 'DONE' : 'NO_REQUEST', request_count: checked.requests.length, error_code: checked.errorCode,
+      input_tokens: reading.usage?.input ?? null, output_tokens: reading.usage?.output ?? null, cost_usd: reading.costUsd ?? null, created_by: ctx.panel?.id || null });
+  } catch (error) {
+    // The cost stays on the reservation (it keeps counting in the US$ 50); the reading is done: a
+    // new call for the same content would pay twice.
+    if (task) await claims.finishTask(ctx, task, true).catch(() => null);
+    throw error;
+  }
+  // The cost is on the run now.
+  await require('./panel-openai-budget').recorded(guard);
+  if (task) await claims.finishTask(ctx, task, true).catch(() => null);
   const existing = await services.rows(ctx, 'vehicle_requests', { select: 'id,request_key', environment: 'eq.' + ctx.environment, chat_id: 'eq.' + chatId });
   const byKey = new Map(existing.map((row) => [row.request_key, row]));
   for (const item of checked.requests) {

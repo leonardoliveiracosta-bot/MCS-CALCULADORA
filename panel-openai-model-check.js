@@ -21,10 +21,13 @@ async function ensureModelChecked(ctx, modelId, services = {}) {
   if (!budget.fits(await budget.spentUsd(ctx))) return { ok: false, error: 'PROVIDER_LIMIT' };
   const chat = services.chat || require('./panel-search-requests').openAiChat;
   let result = null, failure = null;
-  try { result = await chat({ messages: [{ role: 'user', content: PROMPT }] }, { env: { ...process.env, SEARCH_EXTRACTION_MODEL: modelId }, fetchImpl: services.fetchImpl }); }
+  const guard = budget.guard ? budget.guard(ctx, 'MODELO_TESTE', 'modelo:' + modelId, services.budgetServices) : null;
+  try { result = await chat({ messages: [{ role: 'user', content: PROMPT }] }, { env: { ...process.env, SEARCH_EXTRACTION_MODEL: modelId }, fetchImpl: services.fetchImpl, guard }); }
   catch (error) { failure = error && error.code || 'OPENAI_FAILED'; }
+  if (failure === 'OPENAI_BUDGET_LIMIT') return { ok: false, error: 'PROVIDER_LIMIT' };
   await add(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider: 'OPENAI', model: modelId, conversations: 0, input_tokens: result?.usage?.input || 0, output_tokens: result?.usage?.output || 0,
     cost_usd: Math.round((Number(result?.costUsd) || 0) * 1e6) / 1e6, stopped_reason: failure ? (failure === 'OPENAI_MODEL_UNAVAILABLE' ? 'MODEL_UNAVAILABLE' : 'MODEL_CHECK_' + String(failure).replace(/^OPENAI_/, '')) : CHECK_OK, created_by: ctx.panel?.id || null }, false);
+  if (budget.recorded) await budget.recorded(guard);
   return failure ? { ok: false, error: failure } : { ok: true, checked: true };
 }
 

@@ -97,15 +97,18 @@ async function suggestRows(rows, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs || TIMEOUT_MS);
   if (timer.unref) timer.unref();
+  const body = {
+    model: modelId,
+    messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ rows: rows.map((row) => ({ id: row.id, ...row.cells })) }) }],
+    response_format: { type: 'json_schema', json_schema: { name: 'manheim_rows', strict: true, schema: SCHEMA } }
+  };
+  // The US$ 50 OpenAI reservation around the call (options.guard, panel-openai-budget).
+  return require('./panel-openai-budget').paidCall(options.guard, { modelId, body, send: async (capped) => {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ rows: rows.map((row) => ({ id: row.id, ...row.cells })) }) }],
-        response_format: { type: 'json_schema', json_schema: { name: 'manheim_rows', strict: true, schema: SCHEMA } }
-      })
+      body: JSON.stringify(capped)
     });
     if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; failure.status = response.status; throw failure; }
     const payload = await response.json();
@@ -124,6 +127,7 @@ async function suggestRows(rows, options = {}) {
     if (failure && failure.name === 'AbortError') { const timeout = new Error('OPENAI_TIMEOUT'); timeout.code = 'OPENAI_TIMEOUT'; throw timeout; }
     throw failure;
   } finally { clearTimeout(timer); }
+  } });
 }
 
 // Unknown header: only the column NAMES are sent (never a value of any row).
@@ -149,15 +153,17 @@ async function suggestHeaders(input, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs || TIMEOUT_MS);
   if (timer.unref) timer.unref();
+  const body = {
+        model: modelId,
+        messages: [{ role: 'system', content: 'Map the columns of a Manheim auction CSV. For each field (year, make, model, trim, miles = odometer, mmr = Manheim Market Report value) return the exact column name from the list, or null when no column clearly holds it. Never invent a column name.' }, { role: 'user', content: JSON.stringify(input) }],
+        response_format: { type: 'json_schema', json_schema: { name: 'manheim_headers', strict: true, schema: HEADER_SCHEMA } }
+  };
+  return require('./panel-openai-budget').paidCall(options.guard, { modelId, body, send: async (capped) => {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [{ role: 'system', content: 'Map the columns of a Manheim auction CSV. For each field (year, make, model, trim, miles = odometer, mmr = Manheim Market Report value) return the exact column name from the list, or null when no column clearly holds it. Never invent a column name.' }, { role: 'user', content: JSON.stringify(input) }],
-        response_format: { type: 'json_schema', json_schema: { name: 'manheim_headers', strict: true, schema: HEADER_SCHEMA } }
-      })
+      body: JSON.stringify(capped)
     });
     if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
     const payload = await response.json();
@@ -172,6 +178,7 @@ async function suggestHeaders(input, options = {}) {
     if (failure && failure.name === 'AbortError') { const timeout = new Error('OPENAI_TIMEOUT'); timeout.code = 'OPENAI_TIMEOUT'; throw timeout; }
     throw failure;
   } finally { clearTimeout(timer); }
+  } });
 }
 
 // The batch summary the browser sends back after the import (no row content, no prompt).

@@ -254,9 +254,12 @@ async function modelCheck(ctx, options = {}) {
   const provider = await openAiBudget.spentUsd(ctx);
   if (state.spentUsd + search.MAX_CALL_USD > context.limitUsd || !openAiBudget.fits(provider, search.MAX_CALL_USD)) return { status: 409, error: 'PROVIDER_LIMIT', spentUsd: state.spentUsd, providerSpentUsd: provider.total };
   let result, failure = null;
-  try { result = await search.checkModel(options); } catch (error) { failure = error.code || 'OPENAI_FAILED'; }
+  const guard = openAiBudget.guard(ctx, 'MODELO_TESTE', 'pesquisas:' + context.model);
+  try { result = await search.checkModel({ ...options, guard }); } catch (error) { failure = error.code || 'OPENAI_FAILED'; }
+  if (failure === 'OPENAI_BUDGET_LIMIT') return { status: 409, error: 'PROVIDER_LIMIT', spentUsd: state.spentUsd, providerSpentUsd: provider.total };
   await insert(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider: 'OPENAI', model: context.model, conversations: 0, input_tokens: result?.usage?.input || 0,
     output_tokens: result?.usage?.output || 0, cost_usd: round6(result?.costUsd || 0), stopped_reason: failure ? (failure === 'OPENAI_MODEL_UNAVAILABLE' ? 'MODEL_UNAVAILABLE' : 'MODEL_CHECK_' + failure.replace(/^OPENAI_/, '')) : CHECK_OK, created_by: ctx.panel.id }, false);
+  await openAiBudget.recorded(guard);
   if (failure) return { status: 200, ok: false, error: failure, model: context.model };
   return { status: 200, ok: true, model: context.model, usage: result.usage, costUsd: result.costUsd };
 }
@@ -282,7 +285,9 @@ async function extractHistory(ctx, limit, options = {}) {
     if (context.limitUsd !== null && (state.spentUsd + batch.costUsd + search.MAX_CALL_USD > context.limitUsd || (provider && !openAiBudget.fits(provider, search.MAX_CALL_USD, batch.costUsd)))) { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
     if (Date.now() > deadlineAt) break;
     const out = await search.extractChat(ctx, chatId, options.extract || {});
-    if (out.alreadyRead) continue;
+    // Read by someone else right now (cron and button) or already paid: never a second call.
+    if (out.alreadyRead || out.inProgress) continue;
+    if (out.error === 'OPENAI_BUDGET_LIMIT' || out.error === 'OPENAI_BUDGET_UNAVAILABLE') { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
     attempted += 1;
     if (out.error === 'OPENAI_QUOTA') { batch.stoppedReason = 'PROVIDER_QUOTA'; break; }
     if (out.error === 'OPENAI_MODEL_UNAVAILABLE') { batch.stoppedReason = 'MODEL_UNAVAILABLE'; break; }

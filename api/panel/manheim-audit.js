@@ -2,9 +2,11 @@
 
 // MANHEIM_MATCH_AUDIT pelo painel. GET: estado da conferência do lote ativo. POST:
 //  run       confere o que falta (chamado logo depois do upload; o cron repete como segurança)
+//  check     confere agora uma demanda ainda não conferida (antes do link V1), com as regras
+//            automáticas: nunca repete além do limite de tentativas nem passa do teto da OpenAI
 //  retry     tenta de novo uma demanda com "Conferência pendente"
 //  approve   aprovação manual com motivo registrado (nunca sobre um fato achado pelo servidor)
-//  authorize libera um lote acima do limite de US$ 2 por importação (só administrador)
+//  authorize libera um lote parado em "aguardando autorização" (só administrador; nunca acima do teto de US$ 50 da OpenAI)
 // Com MANHEIM_MATCH_AUDIT_ENABLED desligada nada é chamado e nada é bloqueado.
 const { jsonBody, requirePanel, send } = require('../../panel-server');
 const { manheimView } = require('../../panel-buscas-view');
@@ -29,6 +31,10 @@ module.exports = async (req, res) => {
       return send(res, 200, await audit.approve(ctx, input, body.key, body.reason, ctx.panel.id));
     }
     if (body.action === 'run') return send(res, 200, await audit.runAudit(ctx, input, { deadlineAt: startedAt + 55000 }));
+    if (body.action === 'check') {
+      if (!KEY.test(String(body.key || ''))) return send(res, 400, { error: 'AUDIT_KEY_INVALID' });
+      return send(res, 200, await audit.runAudit(ctx, input, { onlyKey: body.key, deadlineAt: startedAt + 55000 }));
+    }
     if (body.action === 'retry') {
       if (!KEY.test(String(body.key || ''))) return send(res, 400, { error: 'AUDIT_KEY_INVALID' });
       return send(res, 200, await audit.runAudit(ctx, input, { onlyKey: body.key, manual: true, deadlineAt: startedAt + 55000 }));

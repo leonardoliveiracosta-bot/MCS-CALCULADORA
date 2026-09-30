@@ -35,7 +35,7 @@ function manheimData(audit) {
     upload: { id: '68000000-0000-4000-8000-0000000000a1', vehicle_count: 9998, matched_vehicle_count: 3, uploaded_at: '2026-09-29T10:00:00Z', current_lead_count: 2 }, audit };
 }
 const ON = {
-  state: 'LIGADA', limitUsd: 2, estimateUsd: 0, run: { status: 'ABERTO', estimateUsd: 0.01, spentUsd: 0.004 },
+  state: 'LIGADA', limitUsd: 50, estimateUsd: 0, run: { status: 'ABERTO', estimateUsd: 0.01, spentUsd: 0.004, limitUsd: 50 },
   byDemand: {
     [`journey:${JOURNEY}:VALOR`]: { status: 'CONFERIDO', label: 'Conferido', divergences: [], canApprove: false, canRetry: false },
     [`journey:${JOURNEY}:CARRO`]: { status: 'REVISAR', label: 'Revisar', divergences: [{ code: 'MILES_OUT_OF_RANGE', option: 'm1', matchId: CARRO_MATCH, text: 'Milhagem acima do limite', source: 'OPENAI' }], canApprove: true, canRetry: false },
@@ -93,9 +93,9 @@ for (const width of [1366, 390]) {
 }
 
 test('tentar de novo, aprovação manual com motivo e autorização acima do limite', async ({ page }) => {
-  const waiting = { ...ON, run: { status: 'AGUARDANDO_AUTORIZACAO', estimateUsd: 2.4, spentUsd: 0 } };
+  const waiting = { ...ON, run: { status: 'AGUARDANDO_AUTORIZACAO', estimateUsd: 2.4, spentUsd: 0, limitUsd: 2 } };
   const posts = await open(page, 1366, waiting);
-  await expect(page.locator('#manheim-audit-note')).toContainText('Conferência estimada em US$ 2.40, acima do limite de US$ 2.00 por importação. Nada foi cobrado');
+  await expect(page.locator('#manheim-audit-note')).toContainText('Conferência estimada em US$ 2.40, acima do limite de US$ 2.00 deste lote. Nada foi cobrado');
   await page.locator('#manheim-audit-note').getByRole('button', { name: 'Autorizar conferência' }).click();
   await expect.poll(() => posts.filter((item) => item && item.action === 'authorize').length).toBe(1);
   const order = card(page, 'valor', 'Pedido Só Valor');
@@ -114,4 +114,33 @@ test('desligada: nenhum selo, nenhum bloqueio, V1 como antes', async ({ page }) 
   await expect(page.locator('.audit-block')).toHaveCount(0);
   await expect(page.locator('#manheim-audit-note')).toBeHidden();
   await expect(card(page, 'carro', 'Cliente Dois Modos').getByRole('button', { name: 'Gerar link V1' })).toBeEnabled();
+});
+
+test('Gerar link V1 numa demanda ainda não conferida: confere agora e tenta de novo; pendente sem nova tentativa fica bloqueada com o motivo', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  const audit = { ...ON, byDemand: {
+    ...ON.byDemand,
+    [`journey:${JOURNEY}:CARRO`]: { status: 'SEM_SELECAO', label: 'Conferência começa ao selecionar carros', divergences: [], canApprove: false, canRetry: false },
+    [`journey:${JOURNEY}:VALOR`]: { status: 'PENDENTE', label: 'Conferência pendente', divergences: [], errorCode: 'AUDIT_DEADLINE', attempts: 4, canApprove: true, canRetry: false }
+  } };
+  const posts = await open(page, 1366, audit);
+  // The server answers "pending" until this demand's reading ran, then creates the link.
+  let checked = false;
+  await page.route('**/api/panel/manheim-audit', (route) => { posts.push(JSON.parse(route.request().postData() || 'null')); checked = true; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, approved: 1 }) }); });
+  await page.route('**/api/panel/vitrines', (route) => route.fulfill({ status: checked ? 201 : 409, contentType: 'application/json', body: JSON.stringify(checked ? { token: 'tok-ficticio', link: '/v/tok-ficticio' } : { error: 'MANHEIM_AUDIT_PENDING' }) }));
+  const carro = card(page, 'carro', 'Cliente Dois Modos');
+  await expect(carro.locator('.audit-block .badge')).toHaveText('Conferência começa ao selecionar carros');
+  await carro.locator('.manheim-select').first().check();
+  const button = carro.getByRole('button', { name: 'Gerar link V1' });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(carro.locator('.manheim-card-status')).toContainText('/v/tok-ficticio');
+  expect(posts.filter((item) => item && item.action === 'check')).toEqual([{ action: 'check', key: `journey:${JOURNEY}:CARRO` }]);
+  // The pending one: reason on screen, no retry button, V1 disabled.
+  const valor = card(page, 'valor', 'Cliente Dois Modos');
+  await expect(valor).toContainText('Tempo esgotado antes de terminar a conferência (4 tentativas) · Sem nova tentativa: V1 bloqueada, aprove com motivo se conferir à mão');
+  await expect(valor.getByRole('button', { name: 'Tentar de novo' })).toHaveCount(0);
+  await expect(valor.getByRole('button', { name: 'Aprovar com motivo' })).toBeVisible();
+  await expect(valor.getByRole('button', { name: 'Gerar link V1' })).toBeDisabled();
+  expect(errors).toEqual([]);
 });

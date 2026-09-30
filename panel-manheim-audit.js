@@ -14,9 +14,9 @@
 //    conversa, endereço ou documento, e nunca o CSV inteiro.
 //  * Desligada por padrão: só com MANHEIM_MATCH_AUDIT_ENABLED=1 e OPENAI_API_KEY. Modelo fixo da
 //    allowlist (gpt-6-luna); MANHEIM_MATCH_AUDIT_MODEL fora da allowlist desliga tudo.
-//  * Até US$ 2 por importação. Acima disso nada é chamado: a estimativa aparece e espera
-//    autorização. O mesmo lote, demanda, critérios, matches e versão da regra nunca são cobrados
-//    duas vezes (hash único no banco, com a linha reservada antes da chamada).
+//  * Até o teto compartilhado da OpenAI (US$ 50 somando todas as funções), reservado no banco
+//    antes de cada chamada (panel_manheim_audit_budget_hold). Acima dele nada é chamado. O mesmo
+//    lote, demanda, critérios, matches e versão da regra nunca são cobrados duas vezes (hash único no banco, com a linha reservada antes da chamada).
 //  * Falha, tempo esgotado ou resposta inválida: "Conferência pendente". Nada é aprovado em
 //    silêncio; dá para tentar de novo ou aprovar à mão com motivo registrado.
 //  * Com a função desligada nada muda: V1 e V2 seguem como antes.
@@ -44,6 +44,19 @@ const TIMEOUT_MS = 25000;
 const STALE_CLAIM_MS = 5 * 60 * 1000;
 const OK = Object.freeze(['CONFERIDO', 'APROVADO_MANUAL']);
 const FINAL_ERRORS = new Set(['OPENAI_RESPONSE_INVALID']);
+// No room in the US$ 50 OpenAI ceiling: nothing was called, so it never uses up an attempt.
+const BUDGET_ERRORS = new Set(['OPENAI_BUDGET_LIMIT', 'OPENAI_BUDGET_UNAVAILABLE']);
+// At most one attempt beyond the 3 automatic ones, and then never again (manual retry included):
+// automatic for a reading cut by the function's deadline, by the button for the other failures. The
+// demand stays blocked with the reason shown; only a manual approval with a reason releases it.
+const DEADLINE_ATTEMPTS = MAX_ATTEMPTS + 1;
+function retryAllowed(row, manual = false) {
+  if (!row || row.status !== 'PENDENTE') return false;
+  if (BUDGET_ERRORS.has(row.error_code)) return true;
+  if (row.attempts >= DEADLINE_ATTEMPTS) return false;
+  if (row.error_code === 'AUDIT_DEADLINE') return true;
+  return manual || (!FINAL_ERRORS.has(row.error_code) && row.attempts < MAX_ATTEMPTS);
+}
 // Facts found by the server that no manual approval can override. The others (a repeated VIN or row
 // from overlapping CSV splits, too many options) can be approved by hand with a reason.
 const HARD_CODES = new Set(['DEMAND_MISSING', 'DEMAND_INCOMPLETE', 'MODE_MISSING', 'OTHER_MODE_MATCH', 'PERSON_MISMATCH', 'JOURNEY_CLOSED', 'NOT_LEAD', 'TEST_RECORD', 'BATCH_UNDONE', 'CRITERIA_MISMATCH', 'BID_IS_CEILING', 'MMR_MISSING', 'ODOMETER_UNKNOWN']);
@@ -76,7 +89,7 @@ const CODES = Object.freeze({
 });
 // Codes the model may return (the facts are checked here, not by the model).
 const MODEL_CODES = Object.freeze(['PERSON_MISMATCH', 'OTHER_MODE_MATCH', 'MAKE_MODEL', 'BID_WRONG', 'BID_IS_CEILING', 'MMR_MISSING', 'MMR_OUT_OF_RANGE', 'YEAR_OUT_OF_RANGE', 'MILES_OUT_OF_RANGE', 'ODOMETER_UNKNOWN', 'CROSS_MODE_CRITERIA', 'VIN_DUPLICATE', 'SPLIT_DUPLICATE', 'DEMAND_INCOMPLETE', 'OTHER']);
-const LABELS = Object.freeze({ CONFERINDO: 'Conferindo', CONFERIDO: 'Conferido', REVISAR: 'Revisar', PENDENTE: 'Conferência pendente', APROVADO_MANUAL: 'Aprovado à mão', AGUARDANDO_AUTORIZACAO: 'Aguardando autorização' });
+const LABELS = Object.freeze({ CONFERINDO: 'Conferindo', CONFERIDO: 'Conferido', REVISAR: 'Revisar', PENDENTE: 'Conferência pendente', APROVADO_MANUAL: 'Aprovado à mão', AGUARDANDO_AUTORIZACAO: 'Aguardando autorização', SEM_SELECAO: 'Conferência começa ao selecionar carros' });
 
 // ------------------------------------------------------------------ configuração
 function model(env = process.env) {
@@ -251,12 +264,15 @@ async function callChunk(group, chunk, options) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs || TIMEOUT_MS);
   if (timer.unref) timer.unref();
+  const body = { model: modelId, messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify(payloadOf(group, chunk)) }],
+    response_format: { type: 'json_schema', json_schema: { name: 'conferencia_manheim', strict: true, schema: SCHEMA } } };
+  // The US$ 50 OpenAI reservation around each call (options.guard, panel-openai-budget).
+  return require('./panel-openai-budget').paidCall(options.guard, { modelId, body, send: async (capped) => {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
-      body: JSON.stringify({ model: modelId, messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify(payloadOf(group, chunk)) }],
-        response_format: { type: 'json_schema', json_schema: { name: 'conferencia_manheim', strict: true, schema: SCHEMA } } })
+      body: JSON.stringify(capped)
     });
     if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
     const payload = await response.json();
@@ -268,6 +284,7 @@ async function callChunk(group, chunk, options) {
     if (failure && failure.name === 'AbortError') { const timeout = new Error('OPENAI_TIMEOUT'); timeout.code = 'OPENAI_TIMEOUT'; throw timeout; }
     throw failure;
   } finally { clearTimeout(timer); }
+  } });
 }
 
 // One demand, in calls of up to 100 options. Approved only when every call approves. A failure
@@ -307,7 +324,7 @@ async function holdBudget(ctx, uploadId, demandKey, amountUsd, baseLimit) {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ p_environment: ctx.environment, p_upload_id: uploadId, p_demand_key: demandKey, p_amount: Math.round(amountUsd * 1e6) / 1e6, p_base_limit: baseLimit })
   });
-  return result && result.held === true ? { held: true, id: result.id } : { held: false, remaining: result && result.remaining };
+  return result && result.held === true ? { held: true, id: result.id } : { held: false, reason: result && result.reason || null, remaining: result && result.remaining };
 }
 async function runRow(ctx, uploadId) {
   const found = await rows(ctx, 'manheim_audit_runs', { select: 'id,upload_id,status,estimate_usd,limit_usd,spent_usd,authorized_by,authorized_at', environment: env(ctx), upload_id: 'eq.' + uploadId, limit: '1' });
@@ -316,8 +333,18 @@ async function runRow(ctx, uploadId) {
 async function ensureRun(ctx, uploadId, estimateUsd) {
   const existing = await runRow(ctx, uploadId);
   if (existing) {
-    if (Number(existing.estimate_usd) !== estimateUsd && existing.status !== 'AUTORIZADO') await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + existing.id }, { estimate_usd: estimateUsd, updated_at: new Date().toISOString() });
-    return { ...existing, estimate_usd: existing.status === 'AUTORIZADO' ? existing.estimate_usd : estimateUsd };
+    if (existing.status === 'AUTORIZADO') return existing;
+    // A batch created under the old US$ 2 limit shows and uses the OpenAI ceiling; spending, holds
+    // and audits are untouched.
+    const patch = {};
+    if (Number(existing.estimate_usd) !== estimateUsd) patch.estimate_usd = estimateUsd;
+    if (Number(existing.limit_usd) < LIMIT_USD) {
+      patch.limit_usd = LIMIT_USD;
+      // It was waiting only because of the old limit.
+      if (existing.status === 'AGUARDANDO_AUTORIZACAO') patch.status = 'ABERTO';
+    }
+    if (Object.keys(patch).length) await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + existing.id }, { ...patch, updated_at: new Date().toISOString() });
+    return { ...existing, ...patch };
   }
   const created = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/manheim_audit_runs?on_conflict=environment,upload_id', {
     method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=representation' },
@@ -337,9 +364,9 @@ async function claim(ctx, group, existing, manual) {
     return created && created[0] || null;
   }
   const stale = existing.status === 'CONFERINDO' && Date.parse(existing.updated_at || 0) < Date.now() - STALE_CLAIM_MS;
-  const retryable = existing.status === 'PENDENTE' && (manual || (!FINAL_ERRORS.has(existing.error_code) && existing.attempts < MAX_ATTEMPTS));
+  const retryable = retryAllowed(existing, manual);
   if (!stale && !retryable) return null;
-  const attempts = Math.min(Number(existing.attempts || 0) + 1, 20);
+  const attempts = BUDGET_ERRORS.has(existing.error_code) ? Math.max(Number(existing.attempts || 1), 1) : Math.min(Number(existing.attempts || 0) + 1, 20);
   // Conditional update: only the caller that still sees the same status and attempt wins.
   const claimed = await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + existing.id, status: 'eq.' + existing.status, attempts: 'eq.' + existing.attempts }, { status: 'CONFERINDO', attempts, updated_at: now }, true);
   return Array.isArray(claimed) && claimed[0] || null;
@@ -363,9 +390,22 @@ async function viewState(ctx, input, options = {}) {
     const statusCode = row ? row.status : group.divergences.length ? 'REVISAR' : run && run.status === 'AGUARDANDO_AUTORIZACAO' ? 'AGUARDANDO_AUTORIZACAO' : 'CONFERINDO';
     const divergences = row && row.status !== 'CONFERINDO' ? row.divergences || [] : group.divergences;
     byDemand[group.key] = { status: statusCode, label: LABELS[statusCode], divergences, errorCode: row && row.error_code || null, approvedReason: row && row.approved_reason || null, auditId: row && row.id || null,
-      canApprove: ['PENDENTE', 'REVISAR', 'AGUARDANDO_AUTORIZACAO'].includes(statusCode) && !hardDivergence(group.divergences), canRetry: statusCode === 'PENDENTE' };
+      canApprove: ['PENDENTE', 'REVISAR', 'AGUARDANDO_AUTORIZACAO'].includes(statusCode) && !hardDivergence(group.divergences), canRetry: statusCode === 'PENDENTE' && retryAllowed(row, true),
+      attempts: row && row.attempts || 0 };
   });
-  return { state, uploadId: input.upload.id, limitUsd: LIMIT_USD, estimateUsd: Math.round(estimate * 1e6) / 1e6, run: run ? { status: run.status, estimateUsd: Number(run.estimate_usd), spentUsd: Number(run.spent_usd) } : null, byDemand };
+  // Demands outside the audit (no car selected for the customer yet): nothing is read for them; the
+  // last reading, when there is one, is shown with its reason. A V1 needs selected cars anyway.
+  if (Array.isArray(input.scope)) {
+    const latest = new Map();
+    stored.forEach((row) => latest.set(row.demand_key, row)); // oldest first: the last one wins
+    (input.demands || []).forEach((demand) => {
+      if (byDemand[demand.key]) return;
+      const row = latest.get(demand.key) || null;
+      byDemand[demand.key] = { status: 'SEM_SELECAO', label: LABELS.SEM_SELECAO, divergences: [], errorCode: row && row.error_code || null, approvedReason: null, auditId: row && row.id || null,
+        lastStatus: row && row.status || null, attempts: row && row.attempts || 0, canApprove: false, canRetry: false };
+    });
+  }
+  return { state, uploadId: input.upload.id, limitUsd: LIMIT_USD, estimateUsd: Math.round(estimate * 1e6) / 1e6, run: run ? { status: run.status, estimateUsd: Number(run.estimate_usd), spentUsd: Number(run.spent_usd), limitUsd: Number(run.limit_usd) } : null, byDemand };
 }
 const usable = (entry) => !entry || OK.includes(entry.status);
 // V1 and V2 gate for one car of the active batch. demandKey (sent by the BUSCAS card) checks that
@@ -402,7 +442,7 @@ async function runAudit(ctx, input, options = {}) {
     const row = byHash.get(group.hash);
     if (!row) return true;
     if (row.status === 'CONFERINDO') return Date.parse(row.updated_at || 0) < Date.now() - STALE_CLAIM_MS;
-    return row.status === 'PENDENTE' && (options.manual ? group.key === options.onlyKey : !FINAL_ERRORS.has(row.error_code) && row.attempts < MAX_ATTEMPTS);
+    return retryAllowed(row, options.manual && group.key === options.onlyKey);
   });
   if (!pending.length) return result;
   const modelId = model(envValues);
@@ -410,13 +450,14 @@ async function runAudit(ctx, input, options = {}) {
   const run = await ensureRun(ctx, input.upload.id, estimate);
   // options.limitUsd exists only so the tests can prove the block without millions of tokens.
   const baseLimit = Number.isFinite(options.limitUsd) ? options.limitUsd : LIMIT_USD;
-  const limit = run.status === 'AUTORIZADO' ? Number(run.limit_usd) : baseLimit;
+  // An old authorization never lowers the ceiling; nothing goes above the OpenAI ceiling.
+  const limit = run.status === 'AUTORIZADO' ? Math.min(Math.max(Number(run.limit_usd), baseLimit), LIMIT_USD) : baseLimit;
   const spentBefore = await spentOf(ctx, input.upload.id);
   // Above the limit (or past what was authorized): nothing is called, the estimate waits for a
   // new authorization.
   if (spentBefore + estimate > limit) {
     await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AGUARDANDO_AUTORIZACAO', estimate_usd: estimate, authorized_by: null, authorized_at: null, updated_at: new Date().toISOString() });
-    return { ...result, awaitingAuthorization: true, estimateUsd: estimate, limitUsd: LIMIT_USD };
+    return { ...result, awaitingAuthorization: true, estimateUsd: estimate, limitUsd: limit };
   }
   // US$ 50 for all the panel's OpenAI features together (panel-openai-budget); the per-import
   // limit above still applies.
@@ -434,20 +475,33 @@ async function runAudit(ctx, input, options = {}) {
     // Then the batch budget, atomically per upload: two demands at the same time never pass the
     // remaining limit together. Twice the estimate is held, so the real cost never crosses the cap.
     const hold = await holdBudget(ctx, input.upload.id, group.key, Math.max(estimateGroup(group, modelId).costUsd * 2, 0.000001), baseLimit);
-    if (!hold.held) { await claims.finishTask(ctx, task, false).catch(() => null); result.awaitingAuthorization = true; result.deferred += 1; continue; }
+    if (!hold.held) {
+      await claims.finishTask(ctx, task, false).catch(() => null);
+      result.awaitingAuthorization = true;
+      result.deferred += 1; continue;
+    }
     const release = () => patchRows(ctx, 'manheim_audit_budget_holds', { environment: env(ctx), id: 'eq.' + hold.id, status: 'eq.ABERTA' }, { status: 'ENCERRADA', closed_at: new Date().toISOString() }).catch(() => null);
     const row = await claim(ctx, group, byHash.get(group.hash), options.manual).catch(() => null);
     if (!row) { await release(); await claims.finishTask(ctx, task, false).catch(() => null); result.inProgress += 1; continue; }
-    let patch, paid;
+    let patch, paid, budgetStop = false;
+    const guard = budget.guard ? budget.guard(ctx, 'MANHEIM_AUDIT', group.key, options.budgetServices) : null;
     try {
-      const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl, deadlineAt: options.deadlineAt });
+      const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl, deadlineAt: options.deadlineAt, guard });
       paid = answer;
       patch = answer.errorCode
         ? { status: 'PENDENTE', error_code: answer.errorCode, reason: 'Resposta da IA inválida' }
         : { status: answer.status, divergences: answer.divergences, error_code: null, reason: answer.status === 'CONFERIDO' ? 'Conferido pela IA' : 'Divergência apontada pela IA' };
     } catch (failure) {
       paid = failure && failure.spent || null;
-      patch = { status: 'PENDENTE', error_code: failure && failure.code || 'OPENAI_FAILED', reason: 'IA indisponível' };
+      const code = failure && failure.code || 'OPENAI_FAILED';
+      // A budget refusal called nothing: the row goes back to what it was (same error, same
+      // attempts), so a reading cut by the deadline keeps its count and its reason.
+      const before = byHash.get(group.hash);
+      patch = BUDGET_ERRORS.has(code) ? (before && before.status === 'PENDENTE'
+        ? { status: 'PENDENTE', error_code: before.error_code, attempts: before.attempts, reason: 'Sem saldo no teto de US$ 50 da OpenAI' }
+        : { status: 'PENDENTE', error_code: code, attempts: Math.max(1, Number(before && before.attempts || 1)), reason: 'Sem saldo no teto de US$ 50 da OpenAI' })
+        : { status: 'PENDENTE', error_code: code, reason: code === 'AUDIT_DEADLINE' ? 'Tempo esgotado antes de terminar a conferência' : 'IA indisponível' };
+      if (BUDGET_ERRORS.has(code)) { result.providerLimit = true; budgetStop = true; }
     }
     const cost = paid ? { input_tokens: (Number(row.input_tokens) || 0) + paid.inputTokens, output_tokens: (Number(row.output_tokens) || 0) + paid.outputTokens, cost_usd: Math.round(((Number(row.cost_usd) || 0) + paid.costUsd) * 1e6) / 1e6 } : {};
     result.costUsd += paid ? paid.costUsd : 0;
@@ -456,9 +510,13 @@ async function runAudit(ctx, input, options = {}) {
       // Only over our own reservation: a manual approval made meanwhile wins (the cost is still kept).
       const written = await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + row.id, status: 'eq.CONFERINDO' }, { provider: 'openai', model: modelId, ...cost, ...patch, updated_at: at }, true);
       if (!(Array.isArray(written) && written[0]) && paid) await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + row.id }, { provider: 'openai', model: modelId, ...cost, updated_at: at });
+      // The cost is on the audit row now: the OpenAI reservations stop counting it.
+      if (budget.recorded) await budget.recorded(guard);
     } catch (error) {
       console.error('[manheim-audit]', { operation: 'record', message: String(error?.code || error?.message || 'UNKNOWN') });
-      await claims.finishTask(ctx, task, false).catch(() => null);
+      // A paid answer that could not be written keeps its cost on the OpenAI reservation and is not
+      // paid again for this content (the task stays done); nothing paid may be retried.
+      await claims.finishTask(ctx, task, Boolean(paid && paid.costUsd > 0)).catch(() => null);
       continue;
     }
     // The real cost is on the audit row now: the budget hold can close.
@@ -466,6 +524,7 @@ async function runAudit(ctx, input, options = {}) {
     // A pending reading is released (the automatic retry rules above still apply; the operator can
     // always ask again). A decided one is done for this content.
     await claims.finishTask(ctx, task, patch.status !== 'PENDENTE').catch(() => null);
+    if (budgetStop) { result.deferred += 1; break; }
     result.processed += 1;
     if (patch.status === 'CONFERIDO') result.approved += 1; else if (patch.status === 'REVISAR') result.review += 1; else result.pending += 1;
   }
@@ -476,12 +535,12 @@ async function runAudit(ctx, input, options = {}) {
   return result;
 }
 
-// Operator authorizes a batch above the US$ 2 limit. The ceiling covers the safety hold (twice the
-// estimate per call); what is spent is always the real cost of each call.
+// Operator authorizes a batch above its limit (never above the US$ 50 OpenAI ceiling). The ceiling
+// covers the safety hold (twice the estimate per call); what is spent is always the real cost.
 async function authorize(ctx, uploadId, actorId) {
   const run = await runRow(ctx, uploadId);
   if (!run || run.status !== 'AGUARDANDO_AUTORIZACAO') { const failure = new Error('AUDIT_NOTHING_TO_AUTHORIZE'); failure.code = 'AUDIT_NOTHING_TO_AUTHORIZE'; throw failure; }
-  const limit = Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 2.5) * 1e6) / 1e6;
+  const limit = Math.min(Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 2.5) * 1e6) / 1e6, LIMIT_USD);
   await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AUTORIZADO', limit_usd: limit, authorized_by: actorId, authorized_at: new Date().toISOString(), updated_at: new Date().toISOString() });
   return { authorized: true, limitUsd: limit };
 }
@@ -504,6 +563,6 @@ async function approve(ctx, input, key, reason, actorId) {
 }
 
 module.exports = {
-  RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, LIMIT_USD, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS,
+  RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, LIMIT_USD, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS, DEADLINE_ATTEMPTS, retryAllowed,
   model, status, buildGroups, payloadOf, estimateGroup, validated, callOpenAI, viewState, usable, heldFor, runAudit, authorize, approve, auditRows
 };
