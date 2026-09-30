@@ -2428,19 +2428,32 @@
   function historyText(state, prefix) {
     return `${prefix} · conversas processadas: ${state.processed} de ${state.total} · pedidos encontrados: ${state.requestsFound} · custo acumulado: ${usd(state.spentUsd)}${state.providerLimitUsd ? ' de US$ ' + state.providerLimitUsd : ''}`;
   }
-  async function runHistoryAudit(button) {
+  // Step 1: the click reads the state and shows the confirmation on the page itself (never a
+  // browser dialog, which an installed app or an embedded browser can silently answer "no").
+  async function openHistoryAudit(button) {
     const box = $('requests-history-progress'), text = $('requests-history-text');
-    const say = (message, error) => { box.classList.remove('hidden'); text.className = error ? 'error' : ''; text.textContent = message; };
+    box.classList.remove('hidden'); $('requests-history-confirm').classList.add('hidden');
+    text.className = ''; text.textContent = 'Verificando o estado da auditoria…';
+    button.disabled = true;
     let state;
     try { state = await request('/api/panel/pesquisas', { method: 'POST', body: JSON.stringify({ action: 'history_status' }) }); }
-    catch (failure) { say(failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Auditoria indisponível: migração pendente' : 'Não consegui ler o estado da auditoria, tente de novo', true); return; }
-    if (!state.available) { say(HISTORY_ERRORS.SEARCH_EXTRACTION_OFF, true); return; }
+    catch (failure) { text.className = 'error'; text.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Auditoria indisponível: migração pendente' : 'Não consegui ler o estado da auditoria, tente de novo'; button.disabled = false; return; }
+    if (!state.available) { text.className = 'error'; text.textContent = HISTORY_ERRORS.SEARCH_EXTRACTION_OFF; button.disabled = false; return; }
     const who = state.provider === 'OPENAI' ? `OpenAI ${state.model}` : 'leitura simulada (sem IA, sem custo)';
-    const ok = window.confirm(['Auditoria histórica de pedidos de veículo', '',
-      '• Lê as conversas de clientes desde 09/08/2026', '• Não envia nenhuma mensagem', `• Usa ${who}`, '• Pode pausar e continuar depois do mesmo ponto',
-      `• Teto máximo de US$ ${state.providerLimitUsd || 50}`, '', `Faltam ${state.remaining} de ${state.total} conversas. Continuar?`].join('\n'));
-    if (!ok) return;
-    button.disabled = true; historyPaused = false;
+    const terms = $('requests-history-terms');
+    terms.replaceChildren(...['Lê as conversas de clientes desde 09/08/2026', 'Não envia nenhuma mensagem', `Usa ${who}`, 'Pode pausar e continuar depois do mesmo ponto', `Teto máximo de US$ ${state.providerLimitUsd || 50}`].map((line) => element('li', '', line)));
+    $('requests-history-remaining').textContent = `Faltam ${state.remaining} de ${state.total} conversas · custo acumulado ${usd(state.spentUsd)}`;
+    text.textContent = '';
+    $('requests-history-confirm').classList.remove('hidden');
+    $('requests-history-go').onclick = () => { $('requests-history-confirm').classList.add('hidden'); runHistoryAudit(button, state).catch(() => {}); };
+    $('requests-history-cancel').onclick = () => { box.classList.add('hidden'); button.disabled = false; };
+  }
+  // Step 2, after the confirmation: model test once (production), then the batches until done,
+  // paused or stopped at the ceiling.
+  async function runHistoryAudit(button, state) {
+    const text = $('requests-history-text'), pause = $('requests-history-pause');
+    const say = (message, error) => { text.className = error ? 'error' : ''; text.textContent = message; };
+    historyPaused = false; pause.classList.remove('hidden');
     try {
       if (!state.modelChecked) {
         say('Testando o modelo com uma chamada mínima, sem dados de cliente…');
@@ -2462,7 +2475,7 @@
     } catch (failure) {
       const code = failure && (failure.code || failure.error);
       say(historyText(state, HISTORY_ERRORS[code] || 'A auditoria parou por um erro. Clique de novo para continuar do ponto gravado'), true);
-    } finally { button.disabled = false; }
+    } finally { button.disabled = false; pause.classList.add('hidden'); }
   }
   async function loadRequestsAudit() {
     const root = $('requests-audit-content');
@@ -3949,7 +3962,7 @@
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
     $('requests-compare').addEventListener('click', (event) => compareRequests(event.currentTarget).catch(() => {}));
-    $('requests-history').addEventListener('click', (event) => runHistoryAudit(event.currentTarget).catch(() => {}));
+    $('requests-history').addEventListener('click', (event) => openHistoryAudit(event.currentTarget).catch(() => {}));
     $('requests-history-pause').addEventListener('click', () => { historyPaused = true; $('requests-history-text').textContent = 'Pausando depois deste lote…'; });
     $('requests-audit').addEventListener('toggle', () => { if ($('requests-audit').open) loadRequestsAudit().catch(() => {}); });
     $('manheim-complement').addEventListener('click', () => $('manheim-complement-files').click());

@@ -90,14 +90,18 @@ for (const width of [1366, 390]) {
     await expect(page.locator('#requests-panel #manheim-drop-zone, #requests-panel .manheim-lead, #requests-panel #manheim-batches')).toHaveCount(0);
     await noOverflow();
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `pesquisas-${width}.png`), fullPage: true });
-    // Historical audit: one button, a clear confirmation, visible progress (simulated here, no AI).
-    const confirmation = new Promise((resolve) => page.once('dialog', async (dialog) => { resolve(dialog.message()); await dialog.accept(); }));
+    // Historical audit: one button, a confirmation on the page (never a browser dialog, which an
+    // installed app can silently dismiss), visible progress (simulated here, no AI).
+    page.on('dialog', (dialog) => { throw new Error('caixa do navegador não deve aparecer: ' + dialog.message()); });
     await page.locator('#requests-history').click();
-    const asked = await confirmation;
-    for (const line of ['desde 09/08/2026', 'Não envia nenhuma mensagem', 'leitura simulada', 'pausar e continuar', 'US$ 50']) expect(asked).toContain(line);
+    const confirmBox = page.locator('#requests-history-confirm');
+    await expect(confirmBox).toBeVisible({ timeout: 30000 });
+    for (const line of ['desde 09/08/2026', 'Não envia nenhuma mensagem', 'leitura simulada', 'pausar e continuar', 'US$ 50']) await expect(confirmBox).toContainText(line);
+    await expect(page.locator('#requests-history-text')).not.toContainText('Lendo');
+    await page.locator('#requests-history-go').click();
     await expect(page.locator('#requests-history-text')).toContainText('conversas processadas', { timeout: 30000 });
     await expect(page.locator('#requests-history-text')).toContainText('Auditoria concluída', { timeout: 60000 });
-    await expect(page.locator('#requests-history-pause')).toBeVisible();
+    await expect(confirmBox).toBeHidden();
     await page.locator('#requests-audit > summary').click();
     await expect(page.locator('#requests-audit-content')).toContainText('Ainda não há prova de que todo pedido de veículo foi atendido', { timeout: 30000 });
 
