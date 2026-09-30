@@ -30,7 +30,8 @@ function fakeOpenAI(calls) {
   };
 }
 // The per-call JS check always passes here, so the database hold is what is being tested.
-const openBudget = { MAX_CALL_USD: 0.05, spentUsd: async () => ({ total: 0 }), fits: () => true };
+// (The per-call reservation of the US$ 50 stays the real one, in the database.)
+const openBudget = { ...require('../panel-openai-budget'), spentUsd: async () => ({ total: 0 }), fits: () => true };
 
 let backend, ctx;
 test.before(async () => {
@@ -51,27 +52,39 @@ test.before(async () => {
 });
 test.after(async () => { if (backend) await backend.db.close(); });
 
-test('lote antigo passa de US$ 2, mostra US$ 50 e não repete a pendente com 3 tentativas', async () => {
+test('lote antigo passa de US$ 2 e mostra US$ 50; a pendente por AUDIT_DEADLINE tem uma única tentativa a mais', async () => {
   const calls = [];
-  const result = await audit.runAudit(ctx, input, { env: ENV, fetchImpl: fakeOpenAI(calls), budget: openBudget });
-  assert.equal(calls.length, 2, JSON.stringify(result) + ' só as duas demandas novas; a pendente com 3 tentativas fica');
+  // The extra attempt of the pending demand (car VINT0) still gets no confirmation (provider error).
+  const fetchImpl = async (url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push(body);
+    if (JSON.stringify(body).includes('VINT0')) return { ok: false, status: 500, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ usage: { prompt_tokens: 400, completion_tokens: 60 }, choices: [{ message: { content: JSON.stringify({ aprovado: true, divergencias: [] }) } }] }) };
+  };
+  const result = await audit.runAudit(ctx, input, { env: ENV, fetchImpl, budget: openBudget });
+  assert.equal(calls.length, 3, JSON.stringify(result) + ' duas demandas novas + uma tentativa a mais da pendente');
+  assert.ok(calls.every((body) => body.max_completion_tokens === 16000), 'saída limitada em toda chamada');
   assert.equal(result.awaitingAuthorization, undefined);
   const run = (await backend.db.query('select status,limit_usd,spent_usd from public.manheim_audit_runs where upload_id=$1', [UPLOAD])).rows[0];
   assert.equal(run.status, 'ABERTO');
   assert.equal(Number(run.limit_usd), 50);
   assert.ok(Number(run.spent_usd) > 2.509014, `gasto acumulado ${run.spent_usd}`);
   const pending = (await backend.db.query('select status,error_code,attempts,cost_usd from public.manheim_match_audits where demand_key=$1', [key(J[0])])).rows[0];
-  assert.deepEqual([pending.status, pending.error_code, pending.attempts, Number(pending.cost_usd)], ['PENDENTE', 'AUDIT_DEADLINE', 3, 0.009014]);
+  assert.deepEqual([pending.status, pending.error_code, pending.attempts, Number(pending.cost_usd)], ['PENDENTE', 'OPENAI_FAILED', 4, 0.009014], 'continua pendente, nada aprovado');
   const state = await audit.viewState(ctx, input, { env: ENV });
   assert.equal(state.limitUsd, 50);
   assert.equal(state.run.limitUsd, 50);
-  assert.equal(state.byDemand[key(J[0])].status, 'PENDENTE');
-  assert.equal(state.byDemand[key(J[0])].canRetry, true, 'só o operador repete');
-  // A second cycle calls nothing: nothing new, and the pending one is past MAX_ATTEMPTS.
-  await audit.runAudit(ctx, input, { env: ENV, fetchImpl: fakeOpenAI(calls), budget: openBudget });
-  assert.equal(calls.length, 2);
-  const holds = (await backend.db.query("select count(*) filter (where status='ABERTA') open, count(*) total from public.manheim_audit_budget_holds where upload_id=$1", [UPLOAD])).rows[0];
-  assert.deepEqual([Number(holds.open), Number(holds.total)], [0, 2]);
+  assert.deepEqual([state.byDemand[key(J[0])].status, state.byDemand[key(J[0])].canRetry, state.byDemand[key(J[0])].attempts], ['PENDENTE', false, 4], 'bloqueada, sem novo botão de tentativa');
+  assert.equal(audit.usable(state.byDemand[key(J[0])]), false);
+  // Nothing more: neither the next cycle nor the button calls again.
+  await audit.runAudit(ctx, input, { env: ENV, fetchImpl, budget: openBudget });
+  await audit.runAudit(ctx, input, { env: ENV, fetchImpl, budget: openBudget, manual: true, onlyKey: key(J[0]) });
+  assert.equal(calls.length, 3);
+  // Ledger: the two answers are on their audit rows (REGISTRADA); the refused call released.
+  const ledger = (await backend.db.query("select status, count(*)::int n from public.openai_budget_holds where environment='preview' and feature='MANHEIM_AUDIT' group by status order by status")).rows;
+  assert.deepEqual(ledger.map((row) => [row.status, row.n]), [['LIBERADA', 1], ['REGISTRADA', 2]]);
+  const holds = (await backend.db.query("select count(*) filter (where status='ABERTA') open from public.manheim_audit_budget_holds where upload_id=$1", [UPLOAD])).rows[0];
+  assert.equal(Number(holds.open), 0);
 });
 
 test('teto global: a reserva que passaria de US$ 50 é recusada no banco, sem chamada e sem pedir autorização', async () => {

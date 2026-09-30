@@ -66,33 +66,51 @@ test('lote ABERTO antigo: limite passa de US$ 2 para US$ 50, gasto, reservas e h
   await db.close();
 });
 
-test('lote passa de US$ 2 enquanto cabe no teto global; nunca acima de US$ 50 projetado', async () => {
+const reserve = (db, amount, feature = 'ENTRADA', env = 'production') => db.query(`select public.panel_openai_budget_hold('${env}','${feature}','s','gpt-6-luna',${amount}) r`).then((res) => res.rows[0].r);
+const settle = (db, holdId, status, actual = null, env = 'production') => db.query(`select public.panel_openai_budget_settle('${env}','${holdId}','${status}',${actual === null ? 'null' : actual}) r`).then((res) => res.rows[0].r);
+const projected = async (db, env = 'production') => Number((await one(db, `select public.panel_openai_budget_state('${env}')->>'projected' p`)).p);
+
+test('lote passa de US$ 2; teto de US$ 50 exato por ambiente, somando gasto gravado e reservas', async () => {
   const { db } = await migratedDatabase();
   await db.exec(seed() + audit(UPLOAD, 1, 'CONFERIDO', 3.5));
-  // US$ 3.50 already spent by this batch: the old function would have refused anything.
-  const first = await hold(db, 1);
-  assert.equal(first.held, true, 'passa de US$ 2');
-  assert.equal(Number(first.limit), 50);
+  // US$ 3.50 already spent by this batch: the batch limit is US$ 50 now.
+  const lot = await hold(db, 1);
+  assert.deepEqual([lot.held, Number(lot.limit)], [true, 50], 'passa de US$ 2');
   // Other OpenAI features count against the same US$ 50 (here, the Manheim CSV reading).
   await db.query(`insert into public.audit_log(environment,entity_type,action,after_json) values('production','manheim_openai','READ','{"costUsd":44.5}')`);
-  // Projected: 3.5 + 44.5 + 1 (open hold) = 49; 1.000001 more would be 50.000001.
-  const over = await hold(db, 1.000001, OTHER);
-  assert.deepEqual([over.held, over.reason, Number(over.limit), Number(over.remaining)], [false, 'OPENAI_LIMIT', 50, 1]);
-  const run = await one(db, `select status from public.manheim_audit_runs where upload_id='${OTHER}'`);
-  assert.equal(run.status, 'ABERTO', 'teto da OpenAI não vira "aguardando autorização"');
-  const exact = await hold(db, 1, OTHER);
-  assert.equal(exact.held, true, 'exatamente US$ 50 projetado ainda cabe');
-  assert.equal(Number(exact.remaining), 0);
-  const tiny = await hold(db, 0.000001, OTHER);
-  assert.deepEqual([tiny.held, tiny.reason], [false, 'OPENAI_LIMIT']);
-  const projected = Number((await one(db, "select public.panel_openai_spent_usd('production') + (select sum(amount_usd) from public.manheim_audit_budget_holds where status='ABERTA') p")).p);
-  assert.equal(projected, 50);
-  // An expired hold stops counting; a closed one too (its real cost is on the audit row).
-  await db.query("update public.manheim_audit_budget_holds set status='ENCERRADA', closed_at=now() where upload_id=$1", [OTHER]);
-  assert.equal((await hold(db, 0.5, OTHER)).held, true);
-  // Spending of the other environment never counts here.
+  assert.equal(await projected(db), 48);
+  const first = await reserve(db, 1.5, 'PESQUISAS');
+  assert.equal(first.held, true);
+  // 48 + 1.5 = 49.5; 0.500001 more would be 50.000001.
+  const over = await reserve(db, 0.500001, 'MANHEIM_AUDIT');
+  assert.deepEqual([over.held, over.reason, Number(over.remaining)], [false, 'OPENAI_LIMIT', 0.5]);
+  const exact = await reserve(db, 0.5, 'MANHEIM_AUDIT');
+  assert.deepEqual([exact.held, Number(exact.projected), Number(exact.remaining)], [true, 50, 0], 'exatamente US$ 50 ainda cabe');
+  assert.equal((await reserve(db, 0.000001, 'MODELO_TESTE')).held, false);
+  assert.equal(await projected(db), 50);
+  // Answered: the reservation holds the real cost (0.02) until the feature writes it.
+  assert.equal((await settle(db, first.id, 'PAGA', 0.02)).settled, true);
+  assert.equal(await projected(db), 48.52);
+  // Refused by the provider: nothing counts.
+  assert.equal((await settle(db, exact.id, 'LIBERADA')).settled, true);
+  assert.equal(await projected(db), 48.02);
+  // Written to the feature's table: the reservation stops counting (the table counts it).
+  await db.query(`insert into public.audit_log(environment,entity_type,action,after_json) values('production','manheim_openai','READ','{"costUsd":0.02}')`);
+  assert.equal(await projected(db), 48.04, 'contado duas vezes até marcar REGISTRADA: nunca a menos');
+  assert.equal((await settle(db, first.id, 'REGISTRADA')).settled, true);
+  assert.equal(await projected(db), 48.02);
+  // Transitions only go forward.
+  assert.equal((await settle(db, first.id, 'PAGA', 0.01)).settled, false);
+  assert.equal((await settle(db, exact.id, 'REGISTRADA')).settled, false);
+  // Another environment never counts here.
   await db.query(`insert into public.audit_log(environment,entity_type,action,after_json) values('preview','manheim_openai','READ','{"costUsd":49}')`);
-  assert.equal(Number(await one(db, "select public.panel_openai_spent_usd('production') s").then((row) => row.s)), 48);
+  assert.equal(await projected(db), 48.02);
+  assert.equal((await reserve(db, 1.5, 'ENTRADA', 'preview')).held, false);
+  // An abandoned reservation (the function died) keeps counting at its full amount.
+  const lost = await reserve(db, 1.9, 'ENTRADA');
+  assert.equal(lost.held, true);
+  await db.query("update public.openai_budget_holds set created_at = now() - interval '2 days' where id = $1", [lost.id]);
+  assert.equal(await projected(db), 49.92);
   await db.close();
 });
 
@@ -112,11 +130,17 @@ test('fontes do gasto são as mesmas do panel-openai-budget.js', async () => {
   await db.close();
 });
 
-test('código: limite de US$ 50 no lote e sem repetição automática além de 3 tentativas', () => {
-  const code = fs.readFileSync(path.join(__dirname, '..', 'panel-manheim-audit.js'), 'utf8');
+test('código: limite de US$ 50, 3 tentativas e uma a mais só para tempo esgotado', () => {
   const auditModule = require('../panel-manheim-audit');
   assert.equal(auditModule.LIMIT_USD, 50);
   assert.equal(auditModule.MAX_ATTEMPTS, 3);
-  assert.ok(!/least\([^)]*,\s*2\)/.test(fs.readFileSync(MIGRATION, 'utf8')), 'sem least(..., 2)');
-  assert.ok(/row\.attempts < MAX_ATTEMPTS/.test(code));
+  assert.equal(auditModule.DEADLINE_ATTEMPTS, 4);
+  const code = fs.readFileSync(MIGRATION, 'utf8').split('\n').filter((line) => !/^\s*--/.test(line)).join('\n');
+  assert.ok(!/least\([^)]*,\s*2\)/.test(code), 'sem least(..., 2) no código da migração');
+  const pending = (error, attempts) => ({ status: 'PENDENTE', error_code: error, attempts });
+  assert.equal(auditModule.retryAllowed(pending('AUDIT_DEADLINE', 3)), true, 'uma tentativa a mais');
+  assert.equal(auditModule.retryAllowed(pending('AUDIT_DEADLINE', 4)), false);
+  assert.equal(auditModule.retryAllowed(pending('AUDIT_DEADLINE', 4), true), false, 'nem pelo botão');
+  assert.equal(auditModule.retryAllowed(pending('OPENAI_TIMEOUT', 3)), false);
+  assert.equal(auditModule.retryAllowed(pending('OPENAI_BUDGET_LIMIT', 1)), true, 'sem saldo não gasta tentativa');
 });

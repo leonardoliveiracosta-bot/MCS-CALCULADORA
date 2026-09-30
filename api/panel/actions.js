@@ -565,11 +565,13 @@ async function openAiFits(ctx) {
     return (await require('../../panel-openai-model-check').ensureModelChecked(ctx, manheimAi.model())).ok;
   } catch (_) { return false; }
 }
+// true when the cost is on the audit_log (then the OpenAI reservation stops counting it).
 async function recordManheimAiCall(ctx, action, result, rowsSent, failure) {
-  await insert(ctx, 'audit_log', { environment: ctx.environment, actor_user_id: ctx.panel.id, entity_type: 'manheim_openai', entity_id: null, action,
+  return insert(ctx, 'audit_log', { environment: ctx.environment, actor_user_id: ctx.panel.id, entity_type: 'manheim_openai', entity_id: null, action,
     after_json: { provider: 'openai', model: result ? result.model : manheimAi.model(), inputTokens: result ? result.usage.inputTokens : 0, outputTokens: result ? result.usage.outputTokens : 0,
-      costUsd: result ? result.costUsd : 0, rowsSent, ms: result ? result.ms : null, errorCode: failure ? failure.code || 'OPENAI_FAILED' : null } }, false).catch(() => null);
+      costUsd: result ? result.costUsd : 0, rowsSent, ms: result ? result.ms : null, errorCode: failure ? failure.code || 'OPENAI_FAILED' : null } }, false).then(() => true, () => false);
 }
+const csvLimit = (failure) => failure && (failure.code === 'OPENAI_BUDGET_LIMIT' || failure.code === 'OPENAI_BUDGET_UNAVAILABLE');
 
 async function actionManheimAiRows(ctx, body) {
   if (body.headerMap) {
@@ -577,18 +579,24 @@ async function actionManheimAiRows(ctx, body) {
     if (!input) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
     if (!manheimAi.enabled()) return send(ctx.res, 200, { available: false, reason: 'OPENAI_NOT_ENABLED', mapping: null });
     if (!(await openAiFits(ctx))) return send(ctx.res, 200, { available: false, reason: 'PROVIDER_LIMIT', mapping: null });
-    try { const result = await manheimAi.suggestHeaders(input); await recordManheimAiCall(ctx, 'AI_HEADERS', result, 0); return send(ctx.res, 200, { available: true, provider: 'openai', ...result }); }
-    catch (failure) { await recordManheimAiCall(ctx, 'AI_HEADERS', null, 0, failure); return send(ctx.res, 200, { available: false, reason: failure && failure.code || 'OPENAI_FAILED', mapping: null }); }
+    const guard = openAiBudget.guard(ctx, 'MANHEIM_CSV', 'headers');
+    try { const result = await manheimAi.suggestHeaders(input, { guard }); if (await recordManheimAiCall(ctx, 'AI_HEADERS', result, 0)) await openAiBudget.recorded(guard); return send(ctx.res, 200, { available: true, provider: 'openai', ...result }); }
+    catch (failure) {
+      if (csvLimit(failure)) return send(ctx.res, 200, { available: false, reason: 'PROVIDER_LIMIT', mapping: null });
+      await recordManheimAiCall(ctx, 'AI_HEADERS', null, 0, failure); return send(ctx.res, 200, { available: false, reason: failure && failure.code || 'OPENAI_FAILED', mapping: null });
+    }
   }
   const rowsIn = manheimAi.sanitizeRows(body.rows);
   if (!rowsIn) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
   if (!manheimAi.enabled()) return send(ctx.res, 200, { available: false, reason: 'OPENAI_NOT_ENABLED', suggestions: [] });
   if (!(await openAiFits(ctx))) return send(ctx.res, 200, { available: false, reason: 'PROVIDER_LIMIT', suggestions: [] });
+  const guard = openAiBudget.guard(ctx, 'MANHEIM_CSV', 'rows');
   try {
-    const result = await manheimAi.suggestRows(rowsIn);
-    await recordManheimAiCall(ctx, 'AI_ROWS', result, rowsIn.length);
+    const result = await manheimAi.suggestRows(rowsIn, { guard });
+    if (await recordManheimAiCall(ctx, 'AI_ROWS', result, rowsIn.length)) await openAiBudget.recorded(guard);
     return send(ctx.res, 200, { available: true, provider: 'openai', ...result });
   } catch (failure) {
+    if (csvLimit(failure)) return send(ctx.res, 200, { available: false, reason: 'PROVIDER_LIMIT', suggestions: [] });
     await recordManheimAiCall(ctx, 'AI_ROWS', null, rowsIn.length, failure);
     return send(ctx.res, 200, { available: false, reason: failure && failure.code || 'OPENAI_FAILED', suggestions: [] });
   }

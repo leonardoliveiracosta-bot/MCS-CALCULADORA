@@ -1931,6 +1931,17 @@
   const auditOn=()=>manheimData?.audit?.state==='LIGADA';
   const auditEntry=(demand)=>auditOn()&&demand?manheimData.audit.byDemand?.[demand.key]||{status:'CONFERINDO',label:'Conferindo',divergences:[]}:null;
   const auditAllows=(demand)=>!auditOn()||!demand||AUDIT_OK.includes(auditEntry(demand).status);
+  // Not read yet (no row, or no car selected when the page loaded): "Gerar link V1" asks the server
+  // to check this demand first; the server still decides.
+  const AUDIT_CHECK_FIRST=['CONFERINDO','SEM_SELECAO'];
+  const auditCanTry=(demand)=>auditAllows(demand)||AUDIT_CHECK_FIRST.includes(auditEntry(demand).status);
+  // Why a reading is pending, in words (never a bare code).
+  function auditPendingText(entry){
+    const code=entry?.errorCode;
+    if(code==='OPENAI_BUDGET_LIMIT'||code==='OPENAI_BUDGET_UNAVAILABLE')return 'Sem saldo no teto de US$ 50 da OpenAI · Nada foi cobrado';
+    if(code==='AUDIT_DEADLINE')return `Tempo esgotado antes de terminar a conferência (${entry.attempts||0} ${entry.attempts===1?'tentativa':'tentativas'})`+(entry.canRetry?'':' · Sem nova tentativa: V1 bloqueada, aprove com motivo se conferir à mão');
+    return 'A IA não respondeu · As opções continuam visíveis, sem aprovação automática';
+  }
   const AUDIT_TONES={CONFERIDO:'green',APROVADO_MANUAL:'green',REVISAR:'red'};
   function auditBlock(demand,matches){
     const entry=auditEntry(demand);if(!entry)return null;
@@ -1938,7 +1949,8 @@
     box.append(makeBadge(entry.label||entry.status,AUDIT_TONES[entry.status]||'yellow'));
     const carName=(matchId)=>{const parsed=(matches||[]).find((match)=>match.id===matchId)?.vehicle_json?.parsed;return parsed?[parsed.year,parsed.make,parsed.model].filter(Boolean).join(' ')+(parsed.vin?` · VIN final ${String(parsed.vin).slice(-6)}`:''):'';};
     (entry.divergences||[]).slice(0,8).forEach((item)=>{const car=carName(item.matchId);box.append(element('p','audit-divergence',car?`${car}: ${item.text}`:item.text));});
-    if(entry.status==='PENDENTE')box.append(element('p','muted','A IA não respondeu · As opções continuam visíveis, sem aprovação automática'));
+    if(entry.status==='PENDENTE')box.append(element('p','muted',auditPendingText(entry)));
+    if(entry.status==='SEM_SELECAO'&&entry.lastStatus==='PENDENTE')box.append(element('p','muted','Última conferência: '+auditPendingText(entry)));
     if(entry.approvedReason)box.append(element('p','muted',`Aprovado à mão · ${entry.approvedReason}`));
     const actions=element('div','inline-actions');
     if(entry.canRetry){const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:box,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'retry',key:demand.key})}),refresh:()=>loadCurrent(),errorText:'Não consegui conferir de novo, tente mais tarde'}));actions.append(retry);}
@@ -2331,7 +2343,34 @@
     });
     const v1Send=v1SendControls(demand);
     const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);cardStatus.textContent='Mensagem com link copiada';}catch(_){cardStatus.textContent='Não consegui copiar · Link: '+link;}});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){cardStatus.textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){cardStatus.textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;v1Send.setVitrine(created.token);/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);cardStatus.textContent='Link V1 criado e copiado: '+absolute;}catch(_){cardStatus.textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';
+    const v1Error=(error)=>error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_MATCH_WITHOUT_MMR'?'Carro sem MMR válido não entra na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável':'Não consegui gerar o link';
+    vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();
+      /* Only the cars selected for the customer go to the V1 (the server checks it again). */
+      const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);
+      if(!selected.length){cardStatus.textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}
+      vitrineButton.disabled=true;
+      const create=()=>request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});
+      let created;
+      try{
+        try{created=await create();}
+        catch(error){
+          /* Not checked yet: one reading of this demand now (automatic rules and the US$ 50 ceiling on the server), then one more try. Never an approval. */
+          if(error?.code!=='MANHEIM_AUDIT_PENDING'||!demand?.key||!AUDIT_CHECK_FIRST.includes(auditEntry(demand)?.status))throw error;
+          cardStatus.textContent='Conferindo este pedido antes do link…';
+          const checked=await request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'check',key:demand.key})}).catch(()=>null);
+          try{created=await create();}
+          catch(again){
+            if(again?.code==='MANHEIM_AUDIT_PENDING'){cardStatus.textContent=checked?.providerLimit?'V1 bloqueada: sem saldo no teto de US$ 50 da OpenAI':checked?.inProgress?'V1 bloqueada: a conferência deste pedido já está em andamento, tente em instantes':'V1 bloqueada: a conferência não liberou este pedido · Atualize a página para ver o motivo';return;}
+            throw again;
+          }
+        }
+      }catch(error){cardStatus.textContent=v1Error(error);return;}
+      finally{vitrineButton.disabled=!auditCanTry(demand);}
+      const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;v1Send.setVitrine(created.token);
+      /* A22: the link exists even when the clipboard fails */
+      try{await navigator.clipboard.writeText(absolute);cardStatus.textContent='Link V1 criado e copiado: '+absolute;}catch(_){cardStatus.textContent='Link V1 criado (não consegui copiar): '+absolute;}
+    });vitrineButton.disabled=!auditCanTry(demand);
     card.append(exportButton,vitrineButton,copyMessageButton,cardStatus,v1Send.node,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);

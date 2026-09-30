@@ -44,6 +44,19 @@ const TIMEOUT_MS = 25000;
 const STALE_CLAIM_MS = 5 * 60 * 1000;
 const OK = Object.freeze(['CONFERIDO', 'APROVADO_MANUAL']);
 const FINAL_ERRORS = new Set(['OPENAI_RESPONSE_INVALID']);
+// No room in the US$ 50 OpenAI ceiling: nothing was called, so it never uses up an attempt.
+const BUDGET_ERRORS = new Set(['OPENAI_BUDGET_LIMIT', 'OPENAI_BUDGET_UNAVAILABLE']);
+// At most one attempt beyond the 3 automatic ones, and then never again (manual retry included):
+// automatic for a reading cut by the function's deadline, by the button for the other failures. The
+// demand stays blocked with the reason shown; only a manual approval with a reason releases it.
+const DEADLINE_ATTEMPTS = MAX_ATTEMPTS + 1;
+function retryAllowed(row, manual = false) {
+  if (!row || row.status !== 'PENDENTE') return false;
+  if (BUDGET_ERRORS.has(row.error_code)) return true;
+  if (row.attempts >= DEADLINE_ATTEMPTS) return false;
+  if (row.error_code === 'AUDIT_DEADLINE') return true;
+  return manual || (!FINAL_ERRORS.has(row.error_code) && row.attempts < MAX_ATTEMPTS);
+}
 // Facts found by the server that no manual approval can override. The others (a repeated VIN or row
 // from overlapping CSV splits, too many options) can be approved by hand with a reason.
 const HARD_CODES = new Set(['DEMAND_MISSING', 'DEMAND_INCOMPLETE', 'MODE_MISSING', 'OTHER_MODE_MATCH', 'PERSON_MISMATCH', 'JOURNEY_CLOSED', 'NOT_LEAD', 'TEST_RECORD', 'BATCH_UNDONE', 'CRITERIA_MISMATCH', 'BID_IS_CEILING', 'MMR_MISSING', 'ODOMETER_UNKNOWN']);
@@ -76,7 +89,7 @@ const CODES = Object.freeze({
 });
 // Codes the model may return (the facts are checked here, not by the model).
 const MODEL_CODES = Object.freeze(['PERSON_MISMATCH', 'OTHER_MODE_MATCH', 'MAKE_MODEL', 'BID_WRONG', 'BID_IS_CEILING', 'MMR_MISSING', 'MMR_OUT_OF_RANGE', 'YEAR_OUT_OF_RANGE', 'MILES_OUT_OF_RANGE', 'ODOMETER_UNKNOWN', 'CROSS_MODE_CRITERIA', 'VIN_DUPLICATE', 'SPLIT_DUPLICATE', 'DEMAND_INCOMPLETE', 'OTHER']);
-const LABELS = Object.freeze({ CONFERINDO: 'Conferindo', CONFERIDO: 'Conferido', REVISAR: 'Revisar', PENDENTE: 'Conferência pendente', APROVADO_MANUAL: 'Aprovado à mão', AGUARDANDO_AUTORIZACAO: 'Aguardando autorização' });
+const LABELS = Object.freeze({ CONFERINDO: 'Conferindo', CONFERIDO: 'Conferido', REVISAR: 'Revisar', PENDENTE: 'Conferência pendente', APROVADO_MANUAL: 'Aprovado à mão', AGUARDANDO_AUTORIZACAO: 'Aguardando autorização', SEM_SELECAO: 'Conferência começa ao selecionar carros' });
 
 // ------------------------------------------------------------------ configuração
 function model(env = process.env) {
@@ -251,12 +264,15 @@ async function callChunk(group, chunk, options) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs || TIMEOUT_MS);
   if (timer.unref) timer.unref();
+  const body = { model: modelId, messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify(payloadOf(group, chunk)) }],
+    response_format: { type: 'json_schema', json_schema: { name: 'conferencia_manheim', strict: true, schema: SCHEMA } } };
+  // The US$ 50 OpenAI reservation around each call (options.guard, panel-openai-budget).
+  return require('./panel-openai-budget').paidCall(options.guard, { modelId, body, send: async (capped) => {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
-      body: JSON.stringify({ model: modelId, messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify(payloadOf(group, chunk)) }],
-        response_format: { type: 'json_schema', json_schema: { name: 'conferencia_manheim', strict: true, schema: SCHEMA } } })
+      body: JSON.stringify(capped)
     });
     if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
     const payload = await response.json();
@@ -268,6 +284,7 @@ async function callChunk(group, chunk, options) {
     if (failure && failure.name === 'AbortError') { const timeout = new Error('OPENAI_TIMEOUT'); timeout.code = 'OPENAI_TIMEOUT'; throw timeout; }
     throw failure;
   } finally { clearTimeout(timer); }
+  } });
 }
 
 // One demand, in calls of up to 100 options. Approved only when every call approves. A failure
@@ -347,9 +364,9 @@ async function claim(ctx, group, existing, manual) {
     return created && created[0] || null;
   }
   const stale = existing.status === 'CONFERINDO' && Date.parse(existing.updated_at || 0) < Date.now() - STALE_CLAIM_MS;
-  const retryable = existing.status === 'PENDENTE' && (manual || (!FINAL_ERRORS.has(existing.error_code) && existing.attempts < MAX_ATTEMPTS));
+  const retryable = retryAllowed(existing, manual);
   if (!stale && !retryable) return null;
-  const attempts = Math.min(Number(existing.attempts || 0) + 1, 20);
+  const attempts = BUDGET_ERRORS.has(existing.error_code) ? Math.max(Number(existing.attempts || 1), 1) : Math.min(Number(existing.attempts || 0) + 1, 20);
   // Conditional update: only the caller that still sees the same status and attempt wins.
   const claimed = await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + existing.id, status: 'eq.' + existing.status, attempts: 'eq.' + existing.attempts }, { status: 'CONFERINDO', attempts, updated_at: now }, true);
   return Array.isArray(claimed) && claimed[0] || null;
@@ -373,8 +390,21 @@ async function viewState(ctx, input, options = {}) {
     const statusCode = row ? row.status : group.divergences.length ? 'REVISAR' : run && run.status === 'AGUARDANDO_AUTORIZACAO' ? 'AGUARDANDO_AUTORIZACAO' : 'CONFERINDO';
     const divergences = row && row.status !== 'CONFERINDO' ? row.divergences || [] : group.divergences;
     byDemand[group.key] = { status: statusCode, label: LABELS[statusCode], divergences, errorCode: row && row.error_code || null, approvedReason: row && row.approved_reason || null, auditId: row && row.id || null,
-      canApprove: ['PENDENTE', 'REVISAR', 'AGUARDANDO_AUTORIZACAO'].includes(statusCode) && !hardDivergence(group.divergences), canRetry: statusCode === 'PENDENTE' };
+      canApprove: ['PENDENTE', 'REVISAR', 'AGUARDANDO_AUTORIZACAO'].includes(statusCode) && !hardDivergence(group.divergences), canRetry: statusCode === 'PENDENTE' && retryAllowed(row, true),
+      attempts: row && row.attempts || 0 };
   });
+  // Demands outside the audit (no car selected for the customer yet): nothing is read for them; the
+  // last reading, when there is one, is shown with its reason. A V1 needs selected cars anyway.
+  if (Array.isArray(input.scope)) {
+    const latest = new Map();
+    stored.forEach((row) => latest.set(row.demand_key, row)); // oldest first: the last one wins
+    (input.demands || []).forEach((demand) => {
+      if (byDemand[demand.key]) return;
+      const row = latest.get(demand.key) || null;
+      byDemand[demand.key] = { status: 'SEM_SELECAO', label: LABELS.SEM_SELECAO, divergences: [], errorCode: row && row.error_code || null, approvedReason: null, auditId: row && row.id || null,
+        lastStatus: row && row.status || null, attempts: row && row.attempts || 0, canApprove: false, canRetry: false };
+    });
+  }
   return { state, uploadId: input.upload.id, limitUsd: LIMIT_USD, estimateUsd: Math.round(estimate * 1e6) / 1e6, run: run ? { status: run.status, estimateUsd: Number(run.estimate_usd), spentUsd: Number(run.spent_usd), limitUsd: Number(run.limit_usd) } : null, byDemand };
 }
 const usable = (entry) => !entry || OK.includes(entry.status);
@@ -412,7 +442,7 @@ async function runAudit(ctx, input, options = {}) {
     const row = byHash.get(group.hash);
     if (!row) return true;
     if (row.status === 'CONFERINDO') return Date.parse(row.updated_at || 0) < Date.now() - STALE_CLAIM_MS;
-    return row.status === 'PENDENTE' && (options.manual ? group.key === options.onlyKey : !FINAL_ERRORS.has(row.error_code) && row.attempts < MAX_ATTEMPTS);
+    return retryAllowed(row, options.manual && group.key === options.onlyKey);
   });
   if (!pending.length) return result;
   const modelId = model(envValues);
@@ -447,23 +477,31 @@ async function runAudit(ctx, input, options = {}) {
     const hold = await holdBudget(ctx, input.upload.id, group.key, Math.max(estimateGroup(group, modelId).costUsd * 2, 0.000001), baseLimit);
     if (!hold.held) {
       await claims.finishTask(ctx, task, false).catch(() => null);
-      // The OpenAI ceiling is not something an authorization can raise.
-      if (hold.reason === 'OPENAI_LIMIT') result.providerLimit = true; else result.awaitingAuthorization = true;
+      result.awaitingAuthorization = true;
       result.deferred += 1; continue;
     }
     const release = () => patchRows(ctx, 'manheim_audit_budget_holds', { environment: env(ctx), id: 'eq.' + hold.id, status: 'eq.ABERTA' }, { status: 'ENCERRADA', closed_at: new Date().toISOString() }).catch(() => null);
     const row = await claim(ctx, group, byHash.get(group.hash), options.manual).catch(() => null);
     if (!row) { await release(); await claims.finishTask(ctx, task, false).catch(() => null); result.inProgress += 1; continue; }
-    let patch, paid;
+    let patch, paid, budgetStop = false;
+    const guard = budget.guard ? budget.guard(ctx, 'MANHEIM_AUDIT', group.key, options.budgetServices) : null;
     try {
-      const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl, deadlineAt: options.deadlineAt });
+      const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl, deadlineAt: options.deadlineAt, guard });
       paid = answer;
       patch = answer.errorCode
         ? { status: 'PENDENTE', error_code: answer.errorCode, reason: 'Resposta da IA inválida' }
         : { status: answer.status, divergences: answer.divergences, error_code: null, reason: answer.status === 'CONFERIDO' ? 'Conferido pela IA' : 'Divergência apontada pela IA' };
     } catch (failure) {
       paid = failure && failure.spent || null;
-      patch = { status: 'PENDENTE', error_code: failure && failure.code || 'OPENAI_FAILED', reason: 'IA indisponível' };
+      const code = failure && failure.code || 'OPENAI_FAILED';
+      // A budget refusal called nothing: the row goes back to what it was (same error, same
+      // attempts), so a reading cut by the deadline keeps its count and its reason.
+      const before = byHash.get(group.hash);
+      patch = BUDGET_ERRORS.has(code) ? (before && before.status === 'PENDENTE'
+        ? { status: 'PENDENTE', error_code: before.error_code, attempts: before.attempts, reason: 'Sem saldo no teto de US$ 50 da OpenAI' }
+        : { status: 'PENDENTE', error_code: code, attempts: Math.max(1, Number(before && before.attempts || 1)), reason: 'Sem saldo no teto de US$ 50 da OpenAI' })
+        : { status: 'PENDENTE', error_code: code, reason: code === 'AUDIT_DEADLINE' ? 'Tempo esgotado antes de terminar a conferência' : 'IA indisponível' };
+      if (BUDGET_ERRORS.has(code)) { result.providerLimit = true; budgetStop = true; }
     }
     const cost = paid ? { input_tokens: (Number(row.input_tokens) || 0) + paid.inputTokens, output_tokens: (Number(row.output_tokens) || 0) + paid.outputTokens, cost_usd: Math.round(((Number(row.cost_usd) || 0) + paid.costUsd) * 1e6) / 1e6 } : {};
     result.costUsd += paid ? paid.costUsd : 0;
@@ -472,9 +510,13 @@ async function runAudit(ctx, input, options = {}) {
       // Only over our own reservation: a manual approval made meanwhile wins (the cost is still kept).
       const written = await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + row.id, status: 'eq.CONFERINDO' }, { provider: 'openai', model: modelId, ...cost, ...patch, updated_at: at }, true);
       if (!(Array.isArray(written) && written[0]) && paid) await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + row.id }, { provider: 'openai', model: modelId, ...cost, updated_at: at });
+      // The cost is on the audit row now: the OpenAI reservations stop counting it.
+      if (budget.recorded) await budget.recorded(guard);
     } catch (error) {
       console.error('[manheim-audit]', { operation: 'record', message: String(error?.code || error?.message || 'UNKNOWN') });
-      await claims.finishTask(ctx, task, false).catch(() => null);
+      // A paid answer that could not be written keeps its cost on the OpenAI reservation and is not
+      // paid again for this content (the task stays done); nothing paid may be retried.
+      await claims.finishTask(ctx, task, Boolean(paid && paid.costUsd > 0)).catch(() => null);
       continue;
     }
     // The real cost is on the audit row now: the budget hold can close.
@@ -482,6 +524,7 @@ async function runAudit(ctx, input, options = {}) {
     // A pending reading is released (the automatic retry rules above still apply; the operator can
     // always ask again). A decided one is done for this content.
     await claims.finishTask(ctx, task, patch.status !== 'PENDENTE').catch(() => null);
+    if (budgetStop) { result.deferred += 1; break; }
     result.processed += 1;
     if (patch.status === 'CONFERIDO') result.approved += 1; else if (patch.status === 'REVISAR') result.review += 1; else result.pending += 1;
   }
@@ -520,6 +563,6 @@ async function approve(ctx, input, key, reason, actorId) {
 }
 
 module.exports = {
-  RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, LIMIT_USD, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS,
+  RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, LIMIT_USD, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS, DEADLINE_ATTEMPTS, retryAllowed,
   model, status, buildGroups, payloadOf, estimateGroup, validated, callOpenAI, viewState, usable, heldFor, runAudit, authorize, approve, auditRows
 };

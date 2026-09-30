@@ -51,7 +51,9 @@ function orderClause(order) {
   }).join(', ');
 }
 
-async function createBackend({ seed } = {}) {
+// maxRows: like Supabase (PostgREST db-max-rows = 1000), a row result (table read or a function
+// returning rows) is cut at this many rows. A single jsonb value is never cut.
+async function createBackend({ seed, maxRows = null } = {}) {
   const { db } = await migratedDatabase();
   if (seed) await db.exec(seed);
   const refused = [];
@@ -73,7 +75,7 @@ async function createBackend({ seed } = {}) {
       const values = args.map(([name, value]) => Array.isArray(value) && String(types[name] || '').endsWith('[]') ? value : value !== null && typeof value === 'object' ? JSON.stringify(value) : value);
       const list = args.map(([name], index) => `${ident(name)} => $${index + 1}::${types[name] || 'text'}`).join(', ');
       // A set-returning function answers with its rows, as PostgREST does.
-      if (signature.retset) return (await db.query(`select * from public.${ident(fn)}(${list})`, values)).rows;
+      if (signature.retset) { const rows = (await db.query(`select * from public.${ident(fn)}(${list})`, values)).rows; return maxRows ? rows.slice(0, maxRows) : rows; }
       const result = (await db.query(`select public.${ident(fn)}(${list}) as result`, values)).rows[0].result;
       return result;
     }
@@ -85,7 +87,8 @@ async function createBackend({ seed } = {}) {
       let sql = `select ${select} from public.${ident(table)}${whereClause(params, values)}${orderClause(get('order'))}`;
       if (get('limit')) sql += ` limit ${Number(get('limit'))}`;
       if (get('offset')) sql += ` offset ${Number(get('offset'))}`;
-      return (await db.query(sql, values)).rows;
+      const rows = (await db.query(sql, values)).rows;
+      return maxRows ? rows.slice(0, maxRows) : rows;
     }
     const known = new Set(await columns(table));
     const arrays = await arrayColumns(table);

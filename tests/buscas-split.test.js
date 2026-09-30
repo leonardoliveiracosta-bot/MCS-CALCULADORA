@@ -499,7 +499,13 @@ test('OpenAI do CSV · cada chamada é registrada no servidor com provedor, mode
   Object.assign(process.env, { MANHEIM_OPENAI_ENABLED: '1', OPENAI_API_KEY: 'chave-simulada', MANHEIM_OPENAI_MODEL: 'gpt-6-luna' });
   const realFetch = globalThis.fetch;
   const sent = [];
-  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { ok: true, status: 200, json: async () => ({ usage: { prompt_tokens: 300, completion_tokens: 40 }, choices: [{ message: { content: JSON.stringify({ rows: [{ id: '1', year: 2022, make: 'BMW', model: 'X5', trim: null, miles: 45000, mmr: null, confident: true }] }) } }] }) }; };
+  const budgetCalls = [];
+  // The US$ 50 reservation goes to the database first (panel_openai_budget_hold), then OpenAI.
+  const answer = (body) => ({ ok: true, status: 200, headers: { get: () => 'application/json' }, text: async () => JSON.stringify(body), json: async () => body });
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes('/rest/v1/rpc/panel_openai_budget_')) { const body = JSON.parse(options.body); budgetCalls.push([String(url).split('/').pop(), body]); return answer(String(url).endsWith('_hold') ? { held: true, id: '6c900000-0000-4000-8000-000000000001' } : { settled: true }); }
+    sent.push(JSON.parse(options.body)); return answer({ usage: { prompt_tokens: 300, completion_tokens: 40 }, choices: [{ message: { content: JSON.stringify({ rows: [{ id: '1', year: 2022, make: 'BMW', model: 'X5', trim: null, miles: 45000, mmr: null, confident: true }] }) } }] });
+  };
   try {
     const res = response();
     await handler({ method: 'POST', headers: {}, body: { action: 'manheim_ai_rows', rows: [
@@ -511,6 +517,10 @@ test('OpenAI do CSV · cada chamada é registrada no servidor com provedor, mode
     // Only the unclear row left the server.
     assert.deepEqual(JSON.parse(sent[0].messages[1].content).rows.map((row) => row.id), ['1']);
     assert.equal(sent[0].response_format.json_schema.strict, true);
+    // Reserved before the call (worst case, output capped), paid, then recorded.
+    assert.equal(sent[0].max_completion_tokens, 8000);
+    assert.deepEqual(budgetCalls.map(([name, body]) => [name, body.p_feature || body.p_status]), [['panel_openai_budget_hold', 'MANHEIM_CSV'], ['panel_openai_budget_settle', 'PAGA'], ['panel_openai_budget_settle', 'REGISTRADA']]);
+    assert.ok(budgetCalls[0][1].p_amount > 0);
     const record = logged.find((item) => item.table === 'audit_log');
     assert.deepEqual([record.payload.entity_type, record.payload.action], ['manheim_openai', 'AI_ROWS']);
     assert.deepEqual([record.payload.after_json.provider, record.payload.after_json.model, record.payload.after_json.inputTokens, record.payload.after_json.outputTokens, record.payload.after_json.rowsSent], ['openai', 'gpt-6-luna', 300, 40, 1]);

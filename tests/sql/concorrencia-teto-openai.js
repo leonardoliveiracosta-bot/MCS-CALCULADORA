@@ -1,9 +1,9 @@
 'use strict';
 
-// Concorrência real do teto da OpenAI na conferência Manheim: um Postgres de verdade (não o PGlite,
-// que tem uma conexão só) e sessões psql separadas pedindo reserva ao mesmo tempo, em lotes
-// diferentes. Prova que a trava do ambiente serializa as reservas e que o gasto projetado (gasto
-// real + reservas abertas) nunca passa de US$ 50.
+// Concorrência real do teto de US$ 50 da OpenAI: um Postgres de verdade (não o PGlite, que tem uma
+// conexão só) e sessões psql separadas pedindo reserva ao mesmo tempo, por funções diferentes
+// (PESQUISAS, ENTRADA, conferência Manheim, CSV Manheim). Prova que a trava do ambiente serializa as
+// reservas e que o gasto projetado (gasto gravado + reservas que contam) nunca passa de US$ 50.
 // Usa um banco descartável (mcs_teto_openai) no servidor indicado; nunca o banco do projeto.
 // Run: PG_TEST_HOST=/caminho/do/socket PG_TEST_PORT=55432 node tests/sql/concorrencia-teto-openai.js
 const fs = require('node:fs');
@@ -41,8 +41,9 @@ const check = (condition, message) => { if (!condition) throw new Error('FALHA: 
 
 const ACTOR = '6f200000-0000-4000-8000-000000000001';
 const upload = (n) => `6f200000-0000-4000-8000-${String(100 + n).padStart(12, '0')}`;
-const holdCall = (n, amount) => `select public.panel_manheim_audit_budget_hold('preview','${upload(n)}','k${n}',${amount})`;
-const projected = () => Number(psqlSync(DB, `select public.panel_openai_spent_usd('preview') + coalesce((select sum(amount_usd) from public.manheim_audit_budget_holds where environment='preview' and status='ABERTA' and expires_at > now()),0)`));
+const FEATURES = ['PESQUISAS', 'ENTRADA', 'MANHEIM_AUDIT', 'MANHEIM_CSV'];
+const holdCall = (n, amount) => `select public.panel_openai_budget_hold('preview','${FEATURES[n % 4]}','s${n}','gpt-6-luna',${amount})`;
+const projected = () => Number(psqlSync(DB, `select public.panel_openai_budget_state('preview')->>'projected'`));
 
 async function main() {
   psqlSync('postgres', `drop database if exists ${DB}`);
@@ -68,10 +69,10 @@ async function main() {
   check(/"held": true/.test(a1.out) && /"held": false/.test(a2.out) && /OPENAI_LIMIT/.test(a2.out), `A: ${a1.out} | ${a2.out}`);
   check(a2.ms >= 1000, `a segunda sessão esperou a trava (${a2.ms} ms)`);
   check(projected() <= 50, `A projetado ${projected()}`);
-  results.doisLotes = { primeiro: 'reservou 0.06', segundo: 'OPENAI_LIMIT', esperaDoSegundoMs: a2.ms, projetado: projected() };
-  psqlSync(DB, `update public.manheim_audit_budget_holds set status='ENCERRADA', closed_at=now() where environment='preview'`);
+  results.duasFuncoes = { primeira: FEATURES[0] + ' reservou 0.06', segunda: FEATURES[1] + ' OPENAI_LIMIT', esperaDaSegundaMs: a2.ms, projetado: projected() };
+  psqlSync(DB, `update public.openai_budget_holds set status='LIBERADA', actual_usd=0, paid_at=now() where environment='preview' and status='ABERTA'`);
 
-  // B: eight batches at once, US$ 0.03 each, US$ 0.10 left: exactly three fit.
+  // B: eight sessions of the four features at once, US$ 0.03 each, US$ 0.10 left: exactly three fit.
   const many = await Promise.all(Array.from({ length: 8 }, (_, index) => session(`begin; ${holdCall(2 + index, 0.03)}; select pg_sleep(0.2); commit;`)));
   check(many.every((run) => run.code === 0), many.map((run) => run.err).join(' '));
   const held = many.filter((run) => /"held": true/.test(run.out)).length;
@@ -79,9 +80,13 @@ async function main() {
   const total = projected();
   check(held === 3 && refused === 5, `B: ${held} reservaram, ${refused} recusadas`);
   check(total <= 50, `B projetado ${total}`);
-  const waiting = Number(psqlSync(DB, `select count(*) from public.manheim_audit_runs where environment='preview' and status='AGUARDANDO_AUTORIZACAO'`));
-  check(waiting === 0, `teto da OpenAI não pede autorização (${waiting})`);
-  results.oitoLotes = { reservaram: held, recusadas: refused, projetado: total, aguardandoAutorizacao: waiting };
+  const open = Number(psqlSync(DB, `select count(*) from public.openai_budget_holds where environment='preview' and status='ABERTA'`));
+  check(open === 3, `três reservas abertas (${open})`);
+  // C: the three calls answer (real cost below the reservation) and are recorded: the balance comes back.
+  psqlSync(DB, `select public.panel_openai_budget_settle('preview', id, 'PAGA', 0.01) from public.openai_budget_holds where environment='preview' and status='ABERTA'`);
+  const afterPaid = projected();
+  check(Math.abs(afterPaid - 49.93) < 1e-6, `pago conta o custo real (${afterPaid})`);
+  results.oitoSessoes = { reservaram: held, recusadas: refused, projetadoNoPico: total, projetadoDepoisDePago: afterPaid };
 
   psqlSync('postgres', `drop database ${DB}`);
   fs.rmSync(dir, { recursive: true, force: true });

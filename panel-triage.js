@@ -122,15 +122,18 @@ async function classify(evidence, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs || TIMEOUT_MS);
   if (timer.unref) timer.unref();
+  const body = {
+    model: modelId,
+    messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ mensagens: evidence.map((item) => ({ id: item.id, de: item.from, texto: item.text })) }) }],
+    response_format: { type: 'json_schema', json_schema: { name: 'triagem_entrada', strict: true, schema: SCHEMA } }
+  };
+  // The US$ 50 OpenAI reservation around the call (options.guard, panel-openai-budget).
+  return require('./panel-openai-budget').paidCall(options.guard, { modelId, body, send: async (capped) => {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ mensagens: evidence.map((item) => ({ id: item.id, de: item.from, texto: item.text })) }) }],
-        response_format: { type: 'json_schema', json_schema: { name: 'triagem_entrada', strict: true, schema: SCHEMA } }
-      })
+      body: JSON.stringify(capped)
     });
     if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
     const payload = await response.json();
@@ -142,6 +145,7 @@ async function classify(evidence, options = {}) {
     if (failure && failure.name === 'AbortError') { const timeout = new Error('OPENAI_TIMEOUT'); timeout.code = 'OPENAI_TIMEOUT'; throw timeout; }
     throw failure;
   } finally { clearTimeout(timer); }
+  } });
 }
 
 // Server-side check of the structured answer: an unknown category, a missing reason, evidence
@@ -274,19 +278,30 @@ async function runTriage(ctx, options = {}) {
     const claim = await claims.claimTask(ctx, { kind: 'ENTRADA_TRIAGE', subject: item.chatId, hash: item.contentHash, rule: RULE_VERSION });
     if (!claim.claimed) { result.inProgress += 1; continue; }
     let entry, retryable = false;
+    const guard = budget.guard ? budget.guard(ctx, 'ENTRADA', item.chatId, options.budgetServices) : null;
     try {
-      const answer = await classify(item.evidence, { env, fetchImpl: options.fetchImpl });
+      const answer = await classify(item.evidence, { env, fetchImpl: options.fetchImpl, guard });
       entry = { ...item, source: 'AI', category: answer.category, reason: answer.reason, evidence: answer.evidence, model: answer.model,
         inputTokens: answer.usage.inputTokens, outputTokens: answer.usage.outputTokens, costUsd: answer.costUsd, errorCode: answer.errorCode };
       result.costUsd += answer.costUsd || 0;
     } catch (failure) {
+      // No room in the US$ 50 (or the ceiling could not be read): nothing was called; stop here.
+      if (failure && (failure.code === 'OPENAI_BUDGET_LIMIT' || failure.code === 'OPENAI_BUDGET_UNAVAILABLE')) {
+        await claims.finishTask(ctx, claim, false).catch(() => null);
+        result.stoppedReason = 'PROVIDER_LIMIT'; result.deferred = pending.length - result.processed - result.inProgress; break;
+      }
       // Failure, timeout or invalid answer: the conversation stays pending in REVISAR.
       entry = { ...item, source: 'AI', category: 'REVISAR', reason: 'IA indisponível, decidir manualmente', evidence: [], model: model(env), errorCode: failure?.code || 'OPENAI_FAILED' };
       result.failed += 1;
       retryable = true;
     }
     try { await (options.record || record)(ctx, entry); }
-    catch (error) { await claims.finishTask(ctx, claim, false).catch(() => null); throw error; }
+    catch (error) {
+      // A paid answer that could not be written keeps its cost on the reservation and is not paid
+      // again (the reservation of the task stays done); an unpaid failure may be retried.
+      await claims.finishTask(ctx, claim, !retryable).catch(() => null); throw error;
+    }
+    if (budget.recorded) await budget.recorded(guard);
     // A failure without an answer may be retried; an answer (valid or not) is final for this content.
     await claims.finishTask(ctx, claim, !retryable);
     result.processed += 1;
