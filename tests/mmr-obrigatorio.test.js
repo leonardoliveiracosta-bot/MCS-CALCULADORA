@@ -113,7 +113,9 @@ test('"Apresentei ao cliente", V1 e V2 recusam carro sem MMR', async () => {
     insert: async () => { throw new Error('nada deveria ser criado'); }, activeFilter: async () => ({})
   };
   assert.deepEqual(await vitrines.createV2(ctx, { requestId: id(20) }, services), { error: 'MANHEIM_MATCH_WITHOUT_MMR' });
-  // The car with MMR still makes a V1.
+  // The car with MMR, once selected for the customer, still makes a V1.
+  const picked = await call('manheim-options', '/api/panel/manheim-options', 'POST', { action: 'select', matchId: WITH, reason: 'carro de teste escolhido' });
+  assert.equal(picked.statusCode, 200, JSON.stringify(picked.payload));
   const ok = await call('vitrines', '/api/panel/vitrines', 'POST', { journeyId: JOURNEY, matchIds: [WITH] });
   assert.equal(ok.statusCode, 201);
 });

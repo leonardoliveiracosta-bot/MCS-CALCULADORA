@@ -27,6 +27,12 @@
     ,drivetrain: ['drivetrain', 'drive train']
     ,transmission: ['transmission type', 'transmission']
     ,engine: ['engine type', 'engine']
+    // Only carried to the selection for the customer (Lane/Run, sale type); never used to match.
+    ,lane: ['lane']
+    ,run: ['run', 'run number']
+    ,saleType: ['inventory', 'sale type', 'inventory type']
+    ,saleStatus: ['status', 'sale status']
+    ,eventSaleName: ['event sale name', 'sale name']
   });
 
   function clean(value) {
@@ -120,6 +126,11 @@
         ,drivetrain: fields.drivetrain ? clean(raw[fields.drivetrain]) : ''
         ,transmission: fields.transmission ? clean(raw[fields.transmission]) : ''
         ,engine: fields.engine ? clean(raw[fields.engine]) : ''
+        ,lane: fields.lane ? clean(raw[fields.lane]) : ''
+        ,run: fields.run ? clean(raw[fields.run]) : ''
+        ,saleType: fields.saleType ? clean(raw[fields.saleType]) : ''
+        ,saleStatus: fields.saleStatus ? clean(raw[fields.saleStatus]) : ''
+        ,eventSaleName: fields.eventSaleName ? clean(raw[fields.eventSaleName]) : ''
       };
     }).filter((row) => row.year && row.model).map((row) => (row.miles !== null && row.miles < 0 ? { ...row, miles: null } : row));
   }

@@ -38,6 +38,20 @@ async function auditGate(ctx,matchIds,demandKey=null){
   return null;
 }
 
+// Match interno não é opção: um carro só entra em V1/V2 depois de selecionado pelo operador
+// (manheim_option_selections, migração 20261006010000). Returns Map(matchId -> selection) or an error.
+async function selectedFor(ctx,matchIds,services){
+  const reader=services.selectionRows||services.rows;
+  let found;
+  try{found=await reader(ctx,'manheim_option_selections',{select:'match_id,status,final_cents,manual',environment:'eq.'+ctx.environment,match_id:'in.('+matchIds.join(',')+')',limit:String(matchIds.length)});}
+  catch(error){if(error&&(error.status===404||error.status===400))return {error:'MANHEIM_SELECTION_PENDING'};throw error;}
+  const byId=new Map((found||[]).filter((row)=>row.status==='SELECTED').map((row)=>[row.match_id,row]));
+  return matchIds.every((id)=>byId.has(id))?{byId}:{error:'MANHEIM_OPTION_NOT_SELECTED'};
+}
+// The customer sees one honest reference: the MMR plus the operator's markup. Never the MMR itself
+// nor the percentage.
+const priced=(vehicle,selection)=>({...vehicle,averageAuctionValue:null,estimatedMarketReference:Math.round(Number(selection.final_cents)/100),selected:true});
+
 // Public limit of a vitrine car: between US$ 1.000 and US$ 10.000.000 (customer_limit_cents is an integer).
 const LIMIT_MIN_CENTS=100000;
 const LIMIT_MAX_CENTS=1000000000;
@@ -84,7 +98,8 @@ async function create(ctx,body,services={rows,insert},now=Date.now()){
   if(selected.some((match)=>!hasValidMmr(match.vehicle_json?.parsed)))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};
   const demandKey=typeof body.demandKey==='string'&&/^journey:[0-9a-f-]{36}:(VALOR|CARRO)$/.test(body.demandKey)?body.demandKey:null;
   const held=await (services.auditGate||auditGate)(ctx,selected.map((match)=>match.id),demandKey); if(held)return {error:held};
-  const cars=selected.map((match)=>({match,vehicle:publicVehicle(match.vehicle_json?.parsed||{})}));
+  const selection=await selectedFor(ctx,selected.map((match)=>match.id),services); if(selection.error)return {error:selection.error};
+  const cars=selected.map((match)=>({match,vehicle:priced(publicVehicle(match.vehicle_json?.parsed||{}),selection.byId.get(match.id))}));
   const existing=await recentWithCars(ctx,{journey_id:'eq.'+journey.id,version:'eq.V1'},selected.map((match)=>'match:'+match.id),services,now);
   if(existing)return {token:existing.vitrine.token,link:'/v/'+existing.vitrine.token,referenceCode:journey.reference_code,cars:cars.map((item)=>vehicleName(item.vehicle)),reused:true};
   const token=randomToken(); const created=await services.insert(ctx,'vitrines',{environment:ctx.environment,token,journey_id:journey.id,contact_id:journey.contact_id,reference_code:journey.reference_code||'',customer_name:contact[0]?.display_name||null,version:'V1',expires_at:expiresAt(cars),created_by:ctx.panel.id});
@@ -116,7 +131,10 @@ async function createV2(ctx,body,services={rows,insert,patchRows},now=Date.now()
     // without a valid MMR) never becomes a V2.
     const [source]=await services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+car.source_match_id,limit:'1'});
     if(!source)return {error:'VITRINE_SOURCE_MISSING'};
-    if(!hasValidMmr(source.vehicle_json?.parsed))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};}
+    if(!hasValidMmr(source.vehicle_json?.parsed))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};
+    // A car shown under the selection rule keeps needing it: removed from the selection, no V2.
+    // V1 made before the selection existed (no "selected" mark) keeps working as it was.
+    if(car.vehicle_snapshot.selected===true){const selection=await selectedFor(ctx,[car.source_match_id],services);if(selection.error)return {error:selection.error};}}
   if(car.source_match_id){const active=await activeBatch(ctx,services);if(Object.keys(active).length){const [live]=await services.rows(ctx,'manheim_matches',{select:'id,upload_id',environment:'eq.'+ctx.environment,id:'eq.'+car.source_match_id,...active,limit:'1'});if(!live||!(await batchesLive(ctx,[live.upload_id],services)))return {error:'VITRINE_SOURCE_UNDONE'};}}
   // A26: budget_cents is the maximum bid; confirmed_total_ceiling_cents is a total cost and is never read here.
   const [journey]=origin.journey_id?await services.rows(ctx,'journeys',{select:'id,budget_cents',environment:'eq.'+ctx.environment,id:'eq.'+origin.journey_id,limit:'1'}):[];
@@ -145,7 +163,7 @@ async function update(ctx,body,services={rows,patchRows}){
   for(const [id,patch] of patches)await services.patchRows(ctx,'vitrine_cars',{id:'eq.'+id,environment:'eq.'+ctx.environment,vitrine_id:'eq.'+list[0].id},patch);
   return {token:body.token,link:'/v/'+body.token,version};
 }
-const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='VITRINE_REQUEST_TREATED'||error==='VITRINE_SOURCE_UNDONE'||error==='MANHEIM_AUDIT_PENDING'||error==='MANHEIM_MATCH_WITHOUT_MMR'||error==='VITRINE_SOURCE_MISSING'?409:400;
+const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='MANHEIM_OPTION_NOT_SELECTED'||error==='MANHEIM_SELECTION_PENDING'||error==='VITRINE_REQUEST_TREATED'||error==='VITRINE_SOURCE_UNDONE'||error==='MANHEIM_AUDIT_PENDING'||error==='MANHEIM_MATCH_WITHOUT_MMR'||error==='VITRINE_SOURCE_MISSING'?409:400;
 module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,65536);if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,statusFor(out.error),{error:out.error}):send(res,out.reused?200:201,out);}const out=await create(ctx,body);if(out&&out.error)return send(res,statusFor(out.error),{error:out.error});return out?send(res,out.reused?200:201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?.error?send(res,400,{error:out.error}):out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
 module.exports.create=create;
 module.exports.auditGate=auditGate;

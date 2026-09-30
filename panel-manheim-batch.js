@@ -10,6 +10,7 @@ const vehicleCatalog = require('./vehicle-catalog');
 const { canonicalJson } = require('./painel/manheim-upload');
 
 const CHUNK_VEHICLES = 500;
+const COMPLEMENT_ITEMS = 1000;
 const MAX_MILES_SORT = 2147483647;
 
 const text = (value, max) => {
@@ -69,6 +70,10 @@ function sanitizeVehicle(source) {
     makeNotice: text(input.makeNotice, 160), makeInferred: input.makeInferred === true,
     cleanTitle: input.cleanTitle === true, odometerOk: input.odometerOk === true
   };
+  // Dados de venda só quando o CSV foi lido com eles (um lote antigo não os tem; nada é inventado).
+  [['lane', 20], ['run', 20], ['saleType', 80], ['saleStatus', 80], ['eventSaleName', 160]].forEach(([key, max]) => {
+    if (input[key] !== undefined && input[key] !== null) parsed[key] = text(input[key], max);
+  });
   // Odômetro desconhecido continua nulo (nunca vira 0 milhas).
   if (!parsed.year || !parsed.model || (parsed.miles !== null && parsed.miles < 0)) return null;
   if (parsed.makeInferred) {
@@ -131,4 +136,4 @@ function matchChunk(entries, targets, index = indexTargets(targets)) {
   return matches;
 }
 
-module.exports = { CHUNK_VEHICLES, MAX_MILES_SORT, canonicalJson, contentHash, criteriaHash, indexTargets, makeKey, matchChunk, matchOne, matchRow, sanitizeVehicle, snapshotTargets, sortMiles, sortRank, targetsHash };
+module.exports = { CHUNK_VEHICLES, COMPLEMENT_ITEMS, MAX_MILES_SORT, canonicalJson, contentHash, criteriaHash, indexTargets, makeKey, matchChunk, matchOne, matchRow, sanitizeVehicle, snapshotTargets, sortMiles, sortRank, targetsHash };

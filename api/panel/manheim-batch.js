@@ -9,6 +9,11 @@
 //  POST status             blocos já confirmados, para retomar do ponto em que parou
 //  POST finalize           ativa o lote inteiro de uma vez (nunca pela metade)
 //  POST cancel             cancela um lote ainda em montagem (nada é apagado)
+//  POST complement-*       os mesmos CSVs do lote ativo, lidos de novo, acrescentam só Lane, Run,
+//                          Inventory, Status e Event Sale Name aos carros que o lote já tem:
+//                          check (prévia, só leitura), start/stage (conferência depois da confirmação),
+//                          apply (uma transação, tudo ou nada), cancel. Não cria lote nem match e não
+//                          mexe em MMR, critérios, seleção, V1/V2 ou histórico
 // Nenhuma chamada paga e nenhuma mensagem saem daqui.
 const crypto = require('node:crypto');
 const { isUuid, jsonBody, requirePanel, rows, rpc, send } = require('../../panel-server');
@@ -134,8 +139,83 @@ async function actionCancel(ctx, body) {
   return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_batch_cancel', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: upload.id }));
 }
 
-const CONFLICT_CODES = new Set(['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_CANCELED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR']);
-const ACTIONS = { start: actionStart, chunk: actionChunk, status: actionStatus, finalize: actionFinalize, cancel: actionCancel };
+// ------------------------------------------------------------ complemento do lote ativo
+// The same CSVs of the active batch, read again, add only the sale data (Lane, Run, Inventory,
+// Status, Event Sale Name). Every block is checked here against the batch manifest: the canonical
+// hash of the block, recalculated from what arrived, must be the one stored at import (the sale data,
+// which the old batch did not have, stays out of the hash). The database checks it again.
+const SALE_FIELDS = [['lane', 20], ['run', 20], ['saleType', 80], ['saleStatus', 80], ['eventSaleName', 160]];
+const SALE_KEYS = SALE_FIELDS.map(([key]) => key);
+const withoutSale = (entry) => {
+  const vehicle = { ...(entry && entry.vehicle) };
+  SALE_KEYS.forEach((key) => { delete vehicle[key]; });
+  return { ...entry, vehicle };
+};
+const fileSummary = (file) => ({
+  name: text(file && file.name, 200), size: Math.round(Number(file && file.size) || 0), rowCount: Math.round(Number(file && file.rowCount) || 0),
+  vehicleCount: Math.round(Number(file && file.vehicleCount) || 0), chunkCount: Math.round(Number(file && file.chunkCount) || 0), hash: batch.contentHash(file || null)
+});
+const pendingComplement = (error) => error && (error.status === 404 || /PGRST202|42883|42P01/.test(String(error.code || '') + String(error.message || '')));
+
+async function complementBlock(ctx, body) {
+  const fileIndex = Number(body.fileIndex), chunkIndex = Number(body.chunkIndex);
+  const vehicles = Array.isArray(body.vehicles) ? body.vehicles : null;
+  if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 19 || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 999 || !vehicles || !vehicles.length || vehicles.length > batch.CHUNK_VEHICLES) return { error: [400, 'MANHEIM_UPLOAD_INVALID'] };
+  const latest = await latestActiveUpload(ctx, 'id,files_json');
+  if (!latest || latest.id !== body.uploadId) return { error: [409, 'MANHEIM_COMPLEMENT_NOT_ACTIVE'] };
+  const expected = latest.files_json && latest.files_json[fileIndex] && latest.files_json[fileIndex].chunks && latest.files_json[fileIndex].chunks[chunkIndex];
+  // The hash as the batch was imported: without the sale data (older batch) or with it (newer batch).
+  const stripped = batch.contentHash(vehicles.map(withoutSale));
+  const chunkHash = expected && expected.hash === stripped ? stripped : batch.contentHash(vehicles);
+  if (!expected || expected.hash !== chunkHash || Number(expected.count) !== vehicles.length) return { error: [409, 'MANHEIM_COMPLEMENT_MISMATCH'], fileIndex };
+  // The same cars the import stored (the ones it ignored stay out), by the same stable identifier.
+  const items = vehicles.map((source) => ({ source, entry: batch.sanitizeVehicle(source) })).filter(({ entry }) => entry)
+    .map(({ source, entry }) => Object.fromEntries([['fingerprint', entry.fingerprint], ...SALE_FIELDS.map(([key, max]) => [key, text(source.vehicle[key], max)])]));
+  return { fileIndex, chunkIndex, chunkHash, items };
+}
+const complementKeys = (body) => /^[0-9a-f]{16,64}$/.test(String(body.clientKey || '')) && HASH.test(String(body.manifestHash || ''));
+
+// Preview: read only, one block at a time.
+async function actionComplementCheck(ctx, body) {
+  if (!isUuid(body.uploadId) || !complementKeys(body)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  const block = await complementBlock(ctx, body);
+  if (block.error) return send(ctx.res, block.error[0], { error: block.error[1], fileIndex: block.fileIndex });
+  return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_complement_check', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: body.uploadId,
+    p_client_key: body.clientKey, p_manifest_hash: body.manifestHash, p_file_index: block.fileIndex, p_chunk_index: block.chunkIndex, p_chunk_hash: block.chunkHash, p_items: block.items }));
+}
+// After "Complementar agora": the blocks go to a conference area nobody reads.
+async function actionComplementStart(ctx, body) {
+  if (!isUuid(body.uploadId) || !complementKeys(body)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  if (body.confirmed !== true) return send(ctx.res, 400, { error: 'MANHEIM_COMPLEMENT_CONFIRM_REQUIRED' });
+  return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_complement_start', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: body.uploadId, p_client_key: body.clientKey, p_manifest_hash: body.manifestHash }));
+}
+async function actionComplementStage(ctx, body) {
+  if (!isUuid(body.uploadId) || !isUuid(body.runId)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  const block = await complementBlock(ctx, body);
+  if (block.error) {
+    // A block that does not match cancels the whole complement (nothing was written to the batch).
+    if (block.error[1] === 'MANHEIM_COMPLEMENT_MISMATCH') await rpc(ctx, 'panel_manheim_complement_cancel', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId, p_reason: 'BLOCK_MISMATCH' });
+    return send(ctx.res, block.error[0], { error: block.error[1], fileIndex: block.fileIndex });
+  }
+  const result = await rpc(ctx, 'panel_manheim_complement_stage', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId,
+    p_file_index: block.fileIndex, p_chunk_index: block.chunkIndex, p_chunk_hash: block.chunkHash, p_items: block.items });
+  if (result && result.error) return send(ctx.res, 409, { error: result.error, fileIndex: block.fileIndex });
+  return send(ctx.res, 200, result);
+}
+// One transaction: everything or nothing.
+async function actionComplementApply(ctx, body) {
+  if (!isUuid(body.runId) || body.confirmed !== true) return send(ctx.res, 400, { error: body.confirmed === true ? 'MANHEIM_UPLOAD_INVALID' : 'MANHEIM_COMPLEMENT_CONFIRM_REQUIRED' });
+  return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_complement_apply', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId }));
+}
+async function actionComplementCancel(ctx, body) {
+  if (!isUuid(body.runId)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_complement_cancel', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId, p_reason: 'OPERATOR' }));
+}
+const COMPLEMENT_ACTIONS = new Set(['complement-check', 'complement-start', 'complement-stage', 'complement-apply', 'complement-cancel']);
+
+const CONFLICT_CODES = new Set(['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_CANCELED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_COMPLEMENT_NOT_ACTIVE', 'MANHEIM_COMPLEMENT_MISMATCH', 'MANHEIM_COMPLEMENT_INCOMPLETE', 'MANHEIM_COMPLEMENT_CANCELED']);
+const ACTIONS = { start: actionStart, chunk: actionChunk, status: actionStatus, finalize: actionFinalize, cancel: actionCancel,
+  'complement-check': actionComplementCheck, 'complement-start': actionComplementStart, 'complement-stage': actionComplementStage, 'complement-apply': actionComplementApply, 'complement-cancel': actionComplementCancel };
 
 module.exports = async (req, res) => {
   if (!['GET', 'POST'].includes(req.method)) return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -145,12 +225,18 @@ module.exports = async (req, res) => {
   try {
     if (!(await batchSupported(ctx, { rows }).catch(() => false))) return send(res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
     if (req.method === 'GET') {
-      const latest = await latestActiveUpload(ctx, 'id,vehicle_count,uploaded_at,source_file_count');
-      return send(res, 200, { latest: latest ? { id: latest.id, vehicleCount: latest.vehicle_count, uploadedAt: latest.uploaded_at, fileCount: latest.source_file_count } : null });
+      const latest = await latestActiveUpload(ctx, 'id,vehicle_count,uploaded_at,source_file_count,files_json');
+      // Per file: name, size, counts and the hash of its manifest entry (for the complement to compare
+      // each file with what the batch recorded; never the cars).
+      const files = latest && Array.isArray(latest.files_json) ? latest.files_json.map(fileSummary) : [];
+      return send(res, 200, { latest: latest ? { id: latest.id, vehicleCount: latest.vehicle_count, uploadedAt: latest.uploaded_at, fileCount: latest.source_file_count, files } : null });
     }
     const body = await jsonBody(req, BODY_LIMIT);
-    const action = ACTIONS[String(body && body.action || '')];
+    const name = String(body && body.action || '');
+    const action = Object.prototype.hasOwnProperty.call(ACTIONS, name) ? ACTIONS[name] : null;
     if (!action) return send(res, 400, { error: 'MANHEIM_BATCH_ACTION_INVALID' });
+    // Complement without its migration: say so, never a false count.
+    if (COMPLEMENT_ACTIONS.has(name)) return await action(ctx, body).catch((error) => { if (pendingComplement(error)) return send(res, 503, { error: 'MANHEIM_COMPLEMENT_PENDING' }); throw error; });
     return await action(ctx, body);
   } catch (error) {
     if (error && error.message === 'PAYLOAD_TOO_LARGE') return send(res, 413, { error: 'PAYLOAD_TOO_LARGE' });

@@ -393,7 +393,9 @@ test('41 · o resumo registra provider openai e modelo, 42 · quantas linhas usa
   assert.equal(patched[0].payload.ai_summary_json.provider, 'openai');
   assert.deepEqual([audited[0].table, audited[0].payload.action], ['audit_log', 'AI_SUMMARY']);
   const client = read('painel/painel.js');
-  for (const line of ['linhas importadas', 'resolvidas automaticamente', 'analisadas pela OpenAI', 'confirmadas', 'enviadas para revisão', 'Modelo: ', 'Custo estimado: US$', 'Tempo com IA']) assert.match(client, new RegExp(line.replace('$', '\\$')));
+  // Rows of the CSV and cars are named apart: never "linhas importadas" for cars.
+  assert.doesNotMatch(client, /linhas importadas/);
+  for (const line of ['linhas lidas do CSV', 'veículos únicos importados', 'linhas duplicadas ou inválidas ignoradas', 'linhas em revisão', 'analisadas pela OpenAI', 'confirmadas', 'Modelo: ', 'Custo estimado: US$', 'Tempo com IA']) assert.match(client, new RegExp(line.replace('$', '\\$')));
   // Without any row sent to the AI, the summary never mentions OpenAI.
   assert.match(client, /if \(usedAi\) \{\s*line\(`\$\{ai\.rowsSentToAi\} analisadas pela OpenAI`\);/);
 });

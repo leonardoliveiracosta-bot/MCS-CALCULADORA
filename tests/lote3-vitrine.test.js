@@ -226,7 +226,9 @@ function memoryDb(){
   const services={
     rows:async(_ctx,table,params)=>{selects.push({table,select:params.select});return (db[table]||[]).filter((row)=>matches(row,params)).map((row)=>JSON.parse(JSON.stringify(row)));},
     insert:async(_ctx,table,payload)=>{const row={id:'dddddddd-dddd-4ddd-8ddd-'+String(++seq).padStart(12,'0'),created_at:new Date(clock.now).toISOString(),...payload};(db[table]=db[table]||[]).push(row);return [row];},
-    patchRows:async(_ctx,table,filters,payload)=>{patches.push({table,filters,payload});for(const row of (db[table]||[]).filter((item)=>matches(item,filters)))Object.assign(row,payload);return null;}
+    patchRows:async(_ctx,table,filters,payload)=>{patches.push({table,filters,payload});for(const row of (db[table]||[]).filter((item)=>matches(item,filters)))Object.assign(row,payload);return null;},
+    // Both cars were selected for the customer (only selected cars make a V1).
+    selectionRows:async()=>[v2ids.match,v2ids.match2].map((matchId)=>({match_id:matchId,status:'SELECTED',final_cents:3090000,manual:false}))
   };
   return {db,services,clock,selects,patches};
 }

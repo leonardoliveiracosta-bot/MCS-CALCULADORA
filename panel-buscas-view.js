@@ -36,6 +36,9 @@ function emptyCounts() {
 
 // People and demands of BUSCAS, from the operational base only (never a Manheim table): fichas and
 // Refs without ficha that entered in contact, and one match target per active demand.
+const offerCounts = (row) => ({ lane: row ? row.lane_count : 0, offLane: row ? row.offlane_count : 0, incomplete: row ? row.incomplete_count : 0,
+  selected: row ? row.selected_count : 0, selectedIds: row && Array.isArray(row.selected_ids) ? row.selected_ids : [], max: 10 });
+
 function demandContext(base) {
   const excluded = new Set(base.journeys.filter((journey) => journey.contact?.is_lead === false || journey.triageOut).map((journey) => journey.id));
   const excludedRefs = new Set(base.journeys.filter((journey) => excluded.has(journey.id)).flatMap((journey) => [journey.reference_code, ...base.refsOf(journey)]).filter(Boolean).map(upper));
@@ -141,6 +144,10 @@ async function manheimView(ctx, options = {}) {
   // Counts of the batch per demand, answered by the database. A demand counts only while it is
   // still a target today; a batch compared with an older criterion asks to be checked again.
   const summary = latest && batchOn ? await rpc(ctx, 'panel_manheim_batch_summary', { p_environment: ctx.environment, p_upload_id: latest.id }) : [];
+  // Selection for the customer (migration 20261006010000): counts per group and what is selected.
+  // Before that migration the summary goes without it (null), never with a false zero.
+  const offerRows = latest && batchOn ? await rpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch(() => null) : [];
+  const offerByKey = Array.isArray(offerRows) ? new Map(offerRows.map((row) => [row.demand_key, row])) : null;
   const summaryByKey = new Map((summary || []).map((row) => [row.demand_key, row]));
   const counts = { VALOR: emptyCounts(), CARRO: emptyCounts(), total: { people: 0, served: 0, matches: 0, review: 0 } };
   const people = { VALOR: new Set(), CARRO: new Set() }, served = { VALOR: new Set(), CARRO: new Set() }, allPeople = new Set(), allServed = new Set();
@@ -161,7 +168,10 @@ async function manheimView(ctx, options = {}) {
     return {
       key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId || null, ref: demand.ref || null, wishes: demand.activeWishes,
       bidCents: demand.mode === 'VALOR' ? demand.bidCents : null, issues: demand.issues, ...demandPerson(base, demand), stage: stage && stage.stage || null, stageLabel: stage && stage.label || null,
-      reactivation, matchCount, bateCount: row ? row.bate_count : 0, porValorCount: reactivation ? 0 : row ? row.por_valor_count : 0, presentedCount: row ? row.presented_count : 0, stale
+      reactivation, matchCount, bateCount: row ? row.bate_count : 0, porValorCount: reactivation ? 0 : row ? row.por_valor_count : 0, presentedCount: row ? row.presented_count : 0, stale,
+      offer: offerByKey ? offerCounts(offerByKey.get(demand.key)) : null,
+      // The selection could not be read (migration pending): say so, never zero.
+      offerPending: Boolean(latest && batchOn && !offerByKey)
     };
   });
   ['VALOR', 'CARRO'].forEach((mode) => { counts[mode].people = people[mode].size; counts[mode].served = served[mode].size; });

@@ -2,8 +2,12 @@
 
 // Opções de UMA demanda do lote ativo, página por página (BUSCAS abre a demanda ou "Ver mais").
 //  GET  ?key=journey:<id>:CARRO&cursor=<...>&limit=10   até 50 carros por página, cursor estável
+//  GET  ?key=...&group=LANE|OFFLANE|INCOMPLETE&cursor=<n>  um grupo da demanda, 10 por vez, na ordem por CR
 //  POST { action: 'rematch', key }                     critério mudou: o servidor compara de novo só
 //                                                     essa demanda com os carros do lote ativo
+//  POST { action: 'select'|'remove'|'exclude'|'price', matchId, pct, reason, note }
+//                                                     seleção para o cliente (no máximo 10 por demanda;
+//                                                     fora de Lane/Run só com motivo). Nada é enviado.
 // Nenhuma resposta traz o lote inteiro; nenhuma chamada paga; nenhuma mensagem.
 const crypto = require('node:crypto');
 const { allRows, jsonBody, requirePanel, rows, rpc, send } = require('../../panel-server');
@@ -12,9 +16,10 @@ const { loadBuscasBase, liveMatchesFor, upper } = require('../../panel-buscas');
 const { demandContext } = require('../../panel-buscas-view');
 const batch = require('../../panel-manheim-batch');
 const vehicleMatch = require('../../vehicle-match');
+const offer = require('../../manheim-offer');
 
 const KEY = /^(journey:[0-9a-f-]{36}|ref:[A-HJ-NP-Z2-9]{5}):(VALOR|CARRO)$/;
-const PARSED_FIELDS = ['vin', 'year', 'make', 'model', 'trim', 'miles', 'location', 'locationDisplay', 'saleDate', 'startsAt', 'endsAt', 'mmrCents', 'exteriorColor', 'interiorColor', 'buyNowPrice', 'conditionGrade', 'lot', 'drivetrain', 'transmission', 'engine', 'makeNotice', 'matchNotice', 'matchedWishlistLabel', 'matchedWishlistIndex', 'dataGap', 'cleanTitle', 'odometerOk'];
+const PARSED_FIELDS = ['vin', 'year', 'make', 'model', 'trim', 'miles', 'location', 'locationDisplay', 'saleDate', 'startsAt', 'endsAt', 'mmrCents', 'exteriorColor', 'interiorColor', 'buyNowPrice', 'conditionGrade', 'lot', 'drivetrain', 'transmission', 'engine', 'makeNotice', 'matchNotice', 'matchedWishlistLabel', 'matchedWishlistIndex', 'dataGap', 'cleanTitle', 'odometerOk', 'lane', 'run', 'saleType', 'saleStatus', 'eventSaleName'];
 
 const slimParsed = (parsed) => Object.fromEntries(PARSED_FIELDS.filter((field) => parsed && parsed[field] !== undefined && parsed[field] !== '' && parsed[field] !== null).map((field) => [field, parsed[field]]));
 
@@ -59,9 +64,76 @@ async function alsoFitsFor(ctx, uploadId, page, base, journeyId) {
   return byVin;
 }
 
+// Before migration 20261006010000 the selection functions do not exist yet.
+const selectionMissing = (error) => error && (error.status === 404 || /PGRST202|42883/.test(String(error.code || '') + String(error.message || '')));
+
+function optionOut(match, key, demand, also) {
+  const live = demand ? liveMatchesFor(match, [demand])[0] || null : null;
+  const current = live || match;
+  const parsed = slimParsed(match.vehicle_json && match.vehicle_json.parsed);
+  const mmr = Number(parsed.mmrCents) || 0, bid = demand && demand.mode === 'VALOR' ? Number(demand.bidCents) || 0 : 0;
+  return {
+    id: match.id, journey_id: match.journey_id, calc_ref: match.calc_ref ? String(match.calc_ref).trim() : null, logical_mode: match.logical_mode, demandKey: key,
+    match_kind: current.match_kind, match_reason: current.match_reason, mmr_status: current.mmr_status, row_fingerprint: match.row_fingerprint,
+    presented_unit_id: match.presented_unit_id || null, vehicle_json: { parsed },
+    fitsBid: match.logical_mode === 'VALOR' && mmr && bid ? mmr <= bid : null,
+    alsoFitsFor: [...(also.get(upper(parsed.vin)) || [])], criteriaChanged: !live
+  };
+}
+
+// One group of one demand, ordered by CR (up to 5 at or above the recommended minimum, then up to 5
+// below it, then the rest). The page carries the price and the selection state of each car.
+async function groupPage(ctx, req, key, group, limit) {
+  const offset = req.query && req.query.cursor ? Number(req.query.cursor) : 0;
+  if (!Number.isInteger(offset) || offset < 0 || offset > 100000) return send(ctx.res, 400, { error: 'MANHEIM_CURSOR_INVALID' });
+  const latest = await latestActiveUpload(ctx, 'id,uploaded_at');
+  if (!latest) return send(ctx.res, 200, { key, group, uploadId: null, options: [], nextCursor: null, total: 0 });
+  let stored;
+  try {
+    [stored] = await Promise.all([rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_offset: offset, p_limit: limit + 1 })]);
+  } catch (error) {
+    if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
+    throw error;
+  }
+  const { base, demand } = await contextFor(ctx, key);
+  const page = (stored || []).slice(0, limit);
+  const also = await alsoFitsFor(ctx, latest.id, page, base, demand && demand.journeyId);
+  const optionsOut = page.map((row) => ({
+    ...optionOut(row, key, demand, also),
+    offer: {
+      group: row.offer_group, cr: row.cr === null ? null : Number(row.cr), crMinimum: row.cr_minimum === null ? null : Number(row.cr_minimum),
+      belowMinimum: row.below_minimum, tier: row.tier, mmrCents: Number(row.mmr_cents), defaultPct: Number(row.default_pct),
+      manualPct: row.manual_pct === null ? null : Number(row.manual_pct), finalCents: Number(row.final_cents),
+      status: row.selection_status, manual: row.manual === true, manualReason: row.manual_reason || null, note: row.note || null
+    }
+  }));
+  const total = page.length ? Number(page[0].total_in_group) || 0 : 0;
+  return send(ctx.res, 200, { key, group, uploadId: latest.id, options: optionsOut, total, nextCursor: (stored || []).length > limit ? String(offset + limit) : null });
+}
+
+// Selection for the customer. The database enforces the rules (active batch, valid MMR, 10 per
+// demand, reason outside Lane/Run) under a lock; this only validates the input.
+async function selectOption(ctx, body) {
+  const actions = { select: 'SELECT', remove: 'REMOVE', exclude: 'EXCLUDE', price: 'PRICE' };
+  const pct = offer.validPct(body.pct);
+  if (!/^[0-9a-f-]{36}$/.test(String(body.matchId || '')) || Number.isNaN(pct)) return send(ctx.res, 400, { error: pct !== pct ? 'MANHEIM_SELECTION_PCT_INVALID' : 'MANHEIM_SELECTION_INVALID' });
+  const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 300) : null;
+  const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : null;
+  try {
+    const result = await rpc(ctx, 'panel_manheim_offer_select', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_action: actions[body.action], p_manual_pct: pct, p_reason: reason || null, p_note: note || null });
+    return send(ctx.res, 200, result);
+  } catch (error) {
+    if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
+    throw error;
+  }
+}
+
 async function options(ctx, req) {
   const key = String(req.query && req.query.key || '');
   if (!KEY.test(key)) return send(ctx.res, 400, { error: 'MANHEIM_DEMAND_KEY_INVALID' });
+  const group = req.query && req.query.group ? String(req.query.group) : null;
+  if (group && !offer.GROUPS.includes(group)) return send(ctx.res, 400, { error: 'MANHEIM_GROUP_INVALID' });
+  if (group) return groupPage(ctx, req, key, group, Math.min(Math.max(Number(req.query && req.query.limit) || 10, 1), 50));
   const limit = Math.min(Math.max(Number(req.query && req.query.limit) || 10, 1), 50);
   const cursor = decodeCursor(req.query && req.query.cursor);
   if (req.query && req.query.cursor && !cursor) return send(ctx.res, 400, { error: 'MANHEIM_CURSOR_INVALID' });
@@ -74,20 +146,8 @@ async function options(ctx, req) {
   const page = (stored || []).slice(0, limit);
   const more = (stored || []).length > limit;
   const also = await alsoFitsFor(ctx, latest.id, page, base, demand && demand.journeyId);
-  const optionsOut = page.map((match) => {
-    // Today's rule, applied again to the stored car: a car that no longer fits says so.
-    const live = demand ? liveMatchesFor(match, [demand])[0] || null : null;
-    const current = live || match;
-    const parsed = slimParsed(match.vehicle_json && match.vehicle_json.parsed);
-    const mmr = Number(parsed.mmrCents) || 0, bid = demand && demand.mode === 'VALOR' ? Number(demand.bidCents) || 0 : 0;
-    return {
-      id: match.id, journey_id: match.journey_id, calc_ref: match.calc_ref ? String(match.calc_ref).trim() : null, logical_mode: match.logical_mode, demandKey: key,
-      match_kind: current.match_kind, match_reason: current.match_reason, mmr_status: current.mmr_status, row_fingerprint: match.row_fingerprint,
-      presented_unit_id: match.presented_unit_id || null, vehicle_json: { parsed },
-      fitsBid: match.logical_mode === 'VALOR' && mmr && bid ? mmr <= bid : null,
-      alsoFitsFor: [...(also.get(upper(parsed.vin)) || [])], criteriaChanged: !live
-    };
-  });
+  // Today's rule, applied again to the stored car: a car that no longer fits says so.
+  const optionsOut = page.map((match) => optionOut(match, key, demand, also));
   return send(ctx.res, 200, { key, uploadId: latest.id, options: optionsOut, nextCursor: more && page.length ? encodeCursor(page[page.length - 1]) : null, demandFound: Boolean(demand) });
 }
 
@@ -119,6 +179,7 @@ module.exports = async (req, res) => {
     if (req.method === 'GET') return await options(ctx, req);
     const body = await jsonBody(req, 4096);
     if (body.action === 'rematch') return await rematch(ctx, body);
+    if (['select', 'remove', 'exclude', 'price'].includes(body.action)) return await selectOption(ctx, body);
     return send(res, 400, { error: 'MANHEIM_OPTIONS_ACTION_INVALID' });
   } catch (error) {
     const code = /^[A-Z][A-Z0-9_]{2,60}$/.test(String(error && error.code || '')) ? error.code : null;

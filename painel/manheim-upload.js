@@ -30,6 +30,7 @@
       model: vehicle.model, trim: vehicle.trim, miles: vehicle.miles, location: vehicle.location, locationDisplay: vehicle.locationDisplay,
       saleDate: vehicle.saleDate, startsAt: vehicle.startsAt, endsAt: vehicle.endsAt, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
       drivetrain: vehicle.drivetrain, transmission: vehicle.transmission, engine: vehicle.engine, buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade,
+      lane: vehicle.lane, run: vehicle.run, saleType: vehicle.saleType, saleStatus: vehicle.saleStatus, eventSaleName: vehicle.eventSaleName,
       cleanTitle: vehicle.cleanTitle, odometerOk: vehicle.odometerOk, ...(vehicle.ai ? { ai: vehicle.ai } : {})
     };
   }

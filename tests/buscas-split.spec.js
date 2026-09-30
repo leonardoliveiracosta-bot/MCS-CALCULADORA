@@ -242,7 +242,7 @@ test('35-42 · só a linha ambígua vai para a OpenAI, a resposta é revalidada 
   expect(chunkCars.filter((item) => item.vehicle.ai?.provider === 'openai')).toHaveLength(1);
   expect(calls.some((call) => call.body?.action === 'manheim_upload_part' || call.body?.action === 'manheim_archive')).toBe(false);
   const summary = page.locator('#manheim-import-summary');
-  for (const text of ['2 linhas importadas', '1 resolvidas automaticamente', '1 analisadas pela OpenAI', '1 confirmadas', '0 enviadas para revisão', 'Modelo: gpt-5.4-nano', 'Custo estimado: US$ 0.0001']) await expect(summary).toContainText(text);
+  for (const text of ['linhas lidas do CSV', '2 veículos únicos importados', '1 analisadas pela OpenAI', '1 confirmadas', '0 linhas em revisão', 'Modelo: gpt-5.4-nano', 'Custo estimado: US$ 0.0001']) await expect(summary).toContainText(text);
   const stored = calls.find((call) => call.body?.action === 'manheim_ai_summary').body.summary;
   expect([stored.provider, stored.model, stored.rowsSentToAi, stored.rowsAccepted, stored.rowsReview]).toEqual(['openai', 'gpt-5.4-nano', 1, 1, 0]);
 });
@@ -258,7 +258,7 @@ test('39 · OpenAI indisponível: as linhas válidas entram, só a ambígua vai 
   const chunkCars = calls.filter((call) => call.body?.action === 'chunk').flatMap((call) => call.body.vehicles);
   expect(chunkCars).toHaveLength(1);
   const summary = page.locator('#manheim-import-summary');
-  await expect(summary).toContainText('1 enviadas para revisão');
+  await expect(summary).toContainText('1 linhas em revisão');
   await expect(summary).not.toContainText('OpenAI');
   await summary.locator('summary').click();
   await expect(summary).toContainText('linha 3 · leitura automática indisponível');
