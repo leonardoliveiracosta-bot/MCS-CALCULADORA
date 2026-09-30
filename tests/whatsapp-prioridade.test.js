@@ -97,6 +97,6 @@ test('recuperação no cron: até 5 por ciclo, com limite de tempo; evento que n
   await backend.db.query(`update public.whatsapp_raw_events set received_at=now()-interval '5 minutes' where event_key='recente'`);
   const late = await maintenance.recoverStalledEvents(ctx, { maxEvents: 5, deadlineAt: Date.now() - 1 });
   assert.deepEqual(late, { done: 0, reprocessed: 0, deferred: 0, failed: 0 });
-  assert.match(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'api/panel/ai-cron.js'), 'utf8'), /recoverStalledEvents\(ctx,\{maxEvents:5,deadlineAt:Date\.now\(\)\+20000\}\)/);
+  assert.match(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'api/panel/ai-cron.js'), 'utf8'), /maintenanceDeadline=Date\.now\(\)\+20000;[\s\S]*recoverStalledEvents\(ctx,\{maxEvents:5,deadlineAt:maintenanceDeadline\}\)/);
   assert.deepEqual(backend.refused, []);
 });

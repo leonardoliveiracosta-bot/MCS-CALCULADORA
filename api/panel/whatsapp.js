@@ -2,7 +2,7 @@
 const crypto=require('node:crypto');
 const {allRows,isUuid,jsonBody,patchRows,requirePanel,rows,send,supabase}=require('../../panel-server');
 const {normalizedItems,processItem,processRaw,resolveItemError,saveItemError}=require('../../whatsapp-receiver');
-const {recoverStalledEvents,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
+const {recoverStalledEvents,reprocessItemError,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
 const {activeRows:activeTriage}=require('../../panel-triage');
 
 module.exports=async(req,res)=>{
@@ -65,35 +65,12 @@ module.exports=async(req,res)=>{
     }
     if(body.action==='reprocess_item'){
       if(!isUuid(body.id))return send(res,400,{error:'ITEM_ID_INVALID'});
-      let itemError=(await rows(ctx,'whatsapp_item_errors',{select:'id,raw_event_id,item_index,item_json,error_code,status,attempts,processing_started_at',environment:'eq.'+ctx.environment,id:'eq.'+body.id,limit:'1'}))[0];
+      const itemError=(await rows(ctx,'whatsapp_item_errors',{select:'id,raw_event_id,item_index,item_json,error_code,status,attempts,processing_started_at',environment:'eq.'+ctx.environment,id:'eq.'+body.id,limit:'1'}))[0];
       if(!itemError)return send(res,404,{error:'ITEM_ERROR_NOT_FOUND'});
-      if(itemError.status==='RESOLVED')return send(res,200,{resolved:true,duplicate:true});
-      if(itemError.status==='PROCESSING'&&Date.now()-Date.parse(itemError.processing_started_at||0)>120000){
-        const reset=await patchRows(ctx,'whatsapp_item_errors',{id:'eq.'+itemError.id,environment:'eq.'+ctx.environment,status:'eq.PROCESSING'},{status:'ERROR',processing_started_at:null,error_code:'PROCESSING_INTERRUPTED'},true);
-        if(reset.length)itemError={...itemError,status:'ERROR'};
-      }
-      if(itemError.status==='PROCESSING')return send(res,409,{error:'ITEM_ALREADY_PROCESSING'});
-      const started=new Date().toISOString();
-      const claimed=await patchRows(ctx,'whatsapp_item_errors',{id:'eq.'+itemError.id,environment:'eq.'+ctx.environment,status:'eq.ERROR'},{status:'PROCESSING',processing_started_at:started,last_attempt_at:started,attempts:Number(itemError.attempts||0)+1},true);
-      if(!claimed.length)return send(res,409,{error:'ITEM_ALREADY_PROCESSING'});
-      try{
-        const raw=(await rows(ctx,'whatsapp_raw_events',{select:'id,event_type,payload_json',environment:'eq.'+ctx.environment,id:'eq.'+itemError.raw_event_id,limit:'1'}))[0];
-        if(!raw)throw Error('RAW_EVENT_MISSING');
-        const parsed=normalizedItems(raw.payload_json);
-        const normalized=parsed.items.find(item=>item.itemIndex===itemError.item_index);
-        const parseFailure=parsed.itemErrors.find(item=>item.itemIndex===itemError.item_index);
-        if(parseFailure)throw Error(parseFailure.errorCode);
-        const item=normalized||(itemError.item_json?.messageId?itemError.item_json:null);
-        if(!item)throw Error('ITEM_NOT_RECONSTRUCTED');
-        const result=await processItem(ctx,raw.id,{...item,source_kind:item.source_kind||(raw.event_type==='history'?'WHATSAPP_HISTORY':'WHATSAPP_WEBHOOK')});
-        await resolveItemError(ctx,raw.id,itemError.item_index);
-        const remaining=await rows(ctx,'whatsapp_item_errors',{select:'id',environment:'eq.'+ctx.environment,raw_event_id:'eq.'+raw.id,status:'neq.RESOLVED',limit:'1'});
-        if(!remaining.length)await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+raw.id,environment:'eq.'+ctx.environment},{error_code:null});
-        return send(res,200,{resolved:true,review:Boolean(result.review),duplicate:Boolean(result.duplicate)});
-      }catch(error){
-        await saveItemError(ctx,itemError.raw_event_id,{itemIndex:itemError.item_index,errorCode:/^[A-Z_: -]{3,80}$/.test(String(error.message||''))?String(error.message):'ITEM_PROCESSING_FAILED',item:itemError.item_json});
-        return send(res,409,{error:'ITEM_PROCESSING_FAILED'});
-      }
+      const out=await reprocessItemError(ctx,itemError);
+      if(out.busy)return send(res,409,{error:'ITEM_ALREADY_PROCESSING'});
+      if(out.failed)return send(res,409,{error:'ITEM_PROCESSING_FAILED'});
+      return send(res,200,{resolved:true,review:Boolean(out.review),duplicate:Boolean(out.duplicate)});
     }
     if(body.action==='suggestion'){
       if(!isUuid(body.id)||typeof body.link!=='boolean')return send(res,400,{error:'SUGGESTION_INVALID'});

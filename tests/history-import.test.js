@@ -229,7 +229,7 @@ test('migration records history source and automatic detector accepts history wi
   const ai=fs.readFileSync(path.join(root,'panel-ai.js'),'utf8');
   assert.match(ai,/source_kind,occurred_at_utc/);
   assert.match(ai,/latestCustomerIsLive/);
-  assert.match(fs.readFileSync(path.join(root,'api/panel/whatsapp.js'),'utf8'),/raw\.event_type==='history'\?'WHATSAPP_HISTORY':'WHATSAPP_WEBHOOK'/);
+  assert.match(fs.readFileSync(path.join(root,'whatsapp-maintenance.js'),'utf8'),/raw\.event_type==='history'\?'WHATSAPP_HISTORY':'WHATSAPP_WEBHOOK'/);
 });
 
 test('latest WhatsApp function keeps source_key and clears the old primary before promotion',()=>{

@@ -82,6 +82,6 @@ test('only processRaw with live:true can invoke the sender after storing a CUSTO
   await receiver.processRaw(ctx,{id:'raw-live',payload_json:payload,attempts:0},{live:true});
   await receiver.processRaw(ctx,{id:'raw-reprocess',payload_json:payload,attempts:0});
   assert.equal(replies,1);
-  assert.match(fs.readFileSync(path.join(root,'api/whatsapp/webhook.js'),'utf8'),/processRaw\(ctx,row,\{live:true\}\)/);
+  assert.match(fs.readFileSync(path.join(root,'api/whatsapp/webhook.js'),'utf8'),/processRaw\(ctx,row,\{live:true[,}]/);
   assert.doesNotMatch(fs.readFileSync(path.join(root,'api/panel/history-import.js'),'utf8'),/live:true/);
 });
