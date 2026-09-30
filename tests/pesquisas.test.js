@@ -2,9 +2,7 @@
 
 // PESQUISAS com os handlers reais contra um banco PGlite com todas as migrações. Leitura das
 // conversas pelo simulador local (fora de produção nunca há IA): nenhuma chamada paga e nenhuma
-// mensagem enviada. Casos: pedido explícito vira busca com evidências; conversa sem pedido não
-// vira; critério ausente não é inventado; sem opção continua visível; com opção válida; lote
-// cancelado não conta.
+// mensagem enviada. Pedido parcial é pedido: a comparação aplica só o que o cliente informou.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 Object.assign(process.env, { VERCEL_ENV: 'preview', SUPABASE_URL: 'http://banco-simulado.local', SUPABASE_PUBLISHABLE_KEY: 'publica-simulada', SUPABASE_SECRET_KEY: 'secreta-simulada' });
@@ -20,14 +18,21 @@ const person = (n, name, texts) => [
 ];
 const seed = [
   `insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password) values('${id(1)}','preview','68000000-0000-4000-8000-00000000a001','teste@example.test','admin',true,false);`,
-  // Explicit request, buying in months (never a reason to leave the list).
   ...person(1, 'Lucas', [['CUSTOMER', 'Hi, I am looking for a Honda CR-V 2019-2021 between 20,000 and 60,000 miles'], ['MCS', 'Great, we will look'], ['CUSTOMER', 'No rush, I plan to buy in 4 months']]),
-  // No vehicle request at all (the automatic message mentions cars and is ignored).
   ...person(2, 'Bia', [['CUSTOMER', 'Obrigado pelo retorno, até mais'], ['MCS', 'Hi, this is an automatic message from My Car Scout about a Toyota Camry', true]]),
-  // Model without make: the make is never filled in.
-  ...person(3, 'Rafa', [['CUSTOMER', 'I want a Civic, budget $18,000']]),
-  // A request with no car in the active batch (the only F-150 is in a canceled batch).
-  ...person(4, 'Caio', [['CUSTOMER', 'Need a Ford F-150 2018-2020 with 30,000 to 90,000 miles']])
+  // Only a model, no Ref, no make: a partial request.
+  ...person(3, 'Rafa', [['CUSTOMER', 'I want a Civic']]),
+  ...person(4, 'Caio', [['CUSTOMER', 'Need a Ford F-150 2018-2020 with 30,000 to 90,000 miles']]),
+  // The first calculator flow, without "Ref:".
+  ...person(5, 'Duda', [['CUSTOMER', 'Hello! I just sent a vehicle search request through My Car Scout\nYear range: 2018-2021\nVehicle: Toyota Camry\nMileage range: 25,000-80,000']]),
+  // One-sided limits: mileage only a maximum, year only a minimum.
+  ...person(6, 'Gabi', [['CUSTOMER', 'I need something with less than 60,000 miles']]),
+  ...person(7, 'Hugo', [['CUSTOMER', 'Looking for a Camry 2021 or newer']]),
+  // Nothing usable: stays visible as PRECISA DETALHE.
+  ...person(8, 'Ivo', [['CUSTOMER', 'I need a car']]),
+  // A calculator ficha without Ref and without mileage: still a request.
+  `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${id(9)}','preview','Eva Calculadora','CALCULATOR',now(),now());`,
+  `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(8)}','preview','${id(9)}','CALCULATOR','NOVO','ATIVO','${JSON.stringify({ wishlists: [{ make: 'Toyota', model: 'Camry', yearMin: 2019 }], logical_modes: ['CARRO'] })}',now(),now());`
 ].join('\n');
 
 let backend;
@@ -50,90 +55,108 @@ async function batch(cars, key, finalize = true) {
 test.before(async () => {
   backend = await createBackend({ seed });
   process.env.SUPABASE_URL = BASE;
-  for (const key of ['OPENAI_API_KEY', 'SEARCH_EXTRACTION_AI_ENABLED', 'MANHEIM_OPENAI_ENABLED', 'ENTRADA_OPENAI_ENABLED', 'D360_API_KEY']) delete process.env[key];
+  for (const key of ['OPENAI_API_KEY', 'SEARCH_EXTRACTION_AI_ENABLED', 'SEARCH_EXTRACTION_MODEL', 'MANHEIM_OPENAI_ENABLED', 'ENTRADA_OPENAI_ENABLED', 'D360_API_KEY', 'SEARCH_EXTRACTION_BUDGET_USD']) delete process.env[key];
   globalThis.fetch = backend.fetch;
   require('../panel-manheim-state').resetUndoSupport();
-  // Active batch: a CR-V that fits, a CR-V without MMR (never an option) and no F-150.
-  await batch([car('PESQ00000000000001', 'Honda', 'CR-V'), car('PESQ00000000000002', 'Honda', 'CR-V', { mmrCents: null }), car('PESQ00000000000003', 'Toyota', 'Camry')], 'a');
-  // Canceled while being assembled: its F-150 must never count.
+  // Active batch. The CR-V without MMR never counts; the F-150 only exists in a canceled batch.
+  await batch([car('PESQ00000000000001', 'Honda', 'CR-V'), car('PESQ00000000000002', 'Honda', 'CR-V', { mmrCents: null }), car('PESQ00000000000003', 'Toyota', 'Camry'),
+    car('PESQ00000000000004', 'Honda', 'Civic', { miles: 90000 }), car('PESQ00000000000005', 'Toyota', 'Camry', { year: 2022, miles: 70000 })], 'a');
   await batch([car('PESQ00000000000009', 'Ford', 'F-150')], 'c', false);
-  for (const n of [1, 2, 3, 4]) {
+  for (const n of [1, 2, 3, 4, 5, 6, 7, 8]) {
     const read = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract', chatId: id(30 + n) });
-    assert.equal(read.statusCode, 200, JSON.stringify(read.payload));
-    assert.equal(read.payload.provider, 'SIMULATED');
+    assert.equal(read.payload.provider, 'SIMULATED', JSON.stringify(read.payload));
   }
+  const compared = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'compare' });
+  assert.equal(compared.statusCode, 200, JSON.stringify(compared.payload));
 });
 test.after(async () => { if (backend) await backend.db.close(); });
 
 const list = async () => (await call('pesquisas', '/api/panel/pesquisas')).payload;
 const itemOf = (data, name) => data.items.filter((item) => item.person.name === name);
 
-test('pedido explícito vira busca com evidências; conversa sem pedido não vira', async () => {
-  const data = await list();
-  const [lucas] = itemOf(data, 'Lucas');
-  assert.equal(lucas.source, 'CONVERSA');
-  assert.equal(lucas.criteriaText, 'Honda CR-V · 2019 a 2021 · 20,000 a 60,000 milhas');
-  assert.deepEqual(lucas.evidence.map((item) => item.text), ['Hi, I am looking for a Honda CR-V 2019-2021 between 20,000 and 60,000 miles']);
-  assert.equal(lucas.state, 'FALTA_BUSCAR');
-  assert.deepEqual(itemOf(data, 'Bia'), [], 'sem pedido, sem busca');
-  const [run] = await q(`select status, provider, request_count from public.vehicle_request_runs where chat_id = '${id(32)}'`);
-  assert.deepEqual([run.status, run.provider, run.request_count], ['NO_REQUEST', 'SIMULATED', 0]);
-  // The same conversation again is never read (nor paid) twice.
-  const again = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract', chatId: id(31) });
-  assert.equal(again.payload.alreadyRead, true);
-});
-
-test('critério ausente não é inventado (nem pela IA)', async () => {
+test('1 · "I want a Civic" sem referência vira pedido parcial e é comparado', async () => {
   const [rafa] = itemOf(await list(), 'Rafa');
-  assert.equal(rafa.state, 'CRITERIOS_INSUFICIENTES');
-  assert.equal(rafa.criteriaText, 'Civic · até US$ 18,000');
-  assert.ok(rafa.missing.includes('marca'), JSON.stringify(rafa.missing));
-  // An answer that names a make, a year and a budget the customer never wrote keeps none of them.
-  const conversation = requests.conversationFor([{ id: 'm1', direction: 'CUSTOMER', body_text: 'I want a Civic, budget $18,000' }, { id: 'm2', direction: 'MCS', body_text: 'A Honda Civic 2020?' }]);
-  const checked = requests.validateExtraction({ hasRequest: true, requests: [{ make: 'Honda', model: 'Civic', yearMin: 2020, yearMax: 2020, budgetUsd: 25000,
-    evidence: { make: ['m2'], model: ['m1'], year: ['m1'], budget: ['m1'] }, confidence: 'alta' }] }, conversation);
-  const [only] = checked.requests;
-  assert.deepEqual(only.criteria, { model: 'Civic' });
-  assert.equal(only.needsReview, true);
-  assert.match(only.reviewReason, /marca, ano, orçamento/);
+  assert.equal(rafa.source, 'CONVERSA');
+  assert.equal(rafa.criteriaText, 'Honda Civic (marca pelo modelo)');
+  assert.deepEqual([rafa.completeness, rafa.result, rafa.optionCount], ['PARCIAL', 'COM_OPCOES', 1]);
+  assert.equal(rafa.stateLabel, 'PARCIAL · COM OPÇÕES NO LOTE');
+  assert.deepEqual(rafa.missing, ['ano', 'milhagem', 'orçamento']);
+  assert.deepEqual(rafa.evidence.map((item) => item.text), ['I want a Civic']);
 });
 
-test('comparação com o lote ativo: com opção válida, sem opção continua visível, lote cancelado não conta', async () => {
-  const compared = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'compare' });
-  assert.equal(compared.statusCode, 200, JSON.stringify(compared.payload));
+test('2 · pedido da calculadora sem referência continua válido (conversa e ficha)', async () => {
+  const data = await list();
+  const [duda] = itemOf(data, 'Duda');
+  assert.equal(duda.criteriaText, 'Toyota Camry · 2018 a 2021 · 25,000 a 80,000 milhas');
+  assert.deepEqual([duda.completeness, duda.result, duda.optionCount], ['COMPLETO', 'COM_OPCOES', 1]);
+  const [eva] = itemOf(data, 'Eva Calculadora');
+  assert.equal(eva.source, 'FICHA');
+  assert.deepEqual([eva.completeness, eva.result, eva.optionCount], ['PARCIAL', 'COM_OPCOES', 2]);
+  assert.equal(eva.criteriaText, 'Toyota Camry · 2019 ou mais novo');
+});
+
+test('3 · ano ou milhagem de um lado só aplica só esse limite', async () => {
+  const data = await list();
+  const [gabi] = itemOf(data, 'Gabi');
+  assert.equal(gabi.criteriaText, 'Qualquer veículo · até 60,000 milhas');
+  // Every car with a valid MMR and at most 60,000 miles (the CR-V without MMR and the Civic with 90,000 do not count).
+  assert.deepEqual([gabi.completeness, gabi.result, gabi.optionCount], ['PARCIAL', 'COM_OPCOES', 2]);
+  const [hugo] = itemOf(data, 'Hugo');
+  assert.equal(hugo.criteriaText, 'Toyota Camry (marca pelo modelo) · 2021 ou mais novo');
+  assert.deepEqual([hugo.result, hugo.optionCount], ['COM_OPCOES', 1], 'só o Camry 2022, sem limite de ano máximo');
+});
+
+test('4 · conversa sem dado útil fica visível como PRECISA DETALHE, sem busca inventada', async () => {
+  const data = await list();
+  const [ivo] = itemOf(data, 'Ivo');
+  assert.deepEqual([ivo.state, ivo.completeness, ivo.result, ivo.optionCount], ['PRECISA_DETALHE', 'PRECISA_DETALHE', null, null]);
+  assert.equal(ivo.criteriaText, 'Qualquer veículo');
+  assert.deepEqual(ivo.evidence.map((item) => item.text), ['I need a car']);
+  const checks = await q(`select count(*)::int n from public.vehicle_request_checks where request_key like 'conversa:%' and result in ('HAS_OPTIONS','NO_OPTIONS')`);
+  const [ivoCheck] = await q(`select result from public.vehicle_request_checks c join public.vehicle_requests r on 'conversa:' || r.id = c.request_key where r.chat_id = '${id(38)}'`);
+  assert.equal(ivoCheck, undefined, 'nenhuma comparação para quem não disse o que quer');
+  assert.ok(checks[0].n >= 5);
+  assert.deepEqual(itemOf(data, 'Bia'), [], 'conversa sem pedido não vira busca');
+});
+
+test('5 · parcial com match válido fica COM OPÇÕES; lote cancelado e carro sem MMR não contam', async () => {
   const data = await list();
   const [lucas] = itemOf(data, 'Lucas');
-  assert.deepEqual([lucas.state, lucas.optionCount], ['COM_OPCOES', 1], 'o CR-V sem MMR não conta');
+  assert.deepEqual([lucas.completeness, lucas.result, lucas.optionCount], ['COMPLETO', 'COM_OPCOES', 1]);
   const [caio] = itemOf(data, 'Caio');
-  assert.deepEqual([caio.state, caio.optionCount], ['SEM_OPCAO', 0], 'o F-150 do lote cancelado não conta');
-  assert.equal(caio.stateLabel, 'SEM OPÇÃO NO LOTE');
-  const checks = await q(`select c.request_key, c.result, c.option_count, u.activated_at is not null active from public.vehicle_request_checks c join public.manheim_uploads u on u.id = c.upload_id`);
-  assert.ok(checks.length >= 2 && checks.every((row) => row.active), 'só o lote ativo foi comparado');
-  // Nothing was sent and nothing paid.
-  assert.equal((await q(`select count(*)::int n from public.messages where direction = 'MCS'`))[0].n, 2, 'só as duas mensagens da MCS da carga do teste');
+  assert.deepEqual([caio.result, caio.optionCount], ['SEM_OPCAO', 0], 'o F-150 do lote cancelado não conta');
+  const [rafa] = itemOf(data, 'Rafa');
+  assert.equal(rafa.result, 'COM_OPCOES');
+  const report = (await call('pesquisas', '/api/panel/pesquisas?view=audit')).payload;
+  assert.deepEqual([report.completeWithOptions >= 2, report.completeWithoutOptions >= 1, report.partialWithOptions >= 3, report.needsDetail, report.conversationsWithoutRequest], [true, true, true, 1, 1]);
+  assert.equal(report.allServed, false, 'não declara cobertura sem prova');
   assert.deepEqual(backend.refused, []);
 });
 
-test('auditoria não declara cobertura sem prova', async () => {
-  const report = (await call('pesquisas', '/api/panel/pesquisas?view=audit')).payload;
-  assert.equal(report.extraction, 'SIMULADA');
-  assert.equal(report.peopleWithMessages, 4);
-  assert.equal(report.conversationsWithRequest, 3);
-  assert.deepEqual([report.withOptions >= 1, report.withoutOptions >= 1, report.insufficient >= 1], [true, true, true]);
-  assert.equal(report.trackingComplete, true, 'toda conversa lida e todo pedido comparado');
-  assert.equal(report.allServed, false, 'há pedido sem opção e com critérios insuficientes');
-});
-
-test('produção com a flag desligada: nada é lido; o histórico retoma de onde parou', async () => {
-  // Preview/test: the next unread conversations are read by the simulator, then nothing is left.
-  const history = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract_history' });
-  assert.deepEqual([history.statusCode, history.payload.remaining], [200, 0]);
-  process.env.VERCEL_ENV = 'production';
+test('6 · orçamento da leitura: até US$ 50 por provedor, não US$ 2', async () => {
+  const search = require('../panel-search-requests');
+  assert.equal(search.PROVIDER_LIMIT_USD.OPENAI, 50);
+  // A conversation with a new customer message is pending again.
+  await backend.db.exec(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(990)}','preview','${id(32)}','WHATSAPP','CUSTOMER','Also a Corolla','x',now(),'nova',1,'WHATSAPP_WEBHOOK',now() + interval '1 minute');`);
+  const spent = (usd) => backend.db.exec(`insert into public.vehicle_request_runs(environment,chat_id,provider,model,rule_version,input_hash,status,cost_usd) values('preview','${id(31)}','OPENAI','gpt-6-luna','manual','${String(usd).padStart(64, 'a')}','DONE',${usd})`);
+  Object.assign(process.env, { VERCEL_ENV: 'production', SEARCH_EXTRACTION_AI_ENABLED: '1', OPENAI_API_KEY: 'chave-de-teste', SEARCH_EXTRACTION_MODEL: 'gpt-6-luna' });
   try {
-    const off = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract_history' });
-    assert.deepEqual([off.statusCode, off.payload.error, off.payload.extraction], [409, 'SEARCH_EXTRACTION_OFF', 'DESLIGADA']);
-    const one = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract', chatId: id(31) });
-    assert.deepEqual([one.payload.status, one.payload.skipped], ['DESLIGADA', true]);
-  } finally { process.env.VERCEL_ENV = 'preview'; }
-  assert.deepEqual(backend.refused, [], 'nenhuma chamada paga');
+    // US$ 3 already spent (above the old US$ 2): the batch still reads. The request never leaves
+    // the test (the network is blocked), so nothing is paid.
+    await spent(3);
+    const going = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract_history' });
+    assert.deepEqual([going.statusCode, going.payload.provider, going.payload.providerLimitUsd, going.payload.stoppedReason], [200, 'OPENAI', 50, null]);
+    assert.ok(backend.refused.some((url) => url.startsWith('https://api.openai.com')), 'tentou ler: o teto de US$ 2 não existe');
+    // US$ 50 reached: stops safely before reading, the rest stays pending.
+    await spent(47);
+    const refusedBefore = backend.refused.length;
+    const stopped = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract_history' });
+    assert.deepEqual([stopped.payload.stoppedReason, stopped.payload.read, stopped.payload.remaining > 0], ['PROVIDER_LIMIT', 0, true]);
+    assert.equal(backend.refused.length, refusedBefore, 'nenhuma nova chamada depois do limite');
+    const batches = await q(`select provider, model, stopped_reason from public.vehicle_request_batches where provider = 'OPENAI' order by created_at`);
+    assert.deepEqual(batches.map((row) => [row.provider, row.model, row.stopped_reason]), [['OPENAI', 'gpt-6-luna', null], ['OPENAI', 'gpt-6-luna', 'PROVIDER_LIMIT']]);
+  } finally {
+    Object.assign(process.env, { VERCEL_ENV: 'preview' });
+    for (const key of ['SEARCH_EXTRACTION_AI_ENABLED', 'OPENAI_API_KEY', 'SEARCH_EXTRACTION_MODEL']) delete process.env[key];
+  }
 });

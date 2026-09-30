@@ -2316,9 +2316,11 @@
   // PESQUISAS: todo pedido de veículo (ficha, calculadora e conversas lidas), com critérios exatos,
   // evidências e estado contra o lote ativo. Nenhum pedido sai da lista por estágio, prazo ou
   // classificação; "sem opção no lote" continua aqui para a próxima importação. Nada é enviado.
-  const REQUEST_STATES = ['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO', 'CRITERIOS_INSUFICIENTES', 'PRECISA_REVISAO'];
-  const REQUEST_STATE_LABELS = { FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', SEM_OPCAO: 'SEM OPÇÃO NO LOTE', CRITERIOS_INSUFICIENTES: 'CRITÉRIOS INSUFICIENTES', PRECISA_REVISAO: 'PRECISA DE REVISÃO' };
-  const REQUEST_STATE_TONES = { FALTA_BUSCAR: 'yellow', COM_OPCOES: 'green', SEM_OPCAO: '', CRITERIOS_INSUFICIENTES: 'red', PRECISA_REVISAO: 'red' };
+  // Completeness (completo, parcial, precisa detalhe, precisa revisão) and the result in the active
+  // batch are separate: a partial request is compared with what the customer informed.
+  const REQUEST_STATES = ['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO', 'PRECISA_DETALHE', 'PRECISA_REVISAO'];
+  const REQUEST_STATE_LABELS = { FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', SEM_OPCAO: 'SEM OPÇÃO NO LOTE', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' };
+  const REQUEST_STATE_TONES = { FALTA_BUSCAR: 'yellow', COM_OPCOES: 'green', SEM_OPCAO: '', PRECISA_DETALHE: 'yellow', PRECISA_REVISAO: 'red' };
   const REQUEST_SOURCES = { FICHA: 'Ficha', CONVERSA: 'Conversa', CALCULADORA: 'Calculadora' };
   const EXTRACTION_TEXT = { SIMULADA: 'Leitura das conversas: simulada neste ambiente (sem IA)', DESLIGADA: 'Leitura das conversas por IA: desligada', SEM_CHAVE: 'Leitura das conversas por IA: sem chave', MODELO_INVALIDO: 'Leitura das conversas por IA: modelo não aprovado', LIGADA: 'Leitura das conversas por IA: ligada' };
   let requestsData = null;
@@ -2364,13 +2366,15 @@
     const card = element('article', 'item-card request-card');
     card.dataset.state = first.state;
     const head = element('div', 'request-head');
-    head.append(element('strong', '', first.criteriaText), makeBadge(first.stateLabel, REQUEST_STATE_TONES[first.state]));
+    head.append(element('strong', '', 'Informado: ' + first.criteriaText), makeBadge(first.stateLabel, REQUEST_STATE_TONES[first.state]));
     card.append(head);
     if (members.length > 1) card.append(element('p', 'muted', `${members.length} pedidos com critérios exatamente iguais`));
     if (first.state === 'COM_OPCOES') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'opção válida' : 'opções válidas'} no lote ativo`));
     if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo. Continua aqui para a próxima importação'));
     if (first.comparedAt) card.append(element('p', 'muted', `${first.comparedAtImport ? 'Comparado na importação de' : 'Última comparação'}: ${formatDate(first.comparedAt)}`));
-    if (first.missing && first.missing.length) card.append(element('p', 'muted', 'Falta: ' + first.missing.join(', ')));
+    if (first.missing && first.missing.length) card.append(element('p', 'muted', 'Não informado (sem restrição): ' + first.missing.join(', ')));
+    if (first.typeNotChecked) card.append(element('p', 'muted', 'O tipo de carroceria não vem no arquivo do Manheim: as opções não filtram por tipo'));
+    if (first.state === 'PRECISA_DETALHE') card.append(element('p', 'muted', 'A conversa não traz nenhum critério aproveitável. Continua aqui até a pessoa detalhar'));
     if (first.reviewReason) card.append(element('p', 'muted', 'Revisão: ' + first.reviewReason));
     members.forEach((item) => {
       const line = element('div', 'request-person');
@@ -2419,18 +2423,21 @@
     row('Pessoas com mensagens', data.peopleWithMessages);
     row('Conversas com mensagem do cliente', data.conversationsWithCustomerMessages);
     row('Conversas com pedido identificado', data.tablesPending ? 'migração pendente' : data.conversationsWithRequest);
+    row('Conversas sem pedido de veículo', data.tablesPending ? 'migração pendente' : data.conversationsWithoutRequest);
     row('Pedidos distintos', data.requests);
     row('Tarefas (critérios exatamente iguais)', data.groups);
-    row('Com opção válida no lote ativo', data.withOptions);
-    row('Sem opção no lote', data.withoutOptions);
-    row('Critérios insuficientes', data.insufficient);
-    row('Precisam de revisão', data.review);
+    row('Completos com opções', data.completeWithOptions);
+    row('Completos sem opções', data.completeWithoutOptions);
+    row('Parciais com opções', data.partialWithOptions);
+    row('Parciais sem opções', data.partialWithoutOptions);
+    row('Precisam de detalhe', data.needsDetail);
+    row('Precisam de revisão humana', data.review);
     row('Ainda não comparados', data.notCompared);
     row('Sem vínculo confiável', data.withoutReliableLink);
     row('Conversas ainda não lidas', data.estimate.conversationsToRead);
     root.replaceChildren(table,
       element('p', data.allServed ? '' : 'warning', data.allServed ? 'Todos os pedidos têm opção válida no lote ativo' : 'Ainda não há prova de que todo pedido de veículo foi atendido'),
-      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}. Nada é lido sem autorização`));
+      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}, dentro do limite de US$ ${data.estimate.providerLimitUsd} do provedor. Nada é lido sem autorização`));
   }
 
   // Lotes: o ativo sempre à vista; os desfeitos num "Histórico de lotes" recolhido. Ocultar é só

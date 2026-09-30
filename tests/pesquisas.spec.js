@@ -82,7 +82,7 @@ for (const width of [1366, 390]) {
     await lucas.locator('.request-evidence > summary').click();
     await expect(lucas.locator('.request-evidence')).toContainText('I am looking for a Honda CR-V 2019-2021');
     await expect(list.locator('.request-card', { hasText: 'Caio Conversa' })).toContainText('SEM OPÇÃO NO LOTE');
-    await expect(list.locator('.request-card', { hasText: 'Rafa Conversa' })).toContainText('CRITÉRIOS INSUFICIENTES');
+    await expect(list.locator('.request-card', { hasText: 'Rafa Conversa' })).toContainText('PARCIAL · SEM OPÇÃO NO LOTE');
     await expect(list.locator('.request-card', { hasText: 'Marta Ficha' })).toContainText('COM OPÇÕES NO LOTE');
     await expect(list).not.toContainText('Bia Conversa');
     await expect(page.locator('#requests-panel #manheim-drop-zone, #requests-panel .manheim-lead, #requests-panel #manheim-batches')).toHaveCount(0);

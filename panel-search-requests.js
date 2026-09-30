@@ -9,7 +9,7 @@
 //  * Comparação: só o lote realmente ativo (ativado, não desfeito, não cancelado), só carros com
 //    MMR válido, pelas regras atuais do matcher. O resultado fica gravado e auditável.
 const crypto = require('node:crypto');
-const { allRows, insert, patchRows, rows } = require('./panel-server');
+const { allRows, insert, patchRows, rows, rpc } = require('./panel-server');
 const { latestActiveUpload } = require('./panel-manheim-state');
 const requests = require('./vehicle-requests');
 const catalog = require('./vehicle-catalog');
@@ -18,6 +18,9 @@ const { makeKey } = require('./panel-manheim-batch');
 // US$ per 1M tokens (standard tier). Same approved list as the ENTRADA triage.
 const PRICES = Object.freeze({ 'gpt-6-luna': { input: 0.10, output: 0.50 }, 'gpt-5.4-nano': { input: 0.20, output: 1.25 } });
 const TIMEOUT_MS = 20000;
+// The reading of the history uses at most the balance already available in each AI provider:
+// US$ 50 per provider. No credit is added and no lower internal ceiling is created.
+const PROVIDER_LIMIT_USD = Object.freeze({ OPENAI: 50 });
 const HISTORY_SINCE = '2026-08-09T00:00:00Z';
 
 function extractionStatus(env = process.env) {
@@ -67,7 +70,12 @@ async function readWithAi(conversation, options = {}) {
       body: JSON.stringify({ model, messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ mensagens: conversation.map((item) => ({ id: item.id, de: item.from, texto: item.text })) }) }],
         response_format: { type: 'json_schema', json_schema: { name: 'pedido_de_veiculo', strict: true, schema: SCHEMA } } })
     });
-    if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
+    if (!response.ok) {
+      // The provider's own limit (quota or balance) stops the reading safely; the rest stays pending.
+      const detail = await response.json().catch(() => null);
+      const quota = response.status === 429 && /insufficient_quota|billing/i.test(String(detail?.error?.code || detail?.error?.type || ''));
+      const failure = new Error('OPENAI_FAILED'); failure.code = quota || response.status === 402 ? 'OPENAI_QUOTA' : response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure;
+    }
     const payload = await response.json();
     const usage = { input: Number(payload?.usage?.prompt_tokens) || 0, output: Number(payload?.usage?.completion_tokens) || 0 };
     let parsed = null;
@@ -131,7 +139,7 @@ async function extractChat(ctx, chatId, options = {}) {
     await services.patchRows(ctx, 'vehicle_requests', { environment: 'eq.' + ctx.environment, id: 'eq.' + request.id }, { updated_at: new Date().toISOString() });
   }
   // Requests of earlier readings that did not come back are kept as they were (no deduced withdrawal).
-  return { status, provider, runId: run.id, requests: checked.requests.length, errorCode: checked.errorCode };
+  return { status, provider, runId: run.id, requests: checked.requests.length, errorCode: checked.errorCode, usage: reading.usage || null, costUsd: reading.costUsd || 0 };
 }
 
 // ------------------------------------------------------------------ comparação com o lote ativo
@@ -142,27 +150,43 @@ async function vehiclesForMake(ctx, uploadId, key, cache, services) {
   cache.set(key, found);
   return found;
 }
+// Makes whose cars can match: the one informed, or the make(s) the catalog gives for the model.
+function makeKeysOf(criteria) {
+  const c = criteria || {};
+  if (c.make) return [makeKey(c.make)].filter(Boolean);
+  if (!c.model) return [];
+  const found = catalog.inferMake(c.model);
+  return (found.candidates && found.candidates.length ? found.candidates : [found.make]).map(makeKey).filter(Boolean);
+}
 async function compareOne(ctx, uploadId, item, cache, services) {
-  const targets = item.targets || requests.targetsOf(item.criteria);
-  if (item.needsReview) return { result: 'NEEDS_REVIEW', count: 0, sample: [] };
-  if (!targets.length) return { result: 'INSUFFICIENT', count: 0, sample: [] };
-  const keys = new Set();
-  targets.forEach((target) => target.wishes.forEach((wish) => {
-    const key = makeKey(wish.make) || makeKey(catalog.inferMake(wish.model).make);
-    if (key) keys.add(key);
-  }));
+  if (item.completeness === 'PRECISA_REVISAO') return { result: 'NEEDS_REVIEW', count: 0, sample: [] };
+  if (!item.comparable) return { result: 'INSUFFICIENT', count: 0, sample: [] };
   const sample = [];
   let count = 0;
-  for (const key of keys) {
-    for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) {
-      if (requests.optionFor(row.vehicle_json, targets)) { count += 1; if (sample.length < 5) sample.push(row.row_fingerprint); }
-    }
+  const take = (row) => { count += 1; if (sample.length < 5) sample.push(row.row_fingerprint); };
+  // A complete demand of the ficha: the current matcher, as in OPÇÕES.
+  if (item.targets && item.targets.length) {
+    const keys = new Set();
+    item.targets.forEach((target) => target.wishes.forEach((wish) => { const key = makeKey(wish.make) || makeKey(catalog.inferMake(wish.model).make); if (key) keys.add(key); }));
+    for (const key of keys) for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) if (requests.optionFor(row.vehicle_json, item.targets)) take(row);
+    return { result: count ? 'HAS_OPTIONS' : 'NO_OPTIONS', count, sample };
   }
-  return { result: count ? 'HAS_OPTIONS' : 'NO_OPTIONS', count, sample };
+  // A partial request: only what was informed. With a make or model, the cars of that make; with
+  // neither, the database counts the whole batch by year, mileage and budget.
+  const c = item.criteria || {};
+  const keys = makeKeysOf(c);
+  if (keys.length) {
+    for (const key of keys) for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) if (requests.fitsPartial(row.vehicle_json, c)) take(row);
+    return { result: count ? 'HAS_OPTIONS' : 'NO_OPTIONS', count, sample };
+  }
+  const scan = await services.scan(ctx, { p_environment: ctx.environment, p_upload_id: uploadId, p_year_min: c.yearMin || null, p_year_max: c.yearMax || null,
+    p_min_miles: c.minMiles || null, p_max_miles: c.maxMiles || null, p_max_mmr_cents: c.budgetUsd ? c.budgetUsd * 100 : null });
+  const total = Number(scan && scan.count) || 0;
+  return { result: total ? 'HAS_OPTIONS' : 'NO_OPTIONS', count: total, sample: (scan && scan.sample) || [] };
 }
 // Compares the given items (FALTA BUSCAR) with the active batch and records each result.
 async function compareItems(ctx, items, options = {}) {
-  const services = { allRows, rows, insert, ...(options.services || {}) };
+  const services = { allRows, rows, insert, scan: (ctx2, args) => rpc(ctx2, 'panel_vehicle_request_scan', args), ...(options.services || {}) };
   const upload = await latestActiveUpload(ctx, 'id', services.stateServices);
   if (!upload) return { uploadId: null, compared: 0 };
   const cache = new Map();
@@ -176,4 +200,4 @@ async function compareItems(ctx, items, options = {}) {
   return { uploadId: upload.id, compared: results.length, results };
 }
 
-module.exports = { HISTORY_SINCE, PRICES, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };
+module.exports = { HISTORY_SINCE, PRICES, PROVIDER_LIMIT_USD, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };

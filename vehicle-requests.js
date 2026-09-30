@@ -5,21 +5,25 @@
 //    sustentam cada critério. Nada é deduzido: marca, modelo, ano, milhagem e orçamento só existem
 //    quando a pessoa escreveu; o resto fica como campo faltante.
 //  * Estágio, previsão de compra, prazo ou qualquer classificação comercial nunca tiram um pedido.
-//  * A comparação usa as regras atuais do matcher (CARRO: marca, modelo, anos e milhagens; VALOR:
-//    marca, modelo e lance), sem tolerância nova. Sem esses dados o pedido fica em critérios
-//    insuficientes, dizendo o que falta.
+//  * Pedido parcial também é pedido: a comparação aplica só o que o cliente informou (campo não
+//    informado é "sem restrição", nunca falha). Completude (completo, parcial, precisa detalhe,
+//    precisa revisão) e resultado no lote (com opções, sem opção) são coisas separadas.
+//  * Referência da calculadora, etapa comercial ou prazo de compra nunca bloqueiam um pedido.
 const crypto = require('node:crypto');
 const vehicleMatch = require('./vehicle-match');
 const catalog = require('./vehicle-catalog');
 
-const RULE_VERSION = 'pedidos-v1';
-const STATES = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO', 'CRITERIOS_INSUFICIENTES', 'PRECISA_REVISAO']);
-const STATE_LABELS = Object.freeze({
-  FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', SEM_OPCAO: 'SEM OPÇÃO NO LOTE',
-  CRITERIOS_INSUFICIENTES: 'CRITÉRIOS INSUFICIENTES', PRECISA_REVISAO: 'PRECISA DE REVISÃO'
-});
-const FIELDS = Object.freeze(['make', 'model', 'trim', 'year', 'miles', 'budget', 'location', 'notes']);
-const FIELD_LABELS = Object.freeze({ make: 'marca', model: 'modelo', trim: 'versão', year: 'ano', yearMax: 'ano máximo', miles: 'milhagem', minMiles: 'milhagem mínima', maxMiles: 'milhagem máxima', budget: 'orçamento', location: 'localização' });
+const RULE_VERSION = 'pedidos-v2';
+// Completeness of the request and result against the active batch are separate.
+const COMPLETENESS = Object.freeze(['COMPLETO', 'PARCIAL', 'PRECISA_DETALHE', 'PRECISA_REVISAO']);
+const COMPLETENESS_LABELS = Object.freeze({ COMPLETO: 'COMPLETO', PARCIAL: 'PARCIAL', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' });
+const RESULTS = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO']);
+const RESULT_LABELS = Object.freeze({ FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', SEM_OPCAO: 'SEM OPÇÃO NO LOTE' });
+const FIELDS = Object.freeze(['make', 'model', 'trim', 'type', 'year', 'miles', 'budget', 'location', 'notes']);
+const FIELD_LABELS = Object.freeze({ make: 'marca', model: 'modelo', trim: 'versão', type: 'tipo', year: 'ano', miles: 'milhagem', budget: 'orçamento', location: 'localização' });
+// Body types as the customer says them. The Manheim files have no body type, so a type is
+// recorded and shown but cannot be checked against the batch.
+const BODY_TYPES = Object.freeze({ SUV: ['suv', 'suvs', 'crossover'], Truck: ['truck', 'pickup', 'pick up', 'picape', 'caminhonete', 'camioneta'], Sedan: ['sedan', 'sedã'], Minivan: ['minivan'], Van: ['van'], Coupe: ['coupe', 'coupé'], Convertible: ['convertible', 'conversível'], Hatchback: ['hatchback', 'hatch'], Wagon: ['wagon', 'station wagon'] });
 const MAX_MESSAGES = 60;
 const MAX_TEXT = 500;
 
@@ -56,6 +60,14 @@ const YEAR = /\b((?:19[89]|20[0-3])\d)\b/g;
 const MILES = /\b(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*k)\s*(?:miles|mile|mi|milhas|millas)\b/i;
 const MILES_RANGE = /\b(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*k)\s*(?:miles|mi|milhas)?\s*(?:-|to|a|and|e|até|ate)\s*(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*k)\s*(?:miles|mile|mi|milhas|millas)\b/i;
 const MONEY = /\$\s*(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*k?)|\b(\d+(?:[.,]\d+)?)\s*k\b(?!\s*(?:miles|mi|milhas))/i;
+const MILES_LINE = /(?:mileage range|faixa de milhas|rango de millas)\s*:\s*(\d[\d.,]*\s*k?)\s*-\s*(\d[\d.,]*\s*k?)/i;
+const YEAR_NEWER = /\b((?:19[89]|20[0-3])\d)\s*(?:or newer|and newer|and up|or later|\+|ou mais novo|em diante)|\b(?:newer than|after|from|a partir de|depois de)\s*((?:19[89]|20[0-3])\d)\b/i;
+const YEAR_OLDER = /\b((?:19[89]|20[0-3])\d)\s*(?:or older|or earlier|ou mais antigo)|\b(?:older than|before|até o ano|antes de)\s*((?:19[89]|20[0-3])\d)\b/i;
+const MORE_THAN = /(?:more than|over|above|at least|mais de|acima de|no mínimo)\s*$/i;
+function bodyTypeIn(text) {
+  for (const [type, names] of Object.entries(BODY_TYPES)) if (names.some((name) => hasWords(text, name))) return type;
+  return null;
+}
 const GENERIC = /\b(looking for|i want|i need|interested in|quero|procuro|busco|preciso de|estou procurando|buscando)\b.{0,40}\b(car|truck|suv|van|vehicle|carro|caminhonete|veículo|veiculo|auto|carro)\b/i;
 const amount = (raw) => { const text = String(raw || '').toLowerCase().replace(/\s/g, ''); const k = text.endsWith('k'); const number = Number(text.replace(/k$/, '').replace(/[.,](?=\d{3}\b)/g, '').replace(',', '.')); return Number.isFinite(number) && number > 0 ? Math.round(k ? number * 1000 : number) : null; };
 
@@ -83,12 +95,19 @@ function simulateExtraction(conversation) {
     const vehicles = vehiclesIn(message.text);
     const facts = {};
     const range = YEAR_RANGE.exec(message.text);
+    const newer = YEAR_NEWER.exec(message.text), older = YEAR_OLDER.exec(message.text);
     const years = range ? [Number(range[1]), Number(range[2])] : [...message.text.matchAll(YEAR)].map((match) => Number(match[1]));
-    if (years.length) facts.year = { yearMin: Math.min(...years), yearMax: Math.max(...years) };
-    const milesRange = MILES_RANGE.exec(message.text);
+    // Only the side the customer gave: "2019 or newer" has no upper limit.
+    if (newer && !range) facts.year = { yearMin: Number(newer[1] || newer[2]) };
+    else if (older && !range) facts.year = { yearMax: Number(older[1] || older[2]) };
+    else if (years.length) facts.year = { yearMin: Math.min(...years), yearMax: Math.max(...years) };
+    const milesRange = MILES_RANGE.exec(message.text) || MILES_LINE.exec(message.text);
     const miles = MILES.exec(message.text);
     if (milesRange) facts.miles = { minMiles: Math.min(amount(milesRange[1]), amount(milesRange[2])), maxMiles: Math.max(amount(milesRange[1]), amount(milesRange[2])) };
-    else if (miles) facts.miles = { maxMiles: amount(miles[1]) };
+    // "less than 60,000 miles" is a maximum; "more than 20,000 miles" is a minimum.
+    else if (miles) facts.miles = MORE_THAN.test(message.text.slice(0, miles.index)) ? { minMiles: amount(miles[1]) } : { maxMiles: amount(miles[1]) };
+    const type = bodyTypeIn(message.text);
+    if (type) facts.type = { bodyType: type };
     const money = MONEY.exec(message.text);
     if (money) facts.budget = { budgetUsd: amount(money[1] || money[2]) };
     if (vehicles.length) {
@@ -107,16 +126,20 @@ function simulateExtraction(conversation) {
   const list = [...requests.values()];
   // A number without a vehicle in the same message belongs to the only request there is; with
   // several requests it is not attributed (review, nothing guessed).
+  // Useful facts without a make or model ("an SUV under $25,000", "less than 60,000 miles") are
+  // a request of their own when no vehicle was named.
+  if (!list.length && loose.length) list.push({ make: null, model: null, evidence: {} });
   loose.forEach(({ facts, id }) => {
     if (list.length === 1) applyFacts(list[0], facts, id);
     else if (list.length > 1) list.forEach((request) => { request.reviewReason = 'Ano, milhagem ou orçamento sem veículo claro na mesma mensagem'; });
   });
   if (!list.length && generic) list.push({ make: null, model: null, evidence: { notes: [generic] }, notes: 'Pediu um veículo sem dizer qual' });
-  return { hasRequest: list.length > 0, requests: list.map((request) => ({ ...request, confidence: request.reviewReason ? 'media' : request.model ? 'alta' : 'baixa' })) };
+  return { hasRequest: list.length > 0, requests: list.map((request) => ({ ...request, confidence: request.reviewReason ? 'media' : 'alta' })) };
 }
 function applyFacts(request, facts, id) {
+  if (facts.type) { Object.assign(request, facts.type); (request.evidence.type = request.evidence.type || []).push(id); }
   if (facts.year) { Object.assign(request, facts.year); (request.evidence.year = request.evidence.year || []).push(id); }
-  if (facts.miles && facts.miles.maxMiles) { Object.assign(request, facts.miles); (request.evidence.miles = request.evidence.miles || []).push(id); }
+  if (facts.miles && (facts.miles.maxMiles || facts.miles.minMiles)) { Object.assign(request, facts.miles); (request.evidence.miles = request.evidence.miles || []).push(id); }
   if (facts.budget && facts.budget.budgetUsd) { Object.assign(request, facts.budget); (request.evidence.budget = request.evidence.budget || []).push(id); }
 }
 
@@ -145,6 +168,11 @@ function validateExtraction(raw, conversation) {
     if (clean(item.make)) { const make = clean(item.make).slice(0, 60); if (keep('make', (text) => hasWords(text, make))) criteria.make = make; }
     if (clean(item.model)) { const model = clean(item.model).slice(0, 80); if (keep('model', (text) => hasWords(text, model))) criteria.model = model; }
     if (clean(item.trim)) { const trim = clean(item.trim).slice(0, 80); if (keep('trim', (text) => hasWords(text, trim))) criteria.trim = trim; }
+    if (clean(item.bodyType)) {
+      const type = Object.keys(BODY_TYPES).find((name) => fold(name) === fold(item.bodyType));
+      if (type && keep('type', (text) => BODY_TYPES[type].some((name) => hasWords(text, name)))) criteria.bodyType = type;
+      else if (!type) problems.push('tipo');
+    }
     if (int(item.yearMin) || int(item.yearMax)) {
       if (keep('year', (text) => [item.yearMin, item.yearMax].filter((value) => int(value)).every((value) => text.includes(String(int(value)))))) {
         if (int(item.yearMin)) criteria.yearMin = int(item.yearMin);
@@ -174,15 +202,66 @@ function validateExtraction(raw, conversation) {
 
 // ------------------------------------------------------------------ critérios e comparação
 function requestKey(criteria) {
-  const make = fold(criteria && criteria.make), model = fold(criteria && criteria.model);
-  return make || model ? [make || '-', model || '-'].join('|') : 'sem-veiculo';
+  const make = fold(criteria && criteria.make), model = fold(criteria && criteria.model), type = fold(criteria && criteria.bodyType);
+  return make || model ? [make || '-', model || '-'].join('|') : type ? 'tipo|' + type : 'sem-veiculo';
 }
 function criteriaHash(criteria) {
   const c = criteria || {};
-  const body = JSON.stringify([fold(c.make), fold(c.model), fold(c.trim), c.yearMin || null, c.yearMax || null, c.minMiles || null, c.maxMiles || null, c.budgetUsd || null]);
+  const body = JSON.stringify([fold(c.make), fold(c.model), fold(c.trim), fold(c.bodyType), c.yearMin || null, c.yearMax || null, c.minMiles || null, c.maxMiles || null, c.budgetUsd || null]);
   return crypto.createHash('sha256').update(body).digest('hex').slice(0, 32);
 }
-// What the current matcher can compare, and what is missing for it (never filled in).
+// A criterion the batch can be compared with. Location and notes are shown, never compared.
+const useful = (c) => Boolean(c && (clean(c.make) || clean(c.model) || c.bodyType || c.yearMin || c.yearMax || c.minMiles || c.maxMiles || c.budgetUsd));
+function completenessOf(criteria, needsReview) {
+  const c = criteria || {};
+  if (needsReview) return 'PRECISA_REVISAO';
+  if (!useful(c)) return 'PRECISA_DETALHE';
+  return clean(c.make) && clean(c.model) && (c.yearMin || c.yearMax) && (c.budgetUsd || c.minMiles || c.maxMiles) ? 'COMPLETO' : 'PARCIAL';
+}
+// What the customer did not say (shown as information, never as an error of the customer).
+function notInformed(criteria) {
+  const c = criteria || {};
+  const missing = [];
+  if (!clean(c.make)) missing.push('marca');
+  if (!clean(c.model)) missing.push('modelo');
+  if (!c.yearMin && !c.yearMax) missing.push('ano');
+  if (!c.minMiles && !c.maxMiles) missing.push('milhagem');
+  if (!c.budgetUsd) missing.push('orçamento');
+  return missing;
+}
+// A model that belongs to one make only in the catalog gives that make (deterministic, never a
+// guess); it is shown as coming from the model and the customer's own words stay as they were.
+function inferredMakeOf(criteria) {
+  const c = criteria || {};
+  if (clean(c.make) || !clean(c.model)) return null;
+  const found = catalog.inferMake(c.model);
+  return found && found.make && !found.ambiguous ? found.make : null;
+}
+function describe(request) {
+  const criteria = request.criteria || {};
+  const completeness = completenessOf(criteria, request.needsReview);
+  const inferredMake = inferredMakeOf(criteria);
+  return { ...request, requestKey: requestKey(criteria), criteriaHash: criteriaHash(criteria), completeness, inferredMake,
+    missing: notInformed(criteria).filter((field) => !(field === 'marca' && inferredMake)), comparable: completeness === 'COMPLETO' || completeness === 'PARCIAL' };
+}
+const miles = (value) => Number(value).toLocaleString('en-US');
+function criteriaText(criteria) {
+  const c = criteria || {};
+  const inferred = inferredMakeOf(c);
+  const vehicle = [c.make || inferred, c.model, c.trim].filter(Boolean).join(' ') + (inferred ? ' (marca pelo modelo)' : '');
+  const parts = [vehicle || (c.bodyType ? c.bodyType : 'Qualquer veículo')];
+  if (vehicle && c.bodyType) parts.push(c.bodyType);
+  if (c.yearMin && c.yearMax) parts.push(c.yearMin === c.yearMax ? String(c.yearMin) : `${c.yearMin} a ${c.yearMax}`);
+  else if (c.yearMin) parts.push(`${c.yearMin} ou mais novo`);
+  else if (c.yearMax) parts.push(`até ${c.yearMax}`);
+  if (c.minMiles && c.maxMiles) parts.push(`${miles(c.minMiles)} a ${miles(c.maxMiles)} milhas`);
+  else if (c.maxMiles) parts.push(`até ${miles(c.maxMiles)} milhas`);
+  else if (c.minMiles) parts.push(`a partir de ${miles(c.minMiles)} milhas`);
+  if (c.budgetUsd) parts.push('até US$ ' + c.budgetUsd.toLocaleString('en-US'));
+  if (c.location) parts.push(c.location);
+  return parts.join(' · ');
+}
+// The complete demands of the ficha keep the current matcher (the same as OPÇÕES).
 function targetsOf(criteria) {
   const c = criteria || {};
   const wish = { make: c.make || '', model: c.model || '', trim: c.trim || '', yearMin: c.yearMin || null, yearMax: c.yearMax || null, minMiles: c.minMiles || null, maxMiles: c.maxMiles || null };
@@ -192,35 +271,6 @@ function targetsOf(criteria) {
   if (!vehicleMatch.valorWishIssue(wish, bidCents)) targets.push({ mode: 'VALOR', wishes: [wish], bidCents });
   return targets;
 }
-function missingFor(criteria) {
-  const c = criteria || {};
-  const missing = [];
-  if (!clean(c.make)) missing.push('marca');
-  if (!clean(c.model)) missing.push('modelo');
-  if (targetsOf(c).length) return missing;
-  // Neither CARRO (years and mileages) nor VALOR (budget) can be compared yet.
-  const carro = [];
-  if (!c.yearMin || !c.yearMax) carro.push('ano');
-  if (!c.minMiles || !c.maxMiles) carro.push('milhagem mínima e máxima');
-  if (!c.budgetUsd) missing.push('orçamento, ou ' + carro.join(' e '));
-  else if (carro.length) missing.push(carro.join(' e '));
-  return missing;
-}
-function describe(request) {
-  const criteria = request.criteria || {};
-  return { ...request, requestKey: requestKey(criteria), criteriaHash: criteriaHash(criteria), missing: missingFor(criteria), comparable: targetsOf(criteria).length > 0 };
-}
-function criteriaText(criteria) {
-  const c = criteria || {};
-  const parts = [[c.make, c.model, c.trim].filter(Boolean).join(' ') || 'Veículo não informado'];
-  if (c.yearMin || c.yearMax) parts.push(c.yearMin === c.yearMax ? String(c.yearMin) : `${c.yearMin || '?'} a ${c.yearMax || '?'}`);
-  if (c.minMiles || c.maxMiles) parts.push(`${c.minMiles ? c.minMiles.toLocaleString('en-US') : '?'} a ${c.maxMiles ? c.maxMiles.toLocaleString('en-US') : '?'} milhas`);
-  if (c.budgetUsd) parts.push('até US$ ' + c.budgetUsd.toLocaleString('en-US'));
-  if (c.location) parts.push(c.location);
-  return parts.join(' · ');
-}
-// One stored car against the targets of a request, by the current matcher. Only real
-// opportunities count (BATE and POR VALOR), never "QUASE", and never a car without a valid MMR.
 function optionFor(parsed, targets) {
   if (!parsed || !vehicleMatch.hasValidMmr(parsed)) return null;
   for (const target of targets) {
@@ -229,14 +279,32 @@ function optionFor(parsed, targets) {
   }
   return null;
 }
-// State of a request against the active batch.
-function stateOf(request, check, activeUploadId) {
-  if (request.needsReview) return 'PRECISA_REVISAO';
-  if (!request.comparable) return 'CRITERIOS_INSUFICIENTES';
+// A partial request: only what the customer informed is applied; a field not informed is no
+// restriction. Always a valid MMR. A limit on mileage or year needs the car's value to be known.
+// The budget is a ceiling on the MMR. The body type cannot be checked (no body type in the file).
+function fitsPartial(parsed, criteria) {
+  const c = criteria || {};
+  if (!parsed || !vehicleMatch.hasValidMmr(parsed)) return false;
+  const make = clean(c.make) || inferredMakeOf(c);
+  if (make && fold(parsed.make) !== fold(make)) return false;
+  if (clean(c.model) && !catalog.modelsMatch(parsed.model, c.model, parsed.make, c.make || parsed.make)) return false;
+  if (clean(c.trim) && !words(parsed.trim || '').includes(' ' + fold(c.trim) + ' ')) return false;
+  const year = int(parsed.year);
+  if ((c.yearMin || c.yearMax) && !year) return false;
+  if (c.yearMin && year < c.yearMin) return false;
+  if (c.yearMax && year > c.yearMax) return false;
+  const odometer = parsed.miles === null || parsed.miles === undefined || parsed.miles === '' ? null : Number(parsed.miles);
+  if ((c.minMiles || c.maxMiles) && !Number.isFinite(odometer)) return false;
+  if (c.minMiles && odometer < c.minMiles) return false;
+  if (c.maxMiles && odometer > c.maxMiles) return false;
+  if (c.budgetUsd && vehicleMatch.validMmrCents(parsed.mmrCents) > c.budgetUsd * 100) return false;
+  return true;
+}
+// Result of a request against the active batch (only for requests that can be compared).
+function resultOf(request, check, activeUploadId) {
+  if (!request.comparable) return null;
   if (!activeUploadId || !check || check.upload_id !== activeUploadId || check.criteria_hash !== request.criteriaHash) return 'FALTA_BUSCAR';
-  if (check.result === 'HAS_OPTIONS') return 'COM_OPCOES';
-  if (check.result === 'NO_OPTIONS') return 'SEM_OPCAO';
-  return check.result === 'INSUFFICIENT' ? 'CRITERIOS_INSUFICIENTES' : 'PRECISA_REVISAO';
+  return check.result === 'HAS_OPTIONS' ? 'COM_OPCOES' : check.result === 'NO_OPTIONS' ? 'SEM_OPCAO' : 'FALTA_BUSCAR';
 }
 
-module.exports = { FIELDS, MAX_MESSAGES, RULE_VERSION, STATES, STATE_LABELS, conversationFor, criteriaHash, criteriaText, describe, inputHash, missingFor, optionFor, requestKey, simulateExtraction, stateOf, targetsOf, validateExtraction, vehiclesIn };
+module.exports = { inferredMakeOf, BODY_TYPES, COMPLETENESS, COMPLETENESS_LABELS, FIELDS, MAX_MESSAGES, RESULTS, RESULT_LABELS, RULE_VERSION, completenessOf, conversationFor, criteriaHash, criteriaText, describe, fitsPartial, inputHash, notInformed, optionFor, requestKey, resultOf, simulateExtraction, targetsOf, useful, validateExtraction, vehiclesIn };

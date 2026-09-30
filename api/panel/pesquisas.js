@@ -6,11 +6,11 @@
 //  POST compare        compara os pedidos em FALTA BUSCAR com o lote ativo e grava o resultado
 //  POST extract        lê uma conversa (simulada fora de produção; em produção só com a flag nova)
 //  POST sample         leitura simulada de uma conversa sem gravar nada
-//  POST extract_history próximas conversas não lidas do histórico (retomável, com teto de gasto)
+//  POST extract_history próximas conversas do histórico (retomável; até US$ 50 por provedor de IA)
 // Nenhum pedido sai da lista por estágio, previsão de compra, prazo ou classificação comercial.
 // "Sem opção no lote" continua na lista para a próxima importação. Nada é enviado a ninguém.
 const crypto = require('node:crypto');
-const { allRows, isUuid, jsonBody, requirePanel, rows, send, supabase } = require('../../panel-server');
+const { allRows, insert, isUuid, jsonBody, requirePanel, rows, send, supabase } = require('../../panel-server');
 const { loadBuscasBase, demandPerson, matchTarget, upper } = require('../../panel-buscas');
 const { latestActiveUpload } = require('../../panel-manheim-state');
 const { criteriaHash: targetHash } = require('../../panel-manheim-batch');
@@ -48,42 +48,61 @@ async function buildList(ctx) {
     .flatMap((journey) => (base.demands.byJourney.get(journey.id) || []).map((demand) => ({ demand, journey })));
   const orderDemands = base.demands.orders.filter((demand) => { const order = base.groupedByRef.get(upper(demand.ref)); return order && order.disposition !== 'DISCARDED' && !order.journeyId; }).map((demand) => ({ demand, journey: null }));
   for (const { demand, journey } of [...journeyDemands, ...orderDemands]) {
-    const target = demand.active ? { ...matchTarget(demand), reactivation: false } : null;
-    const hash = target ? targetHash(target) : crypto.createHash('sha256').update(JSON.stringify([demand.key, demand.mode, demand.wishes, demand.bidCents])).digest('hex').slice(0, 32);
     const key = (journey ? 'ficha:' : 'pedido:') + demand.key;
-    const item = { key, source: journey ? 'FICHA' : 'CALCULADORA', person: demandPerson(base, demand), mode: demand.mode,
-      criteriaText: wishText({ ...demand, wishes: demand.wishes && demand.wishes.length ? demand.wishes : demand.activeWishes }),
-      missing: (demand.issues || []).map((issue) => issue.text), needsReview: demand.mode === 'REVIEW', comparable: Boolean(target), criteriaHash: hash,
-      targets: target ? [target] : [], lastMessageAt: journey ? lastCustomer.get(journey.id) || null : null,
-      evidence: journey ? [{ kind: 'FICHA', text: journey.vehicle_text ? 'Ficha: ' + String(journey.vehicle_text).slice(0, 300) : 'Critérios preenchidos na ficha' }] : [{ kind: 'CALCULADORA', text: 'Pedido da calculadora, Ref ' + demand.ref }] };
-    // Compared at import with the same criterion: the stored result of the batch is the check.
-    let check = checkByKey.get(key + '|' + hash) || null;
-    if (!check && uploadId && target && importedHash.has(demand.key) && importedHash.get(demand.key) === hash) {
-      const row = summaryByKey.get(demand.key);
-      const served = row ? (row.bate_count || 0) + (row.por_valor_count || 0) : 0;
-      check = { upload_id: uploadId, criteria_hash: hash, result: served ? 'HAS_OPTIONS' : 'NO_OPTIONS', option_count: served, compared_at: upload.uploaded_at, fromImport: true };
+    const common = { source: journey ? 'FICHA' : 'CALCULADORA', person: demandPerson(base, demand), mode: demand.mode, lastMessageAt: journey ? lastCustomer.get(journey.id) || null : null,
+      evidence: journey ? [{ kind: 'FICHA', text: journey.vehicle_text ? 'Ficha: ' + String(journey.vehicle_text).slice(0, 300) : 'Critérios preenchidos na ficha' }] : [{ kind: 'CALCULADORA', text: 'Pedido da calculadora' + (demand.ref ? ', Ref ' + demand.ref : '') }] };
+    if (demand.active) {
+      // Complete demand: the current matcher, and the import result when the criterion is the same.
+      const target = { ...matchTarget(demand), reactivation: false };
+      const hash = targetHash(target);
+      const item = { ...common, key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'COMPLETO', missing: [], comparable: true, criteriaHash: hash, targets: [target] };
+      let check = checkByKey.get(key + '|' + hash) || null;
+      if (!check && uploadId && importedHash.has(demand.key) && importedHash.get(demand.key) === hash) {
+        const row = summaryByKey.get(demand.key);
+        const served = row ? (row.bate_count || 0) + (row.por_valor_count || 0) : 0;
+        check = { upload_id: uploadId, criteria_hash: hash, result: served ? 'HAS_OPTIONS' : 'NO_OPTIONS', option_count: served, compared_at: upload.uploaded_at, fromImport: true };
+      }
+      items.push(finish(item, check, uploadId));
+      continue;
     }
-    items.push(finish(item, check, uploadId));
+    // Partial demand (no Ref, a missing range, mode not defined): still a request. Each wish is
+    // compared with what it has; a field not informed is no restriction.
+    const wishes = (demand.wishes && demand.wishes.length ? demand.wishes : [{}]);
+    wishes.forEach((wish, index) => {
+      const criteria = Object.fromEntries(Object.entries({ make: wish.make || null, model: wish.model || null, trim: wish.trim || null, yearMin: Number(wish.yearMin) || null, yearMax: Number(wish.yearMax) || null,
+        minMiles: Number(wish.minMiles) || null, maxMiles: Number(wish.maxMiles) || null, budgetUsd: demand.mode === 'VALOR' && demand.bidCents ? Math.round(demand.bidCents / 100) : null }).filter(([, value]) => value));
+      const described = requests.describe({ criteria });
+      const itemKey = key + (wishes.length > 1 ? '#' + index : '');
+      const item = { ...common, key: itemKey, criteria, criteriaText: requests.criteriaText(criteria), completeness: described.completeness, missing: described.missing, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [] };
+      items.push(finish(item, checkByKey.get(itemKey + '|' + described.criteriaHash) || null, uploadId));
+    });
   }
   for (const request of conversation.requests) {
     const key = 'conversa:' + request.id;
     const described = requests.describe({ criteria: request.criteria, evidence: request.evidence, confidence: request.confidence, needsReview: request.needs_review, reviewReason: request.review_reason });
-    const item = { key, source: 'CONVERSA', person: request.person, mode: null, criteriaText: requests.criteriaText(request.criteria), missing: described.missing,
-      needsReview: described.needsReview, reviewReason: described.reviewReason, comparable: described.comparable, criteriaHash: described.criteriaHash,
-      targets: requests.targetsOf(request.criteria), lastMessageAt: request.lastMessageAt, evidence: request.evidenceMessages, chatId: request.chat_id, versions: request.versionCount };
+    const item = { key, source: 'CONVERSA', person: request.person, mode: null, criteria: request.criteria, criteriaText: requests.criteriaText(request.criteria), missing: described.missing,
+      completeness: described.completeness, reviewReason: described.reviewReason, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [],
+      typeNotChecked: Boolean(request.criteria && request.criteria.bodyType), lastMessageAt: request.lastMessageAt, evidence: request.evidenceMessages, chatId: request.chat_id, versions: request.versionCount };
     items.push(finish(item, checkByKey.get(key + '|' + described.criteriaHash) || null, uploadId));
   }
   // Same criteria, one operational task; every person stays linked to it.
   const groups = new Map();
   items.forEach((item) => { const groupKey = (item.comparable ? 'c:' : 'x:' + item.key + ':') + item.criteriaHash; item.groupKey = groupKey; if (!groups.has(groupKey)) groups.set(groupKey, []); groups.get(groupKey).push(item.key); });
-  const counts = Object.fromEntries(requests.STATES.map((state) => [state, items.filter((item) => item.state === state).length]));
-  return { uploadId, upload: upload ? { id: upload.id, uploadedAt: upload.uploaded_at } : null, items, groupCount: groups.size, counts,
+  const counts = Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length]));
+  const byCompleteness = Object.fromEntries(requests.COMPLETENESS.map((level) => [level, Object.fromEntries(['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO', 'NONE'].map((result) => [result, items.filter((item) => item.completeness === level && (item.result || 'NONE') === result).length]))]));
+  return { uploadId, upload: upload ? { id: upload.id, uploadedAt: upload.uploaded_at } : null, items, groupCount: groups.size, counts, byCompleteness,
     extraction: search.extractionStatus(), requestsPending: conversation.pending, checksPending: checks === null };
 }
+// State shown and filtered: the completeness when the request cannot be compared (PRECISA
+// DETALHE, PRECISA DE REVISÃO), otherwise its result in the active batch.
+const STATES = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO', 'PRECISA_DETALHE', 'PRECISA_REVISAO']);
 function finish(item, check, uploadId) {
-  const state = requests.stateOf(item, check, uploadId);
-  return { ...item, state, stateLabel: requests.STATE_LABELS[state], optionCount: check && ['COM_OPCOES', 'SEM_OPCAO'].includes(state) ? check.option_count : null,
-    comparedAt: check && state !== 'FALTA_BUSCAR' ? check.compared_at : null, comparedUploadId: check ? check.upload_id : null, comparedAtImport: Boolean(check && check.fromImport) };
+  const result = requests.resultOf(item, check, uploadId);
+  const state = result || item.completeness;
+  const label = [requests.COMPLETENESS_LABELS[item.completeness], result ? requests.RESULT_LABELS[result] : null].filter(Boolean).join(' · ');
+  return { ...item, result, state, stateLabel: label, completenessLabel: requests.COMPLETENESS_LABELS[item.completeness],
+    optionCount: result === 'COM_OPCOES' || result === 'SEM_OPCAO' ? check.option_count : null,
+    comparedAt: result && result !== 'FALTA_BUSCAR' ? check.compared_at : null, comparedUploadId: check ? check.upload_id : null, comparedAtImport: Boolean(check && check.fromImport) };
 }
 function lastCustomerByJourney(base) {
   const customerAt = new Map((base.messages || []).filter((message) => message.direction === 'CUSTOMER' && !message.undone_at).map((message) => [message.id, message.occurred_at_utc || message.created_at]));
@@ -140,17 +159,24 @@ async function audit(ctx) {
   const outputTokens = unread.length * 250;
   const model = process.env.SEARCH_EXTRACTION_MODEL || 'gpt-6-luna';
   const byState = list.counts;
+  const grid = list.byCompleteness;
   const conversationItems = list.items.filter((item) => item.source === 'CONVERSA');
+  const provider = search.extractionStatus() === 'SIMULADA' ? 'SIMULATED' : 'OPENAI';
+  const spentBy = (name) => Math.round((runs || []).filter((run) => run.provider === name).reduce((sum, run) => sum + (Number(run.cost_usd) || 0), 0) * 1e6) / 1e6;
   return {
     since, extraction: list.extraction, tablesPending: list.requestsPending,
     peopleWithMessages: people.size, conversationsWithCustomerMessages: customerChats.size,
     conversationsWithRequest: new Set(conversationItems.map((item) => item.chatId)).size,
+    conversationsWithoutRequest: (runs || []).filter((run) => run.status === 'NO_REQUEST').length,
     requests: list.items.length, requestsFromConversations: conversationItems.length, requestsFromFicha: list.items.filter((item) => item.source !== 'CONVERSA').length,
-    groups: list.groupCount, withOptions: byState.COM_OPCOES, withoutOptions: byState.SEM_OPCAO, insufficient: byState.CRITERIOS_INSUFICIENTES, review: byState.PRECISA_REVISAO, notCompared: byState.FALTA_BUSCAR,
+    groups: list.groupCount,
+    completeWithOptions: grid.COMPLETO.COM_OPCOES, completeWithoutOptions: grid.COMPLETO.SEM_OPCAO,
+    partialWithOptions: grid.PARCIAL.COM_OPCOES, partialWithoutOptions: grid.PARCIAL.SEM_OPCAO,
+    needsDetail: byState.PRECISA_DETALHE, review: byState.PRECISA_REVISAO, notCompared: byState.FALTA_BUSCAR,
     withoutReliableLink: list.items.filter((item) => !item.person || (!item.person.journeyId && !item.person.contactId && item.source !== 'CALCULADORA')).length,
     unverifiedReadings: (runs || []).filter((run) => run.error_code === 'EXTRACTION_UNVERIFIED').length,
     estimate: { conversationsToRead: unread.length, messagesToRead: toRead, inputTokens, outputTokens, model, costUsd: search.estimateCostUsd(model, inputTokens, outputTokens),
-      spentUsd: Math.round((runs || []).reduce((sum, run) => sum + (Number(run.cost_usd) || 0), 0) * 1e6) / 1e6, budgetUsd: Number(process.env.SEARCH_EXTRACTION_BUDGET_USD) || null },
+      spentUsd: spentBy('OPENAI'), providerLimitUsd: search.PROVIDER_LIMIT_USD.OPENAI, provider },
     // Tracked: every conversation read and every request compared or waiting on a person. Served
     // is only claimed when every request has at least one valid option.
     trackingComplete: unread.length === 0 && byState.FALTA_BUSCAR === 0 && byState.PRECISA_REVISAO === 0 && !list.requestsPending,
@@ -159,30 +185,42 @@ async function audit(ctx) {
 }
 
 // ------------------------------------------------------------------ leitura do histórico
-// Reads the next unread conversations since 09/08/2026, a few per call. Resumable: a conversation
-// already read with the same content is skipped (the run table is the checkpoint). With the AI it
-// stops before passing SEARCH_EXTRACTION_BUDGET_USD (default US$ 2). With the flag off in
-// production nothing is read.
+// Reads the next conversations since 09/08/2026 that were never read or got a new customer
+// message after the last reading, in resumable batches (the run table is the checkpoint; the same
+// content is never read twice). With the AI, each provider uses at most the balance already
+// available in it (US$ 50 per provider): the batch stops before passing it, or when the provider
+// itself says its quota ended, and the rest stays pending. Each batch is recorded (provider,
+// model, conversations, tokens, cost). With the flag off in production nothing is read.
 const HISTORY_BATCH = 10;
 async function extractHistory(ctx, limit) {
   const status = search.extractionStatus();
   if (status !== 'SIMULADA' && status !== 'LIGADA') return { status: 409, error: 'SEARCH_EXTRACTION_OFF', extraction: status };
+  const provider = status === 'LIGADA' ? 'OPENAI' : 'SIMULATED';
   const env = 'eq.' + ctx.environment;
-  const runs = await allRows(ctx, 'vehicle_request_runs', { select: 'chat_id,status,cost_usd', environment: env });
-  const budget = Number(process.env.SEARCH_EXTRACTION_BUDGET_USD) || 2;
-  let spent = runs.reduce((sum, run) => sum + (Number(run.cost_usd) || 0), 0);
-  const read = new Set(runs.filter((run) => run.status !== 'FAILED').map((run) => run.chat_id));
-  const customer = await allRows(ctx, 'messages', { select: 'chat_id', environment: env, direction: 'eq.CUSTOMER', undone_at: 'is.null', is_automatic: 'is.false', occurred_at_utc: 'gte.' + search.HISTORY_SINCE });
+  const runs = await allRows(ctx, 'vehicle_request_runs', { select: 'chat_id,status,provider,cost_usd,created_at', environment: env });
+  const limitUsd = provider === 'OPENAI' ? search.PROVIDER_LIMIT_USD.OPENAI : null;
+  const spentBefore = runs.filter((run) => run.provider === provider).reduce((sum, run) => sum + (Number(run.cost_usd) || 0), 0);
+  const lastRead = new Map();
+  runs.filter((run) => run.status !== 'FAILED').forEach((run) => { if (!lastRead.get(run.chat_id) || run.created_at > lastRead.get(run.chat_id)) lastRead.set(run.chat_id, run.created_at); });
+  const customer = await allRows(ctx, 'messages', { select: 'chat_id,created_at', environment: env, direction: 'eq.CUSTOMER', undone_at: 'is.null', is_automatic: 'is.false', occurred_at_utc: 'gte.' + search.HISTORY_SINCE });
   const individual = new Set((await allRows(ctx, 'chats', { select: 'id', environment: env, is_group: 'is.false' })).map((row) => row.id));
-  const pending = [...new Set(customer.map((row) => row.chat_id))].filter((id) => individual.has(id) && !read.has(id));
+  const newest = new Map();
+  customer.forEach((row) => { if (!newest.get(row.chat_id) || row.created_at > newest.get(row.chat_id)) newest.set(row.chat_id, row.created_at); });
+  const pending = [...newest.keys()].filter((id) => individual.has(id) && (!lastRead.has(id) || newest.get(id) > lastRead.get(id)));
+  const batch = { conversations: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, stoppedReason: null };
   const done = [];
   for (const chatId of pending.slice(0, Math.min(limit || HISTORY_BATCH, HISTORY_BATCH))) {
-    if (status === 'LIGADA' && spent >= budget) return { status: 200, stoppedByBudget: true, spentUsd: spent, budgetUsd: budget, read: done.length, remaining: pending.length - done.length };
-    // The cost of each reading is in its run row; the next call sums it again before reading more.
+    if (limitUsd !== null && spentBefore + batch.costUsd >= limitUsd) { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
     const out = await search.extractChat(ctx, chatId);
+    if (out.error === 'OPENAI_QUOTA') { batch.stoppedReason = 'PROVIDER_QUOTA'; break; }
+    batch.conversations += out.alreadyRead ? 0 : 1;
+    batch.inputTokens += out.usage?.input || 0; batch.outputTokens += out.usage?.output || 0; batch.costUsd += Number(out.costUsd) || 0;
     done.push({ chatId, requests: out.requests || 0, error: out.error || null });
   }
-  return { status: 200, read: done.length, remaining: Math.max(0, pending.length - done.length), spentUsd: spent, budgetUsd: budget, results: done };
+  await insert(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider, model: provider === 'OPENAI' ? process.env.SEARCH_EXTRACTION_MODEL : null, conversations: batch.conversations,
+    input_tokens: batch.inputTokens, output_tokens: batch.outputTokens, cost_usd: Math.round(batch.costUsd * 1e6) / 1e6, stopped_reason: batch.stoppedReason, created_by: ctx.panel.id }, false);
+  return { status: 200, provider, read: done.length, remaining: Math.max(0, pending.length - done.length), spentUsd: Math.round((spentBefore + batch.costUsd) * 1e6) / 1e6,
+    providerLimitUsd: limitUsd, stoppedReason: batch.stoppedReason, results: done };
 }
 
 // ------------------------------------------------------------------ gravação da comparação
