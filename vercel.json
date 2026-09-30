@@ -2,6 +2,7 @@
   "functions": {
     "api/panel/notes/distribute.js": { "maxDuration": 30 },
     "api/panel/ai-cron.js": { "maxDuration": 60 },
+    "api/panel/openai-cron.js": { "maxDuration": 60 },
     "api/panel/manheim-audit.js": { "maxDuration": 60 },
     "api/panel/manheim-batch.js": { "maxDuration": 30 },
     "api/panel/manheim-options.js": { "maxDuration": 30 },
@@ -15,6 +16,7 @@
   },
   "crons": [
     { "path": "/api/panel/ai-cron", "schedule": "*/10 * * * *" },
+    { "path": "/api/panel/openai-cron", "schedule": "5-59/10 * * * *" },
     { "path": "/api/panel/media-cron", "schedule": "* * * * *" }
   ],
   "headers": [

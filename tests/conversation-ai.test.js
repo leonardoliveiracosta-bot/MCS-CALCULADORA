@@ -139,11 +139,11 @@ test('automatic failures wait six hours and stop after three until a new custome
   assert.equal(ai.automaticAttemptAllowed(group,now),true);
 });
 
-test('cron reads new PESQUISAS conversations only when the extraction is on, 5 at most, and a failure is isolated',async()=>{
+test('openai-cron reads new PESQUISAS conversations only when the extraction is on, 5 at most, and a failure is isolated',async()=>{
   const saved=process.env.CRON_SECRET;process.env.CRON_SECRET='cron-test';
   const server={configuration:()=>({}),SERVER_ENVIRONMENT:'production',send:(res,code,payload)=>res.status(code).json(payload)};
   const run=async(status,extractHistory)=>{
-    const handler=loadWith('api/panel/ai-cron.js',{'../../panel-server':server,'../../panel-ai':{runCron:async()=>({processed:0})},'../../panel-pendencias':{generalStatus:async()=>({run:{status:'IDLE'}})},
+    const handler=loadWith('api/panel/openai-cron.js',{'../../panel-server':server,'../../panel-triage':{runTriage:async()=>({skipped:'DESLIGADA'})},'../../panel-manheim-audit':{status:()=>'DESLIGADA'},'../../panel-buscas-view':{manheimView:async()=>({})},
       '../../panel-search-requests':{extractionStatus:()=>status},'./pesquisas':{extractHistory}});
     const res=response();await handler({method:'GET',headers:{authorization:'Bearer cron-test'}},res);return res;
   };
@@ -155,4 +155,11 @@ test('cron reads new PESQUISAS conversations only when the extraction is on, 5 a
   res=await run('LIGADA',async()=>{throw Error('OPENAI_QUOTA');});
   assert.equal(res.code,200);assert.equal(res.payload.searchRequests.error,'SEARCH_REQUESTS_FAILED');
   if(saved===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=saved;
+});
+
+test('ai-cron keeps only Claude and maintenance; the OpenAI readings run in openai-cron',()=>{
+  const ai=fs.readFileSync(path.join(root,'api/panel/ai-cron.js'),'utf8'),openai=fs.readFileSync(path.join(root,'api/panel/openai-cron.js'),'utf8'),config=JSON.parse(fs.readFileSync(path.join(root,'vercel.json'),'utf8'));
+  assert.doesNotMatch(ai,/runTriage|runAudit|extractHistory/);
+  assert.match(openai,/runAudit[\s\S]*extractHistory[\s\S]*runTriage/);
+  assert.deepEqual(config.crons.map((cron)=>cron.path+' '+cron.schedule),['/api/panel/ai-cron */10 * * * *','/api/panel/openai-cron 5-59/10 * * * *','/api/panel/media-cron * * * * *']);
 });
