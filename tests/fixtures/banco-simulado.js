@@ -95,7 +95,12 @@ async function createBackend({ seed } = {}) {
       for (const row of list) {
         const keys = Object.keys(row).filter((key) => known.has(key));
         const rowValues = keys.map((key) => cell(arrays, key, row[key]));
-        const conflict = get('on_conflict') && /ignore-duplicates/.test(prefer || '') ? ` on conflict (${get('on_conflict').split(',').map(ident).join(', ')}) do nothing` : '';
+        // PostgREST upsert: ignore-duplicates does nothing on conflict, merge-duplicates updates the
+        // columns sent (the conflict columns stay as they are).
+        const target = get('on_conflict') ? get('on_conflict').split(',').map((key) => key.trim()) : [];
+        const updates = keys.filter((key) => !target.includes(key));
+        const conflict = !target.length ? '' : /ignore-duplicates/.test(prefer || '') ? ` on conflict (${target.map(ident).join(', ')}) do nothing`
+          : /merge-duplicates/.test(prefer || '') ? ` on conflict (${target.map(ident).join(', ')}) do ${updates.length ? 'update set ' + updates.map((key) => `${ident(key)} = excluded.${ident(key)}`).join(', ') : 'nothing'}` : '';
         output.push(...(await db.query(`insert into public.${ident(table)} (${keys.map(ident).join(', ')}) values (${keys.map((_, index) => '$' + (index + 1)).join(', ')})${conflict} returning *`, rowValues)).rows);
       }
       return /return=representation/.test(prefer || '') ? output : null;

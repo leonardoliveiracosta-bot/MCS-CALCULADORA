@@ -86,7 +86,8 @@
     badges.append(badge(record.enabled===false?'DESLIGADO':'LIGADO',record.enabled===false?'red':'green'));
     if(data.disposition)badges.append(badge(data.disposition==='TREATED'?'Tratado':'Descartado',data.disposition==='DISCARDED'?'red':''));
     if(dispositionControls) heading.append(dispositionControls(order.ref?{kind:'CALCULATOR',ref,disposition:data.disposition}:{kind:'JOURNEY',id:record.id,disposition:data.disposition}));
-    button(heading,record.contact?.is_lead===false?'Restaurar como lead':'Não é lead',async()=>{if(!window.confirm(record.contact?.is_lead===false?'Restaurar este contato como lead?':'Marcar como não-lead? As mensagens continuarão guardadas.'))return;await api('contact_lead',{isLead:record.contact?.is_lead===false});await onChanged();});
+    // Two clicks on the page itself (a browser dialog can be answered "no" without showing up).
+    const restoring=record.contact?.is_lead===false;const leadToggle=button(heading,restoring?'Restaurar como lead':'Não é lead',async()=>{if(leadToggle.dataset.confirmed!=='true'){leadToggle.dataset.confirmed='true';leadToggle.textContent=restoring?'Confirmar: restaurar como lead':'Confirmar: não é lead (as mensagens ficam guardadas)';return;}await api('contact_lead',{isLead:restoring});await onChanged();});
     const aiReading=data.ai?.reading;
     if(aiReading){
       const summary=append(heading,'div','lead-card lead-highlight ai-summary');append(summary,'span','lead-label','RESUMO DA IA');
@@ -159,7 +160,7 @@
     textarea.addEventListener('input',()=>sessionStorage.setItem(draftKey,textarea.value));
     const noteStatus=append(note,'p','status','');const review=append(note,'div','lead-review');
     button(note,'📋 Distribuir o que conversei',async()=>{
-      const body=textarea.value.trim();if(!body)return;
+      const body=textarea.value.trim();if(!body){noteStatus.textContent='Escreva a anotação antes de distribuir';textarea.focus();return;}
       noteStatus.textContent='Distribuindo…';review.replaceChildren();const confirmationKey=crypto.randomUUID();
       try{
         const proposal=await request('/api/panel/notes/distribute',{method:'POST',body:JSON.stringify({ref,journeyId,note:body,fallbackKey:confirmationKey})});
@@ -184,7 +185,7 @@
       }catch(_){await api('note',{note:body,proposal:[],selected:[],confirmationKey});sessionStorage.removeItem(draftKey);textarea.value='';review.replaceChildren();noteStatus.textContent='Anotação salva; distribuição indisponível agora — tentar de novo';}
     },'small');
     const help=button(note,'💡 Pedir ajuda à IA',async()=>{
-      const question=textarea.value.trim();if(!question)return;help.disabled=true;noteStatus.textContent='Pensando no contexto deste lead…';
+      const question=textarea.value.trim();if(!question){noteStatus.textContent='Escreva a pergunta para a IA na anotação';textarea.focus();return;}help.disabled=true;noteStatus.textContent='Pensando no contexto deste lead…';
       try{const result=await request('/api/panel/lead-help',{method:'POST',body:JSON.stringify({ref,journeyId,question})});const answer=result.answer||{};const box=append(note,'div','ai-summary');append(box,'h3','','💡 Opinião da IA');append(box,'p','',`O que está acontecendo: ${answer.situacao}`);append(box,'p','',`O que eu faria: ${answer.sugestao}`);append(box,'p','',`Mensagem sugerida: ${answer.mensagem_en}`);append(box,'p','muted',`Tradução: ${answer.traducao_pt}`);button(box,'Copiar mensagem',()=>navigator.clipboard.writeText(answer.mensagem_en),'small');button(box,'Perguntar de novo',()=>{box.remove();textarea.focus();},'quiet small');noteStatus.textContent='';}catch(error){noteStatus.textContent=error.code==='AI_DAILY_LIMIT'?'Não consegui responder agora — tente mais tarde.':'Não consegui responder agora — tente mais tarde.';}finally{help.disabled=false;}
     },'small');
     const helpHistory=data.aiHelp||[];if(helpHistory.length){append(note,'h3','','Histórico de ajuda deste lead');helpHistory.forEach((entry)=>append(note,'p','muted',`${date(entry.created_at,data.timezone)} — Você: ${safeString(entry.question).slice(0,150)} · IA: ${safeString(entry.answer_json?.sugestao).slice(0,180)}`));}

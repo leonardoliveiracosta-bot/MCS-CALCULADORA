@@ -42,13 +42,13 @@ async function mockApi(page, overrides = {}) {
   return calls;
 }
 
-test('Lote 4: quatro abas; ENTRADA mostra os pedidos sem conversa recolhidos, com contador próprio', async ({ page }) => {
+test('Lote 4: seis abas; ENTRADA mostra os pedidos sem conversa recolhidos, com contador próprio', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await session(page);
   const calls = await mockApi(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('[data-view]')).toHaveText([/HOJE/, /ENTRADA/, /CLIENTES/, /BUSCAS/], { timeout: 30000 });
+  await expect(page.locator('[data-view]')).toHaveText([/HOJE/, /ENTRADA/, /CLIENTES/, /PESQUISAS/, /OPÇÕES/, /IMPORTAÇÕES/], { timeout: 30000 });
   await page.locator('[data-view="entry"]').click();
   const section = page.locator('#entry-orders');
   await expect(page.locator('#entry-orders-count')).toHaveText('2');
