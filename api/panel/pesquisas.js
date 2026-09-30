@@ -13,6 +13,7 @@
 // Nenhum pedido sai da lista por estágio, previsão de compra, prazo ou classificação comercial.
 // "Sem opção no lote" continua na lista para a próxima importação. Nada é enviado a ninguém.
 const crypto = require('node:crypto');
+const openAiBudget = require('../../panel-openai-budget');
 const { allRows, insert, isUuid, jsonBody, requirePanel, rows, send, supabase } = require('../../panel-server');
 const { loadBuscasBase, demandPerson, matchTarget, upper } = require('../../panel-buscas');
 const { latestActiveUpload } = require('../../panel-manheim-state');
@@ -249,7 +250,9 @@ async function modelCheck(ctx, options = {}) {
   if (context.error) return { status: 409, error: context.error, extraction: context.status };
   if (context.provider !== 'OPENAI') return { status: 200, ok: true, simulated: true, model: null };
   const state = await historyState(ctx, context.provider);
-  if (state.spentUsd + search.MAX_CALL_USD > context.limitUsd) return { status: 409, error: 'PROVIDER_LIMIT', spentUsd: state.spentUsd };
+  // The ceiling is the whole OpenAI spend of the panel (every feature), not only this one.
+  const provider = await openAiBudget.spentUsd(ctx);
+  if (state.spentUsd + search.MAX_CALL_USD > context.limitUsd || !openAiBudget.fits(provider, search.MAX_CALL_USD)) return { status: 409, error: 'PROVIDER_LIMIT', spentUsd: state.spentUsd, providerSpentUsd: provider.total };
   let result, failure = null;
   try { result = await search.checkModel(options); } catch (error) { failure = error.code || 'OPENAI_FAILED'; }
   await insert(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider: 'OPENAI', model: context.model, conversations: 0, input_tokens: result?.usage?.input || 0,
@@ -266,10 +269,21 @@ async function extractHistory(ctx, limit, options = {}) {
   const started = Date.now();
   const batch = { conversations: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, stoppedReason: null };
   const done = [];
-  for (const chatId of state.pending.slice(0, Math.min(limit || HISTORY_BATCH, HISTORY_BATCH))) {
-    if (context.limitUsd !== null && state.spentUsd + batch.costUsd + search.MAX_CALL_USD > context.limitUsd) { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
-    if (Date.now() - started > BATCH_SECONDS * 1000) break;
-    const out = await search.extractChat(ctx, chatId, options);
+  // The cron passes a small limit and its own deadline; the panel button keeps the 30-second batch.
+  const deadlineAt = options.deadlineAt || started + BATCH_SECONDS * 1000;
+  if (!state.pending.length) return progressOf(state, context, { read: 0, failed: 0, stoppedReason: null, batchCostUsd: 0 });
+  const provider = context.provider === 'OPENAI' ? await openAiBudget.spentUsd(ctx) : null;
+  const wanted = Math.min(limit || HISTORY_BATCH, HISTORY_BATCH);
+  // A conversation whose newer customer message has no text keeps the same content: it is
+  // skipped as already read and does not use one of the readings of this batch.
+  let attempted = 0;
+  for (const chatId of state.pending) {
+    if (attempted >= wanted) break;
+    if (context.limitUsd !== null && (state.spentUsd + batch.costUsd + search.MAX_CALL_USD > context.limitUsd || (provider && !openAiBudget.fits(provider, search.MAX_CALL_USD, batch.costUsd)))) { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
+    if (Date.now() > deadlineAt) break;
+    const out = await search.extractChat(ctx, chatId, options.extract || {});
+    if (out.alreadyRead) continue;
+    attempted += 1;
     if (out.error === 'OPENAI_QUOTA') { batch.stoppedReason = 'PROVIDER_QUOTA'; break; }
     if (out.error === 'OPENAI_MODEL_UNAVAILABLE') { batch.stoppedReason = 'MODEL_UNAVAILABLE'; break; }
     batch.conversations += out.alreadyRead || out.error ? 0 : 1;
@@ -277,7 +291,7 @@ async function extractHistory(ctx, limit, options = {}) {
     done.push({ chatId, requests: out.requests || 0, error: out.error || null });
   }
   await insert(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider: context.provider, model: context.model, conversations: batch.conversations,
-    input_tokens: batch.inputTokens, output_tokens: batch.outputTokens, cost_usd: round6(batch.costUsd), stopped_reason: batch.stoppedReason, created_by: ctx.panel.id }, false);
+    input_tokens: batch.inputTokens, output_tokens: batch.outputTokens, cost_usd: round6(batch.costUsd), stopped_reason: batch.stoppedReason, created_by: ctx.panel?.id || null }, false);
   const after = await historyState(ctx, context.provider);
   return progressOf(after, context, { read: done.length, failed: done.filter((item) => item.error).length, stoppedReason: batch.stoppedReason, batchCostUsd: round6(batch.costUsd) });
 }
@@ -324,3 +338,4 @@ module.exports = async (req, res) => {
 };
 module.exports.buildList = buildList;
 module.exports.audit = audit;
+module.exports.extractHistory = extractHistory;

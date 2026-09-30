@@ -2131,7 +2131,21 @@
     const state = element('p', 'muted v1-send-state', 'Gere a V1 para enviar no WhatsApp');
     const fallback = element('a', 'quiet small hidden v1-send-fallback', 'Abrir WhatsApp com mensagem pronta');
     fallback.target = '_blank'; fallback.rel = 'noopener';
-    node.append(button, fallback, state);
+    // Approved message of the search's origin (Calculate My Cost or Find One For Me): only suggested,
+    // editable and copied by the operator; nothing is sent from here.
+    const suggestion = element('details', 'v1-suggestion hidden');
+    const suggestionTitle = element('summary', '', 'Mensagem sugerida');
+    const suggestionText = element('textarea', 'v1-suggestion-text'); suggestionText.rows = 8; suggestionText.maxLength = 4000;
+    const copySuggestion = element('button', 'quiet small', 'Copiar mensagem sugerida'); copySuggestion.type = 'button';
+    const suggestionNote = element('p', 'muted', 'Você revisa e decide se envia · Nada é enviado daqui');
+    copySuggestion.addEventListener('click', async (event) => { event.stopPropagation(); try { await navigator.clipboard.writeText(suggestionText.value); suggestionNote.textContent = 'Mensagem copiada · Nada foi enviado'; } catch (_) { suggestionText.select(); suggestionNote.textContent = 'Não consegui copiar · Selecione o texto e copie'; } });
+    suggestion.append(suggestionTitle, suggestionText, copySuggestion, suggestionNote);
+    const showSuggestion = (data) => {
+      if (!data || !data.text) { suggestion.classList.add('hidden'); return; }
+      suggestionTitle.textContent = 'Mensagem sugerida · ' + (data.origin === 'VALOR' ? 'veio pela calculadora (Calculate My Cost)' : 'veio pelo Find One For Me');
+      suggestionText.value = data.text; suggestion.classList.remove('hidden');
+    };
+    node.append(button, fallback, state, suggestion);
     let info = null;
     let token = null;
     let busy = false;
@@ -2146,7 +2160,7 @@
     };
     const setFallback = (href) => { if (href) { fallback.href = href; fallback.classList.remove('hidden'); } };
     async function setVitrine(newToken) {
-      token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp';
+      token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp'; showSuggestion(null);
       state.textContent = 'Conferindo o destino…'; delete state.dataset.status;
       try {
         info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: 'prepare', token, baseUrl: location.origin, ...(demand?.key ? { demandKey: demand.key } : {}) }) });
@@ -2154,6 +2168,7 @@
         state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio · Use "Copiar mensagem com link"';
         return;
       }
+      showSuggestion(info);
       if (!info.eligible) { state.textContent = V1_SEND_REASONS[info.reason] || V1_SEND_REASONS.NO_VALID_PHONE; return; }
       setFallback(info.whatsappLink);
       if (info.mode === 'OFF') { state.textContent = V1_SEND_REASONS.OFF; return; }

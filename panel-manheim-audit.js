@@ -22,6 +22,7 @@
 //  * Com a função desligada nada muda: V1 e V2 seguem como antes.
 
 const crypto = require('node:crypto');
+const openAiBudget = require('./panel-openai-budget');
 const { allRows, insert, patchRows, rows, supabase } = require('./panel-server');
 const { matchManheimDemand } = require('./panel-domain');
 const { hasValidMmr } = require('./vehicle-match');
@@ -414,8 +415,13 @@ async function runAudit(ctx, input, options = {}) {
     await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AGUARDANDO_AUTORIZACAO', estimate_usd: estimate, authorized_by: null, authorized_at: null, updated_at: new Date().toISOString() });
     return { ...result, awaitingAuthorization: true, estimateUsd: estimate, limitUsd: LIMIT_USD };
   }
+  // US$ 50 for all the panel's OpenAI features together (panel-openai-budget); the per-import
+  // limit above still applies.
+  const budget = options.budget || openAiBudget;
+  const provider = await budget.spentUsd(ctx);
   for (const group of pending) {
     if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred += 1; continue; }
+    if (!budget.fits(provider, Math.max(estimateGroup(group, modelId).costUsd * 2, budget.MAX_CALL_USD), result.costUsd)) { result.providerLimit = true; result.deferred += 1; continue; }
     // Atomic reservation first (upload trigger, cron and button at the same time): only the winner calls.
     const task = await claims.claimTask(ctx, { kind: 'MANHEIM_MATCH_AUDIT', subject: group.key, hash: group.hash, rule: RULE_VERSION });
     if (!task.claimed) { result.inProgress += 1; continue; }

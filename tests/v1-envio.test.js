@@ -66,6 +66,11 @@ test('preparação: telefone da ficha, modelo pela origem da busca, sem telefone
   }
   const noPhone = await v1({ action: 'prepare', token: token(3), baseUrl: BASE_URL });
   assert.deepEqual([noPhone.payload.eligible, noPhone.payload.reason], [false, 'NO_VALID_PHONE']);
+  // Sem telefone válido, a mensagem aprovada da origem ainda é sugerida para copiar (nada é enviado).
+  const noPhoneFind = await v1({ action: 'prepare', token: token(3), baseUrl: BASE_URL, demandKey: `journey:${id(23)}:CARRO` });
+  assert.equal(noPhoneFind.payload.origin, 'CARRO');
+  assert.match(noPhoneFind.payload.text, /^Hi there,\n\nI reviewed the current auction listings/);
+  assert.ok(noPhoneFind.payload.text.includes(LINK(3)));
 });
 
 test('envio simulado com confirmação: sem duplicar, reenvio só explícito, nada sai para o 360dialog', async () => {

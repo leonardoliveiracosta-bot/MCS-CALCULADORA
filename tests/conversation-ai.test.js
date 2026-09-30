@@ -138,3 +138,21 @@ test('automatic failures wait six hours and stop after three until a new custome
   group.lastCustomer={id:'nova-mensagem'};
   assert.equal(ai.automaticAttemptAllowed(group,now),true);
 });
+
+test('cron reads new PESQUISAS conversations only when the extraction is on, 5 at most, and a failure is isolated',async()=>{
+  const saved=process.env.CRON_SECRET;process.env.CRON_SECRET='cron-test';
+  const server={configuration:()=>({}),SERVER_ENVIRONMENT:'production',send:(res,code,payload)=>res.status(code).json(payload)};
+  const run=async(status,extractHistory)=>{
+    const handler=loadWith('api/panel/ai-cron.js',{'../../panel-server':server,'../../panel-ai':{runCron:async()=>({processed:0})},'../../panel-pendencias':{generalStatus:async()=>({run:{status:'IDLE'}})},
+      '../../panel-search-requests':{extractionStatus:()=>status},'./pesquisas':{extractHistory}});
+    const res=response();await handler({method:'GET',headers:{authorization:'Bearer cron-test'}},res);return res;
+  };
+  const calls=[];
+  let res=await run('LIGADA',async(ctx,limit,options)=>{calls.push({limit,deadline:typeof options.deadlineAt});return {processed:1};});
+  assert.equal(res.code,200);assert.deepEqual(calls,[{limit:5,deadline:'number'}]);assert.deepEqual(res.payload.searchRequests,{processed:1});
+  res=await run('DESLIGADA',async()=>{throw Error('não deveria ler');});
+  assert.equal(res.code,200);assert.deepEqual(res.payload.searchRequests,{skipped:'DESLIGADA'});
+  res=await run('LIGADA',async()=>{throw Error('OPENAI_QUOTA');});
+  assert.equal(res.code,200);assert.equal(res.payload.searchRequests.error,'SEARCH_REQUESTS_FAILED');
+  if(saved===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=saved;
+});
