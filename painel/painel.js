@@ -440,23 +440,23 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', searches: 'manheim-summary', manheim: 'manheim-summary', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', requests: 'requests-list', searches: 'manheim-summary', imports: 'manheim-batches', manheim: 'manheim-summary', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
   }
 
   async function switchPanel(view) {
     // Lote 4: PEDIDOS is part of ENTRADA and CLIENTES now; an old link or history entry opens ENTRADA.
     if (view === 'orders') view = 'entry';
-    if (!['today', 'entry', 'clients', 'searches'].includes(view)) return;
+    if (!['today', 'entry', 'clients', 'requests', 'searches', 'imports'].includes(view)) return;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     currentView = view;
     $('search-results')?.classList.add('hidden');
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
-    const labels = { today: 'HOJE', entry: 'ENTRADA', clients: 'CLIENTES', searches: 'BUSCAS' };
+    const labels = { today: 'HOJE', entry: 'ENTRADA', clients: 'CLIENTES', requests: 'PESQUISAS', searches: 'OPÇÕES', imports: 'IMPORTAÇÕES' };
     currentDetail = null;
     if ($('detail-panel')) $('detail-panel').classList.add('hidden');
-    ['today','entry','clients','searches','pending','qualification','manheim','records'].forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
+    ['today','entry','clients','requests','searches','imports','pending','qualification','manheim','records'].forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
     $('page-title').textContent = labels[view];
     document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
     renderLoading(view);
@@ -1211,6 +1211,17 @@
       if (!current()) return;
       updateMeta(data.meta);renderManheim(data);return;
     }
+    // IMPORTAÇÕES reads the same batch data (the batch list and the import tools live there).
+    if (view === 'imports') {
+      const data = await request('/api/panel/records?view=manheim', viewFetch());
+      if (!current()) return;
+      updateMeta(data.meta);renderManheim(data);return;
+    }
+    if (view === 'requests') {
+      const data = await request('/api/panel/pesquisas', viewFetch());
+      if (!current()) return;
+      return renderRequests(data);
+    }
     if (view === 'manheim') {
       const data = await request('/api/panel/records?view=manheim',viewFetch());
       if (!current()) return;
@@ -1455,7 +1466,7 @@
   }
 
   function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', entry: 'entry-panel', clients:'clients-panel', pending: 'pending-panel', qualification: 'qualification-panel', searches: 'searches-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    const labels = { today: 'today-panel', entry: 'entry-panel', clients:'clients-panel', pending: 'pending-panel', qualification: 'qualification-panel', requests: 'requests-panel', searches: 'searches-panel', imports: 'imports-panel', manheim: 'manheim-panel', records: 'records-panel' };
     Object.values(labels).forEach((id) => $(id)?.classList.add('hidden'));
     $('detail-panel').classList.remove('hidden');
     $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
@@ -2302,6 +2313,126 @@
 
   // One row per import batch (a batch can have several CSV files). Undo is reversible and
   // audited: nothing is deleted, cars and matches of the batch leave every screen.
+  // PESQUISAS: todo pedido de veículo (ficha, calculadora e conversas lidas), com critérios exatos,
+  // evidências e estado contra o lote ativo. Nenhum pedido sai da lista por estágio, prazo ou
+  // classificação; "sem opção no lote" continua aqui para a próxima importação. Nada é enviado.
+  const REQUEST_STATES = ['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO', 'CRITERIOS_INSUFICIENTES', 'PRECISA_REVISAO'];
+  const REQUEST_STATE_LABELS = { FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', SEM_OPCAO: 'SEM OPÇÃO NO LOTE', CRITERIOS_INSUFICIENTES: 'CRITÉRIOS INSUFICIENTES', PRECISA_REVISAO: 'PRECISA DE REVISÃO' };
+  const REQUEST_STATE_TONES = { FALTA_BUSCAR: 'yellow', COM_OPCOES: 'green', SEM_OPCAO: '', CRITERIOS_INSUFICIENTES: 'red', PRECISA_REVISAO: 'red' };
+  const REQUEST_SOURCES = { FICHA: 'Ficha', CONVERSA: 'Conversa', CALCULADORA: 'Calculadora' };
+  const EXTRACTION_TEXT = { SIMULADA: 'Leitura das conversas: simulada neste ambiente (sem IA)', DESLIGADA: 'Leitura das conversas por IA: desligada', SEM_CHAVE: 'Leitura das conversas por IA: sem chave', MODELO_INVALIDO: 'Leitura das conversas por IA: modelo não aprovado', LIGADA: 'Leitura das conversas por IA: ligada' };
+  let requestsData = null;
+  let requestsFilter = 'ALL';
+  let requestsShown = 50;
+  function renderRequests(data) {
+    requestsData = data;
+    setCount('requests', (data.items || []).length);
+    const status = $('requests-status');
+    const upload = data.upload ? `Lote ativo de ${formatDate(data.upload.uploadedAt)}` : 'Nenhum lote ativo';
+    status.classList.remove('error');
+    status.textContent = [upload, EXTRACTION_TEXT[data.extraction] || '', data.requestsPending ? 'Pedidos lidos das conversas indisponíveis: migração pendente' : ''].filter(Boolean).join(' · ');
+    const filters = $('requests-filters');
+    filters.replaceChildren();
+    const chip = (key, label, count) => {
+      const button = element('button', 'chip' + (requestsFilter === key ? ' active' : ''), '');
+      button.type = 'button'; button.dataset.requestState = key;
+      button.append(document.createTextNode(label + ' '), element('span', '', String(count)));
+      button.addEventListener('click', () => { requestsFilter = key; requestsShown = 50; renderRequests(requestsData); });
+      filters.append(button);
+    };
+    chip('ALL', 'Todos', (data.items || []).length);
+    REQUEST_STATES.forEach((state) => chip(state, REQUEST_STATE_LABELS[state], (data.counts || {})[state] || 0));
+    const root = $('requests-list');
+    root.replaceChildren();
+    const visible = (data.items || []).filter((item) => requestsFilter === 'ALL' || item.state === requestsFilter);
+    if (!visible.length) return empty(root, requestsFilter === 'ALL' ? 'Nenhum pedido de veículo registrado' : 'Nenhum pedido neste estado');
+    // Same criteria, one task; every person and conversation stays listed inside it.
+    const groups = new Map();
+    visible.forEach((item) => { if (!groups.has(item.groupKey)) groups.set(item.groupKey, []); groups.get(item.groupKey).push(item); });
+    const ordered = [...groups.values()].sort((left, right) => REQUEST_STATES.indexOf(left[0].state) - REQUEST_STATES.indexOf(right[0].state)
+      || String(latestOf(right)).localeCompare(String(latestOf(left))));
+    ordered.slice(0, requestsShown).forEach((members) => root.append(requestCard(members)));
+    if (ordered.length > requestsShown) {
+      const more = element('button', 'quiet small', `Mostrar mais (${ordered.length - requestsShown})`); more.type = 'button';
+      more.addEventListener('click', () => { requestsShown += 50; renderRequests(requestsData); });
+      root.append(more);
+    }
+  }
+  const latestOf = (members) => members.map((item) => item.lastMessageAt || '').sort().at(-1) || '';
+  function requestCard(members) {
+    const first = members[0];
+    const card = element('article', 'item-card request-card');
+    card.dataset.state = first.state;
+    const head = element('div', 'request-head');
+    head.append(element('strong', '', first.criteriaText), makeBadge(first.stateLabel, REQUEST_STATE_TONES[first.state]));
+    card.append(head);
+    if (members.length > 1) card.append(element('p', 'muted', `${members.length} pedidos com critérios exatamente iguais`));
+    if (first.state === 'COM_OPCOES') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'opção válida' : 'opções válidas'} no lote ativo`));
+    if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo. Continua aqui para a próxima importação'));
+    if (first.comparedAt) card.append(element('p', 'muted', `${first.comparedAtImport ? 'Comparado na importação de' : 'Última comparação'}: ${formatDate(first.comparedAt)}`));
+    if (first.missing && first.missing.length) card.append(element('p', 'muted', 'Falta: ' + first.missing.join(', ')));
+    if (first.reviewReason) card.append(element('p', 'muted', 'Revisão: ' + first.reviewReason));
+    members.forEach((item) => {
+      const line = element('div', 'request-person');
+      const who = element('div', 'request-person-head');
+      who.append(element('span', '', item.person?.name || 'Sem nome'), makeBadge(REQUEST_SOURCES[item.source] || item.source, ''),
+        element('span', 'muted', item.lastMessageAt ? 'Última mensagem: ' + formatDate(item.lastMessageAt) : 'Sem mensagem registrada'));
+      if (item.versions > 1) who.append(element('span', 'muted', `${item.versions} versões do pedido`));
+      if (item.person?.journeyId) {
+        const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button';
+        open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', item.person.journeyId); });
+        who.append(open);
+      }
+      line.append(who);
+      const evidence = element('details', 'request-evidence');
+      evidence.append(element('summary', '', `Evidências (${(item.evidence || []).length})`));
+      (item.evidence || []).forEach((entry) => evidence.append(element('p', 'muted', (entry.at ? formatDate(entry.at) + ' · ' : '') + entry.text)));
+      line.append(evidence);
+      card.append(line);
+    });
+    return card;
+  }
+  // Compares every request in FALTA BUSCAR with the active batch, 40 at a time, then reloads.
+  async function compareRequests(button) {
+    button.disabled = true;
+    const status = $('requests-status');
+    try {
+      for (let round = 0; round < 50; round += 1) {
+        const result = await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'compare' }) });
+        status.textContent = `Comparando com o lote ativo · ${result.remaining} pedido(s) restantes`;
+        if (!result.compared || !result.remaining) break;
+      }
+      await loadCurrent();
+    } catch (failure) {
+      status.classList.add('error');
+      status.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Comparação indisponível: migração pendente' : 'Não consegui comparar agora, tente de novo';
+    } finally { button.disabled = false; }
+  }
+  async function loadRequestsAudit() {
+    const root = $('requests-audit-content');
+    root.replaceChildren(element('p', 'muted', 'Calculando…'));
+    let data;
+    try { data = await request('/api/panel/pesquisas?view=audit', { timeoutMs: 60000 }); }
+    catch (_) { root.replaceChildren(element('p', 'muted', 'Não consegui calcular a auditoria agora')); return; }
+    const table = element('dl', 'requests-audit-table');
+    const row = (label, value) => { table.append(element('dt', '', label), element('dd', '', String(value))); };
+    row('Pessoas com mensagens', data.peopleWithMessages);
+    row('Conversas com mensagem do cliente', data.conversationsWithCustomerMessages);
+    row('Conversas com pedido identificado', data.tablesPending ? 'migração pendente' : data.conversationsWithRequest);
+    row('Pedidos distintos', data.requests);
+    row('Tarefas (critérios exatamente iguais)', data.groups);
+    row('Com opção válida no lote ativo', data.withOptions);
+    row('Sem opção no lote', data.withoutOptions);
+    row('Critérios insuficientes', data.insufficient);
+    row('Precisam de revisão', data.review);
+    row('Ainda não comparados', data.notCompared);
+    row('Sem vínculo confiável', data.withoutReliableLink);
+    row('Conversas ainda não lidas', data.estimate.conversationsToRead);
+    root.replaceChildren(table,
+      element('p', data.allServed ? '' : 'warning', data.allServed ? 'Todos os pedidos têm opção válida no lote ativo' : 'Ainda não há prova de que todo pedido de veículo foi atendido'),
+      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}. Nada é lido sem autorização`));
+  }
+
   // Lotes: o ativo sempre à vista; os desfeitos num "Histórico de lotes" recolhido. Ocultar é só
   // preferência de exibição deste operador (o lote, os veículos e os matches não mudam).
   let batchHistoryOpen = false;
@@ -3563,7 +3694,7 @@
   };
   async function routeFromHash(push = false) {
     const hash = String(location.hash || '');
-    const legacy={fichas:'clients',qualificacao:'clients',pendencias:'clients',clientes:'clients',manheim:'searches',buscas:'searches',pedidos:'entry',entrada:'entry'}[hash.replace(/^#/,'').toLowerCase()];
+    const legacy={fichas:'clients',qualificacao:'clients',pendencias:'clients',clientes:'clients',manheim:'imports',buscas:'searches',opcoes:'searches',pesquisas:'requests',importacoes:'imports',pedidos:'entry',entrada:'entry'}[hash.replace(/^#/,'').toLowerCase()];
     if(legacy){history.replaceState({panelOrigin:{view:legacy,scrollY:0}},'',location.pathname+location.search);await switchPanel(legacy);return true;}
     const order = hash.match(/^#pedido\/([A-HJ-NP-Z2-9]{5})$/i);
     if (order) {
@@ -3758,6 +3889,8 @@
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
+    $('requests-compare').addEventListener('click', (event) => compareRequests(event.currentTarget).catch(() => {}));
+    $('requests-audit').addEventListener('toggle', () => { if ($('requests-audit').open) loadRequestsAudit().catch(() => {}); });
     $('manheim-complement').addEventListener('click', () => $('manheim-complement-files').click());
     $('manheim-complement-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; complementManheim(files).catch(complementFailure); });
     const manheimZone = $('manheim-drop-zone');

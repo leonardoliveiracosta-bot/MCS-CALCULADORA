@@ -97,8 +97,9 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   const calls = [];
   await openBuscas(page, { undone: false }, calls);
-  const [archive, valor, carro] = await Promise.all(['#manheim-drop-zone', '#buscas-valor', '#buscas-carro'].map((selector) => page.locator(selector).boundingBox()));
-  expect(archive.y).toBeLessThan(valor.y);
+  // The import tools live in IMPORTAÇÕES now; OPÇÕES shows only the options.
+  await expect(page.locator('#manheim-drop-zone')).toBeHidden();
+  const [valor, carro] = await Promise.all(['#buscas-valor', '#buscas-carro'].map((selector) => page.locator(selector).boundingBox()));
   expect(Math.abs(valor.y - carro.y)).toBeLessThan(2);
   expect(valor.x).toBeLessThan(carro.x);
   await expect(page.locator('#buscas-valor h2')).toHaveText('Calculate My Cost');
@@ -168,6 +169,7 @@ test('24-27 · lote com vários CSVs aparece como um lote; desfazer pede confirm
   let dialogs = 0; page.on('dialog', async (dialog) => { dialogs += 1; await dialog.dismiss(); });
   const state = { undone: false };
   await openBuscas(page, state, calls);
+  await page.locator('[data-view="imports"]').click();
   const newer = page.locator(`#manheim-batches [data-batch-id="${BATCH_NEW}"]`);
   const older = page.locator(`#manheim-batches [data-batch-id="${BATCH_OLD}"]`);
   await expect(newer).toContainText('3 arquivos');
@@ -226,6 +228,7 @@ test('35-42 · só a linha ambígua vai para a OpenAI, a resposta é revalidada 
   const calls = [];
   const ai = (body) => ({ available: true, provider: 'openai', model: 'gpt-5.4-nano', usage: { inputTokens: 320, outputTokens: 60 }, costUsd: 0.000139, ms: 900, suggestions: body.rows.map((row) => ({ id: row.id, year: 2022, make: 'BMW', model: 'X5', trim: 'xDrive40i', miles: 70000, mmr: 45000, confident: true })) });
   await openBuscas(page, { undone: false }, calls, importRoutes(ai, calls));
+  await page.locator('[data-view="imports"]').click();
   await page.locator('#manheim-files').setInputFiles(csvFile(CSV));
   // M19: this CSV is much smaller than the previous batch, so the panel asks first (in the page).
   await page.locator('.inline-confirm').getByRole('button', { name: 'Enviar mesmo assim' }).click();
@@ -250,6 +253,7 @@ test('35-42 · só a linha ambígua vai para a OpenAI, a resposta é revalidada 
 test('39 · OpenAI indisponível: as linhas válidas entram, só a ambígua vai para revisão e o resumo não fala de OpenAI', async ({ page }) => {
   const calls = [];
   await openBuscas(page, { undone: false }, calls, importRoutes(() => ({ available: false, reason: 'OPENAI_NOT_ENABLED', suggestions: [] }), calls));
+  await page.locator('[data-view="imports"]').click();
   await page.locator('#manheim-files').setInputFiles(csvFile(CSV));
   // M19: this CSV is much smaller than the previous batch, so the panel asks first (in the page).
   await page.locator('.inline-confirm').getByRole('button', { name: 'Enviar mesmo assim' }).click();

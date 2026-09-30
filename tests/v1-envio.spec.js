@@ -86,7 +86,7 @@ test('V1 enviada no WhatsApp (simulado) com confirmação e histórico de lotes 
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
+  await page.locator('[data-view="imports"]').click();
   // History: the active batch in view, the undone one inside a collapsed "Histórico de lotes".
   const batches = page.locator('#manheim-batches');
   await expect(batches.locator(':scope > .batch-line')).toHaveCount(1, { timeout: 60000 });
@@ -101,7 +101,8 @@ test('V1 enviada no WhatsApp (simulado) com confirmação e histórico de lotes 
   await expect(batches.locator('.batch-hidden > summary')).toHaveText('Ver lotes ocultos (1)');
   if (SHOTS) await batches.screenshot({ path: path.join(SHOTS, 'historico-lotes-oculto.png') });
 
-  // V1: select two cars, generate the link, then send it on WhatsApp.
+  // V1 (OPÇÕES): select two cars, generate the link, then send it on WhatsApp.
+  await page.locator('[data-view="searches"]').click();
   const card = page.locator('#buscas-carro .manheim-lead').first();
   const send = card.locator('.v1-send > button');
   await expect(send).toBeDisabled();

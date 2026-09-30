@@ -57,6 +57,9 @@ async function createBackend({ seed } = {}) {
   const refused = [];
   const calls = [];
   const columns = async (table) => (await db.query(`select column_name from information_schema.columns where table_schema='public' and table_name=$1`, [table])).rows.map((row) => row.column_name);
+  // PostgREST takes a JSON array for an array column (text[], uuid[]); jsonb gets the JSON text.
+  const arrayColumns = async (table) => new Set((await db.query(`select column_name from information_schema.columns where table_schema='public' and table_name=$1 and data_type='ARRAY'`, [table])).rows.map((row) => row.column_name));
+  const cell = (arrays, key, value) => Array.isArray(value) && arrays.has(key) ? value : value !== null && typeof value === 'object' ? JSON.stringify(value) : value;
 
   async function rest(method, pathname, search, body, prefer) {
     const table = pathname.replace('/rest/v1/', '');
@@ -85,12 +88,13 @@ async function createBackend({ seed } = {}) {
       return (await db.query(sql, values)).rows;
     }
     const known = new Set(await columns(table));
+    const arrays = await arrayColumns(table);
     if (method === 'POST') {
       const list = Array.isArray(body) ? body : [body];
       const output = [];
       for (const row of list) {
         const keys = Object.keys(row).filter((key) => known.has(key));
-        const rowValues = keys.map((key) => row[key] !== null && typeof row[key] === 'object' ? JSON.stringify(row[key]) : row[key]);
+        const rowValues = keys.map((key) => cell(arrays, key, row[key]));
         const conflict = get('on_conflict') && /ignore-duplicates/.test(prefer || '') ? ` on conflict (${get('on_conflict').split(',').map(ident).join(', ')}) do nothing` : '';
         output.push(...(await db.query(`insert into public.${ident(table)} (${keys.map(ident).join(', ')}) values (${keys.map((_, index) => '$' + (index + 1)).join(', ')})${conflict} returning *`, rowValues)).rows);
       }
@@ -98,7 +102,7 @@ async function createBackend({ seed } = {}) {
     }
     if (method === 'PATCH') {
       const keys = Object.keys(body).filter((key) => known.has(key));
-      keys.forEach((key) => values.push(body[key] !== null && typeof body[key] === 'object' ? JSON.stringify(body[key]) : body[key]));
+      keys.forEach((key) => values.push(cell(arrays, key, body[key])));
       const set = keys.map((key, index) => `${ident(key)} = $${index + 1}`).join(', ');
       const rows = (await db.query(`update public.${ident(table)} set ${set}${whereClause(params, values)} returning *`, values)).rows;
       return /return=representation/.test(prefer || '') ? rows : null;

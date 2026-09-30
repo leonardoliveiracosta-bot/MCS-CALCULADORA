@@ -65,7 +65,7 @@ async function openPanel(page, log, intercept) {
     return json({ items: [], orders: [], groups: [], chats: [], reviews: [], requests: [], review: [], meta: {} });
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
+  await page.locator('[data-view="imports"]').click();
   await expect(page.locator('#manheim-summary')).toContainText(/Nenhuma importação ativa|carro\(s\) analisado\(s\)/, { timeout: 60000 });
 }
 const staging = async () => (await backend.db.query(`select count(*)::int n from public.manheim_uploads where activated_at is null and canceled_at is null`)).rows[0].n;

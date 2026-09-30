@@ -26,6 +26,8 @@ async function finish(ctx,inboundId,status,sentId=null,code=null){
   return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_finish_auto_reply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_inbound_wamid:inboundId,p_status:status,p_sent_wamid:sentId,p_error_code:code})});
 }
 async function sendMessage(item){
+  // Preview e desenvolvimento na Vercel nunca chamam o 360dialog real.
+  if(process.env.VERCEL_ENV&&process.env.VERCEL_ENV!=='production')throw Error('D360_BLOCKED_OUTSIDE_PRODUCTION');
   const key=process.env.D360_API_KEY;
   if(!key)throw Error('D360_KEY_MISSING');
   const target=item.phone?{to:item.phone.replace(/^\+/,'')}:item.userId?{recipient:item.userId}:null;

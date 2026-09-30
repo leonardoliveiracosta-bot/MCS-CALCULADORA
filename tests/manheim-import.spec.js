@@ -61,6 +61,8 @@ async function openPanel(page, width, log, options = {}) {
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   await expect(page.locator('#manheim-summary')).toContainText(/Nenhuma importação ativa|carro\(s\) analisado\(s\)/, { timeout: 60000 });
+  // The files are chosen in IMPORTAÇÕES (only the 1366 test uploads).
+  if (width !== 390) await page.locator('[data-view="imports"]').click();
 }
 
 test('19 arquivos viram um lote; a rede cai no arquivo 13 e o envio continua dos mesmos arquivos', async ({ page }) => {
@@ -75,7 +77,7 @@ test('19 arquivos viram um lote; a rede cai no arquivo 13 e o envio continua dos
   await expect(status).toContainText('Selecione os mesmos arquivos de novo para continuar de onde parou');
   await expect(page.getByRole('button', { name: 'Descartar este envio' })).toBeVisible();
   await expect(page.locator('#manheim-summary')).toHaveText('Nenhuma importação ativa');
-  if (SHOTS) await page.locator('#searches-panel > section.card').first().screenshot({ path: path.join(SHOTS, 'lote-interrompido-1366.png') });
+  if (SHOTS) await page.locator('#imports-panel > section.card').first().screenshot({ path: path.join(SHOTS, 'lote-interrompido-1366.png') });
   const firstRound = log.filter((entry) => entry.key && /^\d+:\d+$/.test(entry.key));
   // Same files again: only the missing blocks travel.
   dropping = false;
@@ -89,7 +91,9 @@ test('19 arquivos viram um lote; a rede cai no arquivo 13 e o envio continua dos
   expect(resent, 'bloco já confirmado não é reenviado').toEqual([]);
   // The interrupted round never reached the activation: one activation, at the end.
   expect(log.filter((entry) => entry.key === 'finalize').length).toBe(1);
-  // BUSCAS: the active batch, no car in the first answer, 10 options when a demand is opened.
+  await expect(page.locator('#manheim-batches')).toContainText('19 arquivos');
+  // OPÇÕES: the active batch, no car in the first answer, 10 options when a demand is opened.
+  await page.locator('[data-view="searches"]').click();
   await expect(page.locator('#manheim-summary')).toContainText('carro(s) analisado(s)', { timeout: 60000 });
   const { rows: [db] } = await backend.db.query(`select count(*)::int uploads, count(*) filter (where activated_at is not null)::int live, max(source_file_count)::int files from public.manheim_uploads`);
   expect(db).toEqual({ uploads: 1, live: 1, files: 19 });
@@ -101,7 +105,6 @@ test('19 arquivos viram um lote; a rede cai no arquivo 13 e o envio continua dos
   await expect(incomplete.locator('.manheim-row')).toHaveCount(10);
   await incomplete.locator('.manheim-options-toggle').click();
   await expect(incomplete.locator('.manheim-row')).toHaveCount(20);
-  await expect(page.locator('#manheim-batches')).toContainText('19 arquivos');
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'lote-ativo-1366.png'), fullPage: false });
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);

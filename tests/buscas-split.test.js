@@ -307,12 +307,15 @@ test('27 · desfazer duas vezes é idempotente no servidor e sem migração resp
 });
 
 // ------------------------------------------------------------------ 33 Arquivo do Manheim primeiro
-test('33 · Arquivo do Manheim continua o primeiro bloco e VALOR vem antes de CARRO', () => {
+test('33 · IMPORTAÇÕES tem o arquivo e os lotes; OPÇÕES tem VALOR antes de CARRO, sem upload', () => {
   const html = read('painel/index.html');
+  const imports = html.slice(html.indexOf('<section id="imports-panel"'), html.indexOf('<section id="searches-panel"'));
   const panel = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="manheim-panel"'));
-  const order = ['Arquivo do Manheim', 'id="manheim-batches"', 'id="buscas-valor"', 'id="buscas-carro"', 'id="buscas-review"'].map((marker) => panel.indexOf(marker));
+  assert.ok(imports.indexOf('id="manheim-files"') >= 0 && imports.indexOf('id="manheim-files"') < imports.indexOf('id="manheim-batches"'));
+  const order = ['id="buscas-valor"', 'id="buscas-carro"', 'id="buscas-review"'].map((marker) => panel.indexOf(marker));
   assert.ok(order.every((position) => position >= 0), JSON.stringify(order));
   assert.deepEqual(order.slice().sort((a, b) => a - b), order);
+  assert.doesNotMatch(panel, /manheim-files|manheim-batches/);
   assert.match(panel, /Calculate My Cost/);
   assert.match(panel, /Find One For Me/);
 });

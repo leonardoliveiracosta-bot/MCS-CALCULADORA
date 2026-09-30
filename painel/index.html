@@ -53,7 +53,9 @@
           <button class="tab active" type="button" data-view="today">HOJE <span data-count="today" title="Carregando">—</span></button>
           <button class="tab" type="button" data-view="entry">ENTRADA <span data-count="entry" title="Carregando">—</span></button>
           <button class="tab" type="button" data-view="clients">CLIENTES <span data-count="clients" title="Carregando">—</span></button>
-          <button class="tab" type="button" data-view="searches">BUSCAS <span data-count="searches" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="requests">PESQUISAS <span data-count="requests" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="searches">OPÇÕES <span data-count="searches" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="imports">IMPORTAÇÕES</button>
         </nav>
         <form id="global-search" class="global-search" role="search">
           <label class="visually-hidden" for="global-search-input">Busca global</label>
@@ -231,8 +233,18 @@
         <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo.</p></div><div class="inline-actions"><label>Ordenar<select id="qualification-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div></div>
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
-      <section id="searches-panel" class="panel-view hidden" aria-label="Buscas">
-        <div class="section-head searches-subsection"><div><h2>Arquivo do Manheim</h2><p class="muted">Suba o CSV e veja os carros que batem</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
+      <section id="requests-panel" class="panel-view hidden" aria-label="Pesquisas">
+        <div class="section-head"><div><h2>Pesquisas</h2><p class="muted">Todo pedido de veículo, com os critérios que a pessoa informou e de onde eles vieram</p></div><div class="inline-actions"><button id="requests-compare" class="small" type="button">Comparar com o lote ativo</button></div></div>
+        <p id="requests-status" class="status" role="status"></p>
+        <div id="requests-filters" class="filters requests-filters" aria-label="Estados dos pedidos"></div>
+        <div id="requests-list" class="stack" aria-live="polite"></div>
+        <details id="requests-audit" class="card requests-audit">
+          <summary>Auditoria desde 09/08/2026</summary>
+          <div id="requests-audit-content" aria-live="polite"><p class="muted">Abra para calcular</p></div>
+        </details>
+      </section>
+      <section id="imports-panel" class="panel-view hidden" aria-label="Importações">
+        <div class="section-head"><div><h2>Importações</h2><p class="muted">Arquivos do Manheim, lote ativo e histórico de lotes</p></div></div>
         <section class="card">
           <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
           <p id="manheim-status" class="status" role="status"></p>
@@ -241,6 +253,9 @@
           <div id="manheim-import-summary" class="import-summary hidden" aria-live="polite"></div>
         </section>
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
+      </section>
+      <section id="searches-panel" class="panel-view hidden" aria-label="Opções">
+        <div class="section-head searches-subsection"><div><h2>Opções</h2><p class="muted">Carros do lote ativo por cliente: seleção, V1 e envio</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
         <section class="card">
           <div id="manheim-summary" class="muted"></div>
           <div id="manheim-audit-note" class="manheim-audit-note hidden" aria-live="polite"></div>

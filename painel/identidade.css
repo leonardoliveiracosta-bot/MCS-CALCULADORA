@@ -710,3 +710,15 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 .v1-send-confirm { display: grid; gap: 8px; }
 .batch-history, .batch-hidden { margin-top: 10px; }
 .batch-history > summary, .batch-hidden > summary { cursor: pointer; font-weight: 600; min-height: var(--mcs-touch); display: flex; align-items: center; }
+
+/* PESQUISAS */
+.requests-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.request-card { display: grid; gap: 6px; }
+.request-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.request-person { border-top: 1px solid var(--mcs-line); padding-top: 8px; display: grid; gap: 4px; }
+.request-person-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.request-evidence > summary { cursor: pointer; min-height: var(--mcs-touch); display: flex; align-items: center; }
+.request-evidence p { margin: 4px 0; overflow-wrap: anywhere; }
+.requests-audit > summary { cursor: pointer; font-weight: 600; min-height: var(--mcs-touch); display: flex; align-items: center; }
+.requests-audit-table { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 8px 0; }
+.requests-audit-table dd { margin: 0; text-align: right; font-weight: 600; }
