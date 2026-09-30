@@ -18,9 +18,10 @@ const { makeKey } = require('./panel-manheim-batch');
 // US$ per 1M tokens (standard tier). Same approved list as the ENTRADA triage.
 const PRICES = Object.freeze({ 'gpt-6-luna': { input: 0.10, output: 0.50 }, 'gpt-5.4-nano': { input: 0.20, output: 1.25 } });
 const TIMEOUT_MS = 20000;
-// The reading of the history uses at most the balance already available in each AI provider:
-// US$ 50 per provider. No credit is added and no lower internal ceiling is created.
+// The historical audit has a cumulative ceiling of US$ 50 (no credit is ever added). A call only
+// starts when even an unusually large reading (MAX_CALL_USD, far above a real one) still fits.
 const PROVIDER_LIMIT_USD = Object.freeze({ OPENAI: 50 });
+const MAX_CALL_USD = 0.01;
 const HISTORY_SINCE = '2026-08-09T00:00:00Z';
 
 function extractionStatus(env = process.env) {
@@ -58,33 +59,51 @@ const INSTRUCTIONS = [
   'hasRequest=false quando a conversa não tem pedido de veículo. confidence "alta" só quando o pedido é claro; reviewReason explica a dúvida em uma frase, em português.'
 ].join('\n');
 
-async function readWithAi(conversation, options = {}) {
+// The provider's answer to a failed call, as a safe code. A model the key cannot use stops the
+// audit (no other model is tried); the provider's own limit (quota or balance) stops it safely.
+async function failureOf(response) {
+  const detail = await response.json().catch(() => null);
+  const code = String(detail?.error?.code || detail?.error?.type || '');
+  const failure = new Error('OPENAI_FAILED');
+  if (response.status === 404 || /model_not_found|does not exist|do not have access/i.test(code + ' ' + String(detail?.error?.message || ''))) failure.code = 'OPENAI_MODEL_UNAVAILABLE';
+  else if ((response.status === 429 && /insufficient_quota|billing/i.test(code)) || response.status === 402) failure.code = 'OPENAI_QUOTA';
+  else failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : response.status === 401 ? 'OPENAI_KEY_INVALID' : 'OPENAI_FAILED';
+  return failure;
+}
+async function openAiChat(body, options = {}) {
   const env = options.env || process.env;
-  if (extractionStatus(env) !== 'LIGADA') { const failure = new Error('EXTRACTION_AI_DISABLED'); failure.code = 'EXTRACTION_AI_DISABLED'; throw failure; }
-  const model = env.SEARCH_EXTRACTION_MODEL;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const response = await (options.fetchImpl || fetch)('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
-      body: JSON.stringify({ model, messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ mensagens: conversation.map((item) => ({ id: item.id, de: item.from, texto: item.text })) }) }],
-        response_format: { type: 'json_schema', json_schema: { name: 'pedido_de_veiculo', strict: true, schema: SCHEMA } } })
+      method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY }, body: JSON.stringify({ model: env.SEARCH_EXTRACTION_MODEL, ...body })
     });
-    if (!response.ok) {
-      // The provider's own limit (quota or balance) stops the reading safely; the rest stays pending.
-      const detail = await response.json().catch(() => null);
-      const quota = response.status === 429 && /insufficient_quota|billing/i.test(String(detail?.error?.code || detail?.error?.type || ''));
-      const failure = new Error('OPENAI_FAILED'); failure.code = quota || response.status === 402 ? 'OPENAI_QUOTA' : response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure;
-    }
+    if (!response.ok) throw await failureOf(response);
     const payload = await response.json();
     const usage = { input: Number(payload?.usage?.prompt_tokens) || 0, output: Number(payload?.usage?.completion_tokens) || 0 };
-    let parsed = null;
-    try { parsed = JSON.parse(payload?.choices?.[0]?.message?.content || ''); } catch (_) { parsed = null; }
-    return { raw: parsed, model, usage, costUsd: estimateCostUsd(model, usage.input, usage.output) };
+    return { payload, model: env.SEARCH_EXTRACTION_MODEL, usage, costUsd: estimateCostUsd(env.SEARCH_EXTRACTION_MODEL, usage.input, usage.output) };
   } catch (failure) {
     if (failure && failure.name === 'AbortError') { const timeout = new Error('OPENAI_TIMEOUT'); timeout.code = 'OPENAI_TIMEOUT'; throw timeout; }
     throw failure;
   } finally { clearTimeout(timer); }
+}
+// One minimal call with the configured model and no customer data, before any real conversation
+// is sent. Only in production with the flag on; the Preview never calls anything.
+async function checkModel(options = {}) {
+  const env = options.env || process.env;
+  if (extractionStatus(env) !== 'LIGADA') { const failure = new Error('EXTRACTION_AI_DISABLED'); failure.code = 'EXTRACTION_AI_DISABLED'; throw failure; }
+  const out = await openAiChat({ messages: [{ role: 'user', content: 'Teste de disponibilidade do modelo. Responda apenas: ok' }] }, options);
+  return { model: out.model, usage: out.usage, costUsd: out.costUsd };
+}
+
+async function readWithAi(conversation, options = {}) {
+  const env = options.env || process.env;
+  if (extractionStatus(env) !== 'LIGADA') { const failure = new Error('EXTRACTION_AI_DISABLED'); failure.code = 'EXTRACTION_AI_DISABLED'; throw failure; }
+  const out = await openAiChat({ messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ mensagens: conversation.map((item) => ({ id: item.id, de: item.from, texto: item.text })) }) }],
+    response_format: { type: 'json_schema', json_schema: { name: 'pedido_de_veiculo', strict: true, schema: SCHEMA } } }, { ...options, env });
+  let parsed = null;
+  try { parsed = JSON.parse(out.payload?.choices?.[0]?.message?.content || ''); } catch (_) { parsed = null; }
+  return { raw: parsed, model: out.model, usage: out.usage, costUsd: out.costUsd };
 }
 
 async function conversationOf(ctx, chatId, services) {
@@ -194,4 +213,4 @@ async function compareItems(ctx, items, options = {}) {
   return { uploadId: upload.id, compared: results.length, results };
 }
 
-module.exports = { HISTORY_SINCE, PRICES, PROVIDER_LIMIT_USD, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };
+module.exports = { HISTORY_SINCE, MAX_CALL_USD, PRICES, PROVIDER_LIMIT_USD, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };

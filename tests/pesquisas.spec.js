@@ -85,11 +85,19 @@ for (const width of [1366, 390]) {
     await expect(list.locator('.request-card', { hasText: 'Caio Conversa' })).toContainText('PRONTO PARA BUSCAR · POR CARRO · SEM OPÇÃO NO LOTE');
     await expect(list.locator('.request-card', { hasText: 'Rafa Conversa' })).toContainText('PRONTO PARA BUSCAR · POR VALOR · SEM OPÇÃO NO LOTE');
     // Ficha by year and mileage without a bid: ready, with options.
-    await expect(list.locator('.request-card', { hasText: 'Marta Ficha' })).toContainText('COM OPÇÕES NO LOTE');
+    await expect(list.locator('.request-card', { hasText: 'Critérios preenchidos na ficha' }).filter({ hasText: 'Marta Ficha' })).toContainText('COM OPÇÕES NO LOTE');
     await expect(list).not.toContainText('Bia Conversa');
     await expect(page.locator('#requests-panel #manheim-drop-zone, #requests-panel .manheim-lead, #requests-panel #manheim-batches')).toHaveCount(0);
     await noOverflow();
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `pesquisas-${width}.png`), fullPage: true });
+    // Historical audit: one button, a clear confirmation, visible progress (simulated here, no AI).
+    const confirmation = new Promise((resolve) => page.once('dialog', async (dialog) => { resolve(dialog.message()); await dialog.accept(); }));
+    await page.locator('#requests-history').click();
+    const asked = await confirmation;
+    for (const line of ['desde 09/08/2026', 'Não envia nenhuma mensagem', 'leitura simulada', 'pausar e continuar', 'US$ 50']) expect(asked).toContain(line);
+    await expect(page.locator('#requests-history-text')).toContainText('conversas processadas', { timeout: 30000 });
+    await expect(page.locator('#requests-history-text')).toContainText('Auditoria concluída', { timeout: 60000 });
+    await expect(page.locator('#requests-history-pause')).toBeVisible();
     await page.locator('#requests-audit > summary').click();
     await expect(page.locator('#requests-audit-content')).toContainText('Ainda não há prova de que todo pedido de veículo foi atendido', { timeout: 30000 });
 

@@ -179,30 +179,84 @@ test('7 · critérios insuficientes para os dois modos ficam PRECISA DETALHE, vi
   assert.equal(report.allServed, false, 'não declara cobertura com pedido que precisa detalhe');
 });
 
-test('8 · orçamento da leitura: até US$ 50 por provedor, não US$ 2', async () => {
-  const search = require('../panel-search-requests');
-  assert.equal(search.PROVIDER_LIMIT_USD.OPENAI, 50);
-  // A conversation with a new customer message is pending again.
-  await backend.db.exec(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(990)}','preview','${id(32)}','WHATSAPP','CUSTOMER','Also a Corolla','x',now(),'nova',1,'WHATSAPP_WEBHOOK',now() + interval '1 minute');`);
-  const spent = (usd) => backend.db.exec(`insert into public.vehicle_request_runs(environment,chat_id,provider,model,rule_version,input_hash,status,cost_usd) values('preview','${id(31)}','OPENAI','gpt-6-luna','manual','${String(usd).padStart(64, 'a')}','DONE',${usd})`);
+// ------------------------------------------------------------------ auditoria histórica (OpenAI)
+// Production mode with a fake OpenAI: the provider is answered here, never on the network. Every
+// other URL still goes to the simulated database (anything else is refused and recorded).
+const openAiCalls = [];
+async function asProduction(answer, fn) {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith('https://api.openai.com/')) { const body = JSON.parse(init.body); openAiCalls.push(body); const [status, payload] = answer(body); return new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } }); }
+    return original(url, init);
+  };
   Object.assign(process.env, { VERCEL_ENV: 'production', SEARCH_EXTRACTION_AI_ENABLED: '1', OPENAI_API_KEY: 'chave-de-teste', SEARCH_EXTRACTION_MODEL: 'gpt-6-luna' });
-  try {
-    // US$ 3 already spent (above the old US$ 2): the batch still reads. The request never leaves
-    // the test (the network is blocked), so nothing is paid.
-    await spent(3);
-    const going = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract_history' });
-    assert.deepEqual([going.statusCode, going.payload.provider, going.payload.providerLimitUsd, going.payload.stoppedReason], [200, 'OPENAI', 50, null]);
-    assert.ok(backend.refused.some((url) => url.startsWith('https://api.openai.com')), 'tentou ler: o teto de US$ 2 não existe');
-    // US$ 50 reached: stops safely before reading, the rest stays pending.
-    await spent(47);
-    const refusedBefore = backend.refused.length;
-    const stopped = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract_history' });
-    assert.deepEqual([stopped.payload.stoppedReason, stopped.payload.read, stopped.payload.remaining > 0], ['PROVIDER_LIMIT', 0, true]);
-    assert.equal(backend.refused.length, refusedBefore, 'nenhuma nova chamada depois do limite');
-    const batches = await q(`select provider, model, stopped_reason from public.vehicle_request_batches where provider = 'OPENAI' order by created_at`);
-    assert.deepEqual(batches.map((row) => [row.provider, row.model, row.stopped_reason]), [['OPENAI', 'gpt-6-luna', null], ['OPENAI', 'gpt-6-luna', 'PROVIDER_LIMIT']]);
-  } finally {
+  try { return await fn(); } finally {
+    globalThis.fetch = original;
     Object.assign(process.env, { VERCEL_ENV: 'preview' });
     for (const key of ['SEARCH_EXTRACTION_AI_ENABLED', 'OPENAI_API_KEY', 'SEARCH_EXTRACTION_MODEL']) delete process.env[key];
   }
+}
+const history = (action) => call('pesquisas', '/api/panel/pesquisas', 'POST', { action });
+const usage = { prompt_tokens: 1000, completion_tokens: 100 };
+const reply = (content) => [200, { choices: [{ message: { content } }], usage }];
+const isTest = (body) => !body.response_format;
+// New customer messages in the 12 conversations (the 13th, of a ficha, was never read by the audit).
+const newMessages = async (tag) => { for (let n = 1; n <= 12; n += 1) await backend.db.exec(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values(gen_random_uuid(),'preview','${id(30 + n)}','WHATSAPP','CUSTOMER','still looking ${tag}','x',now(),'${tag}${n}',1,'WHATSAPP_WEBHOOK',clock_timestamp());`); };
+const outgoing = async () => (await q(`select (select count(*)::int from public.messages where direction <> 'CUSTOMER') mcs, (select count(*)::int from public.v1_sends) v1, (select count(*)::int from public.vitrines) vitrines`))[0];
+
+test('8 · modelo indisponível: para antes de ler qualquer conversa e não tenta outro modelo', async () => {
+  await newMessages('a');
+  openAiCalls.length = 0;
+  await asProduction(() => [404, { error: { code: 'model_not_found', message: 'The model does not exist' } }], async () => {
+    const status = (await history('history_status')).payload;
+    assert.deepEqual([status.provider, status.model, status.modelChecked, status.remaining > 0], ['OPENAI', 'gpt-6-luna', false, true]);
+    const check = (await history('model_check')).payload;
+    assert.deepEqual([check.ok, check.error], [false, 'OPENAI_MODEL_UNAVAILABLE']);
+    const refused = await history('extract_history');
+    assert.deepEqual([refused.statusCode, refused.payload.error], [409, 'MODEL_NOT_CHECKED']);
+  });
+  // One minimal call, no customer data, the same model; no conversation was sent or read.
+  assert.equal(openAiCalls.length, 1);
+  assert.deepEqual([openAiCalls[0].model, openAiCalls[0].messages.length, /Teste de disponibilidade/.test(openAiCalls[0].messages[0].content)], ['gpt-6-luna', 1, true]);
+  assert.doesNotMatch(JSON.stringify(openAiCalls[0]), /still looking|Civic|Camry/);
+  assert.deepEqual(await q(`select stopped_reason, conversations from public.vehicle_request_batches where provider = 'OPENAI'`), [{ stopped_reason: 'MODEL_UNAVAILABLE', conversations: 0 }]);
+  assert.deepEqual(await q(`select 1 from public.vehicle_request_runs where provider = 'OPENAI'`), []);
+});
+
+test('9 · teste do modelo aprovado, lotes de 10 e retomada sem ler duas vezes', async () => {
+  openAiCalls.length = 0;
+  await asProduction((body) => isTest(body) ? reply('ok') : reply(JSON.stringify({ hasRequest: false, requests: [] })), async () => {
+    const check = (await history('model_check')).payload;
+    assert.deepEqual([check.ok, check.model, check.usage], [true, 'gpt-6-luna', { input: 1000, output: 100 }]);
+    assert.equal(check.costUsd, 0.00015, '1.000 × US$ 0,10/M + 100 × US$ 0,50/M');
+    const first = (await history('extract_history')).payload;
+    assert.deepEqual([first.read, first.remaining, first.processed, first.total, first.stoppedReason], [10, 3, 10, 13, null]);
+    // The tab closes here; the next click continues from the recorded point.
+    const second = (await history('extract_history')).payload;
+    assert.deepEqual([second.read, second.remaining, second.processed], [3, 0, 13]);
+    const third = (await history('extract_history')).payload;
+    assert.deepEqual([third.read, third.remaining], [0, 0]);
+    assert.equal(third.spentUsd, 0.0021, 'teste + 13 leituras de US$ 0,00015');
+  });
+  assert.equal(openAiCalls.filter(isTest).length, 1, 'uma única chamada de teste');
+  assert.equal(openAiCalls.filter((body) => !isTest(body)).length, 13, 'cada conversa lida uma vez');
+  assert.deepEqual(await q(`select count(distinct chat_id)::int chats, count(*)::int runs from public.vehicle_request_runs where provider = 'OPENAI'`), [{ chats: 13, runs: 13 }]);
+});
+
+test('10 · teto de US$ 50: para antes de uma chamada que possa passar dele', async () => {
+  await newMessages('b');
+  await backend.db.exec(`insert into public.vehicle_request_runs(environment,chat_id,provider,model,rule_version,input_hash,status,cost_usd) values('preview','${id(31)}','OPENAI','gpt-6-luna','manual','${'f'.repeat(64)}','DONE',49.995)`);
+  openAiCalls.length = 0;
+  await asProduction(() => reply(JSON.stringify({ hasRequest: false, requests: [] })), async () => {
+    const stopped = (await history('extract_history')).payload;
+    assert.deepEqual([stopped.stoppedReason, stopped.read, stopped.remaining > 0], ['PROVIDER_LIMIT', 0, true]);
+  });
+  assert.equal(openAiCalls.length, 0, 'nenhuma chamada depois do teto');
+});
+
+test('11 · zero mensagens: nada enviado, nenhuma V1 e nada fora do banco e da OpenAI simulada', async () => {
+  const before = await outgoing();
+  assert.deepEqual([before.v1, before.vitrines], [0, 2], 'só as V1/V2 criadas no teste 2');
+  assert.equal(before.mcs, 2, 'só as mensagens da MCS da semeadura');
+  assert.deepEqual(backend.refused, [], 'nenhuma chamada ao 360dialog nem a outro endereço');
 });
