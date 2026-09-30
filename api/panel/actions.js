@@ -558,7 +558,13 @@ async function actionReturn(ctx, journey, body) {
 // Every OpenAI call of the CSV reading is recorded on the server (provider, model, tokens, cost,
 // row count), whether or not the browser later sends its batch summary. Never a cell or a prompt.
 // US$ 50 for all the panel's OpenAI features together; a failed read of the spend blocks the call.
-async function openAiFits(ctx) { try { return openAiBudget.fits(await openAiBudget.spentUsd(ctx)); } catch (_) { return false; } }
+async function openAiFits(ctx) {
+  try {
+    if (!openAiBudget.fits(await openAiBudget.spentUsd(ctx))) return false;
+    // The minimal model test (no customer data) must have passed before the first real reading.
+    return (await require('../../panel-openai-model-check').ensureModelChecked(ctx, manheimAi.model())).ok;
+  } catch (_) { return false; }
+}
 async function recordManheimAiCall(ctx, action, result, rowsSent, failure) {
   await insert(ctx, 'audit_log', { environment: ctx.environment, actor_user_id: ctx.panel.id, entity_type: 'manheim_openai', entity_id: null, action,
     after_json: { provider: 'openai', model: result ? result.model : manheimAi.model(), inputTokens: result ? result.usage.inputTokens : 0, outputTokens: result ? result.usage.outputTokens : 0,

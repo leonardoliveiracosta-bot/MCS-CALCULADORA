@@ -213,4 +213,4 @@ async function compareItems(ctx, items, options = {}) {
   return { uploadId: upload.id, compared: results.length, results };
 }
 
-module.exports = { HISTORY_SINCE, MAX_CALL_USD, PRICES, PROVIDER_LIMIT_USD, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };
+module.exports = { openAiChat, HISTORY_SINCE, MAX_CALL_USD, PRICES, PROVIDER_LIMIT_USD, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };

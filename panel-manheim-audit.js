@@ -23,6 +23,7 @@
 
 const crypto = require('node:crypto');
 const openAiBudget = require('./panel-openai-budget');
+const modelCheck = require('./panel-openai-model-check');
 const { allRows, insert, patchRows, rows, supabase } = require('./panel-server');
 const { matchManheimDemand } = require('./panel-domain');
 const { hasValidMmr } = require('./vehicle-match');
@@ -32,7 +33,9 @@ const aiClaim = require('./panel-ai-claim');
 const RULE_VERSION = 'conferencia-v1';
 const DEFAULT_MODEL = 'gpt-6-luna';
 const APPROVED_MODELS = Object.freeze(['gpt-6-luna']);
-const LIMIT_USD = 2;
+// Per import: the owner authorized the Manheim readings up to the OpenAI ceiling (US$ 50 for all
+// features together, panel-openai-budget), so an import no longer stops at US$ 2 waiting for approval.
+const LIMIT_USD = 50;
 const MAX_ATTEMPTS = 3;
 // Options per call; a broad demand (hundreds of cars) is checked in several calls.
 const CHUNK_OPTIONS = 100;
@@ -419,6 +422,9 @@ async function runAudit(ctx, input, options = {}) {
   // limit above still applies.
   const budget = options.budget || openAiBudget;
   const provider = await budget.spentUsd(ctx);
+  // The minimal model test (no customer data) must have passed before the first real reading.
+  const check = await (options.modelCheck || modelCheck.ensureModelChecked)(ctx, modelId);
+  if (!check.ok) return { ...result, stoppedReason: 'MODEL_NOT_CHECKED', error: check.error };
   for (const group of pending) {
     if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred += 1; continue; }
     if (!budget.fits(provider, Math.max(estimateGroup(group, modelId).costUsd * 2, budget.MAX_CALL_USD), result.costUsd)) { result.providerLimit = true; result.deferred += 1; continue; }

@@ -1,7 +1,6 @@
 'use strict';
 
 const { anthropicJson, aiContextWindow, reserveCall } = require('../../panel-ai');
-const v1Send = require('./v1-send');
 const { ensureJourney, leadData } = require('../../panel-lead');
 const { insert, jsonBody, requirePanel, safeText, send } = require('../../panel-server');
 const { loadSearchStageIndex } = require('../../panel-search-stage');
@@ -30,15 +29,8 @@ module.exports = async (req, res) => {
     const stage = stageIndex.get(journey.id);
     const messages = (lead.record?.conversation || []).filter((message) => !message.is_automatic && !message.undone_at);
     const window = aiContextWindow(messages, lead.maxBidCents ? lead.maxBidCents / 100 : null, 'America/New_York');
-    // Origin of the person's search: calculator (Calculate My Cost, VALOR) or Find One For Me (CARRO).
-    // The approved message of that origin is the reference for tone and content; nothing is sent.
-    const modes = new Set([...(lead.record?.criteria_json?.logical_modes || []), ...((lead.order?.simulations || []).map((item) => item && (item.logicalMode || item.logical_mode)))].filter((mode) => mode === 'VALOR' || mode === 'CARRO'));
-    const origem = [...modes].map((mode) => mode === 'VALOR' ? 'calculadora (Calculate My Cost)' : 'Find One For Me');
-    const mensagensAprovadas = Object.fromEntries([...modes].map((mode) => [mode === 'VALOR' ? 'calculadora' : 'find_one', v1Send.TEMPLATES[mode]('{nome}', '{link da V1}')]));
     const context = {
       perguntaDoDono: question,
-      origem: origem.length ? origem : ['não identificada'],
-      mensagensAprovadasDaMCS: mensagensAprovadas,
       lead: {
         nome: lead.record?.contact?.display_name || lead.order?.contactName || null,
         ref: lead.ref, desejo: lead.wishes, lanceMaximo: lead.maxBidCents ? lead.maxBidCents / 100 : null,
@@ -51,7 +43,7 @@ module.exports = async (req, res) => {
     };
     await reserveCall(ctx);
     const parsed = await anthropicJson(
-      'Você ajuda o dono da My Car Scout. Responda SOMENTE JSON {situacao,sugestao,mensagem_en,traducao_pt}. situacao e sugestao em português. Use exclusivamente os dados recebidos; nunca prometa carro, preço, prazo ou disponibilidade. mensagem_en deve ser inglês natural e informal, uma única frase corrida ligada por vírgulas, sem tom de vendedor. traducao_pt é a tradução completa da mensagem_en. Use o tom e o conteúdo da mensagem aprovada da MCS para a origem recebida (calculadora ou Find One For Me) como referência, sem copiar trechos que não se aplicam e sem inventar link. A mensagem é só uma sugestão: o dono revisa e decide se envia.',
+      'Você ajuda o dono da My Car Scout. Responda SOMENTE JSON {situacao,sugestao,mensagem_en,traducao_pt}. situacao e sugestao em português. Use exclusivamente os dados recebidos; nunca prometa carro, preço, prazo ou disponibilidade. mensagem_en deve ser inglês natural e informal, uma única frase corrida ligada por vírgulas, sem tom de vendedor. traducao_pt é a tradução completa da mensagem_en.',
       JSON.stringify(context)
     );
     const result = answer(parsed);

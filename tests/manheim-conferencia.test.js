@@ -222,7 +222,7 @@ test('limite por importação: acima dele nada é chamado, mostra a estimativa e
   const state = await audit.viewState(ctx, view, { env: ENV });
   assert.equal(state.run.status, 'AGUARDANDO_AUTORIZACAO');
   assert.equal(state.byDemand[valorKey].status, 'AGUARDANDO_AUTORIZACAO');
-  assert.equal(state.limitUsd, 2);
+  assert.equal(state.limitUsd, 50);
   await audit.authorize(ctx, UPLOAD, ACTOR);
   await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: 0.00001 });
   assert.equal(calls.length, 1);
