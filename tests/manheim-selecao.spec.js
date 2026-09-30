@@ -143,6 +143,8 @@ test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote
   await page.locator('[data-view="searches"]').click();
   const card = page.locator('#buscas-carro .manheim-lead').first();
   await expect(card.locator('.offer-counter')).toContainText('0 passam em Lane/Run · 0 Buy Now / Make Offer / fora de Lane-Run · 6 incompletos', { timeout: 60000 });
+  // The complement lives in IMPORTAÇÕES; the groups stay in OPÇÕES.
+  await page.locator('[data-view="imports"]').click();
   const button = page.locator('#manheim-complement');
   await expect(button).toHaveText('Complementar dados do lote ativo');
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), button.click()]);
@@ -151,9 +153,10 @@ test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote
   const confirm = page.locator('.inline-confirm');
   await expect(confirm).toContainText('7 carros do lote ativo conferidos com o manifesto. 7 vão receber Lane, Run, Inventory, Status e Event Sale Name: 4 com Lane/Run, 2 Buy Now / Make Offer, 1 ainda incompletos');
   expect((await q(`select count(*)::int n from public.manheim_sale_current`)).n, 'nada gravado antes da confirmação').toBe(0);
-  if (SHOTS) await page.locator('#searches-panel > section.card').first().screenshot({ path: path.join(SHOTS, 'complemento-confirmacao.png') });
+  if (SHOTS) await page.locator('#imports-panel > section.card').first().screenshot({ path: path.join(SHOTS, 'complemento-confirmacao.png') });
   await confirm.getByRole('button', { name: 'Complementar agora' }).click();
   await expect(status).toHaveText('Complemento concluído · 7 carros complementados · 4 com Lane/Run · 2 Buy Now / Make Offer · 1 ainda incompletos · 6 matches', { timeout: 30000 });
+  await page.locator('[data-view="searches"]').click();
   await expect(card.locator('.offer-counter')).toContainText('3 passam em Lane/Run · 2 Buy Now / Make Offer / fora de Lane-Run · 1 incompletos', { timeout: 30000 });
   if (SHOTS) await page.locator('#searches-panel').screenshot({ path: path.join(SHOTS, 'complemento-concluido.png') });
   const after = await q(`select (select count(*) from public.manheim_uploads)::int uploads, (select count(*) from public.manheim_matches)::int matches, (select count(*) from public.manheim_vehicles)::int vehicles`);

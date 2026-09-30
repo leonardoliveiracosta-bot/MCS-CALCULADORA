@@ -54,6 +54,8 @@ async function translate(text, services) {
 }
 
 async function d360Send(phone, text, fetchImpl = fetch) {
+  // Última trava: fora de produção a chamada real nunca sai, mesmo que alguém chame esta função.
+  if (process.env.VERCEL_ENV !== 'production' && fetchImpl === fetch) return { error: 'D360_BLOCKED_OUTSIDE_PRODUCTION' };
   const key = process.env.D360_API_KEY;
   if (!key) return { error: 'D360_KEY_MISSING' };
   let response;
@@ -96,6 +98,9 @@ async function handle(ctx, body, services = defaultServices, now = Date.now()) {
       if (!target) return { status: 400, error: 'REPLY_NOT_ELIGIBLE' };
       const state = await windowState(ctx, target.chat.id, services, now);
       if (!state.allowed) return { status: 400, error: 'WINDOW_CLOSED' };
+      // Fora de produção (Preview, desenvolvimento, teste) o 360dialog real nunca é chamado: o envio
+      // é simulado e nenhuma mensagem é gravada na conversa (o Preview usa o banco de produção).
+      if (services.d360Send === d360Send && process.env.VERCEL_ENV !== 'production') return { status: 200, ok: true, simulated: true, messageId: 'simulated-' + crypto.randomUUID() };
       const sent = await services.d360Send(target.phone, text);
       if (sent.error) return { status: 502, error: sent.error };
       // já saiu para o cliente: se o registro falhar, digo isso para não reenviar às cegas
@@ -125,3 +130,6 @@ module.exports.resolveTarget = resolveTarget;
 module.exports.windowState = windowState;
 module.exports.translate = translate;
 module.exports.MAX_TEXT = MAX_TEXT;
+module.exports.d360Send = d360Send;
+module.exports.recordSent = recordSent;
+module.exports.applyMessage = applyMessage;

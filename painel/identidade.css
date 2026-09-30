@@ -701,3 +701,24 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 .offer-row > div:first-child > span { display: block; }
 .offer-price > .muted { font-size: 13px; }
 .offer-price .offer-note { flex-basis: 100%; }
+
+/* Envio da V1 pelo WhatsApp e histórico de lotes */
+.v1-send { display: grid; gap: 6px; margin-top: 6px; }
+.v1-send-state[data-status="SENT"] { color: var(--mcs-green); }
+.v1-send-state[data-status="UNCONFIRMED"], .v1-send-state[data-status="FAILED"] { color: var(--mcs-red); }
+.v1-send-text { width: 100%; font: inherit; }
+.v1-send-confirm { display: grid; gap: 8px; }
+.batch-history, .batch-hidden { margin-top: 10px; }
+.batch-history > summary, .batch-hidden > summary { cursor: pointer; font-weight: 600; min-height: var(--mcs-touch); display: flex; align-items: center; }
+
+/* PESQUISAS */
+.requests-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.request-card { display: grid; gap: 6px; }
+.request-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.request-person { border-top: 1px solid var(--mcs-line); padding-top: 8px; display: grid; gap: 4px; }
+.request-person-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.request-evidence > summary { cursor: pointer; min-height: var(--mcs-touch); display: flex; align-items: center; }
+.request-evidence p { margin: 4px 0; overflow-wrap: anywhere; }
+.requests-audit > summary { cursor: pointer; font-weight: 600; min-height: var(--mcs-touch); display: flex; align-items: center; }
+.requests-audit-table { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 8px 0; }
+.requests-audit-table dd { margin: 0; text-align: right; font-weight: 600; }

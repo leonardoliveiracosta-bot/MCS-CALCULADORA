@@ -165,6 +165,7 @@
       if (result.uploadId) failure.uploadId = result.uploadId;
       if (result.reason) failure.reason = result.reason;
       if (Number.isInteger(result.fileIndex)) failure.fileIndex = result.fileIndex;
+      if (typeof result.whatsappLink === 'string' && result.whatsappLink.startsWith('https://wa.me/')) failure.whatsappLink = result.whatsappLink;
       throw failure;
     }
     return result;
@@ -439,23 +440,23 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', searches: 'manheim-summary', manheim: 'manheim-summary', records: 'records-list' };
+    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', requests: 'requests-list', searches: 'manheim-summary', imports: 'manheim-batches', manheim: 'manheim-summary', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
   }
 
   async function switchPanel(view) {
     // Lote 4: PEDIDOS is part of ENTRADA and CLIENTES now; an old link or history entry opens ENTRADA.
     if (view === 'orders') view = 'entry';
-    if (!['today', 'entry', 'clients', 'searches'].includes(view)) return;
+    if (!['today', 'entry', 'clients', 'requests', 'searches', 'imports'].includes(view)) return;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     currentView = view;
     $('search-results')?.classList.add('hidden');
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
-    const labels = { today: 'HOJE', entry: 'ENTRADA', clients: 'CLIENTES', searches: 'BUSCAS' };
+    const labels = { today: 'HOJE', entry: 'ENTRADA', clients: 'CLIENTES', requests: 'PESQUISAS', searches: 'OPÇÕES', imports: 'IMPORTAÇÕES' };
     currentDetail = null;
     if ($('detail-panel')) $('detail-panel').classList.add('hidden');
-    ['today','entry','clients','searches','pending','qualification','manheim','records'].forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
+    ['today','entry','clients','requests','searches','imports','pending','qualification','manheim','records'].forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
     $('page-title').textContent = labels[view];
     document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
     renderLoading(view);
@@ -1210,6 +1211,17 @@
       if (!current()) return;
       updateMeta(data.meta);renderManheim(data);return;
     }
+    // IMPORTAÇÕES reads the same batch data (the batch list and the import tools live there).
+    if (view === 'imports') {
+      const data = await request('/api/panel/records?view=manheim', viewFetch());
+      if (!current()) return;
+      updateMeta(data.meta);renderManheim(data);return;
+    }
+    if (view === 'requests') {
+      const data = await request('/api/panel/pesquisas', viewFetch());
+      if (!current()) return;
+      return renderRequests(data);
+    }
     if (view === 'manheim') {
       const data = await request('/api/panel/records?view=manheim',viewFetch());
       if (!current()) return;
@@ -1454,7 +1466,7 @@
   }
 
   function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', entry: 'entry-panel', clients:'clients-panel', pending: 'pending-panel', qualification: 'qualification-panel', searches: 'searches-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    const labels = { today: 'today-panel', entry: 'entry-panel', clients:'clients-panel', pending: 'pending-panel', qualification: 'qualification-panel', requests: 'requests-panel', searches: 'searches-panel', imports: 'imports-panel', manheim: 'manheim-panel', records: 'records-panel' };
     Object.values(labels).forEach((id) => $(id)?.classList.add('hidden'));
     $('detail-panel').classList.remove('hidden');
     $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
@@ -1996,6 +2008,95 @@
     list.append(more); details.append(list);
     return details;
   }
+  // Envio manual da V1 pelo WhatsApp (360dialog). Só depois de gerar a V1, sempre com confirmação:
+  // o operador vê nome, telefone, texto e link, pode editar o texto e confirma com um segundo clique.
+  // O destino é o telefone da ficha, decidido pelo servidor. Sem confirmação do WhatsApp o envio fica
+  // "Não confirmado" e nada é tentado de novo sozinho.
+  const V1_SEND_REASONS = {
+    NO_VALID_PHONE: 'Ficha sem telefone de WhatsApp válido: envio pelo painel indisponível',
+    V1_SEND_PENDING: 'Envio pelo painel indisponível: migração pendente',
+    OFF: 'Envio direto desligado em produção. Use "Abrir WhatsApp com mensagem pronta"'
+  };
+  const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+  function v1SendControls(demand) {
+    const node = element('div', 'v1-send');
+    const button = element('button', 'small', 'Enviar no WhatsApp'); button.type = 'button'; button.disabled = true;
+    const state = element('p', 'muted v1-send-state', 'Gere a V1 para enviar no WhatsApp');
+    const fallback = element('a', 'quiet small hidden v1-send-fallback', 'Abrir WhatsApp com mensagem pronta');
+    fallback.target = '_blank'; fallback.rel = 'noopener';
+    node.append(button, fallback, state);
+    let info = null;
+    let token = null;
+    let busy = false;
+    const showLast = (last) => {
+      if (!last) return;
+      const simulated = last.simulated ? ' · simulado' : '';
+      state.textContent = last.status === 'SENT' ? `Enviado às ${clock(last.at)}${simulated}`
+        : last.status === 'UNCONFIRMED' ? 'Não confirmado pelo WhatsApp. Verifique a conversa antes de reenviar'
+        : last.status === 'FAILED' ? 'Não enviado: o WhatsApp recusou o envio' : state.textContent;
+      state.dataset.status = last.status;
+      if (['SENT', 'UNCONFIRMED', 'FAILED'].includes(last.status)) button.textContent = 'Reenviar';
+    };
+    const setFallback = (href) => { if (href) { fallback.href = href; fallback.classList.remove('hidden'); } };
+    async function setVitrine(newToken) {
+      token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp';
+      state.textContent = 'Conferindo o destino…'; delete state.dataset.status;
+      try {
+        info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: 'prepare', token, baseUrl: location.origin, ...(demand?.key ? { demandKey: demand.key } : {}) }) });
+      } catch (failure) {
+        state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio. Use "Copiar mensagem com link"';
+        return;
+      }
+      if (!info.eligible) { state.textContent = V1_SEND_REASONS[info.reason] || V1_SEND_REASONS.NO_VALID_PHONE; return; }
+      setFallback(info.whatsappLink);
+      if (info.mode === 'OFF') { state.textContent = V1_SEND_REASONS.OFF; return; }
+      state.textContent = `Para ${info.name} · ${info.phone}${info.mode === 'SIMULATED' ? ' · envio simulado neste ambiente' : ''}`;
+      button.disabled = false;
+      showLast(info.last);
+    }
+    function openConfirm() {
+      if (!info || busy || node.querySelector('.v1-send-confirm')) return;
+      const resend = button.textContent === 'Reenviar';
+      const requestKey = crypto.randomUUID();
+      const box = element('div', 'warning inline-confirm v1-send-confirm');
+      box.append(element('p', '', `${resend ? 'Reenviar' : 'Enviar'} para ${info.name} · ${info.phone}`),
+        element('p', 'muted', `Link V1: ${info.link}`));
+      if (!info.origin) box.append(element('p', 'muted', 'Origem da busca não identificada: escreva a mensagem (o link da V1 precisa ficar no texto)'));
+      const label = element('label', '', 'Mensagem');
+      const textarea = element('textarea', 'v1-send-text'); textarea.rows = 9; textarea.maxLength = 4000; textarea.value = info.text || info.link;
+      label.append(textarea);
+      const yes = element('button', 'small', 'Confirmar envio'); yes.type = 'button';
+      const no = element('button', 'quiet small', 'Cancelar'); no.type = 'button';
+      box.append(label, yes, no);
+      no.addEventListener('click', () => box.remove());
+      yes.addEventListener('click', async () => {
+        if (busy) return;
+        busy = true; yes.disabled = true; no.disabled = true; textarea.disabled = true; button.disabled = true;
+        yes.textContent = 'Enviando…';
+        try {
+          const result = await request('/api/panel/v1-send', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: 'send', token, text: textarea.value, requestKey, confirmed: true, resend, ...(demand?.key ? { demandKey: demand.key } : {}) }) });
+          box.remove();
+          showLast({ status: result.sendStatus, at: result.at, simulated: result.simulated });
+        } catch (failure) {
+          box.remove();
+          const code = failure && failure.code;
+          if (code === 'WINDOW_CLOSED') { state.textContent = 'Fora da janela de 24 h do WhatsApp: não foi enviado. Use "Abrir WhatsApp com mensagem pronta"'; setFallback(failure.whatsappLink || info.whatsappLink); }
+          else if (code === 'V1_ALREADY_SENT') { state.textContent = 'Esta V1 já foi enviada'; button.textContent = 'Reenviar'; }
+          else if (code === 'SEND_IN_PROGRESS') state.textContent = 'Já existe um envio desta V1 em andamento';
+          else if (code === 'V1_DIRECT_SEND_DISABLED') state.textContent = V1_SEND_REASONS.OFF;
+          else if (code === 'V1_SEND_PENDING') state.textContent = V1_SEND_REASONS.V1_SEND_PENDING;
+          else if (['TEXT_REQUIRED', 'TEXT_TOO_LONG', 'V1_LINK_MISSING'].includes(code)) state.textContent = code === 'V1_LINK_MISSING' ? 'A mensagem precisa conter o link da V1. Nada foi enviado' : 'Mensagem vazia ou longa demais. Nada foi enviado';
+          else { state.textContent = 'Não confirmado: sem resposta do servidor. Verifique a conversa antes de reenviar'; state.dataset.status = 'UNCONFIRMED'; button.textContent = 'Reenviar'; }
+        } finally { busy = false; button.disabled = !info || info.mode === 'OFF'; }
+      });
+      node.append(box);
+      textarea.focus();
+    }
+    button.addEventListener('click', (event) => { event.stopPropagation(); openConfirm(); });
+    node.addEventListener('click', (event) => event.stopPropagation());
+    return { node, setVitrine };
+  }
+
   // Selection not available on this database (migration pending): the list below is only internal
   // matches and V1 stays blocked by the server.
   function offerPendingNote() {
@@ -2075,9 +2176,10 @@
       const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => loaded.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
       downloadShortlist(selected, journey.reference_code);
     });
+    const v1Send=v1SendControls(demand);
     const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';}catch(_){$('manheim-status').textContent='Não consegui copiar. Link: '+link;}});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){$('manheim-status').textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente com migração pendente':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
-    card.append(exportButton,vitrineButton,copyMessageButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){$('manheim-status').textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente com migração pendente':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;v1Send.setVitrine(created.token);/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
+    card.append(exportButton,vitrineButton,copyMessageButton,v1Send.node,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
   }
@@ -2154,7 +2256,7 @@
     setCount('manheim', data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} carro(s) com combinação · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma importação ativa';
     renderBuscasCounters(data.counts);
-    renderBatches(data.uploads || [], data.undoAvailable !== false);
+    renderBatches(data.uploads || [], data.undoAvailable !== false, data.hiddenBatchIds);
     renderReview(data.review || []);
     renderAuditNote(data.audit);
 
@@ -2211,30 +2313,211 @@
 
   // One row per import batch (a batch can have several CSV files). Undo is reversible and
   // audited: nothing is deleted, cars and matches of the batch leave every screen.
-  function renderBatches(batches, undoAvailable) {
+  // PESQUISAS: todo pedido de veículo (ficha, calculadora e conversas lidas), com critérios exatos,
+  // evidências e estado contra o lote ativo. Nenhum pedido sai da lista por estágio, prazo ou
+  // classificação; "sem opção no lote" continua aqui para a próxima importação. Nada é enviado.
+  // Regra MCS: busca POR CARRO (veículo, ano e milhagem, sem valor) ou POR VALOR (modelo e valor).
+  // Sem critérios para nenhum dos dois o pedido fica visível com o que falta e nunca é comparado,
+  // contado como opção ou marcado como atendido.
+  const REQUEST_STATES = ['FALTA_BUSCAR', 'COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO', 'PRECISA_DETALHE', 'PRECISA_REVISAO'];
+  const REQUEST_STATE_LABELS = { FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', COM_CANDIDATOS: 'CANDIDATOS · VALOR A CONFERIR', SEM_OPCAO: 'SEM OPÇÃO NO LOTE', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' };
+  const REQUEST_STATE_TONES = { FALTA_BUSCAR: 'yellow', COM_OPCOES: 'green', COM_CANDIDATOS: 'yellow', SEM_OPCAO: '', PRECISA_DETALHE: 'yellow', PRECISA_REVISAO: 'red' };
+  const REQUEST_SOURCES = { FICHA: 'Ficha', CONVERSA: 'Conversa', CALCULADORA: 'Calculadora' };
+  const EXTRACTION_TEXT = { SIMULADA: 'Leitura das conversas: simulada neste ambiente (sem IA)', DESLIGADA: 'Leitura das conversas por IA: desligada', SEM_CHAVE: 'Leitura das conversas por IA: sem chave', MODELO_INVALIDO: 'Leitura das conversas por IA: modelo não aprovado', LIGADA: 'Leitura das conversas por IA: ligada' };
+  let requestsData = null;
+  let requestsFilter = 'ALL';
+  let requestsShown = 50;
+  function renderRequests(data) {
+    requestsData = data;
+    setCount('requests', (data.items || []).length);
+    const status = $('requests-status');
+    const upload = data.upload ? `Lote ativo de ${formatDate(data.upload.uploadedAt)}` : 'Nenhum lote ativo';
+    status.classList.remove('error');
+    status.textContent = [upload, EXTRACTION_TEXT[data.extraction] || '', data.requestsPending ? 'Pedidos lidos das conversas indisponíveis: migração pendente' : ''].filter(Boolean).join(' · ');
+    const filters = $('requests-filters');
+    filters.replaceChildren();
+    const chip = (key, label, count) => {
+      const button = element('button', 'chip' + (requestsFilter === key ? ' active' : ''), '');
+      button.type = 'button'; button.dataset.requestState = key;
+      button.append(document.createTextNode(label + ' '), element('span', '', String(count)));
+      button.addEventListener('click', () => { requestsFilter = key; requestsShown = 50; renderRequests(requestsData); });
+      filters.append(button);
+    };
+    chip('ALL', 'Todos', (data.items || []).length);
+    REQUEST_STATES.forEach((state) => chip(state, REQUEST_STATE_LABELS[state], (data.counts || {})[state] || 0));
+    const root = $('requests-list');
+    root.replaceChildren();
+    const visible = (data.items || []).filter((item) => requestsFilter === 'ALL' || item.state === requestsFilter);
+    if (!visible.length) return empty(root, requestsFilter === 'ALL' ? 'Nenhum pedido de veículo registrado' : 'Nenhum pedido neste estado');
+    // Same criteria, one task; every person and conversation stays listed inside it.
+    const groups = new Map();
+    visible.forEach((item) => { if (!groups.has(item.groupKey)) groups.set(item.groupKey, []); groups.get(item.groupKey).push(item); });
+    const ordered = [...groups.values()].sort((left, right) => REQUEST_STATES.indexOf(left[0].state) - REQUEST_STATES.indexOf(right[0].state)
+      || String(latestOf(right)).localeCompare(String(latestOf(left))));
+    ordered.slice(0, requestsShown).forEach((members) => root.append(requestCard(members)));
+    if (ordered.length > requestsShown) {
+      const more = element('button', 'quiet small', `Mostrar mais (${ordered.length - requestsShown})`); more.type = 'button';
+      more.addEventListener('click', () => { requestsShown += 50; renderRequests(requestsData); });
+      root.append(more);
+    }
+  }
+  const latestOf = (members) => members.map((item) => item.lastMessageAt || '').sort().at(-1) || '';
+  function requestCard(members) {
+    const first = members[0];
+    const card = element('article', 'item-card request-card');
+    card.dataset.state = first.state;
+    const head = element('div', 'request-head');
+    head.append(element('strong', '', 'Informado: ' + first.criteriaText), makeBadge(first.stateLabel, REQUEST_STATE_TONES[first.state]));
+    card.append(head);
+    if (members.length > 1) card.append(element('p', 'muted', `${members.length} pedidos com critérios exatamente iguais`));
+    if (first.state === 'COM_OPCOES') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'opção válida' : 'opções válidas'} no lote ativo`));
+    if (first.state === 'COM_CANDIDATOS') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'candidato' : 'candidatos'} no lote ativo por modelo, ano e milhagem. O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada`));
+    if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo. Continua aqui para a próxima importação'));
+    if (first.comparedAt) card.append(element('p', 'muted', `${first.comparedAtImport ? 'Comparado na importação de' : 'Última comparação'}: ${formatDate(first.comparedAt)}`));
+    if (first.missing && first.missing.length) card.append(element('p', 'muted', 'Não informado (sem restrição): ' + first.missing.join(', ')));
+    if (first.typeNotChecked) card.append(element('p', 'muted', 'O tipo de carroceria não vem no arquivo do Manheim: as opções não filtram por tipo'));
+    if (first.state === 'PRECISA_DETALHE') card.append(element('p', 'request-lacks', first.lacksText || ''),
+      element('p', 'muted', 'Sem busca no lote até a pessoa detalhar. Continua aqui, ligado à conversa'));
+    if (first.reviewReason) card.append(element('p', 'muted', 'Revisão: ' + first.reviewReason));
+    members.forEach((item) => {
+      const line = element('div', 'request-person');
+      const who = element('div', 'request-person-head');
+      who.append(element('span', '', item.person?.name || 'Sem nome'), makeBadge(REQUEST_SOURCES[item.source] || item.source, ''),
+        element('span', 'muted', item.lastMessageAt ? 'Última mensagem: ' + formatDate(item.lastMessageAt) : 'Sem mensagem registrada'));
+      if (item.versions > 1) who.append(element('span', 'muted', `${item.versions} versões do pedido`));
+      if (item.person?.journeyId) {
+        const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button';
+        open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', item.person.journeyId); });
+        who.append(open);
+      }
+      line.append(who);
+      const evidence = element('details', 'request-evidence');
+      evidence.append(element('summary', '', `Evidências (${(item.evidence || []).length})`));
+      (item.evidence || []).forEach((entry) => evidence.append(element('p', 'muted', (entry.at ? formatDate(entry.at) + ' · ' : '') + entry.text)));
+      line.append(evidence);
+      card.append(line);
+    });
+    return card;
+  }
+  // Compares every request in FALTA BUSCAR with the active batch, 40 at a time, then reloads.
+  async function compareRequests(button) {
+    button.disabled = true;
+    const status = $('requests-status');
+    try {
+      for (let round = 0; round < 50; round += 1) {
+        const result = await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'compare' }) });
+        status.textContent = `Comparando com o lote ativo · ${result.remaining} pedido(s) restantes`;
+        if (!result.compared || !result.remaining) break;
+      }
+      await loadCurrent();
+    } catch (failure) {
+      status.classList.add('error');
+      status.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Comparação indisponível: migração pendente' : 'Não consegui comparar agora, tente de novo';
+    } finally { button.disabled = false; }
+  }
+  async function loadRequestsAudit() {
+    const root = $('requests-audit-content');
+    root.replaceChildren(element('p', 'muted', 'Calculando…'));
+    let data;
+    try { data = await request('/api/panel/pesquisas?view=audit', { timeoutMs: 60000 }); }
+    catch (_) { root.replaceChildren(element('p', 'muted', 'Não consegui calcular a auditoria agora')); return; }
+    const table = element('dl', 'requests-audit-table');
+    const row = (label, value) => { table.append(element('dt', '', label), element('dd', '', String(value))); };
+    row('Pessoas com mensagens', data.peopleWithMessages);
+    row('Conversas com mensagem do cliente', data.conversationsWithCustomerMessages);
+    row('Conversas com pedido identificado', data.tablesPending ? 'migração pendente' : data.conversationsWithRequest);
+    row('Conversas sem pedido de veículo', data.tablesPending ? 'migração pendente' : data.conversationsWithoutRequest);
+    row('Pedidos distintos', data.requests);
+    row('Tarefas (critérios exatamente iguais)', data.groups);
+    row('Prontos para buscar', data.ready);
+    row('Prontos com opções (cálculo oficial)', data.readyWithOptions);
+    row('Prontos com candidatos (valor a conferir)', data.readyWithCandidates);
+    row('Prontos sem opção', data.readyWithoutOptions);
+    row('Precisam de detalhe (sem busca)', data.needsDetail);
+    row('Precisam de revisão humana', data.review);
+    row('Ainda não comparados', data.notCompared);
+    row('Sem vínculo confiável', data.withoutReliableLink);
+    row('Conversas ainda não lidas', data.estimate.conversationsToRead);
+    root.replaceChildren(table,
+      element('p', data.allServed ? '' : 'warning', data.allServed ? 'Todos os pedidos têm opção válida no lote ativo' : 'Ainda não há prova de que todo pedido de veículo foi atendido'),
+      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}, dentro do limite de US$ ${data.estimate.providerLimitUsd} do provedor. Nada é lido sem autorização`));
+  }
+
+  // Lotes: o ativo sempre à vista; os desfeitos num "Histórico de lotes" recolhido. Ocultar é só
+  // preferência de exibição deste operador (o lote, os veículos e os matches não mudam).
+  let batchHistoryOpen = false;
+  let batchHiddenOpen = false;
+  function renderBatches(batches, undoAvailable, hiddenIds) {
     const root = $('manheim-batches');
     if (!root) return;
     root.replaceChildren(element('h3', '', 'Lotes de importação'));
     if (!batches.length) return root.append(element('p', 'muted', 'Nenhum lote importado'));
-    batches.slice(0, 10).forEach((batch) => {
-      const line = element('article', 'batch-line' + (batch.status === 'UNDONE' ? ' undone' : ''));
-      line.dataset.batchId = batch.id;
-      const text = element('div', 'batch-text');
-      const files = `${batch.fileCount} arquivo${batch.fileCount === 1 ? '' : 's'}`;
-      text.append(element('strong', '', `${formatDate(batch.uploadedAt)} · ${files}`), element('span', 'muted', `${batch.vehicleCount} veículos · ${batch.matchCount} matches`));
-      if (batch.ai && Number(batch.ai.rowsSentToAi) > 0) text.append(element('span', 'muted', `IA: OpenAI ${batch.ai.model || ''} · ${batch.ai.rowsSentToAi} linha(s)`));
-      const state = makeBadge(batch.status === 'UNDONE' ? 'Desfeito' : batch.current ? 'Ativo · em uso' : 'Ativo', batch.status === 'UNDONE' ? '' : 'green');
-      text.append(state);
-      if (batch.status === 'UNDONE' && batch.undoSummary) text.append(element('span', 'muted', undoSummaryText(batch.undoSummary)));
-      line.append(text);
-      if (batch.status === 'ACTIVE' && undoAvailable) {
-        const undo = element('button', 'quiet small', 'Desfazer importação');
-        undo.type = 'button';
-        undo.addEventListener('click', () => confirmUndoBatch(line, batch, undo));
-        line.append(undo);
-      }
-      root.append(line);
-    });
+    const hidden = new Set(hiddenIds || []);
+    const active = batches.filter((batch) => batch.status !== 'UNDONE');
+    const undone = batches.filter((batch) => batch.status === 'UNDONE');
+    active.forEach((batch) => root.append(batchLine(batch, undoAvailable, null)));
+    if (!active.length) root.append(element('p', 'muted', 'Nenhum lote ativo'));
+    if (!undone.length) return;
+    const visible = undone.filter((batch) => !hidden.has(batch.id));
+    const hiddenList = undone.filter((batch) => hidden.has(batch.id));
+    const history = element('details', 'batch-history');
+    history.open = batchHistoryOpen;
+    history.addEventListener('toggle', () => { batchHistoryOpen = history.open; });
+    history.append(element('summary', '', `Histórico de lotes (${visible.length})`));
+    if (hiddenIds === null || hiddenIds === undefined) history.append(element('p', 'muted', 'Ocultar lotes indisponível: migração pendente'));
+    else if (visible.length) {
+      const all = element('button', 'quiet small', 'Ocultar todos os lotes desfeitos'); all.type = 'button';
+      all.addEventListener('click', () => batchVisibility(all, { op: 'hide_all' }));
+      const actions = element('div', 'inline-actions'); actions.append(all); history.append(actions);
+    }
+    visible.forEach((batch) => history.append(batchLine(batch, false, hiddenIds ? 'hide' : null)));
+    if (!visible.length) history.append(element('p', 'muted', 'Nenhum lote desfeito à vista'));
+    if (hiddenList.length) {
+      const more = element('details', 'batch-hidden');
+      more.open = batchHiddenOpen;
+      more.addEventListener('toggle', () => { batchHiddenOpen = more.open; });
+      more.append(element('summary', '', `Ver lotes ocultos (${hiddenList.length})`));
+      hiddenList.forEach((batch) => more.append(batchLine(batch, false, 'restore')));
+      history.append(more);
+    }
+    root.append(history);
+  }
+  function batchLine(batch, undoAvailable, visibility) {
+    const line = element('article', 'batch-line' + (batch.status === 'UNDONE' ? ' undone' : ''));
+    line.dataset.batchId = batch.id;
+    const text = element('div', 'batch-text');
+    const files = `${batch.fileCount} arquivo${batch.fileCount === 1 ? '' : 's'}`;
+    text.append(element('strong', '', `${formatDate(batch.uploadedAt)} · ${files}`), element('span', 'muted', `${batch.vehicleCount} veículos · ${batch.matchCount} matches`));
+    if (batch.ai && Number(batch.ai.rowsSentToAi) > 0) text.append(element('span', 'muted', `IA: OpenAI ${batch.ai.model || ''} · ${batch.ai.rowsSentToAi} linha(s)`));
+    text.append(makeBadge(batch.status === 'UNDONE' ? 'Desfeito' : batch.current ? 'Ativo · em uso' : 'Ativo', batch.status === 'UNDONE' ? '' : 'green'));
+    if (batch.status === 'UNDONE' && batch.undoSummary) text.append(element('span', 'muted', undoSummaryText(batch.undoSummary)));
+    line.append(text);
+    if (batch.status === 'ACTIVE' && undoAvailable) {
+      const undo = element('button', 'quiet small', 'Desfazer importação');
+      undo.type = 'button';
+      undo.addEventListener('click', () => confirmUndoBatch(line, batch, undo));
+      line.append(undo);
+    }
+    // Only an undone batch can leave the list; the active one never can.
+    if (batch.status === 'UNDONE' && visibility) {
+      const toggle = element('button', 'quiet small', visibility === 'hide' ? 'Ocultar da lista' : 'Restaurar');
+      toggle.type = 'button';
+      toggle.dataset.batchVisibility = visibility;
+      toggle.addEventListener('click', () => batchVisibility(toggle, { op: visibility, uploadId: batch.id }));
+      line.append(toggle);
+    }
+    return line;
+  }
+  async function batchVisibility(button, body) {
+    button.disabled = true;
+    try {
+      await request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'visibility', ...body }) });
+      await loadCurrent();
+    } catch (failure) {
+      button.disabled = false;
+      $('manheim-status').classList.add('error');
+      $('manheim-status').textContent = failure && failure.code === 'MANHEIM_HISTORY_PENDING' ? 'Ocultar lotes indisponível: migração pendente' : 'Não consegui mudar a lista de lotes, tente de novo';
+    }
   }
 
   function undoSummaryText(summary) {
@@ -3421,7 +3704,7 @@
   };
   async function routeFromHash(push = false) {
     const hash = String(location.hash || '');
-    const legacy={fichas:'clients',qualificacao:'clients',pendencias:'clients',clientes:'clients',manheim:'searches',buscas:'searches',pedidos:'entry',entrada:'entry'}[hash.replace(/^#/,'').toLowerCase()];
+    const legacy={fichas:'clients',qualificacao:'clients',pendencias:'clients',clientes:'clients',manheim:'imports',buscas:'searches',opcoes:'searches',pesquisas:'requests',importacoes:'imports',pedidos:'entry',entrada:'entry'}[hash.replace(/^#/,'').toLowerCase()];
     if(legacy){history.replaceState({panelOrigin:{view:legacy,scrollY:0}},'',location.pathname+location.search);await switchPanel(legacy);return true;}
     const order = hash.match(/^#pedido\/([A-HJ-NP-Z2-9]{5})$/i);
     if (order) {
@@ -3616,6 +3899,8 @@
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
+    $('requests-compare').addEventListener('click', (event) => compareRequests(event.currentTarget).catch(() => {}));
+    $('requests-audit').addEventListener('toggle', () => { if ($('requests-audit').open) loadRequestsAudit().catch(() => {}); });
     $('manheim-complement').addEventListener('click', () => $('manheim-complement-files').click());
     $('manheim-complement-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; complementManheim(files).catch(complementFailure); });
     const manheimZone = $('manheim-drop-zone');
