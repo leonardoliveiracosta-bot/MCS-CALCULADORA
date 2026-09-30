@@ -40,7 +40,7 @@ let backend, handlers;
 async function run(handler, request) {
   const url = new URL(request.url());
   const res = { statusCode: 200, payload: null, setHeader() {}, status(code) { this.statusCode = code; return this; }, json(value) { this.payload = value; return value; }, end() { return null; } };
-  await handler({ method: request.method(), url: url.pathname + url.search, headers: { authorization: 'Bearer token-simulado' }, query: Object.fromEntries(url.searchParams), body: request.postData() ? JSON.parse(request.postData()) : undefined }, res);
+  await handler({ method: request.method(), url: url.pathname + url.search, headers: { authorization: 'Bearer token-simulado' }, query: Object.fromEntries(url.searchParams), body: /octet-stream/.test(request.headers()['content-type'] || '') ? request.postDataBuffer() : request.postData() ? JSON.parse(request.postData()) : undefined }, res);
   return res;
 }
 const direct = async (name, body) => { const res = { statusCode: 200, payload: null, setHeader() {}, status(code) { this.statusCode = code; return this; }, json(value) { this.payload = value; return value; }, end() {} }; await require('../api/panel/' + name)({ method: 'POST', url: '/api/panel/' + name, headers: { authorization: 'Bearer token-simulado' }, query: {}, body }, res); return res; };
@@ -160,6 +160,47 @@ test('prints não guardados esperam na ENTRADA: tentar ler de novo, guardar ou d
   await expect(cards).toHaveCount(1, { timeout: 30000 });
   expect((await backend.db.query(`select status from public.sms_print_reads where id='7a000000-0000-4000-8000-000000000001'`)).rows[0].status).toBe('DISCARDED');
   await backend.db.exec(`delete from public.sms_print_reads where id like '7a000000%'`).catch(() => backend.db.exec(`delete from public.sms_print_reads where id::text like '7a000000%'`));
+});
+
+test('Fotos da V2: escolhe uma V2 existente, respeita 12 fotos e não cria nem publica nada', async ({ page }) => {
+  const v2 = '7b000000-0000-4000-8000-000000000001', carId = '7b000000-0000-4000-8000-000000000002';
+  const eleven = JSON.stringify(Array.from({ length: 11 }, (_, n) => `${v2}/f${n}.jpg`));
+  await backend.db.exec(`insert into public.vitrines(id,environment,token,reference_code,customer_name,version,expires_at) values('${v2}','preview','tokv2fotos','ABCD2','Marta Ficha','V2',now() + interval '3 days');
+    insert into public.vitrine_cars(id,environment,vitrine_id,short_code,vehicle_snapshot,photo_paths) values('${carId}','preview','${v2}','FOTO1','{"year":2020,"make":"Honda","model":"CR-V","trim":"EX"}','${eleven}');`);
+  const before = (await backend.db.query(`select count(*)::int n, string_agg(version||token, ',' order by id) s from public.vitrines`)).rows[0];
+  const stored = [];
+  const simulated = globalThis.fetch;
+  globalThis.fetch = async (input, options = {}) => { const url = new URL(String(input)); if (url.pathname.startsWith('/storage/v1/object/vitrine-photos/')) { stored.push(url.pathname); return { ok: true, status: 200, json: async () => ({}), text: async () => '' }; } return simulated(input, options); };
+  try {
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await openPanel(page);
+    await page.goto(base + '/painel/#importacoes');
+    await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
+    await page.locator('[data-view="imports"]').click();
+    const select = page.locator('#import-v2-select');
+    await expect(select.locator('option', { hasText: 'Marta Ficha · ABCD2 · 2020 Honda CR-V EX · 11/12 fotos' })).toHaveCount(1, { timeout: 30000 });
+    await expect(page.locator('#import-v2-body')).toBeHidden();
+    await select.selectOption(v2 + '|' + carId);
+    await expect(page.locator('#import-v2-body')).toBeVisible();
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==', 'base64');
+    await page.locator('#import-v2-file').setInputFiles([{ name: 'a.png', mimeType: 'image/png', buffer: png }, { name: 'b.png', mimeType: 'image/png', buffer: png }]);
+    await expect(page.locator('#import-v2-status')).toHaveText('Esta V2 aceita só mais 1 foto(s)');
+    await expect(page.locator('#import-v2-thumbs .v2-thumb')).toHaveCount(1);
+    await page.locator('#import-v2-send').click();
+    await expect(page.locator('#import-v2-status')).toHaveText('1 foto(s) enviada(s) para esta V2', { timeout: 30000 });
+    await expect(select.locator('option', { hasText: '12/12 fotos' })).toHaveCount(1);
+    expect(stored).toHaveLength(1);
+    const photos = (await backend.db.query(`select jsonb_array_length(photo_paths) n from public.vitrine_cars where id='${carId}'`)).rows[0].n;
+    expect(photos).toBe(12);
+    // Nothing new: same V2 list, same version and token, no message.
+    const after = (await backend.db.query(`select count(*)::int n, string_agg(version||token, ',' order by id) s from public.vitrines`)).rows[0];
+    expect(after).toEqual(before);
+    expect(errors).toEqual([]);
+  } finally {
+    globalThis.fetch = simulated;
+    await backend.db.exec(`delete from public.vitrines where id='${v2}'`);
+  }
 });
 
 async function openPanel(page, optionPages = []) {

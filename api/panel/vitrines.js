@@ -163,11 +163,20 @@ async function update(ctx,body,services={rows,patchRows}){
   for(const [id,patch] of patches)await services.patchRows(ctx,'vitrine_cars',{id:'eq.'+id,environment:'eq.'+ctx.environment,vitrine_id:'eq.'+list[0].id},patch);
   return {token:body.token,link:'/v/'+body.token,version};
 }
+// IMPORTAÇÕES · Fotos da V2: read-only list of the V2 that are still open, with each car and how many
+// photos it already has. Nothing is created, published or sent here.
+async function listV2(ctx,services={rows},now=Date.now()){
+  const vitrines=await services.rows(ctx,'vitrines',{select:'id,token,reference_code,customer_name,expires_at,created_at',environment:'eq.'+ctx.environment,version:'eq.V2',expires_at:'gt.'+new Date(now).toISOString(),order:'created_at.desc',limit:'100'});
+  if(!vitrines.length)return {v2:[]};
+  const cars=await services.rows(ctx,'vitrine_cars',{select:'id,vitrine_id,vehicle_snapshot,photo_paths',environment:'eq.'+ctx.environment,vitrine_id:'in.('+vitrines.map((item)=>item.id).join(',')+')'});
+  return {v2:vitrines.map((item)=>({vitrineId:item.id,link:'/v/'+item.token,customerName:item.customer_name||null,referenceCode:item.reference_code||null,expiresAt:item.expires_at,createdAt:item.created_at,cars:cars.filter((car)=>car.vitrine_id===item.id).map((car)=>({carId:car.id,vehicle:vehicleName(car.vehicle_snapshot||{})||'Carro',photoCount:Array.isArray(car.photo_paths)?car.photo_paths.length:0}))})).filter((item)=>item.cars.length)};
+}
 const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='MANHEIM_OPTION_NOT_SELECTED'||error==='MANHEIM_SELECTION_PENDING'||error==='VITRINE_REQUEST_TREATED'||error==='VITRINE_SOURCE_UNDONE'||error==='MANHEIM_AUDIT_PENDING'||error==='MANHEIM_MATCH_WITHOUT_MMR'||error==='VITRINE_SOURCE_MISSING'?409:400;
-module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,65536);if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,statusFor(out.error),{error:out.error}):send(res,out.reused?200:201,out);}const out=await create(ctx,body);if(out&&out.error)return send(res,statusFor(out.error),{error:out.error});return out?send(res,out.reused?200:201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?.error?send(res,400,{error:out.error}):out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
+module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,65536);if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,statusFor(out.error),{error:out.error}):send(res,out.reused?200:201,out);}const out=await create(ctx,body);if(out&&out.error)return send(res,statusFor(out.error),{error:out.error});return out?send(res,out.reused?200:201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='GET')return send(res,200,await listV2(ctx));if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?.error?send(res,400,{error:out.error}):out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
 module.exports.create=create;
 module.exports.auditGate=auditGate;
 module.exports.createV2=createV2;
 module.exports.update=update;
+module.exports.listV2=listV2;
 module.exports.limitCents=limitCents;
 module.exports.parseLimit=parseLimit;

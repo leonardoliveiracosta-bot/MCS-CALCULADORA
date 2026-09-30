@@ -1258,6 +1258,7 @@
       // The manual imports (SMS, WhatsApp conversation) choose among the contacts and fichas of
       // ENTRADA: loaded here too, so opening IMPORTAÇÕES directly never shows empty choices.
       loadQueue(false).catch(() => {});
+      loadV2Photos().catch(() => {});
       const data = await request('/api/panel/records?view=manheim', viewFetch());
       if (!current()) return;
       updateMeta(data.meta);renderManheim(data);return;
@@ -1553,6 +1554,55 @@
   }
 
 
+
+  /* ===== IMPORTAÇÕES · Fotos da V2: acrescenta fotos ao carro de uma V2 que já existe ===== */
+  // Only adds photos (same route and limits as Montar V2). It never creates, publishes or sends a V2.
+  const v2Photos={list:[],photos:[],busy:false};
+  const v2Target=()=>{const [vitrineId,carId]=($('import-v2-select')?.value||'').split('|');const v2=v2Photos.list.find((item)=>item.vitrineId===vitrineId);const car=v2?.cars.find((item)=>item.carId===carId);return v2&&car?{v2,car}:null;};
+  function paintV2Photos(){
+    const thumbs=$('import-v2-thumbs'),target=v2Target(),send=$('import-v2-send');if(!thumbs)return;
+    $('import-v2-body')?.classList.toggle('hidden',!target);
+    thumbs.replaceChildren();
+    v2Photos.photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.addEventListener('click',()=>{URL.revokeObjectURL(photo.url);v2Photos.photos.splice(index,1);paintV2Photos();});item.append(img,remove);thumbs.append(item);});
+    if(send){send.disabled=v2Photos.busy||!target||!v2Photos.photos.length;send.textContent=v2Photos.photos.length?`Enviar ${v2Photos.photos.length} foto(s)`:'Enviar fotos';}
+  }
+  async function loadV2Photos(){
+    const select=$('import-v2-select');if(!select)return;
+    const keep=select.value;
+    let data;try{data=await request('/api/panel/vitrines',{method:'GET'});}catch(_){select.replaceChildren(new Option('Não consegui carregar as V2',''));paintV2Photos();return;}
+    v2Photos.list=data.v2||[];
+    const options=[new Option(v2Photos.list.length?'Escolha a V2':'Nenhuma V2 aberta','')];
+    for(const v2 of v2Photos.list)for(const car of v2.cars){const who=[v2.customerName,v2.referenceCode].filter(Boolean).join(' · ')||'Cliente sem nome';options.push(new Option(`${who} · ${car.vehicle} · ${car.photoCount}/${V2_MAX_PHOTOS} fotos`,v2.vitrineId+'|'+car.carId));}
+    select.replaceChildren(...options);
+    if([...select.options].some((option)=>option.value===keep))select.value=keep;
+    paintV2Photos();
+  }
+  async function addV2Photos(files){
+    const target=v2Target(),status=$('import-v2-status');if(!target)return;
+    const room=V2_MAX_PHOTOS-target.car.photoCount-v2Photos.photos.length;
+    let taken=0;
+    for(const file of [...files]){if(taken>=room){status.textContent=`Esta V2 aceita só mais ${Math.max(0,V2_MAX_PHOTOS-target.car.photoCount)} foto(s)`;break;}try{const blob=await resizePhoto(file);v2Photos.photos.push({blob,url:URL.createObjectURL(blob)});taken++;}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':/\.hei[cf]$/i.test(file.name||'')||/hei[cf]/i.test(file.type||'')?'Foto HEIC não abriu neste navegador. Use JPEG ou PNG':'Um dos arquivos não é uma imagem';}}
+    paintV2Photos();
+  }
+  function bindV2Photos(){
+    const select=$('import-v2-select'),input=$('import-v2-file'),drop=$('import-v2-drop'),send=$('import-v2-send'),status=$('import-v2-status');if(!select)return;
+    select.addEventListener('change',()=>{v2Photos.photos.forEach((photo)=>URL.revokeObjectURL(photo.url));v2Photos.photos=[];const target=v2Target();status.textContent=target&&target.car.photoCount>=V2_MAX_PHOTOS?'Esta V2 já tem 12 fotos':'';paintV2Photos();});
+    input.addEventListener('change',()=>{addV2Photos(input.files);input.value='';});
+    drop.addEventListener('dragover',(event)=>{event.preventDefault();drop.classList.add('over');});
+    drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+    drop.addEventListener('drop',(event)=>{event.preventDefault();drop.classList.remove('over');addV2Photos(event.dataTransfer.files);});
+    $('import-v2-open').addEventListener('click',()=>{const target=v2Target();if(target)window.open(target.v2.link,'_blank','noopener');});
+    send.addEventListener('click',async()=>{
+      const target=v2Target();if(!target||v2Photos.busy)return;
+      v2Photos.busy=true;paintV2Photos();let sent=0;
+      try{
+        while(v2Photos.photos.length){const photo=v2Photos.photos[0];status.textContent=`Enviando foto ${sent+1}…`;await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(target.v2.vitrineId)+'&carId='+encodeURIComponent(target.car.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photo.blob});URL.revokeObjectURL(photo.url);v2Photos.photos.shift();sent++;}
+        status.textContent=`${sent} foto(s) enviada(s) para esta V2`;
+      }catch(error){status.textContent=(error.code==='PHOTO_LIMIT_REACHED'?'Esta V2 chegou a 12 fotos':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':'Não consegui enviar a foto')+(sent?` · ${sent} já enviada(s), as outras continuam aqui`:'');}
+      v2Photos.busy=false;await loadV2Photos();
+    });
+  }
+  bindV2Photos();
 
   /* ===== Montar V2: vitrine nova, so com o carro pedido, ligada a V1 ===== */
   const V2_MAX_PHOTOS=12,V2_MAX_SIDE=1600,V2_MAX_BYTES=5*1024*1024;

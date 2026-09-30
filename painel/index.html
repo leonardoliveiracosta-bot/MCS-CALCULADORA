@@ -272,9 +272,16 @@
             <span class="entry-tool-icon" aria-hidden="true">🔄</span><h2 data-draft>Entram sozinhos</h2>
             <ul class="import-facts" data-import-facts="automatic" data-draft><li>Mensagens do WhatsApp chegam sozinhas pelo 360dialog</li><li>Fotos, áudios e documentos do cliente são baixados sozinhos em seguida</li><li>SMS enviados pelo atalho do iPhone entram sozinhos quando o remetente é conhecido</li><li>Nada disso precisa ser importado aqui</li><li>Problemas aparecem em ENTRADA, Precisa de você</li></ul>
           </section>
-          <section id="import-card-v2" class="card entry-tool import-card import-info">
+          <section id="import-card-v2" class="card entry-tool import-card">
             <span class="entry-tool-icon" aria-hidden="true">🖼️</span><h2 data-draft>Fotos da V2</h2>
-            <ul class="import-facts" data-import-facts="v2" data-draft><li>As fotos da V2 são enviadas no pedido do cliente, em HOJE</li><li>Abra o pedido e use Montar V2</li><li>Até 12 fotos por carro, reduzidas no próprio navegador</li><li>A V2 só pode ser montada a partir de um pedido real do cliente</li></ul>
+            <ul class="import-facts" data-import-facts="v2" data-draft><li>Escolha uma V2 já criada e acrescente fotos ao carro dela</li><li>Até 12 fotos por carro, reduzidas no próprio navegador</li><li>As fotos aparecem no link que o cliente já tem</li><li>Nova V2 continua saindo do pedido do cliente, em HOJE, com Montar V2</li></ul>
+            <label>V2<select id="import-v2-select"><option value="">Carregando V2…</option></select></label>
+            <div id="import-v2-body" class="hidden">
+              <label id="import-v2-drop" class="v2-drop">Arraste as fotos aqui ou toque para escolher<input id="import-v2-file" class="visually-hidden" type="file" accept="image/*" multiple></label>
+              <div id="import-v2-thumbs" class="v2-thumbs"></div>
+              <div class="inline-actions"><button id="import-v2-send" type="button" disabled>Enviar fotos</button><button id="import-v2-open" class="quiet" type="button">Ver como o cliente vê</button></div>
+            </div>
+            <p id="import-v2-status" class="muted" aria-live="polite"></p>
           </section>
         </div>
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
