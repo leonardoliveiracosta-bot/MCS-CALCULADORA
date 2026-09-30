@@ -701,3 +701,12 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 .offer-row > div:first-child > span { display: block; }
 .offer-price > .muted { font-size: 13px; }
 .offer-price .offer-note { flex-basis: 100%; }
+
+/* Envio da V1 pelo WhatsApp e histórico de lotes */
+.v1-send { display: grid; gap: 6px; margin-top: 6px; }
+.v1-send-state[data-status="SENT"] { color: var(--mcs-green); }
+.v1-send-state[data-status="UNCONFIRMED"], .v1-send-state[data-status="FAILED"] { color: var(--mcs-red); }
+.v1-send-text { width: 100%; font: inherit; }
+.v1-send-confirm { display: grid; gap: 8px; }
+.batch-history, .batch-hidden { margin-top: 10px; }
+.batch-history > summary, .batch-hidden > summary { cursor: pointer; font-weight: 600; min-height: var(--mcs-touch); display: flex; align-items: center; }

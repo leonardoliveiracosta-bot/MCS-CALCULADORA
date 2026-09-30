@@ -165,6 +165,7 @@
       if (result.uploadId) failure.uploadId = result.uploadId;
       if (result.reason) failure.reason = result.reason;
       if (Number.isInteger(result.fileIndex)) failure.fileIndex = result.fileIndex;
+      if (typeof result.whatsappLink === 'string' && result.whatsappLink.startsWith('https://wa.me/')) failure.whatsappLink = result.whatsappLink;
       throw failure;
     }
     return result;
@@ -1996,6 +1997,95 @@
     list.append(more); details.append(list);
     return details;
   }
+  // Envio manual da V1 pelo WhatsApp (360dialog). Só depois de gerar a V1, sempre com confirmação:
+  // o operador vê nome, telefone, texto e link, pode editar o texto e confirma com um segundo clique.
+  // O destino é o telefone da ficha, decidido pelo servidor. Sem confirmação do WhatsApp o envio fica
+  // "Não confirmado" e nada é tentado de novo sozinho.
+  const V1_SEND_REASONS = {
+    NO_VALID_PHONE: 'Ficha sem telefone de WhatsApp válido: envio pelo painel indisponível',
+    V1_SEND_PENDING: 'Envio pelo painel indisponível: migração pendente',
+    OFF: 'Envio direto desligado em produção. Use "Abrir WhatsApp com mensagem pronta"'
+  };
+  const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+  function v1SendControls(demand) {
+    const node = element('div', 'v1-send');
+    const button = element('button', 'small', 'Enviar no WhatsApp'); button.type = 'button'; button.disabled = true;
+    const state = element('p', 'muted v1-send-state', 'Gere a V1 para enviar no WhatsApp');
+    const fallback = element('a', 'quiet small hidden v1-send-fallback', 'Abrir WhatsApp com mensagem pronta');
+    fallback.target = '_blank'; fallback.rel = 'noopener';
+    node.append(button, fallback, state);
+    let info = null;
+    let token = null;
+    let busy = false;
+    const showLast = (last) => {
+      if (!last) return;
+      const simulated = last.simulated ? ' · simulado' : '';
+      state.textContent = last.status === 'SENT' ? `Enviado às ${clock(last.at)}${simulated}`
+        : last.status === 'UNCONFIRMED' ? 'Não confirmado pelo WhatsApp. Verifique a conversa antes de reenviar'
+        : last.status === 'FAILED' ? 'Não enviado: o WhatsApp recusou o envio' : state.textContent;
+      state.dataset.status = last.status;
+      if (['SENT', 'UNCONFIRMED', 'FAILED'].includes(last.status)) button.textContent = 'Reenviar';
+    };
+    const setFallback = (href) => { if (href) { fallback.href = href; fallback.classList.remove('hidden'); } };
+    async function setVitrine(newToken) {
+      token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp';
+      state.textContent = 'Conferindo o destino…'; delete state.dataset.status;
+      try {
+        info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: 'prepare', token, baseUrl: location.origin, ...(demand?.key ? { demandKey: demand.key } : {}) }) });
+      } catch (failure) {
+        state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio. Use "Copiar mensagem com link"';
+        return;
+      }
+      if (!info.eligible) { state.textContent = V1_SEND_REASONS[info.reason] || V1_SEND_REASONS.NO_VALID_PHONE; return; }
+      setFallback(info.whatsappLink);
+      if (info.mode === 'OFF') { state.textContent = V1_SEND_REASONS.OFF; return; }
+      state.textContent = `Para ${info.name} · ${info.phone}${info.mode === 'SIMULATED' ? ' · envio simulado neste ambiente' : ''}`;
+      button.disabled = false;
+      showLast(info.last);
+    }
+    function openConfirm() {
+      if (!info || busy || node.querySelector('.v1-send-confirm')) return;
+      const resend = button.textContent === 'Reenviar';
+      const requestKey = crypto.randomUUID();
+      const box = element('div', 'warning inline-confirm v1-send-confirm');
+      box.append(element('p', '', `${resend ? 'Reenviar' : 'Enviar'} para ${info.name} · ${info.phone}`),
+        element('p', 'muted', `Link V1: ${info.link}`));
+      if (!info.origin) box.append(element('p', 'muted', 'Origem da busca não identificada: escreva a mensagem (o link da V1 precisa ficar no texto)'));
+      const label = element('label', '', 'Mensagem');
+      const textarea = element('textarea', 'v1-send-text'); textarea.rows = 9; textarea.maxLength = 4000; textarea.value = info.text || info.link;
+      label.append(textarea);
+      const yes = element('button', 'small', 'Confirmar envio'); yes.type = 'button';
+      const no = element('button', 'quiet small', 'Cancelar'); no.type = 'button';
+      box.append(label, yes, no);
+      no.addEventListener('click', () => box.remove());
+      yes.addEventListener('click', async () => {
+        if (busy) return;
+        busy = true; yes.disabled = true; no.disabled = true; textarea.disabled = true; button.disabled = true;
+        yes.textContent = 'Enviando…';
+        try {
+          const result = await request('/api/panel/v1-send', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: 'send', token, text: textarea.value, requestKey, confirmed: true, resend, ...(demand?.key ? { demandKey: demand.key } : {}) }) });
+          box.remove();
+          showLast({ status: result.sendStatus, at: result.at, simulated: result.simulated });
+        } catch (failure) {
+          box.remove();
+          const code = failure && failure.code;
+          if (code === 'WINDOW_CLOSED') { state.textContent = 'Fora da janela de 24 h do WhatsApp: não foi enviado. Use "Abrir WhatsApp com mensagem pronta"'; setFallback(failure.whatsappLink || info.whatsappLink); }
+          else if (code === 'V1_ALREADY_SENT') { state.textContent = 'Esta V1 já foi enviada'; button.textContent = 'Reenviar'; }
+          else if (code === 'SEND_IN_PROGRESS') state.textContent = 'Já existe um envio desta V1 em andamento';
+          else if (code === 'V1_DIRECT_SEND_DISABLED') state.textContent = V1_SEND_REASONS.OFF;
+          else if (code === 'V1_SEND_PENDING') state.textContent = V1_SEND_REASONS.V1_SEND_PENDING;
+          else if (['TEXT_REQUIRED', 'TEXT_TOO_LONG', 'V1_LINK_MISSING'].includes(code)) state.textContent = code === 'V1_LINK_MISSING' ? 'A mensagem precisa conter o link da V1. Nada foi enviado' : 'Mensagem vazia ou longa demais. Nada foi enviado';
+          else { state.textContent = 'Não confirmado: sem resposta do servidor. Verifique a conversa antes de reenviar'; state.dataset.status = 'UNCONFIRMED'; button.textContent = 'Reenviar'; }
+        } finally { busy = false; button.disabled = !info || info.mode === 'OFF'; }
+      });
+      node.append(box);
+      textarea.focus();
+    }
+    button.addEventListener('click', (event) => { event.stopPropagation(); openConfirm(); });
+    node.addEventListener('click', (event) => event.stopPropagation());
+    return { node, setVitrine };
+  }
+
   // Selection not available on this database (migration pending): the list below is only internal
   // matches and V1 stays blocked by the server.
   function offerPendingNote() {
@@ -2075,9 +2165,10 @@
       const selected = [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => loaded.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
       downloadShortlist(selected, journey.reference_code);
     });
+    const v1Send=v1SendControls(demand);
     const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);$('manheim-status').textContent='Mensagem com link copiada';}catch(_){$('manheim-status').textContent='Não consegui copiar. Link: '+link;}});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){$('manheim-status').textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente com migração pendente':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
-    card.append(exportButton,vitrineButton,copyMessageButton,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){$('manheim-status').textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){$('manheim-status').textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente com migração pendente':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;v1Send.setVitrine(created.token);/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);$('manheim-status').textContent='Link V1 criado e copiado: '+absolute;}catch(_){$('manheim-status').textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
+    card.append(exportButton,vitrineButton,copyMessageButton,v1Send.node,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
   }
@@ -2154,7 +2245,7 @@
     setCount('manheim', data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} carro(s) com combinação · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma importação ativa';
     renderBuscasCounters(data.counts);
-    renderBatches(data.uploads || [], data.undoAvailable !== false);
+    renderBatches(data.uploads || [], data.undoAvailable !== false, data.hiddenBatchIds);
     renderReview(data.review || []);
     renderAuditNote(data.audit);
 
@@ -2211,30 +2302,81 @@
 
   // One row per import batch (a batch can have several CSV files). Undo is reversible and
   // audited: nothing is deleted, cars and matches of the batch leave every screen.
-  function renderBatches(batches, undoAvailable) {
+  // Lotes: o ativo sempre à vista; os desfeitos num "Histórico de lotes" recolhido. Ocultar é só
+  // preferência de exibição deste operador (o lote, os veículos e os matches não mudam).
+  let batchHistoryOpen = false;
+  let batchHiddenOpen = false;
+  function renderBatches(batches, undoAvailable, hiddenIds) {
     const root = $('manheim-batches');
     if (!root) return;
     root.replaceChildren(element('h3', '', 'Lotes de importação'));
     if (!batches.length) return root.append(element('p', 'muted', 'Nenhum lote importado'));
-    batches.slice(0, 10).forEach((batch) => {
-      const line = element('article', 'batch-line' + (batch.status === 'UNDONE' ? ' undone' : ''));
-      line.dataset.batchId = batch.id;
-      const text = element('div', 'batch-text');
-      const files = `${batch.fileCount} arquivo${batch.fileCount === 1 ? '' : 's'}`;
-      text.append(element('strong', '', `${formatDate(batch.uploadedAt)} · ${files}`), element('span', 'muted', `${batch.vehicleCount} veículos · ${batch.matchCount} matches`));
-      if (batch.ai && Number(batch.ai.rowsSentToAi) > 0) text.append(element('span', 'muted', `IA: OpenAI ${batch.ai.model || ''} · ${batch.ai.rowsSentToAi} linha(s)`));
-      const state = makeBadge(batch.status === 'UNDONE' ? 'Desfeito' : batch.current ? 'Ativo · em uso' : 'Ativo', batch.status === 'UNDONE' ? '' : 'green');
-      text.append(state);
-      if (batch.status === 'UNDONE' && batch.undoSummary) text.append(element('span', 'muted', undoSummaryText(batch.undoSummary)));
-      line.append(text);
-      if (batch.status === 'ACTIVE' && undoAvailable) {
-        const undo = element('button', 'quiet small', 'Desfazer importação');
-        undo.type = 'button';
-        undo.addEventListener('click', () => confirmUndoBatch(line, batch, undo));
-        line.append(undo);
-      }
-      root.append(line);
-    });
+    const hidden = new Set(hiddenIds || []);
+    const active = batches.filter((batch) => batch.status !== 'UNDONE');
+    const undone = batches.filter((batch) => batch.status === 'UNDONE');
+    active.forEach((batch) => root.append(batchLine(batch, undoAvailable, null)));
+    if (!active.length) root.append(element('p', 'muted', 'Nenhum lote ativo'));
+    if (!undone.length) return;
+    const visible = undone.filter((batch) => !hidden.has(batch.id));
+    const hiddenList = undone.filter((batch) => hidden.has(batch.id));
+    const history = element('details', 'batch-history');
+    history.open = batchHistoryOpen;
+    history.addEventListener('toggle', () => { batchHistoryOpen = history.open; });
+    history.append(element('summary', '', `Histórico de lotes (${visible.length})`));
+    if (hiddenIds === null || hiddenIds === undefined) history.append(element('p', 'muted', 'Ocultar lotes indisponível: migração pendente'));
+    else if (visible.length) {
+      const all = element('button', 'quiet small', 'Ocultar todos os lotes desfeitos'); all.type = 'button';
+      all.addEventListener('click', () => batchVisibility(all, { op: 'hide_all' }));
+      const actions = element('div', 'inline-actions'); actions.append(all); history.append(actions);
+    }
+    visible.forEach((batch) => history.append(batchLine(batch, false, hiddenIds ? 'hide' : null)));
+    if (!visible.length) history.append(element('p', 'muted', 'Nenhum lote desfeito à vista'));
+    if (hiddenList.length) {
+      const more = element('details', 'batch-hidden');
+      more.open = batchHiddenOpen;
+      more.addEventListener('toggle', () => { batchHiddenOpen = more.open; });
+      more.append(element('summary', '', `Ver lotes ocultos (${hiddenList.length})`));
+      hiddenList.forEach((batch) => more.append(batchLine(batch, false, 'restore')));
+      history.append(more);
+    }
+    root.append(history);
+  }
+  function batchLine(batch, undoAvailable, visibility) {
+    const line = element('article', 'batch-line' + (batch.status === 'UNDONE' ? ' undone' : ''));
+    line.dataset.batchId = batch.id;
+    const text = element('div', 'batch-text');
+    const files = `${batch.fileCount} arquivo${batch.fileCount === 1 ? '' : 's'}`;
+    text.append(element('strong', '', `${formatDate(batch.uploadedAt)} · ${files}`), element('span', 'muted', `${batch.vehicleCount} veículos · ${batch.matchCount} matches`));
+    if (batch.ai && Number(batch.ai.rowsSentToAi) > 0) text.append(element('span', 'muted', `IA: OpenAI ${batch.ai.model || ''} · ${batch.ai.rowsSentToAi} linha(s)`));
+    text.append(makeBadge(batch.status === 'UNDONE' ? 'Desfeito' : batch.current ? 'Ativo · em uso' : 'Ativo', batch.status === 'UNDONE' ? '' : 'green'));
+    if (batch.status === 'UNDONE' && batch.undoSummary) text.append(element('span', 'muted', undoSummaryText(batch.undoSummary)));
+    line.append(text);
+    if (batch.status === 'ACTIVE' && undoAvailable) {
+      const undo = element('button', 'quiet small', 'Desfazer importação');
+      undo.type = 'button';
+      undo.addEventListener('click', () => confirmUndoBatch(line, batch, undo));
+      line.append(undo);
+    }
+    // Only an undone batch can leave the list; the active one never can.
+    if (batch.status === 'UNDONE' && visibility) {
+      const toggle = element('button', 'quiet small', visibility === 'hide' ? 'Ocultar da lista' : 'Restaurar');
+      toggle.type = 'button';
+      toggle.dataset.batchVisibility = visibility;
+      toggle.addEventListener('click', () => batchVisibility(toggle, { op: visibility, uploadId: batch.id }));
+      line.append(toggle);
+    }
+    return line;
+  }
+  async function batchVisibility(button, body) {
+    button.disabled = true;
+    try {
+      await request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'visibility', ...body }) });
+      await loadCurrent();
+    } catch (failure) {
+      button.disabled = false;
+      $('manheim-status').classList.add('error');
+      $('manheim-status').textContent = failure && failure.code === 'MANHEIM_HISTORY_PENDING' ? 'Ocultar lotes indisponível: migração pendente' : 'Não consegui mudar a lista de lotes, tente de novo';
+    }
   }
 
   function undoSummaryText(summary) {

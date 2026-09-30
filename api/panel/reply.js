@@ -125,3 +125,6 @@ module.exports.resolveTarget = resolveTarget;
 module.exports.windowState = windowState;
 module.exports.translate = translate;
 module.exports.MAX_TEXT = MAX_TEXT;
+module.exports.d360Send = d360Send;
+module.exports.recordSent = recordSent;
+module.exports.applyMessage = applyMessage;

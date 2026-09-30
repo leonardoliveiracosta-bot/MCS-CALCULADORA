@@ -195,6 +195,9 @@ async function manheimView(ctx, options = {}) {
   if (batchOn && activeIds.length) (await rpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIds }).catch(() => []) || []).forEach((row) => operational.set(row.upload_id, Number(row.car_count) || 0));
   activeIds.forEach((uploadId) => { if (batchOn && !operational.has(uploadId)) operational.set(uploadId, 0); });
   const upload = latest ? { ...latest, frozen_matched_vehicle_count: latest.matched_vehicle_count, matched_vehicle_count: operational.has(latest.id) ? operational.get(latest.id) : latest.matched_vehicle_count, current_lead_count: allServed.size } : null;
+  // Undone batches this operator hid from the list (display only; null before the migration).
+  const hiddenBatchIds = await rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' })
+    .then((found) => found.map((row) => row.upload_id)).catch(() => null);
   const batches = uploads.map((row) => ({
     id: row.id, uploadedAt: row.uploaded_at, fileCount: row.source_file_count, vehicleCount: row.vehicle_count,
     matchCount: operational.has(row.id) ? operational.get(row.id) : row.matched_vehicle_count, frozenMatchCount: row.matched_vehicle_count, leadCount: row.lead_count,
@@ -204,7 +207,7 @@ async function manheimView(ctx, options = {}) {
     environment: ctx.environment,
     items: items.map((item) => decorateWithSearchStage(item, stageIndex)),
     orders: orders.map((item) => decorateWithSearchStage(item, stageIndex)),
-    upload, uploads: batches, undoAvailable: supported, batchAvailable: batchOn, demands, review, counts, historyIncomplete: false, meta, audit
+    upload, uploads: batches, hiddenBatchIds, undoAvailable: supported, batchAvailable: batchOn, demands, review, counts, historyIncomplete: false, meta, audit
   };
 }
 

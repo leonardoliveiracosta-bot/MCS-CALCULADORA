@@ -103,6 +103,10 @@ async function createBackend({ seed } = {}) {
       const rows = (await db.query(`update public.${ident(table)} set ${set}${whereClause(params, values)} returning *`, values)).rows;
       return /return=representation/.test(prefer || '') ? rows : null;
     }
+    if (method === 'DELETE') {
+      const rows = (await db.query(`delete from public.${ident(table)}${whereClause(params, values)} returning *`, values)).rows;
+      return /return=representation/.test(prefer || '') ? rows : null;
+    }
     throw new Error('METODO_NAO_SIMULADO ' + method);
   }
 
@@ -123,7 +127,8 @@ async function createBackend({ seed } = {}) {
     } catch (error) {
       if (process.env.MODO_DEBUG) console.log('BANCO', method, url.pathname + decodeURIComponent(url.search), String(error.message));
       const code = /^[A-Z][A-Z0-9_]{2,60}$/.test(String(error.message)) ? error.message : 'ERRO_SIMULADO';
-      return reply(error.status || 400, { message: code, detail: String(error.message) });
+      // A unique violation answers 409, as PostgREST does.
+      return reply(error.status || (error.code === '23505' ? 409 : 400), { message: code, detail: String(error.message) });
     }
   }
 

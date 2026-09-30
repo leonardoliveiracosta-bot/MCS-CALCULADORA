@@ -9,6 +9,7 @@
 //  POST status             blocos já confirmados, para retomar do ponto em que parou
 //  POST finalize           ativa o lote inteiro de uma vez (nunca pela metade)
 //  POST cancel             cancela um lote ainda em montagem (nada é apagado)
+//  POST visibility        ocultar ou mostrar um lote desfeito na lista deste operador (só exibição)
 //  POST complement-*       os mesmos CSVs do lote ativo, lidos de novo, acrescentam só Lane, Run,
 //                          Inventory, Status e Event Sale Name aos carros que o lote já tem:
 //                          check (prévia, só leitura), start/stage (conferência depois da confirmação),
@@ -16,7 +17,7 @@
 //                          mexe em MMR, critérios, seleção, V1/V2 ou histórico
 // Nenhuma chamada paga e nenhuma mensagem saem daqui.
 const crypto = require('node:crypto');
-const { isUuid, jsonBody, requirePanel, rows, rpc, send } = require('../../panel-server');
+const { isUuid, jsonBody, requirePanel, rows, rpc, send, supabase } = require('../../panel-server');
 const { batchSupported, latestActiveUpload } = require('../../panel-manheim-state');
 const { loadMatchTargets } = require('../../panel-buscas-view');
 const batch = require('../../panel-manheim-batch');
@@ -218,9 +219,35 @@ async function actionComplementCancel(ctx, body) {
 }
 const COMPLEMENT_ACTIONS = new Set(['complement-check', 'complement-start', 'complement-stage', 'complement-apply', 'complement-result', 'complement-cancel']);
 
-const CONFLICT_CODES = new Set(['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_CANCELED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_COMPLEMENT_NOT_ACTIVE', 'MANHEIM_COMPLEMENT_MISMATCH', 'MANHEIM_COMPLEMENT_INCOMPLETE', 'MANHEIM_COMPLEMENT_CANCELED']);
+// ------------------------------------------------------------ histórico de lotes (só exibição)
+// Hide or show an UNDONE batch in this operator's list. The batch itself never changes, and the
+// active batch can never be hidden.
+async function actionVisibility(ctx, body) {
+  const op = String(body.op || '');
+  if (!['hide', 'restore', 'hide_all'].includes(op) || (op !== 'hide_all' && !isUuid(body.uploadId))) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  const keys = { environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id };
+  const pending = (error) => error && (error.status === 404 || /PGRST205|42P01/.test(String(error.code || '') + String(error.message || '')));
+  try {
+    if (op === 'restore') {
+      await patchOrDelete(ctx, 'panel_batch_hidden', { ...keys, upload_id: 'eq.' + body.uploadId });
+      return send(ctx.res, 200, { restored: true });
+    }
+    const undone = await rows(ctx, 'manheim_uploads', { select: 'id', environment: 'eq.' + ctx.environment, undone_at: 'not.is.null', ...(op === 'hide' ? { id: 'eq.' + body.uploadId } : {}), limit: '500' });
+    if (op === 'hide' && !undone.length) return send(ctx.res, 409, { error: 'MANHEIM_BATCH_NOT_UNDONE' });
+    if (undone.length) await insertIgnore(ctx, 'panel_batch_hidden', undone.map((row) => ({ environment: ctx.environment, user_id: ctx.panel.id, upload_id: row.id })));
+    return send(ctx.res, 200, { hidden: undone.length });
+  } catch (error) {
+    if (pending(error)) return send(ctx.res, 503, { error: 'MANHEIM_HISTORY_PENDING' });
+    throw error;
+  }
+}
+const insertIgnore = (ctx, table, payload) => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?on_conflict=environment,user_id,upload_id', {
+  method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(payload) });
+const patchOrDelete = (ctx, table, filters) => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + new URLSearchParams(filters).toString(), { method: 'DELETE', headers: { prefer: 'return=minimal' } });
+
+const CONFLICT_CODES = new Set(['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_CANCELED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_COMPLEMENT_NOT_ACTIVE', 'MANHEIM_COMPLEMENT_MISMATCH', 'MANHEIM_BATCH_NOT_UNDONE', 'MANHEIM_COMPLEMENT_INCOMPLETE', 'MANHEIM_COMPLEMENT_CANCELED']);
 const ACTIONS = { start: actionStart, chunk: actionChunk, status: actionStatus, finalize: actionFinalize, cancel: actionCancel,
-  'complement-check': actionComplementCheck, 'complement-start': actionComplementStart, 'complement-stage': actionComplementStage, 'complement-apply': actionComplementApply, 'complement-result': actionComplementResult, 'complement-cancel': actionComplementCancel };
+  'complement-check': actionComplementCheck, 'complement-start': actionComplementStart, 'complement-stage': actionComplementStage, 'complement-apply': actionComplementApply, 'complement-result': actionComplementResult, 'complement-cancel': actionComplementCancel, visibility: actionVisibility };
 
 module.exports = async (req, res) => {
   if (!['GET', 'POST'].includes(req.method)) return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
