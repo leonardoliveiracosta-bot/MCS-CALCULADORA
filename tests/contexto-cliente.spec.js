@@ -54,7 +54,17 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { if (backend) await backend.db.close(); });
 
-const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: true }); };
+// Before a capture the page is scrolled to the end, so every summary has loaded (as a person reading
+// it), then back to the top so the fixed header is drawn in its place.
+const shot = async (page, name) => {
+  if (!SHOTS) return;
+  const height = await page.evaluate(() => document.documentElement.scrollHeight);
+  for (let y = 0; y <= height; y += 600) { await page.evaluate((top) => window.scrollTo(0, top), y); await page.waitForTimeout(150); }
+  await page.waitForTimeout(1200);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: true });
+};
 
 for (const width of [1366, 390]) {
   test(`${width} px · o mesmo contexto do cliente em todas as abas e o caso completo na ficha`, async ({ page }) => {

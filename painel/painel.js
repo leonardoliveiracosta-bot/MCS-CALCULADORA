@@ -2331,8 +2331,9 @@
     const head = element('div', 'item-head');
     const stageLabel = demand ? demand.stageLabel : journey.searchStageLabel, stage = demand ? demand.stage : journey.searchStage;
     head.append(identityHeader(journey), demandCountsBadge(demand));if(stageLabel)head.append(makeBadge(stageLabel,stage==='SENT'?'green':stage==='SAVED'?'blue':'yellow'));
-    if (demand) card.append(head, element('span', 'request-criteria-label', 'Critério usado na busca (sistema)'));
-    card.append(head, element('p', 'muted', (demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents))));
+    card.append(head);
+    if (demand) card.append(element('span', 'request-criteria-label', 'Critério usado na busca (sistema)'));
+    card.append(element('p', 'muted', (demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents))));
     card.append(contextSlot({ journeyId: journeyIdOf(journey) }, { focus: 'cars' }));
     const stale = staleNotice(card, demand); if (stale) card.append(stale);
     const seen=()=>loaded.concat(card.offerState?card.offerState.loaded:[]);
@@ -2447,8 +2448,9 @@
     const seenOrder=()=>loaded.concat(card.offerState?card.offerState.loaded:[]);
     let orderAudit=auditBlock(demand,seenOrder());
     summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
-    if (demand) card.append(summary, element('span', 'request-criteria-label', 'Critério usado na busca (sistema)'));
-    card.append(summary, element('p', 'muted', demand ? demandSummary(demand) : order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
+    card.append(summary);
+    if (demand) card.append(element('span', 'request-criteria-label', 'Critério usado na busca (sistema)'));
+    card.append(element('p', 'muted', demand ? demandSummary(demand) : order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
     card.append(contextSlot({ ref: refOf(order) }, { focus: 'cars' }));
     const stale = staleNotice(card, demand); if (stale) card.append(stale);
     if (orderAudit) card.append(orderAudit);
