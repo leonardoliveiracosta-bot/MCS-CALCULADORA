@@ -5,7 +5,7 @@ const {configuration,SERVER_ENVIRONMENT,send}=require('../../panel-server');
 const {runCron}=require('../../panel-ai');
 const {generalBatch,generalStatus}=require('../../panel-pendencias');
 const {runCaptureCheck,recordCaptureFailure}=require('../../panel-capture');
-const {recoverStalledEvents,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
+const {recoverStalledEvents,resolveStoredItemErrors,retryItemErrors}=require('../../whatsapp-maintenance');
 
 function equalSecret(actual,expected){
   const left=Buffer.from(String(actual||'')),right=Buffer.from(String(expected||''));
@@ -24,8 +24,11 @@ module.exports=async(req,res)=>{
     let whatsappMaintenance={done:0,reprocessed:0,deferred:0,failed:0};
     try{
       // Up to 5 interrupted events per cycle, never past 20 seconds (it used to be one per cycle).
-      whatsappMaintenance=await recoverStalledEvents(ctx,{maxEvents:5,deadlineAt:Date.now()+20000});
+      const maintenanceDeadline=Date.now()+20000;
+      whatsappMaintenance=await recoverStalledEvents(ctx,{maxEvents:5,deadlineAt:maintenanceDeadline});
       await resolveStoredItemErrors(ctx);
+      // Items that failed for a passing reason (database timeout) are applied again, never sent.
+      whatsappMaintenance.items=await retryItemErrors(ctx,{maxItems:5,deadlineAt:maintenanceDeadline});
     }catch(error){console.error('[whatsapp-maintenance]',{operation:'cron',message:String(error?.message||'UNKNOWN')});}
     // A resumable full reading has priority only while it is actively running.
     // Paused, budget-limited, completed, and idle runs must not stop the normal

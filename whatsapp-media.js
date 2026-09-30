@@ -11,8 +11,10 @@ async function enqueueMediaJob(ctx,item,messageId){
   const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_media_jobs?on_conflict=environment,message_id',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=ignore-duplicates,return=representation'},body:JSON.stringify(payload)});
   return {queued:Boolean(result?.length)};
 }
+// Safety net for media the webhook could not queue. options.sinceMs: how far back to look (30 days by
+// default; the cron looks at the last hours every minute and at 30 days only every half hour).
 async function enqueueRecentMedia(ctx,options={}){
-  const cutoff=new Date(Date.now()-30*86400000).toISOString();
+  const cutoff=new Date(Date.now()-(options.sinceMs||30*86400000)).toISOString();
   const events=await rows(ctx,'whatsapp_raw_events',{select:'id,event_type,payload_json',environment:'eq.'+ctx.environment,received_at:'gte.'+cutoff,order:'received_at.desc',limit:String(options.maxEvents||1000)});
   let queued=0,found=0,items=[];
   for(const event of events){

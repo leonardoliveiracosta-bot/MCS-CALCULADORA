@@ -1,7 +1,7 @@
 'use strict';
 
 const {allRows,patchRows,rows}=require('./panel-server');
-const {normalizeParsed,processRaw}=require('./whatsapp-receiver');
+const {normalizeParsed,normalizedItems,processItem,processRaw,resolveItemError,saveItemError}=require('./whatsapp-receiver');
 
 const unique=(values)=>[...new Set(values.filter(Boolean).map(String))];
 const inFilter=(values)=>'in.('+values.map((value)=>'"'+String(value).replaceAll('"','')+'"').join(',')+')';
@@ -97,4 +97,67 @@ async function recoverStalledEvents(ctx,options={}){
   return result;
 }
 
-module.exports={errorWamid,parsedWamids,recoverStalledEvents,resolveStoredItemErrors,storedWamids};
+// The code kept when a retry fails: a business answer (a phone to review, an unreadable item, a code
+// raised by the database function) stays as it is; a passing failure (timeout, network, a generic
+// database error) stays ITEM_PROCESSING_FAILED, so the next cycle tries again.
+const GENERIC_ERRORS=new Set(['SUPABASE_REQUEST_FAILED','PROCESSING_FAILED','ITEM_PROCESSING_FAILED']);
+function itemErrorCode(error){
+  const code=String(error?.code||''),message=String(error?.message||'');
+  if(/^[A-Z][A-Z0-9_]{2,80}$/.test(code)&&!GENERIC_ERRORS.has(code))return code;
+  if(/^[A-Z][A-Z0-9_:]{2,80}$/.test(message)&&!GENERIC_ERRORS.has(message))return message;
+  return 'ITEM_PROCESSING_FAILED';
+}
+
+// One stored item applied again (the panel button and the cron use the same path). Claimed first, so
+// two callers never apply it together. Only the item itself is written: no automatic reply, no push,
+// no vitrine capture and nothing sent (those belong to the live webhook only).
+async function reprocessItemError(ctx,original){
+  let itemError=original;
+  if(itemError.status==='RESOLVED')return {resolved:true,duplicate:true};
+  if(itemError.status==='PROCESSING'&&Date.now()-Date.parse(itemError.processing_started_at||0)>120000){
+    const reset=await patchRows(ctx,'whatsapp_item_errors',{id:'eq.'+itemError.id,environment:'eq.'+ctx.environment,status:'eq.PROCESSING'},{status:'ERROR',processing_started_at:null,error_code:'PROCESSING_INTERRUPTED'},true);
+    if(reset.length)itemError={...itemError,status:'ERROR'};
+  }
+  if(itemError.status==='PROCESSING')return {busy:true};
+  const started=new Date().toISOString();
+  const claimed=await patchRows(ctx,'whatsapp_item_errors',{id:'eq.'+itemError.id,environment:'eq.'+ctx.environment,status:'eq.ERROR'},{status:'PROCESSING',processing_started_at:started,last_attempt_at:started,attempts:Number(itemError.attempts||0)+1},true);
+  if(!claimed.length)return {busy:true};
+  try{
+    const raw=(await rows(ctx,'whatsapp_raw_events',{select:'id,event_type,payload_json',environment:'eq.'+ctx.environment,id:'eq.'+itemError.raw_event_id,limit:'1'}))[0];
+    if(!raw)throw Error('RAW_EVENT_MISSING');
+    const parsed=normalizedItems(raw.payload_json);
+    const normalized=parsed.items.find((item)=>item.itemIndex===itemError.item_index);
+    const parseFailure=parsed.itemErrors.find((item)=>item.itemIndex===itemError.item_index);
+    if(parseFailure)throw Error(parseFailure.errorCode);
+    const item=normalized||(itemError.item_json?.messageId?itemError.item_json:null);
+    if(!item)throw Error('ITEM_NOT_RECONSTRUCTED');
+    const result=await processItem(ctx,raw.id,{...item,source_kind:item.source_kind||(raw.event_type==='history'?'WHATSAPP_HISTORY':'WHATSAPP_WEBHOOK')});
+    await resolveItemError(ctx,raw.id,itemError.item_index);
+    const remaining=await rows(ctx,'whatsapp_item_errors',{select:'id',environment:'eq.'+ctx.environment,raw_event_id:'eq.'+raw.id,status:'neq.RESOLVED',limit:'1'});
+    if(!remaining.length)await patchRows(ctx,'whatsapp_raw_events',{id:'eq.'+raw.id,environment:'eq.'+ctx.environment},{error_code:null});
+    return {resolved:true,review:Boolean(result.review),duplicate:Boolean(result.duplicate)};
+  }catch(error){
+    await saveItemError(ctx,itemError.raw_event_id,{itemIndex:itemError.item_index,errorCode:itemErrorCode(error),item:itemError.item_json}).catch(()=>null);
+    return {failed:true};
+  }
+}
+
+// A stored item that failed for a passing reason (the database timed out, the function stopped) used
+// to stay failed for good: the message never reached the panel although its content was saved. Here it
+// is applied again, oldest first, a few per cycle and at most MAX_ITEM_ATTEMPTS times. A phone that
+// needs review or a declined history item is never retried here.
+const RETRYABLE_ITEM_ERRORS=Object.freeze(['ITEM_PROCESSING_FAILED','PROCESSING_INTERRUPTED']);
+const MAX_ITEM_ATTEMPTS=5;
+async function retryItemErrors(ctx,options={}){
+  const cutoff=new Date(Date.now()-120000).toISOString();
+  const candidates=await rows(ctx,'whatsapp_item_errors',{select:'id,raw_event_id,item_index,item_json,error_code,status,attempts,processing_started_at,created_at',environment:'eq.'+ctx.environment,status:'eq.ERROR',error_code:'in.('+RETRYABLE_ITEM_ERRORS.join(',')+')',created_at:'lt.'+cutoff,attempts:'lt.'+MAX_ITEM_ATTEMPTS,order:'created_at.asc',limit:String(options.maxItems||5)});
+  const result={resolved:0,failed:0,busy:0};
+  for(const itemError of candidates){
+    if(options.deadlineAt&&Date.now()>=options.deadlineAt)break;
+    const out=await reprocessItemError(ctx,itemError);
+    if(out.resolved)result.resolved++;else if(out.busy)result.busy++;else result.failed++;
+  }
+  return result;
+}
+
+module.exports={MAX_ITEM_ATTEMPTS,itemErrorCode,RETRYABLE_ITEM_ERRORS,errorWamid,parsedWamids,recoverStalledEvents,reprocessItemError,resolveStoredItemErrors,retryItemErrors,storedWamids};

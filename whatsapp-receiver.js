@@ -222,8 +222,10 @@ async function processRaw(ctx,row,options={}){
     return {error:true};
   }
 }
-async function rawEvent(ctx,payload){
-  const key=eventKey(payload),result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_raw_events?on_conflict=environment,event_key',{method:'POST',headers:{'content-type':'application/json',prefer:'resolution=ignore-duplicates,return=representation'},body:JSON.stringify({environment:ctx.environment,event_key:key,event_type:payload?.event||payload?.entry?.[0]?.changes?.[0]?.field||'UNKNOWN',payload_json:payload})});
+// options.timeoutMs: the webhook gives up waiting (and answers an error, so WhatsApp delivers again)
+// instead of holding the request until the platform kills it. A retry of a saved event is ignored.
+async function rawEvent(ctx,payload,options={}){
+  const key=eventKey(payload),result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/whatsapp_raw_events?on_conflict=environment,event_key',{method:'POST',...(options.timeoutMs?{signal:AbortSignal.timeout(options.timeoutMs)}:{}),headers:{'content-type':'application/json',prefer:'resolution=ignore-duplicates,return=representation'},body:JSON.stringify({environment:ctx.environment,event_key:key,event_type:payload?.event||payload?.entry?.[0]?.changes?.[0]?.field||'UNKNOWN',payload_json:payload})});
   if(result?.length)return result[0];
   const existing=await rows(ctx,'whatsapp_raw_events',{select:'id,status,attempts,payload_json',environment:'eq.'+ctx.environment,event_key:'eq.'+key,limit:'1'});
   return existing[0]?.status==='ERROR'?existing[0]:null;

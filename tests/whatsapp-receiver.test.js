@@ -10,6 +10,8 @@ const message=(id,from=customer,type='text')=>({id,from,timestamp:'1790431200',t
 const cloud=(messages,contacts=[{wa_id:customer,profile:{name:'Tiago'}}])=>({object:'whatsapp_business_account',entry:[{id:'waba',changes:[{field:'messages',value:{messaging_product:'whatsapp',contacts,messages}}]}]});
 const echo=(messages)=>({object:'whatsapp_business_account',entry:[{id:'waba',changes:[{field:'smb_message_echoes',value:{messaging_product:'whatsapp',message_echoes:messages}}]}]});
 function loadWith(relative,mocks){const file=path.join(root,relative),mod={exports:{}};const req=(name)=>Object.hasOwn(mocks,name)?mocks[name]:require(name.startsWith('.')?path.resolve(path.dirname(file),name):name);new Function('require','module','exports',fs.readFileSync(file,'utf8'))(req,mod,mod.exports);return mod.exports;}
+// The panel handler reprocesses through whatsapp-maintenance: it gets the same mocks.
+function panelWhatsapp(mocks){const maintenance={'./panel-server':mocks['../../panel-server']};if(mocks['../../whatsapp-receiver'])maintenance['./whatsapp-receiver']=mocks['../../whatsapp-receiver'];return loadWith('api/panel/whatsapp.js',{...mocks,'../../whatsapp-maintenance':loadWith('whatsapp-maintenance.js',maintenance)});}
 function response(){return {code:0,payload:null,setHeader(){},status(n){this.code=n;return this;},json(v){this.payload=v;return v;}};}
 
 test('inbound, echoed, media and Ref messages normalize separately',()=>{
@@ -94,7 +96,7 @@ test('item reprocessing uses an atomic claim and blocks a concurrent retry',asyn
       return representation?[{}]:[];
     }
   };
-  const handler=loadWith('api/panel/whatsapp.js',{
+  const handler=panelWhatsapp({
     '../../panel-server':panelServer,
     '../../whatsapp-receiver':{
       normalizedItems:()=>({items:[item],itemErrors:[]}),
@@ -140,7 +142,7 @@ test('history declined can be dismissed and clears the parent event error',async
       return representation?[{}]:[];
     }
   };
-  const handler=loadWith('api/panel/whatsapp.js',{'../../panel-server':panelServer,'../../whatsapp-receiver':{}});
+  const handler=panelWhatsapp({'../../panel-server':panelServer,'../../whatsapp-receiver':{}});
   const out=response();await handler({method:'POST',body:{action:'dismiss_item',id:itemId}},out);
   assert.equal(out.code,200);assert.equal(status,'RESOLVED');assert.equal(rawError,null);
 });
