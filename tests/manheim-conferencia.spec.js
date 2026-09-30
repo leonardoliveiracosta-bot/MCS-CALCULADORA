@@ -80,7 +80,7 @@ for (const width of [1366, 390]) {
     await expect(carro.locator('.audit-block .badge')).toHaveText('Revisar');
     await expect(carro.locator('.audit-divergence')).toHaveText('2022 BMW X5 · VIN final 222222: Milhagem acima do limite');
     await expect(carro.getByRole('button', { name: 'Gerar link V1' })).toBeDisabled();
-    await expect(carro).toContainText('V1 e V2 desta demanda ficam liberadas depois da conferência');
+    await expect(carro).toContainText('V1 e V2 deste pedido ficam liberadas depois da conferência');
     // The options stay visible while the demand waits.
     await expect(carro.locator('.manheim-row')).toHaveCount(1);
     await expect(order.locator('.audit-block .badge')).toHaveText('Conferência pendente');

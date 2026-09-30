@@ -239,7 +239,7 @@
           </details>
           <section id="import-card-whatsapp" class="card entry-tool import-card">
             <span class="entry-tool-icon" aria-hidden="true">💬</span><h2>Importar conversa</h2>
-            <p class="muted">ZIPs ou TXT do WhatsApp. Os arquivos são lidos neste navegador e nunca seguem para a Vercel.</p>
+            <p class="muted">ZIPs ou TXT do WhatsApp · O arquivo é lido neste navegador e só as conversas importadas são enviadas ao painel</p>
             <label id="drop-zone" class="drop-zone" for="whatsapp-files">Arraste ZIPs/TXT aqui ou selecione arquivos<input id="whatsapp-files" type="file" accept=".zip,.txt,text/plain,application/zip" multiple></label>
             <p id="import-status" class="status" role="status"></p>
             <ul class="import-facts" data-import-facts="whatsapp" data-draft><li>Aceita arquivos .zip ou .txt exportados do WhatsApp, até 20 por vez</li><li>ZIP de até 100 MB e TXT de até 25 MB</li><li>Os arquivos são lidos neste navegador</li><li>Quando a conversa e a MCS são reconhecidas, grava sozinho e abre a ficha</li><li>Nos outros casos, Confirmar conversa aparece aqui para você escolher contato e busca</li><li>Cancelar este arquivo pula só esse arquivo, sem gravar nada</li><li>Grupo e horário incerto ficam em ENTRADA, Revisão final</li><li>Mensagem que já está no painel não entra de novo</li><li>Formato não reconhecido vai para ENTRADA, Revisão final, sem gravar mensagens</li></ul>
@@ -252,17 +252,17 @@
                 <label id="mcs-sender-label">Qual remetente é a MCS?<select id="mcs-sender"><option value="">Escolha</option></select></label>
                 <label id="contact-label">Contato<select id="import-contact"><option value="new">Novo contato</option></select></label>
                 <label id="contact-name-label">Nome do novo contato<input id="import-contact-name" maxlength="160"></label>
-                <label id="chat-label">Chat<select id="import-chat"><option value="new">Novo chat</option></select></label>
+                <label id="chat-label">Conversa<select id="import-chat"><option value="new">Nova conversa</option></select></label>
                 <label id="journey-label">Busca<select id="import-journey"><option value="new">Nova jornada</option></select></label>
-                <p id="ref-warning" class="warning hidden">Ref encontrada: escolha manualmente mesma busca ou nova jornada.</p>
+                <p id="ref-warning" class="warning hidden">Ref encontrada: escolha manualmente mesma busca ou nova jornada</p>
                 <div class="inline-actions"><button type="submit">Confirmar e importar</button><button id="import-review-cancel" class="quiet" type="reset">Cancelar este arquivo</button></div>
               </form>
             </section>
           </section>
           <section id="import-card-history" class="card history-import entry-tool import-card" aria-labelledby="history-import-title">
             <span class="entry-tool-icon" aria-hidden="true">📥</span><h2 id="history-import-title">Histórico do 360dialog</h2>
-            <p class="muted">Use o arquivo baixado em 360dialog → Details → Coexistence Webhooks.</p>
-            <label for="history-import-file">Escolher arquivo .json<input id="history-import-file" type="file" accept="application/json,.json"></label>
+            <p class="muted">No 360dialog, abra Details e depois Coexistence Webhooks · Baixe o arquivo e escolha aqui</p>
+            <label for="history-import-file">Escolher o arquivo do 360dialog (.json)<input id="history-import-file" type="file" accept="application/json,.json"></label>
             <button id="history-import-send" class="small" type="button" disabled>Importar</button>
             <p id="history-import-status" class="status" role="status"></p>
             <div id="history-import-errors" class="queue" aria-live="polite"></div>
@@ -325,7 +325,7 @@
         </details>
       </section>
       <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
-        <p class="visually-hidden">Conteúdo reunido na aba Buscas.</p>
+        <p class="visually-hidden">Conteúdo reunido nas abas OPÇÕES e IMPORTAÇÕES</p>
       </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
         <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>

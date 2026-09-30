@@ -39,7 +39,7 @@
   const $ = (id) => document.getElementById(id);
   const productionHost = location.hostname === 'www.mycarscout.net';
   const environmentBadge = $('environment-badge');
-  if (environmentBadge) { environmentBadge.textContent = productionHost ? 'PRODUÇÃO' : 'PREVIEW — NÃO USE PARA TRABALHAR'; environmentBadge.classList.toggle('production', productionHost); }
+  if (environmentBadge) { environmentBadge.textContent = productionHost ? 'PRODUÇÃO' : 'VERSÃO DE TESTE, NÃO USE PARA TRABALHAR'; environmentBadge.classList.toggle('production', productionHost); }
   const show = (id) => { document.body.classList.toggle('login-screen', id === 'login-view'); ['login-view', 'password-view', 'app-view'].forEach((view) => $(view).classList.toggle('hidden', view !== id)); };
   const error = (id, message) => { $(id).textContent = message || ''; };
   const importFailureMessage = (failure) => {
@@ -48,7 +48,7 @@
       IMPORT_BATCH_FAILED: 'não foi possível gravar as mensagens no banco',
       IMPORT_FINISH_FAILED: 'as mensagens foram recebidas, mas a jornada não pôde ser concluída',
       CONTACT_NOT_FOUND: 'o contato escolhido não existe mais',
-      CHAT_NOT_FOUND: 'o chat escolhido não existe mais',
+      CHAT_NOT_FOUND: 'a conversa escolhida não existe mais',
       JOURNEY_CHOICE_REQUIRED: 'escolha a busca antes de confirmar',
       PANEL_ACCESS_DENIED: 'esta conta não tem acesso ao painel',
       AUTHENTICATION_REQUIRED: 'a sessão expirou; entre novamente'
@@ -184,16 +184,16 @@
   async function extract(file) {
     if (file.size > (file.name.toLowerCase().endsWith('.zip') ? MAX_ZIP : MAX_TEXT)) throw new Error('Arquivo excede o limite permitido');
     if (!file.name.toLowerCase().endsWith('.zip')) return [{ name: file.name, text: await file.text() }];
-    if (!window.zip) throw new Error('Leitor ZIP indisponível.');
+    if (!window.zip) throw new Error('Não consegui abrir o arquivo ZIP neste navegador');
     const reader = new zip.ZipReader(new zip.BlobReader(file));
     try {
       const entries = await reader.getEntries();
-      if (entries.length > MAX_ENTRIES) throw new Error('ZIP com entradas demais.');
+      if (entries.length > MAX_ENTRIES) throw new Error('O ZIP tem arquivos demais');
       const txt = entries.filter((entry) => !entry.directory && /\.txt$/i.test(entry.filename));
-      if (!txt.length) throw new Error('ZIP sem TXT de conversa.');
+      if (!txt.length) throw new Error('O ZIP não tem a conversa em texto (.txt)');
       const result = [];
       for (const entry of txt) {
-        if (entry.encrypted || entry.uncompressedSize > MAX_TEXT) throw new Error('ZIP não atende aos limites de segurança.');
+        if (entry.encrypted || entry.uncompressedSize > MAX_TEXT) throw new Error('ZIP não atende aos limites de segurança');
         result.push({ name: entry.filename, text: await entry.getData(new zip.TextWriter()) });
       }
       return result;
@@ -212,8 +212,8 @@
     const journeySelect = $('import-journey');
     const chosenContact = contactSelect.value;
     const group = $('chat-type').value === 'group';
-    chatSelect.replaceChildren(new Option('Novo chat', 'new'));
-    chats.filter((chat) => chat.channel === 'WHATSAPP' && Boolean(chat.is_group) === group && (group || !chosenContact || chosenContact === 'new' || chat.contact_id === chosenContact)).forEach((chat) => option(chatSelect, `${chat.contact && chat.contact.display_name ? chat.contact.display_name : group ? 'Grupo existente' : 'Chat existente'} — ${chat.channel}`, chat.id));
+    chatSelect.replaceChildren(new Option('Nova conversa', 'new'));
+    chats.filter((chat) => chat.channel === 'WHATSAPP' && Boolean(chat.is_group) === group && (group || !chosenContact || chosenContact === 'new' || chat.contact_id === chosenContact)).forEach((chat) => option(chatSelect, `${chat.contact && chat.contact.display_name ? chat.contact.display_name : group ? 'Grupo existente' : 'Conversa existente'} · ${chat.channel}`, chat.id));
     journeySelect.replaceChildren(new Option('Escolha', ''));
     option(journeySelect, 'Nova jornada', 'new');
     const ownJourneys = journeys.filter((journey) => chosenContact !== 'new' && journey.contact_id === chosenContact);
@@ -307,7 +307,7 @@
             throw new Error('O remetente da MCS não pode ser o mesmo nome do contato · Revise quem é você');
           }
           if (!isGroup && $('import-contact').value === 'new' && !MCSParser.clean($('import-contact-name').value)) throw new Error('Informe o nome do novo contato');
-          if (!isGroup && !$('import-journey').value) throw new Error('Escolha mesma busca ou nova jornada.');
+          if (!isGroup && !$('import-journey').value) throw new Error('Escolha mesma busca ou nova jornada');
           const finalParsed = MCSParser.parseWhatsApp(raw, filename, { dateOrder });
           if (!finalParsed.supported || finalParsed.requiresDateOrder) throw new Error('Não foi possível confirmar as datas');
           const entries = MCSParser.assignDirections(finalParsed, $('mcs-sender').value);
@@ -480,7 +480,7 @@
     const item = element('article', 'queue-item failed-print');
     const header = element('header', '');
     header.append(element('strong', '', `Print não guardado · ${print.name || print.phone || print.filename || 'sem nome'}`), element('span', 'badge', 'revisão'));
-    item.append(header, element('span', 'muted', print.errorCode ? 'Não consegui ler este print' : 'O print foi lido, mas não foi guardado em nenhum lead'));
+    item.append(header, element('span', 'muted', print.errorCode ? 'Não consegui ler este print' : print.justRead ? 'Print lido agora · confira os dados e guarde' : 'O print foi lido, mas não foi guardado em nenhum lead'));
     if (print.phone) item.append(element('span', 'muted', `Telefone do print: ${print.phone}`));
     if (print.message) item.append(element('p', '', print.message.length > 280 ? `${print.message.slice(0, 280)}…` : print.message));
     let phoneInput = null;
@@ -489,7 +489,15 @@
     const post = (body) => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId: print.id, ...body }) });
     if (print.errorCode) {
       const retry = element('button', 'small', 'Tentar ler de novo'); retry.type = 'button';
-      MCSAction.bind(retry, () => ({ scope: item, commit: () => post({ action: 'retry' }), successText: 'Print lido de novo', refresh: () => loadQueue(), errorText: 'Ainda não consegui ler, tente mais tarde' }));
+      // A successful read shows the values right here for Guardar pelo painel: nothing is saved on its own,
+      // and the card does not vanish while the fresh read is still inside the 30-minute window.
+      MCSAction.bind(retry, () => ({ scope: item, commit: async () => {
+        const result = await post({ action: 'retry' });
+        if (result.manual || !result.read) throw Object.assign(new Error('SMS_PRINT_READ_FAILED'), { code: 'SMS_PRINT_READ_FAILED' });
+        const values = result.read.extracted_json || {};
+        item.replaceWith(failedPrintCard({ ...print, errorCode: null, name: String(values.name || '').trim() || null, phone: values.phone || null, ref: values.ref || null, message: values.message || '', translation: values.translation || '', justRead: true }));
+        return result;
+      }, successScope: document.body, successText: 'Print lido · confira e use Guardar pelo painel', errorText: 'Ainda não consegui ler, tente mais tarde' }));
       actions.append(retry);
     }
     if (print.message || print.phone || print.ref) {
@@ -1593,7 +1601,11 @@
     drop.addEventListener('drop',(event)=>{event.preventDefault();drop.classList.remove('over');addV2Photos(event.dataTransfer.files);});
     $('import-v2-open').addEventListener('click',()=>{const target=v2Target();if(target)window.open(target.v2.link,'_blank','noopener');});
     send.addEventListener('click',async()=>{
-      const target=v2Target();if(!target||v2Photos.busy)return;
+      const target=v2Target();if(!target||v2Photos.busy||send.parentElement.parentElement.querySelector('.inline-confirm'))return;
+      // The V2 link already went to the customer: the photos show up there as soon as they are saved.
+      const count=v2Photos.photos.length;
+      if(!(await askInline(send.parentElement,`${count} foto(s) vão aparecer imediatamente no link da V2 que o cliente já recebeu · Salvar mesmo assim?`,'Salvar fotos')))return;
+      const chosen=v2Target();if(!chosen||chosen.car.carId!==target.car.carId||!v2Photos.photos.length||v2Photos.busy)return;
       v2Photos.busy=true;paintV2Photos();let sent=0;
       try{
         while(v2Photos.photos.length){const photo=v2Photos.photos[0];status.textContent=`Enviando foto ${sent+1}…`;await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(target.v2.vitrineId)+'&carId='+encodeURIComponent(target.car.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photo.blob});URL.revokeObjectURL(photo.url);v2Photos.photos.shift();sent++;}
@@ -1643,7 +1655,7 @@
         const copyLink=element('button','quiet small','Copiar link');copyLink.type='button';copyLink.addEventListener('click',()=>copyText(link,'Link copiado'));
         const copyMessage=element('button','small','Copiar mensagem com link');copyMessage.type='button';copyMessage.addEventListener('click',()=>copyText(message,'Mensagem copiada'));
         result.append(view,copyLink,copyMessage);result.classList.remove('hidden');
-      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V2':error.code==='VITRINE_SOURCE_MISSING'||error.code==='MANHEIM_MATCH_WITHOUT_MMR'?'O carro original não tem MMR confirmado, a V2 não pode ser montada':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido · Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
+      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='MANHEIM_AUDIT_PENDING'?'A conferência deste pedido ainda não liberou a V2':error.code==='VITRINE_SOURCE_MISSING'||error.code==='MANHEIM_MATCH_WITHOUT_MMR'?'O carro original não tem MMR confirmado, a V2 não pode ser montada':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido · Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
     });
     box.append(drop,thumbs,limitLabel,noteLabel,generate,status,result);
     card.append(box);
@@ -1826,7 +1838,7 @@
     const root = $('qualification-list');
     root.replaceChildren();
     setCount('qualification', items.length);
-    if (!items.length) return empty(root, 'Nenhuma jornada para qualificar.');
+    if (!items.length) return empty(root, 'Nenhuma jornada para qualificar');
     items.forEach((item) => {
       const card = element('article', 'item-card');
       const head = element('div', 'item-head');
@@ -1932,7 +1944,7 @@
     if(entry.canRetry){const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:box,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'retry',key:demand.key})}),refresh:()=>loadCurrent(),errorText:'Não consegui conferir de novo, tente mais tarde'}));actions.append(retry);}
     if(entry.canApprove){const reason=element('input','audit-reason');reason.type='text';reason.maxLength=300;reason.placeholder='Motivo da aprovação';reason.setAttribute('aria-label','Motivo da aprovação manual');const approve=element('button','quiet small','Aprovar com motivo');approve.type='button';MCSAction.bind(approve,()=>({scope:box,commit:()=>{if(reason.value.trim().length<5)throw Object.assign(Error('AUDIT_REASON_REQUIRED'),{code:'AUDIT_REASON_REQUIRED'});return request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'approve',key:demand.key,reason:reason.value.trim()})});},refresh:()=>loadCurrent(),errorText:(error)=>error?.code==='AUDIT_REASON_REQUIRED'?'Escreva o motivo, com pelo menos 5 letras':'Não consegui aprovar, tente de novo'}));actions.append(reason,approve);}
     if(actions.childElementCount)box.append(actions);
-    if(!AUDIT_OK.includes(entry.status))box.append(element('p','muted','V1 e V2 desta demanda ficam liberadas depois da conferência'));
+    if(!AUDIT_OK.includes(entry.status))box.append(element('p','muted','V1 e V2 deste pedido ficam liberadas depois da conferência'));
     return box;
   }
   function renderAuditNote(audit){
@@ -1971,7 +1983,7 @@
         cursor = page.nextCursor || null;
         button.classList.toggle('manheim-more', Boolean(cursor));
         if (cursor) { button.textContent = `Ver mais (${Math.max(demand.matchCount - loaded.length, 1)})`; button.disabled = false; }
-        else { button.remove(); if (!loaded.length) table.append(element('p', 'muted manheim-options-note', 'Nenhuma opção nesta demanda agora')); }
+        else { button.remove(); if (!loaded.length) table.append(element('p', 'muted manheim-options-note', 'Nenhuma opção neste pedido agora')); }
         card.dispatchEvent(new CustomEvent('options-loaded'));
       } catch (failure) {
         console.error(failure);
@@ -2000,12 +2012,12 @@
   // V1/V2. O servidor confere tudo de novo; nada é escolhido nem enviado sozinho.
   const OFFER = window.MCSManheimOffer || null;
   const OFFER_ERRORS = {
-    MANHEIM_SELECTION_LIMIT: 'Esta demanda já tem 10 carros selecionados. Remova um antes de selecionar outro',
+    MANHEIM_SELECTION_LIMIT: 'Este pedido já tem 10 carros selecionados · Remova um antes de selecionar outro',
     MANHEIM_SELECTION_REASON_REQUIRED: 'Escreva o motivo da inclusão manual, com pelo menos 5 letras',
     MANHEIM_SELECTION_PCT_INVALID: 'Percentual inválido: use de 0 a 50',
     MANHEIM_MATCH_WITHOUT_MMR: 'Carro sem MMR válido não pode ser selecionado',
     MANHEIM_MATCH_NOT_FOUND: 'Este carro não está mais no lote ativo',
-    MANHEIM_SELECTION_PENDING: 'A seleção fica disponível depois da migração do banco'
+    MANHEIM_SELECTION_PENDING: 'Seleção indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável'
   };
   const offerError = (error) => OFFER_ERRORS[error && error.code] || 'Não consegui salvar, tente de novo';
   const pctText = (value) => `${Number(value).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
@@ -2109,7 +2121,7 @@
   // "Não confirmado" e nada é tentado de novo sozinho.
   const V1_SEND_REASONS = {
     NO_VALID_PHONE: 'Ficha sem telefone de WhatsApp válido: envio pelo painel indisponível',
-    V1_SEND_PENDING: 'Envio pelo painel indisponível: migração pendente',
+    V1_SEND_PENDING: 'Envio pelo painel indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável',
     OFF: 'Envio direto desligado em produção · Use "Abrir WhatsApp com mensagem pronta"'
   };
   const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
@@ -2195,7 +2207,7 @@
   // Selection not available on this database (migration pending): the list below is only internal
   // matches and V1 stays blocked by the server.
   function offerPendingNote() {
-    return element('p', 'warning offer-pending', 'Seleção para o cliente indisponível: migração pendente. A lista abaixo mostra só matches internos e a V1 fica bloqueada');
+    return element('p', 'warning offer-pending', 'Seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável · A lista abaixo mostra só as combinações internas e a V1 fica bloqueada');
   }
   function offerSection(card, demand) {
     const offerCounts = demand.offer;
@@ -2281,7 +2293,7 @@
     });
     const v1Send=v1SendControls(demand);
     const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);cardStatus.textContent='Mensagem com link copiada';}catch(_){cardStatus.textContent='Não consegui copiar · Link: '+link;}});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){cardStatus.textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){cardStatus.textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente com migração pendente':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;v1Send.setVitrine(created.token);/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);cardStatus.textContent='Link V1 criado e copiado: '+absolute;}catch(_){cardStatus.textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
+    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){cardStatus.textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){cardStatus.textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;v1Send.setVitrine(created.token);/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);cardStatus.textContent='Link V1 criado e copiado: '+absolute;}catch(_){cardStatus.textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
     card.append(exportButton,vitrineButton,copyMessageButton,cardStatus,v1Send.node,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
@@ -2436,7 +2448,7 @@
     const status = $('requests-status');
     const upload = data.upload ? `Lote ativo de ${formatDate(data.upload.uploadedAt)}` : 'Nenhum lote ativo';
     status.classList.remove('error');
-    status.textContent = [upload, EXTRACTION_TEXT[data.extraction] || '', data.requestsPending ? 'Pedidos lidos das conversas indisponíveis: migração pendente' : ''].filter(Boolean).join(' · ');
+    status.textContent = [upload, EXTRACTION_TEXT[data.extraction] || '', data.requestsPending ? 'Pedidos lidos das conversas indisponíveis · O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : ''].filter(Boolean).join(' · ');
     const filters = $('requests-filters');
     filters.replaceChildren();
     const chip = (key, label, count) => {
@@ -2515,7 +2527,7 @@
       await loadCurrent();
     } catch (failure) {
       status.classList.add('error');
-      status.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Comparação indisponível: migração pendente' : 'Não consegui comparar agora, tente de novo';
+      status.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Comparação indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : 'Não consegui comparar agora, tente de novo';
     } finally { button.disabled = false; }
   }
   // Auditoria histórica: um botão só. Confirma, testa o modelo uma vez (produção) e processa os
@@ -2540,7 +2552,7 @@
     button.disabled = true;
     let state;
     try { state = await request('/api/panel/pesquisas', { method: 'POST', body: JSON.stringify({ action: 'history_status' }) }); }
-    catch (failure) { text.className = 'error'; text.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Auditoria indisponível: migração pendente' : 'Não consegui ler o estado da auditoria, tente de novo'; button.disabled = false; return; }
+    catch (failure) { text.className = 'error'; text.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Auditoria indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : 'Não consegui ler o estado da auditoria, tente de novo'; button.disabled = false; return; }
     if (!state.available) { text.className = 'error'; text.textContent = HISTORY_ERRORS.SEARCH_EXTRACTION_OFF; button.disabled = false; return; }
     const who = state.provider === 'OPENAI' ? `OpenAI ${state.model}` : 'leitura simulada (sem IA, sem custo)';
     const terms = $('requests-history-terms');
@@ -2590,8 +2602,8 @@
     const row = (label, value) => { table.append(element('dt', '', label), element('dd', '', String(value))); };
     row('Pessoas com mensagens', data.peopleWithMessages);
     row('Conversas com mensagem do cliente', data.conversationsWithCustomerMessages);
-    row('Conversas com pedido identificado', data.tablesPending ? 'migração pendente' : data.conversationsWithRequest);
-    row('Conversas sem pedido de veículo', data.tablesPending ? 'migração pendente' : data.conversationsWithoutRequest);
+    row('Conversas com pedido identificado', data.tablesPending ? 'O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : data.conversationsWithRequest);
+    row('Conversas sem pedido de veículo', data.tablesPending ? 'O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : data.conversationsWithoutRequest);
     row('Pedidos distintos', data.requests);
     row('Tarefas (critérios exatamente iguais)', data.groups);
     row('Prontos para buscar', data.ready);
@@ -2629,7 +2641,7 @@
     history.open = batchHistoryOpen;
     history.addEventListener('toggle', () => { batchHistoryOpen = history.open; });
     history.append(element('summary', '', `Histórico de lotes (${visible.length})`));
-    if (hiddenIds === null || hiddenIds === undefined) history.append(element('p', 'muted', 'Ocultar lotes indisponível: migração pendente'));
+    if (hiddenIds === null || hiddenIds === undefined) history.append(element('p', 'muted', 'Ocultar lotes indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável'));
     else if (visible.length) {
       const all = element('button', 'quiet small', 'Ocultar todos os lotes desfeitos'); all.type = 'button';
       all.addEventListener('click', () => batchVisibility(all, { op: 'hide_all' }));
@@ -2652,7 +2664,7 @@
     line.dataset.batchId = batch.id;
     const text = element('div', 'batch-text');
     const files = `${batch.fileCount} arquivo${batch.fileCount === 1 ? '' : 's'}`;
-    text.append(element('strong', '', `${formatDate(batch.uploadedAt)} · ${files}`), element('span', 'muted', `${batch.vehicleCount} veículos · ${batch.matchCount} matches`));
+    text.append(element('strong', '', `${formatDate(batch.uploadedAt)} · ${files}`), element('span', 'muted', `${batch.vehicleCount} veículos · ${batch.matchCount} carros com combinação`));
     if (batch.ai && Number(batch.ai.rowsSentToAi) > 0) text.append(element('span', 'muted', `IA: OpenAI ${batch.ai.model || ''} · ${batch.ai.rowsSentToAi} linha(s)`));
     text.append(makeBadge(batch.status === 'UNDONE' ? 'Desfeito' : batch.current ? 'Ativo · em uso' : 'Ativo', batch.status === 'UNDONE' ? '' : 'green'));
     if (batch.status === 'UNDONE' && batch.undoSummary) text.append(element('span', 'muted', undoSummaryText(batch.undoSummary)));
@@ -2681,7 +2693,7 @@
     } catch (failure) {
       button.disabled = false;
       $('manheim-status').classList.add('error');
-      $('manheim-status').textContent = failure && failure.code === 'MANHEIM_HISTORY_PENDING' ? 'Ocultar lotes indisponível: migração pendente' : 'Não consegui mudar a lista de lotes, tente de novo';
+      $('manheim-status').textContent = failure && failure.code === 'MANHEIM_HISTORY_PENDING' ? 'Ocultar lotes indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : 'Não consegui mudar a lista de lotes, tente de novo';
     }
   }
 
@@ -2706,7 +2718,7 @@
     } catch (failure) {
       button.disabled = false; button.textContent = 'Desfazer importação';
       $('manheim-status').classList.add('error');
-      $('manheim-status').textContent = failure && failure.code === 'MANHEIM_MIGRATION_PENDING' ? 'O banco ainda não tem o desfazer lote (migração pendente)' : 'Não consegui desfazer a importação, tente de novo';
+      $('manheim-status').textContent = failure && failure.code === 'MANHEIM_MIGRATION_PENDING' ? 'Desfazer lote indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : 'Não consegui desfazer a importação, tente de novo';
     }
   }
 
@@ -3029,7 +3041,7 @@
     MANHEIM_JOURNEY_ID_INVALID: 'Uma combinação veio com identificador de cliente inválido · Atualize a página e envie de novo',
     MANHEIM_JOURNEY_DISABLED: 'Uma busca não está disponível para comparação',
     MANHEIM_UPLOAD_NOT_FOUND: 'O servidor não encontrou este envio · Envie o CSV de novo',
-    MANHEIM_MIGRATION_PENDING: 'O banco ainda não tem a importação em lote único (migração pendente). Nada foi enviado; avise o responsável',
+    MANHEIM_MIGRATION_PENDING: 'Importação em lote único indisponível · Nada foi enviado · O painel precisa de uma atualização para liberar este recurso · Avise o responsável',
     MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação em andamento nesta aba · Espere terminar ou cancele',
     MANHEIM_BATCH_CANCELED: 'Esta importação foi cancelada · Selecione os arquivos de novo para começar outra',
     MANHEIM_BATCH_ALREADY_ACTIVE: 'Este lote já estava ativo; nada foi enviado de novo',
@@ -3064,7 +3076,7 @@
       // Lote único: the blocks already confirmed stay on the server; the same files continue from there.
       if (failure.fileName) return `Envio interrompido em ${failure.fileName}, bloco ${Number(failure.chunkIndex) + 1} (${detail}) · Nada foi ativado e o lote ativo não mudou · Selecione os mesmos arquivos de novo para continuar de onde parou`;
       const retried = !(window.MCSManheimUpload && MCSManheimUpload.FINAL_ERRORS.has(cause && cause.code));
-      return `Envio incompleto: a parte ${failure.partIndex} de ${failure.partCount} falhou${retried ? ' depois de 3 tentativas' : ''} (${detail}). O último upload continua sendo o anterior.`;
+      return `Envio incompleto: a parte ${failure.partIndex} de ${failure.partCount} falhou${retried ? ' depois de 3 tentativas' : ''} (${detail}) · O último envio continua sendo o anterior`;
     }
     if (code === 'MANHEIM_ARCHIVE_FAILED') {
       const cause = failure.cause;
@@ -3091,7 +3103,7 @@
     MANHEIM_COMPLEMENT_INCOMPLETE: 'Nem todos os blocos chegaram para a conferência · Nada foi gravado · Selecione os mesmos arquivos de novo',
     MANHEIM_COMPLEMENT_CANCELED: 'Este complemento foi cancelado · Nada foi gravado · Selecione os mesmos arquivos de novo',
     MANHEIM_COMPLEMENT_CONFIRM_REQUIRED: 'O complemento precisa da sua confirmação antes de gravar · Nada foi gravado',
-    MANHEIM_COMPLEMENT_PENDING: 'O banco ainda não tem o complemento do lote (migração pendente). Nada foi lido nem gravado; avise o responsável',
+    MANHEIM_COMPLEMENT_PENDING: 'Complemento do lote indisponível · Nada foi lido nem gravado · O painel precisa de uma atualização para liberar este recurso · Avise o responsável',
     MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação ou um complemento em andamento nesta aba · Espere terminar',
     MANHEIM_FILES_INVALID: 'Selecione só os arquivos CSV do Manheim'
   };
@@ -3186,7 +3198,7 @@
       status.textContent = 'Complemento gravado · somando os grupos…';
       const totals = await post({ action: 'complement-result', uploadId: latest.id }).catch(() => null);
       status.textContent = totals
-        ? `Complemento concluído · ${totals.withSale} carros complementados · ${totals.lane} com Lane/Run · ${totals.offLane} Buy Now / Make Offer · ${totals.incomplete} ainda incompletos · ${totals.matches} matches`
+        ? `Complemento concluído · ${totals.withSale} carros complementados · ${totals.lane} com Lane/Run · ${totals.offLane} Buy Now / Make Offer · ${totals.incomplete} ainda incompletos · ${totals.matches} combinações`
         : `Complemento concluído · ${done.cars} carros complementados · Os totais aparecem em BUSCAS`;
       if (requestPool) requestPool.invalidate();
       await loadCurrent().catch(() => {});
@@ -3581,7 +3593,7 @@
     if (conversationChatIds.length) {
       const senderTools = element('div', 'inline-actions');
       conversationChatIds.forEach((chatId) => {
-        const invert = element('button', 'quiet small', conversationChatIds.length === 1 ? 'Inverter remetentes desta conversa' : 'Inverter remetentes deste chat');
+        const invert = element('button', 'quiet small', conversationChatIds.length === 1 ? 'Inverter remetentes desta conversa' : 'Inverter remetentes desta conversa');
         invert.type = 'button';
         invert.addEventListener('click',()=>{if(invert.dataset.confirmed!=='true'){invert.dataset.confirmed='true';invert.textContent='Confirmar inversão';return;}MCSAction.run({button:invert,scope:senderTools,commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'invert_senders',journeyId:id,chatId})}),refresh:reload,errorText:'Não consegui salvar, tente de novo'});});
         senderTools.append(invert);
@@ -3945,7 +3957,7 @@
   }
   function bootWarning() {
     if ($('boot-warning')) return;
-    const warning = element('p', 'status error', 'Parte do painel não carregou agora (contadores com "—"). Você continua conectado; a próxima atualização tenta de novo.');
+    const warning = element('p', 'status error', 'Parte do painel não carregou agora (alguns contadores ficaram sem número) · Você continua conectado; a próxima atualização tenta de novo');
     warning.id = 'boot-warning';
     warning.setAttribute('role', 'alert');
     $('app-view').prepend(warning);

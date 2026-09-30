@@ -162,6 +162,68 @@ test('prints não guardados esperam na ENTRADA: tentar ler de novo, guardar ou d
   await backend.db.exec(`delete from public.sms_print_reads where id like '7a000000%'`).catch(() => backend.db.exec(`delete from public.sms_print_reads where id::text like '7a000000%'`));
 });
 
+test('prints não guardados de ponta a ponta: Tentar ler de novo e Guardar pelo painel, com armazenamento e IA simulados', async ({ page }) => {
+  const actor = (await backend.db.query('select id from public.panel_users limit 1')).rows[0].id;
+  const retryId = '7c000000-0000-4000-8000-000000000001', readId = '7c000000-0000-4000-8000-000000000002';
+  await backend.db.exec(`insert into public.sms_print_reads(id,environment,status,original_filename,mime_type,quarantine_path,extracted_json,error_code,created_at,updated_at,created_by) values
+    ('${retryId}','preview','READY','denovo.png','image/png','quarantine/preview/sms-print/r/denovo.png','{}','AI_UNAVAILABLE',now(),now(),'${actor}'),
+    ('${readId}','preview','READY','guardar.png','image/png','quarantine/preview/sms-print/g/guardar.png','{"message":"Looking for a Tacoma 2019","phone":""}',null,now() - interval '2 hours',now() - interval '2 hours','${actor}')`);
+  // A print that was read has its size and hash, as read() stores them.
+  await backend.db.exec(`update public.sms_print_reads set byte_size=1024, sha256='${'c'.repeat(64)}' where id='${readId}'`);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==', 'base64');
+  const simulated = globalThis.fetch, calls = { ai: 0, read: 0, move: 0 };
+  const saved = { key: process.env.ANTHROPIC_API_KEY, model: process.env.ANTHROPIC_MODEL };
+  Object.assign(process.env, { ANTHROPIC_API_KEY: 'chave-simulada', ANTHROPIC_MODEL: 'modelo-simulado' });
+  // Storage and the AI answer here; anything else outside the simulated bank is still refused.
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    if (url.origin === 'https://api.anthropic.com') { calls.ai++; return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: JSON.stringify({ phone: '+1 305 555 0142', name: 'Nina Print', ref: '', message: 'Quero um Civic 2020', translation: '' }) }] }) }; }
+    if (url.pathname.startsWith('/storage/v1/object/mcs-panel-attachments/quarantine/')) { calls.read++; return { ok: true, status: 200, arrayBuffer: async () => png.buffer.slice(png.byteOffset, png.byteOffset + png.length), json: async () => ({}), text: async () => '' }; }
+    if (url.pathname === '/storage/v1/object/move') { calls.move++; return { ok: true, status: 200, json: async () => ({ message: 'ok' }), text: async () => '{"message":"ok"}' }; }
+    return simulated(input, options);
+  };
+  try {
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await openPanel(page);
+    await page.goto(base + '/painel/');
+    await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
+    await page.locator('[data-view="entry"]').click();
+    const cards = page.locator('#entry-queue .failed-print');
+    const retryCard = cards.filter({ hasText: 'denovo.png' });
+    await expect(retryCard).toContainText('Não consegui ler este print', { timeout: 30000 });
+    // Tentar ler de novo: reads the stored print again and shows what it found, without saving.
+    await retryCard.locator('button', { hasText: 'Tentar ler de novo' }).click();
+    const fresh = cards.filter({ hasText: 'Quero um Civic 2020' });
+    await expect(fresh).toContainText('Print lido agora', { timeout: 30000 });
+    await expect(fresh).toContainText('Telefone do print: +13055550142');
+    expect(calls).toEqual({ ai: 1, read: 1, move: 0 });
+    const afterRetry = (await backend.db.query(`select status,error_code,extracted_json->>'message' message from public.sms_print_reads where id='${retryId}'`)).rows[0];
+    expect(afterRetry).toEqual({ status: 'READY', error_code: null, message: 'Quero um Civic 2020' });
+    // Guardar pelo painel on the fresh read: a new lead with the phone read from the print.
+    await fresh.locator('button', { hasText: 'Guardar pelo painel' }).click();
+    await expect.poll(async () => (await backend.db.query(`select status from public.sms_print_reads where id='${retryId}'`)).rows[0].status, { timeout: 30000 }).toBe('CONFIRMED');
+    expect((await backend.db.query(`select count(*)::int n from public.contact_phones where phone_e164='+13055550142'`)).rows[0].n).toBe(1);
+    // Guardar pelo painel on a print read earlier without a phone: asks for the phone, then saves.
+    const noPhone = cards.filter({ hasText: 'guardar.png' }).or(cards.filter({ hasText: 'Looking for a Tacoma 2019' }));
+    await expect(noPhone).toHaveCount(1, { timeout: 30000 });
+    await noPhone.locator('button', { hasText: 'Guardar pelo painel' }).click();
+    await expect(page.getByText('Digite o telefone do cliente antes de guardar')).toBeVisible({ timeout: 30000 });
+    expect((await backend.db.query(`select status from public.sms_print_reads where id='${readId}'`)).rows[0].status).toBe('READY');
+    await noPhone.locator('input[type="tel"]').fill('+1 305 555 0177');
+    await noPhone.locator('button', { hasText: 'Guardar pelo painel' }).click();
+    await expect.poll(async () => (await backend.db.query(`select status from public.sms_print_reads where id='${readId}'`)).rows[0].status, { timeout: 30000 }).toBe('CONFIRMED');
+    await expect(cards).toHaveCount(0, { timeout: 30000 });
+    expect(calls).toEqual({ ai: 1, read: 1, move: 2 });
+    expect(backend.refused).toEqual([]);
+    expect(errors).toEqual([]);
+  } finally {
+    globalThis.fetch = simulated;
+    if (saved.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved.key;
+    if (saved.model === undefined) delete process.env.ANTHROPIC_MODEL; else process.env.ANTHROPIC_MODEL = saved.model;
+  }
+});
+
 test('Fotos da V2: escolhe uma V2 existente, respeita 12 fotos e não cria nem publica nada', async ({ page }) => {
   const v2 = '7b000000-0000-4000-8000-000000000001', carId = '7b000000-0000-4000-8000-000000000002';
   const eleven = JSON.stringify(Array.from({ length: 11 }, (_, n) => `${v2}/f${n}.jpg`));
@@ -187,7 +249,16 @@ test('Fotos da V2: escolhe uma V2 existente, respeita 12 fotos e não cria nem p
     await page.locator('#import-v2-file').setInputFiles([{ name: 'a.png', mimeType: 'image/png', buffer: png }, { name: 'b.png', mimeType: 'image/png', buffer: png }]);
     await expect(page.locator('#import-v2-status')).toHaveText('Esta V2 aceita só mais 1 foto(s)');
     await expect(page.locator('#import-v2-thumbs .v2-thumb')).toHaveCount(1);
+    // Confirmation first: the photos show up at once on the link the customer already has.
+    const confirm = page.locator('#import-card-v2 .inline-confirm');
     await page.locator('#import-v2-send').click();
+    await expect(confirm).toContainText('vão aparecer imediatamente no link da V2 que o cliente já recebeu');
+    await confirm.locator('button', { hasText: 'Cancelar' }).click();
+    await expect(confirm).toHaveCount(0);
+    expect(stored).toHaveLength(0);
+    expect((await backend.db.query(`select jsonb_array_length(photo_paths) n from public.vitrine_cars where id='${carId}'`)).rows[0].n).toBe(11);
+    await page.locator('#import-v2-send').click();
+    await confirm.locator('button', { hasText: 'Salvar fotos' }).click();
     await expect(page.locator('#import-v2-status')).toHaveText('1 foto(s) enviada(s) para esta V2', { timeout: 30000 });
     await expect(select.locator('option', { hasText: '12/12 fotos' })).toHaveCount(1);
     expect(stored).toHaveLength(1);
