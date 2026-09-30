@@ -18,6 +18,7 @@
 
 const crypto = require('node:crypto');
 const openAiBudget = require('./panel-openai-budget');
+const modelCheck = require('./panel-openai-model-check');
 const { allRows, supabase } = require('./panel-server');
 const aiClaim = require('./panel-ai-claim');
 
@@ -263,6 +264,8 @@ async function runTriage(ctx, options = {}) {
   // US$ 50 for all the panel's OpenAI features together (panel-openai-budget).
   const budget = options.budget || openAiBudget;
   const provider = pending.length ? await budget.spentUsd(ctx) : null;
+  // The minimal model test (no customer data) must have passed before the first real reading.
+  if (pending.length) { const check = await (options.modelCheck || modelCheck.ensureModelChecked)(ctx, model(env)); if (!check.ok) return { ...result, stoppedReason: 'MODEL_NOT_CHECKED', error: check.error }; }
   for (const item of pending) {
     // Never start a paid call that the function could be stopped in the middle of.
     if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred = pending.length - result.processed - result.inProgress; break; }

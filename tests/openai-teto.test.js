@@ -26,3 +26,21 @@ test('em produção, falha ao ler o gasto bloqueia a chamada', async () => {
   assert.equal((await budget.spentUsd(ctx, { allRows: reader({ fail: true }) })).total, 0);
   if (saved === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = saved;
 });
+
+const modelCheck = require('../panel-openai-model-check');
+test('teste mínimo do modelo antes da primeira leitura real: sem dado de cliente, gravado e exigido', async () => {
+  const env = { VERCEL_ENV: 'production' };
+  const inserted = [], sent = [];
+  const services = (found, fail) => ({ env, rows: async () => found ? [{ id: 'x' }] : [], insert: async (_c, table, row) => { inserted.push({ table, row }); },
+    budget: { fits: () => true, spentUsd: async () => ({ total: 0 }) },
+    chat: async (body, options) => { sent.push({ body, model: options.env.SEARCH_EXTRACTION_MODEL }); if (fail) throw Object.assign(Error('x'), { code: 'OPENAI_MODEL_UNAVAILABLE' }); return { usage: { input: 5, output: 1 }, costUsd: 0.000004 }; } });
+  assert.deepEqual(await modelCheck.ensureModelChecked(ctx, 'gpt-6-luna', services(true)), { ok: true });
+  assert.equal(sent.length, 0);
+  assert.deepEqual(await modelCheck.ensureModelChecked(ctx, 'gpt-6-luna', services(false)), { ok: true, checked: true });
+  assert.equal(sent.length, 1); assert.equal(sent[0].model, 'gpt-6-luna');
+  assert.deepEqual(sent[0].body.messages, [{ role: 'user', content: 'Teste de disponibilidade do modelo. Responda apenas: ok' }]);
+  assert.equal(inserted[0].table, 'vehicle_request_batches'); assert.equal(inserted[0].row.stopped_reason, 'MODEL_CHECK_OK'); assert.equal(inserted[0].row.conversations, 0);
+  const failed = await modelCheck.ensureModelChecked(ctx, 'gpt-6-luna', services(false, true));
+  assert.equal(failed.ok, false); assert.equal(inserted[1].row.stopped_reason, 'MODEL_UNAVAILABLE');
+  assert.deepEqual(await modelCheck.ensureModelChecked(ctx, 'gpt-6-luna', { env: { VERCEL_ENV: 'preview' } }), { ok: true, simulated: true });
+});
