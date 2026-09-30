@@ -266,10 +266,13 @@ async function extractHistory(ctx, limit, options = {}) {
   const started = Date.now();
   const batch = { conversations: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, stoppedReason: null };
   const done = [];
+  // The cron passes a small limit and its own deadline; the panel button keeps the 30-second batch.
+  const deadlineAt = options.deadlineAt || started + BATCH_SECONDS * 1000;
+  if (!state.pending.length) return progressOf(state, context, { read: 0, failed: 0, stoppedReason: null, batchCostUsd: 0 });
   for (const chatId of state.pending.slice(0, Math.min(limit || HISTORY_BATCH, HISTORY_BATCH))) {
     if (context.limitUsd !== null && state.spentUsd + batch.costUsd + search.MAX_CALL_USD > context.limitUsd) { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
-    if (Date.now() - started > BATCH_SECONDS * 1000) break;
-    const out = await search.extractChat(ctx, chatId, options);
+    if (Date.now() > deadlineAt) break;
+    const out = await search.extractChat(ctx, chatId, options.extract || {});
     if (out.error === 'OPENAI_QUOTA') { batch.stoppedReason = 'PROVIDER_QUOTA'; break; }
     if (out.error === 'OPENAI_MODEL_UNAVAILABLE') { batch.stoppedReason = 'MODEL_UNAVAILABLE'; break; }
     batch.conversations += out.alreadyRead || out.error ? 0 : 1;
@@ -277,7 +280,7 @@ async function extractHistory(ctx, limit, options = {}) {
     done.push({ chatId, requests: out.requests || 0, error: out.error || null });
   }
   await insert(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider: context.provider, model: context.model, conversations: batch.conversations,
-    input_tokens: batch.inputTokens, output_tokens: batch.outputTokens, cost_usd: round6(batch.costUsd), stopped_reason: batch.stoppedReason, created_by: ctx.panel.id }, false);
+    input_tokens: batch.inputTokens, output_tokens: batch.outputTokens, cost_usd: round6(batch.costUsd), stopped_reason: batch.stoppedReason, created_by: ctx.panel?.id || null }, false);
   const after = await historyState(ctx, context.provider);
   return progressOf(after, context, { read: done.length, failed: done.filter((item) => item.error).length, stoppedReason: batch.stoppedReason, batchCostUsd: round6(batch.costUsd) });
 }
@@ -324,3 +327,4 @@ module.exports = async (req, res) => {
 };
 module.exports.buildList = buildList;
 module.exports.audit = audit;
+module.exports.extractHistory = extractHistory;
