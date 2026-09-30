@@ -1259,7 +1259,7 @@
     if (view === 'searches') {
       const [,data]=await Promise.all([loadSearches(),request('/api/panel/records?view=manheim',viewFetch())]);
       if (!current()) return;
-      updateMeta(data.meta);renderManheim(data);return;
+      updateMeta(data.meta);renderManheim(data);if(!productionHost)renderV1Demo();return;
     }
     // IMPORTAÇÕES reads the same batch data (the batch list and the import tools live there).
     if (view === 'imports') {
@@ -2125,7 +2125,7 @@
     OFF: 'Envio direto desligado em produção · Use "Abrir WhatsApp com mensagem pronta"'
   };
   const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
-  function v1SendControls(demand) {
+  function v1SendControls(demand, demo = null) {
     const node = element('div', 'v1-send');
     const button = element('button', 'small', 'Enviar no WhatsApp'); button.type = 'button'; button.disabled = true;
     const state = element('p', 'muted v1-send-state', 'Gere a V1 para enviar no WhatsApp');
@@ -2163,8 +2163,9 @@
       token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp'; showSuggestion(null);
       state.textContent = 'Conferindo o destino…'; delete state.dataset.status;
       try {
-        info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: 'prepare', token, baseUrl: location.origin, ...(demand?.key ? { demandKey: demand.key } : {}) }) });
+        info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: demo ? 'demo_prepare' : 'prepare', token, baseUrl: location.origin, ...(demo || {}), ...(demand?.key ? { demandKey: demand.key } : {}) }) });
       } catch (failure) {
+        if (demo && demo.onUnavailable) { demo.onUnavailable(); return; }
         state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio · Use "Copiar mensagem com link"';
         return;
       }
@@ -2196,7 +2197,7 @@
         busy = true; yes.disabled = true; no.disabled = true; textarea.disabled = true; button.disabled = true;
         yes.textContent = 'Enviando…';
         try {
-          const result = await request('/api/panel/v1-send', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: 'send', token, text: textarea.value, requestKey, confirmed: true, resend, ...(demand?.key ? { demandKey: demand.key } : {}) }) });
+          const result = await request('/api/panel/v1-send', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: demo ? 'demo_send' : 'send', token, text: textarea.value, requestKey, confirmed: true, resend, ...(demo || {}), ...(demand?.key ? { demandKey: demand.key } : {}) }) });
           box.remove();
           showLast({ status: result.sendStatus, at: result.at, simulated: result.simulated });
         } catch (failure) {
@@ -2238,6 +2239,28 @@
     return box;
   }
 
+  // Exemplo fictício do Preview para conferir o envio da V1: dados inventados, nada é lido nem
+  // gravado no banco e o 360dialog nunca é chamado. Só aparece quando o servidor aceita o exemplo
+  // (fora de produção); em produção a ação não existe e o cartão some.
+  function renderV1Demo() {
+    const panel = $('searches-panel'), anchor = $('manheim-results');
+    if (!panel || !anchor || $('v1-demo')) return;
+    const box = element('section', 'card v1-demo'); box.id = 'v1-demo';
+    box.append(element('h2', '', 'EXEMPLO FICTÍCIO · envio da V1'),
+      element('p', 'warning', 'Só neste Preview · Cliente, telefone e link inventados · Nada é gravado no banco nem enviado ao WhatsApp'));
+    const cards = [
+      { title: 'Veio pela calculadora · janela de 24 h aberta', demo: { origin: 'VALOR', window: 'open', card: 'calculadora' } },
+      { title: 'Veio pelo Find One For Me · fora da janela de 24 h', demo: { origin: 'CARRO', window: 'closed', card: 'find-one' } }
+    ];
+    cards.forEach((item) => {
+      const card = element('article', 'item-card v1-demo-card');
+      card.append(element('h3', '', item.title));
+      const controls = v1SendControls(null, { ...item.demo, onUnavailable: () => box.remove() });
+      card.append(controls.node); box.append(card);
+      controls.setVitrine('EXEMPLO-FICTICIO-NAO-E-CLIENTE');
+    });
+    panel.insertBefore(box, anchor);
+  }
   function renderManheimGroup(root, journey, reactivation, demand) {
     const card = element('article', 'item-card manheim-lead');
     card.dataset.mode = demand?.mode || '';

@@ -137,6 +137,41 @@ async function sendV1(ctx, body, services, env, now) {
   } finally { inFlight.delete(vitrine.id); }
 }
 
+// Exemplo fictício do Preview: o mesmo fluxo de confirmação com dados inventados, sem ler nem
+// gravar no banco e sem chamar o 360dialog. Em produção estas ações não existem (404).
+const DEMO = Object.freeze({ name: 'Cliente Fictício (teste)', phone: '+15550100100', token: 'EXEMPLO-FICTICIO-NAO-E-CLIENTE' });
+const DEMO_DELAY_MS = 1500;
+const demoSent = new Set();
+function demoPrepare(body, env) {
+  if (sendMode(env) !== 'SIMULATED') return { status: 404, error: 'NOT_FOUND' };
+  const base = baseUrlOf(body.baseUrl);
+  if (!base) return { status: 400, error: 'V1_SEND_INVALID' };
+  const origin = body.origin === 'CARRO' ? 'CARRO' : 'VALOR';
+  const link = base + '/v/' + DEMO.token;
+  const text = suggestedText(origin, DEMO.name, link);
+  return { status: 200, eligible: true, mode: 'SIMULATED', demo: true, name: DEMO.name, phone: DEMO.phone, origin, text, link,
+    windowOpen: body.window !== 'closed', whatsappLink: waLink(DEMO.phone, text), last: null };
+}
+async function demoSend(body, env) {
+  if (sendMode(env) !== 'SIMULATED') return { status: 404, error: 'NOT_FOUND' };
+  const text = String(body.text || '').replace(/\r\n/g, '\n').trim();
+  if (!text) return { status: 400, error: 'TEXT_REQUIRED' };
+  if (text.length > MAX_TEXT) return { status: 400, error: 'TEXT_TOO_LONG' };
+  if (!isUuid(body.requestKey) || body.confirmed !== true) return { status: 400, error: 'V1_SEND_CONFIRM_REQUIRED' };
+  if (!text.includes('/v/' + DEMO.token)) return { status: 400, error: 'V1_LINK_MISSING' };
+  const key = 'demo:' + (body.window === 'closed' ? 'closed' : 'open') + ':' + String(body.card || '');
+  if (inFlight.has(key)) return { status: 409, error: 'SEND_IN_PROGRESS' };
+  if (demoSent.has(key) && body.resend !== true) return { status: 409, error: 'V1_ALREADY_SENT' };
+  inFlight.add(key);
+  try {
+    // A short wait makes the double-click protection visible; nothing leaves the server.
+    await new Promise((resolve) => setTimeout(resolve, body.fast === true ? 0 : DEMO_DELAY_MS));
+    if (body.window === 'closed') return { status: 409, error: 'WINDOW_CLOSED', whatsappLink: waLink(DEMO.phone, text) };
+    demoSent.add(key);
+    return { status: 200, sendStatus: 'SENT', simulated: true, demo: true, at: new Date().toISOString() };
+  } finally { inFlight.delete(key); }
+}
+
 const defaultServices = { rows, insert, patchRows, applyMessage: reply.applyMessage, d360Send: reply.d360Send };
 
 async function handle(ctx, body, services = defaultServices, env = process.env, now = Date.now()) {
@@ -144,6 +179,8 @@ async function handle(ctx, body, services = defaultServices, env = process.env, 
   try {
     if (action === 'prepare') return await prepare(ctx, body, services, env);
     if (action === 'send') return await sendV1(ctx, body, services, env, now);
+    if (action === 'demo_prepare') return demoPrepare(body, env);
+    if (action === 'demo_send') return await demoSend(body, env);
     return { status: 400, error: 'ACTION_INVALID' };
   } catch (error) {
     if (missingTable(error)) return { status: 503, error: 'V1_SEND_PENDING' };
@@ -167,3 +204,4 @@ module.exports.sendMode = sendMode;
 module.exports.suggestedText = suggestedText;
 module.exports.firstName = firstName;
 module.exports.TEMPLATES = TEMPLATES;
+module.exports.DEMO = DEMO;

@@ -63,6 +63,41 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { if (backend) await backend.db.close(); });
 
+test('exemplo fictício do Preview: confirmação completa, clique duplo barrado e fora da janela de 24 h, sem banco', async ({ page }) => {
+  const before = (await backend.db.query('select (select count(*) from public.v1_sends)::int sends, (select count(*) from public.vitrines)::int vitrines')).rows[0];
+  const posts = [];
+  page.on('request', (request) => { if (request.url().includes('/api/panel/v1-send')) posts.push(JSON.parse(request.postData() || '{}').action); });
+  await openPanel(page);
+  await page.goto(base + '/painel/');
+  await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
+  await page.locator('[data-view="searches"]').click();
+  const demo = page.locator('#v1-demo');
+  await expect(demo).toContainText('EXEMPLO FICTÍCIO');
+  await expect(demo).toContainText('Nada é gravado no banco nem enviado ao WhatsApp');
+  const open = demo.locator('.v1-demo-card').nth(0), closed = demo.locator('.v1-demo-card').nth(1);
+  await expect(open.locator('.v1-send-state')).toHaveText('Para Cliente Fictício (teste) · +15550100100 · envio simulado neste ambiente');
+  await expect(open.locator('.v1-suggestion summary')).toContainText('veio pela calculadora');
+  // Confirmation shows name, number, link and the approved text; a second click is blocked while sending.
+  await open.locator('.v1-send > button').click();
+  const box = open.locator('.v1-send-confirm');
+  await expect(box).toContainText('Enviar para Cliente Fictício (teste) · +15550100100');
+  await expect(box).toContainText('/v/EXEMPLO-FICTICIO-NAO-E-CLIENTE');
+  await expect(box.locator('textarea')).toHaveValue(/^Hi Cliente,\n\nI put together a first look/);
+  const confirm = box.getByRole('button', { name: 'Confirmar envio' });
+  await confirm.dblclick();
+  await expect(open.locator('.v1-send-state')).toHaveText(/^Enviado às \d\d:\d\d · simulado$/, { timeout: 10000 });
+  expect(posts.filter((action) => action === 'demo_send')).toHaveLength(1);
+  // Outside the 24-hour window: nothing is sent, WhatsApp opens with the text ready.
+  await closed.locator('.v1-send > button').click();
+  await closed.locator('.v1-send-confirm').getByRole('button', { name: 'Confirmar envio' }).click();
+  await expect(closed.locator('.v1-send-state')).toHaveText('Fora da janela de 24 h do WhatsApp: não foi enviado · Use "Abrir WhatsApp com mensagem pronta"', { timeout: 10000 });
+  await expect(closed.locator('.v1-send-fallback')).toHaveAttribute('href', /^https:\/\/wa\.me\/15550100100\?text=Hi%20Cliente/);
+  expect(posts.every((action) => action.startsWith('demo_') || !action)).toBe(true);
+  const after = (await backend.db.query('select (select count(*) from public.v1_sends)::int sends, (select count(*) from public.vitrines)::int vitrines')).rows[0];
+  expect(after).toEqual(before);
+  if (SHOTS) await demo.screenshot({ path: path.join(SHOTS, 'v1-exemplo-ficticio.png') });
+});
+
 async function openPanel(page, optionPages = []) {
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-simulado', refreshToken: 'refresh', accessExpiresAt: Date.now() + 3600000 })));
