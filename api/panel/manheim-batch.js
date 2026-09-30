@@ -12,7 +12,7 @@
 //  POST complement-*       os mesmos CSVs do lote ativo, lidos de novo, acrescentam só Lane, Run,
 //                          Inventory, Status e Event Sale Name aos carros que o lote já tem:
 //                          check (prévia, só leitura), start/stage (conferência depois da confirmação),
-//                          apply (uma transação, tudo ou nada), cancel. Não cria lote nem match e não
+//                          apply (uma troca, tudo ou nada), result (totais, só leitura), cancel. Não cria lote nem match e não
 //                          mexe em MMR, critérios, seleção, V1/V2 ou histórico
 // Nenhuma chamada paga e nenhuma mensagem saem daqui.
 const crypto = require('node:crypto');
@@ -207,15 +207,20 @@ async function actionComplementApply(ctx, body) {
   if (!isUuid(body.runId) || body.confirmed !== true) return send(ctx.res, 400, { error: body.confirmed === true ? 'MANHEIM_UPLOAD_INVALID' : 'MANHEIM_COMPLEMENT_CONFIRM_REQUIRED' });
   return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_complement_apply', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId }));
 }
+// Totals after the switch (read only, outside the write).
+async function actionComplementResult(ctx, body) {
+  if (!isUuid(body.uploadId)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_complement_result', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: body.uploadId }));
+}
 async function actionComplementCancel(ctx, body) {
   if (!isUuid(body.runId)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
   return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_complement_cancel', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId, p_reason: 'OPERATOR' }));
 }
-const COMPLEMENT_ACTIONS = new Set(['complement-check', 'complement-start', 'complement-stage', 'complement-apply', 'complement-cancel']);
+const COMPLEMENT_ACTIONS = new Set(['complement-check', 'complement-start', 'complement-stage', 'complement-apply', 'complement-result', 'complement-cancel']);
 
 const CONFLICT_CODES = new Set(['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_CANCELED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_COMPLEMENT_NOT_ACTIVE', 'MANHEIM_COMPLEMENT_MISMATCH', 'MANHEIM_COMPLEMENT_INCOMPLETE', 'MANHEIM_COMPLEMENT_CANCELED']);
 const ACTIONS = { start: actionStart, chunk: actionChunk, status: actionStatus, finalize: actionFinalize, cancel: actionCancel,
-  'complement-check': actionComplementCheck, 'complement-start': actionComplementStart, 'complement-stage': actionComplementStage, 'complement-apply': actionComplementApply, 'complement-cancel': actionComplementCancel };
+  'complement-check': actionComplementCheck, 'complement-start': actionComplementStart, 'complement-stage': actionComplementStage, 'complement-apply': actionComplementApply, 'complement-result': actionComplementResult, 'complement-cancel': actionComplementCancel };
 
 module.exports = async (req, res) => {
   if (!['GET', 'POST'].includes(req.method)) return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });

@@ -2734,7 +2734,12 @@
       status.textContent = 'Complementando · gravando tudo de uma vez…';
       const done = await post({ action: 'complement-apply', runId, confirmed: true });
       runId = null;
-      status.textContent = `Complemento concluído · ${done.cars} carros · ${done.lane} com Lane/Run · ${done.offLane} Buy Now / Make Offer · ${done.incomplete} ainda incompletos`;
+      if (!done.applied) { status.textContent = `Nada a complementar · os ${done.cars} carros do lote ativo já têm estes dados`; return; }
+      status.textContent = 'Complemento gravado · somando os grupos…';
+      const totals = await post({ action: 'complement-result', uploadId: latest.id }).catch(() => null);
+      status.textContent = totals
+        ? `Complemento concluído · ${totals.withSale} carros complementados · ${totals.lane} com Lane/Run · ${totals.offLane} Buy Now / Make Offer · ${totals.incomplete} ainda incompletos · ${totals.matches} matches`
+        : `Complemento concluído · ${done.cars} carros complementados. Os totais aparecem em BUSCAS`;
       if (requestPool) requestPool.invalidate();
       await loadCurrent().catch(() => {});
     } catch (failure) {

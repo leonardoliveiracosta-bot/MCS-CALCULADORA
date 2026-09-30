@@ -60,7 +60,8 @@ async function frozen() {
     messages: await q(`select count(*)::int n from public.messages`)
   };
 }
-const saleRows = () => q(`select row_fingerprint, sale from public.manheim_sale_info order by row_fingerprint`);
+// Sale data in use: the items of the complement the batch points to (nothing before the switch).
+const saleRows = () => q(`select i.row_fingerprint, i.sale from public.manheim_sale_current c join public.manheim_complement_items i on i.run_id = c.run_id order by i.row_fingerprint`);
 const groups = async () => {
   const view = (await call('records', '/api/panel/records?view=manheim')).payload;
   const demand = view.demands.find((item) => item.key === KEY);
@@ -149,7 +150,9 @@ test('prévia só lê; o complemento grava só os cinco dados, de uma vez; repet
 
   const applied = await complement(read);
   assert.equal(applied.statusCode, 200, JSON.stringify(applied.payload));
-  assert.deepEqual([applied.payload.cars, applied.payload.changed, applied.payload.lane, applied.payload.offLane, applied.payload.incomplete], [6, 6, 3, 2, 1]);
+  assert.deepEqual([applied.payload.applied, applied.payload.cars, applied.payload.changed], [true, 6, 6]);
+  const totals = await post({ action: 'complement-result', uploadId: batch.uploadId });
+  assert.deepEqual(totals.payload, { cars: 6, withSale: 6, lane: 3, offLane: 2, incomplete: 1, matches: 5 });
   // Batch, cars, matches (none created, removed or recalculated), MMR, criteria, selection: identical.
   assert.deepEqual(await frozen(), before);
   const sale = await saleRows();
@@ -165,7 +168,7 @@ test('prévia só lê; o complemento grava só os cinco dados, de uma vez; repet
   const again = await preview(await csv.readFiles(FILES));
   assert.equal(again.payload.changed, 0);
   const second = await complement(await csv.readFiles(FILES));
-  assert.equal(second.payload.changed, 0);
+  assert.deepEqual([second.payload.applied, second.payload.changed], [false, 0]);
   assert.deepEqual(await saleRows(), sale);
   assert.deepEqual(await frozen(), before);
   assert.deepEqual(backend.refused, []);
