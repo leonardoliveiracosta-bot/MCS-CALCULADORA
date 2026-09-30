@@ -9,6 +9,10 @@
 //  POST status             blocos já confirmados, para retomar do ponto em que parou
 //  POST finalize           ativa o lote inteiro de uma vez (nunca pela metade)
 //  POST cancel             cancela um lote ainda em montagem (nada é apagado)
+//  POST complement         os mesmos CSVs do lote ativo, lidos de novo, acrescentam só Lane, Run,
+//                          Inventory, Status e Event Sale Name aos carros que o lote já tem.
+//                          apply=false só conta; apply=true exige confirmed=true. Não cria lote nem
+//                          match e não mexe em MMR, critérios, seleção, V1/V2 ou histórico
 // Nenhuma chamada paga e nenhuma mensagem saem daqui.
 const crypto = require('node:crypto');
 const { isUuid, jsonBody, requirePanel, rows, rpc, send } = require('../../panel-server');
@@ -134,8 +138,31 @@ async function actionCancel(ctx, body) {
   return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_batch_cancel', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: upload.id }));
 }
 
-const CONFLICT_CODES = new Set(['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_CANCELED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR']);
-const ACTIONS = { start: actionStart, chunk: actionChunk, status: actionStatus, finalize: actionFinalize, cancel: actionCancel };
+// The files must be the ones of the active batch: same names, sizes, rows and cars, in the same order.
+const fileKey = (file) => [text(file && file.name, 200), Math.round(Number(file && file.size) || 0), Math.round(Number(file && file.rowCount) || 0), Math.round(Number(file && file.vehicleCount) || 0)];
+const SALE_FIELDS = [['lane', 20], ['run', 20], ['saleType', 80], ['saleStatus', 80], ['eventSaleName', 160]];
+async function actionComplement(ctx, body) {
+  const items = Array.isArray(body.items) ? body.items : null;
+  if (!isUuid(body.uploadId) || !items || !items.length || items.length > batch.COMPLEMENT_ITEMS || !Array.isArray(body.files) || !body.files.length || body.files.length > 20) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  const apply = body.apply === true;
+  // Writing needs the operator's explicit confirmation after the count.
+  if (apply && body.confirmed !== true) return send(ctx.res, 400, { error: 'MANHEIM_COMPLEMENT_CONFIRM_REQUIRED' });
+  const latest = await latestActiveUpload(ctx, 'id,vehicle_count,files_json');
+  if (!latest || latest.id !== body.uploadId) return send(ctx.res, 409, { error: 'MANHEIM_COMPLEMENT_NOT_ACTIVE' });
+  const stored = (Array.isArray(latest.files_json) ? latest.files_json : []).map(fileKey);
+  if (Number(body.vehicleCount) !== Number(latest.vehicle_count) || JSON.stringify(body.files.map(fileKey)) !== JSON.stringify(stored)) return send(ctx.res, 409, { error: 'MANHEIM_COMPLEMENT_MISMATCH' });
+  const clean = [];
+  for (const item of items) {
+    const fingerprint = text(item && item.fingerprint, 200);
+    if (fingerprint.length < 3) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+    clean.push(Object.fromEntries([['fingerprint', fingerprint], ...SALE_FIELDS.map(([key, max]) => [key, text(item[key], max)])]));
+  }
+  const result = await rpc(ctx, 'panel_manheim_batch_complement', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: latest.id, p_items: clean, p_apply: apply });
+  return send(ctx.res, 200, result);
+}
+
+const CONFLICT_CODES = new Set(['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_CANCELED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_COMPLEMENT_NOT_ACTIVE', 'MANHEIM_COMPLEMENT_MISMATCH']);
+const ACTIONS = { start: actionStart, chunk: actionChunk, status: actionStatus, finalize: actionFinalize, cancel: actionCancel, complement: actionComplement };
 
 module.exports = async (req, res) => {
   if (!['GET', 'POST'].includes(req.method)) return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -145,8 +172,10 @@ module.exports = async (req, res) => {
   try {
     if (!(await batchSupported(ctx, { rows }).catch(() => false))) return send(res, 503, { error: 'MANHEIM_MIGRATION_PENDING' });
     if (req.method === 'GET') {
-      const latest = await latestActiveUpload(ctx, 'id,vehicle_count,uploaded_at,source_file_count');
-      return send(res, 200, { latest: latest ? { id: latest.id, vehicleCount: latest.vehicle_count, uploadedAt: latest.uploaded_at, fileCount: latest.source_file_count } : null });
+      const latest = await latestActiveUpload(ctx, 'id,vehicle_count,uploaded_at,source_file_count,files_json');
+      // File names, sizes and counts only (for the complement to read the files in the same order).
+      const files = latest && Array.isArray(latest.files_json) ? latest.files_json.map((file) => { const [name, size, rowCount, vehicleCount] = fileKey(file); return { name, size, rowCount, vehicleCount }; }) : [];
+      return send(res, 200, { latest: latest ? { id: latest.id, vehicleCount: latest.vehicle_count, uploadedAt: latest.uploaded_at, fileCount: latest.source_file_count, files } : null });
     }
     const body = await jsonBody(req, BODY_LIMIT);
     const action = ACTIONS[String(body && body.action || '')];

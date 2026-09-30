@@ -3,8 +3,9 @@
 --
 --  * Match interno não é opção: um carro só vai para V1/V2 depois de selecionado pelo operador.
 --  * No máximo 10 selecionados por demanda (ficha ou Ref + modo), garantido no servidor sob trava.
---  * Grupos: LANE (Lane, Run e tipo de venda no CSV, sem Buy Now/Make Offer, com CR), OFFLANE
---    (Buy Now/Make Offer) e INCOMPLETE (falta dado). Fora de LANE só entra com inclusão manual e motivo.
+--  * Grupos: LANE (Lane e Run verificáveis, mesmo com Buy Now Price), OFFLANE (Lane ou Run não
+--    verificável e indicação de Buy Now/Make Offer no CSV) e INCOMPLETE (o resto). CR não muda o grupo,
+--    só a ordem. Fora de LANE só entra com inclusão manual e motivo.
 --  * CR só ordena candidatos já compatíveis: até 5 com CR no mínimo recomendado pelo MMR, depois até
 --    5 abaixo, depois o resto. Empate: leilão mais cedo, Lane, Run, VIN, id.
 --  * Preço para o cliente: MMR + acréscimo padrão da faixa (ou o percentual do operador). O cliente
@@ -68,14 +69,15 @@ $$;
 create or replace function public.panel_manheim_offer_group(p_parsed jsonb)
 returns text language sql immutable set search_path = '' as $$
   select case
-    when (regexp_replace(coalesce(p_parsed ->> 'buyNowPrice', ''), '[$,\s]', '', 'g') ~ '^\d+(\.\d+)?$'
-          and regexp_replace(coalesce(p_parsed ->> 'buyNowPrice', ''), '[$,\s]', '', 'g')::numeric > 0)
-      or concat_ws(' ', p_parsed ->> 'saleType', p_parsed ->> 'eventSaleName', p_parsed ->> 'saleStatus') ~* 'buy\s*-?\s*now|make\s*-?\s*(an\s+)?offer'
+    -- Lane e Run verificáveis: passa em Lane/Run, mesmo com Buy Now Price maior que zero.
+    when coalesce(trim(p_parsed ->> 'lane'), '') <> '' and coalesce(trim(p_parsed ->> 'run'), '') <> '' then 'LANE'
+    -- Sem Lane/Run: Buy Now / Make Offer só com os dados de venda lidos e indicação no CSV.
+    when ((p_parsed ->> 'lane') is not null or (p_parsed ->> 'run') is not null)
+      and ((regexp_replace(coalesce(p_parsed ->> 'buyNowPrice', ''), '[$,\s]', '', 'g') ~ '^\d+(\.\d+)?$'
+            and regexp_replace(coalesce(p_parsed ->> 'buyNowPrice', ''), '[$,\s]', '', 'g')::numeric > 0)
+        or concat_ws(' ', p_parsed ->> 'saleType', p_parsed ->> 'eventSaleName', p_parsed ->> 'saleStatus') ~* 'buy\s*-?\s*now|make\s*-?\s*(an\s+)?offer')
       then 'OFFLANE'
-    when coalesce(trim(p_parsed ->> 'lane'), '') = '' or coalesce(trim(p_parsed ->> 'run'), '') = ''
-      or coalesce(trim(p_parsed ->> 'saleType'), '') = '' or public.panel_manheim_offer_cr(p_parsed) is null
-      then 'INCOMPLETE'
-    else 'LANE' end;
+    else 'INCOMPLETE' end;
 $$;
 
 -- MMR válido do match (a coluna nova ou o que o carro guardava).

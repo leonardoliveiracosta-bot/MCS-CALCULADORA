@@ -236,6 +236,8 @@
         <section class="card">
           <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
           <p id="manheim-status" class="status" role="status"></p>
+          <div class="inline-actions manheim-complement"><button id="manheim-complement" class="quiet small" type="button">Complementar dados do lote ativo</button><span class="muted">Os mesmos CSVs do lote ativo, só para acrescentar Lane, Run, Inventory, Status e Event Sale Name</span><input id="manheim-complement-files" type="file" accept=".csv,text/csv" multiple hidden></div>
+          <p id="manheim-complement-status" class="status" role="status"></p>
           <div id="manheim-import-summary" class="import-summary hidden" aria-live="polite"></div>
         </section>
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
@@ -309,7 +311,7 @@
   <script src="/painel/manheim.js?v=5" defer></script>
   <script src="/painel/manheim-upload.js?v=4" defer></script>
   <script src="/painel/refresh-coordinator.js?v=1" defer></script>
-  <script src="/manheim-offer.js?v=1" defer></script>
+  <script src="/manheim-offer.js?v=2" defer></script>
   <script src="/money-text.js?v=1" defer></script>
   <script src="/panel-origin.js?v=2" defer></script>
   <script src="/painel/action.js" defer></script>

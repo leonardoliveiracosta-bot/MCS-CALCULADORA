@@ -47,19 +47,25 @@
     const raw = text(parsed && parsed.buyNowPrice).replace(/[$,\s]/g, '');
     return /^\d+(\.\d+)?$/.test(raw) && Number(raw) > 0 ? Math.round(Number(raw) * 100) : 0;
   }
-  // Marcado como Buy Now / Make Offer pelos campos do CSV (preço de Buy Now ou o texto da venda).
+  // Indicação de Buy Now / Make Offer no CSV (preço de Buy Now ou o texto da venda). Sozinha ela não
+  // tira um carro de Lane/Run: só vale quando Lane ou Run não são verificáveis.
   const saleMarked = (parsed) => buyNowCents(parsed) > 0 || [parsed && parsed.saleType, parsed && parsed.eventSaleName, parsed && parsed.saleStatus].some((value) => SALE_MARKER.test(text(value)));
+  // Os dados de venda do CSV foram lidos para este carro (Lane/Run presentes como campo, mesmo vazios).
+  // Um lote importado antes disso não tem esses campos até ser complementado.
+  const saleRead = (parsed) => Boolean(parsed) && ['lane', 'run'].some((key) => Object.prototype.hasOwnProperty.call(parsed, key) && parsed[key] !== null && parsed[key] !== undefined);
 
-  // LANE: Lane, Run e tipo de venda presentes, sem Buy Now/Make Offer, com CR.
-  // OFFLANE: marcado como Buy Now/Make Offer. INCOMPLETE: o resto (nada é inventado).
+  // LANE: Lane e Run verificáveis, mesmo com Buy Now Price maior que zero.
+  // OFFLANE: Lane ou Run não verificável e o CSV indica Buy Now / Make Offer.
+  // INCOMPLETE: o resto, inclusive carro sem os dados de venda lidos (nada é inventado).
+  // CR não muda o grupo: só ordena (sem CR vai para o fim).
   function classify(parsed, mmrCents) {
     const cr = crOf(parsed);
     const minimum = crMinimum(mmrCents);
+    const laneRun = Boolean(text(parsed && parsed.lane) && text(parsed && parsed.run));
     const missing = [];
-    if (!text(parsed && parsed.lane) || !text(parsed && parsed.run)) missing.push('Lane/Run');
-    if (!text(parsed && parsed.saleType)) missing.push('tipo de venda');
+    if (!laneRun) missing.push('Lane/Run');
     if (cr === null) missing.push('CR');
-    const group = saleMarked(parsed) ? 'OFFLANE' : missing.length ? 'INCOMPLETE' : 'LANE';
+    const group = laneRun ? 'LANE' : saleRead(parsed) && saleMarked(parsed) ? 'OFFLANE' : 'INCOMPLETE';
     return { group, cr, crMinimum: minimum, belowMinimum: cr !== null && minimum !== null ? cr < minimum : null, missing };
   }
   const priceFor = (mmrCents, manualPct) => {
@@ -68,5 +74,5 @@
     return { defaultPct: base, pct, finalCents: finalCents(mmrCents, pct) };
   };
 
-  return { GROUPS, GROUP_LABELS, MAX_SELECTED, buyNowCents, classify, crMinimum, crOf, defaultPct, finalCents, priceFor, saleMarked, validPct };
+  return { GROUPS, GROUP_LABELS, MAX_SELECTED, buyNowCents, classify, crMinimum, crOf, defaultPct, finalCents, priceFor, saleMarked, saleRead, validPct };
 }));

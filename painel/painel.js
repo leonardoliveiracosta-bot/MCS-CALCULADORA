@@ -2619,6 +2619,91 @@
     return `Erro inesperado: ${code || (failure && failure.message) || String(failure)}`;
   }
 
+  // Complemento do lote ativo: os MESMOS CSVs lidos de novo só acrescentam Lane, Run, Inventory,
+  // Status e Event Sale Name aos carros que o lote já tem. Primeiro conta (nada é gravado), mostra
+  // quantos carros serão complementados e só grava depois da confirmação do operador. Não cria lote
+  // nem match, não mexe em MMR, critérios, seleção, V1/V2 ou histórico, não chama OpenAI e não envia
+  // mensagem. Arquivo que não corresponde ao lote ativo é recusado sem gravar nada.
+  const COMPLEMENT_ITEMS = 1000;
+  const COMPLEMENT_MESSAGES = {
+    MANHEIM_COMPLEMENT_NOT_ACTIVE: 'Não há lote ativo para complementar, ou o lote ativo mudou. Nada foi gravado',
+    MANHEIM_COMPLEMENT_MISMATCH: 'Estes arquivos não correspondem ao lote ativo (nomes, linhas ou carros diferentes). Nada foi gravado. Selecione exatamente os mesmos CSVs importados no lote ativo',
+    MANHEIM_COMPLEMENT_COLUMNS_MISSING: 'Estes CSVs não têm as colunas Lane e Run. Nada foi gravado',
+    MANHEIM_COMPLEMENT_CONFIRM_REQUIRED: 'O complemento precisa da sua confirmação antes de gravar. Nada foi gravado',
+    MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação ou um complemento em andamento nesta aba. Espere terminar',
+    MANHEIM_FILES_INVALID: 'Selecione só os arquivos CSV do Manheim'
+  };
+  function complementFailure(failure) {
+    const status = $('manheim-complement-status');
+    status.classList.add('error');
+    const code = failure && failure.code;
+    status.textContent = COMPLEMENT_MESSAGES[code] || (MANHEIM_FAILURE_MESSAGES[code] ? MANHEIM_FAILURE_MESSAGES[code] + '. O complemento parou' : `O complemento parou: ${code || (failure && failure.message) || 'erro inesperado'}`);
+  }
+  async function complementManheim(files) {
+    const selected = files.filter((file) => /\.csv$/i.test(file.name));
+    if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
+    if (!window.MCSManheim || !window.MCSManheimUpload) throw manheimError('MANHEIM_READER_UNAVAILABLE');
+    if (manheimUploadRunning) throw manheimError('MANHEIM_UPLOAD_RUNNING');
+    manheimUploadRunning = true;
+    const status = $('manheim-complement-status');
+    status.classList.remove('error');
+    try {
+      const { latest } = await request('/api/panel/manheim-batch');
+      if (!latest || !Array.isArray(latest.files) || !latest.files.length) throw manheimError('MANHEIM_COMPLEMENT_NOT_ACTIVE');
+      // The files are read in the order of the active batch (the same car in two files resolves the same way).
+      const names = latest.files.map((file) => file.name);
+      const ordered = names.map((name) => selected.find((file) => file.name === name));
+      if (ordered.some((file) => !file) || selected.length !== names.length) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
+      const vehicles = [];
+      const fileMeta = [];
+      for (let fileIndex = 0; fileIndex < ordered.length; fileIndex += 1) {
+        const file = ordered[fileIndex];
+        status.textContent = `Lendo ${fileIndex + 1} de ${ordered.length}: ${file.name}…`;
+        if (file.size > MAX_TEXT) throw manheimError('MANHEIM_FILE_TOO_LARGE', { fileName: file.name });
+        const parsed = MCSManheim.parseCsv(await file.text());
+        const mapping = MCSManheim.mapHeaders(parsed.headers);
+        if (mapping.missing.length) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
+        if (!mapping.fields.lane || !mapping.fields.run) throw manheimError('MANHEIM_COMPLEMENT_COLUMNS_MISSING');
+        // Only the rows read without OpenAI, as in the import (rows in review stay out).
+        const classified = MCSManheim.classifyRows(parsed, mapping);
+        MCSManheimUpload.markSearchFiltered(MCSManheim.chooseAuctionRows(classified.vehicles)).forEach((vehicle) => {
+          vehicles.push({ ...MCSManheimUpload.compactVehicle(vehicle), fileIndex, raw: { Inventory: vehicle.raw && vehicle.raw.Inventory || '' }, hasBuyNow: vehicle.hasBuyNow });
+        });
+        fileMeta.push({ name: file.name, size: file.size, rowCount: parsed.rows.length });
+      }
+      const deduped = MCSManheimUpload.dedupeAcrossFiles(vehicles, MCSManheim);
+      const plan = MCSManheimUpload.planBatch(fileMeta, deduped.vehicles, MCSManheim);
+      const filesSummary = plan.map((file) => ({ name: file.name, size: file.size, rowCount: file.rowCount, vehicleCount: file.vehicleCount }));
+      const same = filesSummary.length === latest.files.length && filesSummary.every((file, index) => ['name', 'size', 'rowCount', 'vehicleCount'].every((key) => file[key] === latest.files[index][key]));
+      if (!same || deduped.vehicles.length !== Number(latest.vehicleCount)) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
+      const items = plan.flatMap((file) => file.chunks.flat()).map((entry) => ({ fingerprint: entry.fingerprint, lane: entry.vehicle.lane || '', run: entry.vehicle.run || '', saleType: entry.vehicle.saleType || '', saleStatus: entry.vehicle.saleStatus || '', eventSaleName: entry.vehicle.eventSaleName || '' }));
+      const blocks = [];
+      for (let index = 0; index < items.length; index += COMPLEMENT_ITEMS) blocks.push(items.slice(index, index + COMPLEMENT_ITEMS));
+      const run = async (apply, label) => {
+        const totals = { found: 0, missing: 0, changed: 0, lane: 0, offLane: 0, incomplete: 0, vehiclesUpdated: 0, matchesUpdated: 0 };
+        for (let index = 0; index < blocks.length; index += 1) {
+          status.textContent = `${label} · bloco ${index + 1} de ${blocks.length}`;
+          const answer = await request('/api/panel/manheim-batch', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'complement', uploadId: latest.id, apply, confirmed: apply, files: filesSummary, vehicleCount: deduped.vehicles.length, items: blocks[index] }) });
+          Object.keys(totals).forEach((key) => { totals[key] += Number(answer[key]) || 0; });
+        }
+        return totals;
+      };
+      // 1) Count only. A car the active batch does not have stops everything before any write.
+      const preview = await run(false, 'Conferindo com o lote ativo');
+      if (preview.missing || preview.found !== items.length) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
+      status.textContent = 'Aguardando confirmação';
+      const question = `${preview.found} carros do lote ativo serão complementados com Lane, Run, Inventory, Status e Event Sale Name (${preview.changed} com dados novos). Nenhum lote, match, MMR, seleção ou V1/V2 muda e nenhuma mensagem é enviada`;
+      if (!(await askInline(status, question, 'Complementar agora'))) { status.textContent = 'Complemento cancelado. Nada foi gravado'; return; }
+      // 2) Write, block by block (the same block twice changes nothing).
+      const done = await run(true, 'Complementando');
+      status.textContent = `Complemento concluído · ${done.found} carros conferidos · ${done.lane} com Lane/Run · ${done.offLane} Buy Now / Make Offer · ${done.incomplete} ainda incompletos`;
+      if (requestPool) requestPool.invalidate();
+      await loadCurrent().catch(() => {});
+    } finally {
+      manheimUploadRunning = false;
+    }
+  }
+
   function showManheimFailure(failure) {
     console.error(failure);
     renderUploadProgress(null);
@@ -3485,6 +3570,8 @@
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
+    $('manheim-complement').addEventListener('click', () => $('manheim-complement-files').click());
+    $('manheim-complement-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; complementManheim(files).catch(complementFailure); });
     const manheimZone = $('manheim-drop-zone');
     ['dragenter', 'dragover'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.add('dragging'); }));
     ['dragleave', 'drop'].forEach((name) => manheimZone.addEventListener(name, (event) => { event.preventDefault(); manheimZone.classList.remove('dragging'); }));

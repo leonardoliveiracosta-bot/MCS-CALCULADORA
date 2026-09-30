@@ -2,7 +2,8 @@
 
 // BUSCAS com a seleção para o cliente, no navegador real, com os handlers reais contra um banco
 // PGlite: três grupos por demanda, 10 carros por vez (nunca todos), selecionar três, contador
-// "Selecionados 3 de 10" e percentual ajustado mudando o valor na hora. Nada sai da máquina.
+// "Selecionados 3 de 10" e percentual ajustado mudando o valor na hora. Depois, o complemento do
+// lote ativo pelo botão: conta, pede confirmação e reagrupa. Nada sai da máquina.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-selecao.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
@@ -28,7 +29,9 @@ const car = (n, extra = {}) => {
   const vin = 'TELA' + String(n).padStart(13, '0');
   return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: '2026-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (4.9 - n * 0.2).toFixed(1), cleanTitle: true, odometerOk: true, ...extra } };
 };
-const cars = [...Array.from({ length: 14 }, (_, n) => car(n)), car(30, { buyNowPrice: '26500' }), car(31, { lane: '', run: '' }), car(32, { conditionGrade: '' })];
+// 14 in Lane/Run, one in Lane/Run WITH Buy Now Price and one without CR (both stay in Lane/Run), one
+// without Lane/Run and with Buy Now (outside Lane/Run), two without Lane/Run nor Buy Now (incomplete).
+const cars = [...Array.from({ length: 14 }, (_, n) => car(n)), car(30, { buyNowPrice: '26500' }), car(32, { conditionGrade: '' }), car(33, { lane: '', run: '', buyNowPrice: '26500' }), car(31, { lane: '', run: '' }), car(34, { lane: '', run: '' })];
 
 let backend, handlers;
 async function run(handler, request) {
@@ -53,9 +56,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { if (backend) await backend.db.close(); });
 
-test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor, sem carregar todos', async ({ page }) => {
-  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
-  const optionPages = [];
+async function openPanel(page, optionPages = []) {
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-simulado', refreshToken: 'refresh', accessExpiresAt: Date.now() + 3600000 })));
   await page.route('**/*', async (route) => {
@@ -72,16 +73,22 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
     }
     return json({ items: [], orders: [], groups: [], chats: [], reviews: [], requests: [], review: [], meta: {} });
   });
+}
+
+test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor, sem carregar todos', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  const optionPages = [];
+  await openPanel(page, optionPages);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   const card = page.locator('#buscas-carro .manheim-lead').first();
-  await expect(card.locator('.offer-counter')).toContainText('14 passam em Lane/Run · 1 Buy Now / Make Offer / fora de Lane-Run · 2 incompletos · Selecionados 0 de 10', { timeout: 60000 });
+  await expect(card.locator('.offer-counter')).toContainText('16 passam em Lane/Run · 1 Buy Now / Make Offer / fora de Lane-Run · 2 incompletos · Selecionados 0 de 10', { timeout: 60000 });
   await expect(card.locator('.offer-group')).toHaveCount(3);
-  await expect(card.locator('.offer-group[data-group="LANE"] > summary')).toHaveText('Passa em Lane/Run (14)');
+  await expect(card.locator('.offer-group[data-group="LANE"] > summary')).toHaveText('Passa em Lane/Run (16)');
   await expect(card.locator('.offer-group[data-group="OFFLANE"] > summary')).toHaveText('Buy Now / Make Offer / fora de Lane-Run (1)');
   await expect(card.locator('.offer-group[data-group="INCOMPLETE"] > summary')).toHaveText('Informação incompleta (2)');
   expect(optionPages, 'nenhum carro antes de abrir um grupo').toEqual([]);
-  // Opening the group loads 10 of 14, never all of them.
+  // Opening the group loads 10 of 16, never all of them.
   await card.locator('.offer-group[data-group="LANE"] > summary').click();
   const lane = card.locator('.offer-group[data-group="LANE"] .offer-row');
   await expect(lane).toHaveCount(10);
@@ -106,6 +113,70 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
   if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'selecao-buscas-1366.png') });
   const { rows: [{ n }] } = await backend.db.query(`select count(*)::int n from public.manheim_option_selections where status='SELECTED'`);
   expect(n).toBe(3);
+  expect(errors).toEqual([]);
+  expect(backend.refused).toEqual([]);
+});
+
+// The same CSV the active batch was imported from, as the real batch (no sale fields stored). The
+// batch is built with the panel's own reader, so the browser reads the file exactly the same way.
+const CSV_HEADERS = ['Inventory', 'Vin', 'Year', 'Make', 'Model', 'Trim', 'Odometer Value', 'MMR', 'Condition Report Grade', 'Pickup Location', 'Starts At', 'Lane', 'Run', 'Buy Now Price', 'Event Sale Name', 'Status'];
+const CSV_ROWS = [
+  ['OVE', '2HKRW2H59LH600001', '2020', 'Honda', 'CR-V', 'EX', '21000', '25000', '4.1', 'FL - Orlando', '2026-10-01T15:00:00Z', '', '', '', '', 'Active'],
+  ['Simulcast', '2HKRW2H59LH600001', '2020', 'Honda', 'CR-V', 'EX', '21000', '25000', '4.1', 'FL - Orlando', '2026-10-01T15:00:00Z', '3', '41', '26500', 'Orlando Tuesday', 'Active'],
+  ['Simulcast', '2HKRW2H59LH600002', '2020', 'Honda', 'CR-V', 'EX', '22000', '25000', '4.0', 'FL - Orlando', '2026-10-01T15:00:00Z', '4', '12', '', 'Orlando Tuesday', 'Active'],
+  ['Simulcast', '2HKRW2H59LH600003', '2020', 'Honda', 'CR-V', 'EX', '23000', '25000', '3.9', 'FL - Orlando', '2026-10-01T15:00:00Z', '5', '7', '', 'Orlando Tuesday', 'Active'],
+  ['OVE', '2HKRW2H59LH600004', '2020', 'Honda', 'CR-V', 'EX', '24000', '25000', '3.8', 'FL - Orlando', '2026-10-01T15:00:00Z', '', '', '27000', 'Buy Now / Make Offer', 'Active'],
+  ['OVE', '2HKRW2H59LH600005', '2020', 'Honda', 'CR-V', 'EX', '25000', '25000', '3.7', 'FL - Orlando', '2026-10-01T15:00:00Z', '', '', '28000', '', 'Active'],
+  ['OVE', '2HKRW2H59LH600006', '2020', 'Honda', 'CR-V', 'EX', '26000', '25000', '3.6', 'FL - Orlando', '2026-10-01T15:00:00Z', '', '', '', '', 'Active'],
+  ['Simulcast', '1FTEW1EP5LK000007', '2020', 'Ford', 'F-150', 'XLT', '30000', '30000', '4.0', 'FL - Orlando', '2026-10-01T15:00:00Z', '1', '1', '', 'Orlando Tuesday', 'Active']
+];
+const CSV_TEXT = [CSV_HEADERS, ...CSV_ROWS].map((row) => row.join(',')).join('\n') + '\n';
+
+async function importLegacyBatch() {
+  const crypto = require('node:crypto');
+  const manheim = require('../painel/manheim');
+  const upload = require('../painel/manheim-upload');
+  const parsed = manheim.parseCsv(CSV_TEXT);
+  const mapping = manheim.mapHeaders(parsed.headers);
+  const vehicles = upload.markSearchFiltered(manheim.chooseAuctionRows(manheim.classifyRows(parsed, mapping).vehicles))
+    .map((vehicle) => ({ ...upload.compactVehicle(vehicle), fileIndex: 0, raw: { Inventory: vehicle.raw && vehicle.raw.Inventory || '' }, hasBuyNow: vehicle.hasBuyNow }));
+  const deduped = upload.dedupeAcrossFiles(vehicles, manheim);
+  const plan = upload.planBatch([{ name: 'COMPLEMENTO.csv', size: Buffer.byteLength(CSV_TEXT), rowCount: parsed.rows.length }], deduped.vehicles, manheim);
+  const manifest = await upload.sealPlan(plan, async (value) => crypto.createHash('sha256').update(value, 'utf8').digest('hex'));
+  const started = await direct('manheim-batch', { action: 'start', clientKey: 'a'.repeat(32), vehicleCount: deduped.vehicles.length, files: manifest.files, manifestHash: manifest.manifestHash, headers: [parsed.headers], headerMap: {} });
+  await direct('manheim-batch', { action: 'chunk', uploadId: started.payload.uploadId, fileIndex: 0, chunkIndex: 0, vehicles: plan[0].chunks[0] });
+  const done = await direct('manheim-batch', { action: 'finalize', uploadId: started.payload.uploadId });
+  expect(done.statusCode, JSON.stringify(done.payload)).toBe(200);
+  await backend.db.exec(`update public.manheim_vehicles set vehicle_json = vehicle_json - array['lane','run','saleType','saleStatus','eventSaleName'];
+    update public.manheim_matches set vehicle_json = jsonb_set(vehicle_json, '{parsed}', (vehicle_json -> 'parsed') - array['lane','run','saleType','saleStatus','eventSaleName']);`);
+  return deduped.vehicles.length;
+}
+
+test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote nem match', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  expect(await importLegacyBatch()).toBe(7);
+  const q = async (sql) => (await backend.db.query(sql)).rows[0];
+  const before = await q(`select (select count(*) from public.manheim_uploads)::int uploads, (select count(*) from public.manheim_matches)::int matches, (select count(*) from public.manheim_vehicles)::int vehicles`);
+  await openPanel(page);
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  const card = page.locator('#buscas-carro .manheim-lead').first();
+  await expect(card.locator('.offer-counter')).toContainText('0 passam em Lane/Run · 0 Buy Now / Make Offer / fora de Lane-Run · 6 incompletos', { timeout: 60000 });
+  const button = page.locator('#manheim-complement');
+  await expect(button).toHaveText('Complementar dados do lote ativo');
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), button.click()]);
+  await chooser.setFiles({ name: 'COMPLEMENTO.csv', mimeType: 'text/csv', buffer: Buffer.from(CSV_TEXT) });
+  const status = page.locator('#manheim-complement-status');
+  const confirm = page.locator('.inline-confirm');
+  await expect(confirm).toContainText('7 carros do lote ativo serão complementados');
+  expect((await q(`select count(*)::int n from public.manheim_vehicles where vehicle_json ? 'lane'`)).n, 'nada gravado antes da confirmação').toBe(0);
+  if (SHOTS) await page.locator('#searches-panel > section.card').first().screenshot({ path: path.join(SHOTS, 'complemento-confirmacao.png') });
+  await confirm.getByRole('button', { name: 'Complementar agora' }).click();
+  await expect(status).toHaveText('Complemento concluído · 7 carros conferidos · 4 com Lane/Run · 2 Buy Now / Make Offer · 1 ainda incompletos', { timeout: 30000 });
+  await expect(card.locator('.offer-counter')).toContainText('3 passam em Lane/Run · 2 Buy Now / Make Offer / fora de Lane-Run · 1 incompletos', { timeout: 30000 });
+  if (SHOTS) await page.locator('#searches-panel').screenshot({ path: path.join(SHOTS, 'complemento-concluido.png') });
+  const after = await q(`select (select count(*) from public.manheim_uploads)::int uploads, (select count(*) from public.manheim_matches)::int matches, (select count(*) from public.manheim_vehicles)::int vehicles`);
+  expect(after).toEqual(before);
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
 });

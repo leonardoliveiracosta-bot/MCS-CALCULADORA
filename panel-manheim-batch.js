@@ -10,6 +10,7 @@ const vehicleCatalog = require('./vehicle-catalog');
 const { canonicalJson } = require('./painel/manheim-upload');
 
 const CHUNK_VEHICLES = 500;
+const COMPLEMENT_ITEMS = 1000;
 const MAX_MILES_SORT = 2147483647;
 
 const text = (value, max) => {
@@ -132,4 +133,4 @@ function matchChunk(entries, targets, index = indexTargets(targets)) {
   return matches;
 }
 
-module.exports = { CHUNK_VEHICLES, MAX_MILES_SORT, canonicalJson, contentHash, criteriaHash, indexTargets, makeKey, matchChunk, matchOne, matchRow, sanitizeVehicle, snapshotTargets, sortMiles, sortRank, targetsHash };
+module.exports = { CHUNK_VEHICLES, COMPLEMENT_ITEMS, MAX_MILES_SORT, canonicalJson, contentHash, criteriaHash, indexTargets, makeKey, matchChunk, matchOne, matchRow, sanitizeVehicle, snapshotTargets, sortMiles, sortRank, targetsHash };
