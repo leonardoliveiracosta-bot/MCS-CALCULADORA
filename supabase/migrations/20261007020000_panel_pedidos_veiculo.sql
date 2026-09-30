@@ -7,12 +7,11 @@
 --  * vehicle_request_versions: os critérios de cada leitura, só o que foi informado, com os IDs das
 --    mensagens que sustentam cada campo, campos faltantes, confiança e motivo de revisão. Uma mudança
 --    do cliente cria versão nova; a anterior fica.
---  * vehicle_request_checks: resultado auditável da comparação de um pedido (da conversa ou da
---    ficha) com um lote ativo: há opção válida, não há, precisa detalhe ou revisão humana.
+--  * vehicle_request_checks: resultado auditável da comparação de um pedido PRONTO PARA BUSCAR
+--    (modelo + valor + ano ou milhagem) com um lote ativo: opção válida (cálculo oficial da Ref),
+--    candidatos com valor a conferir (sem Ref) ou nenhuma. Pedido que precisa detalhe não é comparado.
 --  * vehicle_request_batches: cada lote da leitura do histórico (provedor, modelo, conversas,
 --    tokens, custo e motivo de parada), para retomar e prestar contas do gasto.
---  * panel_vehicle_request_scan: conta, no lote ativo, os carros com MMR válido que atendem um
---    pedido parcial sem marca nem modelo (só ano, milhagem e teto de orçamento que o cliente deu).
 -- A IA não escolhe carro, não encerra cliente e não envia mensagem: só estas tabelas são escritas.
 
 create table if not exists public.vehicle_request_runs (
@@ -78,7 +77,7 @@ create table if not exists public.vehicle_request_checks (
   request_key text not null check (request_key ~ '^(conversa|ficha|pedido):'),
   criteria_hash text not null check (criteria_hash ~ '^[0-9a-f]{24,64}$'),
   upload_id uuid not null references public.manheim_uploads(id),
-  result text not null check (result in ('HAS_OPTIONS', 'NO_OPTIONS', 'INSUFFICIENT', 'NEEDS_REVIEW')),
+  result text not null check (result in ('HAS_OPTIONS', 'HAS_CANDIDATES', 'NO_OPTIONS', 'INSUFFICIENT', 'NEEDS_REVIEW')),
   option_count integer not null default 0 check (option_count >= 0),
   sample_fingerprints text[] not null default '{}',
   compared_by uuid references public.panel_users(id),
@@ -102,30 +101,6 @@ create table if not exists public.vehicle_request_batches (
   created_at timestamptz not null default now()
 );
 create index if not exists vehicle_request_batches_created_by_idx on public.vehicle_request_batches(created_by);
-
-create or replace function public.panel_vehicle_request_scan(
-  p_environment public.panel_environment, p_upload_id uuid, p_year_min integer, p_year_max integer,
-  p_min_miles integer, p_max_miles integer, p_max_mmr_cents bigint
-) returns jsonb language sql stable security definer set search_path = '' as $$
-  with cars as (
-    select v.row_fingerprint,
-           case when (v.vehicle_json ->> 'year') ~ '^[0-9]{4}$' then (v.vehicle_json ->> 'year')::integer end as car_year,
-           case when (v.vehicle_json ->> 'miles') ~ '^[0-9]{1,9}$' then (v.vehicle_json ->> 'miles')::integer end as car_miles,
-           v.mmr_cents
-      from public.manheim_vehicles v
-      join public.manheim_uploads u on u.id = v.upload_id and u.activated_at is not null and u.undone_at is null and u.canceled_at is null
-     where v.environment = p_environment and v.upload_id = p_upload_id and v.undone_at is null and v.mmr_cents > 0
-  )
-  select jsonb_build_object('count', count(*), 'sample', coalesce((array_agg(c.row_fingerprint order by c.row_fingerprint))[1:5], '{}'::text[]))
-    from cars c
-   where (p_year_min is null or c.car_year >= p_year_min) and (p_year_max is null or c.car_year <= p_year_max)
-     and ((p_min_miles is null and p_max_miles is null) or c.car_miles is not null)
-     and (p_min_miles is null or c.car_miles >= p_min_miles) and (p_max_miles is null or c.car_miles <= p_max_miles)
-     and (p_max_mmr_cents is null or c.mmr_cents <= p_max_mmr_cents)
-     and ((p_year_min is null and p_year_max is null) or c.car_year is not null);
-$$;
-revoke all on function public.panel_vehicle_request_scan(public.panel_environment, uuid, integer, integer, integer, integer, bigint) from public, anon, authenticated;
-grant execute on function public.panel_vehicle_request_scan(public.panel_environment, uuid, integer, integer, integer, integer, bigint) to service_role;
 
 do $$
 declare v_table text;

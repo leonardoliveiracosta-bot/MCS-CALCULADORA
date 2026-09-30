@@ -9,7 +9,7 @@
 //  * Comparação: só o lote realmente ativo (ativado, não desfeito, não cancelado), só carros com
 //    MMR válido, pelas regras atuais do matcher. O resultado fica gravado e auditável.
 const crypto = require('node:crypto');
-const { allRows, insert, patchRows, rows, rpc } = require('./panel-server');
+const { allRows, insert, patchRows, rows } = require('./panel-server');
 const { latestActiveUpload } = require('./panel-manheim-state');
 const requests = require('./vehicle-requests');
 const catalog = require('./vehicle-catalog');
@@ -164,29 +164,22 @@ async function compareOne(ctx, uploadId, item, cache, services) {
   const sample = [];
   let count = 0;
   const take = (row) => { count += 1; if (sample.length < 5) sample.push(row.row_fingerprint); };
-  // A complete demand of the ficha: the current matcher, as in OPÇÕES.
+  // A demand with the official calculation (Ref): the current matcher, as in OPÇÕES.
   if (item.targets && item.targets.length) {
     const keys = new Set();
     item.targets.forEach((target) => target.wishes.forEach((wish) => { const key = makeKey(wish.make) || makeKey(catalog.inferMake(wish.model).make); if (key) keys.add(key); }));
     for (const key of keys) for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) if (requests.optionFor(row.vehicle_json, item.targets)) take(row);
     return { result: count ? 'HAS_OPTIONS' : 'NO_OPTIONS', count, sample };
   }
-  // A partial request: only what was informed. With a make or model, the cars of that make; with
-  // neither, the database counts the whole batch by year, mileage and budget.
+  // A ready request without the official calculation: model, year and mileage as informed. The
+  // customer's value is not an MMR ceiling, so what fits is a candidate with the value to check.
   const c = item.criteria || {};
-  const keys = makeKeysOf(c);
-  if (keys.length) {
-    for (const key of keys) for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) if (requests.fitsPartial(row.vehicle_json, c)) take(row);
-    return { result: count ? 'HAS_OPTIONS' : 'NO_OPTIONS', count, sample };
-  }
-  const scan = await services.scan(ctx, { p_environment: ctx.environment, p_upload_id: uploadId, p_year_min: c.yearMin || null, p_year_max: c.yearMax || null,
-    p_min_miles: c.minMiles || null, p_max_miles: c.maxMiles || null, p_max_mmr_cents: c.budgetUsd ? c.budgetUsd * 100 : null });
-  const total = Number(scan && scan.count) || 0;
-  return { result: total ? 'HAS_OPTIONS' : 'NO_OPTIONS', count: total, sample: (scan && scan.sample) || [] };
+  for (const key of makeKeysOf(c)) for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) if (requests.fitsReady(row.vehicle_json, c)) take(row);
+  return { result: count ? 'HAS_CANDIDATES' : 'NO_OPTIONS', count, sample };
 }
 // Compares the given items (FALTA BUSCAR) with the active batch and records each result.
 async function compareItems(ctx, items, options = {}) {
-  const services = { allRows, rows, insert, scan: (ctx2, args) => rpc(ctx2, 'panel_vehicle_request_scan', args), ...(options.services || {}) };
+  const services = { allRows, rows, insert, ...(options.services || {}) };
   const upload = await latestActiveUpload(ctx, 'id', services.stateServices);
   if (!upload) return { uploadId: null, compared: 0 };
   const cache = new Map();

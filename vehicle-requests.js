@@ -5,20 +5,24 @@
 //    sustentam cada critério. Nada é deduzido: marca, modelo, ano, milhagem e orçamento só existem
 //    quando a pessoa escreveu; o resto fica como campo faltante.
 //  * Estágio, previsão de compra, prazo ou qualquer classificação comercial nunca tiram um pedido.
-//  * Pedido parcial também é pedido: a comparação aplica só o que o cliente informou (campo não
-//    informado é "sem restrição", nunca falha). Completude (completo, parcial, precisa detalhe,
-//    precisa revisão) e resultado no lote (com opções, sem opção) são coisas separadas.
+//  * Regra operacional MCS: só há busca com modelo + valor + (ano ou milhagem). Sem isso o pedido
+//    fica PRECISA DETALHE, visível, com o que falta e as evidências, e nunca é comparado com o lote.
+//    Informação contraditória ou não verificável fica PRECISA REVISÃO.
+//  * Na busca, campo não informado é "sem restrição". O valor do cliente não vira teto de MMR:
+//    sem o cálculo oficial (Ref) os carros achados são candidatos com valor a conferir.
 //  * Referência da calculadora, etapa comercial ou prazo de compra nunca bloqueiam um pedido.
 const crypto = require('node:crypto');
 const vehicleMatch = require('./vehicle-match');
 const catalog = require('./vehicle-catalog');
 
 const RULE_VERSION = 'pedidos-v2';
-// Completeness of the request and result against the active batch are separate.
-const COMPLETENESS = Object.freeze(['COMPLETO', 'PARCIAL', 'PRECISA_DETALHE', 'PRECISA_REVISAO']);
-const COMPLETENESS_LABELS = Object.freeze({ COMPLETO: 'COMPLETO', PARCIAL: 'PARCIAL', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' });
-const RESULTS = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO']);
-const RESULT_LABELS = Object.freeze({ FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', SEM_OPCAO: 'SEM OPÇÃO NO LOTE' });
+// Readiness of the request and result against the active batch are separate. Only PRONTO is
+// compared. COM_OPCOES only comes from the official calculation (Ref); a ready request without it
+// gives candidates whose value still has to be checked.
+const COMPLETENESS = Object.freeze(['PRONTO', 'PRECISA_DETALHE', 'PRECISA_REVISAO']);
+const COMPLETENESS_LABELS = Object.freeze({ PRONTO: 'PRONTO PARA BUSCAR', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' });
+const RESULTS = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO']);
+const RESULT_LABELS = Object.freeze({ FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', COM_CANDIDATOS: 'CANDIDATOS NO LOTE · VALOR A CONFERIR', SEM_OPCAO: 'SEM OPÇÃO NO LOTE' });
 const FIELDS = Object.freeze(['make', 'model', 'trim', 'type', 'year', 'miles', 'budget', 'location', 'notes']);
 const FIELD_LABELS = Object.freeze({ make: 'marca', model: 'modelo', trim: 'versão', type: 'tipo', year: 'ano', miles: 'milhagem', budget: 'orçamento', location: 'localização' });
 // Body types as the customer says them. The Manheim files have no body type, so a type is
@@ -212,13 +216,24 @@ function criteriaHash(criteria) {
 }
 // A criterion the batch can be compared with. Location and notes are shown, never compared.
 const useful = (c) => Boolean(c && (clean(c.make) || clean(c.model) || c.bodyType || c.yearMin || c.yearMax || c.minMiles || c.maxMiles || c.budgetUsd));
+// What a search still needs (MCS rule): model, value and year or mileage. A missing Ref never is.
+function searchLacks(criteria) {
+  const c = criteria || {};
+  const lacks = [];
+  if (!clean(c.model)) lacks.push('modelo');
+  if (!c.budgetUsd) lacks.push('valor');
+  if (!c.yearMin && !c.yearMax && !c.minMiles && !c.maxMiles) lacks.push('ano ou milhagem');
+  return lacks;
+}
+// A model the catalog does not know, without a make, cannot be verified in the batch.
+const unknownModel = (c) => Boolean(clean(c.model) && !clean(c.make) && !catalog.inferMake(c.model).candidates.length);
 function completenessOf(criteria, needsReview) {
   const c = criteria || {};
   if (needsReview) return 'PRECISA_REVISAO';
-  if (!useful(c)) return 'PRECISA_DETALHE';
-  return clean(c.make) && clean(c.model) && (c.yearMin || c.yearMax) && (c.budgetUsd || c.minMiles || c.maxMiles) ? 'COMPLETO' : 'PARCIAL';
+  if (searchLacks(c).length) return 'PRECISA_DETALHE';
+  return unknownModel(c) ? 'PRECISA_REVISAO' : 'PRONTO';
 }
-// What the customer did not say (shown as information, never as an error of the customer).
+// In a ready request, what the customer did not say is no restriction (never an error of theirs).
 function notInformed(criteria) {
   const c = criteria || {};
   const missing = [];
@@ -226,7 +241,7 @@ function notInformed(criteria) {
   if (!clean(c.model)) missing.push('modelo');
   if (!c.yearMin && !c.yearMax) missing.push('ano');
   if (!c.minMiles && !c.maxMiles) missing.push('milhagem');
-  if (!c.budgetUsd) missing.push('orçamento');
+  if (!c.budgetUsd) missing.push('valor');
   return missing;
 }
 // A model that belongs to one make only in the catalog gives that make (deterministic, never a
@@ -241,15 +256,17 @@ function describe(request) {
   const criteria = request.criteria || {};
   const completeness = completenessOf(criteria, request.needsReview);
   const inferredMake = inferredMakeOf(criteria);
-  return { ...request, requestKey: requestKey(criteria), criteriaHash: criteriaHash(criteria), completeness, inferredMake,
-    missing: notInformed(criteria).filter((field) => !(field === 'marca' && inferredMake)), comparable: completeness === 'COMPLETO' || completeness === 'PARCIAL' };
+  const reviewReason = request.reviewReason || (completeness === 'PRECISA_REVISAO' && unknownModel(criteria) ? 'Modelo sem marca e fora do catálogo: não dá para conferir no lote' : null);
+  return { ...request, reviewReason, requestKey: requestKey(criteria), criteriaHash: criteriaHash(criteria), completeness, inferredMake,
+    lacks: completeness === 'PRECISA_DETALHE' ? searchLacks(criteria) : [],
+    missing: completeness === 'PRONTO' ? notInformed(criteria).filter((field) => !(field === 'marca' && inferredMake)) : [], comparable: completeness === 'PRONTO' };
 }
 const miles = (value) => Number(value).toLocaleString('en-US');
 function criteriaText(criteria) {
   const c = criteria || {};
   const inferred = inferredMakeOf(c);
   const vehicle = [c.make || inferred, c.model, c.trim].filter(Boolean).join(' ') + (inferred ? ' (marca pelo modelo)' : '');
-  const parts = [vehicle || (c.bodyType ? c.bodyType : 'Qualquer veículo')];
+  const parts = [vehicle || (c.bodyType ? c.bodyType : 'Veículo não informado')];
   if (vehicle && c.bodyType) parts.push(c.bodyType);
   if (c.yearMin && c.yearMax) parts.push(c.yearMin === c.yearMax ? String(c.yearMin) : `${c.yearMin} a ${c.yearMax}`);
   else if (c.yearMin) parts.push(`${c.yearMin} ou mais novo`);
@@ -279,12 +296,14 @@ function optionFor(parsed, targets) {
   }
   return null;
 }
-// A partial request: only what the customer informed is applied; a field not informed is no
-// restriction. Always a valid MMR. A limit on mileage or year needs the car's value to be known.
-// The budget is a ceiling on the MMR. The body type cannot be checked (no body type in the file).
-function fitsPartial(parsed, criteria) {
+// A ready request without the official calculation: model, and only the year and mileage limits
+// the customer gave (a field not informed is no restriction). Always a valid MMR; a limit on year
+// or mileage needs the car's value to be known. The customer's value is NOT a ceiling on the MMR
+// (its conversion into a bid is the official calculation), so a fit is a candidate whose value is
+// still to be checked. The body type cannot be checked (no body type in the file).
+function fitsReady(parsed, criteria) {
   const c = criteria || {};
-  if (!parsed || !vehicleMatch.hasValidMmr(parsed)) return false;
+  if (!parsed || !vehicleMatch.hasValidMmr(parsed) || !clean(c.model)) return false;
   const make = clean(c.make) || inferredMakeOf(c);
   if (make && fold(parsed.make) !== fold(make)) return false;
   if (clean(c.model) && !catalog.modelsMatch(parsed.model, c.model, parsed.make, c.make || parsed.make)) return false;
@@ -297,14 +316,13 @@ function fitsPartial(parsed, criteria) {
   if ((c.minMiles || c.maxMiles) && !Number.isFinite(odometer)) return false;
   if (c.minMiles && odometer < c.minMiles) return false;
   if (c.maxMiles && odometer > c.maxMiles) return false;
-  if (c.budgetUsd && vehicleMatch.validMmrCents(parsed.mmrCents) > c.budgetUsd * 100) return false;
   return true;
 }
 // Result of a request against the active batch (only for requests that can be compared).
 function resultOf(request, check, activeUploadId) {
   if (!request.comparable) return null;
   if (!activeUploadId || !check || check.upload_id !== activeUploadId || check.criteria_hash !== request.criteriaHash) return 'FALTA_BUSCAR';
-  return check.result === 'HAS_OPTIONS' ? 'COM_OPCOES' : check.result === 'NO_OPTIONS' ? 'SEM_OPCAO' : 'FALTA_BUSCAR';
+  return check.result === 'HAS_OPTIONS' ? 'COM_OPCOES' : check.result === 'HAS_CANDIDATES' ? 'COM_CANDIDATOS' : check.result === 'NO_OPTIONS' ? 'SEM_OPCAO' : 'FALTA_BUSCAR';
 }
 
-module.exports = { inferredMakeOf, BODY_TYPES, COMPLETENESS, COMPLETENESS_LABELS, FIELDS, MAX_MESSAGES, RESULTS, RESULT_LABELS, RULE_VERSION, completenessOf, conversationFor, criteriaHash, criteriaText, describe, fitsPartial, inputHash, notInformed, optionFor, requestKey, resultOf, simulateExtraction, targetsOf, useful, validateExtraction, vehiclesIn };
+module.exports = { inferredMakeOf, BODY_TYPES, COMPLETENESS, COMPLETENESS_LABELS, FIELDS, MAX_MESSAGES, RESULTS, RESULT_LABELS, RULE_VERSION, completenessOf, searchLacks, conversationFor, criteriaHash, criteriaText, describe, fitsReady, inputHash, notInformed, optionFor, requestKey, resultOf, simulateExtraction, targetsOf, useful, validateExtraction, vehiclesIn };

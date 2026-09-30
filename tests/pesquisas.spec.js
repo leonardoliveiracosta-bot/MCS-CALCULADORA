@@ -28,7 +28,7 @@ const seed = [
   `insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,is_group,first_seen_at,last_seen_at,created_at,updated_at) values('${id(7)}','preview','WHATSAPP','${id(9)}','wa:+13055569999','RESOLVED',false,now(),now(),now(),now());`,
   `insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(6)}','preview','${id(7)}','WHATSAPP','CUSTOMER','Quero um CR-V','x',now(),'mf',1,'WHATSAPP_WEBHOOK',now());`,
   `insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${id(6)}','${id(8)}','IMPORT',now());`,
-  ...conversation(1, 'Lucas Conversa', ['Hi, I am looking for a Honda CR-V 2019-2021 between 20,000 and 60,000 miles', 'No rush, I plan to buy in 4 months']),
+  ...conversation(1, 'Lucas Conversa', ['Hi, I am looking for a Honda CR-V 2019-2021 between 20,000 and 60,000 miles, up to $28,000', 'No rush, I plan to buy in 4 months']),
   ...conversation(2, 'Caio Conversa', ['Need a Ford F-150 2018-2020 with 30,000 to 90,000 miles']),
   ...conversation(3, 'Rafa Conversa', ['I want a Civic, budget $18,000']),
   ...conversation(4, 'Bia Conversa', ['Obrigado pelo retorno'])
@@ -77,12 +77,18 @@ for (const width of [1366, 390]) {
     await expect(page.locator('#requests-status')).toContainText('Leitura das conversas: simulada neste ambiente', { timeout: 30000 });
     await expect(list.locator('.request-card[data-state="COM_OPCOES"]').first()).toBeVisible({ timeout: 30000 });
     const lucas = list.locator('.request-card', { hasText: 'Lucas Conversa' });
-    await expect(lucas).toContainText('Honda CR-V · 2019 a 2021 · 20,000 a 60,000 milhas');
-    await expect(lucas).toContainText('COM OPÇÕES NO LOTE');
+    await expect(lucas).toContainText('Honda CR-V · 2019 a 2021 · 20,000 a 60,000 milhas · até US$ 28,000');
+    await expect(lucas).toContainText('PRONTO PARA BUSCAR · CANDIDATOS NO LOTE · VALOR A CONFERIR');
+    await expect(lucas).toContainText('não é opção confirmada');
     await lucas.locator('.request-evidence > summary').click();
     await expect(lucas.locator('.request-evidence')).toContainText('I am looking for a Honda CR-V 2019-2021');
-    await expect(list.locator('.request-card', { hasText: 'Caio Conversa' })).toContainText('SEM OPÇÃO NO LOTE');
-    await expect(list.locator('.request-card', { hasText: 'Rafa Conversa' })).toContainText('PARCIAL · SEM OPÇÃO NO LOTE');
+    // Without value, or without year or mileage: no search, visible with what is missing.
+    const caio = list.locator('.request-card', { hasText: 'Caio Conversa' });
+    await expect(caio).toContainText('PRECISA DETALHE');
+    await expect(caio.locator('.request-lacks')).toHaveText('Falta valor');
+    const rafa = list.locator('.request-card', { hasText: 'Rafa Conversa' });
+    await expect(rafa.locator('.request-lacks')).toHaveText('Falta ano ou milhagem');
+    await expect(rafa).not.toContainText('opç');
     await expect(list.locator('.request-card', { hasText: 'Marta Ficha' })).toContainText('COM OPÇÕES NO LOTE');
     await expect(list).not.toContainText('Bia Conversa');
     await expect(page.locator('#requests-panel #manheim-drop-zone, #requests-panel .manheim-lead, #requests-panel #manheim-batches')).toHaveCount(0);

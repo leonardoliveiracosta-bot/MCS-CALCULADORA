@@ -3,7 +3,8 @@
 // PESQUISAS: a lista diária de pedidos de veículo, sem lote, sem upload e sem cartões de opções.
 //  GET                 pedidos (ficha, calculadora e conversas lidas), com estado e evidências
 //  GET ?view=audit     auditoria desde 09/08/2026 e estimativa da leitura do histórico (só leitura)
-//  POST compare        compara os pedidos em FALTA BUSCAR com o lote ativo e grava o resultado
+//  POST compare        compara só os pedidos PRONTO PARA BUSCAR (modelo + valor + ano ou milhagem)
+//                      ainda em FALTA BUSCAR com o lote ativo e grava o resultado
 //  POST extract        lê uma conversa (simulada fora de produção; em produção só com a flag nova)
 //  POST sample         leitura simulada de uma conversa sem gravar nada
 //  POST extract_history próximas conversas do histórico (retomável; até US$ 50 por provedor de IA)
@@ -52,10 +53,11 @@ async function buildList(ctx) {
     const common = { source: journey ? 'FICHA' : 'CALCULADORA', person: demandPerson(base, demand), mode: demand.mode, lastMessageAt: journey ? lastCustomer.get(journey.id) || null : null,
       evidence: journey ? [{ kind: 'FICHA', text: journey.vehicle_text ? 'Ficha: ' + String(journey.vehicle_text).slice(0, 300) : 'Critérios preenchidos na ficha' }] : [{ kind: 'CALCULADORA', text: 'Pedido da calculadora' + (demand.ref ? ', Ref ' + demand.ref : '') }] };
     if (demand.active) {
-      // Complete demand: the current matcher, and the import result when the criterion is the same.
+      // Demand with the official calculation: the current matcher, and the import result when the
+      // criterion is the same.
       const target = { ...matchTarget(demand), reactivation: false };
       const hash = targetHash(target);
-      const item = { ...common, key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'COMPLETO', missing: [], comparable: true, criteriaHash: hash, targets: [target] };
+      const item = { ...common, key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'PRONTO', missing: [], lacks: [], comparable: true, official: true, criteriaHash: hash, targets: [target] };
       let check = checkByKey.get(key + '|' + hash) || null;
       if (!check && uploadId && importedHash.has(demand.key) && importedHash.get(demand.key) === hash) {
         const row = summaryByKey.get(demand.key);
@@ -65,22 +67,23 @@ async function buildList(ctx) {
       items.push(finish(item, check, uploadId));
       continue;
     }
-    // Partial demand (no Ref, a missing range, mode not defined): still a request. Each wish is
-    // compared with what it has; a field not informed is no restriction.
+    // Demand the official matcher cannot use (no Ref, a missing range, mode not defined): still a
+    // request. Each wish follows the MCS rule: ready (model + value + year or mileage) or it shows
+    // what is missing. The value is the bid the calculator gave (VALOR), never guessed.
     const wishes = (demand.wishes && demand.wishes.length ? demand.wishes : [{}]);
     wishes.forEach((wish, index) => {
       const criteria = Object.fromEntries(Object.entries({ make: wish.make || null, model: wish.model || null, trim: wish.trim || null, yearMin: Number(wish.yearMin) || null, yearMax: Number(wish.yearMax) || null,
         minMiles: Number(wish.minMiles) || null, maxMiles: Number(wish.maxMiles) || null, budgetUsd: demand.mode === 'VALOR' && demand.bidCents ? Math.round(demand.bidCents / 100) : null }).filter(([, value]) => value));
       const described = requests.describe({ criteria });
       const itemKey = key + (wishes.length > 1 ? '#' + index : '');
-      const item = { ...common, key: itemKey, criteria, criteriaText: requests.criteriaText(criteria), completeness: described.completeness, missing: described.missing, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [] };
+      const item = { ...common, key: itemKey, criteria, criteriaText: requests.criteriaText(criteria), completeness: described.completeness, missing: described.missing, lacks: described.lacks, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [] };
       items.push(finish(item, checkByKey.get(itemKey + '|' + described.criteriaHash) || null, uploadId));
     });
   }
   for (const request of conversation.requests) {
     const key = 'conversa:' + request.id;
     const described = requests.describe({ criteria: request.criteria, evidence: request.evidence, confidence: request.confidence, needsReview: request.needs_review, reviewReason: request.review_reason });
-    const item = { key, source: 'CONVERSA', person: request.person, mode: null, criteria: request.criteria, criteriaText: requests.criteriaText(request.criteria), missing: described.missing,
+    const item = { key, source: 'CONVERSA', person: request.person, mode: null, criteria: request.criteria, criteriaText: requests.criteriaText(request.criteria), missing: described.missing, lacks: described.lacks,
       completeness: described.completeness, reviewReason: described.reviewReason, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [],
       typeNotChecked: Boolean(request.criteria && request.criteria.bodyType), lastMessageAt: request.lastMessageAt, evidence: request.evidenceMessages, chatId: request.chat_id, versions: request.versionCount };
     items.push(finish(item, checkByKey.get(key + '|' + described.criteriaHash) || null, uploadId));
@@ -89,19 +92,20 @@ async function buildList(ctx) {
   const groups = new Map();
   items.forEach((item) => { const groupKey = (item.comparable ? 'c:' : 'x:' + item.key + ':') + item.criteriaHash; item.groupKey = groupKey; if (!groups.has(groupKey)) groups.set(groupKey, []); groups.get(groupKey).push(item.key); });
   const counts = Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length]));
-  const byCompleteness = Object.fromEntries(requests.COMPLETENESS.map((level) => [level, Object.fromEntries(['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO', 'NONE'].map((result) => [result, items.filter((item) => item.completeness === level && (item.result || 'NONE') === result).length]))]));
+  const byCompleteness = Object.fromEntries(requests.COMPLETENESS.map((level) => [level, Object.fromEntries([...requests.RESULTS, 'NONE'].map((result) => [result, items.filter((item) => item.completeness === level && (item.result || 'NONE') === result).length]))]));
   return { uploadId, upload: upload ? { id: upload.id, uploadedAt: upload.uploaded_at } : null, items, groupCount: groups.size, counts, byCompleteness,
     extraction: search.extractionStatus(), requestsPending: conversation.pending, checksPending: checks === null };
 }
-// State shown and filtered: the completeness when the request cannot be compared (PRECISA
-// DETALHE, PRECISA DE REVISÃO), otherwise its result in the active batch.
-const STATES = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'SEM_OPCAO', 'PRECISA_DETALHE', 'PRECISA_REVISAO']);
+// State shown and filtered: the readiness when the request is not compared (PRECISA DETALHE,
+// PRECISA DE REVISÃO), otherwise its result in the active batch. A request that needs detail has
+// no option count, is never compared and never counts as served.
+const STATES = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO', 'PRECISA_DETALHE', 'PRECISA_REVISAO']);
 function finish(item, check, uploadId) {
   const result = requests.resultOf(item, check, uploadId);
   const state = result || item.completeness;
   const label = [requests.COMPLETENESS_LABELS[item.completeness], result ? requests.RESULT_LABELS[result] : null].filter(Boolean).join(' · ');
   return { ...item, result, state, stateLabel: label, completenessLabel: requests.COMPLETENESS_LABELS[item.completeness],
-    optionCount: result === 'COM_OPCOES' || result === 'SEM_OPCAO' ? check.option_count : null,
+    optionCount: result === 'COM_OPCOES' || result === 'COM_CANDIDATOS' || result === 'SEM_OPCAO' ? check.option_count : null,
     comparedAt: result && result !== 'FALTA_BUSCAR' ? check.compared_at : null, comparedUploadId: check ? check.upload_id : null, comparedAtImport: Boolean(check && check.fromImport) };
 }
 function lastCustomerByJourney(base) {
@@ -170,8 +174,9 @@ async function audit(ctx) {
     conversationsWithoutRequest: (runs || []).filter((run) => run.status === 'NO_REQUEST').length,
     requests: list.items.length, requestsFromConversations: conversationItems.length, requestsFromFicha: list.items.filter((item) => item.source !== 'CONVERSA').length,
     groups: list.groupCount,
-    completeWithOptions: grid.COMPLETO.COM_OPCOES, completeWithoutOptions: grid.COMPLETO.SEM_OPCAO,
-    partialWithOptions: grid.PARCIAL.COM_OPCOES, partialWithoutOptions: grid.PARCIAL.SEM_OPCAO,
+    // Only PRONTO PARA BUSCAR is compared; the rest is counted apart and never as coverage.
+    ready: list.items.filter((item) => item.completeness === 'PRONTO').length,
+    readyWithOptions: grid.PRONTO.COM_OPCOES, readyWithCandidates: grid.PRONTO.COM_CANDIDATOS, readyWithoutOptions: grid.PRONTO.SEM_OPCAO,
     needsDetail: byState.PRECISA_DETALHE, review: byState.PRECISA_REVISAO, notCompared: byState.FALTA_BUSCAR,
     withoutReliableLink: list.items.filter((item) => !item.person || (!item.person.journeyId && !item.person.contactId && item.source !== 'CALCULADORA')).length,
     unverifiedReadings: (runs || []).filter((run) => run.error_code === 'EXTRACTION_UNVERIFIED').length,
