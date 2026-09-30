@@ -4,6 +4,7 @@ const {
   clientOkPatch, confirmedJourneyModes, journeyDemands, consolidateCalcRuns, effectiveCriteria, finiteInteger, groupCalculatorByRef, journeyEnabled,
   mergeWishlists, modeVehicleText, modeWishText, SEARCH_MODES, normalizeWishlist, nextStageForUnits, REF_RE, toggleEnabled, time, wishlistsForJourney, wishlistText
 } = require('../../panel-domain');
+const openAiBudget = require('../../panel-openai-budget');
 const { journeyExists, messageForJourney } = require('../../panel-read-model');
 const manheimAi = require('../../panel-manheim-ai');
 const vehicleMatchRule = require('../../vehicle-match');
@@ -556,6 +557,8 @@ async function actionReturn(ctx, journey, body) {
 // is off or fails, the browser keeps importing the valid rows and sends only these to review.
 // Every OpenAI call of the CSV reading is recorded on the server (provider, model, tokens, cost,
 // row count), whether or not the browser later sends its batch summary. Never a cell or a prompt.
+// US$ 50 for all the panel's OpenAI features together; a failed read of the spend blocks the call.
+async function openAiFits(ctx) { try { return openAiBudget.fits(await openAiBudget.spentUsd(ctx)); } catch (_) { return false; } }
 async function recordManheimAiCall(ctx, action, result, rowsSent, failure) {
   await insert(ctx, 'audit_log', { environment: ctx.environment, actor_user_id: ctx.panel.id, entity_type: 'manheim_openai', entity_id: null, action,
     after_json: { provider: 'openai', model: result ? result.model : manheimAi.model(), inputTokens: result ? result.usage.inputTokens : 0, outputTokens: result ? result.usage.outputTokens : 0,
@@ -567,12 +570,14 @@ async function actionManheimAiRows(ctx, body) {
     const input = manheimAi.sanitizeHeaders(body.headerMap);
     if (!input) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
     if (!manheimAi.enabled()) return send(ctx.res, 200, { available: false, reason: 'OPENAI_NOT_ENABLED', mapping: null });
+    if (!(await openAiFits(ctx))) return send(ctx.res, 200, { available: false, reason: 'PROVIDER_LIMIT', mapping: null });
     try { const result = await manheimAi.suggestHeaders(input); await recordManheimAiCall(ctx, 'AI_HEADERS', result, 0); return send(ctx.res, 200, { available: true, provider: 'openai', ...result }); }
     catch (failure) { await recordManheimAiCall(ctx, 'AI_HEADERS', null, 0, failure); return send(ctx.res, 200, { available: false, reason: failure && failure.code || 'OPENAI_FAILED', mapping: null }); }
   }
   const rowsIn = manheimAi.sanitizeRows(body.rows);
   if (!rowsIn) return send(ctx.res, 400, { error: 'MANHEIM_AI_INVALID' });
   if (!manheimAi.enabled()) return send(ctx.res, 200, { available: false, reason: 'OPENAI_NOT_ENABLED', suggestions: [] });
+  if (!(await openAiFits(ctx))) return send(ctx.res, 200, { available: false, reason: 'PROVIDER_LIMIT', suggestions: [] });
   try {
     const result = await manheimAi.suggestRows(rowsIn);
     await recordManheimAiCall(ctx, 'AI_ROWS', result, rowsIn.length);

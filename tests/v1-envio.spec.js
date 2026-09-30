@@ -114,6 +114,12 @@ test('V1 enviada no WhatsApp (simulado) com confirmação e histórico de lotes 
   }
   await card.getByRole('button', { name: 'Gerar link V1' }).click();
   await expect(card.locator('.v1-send-state')).toHaveText('Para Maria Tela · +13055550199 · envio simulado neste ambiente');
+  // A mensagem aprovada da origem aparece como sugestão, editável e só para copiar.
+  const suggestion = card.locator('.v1-suggestion');
+  await expect(suggestion).toBeVisible();
+  await expect(suggestion.locator('summary')).toContainText('Mensagem sugerida · veio pel');
+  await expect(suggestion.locator('textarea')).toHaveValue(/^Hi Maria,/);
+  await expect(suggestion).toContainText('Nada é enviado daqui');
   await expect(send).toBeEnabled();
   await send.click();
   const confirm = card.locator('.v1-send-confirm');

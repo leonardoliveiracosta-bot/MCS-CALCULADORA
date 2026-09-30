@@ -63,8 +63,9 @@ async function prepare(ctx, body, services, env) {
   const link = base + '/v/' + vitrine.token;
   const target = await reply.resolveTarget(ctx, vitrine.journey_id, services);
   const mode = sendMode(env);
-  if (!target) return { status: 200, eligible: false, reason: 'NO_VALID_PHONE', mode, link, last: sendOut(previous) };
   const origin = originOf(body.demandKey, vitrine.journey_id);
+  // The approved message of the search's origin is suggested even without a valid phone (copy only).
+  if (!target) return { status: 200, eligible: false, reason: 'NO_VALID_PHONE', mode, link, origin, text: suggestedText(origin, '', link), last: sendOut(previous) };
   const text = suggestedText(origin, target.name, link);
   const window = await reply.windowState(ctx, target.chat.id, services);
   return { status: 200, eligible: true, mode, name: target.name, phone: target.phone, origin, text, link, windowOpen: window.allowed === true,
@@ -165,3 +166,4 @@ module.exports.handle = handle;
 module.exports.sendMode = sendMode;
 module.exports.suggestedText = suggestedText;
 module.exports.firstName = firstName;
+module.exports.TEMPLATES = TEMPLATES;

@@ -17,6 +17,7 @@
 //    regra nunca são cobrados duas vezes (índice único no banco).
 
 const crypto = require('node:crypto');
+const openAiBudget = require('./panel-openai-budget');
 const { allRows, supabase } = require('./panel-server');
 const aiClaim = require('./panel-ai-claim');
 
@@ -259,9 +260,13 @@ async function runTriage(ctx, options = {}) {
   const pending = (await candidates(ctx, { ...options, env })).slice(0, options.limit || BATCH_LIMIT);
   const result = { processed: 0, funnel: 0, out: 0, review: 0, failed: 0, costUsd: 0, inProgress: 0 };
   const claims = options.claims || aiClaim;
+  // US$ 50 for all the panel's OpenAI features together (panel-openai-budget).
+  const budget = options.budget || openAiBudget;
+  const provider = pending.length ? await budget.spentUsd(ctx) : null;
   for (const item of pending) {
     // Never start a paid call that the function could be stopped in the middle of.
     if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred = pending.length - result.processed - result.inProgress; break; }
+    if (!budget.fits(provider, budget.MAX_CALL_USD, result.costUsd)) { result.stoppedReason = 'PROVIDER_LIMIT'; result.deferred = pending.length - result.processed - result.inProgress; break; }
     // Only the run that wins the reservation calls OpenAI (cron and button at the same time).
     const claim = await claims.claimTask(ctx, { kind: 'ENTRADA_TRIAGE', subject: item.chatId, hash: item.contentHash, rule: RULE_VERSION });
     if (!claim.claimed) { result.inProgress += 1; continue; }
