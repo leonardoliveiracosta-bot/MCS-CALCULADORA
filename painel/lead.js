@@ -111,6 +111,11 @@
       },'quiet small');
     }
 
+    // The case summary, the same data every tab shows: field by field with its source, stage, who it
+    // depends on, what is missing and the next action. Loaded apart: the ficha never waits for it.
+    if(window.MCSContext){const slot=append(root,'section','lead-card client-context-full');append(slot,'span','lead-label','RESUMO DO CASO');append(slot,'p','muted','Carregando o resumo do caso…');
+      (journeyId?MCSContext.forJourney(journeyId,request):MCSContext.forRef(ref,request)).then((context)=>{if(!slot.isConnected)return;if(!context||context.unlinked){slot.replaceChildren(e('span','lead-label','RESUMO DO CASO'),e('p','muted',context&&context.unlinked||'Resumo indisponível para este caso.'));return;}slot.replaceWith(MCSContext.full(context));})
+        .catch(()=>{if(slot.isConnected)slot.replaceChildren(e('span','lead-label','RESUMO DO CASO'),e('p','muted','Não foi possível carregar o resumo agora · O resto da ficha continua valendo'));});}
     const trio=append(root,'div','lead-grid lead-three');
     const wishes=section(trio,2,'O QUE ELE QUER');
     if(!data.wishes.length) append(wishes,'p','muted','Carro ainda não informado');
@@ -119,7 +124,7 @@
     if((data.calculatorNews||[]).length){const news=append(wishes,'div','calculator-news');append(news,'strong','','Nova informação da calculadora (a ficha não foi alterada)');
       data.calculatorNews.forEach((item)=>append(news,'p','muted',item.field==='LANCE'?`Lance: calculadora ${cents(item.calculatorCents)} · ficha ${cents(item.fichaCents)}`:`${({PAGAMENTO:'Pagamento',VEICULO:'Veículo',NOME:'Nome'})[item.field]||item.field}: calculadora "${item.calculator}" · ficha "${item.ficha}"`));}
     append(wishes,'p','muted',`Teto total confirmado: ${cents(data.totalCeilingCents)}`);
-    append(wishes,'p','muted',`${data.zipKnown===false?'ZIP não informado (estimativa como FL)':data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':'transferir'}`);
+    append(wishes,'p','muted',`${data.zipKnown===false?'ZIP não informado (estimativa como FL)':data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':data.plateInformed===false?'não informada (custo calculado como transferir)':'transferir'}`);
     const ceilingForm=append(wishes,'div','lead-actions');const ceilingInput=append(ceilingForm,'input');ceilingInput.type='number';ceilingInput.min='1';ceilingInput.step='1';ceilingInput.placeholder='Teto total confirmado (US$)';ceilingInput.value=data.totalCeilingCents?data.totalCeilingCents/100:'';
     button(ceilingForm,'Confirmar teto total',async()=>{await api('total_ceiling',{amount:ceilingInput.value});await reload();});
     const reality=section(trio,3,'REALIDADE (SÓ PARA VOCÊ)');

@@ -108,7 +108,7 @@ async function groupPage(ctx, req, key, group, limit) {
     }
   }));
   const total = page.length ? Number(page[0].total_in_group) || 0 : 0;
-  return send(ctx.res, 200, { key, group, uploadId: latest.id, options: optionsOut, total, nextCursor: (stored || []).length > limit ? String(offset + limit) : null });
+  return send(ctx.res, 200, { key, group, uploadId: latest.id, uploadedAt: latest.uploaded_at || null, options: optionsOut, total, nextCursor: (stored || []).length > limit ? String(offset + limit) : null });
 }
 
 // Selection for the customer. The database enforces the rules (active batch, valid MMR, 10 per

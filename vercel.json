@@ -10,6 +10,7 @@
     "api/panel/ai-conversations.js": { "maxDuration": 30 },
     "api/panel/reply.js": { "maxDuration": 30 },
     "api/panel/pesquisas.js": { "maxDuration": 60 },
+    "api/panel/client-context.js": { "maxDuration": 30 },
     "api/panel/history-import.js": { "maxDuration": 60 },
     "api/panel/media-cron.js": { "maxDuration": 60 },
     "api/whatsapp/webhook.js": { "maxDuration": 60 }
