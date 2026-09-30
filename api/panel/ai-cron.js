@@ -46,21 +46,23 @@ module.exports=async(req,res)=>{
     let capture;
     try { capture=await runCaptureCheck(ctx); }
     catch (error) { capture={error:'CAPTURE_CHECK_FAILED'}; await recordCaptureFailure(ctx,error.message).catch(()=>{}); }
-    // Triagem da ENTRADA (OpenAI): só com ENTRADA_OPENAI_ENABLED=1; falha nunca derruba o cron.
-    let triage;
-    try { triage=await runTriage(ctx,{deadlineAt:startedAt+55000}); }
-    catch (error) { triage={error:'TRIAGE_FAILED'};console.error('[panel-triage]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
+    // Ordem: a conferência do Manheim primeiro (sem ela V1/V2 ficam presas), depois PESQUISAS e,
+    // com o tempo que sobra, a triagem da ENTRADA (cada uma respeita o próprio prazo).
     // Conferência dos matches do Manheim: segurança do disparo feito logo depois do upload.
     let matchAudit;
     // Only with time left: the BUSCAS base is a large read; the next cron picks it up otherwise.
-    try { matchAudit=manheimAudit.status()!=='LIGADA'?{skipped:manheimAudit.status()}:Date.now()>startedAt+25000?{skipped:'SEM_TEMPO'}:await manheimAudit.runAudit(ctx,await manheimView(ctx,{auditInput:true}),{deadlineAt:startedAt+55000}); }
+    try { matchAudit=manheimAudit.status()!=='LIGADA'?{skipped:manheimAudit.status()}:Date.now()>startedAt+30000?{skipped:'SEM_TEMPO'}:await manheimAudit.runAudit(ctx,await manheimView(ctx,{auditInput:true}),{deadlineAt:startedAt+45000}); }
     catch (error) { matchAudit={error:'AUDIT_FAILED'};console.error('[manheim-audit]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
     // PESQUISAS (OpenAI): lê conversas novas ou com mensagem nova desde a última leitura, até 5 por
     // ciclo, dentro do teto do provedor. Conteúdo já lido não é relido (mesmo hash não paga de novo).
     // Só classifica e organiza pedidos; nunca responde ao cliente.
     let searchRequests;
-    try { searchRequests=searchRequestsModule.extractionStatus()!=='LIGADA'?{skipped:searchRequestsModule.extractionStatus()}:Date.now()>startedAt+35000?{skipped:'SEM_TEMPO'}:await pesquisas.extractHistory(ctx,5,{deadlineAt:startedAt+48000}); }
+    try { searchRequests=searchRequestsModule.extractionStatus()!=='LIGADA'?{skipped:searchRequestsModule.extractionStatus()}:Date.now()>startedAt+47000?{skipped:'SEM_TEMPO'}:await pesquisas.extractHistory(ctx,5,{deadlineAt:startedAt+52000}); }
     catch (error) { searchRequests={error:'SEARCH_REQUESTS_FAILED'};console.error('[pesquisas-cron]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
+    // Triagem da ENTRADA (OpenAI): só com ENTRADA_OPENAI_ENABLED=1; falha nunca derruba o cron.
+    let triage;
+    try { triage=await runTriage(ctx,{deadlineAt:startedAt+55000}); }
+    catch (error) { triage={error:'TRIAGE_FAILED'};console.error('[panel-triage]',{message:String(error?.code||error?.message||'UNKNOWN')}); }
     return send(res,200,{...result,pending,capture,whatsappMaintenance,triage,searchRequests,matchAudit});
   }catch(error){
     const requestId=crypto.randomUUID().slice(0,8);
