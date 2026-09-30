@@ -76,6 +76,8 @@ async function clientList(ctx, activeBatch) {
   const stateByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));
   const ordersByRef = new Map(groupCalculatorByRef(consolidateCalcRuns(calcRuns, calcLinks)).map((order) => [order.ref, order]));
   refs.forEach((ref)=>{const own=items.find((item)=>item.id===ref.journey_id);if(own&&own.reference_code&&ordersByRef.has(String(ref.ref_code).trim().toUpperCase())&&!ordersByRef.has(String(own.reference_code).trim().toUpperCase()))ordersByRef.set(String(own.reference_code).trim().toUpperCase(),ordersByRef.get(String(ref.ref_code).trim().toUpperCase()));});
+  // CLIENTES shows the real checklist of each ficha (it used to read 0/6 for everyone).
+  const checklistByJourney=new Map();checklist.forEach((point)=>{if(!checklistByJourney.has(point.journey_id))checklistByJourney.set(point.journey_id,[]);checklistByJourney.get(point.journey_id).push(point);});
   const listed=items.flatMap((item) => {
     if(triageOut.has(item.id))return [];
     const facts=contact.facts({journeyId:item.id,ref:item.reference_code,refs:refs.filter((row)=>row.journey_id===item.id).map((row)=>row.ref_code)});if(!facts.entered)return [];
@@ -94,7 +96,7 @@ async function clientList(ctx, activeBatch) {
     // Lote 4: Origem, Tipo and Última atividade for the CLIENTES filters (PEDIDOS merged in).
     const ownOrders=[...new Set([item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>String(ref||'').trim().toUpperCase()).filter(Boolean))].map((ref)=>ordersByRef.get(ref)).filter(Boolean);
     const originInfo=clientOrigin(item,ownOrders,lastRealAt);
-    return [decorateContact({ ...complete, ...ready, ...originInfo, isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id),complete)];
+    return [decorateContact({ ...complete, ...ready, ...originInfo, checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id),complete)];
   });
   return { listed, meta };
 }
