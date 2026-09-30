@@ -12,7 +12,7 @@
   const section = (root,n,title,cls='') => { const card=append(root,'section','lead-card '+cls); append(card,'span','lead-label',`${n} — ${title}`); return card; };
   const row = (root,...values) => { const line=append(root,'div','lead-line'); values.forEach((value)=> append(line,'span','',value || '—')); return line; };
   const stageNames = ['Searching','Cars presented','Bid scheduled','Result'];
-  const deadlineLabel = {now:'Agora','30d':'até 30 dias','3m':'30–90 dias',none:'Sem prazo'};
+  const deadlineLabel = {now:'Imediatamente','30d':'Até 30 dias','3m':'30 a 90 dias',none:'Sem prazo definido','6m':'Até 6 meses','12m':'Até 12 meses'};
   const paymentLabel = {cash:'À vista',fin:'Financiado'};
   const formatPhone=(value)=>{const digits=String(value||'').replace(/\D/g,'');if(digits.length===11&&digits[0]==='1')return `(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`;return value||'sem telefone';};
   const elapsed = (value) => { const hours=(Date.now()-Date.parse(value))/3600000; return hours < 1 ? `${Math.max(1,Math.round(hours*60))} min` : hours < 48 ? `${Math.floor(hours)} h` : `${Math.floor(hours/24)} dias`; };

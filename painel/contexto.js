@@ -158,9 +158,13 @@
     const facts = add(root, 'dl', 'context-facts');
     const fact = (label, value, cls) => { const wrap = add(facts, 'div', 'context-fact' + (cls ? ' ' + cls : '')); add(wrap, 'dt', '', label); add(wrap, 'dd', '', value); return wrap; };
     const searchText = (context.searches || []).map((item) => (item.mode ? (item.mode === 'VALOR' ? 'Por valor: ' : 'Por carro: ') : '') + item.label).join(' · ');
-    fact('Etapa', context.stage.label + (context.stage.closed ? ' · encerrado' : context.stage.off ? ' · desligado' : '') + (searchText ? ' · ' + searchText : ''));
+    // Where the case stands (an order without a ficha has a situation, not a funnel stage), apart
+    // from whether the search criteria are complete: complete criteria never mean "free to go".
+    if (context.situation) fact('Situação', context.situation.label + (context.situation.detail ? ' · ' + context.situation.detail : ''), 'is-missing');
+    else fact('Etapa', context.stage.label + (context.stage.closed ? ' · encerrado' : context.stage.off ? ' · desligado' : '') + (searchText ? ' · ' + searchText : ''));
     fact('Depende de', context.owner.label + (context.owner.since ? ' · desde ' + date(context.owner.since) : ''), OWNER_CLASS[context.owner.who]);
-    fact('Falta', (context.missing || []).length ? context.missing.join(', ') : (context.ambiguous || []).length ? 'Conferir: ' + context.ambiguous.join(', ') : (context.aiOnly || []).length ? 'Conferir o que a IA leu: ' + context.aiOnly.join(', ') : 'Nada falta para buscar', (context.missing || []).length ? 'is-missing' : '');
+    const criteria = context.criteria || { complete: !(context.missing || []).length, text: (context.missing || []).length ? 'Faltam: ' + context.missing.join(', ') : 'Completos' };
+    fact('Critérios da busca', criteria.text, criteria.complete ? '' : 'is-missing');
     if (context.blocker) fact('O que impede', context.blocker);
     root.append(nextActionNode(context.nextAction));
     // An order card already lists what the calculator received, field by field.

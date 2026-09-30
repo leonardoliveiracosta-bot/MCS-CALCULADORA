@@ -73,7 +73,8 @@ for (const width of [1366, 390]) {
     await expect(todayCard).toBeVisible({ timeout: 60000 });
     const todaySummary = await reach(todayCard);
     await expect(todaySummary).toBeVisible({ timeout: 30000 });
-    for (const text of ['Etapa', 'Em busca', 'Depende de', 'MCS', 'Próxima ação · sugestão do painel', 'Responder o cliente', 'Carro', 'Toyota Corolla', 'Informado pelo cliente', 'Lance máximo', 'US$ 18,000']) await expect(todaySummary).toContainText(text);
+    for (const text of ['Etapa', 'Em busca', 'Depende de', 'MCS', 'Próxima ação · sugestão do painel', 'Responder o cliente', 'Carro', 'Toyota Corolla', 'Informado pelo cliente', 'Lance máximo', 'US$ 18,000', 'Prazo', 'Até 30 dias']) await expect(todaySummary).toContainText(text);
+    await expect(todaySummary.locator('.context-fact', { hasText: 'Critérios da busca' })).toContainText('Completos');
     await expect(todayCard.locator('.identity-facts')).toContainText('Ref');
     await noOverflow();
     await shot(page, `hoje-${width}`);
@@ -85,8 +86,11 @@ for (const width of [1366, 390]) {
     const looseCard = page.locator('#entry-orders .item-card', { hasText: demo.LOOSE_REF }).first();
     await expect(looseCard).toBeVisible({ timeout: 60000 });
     const looseSummary = await reach(looseCard);
-    await expect(looseSummary).toContainText('Pedido sem ficha', { timeout: 30000 });
-    await expect(looseSummary).toContainText('Ligar o pedido a uma ficha quando o cliente fizer contato');
+    await expect(looseSummary).toContainText('Situação', { timeout: 30000 });
+    await expect(looseSummary).toContainText('Pedido ainda não ligado a uma ficha');
+    await expect(looseSummary.locator('.context-fact', { hasText: 'Critérios da busca' })).toContainText('Completos');
+    await expect(looseSummary).toContainText('Localizar a conversa do cliente e ligar o pedido à ficha');
+    await expect(looseSummary).not.toContainText('Nada falta para buscar');
     await noOverflow();
     await shot(page, `entrada-${width}`);
 

@@ -13,7 +13,7 @@ const IDS = {
   TWIN_CONTACT: id(30), TWIN_A: id(31), TWIN_B: id(32),
   SHARED_A: id(40), SHARED_B: id(41), SHARED_CONTACT_A: id(42), SHARED_CONTACT_B: id(43)
 };
-const REF = 'DMCRA', SHARED_REF = 'SHRAB', LOOSE_REF = 'NLNKA';
+const REF = 'DMCRA', SHARED_REF = 'SHRAB', LOOSE_REF = 'NLNKA', SIMULATED_REF = 'SMLAB';
 const HOUR = 3600 * 1000;
 const at = (hoursAgo) => new Date(Date.now() - hoursAgo * HOUR).toISOString();
 const q = (value) => "'" + String(value).replaceAll("'", "''") + "'";
@@ -55,7 +55,9 @@ const seed = [
   journey(IDS.SHARED_B, IDS.SHARED_CONTACT_B, {}),
   `insert into public.journey_refs(environment,journey_id,ref_code,created_at) values('preview','${IDS.SHARED_B}','${SHARED_REF}',now());`,
   calcRun(3, { evento: 'simulacao', sid: 's-shared', ref: SHARED_REF, logical_mode: 'VALOR', marca: 'Kia', modelo: 'Soul', lance: 9000, nome: 'Sem dono' }, 50),
+  // Only simulated (no contact click): complete criteria by value, waiting for the client.
+  calcRun(5, { evento: 'simulacao', sid: 's-only-sim', ref: SIMULATED_REF, logical_mode: 'VALOR', marca: 'Honda', modelo: 'Civic', lance: 15000, prazo: '3mo', nome: 'Paula Simulação' }, 8),
   calcRun(4, { evento: 'busca', sid: 's-loose-find', ref: LOOSE_REF, logical_mode: 'CARRO', marca: 'Mazda', modelo: 'CX-5', ano_de: 2018, ano_ate: 2021, milhas_ate: 80000, estado: 'GA', zip: '30301', nome: 'Rafael Simulação' }, 5)
 ].join('\n');
 
-module.exports = { IDS, REF, SHARED_REF, LOOSE_REF, seed };
+module.exports = { IDS, REF, SHARED_REF, LOOSE_REF, SIMULATED_REF, seed };

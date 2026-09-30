@@ -111,10 +111,12 @@
   const setCountUnknown = (view) => { counterState.set(view, nextCount(counterState.get(view), { ok: false })); paintCount(view); };
 
   const PAYMENT_LABELS = Object.freeze({ cash: 'À vista', fin: 'Financiado', financing: 'Financiado' });
-  const DEADLINE_LABELS = Object.freeze({ none: 'Sem prazo', now: 'Agora', '30d': '30 dias', '3m': '3 meses', '6m': '6 meses', '12m': '12 meses' });
+  // Same words as the client summary (panel-client-context.js); the stored code never changes.
+  const DEADLINE_LABELS = Object.freeze({ none: 'Sem prazo definido', now: 'Imediatamente', '30d': 'Até 30 dias', '3m': '30 a 90 dias', '3mo': '30 a 90 dias', '90d': '30 a 90 dias', '6m': 'Até 6 meses', '12m': 'Até 12 meses' });
   const SOURCE_LABELS = Object.freeze({ CALCULATOR: 'Calculadora', WHATSAPP_DIRECT: 'WhatsApp direto', SMS_DIRECT: 'SMS direto', MANUAL: 'Manual' });
   const displayPayment = (value) => PAYMENT_LABELS[String(value || '').toLowerCase()] || value || 'Não informado';
-  const displayDeadline = (value) => DEADLINE_LABELS[String(value || '').toLowerCase()] || value || 'Sem prazo';
+  // An empty deadline is unknown, never "sem prazo".
+  const displayDeadline = (value) => DEADLINE_LABELS[String(value || '').trim().toLowerCase()] || value || 'Não informado';
   const displayModel = (value) => String(value || '').replace(/\bnot sure\b/gi, '').replace(/\bother model\b/gi, 'Outro modelo').replace(/\s{2,}/g, ' ').trim();
   const checklistStatusLabel = (status) => status === 'COMPLETE' ? 'OK' : status === 'OPEN' ? 'Pendente' : status === 'NOT_APPLICABLE' ? 'Não se aplica' : status || '';
   const orderIcon = (item) => item.logicalMode === 'VALOR' || (item.logicalModes || []).every((mode) => mode === 'VALOR') ? '💰' : '🚗';

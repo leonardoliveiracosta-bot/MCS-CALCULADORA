@@ -105,7 +105,8 @@ test('caso completo: dados do cliente com origem, conversa, etapa, de quem depen
   assert.equal(f('anos').status, 'IA');
   assert.equal(f('anos').sources[0].messages[0].id, demo.IDS.MSG3);
   assert.equal(f('pagamento').value, 'Financiado');
-  assert.equal(f('prazo').value, '30 dias');
+  assert.equal(f('prazo').value, 'Até 30 dias');
+  assert.equal(f('prazo').sources.find((s) => s.kind === 'CALCULADORA').raw, '30 dias');
   assert.equal(f('placa').value, 'Transferir placa');
   assert.equal(f('local').status, 'CLIENTE');
   assert.equal(f('uso').statusLabel, 'Não coletado');
@@ -138,11 +139,11 @@ test('sem vínculo seguro: contato com duas fichas, Ref em duas fichas e Ref sem
   assert.deepEqual(journeys[demo.IDS.SHARED_A].links.orders, []);
   assert.deepEqual(journeys[demo.IDS.SHARED_A].sharedRefs, [demo.SHARED_REF]);
   const loose = refs[demo.LOOSE_REF];
-  assert.equal(loose.stage.label, 'Pedido sem ficha');
+  assert.equal(loose.stage.label, 'Pedido ainda não ligado a uma ficha');
   assert.equal(loose.contact.note, 'A calculadora não guarda telefone.');
   assert.equal(byKey(loose.fields, 'anos').value, '2018 a 2021');
   assert.equal(byKey(loose.fields, 'milhas').value, 'até 80,000 mi');
-  assert.equal(loose.nextAction.text, 'Ligar o pedido a uma ficha quando o cliente fizer contato');
+  assert.equal(loose.nextAction.text, 'Localizar a conversa do cliente e ligar o pedido à ficha (ENTRADA › Ligar a um lead)');
   // The two fichas of one contact: conversation requests are linked to neither.
   assert.deepEqual(journeys[demo.IDS.TWIN_A].links.requests, []);
 });
@@ -154,6 +155,50 @@ test('Ref em duas fichas: pedida uma ficha só, a Ref continua sem dono (não vi
   assert.deepEqual(item.links.orders, []);
   assert.deepEqual(item.sharedRefs, [demo.SHARED_REF]);
   assert.ok(item.fields.every((f) => f.sources.every((source) => source.kind !== 'CALCULADORA')), 'nenhum valor da calculadora da Ref compartilhada');
+});
+
+test('prazo: os quatro códigos aparecem como texto claro e o valor original fica guardado', () => {
+  const expected = { now: 'Imediatamente', '30d': 'Até 30 dias', '3m': '30 a 90 dias', none: 'Sem prazo definido' };
+  for (const [code, label] of Object.entries(expected)) {
+    assert.equal(context.deadlineLabel(code), label, code);
+    const fromCalculator = context.field('prazo', context.calculatorSources([{ ref: 'AAAAA', logicalMode: 'VALOR', deadlineText: code, wishlists: [] }]).prazo);
+    assert.equal(fromCalculator.value, label, 'calculadora ' + code);
+    assert.equal(fromCalculator.sources[0].raw, code, 'o código original continua nos dados');
+    const fromFicha = context.field('prazo', context.fichaSources({ customer_deadline_text: code, criteria_json: {} }, null, []).prazo);
+    assert.equal(fromFicha.value, label, 'ficha ' + code);
+  }
+  // "3mo" (calculadora) e "3m" (ficha) são o mesmo prazo: nada de ambíguo.
+  const both = context.field('prazo', [...context.calculatorSources([{ ref: 'AAAAA', logicalMode: 'VALOR', deadlineText: '3mo', wishlists: [] }]).prazo, ...context.fichaSources({ customer_deadline_text: '3m', criteria_json: {} }, null, []).prazo]);
+  assert.equal(both.status, 'CLIENTE');
+  assert.equal(both.value, '30 a 90 dias');
+  assert.equal(both.divergent, false);
+});
+
+test('pedido sem ficha com critérios completos: critérios completos, mas bloqueado e com próxima ação coerente', async () => {
+  const res = await call({ refs: [demo.LOOSE_REF, demo.SIMULATED_REF] });
+  assert.equal(res.statusCode, 200, JSON.stringify(res.payload));
+  const contacted = res.payload.refs[demo.LOOSE_REF];
+  const waiting = res.payload.refs[demo.SIMULATED_REF];
+  for (const item of [contacted, waiting]) {
+    assert.equal(item.journeyId, null, 'nunca ligado a uma ficha por suposição');
+    assert.deepEqual(item.criteria, { complete: true, text: 'Completos' });
+    assert.ok(item.blocker, 'critérios completos não liberam o fluxo: há bloqueio');
+    assert.equal(item.nextAction.kind, 'SUGESTAO');
+    const said = JSON.stringify(item);
+    assert.doesNotMatch(said, /Nada falta para buscar|Salvar a busca|Escolher carros/, 'nada sugere que a busca está liberada');
+  }
+  assert.equal(contacted.situation.code, 'CONTACTED');
+  assert.equal(contacted.situation.label, 'Pedido ainda não ligado a uma ficha');
+  assert.equal(contacted.owner.who, 'MCS');
+  assert.match(contacted.blocker, /não está ligado a uma ficha/);
+  assert.match(contacted.nextAction.text, /ligar o pedido à ficha/);
+  assert.equal(waiting.situation.code, 'AWAITING');
+  assert.equal(waiting.situation.label, 'Aguardando contato do cliente');
+  assert.equal(waiting.owner.who, 'CLIENTE');
+  assert.match(waiting.blocker, /ainda não entrou em contato/);
+  assert.equal(waiting.nextAction.text, 'Aguardar o contato do cliente e então ligar o pedido à ficha');
+  assert.equal(waiting.fields.find((f) => f.key === 'prazo').value, '30 a 90 dias');
+  assert.equal(waiting.fields.find((f) => f.key === 'prazo').sources[0].raw, '3mo');
 });
 
 test('entrada inválida: sem ids, ids demais e ids malformados', async () => {

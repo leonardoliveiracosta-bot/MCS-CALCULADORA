@@ -9,7 +9,8 @@
 // só vira um caso quando tem exatamente uma ficha; uma Ref ligada a mais de uma ficha fica sem
 // dono e o contexto diz isso.
 const { allRows, rows, rpc } = require('./panel-server');
-const { clean, consolidateCalcRuns, fold, time, wishlistsForJourney } = require('./panel-domain');
+const { clean, consolidateCalcRuns, fold, normalizeDeadline, time, wishlistsForJourney } = require('./panel-domain');
+const { contactIndex } = require('./panel-contact');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 const { batchSupported, latestActiveUpload } = require('./panel-manheim-state');
 
@@ -37,6 +38,11 @@ const REQUIRED = Object.freeze({ VALOR: ['carro', 'valor'], CARRO: ['carro', 'an
 const FIELD_LABELS = Object.freeze({ tipo: 'Tipo de busca', carro: 'Carro', anos: 'Anos', milhas: 'Milhagem', valor: 'Lance máximo', teto: 'Teto total (tudo incluso)', pagamento: 'Pagamento', prazo: 'Prazo', local: 'Localização', placa: 'Placa', uso: 'Uso do carro' });
 const EVIDENCE_FIELDS = Object.freeze({ carro: ['make', 'model', 'trim', 'type'], anos: ['year'], milhas: ['miles'], valor: ['budget'], local: ['location'] });
 
+// Deadline codes stored by the calculator and the ficha, shown in words (the stored value is kept
+// as it is, in the source's "raw").
+const DEADLINE_LABELS = Object.freeze({ now: 'Imediatamente', '30d': 'Até 30 dias', '3m': '30 a 90 dias', none: 'Sem prazo definido', '6m': 'Até 6 meses', '12m': 'Até 12 meses' });
+const deadlineLabel = (value) => { const code = normalizeDeadline(value); return code ? DEADLINE_LABELS[code] : clean(value) || null; };
+const deadlineSource = (value) => clean(value) ? { raw: clean(value), compare: normalizeDeadline(value) || clean(value) } : {};
 const usd = (cents) => Number.isFinite(cents) && cents > 0 ? 'US$ ' + Math.round(cents / 100).toLocaleString('en-US') : null;
 const miles = (value) => Number(value).toLocaleString('en-US');
 const range = (from, to, unit = '') => {
@@ -101,7 +107,7 @@ function field(key, sources, options = {}) {
     || (status === 'IA' && found.some((source) => source.detail) ? found.find((source) => source.detail).detail : null);
   return {
     key, label: FIELD_LABELS[key] || key, status, statusLabel: STATUS[status], value, divergent: divergent.length > 0, note,
-    sources: found.map((source) => ({ kind: source.kind, label: source.confirmed ? 'Ficha (confirmado)' : SOURCE[source.kind] || source.kind, value: source.value, at: source.at || null, ref: source.ref || null, detail: source.detail || null, messages: source.messages || [] }))
+    sources: found.map((source) => ({ kind: source.kind, label: source.confirmed ? 'Ficha (confirmado)' : SOURCE[source.kind] || source.kind, value: source.value, raw: source.raw || null, at: source.at || null, ref: source.ref || null, detail: source.detail || null, messages: source.messages || [] }))
   };
 }
 
@@ -121,7 +127,7 @@ function calculatorSources(orders) {
     }
     if (order.logicalMode === 'VALOR') out.valor.push(of(order, usd(order.budgetCents)));
     out.pagamento.push(of(order, order.paymentText));
-    out.prazo.push(of(order, order.deadlineText));
+    out.prazo.push(of(order, deadlineLabel(order.deadlineText), deadlineSource(order.deadlineText)));
     out.local.push(of(order, [order.state, order.zip && 'ZIP ' + order.zip].filter(Boolean).join(' · ') || null, { compare: order.state || null }));
     out.placa.push(of(order, order.plate ? ({ nova: 'Placa nova', transferir: 'Transferir placa' })[fold(order.plate)] || order.plate : null));
   });
@@ -140,7 +146,7 @@ function fichaSources(journey, contact, modes) {
     valor: [of(usd(Number(journey.budget_cents)))],
     teto: [of(usd(Number(journey.confirmed_total_ceiling_cents)), { confirmed: true })],
     pagamento: [of(clean(journey.payment_text) || null)],
-    prazo: [of(clean(journey.customer_deadline_text) || null)],
+    prazo: [of(deadlineLabel(journey.customer_deadline_text), deadlineSource(journey.customer_deadline_text))],
     local: [of(clean(contact && contact.location_text) || null)]
   };
 }
@@ -198,6 +204,20 @@ function waitingOn({ closed, conversation, hasCalculator }) {
 // the panel suggests one, marked as a suggestion. Something already answered in any source is
 // never asked again: a value only read by the AI is to be checked in the conversation, not asked;
 // and while the conversation was never read by the AI, a missing answer may still be in it.
+// An order without a ficha is never "free to search": its criteria may be complete, but the case
+// waits for the link to a ficha (the client asked for contact) or for the client (only simulated).
+const UNLINKED = Object.freeze({
+  CONTACTED: { label: 'Pedido ainda não ligado a uma ficha', detail: 'O cliente pediu contato pela calculadora.', blocker: 'O pedido ainda não está ligado a uma ficha: sem ficha não há conversa, busca nem opções para este cliente.', action: 'Localizar a conversa do cliente e ligar o pedido à ficha (ENTRADA › Ligar a um lead)', owner: { who: 'MCS', label: 'MCS', text: 'O cliente pediu contato; a MCS precisa ligar o pedido à ficha.' } },
+  AWAITING: { label: 'Aguardando contato do cliente', detail: 'O cliente só simulou; ainda não pediu contato.', blocker: 'O cliente ainda não entrou em contato: o pedido não tem ficha.', action: 'Aguardar o contato do cliente e então ligar o pedido à ficha', owner: { who: 'CLIENTE', label: 'Cliente', text: 'Aguardando o cliente entrar em contato.' } },
+  AMBIGUOUS: { label: 'Ref ligada a mais de uma ficha', detail: 'A mesma Ref está em mais de uma ficha.', blocker: 'A Ref está ligada a mais de uma ficha: o painel não escolhe uma.', action: 'Conferir a qual ficha esta Ref pertence', owner: { who: 'MCS', label: 'MCS', text: 'A MCS precisa decidir a qual ficha a Ref pertence.' } }
+});
+// The search criteria alone (complete or what is missing), apart from where the case stands.
+function criteriaSummary(step) {
+  if (step.missing.length) return { complete: false, text: 'Faltam: ' + step.missing.join(', ') };
+  if (step.ambiguous.length) return { complete: false, text: 'Fontes diferentes: ' + step.ambiguous.join(', ') };
+  if (step.aiOnly.length) return { complete: false, text: 'Conferir o que a IA leu: ' + step.aiOnly.join(', ') };
+  return { complete: true, text: 'Completos' };
+}
 function nextStep({ journey = null, closed = false, off = false, owner, fields, modes = [], searches = [], unlinkedRef = null, conversationCount = 0, conversationRead = false }) {
   const byKey = new Map(fields.map((item) => [item.key, item]));
   const needed = [...new Set(modes.flatMap((mode) => REQUIRED[mode] || []))];
@@ -209,7 +229,7 @@ function nextStep({ journey = null, closed = false, off = false, owner, fields, 
   const byStage = (stage) => searches.filter((item) => item.stage === stage);
   const modeNames = (list) => list.map((item) => item.mode === 'VALOR' ? 'por valor' : 'por carro').join(' e ');
   let blocker = null, suggestion;
-  if (unlinkedRef) { blocker = unlinkedRef === 'AMBIGUOUS' ? 'A Ref está ligada a mais de uma ficha.' : 'O pedido da calculadora não está ligado a uma ficha.'; suggestion = unlinkedRef === 'AMBIGUOUS' ? 'Conferir a qual ficha esta Ref pertence' : 'Ligar o pedido a uma ficha quando o cliente fizer contato'; }
+  if (unlinkedRef) { const situation = UNLINKED[unlinkedRef] || UNLINKED.AWAITING; blocker = situation.blocker; suggestion = situation.action; }
   else if (closed) suggestion = 'Nada a fazer: caso encerrado';
   else if (off) { blocker = 'O caso está desligado.'; suggestion = 'Religar o caso na ficha, se o cliente voltar'; }
   else if (owner.who === 'MCS' && owner.since) { blocker = 'O cliente escreveu e ainda não teve resposta.'; suggestion = 'Responder o cliente'; }
@@ -380,7 +400,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       stage: { code: journey.stage || null, label: JOURNEY_STAGES[journey.stage] || journey.stage || 'Sem etapa', status: journey.status || null, closed, off, closedReason: closed ? journey.closed_reason || null : null },
       searches, owner, conversation,
       aiReading: insight ? { summary: clean(insight.summary_text) || null, nextStep: clean(insight.next_step_text) || null, at: insight.updated_at || null, note: 'Leitura da IA da última mensagem · não confirmada' } : null,
-      fields, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
+      fields, criteria: criteriaSummary(step), situation: null, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
       promises: promises.filter((row) => row.journey_id === journey.id).map((row) => ({ text: row.promise_text, dueAt: row.due_at })),
       links: {
         orders: ownOrders.map(orderLink),
@@ -394,21 +414,29 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const own = journeysOfContact(contactId);
     out.contacts[contactId] = own.length === 1 ? { journeyId: own[0].id } : { journeyId: null, reason: own.length ? 'O contato tem mais de uma ficha: abra a certa pela lista de CLIENTES.' : 'O contato ainda não tem ficha.' };
   });
+  const unlinkedRefs = input.refs.filter((ref) => journeysForRef(ref).length !== 1);
+  // ENTRADA's rule: a WhatsApp click only counts before the first real WhatsApp message received.
+  const firstWebhook = unlinkedRefs.length ? await safe(rows(ctx, 'messages', { select: 'id,direction,source_kind,occurred_at_utc,created_at', environment: env, direction: 'eq.CUSTOMER', source_kind: 'eq.WHATSAPP_WEBHOOK', order: 'occurred_at_utc.asc', limit: '1' }), []) : [];
+  const contactFacts = contactIndex({ calcRuns: calcRuns.filter((row) => unlinkedRefs.includes(clean(row.dados && row.dados.ref).toUpperCase())), messages: firstWebhook });
   input.refs.forEach((ref) => {
     const owners = journeysForRef(ref);
     if (owners.length === 1) { out.refs[ref] = { journeyId: owners[0].id }; return; }
     const refOrders = orders.filter((order) => order.ref === ref);
     const fields = buildFields([calculatorSources(refOrders)]);
     const modes = [...new Set(refOrders.map((order) => order.logicalMode).filter((mode) => REQUIRED[mode]))];
-    const owner = { who: 'MCS', label: 'MCS', text: owners.length ? 'A Ref está ligada a mais de uma ficha.' : 'Só há o pedido da calculadora, sem conversa ligada.' };
-    const step = nextStep({ owner, fields, modes, unlinkedRef: owners.length ? 'AMBIGUOUS' : 'NONE' });
+    // Same definition of "asked for contact" as ENTRADA (panel-contact); never a guessed ficha.
+    const code = owners.length ? 'AMBIGUOUS' : contactFacts.facts({ ref }).entered ? 'CONTACTED' : 'AWAITING';
+    const situation = UNLINKED[code];
+    const owner = situation.owner;
+    const step = nextStep({ owner, fields, modes, unlinkedRef: code });
     out.refs[ref] = {
       key: 'ref:' + ref, journeyId: null, contactId: null, ref, refs: [ref], sharedRefs: owners.length > 1 ? [ref] : [],
       name: clean((refOrders[0] || {}).contactName) || null,
       contact: { phones: [], whatsappUsername: null, location: null, note: 'A calculadora não guarda telefone.' },
       origin: { code: 'CALCULATOR', label: 'Calculadora', since: (refOrders.at(-1) || {}).occurredAt || null, calculator: refOrders.length > 0 },
-      stage: { code: null, label: owners.length ? 'Ref em mais de uma ficha' : 'Pedido sem ficha', status: null, closed: false, off: false },
+      stage: { code: null, label: situation.label, status: null, closed: false, off: false },
       searches: [], owner, conversation: { messageCount: 0, lastAt: null, lastFrom: null }, aiReading: null,
+      situation: { code, label: situation.label, detail: situation.detail }, criteria: criteriaSummary(step),
       fields, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
       ambiguousOwners: owners.length > 1 ? owners.map((journey) => journey.id) : [],
       promises: [], links: { orders: refOrders.map(orderLink), requests: [], requestsNote: null, cars: { total: cars.byRef.get(ref) || 0, byMode: {}, uploadAt } }
@@ -417,4 +445,4 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
   return out;
 }
 
-module.exports = { FIELD_LABELS, JOURNEY_STAGES, MAX_IDS, MODES, REQUIRED, SEARCH_STAGES, STATUS, buildContexts, buildFields, calculatorSources, conversationSources, conversationState, field, fichaSources, nextStep, normalizedInput, waitingOn };
+module.exports = { DEADLINE_LABELS, UNLINKED, criteriaSummary, deadlineLabel, FIELD_LABELS, JOURNEY_STAGES, MAX_IDS, MODES, REQUIRED, SEARCH_STAGES, STATUS, buildContexts, buildFields, calculatorSources, conversationSources, conversationState, field, fichaSources, nextStep, normalizedInput, waitingOn };
