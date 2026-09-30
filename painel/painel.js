@@ -2316,8 +2316,9 @@
   // PESQUISAS: todo pedido de veículo (ficha, calculadora e conversas lidas), com critérios exatos,
   // evidências e estado contra o lote ativo. Nenhum pedido sai da lista por estágio, prazo ou
   // classificação; "sem opção no lote" continua aqui para a próxima importação. Nada é enviado.
-  // Regra MCS: só há busca com modelo + valor + ano ou milhagem (PRONTO PARA BUSCAR). O resto
-  // fica visível com o que falta e nunca é comparado, contado como opção ou marcado como atendido.
+  // Regra MCS: busca POR CARRO (veículo, ano e milhagem, sem valor) ou POR VALOR (modelo e valor).
+  // Sem critérios para nenhum dos dois o pedido fica visível com o que falta e nunca é comparado,
+  // contado como opção ou marcado como atendido.
   const REQUEST_STATES = ['FALTA_BUSCAR', 'COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO', 'PRECISA_DETALHE', 'PRECISA_REVISAO'];
   const REQUEST_STATE_LABELS = { FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', COM_CANDIDATOS: 'CANDIDATOS · VALOR A CONFERIR', SEM_OPCAO: 'SEM OPÇÃO NO LOTE', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' };
   const REQUEST_STATE_TONES = { FALTA_BUSCAR: 'yellow', COM_OPCOES: 'green', COM_CANDIDATOS: 'yellow', SEM_OPCAO: '', PRECISA_DETALHE: 'yellow', PRECISA_REVISAO: 'red' };
@@ -2375,7 +2376,7 @@
     if (first.comparedAt) card.append(element('p', 'muted', `${first.comparedAtImport ? 'Comparado na importação de' : 'Última comparação'}: ${formatDate(first.comparedAt)}`));
     if (first.missing && first.missing.length) card.append(element('p', 'muted', 'Não informado (sem restrição): ' + first.missing.join(', ')));
     if (first.typeNotChecked) card.append(element('p', 'muted', 'O tipo de carroceria não vem no arquivo do Manheim: as opções não filtram por tipo'));
-    if (first.state === 'PRECISA_DETALHE') card.append(element('p', 'request-lacks', 'Falta ' + (first.lacks || []).join(', falta ')),
+    if (first.state === 'PRECISA_DETALHE') card.append(element('p', 'request-lacks', first.lacksText || ''),
       element('p', 'muted', 'Sem busca no lote até a pessoa detalhar. Continua aqui, ligado à conversa'));
     if (first.reviewReason) card.append(element('p', 'muted', 'Revisão: ' + first.reviewReason));
     members.forEach((item) => {

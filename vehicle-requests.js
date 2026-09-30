@@ -5,11 +5,13 @@
 //    sustentam cada critério. Nada é deduzido: marca, modelo, ano, milhagem e orçamento só existem
 //    quando a pessoa escreveu; o resto fica como campo faltante.
 //  * Estágio, previsão de compra, prazo ou qualquer classificação comercial nunca tiram um pedido.
-//  * Regra operacional MCS: só há busca com modelo + valor + (ano ou milhagem). Sem isso o pedido
-//    fica PRECISA DETALHE, visível, com o que falta e as evidências, e nunca é comparado com o lote.
-//    Informação contraditória ou não verificável fica PRECISA REVISÃO.
-//  * Na busca, campo não informado é "sem restrição". O valor do cliente não vira teto de MMR:
-//    sem o cálculo oficial (Ref) os carros achados são candidatos com valor a conferir.
+//  * Dois modos de busca, pelo que a conversa sustenta (nunca inventado):
+//    - CARRO (Find One For Me): veículo, ano e milhagem. Valor não é exigido nem filtra o MMR.
+//    - VALOR: modelo e valor. Só aqui o valor entra no cálculo financeiro oficial (lance da Ref);
+//      sem ele, o que o lote tem são candidatos com valor a conferir.
+//    Sem critérios para nenhum dos dois o pedido fica PRECISA DETALHE, visível, com o que falta e
+//    as evidências, e nunca é comparado. Informação contraditória ou não verificável: PRECISA REVISÃO.
+//  * Na busca, campo não informado é "sem restrição". MMR válido é sempre obrigatório.
 //  * Referência da calculadora, etapa comercial ou prazo de compra nunca bloqueiam um pedido.
 const crypto = require('node:crypto');
 const vehicleMatch = require('./vehicle-match');
@@ -17,7 +19,7 @@ const catalog = require('./vehicle-catalog');
 
 const RULE_VERSION = 'pedidos-v2';
 // Readiness of the request and result against the active batch are separate. Only PRONTO is
-// compared. COM_OPCOES only comes from the official calculation (Ref); a ready request without it
+// compared. CARRO gives options (vehicle, year and mileage decide); VALOR without the official bid
 // gives candidates whose value still has to be checked.
 const COMPLETENESS = Object.freeze(['PRONTO', 'PRECISA_DETALHE', 'PRECISA_REVISAO']);
 const COMPLETENESS_LABELS = Object.freeze({ PRONTO: 'PRONTO PARA BUSCAR', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' });
@@ -216,21 +218,35 @@ function criteriaHash(criteria) {
 }
 // A criterion the batch can be compared with. Location and notes are shown, never compared.
 const useful = (c) => Boolean(c && (clean(c.make) || clean(c.model) || c.bodyType || c.yearMin || c.yearMax || c.minMiles || c.maxMiles || c.budgetUsd));
-// What a search still needs (MCS rule): model, value and year or mileage. A missing Ref never is.
-function searchLacks(criteria) {
+// What each search mode still needs. A missing Ref never is.
+const SEARCH_MODES = Object.freeze(['CARRO', 'VALOR']);
+const MODE_LABELS = Object.freeze({ CARRO: 'POR CARRO', VALOR: 'POR VALOR' });
+function searchLacks(criteria, modes = SEARCH_MODES) {
   const c = criteria || {};
-  const lacks = [];
-  if (!clean(c.model)) lacks.push('modelo');
-  if (!c.budgetUsd) lacks.push('valor');
-  if (!c.yearMin && !c.yearMax && !c.minMiles && !c.maxMiles) lacks.push('ano ou milhagem');
+  const lacks = {};
+  if (modes.includes('CARRO')) lacks.CARRO = [!clean(c.model) && 'modelo', !c.yearMin && !c.yearMax && 'ano', !c.minMiles && !c.maxMiles && 'milhagem'].filter(Boolean);
+  if (modes.includes('VALOR')) lacks.VALOR = [!clean(c.model) && 'modelo', !c.budgetUsd && 'valor'].filter(Boolean);
   return lacks;
+}
+// The mode the criteria support: CARRO when vehicle, year and mileage were said, otherwise VALOR
+// when model and value were said, otherwise none. `modes` narrows it when the origin has a mode.
+function searchModeOf(criteria, modes = SEARCH_MODES) {
+  const lacks = searchLacks(criteria, modes);
+  return SEARCH_MODES.find((mode) => lacks[mode] && !lacks[mode].length) || null;
+}
+// "Falta valor" with one mode; with both, what each one would need.
+const listText = (items) => items.length > 1 ? items.slice(0, -1).join(', ') + ' e ' + items.at(-1) : items.join('');
+function lacksText(lacks) {
+  const modes = Object.keys(lacks || {});
+  if (modes.length === 1) return 'Falta ' + listText(lacks[modes[0]]);
+  return modes.map((mode) => `para buscar ${MODE_LABELS[mode].toLowerCase()} falta ${listText(lacks[mode])}`).join('; ').replace(/^p/, 'P');
 }
 // A model the catalog does not know, without a make, cannot be verified in the batch.
 const unknownModel = (c) => Boolean(clean(c.model) && !clean(c.make) && !catalog.inferMake(c.model).candidates.length);
-function completenessOf(criteria, needsReview) {
+function completenessOf(criteria, needsReview, modes = SEARCH_MODES) {
   const c = criteria || {};
   if (needsReview) return 'PRECISA_REVISAO';
-  if (searchLacks(c).length) return 'PRECISA_DETALHE';
+  if (!searchModeOf(c, modes)) return 'PRECISA_DETALHE';
   return unknownModel(c) ? 'PRECISA_REVISAO' : 'PRONTO';
 }
 // In a ready request, what the customer did not say is no restriction (never an error of theirs).
@@ -252,13 +268,14 @@ function inferredMakeOf(criteria) {
   const found = catalog.inferMake(c.model);
   return found && found.make && !found.ambiguous ? found.make : null;
 }
-function describe(request) {
+function describe(request, modes = SEARCH_MODES) {
   const criteria = request.criteria || {};
-  const completeness = completenessOf(criteria, request.needsReview);
+  const completeness = completenessOf(criteria, request.needsReview, modes);
+  const lacks = completeness === 'PRECISA_DETALHE' ? searchLacks(criteria, modes) : {};
   const inferredMake = inferredMakeOf(criteria);
   const reviewReason = request.reviewReason || (completeness === 'PRECISA_REVISAO' && unknownModel(criteria) ? 'Modelo sem marca e fora do catálogo: não dá para conferir no lote' : null);
   return { ...request, reviewReason, requestKey: requestKey(criteria), criteriaHash: criteriaHash(criteria), completeness, inferredMake,
-    lacks: completeness === 'PRECISA_DETALHE' ? searchLacks(criteria) : [],
+    searchMode: completeness === 'PRONTO' ? searchModeOf(criteria, modes) : null, lacks, lacksText: completeness === 'PRECISA_DETALHE' ? lacksText(lacks) : null,
     missing: completeness === 'PRONTO' ? notInformed(criteria).filter((field) => !(field === 'marca' && inferredMake)) : [], comparable: completeness === 'PRONTO' };
 }
 const miles = (value) => Number(value).toLocaleString('en-US');
@@ -296,11 +313,10 @@ function optionFor(parsed, targets) {
   }
   return null;
 }
-// A ready request without the official calculation: model, and only the year and mileage limits
-// the customer gave (a field not informed is no restriction). Always a valid MMR; a limit on year
-// or mileage needs the car's value to be known. The customer's value is NOT a ceiling on the MMR
-// (its conversion into a bid is the official calculation), so a fit is a candidate whose value is
-// still to be checked. The body type cannot be checked (no body type in the file).
+// A ready request without the official matcher: model, and only the year and mileage limits the
+// customer gave (a field not informed is no restriction). Always a valid MMR; a limit on year or
+// mileage needs the car's value to be known. The customer's value is never an MMR filter (in VALOR
+// its conversion into a bid is the official calculation). The body type cannot be checked.
 function fitsReady(parsed, criteria) {
   const c = criteria || {};
   if (!parsed || !vehicleMatch.hasValidMmr(parsed) || !clean(c.model)) return false;
@@ -325,4 +341,4 @@ function resultOf(request, check, activeUploadId) {
   return check.result === 'HAS_OPTIONS' ? 'COM_OPCOES' : check.result === 'HAS_CANDIDATES' ? 'COM_CANDIDATOS' : check.result === 'NO_OPTIONS' ? 'SEM_OPCAO' : 'FALTA_BUSCAR';
 }
 
-module.exports = { inferredMakeOf, BODY_TYPES, COMPLETENESS, COMPLETENESS_LABELS, FIELDS, MAX_MESSAGES, RESULTS, RESULT_LABELS, RULE_VERSION, completenessOf, searchLacks, conversationFor, criteriaHash, criteriaText, describe, fitsReady, inputHash, notInformed, optionFor, requestKey, resultOf, simulateExtraction, targetsOf, useful, validateExtraction, vehiclesIn };
+module.exports = { inferredMakeOf, BODY_TYPES, COMPLETENESS, COMPLETENESS_LABELS, FIELDS, MAX_MESSAGES, RESULTS, RESULT_LABELS, MODE_LABELS, RULE_VERSION, SEARCH_MODES, completenessOf, lacksText, searchLacks, searchModeOf, conversationFor, criteriaHash, criteriaText, describe, fitsReady, inputHash, notInformed, optionFor, requestKey, resultOf, simulateExtraction, targetsOf, useful, validateExtraction, vehiclesIn };

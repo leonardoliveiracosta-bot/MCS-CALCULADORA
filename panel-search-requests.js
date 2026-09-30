@@ -171,11 +171,12 @@ async function compareOne(ctx, uploadId, item, cache, services) {
     for (const key of keys) for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) if (requests.optionFor(row.vehicle_json, item.targets)) take(row);
     return { result: count ? 'HAS_OPTIONS' : 'NO_OPTIONS', count, sample };
   }
-  // A ready request without the official calculation: model, year and mileage as informed. The
-  // customer's value is not an MMR ceiling, so what fits is a candidate with the value to check.
+  // A ready request without the official matcher: model, year and mileage as informed, never the
+  // value as an MMR filter. CARRO: the vehicle, year and mileage decide, so a fit is an option.
+  // VALOR: without the official bid a fit is a candidate whose value is still to be checked.
   const c = item.criteria || {};
   for (const key of makeKeysOf(c)) for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) if (requests.fitsReady(row.vehicle_json, c)) take(row);
-  return { result: count ? 'HAS_CANDIDATES' : 'NO_OPTIONS', count, sample };
+  return { result: !count ? 'NO_OPTIONS' : item.searchMode === 'CARRO' ? 'HAS_OPTIONS' : 'HAS_CANDIDATES', count, sample };
 }
 // Compares the given items (FALTA BUSCAR) with the active batch and records each result.
 async function compareItems(ctx, items, options = {}) {

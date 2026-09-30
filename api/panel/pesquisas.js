@@ -52,20 +52,12 @@ async function buildList(ctx) {
     const key = (journey ? 'ficha:' : 'pedido:') + demand.key;
     const common = { source: journey ? 'FICHA' : 'CALCULADORA', person: demandPerson(base, demand), mode: demand.mode, lastMessageAt: journey ? lastCustomer.get(journey.id) || null : null,
       evidence: journey ? [{ kind: 'FICHA', text: journey.vehicle_text ? 'Ficha: ' + String(journey.vehicle_text).slice(0, 300) : 'Critérios preenchidos na ficha' }] : [{ kind: 'CALCULADORA', text: 'Pedido da calculadora' + (demand.ref ? ', Ref ' + demand.ref : '') }] };
-    // A Ref does not replace the value by itself: only an official financial ceiling (the VALOR
-    // bid of the MCS calculation) counts. A search by year and mileage without it needs the value:
-    // registered for a future search, never compared, counted or offered.
-    if (demand.active && !(demand.mode === 'VALOR' && Number(demand.bidCents) > 0)) {
-      items.push(finish({ ...common, key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'PRECISA_DETALHE', missing: [], lacks: ['valor'], comparable: false,
-        criteriaHash: targetHash({ ...matchTarget(demand), reactivation: false }), targets: [] }, null, uploadId));
-      continue;
-    }
     if (demand.active) {
-      // Demand with the official calculation and its ceiling: the current matcher, and the import
-      // result when the criterion is the same.
+      // Demand ready in its own mode (CARRO: vehicle, years and mileage; VALOR: model and the official
+      // bid): the current matcher, and the import result when the criterion is the same.
       const target = { ...matchTarget(demand), reactivation: false };
       const hash = targetHash(target);
-      const item = { ...common, key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'PRONTO', missing: [], lacks: [], comparable: true, official: true, criteriaHash: hash, targets: [target] };
+      const item = { ...common, key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'PRONTO', searchMode: demand.mode, missing: [], lacks: {}, comparable: true, official: true, criteriaHash: hash, targets: [target] };
       let check = checkByKey.get(key + '|' + hash) || null;
       if (!check && uploadId && importedHash.has(demand.key) && importedHash.get(demand.key) === hash) {
         const row = summaryByKey.get(demand.key);
@@ -75,30 +67,30 @@ async function buildList(ctx) {
       items.push(finish(item, check, uploadId));
       continue;
     }
-    // Demand the official matcher cannot use (no Ref, a missing range, mode not defined): still a
-    // request. Each wish follows the MCS rule: ready (model + value + year or mileage) or it shows
-    // what is missing. The value is the bid the calculator gave (VALOR), never guessed.
+    // Demand the official matcher cannot use (a missing range, no bid, mode not defined): still a
+    // request. Its own mode decides what it needs (CARRO: vehicle, year and mileage; VALOR: model
+    // and the official bid); without a mode, what the criteria support. Nothing is guessed.
     const wishes = (demand.wishes && demand.wishes.length ? demand.wishes : [{}]);
     wishes.forEach((wish, index) => {
       const criteria = Object.fromEntries(Object.entries({ make: wish.make || null, model: wish.model || null, trim: wish.trim || null, yearMin: Number(wish.yearMin) || null, yearMax: Number(wish.yearMax) || null,
         minMiles: Number(wish.minMiles) || null, maxMiles: Number(wish.maxMiles) || null, budgetUsd: demand.mode === 'VALOR' && demand.bidCents ? Math.round(demand.bidCents / 100) : null }).filter(([, value]) => value));
-      const described = requests.describe({ criteria });
+      const described = requests.describe({ criteria }, requests.SEARCH_MODES.includes(demand.mode) ? [demand.mode] : requests.SEARCH_MODES);
       const itemKey = key + (wishes.length > 1 ? '#' + index : '');
-      const item = { ...common, key: itemKey, criteria, criteriaText: requests.criteriaText(criteria), completeness: described.completeness, missing: described.missing, lacks: described.lacks, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [] };
+      const item = { ...common, key: itemKey, criteria, criteriaText: requests.criteriaText(criteria), completeness: described.completeness, searchMode: described.searchMode, missing: described.missing, lacks: described.lacks, lacksText: described.lacksText, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [] };
       items.push(finish(item, checkByKey.get(itemKey + '|' + described.criteriaHash) || null, uploadId));
     });
   }
   for (const request of conversation.requests) {
     const key = 'conversa:' + request.id;
     const described = requests.describe({ criteria: request.criteria, evidence: request.evidence, confidence: request.confidence, needsReview: request.needs_review, reviewReason: request.review_reason });
-    const item = { key, source: 'CONVERSA', person: request.person, mode: null, criteria: request.criteria, criteriaText: requests.criteriaText(request.criteria), missing: described.missing, lacks: described.lacks,
+    const item = { key, source: 'CONVERSA', person: request.person, mode: null, criteria: request.criteria, criteriaText: requests.criteriaText(request.criteria), missing: described.missing, lacks: described.lacks, lacksText: described.lacksText, searchMode: described.searchMode,
       completeness: described.completeness, reviewReason: described.reviewReason, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [],
       typeNotChecked: Boolean(request.criteria && request.criteria.bodyType), lastMessageAt: request.lastMessageAt, evidence: request.evidenceMessages, chatId: request.chat_id, versions: request.versionCount };
     items.push(finish(item, checkByKey.get(key + '|' + described.criteriaHash) || null, uploadId));
   }
   // Same criteria, one operational task; every person stays linked to it.
   const groups = new Map();
-  items.forEach((item) => { const groupKey = (item.comparable ? 'c:' : 'x:' + item.key + ':') + item.criteriaHash; item.groupKey = groupKey; if (!groups.has(groupKey)) groups.set(groupKey, []); groups.get(groupKey).push(item.key); });
+  items.forEach((item) => { const groupKey = (item.comparable ? 'c:' + (item.searchMode || '') + ':' : 'x:' + item.key + ':') + item.criteriaHash; item.groupKey = groupKey; if (!groups.has(groupKey)) groups.set(groupKey, []); groups.get(groupKey).push(item.key); });
   const counts = Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length]));
   const byCompleteness = Object.fromEntries(requests.COMPLETENESS.map((level) => [level, Object.fromEntries([...requests.RESULTS, 'NONE'].map((result) => [result, items.filter((item) => item.completeness === level && (item.result || 'NONE') === result).length]))]));
   return { uploadId, upload: upload ? { id: upload.id, uploadedAt: upload.uploaded_at } : null, items, groupCount: groups.size, counts, byCompleteness,
@@ -111,7 +103,8 @@ const STATES = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'COM_CANDIDATOS', 'S
 function finish(item, check, uploadId) {
   const result = requests.resultOf(item, check, uploadId);
   const state = result || item.completeness;
-  const label = [requests.COMPLETENESS_LABELS[item.completeness], result ? requests.RESULT_LABELS[result] : null].filter(Boolean).join(' · ');
+  const lackingOne = item.completeness === 'PRECISA_DETALHE' && Object.keys(item.lacks || {}).length === 1 ? item.lacksText.toUpperCase() : null;
+  const label = [requests.COMPLETENESS_LABELS[item.completeness], item.searchMode ? requests.MODE_LABELS[item.searchMode] : null, lackingOne, result ? requests.RESULT_LABELS[result] : null].filter(Boolean).join(' · ');
   return { ...item, result, state, stateLabel: label, completenessLabel: requests.COMPLETENESS_LABELS[item.completeness],
     optionCount: result === 'COM_OPCOES' || result === 'COM_CANDIDATOS' || result === 'SEM_OPCAO' ? check.option_count : null,
     comparedAt: result && result !== 'FALTA_BUSCAR' ? check.compared_at : null, comparedUploadId: check ? check.upload_id : null, comparedAtImport: Boolean(check && check.fromImport) };

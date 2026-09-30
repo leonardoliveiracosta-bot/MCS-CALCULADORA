@@ -75,24 +75,17 @@ for (const width of [1366, 390]) {
     await expect(list.locator('.request-card').first()).toBeVisible({ timeout: 60000 });
     await page.locator('#requests-compare').click();
     await expect(page.locator('#requests-status')).toContainText('Leitura das conversas: simulada neste ambiente', { timeout: 30000 });
-    await expect(list.locator('.request-card[data-state="COM_CANDIDATOS"]').first()).toBeVisible({ timeout: 30000 });
+    await expect(list.locator('.request-card[data-state="COM_OPCOES"]').first()).toBeVisible({ timeout: 30000 });
     const lucas = list.locator('.request-card', { hasText: 'Lucas Conversa' });
     await expect(lucas).toContainText('Honda CR-V · 2019 a 2021 · 20,000 a 60,000 milhas · até US$ 28,000');
-    await expect(lucas).toContainText('PRONTO PARA BUSCAR · CANDIDATOS NO LOTE · VALOR A CONFERIR');
-    await expect(lucas).toContainText('não é opção confirmada');
+    await expect(lucas).toContainText('PRONTO PARA BUSCAR · POR CARRO · COM OPÇÕES NO LOTE');
     await lucas.locator('.request-evidence > summary').click();
     await expect(lucas.locator('.request-evidence')).toContainText('I am looking for a Honda CR-V 2019-2021');
-    // Without value, or without year or mileage: no search, visible with what is missing.
-    const caio = list.locator('.request-card', { hasText: 'Caio Conversa' });
-    await expect(caio).toContainText('PRECISA DETALHE');
-    await expect(caio.locator('.request-lacks')).toHaveText('Falta valor');
-    const rafa = list.locator('.request-card', { hasText: 'Rafa Conversa' });
-    await expect(rafa.locator('.request-lacks')).toHaveText('Falta ano ou milhagem');
-    await expect(rafa).not.toContainText('opç');
-    // Ficha by year and mileage without a financial ceiling: needs the value, no options shown.
-    const marta = list.locator('.request-card', { hasText: 'Marta Ficha' });
-    await expect(marta).toContainText('PRECISA DETALHE');
-    await expect(marta.locator('.request-lacks')).toHaveText('Falta valor');
+    // CARRO without a value is a search; model and value is VALOR.
+    await expect(list.locator('.request-card', { hasText: 'Caio Conversa' })).toContainText('PRONTO PARA BUSCAR · POR CARRO · SEM OPÇÃO NO LOTE');
+    await expect(list.locator('.request-card', { hasText: 'Rafa Conversa' })).toContainText('PRONTO PARA BUSCAR · POR VALOR · SEM OPÇÃO NO LOTE');
+    // Ficha by year and mileage without a bid: ready, with options.
+    await expect(list.locator('.request-card', { hasText: 'Marta Ficha' })).toContainText('COM OPÇÕES NO LOTE');
     await expect(list).not.toContainText('Bia Conversa');
     await expect(page.locator('#requests-panel #manheim-drop-zone, #requests-panel .manheim-lead, #requests-panel #manheim-batches')).toHaveCount(0);
     await noOverflow();
