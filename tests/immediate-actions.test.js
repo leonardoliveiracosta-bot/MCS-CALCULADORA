@@ -49,7 +49,7 @@ test('helper rolls back a failed optimistic action and shows the required card e
   await button.click();
   assert.equal(visible,true);
   assert.equal(button.disabled,false);
-  assert.equal(body.children.at(-1).textContent,'Não consegui salvar — tente de novo');
+  assert.equal(body.children.at(-1).textContent,'Não consegui salvar, tente de novo');
 });
 
 test('helper undo sends and restores the exact previous disposition',async()=>{
@@ -69,7 +69,7 @@ test('all mutating panel flows are wired through the single action helper',()=>{
   assert.match(action,/running\.has\(button\)/);
   assert.match(action,/options\.optimistic/);
   assert.match(action,/options\.rollback/);
-  assert.match(action,/Não consegui salvar — tente de novo/);
+  assert.match(action,/Não consegui salvar, tente de novo/);
   for(const marker of ['setDisposition','review_link','review_create','review_dismiss','automatic-messages','phone_review','toggle_journey','manheim_upload','sms-print','increase_budget'])assert.match(panel+read('painel/manheim-upload.js'),new RegExp(marker.replace('-','\\-')));
   assert.match(panel,/MCSAction\.(?:bind|run)/);
   assert.match(lead,/MCSAction\.bind/);

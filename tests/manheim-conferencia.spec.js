@@ -84,7 +84,7 @@ for (const width of [1366, 390]) {
     // The options stay visible while the demand waits.
     await expect(carro.locator('.manheim-row')).toHaveCount(1);
     await expect(order.locator('.audit-block .badge')).toHaveText('Conferência pendente');
-    await expect(order).toContainText('A IA não respondeu. As opções continuam visíveis, sem aprovação automática');
+    await expect(order).toContainText('A IA não respondeu · As opções continuam visíveis, sem aprovação automática');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(0);
     if (SHOTS) await carro.screenshot({ path: path.join(SHOTS, `buscas-conferencia-${width}.png`) });

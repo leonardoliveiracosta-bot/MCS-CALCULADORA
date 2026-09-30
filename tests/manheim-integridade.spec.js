@@ -75,7 +75,7 @@ async function discard(page) {
   const button = page.getByRole('button', { name: 'Descartar este envio' });
   await expect(button).toBeVisible();
   await button.click();
-  await expect(page.locator('#manheim-status')).toHaveText('Envio descartado. O lote ativo não mudou');
+  await expect(page.locator('#manheim-status')).toHaveText('Envio descartado · O lote ativo não mudou');
 }
 
 test('bloco com conteúdo diferente do manifesto: recusado, mensagem clara, descartar', async ({ page }) => {

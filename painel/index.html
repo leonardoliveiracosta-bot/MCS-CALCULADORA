@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="MCS Painel">
-  <title>My Car Scout — Painel</title>
+  <title>My Car Scout · Painel</title>
   <link rel="manifest" href="/painel/manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="/painel/icons/mcs-painel-180.png">
   <link rel="stylesheet" href="/painel/painel.css">
@@ -21,7 +21,7 @@
     <section id="login-view" class="card" aria-labelledby="login-title">
       <p class="eyebrow">MY CAR SCOUT</p>
       <h1 id="login-title">Painel</h1>
-      <p class="muted">Acesso restrito à equipe.</p>
+      <p class="muted">Acesso restrito à equipe</p>
       <form id="login-form">
         <label>E-mail<input id="email" type="email" autocomplete="email" required></label>
         <label>Senha<input id="password" type="password" autocomplete="current-password" required minlength="8"></label>
@@ -34,7 +34,7 @@
     <section id="password-view" class="card hidden" aria-labelledby="password-title">
       <p class="eyebrow">PRIMEIRO ACESSO</p>
       <h1 id="password-title">Crie sua senha</h1>
-      <p class="muted">A senha temporária só vale para o primeiro acesso.</p>
+      <p class="muted">A senha temporária só vale para o primeiro acesso</p>
       <form id="password-form">
         <label>Nova senha<input id="new-password" type="password" autocomplete="new-password" required minlength="12"></label>
         <label>Confirme a nova senha<input id="confirm-password" type="password" autocomplete="new-password" required minlength="12"></label>
@@ -84,7 +84,7 @@
         </details>
       </section>
       <section id="entry-panel" class="hidden" aria-label="Entrada">
-        <div class="section-head entry-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Entrada</h2><p class="muted">Tudo que chega ao painel. Só pede sua ação quando houver dúvida real.</p></div><label>Ordenar<select id="entry-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
+        <div class="section-head entry-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Entrada</h2><p class="muted">Tudo que chega ao painel · Só pede sua ação quando houver dúvida real</p></div><label>Ordenar<select id="entry-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
         <section class="card whatsapp-card entry-signal" aria-labelledby="whatsapp-title">
           <h2 id="whatsapp-title" class="visually-hidden">Sinal do WhatsApp</h2>
           <div class="signal-live"><span class="signal-dot" aria-hidden="true"></span><p id="whatsapp-signal">Verificando sinal…</p></div>
@@ -102,12 +102,12 @@
         </section>
         <details id="triage-out" class="card triage-out">
           <summary><strong>Fora do funil comercial</strong> <span id="triage-out-count" class="badge">—</span></summary>
-          <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente. As conversas continuam guardadas e aparecem na busca global</p>
+          <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente · As conversas continuam guardadas e aparecem na busca global</p>
           <div id="triage-out-list" class="queue" aria-live="polite"></div>
         </details>
         <details id="entry-orders" class="card entry-orders">
           <summary><strong>Pediram contato, sem conversa</strong> <span id="entry-orders-count" class="badge">…</span></summary>
-          <p class="muted">Entraram em contato pela calculadora e ainda não têm ficha. Conta o clique em SMS e o clique em WhatsApp de antes do WhatsApp entrar direto no painel</p>
+          <p class="muted">Entraram em contato pela calculadora e ainda não têm ficha · Conta o clique em SMS e o clique em WhatsApp de antes do WhatsApp entrar direto no painel</p>
           <div class="inline-actions"><button class="quiet small" type="button" data-report="orders">Gerar relatório de pedidos</button></div>
           <div class="filters" aria-label="Período dos pedidos sem conversa">
             <button type="button" class="chip" data-entry-orders-period="7">7 dias</button>
@@ -118,7 +118,7 @@
           <button id="entry-orders-more" class="quiet small hidden" type="button">Carregar mais</button>
           <details id="entry-simulated" class="entry-simulated">
             <summary>Só simularam <span id="entry-simulated-count" class="muted">…</span></summary>
-            <p class="muted">Simularam sem contato registrado. Quem só clicou no WhatsApp e nunca escreveu também fica aqui</p>
+            <p class="muted">Simularam sem contato registrado · Quem só clicou no WhatsApp e nunca escreveu também fica aqui</p>
             <div id="entry-simulated-list" class="stack" aria-live="polite"></div>
             <button id="entry-simulated-more" class="quiet small hidden" type="button">Carregar mais</button>
           </details>
@@ -132,8 +132,8 @@
             <div class="inline-actions"><button id="entry-go-imports" class="small" type="button" data-draft>Abrir IMPORTAÇÕES</button></div>
           </section>
           <details class="card manual-entry entry-tool" id="automatic-messages-card">
-            <summary><span class="entry-tool-icon" aria-hidden="true">🤖</span><span class="entry-tool-title">Mensagens automáticas</span><span class="entry-tool-copy">Nunca contam como resposta.</span><span class="entry-open-button">Gerenciar</span></summary>
-            <p class="muted">Cole aqui saudações e ausências do WhatsApp Business. Elas nunca contam como resposta.</p>
+            <summary><span class="entry-tool-icon" aria-hidden="true">🤖</span><span class="entry-tool-title">Mensagens automáticas</span><span class="entry-tool-copy">Nunca contam como resposta</span><span class="entry-open-button">Gerenciar</span></summary>
+            <p class="muted">Cole aqui saudações e ausências do WhatsApp Business · Elas nunca contam como resposta</p>
             <textarea id="automatic-message-text" maxlength="25000" placeholder="Texto automático completo"></textarea>
             <button id="automatic-message-save" type="button">Adicionar mensagem automática</button>
             <div id="automatic-message-list" class="queue"></div>
@@ -142,12 +142,12 @@
         </section>
         <section class="card queue-card">
           <h2>Revisão final</h2>
-          <p class="muted">Conversa lida, não identificada ou em revisão. Grupo não cria lead.</p>
+          <p class="muted">Conversa lida, não identificada ou em revisão · Grupo não cria lead</p>
           <div id="entry-queue" class="queue" aria-live="polite"></div>
         </section>
       </section>
       <section id="clients-panel" class="panel-view hidden" aria-label="Clientes">
-        <div class="section-head"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Conversa, qualificação e próximos passos em uma única lista.</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
+        <div class="section-head"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Conversa, qualificação e próximos passos em uma única lista</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
         <section id="clients-general-card" class="card pending-general" aria-live="polite"></section>
         <div id="clients-stats" class="pending-stats" aria-live="polite"></div>
         <div class="filters clients-filters" aria-label="Filtros de clientes">
@@ -164,7 +164,7 @@
         <div id="clients-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="pending-panel" class="panel-view hidden" aria-label="Pendências">
-        <div class="section-head"><div><h2>Pendências</h2><p class="muted">Todas as conversas individuais do WhatsApp, com situação atualizada quando chega mensagem.</p></div></div>
+        <div class="section-head"><div><h2>Pendências</h2><p class="muted">Todas as conversas individuais do WhatsApp, com situação atualizada quando chega mensagem</p></div></div>
         <section id="pending-general-card" class="card pending-general" aria-live="polite"></section>
         <div id="pending-stats" class="pending-stats" aria-live="polite"></div>
         <div class="filters pending-filters" aria-label="Filtros de pendências">
@@ -181,7 +181,7 @@
         <div id="pending-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="qualification-panel" class="panel-view hidden" aria-label="Qualificação">
-        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo.</p></div><div class="inline-actions"><label>Ordenar<select id="qualification-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div></div>
+        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo</p></div><div class="inline-actions"><label>Ordenar<select id="qualification-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div></div>
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="requests-panel" class="panel-view hidden" aria-label="Pesquisas">
@@ -212,7 +212,7 @@
           </section>
           <section id="auto-print-card" class="card entry-tool entry-tool-featured import-card">
             <span class="entry-tool-icon" aria-hidden="true">📷</span><h2>Anexar print</h2>
-            <p class="muted">Print de SMS, de WhatsApp ou foto. O painel lê a Ref e o número e coloca no cliente certo sozinho.</p>
+            <p class="muted">Print de SMS, de WhatsApp ou foto · O painel lê a Ref e o número e coloca no cliente certo sozinho</p>
             <label class="print-drop">Arraste o print aqui ou toque para escolher<input id="auto-print-file" type="file" accept="image/*" multiple></label>
             <div id="auto-print-file-info" class="attachment-choice hidden"></div>
             <div class="inline-actions"><button id="auto-print-remove" class="quiet small hidden" type="button">Remover</button><button id="auto-print-send" type="button" disabled>Enviar</button></div>
@@ -221,7 +221,7 @@
             <ul class="import-facts" data-import-facts="print" data-draft><li>Aceita fotos JPG, PNG ou WebP de até 5 MB, várias de uma vez</li><li>Foto HEIC do iPhone não é aceita</li><li>O painel lê a Ref, o telefone e o nome que aparecem no print</li><li>Guarda sozinho quando a Ref ou o telefone apontam um único cliente</li><li>Sem cliente encontrado e com telefone no print, cria um lead novo</li><li>Se só o nome bate, o print fica em ENTRADA, Revisão final, para você decidir</li><li>Print repetido não é guardado de novo</li><li>O resultado aparece aqui, com Abrir lead e Desfazer</li><li>Dentro da ficha, Anexar print continua funcionando</li></ul>
           </section>
           <details id="import-card-sms" class="card manual-entry entry-tool import-card">
-            <summary><span class="entry-tool-icon" aria-hidden="true">✉️</span><span class="entry-tool-title">Colar SMS</span><span class="entry-tool-copy">Cole o texto de um SMS e escolha o cliente.</span><span class="entry-open-button">Colar SMS</span></summary>
+            <summary><span class="entry-tool-icon" aria-hidden="true">✉️</span><span class="entry-tool-title">Colar SMS</span><span class="entry-tool-copy">Cole o texto de um SMS e escolha o cliente</span><span class="entry-open-button">Colar SMS</span></summary>
             <section>
               <ul class="import-facts" data-import-facts="sms" data-draft><li>Aceita o texto de um SMS, até 25 mil caracteres</li><li>Você escolhe o contato, a busca, quem falou e a data</li><li>Contato novo precisa de nome e telefone</li><li>O mesmo SMS com a mesma data não entra duas vezes</li><li>A mensagem aparece na conversa da ficha</li></ul>
               <form id="sms-form">
@@ -320,7 +320,7 @@
         <section id="manheim-saved-searches" class="card"></section>
         <details id="buscas-review" class="card buscas-review">
           <summary>Revisar tipo de busca <span id="buscas-review-count" class="badge">—</span></summary>
-          <p class="muted">Pedidos sem tipo definido ou com critério incompleto. Nada é adivinhado: defina CARRO ou VALOR, ou abra a ficha para completar</p>
+          <p class="muted">Pedidos sem tipo definido ou com critério incompleto · Nada é adivinhado: defina CARRO ou VALOR, ou abra a ficha para completar</p>
           <div id="buscas-review-list" class="stack"></div>
         </details>
       </section>
@@ -328,7 +328,7 @@
         <p class="visually-hidden">Conteúdo reunido na aba Buscas.</p>
       </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
-        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela.</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
+        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
         <div id="records-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="detail-panel" class="panel-view hidden" aria-label="Detalhe">

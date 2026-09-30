@@ -156,7 +156,7 @@
         stopAutoRefresh();
         clearSession();
         show('login-view');
-        error('login-error', 'Sua sessão expirou. Entre novamente para continuar.');
+        error('login-error', 'Sua sessão expirou · Entre novamente para continuar');
       }
       const failure = new Error(result.error || 'REQUEST_FAILED');
       failure.code = result.error || (response.status >= 500 ? 'SERVER_ERROR' : 'REQUEST_FAILED');
@@ -182,7 +182,7 @@
   };
 
   async function extract(file) {
-    if (file.size > (file.name.toLowerCase().endsWith('.zip') ? MAX_ZIP : MAX_TEXT)) throw new Error('Arquivo excede o limite permitido.');
+    if (file.size > (file.name.toLowerCase().endsWith('.zip') ? MAX_ZIP : MAX_TEXT)) throw new Error('Arquivo excede o limite permitido');
     if (!file.name.toLowerCase().endsWith('.zip')) return [{ name: file.name, text: await file.text() }];
     if (!window.zip) throw new Error('Leitor ZIP indisponível.');
     const reader = new zip.ZipReader(new zip.BlobReader(file));
@@ -271,7 +271,7 @@
       ['contact-label', 'contact-name-label', 'chat-label', 'journey-label', 'ref-warning'].forEach((id) => $(id).classList.add('hidden'));
       card.classList.remove('hidden');
       $('import-status').classList.remove('error');
-      $('import-status').textContent = `${filename}: arquivo lido. Confirme os dados abaixo para gravar a conversa.`;
+      $('import-status').textContent = `${filename}: arquivo lido · Confirme os dados abaixo para gravar a conversa`;
       card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
       const toggle = () => {
@@ -297,19 +297,19 @@
           const isGroup = $('chat-type').value === 'group';
           const dateOrder = parsed.requiresDateOrder ? $('date-order').value : parsed.dateOrder || parsed.inferredDateOrder;
           if (!dateOrder) throw new Error('Escolha DD/MM ou MM/DD.');
-          if (!$('chat-type').value) throw new Error('Confirme se é conversa individual ou grupo.');
-          if (!$('mcs-sender').value) throw new Error('Confirme qual remetente é a MCS.');
-          if ($('mcs-sender').dataset.confirmed === 'false') throw new Error('Confirme com um clique quem é você nesta conversa.');
+          if (!$('chat-type').value) throw new Error('Confirme se é conversa individual ou grupo');
+          if (!$('mcs-sender').value) throw new Error('Confirme qual remetente é a MCS');
+          if ($('mcs-sender').dataset.confirmed === 'false') throw new Error('Confirme com um clique quem é você nesta conversa');
           const contactName = $('import-contact').value === 'new'
             ? MCSParser.clean($('import-contact-name').value)
             : ((contacts.find((item) => item.id === $('import-contact').value) || {}).display_name || inferredContactName(parsed.title));
           if (!isGroup && MCSParser.senderLooksLikeContact($('mcs-sender').value, contactName || inferredContactName(parsed.title))) {
-            throw new Error('O remetente da MCS não pode ser o mesmo nome do contato. Revise quem é você.');
+            throw new Error('O remetente da MCS não pode ser o mesmo nome do contato · Revise quem é você');
           }
-          if (!isGroup && $('import-contact').value === 'new' && !MCSParser.clean($('import-contact-name').value)) throw new Error('Informe o nome do novo contato.');
+          if (!isGroup && $('import-contact').value === 'new' && !MCSParser.clean($('import-contact-name').value)) throw new Error('Informe o nome do novo contato');
           if (!isGroup && !$('import-journey').value) throw new Error('Escolha mesma busca ou nova jornada.');
           const finalParsed = MCSParser.parseWhatsApp(raw, filename, { dateOrder });
-          if (!finalParsed.supported || finalParsed.requiresDateOrder) throw new Error('Não foi possível confirmar as datas.');
+          if (!finalParsed.supported || finalParsed.requiresDateOrder) throw new Error('Não foi possível confirmar as datas');
           const entries = MCSParser.assignDirections(finalParsed, $('mcs-sender').value);
           $('import-status').classList.remove('error');
           $('import-status').textContent = 'Gravando conversa e mensagens…';
@@ -336,7 +336,7 @@
     const initial = MCSParser.parseWhatsApp(raw, filename, {});
     if (!initial.supported) {
       await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'review', sourceKind, sourceFilename, sourceSha256: sourceSha }) });
-      $('import-status').textContent = `${sourceFilename}: formato não suportado — revisão, sem inserir mensagens.`;
+      $('import-status').textContent = `${sourceFilename}: formato não suportado, revisão, sem inserir mensagens`;
       return { pending: true, inserted: 0 };
     }
     const inferredName = inferredContactName(initial.title || filename);
@@ -413,7 +413,7 @@
 
   async function importFiles(files) {
     importProgress.inserted = 0;
-    if (!files.length || files.length > MAX_FILES) throw new Error('Selecione de 1 a 20 arquivos.');
+    if (!files.length || files.length > MAX_FILES) throw new Error('Selecione de 1 a 20 arquivos');
     await loadQueue(false);
     let inserted = 0;
     let pending = false;
@@ -441,7 +441,7 @@
     if (!pending && lastJourneyId) await openDetail('ficha',lastJourneyId);
   }
 
-  function clearRecordDetail(message = 'Escolha uma ficha.') {
+  function clearRecordDetail(message = 'Escolha uma ficha') {
     const root = $('record-detail');
     if (root) root.replaceChildren(element('p', 'muted', message));
   }
@@ -511,7 +511,7 @@
     const item = element('article', 'queue-item');
     const header = element('header', '');
     header.append(element('strong', '', `Print de SMS · ${print.name || print.phone || print.filename || 'sem nome'}`), element('span', 'badge', 'revisão'));
-    item.append(header, element('span', 'muted', print.candidate ? `O nome bate com ${print.candidate.name}${print.candidate.ref ? ` · Ref ${print.candidate.ref}` : ''}, mas o telefone não` : 'O nome bate com um lead encerrado. Para guardar nele, reabra a ficha e anexe o print lá'));
+    item.append(header, element('span', 'muted', print.candidate ? `O nome bate com ${print.candidate.name}${print.candidate.ref ? ` · Ref ${print.candidate.ref}` : ''}, mas o telefone não` : 'O nome bate com um lead encerrado · Para guardar nele, reabra a ficha e anexe o print lá'));
     if (print.phone) item.append(element('span', 'muted', `Telefone do print: ${print.phone}`));
     // The confirm needs the customer's phone: when the print shows none, the operator types it
     let phoneInput = null;
@@ -556,7 +556,7 @@
       if (printReviews.length || failedPrints.length) return;
       const empty = document.createElement('p');
       empty.className = 'muted';
-      empty.textContent = 'Nenhuma conversa importada.';
+      empty.textContent = 'Nenhuma conversa importada';
       root.append(empty);
       return;
     }
@@ -572,16 +572,16 @@
         commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action,kind,id:target.id,journeyId:select.value||null})}),
         rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},
         successText,
-        undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão.',refresh:()=>loadQueue()},
-        refresh:()=>loadQueue(false),errorText:'Não consegui salvar — tente de novo'
+        undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},
+        refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'
       }));
       const link=element('button','small','Ligar a um lead');link.type='button';
       MCSAction.bind(link,()=>{
-        if(!select.value)return{scope:item,commit:()=>Promise.reject(new Error('JOURNEY_REQUIRED')),errorText:'Escolha um lead antes de ligar.'};
-        return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},successText:'Conversa ligada ao lead.',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão.',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar — tente de novo'};
+        if(!select.value)return{scope:item,commit:()=>Promise.reject(new Error('JOURNEY_REQUIRED')),errorText:'Escolha um lead antes de ligar'};
+        return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},successText:'Conversa ligada ao lead',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'};
       });
-      const create=element('button','quiet small','Criar lead novo');create.type='button';run(create,'review_create','Lead criado e conversa ligada.');
-      const dismiss=element('button','quiet small','Dispensar (não é cliente)');dismiss.type='button';run(dismiss,'review_dismiss','Conversa dispensada.');
+      const create=element('button','quiet small','Criar lead novo');create.type='button';run(create,'review_create','Lead criado e conversa ligada');
+      const dismiss=element('button','quiet small','Dispensar (não é cliente)');dismiss.type='button';run(dismiss,'review_dismiss','Conversa dispensada');
       controls.append(select,link,create,dismiss);
       return controls;
     };
@@ -593,7 +593,7 @@
       title.textContent = chat.contact && chat.contact.display_name ? chat.contact.display_name : chat.canonical_key;
       const badge = document.createElement('span');
       badge.className = 'badge';
-      badge.textContent = chat.is_group ? 'revisão — grupo' : chat.resolution_status === 'RESOLVED' ? 'lida' : chat.resolution_status === 'UNIDENTIFIED' ? 'não identificada' : 'revisão';
+      badge.textContent = chat.is_group ? 'revisão, grupo' : chat.resolution_status === 'RESOLVED' ? 'lida' : chat.resolution_status === 'UNIDENTIFIED' ? 'não identificada' : 'revisão';
       header.append(title, badge);
       const count = document.createElement('span');
       count.className = 'muted';
@@ -610,7 +610,7 @@
         keep.className = 'small';
         keep.type = 'button';
         keep.textContent = 'Manter em revisão';
-        MCSAction.bind(keep,()=>({scope:item,optimistic:()=>{const before=badge.textContent;badge.textContent='revisão';return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'resolve',chatId:chat.id,resolution:'review'})}),rollback:(before)=>{badge.textContent=before;},refresh:()=>loadQueue(),errorText:'Não consegui salvar — tente de novo'}));
+        MCSAction.bind(keep,()=>({scope:item,optimistic:()=>{const before=badge.textContent;badge.textContent='revisão';return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'resolve',chatId:chat.id,resolution:'review'})}),rollback:(before)=>{badge.textContent=before;},refresh:()=>loadQueue(),errorText:'Não consegui salvar, tente de novo'}));
         item.append(keep);
       }
       if(chat.resolution_status!=='RESOLVED'||chat.hasTimeUncertain)item.append(reviewControls(item,chat,'chat'));
@@ -623,7 +623,7 @@
       title.textContent = review.source_filename || 'Arquivo sem nome';
       const note = document.createElement('span');
       note.className = 'badge';
-      note.textContent = 'revisão — formato não suportado — manter em revisão';
+      note.textContent = 'revisão, formato não suportado, manter em revisão';
       item.append(title, note,reviewControls(item,review,'review'));
       root.append(item);
     });
@@ -693,12 +693,12 @@
       const row = element('div', 'queue-item');
       row.append(element('span', '', `Evento ${event.event_type} · ${event.status === 'ERROR' ? 'erro' : 'pendente'} · ${ago(event.received_at)}`));
       const retry = element('button', 'small', 'Reprocessar'); retry.type = 'button';
-      MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent='Reprocessando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'reprocess',id:event.id})}),rollback:()=>{retry.textContent='Reprocessar';},refresh:()=>loadWhatsApp(),errorText:'Não consegui salvar — tente de novo'}));
+      MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent='Reprocessando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'reprocess',id:event.id})}),rollback:()=>{retry.textContent='Reprocessar';},refresh:()=>loadWhatsApp(),errorText:'Não consegui salvar, tente de novo'}));
       row.append(retry); errors.append(row);
     });
     (data.ignored||[]).forEach((event)=>errors.append(element('div','queue-item',`ignorado: ${String(event.error_code||event.event_type||'campo desconhecido').replace(/^IGNORED:/,'')}`)));
     const itemErrorLabel=(code)=>({HISTORY_DECLINED:'Histórico não compartilhado pelo WhatsApp',PHONE_INVALID:'Telefone inválido',PHONE_AMBIGUOUS:'Telefone ligado a mais de um contato',MESSAGE_CONTENT_INVALID:'Mensagem inválida',ITEM_PROCESSING_FAILED:'Falha ao gravar a mensagem',PROCESSING_INTERRUPTED:'Processamento interrompido'})[code]||'Falha ao processar este item';
-    (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const declined=event.error_code==='HISTORY_DECLINED';const retry=element('button','small',declined?'Dispensar':'Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent=declined?'Dispensando…':'Processando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:declined?'dismiss_item':'reprocess_item',id:event.id})}),rollback:()=>{retry.textContent=declined?'Dispensar':'Tentar de novo';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'}));row.append(retry);errors.append(row);});
+    (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const declined=event.error_code==='HISTORY_DECLINED';const retry=element('button','small',declined?'Dispensar':'Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent=declined?'Dispensando…':'Processando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:declined?'dismiss_item':'reprocess_item',id:event.id})}),rollback:()=>{retry.textContent=declined?'Dispensar':'Tentar de novo';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));row.append(retry);errors.append(row);});
     const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
     (data.suggestions || []).forEach((item) => {
       const row = element('div', 'queue-item');
@@ -706,13 +706,13 @@
       if(item.motives)row.append(element('span','muted',`Motivos: ${item.motives}`));
       for (const [label, link] of [['Ligar', true], ['Não é', false]]) {
         const action = element('button', link ? 'small' : 'quiet small', label); action.type = 'button';
-        MCSAction.bind(action,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'suggestion',id:item.id,link})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'}));
+        MCSAction.bind(action,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'suggestion',id:item.id,link})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));
         row.append(action);
       }
-      const notLead=element('button','quiet small',item.sourceIsLead===false?'Restaurar lead':'Não é lead');notLead.type='button';MCSAction.bind(notLead,()=>{const before=item.sourceIsLead!==false;return{scope:row,optimistic:()=>{item.sourceIsLead=!before;notLead.textContent=item.sourceIsLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:!before})}),rollback:(value)=>{item.sourceIsLead=value;notLead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'};});row.append(notLead);
+      const notLead=element('button','quiet small',item.sourceIsLead===false?'Restaurar lead':'Não é lead');notLead.type='button';MCSAction.bind(notLead,()=>{const before=item.sourceIsLead!==false;return{scope:row,optimistic:()=>{item.sourceIsLead=!before;notLead.textContent=item.sourceIsLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:!before})}),rollback:(value)=>{item.sourceIsLead=value;notLead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'};});row.append(notLead);
       suggestions.append(row);
     });
-    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';MCSAction.bind(choose,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'}));const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=candidate.isLead!==false;return{scope:row,optimistic:()=>{candidate.isLead=!before;lead.textContent=candidate.isLead?'Não é lead':'Restaurar';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:!before})}),rollback:(value)=>{candidate.isLead=value;lead.textContent=value?'Não é lead':'Restaurar';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar — tente de novo'};});group.append(choose,lead);row.append(group);});suggestions.append(row);});
+    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';MCSAction.bind(choose,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=candidate.isLead!==false;return{scope:row,optimistic:()=>{candidate.isLead=!before;lead.textContent=candidate.isLead?'Não é lead':'Restaurar';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:!before})}),rollback:(value)=>{candidate.isLead=value;lead.textContent=value?'Não é lead':'Restaurar';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'};});group.append(choose,lead);row.append(group);});suggestions.append(row);});
     $('entry-needs-empty').classList.toggle('hidden', Boolean(errors.childElementCount || suggestions.childElementCount || $('triage-review').childElementCount));
   }
 
@@ -861,7 +861,7 @@
     const localInput = $('sms-date').value;
     const name = MCSParser.clean($('sms-new-name').value);
     const phone = MCSParser.clean($('sms-new-phone').value);
-    if (!message || !localInput || (selected === 'new' && (!name||!phone))) {$('sms-status').textContent='Informe nome e telefone para o novo contato.';return;}
+    if (!message || !localInput || (selected === 'new' && (!name||!phone))) {$('sms-status').textContent='Informe nome e telefone para o novo contato';return;}
     const submit=event.submitter||$('sms-form').querySelector('button[type="submit"]');
     MCSAction.run({button:submit,scope:$('sms-form'),optimistic:()=>{$('sms-status').classList.remove('error');$('sms-status').textContent='Salvando…';},commit:async()=>{
       const contactId = selected === 'new' ? null : selected;
@@ -881,16 +881,16 @@
       const journeyValue = $('sms-journey').value;
       await request('/api/panel/entry', { method: 'POST', body: JSON.stringify({ action: 'finish', importJobId: start.importJobId, journey: { mode: journeyValue === 'new' ? 'new' : 'existing', journeyId: journeyValue === 'new' ? null : journeyValue }, refs: MCSParser.extractRefs([{ body: message }]) }) });
       return{batch,date};
-    },onSuccess:({batch,date})=>{$('sms-status').textContent=`${batch.inserted} SMS adicionado(s)${date.timeUncertain?' — hora incerta, revisão necessária':''}.`;$('sms-text').value='';},refresh:()=>loadQueue(),onError:()=>{$('sms-status').classList.add('error');},errorText:'Não consegui salvar — tente de novo'});
+    },onSuccess:({batch,date})=>{$('sms-status').textContent=`${batch.inserted} SMS adicionado(s)${date.timeUncertain?', hora incerta, revisão necessária':''}`;$('sms-text').value='';},refresh:()=>loadQueue(),onError:()=>{$('sms-status').classList.add('error');},errorText:'Não consegui salvar, tente de novo'});
   }
 
   function clearAutoPrint(){const input=$('auto-print-file');input.value='';autoPrintContext=null;$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;$('auto-print-result').classList.add('hidden');}
   function showAutoPrintChoice(files){const info=$('auto-print-file-info');info.replaceChildren();[...files].forEach((file)=>info.append(element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`)));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=!files.length;}
   function autoPrintResult(filename,text,saved){const resultRoot=arguments[3],root=resultRoot||$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',`${filename||'Print'} — ${text}`));root.append(row);return row;}
-  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});if(saved.review){autoPrintResult(filename,'O nome bate com um lead, mas o telefone não. Ficou em ENTRADA para você decidir',false,resultRoot);await loadQueue(currentView==='entry').catch(()=>{});return saved;}const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');if(!saved.duplicate)[saved.journeyId,context?.journeyId].filter(Boolean).forEach((key)=>recentPrints.set(key,{readId:read.id,text:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,at:Date.now()}));const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} — Desfeito. O arquivo permanece guardado.`,errorText:'Não consegui desfazer — tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters().catch(()=>{});return saved;}
-  async function handleAutoPrintRead(result,context,filename,resultRoot){if(result.manual){const root=autoPrintResult(filename||result.read?.original_filename,'Não consegui ler agora — tente mais tarde ou use outra imagem.',false,resultRoot);const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),onSuccess:(next)=>handleAutoPrintRead(next,context,filename,resultRoot),errorText:'Não consegui ler agora — tente de novo'}));root.append(retry);return false;}return saveAutoPrint(result.read,context,filename,resultRoot);}
+  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});if(saved.review){autoPrintResult(filename,'O nome bate com um lead, mas o telefone não. Ficou em ENTRADA para você decidir',false,resultRoot);await loadQueue(currentView==='entry').catch(()=>{});return saved;}const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');if(!saved.duplicate)[saved.journeyId,context?.journeyId].filter(Boolean).forEach((key)=>recentPrints.set(key,{readId:read.id,text:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,at:Date.now()}));const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} · Desfeito · O arquivo permanece guardado`,errorText:'Não consegui desfazer, tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters().catch(()=>{});return saved;}
+  async function handleAutoPrintRead(result,context,filename,resultRoot){if(result.manual){const root=autoPrintResult(filename||result.read?.original_filename,'Não consegui ler agora, tente mais tarde ou use outra imagem',false,resultRoot);const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),onSuccess:(next)=>handleAutoPrintRead(next,context,filename,resultRoot),errorText:'Não consegui ler agora, tente de novo'}));root.append(retry);return false;}return saveAutoPrint(result.read,context,filename,resultRoot);}
   async function uploadAutoPrint(file,context={},resultRoot){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');return handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context,file.name,resultRoot);}
-  function printErrorText(error){return {SMS_PRINT_TOO_LARGE:'A imagem passa de 5 MB. Tire um print novo ou reduza a imagem',SMS_PRINT_HEIC:'Foto HEIC do iPhone não é aceita. Use um print da tela (PNG) ou exporte como JPEG',SMS_PRINT_INVALID_IMAGE:'Use uma imagem JPEG, PNG ou WebP de até 5 MB'}[error?.code]||'Não consegui enviar agora. O arquivo não foi apagado';}
+  function printErrorText(error){return {SMS_PRINT_TOO_LARGE:'A imagem passa de 5 MB. Tire um print novo ou reduza a imagem',SMS_PRINT_HEIC:'Foto HEIC do iPhone não é aceita · Use um print da tela (PNG) ou exporte como JPEG',SMS_PRINT_INVALID_IMAGE:'Use uma imagem JPEG, PNG ou WebP de até 5 MB'}[error?.code]||'Não consegui enviar agora · O arquivo não foi apagado';}
   async function sendAutoPrint(){const files=[...$('auto-print-file').files];if(!files.length)return;const status=$('auto-print-status'),result=$('auto-print-result');let failures=0;status.classList.remove('error');result.replaceChildren();result.classList.remove('hidden');$('auto-print-send').disabled=true;for(let index=0;index<files.length;index++){const file=files[index];status.textContent=`${index+1} de ${files.length}…`;try{if(await uploadAutoPrint(file,autoPrintContext||{})===false)failures++;}catch(error){failures++;autoPrintResult(file.name,printErrorText(error),false);}}$('auto-print-file').value='';$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;autoPrintContext=null;status.textContent=`${files.length} de ${files.length} prontos${failures?` · ${failures} com erro`:''}`;}
 
   function updateMeta(meta) {
@@ -918,22 +918,22 @@
     root.replaceChildren();
     root.append(element('h2','', 'Leitura geral de todas as conversas'));
     if(!data.historyReady) {
-      root.append(element('p','muted',`Aguardando o histórico terminar de chegar (última parte há ${pendingAgo(data.lastHistoryAt)}).`));
+      root.append(element('p','muted',`Aguardando o histórico terminar de chegar (última parte há ${pendingAgo(data.lastHistoryAt)})`));
       const button=element('button','quiet small','Fazer leitura geral');button.type='button';button.disabled=true;root.append(button);return;
     }
     const total=Number(run.total_conversations||0),completed=Number(run.completed_conversations||0),spent=Number(run.spent_usd||0),budget=Number(run.budget_usd||20);
     if(run.status==='IDLE'||!run.status){
-      root.append(element('p','muted','Lê todas as conversas, das mais recentes às mais antigas, inclusive conversas longas em partes.'));
-      const start=element('button','small','Fazer leitura geral');start.type='button';MCSAction.bind(start,()=>({scope:root,commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'start_general'})}),onSuccess:()=>continuePendingGeneral(),errorText:'IA indisponível — tente de novo'}));root.append(start);return;
+      root.append(element('p','muted','Lê todas as conversas, das mais recentes às mais antigas, inclusive conversas longas em partes'));
+      const start=element('button','small','Fazer leitura geral');start.type='button';MCSAction.bind(start,()=>({scope:root,commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'start_general'})}),onSuccess:()=>continuePendingGeneral(),errorText:'IA indisponível, tente de novo'}));root.append(start);return;
     }
     const status=limited?'limite atingido':paused?'pausada':run.status==='COMPLETED'?'concluída':'em andamento';
     root.append(element('p','',`Leitura geral ${status}`));
-    if (paused && run.last_error) root.append(element('p','error',run.last_error==='IA_UNAVAILABLE'?'IA indisponível. O painel continua disponível para uso manual.':'A leitura foi pausada; tente continuar novamente.'));
+    if (paused && run.last_error) root.append(element('p','error',run.last_error==='IA_UNAVAILABLE'?'IA indisponível · O painel continua disponível para uso manual':'A leitura foi pausada; tente continuar novamente'));
     const bar=element('div','pending-bar'),fill=element('i');fill.style.width=`${total?Math.min(100,completed/total*100):100}%`;bar.append(fill);root.append(bar);
     root.append(element('p','muted',`${completed} de ${total} conversas lidas · gasto US$ ${spent.toFixed(2)} de US$ ${budget.toFixed(2)} · conversas longas são lidas em partes, até o fim`));
     const actions=element('div','inline-actions');
-    if(active){const pause=element('button','quiet small','Pausar');pause.type='button';MCSAction.bind(pause,()=>({scope:root,optimistic:()=>{pause.textContent='Pausando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})}),rollback:()=>{pause.textContent='Pausar';},onSuccess:()=>currentView==='clients'?loadClients():loadPending(),errorText:'Não consegui salvar — tente de novo'}));actions.append(pause);}
-    if(paused){const resume=element('button','small','Continuar');resume.type='button';MCSAction.bind(resume,()=>({scope:root,optimistic:()=>{resume.textContent='Continuando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resume_general'})}),rollback:()=>{resume.textContent='Continuar';},onSuccess:()=>continuePendingGeneral(),errorText:'Não consegui salvar — tente de novo'}));actions.append(resume);}
+    if(active){const pause=element('button','quiet small','Pausar');pause.type='button';MCSAction.bind(pause,()=>({scope:root,optimistic:()=>{pause.textContent='Pausando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})}),rollback:()=>{pause.textContent='Pausar';},onSuccess:()=>currentView==='clients'?loadClients():loadPending(),errorText:'Não consegui salvar, tente de novo'}));actions.append(pause);}
+    if(paused){const resume=element('button','small','Continuar');resume.type='button';MCSAction.bind(resume,()=>({scope:root,optimistic:()=>{resume.textContent='Continuando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resume_general'})}),rollback:()=>{resume.textContent='Continuar';},onSuccess:()=>continuePendingGeneral(),errorText:'Não consegui salvar, tente de novo'}));actions.append(resume);}
     if(limited){
       root.append(element('p','warning',`${completed} de ${total} lidas — faltam ${Math.max(0,total-completed)}.`));
       const more=element('button','small','Liberar mais US$ 10');more.type='button';
@@ -944,7 +944,7 @@
         const approve=element('button','small','Confirmar liberação');approve.type='button';
         const confirmation=element('div','inline-actions');confirmation.append(question,cancel,approve);
         cancel.addEventListener('click',()=>{confirmation.remove();more.disabled=false;});
-        MCSAction.bind(approve,()=>({scope:confirmation,optimistic:()=>{cancel.disabled=true;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'increase_budget',confirm:true})}),rollback:()=>{cancel.disabled=false;},onSuccess:()=>{confirmation.remove();continuePendingGeneral();},errorText:'Não consegui salvar — tente de novo'}));
+        MCSAction.bind(approve,()=>({scope:confirmation,optimistic:()=>{cancel.disabled=true;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'increase_budget',confirm:true})}),rollback:()=>{cancel.disabled=false;},onSuccess:()=>{confirmation.remove();continuePendingGeneral();},errorText:'Não consegui salvar, tente de novo'}));
         root.append(confirmation);
       });actions.append(more);
     }
@@ -953,11 +953,11 @@
   function renderPending(data) {
     clearTimeout(pendingContinueTimer);renderPendingGeneral(data);setCount('pending',Object.values(data.counts||{}).reduce((total,value)=>total+Number(value||0),0));
     const stats=$('pending-stats');stats.replaceChildren();[['NO_RESPONSE','🔴 Sem resposta'],['MCS_PENDING','🟠 Parada com você'],['CUSTOMER_PENDING','🟡 Parada com o cliente'],['IN_PROGRESS','🟢 Em andamento'],['CLOSED','⚪ Concluída / sem interesse']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.counts?.[key]||0)),element('span','muted',label));stats.append(stat);});
-    const root=$('pending-list');root.replaceChildren();if(!(data.items||[]).length)empty(root,'Nenhuma conversa neste filtro.');
+    const root=$('pending-list');root.replaceChildren();if(!(data.items||[]).length)empty(root,'Nenhuma conversa neste filtro');
     (data.items||[]).forEach((item)=>{
       const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div'),phoneItem={phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[],ref:item.ref};text.append(element('strong','identity-name',item.name||`Pedido ${item.ref||'—'}`),phoneNode(phoneItem),element('span','muted one-line',`Ref ${item.ref||'—'} · ${item.vehicleText||'Veículo não informado'}`));const direct=directLeadBadge(item);if(direct)text.append(direct);identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));head.append(badges);card.append(head);const contact=contactMeta(item);if(contact)card.append(contact);
       const prefix=item.latestDirection==='MCS'?'Você: ':'';card.append(element('p','message-preview',prefix+item.latestMessage));if(item.translation)card.append(element('p','muted','Tradução: “'+item.translation+'”'));if(item.summary||item.nextStep){const ai=element('div','pending-ai');ai.append(element('strong','', 'IA: '),document.createTextNode(item.summary||'Sem resumo ainda'));if(item.nextStep)ai.append(element('strong','', ' Próximo passo: '),document.createTextNode(item.nextStep));card.append(ai);}
-      const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(item.phone),successText:'Copiado',errorText:'Não consegui copiar — tente de novo'}));const resolved=element('button','quiet small','Já resolvi');resolved.type='button';MCSAction.bind(resolved,()=>({scope:card,successScope:document.body,feedbackKey:`pending:${item.journeyId}:${item.chatId}`,optimistic:()=>{card.classList.add('action-optimistic-hidden');const count=countValue('pending');setCount('pending',Math.max(0,count-1));return count;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})}),rollback:(count)=>{card.classList.remove('action-optimistic-hidden');setCount('pending',count);},successText:'Marcado como resolvido.',undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'unresolve',journeyId:item.journeyId,chatId:item.chatId})}),successText:'Voltou para pendente.',refresh:()=>loadPending()},errorText:'Não consegui salvar — tente de novo'}));const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadPending(),errorText:'Não consegui salvar — tente de novo'};});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
+      const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(item.phone),successText:'Copiado',errorText:'Não consegui copiar, tente de novo'}));const resolved=element('button','quiet small','Já resolvi');resolved.type='button';MCSAction.bind(resolved,()=>({scope:card,successScope:document.body,feedbackKey:`pending:${item.journeyId}:${item.chatId}`,optimistic:()=>{card.classList.add('action-optimistic-hidden');const count=countValue('pending');setCount('pending',Math.max(0,count-1));return count;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})}),rollback:(count)=>{card.classList.remove('action-optimistic-hidden');setCount('pending',count);},successText:'Marcado como resolvido',undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'unresolve',journeyId:item.journeyId,chatId:item.chatId})}),successText:'Voltou para pendente',refresh:()=>loadPending()},errorText:'Não consegui salvar, tente de novo'}));const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadPending(),errorText:'Não consegui salvar, tente de novo'};});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
     });
     if(['pending','clients'].includes(currentView)&&data.run?.status==='ACTIVE')pendingContinueTimer=setTimeout(()=>continuePendingGeneral().catch(()=>{}),500);
   }
@@ -997,12 +997,12 @@
       const editor=element('div','next-action-editor'),text=element('input');text.type='text';text.maxLength=500;text.placeholder='Texto curto';text.value=item.next_action_text||'';
       const quick=element('select');[['today','Hoje'],['tomorrow','Amanhã'],['friday','Sexta'],['custom','Data']].forEach(([value,label])=>quick.append(new Option(label,value)));
       const date=element('input');date.type='datetime-local';date.value=nextQuickLocal('today');date.title='Horário da Flórida';date.classList.add('hidden');quick.addEventListener('change',()=>{date.classList.toggle('hidden',quick.value!=='custom');if(quick.value!=='custom')date.value=nextQuickLocal(quick.value);});
-      const save=element('button','small','Salvar');save.type='button';MCSAction.bind(save,()=>({scope:block,optimistic:()=>{save.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'next_action',operation:'CREATE',journeyId,text:text.value,at:zoneToUtc(date.value)})}),rollback:()=>{save.textContent='Salvar';},refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
+      const save=element('button','small','Salvar');save.type='button';MCSAction.bind(save,()=>({scope:block,optimistic:()=>{save.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'next_action',operation:'CREATE',journeyId,text:text.value,at:zoneToUtc(date.value)})}),rollback:()=>{save.textContent='Salvar';},refresh:reload,errorText:'Não consegui salvar, tente de novo'}));
       editor.append(text,quick,date,save);block.append(editor);
     });
     return block;
   }
-  function copyPhoneButton(item,card){const phone=primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||item.phone;if(!phone)return null;const copy=element('button','quiet small','Copiar número');copy.type='button';MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(phone),successText:'Copiado',errorText:'Não consegui copiar — tente de novo'}));return copy;}
+  function copyPhoneButton(item,card){const phone=primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||item.phone;if(!phone)return null;const copy=element('button','quiet small','Copiar número');copy.type='button';MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(phone),successText:'Copiado',errorText:'Não consegui copiar, tente de novo'}));return copy;}
 
   // CLIENTES filters in one place (list and CSV). Lote 4: Origem, Tipo and Última atividade
   // come from PEDIDOS, which is now part of CLIENTES.
@@ -1030,8 +1030,8 @@
     const root=$('clients-list');root.replaceChildren();setCount('clients',periodLeads.length);
     // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
     if(clientsOverdue24){const chip=element('button','chip active','Sem resposta há mais de 24 h ✕');chip.type='button';chip.addEventListener('click',()=>{clientsOverdue24=false;renderClients(clientsData);});root.append(chip);}
-    if(!items.length){if(clientsOverdue24)root.append(element('p','empty-state','Nenhum cliente neste filtro'));else empty(root,'Nenhum cliente neste filtro.');return;}
-    items.forEach((item)=>{const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');head.append(identityHeader(item,{preview:item.latestMessage?.body_text||item.latestMessageText||''}));const badges=element('div','badges');if((item.origins||[]).includes('CALCULADORA'))badges.append(makeBadge(['Calculadora',...(item.calculatorTypes||[]).map((type)=>({BUSCA:'Busca',SIMULACAO:'Simulação'})[type]).filter(Boolean)].join(' · '),'blue'));badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)),makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));head.append(badges);card.append(head);if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`IA: ${item.aiSummary||item.summary}`));const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients());if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)card.append(copy);}const actions=element('div','inline-actions'),open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));actions.append(open,journeySwitch(item,()=>loadClients()));if(item.chatId){const resolved=Boolean(item.resolved),done=element('button','quiet small',resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>({scope:card,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:resolved?'unresolve':'resolve',journeyId:item.id,chatId:item.chatId})}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},refresh:()=>loadClients(),errorText:'Não consegui salvar — tente de novo'}));actions.append(done);}const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadClients(),errorText:'Não consegui salvar — tente de novo'};});actions.append(lead);card.append(actions,dispositionControls(item));makeCardClickable(card,()=>openDetail('ficha',item.id));root.append(card);});
+    if(!items.length){if(clientsOverdue24)root.append(element('p','empty-state','Nenhum cliente neste filtro'));else empty(root,'Nenhum cliente neste filtro');return;}
+    items.forEach((item)=>{const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');head.append(identityHeader(item,{preview:item.latestMessage?.body_text||item.latestMessageText||''}));const badges=element('div','badges');if((item.origins||[]).includes('CALCULADORA'))badges.append(makeBadge(['Calculadora',...(item.calculatorTypes||[]).map((type)=>({BUSCA:'Busca',SIMULACAO:'Simulação'})[type]).filter(Boolean)].join(' · '),'blue'));badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)),makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));head.append(badges);card.append(head);if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`IA: ${item.aiSummary||item.summary}`));const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients());if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)card.append(copy);}const actions=element('div','inline-actions'),open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));actions.append(open,journeySwitch(item,()=>loadClients()));if(item.chatId){const resolved=Boolean(item.resolved),done=element('button','quiet small',resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>({scope:card,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:resolved?'unresolve':'resolve',journeyId:item.id,chatId:item.chatId})}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'}));actions.append(done);}const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(lead);card.append(actions,dispositionControls(item));makeCardClickable(card,()=>openDetail('ficha',item.id));root.append(card);});
   }
   async function loadClients(){const [records,pending]=await Promise.all([request('/api/panel/records?sort='+encodeURIComponent($('clients-sort').value)),request('/api/panel/pendencias?situation=all&sort=hot&withRef=false&includeResolved=true')]);updateMeta(records.meta);renderClients({items:records.items||[],pending});}
 
@@ -1110,19 +1110,19 @@
   function recentPrintBlock(key,recent){
     const block=element('section','sms-print-missing');const row=element('div','inline-actions');row.append(element('strong','',recent.text));
     const undo=element('button','quiet small','Desfazer');undo.type='button';
-    MCSAction.bind(undo,()=>({scope:block,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:recent.readId})}),successText:'Desfeito. O arquivo permanece guardado',errorText:'Não consegui desfazer, tente de novo',onSuccess:()=>{recentPrints.delete(key);row.remove();},refresh:()=>refreshCounters().catch(()=>{})}));
+    MCSAction.bind(undo,()=>({scope:block,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:recent.readId})}),successText:'Desfeito · O arquivo permanece guardado',errorText:'Não consegui desfazer, tente de novo',onSuccess:()=>{recentPrints.delete(key);row.remove();},refresh:()=>refreshCounters().catch(()=>{})}));
     row.append(undo);block.append(row);return block;
   }
   function smsPrintMissing(item) {
     const printKey=item.journeyId||item.id,recent=printKey&&recentPrints.get(printKey);
     if(recent&&Date.now()-recent.at<120000&&item.smsPrintConfirmed)return recentPrintBlock(printKey,recent);
     if(item.contactChannel!=='SMS_CLICK'||item.smsPrintConfirmed||item.disposition)return null;
-    const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui.'));
+    const block=element('section','sms-print-missing'); block.append(element('strong','', 'Falta o print do SMS'),element('p','', 'Tire um print da mensagem no seu celular, com o número e a Ref, e anexe aqui'));
     const attach=element('label','small','📷 Anexar print do SMS'),input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;attach.append(input);const absent=element('button','quiet small','Não chegou SMS · descartar'); absent.type='button';
     const resultRoot=element('div','card-action-result');
     input.addEventListener('change',()=>{const files=[...input.files];if(!files.length)return;const context={journeyId:item.journeyId||item.id||null,contactId:item.contact_id||item.contact?.id||null,ref:item.ref||item.referenceCode||item.reference_code||null};MCSAction.run({button:attach,scope:block,optimistic:()=>attach.classList.add('disabled'),commit:async()=>{let last;for(const file of files)last=await uploadAutoPrint(file,context,resultRoot);return last;},rollback:()=>{attach.classList.remove('disabled');input.value='';},onSuccess:()=>{attach.classList.remove('disabled');input.value='';},errorText:(error)=>printErrorText(error)});});
     // A21: this button discards the lead, so it says so and asks first; the reason is recorded as "Outro"
-    absent.addEventListener('click',async(event)=>{event.preventDefault();event.stopPropagation();if(block.querySelector('.inline-confirm'))return;if(!(await askInline(actions,'Isso descarta o lead com o motivo "Outro". Ele sai de HOJE e das listas, e dá para desfazer','Descartar lead')))return;setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED',absent,'OTHER');});
+    absent.addEventListener('click',async(event)=>{event.preventDefault();event.stopPropagation();if(block.querySelector('.inline-confirm'))return;if(!(await askInline(actions,'Isso descarta o lead com o motivo "Outro" · Ele sai de HOJE e das listas, e dá para desfazer','Descartar lead')))return;setDisposition({...item,kind:item.kind||'JOURNEY',id:item.id||item.journeyId},'DISCARDED',absent,'OTHER');});
     const actions=element('div','inline-actions'); actions.append(attach,absent); block.append(actions,resultRoot);
     return block;
   }
@@ -1154,7 +1154,7 @@
     MCSAction.bind(toggle,()=>({scope:wrap,optimistic:()=>{toggle.textContent=enabled?'Desligando…':'Religando…';toggle.setAttribute('aria-checked',String(!enabled));},
       commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled:!enabled,reason:null})}),
       rollback:()=>{toggle.textContent=enabled?'Ligado':canReactivate?'Desligado — religar':'Desligado';toggle.setAttribute('aria-checked',String(enabled));},refresh:reload,
-      errorText:'Não consegui salvar — tente de novo'}));
+      errorText:'Não consegui salvar, tente de novo'}));
     wrap.append(toggle);
     if (enabled) {
       const reasons = element('details', 'switch-reasons');
@@ -1163,7 +1163,7 @@
       [['MCS_PURCHASE', 'Comprou com a MCS'], ['OTHER_PURCHASE', 'Comprou em outro lugar'], ['GAVE_UP', 'Desistiu'], ['NO_RESPONSE', 'Sem resposta']].forEach(([reason, label]) => {
         const button = element('button', 'quiet small', label);
         button.type = 'button';
-        MCSAction.bind(button,()=>({scope:wrap,optimistic:()=>{button.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled:false,reason})}),rollback:()=>{button.textContent=label;},refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
+        MCSAction.bind(button,()=>({scope:wrap,optimistic:()=>{button.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled:false,reason})}),rollback:()=>{button.textContent=label;},refresh:reload,errorText:'Não consegui salvar, tente de novo'}));
         choices.append(button);
       });
       reasons.append(choices);
@@ -1180,7 +1180,7 @@
     const root = roots[view] && $(roots[view]);
     if (!root) return;
     // Nothing is shown as zero: the tab says it did not load and offers to try again.
-    empty(root, 'Não foi possível carregar esta aba.');
+    empty(root, 'Não foi possível carregar esta aba');
     const retry = element('button', 'quiet small', 'Tentar novamente'); retry.type = 'button';
     retry.addEventListener('click', () => { retry.disabled = true; retry.textContent = 'Carregando…'; switchPanel(view).catch(() => {}); });
     root.append(retry);
@@ -1231,7 +1231,7 @@
       renderQueue(data.chats || [], data.reviews || []);
       refreshEntryOrders().catch(() => { $('entry-orders-count').textContent = '?'; empty($('entry-orders-list'), 'Não foi possível carregar'); });
       loadTriage().catch(() => {});
-      return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp.'; });
+      return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp'; });
     }
     if (view === 'pending') return loadPending();
     if (view === 'clients') return loadClients();
@@ -1340,7 +1340,7 @@
       const missing=(check.missing_refs||[]).filter(Boolean);
       if (!missing.length) { root.className='capture-warning hidden'; return; }
       root.className='capture-warning error';
-      const details=element('details',''); details.append(element('summary','',`${missing.length} contatos não estão aparecendo — ver lista`),element('p','',missing.join(' · '))); root.append(details);
+      const details=element('details',''); details.append(element('summary','',`${missing.length} contatos não estão aparecendo, ver lista`),element('p','',missing.join(' · '))); root.append(details);
     } catch (_) { root.className='capture-warning muted'; root.textContent='Checagem de captura indisponível'; }
   }
 
@@ -1426,7 +1426,7 @@
     undo.type = 'button';
     MCSAction.bind(undo,()=>({scope:scope||document.body,feedbackKey:`undo:${scopeKey}`,optimistic:()=>{toast.classList.add('action-optimistic-hidden');return null;},
       commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status:previousStatus,previousStatus,previousReason})}),
-      rollback:()=>toast.classList.remove('action-optimistic-hidden'),successText:'Ação desfeita.',
+      rollback:()=>toast.classList.remove('action-optimistic-hidden'),successText:'Ação desfeita',
       refresh:async()=>{toast.remove();if(refresh)await refresh();await refreshCounters();await loadCaptureWarning();}}));
     toast.append(undo);
     document.body.append(toast);
@@ -1466,7 +1466,7 @@
     const {itemKind,itemKey}=dispositionIdentity(item),previousStatus=item.disposition||null,previousReason=item.discardReason||null,scope=button.closest('.item-card,.lead-card,.record-block')||document.body;
     return MCSAction.run({button,scope,feedbackKey:`disposition:${itemKind}:${itemKey}`,optimistic:()=>applyDispositionVisual(button,item,status),
       commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status,reason})}),
-      rollback:(snapshot)=>rollbackDisposition(item,snapshot),errorText:'Não consegui salvar — tente de novo',
+      rollback:(snapshot)=>rollbackDisposition(item,snapshot),errorText:'Não consegui salvar, tente de novo',
       onSuccess:()=>{item.discardReason=status==='DISCARDED'?reason:null;showUndo({itemKind,itemKey,previousStatus,previousReason,label:status==='TREATED'?'Marcado como Tratado':status==='DISCARDED'?`Descartado · ${discardLabel(reason)}`:'Voltou para pendente',scope,refresh:dispositionRefresh});},
       refresh:async()=>{await dispositionRefresh();await refreshCounters();}});
   }
@@ -1545,7 +1545,7 @@
       if(requestVersion!==detailRequestVersion)return;
       const code=failure?.requestId||failure?.code||'SEM-CODIGO';
       const root=$('record-detail');root.replaceChildren();
-      root.append(element('p','status error',`Não consegui abrir este lead agora. Código: ${code}`));
+      root.append(element('p','status error',`Não consegui abrir este lead agora · Código: ${code}`));
       const actions=element('div','inline-actions');
       const retry=element('button','small','Tentar de novo');retry.type='button';retry.addEventListener('click',()=>openDetail(kind,key,{push:false,origin:detailOrigin}));
       const back=element('button','quiet small','Voltar ao painel');back.type='button';back.addEventListener('click',()=>{if(history.state?.detail)history.back();else restoreOrigin(detailOrigin||captureOrigin()).catch(()=>{});});
@@ -1581,7 +1581,7 @@
     const target=v2Target(),status=$('import-v2-status');if(!target)return;
     const room=V2_MAX_PHOTOS-target.car.photoCount-v2Photos.photos.length;
     let taken=0;
-    for(const file of [...files]){if(taken>=room){status.textContent=`Esta V2 aceita só mais ${Math.max(0,V2_MAX_PHOTOS-target.car.photoCount)} foto(s)`;break;}try{const blob=await resizePhoto(file);v2Photos.photos.push({blob,url:URL.createObjectURL(blob)});taken++;}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':/\.hei[cf]$/i.test(file.name||'')||/hei[cf]/i.test(file.type||'')?'Foto HEIC não abriu neste navegador. Use JPEG ou PNG':'Um dos arquivos não é uma imagem';}}
+    for(const file of [...files]){if(taken>=room){status.textContent=`Esta V2 aceita só mais ${Math.max(0,V2_MAX_PHOTOS-target.car.photoCount)} foto(s)`;break;}try{const blob=await resizePhoto(file);v2Photos.photos.push({blob,url:URL.createObjectURL(blob)});taken++;}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':/\.hei[cf]$/i.test(file.name||'')||/hei[cf]/i.test(file.type||'')?'Foto HEIC não abriu neste navegador · Use JPEG ou PNG':'Um dos arquivos não é uma imagem';}}
     paintV2Photos();
   }
   function bindV2Photos(){
@@ -1617,7 +1617,7 @@
     const input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.className='visually-hidden';drop.append(input);
     const thumbs=element('div','v2-thumbs');
     const paint=()=>{thumbs.replaceChildren();photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.addEventListener('click',()=>{URL.revokeObjectURL(photo.url);photos.splice(index,1);paint();});item.append(img,remove);if(index===0)item.append(element('span','v2-cover','Capa'));thumbs.append(item);});};
-    const add=async(files)=>{for(const file of [...files]){if(photos.length>=V2_MAX_PHOTOS){status.textContent='Máximo de 12 fotos';break;}try{const blob=await resizePhoto(file);photos.push({blob,url:URL.createObjectURL(blob)});}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':/\.hei[cf]$/i.test(file.name||'')||/hei[cf]/i.test(file.type||'')?'Foto HEIC não abriu neste navegador. Use JPEG ou PNG':'Um dos arquivos não é uma imagem';}}paint();};
+    const add=async(files)=>{for(const file of [...files]){if(photos.length>=V2_MAX_PHOTOS){status.textContent='Máximo de 12 fotos';break;}try{const blob=await resizePhoto(file);photos.push({blob,url:URL.createObjectURL(blob)});}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':/\.hei[cf]$/i.test(file.name||'')||/hei[cf]/i.test(file.type||'')?'Foto HEIC não abriu neste navegador · Use JPEG ou PNG':'Um dos arquivos não é uma imagem';}}paint();};
     input.addEventListener('change',()=>{add(input.files);input.value='';});
     drop.addEventListener('dragover',(event)=>{event.preventDefault();drop.classList.add('over');});
     drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
@@ -1639,11 +1639,11 @@
         const link=location.origin+created.link,message=`${request.name}, here's the car you asked to see\n${link}`;
         status.textContent='V2 pronta';result.replaceChildren();
         const view=element('button','quiet small','Ver como o cliente vê');view.type='button';view.addEventListener('click',()=>window.open(created.link,'_blank','noopener'));
-        const copyText=async(text,done)=>{try{await navigator.clipboard.writeText(text);status.textContent=done;}catch(_){status.textContent=`Não consegui copiar. Link: ${link}`;}};
+        const copyText=async(text,done)=>{try{await navigator.clipboard.writeText(text);status.textContent=done;}catch(_){status.textContent=`Não consegui copiar · Link: ${link}`;}};
         const copyLink=element('button','quiet small','Copiar link');copyLink.type='button';copyLink.addEventListener('click',()=>copyText(link,'Link copiado'));
         const copyMessage=element('button','small','Copiar mensagem com link');copyMessage.type='button';copyMessage.addEventListener('click',()=>copyText(message,'Mensagem copiada'));
         result.append(view,copyLink,copyMessage);result.classList.remove('hidden');
-      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V2':error.code==='VITRINE_SOURCE_MISSING'||error.code==='MANHEIM_MATCH_WITHOUT_MMR'?'O carro original não tem MMR confirmado, a V2 não pode ser montada':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido. Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
+      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V2':error.code==='VITRINE_SOURCE_MISSING'||error.code==='MANHEIM_MATCH_WITHOUT_MMR'?'O carro original não tem MMR confirmado, a V2 não pode ser montada':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido · Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
     });
     box.append(drop,thumbs,limitLabel,noteLabel,generate,status,result);
     card.append(box);
@@ -1806,7 +1806,7 @@
       button.type = 'button';
       button.disabled = true;
       select.addEventListener('change', () => { button.disabled = !select.value; });
-      MCSAction.bind(button,()=>{const [journeyId,contactId]=select.value.split('|');return{scope:card,optimistic:()=>{button.textContent='Ligando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'link_request',journeyId,contactId,calcRef:item.ref})}),rollback:()=>{button.textContent='Ligar a um lead';},refresh:refresh,errorText:'Não consegui salvar — tente de novo'};});
+      MCSAction.bind(button,()=>{const [journeyId,contactId]=select.value.split('|');return{scope:card,optimistic:()=>{button.textContent='Ligando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'link_request',journeyId,contactId,calcRef:item.ref})}),rollback:()=>{button.textContent='Ligar a um lead';},refresh:refresh,errorText:'Não consegui salvar, tente de novo'};});
       form.append(label, button);
       card.append(form);
     }
@@ -1926,7 +1926,7 @@
     box.append(makeBadge(entry.label||entry.status,AUDIT_TONES[entry.status]||'yellow'));
     const carName=(matchId)=>{const parsed=(matches||[]).find((match)=>match.id===matchId)?.vehicle_json?.parsed;return parsed?[parsed.year,parsed.make,parsed.model].filter(Boolean).join(' ')+(parsed.vin?` · VIN final ${String(parsed.vin).slice(-6)}`:''):'';};
     (entry.divergences||[]).slice(0,8).forEach((item)=>{const car=carName(item.matchId);box.append(element('p','audit-divergence',car?`${car}: ${item.text}`:item.text));});
-    if(entry.status==='PENDENTE')box.append(element('p','muted','A IA não respondeu. As opções continuam visíveis, sem aprovação automática'));
+    if(entry.status==='PENDENTE')box.append(element('p','muted','A IA não respondeu · As opções continuam visíveis, sem aprovação automática'));
     if(entry.approvedReason)box.append(element('p','muted',`Aprovado à mão · ${entry.approvedReason}`));
     const actions=element('div','inline-actions');
     if(entry.canRetry){const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:box,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'retry',key:demand.key})}),refresh:()=>loadCurrent(),errorText:'Não consegui conferir de novo, tente mais tarde'}));actions.append(retry);}
@@ -1987,7 +1987,7 @@
   function staleNotice(card, demand) {
     if (!demand || !demand.stale) return null;
     const box = element('div', 'warning inline-confirm');
-    box.append(element('p', '', 'O critério desta busca mudou depois da importação. As opções abaixo podem não servir mais'));
+    box.append(element('p', '', 'O critério desta busca mudou depois da importação · As opções abaixo podem não servir mais'));
     const again = element('button', 'small', 'Conferir novamente'); again.type = 'button';
     MCSAction.bind(again, () => ({ scope: box, optimistic: () => { again.textContent = 'Conferindo…'; }, commit: () => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }), timeoutMs: 60000 }), rollback: () => { again.textContent = 'Conferir novamente'; }, successText: 'Opções comparadas de novo com o critério atual', refresh: () => loadCurrent(), errorText: 'Não consegui conferir de novo, tente mais tarde' }));
     box.append(again);
@@ -2110,7 +2110,7 @@
   const V1_SEND_REASONS = {
     NO_VALID_PHONE: 'Ficha sem telefone de WhatsApp válido: envio pelo painel indisponível',
     V1_SEND_PENDING: 'Envio pelo painel indisponível: migração pendente',
-    OFF: 'Envio direto desligado em produção. Use "Abrir WhatsApp com mensagem pronta"'
+    OFF: 'Envio direto desligado em produção · Use "Abrir WhatsApp com mensagem pronta"'
   };
   const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
   function v1SendControls(demand) {
@@ -2127,7 +2127,7 @@
       if (!last) return;
       const simulated = last.simulated ? ' · simulado' : '';
       state.textContent = last.status === 'SENT' ? `Enviado às ${clock(last.at)}${simulated}`
-        : last.status === 'UNCONFIRMED' ? 'Não confirmado pelo WhatsApp. Verifique a conversa antes de reenviar'
+        : last.status === 'UNCONFIRMED' ? 'Não confirmado pelo WhatsApp · Verifique a conversa antes de reenviar'
         : last.status === 'FAILED' ? 'Não enviado: o WhatsApp recusou o envio' : state.textContent;
       state.dataset.status = last.status;
       if (['SENT', 'UNCONFIRMED', 'FAILED'].includes(last.status)) button.textContent = 'Reenviar';
@@ -2139,7 +2139,7 @@
       try {
         info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: 'prepare', token, baseUrl: location.origin, ...(demand?.key ? { demandKey: demand.key } : {}) }) });
       } catch (failure) {
-        state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio. Use "Copiar mensagem com link"';
+        state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio · Use "Copiar mensagem com link"';
         return;
       }
       if (!info.eligible) { state.textContent = V1_SEND_REASONS[info.reason] || V1_SEND_REASONS.NO_VALID_PHONE; return; }
@@ -2175,13 +2175,13 @@
         } catch (failure) {
           box.remove();
           const code = failure && failure.code;
-          if (code === 'WINDOW_CLOSED') { state.textContent = 'Fora da janela de 24 h do WhatsApp: não foi enviado. Use "Abrir WhatsApp com mensagem pronta"'; setFallback(failure.whatsappLink || info.whatsappLink); }
+          if (code === 'WINDOW_CLOSED') { state.textContent = 'Fora da janela de 24 h do WhatsApp: não foi enviado · Use "Abrir WhatsApp com mensagem pronta"'; setFallback(failure.whatsappLink || info.whatsappLink); }
           else if (code === 'V1_ALREADY_SENT') { state.textContent = 'Esta V1 já foi enviada'; button.textContent = 'Reenviar'; }
           else if (code === 'SEND_IN_PROGRESS') state.textContent = 'Já existe um envio desta V1 em andamento';
           else if (code === 'V1_DIRECT_SEND_DISABLED') state.textContent = V1_SEND_REASONS.OFF;
           else if (code === 'V1_SEND_PENDING') state.textContent = V1_SEND_REASONS.V1_SEND_PENDING;
-          else if (['TEXT_REQUIRED', 'TEXT_TOO_LONG', 'V1_LINK_MISSING'].includes(code)) state.textContent = code === 'V1_LINK_MISSING' ? 'A mensagem precisa conter o link da V1. Nada foi enviado' : 'Mensagem vazia ou longa demais. Nada foi enviado';
-          else { state.textContent = 'Não confirmado: sem resposta do servidor. Verifique a conversa antes de reenviar'; state.dataset.status = 'UNCONFIRMED'; button.textContent = 'Reenviar'; }
+          else if (['TEXT_REQUIRED', 'TEXT_TOO_LONG', 'V1_LINK_MISSING'].includes(code)) state.textContent = code === 'V1_LINK_MISSING' ? 'A mensagem precisa conter o link da V1 · Nada foi enviado' : 'Mensagem vazia ou longa demais · Nada foi enviado';
+          else { state.textContent = 'Não confirmado: sem resposta do servidor · Verifique a conversa antes de reenviar'; state.dataset.status = 'UNCONFIRMED'; button.textContent = 'Reenviar'; }
         } finally { busy = false; button.disabled = !info || info.mode === 'OFF'; }
       });
       node.append(box);
@@ -2226,7 +2226,7 @@
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
-      MCSAction.bind(reactivateButton,()=>{const payload=journey.status==='PARADO'?{action:'set_funnel',journeyId:journey.id,value:['DECIDINDO','QUALIFICADO'].includes(journey.stage)?journey.stage:'EM_BUSCA'}:{action:'toggle_journey',journeyId:journey.id,enabled:true,reason:null};return{scope:card,optimistic:()=>{reactivateButton.textContent='Retomando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify(payload)}),rollback:()=>{reactivateButton.textContent=journey.status==='PARADO'?'Retomar busca':'Religar busca';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'};});
+      MCSAction.bind(reactivateButton,()=>{const payload=journey.status==='PARADO'?{action:'set_funnel',journeyId:journey.id,value:['DECIDINDO','QUALIFICADO'].includes(journey.stage)?journey.stage:'EM_BUSCA'}:{action:'toggle_journey',journeyId:journey.id,enabled:true,reason:null};return{scope:card,optimistic:()=>{reactivateButton.textContent='Retomando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify(payload)}),rollback:()=>{reactivateButton.textContent=journey.status==='PARADO'?'Retomar busca':'Religar busca';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar, tente de novo'};});
       card.append(makeBadge(journey.status === 'PARADO' ? 'Parado — reativar' : 'Desligado — reativar', 'yellow'), reactivateButton);
     }
     const table = lazyOptions(card, demand, loaded, (match) => {
@@ -2255,7 +2255,7 @@
       if (Array.isArray(match.alsoFitsFor) && match.alsoFitsFor.length) badges.append(makeBadge(`também bate para ${match.alsoFitsFor.join(', ')}`, 'blue'));
       const presented = element('button', 'quiet small', match.presented_unit_id ? 'Apresentado' : journey.enabled === false ? 'Religue antes de apresentar' : 'Apresentei ao cliente');
       presented.type = 'button'; presented.disabled = Boolean(match.presented_unit_id) || journey.enabled === false;
-      MCSAction.bind(presented,()=>({scope:row,optimistic:()=>{presented.textContent='Apresentado';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:journey.id,manheimMatchId:match.id,status:'PRESENTED'})}),rollback:()=>{presented.textContent='Apresentei ao cliente';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar — tente de novo'}));
+      MCSAction.bind(presented,()=>({scope:row,optimistic:()=>{presented.textContent='Apresentado';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:journey.id,manheimMatchId:match.id,status:'PRESENTED'})}),rollback:()=>{presented.textContent='Apresentei ao cliente';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar, tente de novo'}));
       row.append(select, vehicle, badges, presented);
       return row;
     }, reactivation ? (match) => match.match_kind === 'BATE' : null);
@@ -2280,7 +2280,7 @@
       cardStatus.textContent = `PDF com ${selected.length} ${selected.length === 1 ? 'carro' : 'carros'} baixado`;
     });
     const v1Send=v1SendControls(demand);
-    const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);cardStatus.textContent='Mensagem com link copiada';}catch(_){cardStatus.textContent='Não consegui copiar. Link: '+link;}});
+    const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);cardStatus.textContent='Mensagem com link copiada';}catch(_){cardStatus.textContent='Não consegui copiar · Link: '+link;}});
     const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();/* Only the cars selected for the customer go to the V1 (the server checks it again). */const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);if(!selected.length){cardStatus.textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}vitrineButton.disabled=true;let created;try{created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});}catch(error){cardStatus.textContent=error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente com migração pendente':'Não consegui gerar o link';vitrineButton.disabled=!auditAllows(demand);return;}const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;v1Send.setVitrine(created.token);/* A22: the link exists even when the clipboard fails */try{await navigator.clipboard.writeText(absolute);cardStatus.textContent='Link V1 criado e copiado: '+absolute;}catch(_){cardStatus.textContent='Link V1 criado (não consegui copiar): '+absolute;}finally{vitrineButton.disabled=!auditAllows(demand);}});vitrineButton.disabled=!auditAllows(demand);
     card.append(exportButton,vitrineButton,copyMessageButton,cardStatus,v1Send.node,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
@@ -2475,12 +2475,12 @@
     if (members.length > 1) card.append(element('p', 'muted', `${members.length} pedidos com critérios exatamente iguais`));
     if (first.state === 'COM_OPCOES') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'opção válida' : 'opções válidas'} no lote ativo`));
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'candidato' : 'candidatos'} no lote ativo por modelo, ano e milhagem. O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada`));
-    if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo. Continua aqui para a próxima importação'));
+    if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo · Continua aqui para a próxima importação'));
     if (first.comparedAt) card.append(element('p', 'muted', `${first.comparedAtImport ? 'Comparado na importação de' : 'Última comparação'}: ${formatDate(first.comparedAt)}`));
     if (first.missing && first.missing.length) card.append(element('p', 'muted', 'Não informado (sem restrição): ' + first.missing.join(', ')));
     if (first.typeNotChecked) card.append(element('p', 'muted', 'O tipo de carroceria não vem no arquivo do Manheim: as opções não filtram por tipo'));
     if (first.state === 'PRECISA_DETALHE') card.append(element('p', 'request-lacks', first.lacksText || ''),
-      element('p', 'muted', 'Sem busca no lote até a pessoa detalhar. Continua aqui, ligado à conversa'));
+      element('p', 'muted', 'Sem busca no lote até a pessoa detalhar · Continua aqui, ligado à conversa'));
     if (first.reviewReason) card.append(element('p', 'muted', 'Revisão: ' + first.reviewReason));
     members.forEach((item) => {
       const line = element('div', 'request-person');
@@ -2522,11 +2522,11 @@
   // lotes de 10 até acabar, pausar ou parar no teto. O ponto de retomada fica gravado no servidor:
   // fechar a aba e clicar de novo continua de onde parou. Nada é enviado a ninguém.
   let historyPaused = false;
-  const HISTORY_ERRORS = { OPENAI_MODEL_UNAVAILABLE: 'O modelo gpt-6-luna não está disponível para a chave OpenAI de produção. Nenhuma conversa foi lida e nenhum outro modelo foi tentado',
-    OPENAI_KEY_INVALID: 'A chave OpenAI de produção foi recusada. Nenhuma conversa foi lida', OPENAI_QUOTA: 'A OpenAI recusou por saldo ou cota. Nenhuma conversa foi lida',
-    MODEL_NOT_CHECKED: 'O teste do modelo ainda não passou. Nenhuma conversa foi lida', SEARCH_EXTRACTION_OFF: 'A leitura por IA está desligada neste ambiente',
-    PROVIDER_LIMIT: 'Teto de US$ 50 atingido. Parado com segurança; o restante continua pendente', PROVIDER_QUOTA: 'A OpenAI encerrou por saldo ou cota. Parado com segurança; o restante continua pendente',
-    MODEL_UNAVAILABLE: 'O modelo deixou de estar disponível. Parado com segurança; o restante continua pendente' };
+  const HISTORY_ERRORS = { OPENAI_MODEL_UNAVAILABLE: 'O modelo gpt-6-luna não está disponível para a chave OpenAI de produção · Nenhuma conversa foi lida e nenhum outro modelo foi tentado',
+    OPENAI_KEY_INVALID: 'A chave OpenAI de produção foi recusada · Nenhuma conversa foi lida', OPENAI_QUOTA: 'A OpenAI recusou por saldo ou cota · Nenhuma conversa foi lida',
+    MODEL_NOT_CHECKED: 'O teste do modelo ainda não passou · Nenhuma conversa foi lida', SEARCH_EXTRACTION_OFF: 'A leitura por IA está desligada neste ambiente',
+    PROVIDER_LIMIT: 'Teto de US$ 50 atingido · Parado com segurança; o restante continua pendente', PROVIDER_QUOTA: 'A OpenAI encerrou por saldo ou cota · Parado com segurança; o restante continua pendente',
+    MODEL_UNAVAILABLE: 'O modelo deixou de estar disponível · Parado com segurança; o restante continua pendente' };
   const usd = (value) => 'US$ ' + Number(value || 0).toFixed(4);
   function historyText(state, prefix) {
     return `${prefix} · conversas processadas: ${state.processed} de ${state.total} · pedidos encontrados: ${state.requestsFound} · custo acumulado: ${usd(state.spentUsd)}${state.providerLimitUsd ? ' de US$ ' + state.providerLimitUsd : ''}`;
@@ -2570,14 +2570,14 @@
         if (state.stoppedReason) { say(historyText(state, HISTORY_ERRORS[state.stoppedReason] || 'Parado: ' + state.stoppedReason), true); break; }
         if (!state.remaining || !state.read) break;
       }
-      if (historyPaused) say(historyText(state, 'Pausado. Clique de novo para continuar do mesmo ponto'));
+      if (historyPaused) say(historyText(state, 'Pausado · Clique de novo para continuar do mesmo ponto'));
       else if (!state.stoppedReason) {
         say(historyText(state, state.remaining ? 'Parado' : 'Leitura concluída, comparando com o lote ativo'));
         if (!state.remaining) { await compareRequests($('requests-compare')); say(historyText(state, 'Auditoria concluída e comparada com o lote ativo')); }
       }
     } catch (failure) {
       const code = failure && (failure.code || failure.error);
-      say(historyText(state, HISTORY_ERRORS[code] || 'A auditoria parou por um erro. Clique de novo para continuar do ponto gravado'), true);
+      say(historyText(state, HISTORY_ERRORS[code] || 'A auditoria parou por um erro · Clique de novo para continuar do ponto gravado'), true);
     } finally { button.disabled = false; pause.classList.add('hidden'); }
   }
   async function loadRequestsAudit() {
@@ -2752,7 +2752,7 @@
     const data = savedSearchesData || await request('/api/panel/manheim-searches');
     savedSearchesData = data;
     const intro = $('manheim-saved-searches');
-    intro.replaceChildren(element('p','muted','Cada linha é uma busca para você salvar no Manheim. As primeiras atendem mais clientes. Conta só quem entrou em contato. POR VALOR e POR ANO E MILHAGEM têm porcentagens separadas; o que está em revisão não entra no %'));
+    intro.replaceChildren(element('p','muted','Cada linha é uma busca para você salvar no Manheim · As primeiras atendem mais clientes · Conta só quem entrou em contato · POR VALOR e POR ANO E MILHAGEM têm porcentagens separadas; o que está em revisão não entra no %'));
     const roots = { VALOR: modeRoot('VALOR', 'saved'), CARRO: modeRoot('CARRO', 'saved') };
     Object.entries(roots).forEach(([mode, root]) => { root.replaceChildren(); if (!data.groups.some((group) => group.mode === mode)) empty(root, 'Nenhuma busca ativa neste modo'); });
     const mode=$('manheim-sort')?.value||'customers';
@@ -2778,7 +2778,7 @@
       text.append(element('strong','',title),clients,element('span','muted',coverage),people);if(note)text.append(element('span','muted',note));
       const toggle=element('button',group.created?'quiet small':'small',group.created?'✓ Busca criada':'Já criei esta busca'); toggle.type='button';
       const undo=element('button','quiet small','Desfazer');undo.type='button';undo.classList.toggle('hidden',!group.created);undo.addEventListener('click',()=>toggle.click());
-      MCSAction.bind(toggle,()=>{const before=group.created;return{scope:line,optimistic:()=>{group.created=!before;toggle.textContent=group.created?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!group.created);return before;},commit:()=>request('/api/panel/manheim-searches',{method:'POST',body:JSON.stringify({key:group.key,created:group.created})}),rollback:()=>{group.created=before;toggle.textContent=before?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!before);},onSuccess:()=>{if(savedSearchesData?.groups){const cached=savedSearchesData.groups.find((entry)=>entry.key===group.key);if(cached)cached.created=group.created;}},errorText:'Não consegui salvar — tente de novo'};});
+      MCSAction.bind(toggle,()=>{const before=group.created;return{scope:line,optimistic:()=>{group.created=!before;toggle.textContent=group.created?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!group.created);return before;},commit:()=>request('/api/panel/manheim-searches',{method:'POST',body:JSON.stringify({key:group.key,created:group.created})}),rollback:()=>{group.created=before;toggle.textContent=before?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!before);},onSuccess:()=>{if(savedSearchesData?.groups){const cached=savedSearchesData.groups.find((entry)=>entry.key===group.key);if(cached)cached.created=group.created;}},errorText:'Não consegui salvar, tente de novo'};});
       const controls=element('div','inline-actions');controls.append(toggle,undo);line.append(text,controls);root.append(line);
     });
   }
@@ -2885,7 +2885,7 @@
       const smaller = uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
       if (!uniqueCount || smaller) {
         status.textContent = 'Aguardando confirmação';
-        const question = !uniqueCount ? 'Estes arquivos não têm nenhum carro. As combinações atuais de BUSCAS serão substituídas' : `Este lote tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
+        const question = !uniqueCount ? 'Estes arquivos não têm nenhum carro · As combinações atuais de BUSCAS serão substituídas' : `Este lote tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
         if (!(await askInline(status, question, 'Enviar mesmo assim'))) { status.textContent = 'Envio cancelado'; return; }
       }
       const plan = MCSManheimUpload.planBatch(fileMeta, deduped.vehicles, MCSManheim);
@@ -2914,7 +2914,7 @@
           const id = failure.uploadId || uploadId;
           if (id) await request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'cancel', uploadId: id }) }).catch(() => null);
           renderUploadProgress(null);
-          status.textContent = 'Importação cancelada. Nenhum carro deste lote entrou em BUSCAS e o lote ativo não mudou';
+          status.textContent = 'Importação cancelada · Nenhum carro deste lote entrou em BUSCAS e o lote ativo não mudou';
           return;
         }
         throw failure;
@@ -3017,41 +3017,41 @@
   }
 
   const MANHEIM_FAILURE_MESSAGES = {
-    MANHEIM_FILES_INVALID: 'Selecione de 1 a ' + MAX_FILES + ' arquivos .csv do Manheim (outros formatos não são aceitos).',
-    MANHEIM_READER_UNAVAILABLE: 'O leitor de CSV não carregou. Atualize a página e tente novamente.',
-    MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido.',
-    MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado. Selecione o arquivo novamente.',
-    MANHEIM_MATCH_LIMIT: 'O CSV gerou mais de ' + MANHEIM_MAX_MATCHES.toLocaleString('pt-BR') + ' combinações; divida o arquivo.',
-    MANHEIM_MATCH_TOO_LARGE: 'Uma linha do CSV é grande demais para ser enviada.',
-    MANHEIM_TOO_MANY_VEHICLES: 'Os CSVs somam mais de 100.000 carros. Envie menos arquivos de cada vez',
-    MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação.',
-    MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação.',
-    MANHEIM_JOURNEY_ID_INVALID: 'Uma combinação veio com identificador de cliente inválido. Atualize a página e envie de novo.',
-    MANHEIM_JOURNEY_DISABLED: 'Uma busca não está disponível para comparação.',
-    MANHEIM_UPLOAD_NOT_FOUND: 'O servidor não encontrou este envio. Envie o CSV de novo.',
+    MANHEIM_FILES_INVALID: 'Selecione de 1 a ' + MAX_FILES + ' arquivos .csv do Manheim (outros formatos não são aceitos)',
+    MANHEIM_READER_UNAVAILABLE: 'O leitor de CSV não carregou · Atualize a página e tente novamente',
+    MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido',
+    MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado · Selecione o arquivo novamente',
+    MANHEIM_MATCH_LIMIT: 'O CSV gerou mais de ' + MANHEIM_MAX_MATCHES.toLocaleString('pt-BR') + ' combinações; divida o arquivo',
+    MANHEIM_MATCH_TOO_LARGE: 'Uma linha do CSV é grande demais para ser enviada',
+    MANHEIM_TOO_MANY_VEHICLES: 'Os CSVs somam mais de 100.000 carros · Envie menos arquivos de cada vez',
+    MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação',
+    MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação',
+    MANHEIM_JOURNEY_ID_INVALID: 'Uma combinação veio com identificador de cliente inválido · Atualize a página e envie de novo',
+    MANHEIM_JOURNEY_DISABLED: 'Uma busca não está disponível para comparação',
+    MANHEIM_UPLOAD_NOT_FOUND: 'O servidor não encontrou este envio · Envie o CSV de novo',
     MANHEIM_MIGRATION_PENDING: 'O banco ainda não tem a importação em lote único (migração pendente). Nada foi enviado; avise o responsável',
-    MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação em andamento nesta aba. Espere terminar ou cancele',
-    MANHEIM_BATCH_CANCELED: 'Esta importação foi cancelada. Selecione os arquivos de novo para começar outra',
+    MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação em andamento nesta aba · Espere terminar ou cancele',
+    MANHEIM_BATCH_CANCELED: 'Esta importação foi cancelada · Selecione os arquivos de novo para começar outra',
     MANHEIM_BATCH_ALREADY_ACTIVE: 'Este lote já estava ativo; nada foi enviado de novo',
-    MANHEIM_BATCH_INCOMPLETE: 'Faltam blocos deste envio no servidor. Nada foi ativado e o lote ativo não mudou. Selecione os mesmos arquivos de novo para completar o envio ou descarte-o',
-    MANHEIM_BATCH_INTEGRITY_ERROR: 'A conferência final encontrou diferença entre os carros recebidos e os declarados no início do envio. Nada foi ativado e o lote ativo não mudou. Descarte este envio e selecione os arquivos de novo; se repetir, confira se os arquivos não foram alterados',
-    MANHEIM_BATCH_RESUME_MISMATCH: 'Existe um envio interrompido destes arquivos, mas ele não confere com o que foi lido agora. Ele não será continuado. Descarte o envio anterior e selecione os arquivos de novo para começar outro lote',
+    MANHEIM_BATCH_INCOMPLETE: 'Faltam blocos deste envio no servidor · Nada foi ativado e o lote ativo não mudou · Selecione os mesmos arquivos de novo para completar o envio ou descarte-o',
+    MANHEIM_BATCH_INTEGRITY_ERROR: 'A conferência final encontrou diferença entre os carros recebidos e os declarados no início do envio · Nada foi ativado e o lote ativo não mudou · Descarte este envio e selecione os arquivos de novo; se repetir, confira se os arquivos não foram alterados',
+    MANHEIM_BATCH_RESUME_MISMATCH: 'Existe um envio interrompido destes arquivos, mas ele não confere com o que foi lido agora · Ele não será continuado · Descarte o envio anterior e selecione os arquivos de novo para começar outro lote',
     REQUEST_TIMEOUT: 'O servidor demorou para responder',
     NETWORK_ERROR: 'Sem conexão com o servidor',
-    MANHEIM_ARCHIVE_INVALID: 'Os carros foram comparados, mas o arquivo de carros não passou na validação.',
-    PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio.',
-    PANEL_ACTION_FAILED: 'A comparação foi lida, mas não pôde ser gravada. Tente novamente.',
-    AUTHENTICATION_REQUIRED: 'A sessão expirou. Entre novamente.'
+    MANHEIM_ARCHIVE_INVALID: 'Os carros foram comparados, mas o arquivo de carros não passou na validação',
+    PAYLOAD_TOO_LARGE: 'O resultado compatível excede o limite de envio',
+    PANEL_ACTION_FAILED: 'A comparação foi lida, mas não pôde ser gravada · Tente novamente',
+    AUTHENTICATION_REQUIRED: 'A sessão expirou · Entre novamente'
   };
 
   // What happened and what to do, for the refusals that protect the integrity of the batch.
   const CHUNK_REFUSALS = {
-    MANHEIM_CHUNK_CONFLICT: (where) => `O bloco ${where} já tinha sido recebido com outro conteúdo: os arquivos mudaram desde o primeiro envio. Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou. Descarte este envio e selecione os arquivos de novo para começar outro lote`,
-    MANHEIM_CHUNK_HASH_MISMATCH: (where) => `O conteúdo do bloco ${where} não confere com o que foi declarado no início do envio. Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou. Descarte este envio e selecione os arquivos de novo; se repetir, confira se o arquivo não está sendo alterado`
+    MANHEIM_CHUNK_CONFLICT: (where) => `O bloco ${where} já tinha sido recebido com outro conteúdo: os arquivos mudaram desde o primeiro envio · Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou · Descarte este envio e selecione os arquivos de novo para começar outro lote`,
+    MANHEIM_CHUNK_HASH_MISMATCH: (where) => `O conteúdo do bloco ${where} não confere com o que foi declarado no início do envio · Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou · Descarte este envio e selecione os arquivos de novo; se repetir, confira se o arquivo não está sendo alterado`
   };
   const RESUME_REASONS = {
-    MANIFEST: 'Existe um envio interrompido destes arquivos, mas o conteúdo lido agora é diferente do primeiro envio. Ele não será continuado. Descarte o envio anterior e selecione os arquivos de novo para começar outro lote',
-    TARGETS: 'Existe um envio interrompido destes arquivos, mas as buscas dos clientes mudaram desde que ele começou. Para não misturar critérios, ele não será continuado. Descarte o envio anterior e selecione os arquivos de novo para começar outro lote'
+    MANIFEST: 'Existe um envio interrompido destes arquivos, mas o conteúdo lido agora é diferente do primeiro envio · Ele não será continuado · Descarte o envio anterior e selecione os arquivos de novo para começar outro lote',
+    TARGETS: 'Existe um envio interrompido destes arquivos, mas as buscas dos clientes mudaram desde que ele começou · Para não misturar critérios, ele não será continuado · Descarte o envio anterior e selecione os arquivos de novo para começar outro lote'
   };
   function manheimFailureText(failure) {
     const code = failure && failure.code;
@@ -3062,7 +3062,7 @@
       const cause = failure.cause;
       const detail = MANHEIM_FAILURE_MESSAGES[cause && cause.code] || `${cause && (cause.code || cause.message) || 'sem resposta'}`;
       // Lote único: the blocks already confirmed stay on the server; the same files continue from there.
-      if (failure.fileName) return `Envio interrompido em ${failure.fileName}, bloco ${Number(failure.chunkIndex) + 1} (${detail}). Nada foi ativado e o lote ativo não mudou. Selecione os mesmos arquivos de novo para continuar de onde parou`;
+      if (failure.fileName) return `Envio interrompido em ${failure.fileName}, bloco ${Number(failure.chunkIndex) + 1} (${detail}) · Nada foi ativado e o lote ativo não mudou · Selecione os mesmos arquivos de novo para continuar de onde parou`;
       const retried = !(window.MCSManheimUpload && MCSManheimUpload.FINAL_ERRORS.has(cause && cause.code));
       return `Envio incompleto: a parte ${failure.partIndex} de ${failure.partCount} falhou${retried ? ' depois de 3 tentativas' : ''} (${detail}). O último upload continua sendo o anterior.`;
     }
@@ -3084,22 +3084,22 @@
   // envia mensagem.
   const SALE_KEYS = ['lane', 'run', 'saleType', 'saleStatus', 'eventSaleName'];
   const COMPLEMENT_MESSAGES = {
-    MANHEIM_COMPLEMENT_NOT_ACTIVE: 'Não há lote ativo para complementar, ou o lote ativo mudou. Nada foi gravado',
-    MANHEIM_COMPLEMENT_MISMATCH: 'Estes arquivos não conferem com o manifesto do lote ativo. Nada foi gravado. Selecione exatamente os mesmos CSVs importados no lote ativo',
-    MANHEIM_COMPLEMENT_FILES_DIFFER: 'A seleção não tem exatamente os arquivos do lote ativo (falta arquivo, sobra arquivo ou o nome mudou). Nada foi gravado',
-    MANHEIM_COMPLEMENT_COLUMNS_MISSING: 'Estes CSVs não têm as colunas Lane e Run. Nada foi gravado',
-    MANHEIM_COMPLEMENT_INCOMPLETE: 'Nem todos os blocos chegaram para a conferência. Nada foi gravado. Selecione os mesmos arquivos de novo',
-    MANHEIM_COMPLEMENT_CANCELED: 'Este complemento foi cancelado. Nada foi gravado. Selecione os mesmos arquivos de novo',
-    MANHEIM_COMPLEMENT_CONFIRM_REQUIRED: 'O complemento precisa da sua confirmação antes de gravar. Nada foi gravado',
+    MANHEIM_COMPLEMENT_NOT_ACTIVE: 'Não há lote ativo para complementar, ou o lote ativo mudou · Nada foi gravado',
+    MANHEIM_COMPLEMENT_MISMATCH: 'Estes arquivos não conferem com o manifesto do lote ativo · Nada foi gravado · Selecione exatamente os mesmos CSVs importados no lote ativo',
+    MANHEIM_COMPLEMENT_FILES_DIFFER: 'A seleção não tem exatamente os arquivos do lote ativo (falta arquivo, sobra arquivo ou o nome mudou) · Nada foi gravado',
+    MANHEIM_COMPLEMENT_COLUMNS_MISSING: 'Estes CSVs não têm as colunas Lane e Run · Nada foi gravado',
+    MANHEIM_COMPLEMENT_INCOMPLETE: 'Nem todos os blocos chegaram para a conferência · Nada foi gravado · Selecione os mesmos arquivos de novo',
+    MANHEIM_COMPLEMENT_CANCELED: 'Este complemento foi cancelado · Nada foi gravado · Selecione os mesmos arquivos de novo',
+    MANHEIM_COMPLEMENT_CONFIRM_REQUIRED: 'O complemento precisa da sua confirmação antes de gravar · Nada foi gravado',
     MANHEIM_COMPLEMENT_PENDING: 'O banco ainda não tem o complemento do lote (migração pendente). Nada foi lido nem gravado; avise o responsável',
-    MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação ou um complemento em andamento nesta aba. Espere terminar',
+    MANHEIM_UPLOAD_RUNNING: 'Já existe uma importação ou um complemento em andamento nesta aba · Espere terminar',
     MANHEIM_FILES_INVALID: 'Selecione só os arquivos CSV do Manheim'
   };
   function complementFailure(failure) {
     const status = $('manheim-complement-status');
     status.classList.add('error');
     const code = failure && failure.code;
-    if (code === 'MANHEIM_COMPLEMENT_FILE_MISMATCH') { status.textContent = `O arquivo ${failure.fileName} não confere com o que foi importado no lote ativo (conteúdo diferente). Nada foi gravado`; return; }
+    if (code === 'MANHEIM_COMPLEMENT_FILE_MISMATCH') { status.textContent = `O arquivo ${failure.fileName} não confere com o que foi importado no lote ativo (conteúdo diferente) · Nada foi gravado`; return; }
     status.textContent = COMPLEMENT_MESSAGES[code] || (MANHEIM_FAILURE_MESSAGES[code] ? MANHEIM_FAILURE_MESSAGES[code] + '. O complemento parou e nada foi gravado' : `O complemento parou e nada foi gravado: ${code || (failure && failure.message) || 'erro inesperado'}`);
   }
   async function complementManheim(files) {
@@ -3168,8 +3168,8 @@
       if (preview.missing || !preview.found) throw manheimError('MANHEIM_COMPLEMENT_MISMATCH');
       if (!preview.changed) { status.textContent = `Nada a complementar · os ${preview.found} carros do lote ativo já têm estes dados`; return; }
       status.textContent = 'Aguardando confirmação';
-      const question = `${preview.found} carros do lote ativo conferidos com o manifesto. ${preview.changed} vão receber Lane, Run, Inventory, Status e Event Sale Name: ${preview.lane} com Lane/Run, ${preview.offLane} Buy Now / Make Offer, ${preview.incomplete} ainda incompletos. Nenhum lote, match, MMR, seleção ou V1/V2 muda e nenhuma mensagem é enviada`;
-      if (!(await askInline(status, question, 'Complementar agora'))) { status.textContent = 'Complemento cancelado. Nada foi gravado'; return; }
+      const question = `${preview.found} carros do lote ativo conferidos com o manifesto · ${preview.changed} vão receber Lane, Run, Inventory, Status e Event Sale Name: ${preview.lane} com Lane/Run, ${preview.offLane} Buy Now / Make Offer, ${preview.incomplete} ainda incompletos · Nenhum lote, match, MMR, seleção ou V1/V2 muda e nenhuma mensagem é enviada`;
+      if (!(await askInline(status, question, 'Complementar agora'))) { status.textContent = 'Complemento cancelado · Nada foi gravado'; return; }
       // 2) Conference area, then one transaction.
       const started = await post({ action: 'complement-start', ...keys, confirmed: true });
       runId = started.runId;
@@ -3187,7 +3187,7 @@
       const totals = await post({ action: 'complement-result', uploadId: latest.id }).catch(() => null);
       status.textContent = totals
         ? `Complemento concluído · ${totals.withSale} carros complementados · ${totals.lane} com Lane/Run · ${totals.offLane} Buy Now / Make Offer · ${totals.incomplete} ainda incompletos · ${totals.matches} matches`
-        : `Complemento concluído · ${done.cars} carros complementados. Os totais aparecem em BUSCAS`;
+        : `Complemento concluído · ${done.cars} carros complementados · Os totais aparecem em BUSCAS`;
       if (requestPool) requestPool.invalidate();
       await loadCurrent().catch(() => {});
     } catch (failure) {
@@ -3206,7 +3206,7 @@
     if (failure && failure.uploadId && ['MANHEIM_UPLOAD_INCOMPLETE', 'MANHEIM_BATCH_RESUME_MISMATCH', 'MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_INTEGRITY_ERROR'].includes(failure.code)) {
       const holder = element('div', 'manheim-progress'); holder.id = 'manheim-progress';
       const discard = element('button', 'quiet small', 'Descartar este envio'); discard.type = 'button';
-      MCSAction.bind(discard, () => ({ scope: holder, commit: () => request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'cancel', uploadId: failure.uploadId }) }), onSuccess: () => { $('manheim-status').classList.remove('error'); $('manheim-status').textContent = 'Envio descartado. O lote ativo não mudou'; holder.remove(); }, errorText: 'Não consegui descartar, tente de novo' }));
+      MCSAction.bind(discard, () => ({ scope: holder, commit: () => request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'cancel', uploadId: failure.uploadId }) }), onSuccess: () => { $('manheim-status').classList.remove('error'); $('manheim-status').textContent = 'Envio descartado · O lote ativo não mudou'; holder.remove(); }, errorText: 'Não consegui descartar, tente de novo' }));
       const actions = element('div', 'inline-actions'); actions.append(discard); holder.append(actions);
       $('manheim-status').after(holder);
     }
@@ -3219,8 +3219,8 @@
     root.replaceChildren();
     setCount('records', items.length);
     if (!items.length) {
-      clearRecordDetail('Nenhuma ficha selecionada.');
-      return empty(root, 'Nenhuma ficha criada.');
+      clearRecordDetail('Nenhuma ficha selecionada');
+      return empty(root, 'Nenhuma ficha criada');
     }
     const sorted = items.slice();
     sorted.forEach((item) => {
@@ -3256,7 +3256,7 @@
     summary.setAttribute('aria-label', 'Ações desta mensagem');
     root.append(summary);
     const menu = element('div', 'message-menu-panel');
-    const bindMutation=(control,commit,scope=menu)=>MCSAction.bind(control,()=>({scope,commit,refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
+    const bindMutation=(control,commit,scope=menu)=>MCSAction.bind(control,()=>({scope,commit,refresh:reload,errorText:'Não consegui salvar, tente de novo'}));
     if (message.direction === 'CUSTOMER') {
       const wishlistForm = element('div', 'wishlist-menu');
       const wishlistRows = [];
@@ -3310,7 +3310,7 @@
       ceilingValue.addEventListener('input', () => { ceilingCents = null; ceilingConfirm.classList.add('hidden'); });
       ceilingReview.addEventListener('click', () => {
         ceilingCents = window.MCSMoneyText ? MCSMoneyText.parseMoneyCents(ceilingValue.value) : null;
-        if (ceilingCents === null) { MCSAction.feedback(ceilingRow, 'Digite o valor do teto total (ex.: 35k ou US$ 35.000).', 'error', 'ceiling'); return; }
+        if (ceilingCents === null) { MCSAction.feedback(ceilingRow, 'Digite o valor do teto total (ex.: 35k ou US$ 35.000)', 'error', 'ceiling'); return; }
         ceilingConfirm.textContent = `Confirmar teto total: ${MCSMoneyText.formatUsd(ceilingCents)}?`;
         ceilingConfirm.classList.remove('hidden');
       });
@@ -3323,9 +3323,9 @@
           ceilingConfirm.classList.add('hidden');
           Promise.resolve(reload()).catch(() => {});
         } catch (failure) {
-          const text = failure && failure.code === 'JOURNEY_CLOSED' ? 'Lead encerrado: reabra o lead antes de registrar o teto.'
-            : failure && failure.code === 'CEILING_VALUE_INVALID' ? 'Não encontrei um valor no texto. Digite só o teto total (ex.: 35k).'
-            : 'Não consegui salvar — tente de novo';
+          const text = failure && failure.code === 'JOURNEY_CLOSED' ? 'Lead encerrado: reabra o lead antes de registrar o teto'
+            : failure && failure.code === 'CEILING_VALUE_INVALID' ? 'Não encontrei um valor no texto · Digite só o teto total (ex.: 35k)'
+            : 'Não consegui salvar, tente de novo';
           MCSAction.feedback(ceilingRow, text, 'error', 'ceiling');
         } finally { ceilingConfirm.disabled = false; }
       });
@@ -3389,7 +3389,7 @@
     root.replaceChildren();
     if (options.prepend) root.append(options.prepend);
     const reload = () => openRecord(id, options);
-    const bindRecordAction=(control,commit,scope)=>MCSAction.bind(control,()=>({scope:scope||control.closest('.record-block')||root,commit,refresh:reload,errorText:'Não consegui salvar — tente de novo'}));
+    const bindRecordAction=(control,commit,scope)=>MCSAction.bind(control,()=>({scope:scope||control.closest('.record-block')||root,commit,refresh:reload,errorText:'Não consegui salvar, tente de novo'}));
     const split = element('div', 'record-split');
     const left = element('div', 'record-data-column');
     const right = element('div', 'record-conversation-column');
@@ -3507,7 +3507,7 @@
     const returnBlock = element('section', 'record-block');
     returnBlock.append(element('h3', '', 'Retornos'));
     const openReturns = item.returns.filter((entry) => entry.status === 'OPEN');
-    if (!openReturns.length) returnBlock.append(element('p', 'muted', 'Nenhum retorno aberto.'));
+    if (!openReturns.length) returnBlock.append(element('p', 'muted', 'Nenhum retorno aberto'));
     openReturns.forEach((entry) => {
       const row = element('div', 'check-point');
       row.append(element('p', 'message-body', entry.text), element('p', 'muted', `${entry.origin} · ${formatDate(entry.dueAt)}`));
@@ -3536,7 +3536,7 @@
 
     const unitsBlock = element('section', 'record-block');
     unitsBlock.append(element('h3', '', 'Unidades apresentadas'));
-    if (!item.units.length) unitsBlock.append(element('p', 'muted', 'Nenhuma unidade apresentada.'));
+    if (!item.units.length) unitsBlock.append(element('p', 'muted', 'Nenhuma unidade apresentada'));
     item.units.forEach((unit) => {
       const row = element('div', 'check-point');
       row.append(element('strong', '', unit.vehicle_text), element('p', 'muted', formatDate(unit.presented_at)), makeBadge(unit.status));
@@ -3583,7 +3583,7 @@
       conversationChatIds.forEach((chatId) => {
         const invert = element('button', 'quiet small', conversationChatIds.length === 1 ? 'Inverter remetentes desta conversa' : 'Inverter remetentes deste chat');
         invert.type = 'button';
-        invert.addEventListener('click',()=>{if(invert.dataset.confirmed!=='true'){invert.dataset.confirmed='true';invert.textContent='Confirmar inversão';return;}MCSAction.run({button:invert,scope:senderTools,commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'invert_senders',journeyId:id,chatId})}),refresh:reload,errorText:'Não consegui salvar — tente de novo'});});
+        invert.addEventListener('click',()=>{if(invert.dataset.confirmed!=='true'){invert.dataset.confirmed='true';invert.textContent='Confirmar inversão';return;}MCSAction.run({button:invert,scope:senderTools,commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'invert_senders',journeyId:id,chatId})}),refresh:reload,errorText:'Não consegui salvar, tente de novo'});});
         senderTools.append(invert);
       });
       conversationBlock.append(senderTools);
@@ -3623,7 +3623,7 @@
         if (item.enabled && !item.stage_frozen && message.direction !== 'SYSTEM') row.append(actionMessage(message, id, reload));
         timeline.append(row);
       });
-      if (!timeline.childNodes.length) timeline.append(element('p', 'muted', 'Nenhuma mensagem neste filtro.'));
+      if (!timeline.childNodes.length) timeline.append(element('p', 'muted', 'Nenhuma mensagem neste filtro'));
     };
     sort.addEventListener('change', () => { localStorage.setItem('mcs_conversation_sort', sort.value); renderConversation(); });
     filter.addEventListener('change', renderConversation);
@@ -3709,7 +3709,7 @@
     head.append(element('h2', '', 'Resultados da busca'), close);
     root.replaceChildren(head);
     const sortLabel=element('label','','Ordenar');const sortSelect=element('select');[['recent','Mais recentes'],['oldest','Mais antigas'],['value_desc','Maior valor'],['value_asc','Menor valor'],['location','Localização'],['vehicle','Marca do carro']].forEach(([v,l])=>sortSelect.append(new Option(l,v)));sortSelect.value=searchSort;sortSelect.addEventListener('change',()=>{localStorage.setItem('mcs_sort_search',sortSelect.value);globalSearch(new Event('submit'));});sortLabel.append(sortSelect);root.append(sortLabel);
-    if (!result.items.length) root.append(element('p', 'muted', 'Nenhum resultado.'));
+    if (!result.items.length) root.append(element('p', 'muted', 'Nenhum resultado'));
     result.items.forEach((item) => {
       const button = element('button', 'search-hit');
       button.type = 'button';
@@ -3754,16 +3754,16 @@
     try {
       const report = await request('/api/panel/report?' + params.toString());
       $('report-text').value = report.text;
-      $('report-status').textContent = 'Relatório gerado.';
+      $('report-status').textContent = 'Relatório gerado';
     } catch (_) {
-      $('report-status').textContent = 'Não foi possível gerar o relatório para esse período.';
+      $('report-status').textContent = 'Não foi possível gerar o relatório para esse período';
     }
   }
 
   async function copyReport() {
     if (!$('report-text').value) return;
     await navigator.clipboard.writeText($('report-text').value);
-    $('report-status').textContent = 'Texto copiado.';
+    $('report-status').textContent = 'Texto copiado';
   }
 
   const SESSION_KEY = 'mcs_panel_session';
@@ -3922,11 +3922,11 @@
         clearSession();
         show('login-view');
         sessionRetry(false);
-        if (failure && failure.code === 'PANEL_ACCESS_DENIED') error('login-error', 'Esta conta não tem acesso ao painel.');
+        if (failure && failure.code === 'PANEL_ACCESS_DENIED') error('login-error', 'Esta conta não tem acesso ao painel');
         return;
       }
       show('login-view');
-      error('login-error', failure && failure.code === 'REQUEST_TIMEOUT' ? 'O painel demorou para responder. Sua senha está certa; tente de novo em instantes' : 'Não consegui confirmar a sessão agora. Tente de novo em instantes.');
+      error('login-error', failure && failure.code === 'REQUEST_TIMEOUT' ? 'O painel demorou para responder · Sua senha está certa; tente de novo em instantes' : 'Não consegui confirmar a sessão agora · Tente de novo em instantes');
       sessionRetry(true);
       return;
     }
@@ -3952,9 +3952,9 @@
   }
   async function loadAutomaticMessages(){
     const list=$('automatic-message-list');if(!list)return;
-    try{const data=await request('/api/panel/automatic-messages');list.replaceChildren();(data.items||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('span','',item.body_normalized));const remove=element('button','quiet small','Remover');remove.type='button';MCSAction.bind(remove,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'delete',id:item.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>loadAutomaticMessages(),errorText:'Não consegui salvar — tente de novo'}));row.append(remove);list.append(row);});}catch(_){list.textContent='Não foi possível carregar mensagens automáticas.';}
+    try{const data=await request('/api/panel/automatic-messages');list.replaceChildren();(data.items||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('span','',item.body_normalized));const remove=element('button','quiet small','Remover');remove.type='button';MCSAction.bind(remove,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'delete',id:item.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>loadAutomaticMessages(),errorText:'Não consegui salvar, tente de novo'}));row.append(remove);list.append(row);});}catch(_){list.textContent='Não foi possível carregar mensagens automáticas';}
   }
-  if($('automatic-message-save'))MCSAction.bind($('automatic-message-save'),()=>{const input=$('automatic-message-text'),value=input.value.trim();if(!value)return{scope:$('automatic-message-list'),commit:()=>Promise.reject(new Error('MESSAGE_REQUIRED')),errorText:'Digite a mensagem automática.'};return{scope:$('automatic-message-list'),commit:()=>request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'save',text:value})}),onSuccess:()=>{input.value='';},refresh:()=>loadAutomaticMessages(),errorText:'Não consegui salvar — tente de novo'};});
+  if($('automatic-message-save'))MCSAction.bind($('automatic-message-save'),()=>{const input=$('automatic-message-text'),value=input.value.trim();if(!value)return{scope:$('automatic-message-list'),commit:()=>Promise.reject(new Error('MESSAGE_REQUIRED')),errorText:'Digite a mensagem automática'};return{scope:$('automatic-message-list'),commit:()=>request('/api/panel/automatic-messages',{method:'POST',body:JSON.stringify({action:'save',text:value})}),onSuccess:()=>{input.value='';},refresh:()=>loadAutomaticMessages(),errorText:'Não consegui salvar, tente de novo'};});
   // The Entrar button always answers: "Entrando…" while Supabase checks the password, "Abrindo o
   // painel…" while the session is confirmed, a clear message on any failure, and it can be pressed
   // again. It never waits forever (time limit on both steps).
@@ -3977,16 +3977,16 @@
         response = await fetch(config.url + '/auth/v1/token?grant_type=password', { method: 'POST', signal: controller.signal, headers: { apikey: config.publishableKey, 'content-type': 'application/json' }, body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value }) });
         data = await response.json().catch(() => ({}));
       } catch (_) {
-        return error('login-error', controller.signal.aborted ? 'O login demorou para responder. Tente de novo' : 'Não consegui falar com o servidor de login. Confira a conexão e tente de novo');
+        return error('login-error', controller.signal.aborted ? 'O login demorou para responder · Tente de novo' : 'Não consegui falar com o servidor de login · Confira a conexão e tente de novo');
       } finally { clearTimeout(timer); }
-      if (!response.ok || !data.access_token) return error('login-error', 'E-mail ou senha inválidos.');
+      if (!response.ok || !data.access_token) return error('login-error', 'E-mail ou senha inválidos');
       acceptAuthSession(data, $('remember-login').checked);
       $('password').value = '';
       busy('Entrando…');
       await routeSession();
     } catch (failure) {
       console.error('Falha ao entrar', failure);
-      error('login-error', 'Não consegui abrir o painel agora. Tente de novo');
+      error('login-error', 'Não consegui abrir o painel agora · Tente de novo');
       sessionRetry(Boolean(accessToken));
     } finally {
       signingIn = false;
@@ -3997,16 +3997,16 @@
     event.preventDefault();
     error('password-error');
     const password = $('new-password').value;
-    if (password !== $('confirm-password').value) return error('password-error', 'As senhas não coincidem.');
+    if (password !== $('confirm-password').value) return error('password-error', 'As senhas não coincidem');
     try {
       await request('/api/panel/complete-password', { method: 'POST', body: JSON.stringify({ newPassword: password }) });
       await routeSession();
     } catch (failure) {
-      error('password-error', failure.code === 'PASSWORD_REQUIREMENTS_NOT_MET' ? 'Use 12 caracteres, maiúscula, minúscula, número e símbolo.' : 'Não foi possível atualizar a senha.');
+      error('password-error', failure.code === 'PASSWORD_REQUIREMENTS_NOT_MET' ? 'Use 12 caracteres, maiúscula, minúscula, número e símbolo' : 'Não foi possível atualizar a senha');
     }
   }
   async function boot() {
-    try { config = await request('/api/panel/config'); } catch (_) { error('login-error', 'Painel indisponível no momento.'); return; }
+    try { config = await request('/api/panel/config'); } catch (_) { error('login-error', 'Painel indisponível no momento'); return; }
     await restoreSession();
     $('login-form').addEventListener('submit', signIn);
     $('password-form').addEventListener('submit', changePassword);
@@ -4040,23 +4040,23 @@
     const weekly=$('weekly-summary');weekly.open=localStorage.getItem('mcs_weekly_open')==='true';weekly.addEventListener('toggle',()=>localStorage.setItem('mcs_weekly_open',String(weekly.open)));
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
     $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});
-    $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
+    $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha'));}finally{button.disabled=false;}});
     // Separate, owner-authorized reading of the conversations in "Precisa de você" only.
     MCSAction.bind($('triage-run-pending'),()=>({scope:$('triage-run-pending').parentElement,commit:async()=>{const result=await request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'run_pending'})});if(result.skipped)throw Object.assign(Error('TRIAGE_OFF'),{code:'TRIAGE_OFF'});if(result.inProgress&&!result.processed)throw Object.assign(Error('TRIAGE_BUSY'),{code:'TRIAGE_BUSY'});if(result.failed||result.deferred||result.inProgress)throw Object.assign(Error('TRIAGE_PARTIAL'),{code:'TRIAGE_PARTIAL'});return result;},successText:'Leitura concluída, confira Precisa de você',refresh:()=>loadTriage().then(()=>refreshCounters().catch(()=>{})),errorText:(error)=>error?.code==='TRIAGE_ADMIN_ONLY'?'Só o administrador pode iniciar':error?.code==='TRIAGE_OFF'?'Triagem desligada, nada foi lido':error?.code==='TRIAGE_BUSY'?'Já em processamento pela rotina automática, confira em instantes':error?.code==='TRIAGE_PARTIAL'?'Parte das conversas ficou pendente, tente de novo':'Não consegui classificar, tente de novo'}));
-    $('clients-download').addEventListener('click',()=>{const button=$('clients-download');button.disabled=true;try{downloadClientsCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha.'));}finally{button.disabled=false;}});
+    $('clients-download').addEventListener('click',()=>{const button=$('clients-download');button.disabled=true;try{downloadClientsCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha'));}finally{button.disabled=false;}});
     document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
-    $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar.')); $('search-results').classList.remove('hidden'); }));
+    $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar')); $('search-results').classList.remove('hidden'); }));
     $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
     $('report-generate').addEventListener('click', generateReport);
-    $('report-copy').addEventListener('click', () => copyReport().catch(() => { $('report-status').textContent = 'Não foi possível copiar.'; }));
+    $('report-copy').addEventListener('click', () => copyReport().catch(() => { $('report-status').textContent = 'Não foi possível copiar'; }));
     $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch(showImportFailure));
     $('history-import-file').addEventListener('change', (event) => {
       historyImportFile = event.target.files?.[0] || null;
       $('history-import-send').disabled = !historyImportFile;
-      $('history-import-status').textContent = historyImportFile ? `${historyImportFile.name} pronto para importar.` : '';
+      $('history-import-status').textContent = historyImportFile ? `${historyImportFile.name} pronto para importar` : '';
     });
     $('history-import-send').addEventListener('click', () => import360History().catch((failure) => {
-      $('history-import-status').textContent = failure?.code === 'HISTORY_IMPORT_INVALID' || failure?.message === 'HISTORY_FILE_INVALID' ? 'Este não é o arquivo do histórico do 360dialog para o número configurado.' : failure?.message === 'HISTORY_FILE_TOO_LARGE' ? 'O arquivo passa de 100 MB. Exporte o histórico em partes' : failure?.code === 'HISTORY_ITEM_TOO_LARGE' ? 'Uma parte do arquivo é grande demais. O que já foi importado ficou gravado' : 'Não foi possível importar agora. Você pode tentar de novo sem duplicar.';
+      $('history-import-status').textContent = failure?.code === 'HISTORY_IMPORT_INVALID' || failure?.message === 'HISTORY_FILE_INVALID' ? 'Este não é o arquivo do histórico do 360dialog para o número configurado' : failure?.message === 'HISTORY_FILE_TOO_LARGE' ? 'O arquivo passa de 100 MB. Exporte o histórico em partes' : failure?.code === 'HISTORY_ITEM_TOO_LARGE' ? 'Uma parte do arquivo é grande demais · O que já foi importado ficou gravado' : 'Não foi possível importar agora · Você pode tentar de novo sem duplicar';
       $('history-import-send').disabled = !historyImportFile;
     }));
     const zone = $('drop-zone');

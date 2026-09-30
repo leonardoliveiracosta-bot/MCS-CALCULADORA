@@ -194,7 +194,7 @@ test('todo erro da importação do Manheim tem código ou vira "Erro inesperado:
   }
   assert.equal(failureText(coded('MANHEIM_CSV_COLUMNS_MISSING', { missing: ['year', 'model'] })), 'CSV incompleto: faltam year, model.');
   const interrupted = failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'MCS_HOJE_12.csv', chunkIndex: 3, uploadId: 'x', cause: coded('REQUEST_TIMEOUT') }));
-  assert.equal(interrupted, 'Envio interrompido em MCS_HOJE_12.csv, bloco 4 (O servidor demorou para responder). Nada foi ativado e o lote ativo não mudou. Selecione os mesmos arquivos de novo para continuar de onde parou');
+  assert.equal(interrupted, 'Envio interrompido em MCS_HOJE_12.csv, bloco 4 (O servidor demorou para responder) · Nada foi ativado e o lote ativo não mudou · Selecione os mesmos arquivos de novo para continuar de onde parou');
   // The integrity refusals say what happened and what to do.
   for (const code of ['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_BATCH_RESUME_MISMATCH']) {
     const text = failureText(coded(code, { uploadId: 'x' }));
@@ -205,7 +205,7 @@ test('todo erro da importação do Manheim tem código ou vira "Erro inesperado:
   assert.match(failureText(coded('MANHEIM_BATCH_RESUME_MISMATCH', { uploadId: 'x', reason: 'TARGETS' })), /as buscas dos clientes mudaram/);
   assert.match(failureText(coded('MANHEIM_BATCH_RESUME_MISMATCH', { uploadId: 'x', reason: 'MANIFEST' })), /conteúdo lido agora é diferente/);
   const conflict = failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'MCS_HOJE_12.csv', chunkIndex: 3, uploadId: 'x', cause: coded('MANHEIM_CHUNK_CONFLICT') }));
-  assert.equal(conflict, 'O bloco 4 de MCS_HOJE_12.csv já tinha sido recebido com outro conteúdo: os arquivos mudaram desde o primeiro envio. Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou. Descarte este envio e selecione os arquivos de novo para começar outro lote');
+  assert.equal(conflict, 'O bloco 4 de MCS_HOJE_12.csv já tinha sido recebido com outro conteúdo: os arquivos mudaram desde o primeiro envio · Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou · Descarte este envio e selecione os arquivos de novo para começar outro lote');
   assert.match(failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'A.csv', chunkIndex: 0, uploadId: 'x', cause: coded('MANHEIM_CHUNK_HASH_MISMATCH') })), /não confere com o que foi declarado/);
   assert.equal(failureText(new TypeError('x is not a function')), 'Erro inesperado: x is not a function');
   assert.equal(failureText(coded('ALGO_NOVO')), 'Erro inesperado: ALGO_NOVO');

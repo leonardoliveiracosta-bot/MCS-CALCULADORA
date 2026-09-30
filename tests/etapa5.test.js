@@ -54,7 +54,7 @@ test('lead help reserves an Anthropic call, limits context, persists history, an
   assert.match(api,/slice\(0, 8\)/);
   assert.match(api,/lead_ai_help/);
   assert.match(api,/AI_DAILY_LIMIT/);
-  assert.match(client,/Não consegui responder agora — tente mais tarde/);
+  assert.match(client,/Não consegui responder agora, tente mais tarde/);
   assert.match(client,/Histórico de ajuda deste lead/);
 });
 
@@ -99,7 +99,7 @@ test('undo is additive: it retires only created phone data and filters effective
 
 test('manual fallback keeps the quarantined print and retry does not re-upload it',()=>{
   const client=read('painel/painel.js'),api=read('api/panel/sms-print.js');
-  assert.match(client,/Não consegui ler agora — tente mais tarde/);
+  assert.match(client,/Não consegui ler agora, tente mais tarde/);
   assert.match(client,/action:'retry',readId:result\.read\.id/);
   assert.doesNotMatch(client,/\.then\(\(\)=>sendAutoPrint\(\)\)/);
   assert.match(api,/status:'DISCARDED'/);
