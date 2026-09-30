@@ -234,7 +234,8 @@
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="requests-panel" class="panel-view hidden" aria-label="Pesquisas">
-        <div class="section-head"><div><h2>Pesquisas</h2><p class="muted">Todo pedido de veículo, com os critérios que a pessoa informou e de onde eles vieram</p></div><div class="inline-actions"><button id="requests-compare" class="small" type="button">Comparar com o lote ativo</button></div></div>
+        <div class="section-head"><div><h2>Pesquisas</h2><p class="muted">Todo pedido de veículo, com os critérios que a pessoa informou e de onde eles vieram</p></div><div class="inline-actions"><button id="requests-history" class="small" type="button">Iniciar / continuar auditoria histórica</button><button id="requests-compare" class="small quiet" type="button">Comparar com o lote ativo</button></div></div>
+        <section id="requests-history-progress" class="card requests-history hidden" aria-live="polite"><p id="requests-history-text"></p><div class="inline-actions"><button id="requests-history-pause" class="quiet small" type="button">Pausar</button></div></section>
         <p id="requests-status" class="status" role="status"></p>
         <div id="requests-filters" class="filters requests-filters" aria-label="Estados dos pedidos"></div>
         <div id="requests-list" class="stack" aria-live="polite"></div>

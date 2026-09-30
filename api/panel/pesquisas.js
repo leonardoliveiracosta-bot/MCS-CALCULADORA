@@ -7,7 +7,9 @@
 //                      ainda em FALTA BUSCAR com o lote ativo e grava o resultado
 //  POST extract        lê uma conversa (simulada fora de produção; em produção só com a flag nova)
 //  POST sample         leitura simulada de uma conversa sem gravar nada
-//  POST extract_history próximas conversas do histórico (retomável; até US$ 50 por provedor de IA)
+//  POST history_status  progresso da auditoria histórica (processadas, pedidos, custo)
+//  POST model_check     chamada mínima de teste do modelo, sem dado de cliente (só produção)
+//  POST extract_history próximas conversas do histórico (retomável; teto de US$ 50)
 // Nenhum pedido sai da lista por estágio, previsão de compra, prazo ou classificação comercial.
 // "Sem opção no lote" continua na lista para a próxima importação. Nada é enviado a ninguém.
 const crypto = require('node:crypto');
@@ -191,42 +193,93 @@ async function audit(ctx) {
 }
 
 // ------------------------------------------------------------------ leitura do histórico
-// Reads the next conversations since 09/08/2026 that were never read or got a new customer
-// message after the last reading, in resumable batches (the run table is the checkpoint; the same
-// content is never read twice). With the AI, each provider uses at most the balance already
-// available in it (US$ 50 per provider): the batch stops before passing it, or when the provider
-// itself says its quota ended, and the rest stays pending. Each batch is recorded (provider,
-// model, conversations, tokens, cost). With the flag off in production nothing is read.
+// Auditoria histórica: lê as conversas de clientes desde 09/08/2026 que nunca foram lidas ou que
+// receberam mensagem nova do cliente depois da última leitura, em lotes retomáveis de 10 (a tabela
+// de leituras é o ponto de retomada; o mesmo conteúdo nunca é lido duas vezes). Com a IA:
+//  * antes da primeira conversa real, uma chamada mínima de teste do modelo, sem dado de cliente;
+//    modelo indisponível para a auditoria antes de ler qualquer conversa (sem trocar de modelo);
+//  * teto cumulativo de US$ 50: uma chamada só começa se ainda cabe inteira; a cota do próprio
+//    provedor também para com segurança; cada lote é registrado (provedor, modelo, tokens, custo).
+// Nada é enviado a ninguém. Fora de produção a leitura é sempre simulada.
 const HISTORY_BATCH = 10;
-async function extractHistory(ctx, limit) {
-  const status = search.extractionStatus();
-  if (status !== 'SIMULADA' && status !== 'LIGADA') return { status: 409, error: 'SEARCH_EXTRACTION_OFF', extraction: status };
-  const provider = status === 'LIGADA' ? 'OPENAI' : 'SIMULATED';
+const BATCH_SECONDS = 30;
+const CHECK_OK = 'MODEL_CHECK_OK';
+const round6 = (value) => Math.round(value * 1e6) / 1e6;
+async function historyState(ctx, provider) {
   const env = 'eq.' + ctx.environment;
-  const runs = await allRows(ctx, 'vehicle_request_runs', { select: 'chat_id,status,provider,cost_usd,created_at', environment: env });
-  const limitUsd = provider === 'OPENAI' ? search.PROVIDER_LIMIT_USD.OPENAI : null;
-  const spentBefore = runs.filter((run) => run.provider === provider).reduce((sum, run) => sum + (Number(run.cost_usd) || 0), 0);
+  const [runs, customer, chats, batches, requestRows] = await Promise.all([
+    allRows(ctx, 'vehicle_request_runs', { select: 'chat_id,status,provider,cost_usd,messages_read,created_at', environment: env }),
+    allRows(ctx, 'messages', { select: 'chat_id,created_at', environment: env, direction: 'eq.CUSTOMER', undone_at: 'is.null', is_automatic: 'is.false', occurred_at_utc: 'gte.' + search.HISTORY_SINCE }),
+    allRows(ctx, 'chats', { select: 'id', environment: env, is_group: 'is.false' }),
+    allRows(ctx, 'vehicle_request_batches', { select: 'provider,model,conversations,cost_usd,stopped_reason,created_at', environment: env, order: 'created_at.asc' }),
+    allRows(ctx, 'vehicle_requests', { select: 'id', environment: env })
+  ]);
+  const individual = new Set(chats.map((row) => row.id));
+  const newest = new Map();
+  customer.forEach((row) => { if (individual.has(row.chat_id) && (!newest.get(row.chat_id) || row.created_at > newest.get(row.chat_id))) newest.set(row.chat_id, row.created_at); });
   const lastRead = new Map();
   runs.filter((run) => run.status !== 'FAILED').forEach((run) => { if (!lastRead.get(run.chat_id) || run.created_at > lastRead.get(run.chat_id)) lastRead.set(run.chat_id, run.created_at); });
-  const customer = await allRows(ctx, 'messages', { select: 'chat_id,created_at', environment: env, direction: 'eq.CUSTOMER', undone_at: 'is.null', is_automatic: 'is.false', occurred_at_utc: 'gte.' + search.HISTORY_SINCE });
-  const individual = new Set((await allRows(ctx, 'chats', { select: 'id', environment: env, is_group: 'is.false' })).map((row) => row.id));
-  const newest = new Map();
-  customer.forEach((row) => { if (!newest.get(row.chat_id) || row.created_at > newest.get(row.chat_id)) newest.set(row.chat_id, row.created_at); });
-  const pending = [...newest.keys()].filter((id) => individual.has(id) && (!lastRead.has(id) || newest.get(id) > lastRead.get(id)));
+  const pending = [...newest.keys()].filter((id) => !lastRead.has(id) || newest.get(id) > lastRead.get(id));
+  const ownRuns = runs.filter((run) => run.provider === provider);
+  const checks = batches.filter((row) => row.provider === provider && row.conversations === 0 && /^MODEL_CHECK_|^MODEL_UNAVAILABLE/.test(row.stopped_reason || ''));
+  const spent = ownRuns.reduce((sum, run) => sum + (Number(run.cost_usd) || 0), 0) + checks.reduce((sum, row) => sum + (Number(row.cost_usd) || 0), 0);
+  return { pending, total: newest.size, processed: newest.size - pending.length, requestsFound: requestRows.length,
+    messagesRead: ownRuns.filter((run) => run.status !== 'FAILED').reduce((sum, run) => sum + (Number(run.messages_read) || 0), 0), spentUsd: round6(spent), lastCheck: checks.at(-1) || null };
+}
+function historyContext() {
+  const status = search.extractionStatus();
+  if (status !== 'SIMULADA' && status !== 'LIGADA') return { error: 'SEARCH_EXTRACTION_OFF', status };
+  const provider = status === 'LIGADA' ? 'OPENAI' : 'SIMULATED';
+  return { status, provider, model: provider === 'OPENAI' ? process.env.SEARCH_EXTRACTION_MODEL : null, limitUsd: provider === 'OPENAI' ? search.PROVIDER_LIMIT_USD.OPENAI : null };
+}
+const modelChecked = (state, model) => Boolean(state.lastCheck && state.lastCheck.stopped_reason === CHECK_OK && state.lastCheck.model === model);
+function progressOf(state, context, extra = {}) {
+  return { status: 200, extraction: context.status, provider: context.provider, model: context.model, total: state.total, processed: state.processed, remaining: state.pending.length,
+    messagesRead: state.messagesRead, requestsFound: state.requestsFound, spentUsd: state.spentUsd, providerLimitUsd: context.limitUsd,
+    modelChecked: context.provider !== 'OPENAI' || modelChecked(state, context.model), ...extra };
+}
+async function historyStatus(ctx) {
+  const context = historyContext();
+  if (context.error) return { status: 200, extraction: context.status, available: false };
+  return { ...progressOf(await historyState(ctx, context.provider), context), available: true };
+}
+// The minimal model test. Recorded as a batch with no conversation (model, usage, cost or error).
+async function modelCheck(ctx, options = {}) {
+  const context = historyContext();
+  if (context.error) return { status: 409, error: context.error, extraction: context.status };
+  if (context.provider !== 'OPENAI') return { status: 200, ok: true, simulated: true, model: null };
+  const state = await historyState(ctx, context.provider);
+  if (state.spentUsd + search.MAX_CALL_USD > context.limitUsd) return { status: 409, error: 'PROVIDER_LIMIT', spentUsd: state.spentUsd };
+  let result, failure = null;
+  try { result = await search.checkModel(options); } catch (error) { failure = error.code || 'OPENAI_FAILED'; }
+  await insert(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider: 'OPENAI', model: context.model, conversations: 0, input_tokens: result?.usage?.input || 0,
+    output_tokens: result?.usage?.output || 0, cost_usd: round6(result?.costUsd || 0), stopped_reason: failure ? (failure === 'OPENAI_MODEL_UNAVAILABLE' ? 'MODEL_UNAVAILABLE' : 'MODEL_CHECK_' + failure.replace(/^OPENAI_/, '')) : CHECK_OK, created_by: ctx.panel.id }, false);
+  if (failure) return { status: 200, ok: false, error: failure, model: context.model };
+  return { status: 200, ok: true, model: context.model, usage: result.usage, costUsd: result.costUsd };
+}
+async function extractHistory(ctx, limit, options = {}) {
+  const context = historyContext();
+  if (context.error) return { status: 409, error: context.error, extraction: context.status };
+  const state = await historyState(ctx, context.provider);
+  // No real conversation goes to the provider before the model test passed for this model.
+  if (context.provider === 'OPENAI' && !modelChecked(state, context.model)) return { status: 409, error: 'MODEL_NOT_CHECKED', model: context.model };
+  const started = Date.now();
   const batch = { conversations: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, stoppedReason: null };
   const done = [];
-  for (const chatId of pending.slice(0, Math.min(limit || HISTORY_BATCH, HISTORY_BATCH))) {
-    if (limitUsd !== null && spentBefore + batch.costUsd >= limitUsd) { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
-    const out = await search.extractChat(ctx, chatId);
+  for (const chatId of state.pending.slice(0, Math.min(limit || HISTORY_BATCH, HISTORY_BATCH))) {
+    if (context.limitUsd !== null && state.spentUsd + batch.costUsd + search.MAX_CALL_USD > context.limitUsd) { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
+    if (Date.now() - started > BATCH_SECONDS * 1000) break;
+    const out = await search.extractChat(ctx, chatId, options);
     if (out.error === 'OPENAI_QUOTA') { batch.stoppedReason = 'PROVIDER_QUOTA'; break; }
-    batch.conversations += out.alreadyRead ? 0 : 1;
+    if (out.error === 'OPENAI_MODEL_UNAVAILABLE') { batch.stoppedReason = 'MODEL_UNAVAILABLE'; break; }
+    batch.conversations += out.alreadyRead || out.error ? 0 : 1;
     batch.inputTokens += out.usage?.input || 0; batch.outputTokens += out.usage?.output || 0; batch.costUsd += Number(out.costUsd) || 0;
     done.push({ chatId, requests: out.requests || 0, error: out.error || null });
   }
-  await insert(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider, model: provider === 'OPENAI' ? process.env.SEARCH_EXTRACTION_MODEL : null, conversations: batch.conversations,
-    input_tokens: batch.inputTokens, output_tokens: batch.outputTokens, cost_usd: Math.round(batch.costUsd * 1e6) / 1e6, stopped_reason: batch.stoppedReason, created_by: ctx.panel.id }, false);
-  return { status: 200, provider, read: done.length, remaining: Math.max(0, pending.length - done.length), spentUsd: Math.round((spentBefore + batch.costUsd) * 1e6) / 1e6,
-    providerLimitUsd: limitUsd, stoppedReason: batch.stoppedReason, results: done };
+  await insert(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider: context.provider, model: context.model, conversations: batch.conversations,
+    input_tokens: batch.inputTokens, output_tokens: batch.outputTokens, cost_usd: round6(batch.costUsd), stopped_reason: batch.stoppedReason, created_by: ctx.panel.id }, false);
+  const after = await historyState(ctx, context.provider);
+  return progressOf(after, context, { read: done.length, failed: done.filter((item) => item.error).length, stoppedReason: batch.stoppedReason, batchCostUsd: round6(batch.costUsd) });
 }
 
 // ------------------------------------------------------------------ gravação da comparação
@@ -254,6 +307,8 @@ module.exports = async (req, res) => {
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await jsonBody(req, 16 * 1024);
     if (body.action === 'compare') { const { status, ...out } = await compare(ctx); return send(res, status, out); }
+    if (body.action === 'history_status') { const { status, ...out } = await historyStatus(ctx); return send(res, status, out); }
+    if (body.action === 'model_check') { const { status, ...out } = await modelCheck(ctx); return send(res, status, out); }
     if (body.action === 'extract_history') { const { status, ...out } = await extractHistory(ctx, Number(body.limit) || 0); return send(res, status, out); }
     if (body.action === 'extract' || body.action === 'sample') {
       if (!isUuid(body.chatId)) return send(res, 400, { error: 'CHAT_INVALID' });

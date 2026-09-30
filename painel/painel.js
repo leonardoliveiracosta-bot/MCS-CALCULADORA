@@ -2415,6 +2415,55 @@
       status.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Comparação indisponível: migração pendente' : 'Não consegui comparar agora, tente de novo';
     } finally { button.disabled = false; }
   }
+  // Auditoria histórica: um botão só. Confirma, testa o modelo uma vez (produção) e processa os
+  // lotes de 10 até acabar, pausar ou parar no teto. O ponto de retomada fica gravado no servidor:
+  // fechar a aba e clicar de novo continua de onde parou. Nada é enviado a ninguém.
+  let historyPaused = false;
+  const HISTORY_ERRORS = { OPENAI_MODEL_UNAVAILABLE: 'O modelo gpt-6-luna não está disponível para a chave OpenAI de produção. Nenhuma conversa foi lida e nenhum outro modelo foi tentado',
+    OPENAI_KEY_INVALID: 'A chave OpenAI de produção foi recusada. Nenhuma conversa foi lida', OPENAI_QUOTA: 'A OpenAI recusou por saldo ou cota. Nenhuma conversa foi lida',
+    MODEL_NOT_CHECKED: 'O teste do modelo ainda não passou. Nenhuma conversa foi lida', SEARCH_EXTRACTION_OFF: 'A leitura por IA está desligada neste ambiente',
+    PROVIDER_LIMIT: 'Teto de US$ 50 atingido. Parado com segurança; o restante continua pendente', PROVIDER_QUOTA: 'A OpenAI encerrou por saldo ou cota. Parado com segurança; o restante continua pendente',
+    MODEL_UNAVAILABLE: 'O modelo deixou de estar disponível. Parado com segurança; o restante continua pendente' };
+  const usd = (value) => 'US$ ' + Number(value || 0).toFixed(4);
+  function historyText(state, prefix) {
+    return `${prefix} · conversas processadas: ${state.processed} de ${state.total} · pedidos encontrados: ${state.requestsFound} · custo acumulado: ${usd(state.spentUsd)}${state.providerLimitUsd ? ' de US$ ' + state.providerLimitUsd : ''}`;
+  }
+  async function runHistoryAudit(button) {
+    const box = $('requests-history-progress'), text = $('requests-history-text');
+    const say = (message, error) => { box.classList.remove('hidden'); text.className = error ? 'error' : ''; text.textContent = message; };
+    let state;
+    try { state = await request('/api/panel/pesquisas', { method: 'POST', body: JSON.stringify({ action: 'history_status' }) }); }
+    catch (failure) { say(failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Auditoria indisponível: migração pendente' : 'Não consegui ler o estado da auditoria, tente de novo', true); return; }
+    if (!state.available) { say(HISTORY_ERRORS.SEARCH_EXTRACTION_OFF, true); return; }
+    const who = state.provider === 'OPENAI' ? `OpenAI ${state.model}` : 'leitura simulada (sem IA, sem custo)';
+    const ok = window.confirm(['Auditoria histórica de pedidos de veículo', '',
+      '• Lê as conversas de clientes desde 09/08/2026', '• Não envia nenhuma mensagem', `• Usa ${who}`, '• Pode pausar e continuar depois do mesmo ponto',
+      `• Teto máximo de US$ ${state.providerLimitUsd || 50}`, '', `Faltam ${state.remaining} de ${state.total} conversas. Continuar?`].join('\n'));
+    if (!ok) return;
+    button.disabled = true; historyPaused = false;
+    try {
+      if (!state.modelChecked) {
+        say('Testando o modelo com uma chamada mínima, sem dados de cliente…');
+        const check = await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'model_check' }) });
+        if (!check.ok) { say((HISTORY_ERRORS[check.error] || 'O teste do modelo falhou: ' + (check.error || 'erro')) + '. Nada foi lido', true); return; }
+      }
+      say(historyText(state, 'Lendo'));
+      for (let round = 0; round < 200 && !historyPaused; round += 1) {
+        state = await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 90000, body: JSON.stringify({ action: 'extract_history' }) });
+        say(historyText(state, 'Lendo'));
+        if (state.stoppedReason) { say(historyText(state, HISTORY_ERRORS[state.stoppedReason] || 'Parado: ' + state.stoppedReason), true); break; }
+        if (!state.remaining || !state.read) break;
+      }
+      if (historyPaused) say(historyText(state, 'Pausado. Clique de novo para continuar do mesmo ponto'));
+      else if (!state.stoppedReason) {
+        say(historyText(state, state.remaining ? 'Parado' : 'Leitura concluída, comparando com o lote ativo'));
+        if (!state.remaining) { await compareRequests($('requests-compare')); say(historyText(state, 'Auditoria concluída e comparada com o lote ativo')); }
+      }
+    } catch (failure) {
+      const code = failure && (failure.code || failure.error);
+      say(historyText(state, HISTORY_ERRORS[code] || 'A auditoria parou por um erro. Clique de novo para continuar do ponto gravado'), true);
+    } finally { button.disabled = false; }
+  }
   async function loadRequestsAudit() {
     const root = $('requests-audit-content');
     root.replaceChildren(element('p', 'muted', 'Calculando…'));
@@ -3900,6 +3949,8 @@
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
     $('requests-compare').addEventListener('click', (event) => compareRequests(event.currentTarget).catch(() => {}));
+    $('requests-history').addEventListener('click', (event) => runHistoryAudit(event.currentTarget).catch(() => {}));
+    $('requests-history-pause').addEventListener('click', () => { historyPaused = true; $('requests-history-text').textContent = 'Pausando depois deste lote…'; });
     $('requests-audit').addEventListener('toggle', () => { if ($('requests-audit').open) loadRequestsAudit().catch(() => {}); });
     $('manheim-complement').addEventListener('click', () => $('manheim-complement-files').click());
     $('manheim-complement-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; complementManheim(files).catch(complementFailure); });
