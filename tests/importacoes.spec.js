@@ -57,7 +57,7 @@ test.beforeAll(async () => {
   await direct('manheim-batch', { action: 'finalize', uploadId: started.payload.uploadId });
   // Simulated reading of the conversations (no AI outside production).
   for (const n of [1, 2, 3, 4]) await direct('pesquisas', { action: 'extract', chatId: id(30 + n) });
-  handlers = Object.fromEntries(['session', 'records', 'today', 'entry', 'searches', 'manheim-batch', 'manheim-options', 'vitrine-requests', 'triage', 'actions', 'automatic-messages', 'weekly', 'orders', 'pendencias', 'whatsapp', 'vitrines', 'v1-send', 'pesquisas'].map((name) => ['/api/panel/' + name, require('../api/panel/' + name)]));
+  handlers = Object.fromEntries(['session', 'records', 'today', 'entry', 'searches', 'manheim-batch', 'manheim-options', 'vitrine-requests', 'triage', 'actions', 'automatic-messages', 'weekly', 'orders', 'pendencias', 'whatsapp', 'vitrines', 'v1-send', 'pesquisas', 'sms-print', 'vitrine-photos'].map((name) => ['/api/panel/' + name, require('../api/panel/' + name)]));
 });
 test.afterAll(async () => { if (backend) await backend.db.close(); });
 
@@ -94,6 +94,74 @@ for (const width of [1366, 390]) {
     expect(backend.refused).toEqual([]);
   });
 }
+test('arrastar um print escolhe o arquivo como o seletor, sem enviar nada sozinho', async ({ page }) => {
+  const posts = [];
+  page.on('request', (request) => { if (request.method() === 'POST' && request.url().includes('/api/')) posts.push(request.url()); });
+  await openPanel(page);
+  await page.goto(base + '/painel/');
+  await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
+  await page.locator('[data-view="imports"]').click();
+  const drop = page.locator('#auto-print-card .print-drop');
+  await expect(drop).toBeVisible();
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const transfer = await page.evaluateHandle((data) => { const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)); const t = new DataTransfer(); t.items.add(new File([bytes], 'print-sms.png', { type: 'image/png' })); return t; }, png);
+  await drop.dispatchEvent('drop', { dataTransfer: transfer });
+  await expect(page.locator('#auto-print-file-info')).toContainText('print-sms.png');
+  await expect(page.locator('#auto-print-send')).toBeEnabled();
+  expect(posts.filter((url) => url.includes('sms-print'))).toEqual([]);
+  // Something that is not an image is refused with a clear message.
+  const text = await page.evaluateHandle(() => { const t = new DataTransfer(); t.items.add(new File(['oi'], 'nota.txt', { type: 'text/plain' })); return t; });
+  await drop.dispatchEvent('drop', { dataTransfer: text });
+  await expect(page.locator('#auto-print-status')).toContainText('Solte uma imagem');
+});
+
+test('Cancelar em Confirmar conversa descarta só o arquivo, sem gravar nada', async ({ page }) => {
+  const posts = [];
+  page.on('request', (request) => { if (request.method() === 'POST' && request.url().includes('/api/panel/entry')) posts.push(request.postData() || ''); });
+  await openPanel(page);
+  await page.goto(base + '/painel/');
+  await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
+  await page.locator('[data-view="imports"]').click();
+  const before = (await backend.db.query('select (select count(*)::int from public.messages) m, (select count(*)::int from public.contacts) c, (select count(*)::int from public.chats) ch')).rows[0];
+  const chat = '29/09/2026 10:00 - Pessoa Nova: Oi, quero um carro\n29/09/2026 10:02 - Atendente MCS: Claro, qual modelo?\n';
+  await page.locator('#whatsapp-files').setInputFiles({ name: 'WhatsApp Chat with Pessoa Nova.txt', mimeType: 'text/plain', buffer: Buffer.from(chat) });
+  const review = page.locator('#import-card-whatsapp #import-review-card');
+  await expect(review).toBeVisible({ timeout: 30000 });
+  await page.locator('#import-review-cancel').click();
+  await expect(review).toBeHidden();
+  await expect(page.locator('#import-status')).toContainText('1 arquivo(s) cancelado(s), nada foi gravado');
+  const after = (await backend.db.query('select (select count(*)::int from public.messages) m, (select count(*)::int from public.contacts) c, (select count(*)::int from public.chats) ch')).rows[0];
+  expect(after).toEqual(before);
+  expect(posts.filter((body) => /"action":"(start|batch|finish|review)"/.test(body))).toEqual([]);
+});
+
+test('prints não guardados esperam na ENTRADA: tentar ler de novo, guardar ou descartar', async ({ page }) => {
+  const actor = (await backend.db.query('select id from public.panel_users limit 1')).rows[0].id;
+  await backend.db.exec(`insert into public.sms_print_reads(id,environment,status,original_filename,mime_type,quarantine_path,extracted_json,error_code,created_at,updated_at,created_by) values
+    ('7a000000-0000-4000-8000-000000000001','preview','READY','falhou.png','image/png','quarantine/preview/sms-print/x/falhou.png','{}','AI_UNAVAILABLE',now(),now(),'${actor}'),
+    ('7a000000-0000-4000-8000-000000000002','preview','READY','lido.png','image/png','quarantine/preview/sms-print/y/lido.png','{"message":"Hi, Ref ABCD2","phone":""}',null,now() - interval '2 hours',now() - interval '2 hours','${actor}'),
+    ('7a000000-0000-4000-8000-000000000003','preview','READY','agora.png','image/png','quarantine/preview/sms-print/z/agora.png','{"message":"oi"}',null,now(),now(),'${actor}')`);
+  await openPanel(page);
+  await page.goto(base + '/painel/');
+  await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
+  await page.locator('[data-view="entry"]').click();
+  const cards = page.locator('#entry-queue .failed-print');
+  await expect(cards).toHaveCount(2, { timeout: 30000 });
+  const failed = cards.filter({ hasText: 'falhou.png' });
+  await expect(failed).toContainText('Não consegui ler este print');
+  await expect(failed.locator('button', { hasText: 'Tentar ler de novo' })).toBeVisible();
+  const read = cards.filter({ hasText: 'Hi, Ref ABCD2' });
+  await expect(read).toContainText('O print foi lido, mas não foi guardado');
+  await expect(read.locator('button', { hasText: 'Guardar pelo painel' })).toBeVisible();
+  await expect(read.locator('input[type="tel"]')).toBeVisible();
+  // A print being read right now is not an orphan and does not show up.
+  await expect(page.locator('#entry-queue')).not.toContainText('agora.png');
+  await failed.locator('button', { hasText: 'Descartar print' }).click();
+  await expect(cards).toHaveCount(1, { timeout: 30000 });
+  expect((await backend.db.query(`select status from public.sms_print_reads where id='7a000000-0000-4000-8000-000000000001'`)).rows[0].status).toBe('DISCARDED');
+  await backend.db.exec(`delete from public.sms_print_reads where id like '7a000000%'`).catch(() => backend.db.exec(`delete from public.sms_print_reads where id::text like '7a000000%'`));
+});
+
 async function openPanel(page, optionPages = []) {
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-simulado', refreshToken: 'refresh', accessExpiresAt: Date.now() + 3600000 })));

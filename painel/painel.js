@@ -13,6 +13,7 @@
   let chats = [];
   let journeys = [];
   let printReviews = [];
+  let failedPrints = [];
   let senderAliases = [];
   let chatAliases = [];
   let todayItems = [];
@@ -325,7 +326,9 @@
           $('import-status').textContent = failure.message;
         }
       };
-      form.onreset = () => { card.classList.add('hidden'); reject(new Error('Importação cancelada.')); };
+      // Cancel happens before anything is sent to the server: only this file is skipped, nothing
+      // is created or changed, and the other files of the same selection go on.
+      form.onreset = () => { card.classList.add('hidden'); reject(Object.assign(new Error('IMPORT_CANCELLED'), { code: 'IMPORT_CANCELLED' })); };
     });
   }
 
@@ -355,7 +358,8 @@
       };
       $('import-status').textContent = `${sourceFilename}: conversa reconhecida; gravando…`;
     } else {
-      choice = await reviewConversation(raw, filename, initial);
+      try { choice = await reviewConversation(raw, filename, initial); }
+      catch (failure) { if (failure && failure.code === 'IMPORT_CANCELLED') return { cancelled: true, inserted: 0, pending: false }; throw failure; }
     }
     const senderPayload = choice.parsed.senders.map((name) => ({ senderText: name, direction: MCSParser.normalizeSender(name) === MCSParser.normalizeSender(choice.mcsSender) ? 'MCS' : 'CUSTOMER' }));
     const start = await request('/api/panel/entry', {
@@ -414,6 +418,7 @@
     let inserted = 0;
     let pending = false;
     let lastJourneyId = null;
+    let cancelled = 0;
     for (const file of files) {
       $('import-status').classList.remove('error');
       $('import-status').textContent = `Lendo ${file.name}…`;
@@ -421,6 +426,7 @@
       const sourceSha = await sha256(await file.arrayBuffer());
       for (const item of extracted) {
         const result = await submitConversation(item.text, item.name, file.name.toLowerCase().endsWith('.zip') ? 'WHATSAPP_ZIP' : 'WHATSAPP_TXT', file.name, sourceSha);
+        if (result.cancelled) { cancelled += 1; continue; }
         inserted += result.inserted;
         pending = pending || result.pending;
         lastJourneyId = result.journeyId || lastJourneyId;
@@ -429,6 +435,7 @@
     $('import-status').classList.remove('error');
     $('whatsapp-files').value = '';
     $('import-status').textContent = !inserted && !pending ? 'Nenhuma mensagem nova, a conversa já estava no painel' : `${inserted} mensagem(ns) nova(s). ${pending ? 'Há uma dúvida real para revisar.' : 'Importação concluída.'}`;
+    if (cancelled) $('import-status').textContent = !inserted && !pending ? `${cancelled} arquivo(s) cancelado(s), nada foi gravado` : `${$('import-status').textContent} · ${cancelled} arquivo(s) cancelado(s), nada foi gravado deles`;
     await loadQueue();
     await refreshCounters().catch(() => {});
     if (!pending && lastJourneyId) await openDetail('ficha',lastJourneyId);
@@ -467,6 +474,39 @@
   }
 
   // A18: a print that only matches a lead by name waits for the operator
+  // A print kept but never saved to a lead (the reading failed, or the save did not happen). The
+  // same actions of the automatic flow: read again, save with the automatic rules, or discard.
+  function failedPrintCard(print) {
+    const item = element('article', 'queue-item failed-print');
+    const header = element('header', '');
+    header.append(element('strong', '', `Print não guardado · ${print.name || print.phone || print.filename || 'sem nome'}`), element('span', 'badge', 'revisão'));
+    item.append(header, element('span', 'muted', print.errorCode ? 'Não consegui ler este print' : 'O print foi lido, mas não foi guardado em nenhum lead'));
+    if (print.phone) item.append(element('span', 'muted', `Telefone do print: ${print.phone}`));
+    if (print.message) item.append(element('p', '', print.message.length > 280 ? `${print.message.slice(0, 280)}…` : print.message));
+    let phoneInput = null;
+    if (print.message && !print.phone) { const label = element('label', '', 'Telefone do cliente (o print não mostra)'); phoneInput = element('input'); phoneInput.type = 'tel'; phoneInput.inputMode = 'tel'; phoneInput.placeholder = '+1 305 555 0000'; label.append(phoneInput); item.append(label); }
+    const actions = element('div', 'inline-actions');
+    const post = (body) => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId: print.id, ...body }) });
+    if (print.errorCode) {
+      const retry = element('button', 'small', 'Tentar ler de novo'); retry.type = 'button';
+      MCSAction.bind(retry, () => ({ scope: item, commit: () => post({ action: 'retry' }), successText: 'Print lido de novo', refresh: () => loadQueue(), errorText: 'Ainda não consegui ler, tente mais tarde' }));
+      actions.append(retry);
+    }
+    if (print.message || print.phone || print.ref) {
+      const save = element('button', print.errorCode ? 'quiet small' : 'small', 'Guardar pelo painel'); save.type = 'button';
+      MCSAction.bind(save, () => {
+        const values = { phone: print.phone || phoneInput?.value.trim() || '', name: print.name || '', ref: print.ref || '', message: print.message || '', translation: print.translation || '' };
+        return { scope: item, commit: () => post({ action: 'confirm', auto: true, ...values }), successText: 'Print guardado', refresh: () => loadQueue(), errorText: (error) => error?.code === 'SMS_PRINT_VALUES_INVALID' ? 'Digite o telefone do cliente antes de guardar' : 'Não consegui guardar, tente de novo' };
+      });
+      actions.append(save);
+    }
+    const discard = element('button', 'quiet small', 'Descartar print'); discard.type = 'button';
+    MCSAction.bind(discard, () => ({ scope: item, successScope: document.body, optimistic: () => { item.classList.add('action-optimistic-hidden'); const before = countValue('entry'); setCount('entry', Math.max(0, before - 1)); return before; },
+      commit: () => post({ action: 'discard' }), rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('entry', before); }, successText: 'Print descartado', refresh: () => loadQueue(), errorText: 'Não consegui descartar, tente de novo' }));
+    actions.append(discard);
+    item.append(actions);
+    return item;
+  }
   function printReviewCard(print) {
     const item = element('article', 'queue-item');
     const header = element('header', '');
@@ -511,8 +551,9 @@
     const root = $('entry-queue');
     root.replaceChildren();
     printReviews.forEach((print) => root.append(printReviewCard(print)));
+    failedPrints.forEach((print) => root.append(failedPrintCard(print)));
     if (!items.length && !reviews.length) {
-      if (printReviews.length) return;
+      if (printReviews.length || failedPrints.length) return;
       const empty = document.createElement('p');
       empty.className = 'muted';
       empty.textContent = 'Nenhuma conversa importada.';
@@ -799,7 +840,8 @@
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
-    entryQueueCount = chats.filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + printReviews.length;
+    failedPrints = data.failedPrints || [];
+    entryQueueCount = chats.filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + printReviews.length + failedPrints.length;
     renderEntryCount();
     if (render) renderQueue(chats.filter((chat) => !chat.triageOut), data.reviews || []);
     return data;
@@ -1264,7 +1306,7 @@
     if (today && vitrineData) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
     // Conversations the triage left in REVISAR also wait for a decision in ENTRADA.
     if (triageData) triageReviewCount = (triageData.review || []).length;
-    count('entry', triageData ? entry : null, (data) => { entryQueueCount = (data.chats || []).filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + (data.printReviews || []).length; return entryQueueCount + triageReviewCount; });
+    count('entry', triageData ? entry : null, (data) => { entryQueueCount = (data.chats || []).filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length; return entryQueueCount + triageReviewCount; });
     // Same rule as the list: leads only, inside the CLIENTES period.
     count('clients', records, (data) => clientsInPeriod(data.items).length);
     // One person with a VALOR and a CARRO card is one person in the badge.
@@ -3986,6 +4028,14 @@
     $('sms-form').addEventListener('submit', addSms);
     $('sms-contact').addEventListener('change', () => { const fresh=$('sms-contact').value==='new';$('sms-new-name-label').hidden=!fresh;$('sms-new-phone-label').hidden=!fresh;refreshSmsJourneys(); });
     $('auto-print-file').addEventListener('change',()=>{const files=$('auto-print-file').files;if(files.length)showAutoPrintChoice(files);});
+    // Dropping a print on the card goes through the same choice as the file picker (images only;
+    // the server checks the type again).
+    const printDrop=document.querySelector('#auto-print-card .print-drop');
+    if(printDrop){
+      printDrop.addEventListener('dragover',(event)=>{event.preventDefault();printDrop.classList.add('over');});
+      printDrop.addEventListener('dragleave',()=>printDrop.classList.remove('over'));
+      printDrop.addEventListener('drop',(event)=>{event.preventDefault();printDrop.classList.remove('over');const images=[...(event.dataTransfer?.files||[])].filter((file)=>/^image\//.test(file.type||''));if(!images.length){$('auto-print-status').textContent='Solte uma imagem do print (JPG, PNG ou WebP)';return;}const transfer=new DataTransfer();images.forEach((file)=>transfer.items.add(file));const input=$('auto-print-file');input.files=transfer.files;input.dispatchEvent(new Event('change'));});
+    }
     $('auto-print-remove').addEventListener('click',clearAutoPrint);
     $('auto-print-send').addEventListener('click',()=>sendAutoPrint().catch(()=>{}));
     $('sms-date').value = localInput();

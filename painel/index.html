@@ -242,7 +242,7 @@
             <p class="muted">ZIPs ou TXT do WhatsApp. Os arquivos são lidos neste navegador e nunca seguem para a Vercel.</p>
             <label id="drop-zone" class="drop-zone" for="whatsapp-files">Arraste ZIPs/TXT aqui ou selecione arquivos<input id="whatsapp-files" type="file" accept=".zip,.txt,text/plain,application/zip" multiple></label>
             <p id="import-status" class="status" role="status"></p>
-            <ul class="import-facts" data-import-facts="whatsapp" data-draft><li>Aceita arquivos .zip ou .txt exportados do WhatsApp, até 20 por vez</li><li>ZIP de até 100 MB e TXT de até 25 MB</li><li>Os arquivos são lidos neste navegador</li><li>Quando a conversa e a MCS são reconhecidas, grava sozinho e abre a ficha</li><li>Nos outros casos, Confirmar conversa aparece aqui para você escolher contato e busca</li><li>Grupo e horário incerto ficam em ENTRADA, Revisão final</li><li>Mensagem que já está no painel não entra de novo</li><li>Formato não reconhecido vai para ENTRADA, Revisão final, sem gravar mensagens</li></ul>
+            <ul class="import-facts" data-import-facts="whatsapp" data-draft><li>Aceita arquivos .zip ou .txt exportados do WhatsApp, até 20 por vez</li><li>ZIP de até 100 MB e TXT de até 25 MB</li><li>Os arquivos são lidos neste navegador</li><li>Quando a conversa e a MCS são reconhecidas, grava sozinho e abre a ficha</li><li>Nos outros casos, Confirmar conversa aparece aqui para você escolher contato e busca</li><li>Cancelar este arquivo pula só esse arquivo, sem gravar nada</li><li>Grupo e horário incerto ficam em ENTRADA, Revisão final</li><li>Mensagem que já está no painel não entra de novo</li><li>Formato não reconhecido vai para ENTRADA, Revisão final, sem gravar mensagens</li></ul>
             <section id="import-review-card" class="hidden" aria-labelledby="import-review-title">
               <h3 id="import-review-title">Confirmar conversa</h3>
               <p id="import-review-summary" class="muted"></p>
@@ -255,7 +255,7 @@
                 <label id="chat-label">Chat<select id="import-chat"><option value="new">Novo chat</option></select></label>
                 <label id="journey-label">Busca<select id="import-journey"><option value="new">Nova jornada</option></select></label>
                 <p id="ref-warning" class="warning hidden">Ref encontrada: escolha manualmente mesma busca ou nova jornada.</p>
-                <button type="submit">Confirmar e importar</button>
+                <div class="inline-actions"><button type="submit">Confirmar e importar</button><button id="import-review-cancel" class="quiet" type="reset">Cancelar este arquivo</button></div>
               </form>
             </section>
           </section>
