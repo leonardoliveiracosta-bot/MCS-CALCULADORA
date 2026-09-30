@@ -4,7 +4,7 @@
 //  run       confere o que falta (chamado logo depois do upload; o cron repete como segurança)
 //  retry     tenta de novo uma demanda com "Conferência pendente"
 //  approve   aprovação manual com motivo registrado (nunca sobre um fato achado pelo servidor)
-//  authorize libera um lote acima do limite de US$ 2 por importação (só administrador)
+//  authorize libera um lote parado em "aguardando autorização" (só administrador; nunca acima do teto de US$ 50 da OpenAI)
 // Com MANHEIM_MATCH_AUDIT_ENABLED desligada nada é chamado e nada é bloqueado.
 const { jsonBody, requirePanel, send } = require('../../panel-server');
 const { manheimView } = require('../../panel-buscas-view');

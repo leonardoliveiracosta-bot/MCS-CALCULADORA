@@ -14,9 +14,9 @@
 //    conversa, endereço ou documento, e nunca o CSV inteiro.
 //  * Desligada por padrão: só com MANHEIM_MATCH_AUDIT_ENABLED=1 e OPENAI_API_KEY. Modelo fixo da
 //    allowlist (gpt-6-luna); MANHEIM_MATCH_AUDIT_MODEL fora da allowlist desliga tudo.
-//  * Até US$ 2 por importação. Acima disso nada é chamado: a estimativa aparece e espera
-//    autorização. O mesmo lote, demanda, critérios, matches e versão da regra nunca são cobrados
-//    duas vezes (hash único no banco, com a linha reservada antes da chamada).
+//  * Até o teto compartilhado da OpenAI (US$ 50 somando todas as funções), reservado no banco
+//    antes de cada chamada (panel_manheim_audit_budget_hold). Acima dele nada é chamado. O mesmo
+//    lote, demanda, critérios, matches e versão da regra nunca são cobrados duas vezes (hash único no banco, com a linha reservada antes da chamada).
 //  * Falha, tempo esgotado ou resposta inválida: "Conferência pendente". Nada é aprovado em
 //    silêncio; dá para tentar de novo ou aprovar à mão com motivo registrado.
 //  * Com a função desligada nada muda: V1 e V2 seguem como antes.
@@ -307,7 +307,7 @@ async function holdBudget(ctx, uploadId, demandKey, amountUsd, baseLimit) {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ p_environment: ctx.environment, p_upload_id: uploadId, p_demand_key: demandKey, p_amount: Math.round(amountUsd * 1e6) / 1e6, p_base_limit: baseLimit })
   });
-  return result && result.held === true ? { held: true, id: result.id } : { held: false, remaining: result && result.remaining };
+  return result && result.held === true ? { held: true, id: result.id } : { held: false, reason: result && result.reason || null, remaining: result && result.remaining };
 }
 async function runRow(ctx, uploadId) {
   const found = await rows(ctx, 'manheim_audit_runs', { select: 'id,upload_id,status,estimate_usd,limit_usd,spent_usd,authorized_by,authorized_at', environment: env(ctx), upload_id: 'eq.' + uploadId, limit: '1' });
@@ -316,8 +316,18 @@ async function runRow(ctx, uploadId) {
 async function ensureRun(ctx, uploadId, estimateUsd) {
   const existing = await runRow(ctx, uploadId);
   if (existing) {
-    if (Number(existing.estimate_usd) !== estimateUsd && existing.status !== 'AUTORIZADO') await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + existing.id }, { estimate_usd: estimateUsd, updated_at: new Date().toISOString() });
-    return { ...existing, estimate_usd: existing.status === 'AUTORIZADO' ? existing.estimate_usd : estimateUsd };
+    if (existing.status === 'AUTORIZADO') return existing;
+    // A batch created under the old US$ 2 limit shows and uses the OpenAI ceiling; spending, holds
+    // and audits are untouched.
+    const patch = {};
+    if (Number(existing.estimate_usd) !== estimateUsd) patch.estimate_usd = estimateUsd;
+    if (Number(existing.limit_usd) < LIMIT_USD) {
+      patch.limit_usd = LIMIT_USD;
+      // It was waiting only because of the old limit.
+      if (existing.status === 'AGUARDANDO_AUTORIZACAO') patch.status = 'ABERTO';
+    }
+    if (Object.keys(patch).length) await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + existing.id }, { ...patch, updated_at: new Date().toISOString() });
+    return { ...existing, ...patch };
   }
   const created = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/manheim_audit_runs?on_conflict=environment,upload_id', {
     method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=representation' },
@@ -365,7 +375,7 @@ async function viewState(ctx, input, options = {}) {
     byDemand[group.key] = { status: statusCode, label: LABELS[statusCode], divergences, errorCode: row && row.error_code || null, approvedReason: row && row.approved_reason || null, auditId: row && row.id || null,
       canApprove: ['PENDENTE', 'REVISAR', 'AGUARDANDO_AUTORIZACAO'].includes(statusCode) && !hardDivergence(group.divergences), canRetry: statusCode === 'PENDENTE' };
   });
-  return { state, uploadId: input.upload.id, limitUsd: LIMIT_USD, estimateUsd: Math.round(estimate * 1e6) / 1e6, run: run ? { status: run.status, estimateUsd: Number(run.estimate_usd), spentUsd: Number(run.spent_usd) } : null, byDemand };
+  return { state, uploadId: input.upload.id, limitUsd: LIMIT_USD, estimateUsd: Math.round(estimate * 1e6) / 1e6, run: run ? { status: run.status, estimateUsd: Number(run.estimate_usd), spentUsd: Number(run.spent_usd), limitUsd: Number(run.limit_usd) } : null, byDemand };
 }
 const usable = (entry) => !entry || OK.includes(entry.status);
 // V1 and V2 gate for one car of the active batch. demandKey (sent by the BUSCAS card) checks that
@@ -410,13 +420,14 @@ async function runAudit(ctx, input, options = {}) {
   const run = await ensureRun(ctx, input.upload.id, estimate);
   // options.limitUsd exists only so the tests can prove the block without millions of tokens.
   const baseLimit = Number.isFinite(options.limitUsd) ? options.limitUsd : LIMIT_USD;
-  const limit = run.status === 'AUTORIZADO' ? Number(run.limit_usd) : baseLimit;
+  // An old authorization never lowers the ceiling; nothing goes above the OpenAI ceiling.
+  const limit = run.status === 'AUTORIZADO' ? Math.min(Math.max(Number(run.limit_usd), baseLimit), LIMIT_USD) : baseLimit;
   const spentBefore = await spentOf(ctx, input.upload.id);
   // Above the limit (or past what was authorized): nothing is called, the estimate waits for a
   // new authorization.
   if (spentBefore + estimate > limit) {
     await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AGUARDANDO_AUTORIZACAO', estimate_usd: estimate, authorized_by: null, authorized_at: null, updated_at: new Date().toISOString() });
-    return { ...result, awaitingAuthorization: true, estimateUsd: estimate, limitUsd: LIMIT_USD };
+    return { ...result, awaitingAuthorization: true, estimateUsd: estimate, limitUsd: limit };
   }
   // US$ 50 for all the panel's OpenAI features together (panel-openai-budget); the per-import
   // limit above still applies.
@@ -434,7 +445,12 @@ async function runAudit(ctx, input, options = {}) {
     // Then the batch budget, atomically per upload: two demands at the same time never pass the
     // remaining limit together. Twice the estimate is held, so the real cost never crosses the cap.
     const hold = await holdBudget(ctx, input.upload.id, group.key, Math.max(estimateGroup(group, modelId).costUsd * 2, 0.000001), baseLimit);
-    if (!hold.held) { await claims.finishTask(ctx, task, false).catch(() => null); result.awaitingAuthorization = true; result.deferred += 1; continue; }
+    if (!hold.held) {
+      await claims.finishTask(ctx, task, false).catch(() => null);
+      // The OpenAI ceiling is not something an authorization can raise.
+      if (hold.reason === 'OPENAI_LIMIT') result.providerLimit = true; else result.awaitingAuthorization = true;
+      result.deferred += 1; continue;
+    }
     const release = () => patchRows(ctx, 'manheim_audit_budget_holds', { environment: env(ctx), id: 'eq.' + hold.id, status: 'eq.ABERTA' }, { status: 'ENCERRADA', closed_at: new Date().toISOString() }).catch(() => null);
     const row = await claim(ctx, group, byHash.get(group.hash), options.manual).catch(() => null);
     if (!row) { await release(); await claims.finishTask(ctx, task, false).catch(() => null); result.inProgress += 1; continue; }
@@ -476,12 +492,12 @@ async function runAudit(ctx, input, options = {}) {
   return result;
 }
 
-// Operator authorizes a batch above the US$ 2 limit. The ceiling covers the safety hold (twice the
-// estimate per call); what is spent is always the real cost of each call.
+// Operator authorizes a batch above its limit (never above the US$ 50 OpenAI ceiling). The ceiling
+// covers the safety hold (twice the estimate per call); what is spent is always the real cost.
 async function authorize(ctx, uploadId, actorId) {
   const run = await runRow(ctx, uploadId);
   if (!run || run.status !== 'AGUARDANDO_AUTORIZACAO') { const failure = new Error('AUDIT_NOTHING_TO_AUTHORIZE'); failure.code = 'AUDIT_NOTHING_TO_AUTHORIZE'; throw failure; }
-  const limit = Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 2.5) * 1e6) / 1e6;
+  const limit = Math.min(Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 2.5) * 1e6) / 1e6, LIMIT_USD);
   await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AUTORIZADO', limit_usd: limit, authorized_by: actorId, authorized_at: new Date().toISOString(), updated_at: new Date().toISOString() });
   return { authorized: true, limitUsd: limit };
 }

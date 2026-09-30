@@ -1952,7 +1952,7 @@
     const waiting=audit&&audit.state==='LIGADA'&&audit.run&&audit.run.status==='AGUARDANDO_AUTORIZACAO';
     note.classList.toggle('hidden',!waiting);if(!waiting)return;
     const cost=(value)=>'US$ '+Number(value||0).toFixed(2);
-    note.append(element('p','',`Conferência estimada em ${cost(audit.run.estimateUsd)}, acima do limite de ${cost(audit.limitUsd)} por importação. Nada foi cobrado`));
+    note.append(element('p','',`Conferência estimada em ${cost(audit.run.estimateUsd)}, acima do limite de ${cost(audit.run.limitUsd??audit.limitUsd)} deste lote. Nada foi cobrado`));
     const authorize=element('button','small','Autorizar conferência');authorize.type='button';
     MCSAction.bind(authorize,()=>({scope:note,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'authorize'})}),refresh:()=>loadCurrent(),errorText:(error)=>error?.code==='AUDIT_ADMIN_ONLY'?'Só o administrador autoriza':'Não consegui autorizar, tente de novo'}));
     note.append(authorize);

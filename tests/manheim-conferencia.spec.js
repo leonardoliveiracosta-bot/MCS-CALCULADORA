@@ -35,7 +35,7 @@ function manheimData(audit) {
     upload: { id: '68000000-0000-4000-8000-0000000000a1', vehicle_count: 9998, matched_vehicle_count: 3, uploaded_at: '2026-09-29T10:00:00Z', current_lead_count: 2 }, audit };
 }
 const ON = {
-  state: 'LIGADA', limitUsd: 2, estimateUsd: 0, run: { status: 'ABERTO', estimateUsd: 0.01, spentUsd: 0.004 },
+  state: 'LIGADA', limitUsd: 50, estimateUsd: 0, run: { status: 'ABERTO', estimateUsd: 0.01, spentUsd: 0.004, limitUsd: 50 },
   byDemand: {
     [`journey:${JOURNEY}:VALOR`]: { status: 'CONFERIDO', label: 'Conferido', divergences: [], canApprove: false, canRetry: false },
     [`journey:${JOURNEY}:CARRO`]: { status: 'REVISAR', label: 'Revisar', divergences: [{ code: 'MILES_OUT_OF_RANGE', option: 'm1', matchId: CARRO_MATCH, text: 'Milhagem acima do limite', source: 'OPENAI' }], canApprove: true, canRetry: false },
@@ -93,9 +93,9 @@ for (const width of [1366, 390]) {
 }
 
 test('tentar de novo, aprovação manual com motivo e autorização acima do limite', async ({ page }) => {
-  const waiting = { ...ON, run: { status: 'AGUARDANDO_AUTORIZACAO', estimateUsd: 2.4, spentUsd: 0 } };
+  const waiting = { ...ON, run: { status: 'AGUARDANDO_AUTORIZACAO', estimateUsd: 2.4, spentUsd: 0, limitUsd: 2 } };
   const posts = await open(page, 1366, waiting);
-  await expect(page.locator('#manheim-audit-note')).toContainText('Conferência estimada em US$ 2.40, acima do limite de US$ 2.00 por importação. Nada foi cobrado');
+  await expect(page.locator('#manheim-audit-note')).toContainText('Conferência estimada em US$ 2.40, acima do limite de US$ 2.00 deste lote. Nada foi cobrado');
   await page.locator('#manheim-audit-note').getByRole('button', { name: 'Autorizar conferência' }).click();
   await expect.poll(() => posts.filter((item) => item && item.action === 'authorize').length).toBe(1);
   const order = card(page, 'valor', 'Pedido Só Valor');
