@@ -52,9 +52,17 @@ async function buildList(ctx) {
     const key = (journey ? 'ficha:' : 'pedido:') + demand.key;
     const common = { source: journey ? 'FICHA' : 'CALCULADORA', person: demandPerson(base, demand), mode: demand.mode, lastMessageAt: journey ? lastCustomer.get(journey.id) || null : null,
       evidence: journey ? [{ kind: 'FICHA', text: journey.vehicle_text ? 'Ficha: ' + String(journey.vehicle_text).slice(0, 300) : 'Critérios preenchidos na ficha' }] : [{ kind: 'CALCULADORA', text: 'Pedido da calculadora' + (demand.ref ? ', Ref ' + demand.ref : '') }] };
+    // A Ref does not replace the value by itself: only an official financial ceiling (the VALOR
+    // bid of the MCS calculation) counts. A search by year and mileage without it needs the value:
+    // registered for a future search, never compared, counted or offered.
+    if (demand.active && !(demand.mode === 'VALOR' && Number(demand.bidCents) > 0)) {
+      items.push(finish({ ...common, key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'PRECISA_DETALHE', missing: [], lacks: ['valor'], comparable: false,
+        criteriaHash: targetHash({ ...matchTarget(demand), reactivation: false }), targets: [] }, null, uploadId));
+      continue;
+    }
     if (demand.active) {
-      // Demand with the official calculation: the current matcher, and the import result when the
-      // criterion is the same.
+      // Demand with the official calculation and its ceiling: the current matcher, and the import
+      // result when the criterion is the same.
       const target = { ...matchTarget(demand), reactivation: false };
       const hash = targetHash(target);
       const item = { ...common, key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'PRONTO', missing: [], lacks: [], comparable: true, official: true, criteriaHash: hash, targets: [target] };

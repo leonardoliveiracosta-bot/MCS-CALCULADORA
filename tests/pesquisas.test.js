@@ -32,6 +32,12 @@ const seed = [
   ...person(9, 'Rui', [['CUSTOMER', 'I want a Civic, budget $18,000']]),
   ...person(10, 'Téo', [['CUSTOMER', 'Looking for a 2022 or 2023 Tahoe']]),
   ...person(11, 'Sil', [['CUSTOMER', 'Need an SUV under $25,000']]),
+  // Fichas with a search mode: VALOR with the official bid is ready; CARRO (year and mileage, no
+  // financial ceiling) needs the value even with complete ranges.
+  `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${id(2)}','preview','Vera Valor','CALCULATOR',now(),now());`,
+  `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,budget_cents,created_at,updated_at) values('${id(3)}','preview','${id(2)}','CALCULATOR','NOVO','ATIVO','${JSON.stringify({ wishlists: [{ make: 'Toyota', model: 'Camry' }], logical_modes: ['VALOR'] })}',2400000,now(),now());`,
+  `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${id(4)}','preview','Caco Carro','CALCULATOR',now(),now());`,
+  `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(5)}','preview','${id(4)}','CALCULATOR','NOVO','ATIVO','${JSON.stringify({ wishlists: [{ make: 'Toyota', model: 'Camry', yearMin: 2018, yearMax: 2022, minMiles: 1000, maxMiles: 80000 }], logical_modes: ['CARRO'] })}',now(),now());`,
   // A calculator ficha without Ref and without value: needs detail.
   `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${id(9)}','preview','Eva Calculadora','CALCULATOR',now(),now());`,
   `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(8)}','preview','${id(9)}','CALCULATOR','NOVO','ATIVO','${JSON.stringify({ wishlists: [{ make: 'Toyota', model: 'Camry', yearMin: 2019 }], logical_modes: ['CARRO'] })}',now(),now());`
@@ -130,7 +136,7 @@ test('5 · "Camry 2021+, até US$ 20 mil" fica PRONTO PARA BUSCAR; o valor não 
   assert.deepEqual([caio.completeness, caio.result, caio.optionCount], ['PRONTO', 'SEM_OPCAO', 0], 'o F-150 do lote cancelado não conta');
   const report = (await call('pesquisas', '/api/panel/pesquisas?view=audit')).payload;
   assert.deepEqual([report.ready, report.readyWithOptions, report.readyWithCandidates, report.readyWithoutOptions, report.needsDetail, report.review, report.conversationsWithoutRequest],
-    [4, 0, 3, 1, 7, 0, 1]);
+    [5, 1, 3, 1, 8, 0, 1]);
   assert.equal(report.allServed, false, 'não declara cobertura com pedido que precisa detalhe nem com candidato a conferir');
   assert.deepEqual(backend.refused, []);
 });
@@ -142,7 +148,18 @@ test('6 · pedido da calculadora sem Ref, com os três elementos, fica PRONTO PA
   assert.deepEqual(requests.searchLacks({ make: 'Toyota', model: 'Camry', maxMiles: 50000, budgetUsd: 20000 }), [], 'milhagem sozinha basta como limite');
 });
 
-test('7 · orçamento da leitura: até US$ 50 por provedor, não US$ 2', async () => {
+test('7 · Ref sem teto financeiro oficial fica PRECISA DETALHE · FALTA VALOR; com o lance oficial fica pronta', async () => {
+  const data = await list();
+  const [carro] = itemOf(data, 'Caco Carro');
+  assert.deepEqual(detail(carro), ['PRECISA_DETALHE', 'PRECISA_DETALHE', null, null, ['valor']]);
+  assert.equal(carro.stateLabel, 'PRECISA DETALHE');
+  const [carroCheck] = await q(`select 1 from public.vehicle_request_checks where request_key like 'ficha:journey:${id(5)}%'`);
+  assert.equal(carroCheck, undefined, 'não é comparado com o lote');
+  const [valor] = itemOf(data, 'Vera Valor');
+  assert.deepEqual([valor.completeness, valor.result, valor.optionCount], ['PRONTO', 'COM_OPCOES', 2], 'lance oficial conta como valor');
+});
+
+test('8 · orçamento da leitura: até US$ 50 por provedor, não US$ 2', async () => {
   const search = require('../panel-search-requests');
   assert.equal(search.PROVIDER_LIMIT_USD.OPENAI, 50);
   // A conversation with a new customer message is pending again.
