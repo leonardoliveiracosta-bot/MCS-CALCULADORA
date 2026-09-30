@@ -203,7 +203,7 @@
         <div class="entry-tools import-cards">
           <section id="import-card-manheim" class="card entry-tool import-card">
             <span class="entry-tool-icon" aria-hidden="true">🚗</span><h2 data-draft>Arquivos do Manheim</h2>
-            <ul class="import-facts" data-import-facts="manheim"></ul>
+            <ul class="import-facts" data-import-facts="manheim" data-draft><li>Aceita arquivos .csv do Manheim, até 20 por vez e 25 MB cada</li><li>Até 100 mil carros por lote</li><li>O lote só vira ativo quando todos os arquivos chegam inteiros</li><li>Carro repetido entre arquivos entra uma vez só</li><li>Se a conexão cair, escolha os mesmos arquivos e o envio continua de onde parou</li><li>Lote vazio ou bem menor que o anterior pede confirmação antes do envio</li><li>Os carros aparecem em OPÇÕES e o lote aparece na lista abaixo</li><li>Complementar dados usa os mesmos arquivos do lote ativo e mostra uma prévia antes de gravar</li></ul>
             <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
             <p id="manheim-status" class="status" role="status"></p>
             <div class="inline-actions manheim-complement"><button id="manheim-complement" class="quiet small" type="button">Complementar dados do lote ativo</button><span class="muted">Os mesmos CSVs do lote ativo, só para acrescentar Lane, Run, Inventory, Status e Event Sale Name</span><input id="manheim-complement-files" type="file" accept=".csv,text/csv" multiple hidden></div>
@@ -218,12 +218,12 @@
             <div class="inline-actions"><button id="auto-print-remove" class="quiet small hidden" type="button">Remover</button><button id="auto-print-send" type="button" disabled>Enviar</button></div>
             <p id="auto-print-status" class="status" role="status"></p>
             <section id="auto-print-result" class="sms-print-review hidden" aria-live="polite"></section>
-            <ul class="import-facts" data-import-facts="print"></ul>
+            <ul class="import-facts" data-import-facts="print" data-draft><li>Aceita fotos JPG, PNG ou WebP de até 5 MB, várias de uma vez</li><li>Foto HEIC do iPhone não é aceita</li><li>O painel lê a Ref, o telefone e o nome que aparecem no print</li><li>Guarda sozinho quando a Ref ou o telefone apontam um único cliente</li><li>Sem cliente encontrado e com telefone no print, cria um lead novo</li><li>Se só o nome bate, o print fica em ENTRADA, Revisão final, para você decidir</li><li>Print repetido não é guardado de novo</li><li>O resultado aparece aqui, com Abrir lead e Desfazer</li><li>Dentro da ficha, Anexar print continua funcionando</li></ul>
           </section>
           <details id="import-card-sms" class="card manual-entry entry-tool import-card">
             <summary><span class="entry-tool-icon" aria-hidden="true">✉️</span><span class="entry-tool-title">Colar SMS</span><span class="entry-tool-copy">Cole o texto de um SMS e escolha o cliente.</span><span class="entry-open-button">Colar SMS</span></summary>
             <section>
-              <ul class="import-facts" data-import-facts="sms"></ul>
+              <ul class="import-facts" data-import-facts="sms" data-draft><li>Aceita o texto de um SMS, até 25 mil caracteres</li><li>Você escolhe o contato, a busca, quem falou e a data</li><li>Contato novo precisa de nome e telefone</li><li>O mesmo SMS com a mesma data não entra duas vezes</li><li>A mensagem aparece na conversa da ficha</li></ul>
               <form id="sms-form">
                 <label>Contato<select id="sms-contact"><option value="new">Novo contato</option></select></label>
                 <label id="sms-new-name-label">Nome do novo contato<input id="sms-new-name" maxlength="160"></label>
@@ -242,7 +242,7 @@
             <p class="muted">ZIPs ou TXT do WhatsApp. Os arquivos são lidos neste navegador e nunca seguem para a Vercel.</p>
             <label id="drop-zone" class="drop-zone" for="whatsapp-files">Arraste ZIPs/TXT aqui ou selecione arquivos<input id="whatsapp-files" type="file" accept=".zip,.txt,text/plain,application/zip" multiple></label>
             <p id="import-status" class="status" role="status"></p>
-            <ul class="import-facts" data-import-facts="whatsapp"></ul>
+            <ul class="import-facts" data-import-facts="whatsapp" data-draft><li>Aceita arquivos .zip ou .txt exportados do WhatsApp, até 20 por vez</li><li>ZIP de até 100 MB e TXT de até 25 MB</li><li>Os arquivos são lidos neste navegador</li><li>Quando a conversa e a MCS são reconhecidas, grava sozinho e abre a ficha</li><li>Nos outros casos, Confirmar conversa aparece aqui para você escolher contato e busca</li><li>Grupo e horário incerto ficam em ENTRADA, Revisão final</li><li>Mensagem que já está no painel não entra de novo</li><li>Formato não reconhecido vai para ENTRADA, Revisão final, sem gravar mensagens</li></ul>
             <section id="import-review-card" class="hidden" aria-labelledby="import-review-title">
               <h3 id="import-review-title">Confirmar conversa</h3>
               <p id="import-review-summary" class="muted"></p>
@@ -266,15 +266,15 @@
             <button id="history-import-send" class="small" type="button" disabled>Importar</button>
             <p id="history-import-status" class="status" role="status"></p>
             <div id="history-import-errors" class="queue" aria-live="polite"></div>
-            <ul class="import-facts" data-import-facts="history"></ul>
+            <ul class="import-facts" data-import-facts="history" data-draft><li>Aceita um arquivo .json do 360dialog, de até 100 MB</li><li>Só aceita o histórico do número da MCS</li><li>Grava sem prévia, em partes, e mostra o resumo aqui</li><li>Mensagem que já existia não entra de novo</li><li>Dúvida de telefone ou de ligação vai para ENTRADA, Precisa de você</li><li>As mensagens aparecem nas fichas</li></ul>
           </section>
           <section id="import-card-automatic" class="card entry-tool import-card import-info">
             <span class="entry-tool-icon" aria-hidden="true">🔄</span><h2 data-draft>Entram sozinhos</h2>
-            <ul class="import-facts" data-import-facts="automatic"></ul>
+            <ul class="import-facts" data-import-facts="automatic" data-draft><li>Mensagens do WhatsApp chegam sozinhas pelo 360dialog</li><li>Fotos, áudios e documentos do cliente são baixados sozinhos em seguida</li><li>SMS enviados pelo atalho do iPhone entram sozinhos quando o remetente é conhecido</li><li>Nada disso precisa ser importado aqui</li><li>Problemas aparecem em ENTRADA, Precisa de você</li></ul>
           </section>
           <section id="import-card-v2" class="card entry-tool import-card import-info">
             <span class="entry-tool-icon" aria-hidden="true">🖼️</span><h2 data-draft>Fotos da V2</h2>
-            <ul class="import-facts" data-import-facts="v2"></ul>
+            <ul class="import-facts" data-import-facts="v2" data-draft><li>As fotos da V2 são enviadas no pedido do cliente, em HOJE</li><li>Abra o pedido e use Montar V2</li><li>Até 12 fotos por carro, reduzidas no próprio navegador</li><li>A V2 só pode ser montada a partir de um pedido real do cliente</li></ul>
           </section>
         </div>
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>

@@ -1051,3 +1051,4 @@ body > .action-feedback { position: fixed; left: 16px; right: 16px; bottom: 16px
   .import-cards { grid-template-columns: 1fr; }
   .import-cards #import-card-manheim { grid-column: auto; }
 }
+#entry-imports-link h2[data-draft]::after { content: " · texto provisório"; font-size: .7em; opacity: .7; }
