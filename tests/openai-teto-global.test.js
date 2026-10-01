@@ -100,7 +100,7 @@ test('custo máximo por chamada: entrada pelos bytes enviados, saída limitada e
   assert.ok(bound >= (10000 * 0.10 + 2000 * 0.50) / 1e6 && bound < 0.0025, String(bound));
   assert.throws(() => budget.maxCostUsd('gpt-6-luna', { messages: [] }), { code: 'OPENAI_OUTPUT_CAP_MISSING' });
   assert.throws(() => budget.maxCostUsd('modelo-sem-preco', body), { code: 'OPENAI_MODEL_PRICE_UNKNOWN' });
-  assert.deepEqual(budget.OUTPUT_CAP, { PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500 });
+  assert.deepEqual(budget.OUTPUT_CAP, { PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 1500, TRADUCAO_CONVERSA: 8000 });
 });
 
 test('as quatro funções ao mesmo tempo, com saldo para todas: cada chamada reservada, paga e registrada', async () => {

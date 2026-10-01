@@ -17,20 +17,24 @@ async function spentUsd(ctx, services = {}) {
   const read = services.allRows || allRows;
   const env = 'eq.' + ctx.environment;
   try {
-    const [runs, checks, triage, audits, csv, replies] = await Promise.all([
+    const [runs, checks, triage, audits, csv, replies, guided, translations] = await Promise.all([
       read(ctx, 'vehicle_request_runs', { select: 'cost_usd', environment: env, provider: 'eq.OPENAI', cost_usd: 'not.is.null' }),
       read(ctx, 'vehicle_request_batches', { select: 'cost_usd', environment: env, provider: 'eq.OPENAI', conversations: 'eq.0', cost_usd: 'not.is.null' }),
       read(ctx, 'conversation_triage', { select: 'cost_usd', environment: env, cost_usd: 'not.is.null' }),
       read(ctx, 'manheim_match_audits', { select: 'cost_usd', environment: env, cost_usd: 'not.is.null' }),
       read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.manheim_openai' }),
-      read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.reply_suggestion_openai' })
+      read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.reply_suggestion_openai' }),
+      read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.reply_guided_openai' }),
+      read(ctx, 'audit_log', { select: 'after_json', environment: env, entity_type: 'eq.conversation_translation_openai' })
     ]);
     const byFeature = {
       pesquisas: sum(runs, (row) => row.cost_usd) + sum(checks, (row) => row.cost_usd),
       entrada: sum(triage, (row) => row.cost_usd),
       manheimAudit: sum(audits, (row) => row.cost_usd),
       manheimCsv: sum(csv, (row) => row.after_json && row.after_json.costUsd),
-      resposta: sum(replies, (row) => row.after_json && row.after_json.costUsd)
+      resposta: sum(replies, (row) => row.after_json && row.after_json.costUsd),
+      respostaOrientada: sum(guided, (row) => row.after_json && row.after_json.costUsd),
+      traducao: sum(translations, (row) => row.after_json && row.after_json.costUsd)
     };
     const total = Object.values(byFeature).reduce((a, b) => a + b, 0);
     return { total: Math.round(total * 1e6) / 1e6, byFeature, limit: LIMIT_USD };
@@ -53,7 +57,7 @@ function fits(spent, nextUsd = MAX_CALL_USD, extraUsd = 0) {
 // the reservation holds the real cost until the feature writes it to its own table
 // (recorded); a provider refusal releases it; a timeout or network failure keeps the worst case
 // (it may have been billed).
-const OUTPUT_CAP = Object.freeze({ PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500 });
+const OUTPUT_CAP = Object.freeze({ PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 1500, TRADUCAO_CONVERSA: 8000 });
 const NOT_BILLED = new Set(['OPENAI_FAILED', 'OPENAI_RATE_LIMIT', 'OPENAI_QUOTA', 'OPENAI_MODEL_UNAVAILABLE', 'OPENAI_KEY_INVALID']);
 const failure = (code) => Object.assign(new Error(code), { code });
 const isProduction = () => process.env.VERCEL_ENV === 'production';
