@@ -2568,17 +2568,26 @@
     });
     return card;
   }
-  // Compares every request in FALTA BUSCAR with the active batch, 40 at a time, then reloads.
+  // Compares every request in FALTA BUSCAR with the active batch, in rounds that each fit the
+  // server's time limit, then reloads. A round that fails is tried once more before giving up
+  // (what was already compared is saved and never compared again).
   async function compareRequests(button) {
     button.disabled = true;
     const status = $('requests-status');
+    const skip = [];
+    const round = async () => {
+      const ask = () => request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'compare', skip }) });
+      try { return await ask(); } catch (failure) { if (failure && failure.code === 'SEARCH_REQUESTS_PENDING') throw failure; return ask(); }
+    };
     try {
-      for (let round = 0; round < 50; round += 1) {
-        const result = await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'compare' }) });
+      for (let count = 0; count < 300; count += 1) {
+        const result = await round();
+        (result.failed || []).forEach((key) => skip.push(key));
         status.textContent = `Comparando com o lote ativo · ${result.remaining} pedido(s) restantes`;
-        if (!result.compared || !result.remaining) break;
+        if ((!result.compared && !(result.failed || []).length) || !result.remaining) break;
       }
       await loadCurrent();
+      if (skip.length) { status.classList.add('error'); status.textContent = `${skip.length} pedido(s) não puderam ser comparados e continuam em FALTA BUSCAR`; }
     } catch (failure) {
       status.classList.add('error');
       status.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Comparação indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : 'Não consegui comparar agora, tente de novo';

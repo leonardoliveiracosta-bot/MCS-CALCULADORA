@@ -337,15 +337,20 @@ async function extractNow(ctx, chatId) {
 const upsertCheck = (ctx, row) => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/vehicle_request_checks?on_conflict=environment,request_key,criteria_hash,upload_id', {
   method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(row) });
 
-async function compare(ctx) {
+// Each round answers well inside the 60 s limit; the panel calls again while something remains.
+const COMPARE_BUDGET_MS = 35000;
+async function compare(ctx, startedAt = Date.now(), skipKeys = []) {
   const list = await buildList(ctx);
   if (list.checksPending) return { status: 503, error: 'SEARCH_REQUESTS_PENDING' };
-  const pending = list.items.filter((item) => item.state === 'FALTA_BUSCAR');
-  const result = await search.compareItems(ctx, pending.slice(0, COMPARE_BATCH), { services: { upsertCheck } });
-  return { status: 200, uploadId: result.uploadId, compared: result.compared, remaining: Math.max(0, pending.length - result.compared) };
+  // Requests that failed earlier in this click go last, so they never block the rest.
+  const skip = new Set(Array.isArray(skipKeys) ? skipKeys.map(String) : []);
+  const pending = list.items.filter((item) => item.state === 'FALTA_BUSCAR' && !skip.has(item.key));
+  const result = await search.compareItems(ctx, pending.slice(0, COMPARE_BATCH), { services: { upsertCheck }, deadlineAt: startedAt + COMPARE_BUDGET_MS });
+  return { status: 200, uploadId: result.uploadId, compared: result.compared, failed: result.failed || [], remaining: Math.max(0, pending.length - result.compared - (result.failed || []).length) };
 }
 
 module.exports = async (req, res) => {
+  const startedAt = Date.now();
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
   try {
@@ -357,7 +362,7 @@ module.exports = async (req, res) => {
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await jsonBody(req, 16 * 1024);
-    if (body.action === 'compare') { const { status, ...out } = await compare(ctx); return send(res, status, out); }
+    if (body.action === 'compare') { const { status, ...out } = await compare(ctx, startedAt, body.skip); return send(res, status, out); }
     if (body.action === 'history_status') { const { status, ...out } = await historyStatus(ctx); return send(res, status, out); }
     if (body.action === 'model_check') { const { status, ...out } = await modelCheck(ctx); return send(res, status, out); }
     if (body.action === 'extract_history') { const { status, ...out } = await extractHistory(ctx, Number(body.limit) || 0); return send(res, status, out); }

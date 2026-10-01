@@ -228,13 +228,25 @@ async function compareItems(ctx, items, options = {}) {
   if (!upload) return { uploadId: null, compared: 0 };
   const cache = new Map();
   const results = [];
+  // A large batch (tens of thousands of cars) makes each make heavy to read: stop before the
+  // function's time limit and let the next round continue (at least one item per round).
+  const deadlineAt = Number(options.deadlineAt) || Infinity;
+  // One request that fails (bad criteria, a read that errors) never stops the others: it is left
+  // in FALTA BUSCAR, logged by key only, and the round goes on.
+  const failed = [];
   for (const item of items) {
-    const outcome = await compareOne(ctx, upload.id, item, cache, services);
-    await services.upsertCheck(ctx, { environment: ctx.environment, request_key: item.key, criteria_hash: item.criteriaHash, upload_id: upload.id, result: outcome.result,
-      option_count: outcome.count, sample_fingerprints: outcome.sample, compared_by: ctx.panel?.id || null });
-    results.push({ key: item.key, ...outcome });
+    if ((results.length || failed.length) && Date.now() >= deadlineAt) break;
+    try {
+      const outcome = await compareOne(ctx, upload.id, item, cache, services);
+      await services.upsertCheck(ctx, { environment: ctx.environment, request_key: item.key, criteria_hash: item.criteriaHash, upload_id: upload.id, result: outcome.result,
+        option_count: outcome.count, sample_fingerprints: outcome.sample, compared_by: ctx.panel?.id || null });
+      results.push({ key: item.key, ...outcome });
+    } catch (error) {
+      failed.push(item.key);
+      console.error('[pesquisas] comparação falhou', item.key, String(error && (error.code || error.message) || error).slice(0, 200));
+    }
   }
-  return { uploadId: upload.id, compared: results.length, results };
+  return { uploadId: upload.id, compared: results.length, failed, results };
 }
 
 module.exports = { openAiChat, HISTORY_SINCE, MAX_CALL_USD, PRICES, PROVIDER_LIMIT_USD, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };
