@@ -2341,6 +2341,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     card.append(element('p', 'muted', (demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents))));
     // The client context stays one click away: the card is about the cars and the next step.
     const contextMore = element('details', 'card-more context-details'); contextMore.append(element('summary', '', 'Contexto do cliente'), contextSlot({ journeyId: journeyIdOf(journey) }, { focus: 'cars' })); card.append(contextMore);
+    contextMore.addEventListener('toggle', () => { if (contextMore.open) hydrateContexts(contextMore); });
     const stale = staleNotice(card, demand); if (stale) card.append(stale);
     const seen=()=>loaded.concat(card.offerState?card.offerState.loaded:[]);
     let audited=auditBlock(demand,seen());if(audited)card.append(audited);

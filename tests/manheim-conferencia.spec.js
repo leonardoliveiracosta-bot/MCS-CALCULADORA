@@ -134,7 +134,7 @@ test('Gerar link V1 numa demanda ainda não conferida: confere agora e tenta de 
   const button = carro.getByRole('button', { name: 'Gerar link V1' });
   await expect(button).toBeEnabled();
   await button.click();
-  await expect(carro.locator('.manheim-card-status')).toContainText('/v/tok-ficticio');
+  await expect(carro.locator('.manheim-card-status')).toContainText('Link V1 criado');
   expect(posts.filter((item) => item && item.action === 'check')).toEqual([{ action: 'check', key: `journey:${JOURNEY}:CARRO` }]);
   // The pending one: reason on screen, no retry button, V1 disabled.
   const valor = card(page, 'valor', 'Cliente Dois Modos');
