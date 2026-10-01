@@ -1123,6 +1123,15 @@ body > .action-feedback { position: fixed; left: 16px; right: 16px; bottom: 16px
 .suggestion-head { display: flex; flex-wrap: wrap; gap: 6px; }
 .suggestion-received blockquote { margin: 4px 0; }
 .suggestion-translation { margin: 0; padding: 6px 8px; background: var(--mcs-elevated); border-radius: var(--mcs-radius-sm); font-size: 13px; overflow-wrap: anywhere; }
+/* Ficha › CONVERSA: resposta orientada e tradução da conversa (a tradução fica sob o original) */
+.guided-card { display: grid; gap: 8px; border-left: 3px solid var(--mcs-gold); }
+.guided-label { display: grid; gap: 4px; font-size: 13px; }
+.guided-input { width: 100%; min-height: 72px; resize: vertical; font: inherit; }
+.guided-conflicts { display: grid; gap: 4px; margin: 6px 0; }
+.guided-conflicts ul { margin: 0; padding-left: 18px; }
+.message-translation { margin-top: 6px; padding: 6px 8px; border-left: 3px solid var(--mcs-gold, #c9a227); background: var(--mcs-elevated); border-radius: var(--mcs-radius-sm); }
+.message-translation p { margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.translate-one { margin-top: 4px; }
 .suggestion-edit { display: grid; gap: 4px; font-weight: 600; }
 .suggestion-text { width: 100%; min-height: 120px; font: inherit; }
 .suggestion-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }

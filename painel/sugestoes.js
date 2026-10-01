@@ -135,5 +135,92 @@
     return data;
   }
 
-  window.MCSSuggest = { box, render, queue };
+  // ------------------------------------------------------------------ resposta orientada
+  // The operator writes in Portuguese what to convey; the AI writes it in the client's language.
+  // Same review as the suggestion (edit, copy, discard, open WhatsApp). Generating never sends.
+  const GUIDED_ERRORS = { ...ERRORS, GUIDANCE_REQUIRED: 'Escreva o que você quer transmitir antes de gerar', GUIDANCE_TOO_LONG: 'Orientação longa demais · Use até 1.500 caracteres', SUGGESTION_IN_PROGRESS: 'Já existe uma resposta sendo preparada para esta conversa' };
+  function guided(journeyId, { request } = {}) {
+    const card = e('section', 'lead-card guided-card');
+    card.dataset.journeyId = journeyId;
+    add(card, 'span', 'lead-label', 'RESPOSTA ORIENTADA');
+    add(card, 'p', 'muted', 'Escreva em português os pontos que quer passar · A IA redige no idioma do cliente · Nada é enviado pelo painel');
+    const label = add(card, 'label', 'guided-label', 'O que você quer transmitir');
+    const input = add(label, 'textarea', 'guided-input'); input.rows = 3; input.maxLength = 1500;
+    input.placeholder = 'Ex.: o Camry 2020 que ele gostou já passou no leilão; temos outros parecidos esta semana; pedir confirmação do lance';
+    const actions = add(card, 'div', 'lead-actions');
+    const make = add(actions, 'button', 'small', 'Gerar resposta'); make.type = 'button';
+    const status = add(card, 'p', 'status', '');
+    const body = add(card, 'div', 'suggestion-body');
+    let busy = false;
+    make.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (busy) return; // double tap: one request only
+      const guidance = input.value.trim();
+      status.classList.remove('error');
+      // Empty guidance: a warning, no call and no cost.
+      if (!guidance) { status.classList.add('error'); status.textContent = GUIDED_ERRORS.GUIDANCE_REQUIRED; input.focus(); return; }
+      busy = true; make.disabled = true; status.textContent = 'Preparando resposta…';
+      try {
+        const result = await request('/api/panel/suggestions', { method: 'POST', timeoutMs: 45000, body: JSON.stringify({ action: 'guided', journeyId, guidance }) });
+        status.textContent = '';
+        render(body, result);
+        const head = body.querySelector('.suggestion-head');
+        if (head) add(head, 'span', 'lead-badge', 'Orientada por você');
+        // What the guidance contradicts in the ficha or the conversation: shown, never chosen silently.
+        if ((result.conflicts || []).length) {
+          const box = e('div', 'warning guided-conflicts');
+          add(box, 'strong', '', 'A orientação conflita com o que está registrado · Confira antes de usar');
+          const list = add(box, 'ul', '');
+          result.conflicts.forEach((item) => add(list, 'li', '', `${item.point} × ${item.recorded} (${item.source === 'conversa' ? 'conversa' : 'ficha'})`));
+          body.insertBefore(box, body.children[1] || null);
+        }
+        make.textContent = 'Gerar outra versão';
+      } catch (failure) {
+        const code = failure && failure.code;
+        status.classList.add('error');
+        status.textContent = code === 'SUGGESTION_BLOCKED' ? 'Sem resposta: ' + ((failure.reason && failure.reason.text) || 'contato bloqueado') : GUIDED_ERRORS[code] || 'Não foi possível preparar a resposta agora';
+      } finally { busy = false; make.disabled = false; }
+    });
+    card.addEventListener('click', (event) => event.stopPropagation());
+    return card;
+  }
+
+  // ------------------------------------------------------------------ tradução da conversa
+  // On demand, with cache: saved translations come back with no call; "Traduzir conversa" translates
+  // the visible messages once; a new or changed message gets its own "traduzir" link. The original
+  // messages are never changed: the translation is shown under them.
+  function translator(journeyId, { request, onChange } = {}) {
+    const state = { translations: {}, translatable: new Set(), busy: false, loaded: false };
+    const notify = () => { if (onChange) onChange(); };
+    async function load() {
+      try {
+        const out = await request('/api/panel/suggestions', { method: 'POST', body: JSON.stringify({ action: 'translations', journeyId }) });
+        state.translations = out.translations || {}; state.translatable = new Set(out.translatable || []); state.loaded = true;
+      } catch (_) { state.loaded = false; }
+      notify();
+    }
+    async function translate(ids) {
+      const wanted = ids.filter((id) => state.translatable.has(id) && !state.translations[id]).slice(0, 20);
+      if (state.busy || !wanted.length) return { translated: 0 };
+      state.busy = true; notify();
+      try {
+        const out = await request('/api/panel/suggestions', { method: 'POST', timeoutMs: 45000, body: JSON.stringify({ action: 'translate', journeyId, messageIds: wanted }) });
+        Object.assign(state.translations, out.translations || {});
+        // Sent and answered: what came back without a translation (already Portuguese, for instance)
+        // is not offered again in this ficha, so it is not paid again on the next click.
+        wanted.forEach((id) => state.translatable.delete(id));
+        return out;
+      } finally { state.busy = false; notify(); }
+    }
+    return {
+      load, translate,
+      get: (id) => state.translations[id] || null,
+      canTranslate: (id) => state.translatable.has(id) && !state.translations[id],
+      hasAny: () => Object.keys(state.translations).length > 0,
+      pending: () => [...state.translatable].filter((id) => !state.translations[id]),
+      busy: () => state.busy
+    };
+  }
+
+  window.MCSSuggest = { box, render, queue, guided, translator };
 })();

@@ -474,3 +474,6 @@ async function queue(ctx, options = {}, services = {}) {
 }
 
 module.exports = { BANNED, searchGap, typeViolation, LANGS, OPT_OUT, OPT_OUT_WORD, QUEUE_MIN_DAYS, SCHEMA, INSTRUCTIONS, blockOf, detectLanguage, enabled, model, openAiSuggest, optOutOf, pathFor, queue, review, simulatedSuggestion, suggest, waLink };
+// Shared with the guided reply and the conversation translation (panel-reply-guided.js); the
+// automatic suggestion above does not change.
+module.exports.internals = { loadCase, realOf, sharedRefsOf, ambiguityBlock, defaultContext, messageAt, stamp, MAX_CONTEXT_MESSAGES, MAX_MESSAGE_CHARS, TIMEOUT_MS, DAY_MS };
