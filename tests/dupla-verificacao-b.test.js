@@ -46,3 +46,31 @@ test('financiamento: até US$ 7.000 só à vista; a partir de US$ 7.001 pode fin
   assert.equal(warns(7000), true);
   assert.equal(warns(7001), false);
 });
+
+test('comparar com lote grande: cada rodada para no limite de tempo (ao menos 1 pedido) e a próxima continua', async () => {
+  const search = require('../panel-search-requests');
+  const reader = async (_ctx, table) => table === 'manheim_uploads' ? [{ id: 'u1' }] : [];
+  const items = [1, 2, 3].map((n) => ({ key: 'k' + n, criteriaHash: 'h' + n, completeness: 'PRONTO', searchMode: 'CARRO', criteria: { make: 'Toyota', model: 'Camry' } }));
+  const saved = [];
+  const services = { allRows: reader, rows: reader, stateServices: { rows: reader }, upsertCheck: async (_ctx, row) => saved.push(row.request_key) };
+  const late = await search.compareItems({ environment: 'production' }, items, { services, deadlineAt: Date.now() - 1 });
+  assert.equal(late.compared, 1, 'passou do tempo: grava um e devolve o resto para a próxima rodada');
+  const onTime = await search.compareItems({ environment: 'production' }, items, { services, deadlineAt: Date.now() + 60000 });
+  assert.equal(onTime.compared, 3);
+  assert.deepEqual(saved, ['k1', 'k1', 'k2', 'k3']);
+});
+
+test('comparar: um pedido que falha não derruba a rodada; fica em FALTA BUSCAR e os outros seguem', async () => {
+  const search = require('../panel-search-requests');
+  const reader = async (_ctx, table) => table === 'manheim_uploads' ? [{ id: 'u1' }] : [];
+  const items = ['a', 'b', 'c'].map((key) => ({ key, criteriaHash: 'h', completeness: 'PRONTO', comparable: false }));
+  const saved = [];
+  const services = { allRows: reader, rows: reader, stateServices: { rows: reader }, upsertCheck: async (_ctx, row) => { if (row.request_key === 'b') throw Error('PGRST_FAKE'); saved.push(row.request_key); } };
+  const original = console.error; console.error = () => {};
+  try {
+    const out = await search.compareItems({ environment: 'production' }, items, { services });
+    assert.equal(out.compared, 2);
+    assert.deepEqual(out.failed, ['b']);
+    assert.deepEqual(saved, ['a', 'c']);
+  } finally { console.error = original; }
+});
