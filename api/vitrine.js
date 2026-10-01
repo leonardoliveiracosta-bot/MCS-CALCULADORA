@@ -1,7 +1,6 @@
 'use strict';
 const {configuration,insert,rows,supabase}=require('../panel-server');
-const {isExpired,publicResponse}=require('../vitrine-domain');
-const WHATSAPP_NUMBER='13055400742';
+const {isExpired,publicResponse,WHATSAPP_NUMBER}=require('../vitrine-domain');
 const EVENT_DEDUPE_MS=10*60*1000;
 function noStore(res,status,payload){res.setHeader('Cache-Control','no-store, max-age=0');res.setHeader('X-Robots-Tag','noindex, nofollow');res.setHeader('Content-Type','application/json; charset=utf-8');return res.status(status).json(payload);}
 const pathForApi=(value)=>String(value).split('/').map(encodeURIComponent).join('/');
