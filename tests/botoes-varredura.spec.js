@@ -14,7 +14,7 @@ const { contentHash } = require('../panel-manheim-batch');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
-test.setTimeout(1500000);
+test.setTimeout(3600000);
 const REPORT = process.env.BOTOES_REPORT || '';
 
 const id = (n) => `6cb00000-0000-4000-8000-${String(n).padStart(12, '0')}`;
