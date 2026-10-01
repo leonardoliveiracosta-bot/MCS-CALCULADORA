@@ -68,10 +68,12 @@ module.exports=async(req,res)=>{
     }
     return send(res,400,{error:'ACTION_INVALID'});
   }catch(error){
-    const code=String(error&&error.message||'');
+    // A RAISE inside the RPC arrives as error.code (see panel-server supabase()).
+    const code=String(error&&(error.code||error.message)||'');
     if(code==='AI_DAILY_LIMIT')return send(res,429,{error:code,message:'limite do dia atingido'});
     if(['AI_UNAVAILABLE','AI_RESPONSE_INVALID'].includes(code))return send(res,503,{error:'AI_UNAVAILABLE',message:'IA indisponível'});
-    if(['AI_REF_REQUIRED','AI_ITEMS_UNAVAILABLE','REF_ALREADY_LINKED'].includes(code))return send(res,409,{error:code});
+    if(['AI_REF_REQUIRED','AI_ITEMS_UNAVAILABLE','REF_ALREADY_LINKED','JOURNEY_FROZEN','JOURNEY_MERGED','CONFIRMATION_KEY_REUSED'].includes(code))return send(res,409,{error:code});
+    if(code==='JOURNEY_NOT_FOUND')return send(res,404,{error:code});
     return send(res,500,{error:'AI_ACTION_FAILED'});
   }
 };

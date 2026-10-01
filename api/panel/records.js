@@ -27,10 +27,12 @@ async function manheimCounts(ctx, journeyId) {
 }
 
 
-function newPromiseToday(promises, ref, zip) {
+function newPromiseToday(promises, ref, zip, journeyId) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
   const today = format.format(new Date());
-  return promises.some((item) => String(item.ref_code).trim() === ref && item.status === 'OPEN' && format.format(new Date(item.due_at)) === today);
+  // A promise from a ficha without calculator Ref has no ref_code: it belongs to the journey.
+  const mine = (item) => item.ref_code == null ? Boolean(journeyId) && item.journey_id === journeyId : String(item.ref_code).trim() === ref;
+  return promises.some((item) => mine(item) && item.status === 'OPEN' && format.format(new Date(item.due_at)) === today);
 }
 
 function withWhatsAppIdentity(item,userIds){
@@ -60,7 +62,7 @@ async function clientList(ctx, activeBatch) {
     loadScoreIndex(ctx).catch(() => []),
     allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
     allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'lead_promises', { select: 'ref_code,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
+    allRows(ctx, 'lead_promises', { select: 'ref_code,journey_id,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
     allRows(ctx, 'conversation_ai_items', { select: 'journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' }),
     allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' }),
     allRows(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: 'eq.' + ctx.environment }),
@@ -96,7 +98,7 @@ async function clientList(ctx, activeBatch) {
     // Lote 4: Origem, Tipo and Última atividade for the CLIENTES filters (PEDIDOS merged in).
     const ownOrders=[...new Set([item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>String(ref||'').trim().toUpperCase()).filter(Boolean))].map((ref)=>ordersByRef.get(ref)).filter(Boolean);
     const originInfo=clientOrigin(item,ownOrders,lastRealAt);
-    return [decorateContact({ ...complete, ...ready, ...originInfo, checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip)) },facts,insightByJourney.get(item.id),complete)];
+    return [decorateContact({ ...complete, ...ready, ...originInfo, checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip, item.id)) },facts,insightByJourney.get(item.id),complete)];
   });
   return { listed, meta };
 }

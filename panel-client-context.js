@@ -218,7 +218,9 @@ function criteriaSummary(step) {
   if (step.aiOnly.length) return { complete: false, text: 'Conferir o que a IA leu: ' + step.aiOnly.join(', ') };
   return { complete: true, text: 'Completos' };
 }
-function nextStep({ journey = null, closed = false, off = false, owner, fields, modes = [], searches = [], unlinkedRef = null, conversationCount = 0, conversationRead = false, sharedRefs = [] }) {
+// The day a V1 went out, as the team reads it (Florida).
+const sentDay = (iso) => { const stamp = time(iso); return stamp ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', day: '2-digit', month: '2-digit' }).format(new Date(stamp)) : null; };
+function nextStep({ journey = null, closed = false, off = false, owner, fields, modes = [], searches = [], unlinkedRef = null, conversationCount = 0, conversationRead = false, sharedRefs = [], v1 = null }) {
   const byKey = new Map(fields.map((item) => [item.key, item]));
   const needed = [...new Set(modes.flatMap((mode) => REQUIRED[mode] || []))];
   const absent = (key) => (byKey.get(key) || {}).status === 'AUSENTE';
@@ -252,6 +254,8 @@ function nextStep({ journey = null, closed = false, off = false, owner, fields, 
   else if (byStage('MISSING').length) { blocker = 'A busca ainda não foi salva no Manheim.'; suggestion = 'Salvar a busca ' + modeNames(byStage('MISSING')) + ' no Manheim'; }
   else if (byStage('SAVED').some((item) => item.cars > 0)) { const total = byStage('SAVED').reduce((sum, item) => sum + (item.cars || 0), 0); suggestion = `Escolher carros do lote ativo (${total}) e gerar o link V1`; }
   else if (byStage('SAVED').length) { blocker = 'Nenhum carro do lote ativo atende ao pedido.'; suggestion = 'Aguardar o próximo CSV do Manheim'; }
+  // A V1 already sent is never generated again: the next step is the client's answer to it.
+  else if (v1 && v1.at) { const day = sentDay(v1.at); const sent = (v1.status === 'UNCONFIRMED' ? 'V1 enviada (sem confirmação do WhatsApp)' : 'V1 enviada') + (day ? ' em ' + day : ''); suggestion = sent + ': ' + (owner.who === 'CLIENTE' ? 'acompanhar a resposta do cliente aos carros da V1' : 'seguir a conversa sobre os carros da V1'); }
   else if (byStage('SENT').length) suggestion = owner.who === 'CLIENTE' ? 'Acompanhar a resposta do cliente às opções enviadas' : 'Seguir a conversa sobre as opções enviadas';
   else suggestion = 'Definir o próximo passo na ficha';
   return { missing, aiOnly, ambiguous, blocker, action: defined || { kind: 'SUGESTAO', label: 'Sugestão do painel', text: suggestion, at: null, overdue: false } };
@@ -359,6 +363,8 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
   const evidenceIds = [...new Set([...latestVersion.values()].flatMap((version) => Object.values(version.evidence_json || {}).flat()).map(String).filter((id) => UUID.test(id)))];
   const evidenceMessages = evidenceIds.length ? await inChunks(ctx, 'messages', { select: 'id,body_text,occurred_at_utc,created_at,direction', environment: env }, 'id', evidenceIds) : [];
   const evidenceById = new Map(evidenceMessages.map((message) => [String(message.id), message]));
+  // The V1 sent by the panel (confirmed or not confirmed by the WhatsApp): the latest per ficha.
+  const v1Sends = ids.length ? await safe(inChunks(ctx, 'v1_sends', { select: 'journey_id,origin,status,simulated,created_at,updated_at', environment: env, status: 'in.(SENT,UNCONFIRMED)', order: 'created_at.desc' }, 'journey_id', ids), []) : [];
   const stageIndex = ids.length ? await safe(stageIndexFor(ctx, services.loadSearchStageIndex || loadSearchStageIndex, ids), new Map()) : new Map();
   const cars = await safe(batchCars(ctx), { byJourney: new Map(), byJourneyMode: new Map(), byRef: new Map(), upload: null });
   const uploadAt = cars.upload ? cars.upload.activated_at || cars.upload.uploaded_at : null;
@@ -394,13 +400,21 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const searches = stage && stage.modes && Object.keys(stage.modes).length
       ? Object.values(stage.modes).map((item) => ({ mode: item.mode, modeLabel: MODES[item.mode], stage: item.stage, label: SEARCH_STAGES[item.stage], at: item.at || null, cars: cars.byJourneyMode.get(journey.id + ':' + item.mode) || 0 }))
       : [];
+    // A V1 sent marks its mode as "options sent" even when the stage was read before the send (the
+    // stage reading is kept for a few seconds) or the send came before this rule existed.
+    const ownSends = v1Sends.filter((row) => row.journey_id === journey.id).sort((a, b) => (time(b.updated_at || b.created_at) || 0) - (time(a.updated_at || a.created_at) || 0));
+    searches.forEach((item) => {
+      const sent = ownSends.find((row) => !row.origin || row.origin === item.mode);
+      if (sent && item.stage !== 'SENT') Object.assign(item, { stage: 'SENT', label: SEARCH_STAGES.SENT, at: sent.updated_at || sent.created_at });
+    });
+    const v1 = ownSends[0] ? { at: ownSends[0].updated_at || ownSends[0].created_at, status: ownSends[0].status, mode: ownSends[0].origin || null, simulated: ownSends[0].simulated === true } : null;
     if (stage && stage.review && stage.review.length) searches.push({ mode: null, modeLabel: null, stage: 'QUALIFY', label: SEARCH_STAGES.QUALIFY, at: stage.at || null, cars: 0, issues: stage.review.flatMap((item) => item.issues || []) });
     if (!searches.length && stage && stage.basis === 'QUALIFY') searches.push({ mode: null, modeLabel: null, stage: 'QUALIFY', label: SEARCH_STAGES.QUALIFY, at: stage.at || null, cars: 0, issues: (stage.review || []).flatMap((item) => item.issues || []) });
     const carCount = cars.byJourney.get(journey.id) || 0;
     // The AI reading of the conversation counts only while it read the latest message.
     const latestMessage = journeyMessages.slice().sort((a, b) => (time(messageAt(b)) || 0) - (time(messageAt(a)) || 0))[0];
     const insight = insights.find((row) => row.journey_id === journey.id && latestMessage && row.last_ai_message_id === latestMessage.id) || null;
-    const step = nextStep({ journey, closed, off, owner, fields, modes, searches, conversationCount: conversation.messageCount, conversationRead: ownRequests.length > 0 || Boolean(insight), sharedRefs });
+    const step = nextStep({ journey, closed, off, owner, fields, modes, searches, conversationCount: conversation.messageCount, conversationRead: ownRequests.length > 0 || Boolean(insight), sharedRefs, v1 });
     const phoneList = phones.filter((row) => row.contact_id === journey.contact_id && row.is_current !== false && !row.retired_at).sort((a, b) => Number(b.is_primary) - Number(a.is_primary)).map((row) => row.phone_e164).filter(Boolean);
     out.journeys[journey.id] = {
       key: 'journey:' + journey.id, journeyId: journey.id, contactId: journey.contact_id,
@@ -409,7 +423,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       contact: { phones: phoneList, whatsappUsername: (userIds.find((row) => row.contact_id === journey.contact_id) || {}).username || null, location: clean(contact && contact.location_text) || null, note: phoneList.length ? null : 'Nenhum telefone salvo neste contato.' },
       origin: { code: journey.source || null, label: ORIGINS[journey.source] || journey.source || 'Não registrada', since: journey.created_at || null, calculator: ownOrders.length > 0 },
       stage: { code: journey.stage || null, label: JOURNEY_STAGES[journey.stage] || journey.stage || 'Sem etapa', status: journey.status || null, closed, off, closedReason: closed ? journey.closed_reason || null : null },
-      searches, owner, conversation,
+      searches, owner, conversation, v1,
       aiReading: insight ? { summary: clean(insight.summary_text) || null, nextStep: clean(insight.next_step_text) || null, at: insight.updated_at || null, note: 'Leitura da IA da última mensagem · não confirmada' } : null,
       modes, fields, criteria: criteriaSummary(step), situation: null, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
       promises: promises.filter((row) => row.journey_id === journey.id).map((row) => ({ text: row.promise_text, dueAt: row.due_at })),

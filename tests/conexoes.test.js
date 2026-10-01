@@ -87,3 +87,32 @@ test('PESQUISAS → ficha: dois carros do mesmo cliente vão juntos; outro tipo 
   assert.deepEqual([plan[0].mode, plan[0].messageId, plan[0].wishes.map((wish) => wish.model)], ['CARRO', 'e2', ['Camry', 'Accord']]);
   assert.deepEqual(skipped.map((entry) => [entry.key, entry.reason]), [['c', 'OUTRO_TIPO_DE_BUSCA']]);
 });
+
+test('A4: lance máximo da busca POR VALOR em ficha sem Ref ativa a busca (nunca vira teto total)', async () => {
+  const realServer = require('../panel-server');
+  const root = path.join(__dirname, '..');
+  const file = path.join(root, 'api/panel/actions.js'), mod = { exports: {} };
+  const JID = '64000000-0000-4000-8000-000000000001';
+  const journeys = new Map([[JID, { id: JID, contact_id: 'c', status: 'ATIVO', criteria_json: { mode_overrides: { VALOR: { wishlists: [{ make: 'Honda', model: 'Civic' }], wishlistOverride: true } } } }]]);
+  const audits = [];
+  const mocks = {
+    '../../panel-server': { ...realServer, requirePanel: async () => ({ config: { url: 'x', secretKey: 'k' }, panel: { id: '64000000-0000-4000-8000-000000000009' }, environment: 'preview' }), jsonBody: async (req) => req.body,
+      rows: async (_ctx, table, params) => table === 'journeys' ? [journeys.get(String(params.id).replace('eq.', ''))].filter(Boolean) : [],
+      patchRows: async (_ctx, _table, filters, payload) => { const id = String(filters.id).replace('eq.', ''); journeys.set(id, { ...journeys.get(id), ...payload }); return []; },
+      recordMutation: async (_ctx, input) => { audits.push(input); } },
+    '../../panel-read-model': { ...require('../panel-read-model'), journeyExists: async (_ctx, id) => journeys.get(id) || null }
+  };
+  const req = (name) => Object.hasOwn(mocks, name) ? mocks[name] : require(name.startsWith('.') ? path.resolve(path.dirname(file), name) : name);
+  new Function('require', 'module', 'exports', fs.readFileSync(file, 'utf8'))(req, mod, mod.exports);
+  const call = async (value) => { const res = { code: 0, payload: null, setHeader() {}, status(code) { this.code = code; return this; }, json(v) { this.payload = v; return v; } }; await mod.exports({ method: 'POST', headers: {}, body: { action: 'set_mode_bid', journeyId: JID, value } }, res); return res; };
+  const domain = require('../panel-domain');
+  assert.deepEqual(domain.journeyDemands(journeys.get(JID), []).map((demand) => [demand.mode, demand.active]), [['VALOR', false]]);
+  assert.equal((await call('US$ 500')).payload.error, 'BID_VALUE_INVALID');
+  assert.equal((await call('15,000')).payload.bidCents, 1500000);
+  const demand = domain.journeyDemands(journeys.get(JID), [])[0];
+  assert.deepEqual([demand.mode, demand.active, demand.bidCents], ['VALOR', true, 1500000], 'a busca por valor ficou ativa');
+  assert.deepEqual(journeys.get(JID).criteria_json.mode_overrides.VALOR.wishlists, [{ make: 'Honda', model: 'Civic' }], 'os carros da busca continuam');
+  assert.equal(journeys.get(JID).confirmed_total_ceiling_cents, undefined, 'R2: nunca o teto total');
+  assert.equal((await call('15000')).payload.unchanged, true);
+  assert.deepEqual(audits.map((entry) => [entry.action, entry.before.bidCents, entry.after.bidCents]), [['SET_MODE_BID', null, 1500000]]);
+});

@@ -2117,6 +2117,31 @@
     OFF: 'Envio direto desligado em produção · Use "Abrir WhatsApp com mensagem pronta"'
   };
   const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+  const sameDay = (iso) => new Date(iso || Date.now()).toDateString() === new Date().toDateString();
+  // The latest V1 of each ficha (and its last send), read once for every card on screen: the cards
+  // of one render share one GET (up to 100 fichas per request). A failure only leaves the card as
+  // before ("Gere a V1…").
+  const v1LatestQueue = new Map();
+  let v1LatestTimer = null;
+  function latestV1For(journeyId) {
+    return new Promise((resolve) => {
+      if (!journeyId) { resolve({}); return; }
+      if (!v1LatestQueue.has(journeyId)) v1LatestQueue.set(journeyId, []);
+      v1LatestQueue.get(journeyId).push(resolve);
+      if (!v1LatestTimer) v1LatestTimer = setTimeout(flushLatestV1, 0);
+    });
+  }
+  async function flushLatestV1() {
+    v1LatestTimer = null;
+    const pending = [...v1LatestQueue.entries()];
+    v1LatestQueue.clear();
+    for (let index = 0; index < pending.length; index += 100) {
+      const part = pending.slice(index, index + 100);
+      let latest = {};
+      try { latest = (await request('/api/panel/v1-send?journeyIds=' + encodeURIComponent(part.map(([id]) => id).join(',')), { method: 'GET' })).latest || {}; } catch (_) { latest = {}; }
+      part.forEach(([, resolvers]) => resolvers.forEach((resolve) => resolve(latest)));
+    }
+  }
   function v1SendControls(demand, demo = null) {
     const node = element('div', 'v1-send');
     const button = element('button', 'small', 'Enviar no WhatsApp'); button.type = 'button'; button.disabled = true;
@@ -2137,21 +2162,24 @@
       suggestionTitle.textContent = 'Mensagem sugerida · ' + (data.origin === 'VALOR' ? 'veio pela calculadora (Calculate My Cost)' : 'veio pelo Find One For Me');
       suggestionText.value = data.text; suggestion.classList.remove('hidden');
     };
-    node.append(button, fallback, state, suggestion);
+    // What this card already did with a V1, after a reload: when it was sent (or generated).
+    const sentHistory = element('p', 'muted v1-send-history hidden');
+    node.append(button, fallback, state, sentHistory, suggestion);
     let info = null;
     let token = null;
     let busy = false;
     const showLast = (last) => {
       if (!last) return;
       const simulated = last.simulated ? ' · simulado' : '';
-      state.textContent = last.status === 'SENT' ? `Enviado às ${clock(last.at)}${simulated}`
+      state.textContent = last.status === 'SENT' ? (sameDay(last.at) ? `Enviado às ${clock(last.at)}${simulated}` : `Enviado em ${formatDate(last.at)}${simulated}`)
         : last.status === 'UNCONFIRMED' ? 'Não confirmado pelo WhatsApp · Verifique a conversa antes de reenviar'
         : last.status === 'FAILED' ? 'Não enviado: o WhatsApp recusou o envio' : state.textContent;
       state.dataset.status = last.status;
       if (['SENT', 'UNCONFIRMED', 'FAILED'].includes(last.status)) button.textContent = 'Reenviar';
     };
     const setFallback = (href) => { if (href) { fallback.href = href; fallback.classList.remove('hidden'); } };
-    async function setVitrine(newToken) {
+    async function setVitrine(newToken, keepHistory = false) {
+      if (!keepHistory) sentHistory.classList.add('hidden');
       token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp'; showSuggestion(null);
       state.textContent = 'Conferindo o destino…'; delete state.dataset.status;
       try {
@@ -2195,6 +2223,7 @@
         try {
           const result = await request('/api/panel/v1-send', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: demo ? 'demo_send' : 'send', token, text: textarea.value, requestKey, confirmed: true, resend, ...(demo || {}), ...(demand?.key ? { demandKey: demand.key } : {}) }) });
           box.remove();
+          sentHistory.classList.add('hidden');
           showLast({ status: result.sendStatus, at: result.at, simulated: result.simulated });
         } catch (failure) {
           box.remove();
@@ -2214,7 +2243,20 @@
     }
     button.addEventListener('click', (event) => { event.stopPropagation(); openConfirm(); });
     node.addEventListener('click', (event) => event.stopPropagation());
-    return { node, setVitrine };
+    // The latest V1 of this demand, read from the server after a reload (never a new V1).
+    function restore(item) {
+      if (!item || !item.token || token) return;
+      const sent = item.lastSent || item.previousSent || null;
+      const simulated = sent && sent.simulated ? ' · simulado' : '';
+      sentHistory.textContent = item.lastSent
+        ? `V1 enviada em ${formatDate(sent.at)}${sent.status === 'UNCONFIRMED' ? ' · sem confirmação do WhatsApp' : ''}${simulated} · Link: ${location.origin}${item.link}`
+        : sent ? `V1 gerada em ${formatDate(item.createdAt)} · ainda não enviada · A V1 anterior foi enviada em ${formatDate(sent.at)}${simulated}`
+          : `V1 gerada em ${formatDate(item.createdAt)} · ainda não enviada · Link: ${location.origin}${item.link}`;
+      sentHistory.dataset.status = item.lastSent ? item.lastSent.status : 'GENERATED';
+      sentHistory.classList.remove('hidden');
+      setVitrine(item.token, true);
+    }
+    return { node, setVitrine, restore, hasVitrine: () => Boolean(token) };
   }
 
   // Selection not available on this database (migration pending): the list below is only internal
@@ -2331,6 +2373,8 @@
       cardStatus.textContent = `PDF com ${selected.length} ${selected.length === 1 ? 'carro' : 'carros'} baixado`;
     });
     const v1Send=v1SendControls(demand);
+    /* After a reload the card remembers its latest V1 (link and when it was sent) instead of "Gere a V1…". */
+    latestV1For(journey.id).then((latest)=>{const item=latest[demand?.key||('journey:'+journey.id)];if(!item||v1Send.hasVitrine())return;copyMessageButton.dataset.link=location.origin+item.link;copyMessageButton.disabled=false;v1Send.restore(item);});
     const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);cardStatus.textContent='Mensagem com link copiada';}catch(_){cardStatus.textContent='Não consegui copiar · Link: '+link;}});
     const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';
     const v1Error=(error)=>error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_MATCH_WITHOUT_MMR'?'Carro sem MMR válido não entra na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável':'Não consegui gerar o link';
@@ -2861,6 +2905,17 @@
         const keep = element('button', 'quiet small', 'Manter pendente'); keep.type = 'button';
         keep.addEventListener('click', () => MCSAction.feedback(line, 'Continua pendente', 'success', 'review-keep'));
         actions.append(keep);
+      }
+      if (item.canSetBid) {
+        // POR VALOR without the maximum bid: the bid makes the search active (then OPÇÕES compares it).
+        const bid = element('input', 'review-bid'); bid.type = 'text'; bid.inputMode = 'decimal'; bid.placeholder = 'Lance máximo, ex.: 15000'; bid.setAttribute('aria-label', 'Lance máximo da busca POR VALOR (US$)');
+        const save = element('button', 'small', 'Salvar lance'); save.type = 'button';
+        MCSAction.bind(save, () => ({ scope: line, optimistic: () => { save.textContent = 'Salvando…'; },
+          commit: () => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_mode_bid', journeyId: item.journeyId, value: bid.value }) }),
+          rollback: () => { save.textContent = 'Salvar lance'; }, successText: 'Lance salvo · OPÇÕES vai comparar esta busca com o lote', feedbackKey: 'review-bid:' + item.key,
+          errorText: (failure) => failure && failure.code === 'BID_VALUE_INVALID' ? 'Lance inválido · Use um valor entre US$ 3,000 e US$ 300,000' : 'Não consegui salvar o lance · tente de novo',
+          refresh: () => loadCurrent() }));
+        actions.append(bid, save);
       }
       const open = element('button', 'quiet small', item.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
       open.addEventListener('click', () => item.journeyId ? openDetail('ficha', item.journeyId) : openDetail('order', item.ref));

@@ -11,10 +11,12 @@ const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 const { optOutOf } = require('../../panel-opt-out');
 
-function dueToday(promises, ref, zip, now) {
+function dueToday(promises, ref, zip, now, journeyId) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
   const today = format.format(now);
-  return promises.some((item) => String(item.ref_code).trim() === ref && item.status === 'OPEN' && format.format(new Date(item.due_at)) === today);
+  // A promise from a ficha without calculator Ref has no ref_code: it belongs to the journey.
+  const mine = (item) => item.ref_code == null ? Boolean(journeyId) && item.journey_id === journeyId : String(item.ref_code).trim() === ref;
+  return promises.some((item) => mine(item) && item.status === 'OPEN' && format.format(new Date(item.due_at)) === today);
 }
 
 module.exports = async (req, res) => {
@@ -179,7 +181,7 @@ module.exports = async (req, res) => {
       const facts=contacts.facts({journeyId:journey?.id,ref,refs:journey?(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});
       const ownMessages=journeyId?data.messages.filter((message)=>message.journey_id===journeyId).sort((a,b)=>(time(b.occurred_at_utc||b.created_at)||0)-(time(a.occurred_at_utc||a.created_at)||0)):[];
       const latestMessage=ownMessages.find((message)=>!message.is_automatic)||ownMessages[0]||null,latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
-      return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wantedAfterDisposition(ref,dispositionAt,dispositionStatus),
+      return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now, journeyId)), wantsCar: wantedAfterDisposition(ref,dispositionAt,dispositionStatus),
         todayReasons:journeyId&&dispositionStatus!=='DISCARDED'?(overdueByJourney.get(journeyId)||[]).filter((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)).map(({kind,label,dueAt,detail,urgency})=>({kind,label,dueAt:dueAt||null,detail:detail||null,urgency:urgency||'yellow'})):[],
         awaitingReply:Boolean(latestMessage&&latestMessage.direction==='CUSTOMER'),
         pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false }, facts, insightByJourney.get(journeyId), journey);

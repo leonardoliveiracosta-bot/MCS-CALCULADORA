@@ -13,6 +13,7 @@ const { dispositionIndex } = require('../../panel-disposition');
 const vehicleCatalog = require('../../vehicle-catalog');
 const { parseMoneyCents } = require('../../money-text');
 const { localToUtc, timezoneForZip } = require('../../panel-lead');
+const presentation = require('../../panel-presentation');
 const {
   allRows, insert, isUuid, jsonBody, patchRows, recordMutation, requirePanel,
   rows, safeText, send, supabase
@@ -438,7 +439,6 @@ async function actionUnit(ctx, journey, body) {
     });
   } else {
     let vehicle = safeText(body.vehicleText, 500, true);
-    let details = {};
     let match = null;
     if (body.manheimMatchId) {
       if (!isUuid(body.manheimMatchId)) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_ID_INVALID' });
@@ -454,18 +454,20 @@ async function actionUnit(ctx, journey, body) {
       const parsed = match.vehicle_json && match.vehicle_json.parsed || {};
       // MMR is mandatory: a car without a valid MMR is never presented as an option.
       if (!vehicleMatchRule.hasValidMmr(parsed)) return send(ctx.res, 409, { error: 'MANHEIM_MATCH_WITHOUT_MMR' });
-      vehicle = safeText([parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' '), 500, true);
-      details = {
-        manheim_match_id: match.id, miles: finiteInteger(parsed.miles), location: safeText(parsed.location, 200) || null,
-        sale_date: safeText(parsed.saleDate, 100) || null, mmr_cents: finiteInteger(parsed.mmrCents),
-        exterior_color: safeText(parsed.exteriorColor, 120) || null, buy_now_price: safeText(parsed.buyNowPrice, 120) || null,
-        condition_report_grade: safeText(parsed.conditionGrade, 120) || null
-      };
+      vehicle = presentation.vehicleTextOf(parsed);
     }
     if (!vehicle) return send(ctx.res, 400, { error: 'UNIT_VEHICLE_REQUIRED' });
-    const created = await insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: vehicle, details_json: details, presented_at: at, status, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id });
-    unitId = created[0].id;
-    if (match) await patchRows(ctx, 'manheim_matches', { environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + match.id }, { presented_unit_id: unitId });
+    if (match) {
+      // The same unit + presented_unit_id as the V1 sent by the panel (panel-presentation.js).
+      unitId = await presentation.presentMatch(ctx, journey, match, at, { rows, insert, patchRows }, { status });
+      if (!unitId) {
+        const [again] = await rows(ctx, 'manheim_matches', { select: 'presented_unit_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + match.id, limit: '1' });
+        return send(ctx.res, 200, { unitId: again && again.presented_unit_id || null, status: 'PRESENTED', stage: journey.stage, repeated: true });
+      }
+    } else {
+      const created = await insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: vehicle, details_json: {}, presented_at: at, status, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id });
+      unitId = created[0].id;
+    }
   }
   const units = await allRows(ctx, 'units', { select: 'id,status', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
   const stage = nextStageForUnits(journey.stage, units);
@@ -659,6 +661,34 @@ async function actionSetSearchMode(ctx, journey, body) {
   return send(ctx.res, 200, { journeyId: journey.id, modes: after });
 }
 
+// Lance máximo da busca POR VALOR de uma ficha sem Ref da calculadora (A4): sem ele a busca por
+// valor nunca fica ativa. Grava só mode_overrides.VALOR.bidCents (os carros da busca ficam como
+// estão); é o lance, nunca o teto total (R2). Operador, hora, antes e depois ficam registrados.
+const BID_MIN_CENTS = 300000, BID_MAX_CENTS = 30000000;
+async function actionSetModeBid(ctx, journey, body) {
+  if (journey.stage_frozen || journey.status === 'ENCERRADO') return send(ctx.res, 409, { error: 'JOURNEY_CLOSED' });
+  const bidCents = parseMoneyCents(body.value);
+  if (bidCents === null || bidCents < BID_MIN_CENTS || bidCents > BID_MAX_CENTS) return send(ctx.res, 400, { error: 'BID_VALUE_INVALID' });
+  const [current] = await rows(ctx, 'journeys', { select: 'id,criteria_json', environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id, limit: '1' });
+  if (!current) return send(ctx.res, 404, { error: 'JOURNEY_NOT_FOUND' });
+  const criteria = current.criteria_json && typeof current.criteria_json === 'object' && !Array.isArray(current.criteria_json) ? current.criteria_json : {};
+  const overrides = criteria.mode_overrides && typeof criteria.mode_overrides === 'object' && !Array.isArray(criteria.mode_overrides) ? criteria.mode_overrides : {};
+  const valor = overrides.VALOR && typeof overrides.VALOR === 'object' && !Array.isArray(overrides.VALOR) ? overrides.VALOR : null;
+  // Only a ficha that already searches by value (its VALOR criteria) gets a bid here.
+  if (!valor && !confirmedJourneyModes(current).includes('VALOR')) return send(ctx.res, 409, { error: 'SEARCH_MODE_NOT_VALOR' });
+  const before = valor && Number(valor.bidCents) > 0 ? Number(valor.bidCents) : null;
+  if (before === bidCents) return send(ctx.res, 200, { journeyId: journey.id, bidCents, unchanged: true });
+  const at = isoNow();
+  const nextValor = { ...(valor || {}), bidCents };
+  await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { criteria_json: { ...criteria, mode_overrides: { ...overrides, VALOR: nextValor } }, updated_at: at, updated_by: ctx.panel.id });
+  await recordMutation(ctx, {
+    at, journeyId: journey.id, contactId: journey.contact_id, activityType: 'SEARCH_BID_DEFINED', summary: `Lance máximo da busca POR VALOR: US$ ${Math.round(bidCents / 100).toLocaleString('en-US')}`,
+    metadata: { before, after: bidCents }, entityType: 'journey', entityId: journey.id, action: 'SET_MODE_BID',
+    before: { bidCents: before }, after: { bidCents }
+  });
+  return send(ctx.res, 200, { journeyId: journey.id, bidCents });
+}
+
 // "Revisar tipo de busca" for a manual criterion saved without mode on a ficha with two modes:
 // the operator says which mode it belongs to. It moves to mode_overrides[mode] and leaves the
 // generic list; the other mode is not touched. Operator, time, before and after are audited.
@@ -798,6 +828,7 @@ module.exports = async (req, res) => {
       case 'invert_senders': return await actionInvertSenders(ctx, journey, body);
       case 'set_search_mode': return await actionSetSearchMode(ctx, journey, body);
       case 'assign_manual_mode': return await actionAssignManualMode(ctx, journey, body);
+      case 'set_mode_bid': return await actionSetModeBid(ctx, journey, body);
       default: return send(res, 400, { error: 'PANEL_ACTION_INVALID' });
     }
   } catch (failure) {

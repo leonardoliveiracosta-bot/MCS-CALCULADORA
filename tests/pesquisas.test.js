@@ -392,3 +392,13 @@ test('16 · Comparar leva o pedido da conversa para a ficha sem carro e os carro
   assert.equal(again.options && again.options.stale, 0, JSON.stringify(again.options));
   assert.deepEqual(backend.refused, [], 'nada enviado nem chamado fora');
 });
+
+test('17 · A10: a ficha oferece só carros do lote ativo, os mesmos de OPÇÕES (lote antigo fica fora)', async () => {
+  // A newer batch becomes the active one; the first batch is still "live" (60 days) but older.
+  await batch([car('PESQ00000000000010', 'Toyota', 'Camry', { year: 2021, miles: 40000 })], 'd');
+  const res = await call('lead', '/api/panel/lead?id=' + id(5));
+  assert.equal(res.statusCode, 200, JSON.stringify(res.payload).slice(0, 300));
+  const vins = (res.payload.offers || []).map((offer) => offer.vin);
+  assert.ok(vins.includes('PESQ00000000000010'), 'o carro do lote ativo aparece: ' + JSON.stringify(vins));
+  assert.ok(!vins.includes('PESQ00000000000003'), 'o carro do lote anterior não aparece');
+});

@@ -1,7 +1,7 @@
 begin;
 do $$
 declare c uuid:=gen_random_uuid(); j uuid:=gen_random_uuid(); ch uuid:=gen_random_uuid(); m uuid:=gen_random_uuid();
-  first_reading uuid; second_reading uuid; confirmed_item uuid; result jsonb; allowed jsonb;
+  u uuid:=gen_random_uuid(); first_reading uuid; second_reading uuid; confirmed_item uuid; result jsonb; allowed jsonb;
 begin
   insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values(c,'preview','Cliente IA','WHATSAPP_DIRECT',now(),now());
   insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at)
@@ -32,12 +32,13 @@ begin
   if exists(select 1 from public.conversation_ai_items where reading_id=second_reading and item_fingerprint=repeat('a',64)) then raise exception 'AI_CONFIRMED_RETURNED'; end if;
   if not exists(select 1 from public.conversation_ai_items where reading_id=first_reading and item_fingerprint=repeat('b',64) and status='SUPERSEDED') then raise exception 'AI_PENDING_NOT_SUPERSEDED'; end if;
 
-  begin
-    perform public.panel_ai_confirm_items('preview',null,j,second_reading,array[(select id from public.conversation_ai_items where reading_id=second_reading)],gen_random_uuid(),'{}');
-    raise exception 'AI_REF_SHOULD_BE_REQUIRED';
-  exception when others then
-    if sqlerrm not like '%AI_REF_REQUIRED%' then raise; end if;
-  end;
+  -- Ficha sem Ref da calculadora: o item é confirmado pela jornada (antes: AI_REF_REQUIRED).
+  insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password)
+    values(u,'preview',gen_random_uuid(),'ia-conversas@example.com','operator',true,false);
+  result:=public.panel_ai_confirm_items('preview',u,j,second_reading,array[(select id from public.conversation_ai_items where reading_id=second_reading)],gen_random_uuid(),'{}');
+  if (result->>'confirmed')::integer<>1 or (result->>'journeyId')::uuid<>j then raise exception 'AI_NO_REF_CONFIRM_FAILED %',result; end if;
+  if (select customer_deadline_text from public.journeys where id=j)<>'30d' then raise exception 'AI_NO_REF_DEADLINE_NOT_WRITTEN'; end if;
+  if not exists(select 1 from public.lead_notes where environment='preview' and journey_id=j and ref_code is null) then raise exception 'AI_NO_REF_NOTE_MISSING'; end if;
 
   delete from public.conversation_ai_daily_usage where environment='preview';
   insert into public.conversation_ai_daily_usage values('preview',((now() at time zone 'America/New_York')::date)-1,100,now());

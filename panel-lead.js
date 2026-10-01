@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const calc = require('./calc-core');
 const vehicleMatch = require('./vehicle-match');
 const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, journeyDemands, normalizeDeadline, normalizePayment, orderDemand, REF_RE } = require('./panel-domain');
-const { batchSupported, liveUploadIds } = require('./panel-manheim-state');
+const { batchSupported, latestActiveUpload, liveUploadIds } = require('./panel-manheim-state');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 
@@ -165,10 +165,20 @@ async function leadData(ctx, req, refInput, idInput) {
     try{return await read();}
     catch(error){console.error('[panel-lead-read]',{label,ref,journeyId:journey?.id||null,message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});return [];}
   };
+  // A note confirmed while the ficha had no calculator Ref is kept by the journey (ref_code null);
+  // once the ficha gets a Ref those rows are still its own, so they are read together.
+  const scoped=(table,extra,sortKey,descending)=>optionalRead(table,async()=>{
+    const own=await allRows(ctx, table, { select: '*', environment: 'eq.' + ctx.environment, ...scope, ...extra, order: sortKey + (descending ? '.desc' : '.asc') });
+    if (!hasRef || !journey) return own;
+    const seen=new Set(own.map((row)=>row.id));
+    const unref=(await allRows(ctx, table, { select: '*', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, ref_code: 'is.null', ...extra, order: sortKey + (descending ? '.desc' : '.asc') })).filter((row)=>!seen.has(row.id));
+    if (!unref.length) return own;
+    return own.concat(unref).sort((a,b)=>((Date.parse(a[sortKey])||0)-(Date.parse(b[sortKey])||0))*(descending?-1:1));
+  });
   const [notes, events, promises, aiReadings, aiSuggestions, aiHelp, stageIndex] = await Promise.all([
-    optionalRead('lead_notes',()=>allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'created_at.desc' })),
-    optionalRead('lead_events',()=>allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ...scope, undone_at: 'is.null', order: 'occurred_at.desc' })),
-    optionalRead('lead_promises',()=>allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'due_at.asc' })),
+    scoped('lead_notes',{},'created_at',true),
+    scoped('lead_events',{undone_at:'is.null'},'occurred_at',true),
+    scoped('lead_promises',{},'due_at',false),
     journey ? optionalRead('conversation_ai_readings',()=>rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('whatsapp_link_suggestions',()=>rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('lead_ai_help',()=>allRows(ctx,'lead_ai_help',{select:'id,question,answer_json,created_at',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,order:'created_at.desc'})) : Promise.resolve([]),
@@ -206,10 +216,15 @@ async function leadData(ctx, req, refInput, idInput) {
     if (!makes.length || !(await batchSupported(ctx, { rows }))) return [];
     const uploadIds = await liveUploadIds(ctx, { since: cutoff }, { rows });
     if (!uploadIds.length) return [];
-    return allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at', environment: 'eq.' + ctx.environment, upload_id: 'in.(' + uploadIds.join(',') + ')', undone_at: 'is.null', make_key: 'in.(' + makes.concat(['']).map((make) => '"' + make.replace(/"/g, '') + '"').join(',') + ')', order: 'uploaded_at.desc' });
+    return allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json,uploaded_at,upload_id', environment: 'eq.' + ctx.environment, upload_id: 'in.(' + uploadIds.join(',') + ')', undone_at: 'is.null', make_key: 'in.(' + makes.concat(['']).map((make) => '"' + make.replace(/"/g, '') + '"').join(',') + ')', order: 'uploaded_at.desc' });
   });
   const unique = new Map();
   for (const entry of archive) if (!unique.has(entry.row_fingerprint)) unique.set(entry.row_fingerprint, { ...entry.vehicle_json, rowFingerprint: entry.row_fingerprint, uploadedAt: entry.uploaded_at });
+  // A10: the cars offered come only from the active batch, the same cars OPÇÕES shows (an older
+  // batch may list cars already sold). The 60 days of batches still feed the "MMR típico".
+  const activeUpload = archive.length ? await latestActiveUpload(ctx, 'id').catch(() => null) : null;
+  const current = new Map();
+  for (const entry of archive) if (activeUpload && entry.upload_id === activeUpload.id && !current.has(entry.row_fingerprint)) current.set(entry.row_fingerprint, { ...entry.vehicle_json, rowFingerprint: entry.row_fingerprint, uploadedAt: entry.uploaded_at });
   const matchesFor = (car) => demands.map((demand) => ({ demand, result: vehicleMatch.matchDemand(car, { ...demand, wishes: demand.activeWishes }) })).filter((entry) => entry.result);
   const typical = wishes.map((wish) => {
     // A:P16: "MMR típico" uses the same rule as the offers and the CSV, never a car whose fit
@@ -220,7 +235,7 @@ async function leadData(ctx, req, refInput, idInput) {
   });
   // Offers use each demand's own rule (VALOR: the maximum bid, never the total ceiling, R2).
   // A QUASE caused by missing data keeps its notice so it is not read as a fit.
-  const offers = [...unique.values()].flatMap((vehicle) => matchesFor(vehicle).map(({ demand, result }) => ({ ...vehicle, mode: demand.mode, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap })))
+  const offers = [...(activeUpload ? current : unique).values()].flatMap((vehicle) => matchesFor(vehicle).map(({ demand, result }) => ({ ...vehicle, mode: demand.mode, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap })))
     .sort((a, b) => offerRank(a) - offerRank(b)).slice(0, 80);
   // "Cabe" = BATE or POR_VALOR (real opportunities); QUASE never counts as a fit.
   const fitSeen = new Set();

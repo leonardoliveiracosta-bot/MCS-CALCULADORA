@@ -161,7 +161,7 @@
     const note=section(root,8,'ANOTAÇÕES E AJUDA DA IA','lead-highlight');
     append(note,'p','muted','Escreva do seu jeito, em português · Peça uma opinião sobre este cliente, ou anote o que conversou por telefone ou pessoalmente');
     const textarea=append(note,'textarea','lead-note');textarea.placeholder='Anote a conversa aqui…';textarea.maxLength=12000;
-    const draftKey='mcs_lead_draft_'+ref;textarea.value=sessionStorage.getItem(draftKey)||'';
+    const draftKey='mcs_lead_draft_'+(ref||journeyId);textarea.value=sessionStorage.getItem(draftKey)||'';
     textarea.addEventListener('input',()=>sessionStorage.setItem(draftKey,textarea.value));
     const noteStatus=append(note,'p','status','');const review=append(note,'div','lead-review');
     button(note,'📋 Distribuir o que conversei',async()=>{
@@ -229,7 +229,7 @@
     const aiStatus=append(aiReview,'p','status','');
     const readNow=append(aiReview,'button','quiet small','Ler conversa agora');readNow.type='button';MCSAction.bind(readNow,()=>({scope:aiReview,optimistic:()=>{aiStatus.textContent='Lendo conversa…';},commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'read',journeyId:record.id,chatId:aiReading?.chat_id||null})}),onSuccess:()=>reload(),onError:(error)=>{aiStatus.textContent=error.code==='AI_DAILY_LIMIT'?'limite do dia atingido':'IA indisponível';},errorText:'Não consegui salvar, tente de novo'}));
     if(aiReading){
-      if(!hasCalculatorRef)append(aiReview,'p','warning','Ligue ao pedido para confirmar');
+      if(!hasCalculatorRef)append(aiReview,'p','muted','Ficha sem Ref da calculadora · o que você confirmar vai direto para esta ficha');
       if(aiReading.items?.length)append(aiReview,'div','ai-route-title','Vai para:');
       const selected=[];
       (aiReading.items||[]).forEach((item)=>{const line=append(aiReview,'label','lead-route');const input=append(line,'input');input.type='checkbox';input.checked=!item.manual_review&&item.type!=='budget';selected.push({input,id:item.id});
@@ -237,7 +237,7 @@
         const detail=append(line,'div','lead-route-value');append(detail,'span','',itemLabel(item,data.timezone));if(item.manual_review||item.type==='budget')append(detail,'span','lead-badge yellow','confirmar manualmente');append(detail,'small','muted',`Cliente: “${item.evidence}”`);
       });
       const aiActions=append(aiReview,'div','lead-actions');
-      const confirm=append(aiActions,'button','small','Confirmar');confirm.type='button';confirm.disabled=!hasCalculatorRef||!aiReading.items?.length;MCSAction.bind(confirm,()=>{const itemIds=selected.filter((entry)=>entry.input.checked).map((entry)=>entry.id);if(!itemIds.length){aiStatus.textContent='Marque pelo menos um item';return{scope:aiActions,commit:()=>Promise.reject(new Error('NO_ITEMS')),errorText:'Marque pelo menos um item'};}return{scope:aiActions,optimistic:()=>{aiStatus.textContent='Gravando…';},commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'confirm',journeyId:record.id,readingId:aiReading.id,itemIds,confirmationKey:crypto.randomUUID()})}),onSuccess:()=>reload(),onError:(error)=>{aiStatus.textContent=error.code==='AI_REF_REQUIRED'?'Ligue ao pedido para confirmar':'Não foi possível confirmar';},errorText:'Não consegui salvar, tente de novo'};});
+      const confirm=append(aiActions,'button','small','Confirmar');confirm.type='button';confirm.disabled=!aiReading.items?.length;MCSAction.bind(confirm,()=>{const itemIds=selected.filter((entry)=>entry.input.checked).map((entry)=>entry.id);if(!itemIds.length){aiStatus.textContent='Marque pelo menos um item';return{scope:aiActions,commit:()=>Promise.reject(new Error('NO_ITEMS')),errorText:'Marque pelo menos um item'};}return{scope:aiActions,optimistic:()=>{aiStatus.textContent='Gravando…';},commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'confirm',journeyId:record.id,readingId:aiReading.id,itemIds,confirmationKey:crypto.randomUUID()})}),onSuccess:()=>reload(),onError:(error)=>{aiStatus.textContent=error.code==='JOURNEY_FROZEN'?'Ficha encerrada: só aceita telefone ou sugestão':'Não foi possível confirmar';},errorText:'Não consegui salvar, tente de novo'};});
       const discard=append(aiActions,'button','quiet small','Descartar');discard.type='button';discard.disabled=!aiReading.items?.length;MCSAction.bind(discard,()=>({scope:aiActions,commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'discard',journeyId:record.id,readingId:aiReading.id})}),onSuccess:()=>reload(),onError:()=>{aiStatus.textContent='Não foi possível descartar';},errorText:'Não consegui salvar, tente de novo'}));
       aiActions.append(readNow);
     }
