@@ -203,6 +203,7 @@ async function audit(ctx) {
 //    provedor também para com segurança; cada lote é registrado (provedor, modelo, tokens, custo).
 // Nada é enviado a ninguém. Fora de produção a leitura é sempre simulada.
 const HISTORY_BATCH = 10;
+const modelChecksOf = (batches, provider) => batches.filter((row) => row.provider === provider && row.conversations === 0 && /^MODEL_CHECK_|^MODEL_UNAVAILABLE/.test(row.stopped_reason || ''));
 const BATCH_SECONDS = 30;
 const CHECK_OK = 'MODEL_CHECK_OK';
 const round6 = (value) => Math.round(value * 1e6) / 1e6;
@@ -220,9 +221,11 @@ async function historyState(ctx, provider) {
   customer.forEach((row) => { if (individual.has(row.chat_id) && (!newest.get(row.chat_id) || row.created_at > newest.get(row.chat_id))) newest.set(row.chat_id, row.created_at); });
   const lastRead = new Map();
   runs.filter((run) => run.status !== 'FAILED').forEach((run) => { if (!lastRead.get(run.chat_id) || run.created_at > lastRead.get(run.chat_id)) lastRead.set(run.chat_id, run.created_at); });
-  const pending = [...newest.keys()].filter((id) => !lastRead.has(id) || newest.get(id) > lastRead.get(id));
+  // Whoever wrote last is read first: a reply that just arrived never waits behind old conversations.
+  const pending = [...newest.keys()].filter((id) => !lastRead.has(id) || newest.get(id) > lastRead.get(id))
+    .sort((a, b) => String(newest.get(b)).localeCompare(String(newest.get(a))));
   const ownRuns = runs.filter((run) => run.provider === provider);
-  const checks = batches.filter((row) => row.provider === provider && row.conversations === 0 && /^MODEL_CHECK_|^MODEL_UNAVAILABLE/.test(row.stopped_reason || ''));
+  const checks = modelChecksOf(batches, provider);
   const spent = ownRuns.reduce((sum, run) => sum + (Number(run.cost_usd) || 0), 0) + checks.reduce((sum, row) => sum + (Number(row.cost_usd) || 0), 0);
   return { pending, total: newest.size, processed: newest.size - pending.length, requestsFound: requestRows.length,
     messagesRead: ownRuns.filter((run) => run.status !== 'FAILED').reduce((sum, run) => sum + (Number(run.messages_read) || 0), 0), spentUsd: round6(spent), lastCheck: checks.at(-1) || null };
@@ -276,29 +279,49 @@ async function extractHistory(ctx, limit, options = {}) {
   const deadlineAt = options.deadlineAt || started + BATCH_SECONDS * 1000;
   if (!state.pending.length) return progressOf(state, context, { read: 0, failed: 0, stoppedReason: null, batchCostUsd: 0 });
   const provider = context.provider === 'OPENAI' ? await openAiBudget.spentUsd(ctx) : null;
-  const wanted = Math.min(limit || HISTORY_BATCH, HISTORY_BATCH);
+  // The cron reads with no count limit (Infinity), only its time window and the US$ 50 OpenAI ceiling;
+  // the panel button keeps its batch of 10.
+  const wanted = limit === Infinity ? Infinity : Math.min(limit || HISTORY_BATCH, HISTORY_BATCH);
+  const workers = Math.max(1, Math.min(8, Number(options.concurrency) || 1));
   // A conversation whose newer customer message has no text keeps the same content: it is
   // skipped as already read and does not use one of the readings of this batch.
-  let attempted = 0;
-  for (const chatId of state.pending) {
-    if (attempted >= wanted) break;
-    if (context.limitUsd !== null && (state.spentUsd + batch.costUsd + search.MAX_CALL_USD > context.limitUsd || (provider && !openAiBudget.fits(provider, search.MAX_CALL_USD, batch.costUsd)))) { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
-    if (Date.now() > deadlineAt) break;
-    const out = await search.extractChat(ctx, chatId, options.extract || {});
-    // Read by someone else right now (cron and button) or already paid: never a second call.
-    if (out.alreadyRead || out.inProgress) continue;
-    if (out.error === 'OPENAI_BUDGET_LIMIT' || out.error === 'OPENAI_BUDGET_UNAVAILABLE') { batch.stoppedReason = 'PROVIDER_LIMIT'; break; }
-    attempted += 1;
-    if (out.error === 'OPENAI_QUOTA') { batch.stoppedReason = 'PROVIDER_QUOTA'; break; }
-    if (out.error === 'OPENAI_MODEL_UNAVAILABLE') { batch.stoppedReason = 'MODEL_UNAVAILABLE'; break; }
-    batch.conversations += out.alreadyRead || out.error ? 0 : 1;
-    batch.inputTokens += out.usage?.input || 0; batch.outputTokens += out.usage?.output || 0; batch.costUsd += Number(out.costUsd) || 0;
-    done.push({ chatId, requests: out.requests || 0, error: out.error || null });
+  let attempted = 0, next = 0;
+  const stop = (reason) => { if (!batch.stoppedReason) batch.stoppedReason = reason; };
+  async function worker() {
+    while (!batch.stoppedReason && next < state.pending.length && attempted < wanted) {
+      if (context.limitUsd !== null && (state.spentUsd + batch.costUsd + search.MAX_CALL_USD * workers > context.limitUsd || (provider && !openAiBudget.fits(provider, search.MAX_CALL_USD * workers, batch.costUsd)))) { stop('PROVIDER_LIMIT'); return; }
+      if (Date.now() > deadlineAt) return;
+      const chatId = state.pending[next++];
+      attempted += 1;
+      const out = await search.extractChat(ctx, chatId, options.extract || {});
+      // Read by someone else right now (cron and button) or already paid: never a second call.
+      if (out.alreadyRead || out.inProgress) { attempted -= 1; continue; }
+      if (out.error === 'OPENAI_BUDGET_LIMIT' || out.error === 'OPENAI_BUDGET_UNAVAILABLE') { stop('PROVIDER_LIMIT'); return; }
+      if (out.error === 'OPENAI_QUOTA') stop('PROVIDER_QUOTA');
+      if (out.error === 'OPENAI_MODEL_UNAVAILABLE') stop('MODEL_UNAVAILABLE');
+      batch.conversations += out.error ? 0 : 1;
+      batch.inputTokens += out.usage?.input || 0; batch.outputTokens += out.usage?.output || 0; batch.costUsd += Number(out.costUsd) || 0;
+      done.push({ chatId, requests: out.requests || 0, error: out.error || null });
+    }
   }
+  await Promise.all(Array.from({ length: workers }, worker));
   await insert(ctx, 'vehicle_request_batches', { environment: ctx.environment, provider: context.provider, model: context.model, conversations: batch.conversations,
     input_tokens: batch.inputTokens, output_tokens: batch.outputTokens, cost_usd: round6(batch.costUsd), stopped_reason: batch.stoppedReason, created_by: ctx.panel?.id || null }, false);
   const after = await historyState(ctx, context.provider);
   return progressOf(after, context, { read: done.length, failed: done.filter((item) => item.error).length, stoppedReason: batch.stoppedReason, batchCostUsd: round6(batch.costUsd) });
+}
+
+// One conversation read now for PESQUISAS (ficha "Ler conversa agora"), same rules as the batch:
+// extraction on, model test passed, US$ 50 ceiling (inside extractChat). Never sends anything.
+async function extractNow(ctx, chatId) {
+  const context = historyContext();
+  if (context.error) return { skipped: context.status };
+  if (context.provider === 'OPENAI') {
+    const batches = await allRows(ctx, 'vehicle_request_batches', { select: 'provider,model,conversations,cost_usd,stopped_reason,created_at', environment: 'eq.' + ctx.environment, order: 'created_at.asc' });
+    if (!modelChecked({ lastCheck: modelChecksOf(batches, 'OPENAI').at(-1) || null }, context.model)) return { skipped: 'MODEL_NOT_CHECKED' };
+  }
+  const out = await search.extractChat(ctx, chatId);
+  return { read: !out.error && !out.alreadyRead && !out.inProgress, alreadyRead: Boolean(out.alreadyRead), requests: out.requests || 0, error: out.error || null };
 }
 
 // ------------------------------------------------------------------ gravação da comparação
@@ -344,3 +367,4 @@ module.exports = async (req, res) => {
 module.exports.buildList = buildList;
 module.exports.audit = audit;
 module.exports.extractHistory = extractHistory;
+module.exports.extractNow = extractNow;

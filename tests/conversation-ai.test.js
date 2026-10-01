@@ -139,7 +139,7 @@ test('automatic failures wait six hours and stop after three until a new custome
   assert.equal(ai.automaticAttemptAllowed(group,now),true);
 });
 
-test('openai-cron reads new PESQUISAS conversations only when the extraction is on, 5 at most, and a failure is isolated',async()=>{
+test('openai-cron reads new PESQUISAS conversations only when the extraction is on, with no count limit, and a failure is isolated',async()=>{
   const saved=process.env.CRON_SECRET;process.env.CRON_SECRET='cron-test';
   const server={configuration:()=>({}),SERVER_ENVIRONMENT:'production',send:(res,code,payload)=>res.status(code).json(payload)};
   const run=async(status,extractHistory)=>{
@@ -148,8 +148,8 @@ test('openai-cron reads new PESQUISAS conversations only when the extraction is 
     const res=response();await handler({method:'GET',headers:{authorization:'Bearer cron-test'}},res);return res;
   };
   const calls=[];
-  let res=await run('LIGADA',async(ctx,limit,options)=>{calls.push({limit,deadline:typeof options.deadlineAt});return {processed:1};});
-  assert.equal(res.code,200);assert.deepEqual(calls,[{limit:5,deadline:'number'}]);assert.deepEqual(res.payload.searchRequests,{processed:1});
+  let res=await run('LIGADA',async(ctx,limit,options)=>{calls.push({limit,deadline:typeof options.deadlineAt,concurrency:options.concurrency});return {processed:1};});
+  assert.equal(res.code,200);assert.deepEqual(calls,[{limit:Infinity,deadline:'number',concurrency:4}]);assert.deepEqual(res.payload.searchRequests,{processed:1});
   res=await run('DESLIGADA',async()=>{throw Error('não deveria ler');});
   assert.equal(res.code,200);assert.deepEqual(res.payload.searchRequests,{skipped:'DESLIGADA'});
   res=await run('LIGADA',async()=>{throw Error('OPENAI_QUOTA');});
@@ -161,7 +161,7 @@ test('ai-cron keeps only Claude and maintenance; the OpenAI readings run in open
   const ai=fs.readFileSync(path.join(root,'api/panel/ai-cron.js'),'utf8'),openai=fs.readFileSync(path.join(root,'api/panel/openai-cron.js'),'utf8'),config=JSON.parse(fs.readFileSync(path.join(root,'vercel.json'),'utf8'));
   assert.doesNotMatch(ai,/runTriage|runAudit|extractHistory/);
   assert.match(openai,/runAudit[\s\S]*extractHistory[\s\S]*runTriage/);
-  assert.deepEqual(config.crons.map((cron)=>cron.path+' '+cron.schedule),['/api/panel/ai-cron */10 * * * *','/api/panel/openai-cron 5-59/10 * * * *','/api/panel/media-cron * * * * *']);
+  assert.deepEqual(config.crons.map((cron)=>cron.path+' '+cron.schedule),['/api/panel/ai-cron */10 * * * *','/api/panel/openai-cron 2-59/5 * * * *','/api/panel/media-cron * * * * *']);
 });
 
 test('the routine reserves on the ROTINA quota and an operator click on MANUAL',async()=>{
@@ -249,4 +249,16 @@ test('3 MCS: the routine never creates reply suggestions nor sends messages',asy
   assert.deepEqual([...new Set(run.calls.map((call)=>call.split('/').pop()))].sort(),['panel_ai_record_attempt','panel_ai_replace_reading','panel_ai_reserve_call']);
   const source=fs.readFileSync(path.join(root,'panel-ai.js'),'utf8'),cron=fs.readFileSync(path.join(root,'api/panel/ai-cron.js'),'utf8');
   for(const text of [source,cron]){assert.doesNotMatch(text,/panel-reply-suggest|api\/panel\/reply|d360|360dialog|v1-send|sendMessage|messages\.send/i);}
+});
+
+test('"Ler conversa agora" also reads the conversation for PESQUISAS, and a PESQUISAS failure does not hide the reading',async()=>{
+  const server={requirePanel:async()=>({environment:'preview',panel:{id:ids.actor},config:{url:'x',secretKey:'k'}}),jsonBody:async(req)=>req.body,isUuid:()=>true,send:(res,code,payload)=>res.status(code).json(payload)};
+  const group={journey:{id:ids.journey},lastCustomer:{occurred_at_utc:new Date().toISOString()},chatId:ids.chat};
+  const extracted=[];
+  let handler=loadWith('api/panel/ai-conversations.js',{'../../panel-server':server,'../../panel-ai':{allConversationData:async()=>[group],readConversation:async()=>({readingId:'r1'})},'./pesquisas':{extractNow:async(_ctx,chatId)=>{extracted.push(chatId);return {read:true,requests:1,error:null};}}});
+  let res=response();await handler({method:'POST',body:{action:'read',journeyId:ids.journey}},res);
+  assert.equal(res.code,201);assert.deepEqual(extracted,[ids.chat]);assert.equal(res.payload.readingId,'r1');assert.deepEqual(res.payload.searchExtraction,{read:true,requests:1,error:null});
+  handler=loadWith('api/panel/ai-conversations.js',{'../../panel-server':server,'../../panel-ai':{allConversationData:async()=>[group],readConversation:async()=>({readingId:'r2'})},'./pesquisas':{extractNow:async()=>{throw Error('OPENAI_DOWN');}}});
+  res=response();await handler({method:'POST',body:{action:'read',journeyId:ids.journey}},res);
+  assert.equal(res.code,201);assert.equal(res.payload.readingId,'r2');assert.deepEqual(res.payload.searchExtraction,{error:'SEARCH_REQUESTS_FAILED'});
 });

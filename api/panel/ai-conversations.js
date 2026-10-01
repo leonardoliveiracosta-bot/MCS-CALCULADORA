@@ -20,8 +20,10 @@ module.exports=async(req,res)=>{
       groups.sort((a,b)=>Date.parse(b.lastCustomer.occurred_at_utc||b.lastCustomer.created_at)-Date.parse(a.lastCustomer.occurred_at_utc||a.lastCustomer.created_at));
       const group=body.chatId?groups.find((candidate)=>candidate.chatId===body.chatId):groups[0];
       if(!group)return send(res,409,{error:'AI_NO_CUSTOMER_MESSAGE',message:'Não há mensagem do cliente para ler.'});
-      const result=await readConversation(ctx,group,{manual:true,actor:ctx.panel.id});
-      return send(res,201,result);
+      // The same click also reads the conversation for PESQUISAS (car and criteria for the ficha).
+      const [reading,extraction]=await Promise.allSettled([readConversation(ctx,group,{manual:true,actor:ctx.panel.id}),require('./pesquisas').extractNow(ctx,group.chatId)]);
+      if(reading.status==='rejected')throw reading.reason;
+      return send(res,201,{...reading.value,searchExtraction:extraction.status==='fulfilled'?extraction.value:{error:'SEARCH_REQUESTS_FAILED'}});
     }
     if(body.action==='confirm'){
       if(!isUuid(body.readingId)||!isUuid(body.confirmationKey)||!Array.isArray(body.itemIds)||!body.itemIds.length||body.itemIds.some((id)=>!isUuid(id)))return send(res,400,{error:'AI_SELECTION_REQUIRED'});
