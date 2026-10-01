@@ -312,3 +312,32 @@ test('13 · só entra quem mandou mensagem e ainda é trabalhado: ficha sem mens
   assert.deepEqual(itemOf(data, 'Nina Nao Lead'), [], 'marcado como "não é lead"');
   assert.equal(itemOf(data, 'Caco Carro').length, 1, 'quem escreveu continua');
 });
+
+test('14 · leitura que falhou (tempo esgotado) é tentada de novo, até 3 vezes; depois espera mensagem nova', async () => {
+  const pesquisas = require('../api/panel/pesquisas');
+  const ctx = { config: { url: BASE, secretKey: 'secreta-simulada' }, environment: 'preview', panel: { id: null } };
+  const write = (text) => backend.db.exec(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values(gen_random_uuid(),'preview','${id(31)}','WHATSAPP','CUSTOMER','${text}','x',now(),'r${text.length}${Date.now()}',1,'WHATSAPP_WEBHOOK',clock_timestamp());`);
+  const ok = () => [200, { choices: [{ message: { content: JSON.stringify({ hasRequest: false, requests: [] }) } }], usage }];
+  const fail = () => [500, { error: { message: 'upstream timeout' } }];
+  const run = (reply) => asProduction(reply, () => pesquisas.extractHistory(ctx, Infinity, { deadlineAt: Date.now() + 30000, concurrency: 1 }));
+  const calls = () => openAiCalls.filter((body) => body.response_format).length;
+  await write('still need it');
+  // Each attempt is one or more provider calls (the reader may retry inside one attempt).
+  const attempt = async (reply) => { const before = calls(); const out = await run(reply); return { called: calls() - before, out }; };
+  let step = await attempt(fail);
+  assert.ok(step.called > 0);
+  assert.ok(step.out.remaining >= 1, 'a falha continua pendente');
+  step = await attempt(fail);
+  assert.ok(step.called > 0, 'antes da correção: nenhuma nova tentativa e "Faltam 1" para sempre');
+  step = await attempt(fail);
+  assert.ok(step.called > 0);
+  assert.equal(step.out.remaining, 0, 'depois de 3 falhas sai da conta de pendentes');
+  step = await attempt(ok);
+  assert.equal(step.called, 0, 'não paga uma 4ª tentativa do mesmo conteúdo');
+  // A new customer message is new content: read again normally.
+  await write('any update on the car');
+  step = await attempt(ok);
+  assert.equal(step.called, 1);
+  assert.equal(step.out.remaining, 0);
+  assert.deepEqual(backend.refused, []);
+});
