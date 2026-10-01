@@ -260,3 +260,35 @@ test('Ref ambígua: fora da fila com o motivo, sem sugestão e próximo passo é
   const back = await call('GET', '/api/panel/suggestions?minDays=14');
   assert.deepEqual(back.payload.eligible.map((item) => item.name), ['Sofía Ejemplo', 'Paulo Exemplo'], 'resolvida a identidade, voltam à fila');
 });
+
+test('busca incompleta: a sugestão recebe o que falta por tipo e pergunta para destravar a busca', async () => {
+  const f = (key, value, status = 'CLIENTE') => ({ key, value, status });
+  assert.deepEqual(suggest.searchGap([], {}), { completa: false, tipo: 'NAO_DEFINIDO', faltando_por_carro: ['carro (marca e modelo)', 'faixa de ano', 'faixa de milhagem'], faltando_por_valor: ['carro (marca e modelo)', 'lance máximo'], a_confirmar: [] });
+  const albert = suggest.searchGap([f('carro', 'Honda CR-V 2023 hybrid', 'IA')], {});
+  assert.deepEqual([albert.completa, albert.tipo, albert.faltando_por_carro, albert.faltando_por_valor, albert.a_confirmar], [false, 'NAO_DEFINIDO', ['faixa de ano', 'faixa de milhagem'], ['lance máximo'], ['carro (marca e modelo)']]);
+  const carro = suggest.searchGap([f('carro', 'Corolla'), f('anos', '2018-2021')], { modes: ['CARRO'] });
+  assert.deepEqual([carro.completa, carro.tipo, carro.faltando_por_carro, carro.faltando_por_valor], [false, 'POR_CARRO', ['faixa de milhagem'], []]);
+  const valor = suggest.searchGap([f('carro', 'Civic'), f('valor', 'US$ 15.000')], { links: { orders: [{ mode: 'VALOR' }] } });
+  assert.deepEqual([valor.completa, valor.tipo], [true, 'POR_VALOR']);
+  assert.equal(suggest.searchGap([f('carro', 'Civic'), f('valor', null, 'AMBIGUO')], { modes: ['VALOR'] }).completa, false, 'valor ambíguo não conta');
+
+  assert.match(suggest.INSTRUCTIONS, /BUSCA INCOMPLETA/);
+  assert.match(suggest.INSTRUCTIONS, /POR CARRO \(carro \+ faixa de ano \+ faixa de milhagem/);
+  assert.match(suggest.INSTRUCTIONS, /POR VALOR \(carro \+ lance máximo/);
+
+  // IA mode: the input carries the gap; simulated mode: one question toward what is missing.
+  let sent = null;
+  const out = await suggest.suggest(ctx, { journeyId: fixture.people.english.journey }, {
+    env: { VERCEL_ENV: 'production', REPLY_SUGGESTION_ENABLED: '1', OPENAI_API_KEY: 'chave-de-teste', ENTRADA_OPENAI_MODEL: 'gpt-6-luna' },
+    modelCheck: async () => ({ ok: true }),
+    budgetServices: { reserve: async () => ({ held: true, id: 'h' }), release: async () => ({}), settle: async () => ({}) },
+    openAi: async (input) => { sent = input; return { parsed: { idioma_cliente: 'en', traducao_recebida_pt: 'x', resposta: 'What is the max you want to bid on the CR-V?', traducao_resposta_pt: 'x', fatos_usados: [], pergunta_finalidade: 'lance máximo', alertas: [] }, usage: { inputTokens: 1, outputTokens: 1 }, model: 'gpt-6-luna', costUsd: 0 }; }
+  });
+  if (out.status && out.status !== 200) assert.fail(JSON.stringify(out));
+  assert.ok(sent && sent.busca, 'a IA recebe busca');
+  assert.equal(sent.busca.completa, false);
+  const simulated = await call('POST', '/api/panel/suggestions', { action: 'suggest', journeyId: fixture.people.english.journey });
+  assert.equal(simulated.statusCode, 200);
+  assert.match(simulated.payload.suggestion.text, /max budget|year and mileage|max you want to bid|what year range/);
+  assert.match(simulated.payload.suggestion.questionPurpose, /tipo de busca|lance máximo|ano e de milhagem/);
+});

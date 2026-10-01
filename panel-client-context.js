@@ -404,7 +404,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       stage: { code: journey.stage || null, label: JOURNEY_STAGES[journey.stage] || journey.stage || 'Sem etapa', status: journey.status || null, closed, off, closedReason: closed ? journey.closed_reason || null : null },
       searches, owner, conversation,
       aiReading: insight ? { summary: clean(insight.summary_text) || null, nextStep: clean(insight.next_step_text) || null, at: insight.updated_at || null, note: 'Leitura da IA da última mensagem · não confirmada' } : null,
-      fields, criteria: criteriaSummary(step), situation: null, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
+      modes, fields, criteria: criteriaSummary(step), situation: null, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
       promises: promises.filter((row) => row.journey_id === journey.id).map((row) => ({ text: row.promise_text, dueAt: row.due_at })),
       links: {
         orders: ownOrders.map(orderLink),
