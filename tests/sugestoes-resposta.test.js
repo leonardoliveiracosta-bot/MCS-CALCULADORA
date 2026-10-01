@@ -55,7 +55,7 @@ test('idioma, opt-out e revisão do texto', () => {
   assert.equal(open.api, 'ALLOWED');
   assert.equal(closed.api, 'BLOCKED');
   assert.match(closed.text, /modelo aprovado/);
-  assert.match(closed.manual, /você mesmo escreve e envia/);
+  assert.match(closed.manual, /WhatsApp Business do celular/);
 });
 
 test('inglês recente: tradução, resposta no idioma do cliente, janela aberta, fatos e nada enviado', async () => {
@@ -171,11 +171,17 @@ test('teto da OpenAI esgotado: nada é chamado e o motivo aparece', async () => 
   assert.equal(called, 0);
 });
 
-test('sugestões nunca enviam: nenhum caminho até o 360dialog nem a V1', () => {
-  for (const file of ['panel-reply-suggest.js', 'api/panel/suggestions.js', 'painel/sugestoes.js']) {
+test('sugestões nunca enviam sozinhas: o servidor não envia; o painel só envia pelo caminho confirmado', () => {
+  for (const file of ['panel-reply-suggest.js', 'api/panel/suggestions.js']) {
     const source = read(file);
     assert.doesNotMatch(source, /d360Send|waba-v2\.360dialog|\/api\/panel\/v1-send|recordSent|applyMessage|action: ?'send'/, file);
   }
+  // The front-end has one send call, to /api/panel/reply (window and destination checked again there),
+  // reachable only through the confirmation button; never the V1 send nor the provider directly.
+  const front = read('painel/sugestoes.js');
+  assert.doesNotMatch(front, /d360Send|waba-v2\.360dialog|\/api\/panel\/v1-send|recordSent|applyMessage/);
+  assert.equal((front.match(/action: ?'send'/g) || []).length, 1);
+  assert.match(front, /suggestion-confirm-yes/);
   // From the reply module only the read-only lookups are used (destination and 24 h window).
   const used = [...new Set(read('panel-reply-suggest.js').match(/reply\.[a-zA-Z]+/g))].sort();
   assert.deepEqual(used, ['reply.resolveTarget', 'reply.windowState']);

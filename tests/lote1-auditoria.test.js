@@ -352,7 +352,9 @@ test('C5/A24/A14/A20: sessão, atualização automática, await e responder pelo
   const entry = read('api/panel/entry.js');
   assert.doesNotMatch(entry.slice(entry.indexOf("if (req.method === 'GET') return")), /return (queue|createJob|createReview|receiveBatch|finishJob|resolveChat|applyReviewAction|undoReviewAction)\(/);
   assert.match(read('painel/lead.js'), /if\(journeyId&&replyComposer\)replyComposer\(conversation,journeyId,reload\);/);
-  assert.match(panel, /if \(!state \|\| !state\.allowed \|\| !\(Date\.parse\(state\.openUntil\) > Date\.now\(\)\)\) \{/);
+  // The composer sends through the one path (sendControls): panel inside the window, phone outside it.
+  assert.match(panel, /MCSSuggest\.sendControls\(sendBox, \{/);
+  assert.match(panel, /canSend: \(\) => Boolean\(en\.value\) && translatedFor === pt\.value\.trim\(\)/);
 });
 
 test('migração de limites da calculadora é restritiva, aditiva e aceita o formato do site', () => {

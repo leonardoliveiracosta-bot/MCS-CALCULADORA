@@ -2114,7 +2114,7 @@
   const V1_SEND_REASONS = {
     NO_VALID_PHONE: 'Ficha sem telefone de WhatsApp válido: envio pelo painel indisponível',
     V1_SEND_PENDING: 'Envio pelo painel indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável',
-    OFF: 'Envio direto desligado em produção · Use "Abrir WhatsApp com mensagem pronta"'
+    OFF: 'Envio direto desligado em produção · abra no WhatsApp do celular ou copie a mensagem'
   };
   const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
   const sameDay = (iso) => new Date(iso || Date.now()).toDateString() === new Date().toDateString();
@@ -2143,31 +2143,32 @@
     }
   }
   function v1SendControls(demand, demo = null) {
+    // One block, one path: after "Gerar link V1" the approved message (with the link) appears once,
+    // editable; the line above it says to whom and whether the 24 h window is open; the one primary
+    // action follows the window (panel send with confirmation, or WhatsApp on the phone), plus "Copiar".
     const node = element('div', 'v1-send');
-    const button = element('button', 'small', 'Enviar no WhatsApp'); button.type = 'button'; button.disabled = true;
-    const state = element('p', 'muted v1-send-state', 'Gere a V1 para enviar no WhatsApp');
-    const fallback = element('a', 'quiet small hidden v1-send-fallback', 'Abrir WhatsApp com mensagem pronta');
+    const button = element('button', 'small v1-send-go', 'Enviar no WhatsApp'); button.type = 'button'; button.disabled = true;
+    const fallback = element('a', 'small hidden v1-send-fallback suggestion-open', 'Abrir no WhatsApp do celular');
     fallback.target = '_blank'; fallback.rel = 'noopener';
-    // Approved message of the search's origin (Calculate My Cost or Find One For Me): only suggested,
-    // editable and copied by the operator; nothing is sent from here.
-    const suggestion = element('details', 'v1-suggestion hidden');
-    const suggestionTitle = element('summary', '', 'Mensagem sugerida');
-    const suggestionText = element('textarea', 'v1-suggestion-text'); suggestionText.rows = 8; suggestionText.maxLength = 4000;
-    const copySuggestion = element('button', 'quiet small', 'Copiar mensagem sugerida'); copySuggestion.type = 'button';
-    const suggestionNote = element('p', 'muted', 'Você revisa e decide se envia · Nada é enviado daqui');
-    copySuggestion.addEventListener('click', async (event) => { event.stopPropagation(); try { await navigator.clipboard.writeText(suggestionText.value); suggestionNote.textContent = 'Mensagem copiada · Nada foi enviado'; } catch (_) { suggestionText.select(); suggestionNote.textContent = 'Não consegui copiar · Selecione o texto e copie'; } });
-    suggestion.append(suggestionTitle, suggestionText, copySuggestion, suggestionNote);
-    const showSuggestion = (data) => {
-      if (!data || !data.text) { suggestion.classList.add('hidden'); return; }
-      suggestionTitle.textContent = 'Mensagem sugerida · ' + (data.origin === 'VALOR' ? 'veio pela calculadora (Calculate My Cost)' : 'veio pelo Find One For Me');
-      suggestionText.value = data.text; suggestion.classList.remove('hidden');
-    };
+    const copy = element('button', 'quiet small v1-send-copy hidden', 'Copiar mensagem'); copy.type = 'button';
+    const state = element('p', 'muted v1-send-state', 'Gere a V1 para enviar no WhatsApp');
+    const textLabel = element('label', 'v1-send-message hidden', 'Mensagem para o cliente (com o link da V1) · editável');
+    const textarea = element('textarea', 'v1-send-text'); textarea.rows = 7; textarea.maxLength = 4000; textLabel.append(textarea);
+    const actions = element('div', 'inline-actions v1-send-actions'); actions.append(button, fallback, copy);
+    const copied = element('p', 'muted v1-send-copied', '');
     // What this card already did with a V1, after a reload: when it was sent (or generated).
     const sentHistory = element('p', 'muted v1-send-history hidden');
-    node.append(button, fallback, state, sentHistory, suggestion);
+    node.append(state, sentHistory, textLabel, actions, copied);
     let info = null;
     let token = null;
     let busy = false;
+    const refreshFallback = () => { if (info && info.phone) fallback.href = 'https://wa.me/' + info.phone.replace(/^\+/, '') + '?text=' + encodeURIComponent(textarea.value); };
+    textarea.addEventListener('input', refreshFallback);
+    copy.addEventListener('click', async (event) => { event.stopPropagation(); try { await navigator.clipboard.writeText(textarea.value); copied.textContent = 'Mensagem copiada · Nada foi enviado'; } catch (_) { textarea.select(); copied.textContent = 'Não consegui copiar · Selecione o texto e copie'; } });
+    const windowOpen = () => Boolean(info && info.windowOpen && (!info.windowUntil || Date.parse(info.windowUntil) > Date.now()));
+    const windowText = () => windowOpen()
+      ? 'Janela de 24 h aberta' + (info.windowUntil ? ' até ' + formatDate(info.windowUntil) : '') + ' · ao enviar, sai pelo painel depois da sua confirmação'
+      : 'Janela de 24 h encerrada · ao enviar, abre a conversa no WhatsApp do celular com a mensagem e você envia por lá';
     const showLast = (last) => {
       if (!last) return;
       const simulated = last.simulated ? ' · simulado' : '';
@@ -2177,58 +2178,61 @@
       state.dataset.status = last.status;
       if (['SENT', 'UNCONFIRMED', 'FAILED'].includes(last.status)) button.textContent = 'Reenviar';
     };
-    const setFallback = (href) => { if (href) { fallback.href = href; fallback.classList.remove('hidden'); } };
+    // The path the window allows now: the panel (button) inside it, the phone (link) outside it.
+    const paintPath = () => {
+      const open = windowOpen();
+      button.classList.toggle('hidden', !open); button.disabled = !open || busy;
+      fallback.classList.toggle('hidden', open || !info || !info.phone); refreshFallback();
+    };
     async function setVitrine(newToken, keepHistory = false) {
       if (!keepHistory) sentHistory.classList.add('hidden');
-      token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp'; showSuggestion(null);
+      token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp';
+      textLabel.classList.add('hidden'); copy.classList.add('hidden'); fallback.classList.add('hidden'); copied.textContent = '';
       state.textContent = 'Conferindo o destino…'; delete state.dataset.status;
       try {
         info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: demo ? 'demo_prepare' : 'prepare', token, baseUrl: location.origin, ...(demo || {}), ...(demand?.key ? { demandKey: demand.key } : {}) }) });
       } catch (failure) {
         if (demo && demo.onUnavailable) { demo.onUnavailable(); return; }
-        state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio · Use "Copiar mensagem com link"';
+        state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio · Tente de novo';
         return;
       }
-      showSuggestion(info);
+      // The approved message of the search's origin, once, editable; the link must stay in it.
+      textarea.value = info.text || info.link || ''; textarea.dataset.link = info.link || ''; textLabel.classList.remove('hidden'); copy.classList.remove('hidden');
+      if (!info.origin) copied.textContent = 'Origem da busca não identificada: escreva a mensagem (o link da V1 precisa ficar no texto)';
       if (!info.eligible) { state.textContent = V1_SEND_REASONS[info.reason] || V1_SEND_REASONS.NO_VALID_PHONE; return; }
-      setFallback(info.whatsappLink);
-      if (info.mode === 'OFF') { state.textContent = V1_SEND_REASONS.OFF; return; }
-      state.textContent = `Para ${info.name} · ${info.phone}${info.mode === 'SIMULATED' ? ' · envio simulado neste ambiente' : ''}`;
-      button.disabled = false;
+      if (info.mode === 'OFF') { state.textContent = `Para ${info.name} · ${info.phone} · ${V1_SEND_REASONS.OFF}`; info.windowOpen = false; paintPath(); return; }
+      state.textContent = `Para ${info.name} · ${info.phone}${info.mode === 'SIMULATED' ? ' · envio simulado neste ambiente' : ''} · ${windowText()}`;
+      paintPath();
       showLast(info.last);
     }
     function openConfirm() {
       if (!info || busy || node.querySelector('.v1-send-confirm')) return;
       const resend = button.textContent === 'Reenviar';
       const requestKey = crypto.randomUUID();
+      const text = textarea.value.trim();
+      if (!text) { copied.textContent = 'Escreva a mensagem antes de enviar · o link da V1 precisa ficar no texto'; return; }
       const box = element('div', 'warning inline-confirm v1-send-confirm');
       box.append(element('p', '', `${resend ? 'Reenviar' : 'Enviar'} para ${info.name} · ${info.phone}`),
-        element('p', 'muted', `Link V1: ${info.link}`));
-      // The window and the path allowed for this send, before the confirmation.
-      box.append(info.windowOpen
-        ? element('p', 'muted v1-send-window', `Janela de 24 h aberta${info.windowUntil ? ' até ' + formatDate(info.windowUntil) : ''}: o envio sai pela API só depois desta confirmação, uma mensagem para esta pessoa`)
-        : element('p', 'warning v1-send-window', 'Janela de 24 h encerrada: fora da janela a API só aceita modelo aprovado pela Meta, e o projeto não tem nenhum · O painel não envia · Caminho permitido: abrir o WhatsApp com a mensagem pronta e você envia pelo WhatsApp Business do celular'));
-      if (!info.origin) box.append(element('p', 'muted', 'Origem da busca não identificada: escreva a mensagem (o link da V1 precisa ficar no texto)'));
-      const label = element('label', '', 'Mensagem');
-      const textarea = element('textarea', 'v1-send-text'); textarea.rows = 9; textarea.maxLength = 4000; textarea.value = info.text || info.link;
-      label.append(textarea);
+        element('p', 'muted', `Link V1: ${info.link}`),
+        element('p', 'muted v1-send-window', `Janela de 24 h aberta${info.windowUntil ? ' até ' + formatDate(info.windowUntil) : ''}: o envio sai pela API só depois desta confirmação, uma mensagem para esta pessoa`),
+        element('blockquote', 'context-evidence v1-send-preview', text));
       const yes = element('button', 'small', 'Confirmar envio'); yes.type = 'button';
       const no = element('button', 'quiet small', 'Cancelar'); no.type = 'button';
-      box.append(label, yes, no);
+      box.append(yes, no);
       no.addEventListener('click', () => box.remove());
       yes.addEventListener('click', async () => {
         if (busy) return;
         busy = true; yes.disabled = true; no.disabled = true; textarea.disabled = true; button.disabled = true;
         yes.textContent = 'Enviando…';
         try {
-          const result = await request('/api/panel/v1-send', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: demo ? 'demo_send' : 'send', token, text: textarea.value, requestKey, confirmed: true, resend, ...(demo || {}), ...(demand?.key ? { demandKey: demand.key } : {}) }) });
+          const result = await request('/api/panel/v1-send', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: demo ? 'demo_send' : 'send', token, text, requestKey, confirmed: true, resend, ...(demo || {}), ...(demand?.key ? { demandKey: demand.key } : {}) }) });
           box.remove();
           sentHistory.classList.add('hidden');
           showLast({ status: result.sendStatus, at: result.at, simulated: result.simulated });
         } catch (failure) {
           box.remove();
           const code = failure && failure.code;
-          if (code === 'WINDOW_CLOSED') { state.textContent = 'Fora da janela de 24 h do WhatsApp: não foi enviado · Use "Abrir WhatsApp com mensagem pronta"'; setFallback(failure.whatsappLink || info.whatsappLink); }
+          if (code === 'WINDOW_CLOSED') { state.textContent = `Para ${info.name} · ${info.phone} · a janela de 24 h fechou: não foi enviado · abra no WhatsApp do celular e envie por lá`; info.windowOpen = false; }
           else if (code === 'V1_ALREADY_SENT') { state.textContent = 'Esta V1 já foi enviada'; button.textContent = 'Reenviar'; }
           else if (code === 'SEND_IN_PROGRESS') state.textContent = 'Já existe um envio desta V1 em andamento';
           else if (code === 'V1_SEND_TOO_FAST') state.textContent = 'Um envio por vez: aguarde alguns segundos antes de enviar outra V1 · Nada foi enviado agora';
@@ -2236,12 +2240,12 @@
           else if (code === 'V1_SEND_PENDING') state.textContent = V1_SEND_REASONS.V1_SEND_PENDING;
           else if (['TEXT_REQUIRED', 'TEXT_TOO_LONG', 'V1_LINK_MISSING'].includes(code)) state.textContent = code === 'V1_LINK_MISSING' ? 'A mensagem precisa conter o link da V1 · Nada foi enviado' : 'Mensagem vazia ou longa demais · Nada foi enviado';
           else { state.textContent = 'Não confirmado: sem resposta do servidor · Verifique a conversa antes de reenviar'; state.dataset.status = 'UNCONFIRMED'; button.textContent = 'Reenviar'; }
-        } finally { busy = false; button.disabled = !info || info.mode === 'OFF'; }
+        } finally { busy = false; textarea.disabled = false; paintPath(); }
       });
       node.append(box);
-      textarea.focus();
     }
     button.addEventListener('click', (event) => { event.stopPropagation(); openConfirm(); });
+    fallback.addEventListener('click', () => { copied.textContent = 'WhatsApp aberto com a mensagem · O envio é feito por você no aplicativo'; });
     node.addEventListener('click', (event) => event.stopPropagation());
     // The latest V1 of this demand, read from the server after a reload (never a new V1).
     function restore(item) {
@@ -2249,9 +2253,9 @@
       const sent = item.lastSent || item.previousSent || null;
       const simulated = sent && sent.simulated ? ' · simulado' : '';
       sentHistory.textContent = item.lastSent
-        ? `V1 enviada em ${formatDate(sent.at)}${sent.status === 'UNCONFIRMED' ? ' · sem confirmação do WhatsApp' : ''}${simulated} · Link: ${location.origin}${item.link}`
+        ? `V1 enviada em ${formatDate(sent.at)}${sent.status === 'UNCONFIRMED' ? ' · sem confirmação do WhatsApp' : ''}${simulated}`
         : sent ? `V1 gerada em ${formatDate(item.createdAt)} · ainda não enviada · A V1 anterior foi enviada em ${formatDate(sent.at)}${simulated}`
-          : `V1 gerada em ${formatDate(item.createdAt)} · ainda não enviada · Link: ${location.origin}${item.link}`;
+          : `V1 gerada em ${formatDate(item.createdAt)} · ainda não enviada`;
       sentHistory.dataset.status = item.lastSent ? item.lastSent.status : 'GENERATED';
       sentHistory.classList.remove('hidden');
       setVitrine(item.token, true);
@@ -2374,8 +2378,7 @@
     });
     const v1Send=v1SendControls(demand);
     /* After a reload the card remembers its latest V1 (link and when it was sent) instead of "Gere a V1…". */
-    latestV1For(journey.id).then((latest)=>{const item=latest[demand?.key||('journey:'+journey.id)];if(!item||v1Send.hasVitrine())return;copyMessageButton.dataset.link=location.origin+item.link;copyMessageButton.disabled=false;v1Send.restore(item);});
-    const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);cardStatus.textContent='Mensagem com link copiada';}catch(_){cardStatus.textContent='Não consegui copiar · Link: '+link;}});
+    latestV1For(journey.id).then((latest)=>{const item=latest[demand?.key||('journey:'+journey.id)];if(!item||v1Send.hasVitrine())return;v1Send.restore(item);});
     const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';
     const v1Error=(error)=>error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_MATCH_WITHOUT_MMR'?'Carro sem MMR válido não entra na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável':'Não consegui gerar o link';
     vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();
@@ -2400,11 +2403,10 @@
         }
       }catch(error){cardStatus.textContent=v1Error(error);return;}
       finally{vitrineButton.disabled=!auditCanTry(demand);}
-      const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;v1Send.setVitrine(created.token);
-      /* A22: the link exists even when the clipboard fails */
-      try{await navigator.clipboard.writeText(absolute);cardStatus.textContent='Link V1 criado e copiado: '+absolute;}catch(_){cardStatus.textContent='Link V1 criado (não consegui copiar): '+absolute;}
+      /* The link only exists from here on; the message with it, the destination and the path appear in the send block below. */
+      cardStatus.textContent='Link V1 criado · revise a mensagem abaixo e envie';v1Send.setVitrine(created.token);
     });vitrineButton.disabled=!auditCanTry(demand);
-    card.append(exportButton,vitrineButton,copyMessageButton,cardStatus,v1Send.node,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
+    card.append(exportButton,vitrineButton,cardStatus,v1Send.node,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
   }
@@ -3814,33 +3816,31 @@
   async function replyComposer(block, journeyId, reload) {
     let state;
     try { state = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'window', journeyId }) }); } catch (_) { return; }
-    // A20: the composer only appears while the 24 h window (last customer message) is open.
-    if (!state || !state.allowed || !(Date.parse(state.openUntil) > Date.now())) {
-      const note = element('p', 'reply-window muted', 'Responder pelo painel: só com mensagem do cliente nas últimas 24 h · fora disso, responda pelo app do WhatsApp');
-      note.dataset.replyClosed = 'true';
-      block.append(note);
-      return;
-    }
+    // A20: you write in Portuguese, the AI translates, you check the back-translation. The send is
+    // the same one path as the suggestions (MCSSuggest.sendControls), decided by the 24 h window:
+    // open, by the panel after your confirmation; closed, by the WhatsApp on the phone.
     const box = element('div', 'reply-composer');
     box.append(element('h4', '', 'Responder pelo painel'));
-    const windowLine = element('p', 'reply-window muted');
     const ptLabel = element('label', '', 'Sua mensagem (português)');
     const pt = element('textarea'); pt.maxLength = 4000; pt.rows = 4; ptLabel.append(pt);
     const translateButton = element('button', 'small', 'Traduzir'); translateButton.type = 'button';
     const enLabel = element('label', '', 'Vai para o cliente (inglês)');
-    const en = element('textarea'); en.readOnly = true; en.rows = 4; enLabel.append(en);
+    const en = element('textarea', 'reply-en'); en.readOnly = true; en.rows = 4; enLabel.append(en);
     const backLabel = element('label', '', 'Conferência (volta para o português)');
     const back = element('textarea'); back.readOnly = true; back.rows = 4; backLabel.append(back);
-    const sendButton = element('button', 'small', 'Enviar'); sendButton.type = 'button';
     const status = element('p', 'reply-status', '');
     let translatedFor = null, busy = false;
-    const closedText = 'Mais de 24 h desde a última mensagem do cliente · responda pelo app do WhatsApp';
-    const floridaTime = (value) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
-    const windowOpen = () => state.allowed && Date.parse(state.openUntil) > Date.now();
+    // The window state and the one path (sendControls) live here; data-reply-closed says which path.
+    const sendBox = element('div', 'reply-send reply-window');
+    box.dataset.replyClosed = state && state.allowed ? 'false' : 'true';
+    const sender = window.MCSSuggest && MCSSuggest.sendControls ? MCSSuggest.sendControls(sendBox, {
+      journeyId, reachable: Boolean(state && state.whatsappBase), whatsappBase: state && state.whatsappBase || null,
+      contact: { name: state && state.name || '', phone: state && state.phone || '' },
+      path: { open: Boolean(state && state.allowed), until: state && state.openUntil || null }
+    }, en, { request, discard: false, canSend: () => Boolean(en.value) && translatedFor === pt.value.trim(), onSent: (result) => { pt.value = ''; if (!(result && result.simulated)) setTimeout(() => reload(), 1500); } }) : null;
     const refresh = () => {
-      windowLine.textContent = windowOpen() ? `Janela aberta até ${floridaTime(state.openUntil)} (Flórida)` : closedText;
       translateButton.disabled = busy || !pt.value.trim();
-      sendButton.disabled = busy || !windowOpen() || !en.value || translatedFor !== pt.value.trim();
+      if (sender) sender.refresh();
     };
     pt.addEventListener('input', () => { if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
     translateButton.addEventListener('click', async () => {
@@ -3849,27 +3849,12 @@
       try {
         const out = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'translate', text }) });
         en.value = out.en; back.value = out.pt_back; translatedFor = text; status.textContent = '';
+        en.dispatchEvent(new Event('input'));
       } catch (_) { status.textContent = 'IA indisponível'; }
       busy = false; refresh();
     });
-    sendButton.addEventListener('click', async () => {
-      if (sendButton.disabled) return;
-      busy = true; status.textContent = 'Enviando…'; refresh();
-      try {
-        await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'send', journeyId, textEn: en.value }) });
-        status.textContent = 'Enviado'; busy = false; reload(); return;
-      } catch (failure) {
-        const code = failure.code || 'REQUEST_FAILED';
-        if (code === 'WINDOW_CLOSED') { state = { allowed: false }; status.textContent = closedText; }
-        else if (code === 'SENT_NOT_RECORDED') status.textContent = 'Enviado ao cliente, mas não registrado no painel · não reenvie';
-        else if (/^D360_/.test(code)) status.textContent = `${code} · Não enviado · nada foi registrado`;
-        else status.textContent = `${code} · Não enviado`;
-      }
-      busy = false; refresh();
-    });
     const translateRow = element('div', 'inline-actions'); translateRow.append(translateButton);
-    const sendRow = element('div', 'inline-actions'); sendRow.append(sendButton);
-    box.append(windowLine, ptLabel, translateRow, enLabel, backLabel, sendRow, status);
+    box.append(ptLabel, translateRow, enLabel, backLabel, status, sendBox);
     refresh();
     block.append(box);
   }

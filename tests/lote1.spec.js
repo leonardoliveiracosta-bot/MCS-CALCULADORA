@@ -55,7 +55,7 @@ function leadData(lastCustomerAt) {
   };
 }
 
-for (const scenario of [{ name: 'aparece com mensagem do cliente nas últimas 24 h', hoursAgo: 2, open: true }, { name: 'não aparece fora da janela de 24 h', hoursAgo: 30, open: false }]) {
+for (const scenario of [{ name: 'envia pelo painel com mensagem do cliente nas últimas 24 h', hoursAgo: 2, open: true }, { name: 'abre no celular fora da janela de 24 h', hoursAgo: 30, open: false }]) {
   test(`A20: "Responder pelo painel" ${scenario.name}`, async ({ page }) => {
     const errors = [];
     page.on('pageerror', (failure) => errors.push(failure.message));
@@ -64,20 +64,29 @@ for (const scenario of [{ name: 'aparece com mensagem do cliente nas últimas 24
     const calls = await mockApi(page, {
       '/api/panel/lead': ({ json }) => json(leadData(lastAt)),
       '/api/panel/reply': ({ body, json }) => {
-        if (body.action === 'window') return json(scenario.open ? { allowed: true, openUntil: new Date(Date.parse(lastAt) + 86400000).toISOString(), lastCustomerAt: lastAt } : { allowed: false });
+        const who = { name: 'Cliente Teste', phone: '+13055550100', whatsappBase: 'https://wa.me/13055550100' };
+        if (body.action === 'window') return json(scenario.open ? { allowed: true, openUntil: new Date(Date.parse(lastAt) + 86400000).toISOString(), lastCustomerAt: lastAt, ...who } : { allowed: false, ...who });
         return json({ error: 'NOT_EXPECTED_IN_TEST' }, 400);
       }
     });
     await page.goto(base + '/painel/#ficha/' + JOURNEY, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#lead-conversation')).toBeVisible({ timeout: 30000 });
     await expect.poll(() => calls.some((call) => call.path === '/api/panel/reply' && call.body?.action === 'window')).toBe(true);
+    // One send path for the composer too, said before the click: panel (window open) or phone (closed).
+    const composer = page.locator('#lead-conversation .reply-composer');
+    await expect(composer).toBeVisible();
+    await expect(composer.locator('h4')).toHaveText('Responder pelo painel');
+    await expect(composer).toContainText('Para Cliente Teste · +13055550100');
     if (scenario.open) {
-      await expect(page.locator('#lead-conversation .reply-composer')).toBeVisible();
-      await expect(page.locator('#lead-conversation .reply-composer h4')).toHaveText('Responder pelo painel');
-      await expect(page.locator('#lead-conversation .reply-composer button', { hasText: 'Enviar' })).toBeDisabled();
+      await expect(composer).toContainText('Janela de 24 h aberta');
+      await expect(composer).toContainText('sai pelo painel, só depois da sua confirmação');
+      await expect(composer.locator('button.suggestion-send'), 'sem tradução, nada sai').toBeDisabled();
+      await expect(composer.locator('a.suggestion-open')).toHaveCount(0);
     } else {
-      await expect(page.locator('#lead-conversation [data-reply-closed="true"]')).toBeVisible();
-      await expect(page.locator('#lead-conversation .reply-composer')).toHaveCount(0);
+      await expect(composer).toContainText('Janela de 24 h encerrada');
+      await expect(composer).toContainText('abre a conversa no WhatsApp do celular');
+      await expect(composer.locator('button.suggestion-send')).toHaveCount(0);
+      await expect(composer.locator('a.suggestion-open')).toHaveAttribute('aria-disabled', 'true');
     }
     expect(calls.filter((call) => call.path === '/api/panel/reply' && call.body?.action === 'send')).toHaveLength(0);
     expect(errors).toEqual([]);

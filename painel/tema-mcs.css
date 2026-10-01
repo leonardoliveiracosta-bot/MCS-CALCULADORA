@@ -1143,3 +1143,11 @@ body > .action-feedback { position: fixed; left: 16px; right: 16px; bottom: 16px
 .followup-item { display: grid; gap: 6px; }
 .followup-excluded-item { margin: 2px 0; font-size: 13px; }
 .followup-window { color: var(--mcs-amber); }
+.suggestion-confirm { display: grid; gap: 8px; padding: 10px 12px; border-radius: var(--mcs-radius-sm); }
+.suggestion-confirm-text { margin: 0; white-space: pre-wrap; }
+.suggestion-confirm button { justify-self: start; }
+.suggestion-confirm { display: grid; gap: 8px; padding: 10px 12px; border-radius: var(--mcs-radius-sm); }
+.suggestion-confirm-text { margin: 0; white-space: pre-wrap; }
+.suggestion-confirm button { justify-self: start; }
+.suggestion-open.is-disabled { opacity: .5; cursor: not-allowed; }
+.reply-send { display: grid; gap: 8px; }

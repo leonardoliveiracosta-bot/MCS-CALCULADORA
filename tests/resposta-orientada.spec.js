@@ -77,7 +77,10 @@ for (const width of [1366, 390]) {
     // Same review as the suggestion: edit, copy, open WhatsApp (only prepares), discard.
     const textarea = body.locator('.suggestion-text');
     await textarea.fill('Hi Ethan, 2019 CR-Vs show up often. Could you decide this week?');
-    await expect(body.locator('a.suggestion-open')).toHaveAttribute('href', /^https:\/\/wa\.me\/13055550111\?text=Hi%20Ethan%2C%202019/);
+    // Open window: the same send path as the suggestion (panel, with confirmation), shown before the click.
+    await expect(body).toContainText('Janela de 24 h aberta');
+    await expect(body).toContainText('sai pelo painel, só depois da sua confirmação');
+    await expect(body.getByRole('button', { name: 'Enviar pelo painel' })).toBeVisible();
     await body.getByRole('button', { name: 'Copiar' }).click();
     await expect(body.locator('.suggestion-result')).toContainText('Nada foi enviado');
     await noOverflow();

@@ -68,7 +68,8 @@ test('window uses only CUSTOMER messages', async () => {
 
   const onlyMcs = memoryDb(seed({ messages: [{ id: 'm1', environment: 'production', chat_id: CHAT, direction: 'MCS', occurred_at_utc: iso(-HOUR), undone_at: null }] }));
   const none = await reply.handle(ctx, { action: 'window', journeyId: J }, onlyMcs.services, now);
-  assert.deepEqual(none, { status: 200, allowed: false });
+  assert.equal(none.status, 200); assert.equal(none.allowed, false); assert.equal(none.openUntil, undefined);
+  assert.equal(none.whatsappBase, 'https://wa.me/' + none.phone.replace(/^\+/, ''));
 
   const old = memoryDb(seed({ messages: [{ id: 'c1', environment: 'production', chat_id: CHAT, direction: 'CUSTOMER', occurred_at_utc: iso(-25 * HOUR), undone_at: null }, { id: 'm1', environment: 'production', chat_id: CHAT, direction: 'MCS', occurred_at_utc: iso(-HOUR), undone_at: null }] }));
   const closed = await reply.handle(ctx, { action: 'window', journeyId: J }, old.services, now);
@@ -201,11 +202,14 @@ test('a PANEL reply counts as my reply: weekly summary and every "my reply" read
 test('panel UI: composer at the end of CONVERSA, Florida window line, send only after translation', () => {
   const panel = fs.readFileSync('painel/painel.js', 'utf8');
   assert.match(panel, /renderConversation\(\);\n\s+replyComposer\(conversationBlock, id, reload\);\n\s+right\.append\(conversationBlock\);/);
-  assert.match(panel, /Janela aberta até \$\{floridaTime\(state\.openUntil\)\} \(Flórida\)/);
-  assert.match(panel, /timeZone: 'America\/New_York'/);
-  assert.match(panel, /Mais de 24 h desde a última mensagem do cliente · responda pelo app do WhatsApp/);
+  // The window line and the send live in the shared send control (sugestoes.js): Florida time,
+  // one path per window state, provider errors said as "not sent, nothing recorded".
+  const shared = fs.readFileSync('painel/sugestoes.js', 'utf8');
+  assert.match(shared, /'Janela de 24 h aberta' \+ \(data\.path\.until \? ' até ' \+ clock\(data\.path\.until\) \+ ' \(Flórida\)' : ''\)/);
+  assert.match(shared, /timeZone: 'America\/New_York'/);
+  assert.match(shared, /abre a conversa no WhatsApp do celular com o texto preenchido/);
   assert.match(panel, /translatedFor !== pt\.value\.trim\(\)/);
-  assert.match(panel, /Não enviado · nada foi registrado/);
+  assert.match(shared, /Não enviado · nada foi registrado/);
   assert.match(panel, /IA indisponível/);
   const composer = panel.slice(panel.indexOf('async function replyComposer'), panel.indexOf('async function globalSearch'));
   assert.doesNotMatch(composer, /—/);

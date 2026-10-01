@@ -91,12 +91,16 @@
     SEND_IN_PROGRESS: 'Já existe um envio em andamento para esta conversa',
     SENT_NOT_RECORDED: 'Enviado ao cliente, mas não registrado no painel · Não reenvie',
     TEXT_REQUIRED: 'Escreva a mensagem antes de enviar',
-    TEXT_TOO_LONG: 'Mensagem longa demais (máximo 4.000 caracteres)'
+    TEXT_TOO_LONG: 'Mensagem longa demais (máximo 4.000 caracteres)',
+    NOT_READY: 'Traduza o texto antes de enviar'
   };
   const windowOpen = (path) => Boolean(path && path.open) && (!path.until || Date.parse(path.until) > Date.now());
   const clock = (value) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
-  function sendControls(root, data, textarea, { request, onSent } = {}) {
+  // options: request; onSent(result); canSend() gates the send/open until the text is ready (the
+  // composer: translated); discard=false hides "Descartar" (the composer keeps its own fields).
+  function sendControls(root, data, textarea, { request, onSent, canSend = null, discard: withDiscard = true } = {}) {
     const reachable = Boolean(data.reachable && data.whatsappBase);
+    const ready = () => !canSend || canSend();
     let open = reachable && windowOpen(data.path);
     const path = add(root, 'div', 'suggestion-path ' + (open ? 'is-open' : 'is-closed'));
     const title = add(path, 'strong', '', '');
@@ -119,12 +123,17 @@
       openLink = e('a', 'small suggestion-open', 'Abrir no WhatsApp do celular'); openLink.target = '_blank'; openLink.rel = 'noopener';
       const refresh = () => { openLink.href = waUrl(data.whatsappBase, textarea.value); };
       refresh(); textarea.addEventListener('input', refresh);
-      openLink.addEventListener('click', () => { done.textContent = 'WhatsApp aberto com o texto · O envio é feito por você no aplicativo'; });
-      actions.insertBefore(openLink, discard);
+      openLink.addEventListener('click', (event) => {
+        if (!ready()) { event.preventDefault(); done.textContent = SEND_ERRORS.NOT_READY; return; }
+        done.textContent = 'WhatsApp aberto com o texto · O envio é feito por você no aplicativo';
+      });
+      if (discard) actions.insertBefore(openLink, discard); else actions.append(openLink);
+      refresh();
     };
     const closeWindow = () => { open = false; if (sendButton) { sendButton.remove(); sendButton = null; } paintPath(); showOpenLink(); };
     const confirmSend = () => {
       if (busy || sent || root.querySelector('.suggestion-confirm')) return;
+      if (!ready()) { done.textContent = SEND_ERRORS.NOT_READY; return; }
       const text = textarea.value.trim();
       if (!text) { done.textContent = SEND_ERRORS.TEXT_REQUIRED; return; }
       const box = e('div', 'warning inline-confirm suggestion-confirm');
@@ -148,20 +157,29 @@
           done.textContent = SEND_ERRORS[code] || (/^D360_/.test(code || '') ? code + ' · Não enviado · nada foi registrado' : 'Não enviado · tente de novo');
           if (code === 'WINDOW_CLOSED') closeWindow();
           else if (code === 'SENT_NOT_RECORDED') { sent = true; sendButton.remove(); sendButton = null; }
-          else if (sendButton) sendButton.disabled = false;
-        } finally { busy = false; }
+        } finally { busy = false; refresh(); }
       });
       root.insertBefore(box, done);
+    };
+    // Text not ready yet (the composer before translating): the send waits, the link is inert.
+    const refresh = () => {
+      const ok = ready();
+      if (sendButton) sendButton.disabled = busy || !ok;
+      if (openLink) { openLink.classList.toggle('is-disabled', !ok); openLink.setAttribute('aria-disabled', ok ? 'false' : 'true'); }
     };
     if (open) {
       sendButton = add(actions, 'button', 'small suggestion-send', 'Enviar pelo painel'); sendButton.type = 'button';
       sendButton.addEventListener('click', confirmSend);
     }
-    const discard = add(actions, 'button', 'quiet small', 'Descartar'); discard.type = 'button';
-    discard.addEventListener('click', () => { root.replaceChildren(e('p', 'muted', 'Sugestão descartada · Nada foi enviado')); });
+    let discard = null;
+    if (withDiscard) {
+      discard = add(actions, 'button', 'quiet small', 'Descartar'); discard.type = 'button';
+      discard.addEventListener('click', () => { root.replaceChildren(e('p', 'muted', 'Sugestão descartada · Nada foi enviado')); });
+    }
     if (!open) showOpenLink();
-    paintPath();
+    paintPath(); refresh();
     if (reachable) add(root, 'p', 'muted', 'Para ' + data.contact.name + ' · ' + data.contact.phone);
+    return { refresh, closeWindow, sent: () => sent };
   }
 
   // ------------------------------------------------------------------ fila de conversas antigas
@@ -292,5 +310,5 @@
     };
   }
 
-  window.MCSSuggest = { box, render, queue, guided, translator };
+  window.MCSSuggest = { box, render, queue, guided, translator, sendControls };
 })();
