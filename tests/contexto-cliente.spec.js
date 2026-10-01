@@ -114,7 +114,8 @@ for (const width of [1366, 390]) {
 
     // PESQUISAS: the request read from the conversation is labelled as such and linked to the right ficha.
     await page.locator('[data-view="requests"]').click();
-    const requestCard = page.locator('#requests-list .request-card', { hasText: 'Marina Demonstração' }).first();
+    // Adendo: PESQUISAS is split into com carros, sem carros and busca não rodada; the conversation request is found by its label.
+    const requestCard = page.locator('#requests-list .request-card', { hasText: 'Pedido lido da conversa (IA, não confirmado)' }).filter({ hasText: 'Marina Demonstração' }).first();
     await expect(requestCard).toBeVisible({ timeout: 60000 });
     await expect(requestCard).toContainText('Pedido lido da conversa (IA, não confirmado)');
     await expect(await reach(requestCard)).toContainText('Responder o cliente', { timeout: 30000 });

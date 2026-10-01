@@ -78,7 +78,8 @@ for (const width of [1366, 390]) {
     await expect(body).toContainText('Janela de 24 h encerrada');
     await expect(body).toContainText('abre a conversa no WhatsApp do celular');
     await expect(body.locator('button.suggestion-send'), 'janela encerrada: nenhum envio pelo painel').toHaveCount(0);
-    expect(calls.filter((call) => call.path === '/api/panel/suggestions' && call.method === 'POST').length, 'clique duplo gera uma sugestão só').toBe(1);
+    // Only the suggestion counts: the cached translations of the cards ("cached") are free reads, never a suggestion.
+    expect(calls.filter((call) => call.path === '/api/panel/suggestions' && call.method === 'POST' && /"action":"suggest"/.test(call.body || '')).length, 'clique duplo gera uma sugestão só').toBe(1);
     const textarea = body.locator('.suggestion-text');
     await textarea.fill('Hola Sofía, retomo lo del Corolla. ¿Sigues con el mismo presupuesto?');
     const open = body.locator('a.suggestion-open');
