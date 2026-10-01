@@ -1,7 +1,8 @@
 'use strict';
 
 const crypto=require('node:crypto');
-const {anthropicJson,reserveCall}=require('./panel-ai');
+const {anthropicJson}=require('./panel-ai');
+const {supabase}=require('./panel-server');
 const {normalizePhone}=require('./panel-phone');
 const {validateAttachment}=require('./api/panel/attachments');
 const IMAGE_MIMES=new Set(['image/jpeg','image/png','image/webp']);
@@ -12,7 +13,7 @@ function name(value){const result=clean(value,160);return [...result.matchAll(/[
 function candidate(value){const source=value&&typeof value==='object'?value:{};return {phone:normalizePhone(source.phone)||'',name:name(source.name),ref:ref(source.ref)||'',message:clean(source.message||source.body,25000),translation:clean(source.translation,25000)};}
 async function readPrint(ctx,bytes,mime,fetchImpl=fetch){
   if(!IMAGE_MIMES.has(mime)||!Buffer.isBuffer(bytes)||bytes.length>5*1024*1024)throw new Error('SMS_PRINT_INVALID_IMAGE');
-  await reserveCall(ctx);
+  await reservePrintRead(ctx);
   try {
     const parsed=await anthropicJson(
       'Você lê UM print de SMS da My Car Scout. Responda SOMENTE JSON. Não invente nem complete dados que não estejam visíveis.',
@@ -20,7 +21,14 @@ async function readPrint(ctx,bytes,mime,fetchImpl=fetch){
       fetchImpl
     );
     return candidate(parsed);
-  } catch(error) { if(error.message==='SMS_PRINT_INVALID_IMAGE')throw error; throw new Error(error.message==='AI_DAILY_LIMIT'?'AI_DAILY_LIMIT':'AI_UNAVAILABLE'); }
+  } catch(error) { if(error.message==='SMS_PRINT_INVALID_IMAGE')throw error; throw new Error('AI_UNAVAILABLE'); }
+}
+// The print has its own daily quota (300, America/New_York day). It used to share the 100 calls of
+// panel_ai_reserve_call with the automatic conversation reading, which used them all up every day.
+async function reservePrintRead(ctx){
+  const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_sms_print_reserve_read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment})});
+  if(!result||result.allowed!==true)throw new Error('SMS_PRINT_DAILY_LIMIT');
+  return result;
 }
 function sha256(bytes){return crypto.createHash('sha256').update(bytes).digest('hex');}
-module.exports={IMAGE_MIMES,detectedImage,candidate,readPrint,sha256};
+module.exports={IMAGE_MIMES,reservePrintRead,detectedImage,candidate,readPrint,sha256};
