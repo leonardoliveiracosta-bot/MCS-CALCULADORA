@@ -33,9 +33,11 @@ function firstJson(text) {
   throw new Error('AI_RESPONSE_INVALID');
 }
 
-async function reserveCall(ctx) {
+// Daily quota by kind (America/New_York day): ROTINA (ai-cron) 1000, MANUAL (operator clicks) 2000.
+// The routine never uses up what the operator needs.
+async function reserveCall(ctx, kind = 'MANUAL') {
   const result = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_ai_reserve_call', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment })
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment, p_kind: kind === 'ROTINA' ? 'ROTINA' : 'MANUAL' })
   });
   if (!result || result.allowed !== true) throw new Error('AI_DAILY_LIMIT');
   return result;
@@ -216,7 +218,7 @@ function validatedReading(parsed, transcript, lead, customerBodies) {
 async function readConversation(ctx, group, options={}) {
   if(!group.lastCustomer)throw new Error('AI_NO_CUSTOMER_MESSAGE');
   if(!options.manual&&group.mcsCount<10)throw new Error('AI_NOT_ELIGIBLE');
-  await reserveCall(ctx);
+  await reserveCall(ctx,options.manual?'MANUAL':'ROTINA');
   let order=null;
   if(group.refs.length){
     const runs=(await Promise.all(group.refs.map((ref)=>allRows(ctx,'calc_runs',{select:'id,created_at,zip,estado,lance,pagamento,dados,is_test','dados->>ref':'ilike.'+ref,order:'created_at.asc'})))).flat();
@@ -262,7 +264,7 @@ async function suggestLink(ctx,group,orders,options={}){
   const candidates=deterministicCandidates(group,orders),latestOrderAt=orders.reduce((latest,order)=>Math.max(latest,time(order.occurredAt)||0),0);
   if(!candidates.length){await markLinkState(ctx,group,latestOrderAt?new Date(latestOrderAt).toISOString():null,false);return null;}
   try {
-    await reserveCall(ctx);
+    await reserveCall(ctx,'ROTINA');
     const parsed=await anthropicJson('Escolha somente entre os candidatos fornecidos o pedido mais provável para esta conversa. Responda SOMENTE JSON {"ref":"ABCDE" ou null,"reasons":["motivo curto"]}. Não invente dados.',JSON.stringify({
       contato:group.contact.display_name,mensagens:group.customerMessages.slice(-10).map((message)=>message.body_text),candidatos:candidates.map((candidate)=>({ref:candidate.ref,nome:candidate.contactName,carro:candidate.vehicleText,valor:candidate.budgetCents?Number(candidate.budgetCents)/100:null,data:candidate.occurredAt,sinais:candidate.reasons}))
     }),options.fetchImpl);
