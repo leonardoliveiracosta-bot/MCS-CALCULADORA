@@ -39,7 +39,7 @@ test('Lote 4 · Origem, Tipo e Última atividade da ficha', () => {
   assert.equal(origin.matchesClientFilters({ ...direct, lastActivityAt: null }, { days: '30' }, now), false);
 });
 
-test('Lote 4 · pedido da calculadora sem mensagem não é listado: scope=unlinked vem vazio (contacted 0, simulated 0)', async () => {
+test('Lote 4 · pedido da calculadora sem mensagem não é listado: nem na lista de pedidos', async () => {
   const real = require('../panel-server');
   const now = Date.now(), iso = (hours) => new Date(now - hours * 3600000).toISOString();
   const run = (id, ref, evento, hours, extra = {}) => ({ id, created_at: iso(hours), dados: { sid: 's-' + ref, ref, evento, quando: iso(hours), marca: 'BMW', modelo: 'X5', ...extra } });
@@ -66,33 +66,12 @@ test('Lote 4 · pedido da calculadora sem mensagem não é listado: scope=unlink
   });
   const ask = async (query) => { const res = output(); await handler({ method: 'GET', query }, res); return res; };
   // A calculator click is not contact (panel-contact.js) and the calculator never asks for a phone:
-  // an order with no real message (simulated or only clicked WhatsApp/SMS) is never listed. The
-  // unlinked scope still answers both groups (old API clients), always empty.
-  const contacted = await ask({ scope: 'unlinked', group: 'contacted', period: '30' });
-  assert.equal(contacted.code, 200, JSON.stringify(contacted.payload));
-  assert.deepEqual(contacted.payload.items, []);
-  assert.deepEqual(contacted.payload.counts, { contacted: 0, simulated: 0 });
-  const simulated = await ask({ scope: 'unlinked', group: 'simulated', period: '30' });
-  assert.equal(simulated.code, 200);
-  assert.deepEqual(simulated.payload.items, []);
-  assert.deepEqual(simulated.payload.counts, { contacted: 0, simulated: 0 });
-  const all = await ask({ scope: 'unlinked', group: 'simulated', period: 'all' });
-  assert.deepEqual(all.payload.items, []);
-  assert.deepEqual(all.payload.counts, { contacted: 0, simulated: 0 });
-  assert.equal((await ask({ scope: 'unlinked', group: 'x' })).payload.error, 'ORDER_GROUP_INVALID');
-  // Nor in the plain list: without any message no order appears.
+  // an order with no real message (simulated or only clicked WhatsApp/SMS) is never listed.
   const plain = await ask({ filter: 'Todos', period: 'all' });
   assert.equal(plain.code, 200);
   assert.deepEqual(plain.payload.items.filter((item) => item.kind === 'CALCULATOR').map((item) => item.ref), []);
-  // The webhook timing does not matter: a click never counts, before or after it. A real message
-  // on the ficha that owns CCC44 makes that order (and only it) a contact; it has a ficha, so it
-  // is still not an unlinked Ref.
+  // A real message on the ficha that owns CCC44 makes that order (and only it) a contact.
   messages = [{ id: 'm1', journey_id: uuid(1), direction: 'CUSTOMER', source_kind: 'WHATSAPP_WEBHOOK', occurred_at_utc: iso(30) }];
-  for (const group of ['contacted', 'simulated']) {
-    const afterCut = await ask({ scope: 'unlinked', group, period: 'all' });
-    assert.deepEqual(afterCut.payload.items, [], group);
-    assert.deepEqual(afterCut.payload.counts, { contacted: 0, simulated: 0 });
-  }
   const listed = await ask({ filter: 'Todos', period: 'all' });
   assert.deepEqual(listed.payload.items.filter((item) => item.kind === 'CALCULATOR').map((item) => item.ref), ['CCC44']);
   // The old PEDIDOS list still answers (the report and #pedido/REF use the same endpoint), for an

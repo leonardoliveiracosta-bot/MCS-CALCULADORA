@@ -35,7 +35,7 @@ test('calculadora: taxa e total da tabela nova em Florida e fora, sem gravar nad
   if (await page.locator('#modal-ok').isVisible()) await page.locator('#modal-ok').click();
   await expect(page.locator('#resultado')).toBeVisible();
   const loaded = await page.evaluate(() => [...document.scripts].map((script) => script.getAttribute('src')).filter((src) => src && src.includes('calc-core')));
-  expect(loaded).toEqual(['/calc-core.js?v=service-fee-20260929']);
+  expect(loaded).toEqual(['/calc-core.js?v=financiamento-7001-20261001']);
   const rows = [];
   for (const [zip, florida] of [['33101', true], ['97201', false]]) {
     for (const bid of BIDS) {

@@ -36,8 +36,6 @@ async function call(name, url) {
 test('sem mensagem não aparece em nenhuma lista; quem escreveu aparece', async () => {
   const screens = {
     'HOJE': await call('today', '/api/panel/today?sort=recent'),
-    'ENTRADA · pedidos (pediram contato)': await call('orders', '/api/panel/orders?scope=unlinked&group=contacted&period=all'),
-    'ENTRADA · pedidos (só simularam)': await call('orders', '/api/panel/orders?scope=unlinked&group=simulated&period=all'),
     'Lista de pedidos (relatório)': await call('orders', '/api/panel/orders?filter=Todos&period=all'),
     'CLIENTES': await call('records', '/api/panel/records?sort=recent'),
     'Qualificação': await call('qualification', '/api/panel/qualification?sort=recent'),

@@ -28,7 +28,7 @@ function clickChannel(event) {
 function contactIndex({ calcRuns = [], messages = [], messageLinks = [] } = {}) {
   const firstWebhookAt = messages.filter((message) => message.direction === 'CUSTOMER' && message.source_kind === 'WHATSAPP_WEBHOOK')
     .reduce((minimum, message) => Math.min(minimum, at(message) ?? Infinity), Infinity);
-  const byJourney = new Map(), byRef = new Map();
+  const byJourney = new Map();
   const messagesById = new Map(messages.map((message) => [message.id, message]));
   const add = (map, key, entry) => { if (!key || !entry.at) return; if (!map.has(key)) map.set(key, []); map.get(key).push(entry); };
   for (const link of messageLinks) {
@@ -42,9 +42,8 @@ function contactIndex({ calcRuns = [], messages = [], messageLinks = [] } = {}) 
   // is lost. calcRuns is kept in the signature for the callers.
   void calcRuns;
   const facts = (input = {}) => {
-    const refs = [input.ref, ...(input.refs || [])].filter(Boolean).map((value) => String(value).trim().toUpperCase());
+    // Only messages linked to the ficha count; a Ref alone (input.ref, input.refs) never does.
     const entries = [...(byJourney.get(input.journeyId) || [])];
-    refs.forEach((ref) => entries.push(...(byRef.get(ref) || [])));
     entries.sort((left, right) => left.at - right.at || left.channel.localeCompare(right.channel));
     const latest = entries.at(-1) || null;
     return { entered: Boolean(latest), firstAt: entries[0]?.at || null, latestAt: latest?.at || null, channel: latest?.channel || null, firstWebhookAt: Number.isFinite(firstWebhookAt) ? firstWebhookAt : null };

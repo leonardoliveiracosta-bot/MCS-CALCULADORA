@@ -56,8 +56,7 @@ async function buildList(ctx) {
     && (base.journeyDisposition(journey)?.status || null) !== 'DISCARDED';
   const journeyDemands = base.journeys.filter((journey) => workable(journey) && base.journeyEntered(journey))
     .flatMap((journey) => (base.demands.byJourney.get(journey.id) || []).map((demand) => ({ demand, journey })));
-  const orderDemands = [];
-  for (const { demand, journey } of [...journeyDemands, ...orderDemands]) {
+  for (const { demand, journey } of journeyDemands) {
     const key = (journey ? 'ficha:' : 'pedido:') + demand.key;
     const common = { source: journey ? 'FICHA' : 'CALCULADORA', person: demandPerson(base, demand), mode: demand.mode, lastMessageAt: journey ? lastCustomer.get(journey.id) || null : null,
       evidence: journey ? [{ kind: 'FICHA', text: journey.vehicle_text ? 'Ficha: ' + String(journey.vehicle_text).slice(0, 300) : 'Critérios preenchidos na ficha' }] : [{ kind: 'CALCULADORA', text: 'Pedido da calculadora' + (demand.ref ? ', Ref ' + demand.ref : '') }] };

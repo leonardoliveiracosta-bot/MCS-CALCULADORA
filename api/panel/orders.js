@@ -112,31 +112,6 @@ module.exports = async (req, res) => {
       },facts,insightByJourney.get(item.id),complete)];
     });
 
-    // Lote 4 (PEDIDOS fundido em ENTRADA): calculator Refs with no ficha yet, still to handle.
-    // "contacted" entered in contact through the calculator; "simulated" only simulated. Counts
-    // come with the page so the ENTRADA section shows its own number (never the tab badge).
-    if (scope === 'unlinked') {
-      const group = String((req.query && req.query.group) || 'contacted');
-      if (!['contacted', 'simulated'].includes(group)) return send(res, 400, { error: 'ORDER_GROUP_INVALID' });
-      const since = period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
-      const open = calculator.filter((item) => !item.journeyId && !item.disposition && (since === null || (time(item.occurredAt) || 0) >= since));
-      // "Entered in contact" is the panel's single rule (panel-contact.js): a message that really
-      // arrived. An order with no message (simulated or only clicked) is never listed: the calculator
-      // has no phone, there is nothing to do with it. Both groups stay for old clients of the API.
-      const groups = { contacted: open.filter((item) => item.enteredContact), simulated: [] };
-      const listed = sortItems(groups[group], sort, 'recent');
-      const page = listed.slice(offset, offset + limit);
-      const linkTargets = data.journeys.filter((item) => item.status !== 'ENCERRADO').map((item) => ({
-        journeyId: item.id, contactId: item.contact_id,
-        label: `${item.contact && item.contact.display_name ? item.contact.display_name : 'Contato sem nome'} · Ref ${item.reference_code || 'sem Ref'} · ${item.vehicle_text || 'busca sem veículo'}`
-      }));
-      return send(res, 200, {
-        environment: ctx.environment, scope, group, period, items: page, linkTargets, meta,
-        counts: { contacted: groups.contacted.length, simulated: groups.simulated.length },
-        page: { offset, limit, total: listed.length, hasMore: offset + page.length < listed.length }
-      });
-    }
-
     const cutoff = filter === 'Pendentes' || period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
     // M4: a direct ficha that also has a calculator order is one person: keep the order card only
     // (except in the "WhatsApp direto" filter, which shows the direct card).

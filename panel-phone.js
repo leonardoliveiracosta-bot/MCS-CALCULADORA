@@ -15,6 +15,5 @@ function formatPhone(value) {
   return digits.length===11&&digits.startsWith('1')?`(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`:normalized;
 }
 
-function phoneSearchDigits(value) { return String(value||'').replace(/\D/g,''); }
 
-module.exports={normalizePhone,formatPhone,phoneSearchDigits};
+module.exports={normalizePhone,formatPhone};

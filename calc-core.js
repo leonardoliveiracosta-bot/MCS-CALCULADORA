@@ -121,7 +121,7 @@ const CONFIG = {
 
   lanceMinimo: 3000,
   lanceMaximo: 300000,
-  financiamentoMinimo: 10000
+  financiamentoMinimo: 7001
 };
 
 const ZIP_UF = [
