@@ -101,6 +101,7 @@ const INSTRUCTIONS = [
   'Carro que já passou no leilão: diga que não está mais disponível e use só como referência, sem prometer outro igual. Clean Title não é carro perfeito, sem acidente nem garantia mecânica. Green Light indica que podem existir regras de proteção ou arbitragem, não risco zero; só cite proteção confirmada naquela unidade. MMR é referência, maximum bid é o limite autorizado, winning bid é o lance vencedor; nunca sugira passar do limite autorizado.',
   'VENDA: cliente da calculadora já informou nome, carro e maximum bid: primeiro posicione o orçamento no mercado, não comece pedindo ano, milhagem, cor e trim se não for necessário. Compra distante: ajude com referência de mercado sem dizer que uma busca real começou. Cliente pronto: avance com o inventário disponível naquele momento, se houver dado. Abaixo de US$ 10 mil: muito breve e factual, sem prometer condição. Toda pergunta tem finalidade clara para o próximo passo. Não prometa encontrar algo na próxima semana.',
   'RETOMADA (modo RETOMADA): 1) mostre acompanhamento real da busca ou do mercado só se estiver registrado; 2) dê referência concreta só com evidência; 3) se o carro de exemplo já passou, diga que não está disponível; 4) no máximo UMA pergunta útil; 5) convide a continuar sem pressão. Sem saudação genérica e sem repetir o que a automação já explicou.',
+  'BUSCA INCOMPLETA (busca.completa=false): a conversa deve fluir para obter o que falta para a MCS montar e classificar a busca. Existem só dois tipos: POR CARRO (carro + faixa de ano + faixa de milhagem; valor não é usado) e POR VALOR (carro + lance máximo; ano e milhagem não são usados). Se busca.tipo = NAO_DEFINIDO, a pergunta leva o cliente naturalmente a um dos dois caminhos, a partir do que ele já disse (ex.: se ele tem um teto de lance ou se procura um ano e uma milhagem específicos). Peça só o que está em busca.faltando_por_carro ou busca.faltando_por_valor, começando pelo carro se faltar, no máximo UMA pergunta (que pode juntar dois dados ligados, como ano e milhagem). Nunca pergunte o que já está na ficha ou no histórico; o que está em busca.a_confirmar (lido só pela IA) se confirma, não se pergunta do zero. Se o cliente fez uma pergunta, responda primeiro e depois faça a pergunta da busca. No modo RETOMADA, a pergunta útil é a que destrava a busca. pergunta_finalidade diz qual dado da busca a pergunta obtém. Com busca.completa=true, siga as regras de VENDA e não peça dados de busca.',
   'IDIOMA: responda no idioma do cliente (pt, en ou es). traducao_recebida_pt: tradução para português da última mensagem do cliente (vazio se já for português). traducao_resposta_pt: tradução para português da sua resposta (vazio se já for português).',
   'fatos_usados: cada fato que a resposta usa, com situacao CONFIRMADO (o cliente disse ou a ficha confirma), INFERIDO (dedução sua) ou DESCONHECIDO (falta saber). pergunta_finalidade: para que serve a pergunta da resposta (vazio se não houver). alertas: riscos que o humano deve conferir antes de enviar.',
   'Responda SOMENTE o JSON do esquema.'
@@ -149,12 +150,33 @@ async function openAiSuggest(input, options = {}) {
   } });
 }
 
+// What the search still needs, per type (the same rule as the client context and vehicle-match):
+// POR CARRO needs carro, anos and milhas; POR VALOR needs carro and valor. A field read only by the AI
+// counts as present, to be confirmed.
+const SEARCH_NEEDS = Object.freeze({ CARRO: ['carro', 'anos', 'milhas'], VALOR: ['carro', 'valor'] });
+const NEED_LABELS = Object.freeze({ carro: 'carro (marca e modelo)', anos: 'faixa de ano', milhas: 'faixa de milhagem', valor: 'lance máximo' });
+function searchGap(fields, context) {
+  const byKey = new Map((fields || []).map((item) => [item.key, item]));
+  const present = (key) => { const item = byKey.get(key); return Boolean(item && item.value && item.status !== 'AUSENTE' && item.status !== 'AMBIGUO'); };
+  const modes = [...new Set([...((context && context.modes) || []), ...((context && context.searches) || []).map((item) => item.mode), ...(((context && context.links && context.links.orders) || []).map((item) => item.mode))].filter((mode) => SEARCH_NEEDS[mode]))];
+  const missing = (mode) => SEARCH_NEEDS[mode].filter((key) => !present(key)).map((key) => NEED_LABELS[key]);
+  const complete = modes.length ? modes.some((mode) => !missing(mode).length) : false;
+  return {
+    completa: complete,
+    tipo: modes.length ? modes.map((mode) => mode === 'CARRO' ? 'POR_CARRO' : 'POR_VALOR').join(',') : 'NAO_DEFINIDO',
+    faltando_por_carro: !modes.length || modes.includes('CARRO') ? missing('CARRO') : [],
+    faltando_por_valor: !modes.length || modes.includes('VALOR') ? missing('VALOR') : [],
+    a_confirmar: ['carro', 'anos', 'milhas', 'valor'].filter((key) => present(key) && (byKey.get(key) || {}).status === 'IA').map((key) => NEED_LABELS[key])
+  };
+}
+
 // Without the AI (Preview, tests, function off): a plain draft built only from what is recorded,
 // marked as simulated. It never pretends to know the market.
-function simulatedSuggestion({ mode, language, name, fields, lastCustomer }) {
+function simulatedSuggestion({ mode, language, name, fields, lastCustomer, gap = null }) {
   const first = String(name || '').trim().split(/\s+/)[0] || '';
   const car = (fields.find((item) => item.key === 'carro' && item.value) || {}).value || null;
   const lang = language || 'en';
+  if (gap && !gap.completa) return gapQuestion({ mode, lang, first, car, gap, lastCustomer });
   const texts = {
     en: mode === 'RETOMADA'
       ? `Hi${first ? ' ' + first : ''}, picking this back up${car ? ' on the ' + car : ''}. Is the budget you mentioned still where you want to be?`
@@ -174,6 +196,42 @@ function simulatedSuggestion({ mode, language, name, fields, lastCustomer }) {
     traducao_resposta_pt: lang === 'pt' ? '' : pt,
     fatos_usados: car ? [{ fato: 'Carro: ' + car, situacao: 'CONFIRMADO' }] : [{ fato: 'Carro', situacao: 'DESCONHECIDO' }],
     pergunta_finalidade: mode === 'RETOMADA' ? 'Confirmar se o orçamento mudou antes de buscar' : '',
+    alertas: ['Sugestão simulada neste ambiente: sem IA e sem custo']
+  };
+}
+
+// Simulated draft when the search cannot be built yet: one question toward what is missing.
+function gapQuestion({ mode, lang, first, car, gap, lastCustomer }) {
+  const hi = { en: 'Hi', es: 'Hola', pt: 'Oi' };
+  const opener = (code) => `${hi[code]}${first ? ' ' + first : ''}, `;
+  const noCar = !car;
+  const carro = gap.tipo === 'POR_CARRO', valor = gap.tipo === 'POR_VALOR';
+  const q = {
+    en: noCar ? 'what car are you looking for? Make and model is enough to start.'
+      : carro ? `for the ${car}, what year range and mileage range work for you?`
+      : valor ? `for the ${car}, what is the max you want to bid?`
+      : `for the ${car}, do you have a max budget in mind, or a specific year and mileage range?`,
+    es: noCar ? '¿qué carro buscas? Con marca y modelo podemos empezar.'
+      : carro ? `para el ${car}, ¿qué rango de años y de millas te sirve?`
+      : valor ? `para el ${car}, ¿cuál es el máximo que quieres ofertar?`
+      : `para el ${car}, ¿tienes un presupuesto máximo o buscas un rango de año y millas específico?`,
+    pt: noCar ? 'qual carro você procura? Marca e modelo já bastam para começar.'
+      : carro ? `para o ${car}, qual faixa de ano e de milhagem serve para você?`
+      : valor ? `para o ${car}, qual é o lance máximo que você quer usar?`
+      : `para o ${car}, você tem um lance máximo em mente ou procura um ano e uma milhagem específicos?`
+  };
+  const text = (code) => opener(code) + q[code];
+  const purpose = noCar ? 'Obter o carro (marca e modelo) para montar a busca'
+    : carro ? 'Obter a faixa de ano e de milhagem para a busca por carro'
+    : valor ? 'Obter o lance máximo para a busca por valor'
+    : 'Definir o tipo de busca: por valor (lance máximo) ou por carro (ano e milhagem)';
+  return {
+    idioma_cliente: lang,
+    traducao_recebida_pt: lang === 'pt' ? '' : '(tradução simulada) ' + String(lastCustomer && lastCustomer.body_text || '').slice(0, 200),
+    resposta: text(q[lang] ? lang : 'en'),
+    traducao_resposta_pt: lang === 'pt' ? '' : text('pt'),
+    fatos_usados: [car ? { fato: 'Carro: ' + car, situacao: 'CONFIRMADO' } : { fato: 'Carro', situacao: 'DESCONHECIDO' }, { fato: 'Tipo de busca: ' + (gap.tipo === 'NAO_DEFINIDO' ? 'não definido' : gap.tipo), situacao: gap.tipo === 'NAO_DEFINIDO' ? 'DESCONHECIDO' : 'CONFIRMADO' }],
+    pergunta_finalidade: purpose,
     alertas: ['Sugestão simulada neste ambiente: sem IA e sem custo']
   };
 }
@@ -261,6 +319,7 @@ async function suggest(ctx, body, services = {}) {
     const window = target ? await (services.windowState || reply.windowState)(ctx, target.chat.id, { rows: services.rows || rows }) : { allowed: false };
     const context = await (services.clientContext || defaultContext)(ctx, journeyId);
     const fields = (context && context.fields || []).map((item) => ({ key: item.key, label: item.label, value: item.value, status: item.status, statusLabel: item.statusLabel }));
+    const gap = searchGap(fields, context);
     const language = detectLanguage(real.filter((message) => message.direction === 'CUSTOMER').slice(-5).map((message) => message.body_text).join(' '));
     const conversation = found.messages.filter((message) => !message.undone_at && String(message.body_text || '').trim() && ['CUSTOMER', 'MCS'].includes(message.direction))
       .sort((a, b) => stamp(a) - stamp(b)).slice(-MAX_CONTEXT_MESSAGES)
@@ -270,12 +329,13 @@ async function suggest(ctx, body, services = {}) {
       cliente: { nome: found.contact && found.contact.display_name || null, origem: context && context.origin ? context.origin.label : null },
       ficha: fields.filter((item) => item.value).map((item) => ({ campo: item.label, valor: item.value, situacao: item.statusLabel })),
       faltando: fields.filter((item) => !item.value && item.key !== 'uso').map((item) => item.label),
+      busca: gap,
       etapa: context && context.stage ? context.stage.label : null,
       conversa: conversation
     };
     const env = services.env || process.env;
     let raw, simulated = false, costUsd = 0, usedModel = null;
-    if (!enabled(env)) { raw = simulatedSuggestion({ mode, language, name: found.contact && found.contact.display_name, fields, lastCustomer }); simulated = true; }
+    if (!enabled(env)) { raw = simulatedSuggestion({ mode, language, name: found.contact && found.contact.display_name, fields, lastCustomer, gap }); simulated = true; }
     else {
       const check = await (services.modelCheck || require('./panel-openai-model-check').ensureModelChecked)(ctx, model(env));
       if (!check.ok) return { status: 503, error: 'AI_UNAVAILABLE', detail: check.error || 'MODEL_NOT_CHECKED' };
@@ -389,4 +449,4 @@ async function queue(ctx, options = {}, services = {}) {
   return { minDays, eligible, excluded, reasons, generatedAt: new Date(now).toISOString() };
 }
 
-module.exports = { BANNED, LANGS, OPT_OUT, OPT_OUT_WORD, QUEUE_MIN_DAYS, SCHEMA, INSTRUCTIONS, blockOf, detectLanguage, enabled, model, openAiSuggest, optOutOf, pathFor, queue, review, simulatedSuggestion, suggest, waLink };
+module.exports = { BANNED, searchGap, LANGS, OPT_OUT, OPT_OUT_WORD, QUEUE_MIN_DAYS, SCHEMA, INSTRUCTIONS, blockOf, detectLanguage, enabled, model, openAiSuggest, optOutOf, pathFor, queue, review, simulatedSuggestion, suggest, waLink };
