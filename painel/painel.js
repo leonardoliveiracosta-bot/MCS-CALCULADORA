@@ -1763,7 +1763,6 @@
     hydrateContexts(root);
   }
 
-  // One calculator order card (Ref). Lote 4: used by the ENTRADA section that replaces PEDIDOS.
   function renderQualification(items) {
     const root = $('qualification-list');
     root.replaceChildren();

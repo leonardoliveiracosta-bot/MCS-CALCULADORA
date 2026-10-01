@@ -292,3 +292,44 @@ test('busca incompleta: a sugestão recebe o que falta por tipo e pergunta para 
   assert.match(simulated.payload.suggestion.text, /max budget|year and mileage|max you want to bid|what year range/);
   assert.match(simulated.payload.suggestion.questionPurpose, /tipo de busca|lance máximo|ano e de milhagem/);
 });
+
+test('MESA: Find One nunca pergunta valor, Valor nunca pergunta ano/milhagem; uma correção automática e aviso se insistir', async () => {
+  const carro = { tipo: 'POR_CARRO' }, valor = { tipo: 'POR_VALOR' };
+  // The real case (Tyreek, Ref CF3CM): Find One complete, the AI asked the bid.
+  assert.match(suggest.typeViolation('I have your target as a 2018-2020 Audi A5 with 20,000-80,000 miles. What maximum auction bid would you like us to stay within?', carro), /POR CARRO/);
+  assert.equal(suggest.typeViolation('We never bid above your max. I will check this week\'s auctions for 2018-2020 A5s and send what fits.', carro), null, 'afirmação não é pergunta');
+  assert.match(suggest.typeViolation('¿Cuál es tu presupuesto?', carro), /POR CARRO/);
+  assert.match(suggest.typeViolation('Para o Civic, qual faixa de ano e de milhagem serve?', valor), /POR VALOR/);
+  assert.equal(suggest.typeViolation('What is the max you want to bid on the Civic?', valor), null);
+  assert.equal(suggest.typeViolation('What year and what budget?', { tipo: 'NAO_DEFINIDO' }), null, 'tipo não definido: a pergunta escolhe o caminho');
+  assert.match(suggest.INSTRUCTIONS, /MESA \(regra do tipo de busca/);
+  assert.match(suggest.INSTRUCTIONS, /NUNCA pergunte lance, orçamento/);
+  assert.match(suggest.INSTRUCTIONS, /NUNCA pergunte ano nem milhagem/);
+  assert.match(suggest.INSTRUCTIONS, /sempre em português/);
+  // Ranges keep a hyphen (it used to turn 2018–2020 into "2018, 2020").
+  assert.equal(suggest.review('2018–2020 Audi A5 with 20,000–80,000 miles — sounds good').text, '2018-2020 Audi A5 with 20,000-80,000 miles, sounds good');
+
+  // IA mode on a Find One ficha: the first answer asks the bid, the corrected one does not.
+  const journeyId = fixture.people.english.journey;
+  const answers = ['What maximum auction bid would you like us to stay within?', 'Got it. I will check the auctions for that range and send what fits.'];
+  const inputs = [];
+  const run = (texts) => suggest.suggest(ctx, { journeyId }, {
+    env: { VERCEL_ENV: 'production', REPLY_SUGGESTION_ENABLED: '1', OPENAI_API_KEY: 'chave-de-teste', ENTRADA_OPENAI_MODEL: 'gpt-6-luna' },
+    modelCheck: async () => ({ ok: true }),
+    clientContext: async () => ({ modes: ['CARRO'], fields: [{ key: 'carro', value: 'Audi A5', status: 'CLIENTE' }, { key: 'anos', value: '2018 a 2020', status: 'CLIENTE' }, { key: 'milhas', value: '20,000 a 80,000', status: 'CLIENTE' }] }),
+    budgetServices: { reserve: async () => ({ held: true, id: 'h' }), release: async () => ({}), settle: async () => ({}) },
+    openAi: async (input) => { inputs.push(input); const text = texts[Math.min(inputs.length - 1, texts.length - 1)]; return { parsed: { idioma_cliente: 'en', traducao_recebida_pt: 'x', resposta: text, traducao_resposta_pt: 'x', fatos_usados: [], pergunta_finalidade: '', alertas: [] }, usage: { inputTokens: 1, outputTokens: 1 }, model: 'gpt-6-luna', costUsd: 0.0007 }; }
+  });
+  let out = await run(answers);
+  assert.equal(inputs.length, 2, 'uma correção automática');
+  assert.equal(inputs[0].busca.tipo, 'POR_CARRO');
+  assert.equal(inputs[0].busca.completa, true);
+  assert.match(inputs[1].correcao, /POR CARRO/);
+  assert.equal(out.suggestion.text, answers[1]);
+  assert.ok(!out.warnings.some((w) => /mesa/.test(w)));
+  assert.equal(out.costUsd, 0.0014, 'o custo das duas chamadas aparece');
+  inputs.length = 0;
+  out = await run([answers[0]]);
+  assert.equal(inputs.length, 2);
+  assert.match(out.warnings[0], /POR CARRO.*não use esta pergunta/, 'se insistir, o aviso aparece em primeiro');
+});
