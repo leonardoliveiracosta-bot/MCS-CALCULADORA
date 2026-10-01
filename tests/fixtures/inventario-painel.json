@@ -283,33 +283,6 @@
    ]
   },
   {
-   "name": "entry-orders",
-   "usedBy": [
-    "tests/lote4.spec.js"
-   ]
-  },
-  {
-   "name": "entry-orders-count",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/lote4.spec.js"
-   ]
-  },
-  {
-   "name": "entry-orders-list",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/lote4.spec.js"
-   ]
-  },
-  {
-   "name": "entry-orders-more",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/lote4.spec.js"
-   ]
-  },
-  {
    "name": "entry-panel",
    "usedBy": [
     "tests/lote4.spec.js"
@@ -320,33 +293,6 @@
    "usedBy": [
     "painel/painel.js",
     "tests/lote3.spec.js"
-   ]
-  },
-  {
-   "name": "entry-simulated",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/lote4.spec.js"
-   ]
-  },
-  {
-   "name": "entry-simulated-count",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/lote4.spec.js"
-   ]
-  },
-  {
-   "name": "entry-simulated-list",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/lote4.spec.js"
-   ]
-  },
-  {
-   "name": "entry-simulated-more",
-   "usedBy": [
-    "painel/painel.js"
    ]
   },
   {
@@ -1320,13 +1266,6 @@
    ]
   },
   {
-   "name": "entry-orders-period",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/lote4.spec.js"
-   ]
-  },
-  {
    "name": "link",
    "usedBy": [
     "painel/painel.js"
@@ -1340,12 +1279,6 @@
   },
   {
    "name": "mode",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
-   "name": "order-key",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -1465,16 +1398,8 @@
    "entry-add-title",
    "entry-needs-empty",
    "entry-needs-title",
-   "entry-orders",
-   "entry-orders-count",
-   "entry-orders-list",
-   "entry-orders-more",
    "entry-panel",
    "entry-queue",
-   "entry-simulated",
-   "entry-simulated-count",
-   "entry-simulated-list",
-   "entry-simulated-more",
    "entry-sort",
    "environment-badge",
    "global-search",
@@ -1641,10 +1566,8 @@
    "entry-heading",
    "entry-needs",
    "entry-open-button",
-   "entry-orders",
    "entry-review-actions",
    "entry-signal",
-   "entry-simulated",
    "entry-tool",
    "entry-tool-copy",
    "entry-tool-featured",
@@ -1730,7 +1653,6 @@
    "no-ref-phone",
    "note-form",
    "one-line",
-   "order-details",
    "order-icon",
    "over",
    "panel-logo",
@@ -1839,11 +1761,9 @@
    "confirmed",
    "count",
    "counter",
-   "entry-orders-period",
    "link",
    "match-id",
    "mode",
-   "order-key",
    "pending-situation",
    "reply-closed",
    "report",
