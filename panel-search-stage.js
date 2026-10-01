@@ -52,25 +52,52 @@ function directLeadSource(journey, hasOrder) {
   return !hasOrder&&['WHATSAPP_DIRECT','SMS_DIRECT'].includes(journey?.source)?journey.source:null;
 }
 
-async function loadSearchStageIndex(ctx) {
+async function loadSearchStageIndex(ctx, options = {}) {
+  const targetIds = Array.isArray(options.journeyIds) ? [...new Set(options.journeyIds.filter(Boolean))] : null;
+  const scoped = Boolean(targetIds);
+  if (scoped && !targetIds.length) return new Map();
+  const inFilter = (values) => 'in.(' + values.map((value) => '"' + String(value).replaceAll('"', '') + '"').join(',') + ')';
   const supported = await undoSupported(ctx, { allRows }).catch(() => false);
-  const [journeys, refs, calcRuns, calcLinks, saved, marks, events, units, confirmedPrints, toggles, presented] = await Promise.all([
-    allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
-    allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }).catch(() => []),
-    allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' }),
-    allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, undone_at: 'is.null' }).catch(() => []),
-    allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at,detail_json', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
-    // A11: a car stays "sent" whatever the customer answered (only a withdrawn unit does not count).
-    allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at,details_json', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),
-    allRows(ctx, 'sms_print_reads', { select: 'confirmed_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.CONFIRMED' }),
-    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment }),
-    // A unit presented from a match belongs to that match's mode.
-    supported ? allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: 'not.is.null' }).catch(() => []) : Promise.resolve([])
-  ]);
+  let journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented, externalOwners = [];
+  if (scoped) {
+    [journeys, refs] = await Promise.all([
+      allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment, id: inFilter(targetIds) }),
+      allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment, journey_id: inFilter(targetIds) })
+    ]);
+    const targetRefs = [...new Set([...journeys.map((row) => row.reference_code), ...refs.map((row) => row.ref_code)].map((value) => String(value || '').trim().toUpperCase()).filter(Boolean))];
+    const ids = journeys.map((row) => row.id);
+    const refFilter = targetRefs.length ? inFilter(targetRefs) : null;
+    [externalOwners, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles] = await Promise.all([
+      refFilter ? Promise.all([
+        allRows(ctx, 'journeys', { select: 'id,reference_code', environment: 'eq.' + ctx.environment, reference_code: refFilter }),
+        allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment, ref_code: refFilter })
+      ]).then(([codes, links]) => [...codes, ...links.map((row) => ({ id: row.journey_id, ref_code: row.ref_code }))]) : Promise.resolve([]),
+      refFilter ? allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc', 'dados->>ref': refFilter }) : Promise.resolve([]),
+      refFilter ? allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment, calc_ref: refFilter }).catch(() => []) : Promise.resolve([]),
+      allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, undone_at: 'is.null', journey_id: inFilter(ids) }).catch(() => []),
+      allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at,detail_json', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null', journey_id: inFilter(ids) }),
+      allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at,details_json', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN', journey_id: inFilter(ids) }),
+      allRows(ctx, 'sms_print_reads', { select: 'confirmed_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.CONFIRMED', confirmed_journey_id: inFilter(ids) }),
+      allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment, journey_id: inFilter(ids) })
+    ]);
+    const unitIds = units.map((row) => row.id).filter(Boolean);
+    presented = supported && unitIds.length ? await allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: inFilter(unitIds) }).catch(() => []) : [];
+  } else {
+    [journeys, refs, calcRuns, calcLinks, marks, events, units, confirmedPrints, toggles, presented] = await Promise.all([
+      allRows(ctx, 'journeys', { select: 'id,reference_code,source,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,created_at,updated_at', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: 'eq.' + ctx.environment }),
+      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
+      allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }).catch(() => []),
+      allRows(ctx, 'panel_search_marks', { select: 'journey_id,kind,created_at' + (supported ? ',logical_mode' : ''), environment: 'eq.' + ctx.environment, undone_at: 'is.null' }).catch(() => []),
+      allRows(ctx, 'lead_events', { select: 'journey_id,event_type,occurred_at,detail_json', environment: 'eq.' + ctx.environment, event_type: 'eq.CAR_PRESENTED', undone_at: 'is.null' }),
+      allRows(ctx, 'units', { select: 'id,journey_id,status,presented_at,created_at,details_json', environment: 'eq.' + ctx.environment, status: 'neq.WITHDRAWN' }),
+      allRows(ctx, 'sms_print_reads', { select: 'confirmed_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.CONFIRMED' }),
+      allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment }),
+      supported ? allRows(ctx, 'manheim_matches', { select: 'presented_unit_id,logical_mode', environment: 'eq.' + ctx.environment, presented_unit_id: 'not.is.null' }).catch(() => []) : Promise.resolve([])
+    ]);
+  }
   const toggleByJourney = new Map(toggles.map((row) => [row.journey_id, row]));
-  const savedByKey = new Map(saved.map((row) => [row.search_key, row.updated_at || null]));
+  const savedByKey = new Map();
   const unitMode = new Map(presented.filter((row) => row.logical_mode).map((row) => [row.presented_unit_id, row.logical_mode]));
   // A mark, event or unit without a mode (made before the split) counts for every mode of the ficha.
   const latestFor = (list, journeyId, mode) => list.filter((row) => row.id === journeyId && (!row.mode || row.mode === mode)).reduce((best, row) => (!best || Date.parse(best) < Date.parse(row.at) ? row.at : best), null);
@@ -79,7 +106,10 @@ async function loadSearchStageIndex(ctx) {
   const sentRows = [...events.map((row) => ({ id: row.journey_id, at: row.occurred_at, mode: modeOf(row.detail_json) })), ...units.map((row) => ({ id: row.journey_id, at: row.presented_at || row.created_at, mode: unitMode.get(row.id) || modeOf(row.details_json) || null }))];
   const confirmedByJourney = new Set(confirmedPrints.map((row) => row.confirmed_journey_id).filter(Boolean));
   const refsFromCalculator = calculatorRefs(calcRuns);
-  const demands = buildSearchDemands({ journeys, refs, modeItems: consolidateCalcRuns(calcRuns, calcLinks) }).byJourney;
+  const demands = buildSearchDemands({ journeys, refs, modeItems: consolidateCalcRuns(calcRuns, calcLinks), externalOwners }).byJourney;
+  const keys = [...new Set([...demands.values()].flatMap((list) => list.filter((demand) => demand.active).map((demand) => searchIdentity(searchableWish(demand.activeWishes), demand.mode)?.key).filter(Boolean)))];
+  const saved = keys.length ? await allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true', search_key: inFilter(keys) }) : scoped ? [] : await allRows(ctx, 'manheim_saved_searches', { select: 'search_key,created,updated_at', environment: 'eq.' + ctx.environment, created: 'eq.true' });
+  saved.forEach((row) => savedByKey.set(row.search_key, row.updated_at || null));
   const index = new Map();
   journeys.forEach((journey) => {
     const hasOrder = hasCalculatorOrder(journey, refs, refsFromCalculator);
@@ -104,10 +134,10 @@ async function loadSearchStageIndex(ctx) {
     const first = modes.VALOR || modes.CARRO || null;
     if (!first) {
       // Only demands waiting for review (mode unknown or incomplete criteria): nothing to save yet.
-      index.set(journey.id, { ...common, stage: 'MISSING', stageSource: null, label: stageLabel('MISSING', 'QUALIFY'), basis: 'QUALIFY', at: journey.created_at, searchKey: null, wish: null, wishes: [], bidCents: null, modes, review: own.map((demand) => ({ mode: demand.mode, issues: demand.issues })) });
+      index.set(journey.id, { ...common, stage: 'MISSING', stageSource: null, label: stageLabel('MISSING', 'QUALIFY'), basis: 'QUALIFY', at: journey.created_at, searchKey: null, wish: null, wishes: [], bidCents: null, modes, review: own.filter((demand) => !demand.active).map((demand) => ({ mode: demand.mode, issues: demand.issues })) });
       return;
     }
-    index.set(journey.id, { ...common, ...first, modes });
+    index.set(journey.id, { ...common, ...first, modes, review: own.filter((demand) => !demand.active).map((demand) => ({ mode: demand.mode, issues: demand.issues })) });
   });
   return index;
 }
