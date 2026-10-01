@@ -171,7 +171,10 @@ test('varredura de todos os botões do painel', async ({ page }) => {
   if (want('FICHA')) {
     reopenFicha = async () => {
       await view('clients');
-      await page.locator('#clients-list button', { hasText: 'Abrir ficha' }).first().click();
+      // Only a visible "Abrir ficha" (never one inside a closed menu), with a limit: a missing button fails, never hangs.
+      const openFicha = page.locator('#clients-list button:visible', { hasText: 'Abrir ficha' }).first();
+      await expect(openFicha).toBeVisible({ timeout: 60000 });
+      await openFicha.click({ timeout: 10000 });
       await expect(page.locator('#record-detail button').nth(3)).toBeVisible({ timeout: 60000 }); await page.waitForTimeout(1000); await openDetails();
     };
     await view('clients');
