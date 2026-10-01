@@ -139,11 +139,12 @@ test('sem vínculo seguro: contato com duas fichas, Ref em duas fichas e Ref sem
   assert.deepEqual(journeys[demo.IDS.SHARED_A].links.orders, []);
   assert.deepEqual(journeys[demo.IDS.SHARED_A].sharedRefs, [demo.SHARED_REF]);
   const loose = refs[demo.LOOSE_REF];
-  assert.equal(loose.stage.label, 'Pedido ainda não ligado a uma ficha');
+  // Only clicked in the calculator, no message: waiting for the client, not "asked for contact".
+  assert.equal(loose.stage.label, 'Aguardando contato do cliente');
   assert.equal(loose.contact.note, 'A calculadora não guarda telefone.');
   assert.equal(byKey(loose.fields, 'anos').value, '2018 a 2021');
   assert.equal(byKey(loose.fields, 'milhas').value, 'até 80,000 mi');
-  assert.equal(loose.nextAction.text, 'Localizar a conversa do cliente e ligar o pedido à ficha (ENTRADA › Ligar a um lead)');
+  assert.match(loose.nextAction.text, /^Se a conversa do cliente chegou sem a Ref, ligar o pedido à ficha/);
   // The two fichas of one contact: conversation requests are linked to neither.
   assert.deepEqual(journeys[demo.IDS.TWIN_A].links.requests, []);
 });
@@ -187,16 +188,16 @@ test('pedido sem ficha com critérios completos: critérios completos, mas bloqu
     const said = JSON.stringify(item);
     assert.doesNotMatch(said, /Nada falta para buscar|Salvar a busca|Escolher carros/, 'nada sugere que a busca está liberada');
   }
-  assert.equal(contacted.situation.code, 'CONTACTED');
-  assert.equal(contacted.situation.label, 'Pedido ainda não ligado a uma ficha');
-  assert.equal(contacted.owner.who, 'MCS');
-  assert.match(contacted.blocker, /não está ligado a uma ficha/);
-  assert.match(contacted.nextAction.text, /ligar o pedido à ficha/);
-  assert.equal(waiting.situation.code, 'AWAITING');
-  assert.equal(waiting.situation.label, 'Aguardando contato do cliente');
-  assert.equal(waiting.owner.who, 'CLIENTE');
-  assert.match(waiting.blocker, /ainda não entrou em contato/);
-  assert.equal(waiting.nextAction.text, 'Aguardar o contato do cliente e então ligar o pedido à ficha');
+  // A click in the calculator is not contact: the order that only clicked waits like the one that
+  // only simulated (no message, no phone).
+  for (const item of [contacted, waiting]) {
+    assert.equal(item.situation.code, 'AWAITING');
+    assert.equal(item.situation.label, 'Aguardando contato do cliente');
+    assert.match(item.situation.detail, /nenhuma mensagem do cliente ligada/);
+    assert.equal(item.owner.who, 'CLIENTE');
+    assert.match(item.blocker, /ainda não entrou em contato/);
+    assert.match(item.nextAction.text, /^Se a conversa do cliente chegou sem a Ref, ligar o pedido à ficha/);
+  }
   assert.equal(waiting.fields.find((f) => f.key === 'prazo').value, '30 a 90 dias');
   assert.equal(waiting.fields.find((f) => f.key === 'prazo').sources[0].raw, '3mo');
 });

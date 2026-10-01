@@ -93,8 +93,15 @@ test('3 · Ref só VALOR aparece só em VALOR, 4 · Ref só CARRO só em CARRO, 
     { id: uuid(3), calc_ref: 'DCCC4', logical_mode: 'VALOR', match_kind: 'POR_VALOR', row_fingerprint: 'vin:VINX5A', vehicle_json: { parsed: x5 } },
     { id: uuid(4), calc_ref: 'DCCC4', logical_mode: 'CARRO', match_kind: 'BATE', row_fingerprint: 'vin:VINX5A', vehicle_json: { parsed: x5 } }
   ];
+  // A calculator click is not contact: each Ref here belongs to a ficha whose client really wrote.
+  const owners = { VAAA2: uuid(61), CBBB3: uuid(62), DCCC4: uuid(63) };
+  matches.forEach((match) => { match.journey_id = owners[match.calc_ref]; });
+  const journeys = Object.entries(owners).map(([ref, id], index) => ({ id, contact_id: uuid(71 + index), reference_code: ref, status: 'ATIVO', source: 'CALCULATOR', criteria_json: {}, created_at: iso(9), updated_at: iso(9) }));
+  const contacts = journeys.map((journey) => ({ id: journey.contact_id, display_name: 'Cliente ' + journey.reference_code, is_lead: true }));
+  const messages = journeys.map((journey, index) => ({ id: 'w' + index, direction: 'CUSTOMER', occurred_at_utc: iso(2), source_kind: 'WHATSAPP_WEBHOOK' }));
+  const message_journeys = journeys.map((journey, index) => ({ journey_id: journey.id, message_id: 'w' + index }));
   const calc_runs = [valorRow('VAAA2'), carroRow('CBBB3'), valorRow('DCCC4'), carroRow('DCCC4'), ...contacted(['VAAA2', 'CBBB3', 'DCCC4'])];
-  const data = await buscasView({ calc_runs, manheim_uploads: [upload1], manheim_matches: matches });
+  const data = await buscasView({ calc_runs, journeys, contacts, messages, message_journeys, manheim_uploads: [upload1], manheim_matches: matches });
   const modesOf = (ref) => data.demands.filter((demand) => demand.ref === ref).map((demand) => demand.mode).sort();
   assert.deepEqual(modesOf('VAAA2'), ['VALOR']);
   assert.deepEqual(modesOf('CBBB3'), ['CARRO']);
@@ -111,7 +118,7 @@ test('3 · Ref só VALOR aparece só em VALOR, 4 · Ref só CARRO só em CARRO, 
   // The total counts people once: DCCC4 is served in both modes and is one person.
   assert.deepEqual([data.counts.total.people, data.counts.total.served, data.counts.total.matches], [3, 3, 4]);
   // One demand per person and mode, never MIXED (they are also the targets of a new batch).
-  assert.deepEqual(data.demands.map((demand) => demand.key).sort(), ['ref:CBBB3:CARRO', 'ref:DCCC4:CARRO', 'ref:DCCC4:VALOR', 'ref:VAAA2:VALOR']);
+  assert.deepEqual(data.demands.map((demand) => demand.key).sort(), [`journey:${owners.VAAA2}:VALOR`, `journey:${owners.CBBB3}:CARRO`, `journey:${owners.DCCC4}:CARRO`, `journey:${owners.DCCC4}:VALOR`].sort());
   // 24 · a batch made of several CSV files is one batch.
   assert.deepEqual(data.uploads.map((batch) => [batch.fileCount, batch.status, batch.current]), [[2, 'ACTIVE', true]]);
 });

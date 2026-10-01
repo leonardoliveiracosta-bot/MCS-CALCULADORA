@@ -298,9 +298,15 @@ test('C2: "Quais buscas salvar" separa VALOR e CARRO, não inventa faixa e deixa
     { id: uuid(2), contact_id: uuid(12), reference_code: null, status: 'ATIVO', criteria_json: { wishlists: [{ make: 'Audi', model: 'Q5', yearMin: 2020, yearMax: 2023, minMiles: 1000, maxMiles: 40000 }], wishlistOverride: true }, budget_cents: null, created_at: iso(5), updated_at: iso(5) }
   ];
   const messages = [{ id: 'm1', direction: 'CUSTOMER', occurred_at_utc: iso(2), source_kind: 'WHATSAPP_WEBHOOK' }, { id: 'm2', direction: 'CUSTOMER', occurred_at_utc: iso(2), source_kind: 'WHATSAPP_WEBHOOK' }];
-  const tables = { journeys, contacts: [{ id: uuid(11), display_name: 'Qualificar', is_lead: true }, { id: uuid(12), display_name: 'Troca', is_lead: true }], contact_phones: [], journey_toggle_states: [],
+  // A calculator click is not contact: each order here has a ficha whose client really wrote (SMS print).
+  const writers = ['AAAA2', 'CCCC4', 'DDDD5', 'BBBB3'];
+  writers.forEach((ref, index) => {
+    journeys.push({ id: uuid(30 + index), contact_id: uuid(40 + index), reference_code: ref, status: 'ATIVO', criteria_json: {}, budget_cents: null, created_at: iso(5), updated_at: iso(5) });
+    messages.push({ id: 'w' + index, direction: 'CUSTOMER', occurred_at_utc: iso(3), source_kind: 'SMS_PRINT' });
+  });
+  const tables = { journeys, contacts: [{ id: uuid(11), display_name: 'Qualificar', is_lead: true }, { id: uuid(12), display_name: 'Troca', is_lead: true }, ...writers.map((ref, index) => ({ id: uuid(40 + index), display_name: 'Cliente ' + ref, is_lead: true }))], contact_phones: [], journey_toggle_states: [],
     manheim_saved_searches: [], journey_refs: [{ journey_id: uuid(2), ref_code: 'EEEE6' }], calc_runs: calcRuns,
-    message_journeys: [{ journey_id: uuid(1), message_id: 'm1' }, { journey_id: uuid(2), message_id: 'm2' }], messages };
+    message_journeys: [{ journey_id: uuid(1), message_id: 'm1' }, { journey_id: uuid(2), message_id: 'm2' }, ...writers.map((ref, index) => ({ journey_id: uuid(30 + index), message_id: 'w' + index }))], messages };
   const server = { ...realServer, requirePanel: panelCtx, allRows: async (_ctx, table) => tables[table] || [] };
   const handler = loadWith('api/panel/manheim-searches.js', {
     '../../panel-server': server,

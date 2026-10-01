@@ -35,15 +35,12 @@ function contactIndex({ calcRuns = [], messages = [], messageLinks = [] } = {}) 
     const message = messagesById.get(link.message_id);
     if (message && message.direction === 'CUSTOMER') add(byJourney, link.journey_id, { at: at(message), channel: messageChannel(message), source: 'MESSAGE' });
   }
-  for (const row of calcRuns) {
-    if (row.is_test === true) continue;
-    const channel = clickChannel(row), ref = refOf(row);
-    if (!channel || !ref) continue;
-    // SMS clicks always count. A WhatsApp click only counts before the first
-    // real webhook inbound message, preserving the permanent global cutover.
-    if (channel === 'WHATSAPP_CLICK' && Number.isFinite(firstWebhookAt) && at(row) >= firstWebhookAt) continue;
-    add(byRef, ref, { at: at(row), channel, source: 'CLICK' });
-  }
+  // A click on the calculator's WhatsApp or SMS button is not contact: the calculator never asks for
+  // a phone, so whoever clicked and did not send a message cannot be reached. Only a message that
+  // really arrived (WhatsApp, SMS print or shortcut, imported history) counts. A conversation that
+  // arrived without the Ref still shows in ENTRADA (and as an AI link suggestion), so nobody who wrote
+  // is lost. calcRuns is kept in the signature for the callers.
+  void calcRuns;
   const facts = (input = {}) => {
     const refs = [input.ref, ...(input.refs || [])].filter(Boolean).map((value) => String(value).trim().toUpperCase());
     const entries = [...(byJourney.get(input.journeyId) || [])];

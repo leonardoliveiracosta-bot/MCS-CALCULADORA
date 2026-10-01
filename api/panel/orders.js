@@ -117,8 +117,8 @@ module.exports = async (req, res) => {
       if (!['contacted', 'simulated'].includes(group)) return send(res, 400, { error: 'ORDER_GROUP_INVALID' });
       const since = period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
       const open = calculator.filter((item) => !item.journeyId && !item.disposition && (since === null || (time(item.occurredAt) || 0) >= since));
-      // "Entered in contact" is the panel's single rule (panel-contact.js): an SMS click always,
-      // a WhatsApp click only before the WhatsApp webhook cutover. The rest only simulated.
+      // "Entered in contact" is the panel's single rule (panel-contact.js): a message that really
+      // arrived. A calculator click alone is never contact, so it stays with the ones that simulated.
       const groups = { contacted: open.filter((item) => item.enteredContact), simulated: open.filter((item) => !item.enteredContact) };
       const listed = sortItems(groups[group], sort, 'recent');
       const page = listed.slice(offset, offset + limit);
