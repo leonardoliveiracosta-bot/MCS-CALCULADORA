@@ -64,7 +64,8 @@ function optOutOf(messages) {
 }
 // Clean a suggestion: never a dash, never the phrases the briefing forbids (said, not hidden).
 function review(text) {
-  const clean = String(text || '').replace(/\s*[—–]\s*/g, ', ').replace(/[ \t]+\n/g, '\n').trim();
+  // A dash between numbers is a range (2018–2020, 20,000–80,000): it stays a range, never a comma.
+  const clean = String(text || '').replace(/(\d)\s*[—–]\s*(\d)/g, '$1-$2').replace(/\s*[—–]\s*/g, ', ').replace(/[ \t]+\n/g, '\n').trim();
   const warnings = BANNED.filter((item) => item.re.test(clean)).map((item) => 'Contém "' + item.text + '": revise antes de usar');
   const questions = (clean.match(/\?/g) || []).length;
   return { text: clean, warnings, questions };
@@ -101,7 +102,9 @@ const INSTRUCTIONS = [
   'Carro que já passou no leilão: diga que não está mais disponível e use só como referência, sem prometer outro igual. Clean Title não é carro perfeito, sem acidente nem garantia mecânica. Green Light indica que podem existir regras de proteção ou arbitragem, não risco zero; só cite proteção confirmada naquela unidade. MMR é referência, maximum bid é o limite autorizado, winning bid é o lance vencedor; nunca sugira passar do limite autorizado.',
   'VENDA: cliente da calculadora já informou nome, carro e maximum bid: primeiro posicione o orçamento no mercado, não comece pedindo ano, milhagem, cor e trim se não for necessário. Compra distante: ajude com referência de mercado sem dizer que uma busca real começou. Cliente pronto: avance com o inventário disponível naquele momento, se houver dado. Abaixo de US$ 10 mil: muito breve e factual, sem prometer condição. Toda pergunta tem finalidade clara para o próximo passo. Não prometa encontrar algo na próxima semana.',
   'RETOMADA (modo RETOMADA): 1) mostre acompanhamento real da busca ou do mercado só se estiver registrado; 2) dê referência concreta só com evidência; 3) se o carro de exemplo já passou, diga que não está disponível; 4) no máximo UMA pergunta útil; 5) convide a continuar sem pressão. Sem saudação genérica e sem repetir o que a automação já explicou.',
+  'MESA (regra do tipo de busca, vale acima de qualquer outra): a MCS conduz; o cliente nunca escolhe ao mesmo tempo ano, milhagem e valor, porque isso obriga a procurar um carro que talvez não exista. POR CARRO (Find One): o cliente define carro, faixa de ano e faixa de milhagem; NUNCA pergunte lance, orçamento, valor máximo, preço ou quanto quer gastar. POR VALOR (Calculate My Cost): o cliente define carro e lance máximo; NUNCA pergunte ano nem milhagem, quem enquadra ano e milhagem no valor é a MCS. Com o tipo já definido e os dados dele completos, não peça mais critério nenhum: confirme em uma frase o que ele pediu, responda o que ele perguntou e diga o próximo passo concreto da MCS.',
   'BUSCA INCOMPLETA (busca.completa=false): a conversa deve fluir para obter o que falta para a MCS montar e classificar a busca. Existem só dois tipos: POR CARRO (carro + faixa de ano + faixa de milhagem; valor não é usado) e POR VALOR (carro + lance máximo; ano e milhagem não são usados). Se busca.tipo = NAO_DEFINIDO, a pergunta leva o cliente naturalmente a um dos dois caminhos, a partir do que ele já disse (ex.: se ele tem um teto de lance ou se procura um ano e uma milhagem específicos). Peça só o que está em busca.faltando_por_carro ou busca.faltando_por_valor, começando pelo carro se faltar, no máximo UMA pergunta (que pode juntar dois dados ligados, como ano e milhagem). Nunca pergunte o que já está na ficha ou no histórico; o que está em busca.a_confirmar (lido só pela IA) se confirma, não se pergunta do zero. Se o cliente fez uma pergunta, responda primeiro e depois faça a pergunta da busca. No modo RETOMADA, a pergunta útil é a que destrava a busca. pergunta_finalidade diz qual dado da busca a pergunta obtém. Com busca.completa=true, siga as regras de VENDA e não peça dados de busca.',
+  'Os campos fatos_usados, pergunta_finalidade e alertas são para a equipe: escreva-os sempre em português, qualquer que seja o idioma do cliente.',
   'IDIOMA: responda no idioma do cliente (pt, en ou es). traducao_recebida_pt: tradução para português da última mensagem do cliente (vazio se já for português). traducao_resposta_pt: tradução para português da sua resposta (vazio se já for português).',
   'fatos_usados: cada fato que a resposta usa, com situacao CONFIRMADO (o cliente disse ou a ficha confirma), INFERIDO (dedução sua) ou DESCONHECIDO (falta saber). pergunta_finalidade: para que serve a pergunta da resposta (vazio se não houver). alertas: riscos que o humano deve conferir antes de enviar.',
   'Responda SOMENTE o JSON do esquema.'
@@ -148,6 +151,19 @@ async function openAiSuggest(input, options = {}) {
       throw failure;
     } finally { clearTimeout(timer); }
   } });
+}
+
+// MESA: a question that crosses the search type. POR CARRO never asks for a value; POR VALOR never
+// asks for year or mileage. Only questions count ("we never bid above your max" is a statement).
+const ASKS_VALUE = /\b(bid|budget|price|spend|pay|afford|how much|max(imum)?)\b|presupuesto|precio|cu[aá]nto|gastar|or[cç]amento|lance|pre[cç]o|quanto|valor/i;
+const ASKS_YEAR_MILES = /\b(years?|mileage|miles|odometer)\b|\ba[nñ]os?\b|millas|kilometraje|milhagem|quilometragem/i;
+function typeViolation(text, gap) {
+  if (!gap || !gap.tipo) return null;
+  const questions = String(text || '').split(/(?<=[?¿])|(?<=[.!])\s+/).filter((part) => /\?/.test(part));
+  const types = String(gap.tipo).split(',');
+  if (types.includes('POR_CARRO') && !types.includes('POR_VALOR') && questions.some((q) => ASKS_VALUE.test(q))) return 'A busca é POR CARRO (Find One): a pergunta pede valor ou lance, o que a regra da mesa proíbe';
+  if (types.includes('POR_VALOR') && !types.includes('POR_CARRO') && questions.some((q) => ASKS_YEAR_MILES.test(q))) return 'A busca é POR VALOR: a pergunta pede ano ou milhagem, o que a regra da mesa proíbe';
+  return null;
 }
 
 // What the search still needs, per type (the same rule as the client context and vehicle-match):
@@ -352,11 +368,25 @@ async function suggest(ctx, body, services = {}) {
       if (saved) await openAiBudget.recorded(guard);
       raw = result.parsed; costUsd = result.costUsd; usedModel = result.model;
       if (!raw || typeof raw.resposta !== 'string' || !raw.resposta.trim()) return { status: 502, error: 'AI_RESPONSE_INVALID' };
+      // MESA: a question that crosses the search type gets one corrected attempt (same ceiling).
+      const crossed = typeViolation(raw.resposta, gap);
+      if (crossed) {
+        const retryGuard = openAiBudget.guard(ctx, 'RESPOSTA', 'sugestao:' + journeyId + ':mesa', services.budgetServices);
+        const again = await (services.openAi || openAiSuggest)({ ...input, correcao: crossed + '. Reescreva sem essa pergunta, seguindo a regra MESA.' }, { env, guard: retryGuard, fetchImpl: services.fetchImpl }).catch(() => null);
+        if (again) {
+          await (services.insert || insert)(ctx, 'audit_log', { environment: ctx.environment, actor_user_id: ctx.panel.id, entity_type: 'reply_suggestion_openai', entity_id: journeyId, action: 'SUGGEST',
+            after_json: { provider: 'openai', model: again.model, mode, retry: 'MESA', inputTokens: again.usage.inputTokens, outputTokens: again.usage.outputTokens, costUsd: again.costUsd } }, false).then(() => openAiBudget.recorded(retryGuard), () => null);
+          costUsd += again.costUsd || 0;
+          if (again.parsed && typeof again.parsed.resposta === 'string' && again.parsed.resposta.trim()) raw = again.parsed;
+        }
+      }
     }
     const reviewed = review(raw.resposta);
     const lang = LANGS[raw.idioma_cliente] ? raw.idioma_cliente : language || 'pt';
     const warnings = [...(raw.alertas || []).map(String).slice(0, 5), ...reviewed.warnings];
     if (mode === 'RETOMADA' && reviewed.questions > 1) warnings.push('Mais de uma pergunta: a retomada pede no máximo uma');
+    const stillCrossed = typeViolation(reviewed.text, gap);
+    if (stillCrossed) warnings.unshift(stillCrossed + ': não use esta pergunta');
     const facts = (raw.fatos_usados || []).filter((item) => item && item.fato).slice(0, 10).map((item) => ({ text: String(item.fato).slice(0, 200), status: ['CONFIRMADO', 'INFERIDO', 'DESCONHECIDO'].includes(item.situacao) ? item.situacao : 'INFERIDO' }));
     return {
       status: 200, journeyId, mode, simulated, model: usedModel, costUsd,
@@ -449,4 +479,4 @@ async function queue(ctx, options = {}, services = {}) {
   return { minDays, eligible, excluded, reasons, generatedAt: new Date(now).toISOString() };
 }
 
-module.exports = { BANNED, searchGap, LANGS, OPT_OUT, OPT_OUT_WORD, QUEUE_MIN_DAYS, SCHEMA, INSTRUCTIONS, blockOf, detectLanguage, enabled, model, openAiSuggest, optOutOf, pathFor, queue, review, simulatedSuggestion, suggest, waLink };
+module.exports = { BANNED, searchGap, typeViolation, LANGS, OPT_OUT, OPT_OUT_WORD, QUEUE_MIN_DAYS, SCHEMA, INSTRUCTIONS, blockOf, detectLanguage, enabled, model, openAiSuggest, optOutOf, pathFor, queue, review, simulatedSuggestion, suggest, waLink };

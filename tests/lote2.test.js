@@ -150,11 +150,20 @@ const hoursAgo = (hours) => new Date(Date.now() - hours * 3600000).toISOString()
 const customer = (at) => ({ id: uuid(600 + Math.floor(Math.random() * 99)), journey_id: JOURNEY, direction: 'CUSTOMER', body_text: 'oi', occurred_at_utc: at, source_kind: 'WHATSAPP_WEBHOOK' });
 
 test('Lote 2 · HOJE: retorno vencido entra mesmo sem mensagem nas 24 h; data ilegível não', async () => {
-  const overdue = await hoje({ journey: { next_action_at: hoursAgo(3), next_action_text: 'Ligar' } });
+  // The ficha must be reachable (the client wrote some day, or the team has a phone); the overdue
+  // return brings it in even though the last message is older than 24 h.
+  const older = [customer(hoursAgo(72))];
+  const overdue = await hoje({ journey: { next_action_at: hoursAgo(3), next_action_text: 'Ligar' }, messages: older });
   assert.equal(overdue.items.length, 1);
   assert.equal(overdue.items[0].todayReasons[0].label, 'RETORNO VENCIDO');
-  const invalid = await hoje({ journey: { next_action_at: 'não é data' } });
+  const byPhone = await hoje({ journey: { next_action_at: hoursAgo(3), next_action_text: 'Ligar', phones: [{ phone_e164: '+13055550100', is_current: true }] } });
+  assert.equal(byPhone.items.length, 1, 'ficha com telefone e sem mensagem também entra');
+  assert.equal(byPhone.items[0].todayReasons[0].label, 'RETORNO VENCIDO');
+  const invalid = await hoje({ journey: { next_action_at: 'não é data' }, messages: older });
   assert.equal(invalid.items.length, 0);
+  // Nobody wrote and there is no phone: nothing to do with it, even with an overdue return.
+  const unreachable = await hoje({ journey: { next_action_at: hoursAgo(3), next_action_text: 'Ligar' } });
+  assert.equal(unreachable.items.length, 0);
 });
 
 test('Lote 2 · HOJE: "Tratado" na Ref também tira a ficha da mesma pessoa; mensagem nova depois traz de volta', async () => {

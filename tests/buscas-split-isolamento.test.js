@@ -159,9 +159,11 @@ test('10 · ENTRADA, CLIENTES e HOJE mostram a pessoa uma vez', () => {
   assert.equal(people.length, 1);
   assert.equal(domain.buildTodayOrderItems(people).length, 1);
   assert.equal(domain.buildTodayOrderItems(people)[0].checklistLabel, 'por valor e por ano e milhagem');
-  // The card shows two separate badges, never a combined one; the BUSCAS badge counts people.
+  // The ENTRADA order card is gone (a calculator order with no message is never listed), so no
+  // panel card shows a combined badge; the BUSCAS badge counts people.
   const client = read('painel/painel.js');
-  assert.match(client, /makeBadge\(mode === 'VALOR' \? 'Por valor' : 'Por ano e milhagem'/);
+  assert.doesNotMatch(client, /function orderCard\(/);
+  assert.doesNotMatch(client, /makeBadge\([^)]*(MIXED|Misto)/i);
   assert.match(client, /count\('searches', searches, \(data\) => new Set\(/);
 });
 

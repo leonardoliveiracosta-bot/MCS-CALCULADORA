@@ -1267,7 +1267,6 @@
       const data = await loadQueue(false);
       if (!current()) return;
       renderQueue(data.chats || [], data.reviews || []);
-      refreshEntryOrders().catch(() => { $('entry-orders-count').textContent = '?'; empty($('entry-orders-list'), 'Não foi possível carregar'); });
       loadTriage().catch(() => {});
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp'; });
     }
@@ -1382,39 +1381,8 @@
     } catch (_) { root.className='capture-warning muted'; root.textContent='Checagem de captura indisponível'; }
   }
 
-  // Lote 4: PEDIDOS now lives in ENTRADA as a collapsed section. Calculator Refs with no ficha
-  // that clicked WhatsApp/SMS ("contacted") and the ones that only simulated ("simulated").
-  // The section has its own counter and never adds to the ENTRADA badge (owner decision D2).
-  const entryOrders = { period: '30', contacted: { items: [], hasMore: false, version: 0 }, simulated: { items: [], hasMore: false, version: 0 }, linkTargets: [] };
-  async function loadEntryOrders(group = 'contacted', append = false, keep = 0) {
-    const state = entryOrders[group], version = ++state.version, period = entryOrders.period;
-    const offset = append ? state.items.length : 0;
-    // After an action the list keeps as many cards as were loaded ("Carregar mais" is not lost)
-    const limit = Math.min(100, Math.max(20, keep));
-    const params = new URLSearchParams({ scope: 'unlinked', group, period, sort: 'recent', limit: String(limit), offset: String(offset) });
-    const data = await request('/api/panel/orders?' + params.toString());
-    // A slower, older answer (other period chip, auto-refresh) never overwrites a newer one
-    if (version !== state.version || period !== entryOrders.period) return;
-    state.items = append ? state.items.concat(data.items || []) : (data.items || []);
-    state.hasMore = Boolean(data.page && data.page.hasMore);
-    entryOrders.linkTargets = data.linkTargets || entryOrders.linkTargets;
-    $('entry-orders-count').textContent = String(data.counts?.contacted ?? 0);
-    $('entry-simulated-count').textContent = `(${data.counts?.simulated ?? 0})`;
-    renderEntryOrders(group);
-  }
-  function renderEntryOrders(group) {
-    const state = entryOrders[group], root = $(group === 'contacted' ? 'entry-orders-list' : 'entry-simulated-list');
-    root.replaceChildren();
-    $(group === 'contacted' ? 'entry-orders-more' : 'entry-simulated-more').classList.toggle('hidden', !state.hasMore);
-    if (!state.items.length) return empty(root, group === 'contacted' ? 'Nenhum pedido sem conversa neste período' : 'Nenhuma simulação sem contato neste período');
-    const refresh = () => refreshEntryOrders();
-    state.items.forEach((item) => root.append(orderCard(item, entryOrders.linkTargets, refresh)));
-    hydrateContexts(root);
-  }
-  async function refreshEntryOrders(keepLoaded = true) {
-    await loadEntryOrders('contacted', false, keepLoaded ? entryOrders.contacted.items.length : 0);
-    if ($('entry-simulated')?.open) await loadEntryOrders('simulated', false, keepLoaded ? entryOrders.simulated.items.length : 0);
-  }
+  // Calculator orders with no message (simulated or only clicked) are not listed anywhere: the
+  // calculator has no phone, so there is nothing to do with them (the ENTRADA section is gone).
 
 
   async function refreshCurrentPreservingState() {
@@ -1793,79 +1761,6 @@
       root.append(card);
     });
     hydrateContexts(root);
-  }
-
-  // One calculator order card (Ref). Lote 4: used by the ENTRADA section that replaces PEDIDOS.
-  function orderCard(item, linkTargets, refresh = refreshCurrentPreservingState) {
-    const card = element('article', 'item-card');
-    card.dataset.orderKey = item.key;
-    const head = element('div', 'item-head');
-    const identity = element('div', 'identity');
-    identity.append(element('span', 'order-icon', orderIcon(item)));
-    const title = element('div');
-    const heading = item.contactName || (item.ref || item.referenceCode ? `Ref ${item.ref || item.referenceCode}` : 'Pedido direto');
-    title.append(element('h3', 'identity-name', heading),phoneNode(item), identityFacts(item.ref||item.referenceCode, item.vehicleText, item.budgetCents));
-    const direct=directLeadBadge(item);if(direct)title.append(direct);
-    identity.append(title);
-    head.append(identity);
-    card.append(head);
-
-    const contact=contactMeta(item);if(contact)card.append(contact);
-    const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
-
-    const badges = element('div', 'badges');
-    if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
-    if (item.sourceLabel) badges.append(makeBadge(item.sourceLabel));
-    if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
-    // One person, two separate requests: each mode has its own badge (never a combined one).
-    const itemModes = (item.logicalModes && item.logicalModes.length ? item.logicalModes : [item.logicalMode]).filter((mode) => mode === 'VALOR' || mode === 'CARRO');
-    if (itemModes.length) itemModes.forEach((mode) => badges.append(makeBadge(mode === 'VALOR' ? 'Por valor' : 'Por ano e milhagem', mode === 'VALOR' ? 'blue' : 'green')));
-    else if (item.simulationCount <= 1) badges.append(makeBadge('PEDIDO'));
-    if (item.status) badges.append(makeBadge(item.status, item.status === 'RESPONDIDO' ? 'blue' : item.status === 'SEM RESPOSTA' ? 'yellow' : item.status === 'ATIVO' ? 'green' : ''));
-    if (item.disposition === 'TREATED') badges.append(makeBadge('Tratado', 'blue'));
-    if (item.disposition === 'DISCARDED') badges.append(makeBadge(`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`));
-    if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
-    card.append(badges);
-    card.append(contextSlot({ journeyId: journeyIdOf(item), ref: refOf(item) }, { focus: 'order' }));
-
-    const details = element('dl', 'definition-grid order-details');
-    definition(details, 'Ref', item.ref || item.referenceCode || null);
-    definition(details, 'Orçamento', item.budgetCents ? formatMoney(item.budgetCents) : 'Não informado');
-    definition(details, 'Pagamento', displayPayment(item.paymentText));
-    definition(details, 'Estado', item.state || 'Não informado');
-    definition(details, 'ZIP', item.zip || 'Não informado');
-    definition(details, 'Anos', item.yearsText || 'Não informado');
-    definition(details, 'Milhas', item.mileageText || 'Não informado');
-    definition(details, 'Prazo', displayDeadline(item.deadlineText));
-    definition(details, 'Contato escolhido', item.contactChannel || 'Não informado');
-    definition(details, 'Data', item.occurredAt ? formatDate(item.occurredAt) : 'Não informada');
-    card.append(details);
-
-    if (item.kind === 'CALCULATOR' && !item.link) {
-      const form = element('div', 'inline-form');
-      const label = element('label', '', 'Ligar a um lead');
-      const select = element('select');
-      select.append(new Option('Escolha uma jornada', ''));
-      linkTargets.forEach((target) => select.append(new Option(target.label, `${target.journeyId}|${target.contactId}`)));
-      label.append(select);
-      const button = element('button', 'small', 'Ligar a um lead');
-      button.type = 'button';
-      button.disabled = true;
-      select.addEventListener('change', () => { button.disabled = !select.value; });
-      MCSAction.bind(button,()=>{const [journeyId,contactId]=select.value.split('|');return{scope:card,optimistic:()=>{button.textContent='Ligando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'link_request',journeyId,contactId,calcRef:item.ref})}),rollback:()=>{button.textContent='Ligar a um lead';},refresh:refresh,errorText:'Não consegui salvar, tente de novo'};});
-      form.append(label, button);
-      card.append(form);
-    }
-
-    const openOrder = element('button', 'quiet small', item.kind === 'CALCULATOR' ? 'Abrir pedido' : 'Abrir ficha'); openOrder.type = 'button';
-    openOrder.addEventListener('click', (event) => { event.stopPropagation(); if (item.kind === 'CALCULATOR') openDetail('order', item.ref); else if (item.journeyId) openDetail('ficha', item.journeyId); });
-    card.append(openOrder, dispositionControls(item));
-
-    makeCardClickable(card, () => {
-      if (item.kind === 'CALCULATOR') openDetail('order', item.ref);
-      else if (item.journeyId) openDetail('ficha', item.journeyId);
-    });
-    return card;
   }
 
   function renderQualification(items) {
@@ -4200,14 +4095,6 @@
       }
     });
     window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
-    document.querySelectorAll('[data-entry-orders-period]').forEach((button) => button.addEventListener('click', () => {
-      entryOrders.period = button.dataset.entryOrdersPeriod;
-      document.querySelectorAll('[data-entry-orders-period]').forEach((item) => item.classList.toggle('active', item === button));
-      refreshEntryOrders(false).catch(() => { $('entry-orders-count').textContent = '?'; empty($('entry-orders-list'), 'Não foi possível carregar'); });
-    }));
-    $('entry-orders-more').addEventListener('click', () => loadEntryOrders('contacted', true).catch(() => { $('entry-orders-more').textContent = 'Não foi possível carregar'; }));
-    $('entry-simulated-more').addEventListener('click', () => loadEntryOrders('simulated', true).catch(() => { $('entry-simulated-more').textContent = 'Não foi possível carregar'; }));
-    $('entry-simulated').addEventListener('toggle', () => { if ($('entry-simulated').open) loadEntryOrders('simulated').catch(() => empty($('entry-simulated-list'), 'Não foi possível carregar')); });
     ['today','entry','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')renderClients(clientsData);return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
     $('clients-followup')?.addEventListener('toggle',()=>{if($('clients-followup').open)loadFollowup();});
     $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(currentView==='clients')renderClients(clientsData);refreshCounters().catch(()=>{});});

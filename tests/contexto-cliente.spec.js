@@ -89,20 +89,12 @@ for (const width of [1366, 390]) {
     await noOverflow();
     await shot(page, `hoje-${width}`);
 
-    // ENTRADA: the calculator order without a ficha says so and never guesses one.
+    // ENTRADA: a calculator order that only clicked and never wrote is not listed anywhere (the
+    // calculator has no phone); the "pedidos sem conversa" section is gone.
     await page.locator('[data-view="entry"]').click();
-    await page.locator('#entry-orders > summary').click();
-    await page.locator('#entry-simulated > summary').click();
-    // It only clicked in the calculator, never wrote: it waits in "Só simularam" (a click is not contact).
-    const looseCard = page.locator('#entry-simulated .item-card', { hasText: demo.LOOSE_REF }).first();
-    await expect(looseCard).toBeVisible({ timeout: 60000 });
-    const looseSummary = await reach(looseCard);
-    await expect(looseSummary).toContainText('Situação', { timeout: 30000 });
-    await expect(looseSummary).toContainText('Aguardando contato do cliente');
-    await expect(looseSummary).toContainText('nenhuma mensagem do cliente ligada a este pedido');
-    await expect(looseSummary.locator('.context-fact', { hasText: 'Critérios da busca' })).toContainText('Completos');
-    await expect(looseSummary).toContainText('Se a conversa do cliente chegou sem a Ref, ligar o pedido à ficha');
-    await expect(looseSummary).not.toContainText('Nada falta para buscar');
+    await expect(page.locator('#entry-panel')).toBeVisible({ timeout: 60000 });
+    await expect(page.locator('#entry-orders, #entry-simulated')).toHaveCount(0);
+    await expect(page.locator('#entry-panel')).not.toContainText(demo.LOOSE_REF);
     await noOverflow();
     await shot(page, `entrada-${width}`);
 

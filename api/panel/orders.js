@@ -75,7 +75,7 @@ module.exports = async (req, res) => {
     const scoreVehicles = await loadScoreVehicles(ctx).catch(() => []);
     const personDisposition = dispositionIndex(dispositions);
     const refsOfJourney = (journey) => [journey.reference_code, ...(data.refs || []).filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].filter(Boolean).map(refKey);
-    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const person=linked?personDisposition(linked.id,[...refsOfJourney(linked),item.ref]):null;const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered&&!(scope==='unlinked'&&!linked))return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},scoreVehicles);return [decorateContact({
+    const calculator = groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref)).flatMap((item) => {const linked=journeyByRef.get(item.ref);const person=linked?personDisposition(linked.id,[...refsOfJourney(linked),item.ref]):null;const facts=contact.facts({ref:item.ref,journeyId:linked?.id,refs:linked?(data.refs||[]).filter((row)=>row.journey_id===linked.id).map((row)=>row.ref_code):[]});if(!facts.entered&&!(exactRef&&item.ref===exactRef))return [];const ready=score(item,linked,{checklist:data.checklist,promises:data.promises,messages:data.messages},scoreVehicles);return [decorateContact({
       ...item,...(person?{disposition:person.status,discardReason:person.discard_reason||null,dispositionUpdatedAt:person.updated_at||null,pending:false}:{}),journeyId:linked?.id||item.journeyId,latestMessage:linked?latestByJourney.get(linked.id)||null:null,budgetCents:linked?effectiveCriteria(linked,item).bidCents||item.budgetCents:item.budgetCents,contactName:linked?.contact?.display_name||item.contactName,phones:linked?.phones||[],confirmed_total_ceiling_cents:linked?.confirmed_total_ceiling_cents,
       lastCustomerAt: Math.max(time(item.occurredAt)||0, time(latestCustomerByJourney.get(linked?.id)?.occurred_at_utc || latestCustomerByJourney.get(linked?.id)?.occurred_at_local || latestCustomerByJourney.get(linked?.id)?.created_at)||0) || null,
       lastRealMessageAt: lastRealByJourney(linked?.id||item.journeyId), sortAt: lastRealByJourney(linked?.id||item.journeyId) || item.occurredAt || null,
@@ -118,8 +118,9 @@ module.exports = async (req, res) => {
       const since = period === 'all' ? null : Date.now() - Number(period) * 24 * 60 * 60 * 1000;
       const open = calculator.filter((item) => !item.journeyId && !item.disposition && (since === null || (time(item.occurredAt) || 0) >= since));
       // "Entered in contact" is the panel's single rule (panel-contact.js): a message that really
-      // arrived. A calculator click alone is never contact, so it stays with the ones that simulated.
-      const groups = { contacted: open.filter((item) => item.enteredContact), simulated: open.filter((item) => !item.enteredContact) };
+      // arrived. An order with no message (simulated or only clicked) is never listed: the calculator
+      // has no phone, there is nothing to do with it. Both groups stay for old clients of the API.
+      const groups = { contacted: open.filter((item) => item.enteredContact), simulated: [] };
       const listed = sortItems(groups[group], sort, 'recent');
       const page = listed.slice(offset, offset + limit);
       const linkTargets = data.journeys.filter((item) => item.status !== 'ENCERRADO').map((item) => ({

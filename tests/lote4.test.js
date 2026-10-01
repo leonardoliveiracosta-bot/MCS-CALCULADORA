@@ -37,7 +37,7 @@ test('Lote 4 · Origem, Tipo e Última atividade da ficha', () => {
   assert.equal(origin.matchesClientFilters({ ...direct, lastActivityAt: null }, { days: '30' }, now), false);
 });
 
-test('Lote 4 · ENTRADA recebe só Refs sem ficha, separadas entre "pediram contato" e "só simularam", com contagem própria', async () => {
+test('Lote 4 · pedido da calculadora sem mensagem não é listado: scope=unlinked vem vazio (contacted 0, simulated 0)', async () => {
   const real = require('../panel-server');
   const now = Date.now(), iso = (hours) => new Date(now - hours * 3600000).toISOString();
   const run = (id, ref, evento, hours, extra = {}) => ({ id, created_at: iso(hours), dados: { sid: 's-' + ref, ref, evento, quando: iso(hours), marca: 'BMW', modelo: 'X5', ...extra } });
@@ -63,27 +63,44 @@ test('Lote 4 · ENTRADA recebe só Refs sem ficha, separadas entre "pediram cont
     '../../panel-search-stage': { decorateWithSearchStage: (item) => item, loadSearchStageIndex: async () => new Map() }
   });
   const ask = async (query) => { const res = output(); await handler({ method: 'GET', query }, res); return res; };
-  // A calculator click is not contact (panel-contact.js): the calculator never asks for a phone, so
-  // whoever clicked WhatsApp/SMS and never wrote stays with the ones that only simulated.
+  // A calculator click is not contact (panel-contact.js) and the calculator never asks for a phone:
+  // an order with no real message (simulated or only clicked WhatsApp/SMS) is never listed. The
+  // unlinked scope still answers both groups (old API clients), always empty.
   const contacted = await ask({ scope: 'unlinked', group: 'contacted', period: '30' });
   assert.equal(contacted.code, 200, JSON.stringify(contacted.payload));
-  assert.deepEqual(contacted.payload.items.map((item) => item.ref), []);
-  assert.deepEqual(contacted.payload.counts, { contacted: 0, simulated: 2 });
+  assert.deepEqual(contacted.payload.items, []);
+  assert.deepEqual(contacted.payload.counts, { contacted: 0, simulated: 0 });
   const simulated = await ask({ scope: 'unlinked', group: 'simulated', period: '30' });
-  assert.deepEqual(simulated.payload.items.map((item) => item.ref).sort(), ['AAA22', 'BBB33']);
+  assert.equal(simulated.code, 200);
+  assert.deepEqual(simulated.payload.items, []);
+  assert.deepEqual(simulated.payload.counts, { contacted: 0, simulated: 0 });
   const all = await ask({ scope: 'unlinked', group: 'simulated', period: 'all' });
-  assert.deepEqual(all.payload.items.map((item) => item.ref).sort(), ['AAA22', 'BBB33', 'DDD55']);
+  assert.deepEqual(all.payload.items, []);
+  assert.deepEqual(all.payload.counts, { contacted: 0, simulated: 0 });
   assert.equal((await ask({ scope: 'unlinked', group: 'x' })).payload.error, 'ORDER_GROUP_INVALID');
-  // The webhook timing no longer matters: a click never counts, before or after it.
+  // Nor in the plain list: without any message no order appears.
+  const plain = await ask({ filter: 'Todos', period: 'all' });
+  assert.equal(plain.code, 200);
+  assert.deepEqual(plain.payload.items.filter((item) => item.kind === 'CALCULATOR').map((item) => item.ref), []);
+  // The webhook timing does not matter: a click never counts, before or after it. A real message
+  // on the ficha that owns CCC44 makes that order (and only it) a contact; it has a ficha, so it
+  // is still not an unlinked Ref.
   messages = [{ id: 'm1', journey_id: uuid(1), direction: 'CUSTOMER', source_kind: 'WHATSAPP_WEBHOOK', occurred_at_utc: iso(30) }];
-  const afterCut = await ask({ scope: 'unlinked', group: 'simulated', period: '30' });
-  assert.deepEqual(afterCut.payload.items.map((item) => item.ref).sort(), ['AAA22', 'BBB33']);
-  assert.deepEqual(afterCut.payload.counts, { contacted: 0, simulated: 2 });
+  for (const group of ['contacted', 'simulated']) {
+    const afterCut = await ask({ scope: 'unlinked', group, period: 'all' });
+    assert.deepEqual(afterCut.payload.items, [], group);
+    assert.deepEqual(afterCut.payload.counts, { contacted: 0, simulated: 0 });
+  }
+  const listed = await ask({ filter: 'Todos', period: 'all' });
+  assert.deepEqual(listed.payload.items.filter((item) => item.kind === 'CALCULATOR').map((item) => item.ref), ['CCC44']);
   // The old PEDIDOS list still answers (the report and #pedido/REF use the same endpoint), for an
-  // order whose client really wrote.
+  // order whose client really wrote and, by exact Ref, even for one that never wrote.
   const legacy = await ask({ filter: 'Todos', period: 'all', ref: 'CCC44' });
   assert.equal(legacy.code, 200);
   assert.equal(legacy.payload.items[0].ref, 'CCC44');
+  const exact = await ask({ filter: 'Todos', period: 'all', ref: 'AAA22' });
+  assert.equal(exact.code, 200);
+  assert.equal(exact.payload.items[0]?.ref, 'AAA22');
   messages = [];
 });
 
@@ -114,17 +131,17 @@ test('Lote 4 · ações sem consumidor respondem inválido sem ler o banco; as v
   assert.match(read('painel/painel.js'), /action:'resolve_divergence'/);
 });
 
-test('Lote 4 · aba PEDIDOS saiu; ENTRADA e CLIENTES assumem as funções, links antigos preservados', () => {
+test('Lote 4 · aba PEDIDOS saiu; CLIENTES assume as funções, a seção de pedidos sem conversa da ENTRADA saiu, links antigos preservados', () => {
   const html = read('painel/index.html'), js = read('painel/painel.js');
   assert.doesNotMatch(html, /data-view="orders"|id="orders-panel"|data-count="orders"/);
-  assert.match(html, /id="entry-orders"[\s\S]*Pediram contato, sem conversa[\s\S]*data-entry-orders-period="7"[\s\S]*data-entry-orders-period="30"[\s\S]*data-entry-orders-period="all"[\s\S]*id="entry-simulated"[\s\S]*Só simularam/);
-  assert.match(html, /data-report="orders"/);
+  // Orders with no message are never listed, so the ENTRADA section that showed them is gone.
+  assert.doesNotMatch(html, /id="entry-orders|id="entry-simulated|data-entry-orders-period|Pediram contato, sem conversa|Só simularam|class="[^"]*entry-(orders|simulated)/);
+  assert.doesNotMatch(js, /loadEntryOrders|renderEntryOrders|refreshEntryOrders|entryOrders|function orderCard\(|entry-orders|entry-simulated/);
   assert.match(html, /id="clients-origin"[\s\S]*Calculadora[\s\S]*WhatsApp direto[\s\S]*SMS direto/);
   assert.match(html, /id="clients-type"[\s\S]*Simulação[\s\S]*Busca[\s\S]*Sem calculadora/);
   assert.match(html, /id="clients-activity"[\s\S]*30 dias[\s\S]*90 dias[\s\S]*6 meses[\s\S]*1 ano[\s\S]*Tudo/);
   assert.match(html, /panel-origin\.js/);
-  // D2: the section keeps its own number; the ENTRADA badge still counts only real doubts.
-  assert.doesNotMatch(js, /setCount\('entry'[^;]*entryOrders/);
-  assert.match(js, /\$\('entry-orders-count'\)\.textContent/);
+  // Old links: #pedido/REF still opens the order and #pedidos still lands in ENTRADA.
   assert.match(js, /detailHash[\s\S]*#pedido\//);
+  assert.match(js, /pedidos:'entry'/);
 });

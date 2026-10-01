@@ -282,7 +282,9 @@ test('12 · rotina sem limite de quantidade: lê todas as pendentes no ciclo, qu
   assert.equal(out.read, 12, 'as 12 pendentes num ciclo só (antes eram 5)');
   assert.equal(out.remaining, 0);
   assert.ok(peak > 1 && peak <= 4, 'em paralelo, no máximo 4 ao mesmo tempo: ' + peak);
-  const first = openAiCalls.find((body) => body.response_format);
-  assert.match(JSON.stringify(first), /still looking c1\b/, 'quem escreveu por último é lido primeiro');
+  // Four run at once, so the newest is among the first four started (never left for last).
+  const firstWave = openAiCalls.filter((body) => body.response_format).slice(0, 4).map((body) => JSON.stringify(body));
+  assert.ok(firstWave.some((body) => /still looking c1\b/.test(body)), 'quem escreveu por último entra na primeira leva');
+  assert.ok(!firstWave.some((body) => /still looking c12\b/.test(body)), 'a mais antiga não entra na primeira leva');
   assert.deepEqual(backend.refused, []);
 });

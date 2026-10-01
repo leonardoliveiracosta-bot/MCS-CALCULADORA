@@ -33,8 +33,10 @@ async function open(page, width, height = 900) {
 async function show(page, view) {
   await page.locator(`[data-view="${view}"]`).click();
   if (view === 'entry') {
-    await expect(page.locator('#entry-orders-count')).not.toHaveText('…', { timeout: 30000 });
-    if (!(await page.locator('#entry-orders').evaluate((node) => node.open))) await page.locator('#entry-orders > summary').click();
+    // ENTRADA has finished loading once the WhatsApp signal answered (the "pedidos sem conversa"
+    // section is gone: an order with no message is never listed).
+    await expect(page.locator('#entry-panel')).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('#whatsapp-signal')).not.toHaveText('Verificando sinal…', { timeout: 30000 });
   }
   if (view === 'clients') await expect(page.locator('#clients-list .client-card').first()).toBeVisible({ timeout: 30000 });
   if (view === 'searches') {
@@ -283,7 +285,6 @@ test('capturas: login, HOJE, ENTRADA, CLIENTES com prontuário e BUSCAS em 390 e
     if (width === 390) { await page.locator('#today-list .today-card').first().scrollIntoViewIfNeeded(); await page.evaluate(() => window.scrollBy(0, -60)); await page.screenshot({ path: path.join(SHOTS, 'hoje-cartao-390.png') }); }
     await show(page, 'entry');
     await page.screenshot({ path: path.join(SHOTS, `entrada-${width}.png`), fullPage: width !== 390 });
-    if (width === 390) { await page.locator('#entry-orders').scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(SHOTS, 'entrada-pedidos-390.png') }); }
     await openRecord(page);
     await page.screenshot({ path: path.join(SHOTS, `clientes-prontuario-${width}.png`), fullPage: width !== 390 });
     if (width === 390) { await page.locator('#lead-conversation').scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(SHOTS, 'clientes-conversa-390.png') }); }

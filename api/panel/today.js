@@ -112,7 +112,9 @@ module.exports = async (req, res) => {
     const arrival=(order)=>firstSimulation.get(order.ref)||firstCalculatorEvent.get(order.ref)||
       Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));
     const orders = grouped
-      .filter((item) => { const journey=item.journeyId?journeyMap.get(item.journeyId):null;const facts=contacts.facts({ref:item.ref,journeyId:item.journeyId,refs:refsOf(journey)}); return activeFor(journey,item.ref,facts,item.dispositionUpdatedAt); })
+      // Only whoever really wrote: an order with no message (simulated or only clicked) never enters HOJE,
+      // whatever else is true about it (the calculator has no phone).
+      .filter((item) => { const journey=item.journeyId?journeyMap.get(item.journeyId):null;const facts=contacts.facts({ref:item.ref,journeyId:item.journeyId,refs:refsOf(journey)}); return facts.entered&&activeFor(journey,item.ref,facts,item.dispositionUpdatedAt); })
       .map((item) => ({
         ...item,
         kind: 'CALCULATOR_ORDER',
@@ -127,6 +129,8 @@ module.exports = async (req, res) => {
       .filter((item) => item.closed_reason !== 'WHATSAPP_LINKED')
       .filter((item) => {const disposition=dispositionFor(item);const refs=refsOf(item);
         const facts=contacts.facts({journeyId:item.id,ref:item.reference_code,refs});
+        // A ficha enters only if the client wrote or the team has a phone for it (manual record).
+        if(!facts.entered&&!(item.phones||[]).length)return false;
         return refs.some((ref)=>wantedAfterDisposition(ref,disposition?.updated_at))||activeFor(item,null,facts,disposition?.updated_at);})
       .filter((item) => !refsOf(item).some((ref)=>orderRefs.has(ref)))
       .map((item) => ({

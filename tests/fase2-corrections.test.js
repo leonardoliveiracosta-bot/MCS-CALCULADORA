@@ -139,10 +139,14 @@ test('repeated customer response and closed search return a clear 409',async()=>
 });
 
 test('HOJE includes a wanted car after the order was treated',async()=>{
+  // Only someone who really wrote can be in HOJE: the person sent a message (before the order was
+  // treated) to the ficha that owns the Ref; the "quero este carro" after "Tratado" brings it back.
   const now=new Date().toISOString(),order={ref:'ABC23',key:'ABC23',pending:false,disposition:'TREATED',dispositionUpdatedAt:'2020-01-02T00:00:00Z',occurredAt:'2020-01-01T00:00:00Z',simulations:[{occurredAt:'2020-01-01T00:00:00Z'}],budgetCents:2500000};
+  const journey={id:journeyId,reference_code:'ABC23',status:'ATIVO',enabled:true,created_at:'2020-01-01T00:00:00Z',contact:{display_name:'Cliente'},phones:[]};
+  const message={id:operationId,journey_id:journeyId,direction:'CUSTOMER',source_kind:'WHATSAPP_WEBHOOK',occurred_at_utc:'2020-01-01T12:00:00Z'};
   const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?[order]:table==='lead_events'?[{ref_code:'ABC23',occurred_at:now}]:[],panelMeta:async()=>({})});
   const handler=loadWith('api/panel/today.js',{'../../panel-manheim-state':manheimState,'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:(runs)=>runs,groupCalculatorByRef:(runs)=>runs,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[],effectiveCriteria:(journey,item)=>({bidCents:item?.budgetCents||null})},
-    '../../panel-read-model':{operational:async()=>({journeys:[],messages:[],checklist:[],promises:[]})},'../../panel-ready':{loadScoreIndex:async()=>[],score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
+    '../../panel-read-model':{operational:async()=>({journeys:[journey],refs:[],messages:[message],checklist:[],promises:[]})},'../../panel-ready':{loadScoreIndex:async()=>[],score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
   const res=output();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.payload.items.length,1);assert.equal(res.payload.items[0].disposition,'TREATED');assert.equal(res.payload.items[0].wantsCar,true);
 });
 
