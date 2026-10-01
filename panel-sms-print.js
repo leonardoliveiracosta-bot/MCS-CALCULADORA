@@ -23,7 +23,7 @@ async function readPrint(ctx,bytes,mime,fetchImpl=fetch){
     return candidate(parsed);
   } catch(error) { if(error.message==='SMS_PRINT_INVALID_IMAGE')throw error; throw new Error('AI_UNAVAILABLE'); }
 }
-// The print has its own daily quota (300, America/New_York day). It used to share the 100 calls of
+// The print has its own daily quota (2000, America/New_York day). It used to share the 100 calls of
 // panel_ai_reserve_call with the automatic conversation reading, which used them all up every day.
 async function reservePrintRead(ctx){
   const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_sms_print_reserve_read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment})});

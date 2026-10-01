@@ -163,3 +163,14 @@ test('ai-cron keeps only Claude and maintenance; the OpenAI readings run in open
   assert.match(openai,/runAudit[\s\S]*extractHistory[\s\S]*runTriage/);
   assert.deepEqual(config.crons.map((cron)=>cron.path+' '+cron.schedule),['/api/panel/ai-cron */10 * * * *','/api/panel/openai-cron 5-59/10 * * * *','/api/panel/media-cron * * * * *']);
 });
+
+test('the routine reserves on the ROTINA quota and an operator click on MANUAL',async()=>{
+  const calls=[],kinds=[];const data=fixture(10),server=serverFor(data,calls);
+  const original=server.supabase;server.supabase=async(url,key,endpoint,options)=>{if(endpoint.endsWith('panel_ai_reserve_call'))kinds.push(JSON.parse(options.body).p_kind);return original(url,key,endpoint,options);};
+  const ai=loadAi(server),ctx={environment:'preview',config:{url:'x',secretKey:'k'}},fetchImpl=async()=>aiResponse({summary:{want:'Audi',money:'Cash',missing:'Prazo'},items:[]});
+  await ai.runCron(ctx,{fetchImpl});
+  assert.deepEqual(kinds,['ROTINA']);
+  const [group]=await ai.allConversationData(ctx);
+  await ai.readConversation(ctx,group,{manual:true,fetchImpl});
+  assert.deepEqual(kinds,['ROTINA','MANUAL']);
+});
