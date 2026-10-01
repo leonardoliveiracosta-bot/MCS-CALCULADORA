@@ -200,13 +200,15 @@
       notify();
     }
     async function translate(ids) {
-      const wanted = ids.filter((id) => state.translatable.has(id) && !state.translations[id]).slice(0, 40);
+      const wanted = ids.filter((id) => state.translatable.has(id) && !state.translations[id]).slice(0, 20);
       if (state.busy || !wanted.length) return { translated: 0 };
       state.busy = true; notify();
       try {
         const out = await request('/api/panel/suggestions', { method: 'POST', timeoutMs: 45000, body: JSON.stringify({ action: 'translate', journeyId, messageIds: wanted }) });
         Object.assign(state.translations, out.translations || {});
-        wanted.forEach((id) => { if (state.translations[id]) state.translatable.delete(id); });
+        // Sent and answered: what came back without a translation (already Portuguese, for instance)
+        // is not offered again in this ficha, so it is not paid again on the next click.
+        wanted.forEach((id) => state.translatable.delete(id));
         return out;
       } finally { state.busy = false; notify(); }
     }

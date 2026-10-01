@@ -182,6 +182,66 @@ test('tradução EN→PT e ES→PT na conversa, guardada por mensagem; reabrir n
   await q(`update public.messages set body_text = ${"'" + originals.es[0].body_text.replaceAll("'", "''") + "'"} where id = '${originals.es[0].id}'`);
 });
 
+// Production reads of the preview fixture: the same rows, seen as if they were production.
+const { rows: realRows, insert: realInsert } = require('../panel-server');
+const asProduction = { rows: (c, table, params) => realRows({ ...c, environment: 'preview' }, table, Object.fromEntries(Object.entries(params).map(([key, value]) => [key, value === 'eq.production' ? 'eq.preview' : value]))) };
+test('produção com a IA desligada: tradução simulada não fica guardada nem esconde a tradução real depois', async () => {
+  const prod = { ...ctx, environment: 'production' };
+  const ids = (await messagesOf(fixture.people.spanish.journey)).map((message) => message.id);
+  await q(`delete from public.message_translations where message_id in (${ids.map((id) => `'${id}'`).join(',')})`);
+  const inserted = [];
+  const off = await guided.translate(prod, { journeyId: fixture.people.spanish.journey, messageIds: ids }, { ...asProduction, env: { VERCEL_ENV: 'production' }, insert: async (...args) => { inserted.push(args); } });
+  assert.equal(off.status, 200);
+  assert.equal(off.simulated, true);
+  assert.equal(inserted.length, 0, 'nada simulado é guardado em produção');
+  // Even an old simulated row is ignored in production: the read asks for real translations only.
+  const reads = [];
+  await guided.translations(prod, { journeyId: fixture.people.spanish.journey }, { rows: async (c, table, params) => { reads.push([table, params]); return asProduction.rows(c, table, params); } });
+  assert.ok(reads.some(([table, params]) => table === 'message_translations' && params.simulated === 'eq.false'));
+});
+
+test('tradução: id repetido na resposta da IA, linha já salva por outra aba e resposta inválida', async () => {
+  const ids = (await messagesOf(fixture.people.english.journey)).map((message) => message.id);
+  await q(`delete from public.message_translations where message_id in (${ids.map((id) => `'${id}'`).join(',')})`);
+  const calls = [];
+  const twice = fakeOpenAi((body) => ({ traducoes: JSON.parse(body.messages[1].content).mensagens.flatMap((item) => [{ id: item.id, idioma: 'en', texto_pt: 'PT1: ' + item.texto }, { id: item.id, idioma: 'en', texto_pt: 'PT2: ' + item.texto }]) }), calls);
+  const out = await guided.translate(ctx, { journeyId: fixture.people.english.journey, messageIds: ids }, { env: AI_ENV, modelCheck: async () => ({ ok: true }), budgetServices, fetchImpl: twice });
+  assert.equal(out.status, 200, JSON.stringify(out));
+  assert.ok(Object.values(out.translations).every((item) => item.textPt.startsWith('PT1: ')), 'o primeiro item de cada id vale');
+  // Another tab saved the same row first (PostgREST answers 409): the paid translation still comes back.
+  await q(`delete from public.message_translations where message_id in (${ids.map((id) => `'${id}'`).join(',')})`);
+  const conflict = await guided.translate(ctx, { journeyId: fixture.people.english.journey, messageIds: ids }, { env: AI_ENV, modelCheck: async () => ({ ok: true }), budgetServices, fetchImpl: twice,
+    insert: async () => { throw Object.assign(new Error('SUPABASE_REQUEST_FAILED'), { status: 409 }); } });
+  assert.equal(conflict.status, 200);
+  assert.ok(Object.keys(conflict.translations).length > 0);
+  // A response that is not the expected JSON is an error, not a silent paid no-op.
+  const invalid = await guided.translate(ctx, { journeyId: fixture.people.english.journey, messageIds: ids }, { env: AI_ENV, modelCheck: async () => ({ ok: true }), budgetServices, fetchImpl: fakeOpenAi({ outra: 1 }, calls) });
+  assert.equal(invalid.status, 502);
+  assert.equal(invalid.error, 'AI_RESPONSE_INVALID');
+});
+
+test('tradução de mensagem longa é marcada como parcial', async () => {
+  const [first] = await messagesOf(fixture.people.english.journey);
+  const long = 'Hi, I am looking for a Honda CR-V. ' + 'Please send me more options for the car. '.repeat(40);
+  await q(`update public.messages set body_text = '${long}' where id = '${first.id}'`);
+  try {
+    const out = await guided.translate(ctx, { journeyId: fixture.people.english.journey, messageIds: [first.id] }, { env: AI_ENV, modelCheck: async () => ({ ok: true }), budgetServices,
+      fetchImpl: fakeOpenAi((body) => ({ traducoes: JSON.parse(body.messages[1].content).mensagens.map((item) => ({ id: item.id, idioma: 'en', texto_pt: 'PT: início' })) }), []) });
+    assert.match(out.translations[first.id].textPt, /tradução parcial/);
+  } finally { await q(`update public.messages set body_text = '${first.body_text.replaceAll("'", "''")}' where id = '${first.id}'`); }
+});
+
+test('conflitos com a ficha: "até 2018", milhar com ponto e lance em dólar não viram ano', () => {
+  const at = [{ key: 'anos', label: 'Anos', value: 'até 2018' }];
+  assert.deepEqual(guided.conflictsOf('um 2016 serve', at), []);
+  assert.equal(guided.conflictsOf('um 2019', at).length, 1);
+  const bid = [{ key: 'valor', label: 'Lance', value: 'US$ 25,000' }, { key: 'anos', label: 'Anos', value: '2018 a 2020' }];
+  assert.deepEqual(guided.conflictsOf('lance de US$ 25.000', bid), []);
+  assert.equal(guided.conflictsOf('lance máximo US$ 30.000', bid).length, 1);
+  assert.deepEqual(guided.conflictsOf('lance US$ 2000', [{ key: 'anos', label: 'Anos', value: '2018 a 2020' }]), []);
+  assert.equal(guided.conflictsOf('tem 100.000 milhas', [{ key: 'milhas', label: 'Milhas', value: 'até 80.000' }]).length, 1);
+});
+
 // ------------------------------------------------------------------ a sugestão automática continua igual
 test('a sugestão automática continua igual (mesma resposta e mesmos campos, sem os da resposta orientada)', async () => {
   const out = await suggest.suggest(ctx, { journeyId: fixture.people.english.journey });

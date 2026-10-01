@@ -16,7 +16,8 @@ const { undash } = require('./text-dash');
 
 const I = suggest.internals;
 const GUIDANCE_MAX = 1500;
-const TRANSLATE_MAX_MESSAGES = 40;
+// 20 messages of up to 1000 characters fit the output cap of one call.
+const TRANSLATE_MAX_MESSAGES = 20;
 const TRANSLATE_MAX_CHARS = 1000;
 
 // ------------------------------------------------------------------ chamada à OpenAI (mesmo modelo e teto)
@@ -82,13 +83,14 @@ const GUIDED_SCHEMA = {
 
 // Numbers in the guidance that contradict the ficha (checked by the panel, not only by the AI):
 // a year outside the ficha's years, a mileage above its limit, a bid different from its bid.
-const numberOf = (text) => Number(String(text).replace(/[^\d.]/g, '')) || null;
+// "25.000" and "25,000" are both twenty-five thousand; "2.5" stays 2.5.
+const numberOf = (text) => Number(String(text).replace(/[.,](?=\d{3}(?!\d))/g, '').replace(',', '.').replace(/[^\d.]/g, '')) || null;
 function rangeOf(value) {
-  const numbers = (String(value || '').match(/\d[\d,.]*/g) || []).map((part) => Number(part.replace(/[,]/g, ''))).filter(Number.isFinite);
+  const numbers = [...String(value || '').matchAll(/(\d[\d,.]*)\s*(k|mil)?(?![\p{L}])/giu)].map((match) => (numberOf(match[1]) || 0) * (match[2] ? 1000 : 1)).filter((number) => Number.isFinite(number) && number > 0);
   if (!numbers.length) return null;
   const text = String(value).toLowerCase();
   if (/a partir de|from|or newer|ou mais novo/.test(text)) return { min: numbers[0], max: Infinity };
-  if (/^at[eé]\b|up to|under|menos de/.test(text.trim())) return { min: -Infinity, max: numbers[0] };
+  if (/^at[eé](?![\p{L}])|up to|under|menos de/u.test(text.trim())) return { min: -Infinity, max: numbers[0] };
   return { min: Math.min(...numbers), max: Math.max(...numbers) };
 }
 function conflictsOf(guidance, fields) {
@@ -96,7 +98,7 @@ function conflictsOf(guidance, fields) {
   const text = String(guidance || '');
   const out = [];
   const years = byKey.get('anos') && rangeOf(byKey.get('anos').value);
-  if (years) [...text.matchAll(/\b(19[89]\d|20[0-3]\d)\b/g)].map((match) => Number(match[1])).forEach((year) => {
+  if (years) [...text.matchAll(/(?<![\d$.,]\s?)\b(19[89]\d|20[0-3]\d)\b(?![.,]\d)(?!\s*(?:k|mil|milhas|miles|mi|d[oó]lares|usd)\b)/gi)].map((match) => Number(match[1])).forEach((year) => {
     if (year < years.min || year > years.max) out.push({ point: `Ano ${year} na orientação`, recorded: `${byKey.get('anos').label}: ${byKey.get('anos').value}`, source: 'ficha' });
   });
   const miles = byKey.get('milhas') && rangeOf(byKey.get('milhas').value);
@@ -225,7 +227,7 @@ async function cachedFor(ctx, messages, services) {
   const ids = messages.map((message) => message.id).filter(isUuid);
   const cached = [];
   for (let index = 0; index < ids.length; index += 100) {
-    cached.push(...await read(ctx, 'message_translations', { select: 'message_id,content_hash,source_lang,text_pt', environment: 'eq.' + ctx.environment, message_id: 'in.(' + ids.slice(index, index + 100).join(',') + ')' }));
+    cached.push(...await read(ctx, 'message_translations', { select: 'message_id,content_hash,source_lang,text_pt', environment: 'eq.' + ctx.environment, ...(ctx.environment === 'production' ? { simulated: 'eq.false' } : {}), message_id: 'in.(' + ids.slice(index, index + 100).join(',') + ')' }));
   }
   const byKey = new Map(cached.map((row) => [row.message_id + '|' + row.content_hash, row]));
   const out = {};
@@ -279,17 +281,27 @@ async function translate(ctx, body, services = {}) {
         catch (failure) { return aiFailure(failure); }
         await recordCost(ctx, guard, 'conversation_translation_openai', journeyId, 'TRANSLATE', result, { messages: missing.length }, services);
         costUsd = result.costUsd; usedModel = result.model;
-        items = (result.parsed && Array.isArray(result.parsed.traducoes) ? result.parsed.traducoes : []);
+        if (!result.parsed || !Array.isArray(result.parsed.traducoes)) return { status: 502, error: 'AI_RESPONSE_INVALID', costUsd: result.costUsd };
+        items = result.parsed.traducoes;
       }
+      // A simulated translation is never kept in production: it would hide the real one later.
+      const keep = !(simulated && ctx.environment === 'production');
+      const seen = new Set();
       const byId = new Map(missing.map((message) => [message.id, message]));
       for (const item of items) {
         const message = byId.get(String(item && item.id));
         const text = String(item && item.texto_pt || '').trim();
-        if (!message || !text || item.idioma === 'pt') continue;
+        if (!message || !text || item.idioma === 'pt' || seen.has(message.id)) continue;
+        seen.add(message.id);
+        const partial = String(message.body_text).length > TRANSLATE_MAX_CHARS;
+        const textPt = (partial ? text.slice(0, 3950) + ' […] (tradução parcial: só o início da mensagem)' : text).slice(0, 4000);
+        saved[message.id] = { textPt, lang: item.idioma };
+        if (!keep) continue;
         // Kept by message and content: a message whose text changes can be translated again.
-        await (services.insert || insert)(ctx, 'message_translations', { environment: ctx.environment, message_id: message.id, content_hash: contentHash(message.body_text), source_lang: ['en', 'es'].includes(item.idioma) ? item.idioma : 'outro', text_pt: text.slice(0, 4000), model: usedModel, simulated, created_by: ctx.panel.id }, false)
-          .catch((error) => { if (!/duplicate|23505|409/i.test(String(error && (error.code || error.message) || ''))) throw error; });
-        saved[message.id] = { textPt: text.slice(0, 4000), lang: item.idioma };
+        // A row that cannot be saved (another tab saved it first, or a database error) still returns
+        // its translation: the call was already paid.
+        await (services.insert || insert)(ctx, 'message_translations', { environment: ctx.environment, message_id: message.id, content_hash: contentHash(message.body_text), source_lang: ['en', 'es'].includes(item.idioma) ? item.idioma : 'outro', text_pt: textPt, model: usedModel, simulated, created_by: ctx.panel.id }, false)
+          .catch((error) => { if (!(error && (error.status === 409 || /duplicate|23505/i.test(String(error.code || error.message || ''))))) console.error('[traducao] falha ao salvar', message.id, error && (error.status || error.message)); });
       }
     }
     return { status: 200, journeyId, translations: saved, translated: missing.length, simulated, model: usedModel, costUsd };

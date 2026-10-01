@@ -112,6 +112,17 @@ for (const width of [1366, 390]) {
     await expect(page.locator('#lead-conversation .message-translation').first()).toBeVisible({ timeout: 60000 });
     expect(action('translate').length).toBe(before);
 
+    // A message without a saved translation gets its own "traduzir" link, and the link translates it.
+    await backend.db.query(`delete from public.message_translations where message_id = (select message_id from public.message_translations order by created_at limit 1)`);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const one = page.locator('#lead-conversation button.translate-one');
+    await expect(one).toHaveCount(1, { timeout: 60000 });
+    const translations = await page.locator('#lead-conversation .message-translation').count();
+    await one.click();
+    await expect(page.locator('#lead-conversation .message-translation')).toHaveCount(translations + 1, { timeout: 30000 });
+    await expect(page.locator('#lead-conversation button.translate-one')).toHaveCount(0);
+    expect(action('translate').length).toBe(before + 1);
+
     // Portuguese conversation: nothing to translate.
     await page.goto(base + '/painel/#ficha/' + fixture.people.answered.journey, { waitUntil: 'domcontentloaded' });
     const ptButton = page.locator('#lead-conversation button.translate-conversation');
