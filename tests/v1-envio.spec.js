@@ -66,7 +66,8 @@ test.afterAll(async () => { if (backend) await backend.db.close(); });
 test('exemplo fictício do Preview: confirmação completa, clique duplo barrado e fora da janela de 24 h, sem banco', async ({ page }) => {
   const before = (await backend.db.query('select (select count(*) from public.v1_sends)::int sends, (select count(*) from public.vitrines)::int vitrines')).rows[0];
   const posts = [];
-  page.on('request', (request) => { if (request.url().includes('/api/panel/v1-send')) posts.push(JSON.parse(request.postData() || '{}').action); });
+  // Only the POSTs (the GET of the latest V1 of the cards on screen only reads).
+  page.on('request', (request) => { if (request.url().includes('/api/panel/v1-send') && request.method() === 'POST') posts.push(JSON.parse(request.postData() || '{}').action); });
   await openPanel(page);
   await page.goto(base + '/painel/');
   await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
@@ -176,6 +177,16 @@ test('V1 enviada no WhatsApp (simulado) com confirmação e histórico de lotes 
   expect(rows[0].body_text).toContain('Hi Maria, great talking today');
   // Simulated: no message in the conversation and no request to the 360dialog.
   expect((await backend.db.query(`select count(*)::int n from public.messages where direction = 'MCS'`)).rows[0].n).toBe(0);
+  // The send counts as presenting the V1's cars and the search of the mode is "options sent".
+  expect((await backend.db.query(`select count(*)::int n from public.units where journey_id = '${JOURNEY}'`)).rows[0].n).toBe(2);
+  expect((await backend.db.query(`select kind, logical_mode from public.panel_search_marks where journey_id = '${JOURNEY}' and undone_at is null`)).rows).toEqual([{ kind: 'SENT', logical_mode: 'CARRO' }]);
+  // After a reload the card remembers the V1: when it was sent and its link, ready to resend.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  const reloaded = page.locator('#buscas-carro .manheim-lead').first();
+  await expect(reloaded.locator('.v1-send-history')).toHaveText(new RegExp('^V1 enviada em \\d\\d/\\d\\d/\\d{4},? \\d\\d:\\d\\d · simulado · Link: ' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/v/'), { timeout: 30000 });
+  await expect(reloaded.locator('.v1-send > button')).toHaveText('Reenviar');
+  await expect(reloaded.getByRole('button', { name: 'Copiar mensagem com link' })).toBeEnabled();
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
 });
