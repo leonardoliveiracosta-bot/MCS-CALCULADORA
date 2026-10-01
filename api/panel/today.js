@@ -9,7 +9,7 @@ const { timezoneForZip } = require('../../panel-lead');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
-const { optOutOf } = require('../../panel-reply-suggest');
+const { optOutOf } = require('../../panel-opt-out');
 
 function dueToday(promises, ref, zip, now) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
