@@ -260,10 +260,13 @@
     if (links.requestsNote) add(requests, 'p', 'muted', links.requestsNote);
     else if (!(links.requests || []).length) add(requests, 'p', 'muted', 'Nenhum pedido lido da conversa.');
     (links.requests || []).forEach((item) => add(requests, 'p', '', `${item.vehicle || 'Carro não informado'} · lido em ${date(item.at)}${item.needsReview ? ' · a IA pediu revisão' : ''}`));
-    const searches = searchGroups ? add(box, 'div') : e('div');
+    // In the ficha the per-search groups live in O QUE OFERECER; the batch line stays here.
+    const searches = add(box, 'div');
     add(searches, 'strong', '', 'Busca e carros');
-    if (!(context.searches || []).length) add(searches, 'p', 'muted', 'Sem busca: o pedido ainda não tem o que a busca precisa, ou o caso está encerrado.');
-    (context.searches || []).forEach((item) => searchGroupLine(searches, context, item));
+    const groupLines = searchGroups ? searches : e('div');
+    if (!(context.searches || []).length) add(groupLines, 'p', 'muted', 'Sem busca: o pedido ainda não tem o que a busca precisa, ou o caso está encerrado.');
+    (context.searches || []).forEach((item) => searchGroupLine(groupLines, context, item));
+    if (!searchGroups) add(searches, 'p', 'muted', 'Com carros, sem carros e busca não rodada: veja O QUE OFERECER.');
     fillReasons();
     add(searches, 'p', 'muted', links.cars && links.cars.uploadAt ? `Lote ativo carregado em ${date(links.cars.uploadAt)}. Disponibilidade no leilão não confirmada.` : 'Nenhum lote ativo do Manheim.');
     if ((context.promises || []).length) { const promises = add(box, 'div'); add(promises, 'strong', '', 'Promessas em aberto'); context.promises.forEach((item) => add(promises, 'p', '', `${item.text} · ${date(item.dueAt)}`)); }
