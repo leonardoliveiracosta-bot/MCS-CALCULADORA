@@ -218,7 +218,7 @@ function criteriaSummary(step) {
   if (step.aiOnly.length) return { complete: false, text: 'Conferir o que a IA leu: ' + step.aiOnly.join(', ') };
   return { complete: true, text: 'Completos' };
 }
-function nextStep({ journey = null, closed = false, off = false, owner, fields, modes = [], searches = [], unlinkedRef = null, conversationCount = 0, conversationRead = false }) {
+function nextStep({ journey = null, closed = false, off = false, owner, fields, modes = [], searches = [], unlinkedRef = null, conversationCount = 0, conversationRead = false, sharedRefs = [] }) {
   const byKey = new Map(fields.map((item) => [item.key, item]));
   const needed = [...new Set(modes.flatMap((mode) => REQUIRED[mode] || []))];
   const absent = (key) => (byKey.get(key) || {}).status === 'AUSENTE';
@@ -232,6 +232,8 @@ function nextStep({ journey = null, closed = false, off = false, owner, fields, 
   if (unlinkedRef) { const situation = UNLINKED[unlinkedRef] || UNLINKED.AWAITING; blocker = situation.blocker; suggestion = situation.action; }
   else if (closed) suggestion = 'Nada a fazer: caso encerrado';
   else if (off) { blocker = 'O caso está desligado.'; suggestion = 'Religar o caso na ficha, se o cliente voltar'; }
+  // A Ref shared with another ficha: the identity comes first, before answering with this context.
+  else if (sharedRefs.length) { blocker = `A Ref ${sharedRefs.join(', ')} também está em outra ficha: o painel não sabe de quem é este pedido.`; suggestion = `Resolver a identidade: conferir a qual ficha a Ref ${sharedRefs.join(', ')} pertence antes de responder`; }
   else if (owner.who === 'MCS' && owner.since) { blocker = 'O cliente escreveu e ainda não teve resposta.'; suggestion = 'Responder o cliente'; }
   else if (missing.length) {
     blocker = 'Falta informação para buscar: ' + missing.join(', ') + '.';
@@ -391,7 +393,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     // The AI reading of the conversation counts only while it read the latest message.
     const latestMessage = journeyMessages.slice().sort((a, b) => (time(messageAt(b)) || 0) - (time(messageAt(a)) || 0))[0];
     const insight = insights.find((row) => row.journey_id === journey.id && latestMessage && row.last_ai_message_id === latestMessage.id) || null;
-    const step = nextStep({ journey, closed, off, owner, fields, modes, searches, conversationCount: conversation.messageCount, conversationRead: ownRequests.length > 0 || Boolean(insight) });
+    const step = nextStep({ journey, closed, off, owner, fields, modes, searches, conversationCount: conversation.messageCount, conversationRead: ownRequests.length > 0 || Boolean(insight), sharedRefs });
     const phoneList = phones.filter((row) => row.contact_id === journey.contact_id && row.is_current !== false && !row.retired_at).sort((a, b) => Number(b.is_primary) - Number(a.is_primary)).map((row) => row.phone_e164).filter(Boolean);
     out.journeys[journey.id] = {
       key: 'journey:' + journey.id, journeyId: journey.id, contactId: journey.contact_id,

@@ -121,13 +121,15 @@
     });
     const excluded = add(root, 'details', 'followup-excluded');
     add(excluded, 'summary', '', `Fora da fila (${data.excluded.length}) · com o motivo`);
-    const REASONS = { OPT_OUT: 'pediu para não receber contato', NOT_LEAD: 'não é lead', CLOSED: 'caso encerrado', OFF: 'caso desligado', NO_WHATSAPP: 'sem conversa de WhatsApp', MANY_CHATS: 'mais de uma conversa', INVALID_NUMBER: 'número inválido', PHONE_UNCERTAIN: 'número incerto', MANY_FICHAS: 'mais de uma ficha' };
+    const REASONS = { OPT_OUT: 'pediu para não receber contato', NOT_LEAD: 'não é lead', CLOSED: 'caso encerrado', OFF: 'caso desligado', NO_WHATSAPP: 'sem conversa de WhatsApp', MANY_CHATS: 'mais de uma conversa', INVALID_NUMBER: 'número inválido', PHONE_UNCERTAIN: 'número incerto', MANY_FICHAS: 'mais de uma ficha', REF_AMBIGUOUS: 'Ref em mais de uma ficha (resolver a identidade)' };
     const reasons = Object.entries(data.reasons || {}).map(([code, count]) => `${REASONS[code] || code}: ${count}`).join(' · ');
     if (reasons) add(excluded, 'p', 'muted', reasons);
     data.excluded.slice(0, 200).forEach((item) => {
       const line = add(excluded, 'p', 'followup-excluded-item');
       add(line, 'strong', '', item.name);
       line.append(document.createTextNode(` · ${item.days} dias · ${item.reason.text}`));
+      // Ref in more than one ficha: open the ficha to resolve whose case it is (no suggestion until then).
+      if (item.reason.code === 'REF_AMBIGUOUS') { const fix = add(line, 'button', 'quiet small', 'Abrir ficha para resolver'); fix.type = 'button'; fix.addEventListener('click', (event) => { event.stopPropagation(); open('ficha', item.journeyId); }); }
     });
     if (hydrate) hydrate(root);
     return data;

@@ -3958,7 +3958,12 @@
     accessExpiresAt = 0;
     persistentSession = false;
   };
-  async function refreshAccessToken() {
+  // One refresh at a time: the panel requests and the notification poll can hit a 401 together.
+  let refreshing = null;
+  const refreshAccessToken = () => refreshing || (refreshing = refreshAccessTokenNow().finally(() => { refreshing = null; }));
+  // notifications.js asks for a new token on a 401 instead of polling with an expired one.
+  window.MCSPanelAuth = { refresh: () => refreshAccessToken() };
+  async function refreshAccessTokenNow() {
     if (!refreshToken || !config) return false;
     const response = await fetch(config.url + '/auth/v1/token?grant_type=refresh_token', {
       method: 'POST',
