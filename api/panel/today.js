@@ -9,6 +9,7 @@ const { timezoneForZip } = require('../../panel-lead');
 const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
+const { optOutOf } = require('../../panel-opt-out');
 
 function dueToday(promises, ref, zip, now) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -55,7 +56,10 @@ module.exports = async (req, res) => {
       const stamp = time(message.occurred_at_utc || message.occurred_at_local || message.created_at) || 0;
       if (stamp > (latestMcsAt.get(message.journey_id) || 0)) latestMcsAt.set(message.journey_id, stamp);
     }
-    const wantedAfterDisposition = (ref, dispositionAt) => { const key=refKey(ref);const stamp=wantedAtByRef.get(key);if(!stamp||!eventAfterDisposition(stamp,dispositionAt))return false;const journey=journeyByRef.get(key);return !(journey&&(latestMcsAt.get(journey.id)||0)>stamp); };
+    // M3 covers only customer messages: "quero este carro" never brings back a closed or switched-off
+    // ficha, nor a discarded person (only a customer message after the discard does), nor a Ref owned
+    // by more than one ficha (R3: it is nobody's context).
+    const wantedAfterDisposition = (ref, dispositionAt, dispositionStatus) => { const key=refKey(ref);if(dispositionStatus==='DISCARDED'||ambiguousRefs.has(key))return false;const stamp=wantedAtByRef.get(key);if(!stamp||!eventAfterDisposition(stamp,dispositionAt))return false;const journey=journeyByRef.get(key);if(journey&&(journey.enabled===false||journey.status==='ENCERRADO'))return false;return !(journey&&(latestMcsAt.get(journey.id)||0)>stamp); };
     const firstSimulation=new Map(), firstCalculatorEvent=new Map();
     for(const run of calcRuns){
       if(run.is_test===true)continue;
@@ -68,8 +72,14 @@ module.exports = async (req, res) => {
     }
 
     const journeyMap = new Map(data.journeys.map((item) => [item.id, item]));
-    const journeyByRef = new Map(data.journeys.filter((item) => item.reference_code).map((item) => [String(item.reference_code).trim().toUpperCase(), item]));
-    for(const link of data.refs||[]){const journey=journeyMap.get(link.journey_id);if(journey)journeyByRef.set(String(link.ref_code).trim().toUpperCase(),journey);}
+    // R3: a Ref owned by more than one ficha is never attached to any of them (no last-owner-wins):
+    // its order shows without client context and each ficha shows on its own.
+    const refOwners = new Map();
+    const addOwner = (ref, journey) => { const key = refKey(ref); if (!key || !journey) return; if (!refOwners.has(key)) refOwners.set(key, new Set()); refOwners.get(key).add(journey.id); };
+    data.journeys.forEach((item) => addOwner(item.reference_code, item));
+    for (const link of data.refs || []) addOwner(link.ref_code, journeyMap.get(link.journey_id));
+    const ambiguousRefs = new Set([...refOwners].filter(([, owners]) => owners.size > 1).map(([ref]) => ref));
+    const journeyByRef = new Map([...refOwners].filter(([ref]) => !ambiguousRefs.has(ref)).map(([ref, owners]) => [ref, journeyMap.get([...owners][0])]));
     const latestByJourney = new Map();
     for (const message of data.messages) {
       if (message.is_automatic) continue;
@@ -79,6 +89,14 @@ module.exports = async (req, res) => {
       if (stamp >= currentStamp) latestByJourney.set(message.journey_id, message);
     }
 
+    // A client whose latest customer message asks not to be contacted (opt-out) is not actionable in HOJE.
+    const lastCustomerByJourney = new Map();
+    for (const message of data.messages) {
+      if (message.direction !== 'CUSTOMER' || message.is_automatic) continue;
+      const current = lastCustomerByJourney.get(message.journey_id);
+      if (!current || (time(message.occurred_at_utc || message.created_at) || 0) >= (time(current.occurred_at_utc || current.created_at) || 0)) lastCustomerByJourney.set(message.journey_id, message);
+    }
+    const optedOut = (journey) => { const last = journey && lastCustomerByJourney.get(journey.id); return Boolean(last && optOutOf([last])); };
     const calcModes = consolidateCalcRuns(calcRuns, links).map((item) => {
       // B2: a Ref linked through journey_refs is also a conversation, not only calculator_request_links.
       const journey = item.link && item.link.journeyId ? journeyMap.get(item.link.journeyId) : journeyByRef.get(refKey(item.ref)) || null;
@@ -95,13 +113,15 @@ module.exports = async (req, res) => {
     const promiseRows=data.promises.concat(leadPromises.map((row)=>({...row,journey_id:row.journey_id||journeyByRef.get(refKey(row.ref_code))?.id||null})));
     const overdueByJourney=new Map(buildTodayItems({journeys:data.journeys,messages:data.messages,promises:promiseRows},new Date(now))
       .map((item)=>[item.id,item.reasons.filter((reason)=>['NEXT_ACTION','PROMISE','MISSING_NEXT_ACTION'].includes(reason.kind))]).filter(([,reasons])=>reasons.length));
-    const overdueAfter=(journey,dispositionAt)=>Boolean(journey&&(overdueByJourney.get(journey.id)||[]).some((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)));
+    // A discarded person never comes back through an overdue next action or promise (only a customer message).
+    const overdueAfter=(journey,dispositionAt,dispositionStatus)=>Boolean(journey&&dispositionStatus!=='DISCARDED'&&(overdueByJourney.get(journey.id)||[]).some((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)));
     // A8: one disposition per person (ficha + linked Refs).
     const personDisposition=dispositionIndex(dispositions);
-    const refsOf=(journey)=>journey?[journey.reference_code,...(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code)].filter(Boolean).map(refKey):[];
+    const refsOf=(journey)=>journey?[journey.reference_code,...(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code)].filter(Boolean).map(refKey).filter((ref)=>!ambiguousRefs.has(ref)):[];
     const dispositionFor=(journey,ref)=>personDisposition(journey?.id,[...new Set([...refsOf(journey),...(ref?[refKey(ref)]:[])])]);
     // A contact after the disposition brings the person back ("Tratado" means handled until now).
-    const activeFor=(journey,ref,facts,dispositionAt)=>wantedAfterDisposition(ref,dispositionAt)||returnedForJourney(journey,dispositionAt)||overdueAfter(journey,dispositionAt)
+    // DISCARDED: only a customer message after the discard brings the person back; TREATED as before.
+    const activeFor=(journey,ref,facts,dispositionAt,dispositionStatus)=>wantedAfterDisposition(ref,dispositionAt,dispositionStatus)||returnedForJourney(journey,dispositionAt)||overdueAfter(journey,dispositionAt,dispositionStatus)
       ||Boolean(facts.entered&&facts.latestAt>=cutoff&&eventAfterDisposition(facts.latestAt,dispositionAt)&&(!journey||journey.enabled!==false));
     const grouped=groupCalculatorByRef(calcModes, dispositions)
       .filter((item)=>!(data.excludedRefs||[]).includes(item.ref))
@@ -114,7 +134,7 @@ module.exports = async (req, res) => {
     const orders = grouped
       // Only whoever really wrote: an order with no message (simulated or only clicked) never enters HOJE,
       // whatever else is true about it (the calculator has no phone).
-      .filter((item) => { const journey=item.journeyId?journeyMap.get(item.journeyId):null;const facts=contacts.facts({ref:item.ref,journeyId:item.journeyId,refs:refsOf(journey)}); return facts.entered&&activeFor(journey,item.ref,facts,item.dispositionUpdatedAt); })
+      .filter((item) => { const journey=item.journeyId?journeyMap.get(item.journeyId):null;const facts=contacts.facts({ref:item.ref,journeyId:item.journeyId,refs:refsOf(journey)}); return facts.entered&&!optedOut(journey)&&activeFor(journey,item.ref,facts,item.dispositionUpdatedAt,item.disposition); })
       .map((item) => ({
         ...item,
         kind: 'CALCULATOR_ORDER',
@@ -131,7 +151,8 @@ module.exports = async (req, res) => {
         const facts=contacts.facts({journeyId:item.id,ref:item.reference_code,refs});
         // A ficha enters only if the client wrote or the team has a phone for it (manual record).
         if(!facts.entered&&!(item.phones||[]).length)return false;
-        return refs.some((ref)=>wantedAfterDisposition(ref,disposition?.updated_at))||activeFor(item,null,facts,disposition?.updated_at);})
+        if(optedOut(item))return false;
+        return refs.some((ref)=>wantedAfterDisposition(ref,disposition?.updated_at,disposition?.status))||activeFor(item,null,facts,disposition?.updated_at,disposition?.status);})
       .filter((item) => !refsOf(item).some((ref)=>orderRefs.has(ref)))
       .map((item) => ({
         ...item, disposition:dispositionFor(item)?.status||null, discardReason:dispositionFor(item)?.discard_reason||null, dispositionUpdatedAt:dispositionFor(item)?.updated_at||null,
@@ -153,13 +174,13 @@ module.exports = async (req, res) => {
       const ref = String(item.ref || item.referenceCode || '').trim().toUpperCase();
       const simulations = item.simulations || (journey ? refsOf(journey).flatMap((own) => ordersByRef.get(own)?.simulations || []) : []);
       const ready = score({ ...item, simulations }, journey, { ...data, promises:data.promises.concat(leadPromises) }, vehicles, now);
-      const dispositionAt=item.dispositionUpdatedAt||dispositionFor(journey,ref)?.updated_at;const returned=returnedForJourney(journey,dispositionAt);
+      const dispositionAt=item.dispositionUpdatedAt||dispositionFor(journey,ref)?.updated_at,dispositionStatus=item.disposition||dispositionFor(journey,ref)?.status||null;const returned=returnedForJourney(journey,dispositionAt);
       const journeyId=journey?.id;
       const facts=contacts.facts({journeyId:journey?.id,ref,refs:journey?(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});
       const ownMessages=journeyId?data.messages.filter((message)=>message.journey_id===journeyId).sort((a,b)=>(time(b.occurred_at_utc||b.created_at)||0)-(time(a.occurred_at_utc||a.created_at)||0)):[];
       const latestMessage=ownMessages.find((message)=>!message.is_automatic)||ownMessages[0]||null,latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
-      return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wantedAfterDisposition(ref,dispositionAt),
-        todayReasons:journeyId?(overdueByJourney.get(journeyId)||[]).filter((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)).map(({kind,label,dueAt,detail,urgency})=>({kind,label,dueAt:dueAt||null,detail:detail||null,urgency:urgency||'yellow'})):[],
+      return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now)), wantsCar: wantedAfterDisposition(ref,dispositionAt,dispositionStatus),
+        todayReasons:journeyId&&dispositionStatus!=='DISCARDED'?(overdueByJourney.get(journeyId)||[]).filter((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)).map(({kind,label,dueAt,detail,urgency})=>({kind,label,dueAt:dueAt||null,detail:detail||null,urgency:urgency||'yellow'})):[],
         awaitingReply:Boolean(latestMessage&&latestMessage.direction==='CUSTOMER'),
         pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false }, facts, insightByJourney.get(journeyId), journey);
     }).sort((left, right) => {

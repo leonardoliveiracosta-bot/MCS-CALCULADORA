@@ -56,7 +56,8 @@ test('atividade real: mensagens do cliente ou da MCS e eventos da calculadora; a
   ]);
   assert.equal(last, at(35));
   const info = origin.clientOrigin({ source: 'WHATSAPP_DIRECT', updated_at: at(0) }, [{ occurredAt: at(20), logicalMode: 'VALOR' }], last);
-  assert.equal(info.lastActivityAt, at(20));
+  // R1: the calculator event (at(20)) is not activity; the latest real message (at(35)) is.
+  assert.equal(info.lastActivityAt, at(35));
   // updated_at of the ficha (internal processing, AI reading, cache) is never used.
   assert.equal(origin.clientOrigin({ source: 'WHATSAPP_DIRECT', updated_at: at(0) }, [], null).lastActivityAt, null);
 });

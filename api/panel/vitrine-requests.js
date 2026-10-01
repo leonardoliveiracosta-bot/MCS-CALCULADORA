@@ -2,6 +2,8 @@
 
 const {allRows,isUuid,jsonBody,patchRows,requirePanel,send}=require('../../panel-server');
 const {deposit,vehicleName}=require('../../vitrine-domain');
+const {toggleEnabled}=require('../../panel-domain');
+const {dispositionIndex}=require('../../panel-disposition');
 
 const since=(value,now=Date.now())=>{
   const elapsed=Math.max(0,now-Date.parse(value||now));
@@ -13,14 +15,17 @@ const since=(value,now=Date.now())=>{
 };
 
 async function payload(ctx){
-  const [requests,vitrines,cars,contacts,phones,events,journeys]=await Promise.all([
+  const [requests,vitrines,cars,contacts,phones,events,journeys,toggles,dispositions,journeyRefs]=await Promise.all([
     allRows(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,contact_id,journey_id,request_kind,referred,created_at,treated_at',environment:'eq.'+ctx.environment,treated_at:'is.null',order:'created_at.desc'}),
     allRows(ctx,'vitrines',{select:'id,contact_id,journey_id,reference_code,customer_name,version,created_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'vitrine_cars',{select:'id,vitrine_id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'contacts',{select:'id,display_name',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current,retired_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'vitrine_events',{select:'vitrine_id,vitrine_car_id,event_type,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
-    allRows(ctx,'journeys',{select:'id,budget_cents',environment:'eq.'+ctx.environment})
+    allRows(ctx,'journeys',{select:'id,contact_id,reference_code,status,budget_cents',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,updated_at',environment:'eq.'+ctx.environment,cleared_at:'is.null'}),
+    allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment})
   ]);
   const budgetByJourney=new Map(journeys.map((row)=>[row.id,row.budget_cents||null]));
   const vitrinesById=new Map(vitrines.map((row)=>[row.id,row]));
@@ -29,7 +34,24 @@ async function payload(ctx){
   const phoneFor=(contactId)=>{const values=phones.filter((row)=>row.contact_id===contactId&&row.is_current!==false&&!row.retired_at);const row=values.find((row)=>row.is_primary)||values[0];return row&&(row.phone_e164||row.phone_raw)||null;};
   // A "referred" request came from someone the owner forwarded the link to: the car limit is the owner's,
   // so the deposit stays null ("a definir") until the operator talks to that person.
-  const openRequests=requests.map((request)=>{const vitrine=vitrinesById.get(request.vitrine_id)||{};const car=carsById.get(request.vitrine_car_id)||{};const vehicle=car.vehicle_snapshot||{};const contact=contactsById.get(request.contact_id)||{};const limit=car.customer_limit_cents||null,journeyId=request.journey_id||vitrine.journey_id||null;return {id:request.id,vitrineId:request.vitrine_id,vitrineCarId:request.vitrine_car_id,customerLimitCents:limit,budgetCents:journeyId?budgetByJourney.get(journeyId)||null:null,depositUsd:request.referred?null:limit?deposit(limit):null,kind:request.request_kind,createdAt:request.created_at,ago:since(request.created_at),referred:Boolean(request.referred),name:contact.display_name||phoneFor(request.contact_id)||'Cliente',phone:phoneFor(request.contact_id),referenceCode:vitrine.reference_code||'',journeyId:request.journey_id||vitrine.journey_id||null,car:vehicleName(vehicle),startsAt:vehicle.startsAt||vehicle.saleDate||null,endsAt:vehicle.endsAt||null,ownerName:vitrine.customer_name||'cliente',ownerRef:vitrine.reference_code||''};});
+  // R3/R4: an untreated request counts in the HOJE badge only when it is actionable: never for a
+  // ficha that is ENCERRADO, switched off or discarded, nor for a contact marked "não é lead". A
+  // referred request without its own ficha stays (it is judged by its own ficha, never the owner's).
+  const journeysById=new Map(journeys.map((row)=>[row.id,row])),toggleByJourney=new Map(toggles.map((row)=>[row.journey_id,row]));
+  const personDisposition=dispositionIndex(dispositions);
+  const actionable=(request)=>{
+    const vitrine=vitrinesById.get(request.vitrine_id)||{};
+    if(contactsById.get(request.contact_id)?.is_lead===false)return false;
+    const journeyId=request.journey_id||(request.referred?null:vitrine.journey_id)||null;
+    if(!journeyId)return true;
+    const journey=journeysById.get(journeyId);
+    if(!journey)return true;
+    if(contactsById.get(journey.contact_id)?.is_lead===false)return false;
+    if(!toggleEnabled(journey.status,toggleByJourney.get(journeyId)))return false;
+    const refs=[journey.reference_code,...journeyRefs.filter((row)=>row.journey_id===journeyId).map((row)=>row.ref_code)].filter(Boolean);
+    return personDisposition(journeyId,refs)?.status!=='DISCARDED';
+  };
+  const openRequests=requests.filter(actionable).map((request)=>{const vitrine=vitrinesById.get(request.vitrine_id)||{};const car=carsById.get(request.vitrine_car_id)||{};const vehicle=car.vehicle_snapshot||{};const contact=contactsById.get(request.contact_id)||{};const limit=car.customer_limit_cents||null,journeyId=request.journey_id||vitrine.journey_id||null;return {id:request.id,vitrineId:request.vitrine_id,vitrineCarId:request.vitrine_car_id,customerLimitCents:limit,budgetCents:journeyId?budgetByJourney.get(journeyId)||null:null,depositUsd:request.referred?null:limit?deposit(limit):null,kind:request.request_kind,createdAt:request.created_at,ago:since(request.created_at),referred:Boolean(request.referred),name:contact.display_name||phoneFor(request.contact_id)||'Cliente',phone:phoneFor(request.contact_id),referenceCode:vitrine.reference_code||'',journeyId:request.journey_id||vitrine.journey_id||null,car:vehicleName(vehicle),startsAt:vehicle.startsAt||vehicle.saleDate||null,endsAt:vehicle.endsAt||null,ownerName:vitrine.customer_name||'cliente',ownerRef:vitrine.reference_code||''};});
   const requestsByCar=new Map();
   requests.forEach((request)=>requestsByCar.set(request.vitrine_car_id,true));
   const signals=[];

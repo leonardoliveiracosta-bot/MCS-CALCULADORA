@@ -313,6 +313,13 @@ function calculatorEventStatus(item) {
   return 'EM REVISÃO';
 }
 
+function rangeText(from, to) {
+  const low = from === null || from === undefined || from === '' ? null : clean(from), high = to === null || to === undefined || to === '' ? null : clean(to);
+  if (low && high) return low + '–' + high;
+  if (low) return 'a partir de ' + low;
+  if (high) return 'até ' + high;
+  return null;
+}
 function consolidateCalcRuns(rows, links = []) {
   const groups = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
@@ -353,8 +360,9 @@ function consolidateCalcRuns(rows, links = []) {
       plate: clean(latestValue(events, (event) => event.placa)) || null,
       registrationFlorida: normalizeState(state) === 'FL',
       deadlineText: clean(latestValue(events, (event) => event.prazo)) || null,
-      yearsText: clean(latestValue(events, (event) => event.ano_de || event.ano_ate) && [latestValue(events, (event) => event.ano_de), latestValue(events, (event) => event.ano_ate)].filter(Boolean).join('–')) || null,
-      mileageText: clean([latestValue(events, (event) => event.milhas_de), latestValue(events, (event) => event.milhas_ate)].filter((value) => value !== null).join('–')) || null,
+      // One bound alone keeps its side ("a partir de 2018", "até 80000"), never a bare number.
+      yearsText: rangeText(latestValue(events, (event) => event.ano_de), latestValue(events, (event) => event.ano_ate)),
+      mileageText: rangeText(latestValue(events, (event) => event.milhas_de), latestValue(events, (event) => event.milhas_ate)),
       state: normalizeState(state) || null,
       zip: clean(latestValue(events, (event, row) => event.zip ?? row.zip)) || null,
       contactChannel: channel,

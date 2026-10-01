@@ -77,7 +77,7 @@ function stableValue(value) {
   return value;
 }
 
-function aiContextWindow(messages, maximumBid, timezone, priorSummary='') {
+function aiContextWindow(messages, maximumBid, timezone, priorSummary='', search=null) {
   const newest = messages.slice(-AI_CONTEXT_MAX_MESSAGES).map((message) => ({
     sender: message.direction,
     text: String(message.body_text || ''),
@@ -85,7 +85,7 @@ function aiContextWindow(messages, maximumBid, timezone, priorSummary='') {
   }));
   const cut = messages.length > newest.length;
   let accumulated=String(priorSummary||'').slice(0,6000);
-  const payload = () => JSON.stringify({agora:new Date().toISOString(),fuso:timezone,lanceCalculadora:maximumBid||null,resumoAcumulado:accumulated||null,conversa:newest});
+  const payload = () => JSON.stringify({agora:new Date().toISOString(),fuso:timezone,lanceCalculadora:maximumBid||null,...(search?{busca:search}:{}),resumoAcumulado:accumulated||null,conversa:newest});
   while (accumulated && payload().length > AI_CONTEXT_MAX_CHARS) accumulated=accumulated.slice(Math.ceil(accumulated.length*.15));
   let truncated = cut;
   while (newest.length && payload().length > AI_CONTEXT_MAX_CHARS) {
@@ -124,8 +124,8 @@ function trackableAiFailure(error) {
 
 async function allConversationData(ctx) {
   const [journeys, contacts, links, messages, refs, readings, states, attempts, calcRuns, pendingInsights] = await Promise.all([
-    allRows(ctx,'journeys',{select:'id,contact_id,reference_code,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'contacts',{select:'id,display_name,location_text',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'journeys',{select:'id,contact_id,reference_code,status,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'contacts',{select:'id,display_name,location_text,is_lead',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment,undone_at:'is.null'}),
     allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,source_kind,occurred_at_utc,occurred_at_local,created_at,undone_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
@@ -180,8 +180,10 @@ async function calculatorOrders(ctx) {
 function deterministicCandidates(group, orders) {
   const name=normalizedName(group.contact.display_name),firstName=name.split(' ')[0];
   const conversation=group.customerMessages.map((message)=>message.body_text).join(' '),conversationWords=words(conversation);
-  const amounts=[...conversation.matchAll(/(?:us\$|\$)?\s*(\d{1,3}(?:[.,]\d{3})+|\d+)(?:\s*(?:mil|k))?/gi)].map((match)=>{
-    const multiplier=/\b(?:mil|k)\b/i.test(match[0])?1000:1;return Number(match[1].replace(/[.,]/g,''))*multiplier;
+  // Money only: "80,000 miles"/"80k mi"/"80 mil milhas" are mileage, never an amount; "20k" and
+  // "20 mil" are 20,000.
+  const amounts=[...conversation.matchAll(/(?:us\$|\$)?\s*(\d{1,3}(?:[.,]\d{3})+|\d+)(\s*(?:mil\b|k\b))?(?!\s*(?:mi\b|miles\b|milhas\b|millas\b|mil\s+milhas|mil\s+millas|k\s*mi\b))/gi)].map((match)=>{
+    const multiplier=match[2]?1000:1;return Number(match[1].replace(/[.,]/g,''))*multiplier;
   }).filter((value)=>value>=1000);
   const firstAt=stampOf(group.firstCustomer);
   return orders.map((order)=>{
@@ -196,9 +198,12 @@ function deterministicCandidates(group, orders) {
   }).filter((order)=>order.deterministicScore>0).sort((a,b)=>b.deterministicScore-a.deterministicScore||(time(b.occurredAt)||0)-(time(a.occurredAt)||0)||a.ref.localeCompare(b.ref)).slice(0,5);
 }
 
-function readingPrompt(group, maximumBid) {
+function readingPrompt(group, maximumBid, order=null) {
   const timezone=timezoneForZip((group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'');
-  const window=aiContextWindow(group.effectiveMessages||group.messages,maximumBid,timezone,group.pendingInsight?.summary_text||'');
+  // The search type and what the calculator already has, so "missing" never asks across the type (MESA).
+  const modes=[...new Set([...(order&&order.logicalModes||[]),...(Array.isArray(group.journey.criteria_json?.logical_modes)?group.journey.criteria_json.logical_modes:[])])].filter((mode)=>mode==='CARRO'||mode==='VALOR');
+  const search=modes.length||order?{tipos:modes.map((mode)=>mode==='CARRO'?'POR_CARRO':'POR_VALOR'),calculadora:order?{carro:order.vehicleText||null,anos:order.yearsText||null,milhas:order.mileageText||null,lance:maximumBid||null}:null}:null;
+  const window=aiContextWindow(group.effectiveMessages||group.messages,maximumBid,timezone,group.pendingInsight?.summary_text||'',search);
   const transcript=window.messages.map((message)=>`${message.sender==='CUSTOMER'?'Cliente':'MCS'}: ${message.text}`).join('\n');
   return {transcript,user:window.user,messages:window.messages,messageCount:window.messages.length,truncated:window.truncated};
 }
@@ -228,13 +233,13 @@ async function readConversation(ctx, group, options={}) {
     const links=await allRows(ctx,'calculator_request_links',{select:'calc_sid,calc_ref,logical_mode,contact_id,journey_id',environment:'eq.'+ctx.environment});
     order=groupCalculatorByRef(consolidateCalcRuns(runs,links)).find((candidate)=>group.refs.includes(candidate.ref))||null;
   }
-  const prompt=readingPrompt(group,order&&order.budgetCents?Number(order.budgetCents)/100:null);
+  const prompt=readingPrompt(group,order&&order.budgetCents?Number(order.budgetCents)/100:null,order);
   try {
     const parsed=await anthropicJson(
       'Você analisa conversas da My Car Scout. Responda SOMENTE um objeto JSON com summary {want,money,missing} e items. '+
       'Cada item deve usar apenas estes tipos: call_result, checklist, budget, payment, deadline, wishlist, phone, promise, return, stage, disable. '+
       'Cada item precisa de evidence copiada literalmente de uma única mensagem do Cliente e o valor precisa estar provado nessa mesma frase. Nunca use fala da MCS como evidência. '+
-      'Para budget, value é o valor total em dólares. Para checklist, point é 1 a 6 e value é OK. Não invente nada. O resumo é em português e Dinheiro diferencia o lance da calculadora do valor falado. Acrescente pending {situation,heat,summary,nextStep,translation}: situation é MCS_PENDING, CUSTOMER_PENDING, IN_PROGRESS ou CLOSED; heat é HOT, WARM ou COLD; translation só quando a última mensagem estiver em outro idioma.',
+      'Para budget, value é o valor total em dólares. Para checklist, point é 1 a 6 e value é OK. Não invente nada. O resumo é em português e Dinheiro diferencia o lance da calculadora do valor falado. missing lista só o que o tipo de busca (busca.tipos) ainda precisa e que não está na conversa nem em busca.calculadora. Regra da mesa: quem busca POR CARRO (Find One: carro, faixa de ano e de milhagem) nunca recebe pergunta de lance, orçamento ou valor; quem busca POR VALOR (carro e lance máximo) nunca recebe pergunta de ano ou milhagem; não sugira perguntar o que o cliente ou a calculadora já informaram. Acrescente pending {situation,heat,summary,nextStep,translation}: situation é MCS_PENDING, CUSTOMER_PENDING, IN_PROGRESS ou CLOSED; heat é HOT, WARM ou COLD; translation só quando a última mensagem estiver em outro idioma. summary, nextStep e translation sempre em português.',
       prompt.user,options.fetchImpl
     );
     const zip=(group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'';
@@ -291,11 +296,40 @@ async function suggestLink(ctx,group,orders,options={}){
   }
 }
 
+// Cases the panel no longer works (closed, switched off, discarded, out of the funnel, "não é lead",
+// or a client who asked not to be contacted) get no paid automatic reading. Manual reading still works.
+async function stoppedJourneys(ctx,groups,read=allRows){
+  const { dispositionIndex }=require('./panel-disposition');
+  const { outOfFunnelIndex }=require('./panel-triage');
+  const { optOutOf }=require('./panel-opt-out');
+  const env='eq.'+ctx.environment;
+  const [toggles,dispositions,refs]=await Promise.all([
+    read(ctx,'journey_toggle_states',{select:'journey_id,enabled,off_reason',environment:env}).catch(()=>[]),
+    read(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,discard_reason,updated_at,cleared_at',environment:env,cleared_at:'is.null'}).catch(()=>[]),
+    read(ctx,'journey_refs',{select:'journey_id,ref_code',environment:env}).catch(()=>[])
+  ]);
+  const journeys=[...new Map(groups.map((group)=>[group.journey.id,group.journey])).values()];
+  const triageOut=await outOfFunnelIndex(ctx,journeys,refs,read).catch(()=>new Set());
+  const disposition=dispositionIndex(dispositions),toggleByJourney=new Map(toggles.map((row)=>[row.journey_id,row]));
+  const refsByJourney=new Map();
+  refs.forEach((row)=>{if(!refsByJourney.has(row.journey_id))refsByJourney.set(row.journey_id,[]);refsByJourney.get(row.journey_id).push(String(row.ref_code||'').trim().toUpperCase());});
+  const stopped=new Set();
+  for(const group of groups){
+    const journey=group.journey;
+    if(triageOut.has(journey.id)||journey.status==='ENCERRADO'||group.contact?.is_lead===false||toggleByJourney.get(journey.id)?.enabled===false||optOutOf(group.messages)){stopped.add(journey.id);continue;}
+    const own=[String(journey.reference_code||'').trim().toUpperCase(),...(refsByJourney.get(journey.id)||[])].filter(Boolean);
+    if(disposition(journey.id,own)?.status==='DISCARDED')stopped.add(journey.id);
+  }
+  return stopped;
+}
+
 async function runCron(ctx,options={}){
   const groups=await allConversationData(ctx),orders=await calculatorOrders(ctx),now=Date.now(),cutoff=now-30*DAY_MS;
+  const stopped=await stoppedJourneys(ctx,groups,options.allRows||allRows);
   const eligible=[];
   for(const group of groups){
     if(!group.lastCustomer||stampOf(group.lastCustomer)<cutoff)continue;
+    if(stopped.has(group.journey.id))continue;
     if(!automaticAttemptAllowed(group,now))continue;
     const latestId=group.effectiveMessages.at(-1)?.id;
     const latestCustomerIsLive=group.lastCustomer.source_kind!=='WHATSAPP_HISTORY';
@@ -331,4 +365,4 @@ async function latestAiForJourney(ctx,journeyId){
   return {reading:reading?{...reading,items:items.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:suggestions[0]||null};
 }
 
-module.exports={AI_MIN_MCS_MESSAGES,AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};
+module.exports={stoppedJourneys,AI_MIN_MCS_MESSAGES,AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};

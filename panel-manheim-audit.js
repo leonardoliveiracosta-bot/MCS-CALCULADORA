@@ -26,6 +26,7 @@ const openAiBudget = require('./panel-openai-budget');
 const modelCheck = require('./panel-openai-model-check');
 const { allRows, insert, patchRows, rows, supabase } = require('./panel-server');
 const { matchManheimDemand } = require('./panel-domain');
+const { undash } = require('./text-dash');
 const { hasValidMmr } = require('./vehicle-match');
 const { PRICES } = require('./panel-triage');
 const aiClaim = require('./panel-ai-claim');
@@ -249,7 +250,7 @@ function validated(parsed, group, chunk = group.options) {
   for (const item of parsed.divergencias.slice(0, 50)) {
     const option = typeof item?.opcao === 'string' ? item.opcao.trim() : '';
     if (!MODEL_CODES.includes(item?.codigo) || (option && !known.has(option))) return { errorCode: 'OPENAI_RESPONSE_INVALID' };
-    const text = String(item.motivo || '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s*[\u2014\u2013]\s*/g, ', ').trim().slice(0, 200).replace(/[.\s]+$/, '') || CODES[item.codigo];
+    const text = undash(String(item.motivo || '').replace(/[\u0000-\u001f]/g, ' ')).trim().slice(0, 200).replace(/[.\s]+$/, '') || CODES[item.codigo];
     divergences.push({ code: item.codigo, option, matchId: option ? (group.matches[Number(option.slice(1)) - 1] || {}).id || null : null, text, source: 'OPENAI' });
   }
   if (!parsed.aprovado && !divergences.length) divergences.push({ code: 'OTHER', option: '', matchId: null, text: 'A IA não aprovou e não detalhou', source: 'OPENAI' });

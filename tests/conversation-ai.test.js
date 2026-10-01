@@ -262,3 +262,25 @@ test('"Ler conversa agora" also reads the conversation for PESQUISAS, and a PESQ
   res=response();await handler({method:'POST',body:{action:'read',journeyId:ids.journey}},res);
   assert.equal(res.code,201);assert.equal(res.payload.readingId,'r2');assert.deepEqual(res.payload.searchExtraction,{error:'SEARCH_REQUESTS_FAILED'});
 });
+
+// ---- dupla verificação: a rotina não paga leitura de caso que o painel não trabalha mais
+test('automatic reading skips closed, switched off, discarded, not-lead and opt-out cases',async()=>{
+  const cases=[
+    ['encerrado',(data)=>{data.journeys[0].status='ENCERRADO';}],
+    ['não é lead',(data)=>{data.contacts[0].is_lead=false;}],
+    ['desligado',(data)=>{data.toggles=[{journey_id:ids.journey,enabled:false,off_reason:'teste'}];}],
+    ['descartado',(data)=>{data.dispositions=[{item_kind:'JOURNEY',item_key:ids.journey,status:'DISCARDED',updated_at:new Date().toISOString(),cleared_at:null}];}],
+    ['pediu para parar',(data)=>{data.messages.at(-1).body_text='Please stop texting me';}]
+  ];
+  for(const [label,change] of cases){
+    const calls=[],data=fixture(3);change(data);
+    const server=serverFor(data,calls),base=server.allRows;
+    server.allRows=async(ctx,table,query)=>table==='journey_toggle_states'?data.toggles||[]:table==='panel_item_dispositions'?data.dispositions||[]:base(ctx,table,query);
+    const result=await loadAi(server).runCron(CTX,{fetchImpl:async()=>{throw Error('should not call');}});
+    assert.equal(result.readings,0,label);assert.equal(calls.length,0,label);
+  }
+  // Control: the same conversation, still workable, is read.
+  const calls=[],data=fixture(3),server=serverFor(data,calls);
+  const result=await loadAi(server).runCron(CTX,{fetchImpl:READ_OK});
+  assert.equal(result.readings,1);
+});

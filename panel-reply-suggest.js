@@ -11,6 +11,10 @@
 // Quem pediu para não receber contato (opt-out), número inválido ou ligação incerta: sem
 // sugestão de retomada e fora da fila, sempre com o motivo.
 const { allRows, insert, isUuid, rows } = require('./panel-server');
+const { undash } = require('./text-dash');
+const { OPT_OUT, OPT_OUT_WORD, optOutOf } = require('./panel-opt-out');
+const { dispositionIndex } = require('./panel-disposition');
+const { outOfFunnelIndex } = require('./panel-triage');
 const reply = require('./api/panel/reply');
 const openAiBudget = require('./panel-openai-budget');
 const triage = require('./panel-triage');
@@ -22,11 +26,6 @@ const MAX_MESSAGE_CHARS = 600;
 const TIMEOUT_MS = 30000;
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
 
-// Pedido para não receber contato, em português, inglês ou espanhol.
-const OPT_OUT = /\b(unsubscribe|remove me|take me off (your|the) list|do not (text|message|contact|call) me|don'?t (text|message|contact|call) me( again| anymore)?|stop (texting|messaging|contacting|calling) me|no more (messages|texts)|leave me alone|pare de (me )?(mandar|enviar|chamar|escrever)|n[aã]o (me )?(mande|envie|chame|escreva) mais|n[aã]o quero (mais )?(receber|contato|mensage)|me (tire|remova) da lista|para de (me )?(mandar|enviar)|no me (escribas|escriba|env[ií]es|envie|contactes|contacte|llames) m[aá]s|deja de (escribirme|enviarme|mandarme)|ya no (me )?(escribas|env[ií]es|contactes)|no quiero (m[aá]s )?(mensajes|recibir))\b/i;
-// A message that is only the word (STOP, PARE, BAJA…) is an opt-out; inside a sentence it is not
-// ("I'll stop by tomorrow").
-const OPT_OUT_WORD = /^\s*(stop|unsubscribe|pare|parar|sair|cancelar|baja|alto)\s*[.!]*\s*$/i;
 // What the briefing asks never to say on autopilot, and the dash it asks not to use.
 const BANNED = [
   { re: /\babsolutely\b/i, text: 'Absolutely' },
@@ -57,15 +56,10 @@ const messageAt = (message) => message && (message.occurred_at_utc || message.cr
 const stamp = (message) => Date.parse(messageAt(message) || '') || 0;
 const realOf = (messages) => messages.filter((message) => !message.undone_at && !message.is_automatic && ['CUSTOMER', 'MCS'].includes(message.direction) && String(message.body_text || '').trim())
   .sort((a, b) => stamp(a) - stamp(b));
-function optOutOf(messages) {
-  const said = (text) => OPT_OUT.test(text) || OPT_OUT_WORD.test(text);
-  const found = messages.filter((message) => message.direction === 'CUSTOMER' && !message.undone_at && said(String(message.body_text || ''))).sort((a, b) => stamp(b) - stamp(a))[0];
-  return found ? { at: messageAt(found), text: String(found.body_text || '').slice(0, 200) } : null;
-}
 // Clean a suggestion: never a dash, never the phrases the briefing forbids (said, not hidden).
 function review(text) {
   // A dash between numbers is a range (2018–2020, 20,000–80,000): it stays a range, never a comma.
-  const clean = String(text || '').replace(/(\d)\s*[—–]\s*(\d)/g, '$1-$2').replace(/\s*[—–]\s*/g, ', ').replace(/[ \t]+\n/g, '\n').trim();
+  const clean = undash(text).replace(/[ \t]+\n/g, '\n').trim();
   const warnings = BANNED.filter((item) => item.re.test(clean)).map((item) => 'Contém "' + item.text + '": revise antes de usar');
   const questions = (clean.match(/\?/g) || []).length;
   return { text: clean, warnings, questions };
@@ -100,7 +94,7 @@ const INSTRUCTIONS = [
   'EVITE: linguagem corporativa, explicações longas, urgência falsa, bajulação, repetição, travessões, perguntas automáticas. Nunca use "Absolutely", "I\'d be happy to", "Please be advised" ou "Does that make sense?". Não pergunte "ainda tem interesse?" como padrão.',
   'CONTEXTO: leia todo o histórico. Não repita perguntas já respondidas nem reinicie o atendimento depois da saudação automática (mensagens marcadas automatica=true já foram enviadas pela automação). Use somente fatos do histórico e da ficha recebidos. Não invente condição, disponibilidade, preço, histórico, proteção ou característica de carro. Não use "really clean" sem evidência.',
   'Carro que já passou no leilão: diga que não está mais disponível e use só como referência, sem prometer outro igual. Clean Title não é carro perfeito, sem acidente nem garantia mecânica. Green Light indica que podem existir regras de proteção ou arbitragem, não risco zero; só cite proteção confirmada naquela unidade. MMR é referência, maximum bid é o limite autorizado, winning bid é o lance vencedor; nunca sugira passar do limite autorizado.',
-  'VENDA: cliente da calculadora já informou nome, carro e maximum bid: primeiro posicione o orçamento no mercado, não comece pedindo ano, milhagem, cor e trim se não for necessário. Compra distante: ajude com referência de mercado sem dizer que uma busca real começou. Cliente pronto: avance com o inventário disponível naquele momento, se houver dado. Abaixo de US$ 10 mil: muito breve e factual, sem prometer condição. Toda pergunta tem finalidade clara para o próximo passo. Não prometa encontrar algo na próxima semana.',
+  'VENDA: cliente POR VALOR (Calculate My Cost) já informou carro e lance: posicione o lance no mercado, sem pedir ano, milhagem, cor ou trim. Cliente POR CARRO (Find One) já informou carro, anos e milhas: nunca fale de orçamento nem de lance; posicione o pedido no mercado. Carro até US$ 7.000: só à vista (cash), não ofereça financiamento. Compra distante: ajude com referência de mercado sem dizer que uma busca real começou. Cliente pronto: avance com o inventário disponível naquele momento, se houver dado. Abaixo de US$ 10 mil: muito breve e factual, sem prometer condição. Toda pergunta tem finalidade clara para o próximo passo. Não prometa encontrar algo na próxima semana.',
   'RETOMADA (modo RETOMADA): 1) mostre acompanhamento real da busca ou do mercado só se estiver registrado; 2) dê referência concreta só com evidência; 3) se o carro de exemplo já passou, diga que não está disponível; 4) no máximo UMA pergunta útil; 5) convide a continuar sem pressão. Sem saudação genérica e sem repetir o que a automação já explicou.',
   'MESA (regra do tipo de busca, vale acima de qualquer outra): a MCS conduz; o cliente nunca escolhe ao mesmo tempo ano, milhagem e valor, porque isso obriga a procurar um carro que talvez não exista. POR CARRO (Find One): o cliente define carro, faixa de ano e faixa de milhagem; NUNCA pergunte lance, orçamento, valor máximo, preço ou quanto quer gastar. POR VALOR (Calculate My Cost): o cliente define carro e lance máximo; NUNCA pergunte ano nem milhagem, quem enquadra ano e milhagem no valor é a MCS. Com o tipo já definido e os dados dele completos, não peça mais critério nenhum: confirme em uma frase o que ele pediu, responda o que ele perguntou e diga o próximo passo concreto da MCS.',
   'BUSCA INCOMPLETA (busca.completa=false): a conversa deve fluir para obter o que falta para a MCS montar e classificar a busca. Existem só dois tipos: POR CARRO (carro + faixa de ano + faixa de milhagem; valor não é usado) e POR VALOR (carro + lance máximo; ano e milhagem não são usados). Se busca.tipo = NAO_DEFINIDO, a pergunta leva o cliente naturalmente a um dos dois caminhos, a partir do que ele já disse (ex.: se ele tem um teto de lance ou se procura um ano e uma milhagem específicos). Peça só o que está em busca.faltando_por_carro ou busca.faltando_por_valor, começando pelo carro se faltar, no máximo UMA pergunta (que pode juntar dois dados ligados, como ano e milhagem). Nunca pergunte o que já está na ficha ou no histórico; o que está em busca.a_confirmar (lido só pela IA) se confirma, não se pergunta do zero. Se o cliente fez uma pergunta, responda primeiro e depois faça a pergunta da busca. No modo RETOMADA, a pergunta útil é a que destrava a busca. pergunta_finalidade diz qual dado da busca a pergunta obtém. Com busca.completa=true, siga as regras de VENDA e não peça dados de busca.',
@@ -155,7 +149,7 @@ async function openAiSuggest(input, options = {}) {
 
 // MESA: a question that crosses the search type. POR CARRO never asks for a value; POR VALOR never
 // asks for year or mileage. Only questions count ("we never bid above your max" is a statement).
-const ASKS_VALUE = /\b(bid|budget|price|spend|pay|afford|how much|max(imum)?)\b|presupuesto|precio|cu[aá]nto|gastar|or[cç]amento|lance|pre[cç]o|quanto|valor/i;
+const ASKS_VALUE = /\b(bid|budget|price|spend|pay|afford|how much)\b|\bmax(imum)?\b(?!\s*(mileage|miles|year))|\b(presupuesto|precio|cu[aá]nto|gastar|or[cç]amento|lance|pre[cç]o|quanto|valor)\b/i;
 const ASKS_YEAR_MILES = /\b(years?|mileage|miles|odometer)\b|\ba[nñ]os?\b|millas|kilometraje|milhagem|quilometragem/i;
 function typeViolation(text, gap) {
   if (!gap || !gap.tipo) return null;
@@ -171,9 +165,17 @@ function typeViolation(text, gap) {
 // counts as present, to be confirmed.
 const SEARCH_NEEDS = Object.freeze({ CARRO: ['carro', 'anos', 'milhas'], VALOR: ['carro', 'valor'] });
 const NEED_LABELS = Object.freeze({ carro: 'carro (marca e modelo)', anos: 'faixa de ano', milhas: 'faixa de milhagem', valor: 'lance máximo' });
+// Fields the search type forbids asking: POR CARRO never value; POR VALOR never year or mileage.
+function forbiddenFor(gap) {
+  const types = String(gap && gap.tipo || '').split(',');
+  if (types.includes('POR_CARRO') && !types.includes('POR_VALOR')) return ['valor', 'teto'];
+  if (types.includes('POR_VALOR') && !types.includes('POR_CARRO')) return ['anos', 'milhas'];
+  return [];
+}
 function searchGap(fields, context) {
   const byKey = new Map((fields || []).map((item) => [item.key, item]));
-  const present = (key) => { const item = byKey.get(key); return Boolean(item && item.value && item.status !== 'AUSENTE' && item.status !== 'AMBIGUO'); };
+  // A field the sources disagree on (AMBIGUO) was answered: it is confirmed, never asked from scratch.
+  const present = (key) => { const item = byKey.get(key); return Boolean(item && (item.status === 'AMBIGUO' || (item.value && item.status !== 'AUSENTE'))); };
   const modes = [...new Set([...((context && context.modes) || []), ...((context && context.searches) || []).map((item) => item.mode), ...(((context && context.links && context.links.orders) || []).map((item) => item.mode))].filter((mode) => SEARCH_NEEDS[mode]))];
   const missing = (mode) => SEARCH_NEEDS[mode].filter((key) => !present(key)).map((key) => NEED_LABELS[key]);
   const complete = modes.length ? modes.some((mode) => !missing(mode).length) : false;
@@ -182,72 +184,53 @@ function searchGap(fields, context) {
     tipo: modes.length ? modes.map((mode) => mode === 'CARRO' ? 'POR_CARRO' : 'POR_VALOR').join(',') : 'NAO_DEFINIDO',
     faltando_por_carro: !modes.length || modes.includes('CARRO') ? missing('CARRO') : [],
     faltando_por_valor: !modes.length || modes.includes('VALOR') ? missing('VALOR') : [],
-    a_confirmar: ['carro', 'anos', 'milhas', 'valor'].filter((key) => present(key) && (byKey.get(key) || {}).status === 'IA').map((key) => NEED_LABELS[key])
+    a_confirmar: ['carro', 'anos', 'milhas', 'valor'].filter((key) => present(key) && ['IA', 'AMBIGUO'].includes((byKey.get(key) || {}).status)).map((key) => NEED_LABELS[key])
   };
 }
-
 // Without the AI (Preview, tests, function off): a plain draft built only from what is recorded,
-// marked as simulated. It never pretends to know the market.
-function simulatedSuggestion({ mode, language, name, fields, lastCustomer, gap = null }) {
-  const first = String(name || '').trim().split(/\s+/)[0] || '';
-  const car = (fields.find((item) => item.key === 'carro' && item.value) || {}).value || null;
-  const lang = language || 'en';
-  if (gap && !gap.completa) return gapQuestion({ mode, lang, first, car, gap, lastCustomer });
-  const texts = {
-    en: mode === 'RETOMADA'
-      ? `Hi${first ? ' ' + first : ''}, picking this back up${car ? ' on the ' + car : ''}. Is the budget you mentioned still where you want to be?`
-      : `Hi${first ? ' ' + first : ''}, got it${car ? ' on the ' + car : ''}. I'll check what the current auctions have within that and come back to you with what I find.`,
-    es: mode === 'RETOMADA'
-      ? `Hola${first ? ' ' + first : ''}, retomo lo${car ? ' del ' + car : ''} que hablamos. ¿El presupuesto que mencionaste sigue igual?`
-      : `Hola${first ? ' ' + first : ''}, entendido${car ? ' sobre el ' + car : ''}. Reviso lo que hay ahora en las subastas dentro de eso y te cuento lo que encuentre.`,
-    pt: mode === 'RETOMADA'
-      ? `Oi${first ? ' ' + first : ''}, retomando${car ? ' o ' + car : ''} que conversamos. O orçamento que você comentou continua o mesmo?`
-      : `Oi${first ? ' ' + first : ''}, entendi${car ? ' sobre o ' + car : ''}. Vou olhar o que os leilões têm agora dentro disso e te conto o que encontrar.`
-  };
-  const pt = texts.pt;
-  return {
-    idioma_cliente: lang,
-    traducao_recebida_pt: lang === 'pt' ? '' : '(tradução simulada) ' + String(lastCustomer && lastCustomer.body_text || '').slice(0, 200),
-    resposta: texts[lang] || texts.en,
-    traducao_resposta_pt: lang === 'pt' ? '' : pt,
-    fatos_usados: car ? [{ fato: 'Carro: ' + car, situacao: 'CONFIRMADO' }] : [{ fato: 'Carro', situacao: 'DESCONHECIDO' }],
-    pergunta_finalidade: mode === 'RETOMADA' ? 'Confirmar se o orçamento mudou antes de buscar' : '',
-    alertas: ['Sugestão simulada neste ambiente: sem IA e sem custo']
-  };
+// marked as simulated. It never pretends to know the market and follows the MESA rule: it asks only
+// what the search type is missing (POR CARRO never value, POR VALOR never year or mileage) and asks
+// no criteria at all once the search is complete.
+const firstNameOf = (name) => { const first = String(name || '').trim().split(/\s+/)[0] || ''; return /[\d+@]/.test(first) ? '' : first; };
+const SIM_TEXT = {
+  hi: { en: 'Hi', es: 'Hola', pt: 'Oi' },
+  car: { en: 'what car are you looking for? Make and model is enough to start.', es: '¿qué carro buscas? Con marca y modelo podemos empezar.', pt: 'qual carro você procura? Marca e modelo já bastam para começar.' },
+  path: { en: (c) => `for the ${c}, do you have a max bid in mind, or a specific year and mileage range?`, es: (c) => `para el ${c}, ¿tienes una oferta máxima o buscas un rango de año y millas específico?`, pt: (c) => `para o ${c}, você tem um lance máximo em mente ou procura um ano e uma milhagem específicos?` },
+  years: { en: (c) => `for the ${c}, what year range works for you?`, es: (c) => `para el ${c}, ¿qué rango de años te sirve?`, pt: (c) => `para o ${c}, qual faixa de ano serve para você?` },
+  miles: { en: (c) => `for the ${c}, what mileage range works for you?`, es: (c) => `para el ${c}, ¿qué rango de millas te sirve?`, pt: (c) => `para o ${c}, qual faixa de milhagem serve para você?` },
+  both: { en: (c) => `for the ${c}, what year range and mileage range work for you?`, es: (c) => `para el ${c}, ¿qué rango de años y de millas te sirve?`, pt: (c) => `para o ${c}, qual faixa de ano e de milhagem serve para você?` },
+  bid: { en: (c) => `for the ${c}, what is the max you want to bid?`, es: (c) => `para el ${c}, ¿cuál es el máximo que quieres ofertar?`, pt: (c) => `para o ${c}, qual é o lance máximo que você quer usar?` },
+  reply: { en: (c) => `got it${c ? ' on the ' + c : ''}. Let me look at the auction market for that and I'll come back to you with what makes sense.`, es: (c) => `entendido${c ? ' sobre el ' + c : ''}. Reviso el mercado de subastas para eso y te cuento lo que tenga sentido.`, pt: (c) => `entendi${c ? ' sobre o ' + c : ''}. Vou olhar o mercado de leilão para isso e te trago o que fizer sentido.` },
+  resume: { en: (c) => `picking this back up${c ? ' on the ' + c : ''}. When you're ready for the next step, I'll put together what the auctions have for what you asked.`, es: (c) => `retomo lo${c ? ' del ' + c : ''} que hablamos. Cuando quieras dar el siguiente paso, reúno lo que hay en las subastas para lo que pediste.`, pt: (c) => `retomando${c ? ' o ' + c : ''} que conversamos. Quando quiser dar o próximo passo, eu junto o que os leilões têm para o que você pediu.` }
+};
+const PURPOSE = { car: 'Obter o carro (marca e modelo) para montar a busca', path: 'Definir o tipo de busca: por valor (lance máximo) ou por carro (ano e milhagem)', years: 'Obter a faixa de ano para a busca por carro', miles: 'Obter a faixa de milhagem para a busca por carro', both: 'Obter a faixa de ano e de milhagem para a busca por carro', bid: 'Obter o lance máximo para a busca por valor' };
+// Which single question (if any) the search still needs, by type.
+function simulatedAsk(gap, car) {
+  if (!gap || gap.completa) return null;
+  const types = String(gap.tipo || '').split(',').filter((type) => type && type !== 'NAO_DEFINIDO');
+  if (!car) return 'car';
+  if (!types.length) return 'path';
+  const carro = gap.faltando_por_carro || [], valor = gap.faltando_por_valor || [];
+  const carroAsk = carro.includes('faixa de ano') && carro.includes('faixa de milhagem') ? 'both' : carro.includes('faixa de ano') ? 'years' : carro.includes('faixa de milhagem') ? 'miles' : null;
+  const valorAsk = valor.includes('lance máximo') ? 'bid' : null;
+  if (types.includes('POR_CARRO') && types.includes('POR_VALOR')) return carroAsk && (!valorAsk || carro.length <= valor.length) ? carroAsk : valorAsk || carroAsk;
+  return types.includes('POR_CARRO') ? carroAsk : valorAsk;
 }
-
-// Simulated draft when the search cannot be built yet: one question toward what is missing.
-function gapQuestion({ mode, lang, first, car, gap, lastCustomer }) {
-  const hi = { en: 'Hi', es: 'Hola', pt: 'Oi' };
-  const opener = (code) => `${hi[code]}${first ? ' ' + first : ''}, `;
-  const noCar = !car;
-  const carro = gap.tipo === 'POR_CARRO', valor = gap.tipo === 'POR_VALOR';
-  const q = {
-    en: noCar ? 'what car are you looking for? Make and model is enough to start.'
-      : carro ? `for the ${car}, what year range and mileage range work for you?`
-      : valor ? `for the ${car}, what is the max you want to bid?`
-      : `for the ${car}, do you have a max budget in mind, or a specific year and mileage range?`,
-    es: noCar ? '¿qué carro buscas? Con marca y modelo podemos empezar.'
-      : carro ? `para el ${car}, ¿qué rango de años y de millas te sirve?`
-      : valor ? `para el ${car}, ¿cuál es el máximo que quieres ofertar?`
-      : `para el ${car}, ¿tienes un presupuesto máximo o buscas un rango de año y millas específico?`,
-    pt: noCar ? 'qual carro você procura? Marca e modelo já bastam para começar.'
-      : carro ? `para o ${car}, qual faixa de ano e de milhagem serve para você?`
-      : valor ? `para o ${car}, qual é o lance máximo que você quer usar?`
-      : `para o ${car}, você tem um lance máximo em mente ou procura um ano e uma milhagem específicos?`
-  };
-  const text = (code) => opener(code) + q[code];
-  const purpose = noCar ? 'Obter o carro (marca e modelo) para montar a busca'
-    : carro ? 'Obter a faixa de ano e de milhagem para a busca por carro'
-    : valor ? 'Obter o lance máximo para a busca por valor'
-    : 'Definir o tipo de busca: por valor (lance máximo) ou por carro (ano e milhagem)';
+function simulatedSuggestion({ mode, language, name, fields, lastCustomer, gap = null }) {
+  const first = firstNameOf(name);
+  const car = (fields.find((item) => item.key === 'carro' && item.value) || {}).value || null;
+  const lang = SIM_TEXT.hi[language] ? language : 'en';
+  const ask = simulatedAsk(gap, car);
+  const body = (code) => ask === 'car' ? SIM_TEXT.car[code] : ask ? SIM_TEXT[ask][code](car) : (mode === 'RETOMADA' ? SIM_TEXT.resume : SIM_TEXT.reply)[code](car);
+  const text = (code) => `${SIM_TEXT.hi[code]}${first ? ' ' + first : ''}, ${body(code)}`;
+  const types = gap ? String(gap.tipo || 'NAO_DEFINIDO') : 'NAO_DEFINIDO';
   return {
     idioma_cliente: lang,
     traducao_recebida_pt: lang === 'pt' ? '' : '(tradução simulada) ' + String(lastCustomer && lastCustomer.body_text || '').slice(0, 200),
-    resposta: text(q[lang] ? lang : 'en'),
+    resposta: text(lang),
     traducao_resposta_pt: lang === 'pt' ? '' : text('pt'),
-    fatos_usados: [car ? { fato: 'Carro: ' + car, situacao: 'CONFIRMADO' } : { fato: 'Carro', situacao: 'DESCONHECIDO' }, { fato: 'Tipo de busca: ' + (gap.tipo === 'NAO_DEFINIDO' ? 'não definido' : gap.tipo), situacao: gap.tipo === 'NAO_DEFINIDO' ? 'DESCONHECIDO' : 'CONFIRMADO' }],
-    pergunta_finalidade: purpose,
+    fatos_usados: [car ? { fato: 'Carro: ' + car, situacao: 'CONFIRMADO' } : { fato: 'Carro', situacao: 'DESCONHECIDO' }, { fato: 'Tipo de busca: ' + (types === 'NAO_DEFINIDO' ? 'não definido' : types.replace(/POR_CARRO/g, 'por carro').replace(/POR_VALOR/g, 'por valor').replace(',', ' e ')), situacao: types === 'NAO_DEFINIDO' ? 'DESCONHECIDO' : 'CONFIRMADO' }],
+    pergunta_finalidade: ask ? PURPOSE[ask] : '',
     alertas: ['Sugestão simulada neste ambiente: sem IA e sem custo']
   };
 }
@@ -344,7 +327,8 @@ async function suggest(ctx, body, services = {}) {
       modo: mode, hoje: new Date().toISOString().slice(0, 10), dias_sem_atividade: Math.floor((Date.now() - stamp(last)) / DAY_MS),
       cliente: { nome: found.contact && found.contact.display_name || null, origem: context && context.origin ? context.origin.label : null },
       ficha: fields.filter((item) => item.value).map((item) => ({ campo: item.label, valor: item.value, situacao: item.statusLabel })),
-      faltando: fields.filter((item) => !item.value && item.key !== 'uso').map((item) => item.label),
+      // Never offered as missing what the search type forbids asking (MESA).
+      faltando: fields.filter((item) => !item.value && item.key !== 'uso' && !forbiddenFor(gap).includes(item.key)).map((item) => item.label),
       busca: gap,
       etapa: context && context.stage ? context.stage.label : null,
       conversa: conversation
@@ -393,7 +377,7 @@ async function suggest(ctx, body, services = {}) {
       language: { code: lang, label: LANGS[lang] },
       received: lastCustomer ? { text: String(lastCustomer.body_text || '').slice(0, 2000), at: messageAt(lastCustomer), translationPt: lang === 'pt' ? null : String(raw.traducao_recebida_pt || '').trim() || null } : null,
       last: { from: last.direction, at: messageAt(last) },
-      suggestion: { text: reviewed.text, translationPt: lang === 'pt' ? null : String(raw.traducao_resposta_pt || '').replace(/\s*[—–]\s*/g, ', ').trim() || null, questionPurpose: String(raw.pergunta_finalidade || '').trim() || null },
+      suggestion: { text: reviewed.text, translationPt: lang === 'pt' ? null : undash(raw.traducao_resposta_pt).trim() || null, questionPurpose: String(raw.pergunta_finalidade || '').trim() || null },
       facts, warnings, notice: blocked ? blocked.text : null,
       contact: target ? { name: target.name, phone: target.phone } : null,
       reachable: Boolean(target),
@@ -420,7 +404,7 @@ async function queue(ctx, options = {}, services = {}) {
   const env = 'eq.' + ctx.environment;
   const now = options.now || Date.now();
   const minDays = Math.max(1, Math.min(365, Number(options.minDays) || QUEUE_MIN_DAYS));
-  const [journeys, contacts, chats, phones, links, messages, toggles, journeyRefs] = await Promise.all([
+  const [journeys, contacts, chats, phones, links, messages, toggles, journeyRefs, dispositions] = await Promise.all([
     read(ctx, 'journeys', { select: 'id,contact_id,reference_code,status,stage,closed_reason', environment: env }),
     read(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: env }),
     read(ctx, 'chats', { select: 'id,contact_id,channel,is_group,canonical_key', environment: env, channel: 'eq.WHATSAPP' }),
@@ -428,8 +412,12 @@ async function queue(ctx, options = {}, services = {}) {
     read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }),
     read(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,occurred_at_utc,created_at,undone_at', environment: env, undone_at: 'is.null' }),
     read(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: env }),
-    read(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env })
+    read(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env }),
+    read(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at,cleared_at', environment: env, cleared_at: 'is.null' }).catch(() => [])
   ]);
+  // Discarded people and conversations out of the commercial funnel are never retaken.
+  const personDisposition = dispositionIndex(dispositions);
+  const triageOut = await outOfFunnelIndex(ctx, journeys, journeyRefs, read).catch(() => new Set());
   const refOwners = ownersMap(journeys, journeyRefs);
   const refsByJourney = new Map();
   journeyRefs.forEach((row) => { if (!refsByJourney.has(row.journey_id)) refsByJourney.set(row.journey_id, []); refsByJourney.get(row.journey_id).push(refKey(row.ref_code)); });
@@ -458,6 +446,9 @@ async function queue(ctx, options = {}, services = {}) {
     const block = blockOf({ journey, contact, toggle: toggleByJourney.get(journey.id), optOut: optOutOf(own) });
     if (block) { excluded.push({ ...base, reason: block }); return; }
     const ownRefs = [...new Set([refKey(journey.reference_code), ...(refsByJourney.get(journey.id) || [])].filter((ref) => REF_CODE.test(ref)))];
+    const disposition = personDisposition(journey.id, ownRefs);
+    if (disposition && disposition.status === 'DISCARDED') { excluded.push({ ...base, reason: { code: 'DISCARDED', text: 'Descartado' + (disposition.discard_reason ? ' (' + disposition.discard_reason + ')' : '') } }); return; }
+    if (triageOut.has(journey.id)) { excluded.push({ ...base, reason: { code: 'TRIAGE_OUT', text: 'Fora do funil comercial (pós-venda, pessoal ou outro assunto)' } }); return; }
     const shared = sharedRefsFrom(journey.id, ownRefs, refOwners);
     if (shared.length) { excluded.push({ ...base, reason: ambiguityBlock(shared) }); return; }
     const contactChats = (chatsByContact.get(journey.contact_id) || []);

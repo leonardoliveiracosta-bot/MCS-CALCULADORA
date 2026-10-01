@@ -3,14 +3,17 @@
 // PESQUISAS: a lista diária de pedidos de veículo, sem lote, sem upload e sem cartões de opções.
 //  GET                 pedidos (ficha, calculadora e conversas lidas), com estado e evidências
 //  GET ?view=audit     auditoria desde 09/08/2026 e estimativa da leitura do histórico (só leitura)
-//  POST compare        compara só os pedidos PRONTO PARA BUSCAR (modelo + valor + ano ou milhagem)
+//  POST compare        compara só os pedidos PRONTO PARA BUSCAR (por carro: carro + ano + milhagem;
+//                      por valor: modelo + lance)
 //                      ainda em FALTA BUSCAR com o lote ativo e grava o resultado
 //  POST extract        lê uma conversa (simulada fora de produção; em produção só com a flag nova)
 //  POST sample         leitura simulada de uma conversa sem gravar nada
 //  POST history_status  progresso da auditoria histórica (processadas, pedidos, custo)
 //  POST model_check     chamada mínima de teste do modelo, sem dado de cliente (só produção)
 //  POST extract_history próximas conversas do histórico (retomável; teto de US$ 50)
-// Nenhum pedido sai da lista por estágio, previsão de compra, prazo ou classificação comercial.
+// Só entra quem mandou mensagem de verdade (pedido da calculadora sem mensagem não entra) e não
+// está encerrado, desligado, descartado, fora do funil ou marcado como "não é lead". Fora isso,
+// nenhum pedido sai da lista por estágio, previsão de compra ou prazo.
 // "Sem opção no lote" continua na lista para a próxima importação. Nada é enviado a ninguém.
 const crypto = require('node:crypto');
 const openAiBudget = require('../../panel-openai-budget');
@@ -46,11 +49,14 @@ async function buildList(ctx) {
   const importedHash = new Map((Array.isArray(snapshot) ? snapshot : []).map((target) => [target.key, target.criteriaHash]));
   const lastCustomer = lastCustomerByJourney(base);
   const items = [];
-  // Ficha and calculator requests. Only an explicit operator decision (discarded or closed) takes
-  // one out; stage, triage, lead flag or buying horizon never do.
-  const journeyDemands = base.journeys.filter((journey) => journey.status !== 'ENCERRADO' && (base.journeyDisposition(journey)?.status || null) !== 'DISCARDED')
+  // Ficha requests: only a client who really wrote (panel-contact.js) and is still workable: not
+  // closed, switched off, discarded, out of the funnel or "não é lead". A calculator order with no
+  // ficha has no message (a click is never contact), so it is never a request here.
+  const workable = (journey) => journey.status !== 'ENCERRADO' && journey.enabled !== false && !journey.triageOut && journey.contact?.is_lead !== false
+    && (base.journeyDisposition(journey)?.status || null) !== 'DISCARDED';
+  const journeyDemands = base.journeys.filter((journey) => workable(journey) && base.journeyEntered(journey))
     .flatMap((journey) => (base.demands.byJourney.get(journey.id) || []).map((demand) => ({ demand, journey })));
-  const orderDemands = base.demands.orders.filter((demand) => { const order = base.groupedByRef.get(upper(demand.ref)); return order && order.disposition !== 'DISCARDED' && !order.journeyId; }).map((demand) => ({ demand, journey: null }));
+  const orderDemands = [];
   for (const { demand, journey } of [...journeyDemands, ...orderDemands]) {
     const key = (journey ? 'ficha:' : 'pedido:') + demand.key;
     const common = { source: journey ? 'FICHA' : 'CALCULADORA', person: demandPerson(base, demand), mode: demand.mode, lastMessageAt: journey ? lastCustomer.get(journey.id) || null : null,
@@ -84,6 +90,10 @@ async function buildList(ctx) {
     });
   }
   for (const request of conversation.requests) {
+    // Read from a real conversation, so the person wrote; the same exclusions as the fichas apply.
+    if (base.contactsById.get(request.contact_id)?.is_lead === false) continue;
+    const owner = request.journey_id ? base.journeyById.get(request.journey_id) : null;
+    if (owner && !workable(owner)) continue;
     const key = 'conversa:' + request.id;
     const described = requests.describe({ criteria: request.criteria, evidence: request.evidence, confidence: request.confidence, needsReview: request.needs_review, reviewReason: request.review_reason });
     const item = { key, source: 'CONVERSA', person: request.person, mode: null, criteria: request.criteria, criteriaText: requests.criteriaText(request.criteria), missing: described.missing, lacks: described.lacks, lacksText: described.lacksText, searchMode: described.searchMode,

@@ -250,14 +250,15 @@ function completenessOf(criteria, needsReview, modes = SEARCH_MODES) {
   return unknownModel(c) ? 'PRECISA_REVISAO' : 'PRONTO';
 }
 // In a ready request, what the customer did not say is no restriction (never an error of theirs).
-function notInformed(criteria) {
+// Only what the search type uses: POR CARRO never lists the value, POR VALOR never year or mileage.
+function notInformed(criteria, mode = null) {
   const c = criteria || {};
   const missing = [];
   if (!clean(c.make)) missing.push('marca');
   if (!clean(c.model)) missing.push('modelo');
-  if (!c.yearMin && !c.yearMax) missing.push('ano');
-  if (!c.minMiles && !c.maxMiles) missing.push('milhagem');
-  if (!c.budgetUsd) missing.push('valor');
+  if (mode !== 'VALOR' && !c.yearMin && !c.yearMax) missing.push('ano');
+  if (mode !== 'VALOR' && !c.minMiles && !c.maxMiles) missing.push('milhagem');
+  if (mode !== 'CARRO' && !c.budgetUsd) missing.push('valor');
   return missing;
 }
 // A model that belongs to one make only in the catalog gives that make (deterministic, never a
@@ -276,7 +277,7 @@ function describe(request, modes = SEARCH_MODES) {
   const reviewReason = request.reviewReason || (completeness === 'PRECISA_REVISAO' && unknownModel(criteria) ? 'Modelo sem marca e fora do catálogo: não dá para conferir no lote' : null);
   return { ...request, reviewReason, requestKey: requestKey(criteria), criteriaHash: criteriaHash(criteria), completeness, inferredMake,
     searchMode: completeness === 'PRONTO' ? searchModeOf(criteria, modes) : null, lacks, lacksText: completeness === 'PRECISA_DETALHE' ? lacksText(lacks) : null,
-    missing: completeness === 'PRONTO' ? notInformed(criteria).filter((field) => !(field === 'marca' && inferredMake)) : [], comparable: completeness === 'PRONTO' };
+    missing: completeness === 'PRONTO' ? notInformed(criteria, searchModeOf(criteria, modes)).filter((field) => !(field === 'marca' && inferredMake)) : [], comparable: completeness === 'PRONTO' };
 }
 const miles = (value) => Number(value).toLocaleString('en-US');
 function criteriaText(criteria) {

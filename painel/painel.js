@@ -591,7 +591,7 @@
       const select=element('select','');
       select.setAttribute('aria-label','Lead para ligar');
       select.append(new Option('Escolha um lead', ''));
-      journeys.forEach((journey)=>select.append(new Option(`${journey.contact?.display_name||journey.vehicle_text||'Lead'}${journey.reference_code?` · ${journey.reference_code}`:''}`,journey.id)));
+      journeys.filter((journey)=>journey.linkable!==false).forEach((journey)=>select.append(new Option(`${journey.contact?.display_name||journey.vehicle_text||'Lead'}${journey.reference_code?` · ${journey.reference_code}`:''}`,journey.id)));
       const run=(button,action,successText)=>MCSAction.bind(button,()=>({
         scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,
         optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},
@@ -1048,7 +1048,7 @@
       &&MCSOrigin.matchesClientFilters(item,{origin:$('clients-origin')?.value||'all',type:$('clients-type')?.value||'all',days:$('clients-activity')?.value||'all'});
   }
   // CLIENTES period (30 dias, 90 dias, 6 meses, 1 ano, Tudo): the last real activity of the ficha
-  // (message from the client or from the MCS, or a calculator event). It filters the list, the badge,
+  // (message from the client or from the MCS; a calculator event is not activity). It filters the list, the badge,
   // the counters, the spreadsheet and the report; never the conversation inside the ficha.
   const clientsPeriod=()=>$('clients-activity')?.value||'30';
   const clientsInPeriod=(items)=>(items||[]).filter((item)=>item.isLead!==false&&MCSOrigin.insidePeriod(item,clientsPeriod()));
@@ -1081,7 +1081,7 @@
     const row=(label,item,format=metricValue,action)=>{const block=element('div','weekly-metric'),name=element('span','',label),value=element(action?'button':'strong','weekly-value',`${format(item?.current)} ${trend(item)}`);if(action){value.type='button';value.classList.add('quiet');value.addEventListener('click',action);}block.append(name,value,element('small','muted',`anterior: ${format(item?.previous)}`));root.append(block);};
     row('Leads · WhatsApp',data.leads?.whatsapp);row('Leads · SMS',data.leads?.sms);row('Leads · Calculadora',data.leads?.calculator);
     row('Respondidos por mim',data.responded);row('Tempo médio até a 1ª resposta',data.averageResponseMinutes,responseTime);
-    row('Sem resposta há mais de 24 h',data.unanswered24h,metricValue,async()=>{clientsOverdue24=true;$('clients-situation').value='all';await switchPanel('clients');});
+    row('Sem resposta há mais de 24 h',data.unanswered24h,metricValue,async()=>{clientsOverdue24=true;$('clients-situation').value='all';if($('clients-activity'))$('clients-activity').value='all';await switchPanel('clients');});
     row('Opções enviadas',data.options);row('Descartados',data.discarded);row('Pedidos parados há mais de 3 dias',data.stalledOrders);
     const reasons=(data.discarded?.reasons||[]).map((item)=>`${discardLabel(item.reason)} (${item.count})`).join(' · ');root.append(element('p','weekly-reasons',`Motivos mais comuns: ${reasons||'—'}`));
   }
@@ -1266,7 +1266,8 @@
     if (view === 'entry') {
       const data = await loadQueue(false);
       if (!current()) return;
-      renderQueue(data.chats || [], data.reviews || []);
+      // Same list as loadQueue and the badge: a conversation the triage left out of the funnel never shows.
+      renderQueue((data.chats || []).filter((chat) => !chat.triageOut), data.reviews || []);
       loadTriage().catch(() => {});
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp'; });
     }
@@ -1448,8 +1449,10 @@
 
   // Unknown counter ("—"): NaN, so an optimistic step never invents a zero.
   function countValue(view){const entry=counterState.get(view);return entry&&Number.isFinite(entry.value)?entry.value:NaN;}
+  // Only HOJE hides a Tratado/Descartado card and lowers its badge: CLIENTES keeps every client
+  // (records.js does not filter dispositions), so there the card stays and only shows the state.
   function applyDispositionVisual(button,item,status){
-    const card=button.closest('.item-card,.lead-card,.record-block'),hide=Boolean(status)&&!currentDetail&&['today','clients'].includes(currentView);
+    const card=button.closest('.item-card,.lead-card,.record-block'),hide=Boolean(status)&&!currentDetail&&currentView==='today';
     const snapshot={status:item.disposition||null,reason:item.discardReason||null,card,hidden:card?.classList.contains('action-optimistic-hidden'),count:countValue(currentView)};
     item.disposition=status;
     if(hide&&card){card.classList.add('action-optimistic-hidden');setCount(currentView,Math.max(0,snapshot.count-1));}

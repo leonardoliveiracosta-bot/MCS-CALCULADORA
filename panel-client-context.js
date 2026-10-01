@@ -10,7 +10,6 @@
 // dono e o contexto diz isso.
 const { allRows, rows, rpc } = require('./panel-server');
 const { clean, consolidateCalcRuns, fold, normalizeDeadline, time, wishlistsForJourney } = require('./panel-domain');
-const { contactIndex } = require('./panel-contact');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 const { batchSupported, latestActiveUpload } = require('./panel-manheim-state');
 
@@ -35,6 +34,7 @@ const ORIGINS = Object.freeze({ WHATSAPP_DIRECT: 'WhatsApp direto', WHATSAPP: 'W
 // Fields that decide whether a search can be made, per mode (the rules of vehicle-match stay the
 // same; this only says which of the client's answers are still missing).
 const REQUIRED = Object.freeze({ VALOR: ['carro', 'valor'], CARRO: ['carro', 'anos', 'milhas'] });
+const REQUIRED_KEYS = new Set(['carro', 'anos', 'milhas', 'valor', 'teto']);
 const FIELD_LABELS = Object.freeze({ tipo: 'Tipo de busca', carro: 'Carro', anos: 'Anos', milhas: 'Milhagem', valor: 'Lance máximo', teto: 'Teto total (tudo incluso)', pagamento: 'Pagamento', prazo: 'Prazo', local: 'Localização', placa: 'Placa', uso: 'Uso do carro' });
 const EVIDENCE_FIELDS = Object.freeze({ carro: ['make', 'model', 'trim', 'type'], anos: ['year'], milhas: ['miles'], valor: ['budget'], local: ['location'] });
 
@@ -207,7 +207,6 @@ function waitingOn({ closed, conversation, hasCalculator }) {
 // An order without a ficha is never "free to search": its criteria may be complete, but the case
 // waits for the link to a ficha (the client asked for contact) or for the client (only simulated).
 const UNLINKED = Object.freeze({
-  CONTACTED: { label: 'Pedido ainda não ligado a uma ficha', detail: 'O cliente pediu contato pela calculadora.', blocker: 'O pedido ainda não está ligado a uma ficha: sem ficha não há conversa, busca nem opções para este cliente.', action: 'Localizar a conversa do cliente e ligar o pedido à ficha (ENTRADA › Ligar a um lead)', owner: { who: 'MCS', label: 'MCS', text: 'O cliente pediu contato; a MCS precisa ligar o pedido à ficha.' } },
   // Simulated or only clicked WhatsApp/SMS: no message from the client is linked to the order.
   AWAITING: { label: 'Aguardando contato do cliente', detail: 'Simulou ou só clicou em WhatsApp/SMS: nenhuma mensagem do cliente ligada a este pedido.', blocker: 'O cliente ainda não entrou em contato: nenhuma mensagem ligada ao pedido e a calculadora não guarda telefone.', action: 'Se a conversa do cliente chegou sem a Ref, ligar o pedido à ficha (ENTRADA › Ligar a um lead); se não, aguardar o contato', owner: { who: 'CLIENTE', label: 'Cliente', text: 'Aguardando o cliente mandar mensagem.' } },
   AMBIGUOUS: { label: 'Ref ligada a mais de uma ficha', detail: 'A mesma Ref está em mais de uma ficha.', blocker: 'A Ref está ligada a mais de uma ficha: o painel não escolhe uma.', action: 'Conferir a qual ficha esta Ref pertence', owner: { who: 'MCS', label: 'MCS', text: 'A MCS precisa decidir a qual ficha a Ref pertence.' } }
@@ -225,7 +224,8 @@ function nextStep({ journey = null, closed = false, off = false, owner, fields, 
   const absent = (key) => (byKey.get(key) || {}).status === 'AUSENTE';
   const missing = modes.length ? needed.filter(absent).map((key) => FIELD_LABELS[key]) : ['Tipo de busca (por valor ou por carro)', ...(absent('carro') ? [FIELD_LABELS.carro] : [])];
   const aiOnly = needed.filter((key) => (byKey.get(key) || {}).status === 'IA').map((key) => FIELD_LABELS[key]);
-  const ambiguous = fields.filter((item) => item.status === 'AMBIGUO').map((item) => item.label);
+  // Sources disagreeing on a field the search type does not use (years in POR VALOR, bid in POR CARRO) block nothing.
+  const ambiguous = fields.filter((item) => item.status === 'AMBIGUO' && (!modes.length || needed.includes(item.key) || !REQUIRED_KEYS.has(item.key))).map((item) => item.label);
   const defined = journey && clean(journey.next_action_text) ? { kind: 'EQUIPE', label: 'Definida pela equipe', text: clean(journey.next_action_text), at: journey.next_action_at || null, overdue: Boolean(journey.next_action_at && time(journey.next_action_at) < Date.now()) } : null;
   const byStage = (stage) => searches.filter((item) => item.stage === stage);
   const modeNames = (list) => list.map((item) => item.mode === 'VALOR' ? 'por valor' : 'por carro').join(' e ');
@@ -238,7 +238,13 @@ function nextStep({ journey = null, closed = false, off = false, owner, fields, 
   else if (owner.who === 'MCS' && owner.since) { blocker = 'O cliente escreveu e ainda não teve resposta.'; suggestion = 'Responder o cliente'; }
   else if (missing.length) {
     blocker = 'Falta informação para buscar: ' + missing.join(', ') + '.';
-    suggestion = conversationCount && !conversationRead ? 'Ver na conversa se o cliente já respondeu; se não, perguntar: ' + missing.join(', ') : 'Perguntar ao cliente: ' + missing.join(', ');
+    // MESA: the type is the team's reading of the conversation, never a choice handed to the client;
+    // with two types, what is missing is said per type (never year, mileage and bid as one question).
+    const ask = !modes.length
+      ? 'Descobrir pela conversa se a busca é por valor (lance máximo) ou por carro (ano e milhagem)' + (absent('carro') ? ' e qual é o carro' : '')
+      : modes.length > 1 ? modes.map((mode) => ({ mode, list: (REQUIRED[mode] || []).filter(absent).map((key) => FIELD_LABELS[key]) })).filter((item) => item.list.length).map((item) => (item.mode === 'CARRO' ? 'por carro: ' : 'por valor: ') + item.list.join(', ')).join(' · ')
+      : missing.join(', ');
+    suggestion = !modes.length ? ask : conversationCount && !conversationRead ? 'Ver na conversa se o cliente já respondeu; se não, perguntar: ' + ask : 'Perguntar ao cliente: ' + ask;
   }
   else if (ambiguous.length) { blocker = 'As fontes dizem coisas diferentes: ' + ambiguous.join(', ') + '.'; suggestion = 'Conferir no histórico qual valor vale e registrar na ficha: ' + ambiguous.join(', '); }
   else if (aiOnly.length) { blocker = 'Dados lidos só pela IA, sem conferência: ' + aiOnly.join(', ') + '.'; suggestion = 'Conferir na conversa e registrar na ficha: ' + aiOnly.join(', '); }
@@ -420,9 +426,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     out.contacts[contactId] = own.length === 1 ? { journeyId: own[0].id } : { journeyId: null, reason: own.length ? 'O contato tem mais de uma ficha: abra a certa pela lista de CLIENTES.' : 'O contato ainda não tem ficha.' };
   });
   const unlinkedRefs = input.refs.filter((ref) => journeysForRef(ref).length !== 1);
-  // ENTRADA's rule: a WhatsApp click only counts before the first real WhatsApp message received.
-  const firstWebhook = unlinkedRefs.length ? await safe(rows(ctx, 'messages', { select: 'id,direction,source_kind,occurred_at_utc,created_at', environment: env, direction: 'eq.CUSTOMER', source_kind: 'eq.WHATSAPP_WEBHOOK', order: 'occurred_at_utc.asc', limit: '1' }), []) : [];
-  const contactFacts = contactIndex({ calcRuns: calcRuns.filter((row) => unlinkedRefs.includes(clean(row.dados && row.dados.ref).toUpperCase())), messages: firstWebhook });
+  // A Ref with no ficha has no message (a calculator click is never contact, panel-contact.js).
   input.refs.forEach((ref) => {
     const owners = journeysForRef(ref);
     if (owners.length === 1) { out.refs[ref] = { journeyId: owners[0].id }; return; }
@@ -430,7 +434,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const fields = buildFields([calculatorSources(refOrders)]);
     const modes = [...new Set(refOrders.map((order) => order.logicalMode).filter((mode) => REQUIRED[mode]))];
     // Same definition of "asked for contact" as ENTRADA (panel-contact); never a guessed ficha.
-    const code = owners.length ? 'AMBIGUOUS' : contactFacts.facts({ ref }).entered ? 'CONTACTED' : 'AWAITING';
+    const code = owners.length ? 'AMBIGUOUS' : 'AWAITING';
     const situation = UNLINKED[code];
     const owner = situation.owner;
     const step = nextStep({ owner, fields, modes, unlinkedRef: code });
