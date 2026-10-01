@@ -148,7 +148,7 @@ test('prints não guardados esperam na ENTRADA: tentar ler de novo, guardar ou d
   const cards = page.locator('#entry-queue .failed-print');
   await expect(cards).toHaveCount(2, { timeout: 30000 });
   const failed = cards.filter({ hasText: 'falhou.png' });
-  await expect(failed).toContainText('Não consegui ler este print');
+  await expect(failed).toContainText('A leitura automática falhou agora');
   await expect(failed.locator('button', { hasText: 'Tentar ler de novo' })).toBeVisible();
   const read = cards.filter({ hasText: 'Hi, Ref ABCD2' });
   await expect(read).toContainText('O print foi lido, mas não foi guardado');
@@ -191,7 +191,7 @@ test('prints não guardados de ponta a ponta: Tentar ler de novo e Guardar pelo 
     await page.locator('[data-view="entry"]').click();
     const cards = page.locator('#entry-queue .failed-print');
     const retryCard = cards.filter({ hasText: 'denovo.png' });
-    await expect(retryCard).toContainText('Não consegui ler este print', { timeout: 30000 });
+    await expect(retryCard).toContainText('A leitura automática falhou agora', { timeout: 30000 });
     // Tentar ler de novo: reads the stored print again and shows what it found, without saving.
     await retryCard.locator('button', { hasText: 'Tentar ler de novo' }).click();
     const fresh = cards.filter({ hasText: 'Quero um Civic 2020' });

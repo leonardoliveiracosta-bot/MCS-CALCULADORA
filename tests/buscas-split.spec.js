@@ -173,7 +173,7 @@ test('24-27 · lote com vários CSVs aparece como um lote; desfazer pede confirm
   const newer = page.locator(`#manheim-batches [data-batch-id="${BATCH_NEW}"]`);
   const older = page.locator(`#manheim-batches [data-batch-id="${BATCH_OLD}"]`);
   await expect(newer).toContainText('3 arquivos');
-  await expect(newer).toContainText('312 veículos · 4 carro(s) com combinação');
+  await expect(newer).toContainText('312 veículos · 4 carros com combinação');
   await expect(newer).toContainText('Ativo · em uso');
   const olderBefore = await older.textContent();
   await newer.getByRole('button', { name: 'Desfazer importação' }).click();
