@@ -35,7 +35,7 @@
     return days ? `${days} day ${hours % 24} h left` : `${hours} h left`;
   }
   function gallery(photos, carName) { return photos?.length ? `<div class="gallery">${photos.map((url) => `<img src="${escape(url)}" alt="${escape(carName)}">`).join('')}</div>` : ''; }
-  function specs(vehicle) { return `<section class="specs">${[['Mileage', vehicle.miles ? Number(vehicle.miles).toLocaleString() + ' mi' : ''], ['Location', vehicle.state], ['Exterior', vehicle.exteriorColor], ['Interior', vehicle.interiorColor], ['Drivetrain', vehicle.drivetrain], ['Transmission', vehicle.transmission], ['Engine', vehicle.engine]].filter((item) => item[1]).map((item) => `<div><small>${item[0]}</small>${escape(item[1])}</div>`).join('')}</section>`; }
+  function specs(vehicle) { return `<section class="specs">${[['Mileage', vehicle.miles ? Number(vehicle.miles).toLocaleString('en-US') + ' mi' : ''], ['Location', vehicle.state], ['Exterior', vehicle.exteriorColor], ['Interior', vehicle.interiorColor], ['Drivetrain', vehicle.drivetrain], ['Transmission', vehicle.transmission], ['Engine', vehicle.engine]].filter((item) => item[1]).map((item) => `<div><small>${item[0]}</small>${escape(item[1])}</div>`).join('')}</section>`; }
   function card(car, version) {
     const vehicle = car.vehicle, carName = name(vehicle), isV2 = version === 'V2';
     const tags = vehicle.cleanTitle || vehicle.odometerOk ? `<div class="tags">${vehicle.cleanTitle ? '<span>✓ Clean title</span>' : ''}${vehicle.odometerOk ? '<span>✓ Odometer OK</span>' : ''}</div>` : '';
@@ -46,7 +46,7 @@
     // Without MMR there is no reference value: the block is left out instead of showing "~ $0"
     const average = Number(car.estimatedMarketReference) > 0 ? `<section><div class="label">Estimated market reference</div><div class="value">~ ${money(car.estimatedMarketReference * 100)}</div>${lines('A reference, not a fixed price\nThe final price is set on auction day')}</section>` : Number(car.averageAuctionValue) > 0 ? `<section><div class="label">Average auction value</div><div class="value">~ ${money(car.averageAuctionValue * 100)}</div>${lines('A reference, not a fixed price\nThe final price is set on auction day')}</section>` : '';
     // V2: o nome do carro ja e o titulo da pagina; ordem aprovada: galeria, selos, especificacoes, leilao, valor, limite, nota
-    const head = isV2 ? '' : `<h2>${escape(carName)}</h2><p class="muted">${[vehicle.miles && Number(vehicle.miles).toLocaleString() + ' mi', vehicle.exteriorColor, vehicle.state].filter(Boolean).map(escape).join(' · ')}</p>`;
+    const head = isV2 ? '' : `<h2>${escape(carName)}</h2><p class="muted">${[vehicle.miles && Number(vehicle.miles).toLocaleString('en-US') + ' mi', vehicle.exteriorColor, vehicle.state].filter(Boolean).map(escape).join(' · ')}</p>`;
     return `<article class="car">${head}${gallery(car.photos, carName)}${tags}${isV2 ? specs(vehicle) + auction + average : auction + average}${limit}${note}<button data-code="${car.code}" data-bid="${isV2}">${isV2 ? 'I want to bid' : 'Show me this car'}</button><p class="muted">Opens WhatsApp with a ready message to our team</p></article>`;
   }
   async function load() {

@@ -33,7 +33,7 @@ module.exports = async (req, res) => {
       perguntaDoDono: question,
       lead: {
         nome: lead.record?.contact?.display_name || lead.order?.contactName || null,
-        ref: lead.ref, desejo: lead.wishes, lanceMaximo: lead.maxBidCents ? lead.maxBidCents / 100 : null,
+        ref: lead.ref, tipoBusca: lead.order?.logicalModes?.length ? lead.order.logicalModes.map((mode) => mode === 'CARRO' ? 'POR_CARRO' : 'POR_VALOR') : null, desejo: lead.wishes, lanceMaximo: lead.maxBidCents ? lead.maxBidCents / 100 : null,
         tetoTotal: lead.totalCeilingCents ? lead.totalCeilingCents / 100 : null, pagamento: lead.payment,
         prazo: lead.record?.customer_deadline_text || lead.order?.deadlineText || null,
         etapaBusca: stage?.label || '🔍 Falta buscar', diasSemResposta: lead.lastCustomerAt ? Math.floor((Date.now() - Date.parse(lead.lastCustomerAt)) / 86400000) : null,
@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
     };
     await reserveCall(ctx);
     const parsed = await anthropicJson(
-      'Você ajuda o dono da My Car Scout. Responda SOMENTE JSON {situacao,sugestao,mensagem_en,traducao_pt}. situacao e sugestao em português. Use exclusivamente os dados recebidos; nunca prometa carro, preço, prazo ou disponibilidade. mensagem_en deve ser inglês natural e informal, uma única frase corrida ligada por vírgulas, sem tom de vendedor. traducao_pt é a tradução completa da mensagem_en.',
+      'Você ajuda o dono da My Car Scout. Responda SOMENTE JSON {situacao,sugestao,mensagem_en,traducao_pt}. situacao e sugestao em português. Use exclusivamente os dados recebidos; nunca prometa carro, preço, prazo ou disponibilidade. Regra da mesa: quem busca POR CARRO (Find One: carro, faixa de ano e de milhagem) nunca recebe pergunta de lance, orçamento ou valor; quem busca POR VALOR (carro e lance máximo) nunca recebe pergunta de ano ou milhagem; não sugira perguntar o que o cliente ou a calculadora já informaram. Abaixo de US$ 10 mil: breve e factual; carro até US$ 7.000 só à vista. mensagem_en deve ser inglês natural e informal, uma única frase corrida ligada por vírgulas, sem tom de vendedor. traducao_pt é a tradução completa da mensagem_en.',
       JSON.stringify(context)
     );
     const result = answer(parsed);

@@ -21,6 +21,7 @@ const openAiBudget = require('./panel-openai-budget');
 const modelCheck = require('./panel-openai-model-check');
 const { allRows, supabase } = require('./panel-server');
 const aiClaim = require('./panel-ai-claim');
+const { undash } = require('./text-dash');
 
 const RULE_VERSION = 'triagem-v1';
 const CATEGORIES = Object.freeze(['PRE_COMPRA_MCS', 'POS_VENDA', 'PESSOAL', 'OUTRO_NEGOCIO', 'NAO_CLIENTE', 'REVISAR']);
@@ -152,7 +153,7 @@ async function classify(evidence, options = {}) {
 // that was not sent or a confidence below "alta" never decides anything (it becomes REVISAR).
 function validated(parsed, evidence) {
   const known = new Set(evidence.map((item) => item.id));
-  const reason = typeof parsed?.reason === 'string' ? parsed.reason.replace(/[\u0000-\u001f]/g, ' ').replace(/\s*[\u2014\u2013]\s*/g, ', ').trim().slice(0, 280).replace(/[.\s]+$/, '') : '';
+  const reason = typeof parsed?.reason === 'string' ? undash(parsed.reason.replace(/[\u0000-\u001f]/g, ' ')).trim().slice(0, 280).replace(/[.\s]+$/, '') : '';
   const ids = Array.isArray(parsed?.evidence_ids) ? [...new Set(parsed.evidence_ids.map(String))].filter((value) => known.has(value)) : [];
   if (!parsed || !CATEGORIES.includes(parsed.category)) return { category: 'REVISAR', reason: 'Resposta da IA inválida', evidence: [], errorCode: 'OPENAI_RESPONSE_INVALID' };
   if (!reason || (parsed.category !== 'REVISAR' && !ids.length)) return { category: 'REVISAR', reason: 'Resposta da IA sem justificativa', evidence: ids, errorCode: 'OPENAI_RESPONSE_INVALID' };

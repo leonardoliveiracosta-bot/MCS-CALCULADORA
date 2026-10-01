@@ -270,7 +270,9 @@ test('busca incompleta: a sugestão recebe o que falta por tipo e pergunta para 
   assert.deepEqual([carro.completa, carro.tipo, carro.faltando_por_carro, carro.faltando_por_valor], [false, 'POR_CARRO', ['faixa de milhagem'], []]);
   const valor = suggest.searchGap([f('carro', 'Civic'), f('valor', 'US$ 15.000')], { links: { orders: [{ mode: 'VALOR' }] } });
   assert.deepEqual([valor.completa, valor.tipo], [true, 'POR_VALOR']);
-  assert.equal(suggest.searchGap([f('carro', 'Civic'), f('valor', null, 'AMBIGUO')], { modes: ['VALOR'] }).completa, false, 'valor ambíguo não conta');
+  // Sources disagree on the bid: it was answered, so it is confirmed, never asked from scratch.
+  const ambiguous = suggest.searchGap([f('carro', 'Civic'), f('valor', null, 'AMBIGUO')], { modes: ['VALOR'] });
+  assert.deepEqual([ambiguous.completa, ambiguous.a_confirmar], [true, ['lance máximo']]);
 
   assert.match(suggest.INSTRUCTIONS, /BUSCA INCOMPLETA/);
   assert.match(suggest.INSTRUCTIONS, /POR CARRO \(carro \+ faixa de ano \+ faixa de milhagem/);
@@ -332,4 +334,33 @@ test('MESA: Find One nunca pergunta valor, Valor nunca pergunta ano/milhagem; um
   out = await run([answers[0]]);
   assert.equal(inputs.length, 2);
   assert.match(out.warnings[0], /POR CARRO.*não use esta pergunta/, 'se insistir, o aviso aparece em primeiro');
+});
+
+test('dupla verificação: sugestão simulada segue a mesa, travessão não estraga faixa, nome não é telefone', () => {
+  const sim = (mode, gap, name = 'Ana Souza', lang = 'en') => suggest.simulatedSuggestion({ mode, language: lang, name, fields: [{ key: 'carro', value: 'Audi A5' }], lastCustomer: null, gap });
+  // Complete POR CARRO: no budget question, in either mode, and no purpose.
+  for (const mode of ['RESPOSTA', 'RETOMADA']) {
+    const out = sim(mode, { completa: true, tipo: 'POR_CARRO' });
+    assert.equal(suggest.typeViolation(out.resposta, { tipo: 'POR_CARRO' }), null, mode);
+    assert.doesNotMatch(out.resposta, /budget|bid|\?/i, mode);
+    assert.equal(out.pergunta_finalidade, '');
+  }
+  // Only mileage missing: asks mileage only.
+  assert.match(sim('RESPOSTA', { completa: false, tipo: 'POR_CARRO', faltando_por_carro: ['faixa de milhagem'], faltando_por_valor: [] }).resposta, /mileage range/);
+  assert.doesNotMatch(sim('RESPOSTA', { completa: false, tipo: 'POR_CARRO', faltando_por_carro: ['faixa de milhagem'], faltando_por_valor: [] }).resposta, /year/);
+  // POR VALOR missing the bid: asks the bid, never year/mileage.
+  const valor = sim('RESPOSTA', { completa: false, tipo: 'POR_VALOR', faltando_por_carro: [], faltando_por_valor: ['lance máximo'] });
+  assert.match(valor.resposta, /max you want to bid/);
+  assert.equal(suggest.typeViolation(valor.resposta, { tipo: 'POR_VALOR' }), null);
+  // A phone as display name is never used as a first name.
+  assert.match(sim('RESPOSTA', { completa: true, tipo: 'POR_CARRO' }, '+13055550100').resposta, /^Hi, /);
+  // typeViolation: mileage/year words are not value questions; balance is not "lance".
+  for (const text of ['What max mileage works?', 'Quantos anos você aceita?', 'Qual o seu balance?']) assert.equal(suggest.typeViolation(text, { tipo: 'POR_CARRO' }), null, text);
+  // Dashes: ranges stay ranges in client text and in the translation for the team.
+  const { undash } = require('../text-dash');
+  assert.equal(undash('$15,000–$20,000 and 20k–30k — fine'), '$15,000-$20,000 and 20k-30k, fine');
+  assert.equal(suggest.review('2018–2020 A5').text, '2018-2020 A5');
+  // VENDA no longer assumes every calculator client gave a bid; $7k cash only is in the brief.
+  assert.doesNotMatch(suggest.INSTRUCTIONS, /cliente da calculadora já informou nome, carro e maximum bid/);
+  assert.match(suggest.INSTRUCTIONS, /US\$ 7\.000: só à vista/);
 });

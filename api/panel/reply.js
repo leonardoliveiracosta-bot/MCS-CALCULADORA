@@ -5,6 +5,7 @@
 // com telefone atual. A janela de 24 h conta só mensagens do cliente e é conferida de novo no envio.
 const crypto = require('node:crypto');
 const { anthropicJson } = require('../../panel-ai');
+const { undash } = require('../../text-dash');
 const { insert, isUuid, jsonBody, requirePanel, rows, send, supabase } = require('../../panel-server');
 
 const MAX_TEXT = 4000;
@@ -37,7 +38,7 @@ async function windowState(ctx, chatId, services, now = Date.now()) {
   return { allowed: now < openUntil, openUntil: new Date(openUntil).toISOString(), lastCustomerAt: new Date(lastAt).toISOString() };
 }
 
-const TRANSLATE_SYSTEM = 'Você traduz mensagens de um revendedor de carros na Flórida para clientes. Responda SOMENTE JSON válido, sem texto fora do JSON: {"en":"...","pt_back":"..."}. ' +
+const TRANSLATE_SYSTEM = 'Você traduz mensagens da My Car Scout (serviço que compra carros em leilão nos EUA para o cliente; não é revendedora) para clientes. Responda SOMENTE JSON válido, sem texto fora do JSON: {"en":"...","pt_back":"..."}. ' +
   '"en": tradução fiel do texto em português para inglês americano natural e informal, como uma mensagem de WhatsApp; não acrescente nem remova informação; não use travessão (em-dash). ' +
   '"pt_back": tradução de volta do "en" para o português, para conferência.';
 
@@ -47,7 +48,7 @@ async function translate(text, services) {
   if (source.length > MAX_TEXT) return { status: 400, error: 'TEXT_TOO_LONG' };
   let result;
   try { result = await services.anthropicJson(TRANSLATE_SYSTEM, source); } catch (_) { return { status: 502, error: 'AI_UNAVAILABLE' }; }
-  const en = typeof result?.en === 'string' ? result.en.replace(/\s*\u2014\s*/g, ', ').trim() : '';
+  const en = typeof result?.en === 'string' ? undash(result.en).trim() : '';
   const ptBack = typeof result?.pt_back === 'string' ? result.pt_back.trim() : '';
   if (!en || !ptBack || en.length > MAX_TEXT) return { status: 502, error: 'AI_UNAVAILABLE' };
   return { status: 200, en, pt_back: ptBack };
