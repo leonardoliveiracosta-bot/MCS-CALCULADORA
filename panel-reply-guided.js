@@ -308,4 +308,22 @@ async function translate(ctx, body, services = {}) {
   } finally { runningTranslation.delete(journeyId); }
 }
 
-module.exports = { GUIDANCE_MAX, GUIDED_INSTRUCTIONS, GUIDED_SCHEMA, TRANSLATE_INSTRUCTIONS, TRANSLATE_SCHEMA, conflictsOf, contentHash, guided, translate, translations };
+// Adendo: the saved translations of the latest message shown on several cards at once (HOJE,
+// ENTRADA, CLIENTES). Read only: never calls the AI, never costs. translatable lists the ids that
+// could get a "traduzir" link (English or Spanish without a saved translation).
+const CACHED_MAX = 150; // fits the 8 KB request body
+async function cachedMessages(ctx, body, services = {}) {
+  const read = services.rows || rows;
+  const ids = Array.isArray(body.messageIds) ? [...new Set(body.messageIds.map(String).filter(isUuid))].slice(0, CACHED_MAX) : [];
+  if (!ids.length) return { status: 200, translations: {}, translatable: [] };
+  const messages = [];
+  for (let index = 0; index < ids.length; index += 100) {
+    messages.push(...await read(ctx, 'messages', { select: 'id,direction,body_text,undone_at', environment: 'eq.' + ctx.environment, id: 'in.(' + ids.slice(index, index + 100).join(',') + ')' }));
+  }
+  const usable = messages.filter((message) => !message.undone_at && String(message.body_text || '').trim());
+  let saved;
+  try { saved = await cachedFor(ctx, usable, services); } catch (_) { return { status: 503, error: 'TRANSLATION_PENDING' }; }
+  return { status: 200, translations: saved, translatable: usable.filter((message) => foreign(message) && !saved[message.id]).map((message) => message.id) };
+}
+
+module.exports = { cachedMessages, GUIDANCE_MAX, GUIDED_INSTRUCTIONS, GUIDED_SCHEMA, TRANSLATE_INSTRUCTIONS, TRANSLATE_SCHEMA, conflictsOf, contentHash, guided, translate, translations };

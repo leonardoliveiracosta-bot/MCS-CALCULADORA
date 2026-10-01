@@ -14,6 +14,8 @@ const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-s
 const { manheimView } = require('../../panel-buscas-view');
 const { activeFilter, batchSupported, latestActiveUpload } = require('../../panel-manheim-state');
 const { outOfFunnelIndex } = require('../../panel-triage');
+const groups = require('../../panel-groups');
+const { loadTopic } = require('../../panel-topic');
 
 // Cars of the latest live batch per person, counted by the database (never the cars themselves).
 // MMR is mandatory: a stored match without a valid MMR is never counted.
@@ -46,7 +48,7 @@ function withWhatsAppIdentity(item,userIds){
 async function clientList(ctx, activeBatch) {
   const [items, contacts, phones, refs, messageLinks, messages, toggleStates, manheim, meta, checklist, promises, scoreIndex, calcRuns, calcLinks, leadPromises, aiItems, aiSuggestions, userIds, dispositions] = await Promise.all([
     allRows(ctx, 'journeys', {
-      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,qualified_at,closed_at,closed_reason,updated_at',
+      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,last_effective_contact_at,qualified_at,closed_at,closed_reason,created_at,updated_at',
       environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
     }),
     allRows(ctx, 'contacts', { select: 'id,display_name,location_text,is_lead', environment: 'eq.' + ctx.environment }),
@@ -71,6 +73,8 @@ async function clientList(ctx, activeBatch) {
   const contact=contactIndex({calcRuns,messages:messages.filter((message)=>!message.undone_at),messageLinks});
   // Triagem: conversa fora do funil comercial não entra em CLIENTES (continua na busca global).
   const triageOut=await outOfFunnelIndex(ctx,items,refs);
+  // Adendo: fora do assunto (leitura da triagem ou correção sua); sem tabela, ninguém fica fora.
+  const topic=await loadTopic(ctx).catch(()=>null);const now=Date.now();
   const insights=await allRows(ctx,'conversation_pending_insights',{select:'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at',environment:'eq.'+ctx.environment});const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
   const contactsById = new Map(contacts.map((item) => [item.id, item]));
   const personDisposition=dispositionIndex(dispositions);
@@ -98,7 +102,10 @@ async function clientList(ctx, activeBatch) {
     // Lote 4: Origem, Tipo and Última atividade for the CLIENTES filters (PEDIDOS merged in).
     const ownOrders=[...new Set([item.reference_code,...refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code)].map((ref)=>String(ref||'').trim().toUpperCase()).filter(Boolean))].map((ref)=>ordersByRef.get(ref)).filter(Boolean);
     const originInfo=clientOrigin(item,ownOrders,lastRealAt);
-    return [decorateContact({ ...complete, ...ready, ...originInfo, checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip, item.id)) },facts,insightByJourney.get(item.id),complete)];
+    // Adendo: one group per person (fora do assunto > não atendido > origem), presentation only.
+    const offTopic=topic?topic.journey(item.id,{hasCalculator:ownOrders.length>0}):null;
+    const group=groups.classify(groups.factsFor({messages:ownMessages,orders:ownOrders,journey:{...item,enabled:complete.enabled},disposition:disposition?.status||null,dispositionAt:disposition?.updated_at||null,offTopic}),now);
+    return [decorateContact({ ...complete, ...ready, ...originInfo, group, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(ownMessages), checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip, item.id)) },facts,insightByJourney.get(item.id),complete)];
   });
   return { listed, meta };
 }

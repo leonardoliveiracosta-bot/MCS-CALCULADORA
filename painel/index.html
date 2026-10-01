@@ -105,6 +105,11 @@
           <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente · As conversas continuam guardadas e aparecem na busca global</p>
           <div id="triage-out-list" class="queue" aria-live="polite"></div>
         </details>
+        <details id="topic-out" class="card topic-out">
+          <summary><strong>Fora do assunto</strong> <span id="topic-out-count" class="badge">—</span></summary>
+          <p class="muted">Conversas que nunca falaram de carro, compra, financiamento, orçamento ou serviço da MCS · Nada foi apagado · Na dúvida a conversa fica no fluxo principal · "É sobre carro" corrige e fica guardado</p>
+          <div id="topic-out-list" class="queue" aria-live="polite"></div>
+        </details>
         <section class="entry-add" aria-labelledby="entry-add-title">
           <div class="entry-group-title"><p class="eyebrow">FERRAMENTAS</p><h2 id="entry-add-title">Adicionar ao painel</h2></div>
           <div class="entry-tools">
@@ -347,10 +352,12 @@
   <script src="/manheim-offer.js?v=2" defer></script>
   <script src="/money-text.js?v=1" defer></script>
   <script src="/panel-origin.js?v=2" defer></script>
+  <script src="/panel-groups.js?v=1" defer></script>
   <script src="/painel/action.js" defer></script>
-  <script src="/painel/contexto.js?v=3" defer></script>
+  <script src="/painel/contexto.js?v=4" defer></script>
   <script src="/painel/whatsapp-app.js?v=1" defer></script>
   <script src="/painel/sugestoes.js?v=7" defer></script>
+  <script src="/painel/grupos.js?v=1" defer></script>
   <script src="/painel/lead.js" defer></script>
   <script src="/painel/painel.js" defer></script>
   <script src="/painel/notifications.js" defer></script>

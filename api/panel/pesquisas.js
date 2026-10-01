@@ -6,6 +6,7 @@
 //  POST compare        compara só os pedidos PRONTO PARA BUSCAR (por carro: carro + ano + milhagem;
 //                      por valor: modelo + lance)
 //                      ainda em FALTA BUSCAR com o lote ativo e grava o resultado
+//  POST empty_reasons  por que cada pedido SEM OPÇÃO não achou carro, em linguagem simples (só leitura)
 //  POST extract        lê uma conversa (simulada fora de produção; em produção só com a flag nova)
 //  POST sample         leitura simulada de uma conversa sem gravar nada
 //  POST history_status  progresso da auditoria histórica (processadas, pedidos, custo)
@@ -25,6 +26,7 @@ const requests = require('../../vehicle-requests');
 const search = require('../../panel-search-requests');
 const toFicha = require('../../panel-search-to-ficha');
 const rematch = require('../../panel-rematch');
+const { emptyReasons } = require('../../search-empty-reason');
 
 const COMPARE_BATCH = 40;
 const safe = (promise, fallback) => promise.catch((error) => { if (search.tableMissing(error)) return fallback; throw error; });
@@ -414,6 +416,15 @@ module.exports = async (req, res) => {
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await jsonBody(req, 16 * 1024);
     if (body.action === 'compare') { const { status, ...out } = await compare(ctx, startedAt, body.skip); return send(res, status, out); }
+    // Adendo, item 2: the plain-language reason of every "sem carros" (read only, never compares again).
+    if (body.action === 'empty_reasons') {
+      const list = await buildList(ctx);
+      // keys (OPÇÕES): the demands with no car in the stored batch result, whatever PESQUISAS shows.
+      const wanted = new Set((Array.isArray(body.keys) ? body.keys : []).map(String).slice(0, 250));
+      const empty = list.items.filter((item) => wanted.size ? wanted.has(item.key) && item.comparable : item.state === 'SEM_OPCAO');
+      if (!list.uploadId || !empty.length) return send(res, 200, { reasons: {} });
+      return send(res, 200, { reasons: await emptyReasons(ctx, empty, list.uploadId, allRows) });
+    }
     if (body.action === 'history_status') { const { status, ...out } = await historyStatus(ctx); return send(res, status, out); }
     if (body.action === 'model_check') { const { status, ...out } = await modelCheck(ctx); return send(res, status, out); }
     if (body.action === 'extract_history') { const { status, ...out } = await extractHistory(ctx, Number(body.limit) || 0); return send(res, status, out); }

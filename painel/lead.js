@@ -153,6 +153,12 @@
     append(offers,'p','muted',`${data.offers.length} carro(s) compatível(is) no lote ativo · A seleção para o cliente e a V1 são feitas em OPÇÕES`);
     if(journeyId&&(openOptions||openTab)){const go=append(offers,'div','lead-actions');if(offerModes.length&&openOptions)offerModes.forEach((mode)=>button(go,`Abrir em OPÇÕES · ${mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM'}`,()=>openOptions(`journey:${journeyId}:${mode}`),'small'));else if(openTab)button(go,'Abrir OPÇÕES',()=>openTab('searches'),'small');}
     if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes');
+    // Adendo, item 2: each search type in one group (com carros, sem carros with the reason, ainda não rodada).
+    (data.searchModes||[]).forEach((mode)=>{const count=data.offers.filter((car)=>car.mode===mode).length,label=mode==='VALOR'?'Por valor':'Por carro (ano e milhagem)';const line=append(offers,'p','lead-search-group');
+      if(!data.batchActive){line.dataset.searchGroup='NAO_RODADA';line.textContent=`Busca ainda não rodada · ${label}: nenhum lote ativo do Manheim`;return;}
+      if(count){line.dataset.searchGroup='COM_CARROS';line.textContent=`Com carros · ${label}: ${count} carro(s) no lote ativo`;return;}
+      line.dataset.searchGroup='SEM_CARROS';line.textContent=`Sem carros · ${label}: a busca rodou no lote ativo e nenhum carro serviu`;
+      if(journeyId){const reason=append(offers,'p','search-empty-reason','Motivo: lendo o lote…');request('/api/panel/pesquisas',{method:'POST',timeoutMs:60000,body:JSON.stringify({action:'empty_reasons',keys:[`ficha:journey:${journeyId}:${mode}`]})}).then((out)=>{const found=(out.reasons||{})[`ficha:journey:${journeyId}:${mode}`];reason.textContent='Motivo: '+(found?found.text:'nenhum carro do lote ativo serviu para estes critérios');}).catch(()=>{reason.textContent='Motivo: não consegui ler o lote agora';});}});
     data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind==='POR_VALOR'?'POR VALOR · ligar':car.kind,car.kind==='BATE'?'green':car.kind==='POR_VALOR'?'blue':'yellow'));
       append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('en-US')+' mi'} · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
       if(car.matchNotice)line.append(badge(car.matchNotice,'yellow'));else if(car.matchReason)append(line,'span','muted',car.matchReason);

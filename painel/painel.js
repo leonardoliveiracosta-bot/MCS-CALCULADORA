@@ -637,9 +637,11 @@
       controls.append(select,link,create,dismiss);
       return controls;
     };
-    items.forEach((chat) => {
+    // Adendo: one section per group; "fora do assunto" has its own section in ENTRADA (below).
+    const queueCard = (chat) => {
       const item = document.createElement('article');
       item.className = 'queue-item';
+      item.append(MCSContactGroups.decisionNode(chat));
       const header = document.createElement('header');
       const title = document.createElement('strong');
       title.textContent = chat.contact && chat.contact.display_name ? chat.contact.display_name : chat.canonical_key;
@@ -651,6 +653,7 @@
       count.className = 'muted';
       count.textContent = `${chat.newMessageCount} mensagem(ns) nova(s) na última importação`;
       item.append(header, count);
+      const lastMessage = MCSContactGroups.lastMessageNode(chat, UUID_RE.test(String(chat.groupJourneyId || '')) ? chat.groupJourneyId : null); if (lastMessage) item.append(lastMessage);
       // The contact's case, only when the contact has exactly one ficha (never guessed).
       const chatContact=chat.contact_id||chat.contact?.id;if(UUID_RE.test(String(chatContact||'')))item.append(contextSlot({contactId:chatContact},{withIdentity:false}));
       if (chat.hasTimeUncertain) {
@@ -668,8 +671,13 @@
         item.append(keep);
       }
       if(chat.resolution_status!=='RESOLVED'||chat.hasTimeUncertain)item.append(reviewControls(item,chat,'chat'));
-      root.append(item);
-    });
+      const topic=MCSContactGroups.topicButton(chat,{request,refresh:()=>Promise.all([loadQueue(),loadTriage()]),chatId:chat.id});if(topic)item.append(topic);
+      if(chat.lastCustomerMessage&&UUID_RE.test(String(chat.groupJourneyId||''))){const tools=MCSContactGroups.replyTools(chat.groupJourneyId,{request,onSent:()=>loadQueue()});if(tools)item.append(tools);}
+      return item;
+    };
+    const offTopicCount = items.filter((chat) => MCSContactGroups.groupOf(chat).key === 'FORA_DO_ASSUNTO').length;
+    if (items.length) MCSContactGroups.render(root, items, queueCard, { skip: ['FORA_DO_ASSUNTO'], emptyText: 'Nenhuma conversa no fluxo principal' });
+    if (offTopicCount) root.append(element('p', 'muted', `${offTopicCount} conversa(s) fora do assunto estão na seção Fora do assunto, acima`));
     reviews.forEach((review) => {
       const item = document.createElement('article');
       item.className = 'queue-item';
@@ -682,6 +690,7 @@
       root.append(item);
     });
     hydrateContexts(root);
+    MCSContactGroups.hydrateTranslations(root, { request }).catch(() => {});
   }
 
   function refreshSmsJourneys() {
@@ -717,13 +726,27 @@
     if(item.journeyId){const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));actions.append(open);}
     row.append(actions);return row;
   }
+  // Adendo: conversations that never discussed cars, in their own folded section. Nothing is
+  // deleted; "É sobre carro" brings one back to the main flow and the correction stays stored.
+  function renderOffTopic(list,refresh){
+    const root=$('topic-out-list');if(!root)return;root.replaceChildren();$('topic-out-count').textContent=String(list.length);
+    if(!list.length){root.append(element('p','muted','Nenhuma conversa fora do assunto'));return;}
+    list.forEach((item)=>{const row=element('div','queue-item topic-item');row.dataset.chatId=item.chatId;row.append(MCSContactGroups.decisionNode(item));const head=element('div','triage-head');head.append(element('strong','',item.name),makeBadge(item.source==='MANUAL'?'Correção sua':'Leitura da IA',item.source==='MANUAL'?'blue':''));row.append(head);
+      if(item.reason&&item.source!=='MANUAL')row.append(element('p','muted triage-reason',item.reason));
+      const last=MCSContactGroups.lastMessageNode(item,UUID_RE.test(String(item.journeyId||''))?item.journeyId:null);if(last)row.append(last);
+      const actions=element('div','inline-actions');const back=MCSContactGroups.topicButton(item,{request,refresh,chatId:item.chatId});if(back)actions.append(back);
+      if(UUID_RE.test(String(item.journeyId||''))){const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));actions.append(open);}
+      row.append(actions);root.append(row);});
+    $('topic-out')?.addEventListener('toggle',()=>MCSContactGroups.hydrateTranslations(root,{request}).catch(()=>{}),{once:true});
+  }
   async function loadTriage(){
     const data=await request('/api/panel/triage').catch(()=>null);
     const review=$('triage-review'),out=$('triage-out-list');review.replaceChildren();out.replaceChildren();
-    if(!data){$('triage-state').textContent='';$('triage-out-count').textContent='0';triageReviewCount=0;renderEntryCount();return {review:[],out:[]};}
+    if(!data){$('triage-state').textContent='';$('triage-out-count').textContent='0';triageReviewCount=0;renderEntryCount();renderOffTopic([],()=>{});return {review:[],out:[]};}
     triageReviewCount=(data.review||[]).length;renderEntryCount();
     const refresh=()=>Promise.all([loadTriage(),loadWhatsApp()]).then(()=>refreshCounters().catch(()=>{}));
-    (data.review||[]).forEach((item)=>review.append(triageCard(item,refresh)));
+    MCSContactGroups.render(review,data.review||[],(item)=>{const card=triageCard(item,refresh);card.prepend(MCSContactGroups.decisionNode(item));return card;},{emptyText:''});if(!(data.review||[]).length)review.replaceChildren();
+    renderOffTopic(data.offTopic||[],refresh);
     (data.out||[]).forEach((item)=>out.append(triageCard(item,refresh)));
     hydrateContexts(review);$('triage-out')?.addEventListener('toggle',()=>hydrateContexts(out),{once:true});
     if(!(data.out||[]).length)out.append(element('p','muted','Nenhuma conversa fora do funil'));
@@ -902,7 +925,7 @@
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
     failedPrints = data.failedPrints || [];
-    entryQueueCount = chats.filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + printReviews.length + failedPrints.length;
+    entryQueueCount = chats.filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + printReviews.length + failedPrints.length;
     renderEntryCount();
     if (render) renderQueue(chats.filter((chat) => !chat.triageOut), data.reviews || []);
     return data;
@@ -1096,10 +1119,16 @@
     // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
     if(clientsOverdue24){const chip=element('button','chip active','Sem resposta há mais de 24 h ✕');chip.type='button';chip.addEventListener('click',()=>{clientsOverdue24=false;renderClients(clientsData);});root.append(chip);}
     if(!items.length){if(clientsOverdue24)root.append(element('p','empty-state','Nenhum cliente neste filtro'));else empty(root,'Nenhum cliente neste filtro');return;}
-    items.forEach((item)=>{const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');head.append(identityHeader(item,{preview:item.latestMessage?.body_text||item.latestMessageText||''}));const badges=element('div','badges');if((item.origins||[]).includes('CALCULADORA'))badges.append(makeBadge(['Calculadora',...(item.calculatorTypes||[]).map((type)=>({BUSCA:'Busca',SIMULACAO:'Simulação'})[type]).filter(Boolean)].join(' · '),'blue'));badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)),makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));head.append(badges);card.append(head);if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`Leitura da IA (não confirmada): ${item.aiSummary||item.summary}`));card.append(contextSlot({journeyId:journeyIdOf(item)},{aiReading:false}));const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients(),true);if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
+    // Adendo: one section per group (não atendidos, origem, fora do assunto); the decision first.
+    const clientCard=(item)=>{const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');card.append(MCSContactGroups.decisionNode(item));head.append(identityHeader(item,{preview:item.lastCustomerMessage?'':item.latestMessage?.body_text||item.latestMessageText||''}));const badges=element('div','badges');if((item.origins||[]).includes('CALCULADORA'))badges.append(makeBadge(['Calculadora',...(item.calculatorTypes||[]).map((type)=>({BUSCA:'Busca',SIMULACAO:'Simulação'})[type]).filter(Boolean)].join(' · '),'blue'));badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)),makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));head.append(badges);card.append(head);const lastMessage=MCSContactGroups.lastMessageNode(item,item.id);if(lastMessage)card.append(lastMessage);if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`Leitura da IA (não confirmada): ${item.aiSummary||item.summary}`));card.append(contextSlot({journeyId:journeyIdOf(item)},{aiReading:false}));const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients(),true);if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
 // One primary row (open, treated/discard); the rarer decisions live under "⋯ Mais ações".
 const more=element('details','card-more');more.append(element('summary','','⋯ Mais ações'));const moreActions=element('div','inline-actions');more.append(moreActions);
-if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.append(copy);}const actions=moreActions,open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));actions.append(journeySwitch(item,()=>loadClients()));if(item.chatId){const resolved=Boolean(item.resolved),done=element('button','quiet small',resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>({scope:card,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:resolved?'unresolve':'resolve',journeyId:item.id,chatId:item.chatId})}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'}));actions.append(done);}const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(lead);const primary=element('div','inline-actions card-primary');primary.append(open,dispositionControls(item));card.append(primary,more);makeCardClickable(card,()=>openDetail('ficha',item.id));root.append(card);});hydrateContexts(root);
+if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.append(copy);}const actions=moreActions,open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));actions.append(journeySwitch(item,()=>loadClients()));if(item.chatId){const resolved=Boolean(item.resolved),done=element('button','quiet small',resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>({scope:card,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:resolved?'unresolve':'resolve',journeyId:item.id,chatId:item.chatId})}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'}));actions.append(done);}const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(lead);const topic=MCSContactGroups.topicButton(item,{request,refresh:()=>loadClients(),journeyId:item.id});const primary=element('div','inline-actions card-primary');primary.append(open,dispositionControls(item));
+// "É sobre carro" stays in view on an off-topic card; "Fora do assunto" is a rarer decision (⋯).
+if(topic){if(MCSContactGroups.groupOf(item).key==='FORA_DO_ASSUNTO')primary.append(topic);else actions.append(topic);}
+card.append(primary,more);if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(item.id,{request,onSent:()=>loadClients()});if(tools)card.append(tools);}makeCardClickable(card,()=>openDetail('ficha',item.id));return card;};
+    // "Não é lead" stays at the end of each group (M5).
+    MCSContactGroups.render(root,items,clientCard,{emptyText:'Nenhum cliente neste filtro'});hydrateContexts(root);MCSContactGroups.hydrateTranslations(root,{request}).catch(()=>{});
   }
   // Old conversations to pick up, oldest first, loaded only when the section is opened.
   function loadFollowup(){const list=$('clients-followup-list');if(!list||!window.MCSSuggest)return;MCSSuggest.queue(list,{request,open:(kind,key)=>openDetail(kind,key),contextSlot:(spec)=>contextSlot(spec),hydrate:hydrateContexts}).catch(()=>{});}
@@ -1771,9 +1800,11 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       stat(items.filter((item) => item.searchStage === 'SENT').length, 'Opções enviadas');
     }
     if (!items.length) return empty(root, 'Nada pendente para hoje');
-    items.forEach((item) => {
+    // Adendo: one section per group (não atendidos, origem, fora do assunto); the decision first.
+    const todayCard = (item) => {
       const heat = String(item.heat || '').toUpperCase();
       const card = element('article', `item-card today-card${heat ? ` heat-${heat.toLowerCase()}` : ''}`);
+      card.append(MCSContactGroups.decisionNode(item));
       const head = element('div', 'item-head');
       if (item.kind === 'CALCULATOR_ORDER') {
         const title = element('div', 'identity');
@@ -1786,6 +1817,8 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
         head.append(identityHeader(item));
       }
       card.append(head);
+      // Without a calculator order: the latest customer message, readable without opening the conversation.
+      const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)card.append(lastMessage);
       const badges = element('div', 'badges');
       if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
@@ -1812,11 +1845,15 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       open.addEventListener('click', () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id, replying ? { anchor: 'lead-conversation' } : {}));
       if (replying && item.lastCustomerAt) { const until = Date.parse(item.lastCustomerAt) + 86400000; card.append(element('p', 'muted reply-window-estimate', until > Date.now() ? `Janela do WhatsApp aberta até ${formatDate(new Date(until).toISOString())} (estimada) · responde pelo painel` : 'Janela do WhatsApp encerrada (estimada) · responde pelo WhatsApp do celular')); }
       actions.append(open);
+      const topic=item.kind==='CALCULATOR_ORDER'?null:MCSContactGroups.topicButton(item,{request,refresh:()=>loadCurrent('today',viewRequestVersion),journeyId:journeyIdOf(item)});if(topic)actions.append(topic);
       card.append(actions, dispositionControls(item));
+      if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(journeyIdOf(item),{request,onSent:()=>loadCurrent('today',viewRequestVersion)});if(tools)card.append(tools);}
       makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
-      root.append(card);
-    });
+      return card;
+    };
+    MCSContactGroups.render(root, items, todayCard, { emptyText: 'Nada pendente para hoje' });
     hydrateContexts(root);
+    MCSContactGroups.hydrateTranslations(root, { request }).catch(() => {});
   }
 
   function renderQualification(items) {
@@ -2546,11 +2583,50 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
           if (demand.bateCount) { renderManheimGroup(reactivate, journey, true, { ...demand, matchCount: demand.bateCount }); reactivateCount += 1; }
         } else { renderManheimGroup(standard, journey, false, demand); standardCount += 1; }
       });
-      if (standardCount) root.append(standard);
-      if (reactivateCount) root.append(reactivate);
-      if (!standardCount && !reactivateCount) empty(root, data.upload ? 'Nenhum carro compatível neste modo no lote ativo' : 'Nenhuma importação ativa');
+      // Adendo, item 2: three groups per search type, never mixed.
+      const withCars = element('section', 'search-group search-group-com-carros'); withCars.dataset.searchGroup = 'COM_CARROS';
+      const withHead = element('header', 'search-group-head'); withHead.append(element('strong', '', 'Com carros no lote'), element('span', 'badge', String(standardCount + reactivateCount)), element('span', 'muted search-group-hint', 'A busca rodou e achou carros no lote ativo'));
+      withCars.append(withHead);
+      if (standardCount) withCars.append(standard);
+      if (reactivateCount) withCars.append(reactivate);
+      if (!standardCount && !reactivateCount) withCars.append(element('p', 'empty-state', data.upload ? 'Nenhum carro compatível neste modo no lote ativo' : 'Nenhuma importação ativa'));
+      root.append(withCars);
+      const noCars = data.upload ? (data.demands || []).filter((demand) => demand.mode === mode && !(demand.matchCount > 0)) : [];
+      if (noCars.length) {
+        const section = element('section', 'search-group search-group-sem-carros'); section.dataset.searchGroup = 'SEM_CARROS';
+        const head = element('header', 'search-group-head'); head.append(element('strong', '', 'Sem carros'), element('span', 'badge', String(noCars.length)), element('span', 'muted search-group-hint', 'A busca rodou no lote ativo e não achou nenhum carro · O motivo aparece em cada pedido'));
+        section.append(head);
+        noCars.sort((a, b) => position(a) - position(b)).forEach((demand) => {
+          const line = element('article', 'item-card search-empty-card');
+          line.append(element('strong', 'identity-name', demand.name || demand.contactName || (demand.ref ? `Ref ${demand.ref}` : 'Cliente')));
+          const fields = MCSSearchGroups.fields({ searchMode: demand.mode, targets: [{ mode: demand.mode, wishes: demand.wishes || [], bidCents: demand.bidCents }] }); if (fields) line.append(fields);
+          const reason = element('p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = (demand.journeyId ? 'ficha:' : 'pedido:') + demand.key; line.append(reason);
+          if (demand.journeyId) { const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', () => openDetail('ficha', demand.journeyId)); line.append(open); }
+          section.append(line);
+        });
+        root.append(section);
+      }
+      const notRun = (data.review || []).filter((item) => item.mode === mode);
+      if (notRun.length || !data.upload) {
+        const section = element('section', 'search-group search-group-nao-rodada'); section.dataset.searchGroup = 'NAO_RODADA';
+        const count = data.upload ? notRun.length : (data.demands || []).filter((demand) => demand.mode === mode).length + notRun.length;
+        const head = element('header', 'search-group-head'); head.append(element('strong', '', 'Busca ainda não rodada'), element('span', 'badge', String(count)), element('span', 'muted search-group-hint', data.upload ? 'Faltam dados do cliente para buscar · Os pedidos estão em Revisar, com o que falta' : 'Sem lote ativo: nenhuma busca rodou ainda'));
+        section.append(head);
+        if (notRun.length) { const go = element('button', 'quiet small', `Ver o que falta (${notRun.length})`); go.type = 'button'; go.addEventListener('click', () => { const box = $('buscas-review'); if (box) { box.open = true; box.scrollIntoView({ block: 'start', behavior: 'smooth' }); } }); section.append(go); }
+        root.append(section);
+      }
       hydrateContexts(root);
+      loadOptionEmptyReasons(root);
     });
+  }
+  // Reasons of the "sem carros" demands of OPÇÕES (read only, same rule as PESQUISAS).
+  async function loadOptionEmptyReasons(root) {
+    const slots = [...root.querySelectorAll('.search-empty-reason[data-request-key]')];
+    if (!slots.length) return;
+    let reasons = {};
+    try { reasons = (await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'empty_reasons', keys: slots.map((slot) => slot.dataset.requestKey) }) })).reasons || {}; }
+    catch (_) { slots.forEach((slot) => { slot.textContent = 'Motivo: não consegui ler o lote agora · Atualize a página para tentar de novo'; }); return; }
+    slots.forEach((slot) => { const reason = reasons[slot.dataset.requestKey]; slot.textContent = 'Motivo: ' + (reason ? reason.text : 'nenhum carro do lote ativo serviu para estes critérios'); });
   }
 
   function renderBuscasCounters(counts) {
@@ -2591,6 +2667,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
   let requestsFilter = 'ALL';
   let requestsShown = 50;
   function renderRequests(data) {
+    if (requestsData !== data) emptyReasonsCache = null;
     requestsData = data;
     setCount('requests', (data.items || []).length);
     const status = $('requests-status');
@@ -2617,8 +2694,10 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     visible.forEach((item) => { if (!groups.has(item.groupKey)) groups.set(item.groupKey, []); groups.get(item.groupKey).push(item); });
     const ordered = [...groups.values()].sort((left, right) => REQUEST_STATES.indexOf(left[0].state) - REQUEST_STATES.indexOf(right[0].state)
       || String(latestOf(right)).localeCompare(String(latestOf(left))));
-    ordered.slice(0, requestsShown).forEach((members) => root.append(requestCard(members)));
+    // Adendo, item 2: three groups that never mix (com carros, sem carros, busca ainda não rodada).
+    MCSSearchGroups.render(root, ordered.slice(0, requestsShown), requestCard, (members) => members[0].state);
     hydrateContexts(root);
+    loadEmptyReasons(root);
     if (ordered.length > requestsShown) {
       const more = element('button', 'quiet small', `Mostrar mais (${ordered.length - requestsShown})`); more.type = 'button';
       more.addEventListener('click', () => { requestsShown += 50; renderRequests(requestsData); });
@@ -2626,6 +2705,15 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     }
   }
   const latestOf = (members) => members.map((item) => item.lastMessageAt || '').sort().at(-1) || '';
+  // The plain-language reason of every "sem carros" on screen, read once (no new comparison).
+  let emptyReasonsCache = null;
+  async function loadEmptyReasons(root) {
+    const slots = [...root.querySelectorAll('.search-empty-reason[data-request-key]')];
+    if (!slots.length) return;
+    try { if (!emptyReasonsCache) emptyReasonsCache = (await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'empty_reasons' }) })).reasons || {}; }
+    catch (_) { slots.forEach((slot) => { slot.textContent = 'Motivo: não consegui ler o lote agora · Atualize a página para tentar de novo'; }); return; }
+    slots.forEach((slot) => { const reason = emptyReasonsCache[slot.dataset.requestKey]; slot.textContent = 'Motivo: ' + (reason ? reason.text : 'a busca rodou com estes critérios e nenhum carro do lote ativo serviu'); });
+  }
   function requestCard(members) {
     const first = members[0];
     const card = element('article', 'item-card request-card');
@@ -2638,6 +2726,10 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     criteria.append(element('span', 'request-criteria-label', criteriaLabel), element('strong', '', first.criteriaText || 'Sem critério'));
     head.append(criteria, makeBadge(first.stateLabel, REQUEST_STATE_TONES[first.state]));
     card.append(head);
+    const fields = MCSSearchGroups.fields(first); if (fields) card.append(fields);
+    // "Sem carros" always says why; "não rodada" says what is missing.
+    if (first.state === 'SEM_OPCAO') { const reason = element('p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = first.key; card.append(reason); }
+    if (MCSSearchGroups.groupOf(first.state) === 'NAO_RODADA') card.append(element('p', 'muted search-not-run', MCSSearchGroups.notRunText(first)));
     if (members.length > 1) card.append(element('p', 'muted', `${members.length} pedidos com critérios exatamente iguais`));
     if (first.state === 'COM_OPCOES') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'opção válida' : 'opções válidas'} no lote ativo`));
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'candidato' : 'candidatos'} no lote ativo por modelo, ano e milhagem. O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada`));
