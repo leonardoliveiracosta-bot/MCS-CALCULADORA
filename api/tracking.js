@@ -1,6 +1,7 @@
 'use strict';
 const { SERVER_ENVIRONMENT, configuration, jsonBody, rows, supabase, send } = require('../panel-server');
 const { orders } = require('../panel-lead');
+const { publicVehicle, STATES, WHATSAPP_NUMBER } = require('../vitrine-domain');
 function publicLocation(value) {
   const source = String(value || '').trim();
   const prefixed = source.match(/^([A-Z]{2})\s*-\s*([\w\s.-]+)$/i);
@@ -37,10 +38,12 @@ module.exports = async (req, res) => {
       return { id: unit.id, year: d.year || null, make: d.make || '', model: d.model || unit.vehicle_text, trim: d.trim || '', miles: d.miles || null,
         location: publicLocation(d.location), saleDate: d.saleDate || null, retailValue: Number(d.retailValue) || null,
         retailUrl: /^https:\/\/(?:www\.)?mycarscout\.net\//i.test(d.retailUrl || '') ? d.retailUrl : null,
-        response: unit.status === 'ACCEPTED' ? 'WANT' : unit.status === 'DECLINED' ? 'DECLINE' : null };
+        response: unit.status === 'ACCEPTED' ? 'WANT' : unit.status === 'DECLINED' ? 'DECLINE' : null,
+        // The same public fields as the V1 page, so the cars look the same (auction day, average value, state).
+        vehicle: (({ state, ...vehicle }) => ({ ...vehicle, state: state || STATES[(String(d.location || '').match(/,\s*([A-Z]{2})\s*$/) || [])[1]] || '' }))(publicVehicle({ ...d, model: d.model || unit.vehicle_text })) };
     });
     return send(res, 200, { firstName: String(contacts[0]?.display_name || fallback?.contactName || '').trim().split(/\s+/)[0] || 'there', ref: String(track.ref_code).trim(),
-      step: Math.max(track.step, safeUnits.length ? 2 : 1), result: track.result, updatedAt: track.updated_at, cars: safeUnits });
+      step: Math.max(track.step, safeUnits.length ? 2 : 1), result: track.result, updatedAt: track.updated_at, cars: safeUnits, whatsAppNumber: WHATSAPP_NUMBER });
   } catch (error) {
     // panel-server keeps the RPC's RAISE code in error.code (P0001 message); older paths used message.
     const reason = error.code || error.message;

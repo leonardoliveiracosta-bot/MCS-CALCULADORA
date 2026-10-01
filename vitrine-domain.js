@@ -5,6 +5,8 @@ const crypto = require('node:crypto');
 const STATES = Object.freeze({
   AL:'Alabama', AK:'Alaska', AZ:'Arizona', AR:'Arkansas', CA:'California', CO:'Colorado', CT:'Connecticut', DE:'Delaware', FL:'Florida', GA:'Georgia', HI:'Hawaii', ID:'Idaho', IL:'Illinois', IN:'Indiana', IA:'Iowa', KS:'Kansas', KY:'Kentucky', LA:'Louisiana', ME:'Maine', MD:'Maryland', MA:'Massachusetts', MI:'Michigan', MN:'Minnesota', MS:'Mississippi', MO:'Missouri', MT:'Montana', NE:'Nebraska', NV:'Nevada', NH:'New Hampshire', NJ:'New Jersey', NM:'New Mexico', NY:'New York', NC:'North Carolina', ND:'North Dakota', OH:'Ohio', OK:'Oklahoma', OR:'Oregon', PA:'Pennsylvania', RI:'Rhode Island', SC:'South Carolina', SD:'South Dakota', TN:'Tennessee', TX:'Texas', UT:'Utah', VT:'Vermont', VA:'Virginia', WA:'Washington', WV:'West Virginia', WI:'Wisconsin', WY:'Wyoming', DC:'District of Columbia'
 });
+// The MCS WhatsApp that the customer pages (V1/V2 and the search page) open with a ready message.
+const WHATSAPP_NUMBER='13055400742';
 const CODE_ALPHABET='23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 const CODE_RE=/\bMCS-([23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4})\b/i;
 
@@ -58,4 +60,4 @@ function publicResponse(vitrine,cars,urls=[],options={}){
       return output;
     }) };
 }
-module.exports={STATES,CODE_RE,clean,locationState,publicVehicle,vehicleName,roundedMmr,randomToken,randomCode,extractCode,deposit,auctionTime,expiresAt,isExpired,publicFirstName,publicResponse};
+module.exports={WHATSAPP_NUMBER,STATES,CODE_RE,clean,locationState,publicVehicle,vehicleName,roundedMmr,randomToken,randomCode,extractCode,deposit,auctionTime,expiresAt,isExpired,publicFirstName,publicResponse};
