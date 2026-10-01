@@ -111,9 +111,11 @@ test('varredura de todos os botões do painel', async ({ page }) => {
     current = where;
     try { await sweepInner(where, rootSelector, maxPerLabel); } finally { save(); }
   }
+  const debug = (text) => { if (process.env.BOTOES_DEBUG) console.log('[varredura]', new Date().toISOString().slice(11, 19), text); };
   async function sweepInner(where, rootSelector, maxPerLabel) {
     const seen = new Map();
     for (let pass = 0; pass < 400; pass += 1) {
+      debug(`${where} passo ${pass}: lendo botões`);
       const buttons = await page.locator(`${rootSelector} button:visible`).all();
       let target = null, label = '';
       for (const button of buttons) {
@@ -127,6 +129,7 @@ test('varredura de todos os botões do painel', async ({ page }) => {
       }
       if (!target) break;
       current = `${where} › ${label}`;
+      debug(`clicando: ${label}`);
       const before = await snapshot(); const requestsBefore = pending.requests; const effectsBefore = sideEffects; const findingsBefore = findings.length; pending.last = [];
       // Every click has a hard limit: a button that hangs the page is a finding, never a stuck sweep.
       const step = (async () => {
@@ -144,7 +147,8 @@ test('varredura de todos os botões do painel', async ({ page }) => {
       await page.evaluate(() => { const dialog = document.querySelector('dialog[open]'); if (dialog) dialog.close(); });
       if (!rootSelector.startsWith('#record-detail') && await page.locator('#detail-panel:not(.hidden)').count()) { await page.locator('#detail-back').click().catch(() => {}); await page.waitForTimeout(500); }
       // Inside the ficha: a button that left it (another ficha, a tab) reopens the same ficha.
-      if (rootSelector.startsWith('#record-detail') && reopenFicha && !(await page.locator('#detail-panel:not(.hidden)').count())) await reopenFicha();
+      debug('voltando');
+      if (rootSelector.startsWith('#record-detail') && reopenFicha && !(await page.locator('#detail-panel:not(.hidden)').count())) { debug('reabrindo a ficha'); await reopenFicha(); }
       current = where;
     }
   }
