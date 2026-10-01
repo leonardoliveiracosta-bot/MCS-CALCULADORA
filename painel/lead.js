@@ -217,7 +217,7 @@
       if(index===3){resultChoice.hidden=false;return;}await api('tracking_step',{step:index+1});await reload();},'lead-step '+(index+1<=track.step?'on':'')));
       button(resultChoice,'Won',async()=>{await api('tracking_step',{step:4,result:'WON'});await reload();});
       button(resultChoice,'Not won',async()=>{await api('tracking_step',{step:4,result:'NOT_WON'});await reload();});
-      button(tracking,'Copiar link do cliente',()=>navigator.clipboard.writeText(location.origin+'/t/'+track.public_code));
+      button(tracking,'Copiar link de acompanhamento',()=>navigator.clipboard.writeText(location.origin+'/t/'+track.public_code));
     }else append(tracking,'p','muted','Ligue ao pedido para criar a página do cliente');
     const customerResponses=(data.events||[]).filter((entry)=>['WANT_CAR','NOT_FOR_ME'].includes(entry.event_type));
     append(tracking,'p','muted',customerResponses.length?customerResponses.map((entry)=>`${entry.detail_json.vehicle}: ${entry.event_type==='WANT_CAR'?'I want this':'Not for me'}`).join(' · '):'O cliente ainda não respondeu aos carros');
