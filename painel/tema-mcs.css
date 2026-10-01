@@ -1151,3 +1151,13 @@ body > .action-feedback { position: fixed; left: 16px; right: 16px; bottom: 16px
 .suggestion-confirm button { justify-self: start; }
 .suggestion-open.is-disabled { opacity: .5; cursor: not-allowed; }
 .reply-send { display: grid; gap: 8px; }
+.card-focus { outline: 2px solid var(--mcs-gold); outline-offset: 2px; }
+.card-more { margin-top: 6px; }
+.card-more > summary { cursor: pointer; font-size: .85rem; color: var(--mcs-muted); }
+.card-more > .inline-actions { margin-top: 6px; }
+.card-primary { margin-top: 6px; }
+.import-how { margin-top: 6px; }
+.import-how > summary { cursor: pointer; font-size: .85rem; color: var(--mcs-muted); }
+.reply-window-estimate { margin: 4px 0 0; font-size: .85rem; }
+.lead-question button { margin-left: 8px; }
+.lead-grid.lead-one { grid-template-columns: 1fr; }

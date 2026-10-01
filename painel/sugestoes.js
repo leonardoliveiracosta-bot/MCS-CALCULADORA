@@ -203,7 +203,7 @@
       add(card, 'p', item.windowOpen ? 'muted' : 'muted followup-window', item.windowOpen ? 'Janela de 24 h aberta' : 'Janela de 24 h encerrada · API bloqueada: só pelo WhatsApp no celular');
       if (contextSlot) card.append(contextSlot({ journeyId: item.journeyId }));
       const actions = add(card, 'div', 'inline-actions');
-      const openFicha = add(actions, 'button', 'quiet small', 'Abrir ficha e histórico'); openFicha.type = 'button';
+      const openFicha = add(actions, 'button', 'quiet small', 'Abrir ficha'); openFicha.type = 'button';
       openFicha.addEventListener('click', (event) => { event.stopPropagation(); open('ficha', item.journeyId); });
       card.append(box(item.journeyId, { request, mode: item.lastFrom === 'CUSTOMER' ? 'RESPOSTA' : 'RETOMADA', compact: true }));
     });
@@ -217,7 +217,7 @@
       add(line, 'strong', '', item.name);
       line.append(document.createTextNode(` · ${item.days} dias · ${item.reason.text}`));
       // Ref in more than one ficha: open the ficha to resolve whose case it is (no suggestion until then).
-      if (item.reason.code === 'REF_AMBIGUOUS') { const fix = add(line, 'button', 'quiet small', 'Abrir ficha para resolver'); fix.type = 'button'; fix.addEventListener('click', (event) => { event.stopPropagation(); open('ficha', item.journeyId); }); }
+      if (item.reason.code === 'REF_AMBIGUOUS') { const fix = add(line, 'button', 'quiet small', 'Abrir ficha'); fix.type = 'button'; fix.addEventListener('click', (event) => { event.stopPropagation(); open('ficha', item.journeyId); }); }
     });
     if (hydrate) hydrate(root);
     return data;

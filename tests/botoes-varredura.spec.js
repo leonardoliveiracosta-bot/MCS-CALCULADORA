@@ -163,12 +163,12 @@ test('varredura de todos os botões do painel', async ({ page }) => {
   if (want('FICHA')) {
     reopenFicha = async () => {
       await view('clients');
-      await page.locator('#clients-list button', { hasText: 'Abrir lead' }).first().click();
+      await page.locator('#clients-list button', { hasText: 'Abrir ficha' }).first().click();
       await expect(page.locator('#record-detail button').nth(3)).toBeVisible({ timeout: 60000 }); await page.waitForTimeout(1000); await openDetails();
     };
     await view('clients');
-    if (await page.locator('#clients-list button', { hasText: 'Abrir lead' }).count()) { await reopenFicha(); await sweep('FICHA', '#record-detail', 1); await page.locator('#detail-back').click().catch(() => {}); }
-    else findings.push({ kind: 'SEM_FICHA_PARA_TESTAR', where: 'FICHA', detail: 'nenhum botão Abrir lead' });
+    if (await page.locator('#clients-list button', { hasText: 'Abrir ficha' }).count()) { await reopenFicha(); await sweep('FICHA', '#record-detail', 1); await page.locator('#detail-back').click().catch(() => {}); }
+    else findings.push({ kind: 'SEM_FICHA_PARA_TESTAR', where: 'FICHA', detail: 'nenhum botão Abrir ficha' });
     reopenFicha = null;
   }
   if (want('IMPORTAÇÕES')) { await view('imports'); await openDetails(); await sweep('IMPORTAÇÕES', '#imports-panel'); }

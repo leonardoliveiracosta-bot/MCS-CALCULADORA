@@ -2,7 +2,7 @@
 
 const { anthropicJson, aiContextWindow, reserveCall } = require('../../panel-ai');
 const { ensureJourney, leadData } = require('../../panel-lead');
-const { insert, jsonBody, requirePanel, safeText, send } = require('../../panel-server');
+const { insert, jsonBody, requirePanel, rows, safeText, send } = require('../../panel-server');
 const { loadSearchStageIndex } = require('../../panel-search-stage');
 
 function answer(value) {
@@ -48,7 +48,15 @@ module.exports = async (req, res) => {
     );
     const result = answer(parsed);
     await insert(ctx, 'lead_ai_help', { environment: ctx.environment, journey_id: journey.id, ref_code: lead.ref || null, question, answer_json: result, created_by: ctx.panel.id }, false);
-    return send(res, 201, { answer: result, journeyId: journey.id });
+    // Destination and 24 h window, so the message takes the same send path as the suggestions.
+    let sendInfo = null;
+    try {
+      const reply = require('./reply'); const suggest = require('../../panel-reply-suggest');
+      const target = await reply.resolveTarget(ctx, journey.id, { rows });
+      const window = target ? await reply.windowState(ctx, target.chat.id, { rows }) : null;
+      sendInfo = { journeyId: journey.id, reachable: Boolean(target), contact: target ? { name: target.name, phone: target.phone } : null, whatsappBase: target ? suggest.waLink(target.phone, '') : null, path: suggest.pathFor(window || {}) };
+    } catch (_) { sendInfo = null; }
+    return send(res, 201, { answer: result, journeyId: journey.id, send: sendInfo });
   } catch (error) {
     if (error.message === 'AI_DAILY_LIMIT') return send(res, 429, { error: 'AI_DAILY_LIMIT' });
     return send(res, 503, { error: 'AI_UNAVAILABLE' });

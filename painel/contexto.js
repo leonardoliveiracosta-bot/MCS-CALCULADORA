@@ -25,6 +25,7 @@
     if (options.focus) node.dataset.contextFocus = options.focus;
     // Inside a card that already shows name and phone, the summary skips them (no repetition).
     if (options.withIdentity) node.dataset.contextIdentity = 'true';
+    if (options.aiReading === false) node.dataset.contextAiReading = 'false';
     if (!keyOf(spec)) { node.classList.add('client-context-none'); node.textContent = options.emptyText || 'Sem cliente ligado a este item.'; return node; }
     add(node, 'span', 'client-context-loading muted', 'Carregando o contexto do cliente…');
     // A click inside the summary never opens the card around it.
@@ -76,7 +77,7 @@
       node.dataset.contextState = 'done';
       if (!context) { node.replaceChildren(e('span', 'muted', 'Cliente não encontrado neste ambiente.')); return; }
       if (context.unlinked) { node.replaceChildren(e('span', 'client-context-warning', context.unlinked)); return; }
-      node.replaceChildren(...compact(context, { open, focus: node.dataset.contextFocus || null, identity: node.dataset.contextIdentity === 'true' }).childNodes);
+      node.replaceChildren(...compact(context, { open, focus: node.dataset.contextFocus || null, identity: node.dataset.contextIdentity === 'true', aiReading: node.dataset.contextAiReading !== 'false' }).childNodes);
     });
   }
   async function fill(nodes, { request, open }) {
@@ -135,7 +136,7 @@
     return box;
   }
 
-  function compact(context, { open, focus, identity = true } = {}) {
+  function compact(context, { open, focus, identity = true, aiReading = true } = {}) {
     const root = e('div');
     const head = add(root, 'div', 'context-head');
     const who = add(head, 'div', 'context-who');
@@ -175,7 +176,7 @@
     }
     const more = add(root, 'details', 'context-more');
     add(more, 'summary', '', 'Ver dados campo a campo, origem e vínculos');
-    more.append(fullTable(context), linksBlock(context));
+    more.append(fullTable(context), linksBlock(context, { aiReading }));
     return root;
   }
 
@@ -212,7 +213,7 @@
     return wrap;
   }
 
-  function linksBlock(context) {
+  function linksBlock(context, { aiReading = true } = {}) {
     const box = e('div', 'context-links');
     const links = context.links || {};
     const orders = add(box, 'div');
@@ -230,7 +231,8 @@
     (context.searches || []).forEach((item) => add(searches, 'p', '', `${item.modeLabel || 'Tipo não definido'}: ${item.label}${item.mode ? ` · ${item.cars} carro(s) no lote ativo` : ''}`));
     add(searches, 'p', 'muted', links.cars && links.cars.uploadAt ? `Lote ativo carregado em ${date(links.cars.uploadAt)}. Disponibilidade no leilão não confirmada.` : 'Nenhum lote ativo do Manheim.');
     if ((context.promises || []).length) { const promises = add(box, 'div'); add(promises, 'strong', '', 'Promessas em aberto'); context.promises.forEach((item) => add(promises, 'p', '', `${item.text} · ${date(item.dueAt)}`)); }
-    if (context.aiReading) { const ai = add(box, 'div'); add(ai, 'strong', '', 'Leitura da IA (não confirmada)'); if (context.aiReading.summary) add(ai, 'p', '', context.aiReading.summary); if (context.aiReading.nextStep) add(ai, 'p', 'muted', 'A IA sugere: ' + context.aiReading.nextStep); }
+    // aiReading=false: the card already shows the reading on its own line (CLIENTES).
+    if (context.aiReading && aiReading) { const ai = add(box, 'div'); add(ai, 'strong', '', 'Leitura da IA (não confirmada)'); if (context.aiReading.summary) add(ai, 'p', '', context.aiReading.summary); if (context.aiReading.nextStep) add(ai, 'p', 'muted', 'A IA sugere: ' + context.aiReading.nextStep); }
     return box;
   }
 

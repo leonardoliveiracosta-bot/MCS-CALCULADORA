@@ -93,8 +93,8 @@ test('Lote 3: vitrine "Tratado" com falha volta o card e mostra o erro', async (
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   const card = page.locator('.vitrine-request-card', { hasText: 'Bia' });
   await expect(card).toBeVisible({ timeout: 30000 });
-  await card.getByRole('button', { name: 'Tratado' }).click();
-  await expect(card).toContainText('Não consegui marcar como tratado, tente de novo');
+  await card.getByRole('button', { name: 'Pedido atendido' }).click();
+  await expect(card).toContainText('Não consegui marcar como atendido, tente de novo');
   await expect(card).toBeVisible();
   expect(errors).toEqual([]);
 });

@@ -155,7 +155,7 @@ for (const width of [1366, 390]) {
 
     // FICHA: the full case summary.
     await page.locator('[data-view="clients"]').click();
-    await page.locator('#clients-list .client-card', { hasText: 'Marina Demonstração' }).first().locator('button', { hasText: 'Abrir lead' }).click();
+    await page.locator('#clients-list .client-card', { hasText: 'Marina Demonstração' }).first().locator('button', { hasText: 'Abrir ficha' }).click();
     const full = page.locator('.client-context-full .context-table');
     await expect(full).toBeVisible({ timeout: 60000 });
     const fullCard = page.locator('section.client-context-full');

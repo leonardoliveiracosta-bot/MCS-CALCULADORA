@@ -50,7 +50,7 @@
     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
   }
   async function open(options) {
-    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer} = options;
+    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer,openOptions,openTab} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     root.replaceChildren(); root.classList.add('lead-detail');
     const record=data.record||{},order=data.order||{},track=data.track||null,ref=data.ref,hasCalculatorRef=data.hasCalculatorRef!==false&&Boolean(data.order),journeyId=record.id;
@@ -89,8 +89,9 @@
     // Two clicks on the page itself (a browser dialog can be answered "no" without showing up).
     const restoring=record.contact?.is_lead===false;const leadToggle=button(heading,restoring?'Restaurar como lead':'Não é lead',async()=>{if(leadToggle.dataset.confirmed!=='true'){leadToggle.dataset.confirmed='true';leadToggle.textContent=restoring?'Confirmar: restaurar como lead':'Confirmar: não é lead (as mensagens ficam guardadas)';return;}await api('contact_lead',{isLead:restoring});await onChanged();});
     const aiReading=data.ai?.reading;
+    let aiReadingBlock=null;
     if(aiReading){
-      const summary=append(heading,'div','lead-card lead-highlight ai-summary');append(summary,'span','lead-label','RESUMO DA IA');
+      const summary=aiReadingBlock=e('div','lead-card lead-highlight ai-summary');append(summary,'span','lead-label','LEITURA DA CONVERSA (IA, NÃO CONFIRMADA)');
       const want=append(summary,'p');append(want,'b','','Quer: ');want.append(document.createTextNode(aiReading.summary_json?.want||'Ainda não identificado'));
       const money=append(summary,'p');append(money,'b','','Dinheiro: ');money.append(document.createTextNode(aiReading.summary_json?.money||'Ainda não identificado'));
       const missing=append(summary,'p');append(missing,'b','','Falta saber: ');missing.append(document.createTextNode(aiReading.summary_json?.missing||'Nada indicado pela leitura'));
@@ -116,8 +117,11 @@
     if(window.MCSContext){const slot=append(root,'section','lead-card client-context-full');append(slot,'span','lead-label','RESUMO DO CASO');append(slot,'p','muted','Carregando o resumo do caso…');
       (journeyId?MCSContext.forJourney(journeyId,request):MCSContext.forRef(ref,request)).then((context)=>{if(!slot.isConnected)return;if(!context||context.unlinked){slot.replaceChildren(e('span','lead-label','RESUMO DO CASO'),e('p','muted',context&&context.unlinked||'Resumo indisponível para este caso.'));return;}slot.replaceWith(MCSContext.full(context));})
         .catch(()=>{if(slot.isConnected)slot.replaceChildren(e('span','lead-label','RESUMO DO CASO'),e('p','muted','Não foi possível carregar o resumo agora · O resto da ficha continua valendo'));});}
+    if(aiReadingBlock)root.append(aiReadingBlock);
+    // The conversation and the quick result come right after the summary (built below, moved here).
+    const topAnchor=append(root,'div','lead-top-anchor');
     const trio=append(root,'div','lead-grid lead-three');
-    const wishes=section(trio,2,'O QUE ELE QUER');
+    const wishes=section(trio,4,'O QUE ELE QUER');
     if(!data.wishes.length) append(wishes,'p','muted','Carro ainda não informado');
     data.wishes.forEach((wish,index)=>row(wishes,`${index+1}. ${model(wish)}`,`${wish.yearMin||'—'}–${wish.yearMax||'—'}`,wish.maxMiles?`até ${Number(wish.maxMiles).toLocaleString('en-US')} mi`:'milhas não informadas'));
     append(wishes,'p','muted',`Lance máximo${data.bidSource==='CALCULADORA'?' (calculadora)':data.bidSource==='FICHA'?' (ficha)':''}: ${data.maxBidCents?cents(data.maxBidCents):'não informado'}`);
@@ -127,38 +131,44 @@
     append(wishes,'p','muted',`${data.zipKnown===false?'ZIP não informado (estimativa como FL)':data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':data.plateInformed===false?'não informada (custo calculado como transferir)':'transferir'}`);
     const ceilingForm=append(wishes,'div','lead-actions');const ceilingInput=append(ceilingForm,'input');ceilingInput.type='number';ceilingInput.min='1';ceilingInput.step='1';ceilingInput.placeholder='Teto total confirmado (US$)';ceilingInput.value=data.totalCeilingCents?data.totalCeilingCents/100:'';
     button(ceilingForm,'Confirmar teto total',async()=>{await api('total_ceiling',{amount:ceilingInput.value});await reload();});
-    const reality=section(trio,3,'REALIDADE (SÓ PARA VOCÊ)');
+    const reality=section(trio,5,'REALIDADE (SÓ PARA VOCÊ)');
     append(reality,'p','',`Lance realista: ${data.bid===null?(data.totalCeilingCents?'sem lance viável no teto':'lance máximo não informado'):fmt(data.bid)}`);
     if(!data.typical.length) append(reality,'p','muted','MMR típico: sem referência');
     data.typical.forEach((wish)=>{ append(reality,'p','muted',`MMR típico ${model(wish)}: ${wish.mmrCents?cents(wish.mmrCents):'sem referência'}`);
       if(wish.mmrCents&&data.bid!==null&&wish.mmrCents>data.bid*100) reality.append(badge(`Teto curto em ~${cents(wish.mmrCents-data.bid*100)}`,'yellow')); });
     append(reality,'p','muted','Cabe no teto: '+(data.fits.length?data.fits.map((car)=>`${car.make} ${car.model} ${car.year} · ${Number(car.miles).toLocaleString('en-US')} mi`).join(' · '):'sem combinação nos CSVs'));
-    const numbers=section(trio,4,'NÚMEROS PRONTOS');
+    const numbers=section(trio,6,'NÚMEROS PRONTOS');
     if(data.costs){const c=data.costs;row(numbers,'Depósito',fmt(c.deposito));row(numbers,'Taxa de serviço',fmt(c.servico));row(numbers,'Taxa do leilão + fixas',fmt(c.gLeilao));row(numbers,'Tax, title & registration',fmt(c.gTaxReg));row(numbers,'Total estimado',fmt(c.totalProjetado));}
     else append(numbers,'p','muted',data.totalCeilingCents?'O teto não cobre o lance mínimo e os custos':'Lance máximo ainda não informado');
 
     const second=append(root,'div','lead-grid lead-three');
-    const questions=section(second,5,'PERGUNTAR NA LIGAÇÃO');
-    data.checklist.filter((point)=>point.status!=='COMPLETE').forEach((point)=>append(questions,'p','',`${point.point_number}. ${point.point_label}?`));
+    const questions=section(second,7,'PERGUNTAR NA LIGAÇÃO');
+    // The open points are marked here (the owner of the question); DADOS E HISTÓRICO lists the done ones.
+    data.checklist.filter((point)=>point.status!=='COMPLETE').forEach((point)=>{const line=append(questions,'p','lead-question',`${point.point_number}. ${point.point_label}?`);button(line,'Marcar OK',async()=>{await api('checklist',{point:point.point_number,complete:true});await reload();});});
     if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)) append(questions,'p','',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);
     if(!questions.querySelector('p'))append(questions,'p','muted','Checklist completo');
-    const offers=section(second,6,'O QUE OFERECER');
+    const offers=section(second,8,'O QUE OFERECER');
+    // OPÇÕES owns the selection for the client and the V1; this section shows what the batch has and leads there.
+    const offerModes=[...new Set((data.offers||[]).map((car)=>car.mode).filter(Boolean))];
+    append(offers,'p','muted',`${data.offers.length} carro(s) compatível(is) no lote ativo · A seleção para o cliente e a V1 são feitas em OPÇÕES`);
+    if(journeyId&&(openOptions||openTab)){const go=append(offers,'div','lead-actions');if(offerModes.length&&openOptions)offerModes.forEach((mode)=>button(go,`Abrir em OPÇÕES · ${mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM'}`,()=>openOptions(`journey:${journeyId}:${mode}`),'small'));else if(openTab)button(go,'Abrir OPÇÕES',()=>openTab('searches'),'small');}
     if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes');
     data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind==='POR_VALOR'?'POR VALOR · ligar':car.kind,car.kind==='BATE'?'green':car.kind==='POR_VALOR'?'blue':'yellow'));
       append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('en-US')+' mi'} · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
       if(car.matchNotice)line.append(badge(car.matchNotice,'yellow'));else if(car.matchReason)append(line,'span','muted',car.matchReason);
       if(car.mode)line.append(badge(car.mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM',car.mode==='VALOR'?'blue':'green'));
-      button(line,'Apresentar',async()=>{await api('present',{fingerprint:car.rowFingerprint,mode:car.mode||null});await reload();}); });
-    const context=section(second,7,'CONTEXTO RÁPIDO');
+      button(line,'Registrar que apresentei',async()=>{await api('present',{fingerprint:car.rowFingerprint,mode:car.mode||null});await reload();}); });
+    const context=section(second,9,'CONTEXTO RÁPIDO');
     const allPromises=[...(record.promises||[]),...(data.promises||[])];
     const promises=allPromises.filter((promise)=>promise.status==='OPEN');
     const clientDay=(value)=>new Intl.DateTimeFormat('en-CA',{timeZone:data.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
     promises.forEach((promise)=>{const line=append(context,'p','',`Prometi: ${promise.promise_text}`);const due=clientDay(promise.due_at),today=clientDay(Date.now());if(due<=today)line.append(badge(due<today?'vencida':'vence hoje',due<today?'red':'yellow'));});
-    append(context,'p','',`Já apresentados: ${record.units?.length?record.units.map((unit)=>unit.vehicle_text).join(' · '):'nenhum carro'}`);
+    const presented=append(context,'p','',`Já apresentados: ${record.units?.length?record.units.map((unit)=>unit.vehicle_text).join(' · '):'nenhum carro'}`);
+    if(record.units?.length){const seeUnits=button(presented,'↓ detalhes em DADOS E HISTÓRICO',()=>document.getElementById('lead-units')?.scrollIntoView({behavior:'smooth'}));seeUnits.classList.add('lead-context-link');}
     [...(record.conversation||[])].filter((message)=>message.direction==='CUSTOMER').slice(-3).reverse().forEach((message)=>{
       const link=button(context,`↓ ${safeString(message.body_text).slice(0,120)}`,()=>document.getElementById('lead-conversation')?.scrollIntoView({behavior:'smooth'}));link.classList.add('lead-context-link'); });
 
-    const note=section(root,8,'ANOTAÇÕES E AJUDA DA IA','lead-highlight');
+    const note=section(root,10,'ANOTAÇÕES E AJUDA DA IA','lead-highlight');
     append(note,'p','muted','Escreva do seu jeito, em português · Peça uma opinião sobre este cliente, ou anote o que conversou por telefone ou pessoalmente');
     const textarea=append(note,'textarea','lead-note');textarea.placeholder='Anote a conversa aqui…';textarea.maxLength=12000;
     const draftKey='mcs_lead_draft_'+(ref||journeyId);textarea.value=sessionStorage.getItem(draftKey)||'';
@@ -191,11 +201,15 @@
     },'small');
     const help=button(note,'💡 Pedir ajuda à IA',async()=>{
       const question=textarea.value.trim();if(!question){noteStatus.textContent='Escreva a pergunta para a IA na anotação';textarea.focus();return;}help.disabled=true;noteStatus.textContent='Pensando no contexto deste lead…';
-      try{const result=await request('/api/panel/lead-help',{method:'POST',body:JSON.stringify({ref,journeyId,question})});const answer=result.answer||{};const box=append(note,'div','ai-summary');append(box,'h3','','💡 Opinião da IA');append(box,'p','',`O que está acontecendo: ${answer.situacao}`);append(box,'p','',`O que eu faria: ${answer.sugestao}`);append(box,'p','',`Mensagem sugerida: ${answer.mensagem_en}`);append(box,'p','muted',`Tradução: ${answer.traducao_pt}`);button(box,'Copiar mensagem',()=>navigator.clipboard.writeText(answer.mensagem_en),'small');button(box,'Perguntar de novo',()=>{box.remove();textarea.focus();},'quiet small');noteStatus.textContent='';}catch(error){noteStatus.textContent=error.code==='AI_DAILY_LIMIT'?'Não consegui responder agora, tente mais tarde':'Não consegui responder agora, tente mais tarde';}finally{help.disabled=false;}
+      try{const result=await request('/api/panel/lead-help',{method:'POST',body:JSON.stringify({ref,journeyId,question})});const answer=result.answer||{};const box=append(note,'div','ai-summary');append(box,'h3','','💡 Opinião da IA');append(box,'p','',`O que está acontecendo: ${answer.situacao}`);append(box,'p','',`O que eu faria: ${answer.sugestao}`);if(answer.mensagem_en){const msgLabel=append(box,'label','suggestion-edit','Mensagem sugerida (editável)');const msg=append(msgLabel,'textarea','suggestion-text lead-help-message');msg.rows=4;msg.maxLength=4000;msg.value=answer.mensagem_en;append(box,'p','muted',`Tradução: ${answer.traducao_pt}`);
+        // Same send path as the suggestions: the window decides (panel with confirmation, or the phone).
+        if(result.send&&window.MCSSuggest&&MCSSuggest.sendControls)MCSSuggest.sendControls(box,{...result.send,journeyId:result.send.journeyId||journeyId},msg,{request,discard:false,onSent:(sent)=>{if(!(sent&&sent.simulated))setTimeout(()=>reload(),1500);}});
+        else button(box,'Copiar mensagem',()=>navigator.clipboard.writeText(msg.value),'small');}
+      button(box,'Perguntar de novo',()=>{box.remove();textarea.focus();},'quiet small');noteStatus.textContent='';}catch(error){noteStatus.textContent=error.code==='AI_DAILY_LIMIT'?'Não consegui responder agora, tente mais tarde':'Não consegui responder agora, tente mais tarde';}finally{help.disabled=false;}
     },'small');
     const helpHistory=data.aiHelp||[];if(helpHistory.length){append(note,'h3','','Histórico de ajuda deste lead');helpHistory.forEach((entry)=>append(note,'p','muted',`${date(entry.created_at,data.timezone)} — Você: ${safeString(entry.question).slice(0,150)} · IA: ${safeString(entry.answer_json?.sugestao).slice(0,180)}`));}
 
-    const quick=section(root,9,'RESULTADO RÁPIDO');const quickActions=append(quick,'div','lead-actions');
+    const quick=section(root,3,'RESULTADO RÁPIDO');const quickActions=append(quick,'div','lead-actions');
     function undo(event){if(activeUndo)activeUndo.remove();const toast=append(document.body,'div','undo-toast');activeUndo=toast;append(toast,'span','','Resultado registrado');
       button(toast,'Desfazer',async()=>{await api('undo',{eventId:event.eventId});toast.remove();await reload();});setTimeout(()=>{toast.remove();if(activeUndo===toast)activeUndo=null;},10000);}
     async function quickResult(type,dueLocal){
@@ -211,7 +225,7 @@
     const laterForm=append(quick,'div','lead-actions');laterForm.hidden=true;const laterDate=append(laterForm,'input');laterDate.type='datetime-local';append(laterForm,'small','muted','horário do cliente');
     button(laterForm,'Registrar retorno',async()=>{if(!laterDate.value)throw needs('Escolha o dia e a hora do retorno');await quickResult('LATER',laterDate.value);},'small');
 
-    const tracking=section(root,10,'PÁGINA DO CLIENTE','lead-highlight');
+    const tracking=section(root,11,'PÁGINA DO CLIENTE','lead-highlight');
     const resultChoice=append(tracking,'div','lead-actions');resultChoice.hidden=true;
     if(track){const steps=append(tracking,'div','lead-steps');stageNames.forEach((label,index)=>button(steps,label,async()=>{
       if(index===3){resultChoice.hidden=false;return;}await api('tracking_step',{step:index+1});await reload();},'lead-step '+(index+1<=track.step?'on':'')));
@@ -223,7 +237,7 @@
     append(tracking,'p','muted',customerResponses.length?customerResponses.map((entry)=>`${entry.detail_json.vehicle}: ${entry.event_type==='WANT_CAR'?'I want this':'Not for me'}`).join(' · '):'O cliente ainda não respondeu aos carros');
 
     const finalGrid=append(root,'div','lead-grid lead-two');
-    const conversation=section(finalGrid,11,'CONVERSA','lead-highlight');conversation.id='lead-conversation';
+    const conversation=section(finalGrid,2,'CONVERSA','lead-highlight');conversation.id='lead-conversation';
     const aiReview=append(conversation,'div','lead-card lead-highlight ai-conversation-review');append(aiReview,'span','lead-label','A IA LEU A CONVERSA');
     append(aiReview,'p','muted','Roda sozinha depois de 3 mensagens da MCS, 10 min após a última mensagem do cliente e somente quando houver mensagem nova · Nada é gravado sem confirmação');
     const aiStatus=append(aiReview,'p','status','');
@@ -249,9 +263,9 @@
     // Guided reply: the operator says what to convey, the AI writes it in the client's language (never sent).
     if(journeyId&&window.MCSSuggest&&MCSSuggest.guided)conversation.append(MCSSuggest.guided(journeyId,{request,onSent:afterSend}));
     const uploadAttachment=async(files,status)=>{const ensured=journeyId?{journeyId,contactId:record.contact_id}:await api('ensure');for(const file of files){status.textContent='Enviando e lendo…';const head=new Uint8Array(await file.slice(0,64).arrayBuffer()),signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:ensured.journeyId,contactId:ensured.contactId})}),uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');const read=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});if(read.manual){status.textContent=(read.read?.error_code==='SMS_PRINT_DAILY_LIMIT'?'Limite de leituras de print do dia atingido':'Não consegui ler agora, tente mais tarde')+' · O print ficou guardado';continue;}const values=read.read.extracted_json||{},saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:signed.readId,phone:values.phone||'',name:values.name||'',ref:values.ref||'',message:values.message||'',translation:values.translation||''})});status.textContent=saved.duplicate?'Este print já foi guardado.':`✓ Guardado no lead de ${saved.name||'Pedido'} · Ref ${saved.ref||values.ref||'—'}`;button(status.parentElement,'Desfazer',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:signed.readId})});await reload();},'quiet small');}await reload();};
-    const attachmentButton=(parent)=>{const card=append(parent,'div','attachment-choice');append(card,'strong','','📷 Anexar print');append(card,'p','muted','Print de SMS, de WhatsApp ou foto · O painel lê a Ref e o número e coloca no cliente certo sozinho');const picker=append(card,'label','small','📷 Escolher prints'),input=append(picker,'input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;const info=append(card,'span','muted','');const actions=append(card,'div','inline-actions');const remove=button(actions,'✕ Remover',()=>{input.value='';info.textContent='';send.disabled=true;remove.hidden=true;},'quiet small');remove.hidden=true;const send=button(actions,'Enviar',async()=>{await uploadAttachment([...input.files],status);},'small');send.disabled=true;const status=append(card,'span','status','');input.addEventListener('change',()=>{const files=[...input.files];info.textContent=files.map((file)=>`${file.name} · ${(file.size/1024/1024).toFixed(1)} MB`).join(' · ');send.disabled=!files.length;remove.hidden=!files.length;});};
-    attachmentButton(conversation);
+    const attachmentButton=(parent)=>{const card=append(parent,'div','attachment-choice');append(card,'strong','','📷 Anexar print');append(card,'p','muted','Print de SMS, de WhatsApp ou foto · O painel lê a Ref e o número e coloca no cliente certo sozinho');const picker=append(card,'label','small','📷 Escolher prints'),input=append(picker,'input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;const info=append(card,'span','muted','');const actions=append(card,'div','inline-actions');const remove=button(actions,'✕ Remover',()=>{input.value='';info.textContent='';send.disabled=true;remove.hidden=true;},'quiet small');remove.hidden=true;const send=button(actions,'Guardar print',async()=>{await uploadAttachment([...input.files],status);},'small');send.disabled=true;const status=append(card,'span','status','');input.addEventListener('change',()=>{const files=[...input.files];info.textContent=files.map((file)=>`${file.name} · ${(file.size/1024/1024).toFixed(1)} MB`).join(' · ');send.disabled=!files.length;remove.hidden=!files.length;});};
     const controls=append(conversation,'div','lead-actions');
+    const attachLink=button(controls,'📷 Anexar print',()=>document.getElementById('lead-history')?.scrollIntoView({behavior:'smooth'}));attachLink.title='Os prints são anexados em DADOS E HISTÓRICO';
     const sort=append(controls,'select');[['recent','Mais recentes'],['oldest','Mais antigas']].forEach(([value,label])=>sort.append(new Option(label,value)));
     sort.value=localStorage.getItem('mcs_conversation_sort')||'recent';
     const filter=append(controls,'select');[['all','Tudo'],['CUSTOMER','Cliente'],['MCS','MCS']].forEach(([value,label])=>filter.append(new Option(label,value)));
@@ -277,7 +291,7 @@
     // A20: reply from the panel (review in Portuguese, translation, 24 h window checked by the server).
     if(journeyId&&replyComposer)replyComposer(conversation,journeyId,reload);
 
-    const history=section(finalGrid,12,'DADOS E HISTÓRICO','lead-highlight');
+    const history=section(finalGrid,12,'DADOS E HISTÓRICO','lead-highlight');history.id='lead-history';
     attachmentButton(history);
     append(history,'h3','','Anexos');const attachments=append(history,'div','lead-attachments');
     (record.attachments||[]).forEach((item)=>{const card=append(attachments,'button','lead-attachment');card.type='button';if(item.kind==='IMAGE'){const thumb=append(card,'img','lead-attachment-thumb');thumb.alt='';request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'download',attachmentId:item.id})}).then((signed)=>{thumb.src=signed.url;}).catch(()=>{thumb.replaceWith(Object.assign(document.createElement('span'),{className:'lead-attachment-thumb',textContent:'🖼️'}));});}else append(card,'span','lead-attachment-thumb','📄');append(card,'span','',`${item.original_filename} · ${date(item.created_at,data.timezone)}`);card.addEventListener('click',async()=>{card.disabled=true;try{const signed=await request('/api/panel/attachments',{method:'POST',body:JSON.stringify({action:'download',attachmentId:item.id})});window.open(signed.url,'_blank','noopener');}finally{card.disabled=false;}});});
@@ -287,11 +301,11 @@
     data.checklist.forEach((point)=>{const line=append(history,'div','lead-check');const done=point.status==='COMPLETE';append(line,'span','',`${point.point_number}. ${point.point_label} · ${done?'OK':'Pendente'}`);button(line,done?'Desmarcar':'Marcar OK',async()=>{await api('checklist',{point:point.point_number,complete:!done});await reload();},done?'quiet small':'small');});
     const extraPhones=(data.events||[]).filter((item)=>item.event_type==='EXTRA_PHONE');
     if(extraPhones.length){append(history,'h3','','Telefones extras');extraPhones.forEach((item)=>row(history,item.detail_json?.owner||'Contato',item.detail_json?.number));}
-    append(history,'h3','','Retornos');
+    append(history,'h3','','Retornos e promessas em aberto');
     (record.returns||[]).filter((item)=>item.status==='OPEN').forEach((item)=>{const line=row(history,item.text,date(item.dueAt,data.timezone));button(line,'Concluir',async()=>{await api('manual',{panelAction:'return_update',payload:{returnKind:item.kind,returnId:item.kind==='PROMISE'?item.id:null,operation:'COMPLETE'}});await reload();});});
     if(!record.next_action_at){const form=append(history,'div','lead-actions');const task=append(form,'input');task.placeholder='Retorno manual';const due=append(form,'input');due.type='datetime-local';
       append(form,'small','muted','horário do cliente');button(form,'Adicionar retorno',async()=>{await api('manual',{panelAction:'next_action',payload:{operation:'CREATE',text:task.value,atLocal:due.value}});await reload();});}
-    append(history,'h3','','Unidades apresentadas');
+    const unitsTitle=append(history,'h3','','Unidades apresentadas');unitsTitle.id='lead-units';
     (record.units||[]).forEach((unit)=>{const line=append(history,'div','lead-unit');append(line,'strong','',unit.vehicle_text);append(line,'p','muted',`${date(unit.presented_at,data.timezone)} · ${{PRESENTED:'Apresentada',UNDER_REVIEW:'Em análise',ACCEPTED:'Aceita',DECLINED:'Recusada'}[unit.status]||unit.status}`);
       const fields=append(line,'div','lead-actions');const value=append(fields,'input');value.type='number';value.placeholder='Retail comparison (US$)';value.value=unit.details_json?.retailValue||'';
       const link=append(fields,'input');link.type='url';link.placeholder='Link da página de comparativos MCS';link.value=unit.details_json?.retailUrl||'';
@@ -302,7 +316,7 @@
     stage.value=record.stage||'NOVO';button(history,'Salvar etapa',async()=>{await api('manual',{panelAction:'set_funnel',payload:{value:stage.value}});await reload();});
     append(history,'h3','','Simulações da Ref');
     (order.simulations||[]).forEach((simulation)=>row(history,simulation.logicalMode==='VALOR'?'Por valor':'Carro ideal',simulation.vehicleText||'Veículo não informado',cents(simulation.budgetCents)));
-    append(history,'h3','','Promessas');allPromises.forEach((promise)=>{const line=row(history,promise.promise_text,date(promise.due_at,data.timezone),({OPEN:'Aberta',FULFILLED:'Concluída',CANCELLED:'Cancelada'})[promise.status]||promise.status);if(promise.status==='OPEN')button(line,'Concluir',async()=>{await api('promise_complete',{promiseId:promise.id,kind:promise.message_id?'OLD':'NEW'});await reload();});});
+    const closedPromises=allPromises.filter((promise)=>promise.status!=='OPEN');if(closedPromises.length)append(history,'h3','','Promessas concluídas ou canceladas');closedPromises.forEach((promise)=>{const line=row(history,promise.promise_text,date(promise.due_at,data.timezone),({OPEN:'Aberta',FULFILLED:'Concluída',CANCELLED:'Cancelada'})[promise.status]||promise.status);if(promise.status==='OPEN')button(line,'Concluir',async()=>{await api('promise_complete',{promiseId:promise.id,kind:promise.message_id?'OLD':'NEW'});await reload();});});
     append(history,'h3','','Linha do tempo');const timeline=append(history,'ul','lead-timeline');timelineRows(data).forEach((item)=>append(timeline,'li','',`${date(item.at,data.timezone)} — ${item.text}`));
     const power=append(history,'div','lead-actions');
     // A7: a closed ficha is reopened explicitly; one merged into another conversation stays closed.
@@ -311,7 +325,9 @@
     else {const reason=append(power,'select');[['','Desligar com motivo'],['MCS_PURCHASE','Comprou com a MCS'],['OTHER_PURCHASE','Comprou em outro lugar'],['GAVE_UP','Desistiu'],['NO_RESPONSE','Sem resposta']].forEach(([v,label])=>reason.append(new Option(label,v)));
       const off=button(power,'Desligar',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:reason.value}});await reload();});
       off.disabled=true;off.title='Escolha o motivo';reason.addEventListener('change',()=>{off.disabled=!reason.value;});}
-    if(downloadShortlist){const matching=(data.offers||[]).map((car)=>({vehicle_json:{parsed:car}}));if(matching.length)button(history,'Baixar PDF',()=>downloadShortlist(matching,ref));}
+    // Order on screen: header → case summary → conversation → quick result → the rest.
+    topAnchor.replaceWith(conversation,quick);finalGrid.classList.add('lead-one');
+    if(downloadShortlist){const matching=(data.offers||[]).map((car)=>({vehicle_json:{parsed:car}}));if(matching.length){button(history,'Baixar PDF',()=>downloadShortlist(matching,ref));append(history,'span','muted','PDF com todos os compatíveis do lote · o PDF só dos selecionados para o cliente fica em OPÇÕES');}}
   }
   window.MCSLead={open};
 })();
