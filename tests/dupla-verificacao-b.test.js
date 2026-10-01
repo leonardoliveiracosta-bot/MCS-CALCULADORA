@@ -38,3 +38,11 @@ test('old-conversation queue leaves out discarded and out-of-funnel people, with
   assert.deepEqual(result.excluded.map((item) => [item.journeyId, item.reason.code]).sort(), [['j2', 'DISCARDED'], ['j3', 'TRIAGE_OUT']]);
   assert.match(result.excluded.find((item) => item.journeyId === 'j2').reason.text, /sem interesse/);
 });
+
+test('financiamento: até US$ 7.000 só à vista; a partir de US$ 7.001 pode financiar', () => {
+  const { CONFIG } = require('../calc-core');
+  assert.equal(CONFIG.financiamentoMinimo, 7001);
+  const warns = (lance) => lance > 0 && lance < CONFIG.financiamentoMinimo; // the calculator's rule
+  assert.equal(warns(7000), true);
+  assert.equal(warns(7001), false);
+});

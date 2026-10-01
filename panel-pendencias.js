@@ -36,11 +36,6 @@ function fixedSituation(group, insight, now=Date.now()) {
   if (insight && insight.last_ai_message_id === group.latest.id && SITUATIONS[insight.situation]) return insight.situation;
   return now-at(group.latest) > THREE_DAYS ? 'CUSTOMER_PENDING' : 'IN_PROGRESS';
 }
-function defaultHeat(situation, latestAt, now=Date.now()) {
-  if (situation === 'NO_RESPONSE' || situation === 'MCS_PENDING') return now-latestAt > THREE_DAYS ? 'HOT' : 'WARM';
-  if (situation === 'CUSTOMER_PENDING') return 'WARM';
-  return 'COLD';
-}
 function statusFromAI(value) {
   const normalized=String(value||'').trim().toUpperCase();
   return ['MCS_PENDING','CUSTOMER_PENDING','IN_PROGRESS','CLOSED'].includes(normalized) ? normalized : 'UNKNOWN';
@@ -174,4 +169,4 @@ async function unresolvePending(ctx, body) {
   return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/conversation_pending_resolutions?environment=eq.'+ctx.environment+'&journey_id=eq.'+body.journeyId+'&chat_id=eq.'+body.chatId+'&undone_at=is.null',{method:'PATCH',headers:{'content-type':'application/json',prefer:'return=minimal'},body:JSON.stringify({undone_at:new Date().toISOString(),undone_by:ctx.panel.id})});
 }
 
-module.exports={GENERAL_MAX_CHARS,GENERAL_MAX_MESSAGES,SITUATIONS,callAnthropic,conversationGroups,defaultHeat,fixedSituation,formatSegment,generalBatch,generalStatus,itemFromGroup,maximumCostUsd,modelPrices,pendingSnapshot,resolvePending,unresolvePending,sortPending,startGeneralRead,statusFromAI,storeDailyInsight,usageCostUsd,validatedGeneral};
+module.exports={GENERAL_MAX_CHARS,GENERAL_MAX_MESSAGES,SITUATIONS,callAnthropic,conversationGroups,fixedSituation,formatSegment,generalBatch,generalStatus,itemFromGroup,maximumCostUsd,modelPrices,pendingSnapshot,resolvePending,unresolvePending,sortPending,startGeneralRead,statusFromAI,storeDailyInsight,usageCostUsd,validatedGeneral};

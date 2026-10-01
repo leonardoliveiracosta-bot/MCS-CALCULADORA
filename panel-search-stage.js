@@ -2,7 +2,7 @@
 
 // The same deterministic search identity is used by BUSCAS and Manheim saves.
 const { allRows } = require('./panel-server');
-const { buildSearchDemands, consolidateCalcRuns, effectiveCriteria, mergeWishlists, toggleEnabled } = require('./panel-domain');
+const { buildSearchDemands, consolidateCalcRuns, toggleEnabled } = require('./panel-domain');
 const { undoSupported } = require('./panel-manheim-state');
 const vehicleMatch = require('./vehicle-match');
 const catalog = require('./vehicle-catalog');
@@ -26,14 +26,6 @@ function searchIdentity(wish, mode) {
   const normalized = vehicleMatch.normalizedMode(mode);
   if (!base || !normalized) return null;
   return { mode: normalized, basis: normalized === 'CARRO' ? 'CRITERIA' : 'VALUE', key: normalized === 'CARRO' ? base : base + '|valor' };
-}
-// The ficha's effective criteria (R1): its own wishes and bid, filled by its linked calculator Refs.
-function journeyCriteria(journey, refs, ordersByRef) {
-  const own = [journey?.reference_code, ...(refs || []).filter((row) => row.journey_id === journey?.id).map((row) => row.ref_code)]
-    .map((value) => String(value || '').trim().toUpperCase()).filter(Boolean);
-  const linked = own.map((ref) => ordersByRef.get(ref)).filter(Boolean);
-  const merged = linked.length ? { wishlists: mergeWishlists([], linked.flatMap((order) => order.wishlists || [])), budgetCents: linked.map((order) => order.budgetCents).find((value) => Number(value) > 0) || null } : null;
-  return effectiveCriteria(journey, merged);
 }
 function stageLabel(stage, basis) { if (stage === 'MISSING' && basis === 'QUALIFY') return '❓ Precisa qualificar'; return ({ MISSING: '🔍 Falta buscar', SAVED: '💾 Busca salva', SENT: '📤 Opções enviadas' })[stage] || ''; }
 function floridaDays(at, now = Date.now()) {
@@ -148,4 +140,4 @@ function decorateWithSearchStage(item, index) {
   return stage ? { ...item, searchStage: stage.stage, searchStageSource:stage.stageSource, searchStageLabel: stage.label, searchStageAt: stage.at, searchKey: stage.searchKey, hasCalculatorOrder:stage.hasCalculatorOrder, directLeadSource:stage.directLeadSource, smsPrintConfirmed: stage.smsPrintConfirmed } : item;
 }
 
-module.exports = { searchableWish, searchKey, searchIdentity, journeyCriteria, stageLabel, floridaDays, calculatorRefs, hasCalculatorOrder, directLeadSource, loadSearchStageIndex, decorateWithSearchStage };
+module.exports = { searchableWish, searchKey, searchIdentity, stageLabel, floridaDays, calculatorRefs, hasCalculatorOrder, directLeadSource, loadSearchStageIndex, decorateWithSearchStage };
