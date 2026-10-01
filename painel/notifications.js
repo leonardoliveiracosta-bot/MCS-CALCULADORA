@@ -33,16 +33,39 @@
     sessionStorage.setItem(PUSH_IDS_KEY, JSON.stringify([...new Set(ids)]));
   }
 
-  async function api(path, options = {}) {
-    const token = accessToken();
-    if (!token) throw new Error('AUTHENTICATION_REQUIRED');
+  // Token that got a 401 and could not be renewed: no more requests with it until the token changes (new login).
+  let expiredToken = null;
+
+  async function send(path, options, token) {
     const response = await fetch(path, {
       ...options,
       headers: { authorization: 'Bearer ' + token, ...(options.headers || {}) }
     });
-    const data = await response.json().catch(() => ({}));
+    return { response, data: await response.json().catch(() => ({})) };
+  }
+
+  async function api(path, options = {}) {
+    let token = accessToken();
+    if (!token || token === expiredToken) throw new Error('AUTHENTICATION_REQUIRED');
+    let { response, data } = await send(path, options, token);
+    if (response.status === 401) {
+      // The panel renews the session (one renewal at a time); then this request is tried once more.
+      const renewed = window.MCSPanelAuth ? await window.MCSPanelAuth.refresh().catch(() => false) : false;
+      const next = accessToken();
+      if (renewed && next && next !== token) ({ response, data } = await send(path, options, (token = next)));
+      if (response.status === 401) {
+        expiredToken = token;
+        status('Sessão expirada · Entre novamente para voltar a receber avisos de mensagens novas');
+        throw new Error('AUTHENTICATION_REQUIRED');
+      }
+    }
     if (!response.ok) throw new Error(data.error || 'REQUEST_FAILED');
     return { data, status: response.status };
+  }
+
+  function stopPolling() {
+    clearInterval(pollTimer);
+    pollTimer = null;
   }
 
   function urlBase64ToUint8Array(value) {
@@ -103,7 +126,11 @@
   }
 
   async function poll() {
-    if (!foreground() || !accessToken()) return;
+    const token = accessToken();
+    if (!foreground() || !token) return;
+    // Expired session: no request at all until a new login stores another token, then it resumes alone.
+    if (token === expiredToken) return;
+    if (expiredToken) { expiredToken = null; status(''); }
     if (!cursor) {
       cursor = sessionStorage.getItem(CURSOR_KEY) || new Date().toISOString();
       sessionStorage.setItem(CURSOR_KEY, cursor);
@@ -121,8 +148,7 @@
   }
 
   function schedulePolling() {
-    clearInterval(pollTimer);
-    pollTimer = null;
+    stopPolling();
     if (!foreground()) return;
     poll();
     pollTimer = setInterval(poll, POLL_MS);
@@ -142,6 +168,7 @@
     document.addEventListener('visibilitychange', schedulePolling);
     window.addEventListener('focus', schedulePolling);
     window.addEventListener('blur', schedulePolling);
+    window.addEventListener('storage', (event) => { if (event.key === SESSION_KEY) schedulePolling(); });
     schedulePolling();
   });
 })();

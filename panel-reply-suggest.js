@@ -206,6 +206,36 @@ function blockOf(item) {
   return null;
 }
 
+// A Ref (ficha code or linked Ref) that is in more than one ficha: whose case it is is unknown, so the
+// panel neither queues nor suggests on it until the identity is resolved (same rule as the client context).
+const REF_CODE = /^[A-HJ-NP-Z2-9]{5}$/;
+const refKey = (value) => String(value || '').trim().toUpperCase();
+function sharedRefsFrom(journeyId, refs, owners) {
+  return refs.filter((ref) => (owners.get(ref) || new Set([journeyId])).size > 1);
+}
+function ownersMap(journeys, journeyRefs) {
+  const owners = new Map();
+  const add = (ref, journeyId) => { const key = refKey(ref); if (!REF_CODE.test(key) || !journeyId) return; if (!owners.has(key)) owners.set(key, new Set()); owners.get(key).add(journeyId); };
+  journeys.forEach((row) => add(row.reference_code, row.id));
+  journeyRefs.forEach((row) => add(row.ref_code, row.journey_id));
+  return owners;
+}
+async function sharedRefsOf(ctx, journey, read) {
+  const env = 'eq.' + ctx.environment;
+  const ownLinks = await read(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env, journey_id: 'eq.' + journey.id });
+  const refs = [...new Set([journey.reference_code, ...ownLinks.map((row) => row.ref_code)].map(refKey).filter((ref) => REF_CODE.test(ref)))];
+  if (!refs.length) return [];
+  const list = 'in.(' + refs.join(',') + ')';
+  const [codes, links] = await Promise.all([
+    read(ctx, 'journeys', { select: 'id,reference_code', environment: env, reference_code: list }),
+    read(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env, ref_code: list })
+  ]);
+  return sharedRefsFrom(journey.id, refs, ownersMap(codes, links));
+}
+function ambiguityBlock(shared) {
+  return { code: 'REF_AMBIGUOUS', refs: shared, text: `Ref ${shared.join(', ')} ligada a mais de uma ficha: confirme de quem é antes de usar este contexto` };
+}
+
 // ------------------------------------------------------------------ sugestão
 const running = new Set();
 async function suggest(ctx, body, services = {}) {
@@ -225,6 +255,8 @@ async function suggest(ctx, body, services = {}) {
     const mode = body.mode === 'RETOMADA' || body.mode === 'RESPOSTA' ? body.mode : last.direction === 'CUSTOMER' ? 'RESPOSTA' : 'RETOMADA';
     // An opt-out blocks every suggestion; a closed, off or "not a lead" case only blocks a follow-up.
     if (blocked && (blocked.code === 'OPT_OUT' || mode === 'RETOMADA')) return { status: 409, error: 'SUGGESTION_BLOCKED', reason: blocked };
+    const shared = await sharedRefsOf(ctx, found.journey, services.rows || rows);
+    if (shared.length) return { status: 409, error: 'SUGGESTION_BLOCKED', reason: ambiguityBlock(shared) };
     const target = await (services.resolveTarget || reply.resolveTarget)(ctx, journeyId, { rows: services.rows || rows });
     const window = target ? await (services.windowState || reply.windowState)(ctx, target.chat.id, { rows: services.rows || rows }) : { allowed: false };
     const context = await (services.clientContext || defaultContext)(ctx, journeyId);
@@ -298,15 +330,19 @@ async function queue(ctx, options = {}, services = {}) {
   const env = 'eq.' + ctx.environment;
   const now = options.now || Date.now();
   const minDays = Math.max(1, Math.min(365, Number(options.minDays) || QUEUE_MIN_DAYS));
-  const [journeys, contacts, chats, phones, links, messages, toggles] = await Promise.all([
+  const [journeys, contacts, chats, phones, links, messages, toggles, journeyRefs] = await Promise.all([
     read(ctx, 'journeys', { select: 'id,contact_id,reference_code,status,stage,closed_reason', environment: env }),
     read(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: env }),
     read(ctx, 'chats', { select: 'id,contact_id,channel,is_group,canonical_key', environment: env, channel: 'eq.WHATSAPP' }),
     read(ctx, 'contact_phones', { select: 'contact_id,phone_e164,is_current,retired_at', environment: env }),
     read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }),
     read(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,occurred_at_utc,created_at,undone_at', environment: env, undone_at: 'is.null' }),
-    read(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: env })
+    read(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: env }),
+    read(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env })
   ]);
+  const refOwners = ownersMap(journeys, journeyRefs);
+  const refsByJourney = new Map();
+  journeyRefs.forEach((row) => { if (!refsByJourney.has(row.journey_id)) refsByJourney.set(row.journey_id, []); refsByJourney.get(row.journey_id).push(refKey(row.ref_code)); });
   const contactById = new Map(contacts.map((row) => [row.id, row]));
   const messageById = new Map(messages.map((row) => [row.id, row]));
   const toggleByJourney = new Map(toggles.map((row) => [row.journey_id, row]));
@@ -331,6 +367,9 @@ async function queue(ctx, options = {}, services = {}) {
       lastMessage: String(last.body_text || '').slice(0, 280), stage: journey.stage || null };
     const block = blockOf({ journey, contact, toggle: toggleByJourney.get(journey.id), optOut: optOutOf(own) });
     if (block) { excluded.push({ ...base, reason: block }); return; }
+    const ownRefs = [...new Set([refKey(journey.reference_code), ...(refsByJourney.get(journey.id) || [])].filter((ref) => REF_CODE.test(ref)))];
+    const shared = sharedRefsFrom(journey.id, ownRefs, refOwners);
+    if (shared.length) { excluded.push({ ...base, reason: ambiguityBlock(shared) }); return; }
     const contactChats = (chatsByContact.get(journey.contact_id) || []);
     const individual = contactChats.filter((chat) => chat.is_group === false);
     if (!individual.length) { excluded.push({ ...base, reason: { code: 'NO_WHATSAPP', text: 'Sem conversa individual de WhatsApp ligada ao contato' } }); return; }

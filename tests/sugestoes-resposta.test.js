@@ -218,3 +218,45 @@ test('V1 em produção: um envio real por vez por pessoa, outra V1 em segundos �
   const gapQuery = rowsSeen.find(([table, params]) => table === 'v1_sends' && params.created_by);
   assert.equal(gapQuery[1].simulated, 'is.false');
 });
+
+test('Ref ambígua: fora da fila com o motivo, sem sugestão e próximo passo é resolver a identidade', async () => {
+  const other = '6d200000-0000-4000-8000-000000000901', otherJourney = '6d200000-0000-4000-8000-000000000902';
+  const paulo = fixture.people.answered.journey, sofia = fixture.people.spanish.journey;
+  await backend.db.exec(`
+    insert into public.contacts(id,environment,display_name,source,is_lead,created_at,updated_at) values('${other}','preview','Ana Outra','WHATSAPP_DIRECT',true,now(),now());
+    insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,reference_code,created_at,updated_at) values('${otherJourney}','preview','${other}','WHATSAPP_DIRECT','RESPONDIDO','ATIVO','{}'::jsonb,'K7QPD',now(),now());
+    insert into public.journey_refs(environment,journey_id,ref_code,created_at) values('preview','${paulo}','K7QPD',now()),('preview','${sofia}','M3RTX',now()),('preview','${otherJourney}','M3RTX',now());`);
+  try {
+    const before = await sends();
+    const res = await call('GET', '/api/panel/suggestions?minDays=14');
+    assert.equal(res.statusCode, 200, JSON.stringify(res.payload));
+    assert.deepEqual(res.payload.eligible.map((item) => item.name), [], 'Ref compartilhada (código da ficha ou Ref ligada) sai da fila');
+    const reasons = Object.fromEntries(res.payload.excluded.map((item) => [item.name, item.reason]));
+    assert.equal(reasons['Paulo Exemplo'].code, 'REF_AMBIGUOUS');
+    assert.match(reasons['Paulo Exemplo'].text, /Ref K7QPD ligada a mais de uma ficha/);
+    assert.equal(reasons['Sofía Ejemplo'].code, 'REF_AMBIGUOUS');
+    assert.deepEqual(reasons['Sofía Ejemplo'].refs, ['M3RTX']);
+    assert.deepEqual(reasons['Paulo Exemplo'].refs, ['K7QPD']);
+    assert.equal(res.payload.reasons.REF_AMBIGUOUS, 2);
+
+    for (const [journeyId, mode] of [[paulo, undefined], [paulo, 'RESPOSTA'], [sofia, 'RETOMADA']]) {
+      const blocked = await call('POST', '/api/panel/suggestions', { action: 'suggest', journeyId, ...(mode ? { mode } : {}) });
+      assert.equal(blocked.statusCode, 409);
+      assert.equal(blocked.payload.error, 'SUGGESTION_BLOCKED');
+      assert.equal(blocked.payload.reason.code, 'REF_AMBIGUOUS');
+    }
+    const context = (await require('../panel-client-context').buildContexts(ctx, { journeyIds: [paulo] })).journeys[paulo];
+    assert.deepEqual(context.sharedRefs, ['K7QPD']);
+    assert.match(context.nextAction.text, /^Resolver a identidade/);
+    assert.doesNotMatch(context.nextAction.text, /Responder o cliente/);
+    assert.match(context.blocker, /K7QPD também está em outra ficha/);
+    assert.deepEqual(await sends(), before, 'nada enviado');
+  } finally {
+    await backend.db.exec(`
+      delete from public.journey_refs where ref_code in ('M3RTX','K7QPD');
+      delete from public.journeys where id='${otherJourney}';
+      delete from public.contacts where id='${other}';`);
+  }
+  const back = await call('GET', '/api/panel/suggestions?minDays=14');
+  assert.deepEqual(back.payload.eligible.map((item) => item.name), ['Sofía Ejemplo', 'Paulo Exemplo'], 'resolvida a identidade, voltam à fila');
+});
