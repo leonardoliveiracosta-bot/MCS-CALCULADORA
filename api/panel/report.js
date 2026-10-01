@@ -126,12 +126,12 @@ module.exports = async (req, res) => {
     });
     const visibleJourneys = data.journeys;
     const journeyById = new Map(visibleJourneys.map((journey) => [journey.id, journey]));
-    const journeyByRef = new Map();
-    for (const journey of visibleJourneys) if (journey.reference_code) journeyByRef.set(String(journey.reference_code).trim().toUpperCase(), journey);
-    for (const row of data.refs) {
-      const journey = journeyById.get(row.journey_id);
-      if (journey) journeyByRef.set(String(row.ref_code).trim().toUpperCase(), journey);
-    }
+    // R3: a Ref owned by more than one ficha is attached to none of them (no last-owner-wins).
+    const refOwners = new Map();
+    const addOwner = (ref, journey) => { const key = String(ref || '').trim().toUpperCase(); if (!key || !journey) return; if (!refOwners.has(key)) refOwners.set(key, new Set()); refOwners.get(key).add(journey.id); };
+    for (const journey of visibleJourneys) addOwner(journey.reference_code, journey);
+    for (const row of data.refs) addOwner(row.ref_code, journeyById.get(row.journey_id));
+    const journeyByRef = new Map([...refOwners].filter(([, owners]) => owners.size === 1).map(([ref, owners]) => [ref, journeyById.get([...owners][0])]));
     const visible = (ref, journey) => contact.facts({
       ref,
       journeyId: journey?.id,
@@ -176,11 +176,14 @@ module.exports = async (req, res) => {
       const budgetRanges = { 'sem valor': 0, 'até 10k': 0, '10–25k': 0, '25–50k': 0, '50k+': 0 };
       scoped.forEach((item) => { budgetRanges[budgetBucket(item.budgetCents)] += 1; });
       summary = { total: scoped.length, byValue, byCar, whatsappClicked: whatsapp, smsClicked: sms, pending, budgetRanges };
-      text = `PEDIDOS: ${scoped.length} total; por valor ${byValue}; carro ideal ${byCar}; WhatsApp clicado ${whatsapp}; SMS clicado ${sms}; pendentes ${pending}; orçamento: sem valor ${budgetRanges['sem valor']}, até 10k: ${budgetRanges['até 10k']}, 10–25k: ${budgetRanges['10–25k']}, 25–50k: ${budgetRanges['25–50k']}, 50k+: ${budgetRanges['50k+']}.`;
+      text = `PEDIDOS: ${scoped.length} total; por valor ${byValue}; carro ideal ${byCar}; WhatsApp ${whatsapp}; SMS ${sms}; pendentes ${pending}; orçamento: sem valor ${budgetRanges['sem valor']}, até 10k: ${budgetRanges['até 10k']}, 10–25k: ${budgetRanges['10–25k']}, 25–50k: ${budgetRanges['25–50k']}, 50k+: ${budgetRanges['50k+']}.`;
     } else if (view === 'qualification' || view === 'records') {
       const leads = contactedJourneys.filter((item) => inside(item.created_at, selected)).length;
       const qualified = contactedJourneys.filter((item) => inside(item.qualified_at, selected)).length;
-      const disabled = toggles.filter((item) => item.enabled === false && inside(item.switched_at, selected));
+      // Only the fichas this report counts (contacted, not excluded): a switched-off ficha nobody wrote
+      // from, or out of the funnel, is not counted as "desligado" either.
+      const contactedIds = new Set(contactedJourneys.map((journey) => journey.id));
+      const disabled = toggles.filter((item) => item.enabled === false && contactedIds.has(item.journey_id) && inside(item.switched_at, selected));
       const disabledByReason = {};
       disabled.forEach((item) => { const reason = item.off_reason || 'SEM MOTIVO'; disabledByReason[reason] = (disabledByReason[reason] || 0) + 1; });
       summary = { leads, qualified, disabled: disabled.length, disabledByReason };

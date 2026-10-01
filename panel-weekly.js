@@ -1,5 +1,7 @@
 'use strict';
 
+const {contactIndex}=require('./panel-contact');
+
 const DAY=86400000;
 const stamp=(value)=>Date.parse(value||0)||0;
 const messageAt=(item)=>stamp(item.occurred_at_utc||item.occurred_at_local||item.created_at);
@@ -41,13 +43,16 @@ function period(data,start,end){
 function buildWeeklySummary(input,now=Date.now()){
   const messagesByJourney=new Map();
   const messageById=new Map((input.messages||[]).filter((item)=>!item.undone_at).map((item)=>[item.id,item]));
+  // R1: only fichas whose client really wrote (the single contact rule), never a simulation or a click.
+  const contacts=contactIndex({messages:[...messageById.values()],messageLinks:(input.messageLinks||[]).filter((link)=>!link.undone_at)});
+  const journeys=(input.journeys||[]).filter((item)=>contacts.facts({journeyId:item.id}).entered);
   // M9: only conversations of the journeys shown (never "não é lead").
-  const visible=new Set((input.journeys||[]).map((item)=>item.id));
+  const visible=new Set(journeys.map((item)=>item.id));
   for(const link of input.messageLinks||[]){if(link.undone_at||!visible.has(link.journey_id))continue;const item=messageById.get(link.message_id);if(!item)continue;if(!messagesByJourney.has(link.journey_id))messagesByJourney.set(link.journey_id,[]);messagesByJourney.get(link.journey_id).push(item);}
   messagesByJourney.forEach((list)=>list.sort((a,b)=>messageAt(a)-messageAt(b)||String(a.id).localeCompare(String(b.id))));
-  const data={...input,messagesByJourney};
+  const data={...input,journeys,messagesByJourney};
   const current=period(data,now-7*DAY,now),previous=period(data,now-14*DAY,now-7*DAY);
-  const currentSnapshot=snapshot(input.journeys||[],messagesByJourney,now),previousSnapshot=snapshot(input.journeys||[],messagesByJourney,now-7*DAY);
+  const currentSnapshot=snapshot(journeys,messagesByJourney,now),previousSnapshot=snapshot(journeys,messagesByJourney,now-7*DAY);
   return {generatedAt:new Date(now).toISOString(),timezone:'America/New_York',leads:{whatsapp:compare(current.leads.whatsapp,previous.leads.whatsapp),sms:compare(current.leads.sms,previous.leads.sms),calculator:compare(current.leads.calculator,previous.leads.calculator)},responded:compare(current.responded,previous.responded),averageResponseMinutes:compare(current.averageResponseMinutes,previous.averageResponseMinutes),unanswered24h:compare(currentSnapshot.unanswered,previousSnapshot.unanswered),options:compare(current.options,previous.options),discarded:{...compare(current.discarded,previous.discarded),reasons:current.reasons},stalledOrders:compare(currentSnapshot.stalled,previousSnapshot.stalled)};
 }
 

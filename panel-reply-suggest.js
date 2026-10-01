@@ -12,6 +12,9 @@
 // sugestão de retomada e fora da fila, sempre com o motivo.
 const { allRows, insert, isUuid, rows } = require('./panel-server');
 const { undash } = require('./text-dash');
+const { OPT_OUT, OPT_OUT_WORD, optOutOf } = require('./panel-opt-out');
+const { dispositionIndex } = require('./panel-disposition');
+const { outOfFunnelIndex } = require('./panel-triage');
 const reply = require('./api/panel/reply');
 const openAiBudget = require('./panel-openai-budget');
 const triage = require('./panel-triage');
@@ -23,11 +26,6 @@ const MAX_MESSAGE_CHARS = 600;
 const TIMEOUT_MS = 30000;
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
 
-// Pedido para não receber contato, em português, inglês ou espanhol.
-const OPT_OUT = /\b(unsubscribe|remove me|take me off (your|the) list|do not (text|message|contact|call) me|don'?t (text|message|contact|call) me( again| anymore)?|stop (texting|messaging|contacting|calling) me|no more (messages|texts)|leave me alone|pare de (me )?(mandar|enviar|chamar|escrever)|n[aã]o (me )?(mande|envie|chame|escreva) mais|n[aã]o quero (mais )?(receber|contato|mensage)|me (tire|remova) da lista|para de (me )?(mandar|enviar)|no me (escribas|escriba|env[ií]es|envie|contactes|contacte|llames) m[aá]s|deja de (escribirme|enviarme|mandarme)|ya no (me )?(escribas|env[ií]es|contactes)|no quiero (m[aá]s )?(mensajes|recibir))\b/i;
-// A message that is only the word (STOP, PARE, BAJA…) is an opt-out; inside a sentence it is not
-// ("I'll stop by tomorrow").
-const OPT_OUT_WORD = /^\s*(stop|unsubscribe|pare|parar|sair|cancelar|baja|alto)\s*[.!]*\s*$/i;
 // What the briefing asks never to say on autopilot, and the dash it asks not to use.
 const BANNED = [
   { re: /\babsolutely\b/i, text: 'Absolutely' },
@@ -58,11 +56,6 @@ const messageAt = (message) => message && (message.occurred_at_utc || message.cr
 const stamp = (message) => Date.parse(messageAt(message) || '') || 0;
 const realOf = (messages) => messages.filter((message) => !message.undone_at && !message.is_automatic && ['CUSTOMER', 'MCS'].includes(message.direction) && String(message.body_text || '').trim())
   .sort((a, b) => stamp(a) - stamp(b));
-function optOutOf(messages) {
-  const said = (text) => OPT_OUT.test(text) || OPT_OUT_WORD.test(text);
-  const found = messages.filter((message) => message.direction === 'CUSTOMER' && !message.undone_at && said(String(message.body_text || ''))).sort((a, b) => stamp(b) - stamp(a))[0];
-  return found ? { at: messageAt(found), text: String(found.body_text || '').slice(0, 200) } : null;
-}
 // Clean a suggestion: never a dash, never the phrases the briefing forbids (said, not hidden).
 function review(text) {
   // A dash between numbers is a range (2018–2020, 20,000–80,000): it stays a range, never a comma.
@@ -411,7 +404,7 @@ async function queue(ctx, options = {}, services = {}) {
   const env = 'eq.' + ctx.environment;
   const now = options.now || Date.now();
   const minDays = Math.max(1, Math.min(365, Number(options.minDays) || QUEUE_MIN_DAYS));
-  const [journeys, contacts, chats, phones, links, messages, toggles, journeyRefs] = await Promise.all([
+  const [journeys, contacts, chats, phones, links, messages, toggles, journeyRefs, dispositions] = await Promise.all([
     read(ctx, 'journeys', { select: 'id,contact_id,reference_code,status,stage,closed_reason', environment: env }),
     read(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: env }),
     read(ctx, 'chats', { select: 'id,contact_id,channel,is_group,canonical_key', environment: env, channel: 'eq.WHATSAPP' }),
@@ -419,8 +412,12 @@ async function queue(ctx, options = {}, services = {}) {
     read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }),
     read(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,occurred_at_utc,created_at,undone_at', environment: env, undone_at: 'is.null' }),
     read(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason', environment: env }),
-    read(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env })
+    read(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env }),
+    read(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at,cleared_at', environment: env, cleared_at: 'is.null' }).catch(() => [])
   ]);
+  // Discarded people and conversations out of the commercial funnel are never retaken.
+  const personDisposition = dispositionIndex(dispositions);
+  const triageOut = await outOfFunnelIndex(ctx, journeys, journeyRefs, read).catch(() => new Set());
   const refOwners = ownersMap(journeys, journeyRefs);
   const refsByJourney = new Map();
   journeyRefs.forEach((row) => { if (!refsByJourney.has(row.journey_id)) refsByJourney.set(row.journey_id, []); refsByJourney.get(row.journey_id).push(refKey(row.ref_code)); });
@@ -449,6 +446,9 @@ async function queue(ctx, options = {}, services = {}) {
     const block = blockOf({ journey, contact, toggle: toggleByJourney.get(journey.id), optOut: optOutOf(own) });
     if (block) { excluded.push({ ...base, reason: block }); return; }
     const ownRefs = [...new Set([refKey(journey.reference_code), ...(refsByJourney.get(journey.id) || [])].filter((ref) => REF_CODE.test(ref)))];
+    const disposition = personDisposition(journey.id, ownRefs);
+    if (disposition && disposition.status === 'DISCARDED') { excluded.push({ ...base, reason: { code: 'DISCARDED', text: 'Descartado' + (disposition.discard_reason ? ' (' + disposition.discard_reason + ')' : '') } }); return; }
+    if (triageOut.has(journey.id)) { excluded.push({ ...base, reason: { code: 'TRIAGE_OUT', text: 'Fora do funil comercial (pós-venda, pessoal ou outro assunto)' } }); return; }
     const shared = sharedRefsFrom(journey.id, ownRefs, refOwners);
     if (shared.length) { excluded.push({ ...base, reason: ambiguityBlock(shared) }); return; }
     const contactChats = (chatsByContact.get(journey.contact_id) || []);

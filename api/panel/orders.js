@@ -37,8 +37,11 @@ module.exports = async (req, res) => {
     const insightByJourney=new Map(insights.map((item)=>[item.journey_id,item]));
 
     const journeys = new Map(data.journeys.map((item) => [item.id, item]));
-    const journeyByRef=new Map(data.journeys.filter(x=>x.reference_code).map(x=>[String(x.reference_code).trim().toUpperCase(),x]));
-    for(const ref of data.refs||[]){const journey=journeys.get(ref.journey_id);if(journey)journeyByRef.set(String(ref.ref_code).trim().toUpperCase(),journey);}
+    // R3: a Ref owned by more than one ficha is attached to none of them (no last-owner-wins).
+    const refOwners=new Map();const addOwner=(ref,journey)=>{const key=refKey(ref);if(!key||!journey)return;if(!refOwners.has(key))refOwners.set(key,new Set());refOwners.get(key).add(journey.id);};
+    data.journeys.forEach((journey)=>addOwner(journey.reference_code,journey));
+    for(const ref of data.refs||[])addOwner(ref.ref_code,journeys.get(ref.journey_id));
+    const journeyByRef=new Map([...refOwners].filter(([,owners])=>owners.size===1).map(([ref,owners])=>[ref,journeys.get([...owners][0])]));
     const latestByJourney = new Map();
     const latestCustomerByJourney = new Map();
     for (const message of data.messages) {

@@ -124,8 +124,8 @@ function trackableAiFailure(error) {
 
 async function allConversationData(ctx) {
   const [journeys, contacts, links, messages, refs, readings, states, attempts, calcRuns, pendingInsights] = await Promise.all([
-    allRows(ctx,'journeys',{select:'id,contact_id,reference_code,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment}),
-    allRows(ctx,'contacts',{select:'id,display_name,location_text',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'journeys',{select:'id,contact_id,reference_code,status,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'contacts',{select:'id,display_name,location_text,is_lead',environment:'eq.'+ctx.environment}),
     allRows(ctx,'message_journeys',{select:'journey_id,message_id',environment:'eq.'+ctx.environment,undone_at:'is.null'}),
     allRows(ctx,'messages',{select:'id,chat_id,channel,direction,body_text,is_automatic,source_kind,occurred_at_utc,occurred_at_local,created_at,undone_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
@@ -296,11 +296,40 @@ async function suggestLink(ctx,group,orders,options={}){
   }
 }
 
+// Cases the panel no longer works (closed, switched off, discarded, out of the funnel, "não é lead",
+// or a client who asked not to be contacted) get no paid automatic reading. Manual reading still works.
+async function stoppedJourneys(ctx,groups,read=allRows){
+  const { dispositionIndex }=require('./panel-disposition');
+  const { outOfFunnelIndex }=require('./panel-triage');
+  const { optOutOf }=require('./panel-opt-out');
+  const env='eq.'+ctx.environment;
+  const [toggles,dispositions,refs]=await Promise.all([
+    read(ctx,'journey_toggle_states',{select:'journey_id,enabled,off_reason',environment:env}).catch(()=>[]),
+    read(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,discard_reason,updated_at,cleared_at',environment:env,cleared_at:'is.null'}).catch(()=>[]),
+    read(ctx,'journey_refs',{select:'journey_id,ref_code',environment:env}).catch(()=>[])
+  ]);
+  const journeys=[...new Map(groups.map((group)=>[group.journey.id,group.journey])).values()];
+  const triageOut=await outOfFunnelIndex(ctx,journeys,refs,read).catch(()=>new Set());
+  const disposition=dispositionIndex(dispositions),toggleByJourney=new Map(toggles.map((row)=>[row.journey_id,row]));
+  const refsByJourney=new Map();
+  refs.forEach((row)=>{if(!refsByJourney.has(row.journey_id))refsByJourney.set(row.journey_id,[]);refsByJourney.get(row.journey_id).push(String(row.ref_code||'').trim().toUpperCase());});
+  const stopped=new Set();
+  for(const group of groups){
+    const journey=group.journey;
+    if(triageOut.has(journey.id)||journey.status==='ENCERRADO'||group.contact?.is_lead===false||toggleByJourney.get(journey.id)?.enabled===false||optOutOf(group.messages)){stopped.add(journey.id);continue;}
+    const own=[String(journey.reference_code||'').trim().toUpperCase(),...(refsByJourney.get(journey.id)||[])].filter(Boolean);
+    if(disposition(journey.id,own)?.status==='DISCARDED')stopped.add(journey.id);
+  }
+  return stopped;
+}
+
 async function runCron(ctx,options={}){
   const groups=await allConversationData(ctx),orders=await calculatorOrders(ctx),now=Date.now(),cutoff=now-30*DAY_MS;
+  const stopped=await stoppedJourneys(ctx,groups,options.allRows||allRows);
   const eligible=[];
   for(const group of groups){
     if(!group.lastCustomer||stampOf(group.lastCustomer)<cutoff)continue;
+    if(stopped.has(group.journey.id))continue;
     if(!automaticAttemptAllowed(group,now))continue;
     const latestId=group.effectiveMessages.at(-1)?.id;
     const latestCustomerIsLive=group.lastCustomer.source_kind!=='WHATSAPP_HISTORY';
@@ -336,4 +365,4 @@ async function latestAiForJourney(ctx,journeyId){
   return {reading:reading?{...reading,items:items.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:suggestions[0]||null};
 }
 
-module.exports={AI_MIN_MCS_MESSAGES,AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};
+module.exports={stoppedJourneys,AI_MIN_MCS_MESSAGES,AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};

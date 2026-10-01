@@ -25,11 +25,13 @@ test('Lote 4 · Origem, Tipo e Última atividade da ficha', () => {
   const both = origin.clientOrigin({ source: 'WHATSAPP_DIRECT' }, [{ logicalModes: ['CARRO', 'VALOR'], occurredAt: '2026-09-29T10:00:00Z' }], '2026-09-20T00:00:00Z');
   assert.deepEqual(both.origins, ['CALCULADORA', 'WHATSAPP']);
   assert.deepEqual(both.calculatorTypes, ['BUSCA', 'SIMULACAO']);
-  assert.equal(both.lastActivityAt, '2026-09-29T10:00:00.000Z');
+  // R1: a calculator simulation is not activity; only the latest real message counts.
+  assert.equal(both.lastActivityAt, '2026-09-20T00:00:00.000Z');
   assert.deepEqual(origin.clientOrigin({ source: 'SMS_DIRECT' }, [], null), { origins: ['SMS'], calculatorTypes: ['SEM_CALCULADORA'], lastActivityAt: null });
   const filters = (values) => origin.matchesClientFilters(both, values, now);
   assert.equal(filters({}), true);
-  assert.equal(filters({ origin: 'CALCULADORA', type: 'BUSCA', days: '7' }), true);
+  assert.equal(filters({ origin: 'CALCULADORA', type: 'BUSCA', days: '30' }), true);
+  assert.equal(filters({ origin: 'CALCULADORA', type: 'BUSCA', days: '7' }), false, 'a recent simulation does not bring the client into the period');
   assert.equal(filters({ origin: 'SMS' }), false);
   assert.equal(filters({ type: 'SEM_CALCULADORA' }), false);
   assert.equal(origin.matchesClientFilters(direct, { days: '7' }, now), true);
@@ -138,7 +140,8 @@ test('Lote 4 · aba PEDIDOS saiu; CLIENTES assume as funções, a seção de ped
   assert.doesNotMatch(html, /id="entry-orders|id="entry-simulated|data-entry-orders-period|Pediram contato, sem conversa|Só simularam|class="[^"]*entry-(orders|simulated)/);
   assert.doesNotMatch(js, /loadEntryOrders|renderEntryOrders|refreshEntryOrders|entryOrders|function orderCard\(|entry-orders|entry-simulated/);
   assert.match(html, /id="clients-origin"[\s\S]*Calculadora[\s\S]*WhatsApp direto[\s\S]*SMS direto/);
-  assert.match(html, /id="clients-type"[\s\S]*Simulação[\s\S]*Busca[\s\S]*Sem calculadora/);
+  // SIMULACAO is the calculator's mode VALOR (panel-origin.js): the label says so.
+  assert.match(html, /id="clients-type"[\s\S]*value="SIMULACAO">Por valor \(calculadora\)[\s\S]*Busca[\s\S]*Sem calculadora/);
   assert.match(html, /id="clients-activity"[\s\S]*30 dias[\s\S]*90 dias[\s\S]*6 meses[\s\S]*1 ano[\s\S]*Tudo/);
   assert.match(html, /panel-origin\.js/);
   // Old links: #pedido/REF still opens the order and #pedidos still lands in ENTRADA.

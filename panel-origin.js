@@ -7,7 +7,8 @@
   // Lote 4 (PEDIDOS fundido em CLIENTES): where a ficha came from and what the calculator asked.
   //  Origem: CALCULADORA when a calculator Ref belongs to the ficha, plus the ficha's own channel.
   //  Tipo:   BUSCA (calculator "busca", mode CARRO), SIMULACAO (mode VALOR), or SEM_CALCULADORA.
-  //  Última atividade: the latest real message or calculator event, the same rule PEDIDOS used (B4).
+  //  Última atividade: the latest real message (client or MCS, never automatic). A calculator
+  //  simulation or click is not activity (R1), so it never moves a client into a period.
   const stamp = (value) => { const parsed = Date.parse(value || ''); return Number.isFinite(parsed) ? parsed : 0; };
 
   function clientOrigin(journey, orders, lastRealMessageAt) {
@@ -19,7 +20,7 @@
     if (source === 'SMS_DIRECT') origins.push('SMS');
     const modes = own.flatMap((order) => order.logicalModes || [order.logicalMode]);
     const types = [...new Set(modes.map((mode) => mode === 'CARRO' ? 'BUSCA' : mode === 'VALOR' ? 'SIMULACAO' : null).filter(Boolean))];
-    const latest = Math.max(stamp(lastRealMessageAt), ...own.map((order) => stamp(order.occurredAt)), 0);
+    const latest = stamp(lastRealMessageAt);
     return {
       origins,
       calculatorTypes: own.length || source === 'CALCULATOR' ? types : ['SEM_CALCULADORA'],

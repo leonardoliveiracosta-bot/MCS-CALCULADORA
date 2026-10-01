@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { consolidateCalcRuns } = require('../../panel-domain');
+const { consolidateCalcRuns, toggleEnabled } = require('../../panel-domain');
 const { allRows, requirePanel, send, supabase, isUuid } = require('../../panel-server');
 const { normalizePhone } = require('../../panel-phone');
 const { lastRealMessageAt } = require('../../panel-sort');
@@ -395,7 +395,7 @@ function smsPrintReviews(reads, contacts, journeys) {
 }
 
 async function queue(ctx, res) {
-  const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews, chatMessages, printReads] = await Promise.all([
+  const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews, chatMessages, printReads, toggleStates] = await Promise.all([
     allRows(ctx, 'chats', { select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact_id', environment: 'eq.' + ctx.environment, order: 'last_seen_at.desc' }),
     supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_last_import_counts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment }) }),
     allRows(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: 'eq.' + ctx.environment, order: 'display_name.asc' }),
@@ -405,7 +405,8 @@ async function queue(ctx, res) {
     allRows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc' }),
     allRows(ctx, 'messages', { select: 'chat_id,is_automatic,occurred_at_utc,occurred_at_local,undone_at', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'sms_print_reads', { select: 'id,original_filename,extracted_json,error_code,created_at,updated_at', environment: 'eq.' + ctx.environment, status: 'eq.READY', order: 'created_at.desc' })
+    allRows(ctx, 'sms_print_reads', { select: 'id,original_filename,extracted_json,error_code,created_at,updated_at', environment: 'eq.' + ctx.environment, status: 'eq.READY', order: 'created_at.desc' }),
+    allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment })
   ]);
   const printReviews = smsPrintReviews(printReads.filter((read) => read.error_code === 'NAME_MATCH_REVIEW'), contacts, journeys);
   const failedPrints = smsPrintFailures(printReads);
@@ -418,7 +419,10 @@ async function queue(ctx, res) {
   const contactsById = new Map(contacts.map((item) => [item.id, item]));
   return send(res, 200, {
     chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, triageOut: triageOut.has(chat.id), newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
-    reviews, printReviews, failedPrints, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id) })), chatAliases, senderAliases
+    // "Ligar a um lead" offers only fichas that can receive a conversation: never a contact marked
+    // "não é lead" nor a switched-off ficha (R3). The list itself stays whole for the other forms.
+    reviews, printReviews, failedPrints, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id),
+      linkable: contactsById.get(journey.contact_id)?.is_lead !== false && toggleEnabled(journey.status, toggleStates.find((state) => state.journey_id === journey.id)) })), chatAliases, senderAliases
   });
 }
 

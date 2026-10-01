@@ -48,7 +48,14 @@ const seed = [
   `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(7)}','preview','${id(6)}','CALCULATOR','NOVO','ATIVO','${JSON.stringify({ wishlists: [{ make: 'Toyota', model: 'Camry' }], logical_modes: ['VALOR'] })}',now(),now());`,
   // A CARRO ficha without mileage: needs the mileage, never a value.
   `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${id(9)}','preview','Eva Calculadora','CALCULATOR',now(),now());`,
-  `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(8)}','preview','${id(9)}','CALCULATOR','NOVO','ATIVO','${JSON.stringify({ wishlists: [{ make: 'Toyota', model: 'Camry', yearMin: 2019 }], logical_modes: ['CARRO'] })}',now(),now());`
+  `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(8)}','preview','${id(9)}','CALCULATOR','NOVO','ATIVO','${JSON.stringify({ wishlists: [{ make: 'Toyota', model: 'Camry', yearMin: 2019 }], logical_modes: ['CARRO'] })}',now(),now());`,
+  // Only a client who really wrote is a request (a calculator click is not contact): each of these
+  // fichas has one customer message linked.
+  ...[[2, 3, 70], [6, 7, 72], [9, 8, 74]].flatMap(([contact, journey, n]) => [
+    `insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,is_group,first_seen_at,last_seen_at,created_at,updated_at) values('${id(n)}','preview','WHATSAPP','${id(contact)}','wa:+130555700${n}','RESOLVED',false,now(),now(),now(),now());`,
+    `insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(n + 1)}','preview','${id(n)}','WHATSAPP','CUSTOMER','Oi','x',now(),'w${n}',1,'WHATSAPP_WEBHOOK',now());`,
+    `insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${id(n + 1)}','${id(journey)}','IMPORT',now());`
+  ])
 ].join('\n');
 
 let backend;
@@ -230,17 +237,17 @@ test('9 · teste do modelo aprovado, lotes de 10 e retomada sem ler duas vezes',
     assert.deepEqual([check.ok, check.model, check.usage], [true, 'gpt-6-luna', { input: 1000, output: 100 }]);
     assert.equal(check.costUsd, 0.00015, '1.000 × US$ 0,10/M + 100 × US$ 0,50/M');
     const first = (await history('extract_history')).payload;
-    assert.deepEqual([first.read, first.remaining, first.processed, first.total, first.stoppedReason], [10, 3, 10, 13, null]);
+    assert.deepEqual([first.read, first.remaining, first.processed, first.total, first.stoppedReason], [10, 6, 10, 16, null]);
     // The tab closes here; the next click continues from the recorded point.
     const second = (await history('extract_history')).payload;
-    assert.deepEqual([second.read, second.remaining, second.processed], [3, 0, 13]);
+    assert.deepEqual([second.read, second.remaining, second.processed], [6, 0, 16]);
     const third = (await history('extract_history')).payload;
     assert.deepEqual([third.read, third.remaining], [0, 0]);
-    assert.equal(third.spentUsd, 0.0021, 'teste + 13 leituras de US$ 0,00015');
+    assert.equal(third.spentUsd, 0.00255, 'teste + 16 leituras de US$ 0,00015');
   });
   assert.equal(openAiCalls.filter(isTest).length, 1, 'uma única chamada de teste');
-  assert.equal(openAiCalls.filter((body) => !isTest(body)).length, 13, 'cada conversa lida uma vez');
-  assert.deepEqual(await q(`select count(distinct chat_id)::int chats, count(*)::int runs from public.vehicle_request_runs where provider = 'OPENAI'`), [{ chats: 13, runs: 13 }]);
+  assert.equal(openAiCalls.filter((body) => !isTest(body)).length, 16, 'cada conversa lida uma vez');
+  assert.deepEqual(await q(`select count(distinct chat_id)::int chats, count(*)::int runs from public.vehicle_request_runs where provider = 'OPENAI'`), [{ chats: 16, runs: 16 }]);
 });
 
 test('10 · teto de US$ 50: para antes de uma chamada que possa passar dele', async () => {
@@ -287,4 +294,21 @@ test('12 · rotina sem limite de quantidade: lê todas as pendentes no ciclo, qu
   assert.ok(firstWave.some((body) => /still looking c1\b/.test(body)), 'quem escreveu por último entra na primeira leva');
   assert.ok(!firstWave.some((body) => /still looking c12\b/.test(body)), 'a mais antiga não entra na primeira leva');
   assert.deepEqual(backend.refused, []);
+});
+
+test('13 · só entra quem mandou mensagem e ainda é trabalhado: ficha sem mensagem e "não é lead" ficam fora', async () => {
+  const criteria = JSON.stringify({ wishlists: [{ make: 'Toyota', model: 'Camry', yearMin: 2018, yearMax: 2022, minMiles: 1000, maxMiles: 80000 }], logical_modes: ['CARRO'] });
+  for (const sql of [
+    `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${id(90)}','preview','Silvio Sem Mensagem','CALCULATOR',now(),now());`,
+    `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(91)}','preview','${id(90)}','CALCULATOR','NOVO','ATIVO','${criteria}',now(),now());`,
+    `insert into public.contacts(id,environment,display_name,source,is_lead,created_at,updated_at) values('${id(92)}','preview','Nina Nao Lead','CALCULATOR',false,now(),now());`,
+    `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(93)}','preview','${id(92)}','CALCULATOR','NOVO','ATIVO','${criteria}',now(),now());`,
+    `insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,is_group,first_seen_at,last_seen_at,created_at,updated_at) values('${id(94)}','preview','WHATSAPP','${id(92)}','wa:+13055700094','RESOLVED',false,now(),now(),now(),now());`,
+    `insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(95)}','preview','${id(94)}','WHATSAPP','CUSTOMER','Oi','x',now(),'w95',1,'WHATSAPP_WEBHOOK',now());`,
+    `insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${id(95)}','${id(93)}','IMPORT',now());`
+  ]) await q(sql);
+  const data = await list();
+  assert.deepEqual(itemOf(data, 'Silvio Sem Mensagem'), [], 'clique na calculadora não é contato');
+  assert.deepEqual(itemOf(data, 'Nina Nao Lead'), [], 'marcado como "não é lead"');
+  assert.equal(itemOf(data, 'Caco Carro').length, 1, 'quem escreveu continua');
 });
