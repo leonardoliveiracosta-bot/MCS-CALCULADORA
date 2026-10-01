@@ -239,13 +239,16 @@ test('Claude fenced response yields first JSON object',()=>{
   assert.deepEqual(firstJson('```json\n{"items":[{"type":"payment","value":"cash"}]}\n```'),{items:[{type:'payment',value:'cash'}]});
 });
 
-test('a WhatsApp click counts while the webhook has never received an inbound message',async()=>{
+test('a calculator click without a message stays out of HOJE; a real message brings it in',async()=>{
   const yesterday='2020-01-01T00:00:00Z',now=new Date().toISOString();
   const runs=[{dados:{ref:'ABC23',evento:'simulacao',quando:yesterday}},{dados:{ref:'ABC23',evento:'whatsapp',quando:now}}];
   const order={ref:'ABC23',key:'ABC23',pending:true,occurredAt:now,simulations:[{occurredAt:now}],budgetCents:2500000};
   const journey={id:journeyId,reference_code:'ABC23',source:'CALCULATOR',created_at:now,contact:{display_name:'Cliente'}};
+  const messages=[];
   const server=mockServer({allRows:async(_ctx,table)=>table==='calc_runs'?runs:[],panelMeta:async()=>({})});
   const handler=loadWith('api/panel/today.js',{'../../panel-manheim-state':manheimState,'../../panel-server':server,'../../panel-domain':{consolidateCalcRuns:()=>[order],groupCalculatorByRef:(rows)=>rows,standardBudget:()=>true,time:(value)=>Date.parse(value),buildTodayItems:()=>[],effectiveCriteria:(journey,item)=>({bidCents:item?.budgetCents||null})},
-    '../../panel-read-model':{operational:async()=>({journeys:[journey],messages:[],checklist:[],promises:[]})},'../../panel-ready':{loadScoreIndex:async()=>[],score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
-  const res=output();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.payload.items.length,1);
+    '../../panel-read-model':{operational:async()=>({journeys:[journey],messages,checklist:[],promises:[]})},'../../panel-ready':{loadScoreIndex:async()=>[],score:()=>({score:0,goodHour:true,promiseToday:false})},'../../panel-lead':{timezoneForZip:()=> 'America/New_York'}});
+  let res=output();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.payload.items.length,0,'só clicou: não aparece');
+  messages.push({id:'m-real',journey_id:journeyId,direction:'CUSTOMER',source_kind:'WHATSAPP_WEBHOOK',occurred_at_utc:now});
+  res=output();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.payload.items.length,1,'mandou mensagem: aparece');
 });

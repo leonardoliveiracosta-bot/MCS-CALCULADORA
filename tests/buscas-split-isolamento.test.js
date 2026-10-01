@@ -176,7 +176,7 @@ test('11 · novos matches sem logical_mode são recusados pelo banco e 12 · lin
 
 test('13 · os testes antigos passam sem rede e sem Supabase (fetch responde 403 como um proxy)', () => {
   const preload = path.join(__dirname, 'fixtures', 'sem-rede.js');
-  const names = ['HOJE includes a wanted car after the order was treated', 'HOJE includes an old linked order when a disabled lead writes again', 'presenting a unit twice uses the existing VIN identity', 'archive skips invalid rows and reports ignored count', 'a WhatsApp click counts while the webhook has never received an inbound message'];
+  const names = ['HOJE includes a wanted car after the order was treated', 'HOJE includes an old linked order when a disabled lead writes again', 'presenting a unit twice uses the existing VIN identity', 'archive skips invalid rows and reports ignored count', 'a calculator click without a message stays out of HOJE; a real message brings it in'];
   const env = { ...process.env, NODE_OPTIONS: `--require ${preload}` };
   delete env.SUPABASE_URL; delete env.SUPABASE_SECRET_KEY; delete env.SUPABASE_PUBLISHABLE_KEY; delete env.NODE_TEST_CONTEXT;
   const run = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...names.map((name) => `--test-name-pattern=${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), path.join(__dirname, 'fase2-corrections.test.js')], { env, encoding: 'utf8', timeout: 60000 });

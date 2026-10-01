@@ -1,38 +1,42 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {contactIndex,decorateContact,heatFor}=require('../panel-contact');
+const {clickChannel,contactIndex,decorateContact,heatFor}=require('../panel-contact');
 const {auditCapture}=require('../panel-capture');
 const {sortItems}=require('../panel-sort');
 
 const run=(ref,event,when)=>({id:ref+event+when,created_at:new Date(when).toISOString(),dados:{ref,evento:event,quando:new Date(when).toISOString()}});
 const message=(id,source,when='2026-09-26T01:00:00Z')=>({id,direction:'CUSTOMER',source_kind:source,occurred_at_utc:when});
 
-test('only simulations stay hidden, SMS and a real customer message enter the panel',()=>{
-  const index=contactIndex({calcRuns:[run('AAAAA','simulacao',1),run('BBBBB','sms',2)],messages:[message('m','WHATSAPP_WEBHOOK')],messageLinks:[{journey_id:'j',message_id:'m'}]});
+test('only a message that really arrived is contact: simulations and calculator clicks stay hidden',()=>{
+  const index=contactIndex({calcRuns:[run('AAAAA','simulacao',1),run('BBBBB','sms',2),run('CCCCC','whatsapp',3)],messages:[message('m','WHATSAPP_WEBHOOK')],messageLinks:[{journey_id:'j',message_id:'m'}]});
   assert.equal(index.facts({ref:'AAAAA'}).entered,false);
-  assert.equal(index.facts({ref:'BBBBB'}).entered,true);
+  assert.equal(index.facts({ref:'BBBBB'}).entered,false,'clicou em SMS e não mandou: não aparece');
+  assert.equal(index.facts({ref:'CCCCC'}).entered,false,'clicou em WhatsApp e não mandou: não aparece');
   assert.equal(index.facts({journeyId:'j'}).entered,true);
+  assert.equal(index.facts({journeyId:'j',ref:'BBBBB'}).channel,'WHATSAPP','a ficha com mensagem entra pelo canal da mensagem');
 });
-test('WhatsApp clicks before the first webhook inbound count permanently; later clicks do not',()=>{
+test('a WhatsApp click never counts, before or after the first webhook inbound',()=>{
   const index=contactIndex({calcRuns:[run('EARLY','whatsapp',100),run('LATE1','whatsapp',300)],messages:[message('in','WHATSAPP_WEBHOOK',new Date(200).toISOString())],messageLinks:[{journey_id:'j',message_id:'in'}]});
-  assert.equal(index.facts({ref:'EARLY'}).entered,true);
+  assert.equal(index.facts({ref:'EARLY'}).entered,false);
   assert.equal(index.facts({ref:'LATE1'}).entered,false);
   assert.equal(index.facts({journeyId:'j'}).entered,true);
 });
-test('Find contact clicks use their stored channel and older channelless clicks remain visible',()=>{
+test('Find contact clicks keep their stored channel for reading, but never count as contact',()=>{
   const find=(ref,canal,when)=>({id:ref+String(canal),created_at:new Date(when).toISOString(),dados:{ref,evento:'busca',canal,quando:new Date(when).toISOString()}});
+  assert.equal(clickChannel(find('FNDW1','whatsapp',100)),'WHATSAPP_CLICK');
+  assert.equal(clickChannel(find('FNDS1','sms',101)),'SMS_CLICK');
+  assert.equal(clickChannel(find('FNDL1','',102)),'CONTACT_CLICK_UNKNOWN');
   const index=contactIndex({calcRuns:[find('FNDW1','whatsapp',100),find('FNDS1','sms',101),find('FNDL1','',102)]});
-  assert.equal(index.facts({ref:'FNDW1'}).channel,'WHATSAPP_CLICK');
-  assert.equal(index.facts({ref:'FNDS1'}).channel,'SMS_CLICK');
-  assert.equal(index.facts({ref:'FNDL1'}).channel,'CONTACT_CLICK_UNKNOWN');
-  assert.equal(index.facts({ref:'SIMUL'}).entered,false);
+  for(const ref of ['FNDW1','FNDS1','FNDL1','SIMUL'])assert.equal(index.facts({ref}).entered,false,ref);
 });
-test('capture audit reports only an actually hidden click and ignores discarded and non-leads',()=>{
+test('capture audit: a click without a message is not an alert; a ficha with a message missing from the list is',()=>{
   const run=(ref)=>({id:ref,created_at:new Date(1).toISOString(),dados:{sid:'find-'+ref,ref,evento:'busca',canal:'whatsapp',quando:new Date(1).toISOString()}});
-  const result=auditCapture({calcRuns:[run('ABCD2'),run('DROP2'),run('NLED2')],journeys:[{id:'j1',contact_id:'c1',reference_code:'ABCD2'},{id:'j2',contact_id:'c2',reference_code:'DROP2'},{id:'j3',contact_id:'c3',reference_code:'NLED2'}],contacts:[{id:'c1',is_lead:true},{id:'c2',is_lead:true},{id:'c3',is_lead:false}],dispositions:[{item_kind:'REF',item_key:'DROP2',status:'DISCARDED'}]});
+  const result=auditCapture({calcRuns:[run('ABCD2'),run('DROP2'),run('NLED2')],journeys:[{id:'j1',contact_id:'c1',reference_code:'ABCD2'},{id:'j2',contact_id:'c2',reference_code:'DROP2'},{id:'j3',contact_id:'c3',reference_code:'NLED2'}],contacts:[{id:'c1',is_lead:true},{id:'c2',is_lead:true},{id:'c3',is_lead:false}]});
   assert.deepEqual(result.missingRefs,[]);
-  const hidden=auditCapture({calcRuns:[{id:'bad',created_at:new Date(300).toISOString(),dados:{ref:'HDE22',evento:'busca',canal:'whatsapp',quando:new Date(300).toISOString()}}]});
+  const bad={id:'bad',created_at:new Date(300).toISOString(),dados:{ref:'HDE22',evento:'busca',canal:'whatsapp',quando:new Date(300).toISOString()}};
+  assert.deepEqual(auditCapture({calcRuns:[bad]}).missingRefs,[],'só clicou: não é alerta');
+  const hidden=auditCapture({calcRuns:[bad],journeys:[{id:'jh',contact_id:'ch',reference_code:'HDE22'}],contacts:[{id:'ch',is_lead:true}],messages:[message('mh','WHATSAPP_WEBHOOK')],messageLinks:[{journey_id:'jh',message_id:'mh'}]});
   assert.deepEqual(hidden.missingRefs,['HDE22']);
   const legacy=auditCapture({calcRuns:[{id:'legacy',created_at:new Date(300).toISOString(),dados:{sid:'legacy',ref:'-----',evento:'busca',canal:'whatsapp',quando:new Date(300).toISOString()}}]});
   assert.deepEqual(legacy.missingRefs,[]);

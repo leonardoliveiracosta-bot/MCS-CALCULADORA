@@ -63,26 +63,28 @@ test('Lote 4 · ENTRADA recebe só Refs sem ficha, separadas entre "pediram cont
     '../../panel-search-stage': { decorateWithSearchStage: (item) => item, loadSearchStageIndex: async () => new Map() }
   });
   const ask = async (query) => { const res = output(); await handler({ method: 'GET', query }, res); return res; };
+  // A calculator click is not contact (panel-contact.js): the calculator never asks for a phone, so
+  // whoever clicked WhatsApp/SMS and never wrote stays with the ones that only simulated.
   const contacted = await ask({ scope: 'unlinked', group: 'contacted', period: '30' });
   assert.equal(contacted.code, 200, JSON.stringify(contacted.payload));
-  assert.deepEqual(contacted.payload.items.map((item) => item.ref), ['AAA22']);
-  assert.deepEqual(contacted.payload.counts, { contacted: 1, simulated: 1 });
+  assert.deepEqual(contacted.payload.items.map((item) => item.ref), []);
+  assert.deepEqual(contacted.payload.counts, { contacted: 0, simulated: 2 });
   const simulated = await ask({ scope: 'unlinked', group: 'simulated', period: '30' });
-  assert.deepEqual(simulated.payload.items.map((item) => item.ref), ['BBB33']);
-  const all = await ask({ scope: 'unlinked', group: 'contacted', period: 'all' });
-  assert.deepEqual(all.payload.items.map((item) => item.ref).sort(), ['AAA22', 'DDD55']);
+  assert.deepEqual(simulated.payload.items.map((item) => item.ref).sort(), ['AAA22', 'BBB33']);
+  const all = await ask({ scope: 'unlinked', group: 'simulated', period: 'all' });
+  assert.deepEqual(all.payload.items.map((item) => item.ref).sort(), ['AAA22', 'BBB33', 'DDD55']);
   assert.equal((await ask({ scope: 'unlinked', group: 'x' })).payload.error, 'ORDER_GROUP_INVALID');
-  // After the WhatsApp webhook cutover a WhatsApp click alone is not contact (panel-contact.js):
-  // AAA22 clicked WhatsApp 4 h ago, after the first real webhook message, so it only simulated.
+  // The webhook timing no longer matters: a click never counts, before or after it.
   messages = [{ id: 'm1', journey_id: uuid(1), direction: 'CUSTOMER', source_kind: 'WHATSAPP_WEBHOOK', occurred_at_utc: iso(30) }];
   const afterCut = await ask({ scope: 'unlinked', group: 'simulated', period: '30' });
   assert.deepEqual(afterCut.payload.items.map((item) => item.ref).sort(), ['AAA22', 'BBB33']);
   assert.deepEqual(afterCut.payload.counts, { contacted: 0, simulated: 2 });
-  messages = [];
-  // The old PEDIDOS list still answers (the report and #pedido/REF use the same endpoint).
-  const legacy = await ask({ filter: 'Todos', period: 'all', ref: 'AAA22' });
+  // The old PEDIDOS list still answers (the report and #pedido/REF use the same endpoint), for an
+  // order whose client really wrote.
+  const legacy = await ask({ filter: 'Todos', period: 'all', ref: 'CCC44' });
   assert.equal(legacy.code, 200);
-  assert.equal(legacy.payload.items[0].ref, 'AAA22');
+  assert.equal(legacy.payload.items[0].ref, 'CCC44');
+  messages = [];
 });
 
 test('Lote 4 · ações sem consumidor respondem inválido sem ler o banco; as vivas continuam', async () => {
