@@ -172,7 +172,7 @@ test('varredura de todos os botões do painel', async ({ page }) => {
     reopenFicha = async () => {
       // The first time from CLIENTES; afterwards the same ficha by its address, because a button already
       // swept (inverting the senders, "não é lead", descartar) can rightly take the only test ficha out of CLIENTES.
-      if (fichaHash) { await page.evaluate((hash) => { location.hash = hash; }, fichaHash); }
+      if (fichaHash) { await page.evaluate(() => { location.hash = '#reabrir'; }); await page.waitForTimeout(300); await page.evaluate((hash) => { location.hash = hash; }, fichaHash); }
       else {
         await view('clients');
         const openFicha = page.locator('#clients-list button:visible', { hasText: 'Abrir ficha' }).first();
