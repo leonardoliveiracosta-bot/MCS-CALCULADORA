@@ -260,3 +260,29 @@ test('11 · zero mensagens: nada enviado, nenhuma V1 e nada fora do banco e da O
   assert.equal(before.mcs, 2, 'só as mensagens da MCS da semeadura');
   assert.deepEqual(backend.refused, [], 'nenhuma chamada ao 360dialog nem a outro endereço');
 });
+
+test('12 · rotina sem limite de quantidade: lê todas as pendentes no ciclo, quem escreveu por último primeiro, em paralelo', async () => {
+  await backend.db.exec(`delete from public.vehicle_request_runs where cost_usd = 49.995`);
+  // Chat 1 wrote last, chat 12 first: the reading starts with chat 1.
+  for (let n = 12; n >= 1; n -= 1) await backend.db.exec(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values(gen_random_uuid(),'preview','${id(30 + n)}','WHATSAPP','CUSTOMER','still looking c${n}','x',now(),'c${n}',1,'WHATSAPP_WEBHOOK',clock_timestamp());`);
+  openAiCalls.length = 0;
+  const pesquisas = require('../api/panel/pesquisas');
+  const ctx = { config: { url: BASE, secretKey: 'secreta-simulada' }, environment: 'preview', panel: { id: null } };
+  let running = 0, peak = 0;
+  const out = await asProduction((body) => [200, { choices: [{ message: { content: JSON.stringify({ hasRequest: false, requests: [] }) } }], usage }], async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (!String(url).startsWith('https://api.openai.com/')) return original(url, init);
+      running += 1; peak = Math.max(peak, running);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      try { return await original(url, init); } finally { running -= 1; }
+    };
+    try { return await pesquisas.extractHistory(ctx, Infinity, { deadlineAt: Date.now() + 30000, concurrency: 4 }); } finally { globalThis.fetch = original; }
+  });
+  assert.equal(out.read, 12, 'as 12 pendentes num ciclo só (antes eram 5)');
+  assert.equal(out.remaining, 0);
+  assert.ok(peak > 1 && peak <= 4, 'em paralelo, no máximo 4 ao mesmo tempo: ' + peak);
+  const first = openAiCalls.find((body) => body.response_format);
+  assert.match(JSON.stringify(first), /still looking c1\b/, 'quem escreveu por último é lido primeiro');
+  assert.deepEqual(backend.refused, []);
+});
