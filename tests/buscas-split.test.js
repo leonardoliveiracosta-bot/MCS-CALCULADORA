@@ -148,6 +148,50 @@ test('6 · mesma ficha nos dois modos tem estados independentes, 7 · busca salv
   assert.equal(patched.at(-1).filters.logical_mode, 'eq.CARRO');
 });
 
+test('contexto de cliente consulta somente as fichas e Refs pedidas, inclusive buscas salvas', async () => {
+  const target = { id: uuid(70), reference_code: 'SCOPE1', source: 'CALCULATOR', status: 'ATIVO', criteria_json: { logical_modes: ['VALOR'], wishlists: [{ make: 'BMW', model: 'X5' }] }, budget_cents: 5000000, created_at: iso(1), updated_at: iso(1) };
+  const calls = [];
+  const server = { allRows: async (_ctx, table, query = {}) => {
+    calls.push({ table, query });
+    if (table === 'journeys' && query.id) return [target];
+    if (table === 'journeys' && query.reference_code) return [{ id: target.id, reference_code: 'SCOPE1' }];
+    if (table === 'calc_runs' && query['dados->>ref']) return [valorRow('SCOPE1')];
+    return [];
+  } };
+  const stage = loadWith('panel-search-stage.js', { './panel-server': server, './panel-manheim-state': { undoSupported: async () => true } });
+  const result = await stage.loadSearchStageIndex(ctx, { journeyIds: [target.id] });
+  assert.equal(result.get(target.id)?.modes?.VALOR?.stage, 'MISSING');
+  assert.ok(calls.some((call) => call.table === 'journeys' && call.query.id?.startsWith('in.(')));
+  assert.ok(calls.some((call) => call.table === 'calc_runs' && call.query['dados->>ref']?.startsWith('in.(')));
+  assert.ok(calls.some((call) => call.table === 'manheim_saved_searches' && call.query.search_key?.includes('bmw|x5|valor')));
+  for (const table of ['journeys', 'journey_refs', 'calc_runs', 'calculator_request_links', 'panel_search_marks', 'lead_events', 'units', 'sms_print_reads', 'journey_toggle_states']) {
+    assert.ok(calls.filter((call) => call.table === table).every((call) => Object.keys(call.query).some((key) => ['id', 'journey_id', 'reference_code', 'ref_code', 'dados->>ref', 'calc_ref', 'confirmed_journey_id'].includes(key))), `${table} não pode ser lida inteira para um resumo de ficha`);
+  }
+});
+
+test('Ref compartilhada por fichas diferentes fica em revisão e não gera busca duplicada; dois modos da mesma ficha continuam separados', () => {
+  const first = { id: uuid(31), reference_code: 'SHARE', status: 'ATIVO', source: 'CALCULATOR', criteria_json: {}, created_at: iso(1) };
+  const second = { id: uuid(32), reference_code: null, status: 'ATIVO', source: 'CALCULATOR', criteria_json: {}, created_at: iso(1) };
+  const rows = [valorRow('SHARE'), carroRow('SHARE')];
+  const collision = domain.buildSearchDemands({ journeys: [first, second], refs: [{ journey_id: second.id, ref_code: 'SHARE' }], modeItems: domain.consolidateCalcRuns(rows), externalOwners: [] });
+  const noOrderHistory = domain.buildSearchDemands({ journeys: [first, second], refs: [{ journey_id: second.id, ref_code: 'SHARE' }], modeItems: [] });
+  assert.equal(noOrderHistory.byJourney.get(first.id).some((item) => item.issues.some((issue) => issue.code === 'REF_AMBIGUOUS')), true, 'a colisão também aparece sem eventos da calculadora');
+  const scopedCollision = domain.buildSearchDemands({ journeys: [first], refs: [], modeItems: domain.consolidateCalcRuns(rows), externalOwners: [{ id: second.id, ref_code: 'SHARE' }] });
+  assert.equal(scopedCollision.byJourney.get(first.id).filter((item) => item.active).length, 0, 'um resumo por vez também detecta a outra ficha');
+  for (const journey of [first, second]) {
+    const demands = collision.byJourney.get(journey.id);
+    assert.equal(demands.filter((item) => item.active).length, 0);
+    assert.equal(demands.filter((item) => item.issues.some((issue) => issue.code === 'REF_AMBIGUOUS')).length, 2);
+    assert.match(demands[0].issues[0].text, /Ref SHARE ligada a mais de uma ficha/);
+  }
+  assert.equal(collision.orders.length, 0, 'Ref ambígua não vira pedido sem ficha por fallback');
+  assert.equal(collision.owner.has('SHARE'), true, 'Ref ambígua não reaparece como pedido independente');
+  const ambiguousCard = buscas.reviewItem({ journeyById: new Map(), groupedByRef: new Map(), refsOf: () => [], primaryPhone: () => null }, collision.byJourney.get(first.id)[0]);
+  assert.equal(ambiguousCard.canDefineMode, false, 'escolher CARRO/VALOR não resolve qual ficha é dona da Ref');
+  const oneOwner = domain.buildSearchDemands({ journeys: [first], refs: [], modeItems: domain.consolidateCalcRuns(rows) });
+  assert.deepEqual(oneOwner.byJourney.get(first.id).filter((item) => item.active).map((item) => item.mode).sort(), ['CARRO', 'VALOR']);
+});
+
 // ------------------------------------------------------------------ 9-17 regras
 test('9 · critérios CARRO não entram em VALOR e 10 · lance e MMR não entram em CARRO', () => {
   const journey = { id: uuid(20), reference_code: 'DCCC4', status: 'ATIVO', criteria_json: {}, budget_cents: 5000000 };
