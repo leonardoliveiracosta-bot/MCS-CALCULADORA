@@ -117,10 +117,12 @@ test('varredura de todos os botões do painel', async ({ page }) => {
       const buttons = await page.locator(`${rootSelector} button:visible`).all();
       let target = null, label = '';
       for (const button of buttons) {
-        const text = ((await button.innerText().catch(() => '')) || (await button.getAttribute('aria-label')) || (await button.getAttribute('id')) || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        // A button that left the page while the list was read (a click that changed the view) is
+        // skipped: every read has a limit, so the sweep never waits forever for a detached button.
+        const text = ((await button.innerText({ timeout: 2000 }).catch(() => '')) || (await button.getAttribute('aria-label', { timeout: 2000 }).catch(() => null)) || (await button.getAttribute('id', { timeout: 2000 }).catch(() => null)) || '').replace(/\s+/g, ' ').trim().slice(0, 60);
         const key = text.replace(/\d+/g, '#');
         if (!text || SKIP.test(text) || (seen.get(key) || 0) >= maxPerLabel) continue;
-        if (await button.isDisabled()) { seen.set(key, (seen.get(key) || 0) + 1); clicked.push({ where, label: text, result: 'DESABILITADO' }); continue; }
+        if (await button.isDisabled({ timeout: 2000 }).catch(() => true)) { seen.set(key, (seen.get(key) || 0) + 1); clicked.push({ where, label: text, result: 'DESABILITADO' }); continue; }
         target = button; label = text; seen.set(key, (seen.get(key) || 0) + 1); break;
       }
       if (!target) break;
