@@ -3,6 +3,8 @@
 // Opções de UMA demanda do lote ativo, página por página (BUSCAS abre a demanda ou "Ver mais").
 //  GET  ?key=journey:<id>:CARRO&cursor=<...>&limit=10   até 50 carros por página, cursor estável
 //  GET  ?key=...&group=LANE|OFFLANE|INCOMPLETE&cursor=<n>  um grupo da demanda, 10 por vez, na ordem por CR
+//  POST { action: 'sync' }                             compara de novo os pedidos defasados (critério
+//                                                     novo ou alterado depois do lote)
 //  POST { action: 'rematch', key }                     critério mudou: o servidor compara de novo só
 //                                                     essa demanda com os carros do lote ativo
 //  POST { action: 'select'|'remove'|'exclude'|'price', matchId, pct, reason, note }
@@ -15,8 +17,8 @@ const { batchSupported, latestActiveUpload } = require('../../panel-manheim-stat
 const { loadBuscasBase, liveMatchesFor, upper } = require('../../panel-buscas');
 const { demandContext } = require('../../panel-buscas-view');
 const batch = require('../../panel-manheim-batch');
-const vehicleMatch = require('../../vehicle-match');
 const offer = require('../../manheim-offer');
+const { rematchDemands, syncStaleDemands } = require('../../panel-rematch');
 
 const KEY = /^(journey:[0-9a-f-]{36}|ref:[A-HJ-NP-Z2-9]{5}):(VALOR|CARRO)$/;
 const PARSED_FIELDS = ['vin', 'year', 'make', 'model', 'trim', 'miles', 'location', 'locationDisplay', 'saleDate', 'startsAt', 'endsAt', 'mmrCents', 'exteriorColor', 'interiorColor', 'buyNowPrice', 'conditionGrade', 'lot', 'drivetrain', 'transmission', 'engine', 'makeNotice', 'matchNotice', 'matchedWishlistLabel', 'matchedWishlistIndex', 'dataGap', 'cleanTitle', 'odometerOk', 'lane', 'run', 'saleType', 'saleStatus', 'eventSaleName'];
@@ -155,18 +157,10 @@ async function options(ctx, req) {
 async function rematch(ctx, body) {
   const key = String(body.key || '');
   if (!KEY.test(key)) return send(ctx.res, 400, { error: 'MANHEIM_DEMAND_KEY_INVALID' });
-  const latest = await latestActiveUpload(ctx, 'id');
-  if (!latest) return send(ctx.res, 409, { error: 'MANHEIM_NO_ACTIVE_BATCH' });
-  const { target } = await contextFor(ctx, key);
-  if (!target) return send(ctx.res, 409, { error: 'MANHEIM_DEMAND_NOT_ACTIVE' });
-  const [snapshot] = batch.snapshotTargets([target]);
-  const makes = [...new Set(snapshot.wishes.map((wish) => batch.makeKey(wish.make)).filter(Boolean))];
-  const filter = makes.length ? { make_key: 'in.(' + makes.concat(['']).map((make) => '"' + make.replace(/"/g, '') + '"').join(',') + ')' } : {};
-  const cars = await allRows(ctx, 'manheim_vehicles', { select: 'id,row_fingerprint,vehicle_json,make_key,mmr_cents', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id, undone_at: 'is.null', ...filter });
-  const entries = cars.map((car) => ({ fingerprint: car.row_fingerprint, makeKey: car.make_key || '', mmrCents: vehicleMatch.validMmrCents(car.mmr_cents !== null && car.mmr_cents !== undefined ? car.mmr_cents : car.vehicle_json && car.vehicle_json.mmrCents), vehicle: car.vehicle_json || {} }));
-  const matches = batch.matchChunk(entries, [snapshot]);
-  const result = await rpc(ctx, 'panel_manheim_rematch_demand', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: latest.id, p_demand_key: key, p_matches: matches });
-  return send(ctx.res, 200, { ...result, compared: entries.length });
+  const [outcome] = await rematchDemands(ctx, [key]);
+  if (outcome.status === 'NO_BATCH') return send(ctx.res, 409, { error: 'MANHEIM_NO_ACTIVE_BATCH' });
+  if (outcome.status !== 'DONE') return send(ctx.res, 409, { error: 'MANHEIM_DEMAND_NOT_ACTIVE' });
+  return send(ctx.res, 200, { ...outcome.result, compared: outcome.compared });
 }
 
 module.exports = async (req, res) => {
@@ -179,6 +173,9 @@ module.exports = async (req, res) => {
     if (req.method === 'GET') return await options(ctx, req);
     const body = await jsonBody(req, 4096);
     if (body.action === 'rematch') return await rematch(ctx, body);
+    // Requests whose criterion changed or that never met the active batch (OPÇÕES opened, a ficha
+    // changed): compared now, within this function's 30 s.
+    if (body.action === 'sync') return send(res, 200, await syncStaleDemands(ctx, { deadlineAt: Date.now() + 20000 }));
     if (['select', 'remove', 'exclude', 'price'].includes(body.action)) return await selectOption(ctx, body);
     return send(res, 400, { error: 'MANHEIM_OPTIONS_ACTION_INVALID' });
   } catch (error) {

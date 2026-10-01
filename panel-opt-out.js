@@ -16,3 +16,36 @@ function optOutOf(messages) {
 }
 
 module.exports = { OPT_OUT, OPT_OUT_WORD, optOutOf };
+
+// Whether the panel may still offer cars to this ficha (V1 created or sent): not when the client asked
+// not to be contacted, the case is closed or switched off, the person was discarded or marked "não é
+// lead". Returns null (allowed) or { code, text }. Reads only this ficha.
+async function journeyBlock(ctx, journeyId, read) {
+  const env = 'eq.' + ctx.environment;
+  const [journey] = await read(ctx, 'journeys', { select: 'id,contact_id,status,closed_reason', environment: env, id: 'eq.' + journeyId, limit: '1' });
+  if (!journey) return { code: 'JOURNEY_NOT_FOUND', text: 'Ficha não encontrada' };
+  const [contacts, toggles, dispositions, links] = await Promise.all([
+    read(ctx, 'contacts', { select: 'id,is_lead', environment: env, id: 'eq.' + journey.contact_id, limit: '1' }),
+    read(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: env, journey_id: 'eq.' + journeyId, limit: '1' }).catch(() => []),
+    read(ctx, 'panel_item_dispositions', { select: 'status,cleared_at', environment: env, item_kind: 'eq.JOURNEY', item_key: 'eq.' + journeyId, cleared_at: 'is.null', limit: '1' }).catch(() => []),
+    read(ctx, 'message_journeys', { select: 'message_id', environment: env, journey_id: 'eq.' + journeyId, undone_at: 'is.null' })
+  ]);
+  if (contacts[0] && contacts[0].is_lead === false) return { code: 'NOT_LEAD', text: 'Marcado como "não é lead"' };
+  if (journey.status === 'ENCERRADO') return { code: 'CLOSED', text: 'Caso encerrado' };
+  if (toggles[0] && toggles[0].enabled === false) return { code: 'OFF', text: 'Caso desligado' };
+  if (dispositions[0] && dispositions[0].status === 'DISCARDED') return { code: 'DISCARDED', text: 'Pessoa descartada' };
+  // Same rule as HOJE: blocked while the client's latest message is the request not to be contacted
+  // (a later message from the client brings the case back).
+  const ids = links.map((row) => row.message_id).filter(Boolean);
+  const messages = [];
+  for (let index = 0; index < ids.length; index += 100) {
+    messages.push(...await read(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc,created_at,undone_at', environment: env, direction: 'eq.CUSTOMER', id: 'in.(' + ids.slice(index, index + 100).join(',') + ')' }));
+  }
+  const live = messages.filter((message) => !message.undone_at).sort((a, b) => stamp(a) - stamp(b));
+  const last = live.at(-1);
+  const found = last ? optOutOf([last]) : null;
+  if (found) return { code: 'OPT_OUT', text: 'O cliente pediu para não receber contato: "' + found.text + '"' };
+  return null;
+}
+
+module.exports.journeyBlock = journeyBlock;

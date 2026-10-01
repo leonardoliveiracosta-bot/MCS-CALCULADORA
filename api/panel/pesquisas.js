@@ -23,6 +23,8 @@ const { latestActiveUpload } = require('../../panel-manheim-state');
 const { criteriaHash: targetHash } = require('../../panel-manheim-batch');
 const requests = require('../../vehicle-requests');
 const search = require('../../panel-search-requests');
+const toFicha = require('../../panel-search-to-ficha');
+const rematch = require('../../panel-rematch');
 
 const COMPARE_BATCH = 40;
 const safe = (promise, fallback) => promise.catch((error) => { if (search.tableMissing(error)) return fallback; throw error; });
@@ -91,8 +93,13 @@ async function buildList(ctx) {
   for (const request of conversation.requests) {
     // Read from a real conversation, so the person wrote; the same exclusions as the fichas apply.
     if (base.contactsById.get(request.contact_id)?.is_lead === false) continue;
-    const owner = request.journey_id ? base.journeyById.get(request.journey_id) : null;
+    // The ficha is the one its evidence messages are linked to (vehicle_requests.journey_id is not
+    // filled): closed, switched off, discarded or out-of-funnel fichas leave the list, and the card
+    // can open the ficha.
+    const ownerId = request.journey_id || toFicha.fichaOf({ evidence: request.evidenceMessages }, base);
+    const owner = ownerId ? base.journeyById.get(ownerId) : null;
     if (owner && !workable(owner)) continue;
+    if (owner) request.person = { ...request.person, journeyId: owner.id };
     const key = 'conversa:' + request.id;
     const described = requests.describe({ criteria: request.criteria, evidence: request.evidence, confidence: request.confidence, needsReview: request.needs_review, reviewReason: request.review_reason });
     const item = { key, source: 'CONVERSA', person: request.person, mode: null, criteria: request.criteria, criteriaText: requests.criteriaText(request.criteria), missing: described.missing, lacks: described.lacks, lacksText: described.lacksText, searchMode: described.searchMode,
@@ -105,8 +112,11 @@ async function buildList(ctx) {
   items.forEach((item) => { const groupKey = (item.comparable ? 'c:' + (item.searchMode || '') + ':' : 'x:' + item.key + ':') + item.criteriaHash; item.groupKey = groupKey; if (!groups.has(groupKey)) groups.set(groupKey, []); groups.get(groupKey).push(item.key); });
   const counts = Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length]));
   const byCompleteness = Object.fromEntries(requests.COMPLETENESS.map((level) => [level, Object.fromEntries([...requests.RESULTS, 'NONE'].map((result) => [result, items.filter((item) => item.completeness === level && (item.result || 'NONE') === result).length]))]));
-  return { uploadId, upload: upload ? { id: upload.id, uploadedAt: upload.uploaded_at } : null, items, groupCount: groups.size, counts, byCompleteness,
+  const list = { uploadId, upload: upload ? { id: upload.id, uploadedAt: upload.uploaded_at } : null, items, groupCount: groups.size, counts, byCompleteness,
     extraction: search.extractionStatus(), requestsPending: conversation.pending, checksPending: checks === null };
+  // The base goes along for the compare step, never in the JSON answer.
+  Object.defineProperty(list, 'base', { value: base, enumerable: false });
+  return list;
 }
 // State shown and filtered: the readiness when the request is not compared (PRECISA DETALHE,
 // PRECISA DE REVISÃO), otherwise its result in the active batch. A request that needs detail has
@@ -353,6 +363,9 @@ const upsertCheck = (ctx, row) => supabase(ctx.config.url, ctx.config.secretKey,
 
 // Each round answers well inside the 60 s limit; the panel calls again while something remains.
 const COMPARE_BUDGET_MS = 35000;
+// After the comparison: writing requests on fichas, then comparing them in OPÇÕES (60 s function).
+const CARRY_BUDGET_MS = 30000;
+const SYNC_BUDGET_MS = 48000;
 async function compare(ctx, startedAt = Date.now(), skipKeys = []) {
   const list = await buildList(ctx);
   if (list.checksPending) return { status: 503, error: 'SEARCH_REQUESTS_PENDING' };
@@ -360,7 +373,31 @@ async function compare(ctx, startedAt = Date.now(), skipKeys = []) {
   const skip = new Set(Array.isArray(skipKeys) ? skipKeys.map(String) : []);
   const pending = list.items.filter((item) => item.state === 'FALTA_BUSCAR' && !skip.has(item.key));
   const result = await search.compareItems(ctx, pending.slice(0, COMPARE_BATCH), { services: { upsertCheck }, deadlineAt: startedAt + COMPARE_BUDGET_MS });
-  return { status: 200, uploadId: result.uploadId, compared: result.compared, failed: result.failed || [], remaining: Math.max(0, pending.length - result.compared - (result.failed || []).length) };
+  const failed = result.failed || [];
+  const remaining = Math.max(0, pending.length - result.compared - failed.length);
+  const out = { status: 200, uploadId: result.uploadId, compared: result.compared, failed, remaining, carried: 0, carryLeft: 0, carrySkipped: {}, options: null };
+  if (remaining || !result.uploadId) return out;
+  // Then the conversation requests reach the ficha and OPÇÕES: each complete request whose ficha
+  // has no car yet is written on the ficha (same path as marking a car on the customer's message),
+  // and every request whose criterion was not compared with the active batch is compared now.
+  const { plan, skipped } = toFicha.carryPlan(list.items.filter((item) => !skip.has(item.key)), list.base);
+  skipped.forEach((item) => { out.carrySkipped[item.reason] = (out.carrySkipped[item.reason] || 0) + 1; });
+  for (const entry of plan) {
+    if (Date.now() >= startedAt + CARRY_BUDGET_MS) break;
+    try { await toFicha.carryOne(ctx, entry); out.carried += 1; }
+    catch (error) {
+      failed.push(entry.key);
+      console.error('[pesquisas] levar para a ficha falhou', entry.key, String(error && (error.code || error.message) || error).slice(0, 200));
+    }
+  }
+  out.carryLeft = Math.max(0, plan.length - out.carried - plan.filter((entry) => failed.includes(entry.key)).length);
+  if (Date.now() < startedAt + SYNC_BUDGET_MS) {
+    out.options = await rematch.syncStaleDemands(ctx, { deadlineAt: startedAt + SYNC_BUDGET_MS }).catch((error) => {
+      console.error('[pesquisas] OPÇÕES não atualizou', String(error && (error.code || error.message) || error).slice(0, 200));
+      return { stale: 0, synced: 0, remaining: 0, error: 'OPTIONS_SYNC_FAILED' };
+    });
+  }
+  return out;
 }
 
 module.exports = async (req, res) => {
