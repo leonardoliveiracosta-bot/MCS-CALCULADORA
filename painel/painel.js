@@ -2862,6 +2862,17 @@
         keep.addEventListener('click', () => MCSAction.feedback(line, 'Continua pendente', 'success', 'review-keep'));
         actions.append(keep);
       }
+      if (item.canSetBid) {
+        // POR VALOR without the maximum bid: the bid makes the search active (then OPÇÕES compares it).
+        const bid = element('input', 'review-bid'); bid.type = 'text'; bid.inputMode = 'decimal'; bid.placeholder = 'Lance máximo, ex.: 15000'; bid.setAttribute('aria-label', 'Lance máximo da busca POR VALOR (US$)');
+        const save = element('button', 'small', 'Salvar lance'); save.type = 'button';
+        MCSAction.bind(save, () => ({ scope: line, optimistic: () => { save.textContent = 'Salvando…'; },
+          commit: () => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_mode_bid', journeyId: item.journeyId, value: bid.value }) }),
+          rollback: () => { save.textContent = 'Salvar lance'; }, successText: 'Lance salvo · OPÇÕES vai comparar esta busca com o lote', feedbackKey: 'review-bid:' + item.key,
+          errorText: (failure) => failure && failure.code === 'BID_VALUE_INVALID' ? 'Lance inválido · Use um valor entre US$ 3,000 e US$ 300,000' : 'Não consegui salvar o lance · tente de novo',
+          refresh: () => loadCurrent() }));
+        actions.append(bid, save);
+      }
       const open = element('button', 'quiet small', item.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
       open.addEventListener('click', () => item.journeyId ? openDetail('ficha', item.journeyId) : openDetail('order', item.ref));
       actions.append(open);

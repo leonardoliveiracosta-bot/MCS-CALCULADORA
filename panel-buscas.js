@@ -92,7 +92,9 @@ function liveMatchesFor(match, demandsOfTarget) {
 
 function reviewItem(base, demand) {
   const identityNeedsResolution = (demand.issues || []).some((issue) => issue.code === 'REF_AMBIGUOUS');
-  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, ...demandPerson(base, demand), issues: demand.issues, manual: demand.manual === true, wishes: demand.manual ? demand.wishes : undefined, canDefineMode: demand.mode === 'REVIEW' && Boolean(demand.journeyId) && !identityNeedsResolution };
+  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, ...demandPerson(base, demand), issues: demand.issues, manual: demand.manual === true, wishes: demand.manual ? demand.wishes : undefined, canDefineMode: demand.mode === 'REVIEW' && Boolean(demand.journeyId) && !identityNeedsResolution,
+    // A4: POR VALOR without the maximum bid on a ficha: the operator can type it here.
+    canSetBid: demand.mode === 'VALOR' && Boolean(demand.journeyId) && !identityNeedsResolution && (demand.issues || []).some((issue) => issue.code === 'BID_MISSING') };
 }
 
 module.exports = { buildBuscasBase, demandPerson, liveMatchesFor, loadBuscasBase, matchTarget, reviewItem, upper };
