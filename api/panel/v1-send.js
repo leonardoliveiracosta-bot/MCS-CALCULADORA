@@ -3,7 +3,12 @@
 // Envio manual da V1 pelo 360dialog, sempre por clique do operador (nunca ao gerar a V1).
 //  POST prepare  destino (telefone da ficha, decidido aqui), texto sugerido pela origem da busca,
 //                janela de 24 h, modo de envio e o último envio desta V1
-//  POST send     envia depois da confirmação; uma chave por confirmação, um envio em andamento por V1
+//  POST send     envia depois da confirmação; uma chave por confirmação, um envio em andamento por V1.
+//                Enviada (SENT ou UNCONFIRMED), a V1 conta como apresentação dos seus carros, como
+//                "Apresentei ao cliente" (panel-presentation.js), e a busca do modo fica "Opções
+//                enviadas". Uma falha nesse registro nunca transforma um envio feito em erro.
+//  GET ?journeyIds=…  a última V1 de cada ficha (por modo) e o último envio dela, para o cartão de
+//                OPÇÕES lembrar a V1 depois de recarregar a página. Só leitura.
 // Modo: fora de produção é sempre simulado (nenhuma mensagem real sai de Preview ou de teste). Em
 // produção só envia com V1_DIRECT_SEND_ENABLED=1; sem ela o envio direto fica desligado.
 // Sem confirmação inequívoca do 360dialog o envio fica "Não confirmado", nunca "Enviado", e nada é
@@ -11,6 +16,8 @@
 const crypto = require('node:crypto');
 const { insert, isUuid, jsonBody, patchRows, requirePanel, rows, send } = require('../../panel-server');
 const reply = require('./reply');
+const presentation = require('../../panel-presentation');
+const { undoSupported } = require('../../panel-manheim-state');
 
 const MAX_TEXT = reply.MAX_TEXT;
 const TIMEOUT_MS = 15000;
@@ -89,6 +96,18 @@ async function deliver(phone, text, services, timeoutMs = TIMEOUT_MS) {
 // Refused by the provider (4xx) or never tried: failed. Anything else without an id: not confirmed.
 const failedFor = (code) => /^D360_HTTP_4\d\d$/.test(code) || code === 'D360_KEY_MISSING';
 
+// The V1 with the customer (or maybe with the customer: UNCONFIRMED) is recorded as presented.
+// Bookkeeping only: any failure is logged and the send keeps its status.
+async function recordPresentation(ctx, vitrine, origin, now, services) {
+  try {
+    await (services.recordPresentation || presentation.recordV1Presentation)(ctx, { vitrineId: vitrine.id, journeyId: vitrine.journey_id, origin, at: new Date(now).toISOString() }, services);
+    return true;
+  } catch (error) {
+    console.error('V1_PRESENTATION_NOT_RECORDED', error && (error.code || error.status || error.message) || 'UNKNOWN');
+    return false;
+  }
+}
+
 async function sendV1(ctx, body, services, env, now) {
   const text = String(body.text || '').replace(/\r\n/g, '\n').trim();
   // One V1 per request: a list of tokens is never accepted.
@@ -133,18 +152,22 @@ async function sendV1(ctx, body, services, env, now) {
     const finish = (patch) => services.patchRows(ctx, 'v1_sends', { environment: 'eq.' + ctx.environment, id: 'eq.' + row.id }, { ...patch, updated_at: new Date(now).toISOString() });
     if (mode === 'SIMULATED') {
       await finish({ status: 'SENT', provider_message_id: 'simulated-' + row.id });
-      return { status: 200, sendStatus: 'SENT', simulated: true, at: new Date(now).toISOString() };
+      const recorded = await recordPresentation(ctx, vitrine, row.origin || null, now, services);
+      return { status: 200, sendStatus: 'SENT', simulated: true, at: new Date(now).toISOString(), presentationRecorded: recorded };
     }
     const sent = await deliver(target.phone, text, services);
     if (sent.error) {
       const status = failedFor(sent.error) ? 'FAILED' : 'UNCONFIRMED';
       await finish({ status, error_code: sent.error });
-      return { status: 200, sendStatus: status, errorCode: sent.error, at: new Date(now).toISOString() };
+      // Not confirmed may have reached the customer: it counts as presented (a refusal does not).
+      const recorded = status === 'UNCONFIRMED' ? await recordPresentation(ctx, vitrine, row.origin || null, now, services) : false;
+      return { status: 200, sendStatus: status, errorCode: sent.error, at: new Date(now).toISOString(), presentationRecorded: recorded };
     }
     await finish({ status: 'SENT', provider_message_id: sent.messageId });
     // Already with the customer: a failure to record it in the conversation does not undo "sent".
     await reply.recordSent(ctx, target, text, sent.messageId, services, now).catch(() => null);
-    return { status: 200, sendStatus: 'SENT', simulated: false, at: new Date(now).toISOString() };
+    const recorded = await recordPresentation(ctx, vitrine, row.origin || null, now, services);
+    return { status: 200, sendStatus: 'SENT', simulated: false, at: new Date(now).toISOString(), presentationRecorded: recorded };
   } finally { inFlight.delete(vitrine.id); }
 }
 
@@ -183,6 +206,47 @@ async function demoSend(body, env) {
   } finally { inFlight.delete(key); }
 }
 
+// The latest V1 of each ficha and its last send, keyed as the BUSCAS demands ("journey:<id>:<MODE>")
+// and by ficha ("journey:<id>"). A V1's mode comes from its sends (origin) and from its cars'
+// matches; a V1 with no known mode is only under the ficha key (never shown on the card of a mode).
+const MAX_JOURNEYS = 100;
+const PER_JOURNEY = 10;
+const SENT_STATUSES = ['SENT', 'UNCONFIRMED'];
+async function latest(ctx, query, services) {
+  const ids = [...new Set(String(query && query.journeyIds || '').split(',').map((value) => value.trim()).filter(isUuid))];
+  if (!ids.length || ids.length > MAX_JOURNEYS) return { status: 400, error: 'V1_LATEST_INVALID' };
+  const env = 'eq.' + ctx.environment;
+  const all = await services.rows(ctx, 'vitrines', { select: 'id,token,journey_id,created_at', environment: env, version: 'eq.V1', journey_id: 'in.(' + ids.join(',') + ')', order: 'created_at.desc', limit: String(MAX_JOURNEYS * PER_JOURNEY) });
+  const count = new Map();
+  const vitrines = all.filter((row) => { const n = (count.get(row.journey_id) || 0) + 1; count.set(row.journey_id, n); return n <= PER_JOURNEY; });
+  if (!vitrines.length) return { status: 200, latest: {} };
+  const vitrineIds = vitrines.map((row) => row.id);
+  const [cars, sends] = await Promise.all([
+    services.rows(ctx, 'vitrine_cars', { select: 'vitrine_id,source_match_id', environment: env, vitrine_id: 'in.(' + vitrineIds.join(',') + ')' }),
+    services.rows(ctx, 'v1_sends', { select: 'vitrine_id,status,simulated,resend,error_code,origin,created_at,updated_at', environment: env, vitrine_id: 'in.(' + vitrineIds.join(',') + ')', order: 'created_at.desc' })
+  ]);
+  const matchIds = [...new Set(cars.map((row) => row.source_match_id).filter(Boolean))];
+  const withMode = matchIds.length && await undoSupported(ctx, { rows: services.rows }).catch(() => false);
+  const matches = withMode ? await services.rows(ctx, 'manheim_matches', { select: 'id,logical_mode', environment: env, id: 'in.(' + matchIds.join(',') + ')' }) : [];
+  const modeOfMatch = new Map(matches.map((row) => [row.id, row.logical_mode]));
+  const out = {};
+  const lastSentFor = {};
+  for (const vitrine of vitrines) {
+    const own = sends.filter((row) => row.vitrine_id === vitrine.id);
+    const modes = [...new Set([...own.map((row) => row.origin), ...cars.filter((row) => row.vitrine_id === vitrine.id).map((row) => modeOfMatch.get(row.source_match_id))].filter((mode) => mode === 'VALOR' || mode === 'CARRO'))];
+    const sent = own.find((row) => SENT_STATUSES.includes(row.status)) || null;
+    const item = { token: vitrine.token, link: '/v/' + vitrine.token, createdAt: vitrine.created_at, modes, last: sendOut(own[0] || null), lastSent: sendOut(sent) };
+    for (const key of ['journey:' + vitrine.journey_id, ...modes.map((mode) => 'journey:' + vitrine.journey_id + ':' + mode)]) {
+      // Vitrines come newest first: the first one seen for a key is the latest.
+      if (!out[key]) out[key] = item;
+      if (sent && !lastSentFor[key]) lastSentFor[key] = { token: vitrine.token, link: '/v/' + vitrine.token, ...sendOut(sent) };
+    }
+  }
+  // The latest V1 not sent yet still tells when an earlier V1 of the same key was sent.
+  Object.keys(out).forEach((key) => { if (!out[key].lastSent && lastSentFor[key]) out[key] = { ...out[key], previousSent: lastSentFor[key] }; });
+  return { status: 200, latest: out };
+}
+
 function fromAutomation(req) {
   const headers = req && req.headers || {};
   return Boolean(headers['x-vercel-cron'] || /vercel-cron|bot|crawler/i.test(String(headers['user-agent'] || '')) || headers['x-mcs-automation']);
@@ -205,6 +269,18 @@ async function handle(ctx, body, services = defaultServices, env = process.env, 
 }
 
 module.exports = async (req, res) => {
+  if (req.method === 'GET') {
+    const ctx = await requirePanel(req, res);
+    if (!ctx) return;
+    try {
+      const query = req.query || Object.fromEntries(new URL(req.url || '/', 'http://painel.local').searchParams);
+      const { status, ...out } = await latest(ctx, query, defaultServices);
+      return send(res, status, out);
+    } catch (error) {
+      if (missingTable(error)) return send(res, 503, { error: 'V1_SEND_PENDING' });
+      return send(res, 500, { error: 'V1_SEND_UNAVAILABLE' });
+    }
+  }
   if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   // Only a person in the panel sends: never a scheduled job (cron) or an automated caller.
   if (fromAutomation(req)) return send(res, 403, { error: 'V1_SEND_HUMAN_ONLY' });
@@ -218,6 +294,7 @@ module.exports = async (req, res) => {
   }
 };
 module.exports.handle = handle;
+module.exports.latest = latest;
 module.exports.fromAutomation = fromAutomation;
 module.exports.OPERATOR_GAP_MS = OPERATOR_GAP_MS;
 module.exports.sendMode = sendMode;

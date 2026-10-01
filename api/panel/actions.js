@@ -13,6 +13,7 @@ const { dispositionIndex } = require('../../panel-disposition');
 const vehicleCatalog = require('../../vehicle-catalog');
 const { parseMoneyCents } = require('../../money-text');
 const { localToUtc, timezoneForZip } = require('../../panel-lead');
+const presentation = require('../../panel-presentation');
 const {
   allRows, insert, isUuid, jsonBody, patchRows, recordMutation, requirePanel,
   rows, safeText, send, supabase
@@ -438,7 +439,6 @@ async function actionUnit(ctx, journey, body) {
     });
   } else {
     let vehicle = safeText(body.vehicleText, 500, true);
-    let details = {};
     let match = null;
     if (body.manheimMatchId) {
       if (!isUuid(body.manheimMatchId)) return send(ctx.res, 400, { error: 'MANHEIM_MATCH_ID_INVALID' });
@@ -454,18 +454,20 @@ async function actionUnit(ctx, journey, body) {
       const parsed = match.vehicle_json && match.vehicle_json.parsed || {};
       // MMR is mandatory: a car without a valid MMR is never presented as an option.
       if (!vehicleMatchRule.hasValidMmr(parsed)) return send(ctx.res, 409, { error: 'MANHEIM_MATCH_WITHOUT_MMR' });
-      vehicle = safeText([parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' '), 500, true);
-      details = {
-        manheim_match_id: match.id, miles: finiteInteger(parsed.miles), location: safeText(parsed.location, 200) || null,
-        sale_date: safeText(parsed.saleDate, 100) || null, mmr_cents: finiteInteger(parsed.mmrCents),
-        exterior_color: safeText(parsed.exteriorColor, 120) || null, buy_now_price: safeText(parsed.buyNowPrice, 120) || null,
-        condition_report_grade: safeText(parsed.conditionGrade, 120) || null
-      };
+      vehicle = presentation.vehicleTextOf(parsed);
     }
     if (!vehicle) return send(ctx.res, 400, { error: 'UNIT_VEHICLE_REQUIRED' });
-    const created = await insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: vehicle, details_json: details, presented_at: at, status, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id });
-    unitId = created[0].id;
-    if (match) await patchRows(ctx, 'manheim_matches', { environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + match.id }, { presented_unit_id: unitId });
+    if (match) {
+      // The same unit + presented_unit_id as the V1 sent by the panel (panel-presentation.js).
+      unitId = await presentation.presentMatch(ctx, journey, match, at, { rows, insert, patchRows }, { status });
+      if (!unitId) {
+        const [again] = await rows(ctx, 'manheim_matches', { select: 'presented_unit_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + match.id, limit: '1' });
+        return send(ctx.res, 200, { unitId: again && again.presented_unit_id || null, status: 'PRESENTED', stage: journey.stage, repeated: true });
+      }
+    } else {
+      const created = await insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: vehicle, details_json: {}, presented_at: at, status, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id });
+      unitId = created[0].id;
+    }
   }
   const units = await allRows(ctx, 'units', { select: 'id,status', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
   const stage = nextStageForUnits(journey.stage, units);
