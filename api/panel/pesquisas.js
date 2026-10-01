@@ -219,7 +219,7 @@ const round6 = (value) => Math.round(value * 1e6) / 1e6;
 async function historyState(ctx, provider) {
   const env = 'eq.' + ctx.environment;
   const [runs, customer, chats, batches, requestRows] = await Promise.all([
-    allRows(ctx, 'vehicle_request_runs', { select: 'chat_id,status,provider,cost_usd,messages_read,created_at', environment: env }),
+    allRows(ctx, 'vehicle_request_runs', { select: 'chat_id,status,provider,cost_usd,messages_read,created_at,attempts', environment: env }),
     allRows(ctx, 'messages', { select: 'chat_id,created_at', environment: env, direction: 'eq.CUSTOMER', undone_at: 'is.null', is_automatic: 'is.false', occurred_at_utc: 'gte.' + search.HISTORY_SINCE }),
     allRows(ctx, 'chats', { select: 'id', environment: env, is_group: 'is.false' }),
     allRows(ctx, 'vehicle_request_batches', { select: 'provider,model,conversations,cost_usd,stopped_reason,created_at', environment: env, order: 'created_at.asc' }),
@@ -228,10 +228,14 @@ async function historyState(ctx, provider) {
   const individual = new Set(chats.map((row) => row.id));
   const newest = new Map();
   customer.forEach((row) => { if (individual.has(row.chat_id) && (!newest.get(row.chat_id) || row.created_at > newest.get(row.chat_id))) newest.set(row.chat_id, row.created_at); });
-  const lastRead = new Map();
+  const lastRead = new Map(), failedAfter = new Map();
   runs.filter((run) => run.status !== 'FAILED').forEach((run) => { if (!lastRead.get(run.chat_id) || run.created_at > lastRead.get(run.chat_id)) lastRead.set(run.chat_id, run.created_at); });
+  // A conversation whose current content failed MAX_FAILED_READS times is not read again (it waits
+  // for a new message), so it is no longer counted as pending.
+  runs.filter((run) => run.status === 'FAILED' && newest.has(run.chat_id) && run.created_at > newest.get(run.chat_id)).forEach((run) => failedAfter.set(run.chat_id, Math.max(failedAfter.get(run.chat_id) || 0, Number(run.attempts) || 1)));
+  const unread = (id) => (!lastRead.has(id) || newest.get(id) > lastRead.get(id)) && (failedAfter.get(id) || 0) < search.MAX_FAILED_READS;
   // Whoever wrote last is read first: a reply that just arrived never waits behind old conversations.
-  const pending = [...newest.keys()].filter((id) => !lastRead.has(id) || newest.get(id) > lastRead.get(id))
+  const pending = [...newest.keys()].filter(unread)
     .sort((a, b) => String(newest.get(b)).localeCompare(String(newest.get(a))));
   const ownRuns = runs.filter((run) => run.provider === provider);
   const checks = modelChecksOf(batches, provider);

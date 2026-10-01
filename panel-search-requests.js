@@ -120,6 +120,8 @@ async function conversationOf(ctx, chatId, services) {
 // Reads one conversation. dryRun: nothing is written (the Preview sample). Otherwise the run,
 // the requests and their versions are stored; a new reading of a changed conversation adds a
 // version and never deletes the previous one.
+// Readings of the same content that may fail before the conversation is left for a person.
+const MAX_FAILED_READS = 3;
 async function extractChat(ctx, chatId, options = {}) {
   const services = { allRows, rows, insert, patchRows, ...(options.services || {}) };
   const env = options.env || process.env;
@@ -130,9 +132,14 @@ async function extractChat(ctx, chatId, options = {}) {
   const conversation = await conversationOf(ctx, chatId, services);
   const hash = requests.inputHash(conversation);
   const provider = status === 'LIGADA' ? 'OPENAI' : 'SIMULATED';
+  let failedRun = null;
   if (!options.dryRun) {
-    const [previous] = await services.rows(ctx, 'vehicle_request_runs', { select: 'id,status', environment: 'eq.' + ctx.environment, chat_id: 'eq.' + chatId, input_hash: 'eq.' + hash, rule_version: 'eq.' + requests.RULE_VERSION, provider: 'eq.' + provider, limit: '1' });
-    if (previous) return { status, alreadyRead: true, runId: previous.id };
+    // A failed reading (timeout, provider error) is tried again, up to MAX_FAILED_READS times for the
+    // same content; before, one failure counted as read and the conversation stayed pending forever.
+    // There is one run per content (unique key): a retry updates the failed run and counts attempts.
+    [failedRun] = (await services.rows(ctx, 'vehicle_request_runs', { select: 'id,status,attempts', environment: 'eq.' + ctx.environment, chat_id: 'eq.' + chatId, input_hash: 'eq.' + hash, rule_version: 'eq.' + requests.RULE_VERSION, provider: 'eq.' + provider, limit: '1' })) || [];
+    if (failedRun && failedRun.status !== 'FAILED') return { status, alreadyRead: true, runId: failedRun.id };
+    if (failedRun && (Number(failedRun.attempts) || 1) >= MAX_FAILED_READS) return { status, alreadyRead: true, gaveUp: true, runId: failedRun.id };
   }
   // A paid reading: one caller per conversation content (cron and button at the same time), and the
   // US$ 50 OpenAI reservation around the call.
@@ -146,7 +153,9 @@ async function extractChat(ctx, chatId, options = {}) {
   } catch (failure) {
     if (task) await claims.finishTask(ctx, task, false).catch(() => null);
     if (options.dryRun) return { status, error: failure.code || 'EXTRACTION_FAILED' };
-    await services.insert(ctx, 'vehicle_request_runs', { environment: ctx.environment, chat_id: chatId, contact_id: chat.contact_id, provider, model: env.SEARCH_EXTRACTION_MODEL || null, rule_version: requests.RULE_VERSION, input_hash: hash, messages_read: conversation.length, status: 'FAILED', error_code: failure.code || 'EXTRACTION_FAILED', created_by: ctx.panel?.id || null }, false);
+    const failed = { model: env.SEARCH_EXTRACTION_MODEL || null, messages_read: conversation.length, status: 'FAILED', error_code: failure.code || 'EXTRACTION_FAILED', created_by: ctx.panel?.id || null };
+    if (failedRun) await services.patchRows(ctx, 'vehicle_request_runs', { environment: 'eq.' + ctx.environment, id: 'eq.' + failedRun.id, status: 'eq.FAILED' }, { ...failed, attempts: (Number(failedRun.attempts) || 1) + 1, created_at: new Date().toISOString() });
+    else await services.insert(ctx, 'vehicle_request_runs', { environment: ctx.environment, chat_id: chatId, contact_id: chat.contact_id, provider, rule_version: requests.RULE_VERSION, input_hash: hash, ...failed }, false);
     return { status, error: failure.code || 'EXTRACTION_FAILED' };
   }
   const checked = requests.validateExtraction(reading.raw, conversation);
@@ -154,9 +163,12 @@ async function extractChat(ctx, chatId, options = {}) {
   if (options.dryRun) return { status, provider, messagesRead: conversation.length, ...checked, evidence: [...new Set(checked.requests.flatMap((item) => Object.values(item.evidence).flat()))].map((id) => evidenceText.get(id)) };
   let run;
   try {
-    [run] = await services.insert(ctx, 'vehicle_request_runs', { environment: ctx.environment, chat_id: chatId, contact_id: chat.contact_id, provider, model: reading.model, rule_version: requests.RULE_VERSION, input_hash: hash,
-      messages_read: conversation.length, status: checked.requests.length ? 'DONE' : 'NO_REQUEST', request_count: checked.requests.length, error_code: checked.errorCode,
-      input_tokens: reading.usage?.input ?? null, output_tokens: reading.usage?.output ?? null, cost_usd: reading.costUsd ?? null, created_by: ctx.panel?.id || null });
+    const done = { model: reading.model, messages_read: conversation.length, status: checked.requests.length ? 'DONE' : 'NO_REQUEST', request_count: checked.requests.length, error_code: checked.errorCode,
+      input_tokens: reading.usage?.input ?? null, output_tokens: reading.usage?.output ?? null, cost_usd: reading.costUsd ?? null, created_by: ctx.panel?.id || null };
+    // A retry that worked turns the failed run into the reading (same content, same row).
+    if (failedRun) [run] = await services.patchRows(ctx, 'vehicle_request_runs', { environment: 'eq.' + ctx.environment, id: 'eq.' + failedRun.id, status: 'eq.FAILED' }, { ...done, created_at: new Date().toISOString() }, true);
+    else [run] = await services.insert(ctx, 'vehicle_request_runs', { environment: ctx.environment, chat_id: chatId, contact_id: chat.contact_id, provider, rule_version: requests.RULE_VERSION, input_hash: hash, ...done });
+    if (!run) throw Object.assign(new Error('RUN_NOT_SAVED'), { code: 'RUN_NOT_SAVED' });
   } catch (error) {
     // The cost stays on the reservation (it keeps counting in the US$ 50); the reading is done: a
     // new call for the same content would pay twice.
@@ -249,4 +261,4 @@ async function compareItems(ctx, items, options = {}) {
   return { uploadId: upload.id, compared: results.length, failed, results };
 }
 
-module.exports = { openAiChat, HISTORY_SINCE, MAX_CALL_USD, PRICES, PROVIDER_LIMIT_USD, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };
+module.exports = { MAX_FAILED_READS, openAiChat, HISTORY_SINCE, MAX_CALL_USD, PRICES, PROVIDER_LIMIT_USD, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };
