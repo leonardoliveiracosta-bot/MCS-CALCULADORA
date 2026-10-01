@@ -341,3 +341,18 @@ test('14 · leitura que falhou (tempo esgotado) é tentada de novo, até 3 vezes
   assert.equal(step.out.remaining, 0);
   assert.deepEqual(backend.refused, []);
 });
+
+test('15 · leitura só começa com tempo para terminar dentro do limite da função', async () => {
+  const pesquisas = require('../api/panel/pesquisas');
+  const ctx = { config: { url: BASE, secretKey: 'secreta-simulada' }, environment: 'preview', panel: { id: null } };
+  await backend.db.exec(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values(gen_random_uuid(),'preview','${id(32)}','WHATSAPP','CUSTOMER','still there?','x',now(),'t15',1,'WHATSAPP_WEBHOOK',clock_timestamp());`);
+  const ok = () => [200, { choices: [{ message: { content: JSON.stringify({ hasRequest: false, requests: [] }) } }], usage }];
+  const before = openAiCalls.length;
+  // 5 s to the deadline = 13 s until the hard stop: less than a reading needs, nothing starts.
+  const tight = await asProduction(ok, () => pesquisas.extractHistory(ctx, Infinity, { deadlineAt: Date.now() + 5000, concurrency: 1 }));
+  assert.equal(openAiCalls.length, before, 'sem tempo, não começa (nem paga) uma leitura');
+  assert.ok(tight.remaining >= 1);
+  const roomy = await asProduction(ok, () => pesquisas.extractHistory(ctx, Infinity, { deadlineAt: Date.now() + 30000, concurrency: 1 }));
+  assert.ok(openAiCalls.length > before);
+  assert.equal(roomy.remaining, 0);
+});

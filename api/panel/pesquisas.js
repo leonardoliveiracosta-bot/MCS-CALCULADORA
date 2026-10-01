@@ -214,6 +214,8 @@ async function audit(ctx) {
 const HISTORY_BATCH = 10;
 const modelChecksOf = (batches, provider) => batches.filter((row) => row.provider === provider && row.conversations === 0 && /^MODEL_CHECK_|^MODEL_UNAVAILABLE/.test(row.stopped_reason || ''));
 const BATCH_SECONDS = 30;
+// Shortest wait worth starting a reading with.
+const MIN_READ_MS = 15000;
 const CHECK_OK = 'MODEL_CHECK_OK';
 const round6 = (value) => Math.round(value * 1e6) / 1e6;
 async function historyState(ctx, provider) {
@@ -290,6 +292,9 @@ async function extractHistory(ctx, limit, options = {}) {
   const done = [];
   // The cron passes a small limit and its own deadline; the panel button keeps the 30-second batch.
   const deadlineAt = options.deadlineAt || started + BATCH_SECONDS * 1000;
+  // Hard end for a reading in progress: a little after the deadline to start new ones, well inside
+  // the 60 s of the function (cron: 58 s; button: 38 s).
+  const hardStopAt = deadlineAt + 8000;
   if (!state.pending.length) return progressOf(state, context, { read: 0, failed: 0, stoppedReason: null, batchCostUsd: 0 });
   const provider = context.provider === 'OPENAI' ? await openAiBudget.spentUsd(ctx) : null;
   // The cron reads with no count limit (Infinity), only its time window and the US$ 50 OpenAI ceiling;
@@ -304,9 +309,14 @@ async function extractHistory(ctx, limit, options = {}) {
     while (!batch.stoppedReason && next < state.pending.length && attempted < wanted) {
       if (context.limitUsd !== null && (state.spentUsd + batch.costUsd + search.MAX_CALL_USD * workers > context.limitUsd || (provider && !openAiBudget.fits(provider, search.MAX_CALL_USD * workers, batch.costUsd)))) { stop('PROVIDER_LIMIT'); return; }
       if (Date.now() > deadlineAt) return;
+      // A reading may take up to LONG_TIMEOUT_MS, but never past the function's limit: it starts
+      // only with enough time left, and waits at most what is left (a slow reading used to be cut
+      // at 20 s and failed again on every retry).
+      const left = hardStopAt - Date.now();
+      if (left < MIN_READ_MS) return;
       const chatId = state.pending[next++];
       attempted += 1;
-      const out = await search.extractChat(ctx, chatId, options.extract || {});
+      const out = await search.extractChat(ctx, chatId, { ...(options.extract || {}), timeoutMs: Math.min(search.LONG_TIMEOUT_MS, left) });
       // Read by someone else right now (cron and button) or already paid: never a second call.
       if (out.alreadyRead || out.inProgress) { attempted -= 1; continue; }
       if (out.error === 'OPENAI_BUDGET_LIMIT' || out.error === 'OPENAI_BUDGET_UNAVAILABLE') { stop('PROVIDER_LIMIT'); return; }
@@ -372,7 +382,7 @@ module.exports = async (req, res) => {
     if (body.action === 'extract_history') { const { status, ...out } = await extractHistory(ctx, Number(body.limit) || 0); return send(res, status, out); }
     if (body.action === 'extract' || body.action === 'sample') {
       if (!isUuid(body.chatId)) return send(res, 400, { error: 'CHAT_INVALID' });
-      const out = await search.extractChat(ctx, body.chatId, { dryRun: body.action === 'sample' });
+      const out = await search.extractChat(ctx, body.chatId, { dryRun: body.action === 'sample', timeoutMs: search.LONG_TIMEOUT_MS });
       return send(res, out.error === 'CHAT_NOT_FOUND' ? 404 : 200, out);
     }
     return send(res, 400, { error: 'ACTION_INVALID' });

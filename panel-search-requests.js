@@ -17,7 +17,10 @@ const { makeKey } = require('./panel-manheim-batch');
 
 // US$ per 1M tokens (standard tier). Same approved list as the ENTRADA triage.
 const PRICES = Object.freeze({ 'gpt-6-luna': { input: 0.10, output: 0.50 }, 'gpt-5.4-nano': { input: 0.20, output: 1.25 } });
+// Default wait for one reading (safe inside a 30 s function). Callers with more time pass
+// options.timeoutMs (the history routine gives up to LONG_TIMEOUT_MS when its window allows).
 const TIMEOUT_MS = 20000;
+const LONG_TIMEOUT_MS = 40000;
 // The historical audit has a cumulative ceiling of US$ 50 (no credit is ever added). A call only
 // starts when even an unusually large reading (MAX_CALL_USD, far above a real one) still fits.
 const PROVIDER_LIMIT_USD = Object.freeze({ OPENAI: 50 });
@@ -79,7 +82,7 @@ async function openAiChat(body, options = {}) {
 async function openAiSend(fullBody, options = {}) {
   const env = options.env || process.env;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : TIMEOUT_MS);
   try {
     const response = await (options.fetchImpl || fetch)('https://api.openai.com/v1/chat/completions', {
       method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY }, body: JSON.stringify(fullBody)
@@ -149,7 +152,7 @@ async function extractChat(ctx, chatId, options = {}) {
   const guard = provider === 'OPENAI' ? require('./panel-openai-budget').guard(ctx, 'PESQUISAS', chatId, options.budgetServices) : null;
   let reading;
   try {
-    reading = provider === 'OPENAI' ? await (options.readWithAi || readWithAi)(conversation, { env, guard, fetchImpl: options.fetchImpl }) : { raw: requests.simulateExtraction(conversation), model: null, usage: null, costUsd: 0 };
+    reading = provider === 'OPENAI' ? await (options.readWithAi || readWithAi)(conversation, { env, guard, fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs }) : { raw: requests.simulateExtraction(conversation), model: null, usage: null, costUsd: 0 };
   } catch (failure) {
     if (task) await claims.finishTask(ctx, task, false).catch(() => null);
     if (options.dryRun) return { status, error: failure.code || 'EXTRACTION_FAILED' };
@@ -261,4 +264,4 @@ async function compareItems(ctx, items, options = {}) {
   return { uploadId: upload.id, compared: results.length, failed, results };
 }
 
-module.exports = { MAX_FAILED_READS, openAiChat, HISTORY_SINCE, MAX_CALL_USD, PRICES, PROVIDER_LIMIT_USD, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };
+module.exports = { LONG_TIMEOUT_MS, MAX_FAILED_READS, openAiChat, HISTORY_SINCE, MAX_CALL_USD, PRICES, PROVIDER_LIMIT_USD, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };
