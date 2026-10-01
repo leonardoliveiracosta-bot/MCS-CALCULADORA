@@ -149,6 +149,10 @@
       <section id="clients-panel" class="panel-view hidden" aria-label="Clientes">
         <div class="section-head"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Conversa, qualificação e próximos passos em uma única lista</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
         <section id="clients-general-card" class="card pending-general" aria-live="polite"></section>
+        <details id="clients-followup" class="card followup-queue">
+          <summary><strong>Retomar conversas antigas</strong> <span class="muted">revisão uma a uma, nada é enviado sozinho</span></summary>
+          <div id="clients-followup-list" class="stack" aria-live="polite"></div>
+        </details>
         <div id="clients-stats" class="pending-stats" aria-live="polite"></div>
         <div class="filters clients-filters" aria-label="Filtros de clientes">
           <label>Situação<select id="clients-situation"><option value="all">Todas</option><option value="NO_RESPONSE">Sem resposta</option><option value="MCS_PENDING">Parado com você</option><option value="CUSTOMER_PENDING">Parado com o cliente</option><option value="IN_PROGRESS">Em andamento</option><option value="CLOSED">Concluída</option></select></label>
@@ -363,6 +367,7 @@
   <script src="/panel-origin.js?v=2" defer></script>
   <script src="/painel/action.js" defer></script>
   <script src="/painel/contexto.js?v=2" defer></script>
+  <script src="/painel/sugestoes.js?v=2" defer></script>
   <script src="/painel/lead.js" defer></script>
   <script src="/painel/painel.js" defer></script>
   <script src="/painel/notifications.js" defer></script>
