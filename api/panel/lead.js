@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 
 const { leadData, ensureJourney, localToUtc, addClientDays, cityForZip } = require('../../panel-lead');
 const { validItems, verified, prepareItems } = require('../../panel-note');
-const { forwardStage, normalizeDeadline } = require('../../panel-domain');
+const { forwardStage, normalizeDeadline, REF_RE } = require('../../panel-domain');
 const { insert, isUuid, jsonBody, patchRows, requirePanel, rows, safeText, send, supabase } = require('../../panel-server');
 
 async function delegate(req, payload) {
@@ -78,6 +78,7 @@ module.exports = async (req, res) => {
     if (body.action === 'note') {
       const note = safeText(body.note, 12000, true);
       if (!note || !isUuid(body.confirmationKey)) return send(res, 400, { error: 'NOTE_OR_KEY_REQUIRED' });
+      if (!REF_RE.test(String(lead.ref || '')) && !journey?.id) return send(res, 404, { error: 'LEAD_NOT_FOUND' });
       const submitted = Array.isArray(body.proposal) ? body.proposal : [];
       if (submitted.length && !verified(ctx.config.secretKey, lead.ref, note, submitted, body.signature)) return send(res, 400, { error: 'PROPOSAL_INVALID' });
       const proposal = validItems(note, submitted);
@@ -98,7 +99,8 @@ module.exports = async (req, res) => {
         maxBidCents: lead.maxBidCents, payment: lead.paymentKnown || null, deadline: normalizeDeadline(lead.order?.deadlineText) || lead.order?.deadlineText || null };
       const saved = await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_confirm_lead_note',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-          p_environment:ctx.environment,p_actor:ctx.panel.id,p_ref:lead.ref,p_journey:journey?.id||null,
+          // A ficha sem Ref da calculadora (cliente direto do WhatsApp/SMS) grava pela jornada.
+          p_environment:ctx.environment,p_actor:ctx.panel.id,p_ref:REF_RE.test(String(lead.ref||''))?lead.ref:null,p_journey:journey?.id||null,
           p_body:note,p_items:items,p_key:body.confirmationKey,p_initial:initial
         })
       });

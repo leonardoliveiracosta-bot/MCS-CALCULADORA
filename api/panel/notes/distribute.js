@@ -29,11 +29,13 @@ module.exports=async(req,res)=>{
     const items=prepareItems(validItems(note,parsed.items),lead);
     return send(res,200,{items,signature:digest(ctx.config.secretKey,lead.ref,note,items)});
   } catch (_) {
-    if(note&&/^[A-HJ-NP-Z2-9]{5}$/.test(ref)&&(!body?.journeyId||isUuid(body.journeyId))) {
+    // Without a calculator Ref the note is still saved, keyed by the ficha (journey).
+    const hasRef=/^[A-HJ-NP-Z2-9]{5}$/.test(ref);
+    if(note&&(hasRef?(!body?.journeyId||isUuid(body.journeyId)):isUuid(body?.journeyId))) {
       try {
         const key=isUuid(body?.fallbackKey)?body.fallbackKey:crypto.randomUUID();
         await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_confirm_lead_note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-          p_environment:ctx.environment,p_actor:ctx.panel.id,p_ref:ref,p_journey:body.journeyId||null,p_body:note,p_items:[],p_key:key,
+          p_environment:ctx.environment,p_actor:ctx.panel.id,p_ref:hasRef?ref:null,p_journey:body.journeyId||null,p_body:note,p_items:[],p_key:key,
           p_initial:lead?{name:lead.order?.contactName,vehicle:lead.order?.vehicleText,wishes:lead.wishes,maxBidCents:lead.maxBidCents,payment:lead.paymentKnown||null,deadline:normalizeDeadline(lead.order?.deadlineText)||lead.order?.deadlineText||null}:{}
         })});
         return send(res,200,{saved:true,message:'Anotação salva; distribuição indisponível agora — tentar de novo'});

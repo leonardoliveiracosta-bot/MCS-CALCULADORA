@@ -165,10 +165,20 @@ async function leadData(ctx, req, refInput, idInput) {
     try{return await read();}
     catch(error){console.error('[panel-lead-read]',{label,ref,journeyId:journey?.id||null,message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});return [];}
   };
+  // A note confirmed while the ficha had no calculator Ref is kept by the journey (ref_code null);
+  // once the ficha gets a Ref those rows are still its own, so they are read together.
+  const scoped=(table,extra,sortKey,descending)=>optionalRead(table,async()=>{
+    const own=await allRows(ctx, table, { select: '*', environment: 'eq.' + ctx.environment, ...scope, ...extra, order: sortKey + (descending ? '.desc' : '.asc') });
+    if (!hasRef || !journey) return own;
+    const seen=new Set(own.map((row)=>row.id));
+    const unref=(await allRows(ctx, table, { select: '*', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, ref_code: 'is.null', ...extra, order: sortKey + (descending ? '.desc' : '.asc') })).filter((row)=>!seen.has(row.id));
+    if (!unref.length) return own;
+    return own.concat(unref).sort((a,b)=>((Date.parse(a[sortKey])||0)-(Date.parse(b[sortKey])||0))*(descending?-1:1));
+  });
   const [notes, events, promises, aiReadings, aiSuggestions, aiHelp, stageIndex] = await Promise.all([
-    optionalRead('lead_notes',()=>allRows(ctx, 'lead_notes', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'created_at.desc' })),
-    optionalRead('lead_events',()=>allRows(ctx, 'lead_events', { select: '*', environment: 'eq.' + ctx.environment, ...scope, undone_at: 'is.null', order: 'occurred_at.desc' })),
-    optionalRead('lead_promises',()=>allRows(ctx, 'lead_promises', { select: '*', environment: 'eq.' + ctx.environment, ...scope, order: 'due_at.asc' })),
+    scoped('lead_notes',{},'created_at',true),
+    scoped('lead_events',{undone_at:'is.null'},'occurred_at',true),
+    scoped('lead_promises',{},'due_at',false),
     journey ? optionalRead('conversation_ai_readings',()=>rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('whatsapp_link_suggestions',()=>rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('lead_ai_help',()=>allRows(ctx,'lead_ai_help',{select:'id,question,answer_json,created_at',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,order:'created_at.desc'})) : Promise.resolve([]),

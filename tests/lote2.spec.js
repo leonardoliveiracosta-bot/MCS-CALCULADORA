@@ -77,4 +77,24 @@ for (const scenario of [{ name: 'encerrada mostra "Reabrir ficha"', record: { st
   });
 }
 
+test('Ficha sem Ref: "Confirmar" da leitura da IA fica ativo e grava pela jornada', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (failure) => errors.push(failure.message));
+  await session(page);
+  const reading = { id: uuidLike(9), chat_id: uuidLike(8), summary_json: {}, message_count: 1, items: [{ id: uuidLike(7), type: 'payment', value: 'fin', evidence: 'Vou financiar', manual_review: false }] };
+  const calls = await mockApi(page, {
+    '/api/panel/lead': ({ json }) => json({ ...leadData({ status: 'ATIVO', enabled: true }), ref: '', ai: { reading, suggestion: null } }),
+    '/api/panel/ai-conversations': ({ json }) => json({ noteId: uuidLike(6), journeyId: JOURNEY, confirmed: 1 }, 201)
+  });
+  await page.goto(base + '/painel/#ficha/' + JOURNEY, { waitUntil: 'domcontentloaded' });
+  const review = page.locator('.ai-conversation-review');
+  await expect(review).toContainText('Ficha sem Ref da calculadora', { timeout: 30000 });
+  await expect(review).not.toContainText('Ligue ao pedido para confirmar');
+  const confirm = review.locator('button', { hasText: 'Confirmar' });
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect.poll(() => calls.find((call) => call.path === '/api/panel/ai-conversations')?.body).toMatchObject({ action: 'confirm', journeyId: JOURNEY, readingId: reading.id, itemIds: [uuidLike(7)] });
+  expect(errors).toEqual([]);
+});
+
 function uuidLike(n) { return `51000000-0000-4000-8000-${String(n).padStart(12, '0')}`; }
