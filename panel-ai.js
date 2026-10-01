@@ -12,6 +12,9 @@ const DAY_MS = 86400000;
 const AI_CONTEXT_MAX_MESSAGES = 150;
 const AI_CONTEXT_MAX_CHARS = 40000;
 const AI_FAILURE_BACKOFF_MS = 6 * 60 * 60 * 1000;
+// Automatic reading starts at 3 MCS messages in the conversation. The automatic greeting does not count;
+// MCS messages imported from the WhatsApp history do.
+const AI_MIN_MCS_MESSAGES = 3;
 
 function firstJson(text) {
   const source = String(text || '');
@@ -217,7 +220,7 @@ function validatedReading(parsed, transcript, lead, customerBodies) {
 
 async function readConversation(ctx, group, options={}) {
   if(!group.lastCustomer)throw new Error('AI_NO_CUSTOMER_MESSAGE');
-  if(!options.manual&&group.mcsCount<10)throw new Error('AI_NOT_ELIGIBLE');
+  if(!options.manual&&group.mcsCount<AI_MIN_MCS_MESSAGES)throw new Error('AI_NOT_ELIGIBLE');
   await reserveCall(ctx,options.manual?'MANUAL':'ROTINA');
   let order=null;
   if(group.refs.length){
@@ -243,7 +246,9 @@ async function readConversation(ctx, group, options={}) {
         p_summary:summary,p_items:validated.items,p_message_count:prompt.messageCount,p_last_customer:group.lastCustomer.id,
         p_last_customer_at:new Date(stampOf(group.lastCustomer)).toISOString(),p_actor:options.actor||null})
     });
-    await storeDailyInsight(ctx,group,parsed.pending||{summary:validated.summary.want+' '+validated.summary.money+' '+validated.summary.missing}).catch(()=>null);
+    // storeDailyInsight takes the pendências shape (latest, chat). Without it nothing was stored, and a stale
+    // insight kept the conversation due for a new paid reading on every run.
+    await storeDailyInsight(ctx,{...group,latest:group.effectiveMessages.at(-1),chat:{id:group.chatId}},parsed.pending||{summary:validated.summary.want+' '+validated.summary.money+' '+validated.summary.missing}).catch(()=>null);
     await recordAttempt(ctx,group,true).catch(()=>null);
     return {...stored,summary,items:validated.items};
   } catch(error) {
@@ -294,7 +299,7 @@ async function runCron(ctx,options={}){
     if(!automaticAttemptAllowed(group,now))continue;
     const latestId=group.effectiveMessages.at(-1)?.id;
     const latestCustomerIsLive=group.lastCustomer.source_kind!=='WHATSAPP_HISTORY';
-    const readingDue=latestCustomerIsLive&&group.mcsCount>=10&&stampOf(group.lastCustomer)<=now-10*60000&&(
+    const readingDue=latestCustomerIsLive&&group.mcsCount>=AI_MIN_MCS_MESSAGES&&stampOf(group.lastCustomer)<=now-10*60000&&(
       group.reading?.last_customer_message_id!==group.lastCustomer.id || (group.pendingInsight && group.pendingInsight.last_ai_message_id!==latestId)
     );
     const candidates=!group.refs.length?deterministicCandidates(group,orders):[];
@@ -326,4 +331,4 @@ async function latestAiForJourney(ctx,journeyId){
   return {reading:reading?{...reading,items:items.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:suggestions[0]||null};
 }
 
-module.exports={AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};
+module.exports={AI_MIN_MCS_MESSAGES,AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};

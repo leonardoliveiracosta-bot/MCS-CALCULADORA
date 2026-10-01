@@ -29,13 +29,13 @@ function serverFor(data,calls){return {
   patchRows:async()=>[],
   supabase:async(_url,_key,endpoint,options)=>{calls.push(endpoint);if(endpoint.endsWith('panel_ai_reserve_call'))return {allowed:true,count:1};if(endpoint.endsWith('panel_ai_replace_reading')){const body=JSON.parse(options.body);return {readingId:'77777777-7777-4777-8777-777777777777',pending:body.p_items.length};}if(endpoint.endsWith('panel_ai_record_attempt'))return {ok:true};throw Error('unexpected '+endpoint);}
 };}
-function loadAi(server){return loadWith('panel-ai.js',{'./panel-server':server,'./panel-domain':domain,'./panel-note':note,'./panel-lead':{timezoneForZip:()=> 'America/New_York'}});}
+function loadAi(server,extra={}){return loadWith('panel-ai.js',{'./panel-server':server,'./panel-domain':domain,'./panel-note':note,'./panel-lead':{timezoneForZip:()=> 'America/New_York'},...extra});}
 
-test('automatic reading requires 10 MCS messages and does not reread the same customer message',async()=>{
-  const calls=[];let data=fixture(9),server=serverFor(data,calls),ai=loadAi(server);
+test('automatic reading requires 3 MCS messages and does not reread the same customer message',async()=>{
+  const calls=[];let data=fixture(2),server=serverFor(data,calls),ai=loadAi(server);
   await ai.runCron({environment:'preview',config:{url:'x',secretKey:'k'}},{fetchImpl:async()=>aiResponse({summary:{want:'Audi',money:'Cash',missing:'Prazo'},items:[]})});
   assert.equal(calls.length,0);
-  data=fixture(10);server=serverFor(data,calls);ai=loadAi(server);
+  data=fixture(3);server=serverFor(data,calls);ai=loadAi(server);
   const first=await ai.runCron({environment:'preview',config:{url:'x',secretKey:'k'}},{fetchImpl:async()=>aiResponse({summary:{want:'Audi',money:'Cash',missing:'Prazo'},items:[]})});
   assert.equal(first.readings,1);assert.equal(calls.filter((call)=>call.endsWith('panel_ai_reserve_call')).length,1);
   data.readings=[{id:'77777777-7777-4777-8777-777777777777',journey_id:ids.journey,chat_id:ids.chat,last_customer_message_id:ids.customer,status:'ACTIVE'}];calls.length=0;
@@ -173,4 +173,80 @@ test('the routine reserves on the ROTINA quota and an operator click on MANUAL',
   const [group]=await ai.allConversationData(ctx);
   await ai.readConversation(ctx,group,{manual:true,fetchImpl});
   assert.deepEqual(kinds,['ROTINA','MANUAL']);
+});
+
+// ---- regra de 3 mensagens da MCS na leitura automática
+const CTX={environment:'preview',config:{url:'x',secretKey:'k'}};
+const READ_OK=async()=>aiResponse({summary:{want:'Audi',money:'Cash',missing:'Prazo'},items:[],pending:{situation:'MCS_PENDING',heat:'WARM',summary:'Quer Audi',nextStep:'Responder'}});
+async function cronWith(data,{fetchImpl=READ_OK,insights=[]}={}){
+  const calls=[],server=serverFor(data,calls),stored=[];
+  const ai=loadAi(server,{'./panel-pendencias':{storeDailyInsight:async(_ctx,group,values)=>{stored.push({latest:group.latest&&group.latest.id,chat:group.chat&&group.chat.id,values});}}});
+  const allRows=server.allRows;server.allRows=async(ctx,table,query)=>table==='conversation_pending_insights'?insights:allRows(ctx,table,query);
+  const output=await ai.runCron(CTX,{fetchImpl});
+  return {output,calls,stored,reads:calls.filter((call)=>call.endsWith('panel_ai_replace_reading')).length,reserves:calls.filter((call)=>call.endsWith('panel_ai_reserve_call')).length};
+}
+
+test('3 MCS: the minimum is 3 for automatic reading (2 no, 3 yes)',async()=>{
+  const ai=loadAi(serverFor(fixture(0),[]));
+  assert.equal(ai.AI_MIN_MCS_MESSAGES,3);
+  let run=await cronWith(fixture(2));assert.equal(run.reserves,0);assert.equal(run.reads,0);
+  run=await cronWith(fixture(3));assert.equal(run.reserves,1);assert.equal(run.reads,1);assert.equal(run.output.readings,1);
+});
+
+test('3 MCS: the automatic greeting does not count, imported MCS history does',async()=>{
+  let data=fixture(3);data.messages[2].is_automatic=true;
+  let run=await cronWith(data);assert.equal(run.reserves,0,'2 manuais + saudação automática não bastam');
+  data=fixture(3);data.messages.slice(0,3).forEach((message)=>{message.source_kind='WHATSAPP_HISTORY';});
+  run=await cronWith(data);assert.equal(run.reads,1,'3 mensagens da MCS importadas contam');
+});
+
+test('3 MCS: an imported customer message does not replace a live one',async()=>{
+  const data=fixture(5);data.messages.at(-1).source_kind='WHATSAPP_HISTORY';
+  const run=await cronWith(data);assert.equal(run.reserves,0);
+});
+
+test('3 MCS: waits 10 minutes after the newest customer message and only reads the last 30 days',async()=>{
+  let data=fixture(3);data.messages.at(-1).occurred_at_utc=new Date(Date.now()-4*60000).toISOString();
+  let run=await cronWith(data);assert.equal(run.reserves,0,'cliente escreveu há 4 min');
+  data=fixture(3);data.messages.at(-1).occurred_at_utc=new Date(Date.now()-31*24*3600000).toISOString();
+  run=await cronWith(data);assert.equal(run.reserves,0,'mensagem do cliente com mais de 30 dias');
+});
+
+test('3 MCS: one grouped call per conversation, not one per message',async()=>{
+  const data=fixture(4);
+  ['Oi','Quero um Audi','Q7','até 30 mil','pago cash'].forEach((text,index)=>data.messages.splice(data.messages.length-1,0,{id:`00000000-0000-4000-8000-${String(900+index).padStart(12,'0')}`,chat_id:ids.chat,direction:'CUSTOMER',body_text:text,occurred_at_utc:new Date(Date.now()-(20-index)*60000).toISOString()}));
+  data.links=data.messages.map((message)=>({journey_id:ids.journey,message_id:message.id}));
+  let anthropicCalls=0;const run=await cronWith(data,{fetchImpl:async(...args)=>{anthropicCalls++;return READ_OK(...args);}});
+  assert.equal(anthropicCalls,1);assert.equal(run.reserves,1);
+});
+
+test('3 MCS: no new reading or charge when nothing changed, and the insight is stored with the latest message',async()=>{
+  const data=fixture(3);
+  const first=await cronWith(data);
+  assert.equal(first.reads,1);
+  assert.deepEqual(first.stored.map((entry)=>[entry.latest,entry.chat]),[[ids.customer,ids.chat]],'o resumo grava a última mensagem e a conversa');
+  data.readings=[{id:'77777777-7777-4777-8777-777777777777',journey_id:ids.journey,chat_id:ids.chat,last_customer_message_id:ids.customer,status:'ACTIVE'}];
+  const insights=[{journey_id:ids.journey,chat_id:ids.chat,summary_text:'Quer Audi',last_ai_message_id:first.stored[0].latest}];
+  const second=await cronWith(data,{fetchImpl:async()=>{throw Error('não deveria ler');},insights});
+  assert.equal(second.calls.length,0,'sem chamada e sem cobrança');
+});
+
+test('3 MCS: a temporary failure keeps the conversation eligible; the daily limit is not counted as a failure',async()=>{
+  const data=fixture(3);
+  const failed=await cronWith(data,{fetchImpl:async()=>({ok:false})});
+  assert.equal(failed.output.errors,1);assert.equal(failed.reads,0);
+  assert.ok(failed.calls.some((call)=>call.endsWith('panel_ai_record_attempt')),'a falha é registrada para tentar de novo');
+  data.attempts=[{journey_id:ids.journey,chat_id:ids.chat,last_customer_message_id:ids.customer,last_failure_at:new Date(Date.now()-7*3600000).toISOString(),consecutive_failures:1}];
+  const retried=await cronWith(data);assert.equal(retried.reads,1,'depois da espera, lê de novo');
+  const limited={...fixture(3)},calls=[],server=serverFor(limited,calls);
+  const supabase=server.supabase;server.supabase=async(url,key,endpoint,options)=>endpoint.endsWith('panel_ai_reserve_call')?{allowed:false}:supabase(url,key,endpoint,options);
+  const output=await loadAi(server,{'./panel-pendencias':{storeDailyInsight:async()=>null}}).runCron(CTX,{fetchImpl:READ_OK});
+  assert.equal(output.limited,true);assert.ok(!calls.some((call)=>call.endsWith('panel_ai_record_attempt')),'limite do dia não marca falha: fica elegível na próxima rodada');
+});
+
+test('3 MCS: the routine never creates reply suggestions nor sends messages',async()=>{
+  const run=await cronWith(fixture(3));
+  assert.deepEqual([...new Set(run.calls.map((call)=>call.split('/').pop()))].sort(),['panel_ai_record_attempt','panel_ai_replace_reading','panel_ai_reserve_call']);
+  const source=fs.readFileSync(path.join(root,'panel-ai.js'),'utf8'),cron=fs.readFileSync(path.join(root,'api/panel/ai-cron.js'),'utf8');
+  for(const text of [source,cron]){assert.doesNotMatch(text,/panel-reply-suggest|api\/panel\/reply|d360|360dialog|v1-send|sendMessage|messages\.send/i);}
 });

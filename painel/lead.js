@@ -225,7 +225,7 @@
     const finalGrid=append(root,'div','lead-grid lead-two');
     const conversation=section(finalGrid,11,'CONVERSA','lead-highlight');conversation.id='lead-conversation';
     const aiReview=append(conversation,'div','lead-card lead-highlight ai-conversation-review');append(aiReview,'span','lead-label','A IA LEU A CONVERSA');
-    append(aiReview,'p','muted','Roda sozinha depois de 10 mensagens da MCS, 10 min após a última mensagem do cliente e somente quando houver mensagem nova · Nada é gravado sem confirmação');
+    append(aiReview,'p','muted','Roda sozinha depois de 3 mensagens da MCS, 10 min após a última mensagem do cliente e somente quando houver mensagem nova · Nada é gravado sem confirmação');
     const aiStatus=append(aiReview,'p','status','');
     const readNow=append(aiReview,'button','quiet small','Ler conversa agora');readNow.type='button';MCSAction.bind(readNow,()=>({scope:aiReview,optimistic:()=>{aiStatus.textContent='Lendo conversa…';},commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'read',journeyId:record.id,chatId:aiReading?.chat_id||null})}),onSuccess:()=>reload(),onError:(error)=>{aiStatus.textContent=error.code==='AI_DAILY_LIMIT'?'limite do dia atingido':'IA indisponível';},errorText:'Não consegui salvar, tente de novo'}));
     if(aiReading){
