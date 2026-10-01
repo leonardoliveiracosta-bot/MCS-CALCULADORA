@@ -28,7 +28,8 @@ test('SMS print normalizes an already formatted existing US phone before duplica
 test('SMS print uses the shared attachment validator and one Anthropic content block list',()=>{
   const reader=read('panel-sms-print.js');
   assert.match(reader,/validateAttachment/);
-  assert.match(reader,/await reserveCall\(ctx\)/);
+  assert.match(reader,/await reservePrintRead\(ctx\)/);
+  assert.doesNotMatch(reader,/reserveCall/);
   assert.match(reader,/anthropicJson\(/);
   assert.match(reader,/type:'image'/);
   assert.match(reader,/type:'text'/);
@@ -56,4 +57,31 @@ test('card UI preserves the missing-phone and missing-SMS paths',()=>{
   assert.match(client,/📞 falta o número/);
   assert.match(client,/Falta o print do SMS/);
   assert.match(client,/Não chegou SMS/);
+});
+
+test('SMS print reads count on their own daily quota, never on the conversation routine quota',async()=>{
+  const {readPrint}=require('../panel-sms-print');
+  const ctx={environment:'preview',config:{url:'https://banco.test',secretKey:'segredo-simulado'}};
+  const png=Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]);
+  const saved={fetch:globalThis.fetch,key:process.env.ANTHROPIC_API_KEY,model:process.env.ANTHROPIC_MODEL};
+  process.env.ANTHROPIC_API_KEY='chave-simulada';process.env.ANTHROPIC_MODEL='modelo-simulado';
+  const calls=[];let allowed=true;
+  globalThis.fetch=async(url)=>{calls.push(String(url));return new Response(JSON.stringify({allowed,count:1}),{status:200,headers:{'content-type':'application/json'}});};
+  const anthropic=async()=>new Response(JSON.stringify({content:[{type:'text',text:'{"phone":"+13055550100","name":"Ana","ref":"","message":"Oi","translation":""}'}]}),{status:200});
+  try{
+    const read=await readPrint(ctx,png,'image/png',anthropic);
+    assert.equal(read.phone,'+13055550100');
+    assert.deepEqual(calls,['https://banco.test/rest/v1/rpc/panel_sms_print_reserve_read']);
+    allowed=false;
+    await assert.rejects(readPrint(ctx,png,'image/png',anthropic),/SMS_PRINT_DAILY_LIMIT/);
+    assert.ok(!calls.some((url)=>url.includes('panel_ai_reserve_call')));
+  }finally{globalThis.fetch=saved.fetch;for(const [k,v] of [['ANTHROPIC_API_KEY',saved.key],['ANTHROPIC_MODEL',saved.model]]){if(v===undefined)delete process.env[k];else process.env[k]=v;}}
+});
+
+test('a failed print read tells the operator why (daily limit vs. reading failure)',()=>{
+  const panel=read('painel/painel.js');
+  assert.match(panel,/function printReadFailText\(code\)/);
+  assert.match(panel,/SMS_PRINT_DAILY_LIMIT:'Limite de leituras de print do dia atingido/);
+  assert.match(panel,/printReadFailText\(result\.read\?\.error_code\)/);
+  assert.match(panel,/printReadFailText\(print\.errorCode\)/);
 });
