@@ -187,8 +187,34 @@
       if (typeof result.whatsappLink === 'string' && result.whatsappLink.startsWith('https://wa.me/')) failure.whatsappLink = result.whatsappLink;
       throw failure;
     }
+    // A change on a ficha (car, search type, AI item confirmed, Ref or conversation linked) must
+    // reach OPÇÕES without waiting for the next CSV.
+    if (String(options.method || 'GET').toUpperCase() === 'POST' && CRITERIA_WRITES.test(path)) scheduleOptionsSync();
     return result;
   };
+  const CRITERIA_WRITES = /^\/api\/panel\/(actions|ai-conversations|lead|whatsapp|entry|pesquisas)(\?|$)/;
+  // OPÇÕES in step with the fichas: compares again with the active batch only the requests whose
+  // criterion changed or that were never compared (server: panel-rematch.js). Runs in the
+  // background, at most one at a time, and reloads OPÇÕES when something changed there.
+  let optionsSyncTimer = null, optionsSyncRunning = false;
+  function scheduleOptionsSync(delayMs = 2500) {
+    clearTimeout(optionsSyncTimer);
+    optionsSyncTimer = setTimeout(() => { runOptionsSync().catch(() => {}); }, delayMs);
+  }
+  async function runOptionsSync() {
+    if (optionsSyncRunning || !accessToken) return;
+    optionsSyncRunning = true;
+    let synced = 0;
+    try {
+      for (let round = 0; round < 6; round += 1) {
+        const out = await request('/api/panel/manheim-options', { method: 'POST', timeoutMs: 40000, body: JSON.stringify({ action: 'sync' }) });
+        synced += out.synced || 0;
+        if (!out.remaining || !out.synced) break;
+      }
+    } finally { optionsSyncRunning = false; }
+    if (synced && ['searches', 'manheim'].includes(currentView)) loadCurrent().catch(() => {});
+    return synced;
+  }
   // Same GET already running: one request for everyone. A counter can reuse a fresh answer.
   const requestPool = window.MCSRefresh ? MCSRefresh.createRequestPool() : null;
   const sharedGet = (path, ttlMs = 0) => requestPool ? requestPool.get(path, () => request(path), { ttlMs }) : request(path);
@@ -1289,7 +1315,10 @@
     if (view === 'searches') {
       const [,data]=await Promise.all([loadSearches(),request('/api/panel/records?view=manheim',viewFetch())]);
       if (!current()) return;
-      updateMeta(data.meta);renderManheim(data);if(!productionHost)renderV1Demo();return;
+      updateMeta(data.meta);renderManheim(data);if(!productionHost)renderV1Demo();
+      // Opening OPÇÕES brings in the requests that changed since the batch (runs in the background).
+      if (!optionsSyncRunning) scheduleOptionsSync(500);
+      return;
     }
     // IMPORTAÇÕES reads the same batch data (the batch list and the import tools live there).
     if (view === 'imports') {
@@ -2574,20 +2603,37 @@
   async function compareRequests(button) {
     button.disabled = true;
     const status = $('requests-status');
+    status.classList.remove('error');
     const skip = [];
     const round = async () => {
       const ask = () => request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'compare', skip }) });
       try { return await ask(); } catch (failure) { if (failure && failure.code === 'SEARCH_REQUESTS_PENDING') throw failure; return ask(); }
     };
     try {
+      // Then each complete conversation request goes to its ficha (when the ficha has no car yet)
+      // and to OPÇÕES; the rounds go on while there is something left and something moved.
+      let carried = 0, synced = 0, notCarried = {};
       for (let count = 0; count < 300; count += 1) {
         const result = await round();
-        (result.failed || []).forEach((key) => skip.push(key));
-        status.textContent = `Comparando com o lote ativo · ${result.remaining} pedido(s) restantes`;
-        if ((!result.compared && !(result.failed || []).length) || !result.remaining) break;
+        (result.failed || []).forEach((key) => { if (!skip.includes(key)) skip.push(key); });
+        carried += result.carried || 0;
+        synced += (result.options && result.options.synced) || 0;
+        notCarried = result.carrySkipped || notCarried;
+        const optionsLeft = (result.options && result.options.remaining) || 0;
+        status.textContent = result.remaining
+          ? `Comparando com o lote ativo · ${result.remaining} pedido(s) restantes`
+          : `Levando para as fichas e OPÇÕES · ${carried} ficha(s) receberam o carro pedido na conversa · ${synced} cliente(s) atualizados em OPÇÕES`;
+        const moved = (result.compared || 0) + (result.carried || 0) + ((result.options && result.options.synced) || 0) + (result.failed || []).length;
+        if (!moved || (!result.remaining && !result.carryLeft && !optionsLeft)) break;
       }
       await loadCurrent();
-      if (skip.length) { status.classList.add('error'); status.textContent = `${skip.length} pedido(s) não puderam ser comparados e continuam em FALTA BUSCAR`; }
+      const kept = notCarried.FICHA_JA_TEM_CARRO || 0;
+      const summary = `Comparação concluída · ${carried} ficha(s) receberam o carro pedido na conversa · ${synced} cliente(s) atualizados em OPÇÕES` + (kept ? ` · ${kept} não gravados porque a ficha já tem carro definido` : '');
+      // The list reload writes its own status line (reading mode); the result of this click comes first.
+      const listLine = status.textContent;
+      const outcome = summary + (skip.length ? ` · ${skip.length} pedido(s) com falha continuam em FALTA BUSCAR` : '');
+      status.textContent = listLine && listLine !== outcome ? outcome + ' · ' + listLine : outcome;
+      if (skip.length) status.classList.add('error');
     } catch (failure) {
       status.classList.add('error');
       status.textContent = failure && failure.code === 'SEARCH_REQUESTS_PENDING' ? 'Comparação indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : 'Não consegui comparar agora, tente de novo';

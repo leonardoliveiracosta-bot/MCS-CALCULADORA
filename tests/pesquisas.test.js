@@ -356,3 +356,39 @@ test('15 · leitura só começa com tempo para terminar dentro do limite da fun�
   assert.ok(openAiCalls.length > before);
   assert.equal(roomy.remaining, 0);
 });
+
+test('16 · Comparar leva o pedido da conversa para a ficha sem carro e os carros aparecem em OPÇÕES', async () => {
+  // Ficha de WhatsApp sem carro; o cliente pediu o carro na conversa ligada a ela.
+  for (const sql of [
+    `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${id(200)}','preview','Olga Conversa','WHATSAPP_DIRECT',now(),now());`,
+    `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,created_at,updated_at) values('${id(201)}','preview','${id(200)}','WHATSAPP_DIRECT','NOVO','ATIVO','{}',now(),now());`,
+    `insert into public.journey_checklist(environment,journey_id,point_number,point_label,status,created_at,updated_at) select 'preview','${id(201)}',k,'ponto '||k,'OPEN'::public.panel_checklist_status,now(),now() from generate_series(1,6) k;`,
+    `insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,is_group,first_seen_at,last_seen_at,created_at,updated_at) values('${id(202)}','preview','WHATSAPP','${id(200)}','wa:+13055700202','RESOLVED',false,now(),now(),now(),now());`,
+    `insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(203)}','preview','${id(202)}','WHATSAPP','CUSTOMER','Looking for a Toyota Camry 2019 or newer with under 50,000 miles','x',now(),'olga1',1,'WHATSAPP_WEBHOOK',now());`,
+    `insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${id(203)}','${id(201)}','IMPORT',now());`
+  ]) await q(sql);
+  const read = await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'extract', chatId: id(202) });
+  assert.equal(read.statusCode, 200, JSON.stringify(read.payload));
+  const before = itemOf(await list(), 'Olga Conversa');
+  assert.ok(before.length >= 1);
+  assert.equal(before[0].person.journeyId, id(201), 'o pedido da conversa conhece a ficha');
+  let round = (await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'compare' })).payload;
+  for (let n = 0; n < 5 && round.remaining; n += 1) round = (await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'compare' })).payload;
+  assert.equal(round.carried, 1, JSON.stringify(round));
+  // A ficha recebeu o carro só na busca POR CARRO, com o sentido literal das faixas.
+  const [ficha] = await q(`select criteria_json, vehicle_text from public.journeys where id = '${id(201)}'`);
+  const wish = ficha.criteria_json.mode_overrides.CARRO.wishlists[0];
+  assert.deepEqual([wish.make, wish.model, wish.yearMin, wish.yearMax, wish.minMiles, wish.maxMiles], ['Toyota', 'Camry', 2019, new Date().getUTCFullYear() + 1, 1, 50000]);
+  assert.match(ficha.vehicle_text, /Camry/);
+  // Pelo mesmo caminho de marcar carro na mensagem: evidência na mensagem do cliente.
+  assert.equal((await q(`select count(*)::int n from public.message_fact_marks where journey_id = '${id(201)}' and message_id = '${id(203)}' and kind = 'VEHICLE'`))[0].n, 1);
+  // OPÇÕES: o Camry 2020 com 30,000 mi entra; o 2022 com 70,000 mi não.
+  const matches = await q(`select vin from public.manheim_matches where demand_key = 'journey:${id(201)}:CARRO' and undone_at is null order by vin`);
+  assert.deepEqual(matches.map((row) => row.vin), ['PESQ00000000000003']);
+  assert.equal((await q(`select count(*)::int n from public.manheim_demand_syncs where demand_key = 'journey:${id(201)}:CARRO'`))[0].n, 1);
+  // Clicar de novo não grava nem compara de novo o mesmo critério.
+  const again = (await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'compare' })).payload;
+  assert.equal(again.carried, 0);
+  assert.equal(again.options && again.options.stale, 0, JSON.stringify(again.options));
+  assert.deepEqual(backend.refused, [], 'nada enviado nem chamado fora');
+});

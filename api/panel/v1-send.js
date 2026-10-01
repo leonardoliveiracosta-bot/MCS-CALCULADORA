@@ -11,6 +11,7 @@
 const crypto = require('node:crypto');
 const { insert, isUuid, jsonBody, patchRows, requirePanel, rows, send } = require('../../panel-server');
 const reply = require('./reply');
+const { journeyBlock } = require('../../panel-opt-out');
 
 const MAX_TEXT = reply.MAX_TEXT;
 const TIMEOUT_MS = 15000;
@@ -114,6 +115,12 @@ async function sendV1(ctx, body, services, env, now) {
       const [recent] = await services.rows(ctx, 'v1_sends', { select: 'id,vitrine_id,created_at', environment: 'eq.' + ctx.environment, created_by: 'eq.' + ctx.panel.id, simulated: 'is.false', vitrine_id: 'neq.' + vitrine.id, created_at: 'gte.' + new Date(now - OPERATOR_GAP_MS).toISOString(), order: 'created_at.desc', limit: '1' });
       if (recent) return { status: 429, error: 'V1_SEND_TOO_FAST', retryAfterMs: OPERATOR_GAP_MS };
     }
+    // A11: the client asked not to be contacted, the case is closed or off, discarded or "não é lead":
+    // nothing is sent and no WhatsApp link is offered. If the check itself fails, nothing is sent.
+    let block;
+    try { block = await journeyBlock(ctx, vitrine.journey_id, services.rows); }
+    catch (_) { return { status: 503, error: 'CONTACT_CHECK_UNAVAILABLE' }; }
+    if (block) return { status: 409, error: 'V1_CONTACT_BLOCKED', reason: block };
     const target = await reply.resolveTarget(ctx, vitrine.journey_id, services);
     if (!target) return { status: 400, error: 'NO_VALID_PHONE' };
     const window = await reply.windowState(ctx, target.chat.id, services, now);

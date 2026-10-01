@@ -240,8 +240,11 @@ test('A26: V1 and V2 public limit is the maximum bid (budget_cents), never the c
   const out=await createV2(panelCtx,{requestId:v2ids.request},mem.services,mem.clock.now);
   assert.equal(mem.db.vitrine_cars.find((row)=>row.id===out.carId).customer_limit_cents,1800000);
   const journeySelects=mem.selects.filter((call)=>call.table==='journeys').map((call)=>call.select);
-  assert.ok(journeySelects.length>=2);
-  for(const select of journeySelects){assert.match(select,/budget_cents/);assert.doesNotMatch(select,/confirmed_total_ceiling_cents/);}
+  // The contact guard (panel-opt-out.js journeyBlock) also reads the ficha, without any amount.
+  const moneySelects=journeySelects.filter((select)=>/cents/.test(select));
+  assert.ok(moneySelects.length>=2);
+  for(const select of moneySelects)assert.match(select,/budget_cents/);
+  for(const select of journeySelects)assert.doesNotMatch(select,/confirmed_total_ceiling_cents/);
   assert.doesNotMatch(read('api/panel/vitrines.js').replace(/\/\/.*$/gm,'').replace(/\/\*[\s\S]*?\*\//g,''),/confirmed_total_ceiling_cents/);
 });
 
