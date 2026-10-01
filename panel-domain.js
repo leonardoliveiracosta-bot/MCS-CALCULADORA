@@ -810,22 +810,72 @@ function journeyDemands(journey, linkedItems) {
 // Every demand of the environment. `modeItems` is consolidateCalcRuns(...) (one entry per Ref and
 // mode). A Ref owned by a ficha (reference_code, journey_refs or a calculator link) is matched
 // through the ficha (A4); the other Refs are demands of their own.
-function buildSearchDemands({ journeys, refs, modeItems }) {
+function buildSearchDemands({ journeys, refs, modeItems, externalOwners = [] }) {
   const journeyList = Array.isArray(journeys) ? journeys : [];
   const byId = new Map(journeyList.map((journey) => [journey.id, journey]));
-  const owner = new Map();
-  journeyList.forEach((journey) => { const ref = clean(journey.reference_code).toUpperCase(); if (ref) owner.set(ref, journey.id); });
-  (Array.isArray(refs) ? refs : []).forEach((row) => { const ref = clean(row.ref_code).toUpperCase(); if (ref && byId.has(row.journey_id)) owner.set(ref, row.journey_id); });
+  const owners = new Map();
+  const addOwner = (refValue, journeyId) => {
+    const ref = clean(refValue).toUpperCase();
+    if (!ref || !journeyId) return;
+    if (!owners.has(ref)) owners.set(ref, new Set());
+    owners.get(ref).add(journeyId);
+  };
+  journeyList.forEach((journey) => addOwner(journey.reference_code, journey.id));
+  (Array.isArray(refs) ? refs : []).forEach((row) => { if (byId.has(row.journey_id)) addOwner(row.ref_code, row.journey_id); });
+  (Array.isArray(externalOwners) ? externalOwners : []).forEach((row) => addOwner(row.ref_code || row.reference_code, row.journey_id || row.id));
+  (Array.isArray(modeItems) ? modeItems : []).forEach((item) => addOwner(item.ref, item.link && item.link.journeyId));
+  const ambiguousRefs = new Set([...owners].filter(([, ids]) => ids.size > 1).map(([ref]) => ref));
   const linked = new Map();
   const orders = [];
+  const ambiguityByJourney = new Map();
+  const seenAmbiguousRefs = new Set();
+  const validModesByJourney = new Map();
   (Array.isArray(modeItems) ? modeItems : []).forEach((item) => {
-    const journeyId = owner.get(clean(item.ref).toUpperCase()) || (item.link && byId.has(item.link.journeyId) ? item.link.journeyId : null);
-    if (journeyId) { if (!linked.has(journeyId)) linked.set(journeyId, []); linked.get(journeyId).push(item); return; }
+    const ref = clean(item.ref).toUpperCase();
+    const candidates = owners.get(ref) || new Set();
+    // A collision is not resolved by iteration order or a calculator link. The same Ref must not
+    // create a search for multiple fichas; an operator has to resolve ownership first.
+    if (ambiguousRefs.has(ref)) {
+      seenAmbiguousRefs.add(ref);
+      candidates.forEach((journeyId) => {
+        if (!ambiguityByJourney.has(journeyId)) ambiguityByJourney.set(journeyId, []);
+        ambiguityByJourney.get(journeyId).push({ ref, mode: item.logicalMode });
+      });
+      return;
+    }
+    const journeyId = [...candidates][0] || (item.link && byId.has(item.link.journeyId) ? item.link.journeyId : null);
+    if (journeyId) {
+      if (!linked.has(journeyId)) linked.set(journeyId, []);
+      linked.get(journeyId).push(item);
+      if (!validModesByJourney.has(journeyId)) validModesByJourney.set(journeyId, new Set());
+      validModesByJourney.get(journeyId).add(item.logicalMode);
+      return;
+    }
     const demand = orderDemand(item);
     if (demand) orders.push(demand);
   });
-  const byJourney = new Map(journeyList.map((journey) => [journey.id, journeyDemands(journey, linked.get(journey.id) || [])]));
-  return { byJourney, orders, owner, linkedItems: linked };
+  ambiguousRefs.forEach((ref) => {
+    if (seenAmbiguousRefs.has(ref)) return;
+    (owners.get(ref) || new Set()).forEach((journeyId) => {
+      if (!ambiguityByJourney.has(journeyId)) ambiguityByJourney.set(journeyId, []);
+      ambiguityByJourney.get(journeyId).push({ ref, mode: null });
+    });
+  });
+  const byJourney = new Map(journeyList.map((journey) => {
+    const normal = journeyDemands(journey, linked.get(journey.id) || []);
+    const collisions = ambiguityByJourney.get(journey.id) || [];
+    const validModes = validModesByJourney.get(journey.id) || new Set();
+    const overrides = modeOverrides(journey);
+    const blockedModes = new Set(collisions.flatMap((item) => item.mode ? [item.mode] : SEARCH_MODES).filter((mode) => SEARCH_MODES.includes(mode) && !validModes.has(mode) && !overrides[mode]));
+    const retained = normal.filter((demand) => !blockedModes.has(demand.mode));
+    const review = [...new Map(collisions.map((item) => [item.ref + ':' + item.mode, item])).values()].map((item) => finalizeDemand({
+      key: `journey:${journey.id}:REF_AMBIGUOUS:${item.ref}:${item.mode || 'REVIEW'}`,
+      targetType: 'JOURNEY', journeyId: journey.id, ref: item.ref, mode: 'REVIEW', wishes: [], bidCents: null,
+      reviewIssues: [{ code: 'REF_AMBIGUOUS', text: `Ref ${item.ref} ligada a mais de uma ficha. Escolha a ficha correta antes de gerar a busca.` }]
+    }));
+    return [journey.id, [...retained, ...review]];
+  }));
+  return { byJourney, orders, owner: new Map([...owners].map(([ref, ids]) => [ref, ids.size === 1 ? [...ids][0] : null])), ambiguousRefs };
 }
 
 module.exports = {
