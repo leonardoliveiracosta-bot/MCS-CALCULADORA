@@ -152,7 +152,7 @@ test('varredura de todos os botões do painel', async ({ page }) => {
       current = where;
     }
   }
-  let reopenFicha = null;
+  let reopenFicha = null, fichaHash = '';
   const view = async (name) => { await page.locator(`[data-view="${name}"]`).click(); await page.waitForTimeout(1200); await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}); };
   // Open every collapsed section so the buttons inside are reachable.
   const openDetails = () => page.evaluate(() => document.querySelectorAll('#app-view details').forEach((d) => { d.open = true; }));
@@ -170,12 +170,17 @@ test('varredura de todos os botões do painel', async ({ page }) => {
   // A ficha: opened from CLIENTES (Abrir lead), then every button inside it (never "Voltar").
   if (want('FICHA')) {
     reopenFicha = async () => {
-      await view('clients');
-      // Only a visible "Abrir ficha" (never one inside a closed menu), with a limit: a missing button fails, never hangs.
-      const openFicha = page.locator('#clients-list button:visible', { hasText: 'Abrir ficha' }).first();
-      await expect(openFicha).toBeVisible({ timeout: 60000 });
-      await openFicha.click({ timeout: 10000 });
+      // The first time from CLIENTES; afterwards the same ficha by its address, because a button already
+      // swept (inverting the senders, "não é lead", descartar) can rightly take the only test ficha out of CLIENTES.
+      if (fichaHash) { await page.evaluate((hash) => { location.hash = hash; }, fichaHash); }
+      else {
+        await view('clients');
+        const openFicha = page.locator('#clients-list button:visible', { hasText: 'Abrir ficha' }).first();
+        await expect(openFicha).toBeVisible({ timeout: 60000 });
+        await openFicha.click({ timeout: 10000 });
+      }
       await expect(page.locator('#record-detail button').nth(3)).toBeVisible({ timeout: 60000 }); await page.waitForTimeout(1000); await openDetails();
+      if (!fichaHash) fichaHash = await page.evaluate(() => location.hash);
     };
     await view('clients');
     if (await page.locator('#clients-list button', { hasText: 'Abrir ficha' }).count()) { await reopenFicha(); await sweep('FICHA', '#record-detail', 1); await page.locator('#detail-back').click().catch(() => {}); }
