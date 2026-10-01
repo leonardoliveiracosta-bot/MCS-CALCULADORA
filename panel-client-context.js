@@ -292,11 +292,11 @@ async function batchCars(ctx) {
 // a row, so one reading serves them for a few seconds (the stage itself is never changed here).
 const STAGE_MEMO_MS = 15 * 1000;
 const stageMemo = new Map();
-async function stageIndexFor(ctx, loader) {
-  const key = ctx.environment + '|' + String(ctx.config && ctx.config.url || '');
+async function stageIndexFor(ctx, loader, journeyIds = []) {
+  const key = ctx.environment + '|' + String(ctx.config && ctx.config.url || '') + '|' + journeyIds.slice().sort().join(',');
   const hit = stageMemo.get(key);
   if (hit && Date.now() - hit.at < STAGE_MEMO_MS) return hit.value;
-  const value = await loader(ctx);
+  const value = await loader(ctx, { journeyIds });
   stageMemo.set(key, { at: Date.now(), value });
   return value;
 }
@@ -350,7 +350,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
   const evidenceIds = [...new Set([...latestVersion.values()].flatMap((version) => Object.values(version.evidence_json || {}).flat()).map(String).filter((id) => UUID.test(id)))];
   const evidenceMessages = evidenceIds.length ? await inChunks(ctx, 'messages', { select: 'id,body_text,occurred_at_utc,created_at,direction', environment: env }, 'id', evidenceIds) : [];
   const evidenceById = new Map(evidenceMessages.map((message) => [String(message.id), message]));
-  const stageIndex = ids.length ? await safe(stageIndexFor(ctx, services.loadSearchStageIndex || loadSearchStageIndex), new Map()) : new Map();
+  const stageIndex = ids.length ? await safe(stageIndexFor(ctx, services.loadSearchStageIndex || loadSearchStageIndex, ids), new Map()) : new Map();
   const cars = await safe(batchCars(ctx), { byJourney: new Map(), byJourneyMode: new Map(), byRef: new Map(), upload: null });
   const uploadAt = cars.upload ? cars.upload.activated_at || cars.upload.uploaded_at : null;
 
@@ -384,7 +384,9 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const owner = waitingOn({ closed, conversation, hasCalculator: ownOrders.length > 0 });
     const searches = stage && stage.modes && Object.keys(stage.modes).length
       ? Object.values(stage.modes).map((item) => ({ mode: item.mode, modeLabel: MODES[item.mode], stage: item.stage, label: SEARCH_STAGES[item.stage], at: item.at || null, cars: cars.byJourneyMode.get(journey.id + ':' + item.mode) || 0 }))
-      : stage && stage.basis === 'QUALIFY' ? [{ mode: null, modeLabel: null, stage: 'QUALIFY', label: SEARCH_STAGES.QUALIFY, at: stage.at || null, cars: 0, issues: (stage.review || []).flatMap((item) => item.issues || []) }] : [];
+      : [];
+    if (stage && stage.review && stage.review.length) searches.push({ mode: null, modeLabel: null, stage: 'QUALIFY', label: SEARCH_STAGES.QUALIFY, at: stage.at || null, cars: 0, issues: stage.review.flatMap((item) => item.issues || []) });
+    if (!searches.length && stage && stage.basis === 'QUALIFY') searches.push({ mode: null, modeLabel: null, stage: 'QUALIFY', label: SEARCH_STAGES.QUALIFY, at: stage.at || null, cars: 0, issues: (stage.review || []).flatMap((item) => item.issues || []) });
     const carCount = cars.byJourney.get(journey.id) || 0;
     // The AI reading of the conversation counts only while it read the latest message.
     const latestMessage = journeyMessages.slice().sort((a, b) => (time(messageAt(b)) || 0) - (time(messageAt(a)) || 0))[0];

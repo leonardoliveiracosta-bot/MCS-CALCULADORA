@@ -91,7 +91,8 @@ function liveMatchesFor(match, demandsOfTarget) {
 }
 
 function reviewItem(base, demand) {
-  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, ...demandPerson(base, demand), issues: demand.issues, manual: demand.manual === true, wishes: demand.manual ? demand.wishes : undefined, canDefineMode: demand.mode === 'REVIEW' && Boolean(demand.journeyId) };
+  const identityNeedsResolution = (demand.issues || []).some((issue) => issue.code === 'REF_AMBIGUOUS');
+  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, ...demandPerson(base, demand), issues: demand.issues, manual: demand.manual === true, wishes: demand.manual ? demand.wishes : undefined, canDefineMode: demand.mode === 'REVIEW' && Boolean(demand.journeyId) && !identityNeedsResolution };
 }
 
 module.exports = { buildBuscasBase, demandPerson, liveMatchesFor, loadBuscasBase, matchTarget, reviewItem, upper };
