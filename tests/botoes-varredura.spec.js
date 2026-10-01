@@ -14,7 +14,7 @@ const { contentHash } = require('../panel-manheim-batch');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
-test.setTimeout(1500000);
+test.setTimeout(3600000);
 const REPORT = process.env.BOTOES_REPORT || '';
 
 const id = (n) => `6cb00000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -111,20 +111,25 @@ test('varredura de todos os botões do painel', async ({ page }) => {
     current = where;
     try { await sweepInner(where, rootSelector, maxPerLabel); } finally { save(); }
   }
+  const debug = (text) => { if (process.env.BOTOES_DEBUG) console.log('[varredura]', new Date().toISOString().slice(11, 19), text); };
   async function sweepInner(where, rootSelector, maxPerLabel) {
     const seen = new Map();
     for (let pass = 0; pass < 400; pass += 1) {
+      debug(`${where} passo ${pass}: lendo botões`);
       const buttons = await page.locator(`${rootSelector} button:visible`).all();
       let target = null, label = '';
       for (const button of buttons) {
-        const text = ((await button.innerText().catch(() => '')) || (await button.getAttribute('aria-label')) || (await button.getAttribute('id')) || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        // A button that left the page while the list was read (a click that changed the view) is
+        // skipped: every read has a limit, so the sweep never waits forever for a detached button.
+        const text = ((await button.innerText({ timeout: 2000 }).catch(() => '')) || (await button.getAttribute('aria-label', { timeout: 2000 }).catch(() => null)) || (await button.getAttribute('id', { timeout: 2000 }).catch(() => null)) || '').replace(/\s+/g, ' ').trim().slice(0, 60);
         const key = text.replace(/\d+/g, '#');
         if (!text || SKIP.test(text) || (seen.get(key) || 0) >= maxPerLabel) continue;
-        if (await button.isDisabled()) { seen.set(key, (seen.get(key) || 0) + 1); clicked.push({ where, label: text, result: 'DESABILITADO' }); continue; }
+        if (await button.isDisabled({ timeout: 2000 }).catch(() => true)) { seen.set(key, (seen.get(key) || 0) + 1); clicked.push({ where, label: text, result: 'DESABILITADO' }); continue; }
         target = button; label = text; seen.set(key, (seen.get(key) || 0) + 1); break;
       }
       if (!target) break;
       current = `${where} › ${label}`;
+      debug(`clicando: ${label}`);
       const before = await snapshot(); const requestsBefore = pending.requests; const effectsBefore = sideEffects; const findingsBefore = findings.length; pending.last = [];
       // Every click has a hard limit: a button that hangs the page is a finding, never a stuck sweep.
       const step = (async () => {
@@ -142,11 +147,12 @@ test('varredura de todos os botões do painel', async ({ page }) => {
       await page.evaluate(() => { const dialog = document.querySelector('dialog[open]'); if (dialog) dialog.close(); });
       if (!rootSelector.startsWith('#record-detail') && await page.locator('#detail-panel:not(.hidden)').count()) { await page.locator('#detail-back').click().catch(() => {}); await page.waitForTimeout(500); }
       // Inside the ficha: a button that left it (another ficha, a tab) reopens the same ficha.
-      if (rootSelector.startsWith('#record-detail') && reopenFicha && !(await page.locator('#detail-panel:not(.hidden)').count())) await reopenFicha();
+      debug('voltando');
+      if (rootSelector.startsWith('#record-detail') && reopenFicha && !(await page.locator('#detail-panel:not(.hidden)').count())) { debug('reabrindo a ficha'); await reopenFicha(); }
       current = where;
     }
   }
-  let reopenFicha = null;
+  let reopenFicha = null, fichaHash = '';
   const view = async (name) => { await page.locator(`[data-view="${name}"]`).click(); await page.waitForTimeout(1200); await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}); };
   // Open every collapsed section so the buttons inside are reachable.
   const openDetails = () => page.evaluate(() => document.querySelectorAll('#app-view details').forEach((d) => { d.open = true; }));
@@ -155,20 +161,30 @@ test('varredura de todos os botões do painel', async ({ page }) => {
   const want = (name) => !ONLY.length || ONLY.includes(name);
   if (want('HOJE')) { await view('today'); await openDetails(); await sweep('HOJE', '#today-panel'); }
   if (want('ENTRADA')) { await view('entry'); await openDetails(); await sweep('ENTRADA', '#entry-panel'); }
-  if (want('CLIENTES')) { await view('clients'); await openDetails(); await sweep('CLIENTES', '#clients-panel'); }
   if (want('PESQUISAS')) { await view('requests'); await openDetails(); await sweep('PESQUISAS', '#requests-panel'); }
+  // OPÇÕES before CLIENTES: the CLIENTES sweep clicks "Desligar"/"Tratado"/"Não é lead" on the only ficha,
+  // which (correctly) takes it out of OPÇÕES.
   if (want('OPÇÕES')) { await view('searches'); await expect(page.locator('#searches-panel .manheim-lead').first()).toBeVisible({ timeout: 60000 }); await page.waitForTimeout(1500);
   await openDetails(); await sweep('OPÇÕES', '#searches-panel', 3); }
+  if (want('CLIENTES')) { await view('clients'); await openDetails(); await sweep('CLIENTES', '#clients-panel'); }
   // A ficha: opened from CLIENTES (Abrir lead), then every button inside it (never "Voltar").
   if (want('FICHA')) {
     reopenFicha = async () => {
-      await view('clients');
-      await page.locator('#clients-list button', { hasText: 'Abrir lead' }).first().click();
+      // The first time from CLIENTES; afterwards the same ficha by its address, because a button already
+      // swept (inverting the senders, "não é lead", descartar) can rightly take the only test ficha out of CLIENTES.
+      if (fichaHash) { await page.evaluate(() => { location.hash = '#reabrir'; }); await page.waitForTimeout(300); await page.evaluate((hash) => { location.hash = hash; }, fichaHash); }
+      else {
+        await view('clients');
+        const openFicha = page.locator('#clients-list button:visible', { hasText: 'Abrir ficha' }).first();
+        await expect(openFicha).toBeVisible({ timeout: 60000 });
+        await openFicha.click({ timeout: 10000 });
+      }
       await expect(page.locator('#record-detail button').nth(3)).toBeVisible({ timeout: 60000 }); await page.waitForTimeout(1000); await openDetails();
+      if (!fichaHash) fichaHash = await page.evaluate(() => location.hash);
     };
     await view('clients');
-    if (await page.locator('#clients-list button', { hasText: 'Abrir lead' }).count()) { await reopenFicha(); await sweep('FICHA', '#record-detail', 1); await page.locator('#detail-back').click().catch(() => {}); }
-    else findings.push({ kind: 'SEM_FICHA_PARA_TESTAR', where: 'FICHA', detail: 'nenhum botão Abrir lead' });
+    if (await page.locator('#clients-list button', { hasText: 'Abrir ficha' }).count()) { await reopenFicha(); await sweep('FICHA', '#record-detail', 1); await page.locator('#detail-back').click().catch(() => {}); }
+    else findings.push({ kind: 'SEM_FICHA_PARA_TESTAR', where: 'FICHA', detail: 'nenhum botão Abrir ficha' });
     reopenFicha = null;
   }
   if (want('IMPORTAÇÕES')) { await view('imports'); await openDetails(); await sweep('IMPORTAÇÕES', '#imports-panel'); }

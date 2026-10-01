@@ -76,8 +76,8 @@ for (const width of [1366, 390]) {
     await expect(body).toContainText('Simulada · sem IA e sem custo');
     await expect(body).toContainText('Tradução da resposta para português');
     await expect(body).toContainText('Janela de 24 h encerrada');
-    await expect(body).toContainText('envio pela API bloqueado');
-    await expect(body).toContainText('você mesmo escreve e envia');
+    await expect(body).toContainText('abre a conversa no WhatsApp do celular');
+    await expect(body.locator('button.suggestion-send'), 'janela encerrada: nenhum envio pelo painel').toHaveCount(0);
     expect(calls.filter((call) => call.path === '/api/panel/suggestions' && call.method === 'POST').length, 'clique duplo gera uma sugestão só').toBe(1);
     const textarea = body.locator('.suggestion-text');
     await textarea.fill('Hola Sofía, retomo lo del Corolla. ¿Sigues con el mismo presupuesto?');
@@ -100,8 +100,25 @@ for (const width of [1366, 390]) {
     await expect(reply.locator('.suggestion-facts li').first()).toBeVisible();
     await reply.getByRole('button', { name: 'Copiar' }).click();
     await expect(reply.locator('.suggestion-result')).toContainText('Nada foi enviado');
+    // Open window: the one send path is the panel, with an explicit confirmation; a double tap sends once.
+    await expect(reply).toContainText('sai pelo painel, só depois da sua confirmação');
+    await expect(reply.locator('a.suggestion-open'), 'janela aberta: não abre o celular').toHaveCount(0);
+    await reply.locator('textarea.suggestion-text').fill('Hi Ethan, under 60k miles is doable. Do you have a max bid in mind?');
+    await reply.getByRole('button', { name: 'Enviar pelo painel' }).click();
+    const confirm = reply.locator('.suggestion-confirm');
+    await expect(confirm).toContainText('Enviar para Ethan Example · +13055550111');
+    await expect(confirm).toContainText('Hi Ethan, under 60k miles is doable');
+    await confirm.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(reply.locator('.suggestion-confirm')).toHaveCount(0);
+    expect(sendCalls().length, 'cancelar não envia').toBe(0);
     await noOverflow();
     await shot(page, `ficha-sugestao-${width}`);
+    await reply.getByRole('button', { name: 'Enviar pelo painel' }).click();
+    await reply.locator('.suggestion-confirm-yes').dblclick();
+    await expect(reply.locator('.suggestion-result')).toContainText('Enviado pelo painel', { timeout: 30000 });
+    await expect(reply.locator('.suggestion-result')).toContainText('simulado neste ambiente');
+    expect(sendCalls().length, 'toque duplo na confirmação envia uma vez').toBe(1);
+    await expect(reply.locator('button.suggestion-send')).toHaveCount(0);
 
     // Opt-out: no suggestion, the reason is shown.
     await page.goto(base + '/painel/#ficha/' + fixture.people.optOut.journey, { waitUntil: 'domcontentloaded' });
@@ -110,7 +127,7 @@ for (const width of [1366, 390]) {
     await blocked.getByRole('button', { name: /Sugerir/ }).click();
     await expect(blocked.locator('.status')).toContainText('O cliente pediu para não receber contato', { timeout: 30000 });
 
-    expect(sendCalls(), 'nenhuma chamada de envio durante as sugestões').toEqual([]);
+    expect(sendCalls().length, 'só o envio confirmado, simulado neste ambiente').toBe(1);
     expect(errors).toEqual([]);
     expect(backend.refused).toEqual([]);
     const sent = (await backend.db.query("select count(*) n from public.messages where source_kind='PANEL'")).rows[0].n;
@@ -126,18 +143,18 @@ test('V1 · confirmação mostra a janela e o caminho permitido (exemplo fictíc
   const demo = page.locator('#v1-demo');
   await expect(demo).toBeVisible({ timeout: 60000 });
   const openCard = demo.locator('.v1-demo-card').nth(0), closedCard = demo.locator('.v1-demo-card').nth(1);
-  await expect(openCard.locator('.v1-send > button')).toBeEnabled({ timeout: 30000 });
-  await openCard.locator('.v1-send > button').click();
+  // The window and the path are said before the click: panel (open) or phone (closed).
+  await expect(openCard.locator('.v1-send-go')).toBeEnabled({ timeout: 30000 });
+  await expect(openCard.locator('.v1-send-state')).toContainText('Janela de 24 h aberta');
+  await expect(openCard.locator('.v1-send-text')).toHaveValue(/^Hi Cliente,\n\nI put together a first look/);
+  await openCard.locator('.v1-send-go').click();
   const confirmOpen = openCard.locator('.v1-send-confirm');
-  for (const text of ['Cliente Fictício (teste)', '+15550100100', 'Link V1:', 'Janela de 24 h aberta', 'uma mensagem para esta pessoa']) await expect(confirmOpen).toContainText(text);
-  await expect(confirmOpen.locator('textarea')).toHaveValue(/^Hi Cliente,\n\nI put together a first look/);
+  for (const text of ['Cliente Fictício (teste)', '+15550100100', 'Link V1:', 'Janela de 24 h aberta', 'uma mensagem para esta pessoa', 'I put together a first look']) await expect(confirmOpen).toContainText(text);
   await confirmOpen.getByRole('button', { name: 'Cancelar' }).click();
-  await closedCard.locator('.v1-send > button').click();
-  const confirmClosed = closedCard.locator('.v1-send-confirm');
-  await expect(confirmClosed).toContainText('Janela de 24 h encerrada');
-  await expect(confirmClosed).toContainText('o projeto não tem nenhum');
-  await expect(confirmClosed).toContainText('você envia pelo WhatsApp Business do celular');
-  await confirmClosed.getByRole('button', { name: 'Cancelar' }).click();
+  await expect(closedCard.locator('.v1-send-state')).toContainText('Janela de 24 h encerrada');
+  await expect(closedCard.locator('.v1-send-state')).toContainText('abre a conversa no WhatsApp do celular');
+  await expect(closedCard.locator('.v1-send-go')).toBeHidden();
+  await expect(closedCard.locator('.v1-send-fallback')).toHaveAttribute('href', /^https:\/\/wa\.me\/15550100100\?text=Hi%20Cliente/);
   expect(calls.filter((call) => /"action":"(send|demo_send)"/.test(call.body))).toEqual([]);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'v1-confirmacao.png'), fullPage: false });
 });

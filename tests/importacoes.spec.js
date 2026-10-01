@@ -78,7 +78,7 @@ for (const width of [1366, 390]) {
     for (const key of ['manheim', 'print', 'sms', 'whatsapp', 'history', 'automatic', 'v2']) expect(await panel.locator(`[data-import-facts="${key}"] li`).count(), key).toBeGreaterThan(1);
     await expect(panel.locator('#import-card-whatsapp #import-review-card')).toHaveCount(1);
     await expect(panel.locator('#manheim-files')).toHaveCount(1);
-    await panel.locator('#import-card-sms summary').click();
+    await panel.locator('#import-card-sms > summary').click();
     await expect.poll(() => page.locator('#sms-contact option').count(), { timeout: 30000 }).toBeGreaterThan(1);
     await expect(page.locator('#manheim-batches .batch-line').first()).toContainText('Ativo · em uso', { timeout: 60000 });
     await noOverflow();
@@ -148,7 +148,7 @@ test('prints não guardados esperam na ENTRADA: tentar ler de novo, guardar ou d
   const cards = page.locator('#entry-queue .failed-print');
   await expect(cards).toHaveCount(2, { timeout: 30000 });
   const failed = cards.filter({ hasText: 'falhou.png' });
-  await expect(failed).toContainText('Não consegui ler este print');
+  await expect(failed).toContainText('A leitura automática falhou agora');
   await expect(failed.locator('button', { hasText: 'Tentar ler de novo' })).toBeVisible();
   const read = cards.filter({ hasText: 'Hi, Ref ABCD2' });
   await expect(read).toContainText('O print foi lido, mas não foi guardado');
@@ -191,7 +191,7 @@ test('prints não guardados de ponta a ponta: Tentar ler de novo e Guardar pelo 
     await page.locator('[data-view="entry"]').click();
     const cards = page.locator('#entry-queue .failed-print');
     const retryCard = cards.filter({ hasText: 'denovo.png' });
-    await expect(retryCard).toContainText('Não consegui ler este print', { timeout: 30000 });
+    await expect(retryCard).toContainText('A leitura automática falhou agora', { timeout: 30000 });
     // Tentar ler de novo: reads the stored print again and shows what it found, without saving.
     await retryCard.locator('button', { hasText: 'Tentar ler de novo' }).click();
     const fresh = cards.filter({ hasText: 'Quero um Civic 2020' });

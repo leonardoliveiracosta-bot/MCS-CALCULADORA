@@ -18,7 +18,7 @@ module.exports=async(req,res)=>{
         rows(ctx,'whatsapp_raw_events',{select:'id,event_type,status,error_code,received_at,processing_started_at,attempts',environment:'eq.'+ctx.environment,status:'in.(ERROR,PENDING,PROCESSING)',order:'received_at.desc',limit:'50'}),
         rows(ctx,'whatsapp_raw_events',{select:'id,event_type,status,error_code,received_at',environment:'eq.'+ctx.environment,status:'eq.IGNORED',event_type:'neq.statuses',order:'received_at.desc',limit:'20'}),
         rows(ctx,'whatsapp_item_errors',{select:'id,raw_event_id,item_index,error_code,status,attempts,processing_started_at,created_at',environment:'eq.'+ctx.environment,status:'neq.RESOLVED',order:'created_at.desc',limit:'50'}),
-        allRows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_contact_id,target_contact_id,target_journey_id,target_ref,motives,suggestion_kind,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
+        allRows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_contact_id,source_journey_id,target_contact_id,target_journey_id,target_ref,motives,suggestion_kind,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
         ,allRows(ctx,'whatsapp_phone_reviews',{select:'id,phone_e164,candidate_contact_ids,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
       ]);
       // Triagem: a conversa classificada fora do funil comercial sai da pendência (a sugestão fica guardada).

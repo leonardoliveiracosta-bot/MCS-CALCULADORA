@@ -255,6 +255,7 @@ test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com moti
   // Journey switch reasons on CLIENTES.
   await show(page, 'clients');
   const client = page.locator('#clients-list .client-card').first();
+  await client.locator('.card-more > summary').click();
   const reasons = client.locator('details.switch-reasons').first();
   await reasons.locator('summary').click();
   await inside(reasons.locator('.inline-actions'), 'desligar com motivo');

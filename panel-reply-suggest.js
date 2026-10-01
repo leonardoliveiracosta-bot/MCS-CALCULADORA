@@ -70,12 +70,12 @@ const waLink = (phone, text) => PHONE.test(String(phone || '')) ? 'https://wa.me
 // is the only send by the panel (after an explicit confirmation, inside the window).
 function pathFor(window) {
   if (window && window.allowed) {
-    return { open: true, until: window.openUntil, api: 'ALLOWED', text: 'Pela API, mensagem livre só sai dentro da janela; a sugestão não é enviada pelo painel.',
-      manual: 'Abrir no WhatsApp com o texto preenchido: você revisa e envia no aplicativo.' };
+    return { open: true, until: window.openUntil, api: 'ALLOWED', text: 'Janela de 24 h aberta: ao enviar, a mensagem sai pelo painel (API) só depois da sua confirmação.',
+      manual: 'Você revisa o texto antes; nada sai sozinho.' };
   }
   return { open: false, until: window && window.openUntil || null, api: 'BLOCKED',
     text: 'Janela de 24 h encerrada. Pela API, fora da janela, só sai modelo aprovado pela Meta, e o projeto não tem nenhum modelo aprovado cadastrado: envio pela API bloqueado.',
-    manual: 'Caminho manual: abrir a conversa no WhatsApp Business do celular (coexistência com a API) e você mesmo escreve e envia. O painel não envia nada.' };
+    manual: 'Caminho manual: ao enviar, abre a conversa no WhatsApp Business do celular com o texto preenchido e você mesmo envia. O painel não envia nada.' };
 }
 
 // ------------------------------------------------------------------ IA

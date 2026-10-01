@@ -763,7 +763,8 @@
       if(item.motives)row.append(element('span','muted',`Motivos: ${item.motives}`));
       // What the suggested target already has, so "Ligar" is decided with the case in view.
       row.append(element('span','muted context-caption','Caso sugerido:'),contextSlot({journeyId:UUID_RE.test(String(item.target_journey_id||''))?item.target_journey_id:null,ref:REF_CODE_RE.test(String(item.target_ref||''))?item.target_ref:null},{withIdentity:true,emptyText:'O caso sugerido não está salvo com ficha ou Ref.'}));
-      for (const [label, link] of [['Ligar', true], ['Não é', false]]) {
+      if (UUID_RE.test(String(item.source_journey_id || ''))) { const decide = element('button', 'quiet small', 'Decidir na ficha'); decide.type = 'button'; decide.addEventListener('click', () => openDetail('ficha', item.source_journey_id)); row.append(decide); }
+      for (const [label, link] of [['Ligar ao pedido', true], ['Não é', false]]) {
         const action = element('button', link ? 'small' : 'quiet small', label); action.type = 'button';
         MCSAction.bind(action,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'suggestion',id:item.id,link})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));
         row.append(action);
@@ -1018,7 +1019,7 @@
     (data.items||[]).forEach((item)=>{
       const card=element('article','item-card pending-card'),head=element('div','item-head'),identity=element('div','identity'),text=element('div'),phoneItem={phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[],ref:item.ref};text.append(element('strong','identity-name',item.name||`Pedido ${item.ref||'—'}`),phoneNode(phoneItem),element('span','muted one-line',`Ref ${item.ref||'—'} · ${item.vehicleText||'Veículo não informado'}`));const direct=directLeadBadge(item);if(direct)text.append(direct);identity.append(element('span','avatar',initials(item.name)),text);head.append(identity);const badges=element('div','badges');badges.append(makeBadge(`${pendingSituationLabel(item.situation)} · ${item.daysStalled} dias`,pendingTone(item.situation)),makeBadge(pendingHeatLabel(item.heat),item.heat==='HOT'?'red':item.heat==='WARM'?'yellow':''));if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));head.append(badges);card.append(head);const contact=contactMeta(item);if(contact)card.append(contact);
       const prefix=item.latestDirection==='MCS'?'Você: ':'';card.append(element('p','message-preview',prefix+item.latestMessage));if(item.translation)card.append(element('p','muted','Tradução: “'+item.translation+'”'));if(item.summary||item.nextStep){const ai=element('div','pending-ai');ai.append(element('strong','', 'IA: '),document.createTextNode(item.summary||'Sem resumo ainda'));if(item.nextStep)ai.append(element('strong','', ' Próximo passo: '),document.createTextNode(item.nextStep));card.append(ai);}
-      const actions=element('div','inline-actions');const open=element('button','small','Abrir lead/conversa');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(item.phone),successText:'Copiado',errorText:'Não consegui copiar, tente de novo'}));const resolved=element('button','quiet small','Já resolvi');resolved.type='button';MCSAction.bind(resolved,()=>({scope:card,successScope:document.body,feedbackKey:`pending:${item.journeyId}:${item.chatId}`,optimistic:()=>{card.classList.add('action-optimistic-hidden');const count=countValue('pending');setCount('pending',Math.max(0,count-1));return count;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})}),rollback:(count)=>{card.classList.remove('action-optimistic-hidden');setCount('pending',count);},successText:'Marcado como resolvido',undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'unresolve',journeyId:item.journeyId,chatId:item.chatId})}),successText:'Voltou para pendente',refresh:()=>loadPending()},errorText:'Não consegui salvar, tente de novo'}));const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadPending(),errorText:'Não consegui salvar, tente de novo'};});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
+      const actions=element('div','inline-actions');const open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(item.phone),successText:'Copiado',errorText:'Não consegui copiar, tente de novo'}));const resolved=element('button','quiet small','Já resolvi');resolved.type='button';MCSAction.bind(resolved,()=>({scope:card,successScope:document.body,feedbackKey:`pending:${item.journeyId}:${item.chatId}`,optimistic:()=>{card.classList.add('action-optimistic-hidden');const count=countValue('pending');setCount('pending',Math.max(0,count-1));return count;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})}),rollback:(count)=>{card.classList.remove('action-optimistic-hidden');setCount('pending',count);},successText:'Marcado como resolvido',undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'unresolve',journeyId:item.journeyId,chatId:item.chatId})}),successText:'Voltou para pendente',refresh:()=>loadPending()},errorText:'Não consegui salvar, tente de novo'}));const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadPending(),errorText:'Não consegui salvar, tente de novo'};});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
     });
     if(['pending','clients'].includes(currentView)&&data.run?.status==='ACTIVE')pendingContinueTimer=setTimeout(()=>continuePendingGeneral().catch(()=>{}),500);
   }
@@ -1048,13 +1049,15 @@
   const FLORIDA='America/New_York';
   function zoneToUtc(local,timeZone=FLORIDA){const guess=Date.parse(local+':00Z');if(!Number.isFinite(guess))return null;const parts=zonedInput(new Date(guess),timeZone);const asZone=Date.parse(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:00Z`);return new Date(guess-(asZone-guess)).toISOString();}
   function nextQuickLocal(kind){const today=zonedInput(new Date(),FLORIDA);const date=new Date(Date.UTC(Number(today.year),Number(today.month)-1,Number(today.day)));if(kind==='tomorrow')date.setUTCDate(date.getUTCDate()+1);if(kind==='friday'){const add=(5-date.getUTCDay()+7)%7||7;date.setUTCDate(date.getUTCDate()+add);}return date.toISOString().slice(0,10)+'T17:00';}
-  function nextActionNode(item,reload){
+  function nextActionNode(item,reload,brief=false){
     if(item.enabled===false||item.status==='ENCERRADO')return null;
     // An order without a ficha has no next step to save (the summary says to link it first).
     const journeyId=journeyIdOf(item);if(!journeyId)return null;
     const block=element('section','next-action'+(item.next_action_at&&Date.parse(item.next_action_at)<Date.now()?' overdue':''));
-    block.append(element('strong','',`Próximo passo: ${item.next_action_text||'não definido'}${item.next_action_at?' · '+formatDate(item.next_action_at):''}`));
-    const define=element('button','quiet small','Definir');define.type='button';block.append(define);
+    // brief: the card's client context already says the next action and where it came from; this block
+    // keeps only the editor, so the step is written once on the card.
+    if(!brief)block.append(element('strong','',`Próximo passo: ${item.next_action_text||'não definido'}${item.next_action_at?' · '+formatDate(item.next_action_at):''}`));
+    const define=element('button','quiet small','Definir'+(brief?' próximo passo':''));define.type='button';if(brief)define.title=item.next_action_text?`Hoje: ${item.next_action_text}`:'Nenhum passo definido pela equipe';block.append(define);
     define.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();if(block.querySelector('.next-action-editor'))return;
       const editor=element('div','next-action-editor'),text=element('input');text.type='text';text.maxLength=500;text.placeholder='Texto curto';text.value=item.next_action_text||'';
       const quick=element('select');[['today','Hoje'],['tomorrow','Amanhã'],['friday','Sexta'],['custom','Data']].forEach(([value,label])=>quick.append(new Option(label,value)));
@@ -1093,7 +1096,10 @@
     // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
     if(clientsOverdue24){const chip=element('button','chip active','Sem resposta há mais de 24 h ✕');chip.type='button';chip.addEventListener('click',()=>{clientsOverdue24=false;renderClients(clientsData);});root.append(chip);}
     if(!items.length){if(clientsOverdue24)root.append(element('p','empty-state','Nenhum cliente neste filtro'));else empty(root,'Nenhum cliente neste filtro');return;}
-    items.forEach((item)=>{const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');head.append(identityHeader(item,{preview:item.latestMessage?.body_text||item.latestMessageText||''}));const badges=element('div','badges');if((item.origins||[]).includes('CALCULADORA'))badges.append(makeBadge(['Calculadora',...(item.calculatorTypes||[]).map((type)=>({BUSCA:'Busca',SIMULACAO:'Simulação'})[type]).filter(Boolean)].join(' · '),'blue'));badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)),makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));head.append(badges);card.append(head);if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`Leitura da IA (não confirmada): ${item.aiSummary||item.summary}`));card.append(contextSlot({journeyId:journeyIdOf(item)}));const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients());if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)card.append(copy);}const actions=element('div','inline-actions'),open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));actions.append(open,journeySwitch(item,()=>loadClients()));if(item.chatId){const resolved=Boolean(item.resolved),done=element('button','quiet small',resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>({scope:card,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:resolved?'unresolve':'resolve',journeyId:item.id,chatId:item.chatId})}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'}));actions.append(done);}const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(lead);card.append(actions,dispositionControls(item));makeCardClickable(card,()=>openDetail('ficha',item.id));root.append(card);});hydrateContexts(root);
+    items.forEach((item)=>{const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');head.append(identityHeader(item,{preview:item.latestMessage?.body_text||item.latestMessageText||''}));const badges=element('div','badges');if((item.origins||[]).includes('CALCULADORA'))badges.append(makeBadge(['Calculadora',...(item.calculatorTypes||[]).map((type)=>({BUSCA:'Busca',SIMULACAO:'Simulação'})[type]).filter(Boolean)].join(' · '),'blue'));badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)),makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));head.append(badges);card.append(head);if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`Leitura da IA (não confirmada): ${item.aiSummary||item.summary}`));card.append(contextSlot({journeyId:journeyIdOf(item)},{aiReading:false}));const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients(),true);if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
+// One primary row (open, treated/discard); the rarer decisions live under "⋯ Mais ações".
+const more=element('details','card-more');more.append(element('summary','','⋯ Mais ações'));const moreActions=element('div','inline-actions');more.append(moreActions);
+if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.append(copy);}const actions=moreActions,open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));actions.append(journeySwitch(item,()=>loadClients()));if(item.chatId){const resolved=Boolean(item.resolved),done=element('button','quiet small',resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>({scope:card,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:resolved?'unresolve':'resolve',journeyId:item.id,chatId:item.chatId})}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'}));actions.append(done);}const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(lead);const primary=element('div','inline-actions card-primary');primary.append(open,dispositionControls(item));card.append(primary,more);makeCardClickable(card,()=>openDetail('ficha',item.id));root.append(card);});hydrateContexts(root);
   }
   // Old conversations to pick up, oldest first, loaded only when the section is opened.
   function loadFollowup(){const list=$('clients-followup-list');if(!list||!window.MCSSuggest)return;MCSSuggest.queue(list,{request,open:(kind,key)=>openDetail(kind,key),contextSlot:(spec)=>contextSlot(spec),hydrate:hydrateContexts}).catch(()=>{});}
@@ -1267,9 +1273,9 @@
       const stageAction=(control,kind)=>MCSAction.bind(control,()=>{const previous=item.stage,next=kind==='SAVED'?'SAVED':'SENT';return{scope:card,optimistic:()=>{item.stage=next;card.querySelector('.search-stage').textContent=next==='SAVED'?'💾 Busca salva':'📤 Opções enviadas';return previous;},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:(value)=>{item.stage=value;card.querySelector('.search-stage').textContent=item.stageLabel;},refresh:()=>loadSearches(),errorText:'Não consegui salvar, tente de novo'};});
       if(item.stage==='MISSING'){const saved=makeButton('💾 Salvei a busca no Manheim',null);stageAction(saved,'SAVED');actions.append(saved);}
       if(item.stage!=='SENT'){const sent=makeButton('📤 Enviei opções ao cliente',null,'quiet small');stageAction(sent,'SENT');actions.append(sent);}
-      if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>switchPanel('searches'),'quiet small'));
+      if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>openOptionsCard(`journey:${item.journeyId}:${item.mode}`),'quiet small'));
       if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED',undo=makeButton('Desfazer',null,'quiet small');if(item.stageSource==='MARK')MCSAction.bind(undo,()=>({scope:card,optimistic:()=>{undo.textContent='Desfazendo…';},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:()=>{undo.textContent='Desfazer';},refresh:()=>loadSearches(),errorText:'Não consegui desfazer, tente de novo'}));else undo.addEventListener('click',()=>MCSAction.feedback(card,item.stageSource==='MANHEIM'?'Esta busca foi marcada no MANHEIM, desfaça em “Quais buscas salvar”':'As opções foram registradas pela ficha do cliente, desfaça na ficha','error','search-origin'));actions.append(undo);}
-      actions.append(makeButton('Abrir lead',()=>openDetail('ficha',item.journeyId),'quiet small'));card.append(actions);root.append(card);
+      actions.append(makeButton('Abrir ficha',()=>openDetail('ficha',item.journeyId),'quiet small'));card.append(actions);root.append(card);
     });
     Object.entries(roots).forEach(([mode,root])=>{if(!root.childElementCount)empty(root,'Nenhum cliente com busca ativa neste modo');});
   }
@@ -1278,6 +1284,17 @@
   // newest answer is drawn and the old request stops waiting.
   let viewController = null;
   const viewFetch = () => ({ signal: viewController ? viewController.signal : undefined });
+  // OPÇÕES is the owner of the cars of a search: other tabs point at its card instead of copying it.
+  // Switches the tab, waits for its load and scrolls to the demand card; says so when there is none.
+  async function openOptionsCard(demandKey) {
+    await switchPanel('searches');
+    try { await loadCurrent('searches', viewRequestVersion); } catch (_) {}
+    const card = demandKey ? document.querySelector(`#searches-panel [data-demand-key="${CSS.escape(demandKey)}"]`) : null;
+    if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); card.classList.add('card-focus'); setTimeout(() => card.classList.remove('card-focus'), 4000); return true; }
+    const summary = $('manheim-summary');
+    if (summary) { const note = element('p', 'warning options-missing', 'Este cliente não tem carros do lote ativo neste tipo de busca · Veja "Buscas por cliente" abaixo'); summary.after(note); setTimeout(() => note.remove(), 8000); }
+    return false;
+  }
   async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
     if (viewController) viewController.abort();
     const controller = new AbortController();
@@ -1576,9 +1593,11 @@
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
-        actionMessage, downloadShortlist, dispositionControls, replyComposer,
+        actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
+      // Opened to reply: the conversation comes into view (HOJE "Responder").
+      if(options.anchor){const target=document.getElementById(options.anchor);if(target)requestAnimationFrame(()=>target.scrollIntoView({behavior:'smooth',block:'start'}));}
       if(leadDetailData?.record?.whatsappWithoutPhone){const identity=$('record-detail').querySelector('.lead-head-name');if(identity)identity.append(element('p','muted whatsapp-no-phone-note','Responda pela conversa no app WhatsApp Business'));}
     } catch (failure) {
       if(requestVersion!==detailRequestVersion)return;
@@ -1706,22 +1725,23 @@
         if(request.referred)card.append(makeBadge(`Número novo pelo link de ${request.ownerName} (${request.ownerRef||'sem Ref'}) · provável indicação`,'yellow'));
         if(request.kind==='BID'&&request.depositUsd)card.append(element('span','v2-deposit',`Próximo passo: pedir o depósito · US$ ${Number(request.depositUsd).toLocaleString('en-US')}`));else if(request.kind==='BID'&&request.referred)card.append(element('span','v2-deposit','Próximo passo: pedir o depósito · valor a definir com o cliente novo'));const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2');build.type='button';build.disabled=!request.vitrineCarId;build.addEventListener('click',()=>openV2Builder(request,card));
         card.append(contextSlot({journeyId:uuidOnly(request.journeyId),ref:uuidOnly(request.journeyId)?null:refOf(request)}));
-        const open=element('button','quiet small','Abrir conversa');open.type='button';open.addEventListener('click',()=>request.journeyId&&openDetail('ficha',request.journeyId));open.disabled=!request.journeyId;
-        const treated=element('button','small','Tratado');treated.type='button';
+        const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>request.journeyId&&openDetail('ficha',request.journeyId));open.disabled=!request.journeyId;
+        // "Pedido atendido" (not "Tratado"): this closes the customer's request, not the person's disposition.
+        const treated=element('button','small','Pedido atendido');treated.type='button';
         // M26/D18: the failure is shown on the card, Desfazer handles its own failure and the counters follow
         MCSAction.bind(treated,()=>({scope:card,successScope:root,feedbackKey:`vitrine-request:${request.id}`,
           optimistic:()=>{card.classList.add('action-optimistic-hidden');},
           commit:()=>requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:request.id}),
           rollback:()=>{card.classList.remove('action-optimistic-hidden');},
-          successText:'Marcado como tratado',
+          successText:'Pedido marcado como atendido',
           undo:{commit:()=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:request.id}),successText:'Voltou para a lista',refresh:()=>{loadCurrent('today',viewRequestVersion);refreshCounters().catch(()=>{});}},
           refresh:()=>refreshCounters().catch(()=>{}),
-          errorText:'Não consegui marcar como tratado, tente de novo'}));actions.append(build,open,treated);card.append(actions);block.append(card);
+          errorText:'Não consegui marcar como atendido, tente de novo'}));actions.append(build,open,treated);card.append(actions);block.append(card);
       });
       root.append(block);
     };
     group('VIEW','V1 · Pediram para ver o carro');group('BID','V2 · Querem dar lance');hydrateContexts(root);
-    (data?.signals||[]).forEach((signal)=>signals.append(element('span','vitrine-signal',`Ref ${signal.referenceCode||'—'} · ${signal.text}`)));
+    (data?.signals||[]).forEach((signal)=>{const target=uuidOnly(signal.journeyId)?['ficha',signal.journeyId]:signal.referenceCode?['order',signal.referenceCode]:null;const label=`Ref ${signal.referenceCode||'—'} · ${signal.text}${target?' · abrir':''}`;const node=target?element('button','vitrine-signal',label):element('span','vitrine-signal',label);if(target){node.type='button';node.addEventListener('click',()=>openDetail(target[0],target[1]));}signals.append(node);});
   }
 
   function relativeAuction(value){const hours=Math.max(0,Math.ceil((Date.parse(value)-Date.now())/3600000));return hours>=24?`em ${Math.floor(hours/24)} dia${Math.floor(hours/24)===1?'':'s'} ${hours%24} h`:`em ${hours} h`;}
@@ -1780,13 +1800,17 @@
       if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
       card.append(badges);
       card.append(contextSlot({ journeyId: journeyIdOf(item), ref: refOf(item) }));
-      const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadCurrent('today',viewRequestVersion));if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
+      const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadCurrent('today',viewRequestVersion),true);if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
       if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)card.append(copy);}
       const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
       const actions = element('div', 'inline-actions');
-      const open = element('button', 'today-primary small', item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
+      // The client wrote last: the primary action is to answer, and the card says the window it allows
+      // (estimated from the last message here; the server decides again on send).
+      const replying = item.awaitingReply && item.kind !== 'CALCULATOR_ORDER';
+      const open = element('button', 'today-primary small', replying ? 'Responder' : item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
       open.type = 'button';
-      open.addEventListener('click', () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
+      open.addEventListener('click', () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id, replying ? { anchor: 'lead-conversation' } : {}));
+      if (replying && item.lastCustomerAt) { const until = Date.parse(item.lastCustomerAt) + 86400000; card.append(element('p', 'muted reply-window-estimate', until > Date.now() ? `Janela do WhatsApp aberta até ${formatDate(new Date(until).toISOString())} (estimada) · responde pelo painel` : 'Janela do WhatsApp encerrada (estimada) · responde pelo WhatsApp do celular')); }
       actions.append(open);
       card.append(actions, dispositionControls(item));
       makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
@@ -1819,7 +1843,7 @@
         point.evidence.forEach((evidence) => block.append(element('p', 'evidence', evidence.excerpt_text)));
         card.append(block);
       });
-      const open = element('button', 'quiet small', 'Abrir ficha e conversa');
+      const open = element('button', 'quiet small', 'Abrir ficha');
       open.type = 'button';
       open.addEventListener('click', () => openDetail('ficha', item.id));
       makeCardClickable(card, () => openDetail('ficha', item.id));
@@ -1973,8 +1997,8 @@
     if (!demand || !demand.stale) return null;
     const box = element('div', 'warning inline-confirm');
     box.append(element('p', '', 'O critério desta busca mudou depois da importação · As opções abaixo podem não servir mais'));
-    const again = element('button', 'small', 'Conferir novamente'); again.type = 'button';
-    MCSAction.bind(again, () => ({ scope: box, optimistic: () => { again.textContent = 'Conferindo…'; }, commit: () => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }), timeoutMs: 60000 }), rollback: () => { again.textContent = 'Conferir novamente'; }, successText: 'Opções comparadas de novo com o critério atual', refresh: () => loadCurrent(), errorText: 'Não consegui conferir de novo, tente mais tarde' }));
+    const again = element('button', 'small', 'Comparar de novo'); again.type = 'button';
+    MCSAction.bind(again, () => ({ scope: box, optimistic: () => { again.textContent = 'Conferindo…'; }, commit: () => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }), timeoutMs: 60000 }), rollback: () => { again.textContent = 'Comparar de novo'; }, successText: 'Opções comparadas de novo com o critério atual', refresh: () => loadCurrent(), errorText: 'Não consegui conferir de novo, tente mais tarde' }));
     box.append(again);
     return box;
   }
@@ -2114,7 +2138,7 @@
   const V1_SEND_REASONS = {
     NO_VALID_PHONE: 'Ficha sem telefone de WhatsApp válido: envio pelo painel indisponível',
     V1_SEND_PENDING: 'Envio pelo painel indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável',
-    OFF: 'Envio direto desligado em produção · Use "Abrir WhatsApp com mensagem pronta"'
+    OFF: 'Envio direto desligado em produção · abra no WhatsApp do celular ou copie a mensagem'
   };
   const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
   const sameDay = (iso) => new Date(iso || Date.now()).toDateString() === new Date().toDateString();
@@ -2143,31 +2167,32 @@
     }
   }
   function v1SendControls(demand, demo = null) {
+    // One block, one path: after "Gerar link V1" the approved message (with the link) appears once,
+    // editable; the line above it says to whom and whether the 24 h window is open; the one primary
+    // action follows the window (panel send with confirmation, or WhatsApp on the phone), plus "Copiar".
     const node = element('div', 'v1-send');
-    const button = element('button', 'small', 'Enviar no WhatsApp'); button.type = 'button'; button.disabled = true;
-    const state = element('p', 'muted v1-send-state', 'Gere a V1 para enviar no WhatsApp');
-    const fallback = element('a', 'quiet small hidden v1-send-fallback', 'Abrir WhatsApp com mensagem pronta');
+    const button = element('button', 'small v1-send-go', 'Enviar no WhatsApp'); button.type = 'button'; button.disabled = true;
+    const fallback = element('a', 'small hidden v1-send-fallback suggestion-open', 'Abrir no WhatsApp do celular');
     fallback.target = '_blank'; fallback.rel = 'noopener';
-    // Approved message of the search's origin (Calculate My Cost or Find One For Me): only suggested,
-    // editable and copied by the operator; nothing is sent from here.
-    const suggestion = element('details', 'v1-suggestion hidden');
-    const suggestionTitle = element('summary', '', 'Mensagem sugerida');
-    const suggestionText = element('textarea', 'v1-suggestion-text'); suggestionText.rows = 8; suggestionText.maxLength = 4000;
-    const copySuggestion = element('button', 'quiet small', 'Copiar mensagem sugerida'); copySuggestion.type = 'button';
-    const suggestionNote = element('p', 'muted', 'Você revisa e decide se envia · Nada é enviado daqui');
-    copySuggestion.addEventListener('click', async (event) => { event.stopPropagation(); try { await navigator.clipboard.writeText(suggestionText.value); suggestionNote.textContent = 'Mensagem copiada · Nada foi enviado'; } catch (_) { suggestionText.select(); suggestionNote.textContent = 'Não consegui copiar · Selecione o texto e copie'; } });
-    suggestion.append(suggestionTitle, suggestionText, copySuggestion, suggestionNote);
-    const showSuggestion = (data) => {
-      if (!data || !data.text) { suggestion.classList.add('hidden'); return; }
-      suggestionTitle.textContent = 'Mensagem sugerida · ' + (data.origin === 'VALOR' ? 'veio pela calculadora (Calculate My Cost)' : 'veio pelo Find One For Me');
-      suggestionText.value = data.text; suggestion.classList.remove('hidden');
-    };
+    const copy = element('button', 'quiet small v1-send-copy hidden', 'Copiar mensagem'); copy.type = 'button';
+    const state = element('p', 'muted v1-send-state', 'Gere a V1 para enviar no WhatsApp');
+    const textLabel = element('label', 'v1-send-message hidden', 'Mensagem para o cliente (com o link da V1) · editável');
+    const textarea = element('textarea', 'v1-send-text'); textarea.rows = 7; textarea.maxLength = 4000; textLabel.append(textarea);
+    const actions = element('div', 'inline-actions v1-send-actions'); actions.append(button, fallback, copy);
+    const copied = element('p', 'muted v1-send-copied', '');
     // What this card already did with a V1, after a reload: when it was sent (or generated).
     const sentHistory = element('p', 'muted v1-send-history hidden');
-    node.append(button, fallback, state, sentHistory, suggestion);
+    node.append(state, sentHistory, textLabel, actions, copied);
     let info = null;
     let token = null;
     let busy = false;
+    const refreshFallback = () => { if (info && info.phone) fallback.href = 'https://wa.me/' + info.phone.replace(/^\+/, '') + '?text=' + encodeURIComponent(textarea.value); };
+    textarea.addEventListener('input', refreshFallback);
+    copy.addEventListener('click', async (event) => { event.stopPropagation(); try { await navigator.clipboard.writeText(textarea.value); copied.textContent = 'Mensagem copiada · Nada foi enviado'; } catch (_) { textarea.select(); copied.textContent = 'Não consegui copiar · Selecione o texto e copie'; } });
+    const windowOpen = () => Boolean(info && info.windowOpen && (!info.windowUntil || Date.parse(info.windowUntil) > Date.now()));
+    const windowText = () => windowOpen()
+      ? 'Janela de 24 h aberta' + (info.windowUntil ? ' até ' + formatDate(info.windowUntil) : '') + ' · ao enviar, sai pelo painel depois da sua confirmação'
+      : 'Janela de 24 h encerrada · ao enviar, abre a conversa no WhatsApp do celular com a mensagem e você envia por lá';
     const showLast = (last) => {
       if (!last) return;
       const simulated = last.simulated ? ' · simulado' : '';
@@ -2177,58 +2202,61 @@
       state.dataset.status = last.status;
       if (['SENT', 'UNCONFIRMED', 'FAILED'].includes(last.status)) button.textContent = 'Reenviar';
     };
-    const setFallback = (href) => { if (href) { fallback.href = href; fallback.classList.remove('hidden'); } };
+    // The path the window allows now: the panel (button) inside it, the phone (link) outside it.
+    const paintPath = () => {
+      const open = windowOpen();
+      button.classList.toggle('hidden', !open); button.disabled = !open || busy;
+      fallback.classList.toggle('hidden', open || !info || !info.phone); refreshFallback();
+    };
     async function setVitrine(newToken, keepHistory = false) {
       if (!keepHistory) sentHistory.classList.add('hidden');
-      token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp'; showSuggestion(null);
+      token = newToken; info = null; button.disabled = true; button.textContent = 'Enviar no WhatsApp';
+      textLabel.classList.add('hidden'); copy.classList.add('hidden'); fallback.classList.add('hidden'); copied.textContent = '';
       state.textContent = 'Conferindo o destino…'; delete state.dataset.status;
       try {
         info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: demo ? 'demo_prepare' : 'prepare', token, baseUrl: location.origin, ...(demo || {}), ...(demand?.key ? { demandKey: demand.key } : {}) }) });
       } catch (failure) {
         if (demo && demo.onUnavailable) { demo.onUnavailable(); return; }
-        state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio · Use "Copiar mensagem com link"';
+        state.textContent = V1_SEND_REASONS[failure && failure.code] || 'Não consegui preparar o envio · Tente de novo';
         return;
       }
-      showSuggestion(info);
+      // The approved message of the search's origin, once, editable; the link must stay in it.
+      textarea.value = info.text || info.link || ''; textarea.dataset.link = info.link || ''; textLabel.classList.remove('hidden'); copy.classList.remove('hidden');
+      if (!info.origin) copied.textContent = 'Origem da busca não identificada: escreva a mensagem (o link da V1 precisa ficar no texto)';
       if (!info.eligible) { state.textContent = V1_SEND_REASONS[info.reason] || V1_SEND_REASONS.NO_VALID_PHONE; return; }
-      setFallback(info.whatsappLink);
-      if (info.mode === 'OFF') { state.textContent = V1_SEND_REASONS.OFF; return; }
-      state.textContent = `Para ${info.name} · ${info.phone}${info.mode === 'SIMULATED' ? ' · envio simulado neste ambiente' : ''}`;
-      button.disabled = false;
+      if (info.mode === 'OFF') { state.textContent = `Para ${info.name} · ${info.phone} · ${V1_SEND_REASONS.OFF}`; info.windowOpen = false; paintPath(); return; }
+      state.textContent = `Para ${info.name} · ${info.phone}${info.mode === 'SIMULATED' ? ' · envio simulado neste ambiente' : ''} · ${windowText()}`;
+      paintPath();
       showLast(info.last);
     }
     function openConfirm() {
       if (!info || busy || node.querySelector('.v1-send-confirm')) return;
       const resend = button.textContent === 'Reenviar';
       const requestKey = crypto.randomUUID();
+      const text = textarea.value.trim();
+      if (!text) { copied.textContent = 'Escreva a mensagem antes de enviar · o link da V1 precisa ficar no texto'; return; }
       const box = element('div', 'warning inline-confirm v1-send-confirm');
       box.append(element('p', '', `${resend ? 'Reenviar' : 'Enviar'} para ${info.name} · ${info.phone}`),
-        element('p', 'muted', `Link V1: ${info.link}`));
-      // The window and the path allowed for this send, before the confirmation.
-      box.append(info.windowOpen
-        ? element('p', 'muted v1-send-window', `Janela de 24 h aberta${info.windowUntil ? ' até ' + formatDate(info.windowUntil) : ''}: o envio sai pela API só depois desta confirmação, uma mensagem para esta pessoa`)
-        : element('p', 'warning v1-send-window', 'Janela de 24 h encerrada: fora da janela a API só aceita modelo aprovado pela Meta, e o projeto não tem nenhum · O painel não envia · Caminho permitido: abrir o WhatsApp com a mensagem pronta e você envia pelo WhatsApp Business do celular'));
-      if (!info.origin) box.append(element('p', 'muted', 'Origem da busca não identificada: escreva a mensagem (o link da V1 precisa ficar no texto)'));
-      const label = element('label', '', 'Mensagem');
-      const textarea = element('textarea', 'v1-send-text'); textarea.rows = 9; textarea.maxLength = 4000; textarea.value = info.text || info.link;
-      label.append(textarea);
+        element('p', 'muted', `Link V1: ${info.link}`),
+        element('p', 'muted v1-send-window', `Janela de 24 h aberta${info.windowUntil ? ' até ' + formatDate(info.windowUntil) : ''}: o envio sai pela API só depois desta confirmação, uma mensagem para esta pessoa`),
+        element('blockquote', 'context-evidence v1-send-preview', text));
       const yes = element('button', 'small', 'Confirmar envio'); yes.type = 'button';
       const no = element('button', 'quiet small', 'Cancelar'); no.type = 'button';
-      box.append(label, yes, no);
+      box.append(yes, no);
       no.addEventListener('click', () => box.remove());
       yes.addEventListener('click', async () => {
         if (busy) return;
         busy = true; yes.disabled = true; no.disabled = true; textarea.disabled = true; button.disabled = true;
         yes.textContent = 'Enviando…';
         try {
-          const result = await request('/api/panel/v1-send', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: demo ? 'demo_send' : 'send', token, text: textarea.value, requestKey, confirmed: true, resend, ...(demo || {}), ...(demand?.key ? { demandKey: demand.key } : {}) }) });
+          const result = await request('/api/panel/v1-send', { method: 'POST', timeoutMs: 30000, body: JSON.stringify({ action: demo ? 'demo_send' : 'send', token, text, requestKey, confirmed: true, resend, ...(demo || {}), ...(demand?.key ? { demandKey: demand.key } : {}) }) });
           box.remove();
           sentHistory.classList.add('hidden');
           showLast({ status: result.sendStatus, at: result.at, simulated: result.simulated });
         } catch (failure) {
           box.remove();
           const code = failure && failure.code;
-          if (code === 'WINDOW_CLOSED') { state.textContent = 'Fora da janela de 24 h do WhatsApp: não foi enviado · Use "Abrir WhatsApp com mensagem pronta"'; setFallback(failure.whatsappLink || info.whatsappLink); }
+          if (code === 'WINDOW_CLOSED') { state.textContent = `Para ${info.name} · ${info.phone} · a janela de 24 h fechou: não foi enviado · abra no WhatsApp do celular e envie por lá`; info.windowOpen = false; }
           else if (code === 'V1_ALREADY_SENT') { state.textContent = 'Esta V1 já foi enviada'; button.textContent = 'Reenviar'; }
           else if (code === 'SEND_IN_PROGRESS') state.textContent = 'Já existe um envio desta V1 em andamento';
           else if (code === 'V1_SEND_TOO_FAST') state.textContent = 'Um envio por vez: aguarde alguns segundos antes de enviar outra V1 · Nada foi enviado agora';
@@ -2236,12 +2264,12 @@
           else if (code === 'V1_SEND_PENDING') state.textContent = V1_SEND_REASONS.V1_SEND_PENDING;
           else if (['TEXT_REQUIRED', 'TEXT_TOO_LONG', 'V1_LINK_MISSING'].includes(code)) state.textContent = code === 'V1_LINK_MISSING' ? 'A mensagem precisa conter o link da V1 · Nada foi enviado' : 'Mensagem vazia ou longa demais · Nada foi enviado';
           else { state.textContent = 'Não confirmado: sem resposta do servidor · Verifique a conversa antes de reenviar'; state.dataset.status = 'UNCONFIRMED'; button.textContent = 'Reenviar'; }
-        } finally { busy = false; button.disabled = !info || info.mode === 'OFF'; }
+        } finally { busy = false; textarea.disabled = false; paintPath(); }
       });
       node.append(box);
-      textarea.focus();
     }
     button.addEventListener('click', (event) => { event.stopPropagation(); openConfirm(); });
+    fallback.addEventListener('click', () => { copied.textContent = 'WhatsApp aberto com a mensagem · O envio é feito por você no aplicativo'; });
     node.addEventListener('click', (event) => event.stopPropagation());
     // The latest V1 of this demand, read from the server after a reload (never a new V1).
     function restore(item) {
@@ -2249,9 +2277,9 @@
       const sent = item.lastSent || item.previousSent || null;
       const simulated = sent && sent.simulated ? ' · simulado' : '';
       sentHistory.textContent = item.lastSent
-        ? `V1 enviada em ${formatDate(sent.at)}${sent.status === 'UNCONFIRMED' ? ' · sem confirmação do WhatsApp' : ''}${simulated} · Link: ${location.origin}${item.link}`
+        ? `V1 enviada em ${formatDate(sent.at)}${sent.status === 'UNCONFIRMED' ? ' · sem confirmação do WhatsApp' : ''}${simulated}`
         : sent ? `V1 gerada em ${formatDate(item.createdAt)} · ainda não enviada · A V1 anterior foi enviada em ${formatDate(sent.at)}${simulated}`
-          : `V1 gerada em ${formatDate(item.createdAt)} · ainda não enviada · Link: ${location.origin}${item.link}`;
+          : `V1 gerada em ${formatDate(item.createdAt)} · ainda não enviada`;
       sentHistory.dataset.status = item.lastSent ? item.lastSent.status : 'GENERATED';
       sentHistory.classList.remove('hidden');
       setVitrine(item.token, true);
@@ -2311,7 +2339,9 @@
     card.append(head);
     if (demand) card.append(element('span', 'request-criteria-label', 'Critério usado na busca (sistema)'));
     card.append(element('p', 'muted', (demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents))));
-    card.append(contextSlot({ journeyId: journeyIdOf(journey) }, { focus: 'cars' }));
+    // The client context stays one click away: the card is about the cars and the next step.
+    const contextMore = element('details', 'card-more context-details'); contextMore.append(element('summary', '', 'Contexto do cliente'), contextSlot({ journeyId: journeyIdOf(journey) }, { focus: 'cars' })); card.append(contextMore);
+    contextMore.addEventListener('toggle', () => { if (contextMore.open) hydrateContexts(contextMore); });
     const stale = staleNotice(card, demand); if (stale) card.append(stale);
     const seen=()=>loaded.concat(card.offerState?card.offerState.loaded:[]);
     let audited=auditBlock(demand,seen());if(audited)card.append(audited);
@@ -2374,8 +2404,7 @@
     });
     const v1Send=v1SendControls(demand);
     /* After a reload the card remembers its latest V1 (link and when it was sent) instead of "Gere a V1…". */
-    latestV1For(journey.id).then((latest)=>{const item=latest[demand?.key||('journey:'+journey.id)];if(!item||v1Send.hasVitrine())return;copyMessageButton.dataset.link=location.origin+item.link;copyMessageButton.disabled=false;v1Send.restore(item);});
-    const copyMessageButton=element('button','quiet small','Copiar mensagem com link');copyMessageButton.type='button';copyMessageButton.disabled=true;copyMessageButton.addEventListener('click',async(event)=>{event.stopPropagation();const link=copyMessageButton.dataset.link;if(!link)return;const customer=journey.contactName||journey.name||journey.display_name||'Hello';try{await navigator.clipboard.writeText(`${customer}, our team found some cars for you\n${link}`);cardStatus.textContent='Mensagem com link copiada';}catch(_){cardStatus.textContent='Não consegui copiar · Link: '+link;}});
+    latestV1For(journey.id).then((latest)=>{const item=latest[demand?.key||('journey:'+journey.id)];if(!item||v1Send.hasVitrine())return;v1Send.restore(item);});
     const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';
     const v1Error=(error)=>error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_MATCH_WITHOUT_MMR'?'Carro sem MMR válido não entra na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável':'Não consegui gerar o link';
     vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();
@@ -2400,11 +2429,13 @@
         }
       }catch(error){cardStatus.textContent=v1Error(error);return;}
       finally{vitrineButton.disabled=!auditCanTry(demand);}
-      const absolute=location.origin+created.link;copyMessageButton.dataset.link=absolute;copyMessageButton.disabled=false;v1Send.setVitrine(created.token);
-      /* A22: the link exists even when the clipboard fails */
-      try{await navigator.clipboard.writeText(absolute);cardStatus.textContent='Link V1 criado e copiado: '+absolute;}catch(_){cardStatus.textContent='Link V1 criado (não consegui copiar): '+absolute;}
+      /* The link only exists from here on; the message with it, the destination and the path appear in the send block below. */
+      cardStatus.textContent='Link V1 criado · revise a mensagem abaixo e envie';v1Send.setVitrine(created.token);
     });vitrineButton.disabled=!auditCanTry(demand);
-    card.append(exportButton,vitrineButton,copyMessageButton,cardStatus,v1Send.node,dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
+    // Rare actions under "⋯": the PDF and the disposition (which also removes the person from HOJE).
+    const more=element('details','card-more');more.append(element('summary','','⋯ Mais ações'));const moreActions=element('div','inline-actions');more.append(moreActions);
+    moreActions.append(exportButton,element('span','muted','Tratado / Descartar vale para a pessoa e tira o cliente de HOJE:'),dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
+    card.append(vitrineButton,cardStatus,v1Send.node,more);
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
   }
@@ -2484,6 +2515,8 @@
     // B5: people served by today's combinations, not the count frozen at upload time.
     setCount('manheim', data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} carro(s) com combinação · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma importação ativa';
+    // The comparison of the requests with this batch is run from PESQUISAS (one place): say so here.
+    if (data.upload) { const link = element('button', 'quiet small options-compare-link', 'Comparar pedidos com este lote (PESQUISAS)'); link.type = 'button'; link.addEventListener('click', () => switchPanel('requests').then(() => loadCurrent('requests', viewRequestVersion)).catch(() => {})); $('manheim-summary').append(document.createTextNode(' · '), link); }
     renderBuscasCounters(data.counts);
     renderBatches(data.uploads || [], data.undoAvailable !== false, data.hiddenBatchIds);
     renderReview(data.review || []);
@@ -2625,6 +2658,12 @@
         const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button';
         open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', item.person.journeyId); });
         who.append(open);
+        // The cars this result counts live in OPÇÕES (same ficha, same search type): one click lands on them.
+        if (item.optionCount && item.searchMode && ['COM_OPCOES', 'COM_CANDIDATOS'].includes(first.state)) {
+          const options = element('button', 'quiet small request-open-options', `Ver em OPÇÕES (${item.optionCount})`); options.type = 'button';
+          options.addEventListener('click', (event) => { event.stopPropagation(); openOptionsCard(`journey:${item.person.journeyId}:${item.searchMode}`); });
+          who.append(options);
+        }
       }
       line.append(who);
       // The client's case: the ficha when known; a conversation request only through its contact,
@@ -3814,33 +3853,31 @@
   async function replyComposer(block, journeyId, reload) {
     let state;
     try { state = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'window', journeyId }) }); } catch (_) { return; }
-    // A20: the composer only appears while the 24 h window (last customer message) is open.
-    if (!state || !state.allowed || !(Date.parse(state.openUntil) > Date.now())) {
-      const note = element('p', 'reply-window muted', 'Responder pelo painel: só com mensagem do cliente nas últimas 24 h · fora disso, responda pelo app do WhatsApp');
-      note.dataset.replyClosed = 'true';
-      block.append(note);
-      return;
-    }
+    // A20: you write in Portuguese, the AI translates, you check the back-translation. The send is
+    // the same one path as the suggestions (MCSSuggest.sendControls), decided by the 24 h window:
+    // open, by the panel after your confirmation; closed, by the WhatsApp on the phone.
     const box = element('div', 'reply-composer');
     box.append(element('h4', '', 'Responder pelo painel'));
-    const windowLine = element('p', 'reply-window muted');
     const ptLabel = element('label', '', 'Sua mensagem (português)');
     const pt = element('textarea'); pt.maxLength = 4000; pt.rows = 4; ptLabel.append(pt);
     const translateButton = element('button', 'small', 'Traduzir'); translateButton.type = 'button';
     const enLabel = element('label', '', 'Vai para o cliente (inglês)');
-    const en = element('textarea'); en.readOnly = true; en.rows = 4; enLabel.append(en);
+    const en = element('textarea', 'reply-en'); en.readOnly = true; en.rows = 4; enLabel.append(en);
     const backLabel = element('label', '', 'Conferência (volta para o português)');
     const back = element('textarea'); back.readOnly = true; back.rows = 4; backLabel.append(back);
-    const sendButton = element('button', 'small', 'Enviar'); sendButton.type = 'button';
     const status = element('p', 'reply-status', '');
     let translatedFor = null, busy = false;
-    const closedText = 'Mais de 24 h desde a última mensagem do cliente · responda pelo app do WhatsApp';
-    const floridaTime = (value) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
-    const windowOpen = () => state.allowed && Date.parse(state.openUntil) > Date.now();
+    // The window state and the one path (sendControls) live here; data-reply-closed says which path.
+    const sendBox = element('div', 'reply-send reply-window');
+    box.dataset.replyClosed = state && state.allowed ? 'false' : 'true';
+    const sender = window.MCSSuggest && MCSSuggest.sendControls ? MCSSuggest.sendControls(sendBox, {
+      journeyId, reachable: Boolean(state && state.whatsappBase), whatsappBase: state && state.whatsappBase || null,
+      contact: { name: state && state.name || '', phone: state && state.phone || '' },
+      path: { open: Boolean(state && state.allowed), until: state && state.openUntil || null }
+    }, en, { request, discard: false, canSend: () => Boolean(en.value) && translatedFor === pt.value.trim(), onSent: (result) => { pt.value = ''; if (!(result && result.simulated)) setTimeout(() => reload(), 1500); } }) : null;
     const refresh = () => {
-      windowLine.textContent = windowOpen() ? `Janela aberta até ${floridaTime(state.openUntil)} (Flórida)` : closedText;
       translateButton.disabled = busy || !pt.value.trim();
-      sendButton.disabled = busy || !windowOpen() || !en.value || translatedFor !== pt.value.trim();
+      if (sender) sender.refresh();
     };
     pt.addEventListener('input', () => { if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
     translateButton.addEventListener('click', async () => {
@@ -3849,27 +3886,12 @@
       try {
         const out = await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'translate', text }) });
         en.value = out.en; back.value = out.pt_back; translatedFor = text; status.textContent = '';
+        en.dispatchEvent(new Event('input'));
       } catch (_) { status.textContent = 'IA indisponível'; }
       busy = false; refresh();
     });
-    sendButton.addEventListener('click', async () => {
-      if (sendButton.disabled) return;
-      busy = true; status.textContent = 'Enviando…'; refresh();
-      try {
-        await request('/api/panel/reply', { method: 'POST', body: JSON.stringify({ action: 'send', journeyId, textEn: en.value }) });
-        status.textContent = 'Enviado'; busy = false; reload(); return;
-      } catch (failure) {
-        const code = failure.code || 'REQUEST_FAILED';
-        if (code === 'WINDOW_CLOSED') { state = { allowed: false }; status.textContent = closedText; }
-        else if (code === 'SENT_NOT_RECORDED') status.textContent = 'Enviado ao cliente, mas não registrado no painel · não reenvie';
-        else if (/^D360_/.test(code)) status.textContent = `${code} · Não enviado · nada foi registrado`;
-        else status.textContent = `${code} · Não enviado`;
-      }
-      busy = false; refresh();
-    });
     const translateRow = element('div', 'inline-actions'); translateRow.append(translateButton);
-    const sendRow = element('div', 'inline-actions'); sendRow.append(sendButton);
-    box.append(windowLine, ptLabel, translateRow, enLabel, backLabel, sendRow, status);
+    box.append(ptLabel, translateRow, enLabel, backLabel, status, sendBox);
     refresh();
     block.append(box);
   }

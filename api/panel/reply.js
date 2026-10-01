@@ -112,7 +112,9 @@ async function handle(ctx, body, services = defaultServices, now = Date.now()) {
   const target = await resolveTarget(ctx, journeyId, services);
   if (!target) return { status: 400, error: 'REPLY_NOT_ELIGIBLE' };
   const state = await windowState(ctx, target.chat.id, services, now);
-  return state.openUntil ? { status: 200, allowed: state.allowed, openUntil: state.openUntil } : { status: 200, allowed: false };
+  // The destination too, so the composer shows "Para NOME · FONE" and the phone path when the window is closed.
+  const who = { name: target.name, phone: target.phone, whatsappBase: 'https://wa.me/' + target.phone.replace(/^\+/, '') };
+  return state.openUntil ? { status: 200, allowed: state.allowed, openUntil: state.openUntil, ...who } : { status: 200, allowed: false, ...who };
 }
 
 module.exports = async (req, res) => {

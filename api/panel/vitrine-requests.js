@@ -58,9 +58,9 @@ async function payload(ctx){
   vitrines.forEach((vitrine)=>{
     const related=events.filter((event)=>event.vitrine_id===vitrine.id);
     const opened=related.find((event)=>event.event_type==='OPEN');
-    if(opened)signals.push({vitrineId:vitrine.id,referenceCode:vitrine.reference_code,kind:'OPEN',text:`abriu o link ${since(opened.created_at)}`});
-    related.filter((event)=>event.event_type==='TAP'&&Date.now()-Date.parse(event.created_at)>=15*60*1000&&!requestsByCar.has(event.vitrine_car_id)).slice(0,1).forEach(()=>signals.push({vitrineId:vitrine.id,referenceCode:vitrine.reference_code,kind:'TAP',text:'tocou e não enviou'}));
-    if(vitrine.version==='V1'&&Date.now()-Date.parse(vitrine.created_at)>=3*24*60*60*1000&&!related.some((event)=>event.event_type==='TAP'))signals.push({vitrineId:vitrine.id,referenceCode:vitrine.reference_code,kind:'IDLE',text:'V1 enviada há 3 dias, nenhum toque'});
+    if(opened)signals.push({vitrineId:vitrine.id,journeyId:vitrine.journey_id||null,referenceCode:vitrine.reference_code,kind:'OPEN',text:`abriu o link ${since(opened.created_at)}`});
+    related.filter((event)=>event.event_type==='TAP'&&Date.now()-Date.parse(event.created_at)>=15*60*1000&&!requestsByCar.has(event.vitrine_car_id)).slice(0,1).forEach(()=>signals.push({vitrineId:vitrine.id,journeyId:vitrine.journey_id||null,referenceCode:vitrine.reference_code,kind:'TAP',text:'tocou e não enviou'}));
+    if(vitrine.version==='V1'&&Date.now()-Date.parse(vitrine.created_at)>=3*24*60*60*1000&&!related.some((event)=>event.event_type==='TAP'))signals.push({vitrineId:vitrine.id,journeyId:vitrine.journey_id||null,referenceCode:vitrine.reference_code,kind:'IDLE',text:'V1 enviada há 3 dias, nenhum toque'});
   });
   return {requests:openRequests,signals};
 }

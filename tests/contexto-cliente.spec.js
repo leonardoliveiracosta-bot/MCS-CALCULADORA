@@ -128,6 +128,8 @@ for (const width of [1366, 390]) {
     await page.locator('[data-view="searches"]').click();
     const optionCard = page.locator('.manheim-lead', { hasText: 'Marina Demonstração' }).first();
     await expect(optionCard).toBeVisible({ timeout: 60000 });
+    // The client context is one click away in OPÇÕES (the card is about the cars).
+    await optionCard.locator('.context-details > summary').click();
     await expect(await reach(optionCard)).toContainText('carro(s) com MMR ligado(s) a este cliente', { timeout: 30000 });
     await expect(optionCard).toContainText('Critério usado na busca (sistema)');
     const lane = optionCard.locator('details.offer-group[data-group="LANE"]');
@@ -155,7 +157,7 @@ for (const width of [1366, 390]) {
 
     // FICHA: the full case summary.
     await page.locator('[data-view="clients"]').click();
-    await page.locator('#clients-list .client-card', { hasText: 'Marina Demonstração' }).first().locator('button', { hasText: 'Abrir lead' }).click();
+    await page.locator('#clients-list .client-card', { hasText: 'Marina Demonstração' }).first().locator('button', { hasText: 'Abrir ficha' }).click();
     const full = page.locator('.client-context-full .context-table');
     await expect(full).toBeVisible({ timeout: 60000 });
     const fullCard = page.locator('section.client-context-full');

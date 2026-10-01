@@ -76,22 +76,21 @@ test('exemplo fictício do Preview: confirmação completa, clique duplo barrado
   await expect(demo).toContainText('EXEMPLO FICTÍCIO');
   await expect(demo).toContainText('Nada é gravado no banco nem enviado ao WhatsApp');
   const open = demo.locator('.v1-demo-card').nth(0), closed = demo.locator('.v1-demo-card').nth(1);
-  await expect(open.locator('.v1-send-state')).toHaveText('Para Cliente Fictício (teste) · +15550100100 · envio simulado neste ambiente');
-  await expect(open.locator('.v1-suggestion summary')).toContainText('veio pela calculadora');
-  // Confirmation shows name, number, link and the approved text; a second click is blocked while sending.
-  await open.locator('.v1-send > button').click();
+  await expect(open.locator('.v1-send-state')).toHaveText(/^Para Cliente Fictício \(teste\) · \+15550100100 · envio simulado neste ambiente · Janela de 24 h aberta/);
+  // The approved message appears once, editable, with the link; the confirmation repeats whom and the text.
+  await expect(open.locator('.v1-send-text')).toHaveValue(/^Hi Cliente,\n\nI put together a first look/);
+  await open.locator('.v1-send-go').click();
   const box = open.locator('.v1-send-confirm');
   await expect(box).toContainText('Enviar para Cliente Fictício (teste) · +15550100100');
   await expect(box).toContainText('/v/EXEMPLO-FICTICIO-NAO-E-CLIENTE');
-  await expect(box.locator('textarea')).toHaveValue(/^Hi Cliente,\n\nI put together a first look/);
+  await expect(box.locator('.v1-send-preview')).toContainText('I put together a first look');
   const confirm = box.getByRole('button', { name: 'Confirmar envio' });
   await confirm.dblclick();
   await expect(open.locator('.v1-send-state')).toHaveText(/^Enviado às \d\d:\d\d · simulado$/, { timeout: 10000 });
   expect(posts.filter((action) => action === 'demo_send')).toHaveLength(1);
-  // Outside the 24-hour window: nothing is sent, WhatsApp opens with the text ready.
-  await closed.locator('.v1-send > button').click();
-  await closed.locator('.v1-send-confirm').getByRole('button', { name: 'Confirmar envio' }).click();
-  await expect(closed.locator('.v1-send-state')).toHaveText('Fora da janela de 24 h do WhatsApp: não foi enviado · Use "Abrir WhatsApp com mensagem pronta"', { timeout: 10000 });
+  // Outside the 24-hour window: no panel send is offered; WhatsApp on the phone opens with the text ready.
+  await expect(closed.locator('.v1-send-state')).toContainText('Janela de 24 h encerrada');
+  await expect(closed.locator('.v1-send-go')).toBeHidden();
   await expect(closed.locator('.v1-send-fallback')).toHaveAttribute('href', /^https:\/\/wa\.me\/15550100100\?text=Hi%20Cliente/);
   expect(posts.every((action) => action.startsWith('demo_') || !action)).toBe(true);
   const after = (await backend.db.query('select (select count(*) from public.v1_sends)::int sends, (select count(*) from public.vitrines)::int vitrines')).rows[0];
@@ -140,7 +139,7 @@ test('V1 enviada no WhatsApp (simulado) com confirmação e histórico de lotes 
   // V1 (OPÇÕES): select two cars, generate the link, then send it on WhatsApp.
   await page.locator('[data-view="searches"]').click();
   const card = page.locator('#buscas-carro .manheim-lead').first();
-  const send = card.locator('.v1-send > button');
+  const send = card.locator('.v1-send-go');
   await expect(send).toBeDisabled();
   await card.locator('.offer-group[data-group="LANE"] > summary').click();
   const lane = card.locator('.offer-group[data-group="LANE"] .offer-row');
@@ -149,22 +148,21 @@ test('V1 enviada no WhatsApp (simulado) com confirmação e histórico de lotes 
     await expect(lane.nth(index)).toHaveAttribute('data-status', 'SELECTED');
   }
   await card.getByRole('button', { name: 'Gerar link V1' }).click();
-  await expect(card.locator('.v1-send-state')).toHaveText('Para Maria Tela · +13055550199 · envio simulado neste ambiente');
-  // A mensagem aprovada da origem aparece como sugestão, editável e só para copiar.
-  const suggestion = card.locator('.v1-suggestion');
-  await expect(suggestion).toBeVisible();
-  await expect(suggestion.locator('summary')).toContainText('Mensagem sugerida · veio pel');
-  await expect(suggestion.locator('textarea')).toHaveValue(/^Hi Maria,/);
-  await expect(suggestion).toContainText('Nada é enviado daqui');
+  await expect(card.locator('.v1-send-state')).toHaveText(/^Para Maria Tela · \+13055550199 · envio simulado neste ambiente · Janela de 24 h aberta/);
+  // The approved message of the origin appears once, editable, with the link; "Copiar mensagem" copies it.
+  const textarea = card.locator('.v1-send-text');
+  await expect(textarea).toHaveValue(/^Hi Maria,\n\nI reviewed the current auction listings/);
+  await expect(card.locator('.v1-send-copy')).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Copiar mensagem com link' })).toHaveCount(0);
+  await expect(card.locator('.v1-send-fallback'), 'janela aberta: o caminho é o painel').toBeHidden();
+  // Editable before sending; nothing leaves before the confirmation.
+  await textarea.fill((await textarea.inputValue()).replace('Hi Maria,', 'Hi Maria, great talking today'));
   await expect(send).toBeEnabled();
   await send.click();
   const confirm = card.locator('.v1-send-confirm');
   await expect(confirm).toContainText('Enviar para Maria Tela · +13055550199');
   await expect(confirm).toContainText('Link V1: ' + base + '/v/');
-  const textarea = confirm.locator('textarea');
-  await expect(textarea).toHaveValue(/^Hi Maria,\n\nI reviewed the current auction listings/);
-  // Editable before sending; nothing leaves before the second click.
-  await textarea.fill((await textarea.inputValue()).replace('Hi Maria,', 'Hi Maria, great talking today'));
+  await expect(confirm.locator('.v1-send-preview')).toContainText('Hi Maria, great talking today');
   expect((await backend.db.query(`select count(*)::int n from public.v1_sends`)).rows[0].n).toBe(0);
   if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'v1-envio-confirmacao.png') });
   await confirm.getByRole('button', { name: 'Confirmar envio' }).dblclick();
@@ -184,9 +182,9 @@ test('V1 enviada no WhatsApp (simulado) com confirmação e histórico de lotes 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   const reloaded = page.locator('#buscas-carro .manheim-lead').first();
-  await expect(reloaded.locator('.v1-send-history')).toHaveText(new RegExp('^V1 enviada em \\d\\d/\\d\\d/\\d{4},? \\d\\d:\\d\\d · simulado · Link: ' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/v/'), { timeout: 30000 });
-  await expect(reloaded.locator('.v1-send > button')).toHaveText('Reenviar');
-  await expect(reloaded.getByRole('button', { name: 'Copiar mensagem com link' })).toBeEnabled();
+  await expect(reloaded.locator('.v1-send-history')).toHaveText(/^V1 enviada em \d\d\/\d\d\/\d{4},? \d\d:\d\d · simulado$/, { timeout: 30000 });
+  await expect(reloaded.locator('.v1-send-go')).toHaveText('Reenviar');
+  await expect(reloaded.locator('.v1-send-text')).toHaveValue(new RegExp(base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/v/'));
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
 });
