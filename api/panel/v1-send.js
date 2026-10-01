@@ -14,6 +14,9 @@ const reply = require('./reply');
 
 const MAX_TEXT = reply.MAX_TEXT;
 const TIMEOUT_MS = 15000;
+// One person, one V1 at a time: after a send the same operator waits a few seconds before another
+// (no batch sending, not even by fast clicks on several cards).
+const OPERATOR_GAP_MS = 10000;
 const inFlight = new Set();
 
 const TEMPLATES = {
@@ -68,7 +71,7 @@ async function prepare(ctx, body, services, env) {
   if (!target) return { status: 200, eligible: false, reason: 'NO_VALID_PHONE', mode, link, origin, text: suggestedText(origin, '', link), last: sendOut(previous) };
   const text = suggestedText(origin, target.name, link);
   const window = await reply.windowState(ctx, target.chat.id, services);
-  return { status: 200, eligible: true, mode, name: target.name, phone: target.phone, origin, text, link, windowOpen: window.allowed === true,
+  return { status: 200, eligible: true, mode, name: target.name, phone: target.phone, origin, text, link, windowOpen: window.allowed === true, windowUntil: window.openUntil || null,
     whatsappLink: waLink(target.phone, text || link), last: sendOut(previous) };
 }
 
@@ -88,6 +91,8 @@ const failedFor = (code) => /^D360_HTTP_4\d\d$/.test(code) || code === 'D360_KEY
 
 async function sendV1(ctx, body, services, env, now) {
   const text = String(body.text || '').replace(/\r\n/g, '\n').trim();
+  // One V1 per request: a list of tokens is never accepted.
+  if (typeof body.token !== 'string' || body.tokens !== undefined) return { status: 400, error: 'V1_BATCH_NOT_ALLOWED' };
   if (!text) return { status: 400, error: 'TEXT_REQUIRED' };
   if (text.length > MAX_TEXT) return { status: 400, error: 'TEXT_TOO_LONG' };
   if (!isUuid(body.requestKey) || body.confirmed !== true) return { status: 400, error: 'V1_SEND_CONFIRM_REQUIRED' };
@@ -103,6 +108,12 @@ async function sendV1(ctx, body, services, env, now) {
     const previous = await lastSend(ctx, vitrine.id, services);
     if (previous && previous.status === 'SENDING') return { status: 409, error: 'SEND_IN_PROGRESS' };
     if (previous && ['SENT', 'UNCONFIRMED'].includes(previous.status) && body.resend !== true) return { status: 409, error: 'V1_ALREADY_SENT', last: sendOut(previous) };
+    // A real send to another person within seconds of the last one: refused (no batch, not even by
+    // quick clicks on several cards). Simulated sends reach nobody and are not limited.
+    if (mode === 'LIVE') {
+      const [recent] = await services.rows(ctx, 'v1_sends', { select: 'id,vitrine_id,created_at', environment: 'eq.' + ctx.environment, created_by: 'eq.' + ctx.panel.id, simulated: 'is.false', vitrine_id: 'neq.' + vitrine.id, created_at: 'gte.' + new Date(now - OPERATOR_GAP_MS).toISOString(), order: 'created_at.desc', limit: '1' });
+      if (recent) return { status: 429, error: 'V1_SEND_TOO_FAST', retryAfterMs: OPERATOR_GAP_MS };
+    }
     const target = await reply.resolveTarget(ctx, vitrine.journey_id, services);
     if (!target) return { status: 400, error: 'NO_VALID_PHONE' };
     const window = await reply.windowState(ctx, target.chat.id, services, now);
@@ -172,6 +183,11 @@ async function demoSend(body, env) {
   } finally { inFlight.delete(key); }
 }
 
+function fromAutomation(req) {
+  const headers = req && req.headers || {};
+  return Boolean(headers['x-vercel-cron'] || /vercel-cron|bot|crawler/i.test(String(headers['user-agent'] || '')) || headers['x-mcs-automation']);
+}
+
 const defaultServices = { rows, insert, patchRows, applyMessage: reply.applyMessage, d360Send: reply.d360Send };
 
 async function handle(ctx, body, services = defaultServices, env = process.env, now = Date.now()) {
@@ -190,6 +206,8 @@ async function handle(ctx, body, services = defaultServices, env = process.env, 
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
+  // Only a person in the panel sends: never a scheduled job (cron) or an automated caller.
+  if (fromAutomation(req)) return send(res, 403, { error: 'V1_SEND_HUMAN_ONLY' });
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
   try {
@@ -200,6 +218,8 @@ module.exports = async (req, res) => {
   }
 };
 module.exports.handle = handle;
+module.exports.fromAutomation = fromAutomation;
+module.exports.OPERATOR_GAP_MS = OPERATOR_GAP_MS;
 module.exports.sendMode = sendMode;
 module.exports.suggestedText = suggestedText;
 module.exports.firstName = firstName;

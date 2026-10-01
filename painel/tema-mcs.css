@@ -1116,3 +1116,21 @@ body > .action-feedback { position: fixed; left: 16px; right: 16px; bottom: 16px
 .offer-fit.is-fit strong { color: var(--mcs-green); }
 .offer-fit.is-value strong { color: var(--mcs-blue); }
 .offer-fit.is-check strong { color: var(--mcs-amber); }
+
+/* Sugestões de resposta e fila de conversas antigas (painel/sugestoes.js). */
+.suggestion-card { display: grid; gap: 8px; border-left: 3px solid var(--mcs-blue); }
+.suggestion-body { display: grid; gap: 8px; min-width: 0; }
+.suggestion-head { display: flex; flex-wrap: wrap; gap: 6px; }
+.suggestion-received blockquote { margin: 4px 0; }
+.suggestion-translation { margin: 0; padding: 6px 8px; background: var(--mcs-elevated); border-radius: var(--mcs-radius-sm); font-size: 13px; overflow-wrap: anywhere; }
+.suggestion-edit { display: grid; gap: 4px; font-weight: 600; }
+.suggestion-text { width: 100%; min-height: 120px; font: inherit; }
+.suggestion-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.suggestion-path { padding: 8px 10px; border-radius: var(--mcs-radius-sm); background: var(--mcs-green-tint); }
+.suggestion-path.is-closed { background: var(--mcs-amber-tint); }
+.suggestion-path p { margin: 2px 0; }
+.suggestion-open { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: var(--mcs-radius-sm); background: var(--mcs-gold); color: var(--mcs-on-gold); text-decoration: none; font-weight: 600; }
+.followup-queue summary { cursor: pointer; min-height: 40px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.followup-item { display: grid; gap: 6px; }
+.followup-excluded-item { margin: 2px 0; font-size: 13px; }
+.followup-window { color: var(--mcs-amber); }
