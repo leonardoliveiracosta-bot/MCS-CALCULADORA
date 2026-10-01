@@ -78,7 +78,7 @@ for (const width of [1366, 390]) {
     for (const key of ['manheim', 'print', 'sms', 'whatsapp', 'history', 'automatic', 'v2']) expect(await panel.locator(`[data-import-facts="${key}"] li`).count(), key).toBeGreaterThan(1);
     await expect(panel.locator('#import-card-whatsapp #import-review-card')).toHaveCount(1);
     await expect(panel.locator('#manheim-files')).toHaveCount(1);
-    await panel.locator('#import-card-sms summary').click();
+    await panel.locator('#import-card-sms > summary').click();
     await expect.poll(() => page.locator('#sms-contact option').count(), { timeout: 30000 }).toBeGreaterThan(1);
     await expect(page.locator('#manheim-batches .batch-line').first()).toContainText('Ativo · em uso', { timeout: 60000 });
     await noOverflow();
