@@ -146,8 +146,10 @@ module.exports = async (req, res) => {
     // out of the funnel, "não é lead" or treated/discarded after the last contact stay out (manual
     // decisions are kept); a period only narrows the list when the operator chooses one.
     const openJourney=(journey)=>!journey||(journey.enabled!==false&&journey.status!=='ENCERRADO'&&!triageOut.has(journey.id)&&journey.contact?.is_lead!==false);
+    // Tratado is automatic: a real message you sent after the client's last message counts as handled (a manual disposition still counts).
+    const treatedAt=(journey,dispositionAt)=>{const replied=journey?latestMcsAt.get(journey.id)||0:0;const manual=time(dispositionAt)||0;const at=Math.max(replied,manual);return at?new Date(at).toISOString():dispositionAt;};
     const activeFor=(journey,ref,facts,dispositionAt,dispositionStatus)=>wantedAfterDisposition(ref,dispositionAt,dispositionStatus)||returnedForJourney(journey,dispositionAt)||overdueAfter(journey,dispositionAt,dispositionStatus)
-      ||Boolean(facts.entered&&eventAfterDisposition(facts.latestAt,dispositionAt)&&openJourney(journey));
+      ||Boolean(facts.entered&&eventAfterDisposition(facts.latestAt,treatedAt(journey,dispositionAt))&&openJourney(journey));
     const baseOrders=groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref));
     // The orders of each ficha, so a card shows the car and the bid of the same source (never one order's car with another's bid).
     const ordersOfJourney=new Map();
