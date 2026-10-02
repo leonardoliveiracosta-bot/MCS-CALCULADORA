@@ -262,7 +262,8 @@ module.exports = async (req, res) => {
       degraded: [...new Set(degraded)],
       meta
     });
-  } catch (_) {
+  } catch (error) {
+    console.error('[panel-today]', { message: String(error && error.message || 'UNKNOWN'), stack: String(error && error.stack || '').split('\n').slice(0, 4).join(' | ') });
     return send(res, 500, { error: 'PANEL_TODAY_ERROR' });
   }
 };
