@@ -1909,13 +1909,12 @@
       const state=makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue');state.classList.add('disposition-state');actions.append(state);
       const restore=element('button','quiet small','Voltar para pendente');restore.type='button';restore.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();setDisposition(item,null,restore);});actions.append(restore);return actions;
     }
-    const treated = element('button', 'small', 'Tratado');
-    treated.type = 'button';
-    treated.addEventListener('click', (event) => {event.preventDefault();event.stopPropagation();setDisposition(item,'TREATED',treated);});
+    // "Tratado" is automatic: a message you send to the client after the client's last message takes the case out of HOJE (it comes
+    // back when the client writes again, a return is due or the client wants a car). Only "Descartar" stays manual.
     const discarded = element('button', 'quiet small', 'Descartar');
     discarded.type = 'button';
     discarded.addEventListener('click', (event) => {event.preventDefault();event.stopPropagation();if(actions.querySelector('.discard-reasons'))return;const reasons=element('div','discard-reasons');Object.entries(DISCARD_REASONS).forEach(([value,label])=>{const choice=element('button','quiet small',label);choice.type='button';choice.addEventListener('click',(choiceEvent)=>{choiceEvent.preventDefault();choiceEvent.stopPropagation();setDisposition(item,'DISCARDED',choice,value);});reasons.append(choice);});actions.append(reasons);});
-    actions.append(treated, discarded);
+    actions.append(discarded);
     return actions;
   }
 
@@ -2472,6 +2471,21 @@
     return `${vehicles.join(' | ')}${budgetCents ? ` · lance até ${formatMoney(budgetCents)}` : ''}`;
   }
 
+  // Every selected car of a demand, read group by group from the server (50 per page), only until all wanted ids are found.
+  async function selectedOptions(key, wanted) {
+    const found = [];
+    for (const group of (OFFER && OFFER.GROUPS) || ['LANE', 'OFFLANE', 'INCOMPLETE']) {
+      let cursor = null;
+      do {
+        const params = new URLSearchParams({ key, group, limit: '50' }); if (cursor) params.set('cursor', cursor);
+        const page = await request('/api/panel/manheim-options?' + params.toString());
+        (page.options || []).forEach((option) => { if (wanted.has(option.id)) { found.push(option); wanted.delete(option.id); } });
+        cursor = wanted.size ? page.nextCursor || null : null;
+      } while (cursor);
+      if (!wanted.size) break;
+    }
+    return found;
+  }
   function downloadShortlist(matches, referenceCode) {
     if (!matches.length) return;
     const plain = (value) => String(value || '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').slice(0, 105);
@@ -2500,8 +2514,10 @@
     const link = document.createElement('a');
     link.href = url;
     link.download = `shortlist-${referenceCode || 'lead'}.pdf`;
+    // In the page while clicking (some browsers ignore a click on a detached link), and the file kept long enough to save.
+    link.style.display = 'none'; document.body.append(link);
     link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 60000);
   }
 
   // Unknown odometer is shown as unknown, never as 0 miles (R3e).
@@ -3014,11 +3030,18 @@
       event.stopPropagation();
       // With the selection for the customer, the cars selected there (the old checkboxes are not
       // shown); before it, the checked rows. Never a silent no-op.
-      const selected = card.offerState ? card.offerState.loaded.filter((option) => card.offerState.selectedIds.has(option.id))
+      const state = card.offerState;
+      const selected = state ? state.loaded.filter((option) => state.selectedIds.has(option.id))
         : [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => loaded.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
-      if (!selected.length) { cardStatus.textContent = card.offerState && card.offerState.selectedIds.size ? 'Abra o grupo dos carros selecionados para incluí-los no PDF' : 'Selecione pelo menos um carro para o PDF'; return; }
-      downloadShortlist(selected, journey.reference_code);
-      cardStatus.textContent = `PDF com ${selected.length} ${selected.length === 1 ? 'carro' : 'carros'} baixado`;
+      if (!selected.length && !(state && state.selectedIds.size)) { cardStatus.textContent = 'Selecione pelo menos um carro para o PDF'; return; }
+      // Selected cars whose group is not open on this page are read from the server: the PDF always has every selected car.
+      const missing = state ? [...state.selectedIds].filter((id) => !selected.some((option) => option.id === id)) : [];
+      const finish = (cars) => { downloadShortlist(cars, journey.reference_code); cardStatus.textContent = `PDF com ${cars.length} ${cars.length === 1 ? 'carro' : 'carros'} baixado`; };
+      if (!missing.length) { finish(selected); return; }
+      exportButton.disabled = true; cardStatus.textContent = 'Preparando o PDF…';
+      selectedOptions(demand.key, new Set(missing)).then((more) => { const cars = [...selected, ...more]; if (!cars.length) { cardStatus.textContent = 'Não encontrei os carros selecionados no lote ativo · Recarregue as opções'; return; } finish(cars); })
+        .catch(() => { cardStatus.textContent = 'Não consegui preparar o PDF, tente de novo'; })
+        .finally(() => { exportButton.disabled = false; });
     });
     const v1Send=v1SendControls(demand);
     /* After a reload the card remembers its latest V1 (link and when it was sent) instead of "Gere a V1…". */
@@ -3050,10 +3073,10 @@
       /* The link only exists from here on; the message with it, the destination and the path appear in the send block below. */
       cardStatus.textContent='Link V1 criado · revise a mensagem abaixo e envie';v1Send.setVitrine(created.token);
     });vitrineButton.disabled=!auditCanTry(demand);
-    // Rare actions under "⋯": the PDF and the disposition (which also removes the person from HOJE).
+    // The PDF sits next to the V1 (it is used often); only the disposition stays under "⋯".
     const more=element('details','card-more');more.append(element('summary','','⋯ Mais ações'));const moreActions=element('div','inline-actions');more.append(moreActions);
-    moreActions.append(exportButton,element('span','muted','Tratado / Descartar vale para a pessoa e tira o cliente de HOJE:'),dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
-    card.append(vitrineButton,cardStatus,v1Send.node,more);
+    moreActions.append(element('span','muted','Descartar vale para a pessoa e tira o cliente de HOJE (mandar mensagem já conta como tratado):'),dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
+    card.append(vitrineButton,exportButton,cardStatus,v1Send.node,more);
     makeCardClickable(card, () => openDetail('ficha', journey.id));
     root.append(card);
   }

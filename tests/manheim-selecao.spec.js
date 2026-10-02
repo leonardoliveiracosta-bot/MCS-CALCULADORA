@@ -52,7 +52,7 @@ test.beforeAll(async () => {
   const started = await direct('manheim-batch', { action: 'start', clientKey: 'f'.repeat(32), vehicleCount: cars.length, files, manifestHash: contentHash(files), headers: [['Vin']], headerMap: {} });
   await direct('manheim-batch', { action: 'chunk', uploadId: started.payload.uploadId, fileIndex: 0, chunkIndex: 0, vehicles: cars });
   await direct('manheim-batch', { action: 'finalize', uploadId: started.payload.uploadId });
-  handlers = Object.fromEntries(['session', 'records', 'today', 'entry', 'searches', 'manheim-batch', 'manheim-options', 'vitrine-requests', 'triage', 'actions', 'automatic-messages', 'weekly', 'orders', 'pendencias', 'whatsapp', 'vitrines'].map((name) => ['/api/panel/' + name, require('../api/panel/' + name)]));
+  handlers = Object.fromEntries(['session', 'records', 'today', 'entry', 'searches', 'manheim-batch', 'manheim-options', 'vitrine-requests', 'triage', 'actions', 'automatic-messages', 'weekly', 'orders', 'pendencias', 'whatsapp', 'vitrines', 'lead', 'client-context'].map((name) => ['/api/panel/' + name, require('../api/panel/' + name)]));
 });
 test.afterAll(async () => { if (backend) await backend.db.close(); });
 
@@ -163,4 +163,53 @@ test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote
   expect(after).toEqual(before);
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
+});
+
+test('Baixar PDF: baixa os carros selecionados, também depois de recarregar a página sem abrir o grupo', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  await openPanel(page);
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  let card = page.locator('#buscas-carro .manheim-lead').first();
+  await expect(card.locator('.offer-counter')).toContainText('Selecionados', { timeout: 60000 });
+  await card.locator('.offer-group[data-group="LANE"] > summary').click();
+  const lane = card.locator('.offer-group[data-group="LANE"] .offer-row');
+  await lane.first().locator('[data-offer-action="select"]:visible').click();
+  await expect(lane.first()).toHaveAttribute('data-status', 'SELECTED');
+  const pdfOf = async (target) => {
+    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), target.getByRole('button', { name: 'Baixar PDF' }).click()]);
+    expect(download.suggestedFilename()).toMatch(/^shortlist-.*\.pdf$/);
+    const bytes = require('node:fs').readFileSync(await download.path(), 'latin1');
+    expect(bytes.startsWith('%PDF-1.4')).toBe(true);
+    return bytes;
+  };
+  // the button is on the card (not hidden under "Mais ações") and downloads right away
+  expect(await pdfOf(card)).toContain('CR-V');
+  // fresh page: the selected cars are on the server and no group is open
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  card = page.locator('#buscas-carro .manheim-lead').first();
+  await expect(card.locator('.offer-counter')).toContainText('Selecionados 1 de 10', { timeout: 60000 });
+  expect(await pdfOf(card)).toContain('CR-V');
+  await expect(card.locator('.manheim-card-status')).toContainText('PDF com 1 carro baixado');
+  expect(errors).toEqual([]);
+});
+
+test('Baixar PDF na ficha: baixa todos os compatíveis do lote', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  await openPanel(page);
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  const card = page.locator('#buscas-carro .manheim-lead').first();
+  await expect(card.locator('.offer-counter')).toContainText('Selecionados', { timeout: 60000 });
+  await card.locator('.offer-counter').click();
+  const lead = page.locator('#detail-panel, .lead-detail, dialog').filter({ hasText: 'Baixar PDF' }).first();
+  const button = page.getByRole('button', { name: 'Baixar PDF' }).last();
+  await expect(button).toBeVisible({ timeout: 30000 });
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), button.click()]);
+  const bytes = require('node:fs').readFileSync(await download.path(), 'latin1');
+  expect(bytes.startsWith('%PDF-1.4')).toBe(true);
+  expect(bytes).toContain('CR-V');
+  expect(errors).toEqual([]);
+  void lead;
 });

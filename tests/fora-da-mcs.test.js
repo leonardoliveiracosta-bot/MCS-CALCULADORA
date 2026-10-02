@@ -84,3 +84,12 @@ test('fluxo real (banco isolado): candidata aparece para revisão; confirmar tir
     assert.deepEqual(backend.refused, []);
   } finally { await backend.db.close(); }
 });
+
+test('Tratado automático: mensagem real da MCS depois da última do cliente tira o caso de HOJE; o botão manual "Tratado" saiu', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const today = fs.readFileSync(path.join(__dirname, '..', 'api', 'panel', 'today.js'), 'utf8');
+  assert.match(today, /eventAfterDisposition\(facts\.latestAt,treatedAt\(journey,dispositionAt\)\)/);
+  assert.match(today, /const treatedAt=\(journey,dispositionAt\)=>\{const replied=journey\?latestMcsAt\.get\(journey\.id\)/);
+  const panel = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+  assert.doesNotMatch(panel, /element\('button', 'small', 'Tratado'\)/);
+});
