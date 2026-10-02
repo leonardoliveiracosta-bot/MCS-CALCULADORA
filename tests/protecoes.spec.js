@@ -244,3 +244,23 @@ test('FOTOS V2: destino e arquivos ficam fixos durante o envio; resultado incert
   expect(state.uploads.length, 'só a primeira foi enviada antes da conferência').toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('ATENDIMENTO: recusa automática de sugestão tem "Desfazer recusa" visível (suggestion_restore)', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  let restored = null, rejected = [{ id: uid(70), phone: '+13055550000', suggestedRef: 'FMLNA', writtenRefs: ['WSR3X'], at: hoursAgo(1), sourceName: 'Ivan' }];
+  await open(page, { '/api/panel/whatsapp': async ({ json, route }) => {
+    if (route.request().method() === 'POST') { restored = JSON.parse(route.request().postData()); rejected = []; return json({ restored: true }); }
+    return json({ suggestions: [], phoneReviews: [], errors: [], itemErrors: [], ignored: [], autoRejected: rejected });
+  } });
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#app-view')).toBeVisible({ timeout: 30000 });
+  const box = page.locator('#whatsapp-auto-rejected');
+  await expect(box).toBeVisible({ timeout: 30000 });
+  await box.locator('summary').click();
+  await expect(box).toContainText('FMLNA');
+  await expect(box).toContainText('WSR3X');
+  await box.getByRole('button', { name: 'Desfazer recusa' }).click();
+  await expect.poll(() => restored && restored.action).toBe('suggestion_restore');
+  expect(restored.id).toBe(uid(70));
+  expect(errors).toEqual([]);
+});
