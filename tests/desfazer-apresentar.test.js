@@ -70,3 +70,18 @@ test('com resposta do cliente, depois de 30 minutos ou com outro evento, não de
   assert.equal(result.stageRestored, false);
   assert.equal((await one('select stage from public.journeys where id=$1', [JOURNEY])).stage, 'EM_BUSCA');
 });
+
+test('cliente responde no meio do desfazer: evento e opção voltam como estavam; nada se perde', async () => {
+  const journey = { id: JOURNEY, contact_id: id(11) };
+  const unit = await present();
+  const match = await one(`insert into public.manheim_matches(environment,upload_id,journey_id,match_kind,row_fingerprint,vehicle_json,presented_unit_id) values('preview',$1,$2,'BATE','fp-corrida','{}',$3) returning id`, [UPLOAD, JOURNEY, unit]);
+  const remove = async (table, filters) => {
+    // The customer's answer lands right before the unit is removed.
+    if (table === 'units') await backend.db.query('update public.units set last_customer_response_at=now() where id=$1', [unit]);
+    return backend.fetch(`${BASE}/rest/v1/${table}?${new URLSearchParams(filters)}`, { method: 'DELETE', headers: { prefer: 'return=representation' } }).then((response) => response.json());
+  };
+  await assert.rejects(presentUndo(ctx, journey, unit, previous, { remove }), { code: 'UNIT_HAS_RESPONSE' });
+  assert.equal(Number((await one('select count(*) n from public.units where id=$1', [unit])).n), 1);
+  assert.equal(Number((await one(`select count(*) n from public.lead_events where unit_id=$1 and event_type='CAR_PRESENTED'`, [unit])).n), 1, 'evento de volta');
+  assert.equal((await one('select presented_unit_id from public.manheim_matches where id=$1', [match.id])).presented_unit_id, unit, 'opção ligada de novo');
+});

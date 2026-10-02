@@ -47,7 +47,7 @@ async function translate(text, services, ctx = null) {
   if (!source) return { status: 400, error: 'TEXT_REQUIRED' };
   if (source.length > MAX_TEXT) return { status: 400, error: 'TEXT_TOO_LONG' };
   let result;
-  try { result = await services.anthropicJson(TRANSLATE_SYSTEM, source, fetch, ctx ? { ctx, feature: 'TRADUCAO_RESPOSTA', subject: 'resposta' } : null); } catch (_) { return { status: 502, error: 'AI_UNAVAILABLE' }; }
+  try { result = await services.anthropicJson(TRANSLATE_SYSTEM, source, fetch, ctx ? { ctx, feature: 'TRADUCAO_RESPOSTA', subject: 'resposta' } : null); } catch (error) { return error && error.code === 'AI_BALANCE_LIMIT' ? { status: 402, error: 'AI_BALANCE_LIMIT' } : { status: 502, error: 'AI_UNAVAILABLE' }; }
   const en = typeof result?.en === 'string' ? undash(result.en).trim() : '';
   const ptBack = typeof result?.pt_back === 'string' ? result.pt_back.trim() : '';
   if (!en || !ptBack || en.length > MAX_TEXT) return { status: 502, error: 'AI_UNAVAILABLE' };

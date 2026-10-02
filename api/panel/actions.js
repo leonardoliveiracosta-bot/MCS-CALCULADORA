@@ -504,11 +504,18 @@ async function presentUndo(ctx, journey, unitId, { previousStage, previousSearch
   if (unit.last_customer_response_at) throw undoFailure('UNIT_HAS_RESPONSE');
   const events = await read(ctx, 'lead_events', { select: 'id,event_type', environment: env, unit_id: 'eq.' + unitId });
   if (events.some((event) => event.event_type !== 'CAR_PRESENTED')) throw undoFailure('UNIT_IN_USE');
-  await remove('lead_events', { environment: env, unit_id: 'eq.' + unitId, event_type: 'eq.CAR_PRESENTED' });
+  const linked = await read(ctx, 'manheim_matches', { select: 'id', environment: env, presented_unit_id: 'eq.' + unitId });
+  const removedEvents = await remove('lead_events', { environment: env, unit_id: 'eq.' + unitId, event_type: 'eq.CAR_PRESENTED' });
   await patch(ctx, 'manheim_matches', { environment: env, presented_unit_id: 'eq.' + unitId }, { presented_unit_id: null });
-  // Only while still unanswered (an answer arriving now keeps the unit).
+  // Only while still unanswered (an answer arriving now keeps the unit). If the customer answered in
+  // between, the event and the option link go back exactly as they were: nothing is lost.
   const removed = await remove('units', { environment: env, id: 'eq.' + unitId, last_customer_response_at: 'is.null' });
-  if (!Array.isArray(removed) || !removed.length) throw undoFailure('UNIT_HAS_RESPONSE');
+  if (!Array.isArray(removed) || !removed.length) {
+    const restore = services.insert || insert;
+    for (const event of Array.isArray(removedEvents) ? removedEvents : []) await restore(ctx, 'lead_events', event, false);
+    for (const match of linked) await patch(ctx, 'manheim_matches', { environment: env, id: 'eq.' + match.id }, { presented_unit_id: unitId });
+    throw undoFailure('UNIT_HAS_RESPONSE');
+  }
   const others = await read(ctx, 'units', { select: 'id', environment: env, journey_id: 'eq.' + journey.id, status: 'neq.WITHDRAWN', limit: '1' });
   const stageRestored = !others.length && Boolean(previousStage);
   if (stageRestored) await patch(ctx, 'journeys', { environment: env, id: 'eq.' + journey.id, stage_frozen: 'not.is.true' }, { stage: previousStage, search_started_at: previousSearchStartedAt, updated_at: isoNow(), updated_by: ctx.panel.id });

@@ -42,7 +42,8 @@ module.exports = async (req, res) => {
       rpc(ctx, 'panel_ai_balance_state', { p_environment: ctx.environment, p_provider: 'ANTHROPIC' }),
       budget.spentUsd(ctx)
     ]);
-    const claude = await claudeByFeature(ctx, anthropic && anthropic.setAt ? anthropic.setAt : null).catch(() => []);
+    // Same window as the spend shown: since the informed balance, else the last 30 days.
+    const claude = await claudeByFeature(ctx, anthropic && anthropic.setAt ? anthropic.setAt : new Date(Date.now() - 30 * 86400000).toISOString()).catch(() => []);
     return send(res, 200, {
       openai: { ...view(openai || {}), features: Object.entries(spent.byFeature || {}).map(([key, value]) => ({ key, label: LABELS[key] || key, spentUsd: round(value) })) },
       anthropic: { ...view(anthropic || {}), features: claude }

@@ -628,6 +628,8 @@
   }
   // Link / create / dismiss controls for a conversation or a file waiting for review (ENTRADA and IMPORTAÇÕES).
   function entryReviewControls(item,target,kind){
+    // Files are counted in IMPORTAÇÕES, conversations in ENTRADA.
+    const badge=kind==='review'?'imports':'entry';
     const controls=element('div','entry-review-actions');
     const select=element('select','');
     select.setAttribute('aria-label','Lead para ligar');
@@ -635,9 +637,9 @@
     journeys.filter((journey)=>journey.linkable!==false).forEach((journey)=>select.append(new Option(`${journey.contact?.display_name||journey.vehicle_text||'Lead'}${journey.reference_code?` · ${journey.reference_code}`:''}`,journey.id)));
     const run=(button,action,successText)=>MCSAction.bind(button,()=>({
       scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,
-      optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},
+      optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue(badge);setCount(badge,Math.max(0,before-1));return before;},
       commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action,kind,id:target.id,journeyId:select.value||null})}),
-      rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},
+      rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount(badge,before);},
       successText,
       undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},
       refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'
@@ -645,7 +647,7 @@
     const link=element('button','small','Ligar a um lead');link.type='button';
     MCSAction.bind(link,()=>{
       if(!select.value)return{scope:item,commit:()=>Promise.reject(new Error('JOURNEY_REQUIRED')),errorText:'Escolha um lead antes de ligar'};
-      return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},successText:'Conversa ligada ao lead',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'};
+      return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue(badge);setCount(badge,Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount(badge,before);},successText:'Conversa ligada ao lead',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'};
     });
     const create=element('button','quiet small','Criar lead novo');create.type='button';run(create,'review_create','Lead criado e conversa ligada');
     const dismiss=element('button','quiet small','Dispensar (não é cliente)');dismiss.type='button';run(dismiss,'review_dismiss','Conversa dispensada');
@@ -1195,9 +1197,11 @@
   }
   function appendClients(root,data){
     const sections=data.counts?.sections||{},areaCounts=data.counts?.areas||{};
-    data.items.forEach((item)=>{const key=item.isLead===false?'NAO_LEAD':(item.group?.key||'ATENDIDO');const spec=key==='NAO_LEAD'?{label:'Não é lead',hint:'Marcados como não é lead · ficam fora das contagens e podem ser restaurados'}:MCSGroups.SECTIONS[key];
+    // A page loaded after something changed may repeat a card already shown: it is shown once.
+    const shown=new Set([...root.querySelectorAll('.client-card[data-journey-id]')].map((card)=>card.dataset.journeyId));
+    data.items.filter((item)=>!shown.has(String(item.id))).forEach((item)=>{const key=item.isLead===false?'NAO_LEAD':(item.group?.key||'ATENDIDO');const spec=key==='NAO_LEAD'?{label:'Não é lead',hint:'Marcados como não é lead · ficam fora das contagens e podem ser restaurados'}:MCSGroups.SECTIONS[key];
       const section=clientSection(root,key,spec.label,spec.hint,sections[key]||0);const card=clientCard(item);card.dataset.group=key;
-      const areaKey=MCSGroups.areaOf(item);card.dataset.area=areaKey;
+      const areaKey=MCSGroups.areaOf(item);card.dataset.area=areaKey;card.dataset.journeyId=String(item.id);
       // Off-topic and "não é lead" stay as one list (no search to separate).
       if(key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD')section.append(card);else clientArea(section,key,areaKey,(areaCounts[key]||{})[areaKey]||0).append(card);});
     root.querySelector('.clients-more')?.remove();clientsObserver?.disconnect();
@@ -1464,6 +1468,8 @@
       // The manual imports (SMS, WhatsApp conversation) choose among the contacts and fichas of
       // ENTRADA: loaded here too, so opening IMPORTAÇÕES directly never shows empty choices.
       loadQueue(false).catch(() => {});
+      // WhatsApp processing errors are listed in IMPORTAÇÕES too.
+      loadWhatsApp().catch(() => {});
       loadV2Photos().catch(() => {});
       const data = await request('/api/panel/records?view=manheim', viewFetch());
       if (!current()) return;
