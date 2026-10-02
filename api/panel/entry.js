@@ -1,5 +1,6 @@
 'use strict';
 const phoneLink = require('../../panel-phone-link');
+const calcRoute = require('../../panel-calc-route');
 
 const crypto = require('crypto');
 const { consolidateCalcRuns, toggleEnabled } = require('../../panel-domain');
@@ -449,6 +450,8 @@ async function queue(ctx, res) {
     chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, triageOut: triageOut.has(chat.id), group: chatGroups.get(chat.id)?.group || null, lastCustomerMessage: chatGroups.get(chat.id)?.lastCustomerMessage || null, groupJourneyId: chatGroups.get(chat.id)?.journeyId || null, searchModes: searchModesOf(chatGroups.get(chat.id)?.journeyId), newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
     // "Ligar a um lead" offers only fichas that can receive a conversation: never a contact marked
     // "não é lead" nor a switched-off ficha (R3). The list itself stays whole for the other forms.
+    // Calculator messages the rule did not decide alone: reason and evidence, decided here (never lost, never guessed).
+    calcQueue: await calcRoute.loadQueue(ctx).catch(() => null),
     reviews, printReviews, failedPrints, printResolved, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id),
       linkable: contactsById.get(journey.contact_id)?.is_lead !== false && toggleEnabled(journey.status, toggleStates.find((state) => state.journey_id === journey.id)) })), chatAliases, senderAliases
   });

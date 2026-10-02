@@ -130,7 +130,7 @@ test('ambiguous phone, phone of a chat owned by someone else, empty or long text
   assert.deepEqual(await handler.receive(ctx, { sender: '+17865550199', text: 'ref XYZ23' }, owned.services, now), { stored: false });
   const db = memoryDb();
   assert.deepEqual(await handler.receive(ctx, { sender: '+13055550100', text: '   ' }, db.services, now), { stored: false });
-  assert.deepEqual(await handler.receive(ctx, { sender: '+13055550100', text: 'x'.repeat(4001) }, db.services, now), { stored: false });
+  assert.deepEqual(await handler.receive(ctx, { sender: '+13055550100', text: 'x'.repeat(25001) }, db.services, now), { stored: false });
   assert.deepEqual(db.calls.writes, []);
 });
 

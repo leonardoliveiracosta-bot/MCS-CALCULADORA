@@ -13,6 +13,7 @@
   let chats = [];
   let journeys = [];
   let printReviews = [];
+  let calcQueue = [];
   let failedPrints = [];
   let printResolved = [];
   let senderAliases = [];
@@ -645,11 +646,38 @@
     return item;
   }
 
+  // A calculator message the rule did not decide alone: the written reason, the evidence and the candidate fichas side by side.
+  // The decision is the operator's (link to one ficha, or a new ficha); nothing is guessed.
+  function calcQueueCard(entry) {
+    const item = element('article', 'queue-item calc-queue');
+    item.dataset.calcMessage = entry.messageId;
+    const header = element('header', '');
+    header.append(element('strong', '', 'Mensagem da calculadora sem destino automático'), element('span', 'badge', 'fila'));
+    item.append(header, element('span', 'muted calc-reason', entry.reasonText || entry.reason));
+    const facts = [entry.ref ? `Ref ${entry.ref}` : entry.refState === 'REF_ILEGIVEL' ? 'Ref ilegível na origem' : 'Sem linha "Ref:"', entry.evidence?.name ? `Nome: ${entry.evidence.name}` : '', entry.evidence?.vehicle ? `Carro: ${entry.evidence.vehicle}` : '', entry.channel || ''].filter(Boolean);
+    item.append(element('span', 'muted', facts.join(' · ')));
+    if (entry.text) item.append(element('p', 'message-preview', entry.text.length > 280 ? `${entry.text.slice(0, 280)}…` : entry.text));
+    const list = element('div', 'calc-candidates');
+    const refresh = () => loadQueue();
+    (entry.candidates || []).forEach((candidate) => {
+      const row = element('div', 'calc-candidate');
+      row.append(element('span', '', `${candidate.name || 'ficha'} · Ref ${candidate.ref || '—'} · ${candidate.vehicle || 'carro não informado'}`));
+      const link = element('button', 'small', 'Ligar a esta ficha'); link.type = 'button';
+      MCSAction.bind(link, () => ({ scope: item, commit: () => request('/api/panel/calc-route', { method: 'POST', body: JSON.stringify({ action: 'link', messageId: entry.messageId, journeyId: candidate.journeyId, refState: entry.refState, ref: entry.ref }) }), successText: 'Mensagem ligada à ficha', refresh, errorText: 'Não consegui ligar, tente de novo' }));
+      row.append(link); list.append(row);
+    });
+    const create = element('button', 'quiet small', 'Criar ficha nova'); create.type = 'button';
+    MCSAction.bind(create, () => ({ scope: item, commit: () => request('/api/panel/calc-route', { method: 'POST', body: JSON.stringify({ action: 'new', messageId: entry.messageId, refState: entry.refState, ref: entry.ref }) }), successText: 'Ficha nova criada com a mensagem', refresh, errorText: (error) => error && error.code === 'CALC_ROUTE_ALREADY_HAS_JOURNEY' ? 'Esta mensagem já está numa ficha' : 'Não consegui criar, tente de novo' }));
+    list.append(create);
+    item.append(list);
+    return item;
+  }
   // Errors, files and prints are not contacts: they live in IMPORTAÇÕES, never in the contact groups.
   function renderImportsReview(reviews) {
     const queue = $('imports-review-queue');
     if (!queue) return;
     queue.replaceChildren();
+    calcQueue.forEach((entry) => queue.append(calcQueueCard(entry)));
     printReviews.forEach((print) => queue.append(printReviewCard(print)));
     failedPrints.forEach((print) => queue.append(failedPrintCard(print)));
     if (printResolved.length) { const details = element('details', 'resolved-prints'); details.append(element('summary', '', `Prints já resolvidos nos últimos 14 dias (${printResolved.length})`)); const list = element('ul', ''); printResolved.forEach((print) => list.append(resolvedPrintRow(print))); details.append(list); queue.append(details); }
@@ -1015,6 +1043,7 @@
     if ([...select.options].some((entry) => entry.value === old)) select.value = old;
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
+    calcQueue = data.calcQueue || [];
     failedPrints = data.failedPrints || [];
     printResolved = data.printResolved || [];
     // Conversations waiting for a decision go to ATENDIMENTO; errors, files and prints to IMPORTAÇÕES.
@@ -1705,7 +1734,7 @@
       const model = MCSAttend.model({ todayItems: today.items || [], decisions: attendDecisions({ entry, triage: triageData, whatsapp: whatsappData, vitrine: vitrineData }), incomplete: [] });
       setCount('today', model.counts.depende);
     } else setCountUnknown('today');
-    count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length);
+    count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length + (data.calcQueue || []).length);
     // Same rule as the list: leads only, inside the CLIENTES period (people).
     count('clients', records, (data) => data.counts.periodLeads);
     // BUSCAR CARROS: complete requests, one per person and search type (a person with both types counts twice).
