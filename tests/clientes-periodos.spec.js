@@ -30,6 +30,10 @@ const PENDING = { items: [
   { journeyId: uuid(3), situation: 'NO_RESPONSE' }, { journeyId: uuid(5), situation: 'CLOSED' }
 ], counts: { NO_RESPONSE: 99, MCS_PENDING: 99, CUSTOMER_PENDING: 99, IN_PROGRESS: 99, CLOSED: 99 } };
 
+const { clientsPage } = require('../api/panel/records');
+const situationOf = new Map(PENDING.items.map((item) => [item.journeyId, item.situation]));
+const LISTED = ITEMS.map((item) => ({ ...item, situation: situationOf.get(item.id) || 'IN_PROGRESS' }));
+
 async function open(page, width) {
   const calls = [];
   await page.setViewportSize({ width, height: 900 });
@@ -46,7 +50,8 @@ async function open(page, width) {
     const json = (payload) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
     if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
-    if (url.pathname === '/api/panel/records') return json({ items: ITEMS, meta: {} });
+    // The real server filter and counts (clientsPage) over the fictitious list: same rules as production.
+    if (url.pathname === '/api/panel/records') return json({ ...clientsPage(LISTED, Object.fromEntries(url.searchParams)), pending: {}, meta: {} });
     if (url.pathname === '/api/panel/pendencias') return json(PENDING);
     if (url.pathname === '/api/panel/report') return json({ view: 'records', summary: {}, text: 'FICHAS: teste' });
     return json({ items: [], orders: [], matches: [], groups: [], chats: [], reviews: [], counts: {}, page: { total: 0 }, requests: [], meta: {} });
@@ -67,11 +72,11 @@ for (const width of [1280, 390]) {
     await open(page, width);
     await expect(page.locator('#clients-activity')).toHaveValue('30');
     const expectations = [
-      ['30', ['Ana 10 dias', 'Gil não lead'], 1, 'Período: atividade real nos últimos 30 dias · 1 de 6 clientes'],
-      ['90', ['Ana 10 dias', 'Bia 31 dias', 'Gil não lead'], 2, 'Período: atividade real nos últimos 90 dias · 2 de 6 clientes'],
-      ['6m', ['Ana 10 dias', 'Bia 31 dias', 'Caio 120 dias', 'Gil não lead'], 3, 'Período: atividade real nos últimos 6 meses · 3 de 6 clientes'],
-      ['12m', ['Ana 10 dias', 'Bia 31 dias', 'Caio 120 dias', 'Duda 200 dias', 'Gil não lead'], 4, 'Período: atividade real no último ano · 4 de 6 clientes'],
-      ['all', ['Ana 10 dias', 'Bia 31 dias', 'Caio 120 dias', 'Duda 200 dias', 'Edu 500 dias', 'Fábio sem atividade', 'Gil não lead'], 6, 'Período: tudo, sem corte por data · 6 clientes']
+      ['30', ['Ana 10 dias', 'Gil não lead'], 1, 'Período: atividade real nos últimos 30 dias · 1 de 1 clientes nesta lista · 0 fora dos filtros · 1 não é lead (fora da contagem)'],
+      ['90', ['Ana 10 dias', 'Bia 31 dias', 'Gil não lead'], 2, 'Período: atividade real nos últimos 90 dias · 2 de 2 clientes nesta lista · 0 fora dos filtros · 1 não é lead (fora da contagem)'],
+      ['6m', ['Ana 10 dias', 'Bia 31 dias', 'Caio 120 dias', 'Gil não lead'], 3, 'Período: atividade real nos últimos 6 meses · 3 de 3 clientes nesta lista · 0 fora dos filtros · 1 não é lead (fora da contagem)'],
+      ['12m', ['Ana 10 dias', 'Bia 31 dias', 'Caio 120 dias', 'Duda 200 dias', 'Gil não lead'], 4, 'Período: atividade real no último ano · 4 de 4 clientes nesta lista · 0 fora dos filtros · 1 não é lead (fora da contagem)'],
+      ['all', ['Ana 10 dias', 'Bia 31 dias', 'Caio 120 dias', 'Duda 200 dias', 'Edu 500 dias', 'Fábio sem atividade', 'Gil não lead'], 6, 'Período: tudo, sem corte por data · 6 de 6 clientes nesta lista · 0 fora dos filtros · 1 não é lead (fora da contagem)']
     ];
     for (const [period, expected, badge, note] of expectations) {
       await page.locator('#clients-activity').selectOption(period);
