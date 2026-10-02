@@ -372,11 +372,27 @@ async function finishJob(ctx, body) {
 // save did not happen (still READY long after the few seconds the normal flow takes). They stay
 // on file and wait here: read again, save with the automatic rules, or discard. Read only.
 const STALE_READY_MS = 30 * 60 * 1000;
-function smsPrintFailures(reads, now = Date.now()) {
+// state: NAO_LIDO (the reading failed) or LIDO_FALTA_IDENTIFICAR (read, but the save needs one more proof).
+// refMatch is the ficha the printed Ref already belongs to, so the card never says there is no client when
+// the ficha was found; pendingReason is why the automatic save did not conclude.
+function smsPrintFailures(reads, now = Date.now(), refMatchOf = () => null) {
   return reads.filter((read) => read.error_code ? read.error_code !== 'NAME_MATCH_REVIEW' : now - Date.parse(read.updated_at || read.created_at) > STALE_READY_MS).map((read) => {
     const values = read.extracted_json || {};
     return { id: read.id, filename: read.original_filename, createdAt: read.created_at, errorCode: read.error_code || null,
+      state: read.error_code ? 'NAO_LIDO' : 'LIDO_FALTA_IDENTIFICAR', pendingReason: read.pending_reason || null, refMatch: refMatchOf(values.ref),
       name: String(values.name || '').trim() || null, phone: values.phone || null, ref: values.ref || null, message: values.message || '', translation: values.translation || '' };
+  });
+}
+
+// Prints already settled, so a Ref read from a screenshot never looks lost: saved on a ficha, or the same
+// print/message that was already saved. Recent only; read only.
+const RESOLVED_WINDOW_MS = 14 * 86400000;
+function smsPrintResolved(reads, contactsById, journeysById) {
+  return reads.filter((read) => read.status === 'CONFIRMED' || (read.status === 'DISCARDED' && read.error_code === 'DUPLICATE_CONFIRMED')).map((read) => {
+    const values = read.extracted_json || {};
+    const journey = journeysById.get(read.confirmed_journey_id) || null, contact = contactsById.get(read.confirmed_contact_id) || null;
+    return { id: read.id, filename: read.original_filename, at: read.updated_at || read.created_at, state: read.status === 'CONFIRMED' ? 'JA_VINCULADO' : 'REGISTRO_REPETIDO',
+      ref: values.ref || null, journeyId: read.confirmed_journey_id || null, clientName: contact ? contact.display_name : null, journeyRef: journey ? journey.reference_code || null : null };
   });
 }
 
@@ -397,7 +413,7 @@ function smsPrintReviews(reads, contacts, journeys) {
 }
 
 async function queue(ctx, res) {
-  const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews, chatMessages, printReads, toggleStates] = await Promise.all([
+  const [chats, counts, contacts, journeys, journeyRefs, chatAliases, senderAliases, reviews, chatMessages, printReads, resolvedReads, toggleStates] = await Promise.all([
     allRows(ctx, 'chats', { select: 'id,channel,canonical_key,resolution_status,is_group,last_seen_at,contact_id', environment: 'eq.' + ctx.environment, order: 'last_seen_at.desc' }),
     supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_last_import_counts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment }) }),
     allRows(ctx, 'contacts', { select: 'id,display_name,is_lead', environment: 'eq.' + ctx.environment, order: 'display_name.asc' }),
@@ -407,11 +423,14 @@ async function queue(ctx, res) {
     allRows(ctx, 'chat_sender_aliases', { select: 'chat_id,sender_text,direction', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'import_jobs', { select: 'id,source_filename,review_reason', environment: 'eq.' + ctx.environment, status: 'eq.REVIEW', review_reason: 'eq.formato não suportado', order: 'created_at.desc' }),
     allRows(ctx, 'messages', { select: MESSAGE_SELECT, environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'sms_print_reads', { select: 'id,original_filename,extracted_json,error_code,created_at,updated_at', environment: 'eq.' + ctx.environment, status: 'eq.READY', order: 'created_at.desc' }),
+    allRows(ctx, 'sms_print_reads', { select: 'id,original_filename,extracted_json,error_code,pending_reason,created_at,updated_at', environment: 'eq.' + ctx.environment, status: 'eq.READY', order: 'created_at.desc' }),
+    allRows(ctx, 'sms_print_reads', { select: 'id,original_filename,extracted_json,status,error_code,confirmed_journey_id,confirmed_contact_id,created_at,updated_at', environment: 'eq.' + ctx.environment, status: 'in.(CONFIRMED,DISCARDED)', updated_at: 'gte.' + new Date(Date.now() - RESOLVED_WINDOW_MS).toISOString(), order: 'updated_at.desc', limit: '60' }),
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: 'eq.' + ctx.environment })
   ]);
   const printReviews = smsPrintReviews(printReads.filter((read) => read.error_code === 'NAME_MATCH_REVIEW'), contacts, journeys);
-  const failedPrints = smsPrintFailures(printReads);
+  const refMatchOf = (ref) => { const code = String(ref || '').toUpperCase(); if (!code) return null; const found = journeys.find((journey) => journey.reference_code === code) || journeys.find((journey) => journeyRefs.some((link) => link.journey_id === journey.id && link.ref_code === code)); if (!found) return null; const owner = contacts.find((contact) => contact.id === found.contact_id); return { journeyId: found.id, name: owner ? owner.display_name : null }; };
+  const failedPrints = smsPrintFailures(printReads, Date.now(), refMatchOf);
+  const printResolved = smsPrintResolved(resolvedReads, new Map(contacts.map((item) => [item.id, item])), new Map(journeys.map((item) => [item.id, item])));
   // Triagem: conversa fora do funil comercial sai da fila da ENTRADA (continua guardada e na busca global).
   const triageOut = new Set((await activeTriage(ctx)).filter((row) => row.decision === 'FORA_DO_FUNIL').map((row) => row.chat_id));
   /* ordem Mais recentes/antigas: ultima mensagem real da conversa (last_seen_at foi atualizado pela importacao) */
@@ -428,7 +447,7 @@ async function queue(ctx, res) {
     chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, triageOut: triageOut.has(chat.id), group: chatGroups.get(chat.id)?.group || null, lastCustomerMessage: chatGroups.get(chat.id)?.lastCustomerMessage || null, groupJourneyId: chatGroups.get(chat.id)?.journeyId || null, searchModes: searchModesOf(chatGroups.get(chat.id)?.journeyId), newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
     // "Ligar a um lead" offers only fichas that can receive a conversation: never a contact marked
     // "não é lead" nor a switched-off ficha (R3). The list itself stays whole for the other forms.
-    reviews, printReviews, failedPrints, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id),
+    reviews, printReviews, failedPrints, printResolved, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id),
       linkable: contactsById.get(journey.contact_id)?.is_lead !== false && toggleEnabled(journey.status, toggleStates.find((state) => state.journey_id === journey.id)) })), chatAliases, senderAliases
   });
 }

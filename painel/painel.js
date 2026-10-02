@@ -14,6 +14,7 @@
   let journeys = [];
   let printReviews = [];
   let failedPrints = [];
+  let printResolved = [];
   let senderAliases = [];
   let chatAliases = [];
   let todayItems = [];
@@ -533,11 +534,27 @@
   // A18: a print that only matches a lead by name waits for the operator
   // A print kept but never saved to a lead (the reading failed, or the save did not happen). The
   // same actions of the automatic flow: read again, save with the automatic rules, or discard.
+  // Four clear states: could not read, read and still to identify, already linked, repeated record.
+  // The printed Ref always shows, and a Ref that already belongs to a ficha says so.
+  function printStateText(print) {
+    if (print.errorCode) return `Não foi possível ler · ${printReadFailText(print.errorCode)}`;
+    if (print.justRead) return 'Lido agora · confira os dados e guarde';
+    if (print.refMatch) return `Lido · a Ref ${print.ref} já pertence à ficha de ${print.refMatch.name || 'um cliente'}; o sistema conclui o vínculo sozinho, ou use Guardar pelo painel`;
+    if (print.ref) return `Lido · a Ref ${print.ref} ainda não pertence a nenhuma ficha aberta; falta identificar o cliente (telefone)`;
+    return 'Lido · sem Ref nem telefone no print; falta identificar o cliente';
+  }
+  function resolvedPrintRow(print) {
+    const label = print.state === 'REGISTRO_REPETIDO' ? 'Registro repetido (mensagem ou print já guardado)' : 'Já vinculado';
+    const who = print.clientName ? ` · ${print.clientName}` : '';
+    const row = element('li', 'resolved-print', `${label}${print.ref ? ` · Ref ${print.ref}` : ''}${who} · ${print.filename || 'print'}`);
+    return row;
+  }
   function failedPrintCard(print) {
     const item = element('article', 'queue-item failed-print');
     const header = element('header', '');
-    header.append(element('strong', '', `Print não guardado · ${print.name || print.phone || print.filename || 'sem nome'}`), element('span', 'badge', 'revisão'));
-    item.append(header, element('span', 'muted', print.errorCode ? printReadFailText(print.errorCode) : print.justRead ? 'Print lido agora · confira os dados e guarde' : 'O print foi lido, mas não foi guardado em nenhum lead'));
+    header.append(element('strong', '', `Print não guardado · ${print.name || print.phone || print.filename || 'sem nome'}`), element('span', 'badge', print.errorCode ? 'não lido' : 'falta identificar'));
+    item.append(header, element('span', 'muted', printStateText(print)));
+    if (print.ref) item.append(element('span', 'print-ref', `Ref do print: ${print.ref}`));
     if (print.phone) item.append(element('span', 'muted', `Telefone do print: ${print.phone}`));
     if (print.message) item.append(element('p', '', print.message.length > 280 ? `${print.message.slice(0, 280)}…` : print.message));
     let phoneInput = null;
@@ -618,6 +635,7 @@
     queue.replaceChildren();
     printReviews.forEach((print) => queue.append(printReviewCard(print)));
     failedPrints.forEach((print) => queue.append(failedPrintCard(print)));
+    if (printResolved.length) { const details = element('details', 'resolved-prints'); details.append(element('summary', '', `Prints já resolvidos nos últimos 14 dias (${printResolved.length})`)); const list = element('ul', ''); printResolved.forEach((print) => list.append(resolvedPrintRow(print))); details.append(list); queue.append(details); }
     (reviews || []).forEach((review) => {
       const item = document.createElement('article');
       item.className = 'queue-item';
@@ -962,6 +980,7 @@
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
     failedPrints = data.failedPrints || [];
+    printResolved = data.printResolved || [];
     // Conversations waiting for a decision go to ATENDIMENTO; errors, files and prints to IMPORTAÇÕES.
     attendData.entry = data;
     // In ATENDIMENTO the conversations are reasons of the cases on screen: always drawn again.
@@ -1011,7 +1030,7 @@
   function showAutoPrintChoice(files){const info=$('auto-print-file-info');info.replaceChildren();[...files].forEach((file)=>info.append(element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`)));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=!files.length;}
   function autoPrintResult(filename,text,saved){const resultRoot=arguments[3],root=resultRoot||$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',`${filename||'Print'} — ${text}`));root.append(row);return row;}
   async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});if(saved.review){autoPrintResult(filename,'O nome bate com um lead, mas o telefone não. Ficou em ATENDIMENTO para você decidir',false,resultRoot);await loadQueue(currentView==='today').catch(()=>{});return saved;}const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');if(!saved.duplicate)[saved.journeyId,context?.journeyId].filter(Boolean).forEach((key)=>recentPrints.set(key,{readId:read.id,text:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,at:Date.now()}));const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} · Desfeito · O arquivo permanece guardado`,errorText:'Não consegui desfazer, tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters().catch(()=>{});return saved;}
-  function printReadFailText(code){return {SMS_PRINT_DAILY_LIMIT:'Limite de leituras de print do dia atingido · O print ficou guardado em IMPORTAÇÕES para tentar de novo amanhã',AI_DAILY_LIMIT:'Limite de leituras do dia atingido · O print ficou guardado em IMPORTAÇÕES para tentar de novo',AI_UNAVAILABLE:'A leitura automática falhou agora · Tente de novo em alguns minutos',SMS_PRINT_INVALID_IMAGE:'Imagem não reconhecida · Use JPG, PNG ou WebP'}[code]||'Não consegui ler agora, tente mais tarde ou use outra imagem';}
+  function printReadFailText(code){return {SMS_PRINT_DAILY_LIMIT:'Limite de leituras de print do dia atingido · O print ficou guardado em IMPORTAÇÕES para tentar de novo amanhã',AI_DAILY_LIMIT:'Limite de leituras do dia atingido · O print ficou guardado e o sistema tenta de novo sozinho',AI_UNAVAILABLE:'A leitura automática falhou agora · Tente de novo em alguns minutos',SMS_PRINT_INVALID_IMAGE:'Imagem não reconhecida · Use JPG, PNG ou WebP'}[code]||'Não consegui ler agora, tente mais tarde ou use outra imagem';}
   async function handleAutoPrintRead(result,context,filename,resultRoot){if(result.manual){const root=autoPrintResult(filename||result.read?.original_filename,printReadFailText(result.read?.error_code),false,resultRoot);const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),onSuccess:(next)=>handleAutoPrintRead(next,context,filename,resultRoot),errorText:'Não consegui ler agora, tente de novo'}));root.append(retry);return false;}return saveAutoPrint(result.read,context,filename,resultRoot);}
   async function uploadAutoPrint(file,context={},resultRoot){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');return handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context,file.name,resultRoot);}
   function printErrorText(error){return {SMS_PRINT_TOO_LARGE:'A imagem passa de 5 MB. Tire um print novo ou reduza a imagem',SMS_PRINT_HEIC:'Foto HEIC do iPhone não é aceita · Use um print da tela (PNG) ou exporte como JPEG',SMS_PRINT_INVALID_IMAGE:'Use uma imagem JPEG, PNG ou WebP de até 5 MB'}[error?.code]||'Não consegui enviar agora · O arquivo não foi apagado';}

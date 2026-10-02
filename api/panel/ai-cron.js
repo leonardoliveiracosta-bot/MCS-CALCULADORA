@@ -5,6 +5,7 @@ const {configuration,SERVER_ENVIRONMENT,send}=require('../../panel-server');
 const {runCron}=require('../../panel-ai');
 const {generalBatch,generalStatus}=require('../../panel-pendencias');
 const {runCaptureCheck,recordCaptureFailure}=require('../../panel-capture');
+const {resumePrints}=require('../../panel-print-resume');
 const {recoverStalledEvents,resolveStoredItemErrors,retryItemErrors}=require('../../whatsapp-maintenance');
 
 function equalSecret(actual,expected){
@@ -30,6 +31,11 @@ module.exports=async(req,res)=>{
       // Items that failed for a passing reason (database timeout) are applied again, never sent.
       whatsappMaintenance.items=await retryItemErrors(ctx,{maxItems:5,deadlineAt:maintenanceDeadline});
     }catch(error){console.error('[whatsapp-maintenance]',{operation:'cron',message:String(error?.message||'UNKNOWN')});}
+    // SMS prints kept but never saved: read again what failed for a passing reason and save what the
+    // automatic rules can prove (Ref of a known ficha), even if nobody opens IMPORTAÇÕES.
+    let prints={examined:0,read:0,saved:0,pending:0,unread:0,failed:0};
+    try{prints=await resumePrints(ctx,{max:4,deadlineAt:Date.now()+20000});}
+    catch(error){prints={error:'PRINT_RESUME_FAILED'};console.error('[print-resume]',{operation:'cron',message:String(error?.message||'UNKNOWN')});}
     // A resumable full reading has priority only while it is actively running.
     // Paused, budget-limited, completed, and idle runs must not stop the normal
     // day-to-day analysis cycle.
@@ -46,7 +52,7 @@ module.exports=async(req,res)=>{
     catch (error) { capture={error:'CAPTURE_CHECK_FAILED'}; await recordCaptureFailure(ctx,error.message).catch(()=>{}); }
     // As leituras da OpenAI (conferência do Manheim, PESQUISAS e triagem da ENTRADA) rodam no
     // openai-cron, com a janela inteira só para elas; este cron fica com o Claude e a manutenção.
-    return send(res,200,{...result,pending,capture,whatsappMaintenance});
+    return send(res,200,{...result,pending,capture,whatsappMaintenance,prints});
   }catch(error){
     const requestId=crypto.randomUUID().slice(0,8);
     console.error('[panel-ai-cron]',{requestId,route:'/api/panel/ai-cron',message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});

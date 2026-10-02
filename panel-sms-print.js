@@ -32,3 +32,23 @@ async function reservePrintRead(ctx){
 }
 function sha256(bytes){return crypto.createHash('sha256').update(bytes).digest('hex');}
 module.exports={IMAGE_MIMES,reservePrintRead,detectedImage,candidate,readPrint,sha256};
+
+// A print is the same message as one already saved when, ignoring case, accents, punctuation and the lines
+// that vary between reads of the same screen (the displayed name, the Ref line and the calculator header),
+// the text is equal, or the shorter one sits whole inside the longer (a cropped print). Short texts never
+// count as the same: a greeting is not proof.
+function canonicalMessage(value){
+  return String(value||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().split(/\r?\n/)
+    .filter((line)=>{const text=line.trim();return text&&!/^(name|nome|ref|reference|referencia)\s*:/.test(text)&&!(/·/.test(text)&&/\b(find|calc|calculate)\b/.test(text));})
+    .join(' ').replace(/[^a-z0-9]+/g,'');
+}
+const MIN_SAME_MESSAGE=60;
+function sameMessage(left,right){
+  const first=canonicalMessage(left),second=canonicalMessage(right);
+  if(!first||!second)return false;
+  if(first===second)return first.length>=MIN_SAME_MESSAGE;
+  const [short,long]=first.length<=second.length?[first,second]:[second,first];
+  return short.length>=MIN_SAME_MESSAGE*2&&long.includes(short);
+}
+module.exports.canonicalMessage=canonicalMessage;
+module.exports.sameMessage=sameMessage;
