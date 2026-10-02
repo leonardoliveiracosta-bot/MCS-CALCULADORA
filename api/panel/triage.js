@@ -3,7 +3,7 @@
 // Triagem da ENTRADA: o que está em REVISAR, o que saiu do funil comercial, a correção manual e o
 // desfazer. Nunca chama a OpenAI: a leitura automática roda só no cron, desligada por padrão.
 // GET ?estimate=1 conta o acervo e estima tokens e custo sem chamar ninguém.
-const { allRows, isUuid, jsonBody, requirePanel, rows, send } = require('../../panel-server');
+const { allRows, isUuid, jsonBody, requirePanel, rows, send, supabase } = require('../../panel-server');
 const triage = require('../../panel-triage');
 const topicStore = require('../../panel-topic');
 const { chatGroupIndex } = require('../../panel-chat-groups');
@@ -29,6 +29,30 @@ async function conversation(ctx, chatId) {
   const journeyId = [...messages].sort((a, b) => stampOf(b) - stampOf(a)).map((message) => journeyOf.get(message.id)).find(Boolean) || null;
   const last = evidence.at(-1);
   return { evidence, journeyId, contentHash: triage.contentHash(evidence), lastMessageAt: last ? new Date(last.at).toISOString() : null };
+}
+
+// Fora da MCS candidates waiting for the operator: reason, original sentence and the ficha. Never acted on by the AI.
+const OFF_MCS_TRIAGE = { PESSOAL: 'PESSOAL', VENDA_FORA_DO_SISTEMA: 'OUTRO_NEGOCIO', OUTRO_NEGOCIO: 'OUTRO_NEGOCIO' };
+const OFF_MCS_LABELS = { PESSOAL: 'Assunto pessoal', VENDA_FORA_DO_SISTEMA: 'Venda fora do sistema', OUTRO_NEGOCIO: 'Outro negócio' };
+async function offMcsCandidates(ctx) {
+  const env = 'eq.' + ctx.environment;
+  const found = await allRows(ctx, 'panel_conversation_class', { select: 'journey_id,offmcs_category,offmcs_reason,offmcs_quote,offmcs_message_id,classified_at', environment: env, offmcs_candidate: 'is.true', offmcs_review: 'is.null', order: 'journey_id.asc' });
+  if (!found.length) return [];
+  const journeys = await byIds(ctx, 'journeys', 'id,contact_id', found.map((row) => row.journey_id));
+  const contacts = await byIds(ctx, 'contacts', 'id,display_name', [...new Set(journeys.map((row) => row.contact_id).filter(Boolean))]);
+  const contactOf = new Map(journeys.map((row) => [row.id, row.contact_id])), nameOf = new Map(contacts.map((row) => [row.id, row.display_name]));
+  return found.map((row) => ({ journeyId: row.journey_id, name: nameOf.get(contactOf.get(row.journey_id)) || 'Contato sem nome', category: row.offmcs_category, label: OFF_MCS_LABELS[row.offmcs_category] || 'Fora da MCS',
+    reason: row.offmcs_reason || '', quote: row.offmcs_quote || '', messageId: row.offmcs_message_id || null, at: row.classified_at || null }));
+}
+async function reviewOffMcs(ctx, journeyId, review) {
+  return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_offmcs_review', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment, p_journey_id: journeyId, p_review: review, p_actor: ctx.panel.id }) });
+}
+// The individual conversations of a ficha (a group chat is never triaged).
+async function chatsOfJourney(ctx, journeyId) {
+  const links = await allRows(ctx, 'message_journeys', { select: 'message_id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journeyId, undone_at: 'is.null', order: 'message_id.asc' });
+  const messages = await byIds(ctx, 'messages', 'id,chat_id', links.map((row) => row.message_id));
+  const chats = await byIds(ctx, 'chats', 'id,is_group', [...new Set(messages.map((row) => row.chat_id).filter(Boolean))]);
+  return chats.filter((chat) => !chat.is_group).map((chat) => chat.id);
 }
 
 async function estimateBacklog(ctx) {
@@ -79,8 +103,9 @@ module.exports = async (req, res) => {
       const offTopic = [...offTopicIds].map((chatId) => { const reading = offTopicReadings.get(chatId) || {}; const entry = groupsByChat.get(chatId) || {};
         return { chatId, journeyId: entry.journeyId || reading.journeyId || null, name: nameOf.get(contactOf.get(chatId)) || 'Contato sem nome', source: reading.source || 'AI', reason: reading.reason || '', overrideId: reading.overrideId || null, group: entry.group || null, lastCustomerMessage: entry.lastCustomerMessage || null };
       }).sort((a, b) => Date.parse(b.lastCustomerMessage?.at || 0) - Date.parse(a.lastCustomerMessage?.at || 0));
+      const offMcs = await offMcsCandidates(ctx).catch(() => null);
       return send(res, 200, {
-        state: triage.status(), ruleVersion: triage.RULE_VERSION, labels: triage.LABELS,
+        state: triage.status(), ruleVersion: triage.RULE_VERSION, labels: triage.LABELS, offMcs,
         review: items.filter((item) => item.decision === 'PENDENTE'), out: items.filter((item) => item.decision === 'FORA_DO_FUNIL'), offTopic
       });
     }
@@ -108,6 +133,32 @@ module.exports = async (req, res) => {
       if (typeof body.aboutCar !== 'boolean') return send(res, 400, { error: 'TOPIC_VALUE_INVALID' });
       if (!isUuid(body.chatId) && !isUuid(body.journeyId)) return send(res, 400, { error: 'TOPIC_CHAT_REQUIRED' });
       return send(res, 200, await topicStore.correct(ctx, { chatId: isUuid(body.chatId) ? body.chatId : null, journeyId: isUuid(body.journeyId) ? body.journeyId : null, aboutCar: body.aboutCar }));
+    }
+    // Fora da MCS: only the operator takes a conversation out (every conversation of the ficha, through the triage); "É da MCS"
+    // keeps it; "Desfazer" brings it back. Nothing is deleted or sent.
+    if (['offmcs_confirm', 'offmcs_reject', 'offmcs_undo'].includes(body.action)) {
+      if (!isUuid(body.journeyId)) return send(res, 400, { error: 'OFFMCS_JOURNEY_REQUIRED' });
+      if (body.action === 'offmcs_reject') { await reviewOffMcs(ctx, body.journeyId, 'REJEITADO'); return send(res, 200, { journeyId: body.journeyId, review: 'REJEITADO' }); }
+      if (body.action === 'offmcs_undo') {
+        const ids = (Array.isArray(body.triageIds) ? body.triageIds : []).filter(isUuid).slice(0, 20);
+        for (const id of ids) await triage.undo(ctx, id, ctx.panel.id);
+        await reviewOffMcs(ctx, body.journeyId, null);
+        return send(res, 200, { journeyId: body.journeyId, undone: ids.length });
+      }
+      const [entry] = await rows(ctx, 'panel_conversation_class', { select: 'journey_id,offmcs_candidate,offmcs_category,offmcs_reason', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + body.journeyId, limit: '1' });
+      if (!entry || !entry.offmcs_candidate) return send(res, 409, { error: 'OFFMCS_NOT_A_CANDIDATE' });
+      const chatIds = await chatsOfJourney(ctx, body.journeyId);
+      if (!chatIds.length) return send(res, 409, { error: 'OFFMCS_NO_CONVERSATION' });
+      const triageIds = [];
+      for (const chatId of chatIds) {
+        const current = await conversation(ctx, chatId);
+        const result = await triage.record(ctx, { chatId, journeyId: body.journeyId, source: 'MANUAL', category: OFF_MCS_TRIAGE[entry.offmcs_category] || 'OUTRO_NEGOCIO',
+          reason: 'Fora da MCS (confirmado): ' + String(entry.offmcs_reason || '').slice(0, 200), evidence: current.evidence.map((item) => item.id).slice(-3),
+          lastMessageAt: current.lastMessageAt, contentHash: current.contentHash, actorId: ctx.panel.id });
+        if (result && result.id) triageIds.push(result.id);
+      }
+      await reviewOffMcs(ctx, body.journeyId, 'CONFIRMADO');
+      return send(res, 200, { journeyId: body.journeyId, review: 'CONFIRMADO', triageIds });
     }
     if (body.action === 'topic_undo') return send(res, 200, await topicStore.undoCorrection(ctx, body.ids));
     if (body.action === 'undo') {

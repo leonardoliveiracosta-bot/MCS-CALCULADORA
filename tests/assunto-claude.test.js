@@ -51,7 +51,7 @@ test('classifica uma conversa: reserva, lê, confere e grava com a versão da re
   const { calls, deps: d } = deps();
   const out = await classifyOne({ environment: 'production' }, { journey_id: J, content_hash: 'h1' }, d);
   assert.deepEqual([out.outcome, out.subject, out.verifiedRefs], ['CLASSIFIED', 'FINANCIAMENTO', 1]);
-  const finish = calls.find((call) => call.name === 'panel_subject_finish_v2');
+  const finish = calls.find((call) => call.name === 'panel_subject_finish_v3');
   assert.equal(finish.body.p_hash, 'h1');
   assert.equal(finish.body.p_rule_version, RULE_VERSION);
   assert.equal(finish.body.p_claude_refs[0].verified, true);

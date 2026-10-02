@@ -788,6 +788,25 @@
   // Triagem da ENTRADA: REVISAR fica em "Precisa de você"; o que saiu do funil fica recolhido,
   // sempre com a categoria, o motivo curto, a correção manual e o desfazer.
   const TRIAGE_OPTIONS=[['PRE_COMPRA_MCS','Pré-compra MCS'],['POS_VENDA','Pós-venda'],['PESSOAL','Pessoal'],['OUTRO_NEGOCIO','Outro negócio'],['NAO_CLIENTE','Não é cliente'],['REVISAR','Manter pendente']];
+  // Fora da MCS: the AI only points the candidate (reason and the original sentence); the conversation leaves the panel only when
+  // you confirm, and it comes back with "Desfazer" (and from the "Fora do funil" list). "É da MCS" keeps it where it is.
+  function offMcsCard(item,refresh){
+    const row=element('div','queue-item offmcs-item');row.dataset.journeyId=item.journeyId;
+    const head=element('div','triage-head');head.append(element('strong','',item.name),makeBadge('Candidata a fora da MCS · '+item.label,'yellow'));row.append(head);
+    row.append(element('p','muted triage-reason','IA · '+(item.reason||'sem motivo')));
+    if(item.quote)row.append(element('p','evidence','“'+item.quote+'”'));
+    row.append(contextSlot({journeyId:UUID_RE.test(String(item.journeyId||''))?item.journeyId:null},{withIdentity:true,emptyText:'Ficha não encontrada.'}));
+    const actions=element('div','inline-actions');
+    const post=(body)=>request('/api/panel/triage',{method:'POST',body:JSON.stringify(body)});
+    const confirm=element('button','small','Confirmar fora da MCS');confirm.type='button';
+    MCSAction.bind(confirm,()=>({scope:row,successScope:document.body,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>post({action:'offmcs_confirm',journeyId:item.journeyId}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},
+      successText:'Fora do funil · a conversa saiu do painel e continua recuperável',undo:(result)=>({commit:()=>post({action:'offmcs_undo',journeyId:item.journeyId,triageIds:(result&&result.triageIds)||[]}),successText:'Desfeito · a conversa voltou ao painel',refresh}),refresh,errorText:'Não consegui confirmar, tente de novo'}));
+    const keep=element('button','quiet small','É da MCS');keep.type='button';
+    MCSAction.bind(keep,()=>({scope:row,successScope:document.body,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>post({action:'offmcs_reject',journeyId:item.journeyId}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},
+      successText:'Mantida no painel',undo:()=>({commit:()=>post({action:'offmcs_undo',journeyId:item.journeyId,triageIds:[]}),successText:'Desfeito · voltou para revisão',refresh}),refresh,errorText:'Não consegui salvar, tente de novo'}));
+    const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));
+    actions.append(confirm,keep,open);row.append(actions);return row;
+  }
   function triageCard(item,refresh){
     const row=element('div','queue-item triage-item');row.dataset.triageId=item.id;
     const head=element('div','triage-head');head.append(element('strong','',item.name),makeBadge(item.label,item.decision==='FORA_DO_FUNIL'?'':item.decision==='PENDENTE'?'yellow':'green'));row.append(head);
@@ -835,6 +854,7 @@
     if(!data){$('triage-out-count').textContent='—';renderOffTopic([],()=>{});scheduleAttendRender();return;}
     const refresh=()=>Promise.all([loadTriage(),loadWhatsApp()]).then(()=>refreshCounters().catch(()=>{}));
     (data.review||[]).forEach((item)=>{const card=triageCard(item,refresh);card.dataset.decisionKey='triage:'+item.id;card.dataset.decisionSource='triage';review.append(card);});
+    (data.offMcs||[]).forEach((item)=>{const card=offMcsCard(item,refresh);card.dataset.decisionKey='offmcs:'+item.journeyId;card.dataset.decisionSource='triage';review.append(card);});
     renderOffTopic(data.offTopic||[],refresh);
     (data.out||[]).forEach((item)=>out.append(triageCard(item,refresh)));
     $('triage-out')?.addEventListener('toggle',()=>hydrateContexts(out),{once:true});
@@ -2154,6 +2174,7 @@
     (whatsapp?.suggestions || []).forEach((item) => out.push({ key: 'suggestion:' + item.id, kind: 'VINCULO', journeyId: uuidOnly(item.source_journey_id), name: item.sourceName || item.phone_e164 || null, label: item.target_ref ? `Confirmar vínculo: esta conversa ${item.refConfirmed ? 'é' : 'parece ser'} a Ref ${item.target_ref}` : 'Confirmar vínculo desta conversa com uma ficha' }));
     (whatsapp?.phoneReviews || []).forEach((item) => out.push({ key: 'phone:' + item.id, kind: 'TELEFONE', journeyId: null, name: item.phone_e164 || null, label: 'Escolher o contato certo deste telefone' }));
     (triage?.review || []).forEach((item) => out.push({ key: 'triage:' + item.id, kind: 'TRIAGEM', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Classificar a conversa (pré-compra ou fora do funil)' }));
+    (triage?.offMcs || []).forEach((item) => out.push({ key: 'offmcs:' + item.journeyId, kind: 'FORA_MCS', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Revisar: candidata a fora da MCS · ' + (item.label || '') }));
     entryReviewChats(entry).forEach((chat) => out.push({ key: 'chat:' + chat.id, kind: 'REVISAR_CONVERSA', journeyId: uuidOnly(chat.groupJourneyId), name: chat.contact?.display_name || chat.canonical_key || null, label: chat.resolution_status === 'RESOLVED' ? 'Conferir conversa com hora incerta' : 'Revisar conversa importada e ligar à ficha certa' }));
     (vitrine?.requests || []).forEach((item) => out.push({ key: 'vitrine:' + item.id, kind: 'VITRINE', refState: item.refState || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, label: item.kind === 'BID' ? 'V2 · quer dar lance' : 'V1 · pediu para ver o carro' }));
     return out;
