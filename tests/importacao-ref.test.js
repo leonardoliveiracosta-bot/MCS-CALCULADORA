@@ -130,3 +130,21 @@ test('retomada: lê de novo, salva o que a Ref prova, deixa o resto pendente com
   assert.equal(pending.outcome, 'PENDING');
   assert.equal(pending.reason, 'SMS_PRINT_VALUES_INVALID');
 });
+
+test('print antigo pendente é resolvido quando outro print da mesma Ref é confirmado depois', async () => {
+  const { ctx, calls, db } = world({ phones: ['+12252811369'] });
+  // O print 9236 foi lido antes de o 9244 existir: a mensagem era nova e não havia como saber o telefone da pessoa.
+  db.messages.length = 0; db.message_journeys.length = 0;
+  const NEW = 'EN · FIND · NOW · 2020-2026 · Chevrolet Camaro · 1st\n\nHello! I just sent a vehicle search request through My Car Scout\n\nName: Tremel Jones\nPlanning to buy: Ready to buy now\nYear range: 2020-2026\nVehicle: Chevrolet Camaro\nTrim: SS\nMileage range: 5,000-70,000\nZIP code: 70301 · Thibodaux, Louisiana\n\nI\'d like to discuss this vehicle search\nRef: RNEVL';
+  const early = await confirm(ctx, printRecord(), { auto: true, phone: '', name: 'Tremel Jones', ref: 'CG8LN', message: NEW });
+  // Sem nenhuma mensagem na ficha, o telefone único da ficha comprovada pela Ref já resolve (mensagem nova, não repetida).
+  assert.equal(early.code, 201);
+  assert.equal(early.payload.inheritedPhone, true);
+  // Depois disso, o mesmo texto (outro print) só anexa a foto: não vira segunda mensagem.
+  db.messages.push({ id: 'c3333333-3333-4333-8333-333333333333', environment: ENV, body_text: NEW, body_normalized: NEW.trim().toLowerCase().replace(/\s+/g, ' ') });
+  db.message_journeys.push({ environment: ENV, message_id: 'c3333333-3333-4333-8333-333333333333', journey_id: JOURNEY, undone_at: null });
+  calls.length = 0;
+  const again = await confirm(ctx, printRecord({ id: 'a2222222-2222-4222-8222-222222222222' }), { auto: true, phone: '', name: 'Tremel J.', ref: 'CG8LN', message: NEW.replace('Name: Tremel Jones\n', '') });
+  assert.equal(again.payload.duplicateMessage, true);
+  assert.ok(!calls.some((call) => call.rpc === 'panel_sms_print_confirm'));
+});

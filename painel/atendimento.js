@@ -87,9 +87,9 @@
     // answer first, then an overdue return or a decision that is yours; a classification only orders inside the same grade.
     // Any other sort chosen by the user keeps the order the server already applied.
     if (sort === 'ready' && attention) {
-      const rankOf = (entry) => entry.item ? attention.rankOf(entry.item, now) : entry.reasons.length ? 1 : 2;
+      const rankOf = (entry) => { const own = entry.item ? attention.rankOf(entry.item, now) : 2; return own === 0 ? 0 : entry.reasons.length ? 1 : 2; };
       const index = new Map(list.map((entry, position) => [entry.key, position]));
-      list.sort((left, right) => rankOf(left) - rankOf(right) || (rankOf(left) < 2 && left.item && right.item ? attention.compare(left.item, right.item, now) : 0) || index.get(left.key) - index.get(right.key));
+      list.sort((left, right) => rankOf(left) - rankOf(right) || (rankOf(left) === 0 && left.item && right.item ? attention.compare(left.item, right.item, now) : 0) || index.get(left.key) - index.get(right.key));
     }
     return { cases: list, counts: countsOf(list) };
   }

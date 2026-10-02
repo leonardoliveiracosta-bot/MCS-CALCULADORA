@@ -75,7 +75,7 @@ test('ATENDIMENTO ordena depois de reunir as fontes e respeita a ordem escolhida
   const items = [calc('wanted', { wantsCar: true }), calc('waiting', { awaitingReply: true, lastCustomerAt: hoursAgo(5), group: { key: 'NAO_ATENDIDO', unattended: { reason: 'NO_RESPONSE', reasonText: 'Mensagem do cliente sem resposta', since: hoursAgo(5) } } })];
   const decisions = [{ key: 'v1', kind: 'VINCULO', journeyId: null, label: 'Confirmar vínculo' }];
   const ready = attend.model({ todayItems: items, decisions, now: NOW, sort: 'ready' });
-  assert.deepEqual(ready.cases.slice(0, 2).map((entry) => entry.item && entry.item.id || 'decisao'), ['waiting', 'decisao'], 'resposta pendente, depois a decisão que é sua');
+  assert.deepEqual(ready.cases.map((entry) => entry.item && entry.item.id || 'decisao'), ['waiting', 'wanted', 'decisao'], 'resposta pendente primeiro; as outras decisões suas depois, na ordem em que chegaram');
   const kept = attend.model({ todayItems: items, decisions, now: NOW, sort: 'recent' });
   assert.deepEqual(kept.cases.map((entry) => entry.item && entry.item.id || 'decisao'), ['wanted', 'waiting', 'decisao'], 'outra ordem escolhida mantém a do servidor');
 });
@@ -90,4 +90,15 @@ test('mensagem nova depois do agendamento volta para "Depende de você" preserva
   assert.equal(after.cases[0].item.next_action_at, scheduledFor, 'o agendamento é preservado');
   const before = attend.model({ todayItems: [make(30)], now: NOW });
   assert.equal(before.cases[0].bucket, 'agendado', 'mensagem anterior ao agendamento continua agendada');
+});
+
+test('encerrada volta só por mensagem realmente nova do cliente; reprocessamento ou triagem antiga não a ressuscitam', () => {
+  const closed = (messageHours, closedHours) => groups.classify(groups.factsFor({
+    messages: [message('m', 'CUSTOMER', messageHours)], journey: { status: 'ENCERRADO', closed_at: hoursAgo(closedHours), created_at: hoursAgo(500) } }), NOW);
+  assert.equal(closed(2, 10).unattended && closed(2, 10).key, 'NAO_ATENDIDO', 'mensagem 8 h depois do encerramento: volta');
+  assert.equal(closed(30, 10).unattended, null, 'mensagem anterior ao encerramento: continua encerrada');
+  const off = groups.classify(groups.factsFor({ messages: [message('m', 'CUSTOMER', 20)], journey: { status: 'ATIVO', enabled: false, switched_at: hoursAgo(10), created_at: hoursAgo(500) }, subject: subject('PEDIDO_CARRO') }), NOW);
+  assert.equal(off.unattended, null, 'a sugestão/classificação nova do Claude não reabre uma ficha desligada sem mensagem nova');
+  const discarded = groups.classify(groups.factsFor({ messages: [message('m', 'CUSTOMER', 5)], journey: { status: 'ATIVO', created_at: hoursAgo(500) }, disposition: 'DISCARDED', dispositionAt: hoursAgo(1) }), NOW);
+  assert.equal(discarded.unattended, null, 'descartado depois da última mensagem do cliente fica fora');
 });
