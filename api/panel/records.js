@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 
-const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, mergeWishlists, journeyEnabled, reactivationEligible, shortDeadline, time, toggleEnabled, wishlistForJourney, wishlistsForJourney } = require('../../panel-domain');
+const { buildConversationTimeline, buildReturns, checklistSummary, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, mergeWishlists, journeyEnabled, reactivationEligible, shortDeadline, time, toggleEnabled, wishlistForJourney, wishlistsForJourney, listCriteria } = require('../../panel-domain');
 const { allRows, isUuid, panelMeta, requirePanel, rows, rpc, send } = require('../../panel-server');
 const { score, loadScoreIndex } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
@@ -143,7 +143,7 @@ async function clientList(ctx, activeBatch) {
     const offTopic=topic?topic.journey(item.id,{hasCalculator:ownOrders.length>0||proof.hasCalcRef}):null;
     const vitrine=vitrineOrigins?vitrineOrigins.forPerson({journeyId:item.id,contactId:item.contact_id}):null;
     const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey:{...item,enabled:complete.enabled,switchedAt:state?.switched_at||null},disposition:disposition?.status||null,dispositionAt:disposition?.updated_at||null,offTopic,vitrine,situation:pending.situation||null,calcProof:proof,...factsOf(classification,item.id)}),now);
-    return [decorateContact({ ...complete, ...ready, ...originInfo, ...pending, group, calcRefs:proof.calcRefs, calcRef:proof.calcRef, hasCalcRef:proof.hasCalcRef, calcRefsWithoutRun:proof.calcRefsWithoutRun, internalCode:proof.internalCode, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:summary.last_customer_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip, item.id)) },facts,insightByJourney.get(item.id),complete)];
+    return [decorateContact({ ...complete, ...ready, ...originInfo, ...pending, group, ...((shown)=>({vehicleText:shown.vehicleText,budgetCents:shown.budgetCents||0,criteriaSource:{vehicle:shown.vehicleSource,bid:shown.bidSource}}))(listCriteria(item,ownOrders)), calcRefs:proof.calcRefs, calcRef:proof.calcRef, hasCalcRef:proof.hasCalcRef, calcRefsWithoutRun:proof.calcRefsWithoutRun, internalCode:proof.internalCode, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:summary.last_customer_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip, item.id)) },facts,insightByJourney.get(item.id),complete)];
   });
   return { listed, meta };
 }

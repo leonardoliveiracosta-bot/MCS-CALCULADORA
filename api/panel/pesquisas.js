@@ -130,6 +130,12 @@ async function buildList(ctx) {
 // PRECISA DE REVISÃO), otherwise its result in the active batch. A request that needs detail has
 // no option count, is never compared and never counts as served.
 const STATES = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO', 'PRECISA_DETALHE', 'PRECISA_REVISAO']);
+// The list's counters recomputed over the requests actually shown (same rules as buildList).
+function withCounts(list, items) {
+  const counts = Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length]));
+  const byCompleteness = Object.fromEntries(requests.COMPLETENESS.map((level) => [level, Object.fromEntries([...requests.RESULTS, 'NONE'].map((result) => [result, items.filter((item) => item.completeness === level && (item.result || 'NONE') === result).length]))]));
+  return { ...list, items, counts, byCompleteness };
+}
 function finish(item, check, uploadId) {
   const result = requests.resultOf(item, check, uploadId);
   const state = result || item.completeness;
@@ -175,7 +181,11 @@ async function loadConversationRequests(ctx) {
 // ------------------------------------------------------------------ auditoria (só leitura)
 async function audit(ctx) {
   const env = 'eq.' + ctx.environment;
-  const list = await buildList(ctx);
+  const full = await buildList(ctx);
+  // The same presentation as the list: a ficha request and the reading of the same request by the AI are ONE request
+  // (the reading stays as its unconfirmed evidence), so the audit never counts the same proven request twice.
+  const shown = merge.present(full.items);
+  const list = withCounts(full, shown.items);
   const since = search.HISTORY_SINCE;
   const messages = await allRows(ctx, 'messages', { select: 'id,chat_id,direction,body_text,is_automatic,undone_at,occurred_at_utc', environment: env, occurred_at_utc: 'gte.' + since });
   const chats = new Map((await allRows(ctx, 'chats', { select: 'id,contact_id,is_group', environment: env })).map((row) => [row.id, row]));
@@ -205,6 +215,8 @@ async function audit(ctx) {
     conversationsWithoutRequest: (runs || []).filter((run) => run.status === 'NO_REQUEST').length,
     requests: list.items.length, requestsFromConversations: conversationItems.length, requestsFromFicha: list.items.filter((item) => item.source !== 'CONVERSA').length,
     groups: list.groupCount,
+    // Same proven request seen twice (ficha/calculator and the AI's reading of its conversation) counts once; people and requests are counted apart.
+    mergedReadings: shown.merged, people: merge.counts(list.items, STATES).people,
     // Only PRONTO PARA BUSCAR is compared; the rest is counted apart and never as coverage.
     ready: list.items.filter((item) => item.completeness === 'PRONTO').length,
     readyWithOptions: grid.PRONTO.COM_OPCOES, readyWithCandidates: grid.PRONTO.COM_CANDIDATOS, readyWithoutOptions: grid.PRONTO.SEM_OPCAO,

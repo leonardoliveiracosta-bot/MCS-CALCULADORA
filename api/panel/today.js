@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildTodayItems, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, standardBudget, time } = require('../../panel-domain');
+const { buildTodayItems, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, listCriteria, standardBudget, time } = require('../../panel-domain');
 const { dispositionIndex, refKey } = require('../../panel-disposition');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
@@ -143,11 +143,14 @@ module.exports = async (req, res) => {
     const openJourney=(journey)=>!journey||(journey.enabled!==false&&journey.status!=='ENCERRADO'&&!triageOut.has(journey.id)&&journey.contact?.is_lead!==false);
     const activeFor=(journey,ref,facts,dispositionAt,dispositionStatus)=>wantedAfterDisposition(ref,dispositionAt,dispositionStatus)||returnedForJourney(journey,dispositionAt)||overdueAfter(journey,dispositionAt,dispositionStatus)
       ||Boolean(facts.entered&&eventAfterDisposition(facts.latestAt,dispositionAt)&&openJourney(journey));
-    const grouped=groupCalculatorByRef(calcModes, dispositions)
-      .filter((item)=>!(data.excludedRefs||[]).includes(item.ref))
+    const baseOrders=groupCalculatorByRef(calcModes, dispositions).filter((item)=>!(data.excludedRefs||[]).includes(item.ref));
+    // The orders of each ficha, so a card shows the car and the bid of the same source (never one order's car with another's bid).
+    const ordersOfJourney=new Map();
+    baseOrders.forEach((item)=>{const owner=journeyByRef.get(item.ref);if(owner){if(!ordersOfJourney.has(owner.id))ordersOfJourney.set(owner.id,[]);ordersOfJourney.get(owner.id).push(item);}});
+    const grouped=baseOrders
       .map((item)=>{const journey=journeyByRef.get(item.ref);const disposition=dispositionFor(journey,item.ref);const person=disposition?{...item,disposition:disposition.status,discardReason:disposition.discard_reason||null,dispositionUpdatedAt:disposition.updated_at||null}:item;
         // A9 + R1: the card shows the same bid as the ficha (the ficha's bid wins over the calculator's).
-        return journey?{...person,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents,budgetCents:effectiveCriteria(journey,item).bidCents||item.budgetCents}:person;});
+        if(!journey)return person;const shown=listCriteria(journey,ordersOfJourney.get(journey.id)||[item],item);return {...person,journeyId:journey.id,contactName:journey.contact?.display_name||item.contactName,phones:journey.phones,confirmed_total_ceiling_cents:journey.confirmed_total_ceiling_cents,budgetCents:shown.budgetCents||item.budgetCents,vehicleText:shown.vehicleText||item.vehicleText,criteriaSource:{vehicle:shown.vehicleSource,bid:shown.bidSource}};});
     const ordersByRef=new Map(grouped.map((item)=>[item.ref,item]));
     const arrival=(order)=>firstSimulation.get(order.ref)||firstCalculatorEvent.get(order.ref)||
       Math.min(...(order.simulations||[order]).map((simulation)=>time(simulation.occurredAt)||Infinity));
@@ -176,7 +179,7 @@ module.exports = async (req, res) => {
         const scheduledAhead=(time(item.next_action_at)||0)>now&&item.enabled!==false&&item.status!=='ENCERRADO'&&disposition?.status!=='DISCARDED';
         return refs.some((ref)=>wantedAfterDisposition(ref,disposition?.updated_at,disposition?.status))||activeFor(item,null,facts,disposition?.updated_at,disposition?.status)||scheduledAhead;})
       .filter((item) => !refsOf(item).some((ref)=>orderRefs.has(ref)))
-      .map((item) => ({
+      .map((item) => { const shown = listCriteria(item, refsOf(item).map((ref) => ordersByRef.get(ref)).filter(Boolean)); return ({
         ...item, disposition:dispositionFor(item)?.status||null, discardReason:dispositionFor(item)?.discard_reason||null, dispositionUpdatedAt:dispositionFor(item)?.updated_at||null,
         kind: 'JOURNEY',
         name: item.contact && item.contact.display_name || 'Contato sem nome',
@@ -184,12 +187,14 @@ module.exports = async (req, res) => {
         occurredAt: item.created_at,
         clickedContact: false,
         contactChannel: null,
-        standardBudget: standardBudget(item.budget_cents),
-        outOfStandard: !standardBudget(item.budget_cents),
-        budgetCents: Number(item.budget_cents) || 0,
-        vehicleText: item.vehicle_text || null,
+        // The same car and bid the ficha shows (the ficha wins; the calculator fills what it lacks), with their source.
+        standardBudget: standardBudget(shown.budgetCents),
+        outOfStandard: !standardBudget(shown.budgetCents),
+        budgetCents: shown.budgetCents || 0,
+        vehicleText: shown.vehicleText || null,
+        criteriaSource: { vehicle: shown.vehicleSource, bid: shown.bidSource },
         checklistLabel: 'ficha nova'
-      }));
+      }); });
 
     // Without the 24 h cut the list is every open contact: messages are grouped once, not per card.
     const messagesByJourney = new Map();

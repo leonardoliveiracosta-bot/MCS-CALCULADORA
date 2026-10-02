@@ -137,6 +137,34 @@ function effectiveCriteria(journey, order) {
   };
 }
 
+// What a LIST shows for a request: the same effective car and bid the ficha shows, with where each came from, and never
+// the car of one order with the bid of another. orders: the calculator orders of the ficha (a Ref each).
+// focus: the order a card stands for (an order card); without it the card stands for the person.
+//  - one order (or none): the ficha wins (effectiveCriteria), the calculator fills what the ficha does not have;
+//  - several orders: an order card keeps its own car and bid; the person card shows the ficha's wishes (or every order's
+//    car) and the ficha's bid, never one order's bid.
+function listCriteria(journey, orders, focus = null) {
+  const own = (orders || []).filter(Boolean);
+  const text = (wishes) => compactWishlistText(wishes) || null;
+  if (focus && own.length > 1) {
+    return { vehicleText: clean(focus.vehicleText) || null, budgetCents: Number(focus.budgetCents) > 0 ? Number(focus.budgetCents) : null, vehicleSource: focus.vehicleText ? 'CALCULADORA' : null, bidSource: Number(focus.budgetCents) > 0 ? 'CALCULADORA' : null };
+  }
+  if (own.length <= 1 || focus) {
+    const order = focus || own[0] || null;
+    const effective = effectiveCriteria(journey, order);
+    const fichaVehicle = clean(journey && journey.vehicle_text) || null;
+    const wishText = text(effective.wishes);
+    const vehicleText = wishText || fichaVehicle || clean(order && order.vehicleText) || null;
+    const vehicleSource = !vehicleText ? null : wishText ? effective.wishesSource : fichaVehicle ? 'FICHA' : 'CALCULADORA';
+    return { vehicleText, budgetCents: effective.bidCents || null, vehicleSource, bidSource: effective.bidSource };
+  }
+  const effective = effectiveCriteria(journey, null);
+  const wishText = text(effective.wishes);
+  const orderTexts = [...new Set(own.map((order) => clean(order.vehicleText)).filter(Boolean))];
+  const vehicleText = wishText || clean(journey && journey.vehicle_text) || orderTexts.join(' | ') || null;
+  return { vehicleText, budgetCents: effective.bidCents || null, vehicleSource: !vehicleText ? null : wishText || clean(journey && journey.vehicle_text) ? 'FICHA' : 'CALCULADORA', bidSource: effective.bidSource };
+}
+
 // R1: calculator values that differ from what the ficha already has. They are shown to the
 // operator as "nova informação da calculadora" and never written into the ficha automatically.
 function calculatorNews(journey, contactName, order) {
@@ -887,7 +915,7 @@ function buildSearchDemands({ journeys, refs, modeItems, externalOwners = [] }) 
 }
 
 module.exports = {
-  DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
+  DAY_MS, REF_RE, buildConversationTimeline, calculatorNews, effectiveCriteria, listCriteria, buildReturns, buildTodayItems, buildTodayOrderItems, calculatorEventStatus, checklistSummary, clean, clientOkPatch,
   compactWishlistText, consolidateCalcRuns, finiteInteger, fold, groupCalculatorByRef, journeyEnabled, toggleEnabled, journeyLogicalMode, logicalMode,
   buildSearchDemands, carroWishes, modeVehicleText, modeWishText, derivedFromRefs, modeOverrides, confirmedJourneyModes, finalizeDemand, journeyDemands, matchManheimDemand, orderDemand, SEARCH_MODES, valorWishes, mergeWishlist, mergeWishlists, modelWithMake, nextStageForUnits, forwardStage, STAGE_RANK, normalizeDeadline, normalizePayment,
   normalizeState, normalizeWishlist, wishlistsFromCalculatorEvents, orderSearchMatches, reactivationEligible, searchMatches, shortDeadline, standardBudget, time, wishlistForJourney, wishlistsForJourney, wishlistText
