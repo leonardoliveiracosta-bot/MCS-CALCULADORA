@@ -10,7 +10,7 @@ const { isUuid, rows, supabase } = require('./panel-server');
 
 // v3: the same reading also says whether the conversation is outside the MCS business (a candidate for review, never an action).
 const RULE_VERSION = 3;
-const DAILY_CAP = 500;
+const DAILY_CAP = 1200;
 const SUBJECTS = ['FINANCIAMENTO', 'PEDIDO_CARRO', 'SO_CUMPRIMENTO', 'OUTROS', 'NAO_IDENTIFICADO'];
 const SUBJECT_LABELS = { FINANCIAMENTO: 'Financiamento', PEDIDO_CARRO: 'Pedido de carro', SO_CUMPRIMENTO: 'Só cumprimentou', OUTROS: 'Outros assuntos', NAO_IDENTIFICADO: 'Ainda não identificado' };
 const REF_RE = /^[A-HJ-NP-Z2-9]{5}$/;
