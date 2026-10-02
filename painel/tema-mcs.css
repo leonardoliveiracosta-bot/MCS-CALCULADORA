@@ -1200,3 +1200,17 @@ details.contact-group > summary.contact-group-head { cursor: pointer; }
 .today-stat small, .pending-stat small { display: block; font-size: .75rem; }
 .request-view-options { font-weight: 600; }
 .clients-more { margin: 12px auto; display: block; }
+
+/* Áreas dentro de cada grupo de contato: calculadora por valor, por carro e conversa direta
+   (busca incompleta / definida) em blocos visuais próprios. */
+.contact-area { display: grid; gap: 10px; margin: 6px 0 10px; padding: 10px 0 0 12px; border-left: 3px solid var(--mcs-line); }
+.contact-area-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.contact-area-label { font-size: 0.95rem; }
+.contact-area-hint { font-size: 0.82rem; }
+.contact-area-calc-valor { border-left-color: var(--mcs-blue, #3b82f6); }
+.contact-area-calc-carro { border-left-color: var(--mcs-green, #22c55e); }
+.contact-area-direta-incompleta { border-left-color: var(--mcs-yellow, #eab308); }
+.contact-area-direta-definida { border-left-color: var(--mcs-line); }
+@media (max-width: 520px) { .contact-area { padding-left: 8px; } }
+.ai-budget-provider { display: grid; gap: 4px; margin: 6px 0; }
+.ai-budget-form input { max-width: 180px; }

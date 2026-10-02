@@ -1186,10 +1186,20 @@
     const head=element(folded?'summary':'header','contact-group-head');head.append(element('strong','contact-group-label',label),element('span','badge contact-group-count',String(count)),element('span','muted contact-group-hint',hint));section.append(head);
     const list=root.querySelector('.clients-more');if(list)root.insertBefore(section,list);else root.append(section);return section;
   }
+  // Inside a section, one area per search type: calculator by value, calculator by car, direct
+  // conversation with the search still incomplete, direct conversation with the search defined.
+  function clientArea(section,sectionKey,areaKey,count){
+    let area=section.querySelector(`:scope > [data-area="${areaKey}"]`);if(area)return area;
+    const spec=MCSGroups.AREAS[areaKey];area=element('section',`contact-area contact-area-${areaKey.toLowerCase().replace(/_/g,'-')}`);area.dataset.area=areaKey;area.dataset.section=sectionKey;
+    const head=element('header','contact-area-head');head.append(element('strong','contact-area-label',spec.label),element('span','badge contact-area-count',String(count)),element('span','muted contact-area-hint',spec.hint));area.append(head);section.append(area);return area;
+  }
   function appendClients(root,data){
-    const sections=data.counts?.sections||{};
+    const sections=data.counts?.sections||{},areaCounts=data.counts?.areas||{};
     data.items.forEach((item)=>{const key=item.isLead===false?'NAO_LEAD':(item.group?.key||'ATENDIDO');const spec=key==='NAO_LEAD'?{label:'Não é lead',hint:'Marcados como não é lead · ficam fora das contagens e podem ser restaurados'}:MCSGroups.SECTIONS[key];
-      const section=clientSection(root,key,spec.label,spec.hint,sections[key]||0);const card=clientCard(item);card.dataset.group=key;section.append(card);});
+      const section=clientSection(root,key,spec.label,spec.hint,sections[key]||0);const card=clientCard(item);card.dataset.group=key;
+      const areaKey=MCSGroups.areaOf(item);card.dataset.area=areaKey;
+      // Off-topic and "não é lead" stay as one list (no search to separate).
+      if(key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD')section.append(card);else clientArea(section,key,areaKey,(areaCounts[key]||{})[areaKey]||0).append(card);});
     root.querySelector('.clients-more')?.remove();clientsObserver?.disconnect();
     if(data.hasMore){const remaining=data.total-data.page*data.pageSize,more=element('button','quiet clients-more',`Mostrar mais (${remaining} restantes)`);more.type='button';more.dataset.page=String(data.page+1);
       const next=()=>{if(more.disabled)return;more.disabled=true;more.textContent='Carregando…';loadClientsPage(data.page+1).catch(()=>{more.disabled=false;more.textContent=`Mostrar mais (${remaining} restantes)`;});};

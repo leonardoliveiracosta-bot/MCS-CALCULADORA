@@ -137,7 +137,7 @@ async function loadSearchStageIndex(ctx, options = {}) {
 function decorateWithSearchStage(item, index) {
   const journeyId = item && (item.journeyId || item.journey_id || item.id);
   const stage = journeyId && index.get(journeyId);
-  return stage ? { ...item, searchStage: stage.stage, searchStageSource:stage.stageSource, searchStageLabel: stage.label, searchStageAt: stage.at, searchKey: stage.searchKey, hasCalculatorOrder:stage.hasCalculatorOrder, directLeadSource:stage.directLeadSource, smsPrintConfirmed: stage.smsPrintConfirmed } : item;
+  return stage ? { ...item, searchStage: stage.stage, searchStageSource:stage.stageSource, searchStageLabel: stage.label, searchStageAt: stage.at, searchKey: stage.searchKey, searchModes: Object.keys(stage.modes || {}), hasCalculatorOrder:stage.hasCalculatorOrder, directLeadSource:stage.directLeadSource, smsPrintConfirmed: stage.smsPrintConfirmed } : item;
 }
 
 module.exports = { searchableWish, searchKey, searchIdentity, stageLabel, floridaDays, calculatorRefs, hasCalculatorOrder, directLeadSource, loadSearchStageIndex, decorateWithSearchStage };

@@ -493,12 +493,19 @@ async function actionPresentUndo(ctx, journey, body) {
   if (!found[0]) return send(ctx.res, 404, { error: 'UNIT_NOT_FOUND' });
   const STAGES = ['NOVO', 'RESPONDIDO', 'EM_BUSCA', 'DECIDINDO', 'QUALIFICADO', 'AGUARDANDO_CLIENTE', 'PARADO'];
   const ref = /^[A-HJ-NP-Z2-9]{5}$/.test(String(body.ref || '')) ? String(body.ref) : null;
-  const result = await rpc(ctx, 'panel_unit_present_undo', {
-    p_environment: ctx.environment, p_unit_id: body.unitId, p_actor: ctx.panel.id,
-    p_previous_stage: STAGES.includes(body.previousStage) ? body.previousStage : null,
-    p_previous_search_started_at: body.previousSearchStartedAt && Number.isFinite(Date.parse(body.previousSearchStartedAt)) ? body.previousSearchStartedAt : null,
-    p_ref: ref, p_previous_tracking_step: Number.isInteger(body.previousTrackingStep) ? body.previousTrackingStep : null
-  });
+  let result;
+  try {
+    result = await rpc(ctx, 'panel_unit_present_undo', {
+      p_environment: ctx.environment, p_unit_id: body.unitId, p_actor: ctx.panel.id,
+      p_previous_stage: STAGES.includes(body.previousStage) ? body.previousStage : null,
+      p_previous_search_started_at: body.previousSearchStartedAt && Number.isFinite(Date.parse(body.previousSearchStartedAt)) ? body.previousSearchStartedAt : null,
+      p_ref: ref, p_previous_tracking_step: Number.isInteger(body.previousTrackingStep) ? body.previousTrackingStep : null
+    });
+  } catch (failure) {
+    // The database function is not there yet (migration 20261014020000 not complete): nothing changed.
+    if (failure && failure.status === 404 && !failure.code) return send(ctx.res, 409, { error: 'UNDO_UNAVAILABLE' });
+    throw failure;
+  }
   await recordMutation(ctx, { at: isoNow(), journeyId: journey.id, contactId: journey.contact_id, activityType: 'UNIT_UPDATED', summary: 'Apresentação desfeita', metadata: { unit_id: body.unitId },
     entityType: 'unit', entityId: body.unitId, action: 'UNDO', after: result });
   return send(ctx.res, 200, result);

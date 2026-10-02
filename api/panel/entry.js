@@ -8,6 +8,7 @@ const { lastRealMessageAt } = require('../../panel-sort');
 const { isGenericTitle } = require('../../painel/parser');
 const { activeRows: activeTriage } = require('../../panel-triage');
 const { chatGroupIndex, MESSAGE_SELECT } = require('../../panel-chat-groups');
+const { loadSearchStageIndex } = require('../../panel-search-stage');
 
 const json = async (req) => {
   if (typeof req.body === 'object' && req.body !== null) return req.body;
@@ -419,9 +420,12 @@ async function queue(ctx, res) {
   const byChat = Object.fromEntries(counts.map((item) => [item.chat_id, item]));
   // Adendo: the same contact groups of HOJE and CLIENTES (fora do assunto > não atendido > origem).
   const chatGroups = await chatGroupIndex(ctx, { chats, messages: chatMessages }).catch(() => new Map());
+  // The search types already defined for each ficha place the conversation in its area.
+  const stageIndex = await loadSearchStageIndex(ctx).catch(() => new Map());
+  const searchModesOf = (journeyId) => { const stage = journeyId && stageIndex.get(journeyId); return stage ? Object.keys(stage.modes || {}) : []; };
   const contactsById = new Map(contacts.map((item) => [item.id, item]));
   return send(res, 200, {
-    chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, triageOut: triageOut.has(chat.id), group: chatGroups.get(chat.id)?.group || null, lastCustomerMessage: chatGroups.get(chat.id)?.lastCustomerMessage || null, groupJourneyId: chatGroups.get(chat.id)?.journeyId || null, newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
+    chats: chats.map((chat) => ({ ...chat, lastRealMessageAt: lastRealMessageAt(messagesByChat.get(chat.id)), sortAt: lastRealMessageAt(messagesByChat.get(chat.id)), contact: contactsById.get(chat.contact_id) || null, triageOut: triageOut.has(chat.id), group: chatGroups.get(chat.id)?.group || null, lastCustomerMessage: chatGroups.get(chat.id)?.lastCustomerMessage || null, groupJourneyId: chatGroups.get(chat.id)?.journeyId || null, searchModes: searchModesOf(chatGroups.get(chat.id)?.journeyId), newMessageCount: byChat[chat.id] ? byChat[chat.id].inserted_count : 0, hasTimeUncertain: Boolean(byChat[chat.id] && byChat[chat.id].has_time_uncertain) })),
     // "Ligar a um lead" offers only fichas that can receive a conversation: never a contact marked
     // "não é lead" nor a switched-off ficha (R3). The list itself stays whole for the other forms.
     reviews, printReviews, failedPrints, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id),

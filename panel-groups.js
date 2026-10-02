@@ -39,6 +39,15 @@
     FORA_DO_ASSUNTO: { key: 'FORA_DO_ASSUNTO', label: 'Fora do assunto', hint: 'A conversa inteira nunca tratou de carro, compra, financiamento, orçamento ou serviço da MCS · Na dúvida a conversa fica no fluxo principal · \'É sobre carro\' corrige e fica guardado · Nada é apagado', order: 2 }
   };
   const ORDER = ['NAO_ATENDIDO', 'ATENDIDO', 'FORA_DO_ASSUNTO'];
+  // Areas inside each section: the two calculator types generate different searches, and direct
+  // conversations whose search is still incomplete are apart from those already defined.
+  const AREAS = {
+    CALC_VALOR: { key: 'CALC_VALOR', label: 'Calculadora · Por valor', hint: 'Calculate My Cost: carro e lance máximo · gera a busca por valor (MMR)' },
+    CALC_CARRO: { key: 'CALC_CARRO', label: 'Calculadora · Por carro', hint: 'Find One For Me: carro, faixa de ano e de milhagem · gera a busca por carro' },
+    DIRETA_INCOMPLETA: { key: 'DIRETA_INCOMPLETA', label: 'Conversa direta · busca incompleta', hint: 'Veio por mensagem ou pela vitrine, sem calculadora · ainda falta o tipo de busca ou um dado para buscar' },
+    DIRETA_DEFINIDA: { key: 'DIRETA_DEFINIDA', label: 'Conversa direta · busca definida', hint: 'Veio por mensagem ou pela vitrine, sem calculadora · a busca já está definida' }
+  };
+  const AREA_ORDER = ['CALC_VALOR', 'CALC_CARRO', 'DIRETA_INCOMPLETA', 'DIRETA_DEFINIDA'];
 
   const stamp = (value) => { if (typeof value === 'number') return Number.isFinite(value) ? value : 0; const parsed = Date.parse(value || ''); return Number.isFinite(parsed) ? parsed : 0; };
   const iso = (value) => { const at = stamp(value); return at ? new Date(at).toISOString() : null; };
@@ -74,11 +83,13 @@
     const simulations = (orders || []).filter(Boolean).flatMap((order) => order.simulations && order.simulations.length ? order.simulations : [order])
       .slice().sort((a, b) => stamp(b.occurredAt) - stamp(a.occurredAt));
     const calcModes = [...new Set(simulations.map((item) => item.logicalMode).concat((orders || []).flatMap((order) => (order && order.logicalModes) || [])).filter((mode) => mode === 'CARRO' || mode === 'VALOR'))];
+    // The type of the most recent simulation decides the calculator area (one person, one place).
+    const calcMode = (simulations.find((item) => item.logicalMode === 'CARRO' || item.logicalMode === 'VALOR') || {}).logicalMode || (calcModes.length === 1 ? calcModes[0] : null);
     const calcChannel = simulations.map((item) => String(item.contactChannel || item.channel || '').toUpperCase()).find((value) => /SMS|WHATSAPP/.test(value)) || null;
     const off = journey && (journey.enabled === false || journey.status === 'ENCERRADO');
     return {
       hasCalculator: simulations.length > 0 || calcModes.length > 0,
-      calcModes, calcAt: simulations[0] ? simulations[0].occurredAt || null : null, calcChannel: calcChannel ? (calcChannel.includes('SMS') ? 'SMS' : 'WHATSAPP') : null,
+      calcModes, calcMode, calcAt: simulations[0] ? simulations[0].occurredAt || null : null, calcChannel: calcChannel ? (calcChannel.includes('SMS') ? 'SMS' : 'WHATSAPP') : null,
       source: journey ? journey.source || null : null,
       financing: isFinancing(s.first_customer_text),
       firstCustomerAt: s.first_customer_at || null,
@@ -158,7 +169,22 @@
     const origin = originOf(f);
     const unattended = f.offTopic ? null : unattendedOf(f, now);
     const key = f.offTopic ? 'FORA_DO_ASSUNTO' : unattended ? 'NAO_ATENDIDO' : 'ATENDIDO';
-    return { key, label: SECTIONS[key].label, origin, unattended, hasCalculator: Boolean(f.hasCalculator), offTopic: Boolean(f.offTopic), offTopicSource: f.offTopic ? f.offTopicSource || null : null };
+    return { key, label: SECTIONS[key].label, origin, unattended, hasCalculator: Boolean(f.hasCalculator), calcMode: f.calcMode || null, offTopic: Boolean(f.offTopic), offTopicSource: f.offTopic ? f.offTopicSource || null : null };
+  }
+
+  // The area of a listed contact. searchModes: the search types already defined for the ficha
+  // (panel-search-stage); a direct conversation without one is still incomplete.
+  function areaOf(item) {
+    const group = (item && item.group) || {};
+    if (group.hasCalculator) return group.calcMode === 'CARRO' ? 'CALC_CARRO' : 'CALC_VALOR';
+    const modes = item && (item.searchModes || []);
+    return modes && modes.length ? 'DIRETA_DEFINIDA' : 'DIRETA_INCOMPLETA';
+  }
+  // The areas of a list of items, in order (empty ones left out).
+  function areas(items) {
+    const buckets = new Map(AREA_ORDER.map((key) => [key, []]));
+    (items || []).forEach((item) => buckets.get(areaOf(item)).push(item));
+    return AREA_ORDER.map((key) => ({ ...AREAS[key], items: buckets.get(key) })).filter((area) => area.items.length);
   }
 
   // Origin filter: 'all', a group ('MENSAGEM'), a sub-group ('MENSAGEM:SMS') or the financing tag.
@@ -186,5 +212,5 @@
     return s.last_customer_id && String(s.last_customer_text || '').trim() ? { id: s.last_customer_id, text: String(s.last_customer_text).slice(0, 600), at: s.last_customer_at || null } : null;
   }
 
-  return { ORIGINS, ORIGIN_OPTIONS, SECTIONS, ORDER, STALE_DAYS, FINANCING_RE, isFinancing, channelOf, summaryFromMessages, factsFor, originOf, unattendedOf, classify, matchesOrigin, split, waited, latestCustomerMessage };
+  return { ORIGINS, ORIGIN_OPTIONS, SECTIONS, ORDER, AREAS, AREA_ORDER, areaOf, areas, STALE_DAYS, FINANCING_RE, isFinancing, channelOf, summaryFromMessages, factsFor, originOf, unattendedOf, classify, matchesOrigin, split, waited, latestCustomerMessage };
 }));

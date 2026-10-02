@@ -163,15 +163,24 @@ function clientsPage(listed, query = {}, now = Date.now()) {
   const sorted = sortItems(filtered, q('sort', 'ready'), 'ready');
   // Sections first (não atendidos, atendidos, fora do assunto); "não é lead" at the very end, apart.
   const sectionOf = (item) => item.isLead === false ? 3 : SECTION_ORDER[item.group?.key] ?? 1;
-  const ordered = sorted.map((item, index) => ({ item, index })).sort((a, b) => sectionOf(a.item) - sectionOf(b.item) || (a.item.group?.key === 'NAO_ATENDIDO' && b.item.group?.key === 'NAO_ATENDIDO' ? (b.item.group.unattended?.waitedMs || 0) - (a.item.group.unattended?.waitedMs || 0) : 0) || a.index - b.index).map((entry) => entry.item);
+  // Inside each section, the areas (calculator by value, by car, direct incomplete, direct defined).
+  const areaRank = (item) => groups.AREA_ORDER.indexOf(groups.areaOf(item));
+  const ordered = sorted.map((item, index) => ({ item, index })).sort((a, b) => sectionOf(a.item) - sectionOf(b.item) || areaRank(a.item) - areaRank(b.item) || (a.item.group?.key === 'NAO_ATENDIDO' && b.item.group?.key === 'NAO_ATENDIDO' ? (b.item.group.unattended?.waitedMs || 0) - (a.item.group.unattended?.waitedMs || 0) : 0) || a.index - b.index).map((entry) => entry.item);
   const sections = { NAO_ATENDIDO: 0, ATENDIDO: 0, FORA_DO_ASSUNTO: 0, NAO_LEAD: 0 };
-  ordered.forEach((item) => { sections[item.isLead === false ? 'NAO_LEAD' : item.group?.key || 'ATENDIDO'] += 1; });
+  const areas = {};
+  ordered.forEach((item) => {
+    const section = item.isLead === false ? 'NAO_LEAD' : item.group?.key || 'ATENDIDO';
+    sections[section] += 1;
+    const area = groups.areaOf(item);
+    areas[section] = areas[section] || {};
+    areas[section][area] = (areas[section][area] || 0) + 1;
+  });
   const pageSize = Math.min(String(query.export || '') === '1' ? 5000 : 200, Math.max(1, Number(query.pageSize) || PAGE_SIZE));
   const page = Math.max(1, Number(query.page) || 1);
   const shownLeads = ordered.filter((item) => item.isLead !== false).length;
   return {
     items: ordered.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total: ordered.length, hasMore: page * pageSize < ordered.length,
-    counts: { periodLeads: leads.filter(inPeriod).length, allLeads: leads.length, shownLeads, nonLeads: sections.NAO_LEAD, situations, sections }
+    counts: { periodLeads: leads.filter(inPeriod).length, allLeads: leads.length, shownLeads, nonLeads: sections.NAO_LEAD, situations, sections, areas }
   };
 }
 
@@ -187,9 +196,10 @@ module.exports = async (req, res) => {
       const [{ listed, meta }, stageIndex, pendingRun, history] = await Promise.all([clientList(ctx, activeBatch), loadSearchStageIndex(ctx),
         rows(ctx, 'conversation_general_read_runs', { select: 'status,total_conversations,completed_conversations,budget_usd,spent_usd,reserved_usd,last_error,started_at,updated_at', environment: 'eq.' + ctx.environment, limit: '1' }).catch(() => []),
         rows(ctx, 'whatsapp_raw_events', { select: 'received_at', environment: 'eq.' + ctx.environment, event_type: 'in.(history,mixed)', order: 'received_at.desc', limit: '1' }).catch(() => [])]);
-      const page = clientsPage(listed, req.query || {});
+      // Decorated first: the search types defined place each contact in its area.
+      const page = clientsPage(listed.map((item) => decorateWithSearchStage(item, stageIndex)), req.query || {});
       const lastHistoryAt = history[0]?.received_at || null;
-      return send(res, 200, { environment: ctx.environment, ...page, items: page.items.map((item) => decorateWithSearchStage(item, stageIndex)), meta,
+      return send(res, 200, { environment: ctx.environment, ...page, meta,
         pending: { run: pendingRun[0] || { status: 'IDLE', total_conversations: 0, completed_conversations: 0, budget_usd: null, spent_usd: 0, reserved_usd: 0 }, lastHistoryAt, historyReady: !lastHistoryAt || Date.now() - Date.parse(lastHistoryAt) >= 30 * 60000 } });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });

@@ -204,3 +204,24 @@ test('sem carros: motivo em linguagem simples, do passo mais largo ao mais estre
   // A car without a valid MMR never counts as present.
   assert.equal(wishReason({ make: 'Toyota', model: 'Camry' }, [car('Toyota', 'Camry', 2019, 1000, null)]).code, 'NO_MAKE');
 });
+
+test('áreas: calculadora por valor e por carro separadas; conversa direta incompleta à parte da definida', () => {
+  const calc = (mode, hours) => ({ simulations: [{ logicalMode: mode, occurredAt: iso(hours) }] });
+  const item = (facts, extra = {}) => ({ group: groups.classify(groups.factsFor(facts), NOW), ...extra });
+  const valor = item({ messages: [msg('a', 'CUSTOMER', 3)], orders: [calc('VALOR', 5)] });
+  const carro = item({ messages: [msg('a', 'CUSTOMER', 3)], orders: [calc('CARRO', 5)] });
+  // The most recent simulation decides (one person, one place).
+  const both = item({ messages: [msg('a', 'CUSTOMER', 3)], orders: [{ simulations: [{ logicalMode: 'VALOR', occurredAt: iso(9) }, { logicalMode: 'CARRO', occurredAt: iso(4) }] }] });
+  const incompleta = item({ messages: [msg('a', 'CUSTOMER', 3)] });
+  const definida = item({ messages: [msg('a', 'CUSTOMER', 3)] }, { searchModes: ['VALOR'] });
+  assert.deepEqual([valor, carro, both, incompleta, definida].map(groups.areaOf), ['CALC_VALOR', 'CALC_CARRO', 'CALC_CARRO', 'DIRETA_INCOMPLETA', 'DIRETA_DEFINIDA']);
+  const areas = groups.areas([definida, incompleta, carro, valor]);
+  assert.deepEqual(areas.map((area) => [area.key, area.items.length]), [['CALC_VALOR', 1], ['CALC_CARRO', 1], ['DIRETA_INCOMPLETA', 1], ['DIRETA_DEFINIDA', 1]]);
+  areas.forEach((area) => assert.ok(area.label && area.hint));
+  // CLIENTES: same order and the counts of each area per section, from the server.
+  const { clientsPage } = require('../api/panel/records');
+  const listed = [definida, incompleta, carro, valor].map((entry, index) => ({ id: 'c' + index, isLead: true, lastActivityAt: iso(1), ...entry }));
+  const page = clientsPage(listed, { period: 'all' }, NOW);
+  assert.deepEqual(page.items.map(groups.areaOf), ['CALC_VALOR', 'CALC_CARRO', 'DIRETA_INCOMPLETA', 'DIRETA_DEFINIDA']);
+  assert.deepEqual(page.counts.areas.NAO_ATENDIDO, { CALC_VALOR: 1, CALC_CARRO: 1, DIRETA_INCOMPLETA: 1, DIRETA_DEFINIDA: 1 });
+});

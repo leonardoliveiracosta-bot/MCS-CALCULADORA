@@ -113,7 +113,19 @@
       add(head, 'strong', 'contact-group-label', group.label);
       add(head, 'span', 'badge contact-group-count', String(group.items.length));
       add(head, 'span', 'muted contact-group-hint', group.hint);
-      group.items.forEach((item) => { const card = renderCard(item); if (card) { card.dataset.group = group.key; section.append(card); } });
+      // Inside each section, one area per search type (calculator by value, by car, direct
+      // conversation incomplete, direct with the search defined); off-topic stays one list.
+      const place = (target, item) => { const card = renderCard(item); if (card) { card.dataset.group = group.key; card.dataset.area = groupsApi().areaOf(item); target.append(card); } };
+      if (folded) group.items.forEach((item) => place(section, item));
+      else groupsApi().areas(group.items).forEach((area) => {
+        const box = add(section, 'section', `contact-area contact-area-${area.key.toLowerCase().replace(/_/g, '-')}`);
+        box.dataset.area = area.key;
+        const areaHead = add(box, 'header', 'contact-area-head');
+        add(areaHead, 'strong', 'contact-area-label', area.label);
+        add(areaHead, 'span', 'badge contact-area-count', String(area.items.length));
+        add(areaHead, 'span', 'muted contact-area-hint', area.hint);
+        area.items.forEach((item) => place(box, item));
+      });
       root.append(section);
     });
     if (onRendered) onRendered(root);
