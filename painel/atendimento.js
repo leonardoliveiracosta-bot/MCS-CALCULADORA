@@ -43,6 +43,8 @@
     if (item.promiseToday) out.push({ kind: 'PROMESSA', text: 'Retorno prometido para hoje' });
     if (item.returnedToTalk) out.push({ kind: 'VOLTOU', text: 'Voltou a falar' });
     if (item.pendingAiCount) out.push({ kind: 'IA', text: `${item.pendingAiCount} itens da IA para confirmar` });
+    // Two simulations fit the same message (same window, same criteria): both are shown, nothing is linked on a guess.
+    if (Array.isArray(group.refTie) && group.refTie.length > 1) out.push({ kind: 'REF_EMPATE', text: 'Qual simulação é deste cliente? ' + group.refTie.map((entry) => `${entry.ref} (${[entry.marca, entry.modelo].filter(Boolean).join(' ') || 'carro não informado'}${entry.lance ? ' · lance US$ ' + Number(entry.lance).toLocaleString('en-US') : ''})`).join(' ou ') });
     if (item.aiLinkSuggested) out.push({ kind: 'VINCULO', text: 'Confirmar vínculo sugerido' });
     if (next && next <= now && !out.some((reason) => reason.kind === 'NEXT_ACTION')) out.push({ kind: 'NEXT_ACTION', text: 'Próxima ação vencida' });
     return out;

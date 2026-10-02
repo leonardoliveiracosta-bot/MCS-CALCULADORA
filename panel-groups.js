@@ -120,7 +120,7 @@
       // Origin Calculadora is also proven by the stored identity (the client's calculator message without a recoverable Ref).
       hasCalculator: simulations.length > 0 || calcModes.length > 0 || Boolean(calcProof && calcProof.hasCalcRef) || Boolean(identity && identity.calcOrigin) || Boolean(template),
       refState: refStateOf({ hasCalcRef: simulations.length > 0 || calcModes.length > 0 || Boolean(calcProof && calcProof.hasCalcRef), identity, template }),
-      identityStatus: identity ? identity.status || null : null, identityState: identity ? identity.state || null : null,
+      identityStatus: identity ? identity.status || null : null, refTie: identity && identity.conflict && Array.isArray(identity.conflict.tie) ? identity.conflict.tie : null, identityState: identity ? identity.state || null : null,
       subject: subject || null,
       calcModes, calcMode, calcAt: simulations[0] ? simulations[0].occurredAt || null : calcProof && calcProof.messageAt || null, calcChannel: calcChannel ? (calcChannel.includes('SMS') ? 'SMS' : 'WHATSAPP') : null,
       source: journey ? journey.source || null : null,
@@ -204,7 +204,7 @@
     const unattended = f.offTopic ? null : unattendedOf(f, now);
     const key = f.offTopic ? 'FORA_DO_ASSUNTO' : unattended ? 'NAO_ATENDIDO' : 'ATENDIDO';
     return { key, label: SECTIONS[key].label, origin, unattended, hasCalculator: Boolean(f.hasCalculator), calcMode: f.calcMode || null, offTopic: Boolean(f.offTopic), offTopicSource: f.offTopic ? f.offTopicSource || null : null,
-      identityStatus: f.identityStatus || null, refState: f.refState || (f.hasCalculator ? 'COM_REF' : 'SEM_REF'), subject: subjectOf(f.subject) };
+      identityStatus: f.identityStatus || null, refTie: f.refTie || null, refState: f.refState || (f.hasCalculator ? 'COM_REF' : 'SEM_REF'), subject: subjectOf(f.subject) };
   }
 
   // The area of a listed contact. searchModes: the search types already defined for the ficha
