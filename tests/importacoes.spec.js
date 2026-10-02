@@ -83,11 +83,11 @@ for (const width of [1366, 390]) {
     await expect(page.locator('#manheim-batches .batch-line').first()).toContainText('Ativo · em uso', { timeout: 60000 });
     await noOverflow();
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `importacoes-central-${width}.png`), fullPage: true });
-    // ENTRADA keeps a way there; the automatic messages stay (they are a setting, not an import).
-    await page.locator('[data-view="entry"]').click();
-    await expect(page.locator('#entry-panel #auto-print-card, #entry-panel #sms-form, #entry-panel #whatsapp-files, #entry-panel #history-import-file')).toHaveCount(0);
-    await expect(page.locator('#entry-panel #automatic-messages-card')).toHaveCount(1);
-    await page.locator('#entry-go-imports').click();
+    // The automatic messages are a setting, not an import: they live in Configurações e conexão.
+    await page.locator('[data-view="settings"]').click();
+    await expect(page.locator('#settings-panel #auto-print-card, #settings-panel #sms-form, #settings-panel #whatsapp-files, #settings-panel #history-import-file')).toHaveCount(0);
+    await expect(page.locator('#settings-panel #automatic-messages-card')).toHaveCount(1);
+    await page.locator('nav [data-view="imports"]').click();
     await expect(page.locator('#imports-panel')).toBeVisible();
     await noOverflow();
     expect(errors).toEqual([]);
@@ -156,7 +156,7 @@ test('prints não guardados esperam na ENTRADA: tentar ler de novo, guardar ou d
   await expect(read.locator('button', { hasText: 'Guardar pelo painel' })).toBeVisible();
   await expect(read.locator('input[type="tel"]')).toBeVisible();
   // A print being read right now is not an orphan and does not show up.
-  await expect(page.locator('#entry-queue')).not.toContainText('agora.png');
+  await expect(page.locator('#today-panel')).not.toContainText('agora.png');
   await failed.locator('button', { hasText: 'Descartar print' }).click();
   await expect(cards).toHaveCount(1, { timeout: 30000 });
   expect((await backend.db.query(`select status from public.sms_print_reads where id='7a000000-0000-4000-8000-000000000001'`)).rows[0].status).toBe('DISCARDED');

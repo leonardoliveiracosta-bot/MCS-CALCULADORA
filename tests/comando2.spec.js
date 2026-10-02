@@ -69,8 +69,8 @@ for (const width of [1280, 390]) {
     const errors = [];
     page.on('pageerror', (failure) => errors.push(failure.message));
     const state = await open(page, width);
-    await page.locator('[data-view="entry"]').click();
-    await expect(page.locator('#topic-out-count')).toHaveText('1', { timeout: 30000 });
+    // "Fora do assunto" is folded at the end of ATENDIMENTO (the old ENTRADA is part of it).
+    await expect(page.locator('#today-panel #topic-out-count')).toHaveText('1', { timeout: 30000 });
     await expect(page.locator('#topic-out')).toContainText('Na dúvida a conversa fica no fluxo principal');
     await expect(page.locator('#topic-out')).toContainText("'É sobre carro' corrige e fica guardado");
     await page.locator('#topic-out summary').click();

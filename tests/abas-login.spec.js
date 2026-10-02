@@ -16,9 +16,12 @@ if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: proce
 const SHOTS = process.env.ABAS_SHOTS || '';
 test.setTimeout(120000);
 
-const TODAY = { items: [{ ref: 'AAAA2', key: 'AAAA2', pending: true, contactName: 'Cliente Hoje', simulations: [] }], meta: { dataUpdatedAt: new Date().toISOString() } };
+// One case that depends on you (the client wrote last): ATENDIMENTO counts it.
+const TODAY = { items: [{ ref: 'AAAA2', key: 'AAAA2', pending: true, awaitingReply: true, contactName: 'Cliente Hoje', simulations: [] }], meta: { dataUpdatedAt: new Date().toISOString() } };
 const RECORDS = { items: [], page: 1, pageSize: 50, total: 0, hasMore: false, counts: { periodLeads: 0, allLeads: 0, shownLeads: 0, nonLeads: 0, situations: {}, sections: {} }, meta: {} };
 const SEARCHES = { items: [{ key: 'j1:VALOR', journeyId: 'j1', mode: 'VALOR' }, { key: 'j2:CARRO', journeyId: 'j2', mode: 'CARRO' }], countsByMode: {} };
+// ENVIAR OPÇÕES counts people with cars in the batch (same rule as its list).
+const OPTIONS = { items: [], orders: [], demands: [{ key: 'd1', journeyId: 'j1', mode: 'VALOR', matchCount: 3 }, { key: 'd2', journeyId: 'j2', mode: 'CARRO', matchCount: 1 }, { key: 'd3', journeyId: 'j1', mode: 'CARRO', matchCount: 2 }], review: [], meta: {} };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // visibility: the state this tab starts in; api: overrides per path.
@@ -54,7 +57,7 @@ async function preparePage(page, options = {}) {
       if (url.pathname === '/api/panel/config') return await json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
       if (url.pathname === '/api/panel/session') return await json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
       if (url.pathname === '/api/panel/today') { if (options.slowToday) await sleep(options.slowToday); return await json(TODAY); }
-      if (url.pathname === '/api/panel/records') return await json(RECORDS);
+      if (url.pathname === '/api/panel/records') return await json(url.searchParams.get('view') === 'manheim' ? OPTIONS : RECORDS);
       if (url.pathname === '/api/panel/searches') return await json(SEARCHES);
       return await json({ items: [], orders: [], groups: [], chats: [], reviews: [], requests: [], review: [], meta: {} });
     } finally { inflight.set(url.pathname, (inflight.get(url.pathname) || 1) - 1); }
@@ -100,12 +103,15 @@ test('sessão falha: erro claro e "Tentar novamente" recupera; tempo esgotado ta
   await expect(retry).toBeHidden();
 });
 
-test('contadores: "—" durante o carregamento; falha em BUSCAS não zera nada e mantém o último valor', async ({ page }) => {
+test('contadores: "—" durante o carregamento; falha em ENVIAR OPÇÕES não zera nada e mantém o último valor', async ({ page }) => {
+  test.setTimeout(200000);
   let recordsGate, searchesFail = false;
   const gate = new Promise((resolve) => { recordsGate = resolve; });
   await preparePage(page, { api: {
-    '/api/panel/records': async () => { await gate; return { body: RECORDS }; },
-    '/api/panel/searches': async () => searchesFail ? { status: 500, body: { error: 'PANEL_SEARCHES_ERROR' } } : { body: SEARCHES }
+    '/api/panel/records': async ({ url }) => {
+      if (url.searchParams.get('view') === 'manheim') return searchesFail ? { status: 500, body: { error: 'PANEL_RECORDS_ERROR' } } : { body: OPTIONS };
+      await gate; return { body: RECORDS };
+    }
   } });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#app-view')).toBeVisible();
@@ -116,9 +122,9 @@ test('contadores: "—" durante o carregamento; falha em BUSCAS não zera nada e
   await expect(page.locator('.tab[data-view="clients"] [data-count]')).toHaveText('0');
   await expect(page.locator('.tab[data-view="searches"] [data-count]')).toHaveText('2');
   await expect(page.locator('.tab[data-view="today"] [data-count]')).toHaveText('1');
-  // BUSCAS fails on the next update: it keeps 2 (marked), HOJE and CLIENTES are not touched.
+  // ENVIAR OPÇÕES fails on the next update: it keeps 2 (marked), ATENDIMENTO and CLIENTES are not touched.
   searchesFail = true;
-  await page.waitForTimeout(10500); // the counters reuse answers of the last 10 s
+  await page.waitForTimeout(60500); // the ENVIAR OPÇÕES counter reuses answers of the last 60 s
   // Next counters update (the same one an action triggers).
   await page.evaluate(() => window.__mcsRefresh.counters());
   await expect(page.locator('#counters-note')).toContainText('Não foi possível atualizar', { timeout: 15000 });

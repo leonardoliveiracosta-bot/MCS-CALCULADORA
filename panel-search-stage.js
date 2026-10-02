@@ -27,7 +27,7 @@ function searchIdentity(wish, mode) {
   if (!base || !normalized) return null;
   return { mode: normalized, basis: normalized === 'CARRO' ? 'CRITERIA' : 'VALUE', key: normalized === 'CARRO' ? base : base + '|valor' };
 }
-function stageLabel(stage, basis) { if (stage === 'MISSING' && basis === 'QUALIFY') return '❓ Precisa qualificar'; return ({ MISSING: '🔍 Falta buscar', SAVED: '💾 Busca salva', SENT: '📤 Opções enviadas' })[stage] || ''; }
+function stageLabel(stage, basis) { if (stage === 'MISSING' && basis === 'QUALIFY') return '❓ Precisa qualificar'; return ({ MISSING: '🔍 Busca não salva no Manheim', SAVED: '💾 Busca salva no Manheim', SENT: '📤 Opções enviadas' })[stage] || ''; }
 function floridaDays(at, now = Date.now()) {
   const stamp = Date.parse(at || '');
   return Number.isFinite(stamp) ? Math.max(0, Math.floor((now - stamp) / 86400000)) : 0;

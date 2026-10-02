@@ -27,6 +27,7 @@ const search = require('../../panel-search-requests');
 const toFicha = require('../../panel-search-to-ficha');
 const rematch = require('../../panel-rematch');
 const { emptyReasons } = require('../../search-empty-reason');
+const merge = require('../../panel-request-merge');
 
 const COMPARE_BATCH = 40;
 const safe = (promise, fallback) => promise.catch((error) => { if (search.tableMissing(error)) return fallback; throw error; });
@@ -86,9 +87,14 @@ async function buildList(ctx) {
     wishes.forEach((wish, index) => {
       const criteria = Object.fromEntries(Object.entries({ make: wish.make || null, model: wish.model || null, trim: wish.trim || null, yearMin: Number(wish.yearMin) || null, yearMax: Number(wish.yearMax) || null,
         minMiles: Number(wish.minMiles) || null, maxMiles: Number(wish.maxMiles) || null, budgetUsd: demand.mode === 'VALOR' && demand.bidCents ? Math.round(demand.bidCents / 100) : null }).filter(([, value]) => value));
-      const described = requests.describe({ criteria }, requests.SEARCH_MODES.includes(demand.mode) ? [demand.mode] : requests.SEARCH_MODES);
+      const knownMode = requests.SEARCH_MODES.includes(demand.mode);
+      const described = requests.describe({ criteria }, knownMode ? [demand.mode] : requests.SEARCH_MODES);
       const itemKey = key + (wishes.length > 1 ? '#' + index : '');
       const item = { ...common, key: itemKey, criteria, criteriaText: requests.criteriaText(criteria), completeness: described.completeness, searchMode: described.searchMode, missing: described.missing, lacks: described.lacks, lacksText: described.lacksText, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [] };
+      // The ficha/calculator never said the search type: it goes to review, never to a type picked
+      // from the criteria (above all never to "por valor" by default). The key and hash stay the same.
+      if (!knownMode && described.completeness === 'PRONTO') Object.assign(item, { completeness: 'PRECISA_REVISAO', searchMode: null, comparable: false, missing: [], typeUnknown: true,
+        reviewReason: 'Tipo de busca não definido no pedido: escolha por valor ou por carro' });
       items.push(finish(item, checkByKey.get(itemKey + '|' + described.criteriaHash) || null, uploadId));
     });
   }
@@ -411,7 +417,12 @@ module.exports = async (req, res) => {
       const url = new URL(req.url, 'http://painel.local');
       if (url.searchParams.get('view') === 'audit') return send(res, 200, await audit(ctx));
       const list = await buildList(ctx);
-      return send(res, 200, { ...list, items: list.items.map(({ targets, ...item }) => item) });
+      // The ficha request and the same request read by the AI from its conversation are one
+      // request on screen (the reading stays as its unconfirmed evidence); the counts follow the list.
+      const shown = merge.present(list.items);
+      const items = shown.items.map(({ targets, ...item }) => item);
+      return send(res, 200, { ...list, items, counts: Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length])),
+        totals: merge.counts(items, STATES), mergedReadings: shown.merged });
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await jsonBody(req, 16 * 1024);

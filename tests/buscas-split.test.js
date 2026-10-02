@@ -358,17 +358,23 @@ test('27 · desfazer duas vezes é idempotente no servidor e sem migração resp
 });
 
 // ------------------------------------------------------------------ 33 Arquivo do Manheim primeiro
-test('33 · IMPORTAÇÕES tem o arquivo e os lotes; OPÇÕES tem VALOR antes de CARRO, sem upload', () => {
+test('33 · IMPORTAÇÕES tem o arquivo e os lotes; ENVIAR OPÇÕES e BUSCAR CARROS têm VALOR antes de CARRO, sem upload', () => {
   const html = read('painel/index.html');
   const imports = html.slice(html.indexOf('<section id="imports-panel"'), html.indexOf('<section id="searches-panel"'));
   const panel = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="manheim-panel"'));
+  const search = html.slice(html.indexOf('<section id="requests-panel"'), html.indexOf('<section id="imports-panel"'));
   assert.ok(imports.indexOf('id="manheim-files"') >= 0 && imports.indexOf('id="manheim-files"') < imports.indexOf('id="manheim-batches"'));
-  const order = ['id="buscas-valor"', 'id="buscas-carro"', 'id="buscas-review"'].map((marker) => panel.indexOf(marker));
+  const order = ['id="buscas-valor"', 'id="buscas-carro"'].map((marker) => panel.indexOf(marker));
   assert.ok(order.every((position) => position >= 0), JSON.stringify(order));
   assert.deepEqual(order.slice().sort((a, b) => a - b), order);
-  assert.doesNotMatch(panel, /manheim-files|manheim-batches/);
+  const searchOrder = ['id="search-col-valor"', 'id="buscas-valor-saved"', 'id="search-col-carro"', 'id="buscas-carro-saved"', 'id="buscas-review"'].map((marker) => search.indexOf(marker));
+  assert.ok(searchOrder.every((position) => position >= 0), JSON.stringify(searchOrder));
+  assert.deepEqual(searchOrder.slice().sort((a, b) => a - b), searchOrder);
+  assert.doesNotMatch(panel + search, /manheim-files|manheim-batches/);
   assert.match(panel, /Calculate My Cost/);
   assert.match(panel, /Find One For Me/);
+  assert.match(search, /Calculate My Cost/);
+  assert.match(search, /Find One For Me/);
 });
 
 // ------------------------------------------------------------------ 35-44 OpenAI
@@ -530,7 +536,7 @@ test('revisão 5 · o score da ficha usa as demandas da Ref ligada (QUALIFICAÇ�
 });
 
 test('revisão 6 e 7 · contadores sem duplicar e leitura falha fechada quando o banco responde erro', async () => {
-  assert.match(read('painel/painel.js'), /count\('searches', searches, \(data\) => new Set\(\(data\.items \|\| \[\]\)\.map\(\(item\) => item\.journeyId \|\| item\.key\)\)\.size\)/);
+  assert.match(read('painel/painel.js'), /count\('searches', options, \(data\) => optionsPeopleOf\(data\)\)/);
   // One count per person answered by the database (distinct cars, MMR mandatory).
   assert.match(read('api/panel/records.js'), /manheimMatchCount: manheim\.byJourney\.get\(item\.id\) \|\| 0/);
   assert.match(read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql'), /count\(distinct m\.row_fingerprint\)::integer/);

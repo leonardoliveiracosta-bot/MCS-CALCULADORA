@@ -1046,12 +1046,10 @@ body > .action-feedback { position: fixed; left: 16px; right: 16px; bottom: 16px
 .import-facts { margin: 0; padding-left: 18px; display: grid; gap: 4px; color: var(--mcs-muted); font-size: .9rem; }
 .import-facts:empty { display: none; }
 .import-info .import-facts { color: inherit; }
-.import-draft-note { margin: 0 0 14px; padding: 8px 12px; border: 1px dashed currentColor; border-radius: 10px; font-size: .88rem; }
 @media (max-width: 899px) {
   .import-cards { grid-template-columns: 1fr; }
   .import-cards #import-card-manheim { grid-column: auto; }
 }
-#entry-imports-link h2[data-draft]::after { content: " · texto provisório"; font-size: .7em; opacity: .7; }
 
 /* Contexto do cliente: o mesmo resumo em todas as abas (painel/contexto.js). */
 .client-context { display: grid; gap: 8px; margin: 10px 0 4px; padding: 10px 12px; border: 1px solid var(--mcs-line); border-left: 3px solid var(--mcs-gold); border-radius: var(--mcs-radius-sm); background: var(--mcs-surface); color: var(--mcs-text); font-size: 13px; min-width: 0; cursor: default; }

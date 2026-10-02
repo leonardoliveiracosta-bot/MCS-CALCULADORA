@@ -24,7 +24,7 @@ const RULE_VERSION = 'pedidos-v2';
 const COMPLETENESS = Object.freeze(['PRONTO', 'PRECISA_DETALHE', 'PRECISA_REVISAO']);
 const COMPLETENESS_LABELS = Object.freeze({ PRONTO: 'PRONTO PARA BUSCAR', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' });
 const RESULTS = Object.freeze(['FALTA_BUSCAR', 'COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO']);
-const RESULT_LABELS = Object.freeze({ FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', COM_CANDIDATOS: 'CANDIDATOS NO LOTE · VALOR A CONFERIR', SEM_OPCAO: 'SEM OPÇÃO NO LOTE' });
+const RESULT_LABELS = Object.freeze({ FALTA_BUSCAR: 'AINDA NÃO COMPARADO COM O LOTE', COM_OPCOES: 'COM OPÇÕES NO LOTE', COM_CANDIDATOS: 'CANDIDATOS NO LOTE · VALOR A CONFERIR', SEM_OPCAO: 'SEM OPÇÃO NO LOTE' });
 const FIELDS = Object.freeze(['make', 'model', 'trim', 'type', 'year', 'miles', 'budget', 'location', 'notes']);
 const FIELD_LABELS = Object.freeze({ make: 'marca', model: 'modelo', trim: 'versão', type: 'tipo', year: 'ano', miles: 'milhagem', budget: 'orçamento', location: 'localização' });
 // Body types as the customer says them. The Manheim files have no body type, so a type is

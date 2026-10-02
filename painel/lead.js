@@ -86,7 +86,7 @@
     const badges=append(heading,'div','lead-badges');
     // M11: an unknown deadline or payment is shown as unknown, not as "sem prazo" or "à vista".
     badges.append(data.deadlineKnown?badge(deadlineLabel[data.deadlineKnown]||data.deadlineKnown,'green'):badge('Prazo não informado','yellow'),data.paymentKnown?badge(paymentLabel[data.paymentKnown],'green'):badge('Pagamento não informado','yellow'));
-    if(data.searchStage)badges.append(badge(data.searchStage.label||({MISSING:'🔍 Falta buscar',SAVED:'💾 Busca salva',SENT:'📤 Opções enviadas'}[data.searchStage.stage]||''),data.searchStage.stage==='SENT'?'green':data.searchStage.stage==='SAVED'?'':'yellow'));
+    if(data.searchStage)badges.append(badge(data.searchStage.label||({MISSING:'🔍 Busca não salva no Manheim',SAVED:'💾 Busca salva no Manheim',SENT:'📤 Opções enviadas'}[data.searchStage.stage]||''),data.searchStage.stage==='SENT'?'green':data.searchStage.stage==='SAVED'?'':'yellow'));
     if(data.lastCustomerAt) badges.append(badge(`última mensagem do cliente há ${elapsed(data.lastCustomerAt)}`));
     badges.append(badge(record.enabled===false?'DESLIGADO':'LIGADO',record.enabled===false?'red':'green'));
     if(data.disposition)badges.append(badge(data.disposition==='TREATED'?'Tratado':'Descartado',data.disposition==='DISCARDED'?'red':''));
@@ -157,8 +157,8 @@
     const offers=section(second,8,'O QUE OFERECER');
     // OPÇÕES owns the selection for the client and the V1; this section shows what the batch has and leads there.
     const offerModes=[...new Set((data.offers||[]).map((car)=>car.mode).filter(Boolean))];
-    append(offers,'p','muted',`${data.offers.length} carro(s) compatível(is) no lote ativo · A seleção para o cliente e a V1 são feitas em OPÇÕES`);
-    if(journeyId&&(openOptions||openTab)){const go=append(offers,'div','lead-actions');if(offerModes.length&&openOptions)offerModes.forEach((mode)=>button(go,`Abrir em OPÇÕES · ${mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM'}`,()=>openOptions(`journey:${journeyId}:${mode}`),'small'));else if(openTab)button(go,'Abrir OPÇÕES',()=>openTab('searches'),'small');}
+    append(offers,'p','muted',`${data.offers.length} carro(s) compatível(is) no lote ativo · A seleção para o cliente e a V1 são feitas em ENVIAR OPÇÕES`);
+    if(journeyId&&(openOptions||openTab)){const go=append(offers,'div','lead-actions');if(offerModes.length&&openOptions)offerModes.forEach((mode)=>button(go,`Abrir em ENVIAR OPÇÕES · ${mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM'}`,()=>openOptions(`journey:${journeyId}:${mode}`),'small'));else if(openTab)button(go,'Abrir ENVIAR OPÇÕES',()=>openTab('searches'),'small');}
     if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes');
     // Adendo, item 2: each search type in one group (com carros, sem carros with the reason, ainda não rodada).
     (data.searchModes||[]).forEach((mode)=>{const count=data.offers.filter((car)=>car.mode===mode).length,label=mode==='VALOR'?'Por valor':'Por carro (ano e milhagem)';const line=append(offers,'p','lead-search-group');
@@ -340,7 +340,7 @@
       off.disabled=true;off.title='Escolha o motivo';reason.addEventListener('change',()=>{off.disabled=!reason.value;});}
     // Order on screen: header → case summary → conversation → quick result → the rest.
     topAnchor.replaceWith(conversation,quick);finalGrid.classList.add('lead-one');
-    if(downloadShortlist){const matching=(data.offers||[]).map((car)=>({vehicle_json:{parsed:car}}));if(matching.length){button(history,'Baixar PDF',()=>downloadShortlist(matching,ref));append(history,'span','muted','PDF com todos os compatíveis do lote · o PDF só dos selecionados para o cliente fica em OPÇÕES');}}
+    if(downloadShortlist){const matching=(data.offers||[]).map((car)=>({vehicle_json:{parsed:car}}));if(matching.length){button(history,'Baixar PDF',()=>downloadShortlist(matching,ref));append(history,'span','muted','PDF com todos os compatíveis do lote · o PDF só dos selecionados para o cliente fica em ENVIAR OPÇÕES');}}
   }
   window.MCSLead={open};
 })();

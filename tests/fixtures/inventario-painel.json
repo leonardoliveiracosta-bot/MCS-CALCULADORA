@@ -77,12 +77,6 @@
    ]
   },
   {
-   "name": "buscas-carro-clients",
-   "usedBy": [
-    "tests/buscas-split.spec.js"
-   ]
-  },
-  {
    "name": "buscas-carro-counters",
    "usedBy": [
     "tests/buscas-split.spec.js"
@@ -277,28 +271,10 @@
    ]
   },
   {
-   "name": "entry-needs-empty",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
-   "name": "entry-panel",
-   "usedBy": [
-    "tests/lote4.spec.js"
-   ]
-  },
-  {
    "name": "entry-queue",
    "usedBy": [
     "painel/painel.js",
     "tests/lote3.spec.js"
-   ]
-  },
-  {
-   "name": "entry-sort",
-   "usedBy": [
-    "painel/painel.js"
    ]
   },
   {
@@ -1354,21 +1330,17 @@
    "automatic-messages-card",
    "boot-warning",
    "buscas-carro",
-   "buscas-carro-clients",
    "buscas-carro-counters",
    "buscas-carro-results",
    "buscas-carro-saved",
-   "buscas-carro-summary",
    "buscas-review",
    "buscas-review-count",
    "buscas-review-list",
    "buscas-total",
    "buscas-valor",
-   "buscas-valor-clients",
    "buscas-valor-counters",
    "buscas-valor-results",
    "buscas-valor-saved",
-   "buscas-valor-summary",
    "capture-warning",
    "chat-label",
    "chat-type",
@@ -1395,12 +1367,7 @@
    "detail-panel",
    "drop-zone",
    "email",
-   "entry-add-title",
-   "entry-needs-empty",
-   "entry-needs-title",
-   "entry-panel",
    "entry-queue",
-   "entry-sort",
    "environment-badge",
    "global-search",
    "global-search-input",
@@ -1560,11 +1527,7 @@
    "dragging",
    "drop-zone",
    "empty-state",
-   "entry-add",
    "entry-empty",
-   "entry-group-title",
-   "entry-heading",
-   "entry-needs",
    "entry-open-button",
    "entry-review-actions",
    "entry-signal",
@@ -1670,7 +1633,6 @@
    "print-drop",
    "production",
    "queue",
-   "queue-card",
    "queue-item",
    "quiet",
    "record-block",
@@ -1773,5 +1735,28 @@
    "undo-scope",
    "view"
   ]
+ },
+ "retired": {
+  "2026-10-reorganizacao": {
+   "motivo": "ENTRADA virou parte de ATENDIMENTO e \"Buscas por cliente\" virou o andamento de cada pedido em BUSCAR CARROS (pedido do dono)",
+   "ids": [
+    "buscas-carro-clients",
+    "buscas-carro-summary",
+    "buscas-valor-clients",
+    "buscas-valor-summary",
+    "entry-add-title",
+    "entry-needs-empty",
+    "entry-needs-title",
+    "entry-panel",
+    "entry-sort"
+   ],
+   "classes": [
+    "entry-add",
+    "entry-group-title",
+    "entry-heading",
+    "entry-needs",
+    "queue-card"
+   ]
+  }
  }
 }

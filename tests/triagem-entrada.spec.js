@@ -1,7 +1,7 @@
 'use strict';
 
-// Triagem da ENTRADA no navegador, com /api/** simulado e dados fictícios: REVISAR aparece em
-// "Precisa de você" com o motivo, "Fora do funil comercial" lista o que saiu, e corrigir, manter
+// Triagem no ATENDIMENTO (antiga ENTRADA) no navegador, com /api/** simulado e dados fictícios:
+// REVISAR aparece como motivo do caso em "Depende de você", "Fora do funil comercial" lista o que saiu, e corrigir, manter
 // pendente e desfazer mandam só a decisão para o servidor. Nenhuma chamada da OpenAI. Desktop e 390 px.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/triagem-entrada.spec.js
 const path = require('node:path');
@@ -38,23 +38,25 @@ async function open(page, width) {
     return json({ items: [], orders: [], matches: [], groups: [], chats: [], reviews: [], suggestions: [], errors: [], counts: {}, page: { total: 0 }, requests: [], meta: {} });
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="entry"]').click();
-  await expect(page.locator('#triage-review .triage-item').first()).toBeVisible({ timeout: 30000 });
+  // ATENDIMENTO opens first: the triage decisions are reasons of their cases.
+  await expect(page.locator('#today-list .triage-item').first()).toBeVisible({ timeout: 30000 });
   return posts;
 }
 
 for (const width of [1280, 390]) {
-  test(`${width}px · REVISAR em "Precisa de você", fora do funil recolhido, estado desligado e sem rolagem lateral`, async ({ page }) => {
+  test(`${width}px · REVISAR em "Depende de você", fora do funil recolhido, estado desligado e sem rolagem lateral`, async ({ page }) => {
     const errors = [];
     page.on('pageerror', (failure) => errors.push(failure.message));
     await open(page, width);
-    const review = page.locator('#triage-review .triage-item');
+    const review = page.locator('#today-list .triage-item');
     await expect(review).toHaveCount(2);
     await expect(review.first()).toContainText('Contato Ambíguo');
     await expect(review.first()).toContainText('IA · Contexto insuficiente');
     await expect(review.first()).toContainText('Oi, tudo bem?');
     await expect(review.nth(1)).toContainText('Leitura automática falhou, decida manualmente');
-    await expect(page.locator('#entry-needs-empty')).toBeHidden();
+    // Each REVISAR is its own case (different fichas), with the reason first.
+    await expect(page.locator('#today-list .case-card')).toHaveCount(2);
+    await expect(page.locator('#today-list .case-card').first()).toContainText('Classificar a conversa (pré-compra ou fora do funil)');
     await expect(page.locator('#triage-state')).toHaveText('Triagem automática desligada: as conversas novas seguem o fluxo normal');
     await expect(page.locator('#triage-out-count')).toHaveText('2');
     await expect(page.locator('#triage-out-list')).toBeHidden();
@@ -67,8 +69,9 @@ for (const width of [1280, 390]) {
     await expect(out.nth(1).getByRole('button', { name: 'Desfazer' })).toHaveCount(1);
     await expect(out.nth(1).locator('.triage-reason')).toHaveText('Decisão manual');
     await expect(out.first().getByLabel('Corrigir a classificação').locator('option', { hasText: 'Pré-compra MCS' })).toHaveCount(0);
-    // Entry badge adds the REVISAR items.
-    await expect(page.locator('[data-count="entry"]')).toHaveText('2');
+    // The ATENDIMENTO badge counts the cases that depend on you (the REVISAR ones here).
+    await expect(page.locator('[data-count="today"]')).toHaveText('2');
+    await expect(page.locator('[data-attend-bucket="depende"] .chip-count')).toHaveText('2');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(0);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `entrada-triagem-${width}.png`), fullPage: width !== 390 });
@@ -78,7 +81,7 @@ for (const width of [1280, 390]) {
 
 test('é pré-compra, corrigir, manter pendente e desfazer mandam só a decisão ao servidor', async ({ page }) => {
   const posts = await open(page, 1280);
-  const first = page.locator('#triage-review .triage-item').first();
+  const first = page.locator('#today-list .triage-item').first();
   await first.getByRole('button', { name: 'É pré-compra' }).click();
   await expect.poll(() => posts.length).toBe(1);
   await page.locator('#triage-out summary').click();

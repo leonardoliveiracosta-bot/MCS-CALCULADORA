@@ -30,7 +30,7 @@ const STATUS = Object.freeze({
 });
 const SOURCE = Object.freeze({ CALCULADORA: 'Calculadora', FICHA: 'Ficha', CONVERSA_IA: 'Conversa (leitura da IA)' });
 const JOURNEY_STAGES = Object.freeze({ NOVO: 'Novo', RESPONDIDO: 'Respondido', EM_BUSCA: 'Em busca', DECIDINDO: 'Decidindo', QUALIFICADO: 'Qualificado', AGUARDANDO_CLIENTE: 'Aguardando cliente', PARADO: 'Parado' });
-const SEARCH_STAGES = Object.freeze({ MISSING: 'Falta buscar', SAVED: 'Busca salva', SENT: 'Opções enviadas', QUALIFY: 'Precisa qualificar' });
+const SEARCH_STAGES = Object.freeze({ MISSING: 'Busca não salva no Manheim', SAVED: 'Busca salva no Manheim', SENT: 'Opções enviadas', QUALIFY: 'Precisa qualificar' });
 const MODES = Object.freeze({ VALOR: 'Por valor (lance máximo)', CARRO: 'Por carro (ano e milhagem)' });
 const ORIGINS = Object.freeze({ WHATSAPP_DIRECT: 'Veio por mensagem · Via WhatsApp', SMS_DIRECT: 'Veio por mensagem · Via SMS', WHATSAPP: 'Veio por mensagem · Via WhatsApp', SMS: 'Veio por mensagem · Via SMS', CALCULATOR: 'Veio pela calculadora', CALCULADORA: 'Veio pela calculadora', IMPORT: 'Conversa importada', MANUAL: 'Cadastro manual' });
 // Fields that decide whether a search can be made, per mode (the rules of vehicle-match stay the

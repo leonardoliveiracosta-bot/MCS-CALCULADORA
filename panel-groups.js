@@ -44,10 +44,11 @@
   const AREAS = {
     CALC_VALOR: { key: 'CALC_VALOR', label: 'Calculadora · Por valor', hint: 'Calculate My Cost: carro e lance máximo · gera a busca por valor (MMR)' },
     CALC_CARRO: { key: 'CALC_CARRO', label: 'Calculadora · Por carro', hint: 'Find One For Me: carro, faixa de ano e de milhagem · gera a busca por carro' },
+    CALC_SEM_TIPO: { key: 'CALC_SEM_TIPO', label: 'Calculadora · tipo a revisar', hint: 'Veio da calculadora sem dizer se é por valor ou por carro · nunca vira "por valor" sozinho: defina o tipo na ficha' },
     DIRETA_INCOMPLETA: { key: 'DIRETA_INCOMPLETA', label: 'Conversa direta · busca incompleta', hint: 'Veio por mensagem ou pela vitrine, sem calculadora · ainda falta o tipo de busca ou um dado para buscar' },
     DIRETA_DEFINIDA: { key: 'DIRETA_DEFINIDA', label: 'Conversa direta · busca definida', hint: 'Veio por mensagem ou pela vitrine, sem calculadora · a busca já está definida' }
   };
-  const AREA_ORDER = ['CALC_VALOR', 'CALC_CARRO', 'DIRETA_INCOMPLETA', 'DIRETA_DEFINIDA'];
+  const AREA_ORDER = ['CALC_VALOR', 'CALC_CARRO', 'CALC_SEM_TIPO', 'DIRETA_INCOMPLETA', 'DIRETA_DEFINIDA'];
 
   const stamp = (value) => { if (typeof value === 'number') return Number.isFinite(value) ? value : 0; const parsed = Date.parse(value || ''); return Number.isFinite(parsed) ? parsed : 0; };
   const iso = (value) => { const at = stamp(value); return at ? new Date(at).toISOString() : null; };
@@ -176,7 +177,8 @@
   // (panel-search-stage); a direct conversation without one is still incomplete.
   function areaOf(item) {
     const group = (item && item.group) || {};
-    if (group.hasCalculator) return group.calcMode === 'CARRO' ? 'CALC_CARRO' : 'CALC_VALOR';
+    // An unknown calculator type is reviewed, never filed as "por valor" by default.
+    if (group.hasCalculator) return group.calcMode === 'CARRO' ? 'CALC_CARRO' : group.calcMode === 'VALOR' ? 'CALC_VALOR' : 'CALC_SEM_TIPO';
     const modes = item && (item.searchModes || []);
     return modes && modes.length ? 'DIRETA_DEFINIDA' : 'DIRETA_INCOMPLETA';
   }

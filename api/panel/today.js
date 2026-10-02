@@ -159,7 +159,9 @@ module.exports = async (req, res) => {
         // A ficha enters only if the client wrote or the team has a phone for it (manual record).
         if(!facts.entered&&!(item.phones||[]).length)return false;
         if(optedOut(item))return false;
-        return refs.some((ref)=>wantedAfterDisposition(ref,disposition?.updated_at,disposition?.status))||activeFor(item,null,facts,disposition?.updated_at,disposition?.status);})
+        // ATENDIMENTO also lists, under "Agendados", a ficha whose next action is set for later.
+        const scheduledAhead=(time(item.next_action_at)||0)>now&&item.enabled!==false&&item.status!=='ENCERRADO'&&disposition?.status!=='DISCARDED';
+        return refs.some((ref)=>wantedAfterDisposition(ref,disposition?.updated_at,disposition?.status))||activeFor(item,null,facts,disposition?.updated_at,disposition?.status)||scheduledAhead;})
       .filter((item) => !refsOf(item).some((ref)=>orderRefs.has(ref)))
       .map((item) => ({
         ...item, disposition:dispositionFor(item)?.status||null, discardReason:dispositionFor(item)?.discard_reason||null, dispositionUpdatedAt:dispositionFor(item)?.updated_at||null,

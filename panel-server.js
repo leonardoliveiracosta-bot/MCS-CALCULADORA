@@ -217,7 +217,7 @@ async function panelMeta(ctx) {
   // provider said there is no balance.
   const [openai,anthropic]=await Promise.all(['OPENAI','ANTHROPIC'].map((provider)=>rpc(ctx,'panel_ai_balance_state',{p_environment:ctx.environment,p_provider:provider}).catch(()=>null)));
   const brief=(state)=>state?{balanceUsd:state.balance===null||state.balance===undefined?null:Number(state.balance),spentUsd:Math.round(Number(state.spent||0)*1e4)/1e4,
-    remainingUsd:state.remaining===null||state.remaining===undefined?null:Math.round(Number(state.remaining)*1e4)/1e4,warn:Boolean(state.warn),warnAtUsd:state.warnAt===undefined||state.warnAt===null?null:Number(state.warnAt),exhausted:Boolean(state.exhausted),informed:Boolean(state.informed),sinceStart:Boolean(state.sinceStart)}:null;
+    remainingUsd:state.remaining===null||state.remaining===undefined?null:Math.round(Number(state.remaining)*1e4)/1e4,warn:Boolean(state.warn),warnAtUsd:state.warnAt===undefined||state.warnAt===null?null:Number(state.warnAt),exhausted:Boolean(state.exhausted),informed:Boolean(state.informed),sinceStart:Boolean(state.sinceStart),priorUnknown:Boolean(state.priorUnknown),priorCalls:state.priorCalls===undefined||state.priorCalls===null?null:Number(state.priorCalls),priorFrom:state.priorFrom||null,priorTo:state.priorTo||null}:null;
   return { dataUpdatedAt: new Date().toISOString(), lastWhatsAppImportAt: latestImport[0] ? latestImport[0].completed_at : null,
     lastWhatsAppMessageAt:latestMessage[0]&&(latestMessage[0].occurred_at_utc||latestMessage[0].created_at)||null,
     ai: openai||anthropic?{ openai:brief(openai), anthropic:brief(anthropic) }:null };

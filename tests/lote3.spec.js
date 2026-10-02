@@ -56,9 +56,9 @@ test('Lote 3: print de SMS que só bate pelo nome espera na ENTRADA e vira lead 
   const card = page.locator('#imports-review-queue .queue-item', { hasText: 'Print de SMS · Ana Souza' });
   await expect(card).toBeVisible({ timeout: 30000 });
   await expect(card).toContainText('O nome bate com Ana Souza · Ref ABC23, mas o telefone não');
-  // A print is not a contact: it is counted in IMPORTAÇÕES, never in ENTRADA.
+  // A print is not a contact: it is counted in IMPORTAÇÕES, never in ATENDIMENTO.
   await expect(page.locator('[data-count="imports"]')).toHaveText('1');
-  await expect(page.locator('[data-count="entry"]')).toHaveText('0');
+  await expect(page.locator('[data-count="today"]')).toHaveText('0');
   await card.getByRole('button', { name: 'Criar lead novo' }).click();
   await expect.poll(() => calls.find((call) => call.path === '/api/panel/sms-print')?.body).toMatchObject({ action: 'confirm', auto: true, newLead: true, readId: READ, phone: '+13055550000' });
   expect(errors).toEqual([]);
@@ -73,6 +73,8 @@ test('Lote 3: "Não chegou SMS" pergunta antes de descartar e grava o motivo Out
     '/api/panel/actions': ({ json }) => json({ status: 'DISCARDED', discardReason: 'OTHER' })
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  // The rarer actions of an ATENDIMENTO card are under "⋯" on the same card.
+  await page.locator('#today-list .case-more > summary').first().click({ timeout: 30000 });
   const absent = page.getByRole('button', { name: 'Não chegou SMS · descartar' });
   await expect(absent.first()).toBeVisible({ timeout: 30000 });
   await absent.first().click();

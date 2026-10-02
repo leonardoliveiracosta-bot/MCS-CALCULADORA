@@ -78,12 +78,13 @@ for (const width of [1366, 390]) {
     await expect(list.locator('.request-card[data-state="COM_OPCOES"]').first()).toBeVisible({ timeout: 30000 });
     const lucas = list.locator('.request-card', { hasText: 'Lucas Conversa' });
     await expect(lucas).toContainText('Honda CR-V · 2019 a 2021 · 20,000 a 60,000 milhas · até US$ 28,000');
-    await expect(lucas).toContainText('PRONTO PARA BUSCAR · POR CARRO · COM OPÇÕES NO LOTE');
+    await expect(lucas).toContainText('Resultado no lote: COM OPÇÕES NO LOTE');
+    await expect(page.locator('#requests-carro .request-card', { hasText: 'Lucas Conversa' })).toHaveCount(1);
     await lucas.locator('.request-evidence > summary').click();
     await expect(lucas.locator('.request-evidence')).toContainText('I am looking for a Honda CR-V 2019-2021');
     // CARRO without a value is a search; model and value is VALOR.
-    await expect(list.locator('.request-card', { hasText: 'Caio Conversa' })).toContainText('PRONTO PARA BUSCAR · POR CARRO · SEM OPÇÃO NO LOTE');
-    await expect(list.locator('.request-card', { hasText: 'Rafa Conversa' })).toContainText('PRONTO PARA BUSCAR · POR VALOR · SEM OPÇÃO NO LOTE');
+    await expect(page.locator('#requests-carro .request-card', { hasText: 'Caio Conversa' })).toContainText('Resultado no lote: SEM OPÇÃO NO LOTE');
+    await expect(page.locator('#requests-valor .request-card', { hasText: 'Rafa Conversa' })).toContainText('Resultado no lote: SEM OPÇÃO NO LOTE');
     // Ficha by year and mileage without a bid: ready, with options.
     await expect(list.locator('.request-card', { hasText: 'Critérios preenchidos na ficha' }).filter({ hasText: 'Marta Ficha' })).toContainText('COM OPÇÕES NO LOTE');
     await expect(list).not.toContainText('Bia Conversa');

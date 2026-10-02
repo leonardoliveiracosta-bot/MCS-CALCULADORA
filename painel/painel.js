@@ -104,7 +104,10 @@
       node.textContent = text;
       node.classList.toggle('count-positive', Boolean(entry && entry.value > 0));
       node.classList.toggle('count-stale', Boolean(entry && entry.stale));
-      node.title = entry && entry.stale ? (Number.isFinite(entry.value) ? 'Não foi possível atualizar; mostrando o último valor confirmado' : 'Não foi possível atualizar') : entry && entry.at ? 'Atualizado às ' + new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }).format(entry.at) : '';
+      // What the number counts (casos, pedidos, pessoas...) is always said next to it.
+      const unit = node.dataset.unit ? `${text} ${node.dataset.unit}` : '';
+      node.title = entry && entry.stale ? (Number.isFinite(entry.value) ? 'Não foi possível atualizar; mostrando o último valor confirmado' : 'Não foi possível atualizar') : entry && entry.at ? [unit, 'Atualizado às ' + new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }).format(entry.at)].filter(Boolean).join(' · ') : '';
+      if (unit) node.setAttribute('aria-label', unit);
     });
   };
   const nextCount = (previous, outcome) => window.MCSRefresh ? MCSRefresh.nextCounter(previous, outcome) : (outcome && outcome.ok ? { value: Number(outcome.value), stale: false, at: Date.now() } : { ...(previous || { value: null }), stale: true });
@@ -120,7 +123,7 @@
   const displayDeadline = (value) => DEADLINE_LABELS[String(value || '').trim().toLowerCase()] || value || 'Não informado';
   const displayModel = (value) => String(value || '').replace(/\bnot sure\b/gi, '').replace(/\bother model\b/gi, 'Outro modelo').replace(/\s{2,}/g, ' ').trim();
   const checklistStatusLabel = (status) => status === 'COMPLETE' ? 'OK' : status === 'OPEN' ? 'Pendente' : status === 'NOT_APPLICABLE' ? 'Não se aplica' : status || '';
-  const orderIcon = (item) => item.logicalMode === 'VALOR' || (item.logicalModes || []).every((mode) => mode === 'VALOR') ? '💰' : '🚗';
+  const orderIcon = (item) => { const modes = (item.logicalModes || []).concat(item.logicalMode ? [item.logicalMode] : []).filter((mode) => mode === 'VALOR' || mode === 'CARRO'); return !modes.length ? '❓' : modes.every((mode) => mode === 'VALOR') ? '💰' : '🚗'; };
   // The same client summary in every card linked to a client (painel/contexto.js).
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const REF_CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
@@ -492,29 +495,38 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', requests: 'requests-list', searches: 'manheim-summary', imports: 'manheim-batches', manheim: 'manheim-summary', records: 'records-list' };
+    const roots = { today: 'today-list', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches', manheim: 'manheim-summary', records: 'records-list' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
   }
 
-  async function switchPanel(view) {
-    // Lote 4: PEDIDOS is part of ENTRADA and CLIENTES now; an old link or history entry opens ENTRADA.
-    if (view === 'orders') view = 'entry';
-    if (!['today', 'entry', 'clients', 'requests', 'searches', 'imports'].includes(view)) return;
+  // One function per area. ENTRADA (and the old PEDIDOS) is part of ATENDIMENTO now: an old link
+  // or history entry opens ATENDIMENTO. Each area keeps its own position when you come back to it.
+  const VIEWS = ['today', 'requests', 'searches', 'clients', 'imports', 'settings'];
+  const VIEW_LABELS = { today: 'ATENDIMENTO', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'CLIENTES', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
+  const viewScroll = new Map();
+  async function switchPanel(view, options = {}) {
+    if (view === 'orders' || view === 'entry') view = 'today';
+    if (!VIEWS.includes(view)) return;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
+    if (currentView && $('detail-panel')?.classList.contains('hidden')) viewScroll.set(currentView, window.scrollY);
     currentView = view;
     $('search-results')?.classList.add('hidden');
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
-    const labels = { today: 'HOJE', entry: 'ENTRADA', clients: 'CLIENTES', requests: 'PESQUISAS', searches: 'OPÇÕES', imports: 'IMPORTAÇÕES' };
     currentDetail = null;
     if ($('detail-panel')) $('detail-panel').classList.add('hidden');
-    ['today','entry','clients','requests','searches','imports','pending','qualification','manheim','records'].forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
-    $('page-title').textContent = labels[view];
-    document.querySelectorAll('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
+    VIEWS.concat(['pending','qualification','manheim','records']).forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
+    $('page-title').textContent = VIEW_LABELS[view];
+    // The active area is always evident (style and aria-current).
+    document.querySelectorAll('[data-view]').forEach((button) => { const on = button.dataset.view === view; button.classList.toggle('active', on); if (on) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); });
     renderLoading(view);
     try { await loadCurrent(view, requestVersion); } catch (failure) {
       console.error(failure);
       if (currentView === view && viewRequestVersion === requestVersion) renderFailure(view);
+    }
+    if (options.keepScroll !== false && currentView === view && viewRequestVersion === requestVersion && options.scrollY === undefined) {
+      const back = viewScroll.get(view) || 0;
+      requestAnimationFrame(() => window.scrollTo(0, back));
     }
   }
 
@@ -554,8 +566,8 @@
       actions.append(save);
     }
     const discard = element('button', 'quiet small', 'Descartar print'); discard.type = 'button';
-    MCSAction.bind(discard, () => ({ scope: item, successScope: document.body, optimistic: () => { item.classList.add('action-optimistic-hidden'); const before = countValue('entry'); setCount('entry', Math.max(0, before - 1)); return before; },
-      commit: () => post({ action: 'discard' }), rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('entry', before); }, successText: 'Print descartado', refresh: () => loadQueue(), errorText: 'Não consegui descartar, tente de novo' }));
+    MCSAction.bind(discard, () => ({ scope: item, successScope: document.body, optimistic: () => { item.classList.add('action-optimistic-hidden'); const before = countValue('imports'); setCount('imports', Math.max(0, before - 1)); return before; },
+      commit: () => post({ action: 'discard' }), rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('imports', before); }, successText: 'Print descartado', refresh: () => loadQueue(), errorText: 'Não consegui descartar, tente de novo' }));
     actions.append(discard);
     item.append(actions);
     return item;
@@ -577,9 +589,9 @@
       if (body.action === 'confirm' && !body.phone) return { scope: item, commit: () => Promise.reject(new Error('PHONE_REQUIRED')), errorText: 'Digite o telefone do cliente antes de salvar' };
       return {
       scope: item, successScope: document.body,
-      optimistic: () => { item.classList.add('action-optimistic-hidden'); const before = countValue('entry'); setCount('entry', Math.max(0, before - 1)); return before; },
+      optimistic: () => { item.classList.add('action-optimistic-hidden'); const before = countValue('imports'); setCount('imports', Math.max(0, before - 1)); return before; },
       commit: () => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId: print.id, ...body }) }),
-      rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('entry', before); },
+      rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('imports', before); },
       successText, refresh: () => loadQueue(), errorText: 'Não consegui salvar, tente de novo'
     }; });
     if (print.candidate) {
@@ -628,8 +640,8 @@
   }
   // Link / create / dismiss controls for a conversation or a file waiting for review (ENTRADA and IMPORTAÇÕES).
   function entryReviewControls(item,target,kind){
-    // Files are counted in IMPORTAÇÕES, conversations in ENTRADA.
-    const badge=kind==='review'?'imports':'entry';
+    // Files are counted in IMPORTAÇÕES, conversations in ATENDIMENTO.
+    const badge=kind==='review'?'imports':'today';
     const controls=element('div','entry-review-actions');
     const select=element('select','');
     select.setAttribute('aria-label','Lead para ligar');
@@ -654,18 +666,17 @@
     controls.append(select,link,create,dismiss);
     return controls;
   }
+  // The imported conversations that still wait for a decision become reasons of their case in
+  // ATENDIMENTO (each row keeps its own controls). Read conversations are history: ficha and CLIENTES.
   function renderQueue(items, reviews) {
-    // The origin filter only narrows the list (the other filters and the groups stay as they are).
-    items=clientSort(items.filter((chat)=>MCSGroups.matchesOrigin(chat,$('entry-origin')?.value||'all')),$('entry-sort')?.value||'recent');
     const root = $('entry-queue');
+    document.querySelectorAll('[data-decision-source="chat"]').forEach((node) => node.remove());
     root.replaceChildren();
     renderImportsReview(reviews);
-    if (!items.length) { root.append(element('p', 'muted', 'Nenhuma conversa importada')); return; }
-    // One section per group (não atendidos, atendidos); "fora do assunto" has its own section in ENTRADA.
     const queueCard = (chat) => {
       const item = document.createElement('article');
       item.className = 'queue-item';
-      item.append(MCSContactGroups.decisionNode(chat));
+      item.dataset.decisionKey = 'chat:' + chat.id; item.dataset.decisionSource = 'chat';
       const header = document.createElement('header');
       const title = document.createElement('strong');
       title.textContent = chat.contact && chat.contact.display_name ? chat.contact.display_name : chat.canonical_key;
@@ -673,14 +684,11 @@
       badge.className = 'badge';
       badge.textContent = chat.is_group ? 'revisão, grupo' : chat.resolution_status === 'RESOLVED' ? 'lida' : chat.resolution_status === 'UNIDENTIFIED' ? 'não identificada' : 'revisão';
       header.append(title, badge);
-      const originChip = MCSContactGroups.originChip(chat); if (originChip) header.append(originChip);
       const count = document.createElement('span');
       count.className = 'muted';
       count.textContent = `${chat.newMessageCount} mensagem(ns) nova(s) na última importação`;
       item.append(header, count);
       const lastMessage = MCSContactGroups.lastMessageNode(chat, UUID_RE.test(String(chat.groupJourneyId || '')) ? chat.groupJourneyId : null); if (lastMessage) item.append(lastMessage);
-      // The contact's case, only when the contact has exactly one ficha (never guessed).
-      const chatContact=chat.contact_id||chat.contact?.id;if(UUID_RE.test(String(chatContact||'')))item.append(contextSlot({contactId:chatContact},{withIdentity:false,unattended:false}));
       if (chat.hasTimeUncertain) {
         const uncertain = document.createElement('span');
         uncertain.className = 'badge';
@@ -695,16 +703,13 @@
         MCSAction.bind(keep,()=>({scope:item,optimistic:()=>{const before=badge.textContent;badge.textContent='revisão';return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'resolve',chatId:chat.id,resolution:'review'})}),rollback:(before)=>{badge.textContent=before;},refresh:()=>loadQueue(),errorText:'Não consegui salvar, tente de novo'}));
         item.append(keep);
       }
-      if(chat.resolution_status!=='RESOLVED'||chat.hasTimeUncertain)item.append(entryReviewControls(item,chat,'chat'));
+      item.append(entryReviewControls(item,chat,'chat'));
       const topic=MCSContactGroups.topicButton(chat,{request,refresh:()=>Promise.all([loadQueue(),loadTriage()]),chatId:chat.id});if(topic)item.append(topic);
       if(chat.lastCustomerMessage&&UUID_RE.test(String(chat.groupJourneyId||''))){const tools=MCSContactGroups.replyTools(chat.groupJourneyId,{request,onSent:()=>loadQueue()});if(tools)item.append(tools);}
       return item;
     };
-    const offTopicCount = items.filter((chat) => MCSContactGroups.groupOf(chat).key === 'FORA_DO_ASSUNTO').length;
-    if (items.length) MCSContactGroups.render(root, items, queueCard, { skip: ['FORA_DO_ASSUNTO'], emptyText: 'Nenhuma conversa no fluxo principal' });
-    if (offTopicCount) root.append(element('p', 'muted', `${offTopicCount} conversa(s) fora do assunto estão na seção Fora do assunto, acima`));
-    hydrateContexts(root);
-    MCSContactGroups.hydrateTranslations(root, { request }).catch(() => {});
+    entryReviewChats({ chats: items }).forEach((chat) => root.append(queueCard(chat)));
+    scheduleAttendRender();
   }
 
   function refreshSmsJourneys() {
@@ -716,9 +721,6 @@
 
   // Triagem da ENTRADA: REVISAR fica em "Precisa de você"; o que saiu do funil fica recolhido,
   // sempre com a categoria, o motivo curto, a correção manual e o desfazer.
-  // ENTRADA badge = conversations waiting in the queue + triage items in REVISAR; both sources update it.
-  let entryQueueCount=null,triageReviewCount=0;
-  const renderEntryCount=()=>{if(entryQueueCount!==null)setCount('entry',entryQueueCount+triageReviewCount);};
   const TRIAGE_OPTIONS=[['PRE_COMPRA_MCS','Pré-compra MCS'],['POS_VENDA','Pós-venda'],['PESSOAL','Pessoal'],['OUTRO_NEGOCIO','Outro negócio'],['NAO_CLIENTE','Não é cliente'],['REVISAR','Manter pendente']];
   function triageCard(item,refresh){
     const row=element('div','queue-item triage-item');row.dataset.triageId=item.id;
@@ -755,25 +757,34 @@
   }
   async function loadTriage(){
     const data=await request('/api/panel/triage').catch(()=>null);
-    const review=$('triage-review'),out=$('triage-out-list');review.replaceChildren();out.replaceChildren();
-    if(!data){$('triage-state').textContent='';$('triage-out-count').textContent='0';triageReviewCount=0;renderEntryCount();renderOffTopic([],()=>{});return {review:[],out:[]};}
-    triageReviewCount=(data.review||[]).length;renderEntryCount();
+    renderTriage(data);
+    return data||{review:[],out:[]};
+  }
+  // Triage: REVISAR becomes a reason of its case in ATENDIMENTO; what left the funnel stays folded.
+  function renderTriage(data){
+    attendData.triage=data||null;
+    const review=$('triage-review'),out=$('triage-out-list');
+    document.querySelectorAll('[data-decision-source="triage"]').forEach((node)=>node.remove());
+    review.replaceChildren();out.replaceChildren();
+    if(!data){$('triage-out-count').textContent='—';renderOffTopic([],()=>{});scheduleAttendRender();return;}
     const refresh=()=>Promise.all([loadTriage(),loadWhatsApp()]).then(()=>refreshCounters().catch(()=>{}));
-    const reviewItems=(data.review||[]).filter((item)=>MCSGroups.matchesOrigin(item,$('entry-origin')?.value||'all'));
-    MCSContactGroups.render(review,reviewItems,(item)=>{const card=triageCard(item,refresh);card.prepend(MCSContactGroups.decisionNode(item));return card;},{emptyText:''});if(!reviewItems.length)review.replaceChildren();
+    (data.review||[]).forEach((item)=>{const card=triageCard(item,refresh);card.dataset.decisionKey='triage:'+item.id;card.dataset.decisionSource='triage';review.append(card);});
     renderOffTopic(data.offTopic||[],refresh);
     (data.out||[]).forEach((item)=>out.append(triageCard(item,refresh)));
-    hydrateContexts(review);$('triage-out')?.addEventListener('toggle',()=>hydrateContexts(out),{once:true});
+    $('triage-out')?.addEventListener('toggle',()=>hydrateContexts(out),{once:true});
     if(!(data.out||[]).length)out.append(element('p','muted','Nenhuma conversa fora do funil'));
     $('triage-out-count').textContent=String((data.out||[]).length);
-    $('triage-state').textContent=data.state==='LIGADA'?'':'Triagem automática desligada: as conversas novas seguem o fluxo normal';
     $('triage-run-pending').classList.toggle('hidden',data.state!=='LIGADA');
-    $('entry-needs-empty').classList.toggle('hidden',Boolean($('whatsapp-suggestions').childElementCount||review.childElementCount));
-    return data;
+    scheduleAttendRender();
   }
 
   async function loadWhatsApp() {
     const data = await request('/api/panel/whatsapp');
+    renderWhatsApp(data);
+    return data;
+  }
+  function renderWhatsApp(data) {
+    attendData.whatsapp = data;
     const ago = (stamp) => {
       if (!stamp) return 'nenhuma ainda';
       const hours = Math.max(0, (Date.now() - Date.parse(stamp)) / 3600000);
@@ -795,8 +806,10 @@
     const itemErrorLabel=(code)=>({HISTORY_DECLINED:'Histórico não compartilhado pelo WhatsApp',PHONE_INVALID:'Telefone inválido',PHONE_AMBIGUOUS:'Telefone ligado a mais de um contato',MESSAGE_CONTENT_INVALID:'Mensagem inválida',ITEM_PROCESSING_FAILED:'Falha ao gravar a mensagem',PROCESSING_INTERRUPTED:'Processamento interrompido'})[code]||'Falha ao processar este item';
     (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const declined=event.error_code==='HISTORY_DECLINED';const retry=element('button','small',declined?'Dispensar':'Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent=declined?'Dispensando…':'Processando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:declined?'dismiss_item':'reprocess_item',id:event.id})}),rollback:()=>{retry.textContent=declined?'Dispensar':'Tentar de novo';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));row.append(retry);errors.append(row);});
     const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
+    document.querySelectorAll('[data-decision-source="whatsapp"]').forEach((node) => node.remove());
     (data.suggestions || []).forEach((item) => {
       const row = element('div', 'queue-item');
+      row.dataset.decisionKey = 'suggestion:' + item.id; row.dataset.decisionSource = 'whatsapp';
       // "É a Ref X" when the customer wrote the Ref; "parece ser" only when there is real doubt.
       row.append(element('strong', '', item.target_ref?(item.refConfirmed?`Esta conversa do WhatsApp (${item.phone_e164}) é a Ref ${item.target_ref}`:`Esta conversa do WhatsApp (${item.phone_e164}) parece ser Ref ${item.target_ref}`):`Esta conversa do WhatsApp (${item.phone_e164}) parece ser a ficha ${item.targetName || 'sem nome'} — ${item.sourceName || 'novo contato'}`));
       if(item.motives)row.append(element('span','muted',`Motivos: ${item.motives}`));
@@ -816,10 +829,9 @@
       const notLead=element('button','quiet small',item.sourceIsLead===false?'Restaurar lead':'Não é lead');notLead.type='button';MCSAction.bind(notLead,()=>{const before=item.sourceIsLead!==false;return{scope:row,optimistic:()=>{item.sourceIsLead=!before;notLead.textContent=item.sourceIsLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:!before})}),successScope:document.body,successText:before?'Marcado como não é lead':'Restaurado como lead',undo:{commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:before})}),successText:'Desfeito',refresh:()=>Promise.all([loadWhatsApp(),loadQueue()])},rollback:(value)=>{item.sourceIsLead=value;notLead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'};});row.append(notLead);
       suggestions.append(row);
     });
-    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';MCSAction.bind(choose,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=candidate.isLead!==false;return{scope:row,optimistic:()=>{candidate.isLead=!before;lead.textContent=candidate.isLead?'Não é lead':'Restaurar';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:!before})}),successScope:document.body,successText:before?'Marcado como não é lead':'Restaurado como lead',undo:{commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:before})}),successText:'Desfeito',refresh:()=>Promise.all([loadWhatsApp(),loadQueue()])},rollback:(value)=>{candidate.isLead=value;lead.textContent=value?'Não é lead':'Restaurar';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'};});group.append(choose,lead);row.append(group);});suggestions.append(row);});
-    $('entry-needs-empty').classList.toggle('hidden', Boolean(suggestions.childElementCount || $('triage-review').childElementCount));
+    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.dataset.decisionKey='phone:'+item.id;row.dataset.decisionSource='whatsapp';row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';MCSAction.bind(choose,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=candidate.isLead!==false;return{scope:row,optimistic:()=>{candidate.isLead=!before;lead.textContent=candidate.isLead?'Não é lead':'Restaurar';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:!before})}),successScope:document.body,successText:before?'Marcado como não é lead':'Restaurado como lead',undo:{commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:before})}),successText:'Desfeito',refresh:()=>Promise.all([loadWhatsApp(),loadQueue()])},rollback:(value)=>{candidate.isLead=value;lead.textContent=value?'Não é lead':'Restaurar';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'};});group.append(choose,lead);row.append(group);});suggestions.append(row);});
     paintImportsCount();
-    hydrateContexts(suggestions);
+    scheduleAttendRender();
   }
 
   const historyPhone = '13055400742';
@@ -947,10 +959,9 @@
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
     failedPrints = data.failedPrints || [];
-    // ENTRADA counts conversations only; errors, files and prints are counted in IMPORTAÇÕES.
-    entryQueueCount = chats.filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length;
-    renderEntryCount();
-    if (render) renderQueue(chats.filter((chat) => !chat.triageOut), data.reviews || []);
+    // Conversations waiting for a decision go to ATENDIMENTO; errors, files and prints to IMPORTAÇÕES.
+    attendData.entry = data;
+    if (render) renderQueue(chats, data.reviews || []);
     else renderImportsReview(data.reviews || []);
     return data;
   }
@@ -995,8 +1006,8 @@
   function clearAutoPrint(){const input=$('auto-print-file');input.value='';autoPrintContext=null;$('auto-print-file-info').replaceChildren();$('auto-print-file-info').classList.add('hidden');$('auto-print-remove').classList.add('hidden');$('auto-print-send').disabled=true;$('auto-print-result').classList.add('hidden');}
   function showAutoPrintChoice(files){const info=$('auto-print-file-info');info.replaceChildren();[...files].forEach((file)=>info.append(element('span','',file.name),element('small','muted',`${(file.size/1024/1024).toFixed(1)} MB`)));info.classList.remove('hidden');$('auto-print-remove').classList.remove('hidden');$('auto-print-send').disabled=!files.length;}
   function autoPrintResult(filename,text,saved){const resultRoot=arguments[3],root=resultRoot||$('auto-print-result');root.classList.remove('hidden');const row=element('section',saved?'':'error');row.append(element('strong',saved?'':'warning',`${filename||'Print'} — ${text}`));root.append(row);return row;}
-  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});if(saved.review){autoPrintResult(filename,'O nome bate com um lead, mas o telefone não. Ficou em ENTRADA para você decidir',false,resultRoot);await loadQueue(currentView==='entry').catch(()=>{});return saved;}const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');if(!saved.duplicate)[saved.journeyId,context?.journeyId].filter(Boolean).forEach((key)=>recentPrints.set(key,{readId:read.id,text:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,at:Date.now()}));const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} · Desfeito · O arquivo permanece guardado`,errorText:'Não consegui desfazer, tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters().catch(()=>{});return saved;}
-  function printReadFailText(code){return {SMS_PRINT_DAILY_LIMIT:'Limite de leituras de print do dia atingido · O print ficou guardado na ENTRADA para tentar de novo amanhã',AI_DAILY_LIMIT:'Limite de leituras do dia atingido · O print ficou guardado na ENTRADA para tentar de novo',AI_UNAVAILABLE:'A leitura automática falhou agora · Tente de novo em alguns minutos',SMS_PRINT_INVALID_IMAGE:'Imagem não reconhecida · Use JPG, PNG ou WebP'}[code]||'Não consegui ler agora, tente mais tarde ou use outra imagem';}
+  async function saveAutoPrint(read,context,filename=read.original_filename,resultRoot){const values=read.extracted_json||{},hint=values.ref||context?.ref||'';const saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:read.id,sourceJourneyId:context?.journeyId||null,phone:values.phone||'',name:values.name||'',ref:hint,message:values.message||'',translation:values.translation||''})});if(saved.review){autoPrintResult(filename,'O nome bate com um lead, mas o telefone não. Ficou em ATENDIMENTO para você decidir',false,resultRoot);await loadQueue(currentView==='today').catch(()=>{});return saved;}const name=saved.name||saved.phone||(saved.ref?`Pedido ${saved.ref}`:'lead novo');if(!saved.duplicate)[saved.journeyId,context?.journeyId].filter(Boolean).forEach((key)=>recentPrints.set(key,{readId:read.id,text:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,at:Date.now()}));const root=autoPrintResult(filename,saved.duplicate?`Este print já foi guardado no lead de ${name} · Ref ${saved.ref||hint||'—'}`:`✓ ${saved.photoOnly?'Foto guardada':'Guardado'} no lead de ${name} · Ref ${saved.ref||hint||'—'}`,true,resultRoot);const actions=element('div','inline-actions');const open=element('button','small','Abrir lead');open.type='button';open.addEventListener('click',()=>openDetail('ficha',saved.journeyId));actions.append(open);if(!saved.duplicate){const undo=element('button','quiet small','Desfazer');undo.type='button';MCSAction.bind(undo,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:read.id})}),successText:`${filename||'Print'} · Desfeito · O arquivo permanece guardado`,errorText:'Não consegui desfazer, tente de novo',onSuccess:()=>root.querySelector('strong')?.remove()}));actions.append(undo);}root.append(actions);await refreshCounters().catch(()=>{});return saved;}
+  function printReadFailText(code){return {SMS_PRINT_DAILY_LIMIT:'Limite de leituras de print do dia atingido · O print ficou guardado em IMPORTAÇÕES para tentar de novo amanhã',AI_DAILY_LIMIT:'Limite de leituras do dia atingido · O print ficou guardado em IMPORTAÇÕES para tentar de novo',AI_UNAVAILABLE:'A leitura automática falhou agora · Tente de novo em alguns minutos',SMS_PRINT_INVALID_IMAGE:'Imagem não reconhecida · Use JPG, PNG ou WebP'}[code]||'Não consegui ler agora, tente mais tarde ou use outra imagem';}
   async function handleAutoPrintRead(result,context,filename,resultRoot){if(result.manual){const root=autoPrintResult(filename||result.read?.original_filename,printReadFailText(result.read?.error_code),false,resultRoot);const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:root,commit:()=>request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'retry',readId:result.read.id})}),onSuccess:(next)=>handleAutoPrintRead(next,context,filename,resultRoot),errorText:'Não consegui ler agora, tente de novo'}));root.append(retry);return false;}return saveAutoPrint(result.read,context,filename,resultRoot);}
   async function uploadAutoPrint(file,context={},resultRoot){const head=new Uint8Array(await file.slice(0,64).arrayBuffer());const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:context.journeyId||null,contactId:context.contactId||null})});const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');return handleAutoPrintRead(await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})}),context,file.name,resultRoot);}
   function printErrorText(error){return {SMS_PRINT_TOO_LARGE:'A imagem passa de 5 MB. Tire um print novo ou reduza a imagem',SMS_PRINT_HEIC:'Foto HEIC do iPhone não é aceita · Use um print da tela (PNG) ou exporte como JPEG',SMS_PRINT_INVALID_IMAGE:'Use uma imagem JPEG, PNG ou WebP de até 5 MB'}[error?.code]||'Não consegui enviar agora · O arquivo não foi apagado';}
@@ -1016,11 +1027,13 @@
   function paintAiBudget(ai){
     const box=$('ai-budget');if(!box||!ai)return;box.classList.remove('hidden');
     const usd=(value)=>'US$ '+Number(value||0).toFixed(2);
-    const line=(name,state)=>!state?`${name}: —`:state.exhausted?`${name}: sem saldo`:state.sinceStart?`${name}: ${usd(state.spentUsd)} usados de ${usd(state.balanceUsd)}`:state.informed?`${name}: restam ${usd(state.remainingUsd)} de ${usd(state.balanceUsd)}`:`${name}: saldo não informado`;
-    $('ai-budget-spent').textContent=AI_PROVIDERS.map(([key,,name])=>line(name,ai[key])).join(' · ');
+    // Unknown spend is never shown as zero: Claude calls made before the reservations existed have no
+    // recorded cost, so its balance reads "no máximo" until the console balance is informed.
+    const line=(name,state)=>!state?`${name}: —`:state.exhausted?`${name}: sem saldo`:state.sinceStart&&state.priorUnknown?`${name}: ${usd(state.spentUsd)} registrados + uso anterior sem custo registrado · restam no máximo ${usd(state.remainingUsd)} de ${usd(state.balanceUsd)}`:state.sinceStart?`${name}: ${usd(state.spentUsd)} usados de ${usd(state.balanceUsd)} · restam ${usd(state.remainingUsd)}`:state.informed?`${name}: restam ${usd(state.remainingUsd)} de ${usd(state.balanceUsd)}`:`${name}: saldo não informado`;
+    $('ai-budget-spent').replaceChildren(...AI_PROVIDERS.map(([key,,name])=>{const node=element('span','ai-budget-line',line(name,ai[key]));node.dataset.provider=key;return node;}));
     const warn=AI_PROVIDERS.filter(([key])=>ai[key]&&(ai[key].warn||ai[key].exhausted));box.classList.toggle('ai-budget-warn',warn.length>0);
     const warning=$('ai-budget-warning');warning.classList.toggle('hidden',!warn.length);
-    warning.textContent=warn.map(([key,,name])=>ai[key].exhausted?`${name} sem saldo pré-pago: as funções dela param sozinhas até você informar um novo saldo · O painel continua funcionando`:ai[key].sinceStart?`Aviso: ${name} já usou ${usd(ai[key].spentUsd)} dos ${usd(ai[key].balanceUsd)} pré-pagos (aviso a partir de ${usd(ai[key].warnAtUsd)}) · Restam ${usd(ai[key].remainingUsd)}`:`${name}: restam ${usd(ai[key].remainingUsd)} (20% ou menos do saldo) · Recarregue no console do provedor e informe o novo saldo aqui`).join(' · ');
+    warning.textContent=warn.map(([key,,name])=>ai[key].exhausted?`${name} sem saldo pré-pago: as funções dela param sozinhas até você informar um novo saldo · O painel continua funcionando`:ai[key].sinceStart?`Aviso: ${name} já usou ${usd(ai[key].spentUsd)} dos ${usd(ai[key].balanceUsd)} pré-pagos (aviso a partir de ${usd(ai[key].warnAtUsd)}) · Restam ${usd(ai[key].remainingUsd)}`:`${name}: restam ${usd(ai[key].remainingUsd)} (20% ou menos do saldo informado) · O crédito pré-pago está acabando`).join(' · ');
     if(!box.dataset.bound){box.dataset.bound='1';box.addEventListener('toggle',()=>{if(box.open)loadAiBudgetDetails().catch(()=>{});});}
   }
   async function loadAiBudgetDetails(){
@@ -1029,11 +1042,12 @@
     let data;try{data=await request('/api/panel/ai-budget');}catch(_){list.replaceChildren(element('li','error','Não consegui ler o saldo agora'));return;}
     list.replaceChildren();
     AI_PROVIDERS.forEach(([key,provider,name])=>{const state=data[key]||{};const item=element('li','ai-budget-provider');item.dataset.provider=provider;
-      item.append(element('strong','',name),element('p','muted',state.sinceStart?`Crédito pré-pago ${usd(state.balanceUsd)} · usado desde o começo ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)} · aviso a partir de ${usd(state.warnAtUsd)} · teto único: todas as funções usam o mesmo crédito, sem limite por função`:state.informed?`Saldo informado ${usd(state.balanceUsd)}${state.setAt?' em '+formatDate(state.setAt):''} · gasto desde então ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)}`:`Saldo não informado · gasto dos últimos 30 dias ${usd(state.spentUsd)} · sem saldo informado, o limite é o próprio pré-pago do provedor`));
+      const dayText=(value)=>value?String(value).slice(8,10)+'/'+String(value).slice(5,7):'';
+      item.append(element('strong','',name),element('p','muted',state.sinceStart&&state.priorUnknown?`Crédito pré-pago ${usd(state.balanceUsd)} · gasto registrado desde o começo das reservas ${usd(state.spentUsd)} · uso anterior: cerca de ${Number(state.priorCalls||0).toLocaleString('pt-BR')} chamadas${state.priorFrom?` de ${dayText(state.priorFrom)} a ${dayText(state.priorTo)}`:''} com custo desconhecido (não registrado) · restam no máximo ${usd(state.remainingUsd)} · aviso a partir de ${usd(state.warnAtUsd)} · sem limite por função · Para descontar o uso anterior, informe abaixo o saldo que aparece no console`:state.sinceStart?`Crédito pré-pago ${usd(state.balanceUsd)} · usado desde o começo ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)} · aviso a partir de ${usd(state.warnAtUsd)} · teto único: todas as funções usam o mesmo crédito, sem limite por função`:state.informed?`Saldo informado ${usd(state.balanceUsd)}${state.setAt?' em '+formatDate(state.setAt):''} · gasto desde então ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)}`:`Saldo não informado · gasto dos últimos 30 dias ${usd(state.spentUsd)} · sem saldo informado, o limite é o próprio pré-pago do provedor`));
       if(state.exhausted)item.append(element('p','error','O provedor respondeu sem saldo: as funções dele estão paradas até um novo saldo'));
       const features=element('ul','ai-budget-features-list');(state.features||[]).forEach((feature)=>features.append(element('li','',`${feature.label}: ${usd(feature.spentUsd)}`)));if((state.features||[]).length)item.append(features);
-      const form=element('div','inline-actions ai-budget-form');const input=element('input','');input.type='number';input.min='0';input.step='0.01';input.inputMode='decimal';input.placeholder=state.sinceStart?'Novo total carregado (US$)':'Saldo no console (US$)';input.setAttribute('aria-label',state.sinceStart?`Total de crédito pré-pago já carregado na ${name}, em dólares`:`Saldo pré-pago atual da ${name} em dólares`);
-      const save=element('button','small',state.sinceStart?'Informar novo total':'Informar saldo');save.type='button';
+      const form=element('div','inline-actions ai-budget-form');const input=element('input','');input.type='number';input.min='0';input.step='0.01';input.inputMode='decimal';const totalForm=state.sinceStart&&provider==='OPENAI';input.placeholder=totalForm?'Novo total carregado (US$)':'Saldo no console (US$)';input.setAttribute('aria-label',totalForm?`Total de crédito pré-pago já carregado na ${name}, em dólares`:`Saldo pré-pago atual da ${name} em dólares, como aparece no console`);
+      const save=element('button','small',totalForm?'Informar novo total':'Informar saldo do console');save.type='button';
       MCSAction.bind(save,()=>{const value=Number(String(input.value).replace(',','.'));if(!(value>=0))return{scope:item,commit:()=>Promise.reject(new Error('AI_BALANCE_INVALID')),errorText:'Digite o saldo em dólares'};
         return{scope:item,successScope:item,commit:()=>request('/api/panel/ai-budget',{method:'POST',body:JSON.stringify({provider,balanceUsd:value})}),successText:`Saldo da ${name} informado: ${usd(value)}`,refresh:()=>Promise.all([loadAiBudgetDetails(),refreshCounters().catch(()=>{})]),errorText:'Não consegui salvar o saldo (só o dono pode informar)'};});
       form.append(input,save);item.append(form,element('p','muted','Recarga só no console do provedor · Deixe a recarga automática desligada lá'));list.append(item);});
@@ -1144,33 +1158,42 @@
     return '/api/panel/records?'+params.toString();
   }
   let clientsVersion=0,clientsObserver=null;
+  // CLIENTES is a directory: one compact line per person to find them and open the full ficha. The
+  // queue of what to do lives in ATENDIMENTO; every other field and action stays in "⋯ Mais" and in the ficha.
   function clientCard(item){
-    const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');
-    card.append(MCSContactGroups.decisionNode(item));
-    head.append(identityHeader(item,{preview:item.lastCustomerMessage?'':item.latestMessage?.body_text||item.latestMessageText||''}));
+    const card=element('article',`item-card client-card client-row heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head client-row-head');
+    head.append(identityHeader(item,{compact:true}));
     const badges=element('div','badges');const chip=MCSContactGroups.originChip(item);if(chip)badges.append(chip);
-    if(item.situation)badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)));badges.append(makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));
-    const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
+    if(item.situation)badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)));
     if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));
+    if(item.lastRealMessageAt)badges.append(element('span','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));
     head.append(badges);card.append(head);
-    const lastMessage=MCSContactGroups.lastMessageNode(item,item.id);if(lastMessage)card.append(lastMessage);
-    if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));
-    if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`Leitura da IA (não confirmada): ${item.aiSummary||item.summary}`));
-    card.append(contextSlot({journeyId:journeyIdOf(item)},{aiReading:false,unattended:false}));
-    const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients(),true);if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
-    // One primary row (open, treated/discard); the rarer decisions live under "⋯ Mais ações".
-    const more=element('details','card-more');more.append(element('summary','','⋯ Mais ações'));const actions=element('div','inline-actions');more.append(actions);
+    const open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('ficha',item.id);});
+    const primary=element('div','inline-actions card-primary');primary.append(open);
+    const topic=MCSContactGroups.topicButton(item,{request,refresh:()=>loadClients(),journeyId:item.id});
+    // "É sobre carro" stays in view on an off-topic card; the other decisions are rarer (⋯).
+    if(topic&&MCSContactGroups.groupOf(item).key==='FORA_DO_ASSUNTO')primary.append(topic);
+    card.append(primary);
+    const more=element('details','card-more client-more');more.append(element('summary','','⋯ Mais'));more.addEventListener('click',(event)=>event.stopPropagation());
+    more.append(MCSContactGroups.decisionNode(item));
+    const extra=element('div','badges');extra.append(makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));
+    const heat=heatBadge(item);if(heat)extra.append(heat);if(item.searchStageLabel)extra.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
+    more.append(extra);
+    const lastMessage=MCSContactGroups.lastMessageNode(item,item.id);if(lastMessage)more.append(lastMessage);
+    else if(item.latestMessage?.body_text||item.latestMessageText)more.append(element('p','one-line message-preview',item.latestMessage?.body_text||item.latestMessageText));
+    if(item.aiSummary||item.summary)more.append(element('p','pending-ai',`Leitura da IA (não confirmada): ${item.aiSummary||item.summary}`));
+    more.append(contextSlot({journeyId:journeyIdOf(item)},{aiReading:false,unattended:false}));
+    const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients(),true);if(waiting)more.append(waiting);if(receipt)more.append(receipt);if(next)more.append(next);
+    const actions=element('div','inline-actions');more.append(actions);
     if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)actions.append(copy);}
-    const open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));
     actions.append(journeySwitch(item,()=>loadClients()));
     if(item.chatId){const done=element('button','quiet small',item.resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>{const resolved=Boolean(item.resolved);const body=(action)=>JSON.stringify({action,journeyId:item.id,chatId:item.chatId});return{scope:card,successScope:document.body,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:body(resolved?'unresolve':'resolve')}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},successText:resolved?'Pendência restaurada':'Marcado como resolvido',undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:body(resolved?'resolve':'unresolve')}),successText:'Desfeito',refresh:()=>loadClients()},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(done);}
     const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;const save=(isLead)=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead})});return{scope:card,successScope:document.body,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>save(!before),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},successText:before?'Marcado como não é lead':'Restaurado como lead',undo:{commit:()=>save(before),successText:'Desfeito',refresh:()=>loadClients()},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(lead);
-    const topic=MCSContactGroups.topicButton(item,{request,refresh:()=>loadClients(),journeyId:item.id});
-    const primary=element('div','inline-actions card-primary');primary.append(open,dispositionControls(item));
-    // "É sobre carro" stays in view on an off-topic card; "Fora do assunto" is a rarer decision (⋯).
-    if(topic){if(MCSContactGroups.groupOf(item).key==='FORA_DO_ASSUNTO')primary.append(topic);else actions.append(topic);}
-    card.append(primary,more);
-    if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(item.id,{request,onSent:()=>loadClients()});if(tools)card.append(tools);}
+    if(topic&&MCSContactGroups.groupOf(item).key!=='FORA_DO_ASSUNTO')actions.append(topic);
+    more.append(dispositionControls(item));
+    if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(item.id,{request,onSent:()=>loadClients()});if(tools)more.append(tools);}
+    more.addEventListener('toggle',()=>{if(more.open){hydrateContexts(more);MCSContactGroups.hydrateTranslations(more,{request}).catch(()=>{});}});
+    card.append(more);
     makeCardClickable(card,()=>openDetail('ficha',item.id));
     return card;
   }
@@ -1210,7 +1233,6 @@
       more.addEventListener('click',next);root.append(more);
       // Cards arrive in batches: the next one loads when the end of the list comes into view.
       if(typeof IntersectionObserver==='function'){clientsObserver=new IntersectionObserver((entries)=>{if(entries.some((entry)=>entry.isIntersecting))next();},{rootMargin:'600px'});clientsObserver.observe(more);}}
-    hydrateContexts(root);MCSContactGroups.hydrateTranslations(root,{request}).catch(()=>{});
   }
   function renderClients(data){
     clientsData=data;const counts=data.counts||{};
@@ -1276,7 +1298,7 @@
   function contactChannelLabel(channel){return {WHATSAPP:'💬 WhatsApp',WHATSAPP_HISTORY:'💬 WhatsApp · histórico',WHATSAPP_CLICK:'💬 Clicou em WhatsApp',SMS_CLICK:'✉️ Clicou em mensagem de texto',SMS:'✉️ SMS',CONTACT_CLICK_UNKNOWN:'💬 Clicou para falar (canal não registrado)',IMPORTED:'📎 Conversa importada/colada'}[channel]||'';}
   function floridaArrival(value){if(!value)return '';const date=new Date(value),now=new Date();const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true});const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(date);const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(now);const yesterday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date(Date.now()-86400000));const prefix=day===today?'hoje':day===yesterday?'ontem':new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).format(date);return `chegou ${prefix} ${fmt.format(date)} (Flórida)`;}
   function heatBadge(item){const labels={HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'},tone={HOT:'red',WARM:'yellow',COLD:'blue'};const heat=String(item.heat||'').toUpperCase();if(!heat)return null;const badge=makeBadge(labels[heat]||labels.COLD,tone[heat]||'blue');badge.classList.add('heat-badge');return badge;}
-  function contactMeta(item){const wrap=element('div','badges contact-meta');const channel=contactChannelLabel(item.contactChannel),arrival=floridaArrival(item.contactAt||item.lastCustomerAt);if(channel)wrap.append(makeBadge(channel,['WHATSAPP','WHATSAPP_HISTORY','WHATSAPP_CLICK'].includes(item.contactChannel)?'green':['SMS_CLICK','SMS'].includes(item.contactChannel)?'yellow':'blue'));if(arrival)wrap.append(makeBadge(arrival));const heat=heatBadge(item);if(heat){const details=element('details','temperature-details'),summary=element('summary','');summary.append(heat);details.append(summary,element('p','temperature-explanation',item.heatSource==='AI'?`Temperatura da IA: ${item.aiSummary||'Sem resumo.'}${item.aiNextStep?' Próximo passo: '+item.aiNextStep:''}`:'Temperatura calculada: telefone, checklist, prazo, orçamento x Manheim, conversa recente e horário.'));wrap.append(details);}return wrap.childNodes.length?wrap:null;}
+  function contactMeta(item,options={}){const wrap=element('div','badges contact-meta');const channel=options.noChannel?null:contactChannelLabel(item.contactChannel),arrival=floridaArrival(item.contactAt||item.lastCustomerAt);if(channel)wrap.append(makeBadge(channel,['WHATSAPP','WHATSAPP_HISTORY','WHATSAPP_CLICK'].includes(item.contactChannel)?'green':['SMS_CLICK','SMS'].includes(item.contactChannel)?'yellow':'blue'));if(arrival)wrap.append(makeBadge(arrival));const heat=heatBadge(item);if(heat){const details=element('details','temperature-details'),summary=element('summary','');summary.append(heat);details.append(summary,element('p','temperature-explanation',item.heatSource==='AI'?`Temperatura da IA: ${item.aiSummary||'Sem resumo.'}${item.aiNextStep?' Próximo passo: '+item.aiNextStep:''}`:'Temperatura calculada: telefone, checklist, prazo, orçamento x Manheim, conversa recente e horário.'));wrap.append(details);}return wrap.childNodes.length?wrap:null;}
   function directLeadLabel(item){return item?.directLeadSource==='WHATSAPP_DIRECT'?'📱 Veio por mensagem · Via WhatsApp (sem calculadora)':item?.directLeadSource==='SMS_DIRECT'?'✉️ Veio por mensagem · Via SMS (sem calculadora)':'';}
   function directLeadBadge(item){const label=directLeadLabel(item);return label?makeBadge(label,'blue'):null;}
   /* dd/mm no horario da Florida */
@@ -1291,8 +1313,9 @@
     const text = element('div');
     const identityPhone=phoneNode(item);if(!ref)identityPhone.classList.add('no-ref-phone');text.append(element('strong', 'identity-name', name), identityPhone);
     text.append(identityFacts(ref, item.vehicleText || item.vehicle_text, item.budgetCents||item.budget_cents));
-    const direct=directLeadBadge(item);if(direct)text.append(direct);
-    const contact=contactMeta(item);if(contact)text.append(contact);
+    // compact: the card shows origin and channel once, as the origin chip.
+    const direct=options.compact?null:directLeadBadge(item);if(direct)text.append(direct);
+    const contact=contactMeta(item,{noChannel:Boolean(options.compact)});if(contact)text.append(contact);
     if (options.preview) text.append(element('span', 'one-line message-preview', options.preview));
     wrap.append(text);
     return wrap;
@@ -1371,7 +1394,7 @@
   }
 
   function renderFailure(view) {
-    const roots = { today: 'pending-list', entry: 'entry-queue', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', searches: 'manheim-summary', manheim: 'manheim-summary', records: 'records-list' };
+    const roots = { today: 'today-list', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches', manheim: 'manheim-summary', records: 'records-list' };
     const root = roots[view] && $(roots[view]);
     if (!root) return;
     // Nothing is shown as zero: the tab says it did not load and offers to try again.
@@ -1381,29 +1404,43 @@
     root.append(retry);
   }
 
-  async function loadSearches() {
-    const data=await request('/api/panel/searches');
-    // One card per ficha and mode: the VALOR card and the CARRO card of the same person keep their
-    // own stage, and every action sends its mode.
-    const summaries={VALOR:modeRoot('VALOR','summary'),CARRO:modeRoot('CARRO','summary')},roots={VALOR:modeRoot('VALOR','clients'),CARRO:modeRoot('CARRO','clients')};
-    Object.values(summaries).forEach((root)=>root.replaceChildren());Object.values(roots).forEach((root)=>root.replaceChildren());
-    const makeButton=(label,handler,className='small')=>{const control=element('button',className,label);control.type='button';control.addEventListener('click',handler);return control;};
-    ['VALOR','CARRO'].forEach((mode)=>[['MISSING','🔍 Falta buscar'],['SAVED','💾 Busca salva'],['SENT','📤 Opções enviadas']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(data.countsByMode?.[mode]?.[key]||0)),element('span','muted',label));summaries[mode].append(stat);}));
-    (data.items||[]).forEach((item)=>{
-      const root=roots[item.mode];if(!root)return;
-      const card=element('article','item-card search-card');card.dataset.mode=item.mode;const head=element('div','item-head');head.append(element('strong','identity-name',item.name),phoneNode({phones:item.phone?[{phone_e164:item.phone,is_primary:true}]:[]}),element('span','muted',item.ref?`Ref ${item.ref}`:'sem Ref'));const direct=directLeadBadge(item);if(direct)head.append(direct);head.append(element('span','search-stage '+item.stage,`${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days===1?'':'s'}` : ''}`));card.append(head);
-      card.append(makeBadge(item.mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM',item.mode==='VALOR'?'blue':'green'),element('strong','',item.exactSearch));
-      if(item.alsoServes?.length){const names=item.alsoServes.slice(0,2).map((peer)=>`${peer.name} (${peer.ref?`Ref ${peer.ref}`:'sem Ref'})`).join(' e ');card.append(element('p','muted',`Também serve para: ${names}${item.alsoServes.length>2?` e mais ${item.alsoServes.length-2}`:''} · mesma busca no Manheim`));}
-      if(item.stage==='SAVED')card.append(element('p','muted',`${item.matchCount} carro${item.matchCount===1?'':'s'} no último CSV do Manheim batem com esta busca`));
-      const actions=element('div','inline-actions');
-      const stageAction=(control,kind)=>MCSAction.bind(control,()=>{const previous=item.stage,next=kind==='SAVED'?'SAVED':'SENT';return{scope:card,optimistic:()=>{item.stage=next;card.querySelector('.search-stage').textContent=next==='SAVED'?'💾 Busca salva':'📤 Opções enviadas';return previous;},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'mark',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:(value)=>{item.stage=value;card.querySelector('.search-stage').textContent=item.stageLabel;},refresh:()=>loadSearches(),errorText:'Não consegui salvar, tente de novo'};});
-      if(item.stage==='MISSING'){const saved=makeButton('💾 Salvei a busca no Manheim',null);stageAction(saved,'SAVED');actions.append(saved);}
-      if(item.stage!=='SENT'){const sent=makeButton('📤 Enviei opções ao cliente',null,'quiet small');stageAction(sent,'SENT');actions.append(sent);}
-      if(item.stage==='SAVED'&&item.matchCount)actions.append(makeButton(`Ver os ${item.matchCount} carros`,()=>openOptionsCard(`journey:${item.journeyId}:${item.mode}`),'quiet small'));
-      if(item.stage!=='MISSING'){const kind=item.stage==='SENT'?'SENT':'SAVED',undo=makeButton('Desfazer',null,'quiet small');if(item.stageSource==='MARK')MCSAction.bind(undo,()=>({scope:card,optimistic:()=>{undo.textContent='Desfazendo…';},commit:()=>request('/api/panel/searches',{method:'POST',body:JSON.stringify({action:'undo',journeyId:item.journeyId,kind,mode:item.mode})}),rollback:()=>{undo.textContent='Desfazer';},refresh:()=>loadSearches(),errorText:'Não consegui desfazer, tente de novo'}));else undo.addEventListener('click',()=>MCSAction.feedback(card,item.stageSource==='MANHEIM'?'Esta busca foi marcada no MANHEIM, desfaça em “Quais buscas salvar”':'As opções foram registradas pela ficha do cliente, desfaça na ficha','error','search-origin'));actions.append(undo);}
-      actions.append(makeButton('Abrir ficha',()=>openDetail('ficha',item.journeyId),'quiet small'));card.append(actions);root.append(card);
-    });
-    Object.entries(roots).forEach(([mode,root])=>{if(!root.childElementCount)empty(root,'Nenhum cliente com busca ativa neste modo');});
+  // The work stage of each ficha and search type (busca salva no Manheim, opções enviadas), apart
+  // from the result of the search in the batch. BUSCAR CARROS shows it on each request.
+  let searchStages = new Map();
+  async function loadSearchStages() {
+    const data = await request('/api/panel/searches');
+    searchStages = new Map((data.items || []).map((item) => [item.journeyId + ':' + item.mode, item]));
+    return data;
+  }
+  const searchButton = (label, handler, className = 'small') => { const control = element('button', className, label); control.type = 'button'; if (handler) control.addEventListener('click', (event) => { event.stopPropagation(); handler(); }); return control; };
+  // "Andamento" of one ficha and mode, with its actions (mark saved/sent, undo).
+  function searchStageLine(item, refresh) {
+    const box = element('div', 'search-stage-line');
+    box.dataset.mode = item.mode;
+    const label = element('span', 'search-stage ' + item.stage, `Andamento: ${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days === 1 ? '' : 's'}` : ''}`);
+    box.append(label);
+    if (item.alsoServes?.length) { const names = item.alsoServes.slice(0, 2).map((peer) => `${peer.name} (${peer.ref ? `Ref ${peer.ref}` : 'sem Ref'})`).join(' e '); box.append(element('span', 'muted', `A mesma busca no Manheim serve para: ${names}${item.alsoServes.length > 2 ? ` e mais ${item.alsoServes.length - 2}` : ''}`)); }
+    const actions = element('div', 'inline-actions');
+    const stageAction = (control, kind) => MCSAction.bind(control, () => { const previous = item.stage, next = kind === 'SAVED' ? 'SAVED' : 'SENT'; return { scope: box, optimistic: () => { item.stage = next; label.textContent = 'Andamento: ' + (next === 'SAVED' ? '💾 Busca salva no Manheim' : '📤 Opções enviadas'); return previous; }, commit: () => request('/api/panel/searches', { method: 'POST', body: JSON.stringify({ action: 'mark', journeyId: item.journeyId, kind, mode: item.mode }) }), rollback: (value) => { item.stage = value; label.textContent = 'Andamento: ' + item.stageLabel; }, refresh, errorText: 'Não consegui salvar, tente de novo' }; });
+    if (item.stage === 'MISSING') { const saved = searchButton('💾 Salvei a busca no Manheim', null); stageAction(saved, 'SAVED'); actions.append(saved); }
+    if (item.stage !== 'SENT') { const sent = searchButton('📤 Enviei opções ao cliente', null, 'quiet small'); stageAction(sent, 'SENT'); actions.append(sent); }
+    if (item.stage !== 'MISSING') {
+      const kind = item.stage === 'SENT' ? 'SENT' : 'SAVED', undo = searchButton('Desfazer', null, 'quiet small');
+      if (item.stageSource === 'MARK') MCSAction.bind(undo, () => ({ scope: box, optimistic: () => { undo.textContent = 'Desfazendo…'; }, commit: () => request('/api/panel/searches', { method: 'POST', body: JSON.stringify({ action: 'undo', journeyId: item.journeyId, kind, mode: item.mode }) }), rollback: () => { undo.textContent = 'Desfazer'; }, refresh, errorText: 'Não consegui desfazer, tente de novo' }));
+      else undo.addEventListener('click', (event) => { event.stopPropagation(); MCSAction.feedback(box, item.stageSource === 'MANHEIM' ? 'Esta busca foi marcada em “Quais buscas salvar”, desfaça lá' : 'As opções foram registradas pela ficha do cliente, desfaça na ficha', 'error', 'search-origin'); });
+      actions.append(undo);
+    }
+    box.append(actions);
+    return box;
+  }
+  // A ficha and mode with a work stage but no request on the list (kept visible, never lost).
+  function searchStageCard(item, refresh) {
+    const card = element('article', 'item-card search-card'); card.dataset.mode = item.mode;
+    const head = element('div', 'item-head');
+    head.append(element('strong', 'identity-name', item.name), phoneNode({ phones: item.phone ? [{ phone_e164: item.phone, is_primary: true }] : [] }), element('span', 'muted', item.ref ? `Ref ${item.ref}` : 'sem Ref'));
+    card.append(head, element('strong', '', item.exactSearch), searchStageLine(item, refresh));
+    const open = searchButton('Abrir ficha', () => openDetail('ficha', item.journeyId), 'quiet small'); card.append(open);
+    return card;
   }
 
   // A newer load of the screen cancels the older one still running (AbortController): only the
@@ -1416,9 +1453,14 @@
     await switchPanel('searches');
     try { await loadCurrent('searches', viewRequestVersion); } catch (_) {}
     const card = demandKey ? document.querySelector(`#searches-panel [data-demand-key="${CSS.escape(demandKey)}"]`) : null;
-    if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); card.classList.add('card-focus'); setTimeout(() => card.classList.remove('card-focus'), 4000); return true; }
+    if (card) {
+      // The options of that request open right away (the same button as "Ver opções" on the card).
+      const toggle = card.querySelector('.manheim-options-toggle');
+      if (toggle && !toggle.disabled && toggle.textContent.startsWith('Ver opções')) toggle.click();
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' }); card.classList.add('card-focus'); setTimeout(() => card.classList.remove('card-focus'), 4000); return true;
+    }
     const summary = $('manheim-summary');
-    if (summary) { const note = element('p', 'warning options-missing', 'Este cliente não tem carros do lote ativo neste tipo de busca · Veja "Buscas por cliente" abaixo'); summary.after(note); setTimeout(() => note.remove(), 8000); }
+    if (summary) { const note = element('p', 'warning options-missing', 'Este pedido não tem carros do lote ativo neste tipo de busca · Veja o resultado dele em BUSCAR CARROS'); summary.after(note); setTimeout(() => note.remove(), 8000); }
     return false;
   }
   async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
@@ -1432,22 +1474,29 @@
   async function loadCurrentNow(view, requestVersion) {
     if (window.MCSContext) MCSContext.forget();
     const current = () => currentView === view && viewRequestVersion === requestVersion;
-    if (view === 'entry') {
-      const data = await loadQueue(false);
-      if (!current()) return;
-      // Same list as loadQueue and the badge: a conversation the triage left out of the funnel never shows.
-      renderQueue((data.chats || []).filter((chat) => !chat.triageOut), data.reviews || []);
-      loadTriage().catch(() => {});
+    if (view === 'settings') {
+      loadAutomaticMessages().catch(() => {});
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp'; });
     }
     if (view === 'pending') return loadPending();
     if (view === 'clients') return loadClients();
     if (view === 'today') {
-      const [data,vitrineData]=await Promise.all([request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value),viewFetch()),request('/api/panel/vitrine-requests',viewFetch()),loadWeekly()]);
+      // ATENDIMENTO: HOJE and the decisions of the old ENTRADA, drawn once everything arrived. A
+      // decision list that fails stays out (said on screen) and never empties the queue.
+      const [data,vitrineData,,entryData,triageData,whatsappData]=await Promise.all([request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value),viewFetch()),request('/api/panel/vitrine-requests',viewFetch()).catch(()=>null),loadWeekly().catch(()=>null),
+        loadQueue(false).catch(()=>null),request('/api/panel/triage').catch(()=>null),request('/api/panel/whatsapp').catch(()=>null)]);
       if (!current()) return;
       updateMeta(data.meta);
-      renderVitrineRequests(vitrineData);
-      return renderToday(data.items || []);
+      renderVitrineRequests(vitrineData||{requests:[],signals:[]});
+      if(entryData)renderQueue(entryData.chats||[],entryData.reviews||[]);
+      renderTriage(triageData);
+      if(whatsappData)renderWhatsApp(whatsappData);
+      const missing=[!vitrineData&&'pedidos de vitrine',!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos'].filter(Boolean);
+      $('triage-state').textContent=[missing.length?`Não consegui carregar agora: ${missing.join(', ')} · o resto da fila vale`:'',triageData&&triageData.state!=='LIGADA'?'Triagem automática desligada: as conversas novas seguem o fluxo normal':''].filter(Boolean).join(' · ');
+      renderToday(data.items || []);
+      // The incomplete requests (what is missing to search) arrive after the queue is on screen.
+      sharedGet('/api/panel/pesquisas', 30000).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);renderToday(todayItems,true);}).catch(()=>{});
+      return;
     }
     if (view === 'qualification') {
       const data = await request('/api/panel/qualification?sort='+encodeURIComponent($('qualification-sort').value),viewFetch());
@@ -1456,7 +1505,7 @@
       return renderQualification(data.items || []);
     }
     if (view === 'searches') {
-      const [,data]=await Promise.all([loadSearches(),request('/api/panel/records?view=manheim',viewFetch())]);
+      const data=await request('/api/panel/records?view=manheim',viewFetch());
       if (!current()) return;
       updateMeta(data.meta);renderManheim(data);if(!productionHost)renderV1Demo();
       // Opening OPÇÕES brings in the requests that changed since the batch (runs in the background).
@@ -1476,9 +1525,14 @@
       updateMeta(data.meta);renderManheim(data);return;
     }
     if (view === 'requests') {
-      const data = await request('/api/panel/pesquisas', viewFetch());
+      // BUSCAR CARROS: the requests, the work stage of each ficha and type, and (after) the type
+      // review and the searches to save in Manheim, which come from the batch view.
+      const [data] = await Promise.all([request('/api/panel/pesquisas', viewFetch()), loadSearchStages().catch(() => { searchStages = new Map(); })]);
       if (!current()) return;
-      return renderRequests(data);
+      renderRequests(data);
+      renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas'; });
+      sharedGet('/api/panel/records?view=manheim', 60000).then((manheim) => { if (!current()) return; renderReview(manheim.review || []); renderRequestReview(requestColumnsOf(requestsData).review); }).catch(() => {});
+      return;
     }
     if (view === 'manheim') {
       const data = await request('/api/panel/records?view=manheim',viewFetch());
@@ -1503,28 +1557,34 @@
     return countersRunning;
   }
   async function refreshCountersNow() {
-    // C5: only the visible tabs are counted; the hidden PENDÊNCIAS and Manheim screens cost two heavy GETs for nothing
-    // Each GET is shared with an identical one already running and reuses an answer of the last seconds.
+    // C5: only the visible tabs are counted. Each GET is shared with an identical one already running
+    // and reuses an answer of the last seconds. Every badge uses the same rule as its list.
     const settled = await Promise.allSettled([
       sharedGet('/api/panel/today', 10000),
       sharedGet('/api/panel/entry', 10000),
-      sharedGet('/api/panel/searches', 10000),
+      Promise.resolve(null),
       sharedGet('/api/panel/records?pageSize=1&period=' + encodeURIComponent(clientsPeriod()), 10000),
       sharedGet('/api/panel/vitrine-requests', 10000),
-      sharedGet('/api/panel/triage', 10000)
+      sharedGet('/api/panel/triage', 10000),
+      sharedGet('/api/panel/whatsapp', 10000),
+      sharedGet('/api/panel/pesquisas', 60000),
+      sharedGet('/api/panel/records?view=manheim', 60000)
     ]);
-    const [today, entry, searches, records, vitrineData, triageData] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const [today, entry, , records, vitrineData, triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     // One failing counter never touches the others; it keeps its last confirmed number.
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
-    if (today && vitrineData) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
-    // Conversations the triage left in REVISAR also wait for a decision in ENTRADA.
-    if (triageData) triageReviewCount = (triageData.review || []).length;
-    count('entry', triageData ? entry : null, (data) => { entryQueueCount = (data.chats || []).filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length; return entryQueueCount + triageReviewCount; });
+    // ATENDIMENTO: the cases that depend on you, from the same model as its chips and list.
+    if (today && entry && vitrineData && triageData && whatsappData) {
+      const model = MCSAttend.model({ todayItems: today.items || [], decisions: attendDecisions({ entry, triage: triageData, whatsapp: whatsappData, vitrine: vitrineData }), incomplete: [] });
+      setCount('today', model.counts.depende);
+    } else setCountUnknown('today');
     count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length);
-    // Same rule as the list: leads only, inside the CLIENTES period.
+    // Same rule as the list: leads only, inside the CLIENTES period (people).
     count('clients', records, (data) => data.counts.periodLeads);
-    // One person with a VALOR and a CARRO card is one person in the badge.
-    count('searches', searches, (data) => new Set((data.items || []).map((item) => item.journeyId || item.key)).size);
+    // BUSCAR CARROS: complete requests, one per person and search type (a person with both types counts twice).
+    count('requests', pesquisas, (data) => requestColumnsOf(data).total);
+    // ENVIAR OPÇÕES: people with cars in the active batch (one person with VALOR and CARRO cars is one person).
+    count('searches', options, (data) => optionsPeopleOf(data));
     const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
     if (failures.length) console.error('Contadores com falha', failures);
     renderCountersNote(failures.length);
@@ -1569,11 +1629,13 @@
 
   function captureOrigin() {
     const sorts = {};
-    ['today','entry','pending','qualification','manheim','records'].forEach((name) => { const select=$(name+'-sort'); if(select) sorts[name]=select.value; });
+    ['today','clients','pending','qualification','manheim','records'].forEach((name) => { const select=$(name+'-sort'); if(select) sorts[name]=select.value; });
     return {
       view: currentView,
       scrollY: window.scrollY,
       sorts,
+      // The filters of the area the ficha was opened from come back with it.
+      attendBucket, todayStatFilter, todayRefFilter, requestsFilter,
       pendingSituation,
       pendingWithRef: Boolean($('pending-with-ref')?.checked),
       searchQuery: $('global-search-input')?.value || '',
@@ -1589,7 +1651,11 @@
     if ($('pending-with-ref')) $('pending-with-ref').checked = Boolean(target.pendingWithRef);
     document.querySelectorAll('[data-pending-situation]').forEach((button) => button.classList.toggle('active', button.dataset.pendingSituation === pendingSituation));
     Object.entries(target.sorts||{}).forEach(([name,value])=>{const select=$(name+'-sort');if(select&&[...select.options].some((option)=>option.value===value))select.value=value;});
-    await switchPanel(target.view || 'today');
+    if (target.attendBucket) attendBucket = target.attendBucket;
+    if (target.todayStatFilter !== undefined) todayStatFilter = target.todayStatFilter;
+    if (target.todayRefFilter) todayRefFilter = target.todayRefFilter;
+    if (target.requestsFilter) requestsFilter = target.requestsFilter;
+    await switchPanel(target.view || 'today', { scrollY: Number(target.scrollY || 0) });
     if (target.searchVisible && target.searchQuery) {
       $('global-search-input').value=target.searchQuery;
       await globalSearch({preventDefault(){}});
@@ -1697,7 +1763,7 @@
   }
 
   function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', entry: 'entry-panel', clients:'clients-panel', pending: 'pending-panel', qualification: 'qualification-panel', requests: 'requests-panel', searches: 'searches-panel', imports: 'imports-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    const labels = { today: 'today-panel', settings: 'settings-panel', clients:'clients-panel', pending: 'pending-panel', qualification: 'qualification-panel', requests: 'requests-panel', searches: 'searches-panel', imports: 'imports-panel', manheim: 'manheim-panel', records: 'records-panel' };
     Object.values(labels).forEach((id) => $(id)?.classList.add('hidden'));
     $('detail-panel').classList.remove('hidden');
     $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
@@ -1842,13 +1908,15 @@
 
   function renderVitrineRequests(data) {
     const root=$('vitrine-requests'),signals=$('vitrine-signals');if(!root||!signals)return;
+    attendData.vitrine=data||null;
+    document.querySelectorAll('[data-decision-source="vitrine"]').forEach((node)=>node.remove());
     root.replaceChildren();signals.replaceChildren();
     const requests=Array.isArray(data?.requests)?data.requests:[];
     vitrineRequestCount=requests.length;
     const group=(kind,title)=>{
       const list=requests.filter((request)=>request.kind===kind);const block=element('section','request-group');block.append(element('h3','',`${title} (${list.length})`));
       list.forEach((request)=>{
-        const card=element('article','vitrine-request-card');
+        const card=element('article','vitrine-request-card');card.dataset.decisionKey='vitrine:'+request.id;card.dataset.decisionSource='vitrine';
         card.append(element('strong','',request.name),element('span','muted',`${request.phone||'Sem telefone'} · Ref ${request.referenceCode||'—'} · pediu pelo WhatsApp ${request.ago||''}`),element('span','',request.car||'Carro não informado'));
         const auction=request.endsAt||request.startsAt;if(auction)card.append(element('span','auction-alert',`Leilão ${relativeAuction(auction)} · ${formatDate(auction)}`));
         if(request.referred)card.append(makeBadge(`Número novo pelo link de ${request.ownerName} (${request.ownerRef||'sem Ref'}) · provável indicação`,'yellow'));
@@ -1869,51 +1937,132 @@
       });
       root.append(block);
     };
-    group('VIEW','V1 · Pediram para ver o carro');group('BID','V2 · Querem dar lance');hydrateContexts(root);
+    group('VIEW','V1 · Pediram para ver o carro');group('BID','V2 · Querem dar lance');scheduleAttendRender();
     (data?.signals||[]).forEach((signal)=>{const target=uuidOnly(signal.journeyId)?['ficha',signal.journeyId]:signal.referenceCode?['order',signal.referenceCode]:null;const label=`Ref ${signal.referenceCode||'—'} · ${signal.text}${target?' · abrir':''}`;const node=target?element('button','vitrine-signal',label):element('span','vitrine-signal',label);if(target){node.type='button';node.addEventListener('click',()=>openDetail(target[0],target[1]));}signals.append(node);});
   }
 
   function relativeAuction(value){const hours=Math.max(0,Math.ceil((Date.parse(value)-Date.now())/3600000));return hours>=24?`em ${Math.floor(hours/24)} dia${Math.floor(hours/24)===1?'':'s'} ${hours%24} h`:`em ${hours} h`;}
   async function requestApi(url,body){return request(url,{method:'POST',body:JSON.stringify(body)});}
 
+  // ATENDIMENTO: HOJE + the decisions of the old ENTRADA in one queue (painel/atendimento.js decides
+  // the case, its reasons and its filter; the badge, the chips and the list come from that one call).
+  let attendBucket = (() => { try { return localStorage.getItem('mcs_attend_bucket') || 'depende'; } catch (_) { return 'depende'; } })();
+  const attendData = { entry: null, triage: null, whatsapp: null, vitrine: null, incomplete: [] };
+  // Conversations of the old ENTRADA that still wait for a decision (same rule as before for its badge).
+  const entryReviewChats = (entry) => (entry && entry.chats || []).filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain));
+  function attendDecisions({ entry, triage, whatsapp, vitrine } = attendData) {
+    const out = [];
+    (whatsapp?.suggestions || []).forEach((item) => out.push({ key: 'suggestion:' + item.id, kind: 'VINCULO', journeyId: uuidOnly(item.source_journey_id), name: item.sourceName || item.phone_e164 || null, label: item.target_ref ? `Confirmar vínculo: esta conversa ${item.refConfirmed ? 'é' : 'parece ser'} a Ref ${item.target_ref}` : 'Confirmar vínculo desta conversa com uma ficha' }));
+    (whatsapp?.phoneReviews || []).forEach((item) => out.push({ key: 'phone:' + item.id, kind: 'TELEFONE', journeyId: null, name: item.phone_e164 || null, label: 'Escolher o contato certo deste telefone' }));
+    (triage?.review || []).forEach((item) => out.push({ key: 'triage:' + item.id, kind: 'TRIAGEM', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Classificar a conversa (pré-compra ou fora do funil)' }));
+    entryReviewChats(entry).forEach((chat) => out.push({ key: 'chat:' + chat.id, kind: 'REVISAR_CONVERSA', journeyId: uuidOnly(chat.groupJourneyId), name: chat.contact?.display_name || chat.canonical_key || null, label: chat.resolution_status === 'RESOLVED' ? 'Conferir conversa com hora incerta' : 'Revisar conversa importada e ligar à ficha certa' }));
+    (vitrine?.requests || []).forEach((item) => out.push({ key: 'vitrine:' + item.id, kind: 'VITRINE', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: item.kind === 'BID' ? 'V2 · quer dar lance' : 'V1 · pediu para ver o carro' }));
+    return out;
+  }
+  // Incomplete requests (BUSCAR CARROS keeps only complete ones): they wait here with what is missing.
+  function incompleteRequests(pesquisas) {
+    return (pesquisas && pesquisas.items || []).filter((item) => item.state === 'PRECISA_DETALHE').map((item) => ({ key: item.key, journeyId: uuidOnly(item.person?.journeyId), contactId: uuidOnly(item.person?.contactId), name: item.person?.name || null, lacksText: item.lacksText || 'Falta um dado do carro', criteriaText: item.criteriaText || '', source: item.source }));
+  }
+  const attendModel = (items) => MCSAttend.model({ todayItems: items, decisions: attendDecisions(), incomplete: attendData.incomplete });
+  // A decision row (link, review, triage, vitrine) of a case: found wherever it is, moved into the case card.
+  const decisionRow = (key) => document.querySelector(`[data-decision-key="${CSS.escape(key)}"]`);
+  function stageDecisionRows() {
+    const staging = $('attend-staging');
+    if (!staging) return;
+    document.querySelectorAll('#today-list [data-decision-key]').forEach((row) => staging.append(row));
+  }
+  let attendRenderTimer = null;
+  // A decision list changed (an action, a refresh): the queue is drawn again from the same data.
+  function scheduleAttendRender() {
+    if (currentView !== 'today') return;
+    clearTimeout(attendRenderTimer);
+    attendRenderTimer = setTimeout(() => { if (currentView === 'today') renderToday(todayItems, true); }, 40);
+  }
+  function caseShell(entry) {
+    // A case without a HOJE item (only a decision or an incomplete request).
+    const first = entry.decisions[0] || entry.requests[0] || {};
+    const card = element('article', 'item-card today-card case-card case-shell');
+    const head = element('div', 'item-head');
+    head.append(element('strong', 'identity-name', first.name || 'Conversa sem nome'));
+    if (entry.journeyId) { const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', entry.journeyId); }); head.append(open); }
+    card.append(head);
+    if (entry.journeyId) card.append(contextSlot({ journeyId: entry.journeyId }, { withIdentity: false, unattended: false }));
+    else if (first.contactId) card.append(contextSlot({ contactId: first.contactId }, { withIdentity: false, unattended: false, emptyText: 'Pedido sem ficha: abra a conversa pela busca global' }));
+    return card;
+  }
+  function attendChips(counts, total) {
+    const root = $('attend-filters');
+    if (!root) return;
+    root.replaceChildren();
+    MCSAttend.BUCKETS.forEach((bucket) => {
+      const value = counts[bucket.key] || 0;
+      const chip = element('button', 'chip' + (attendBucket === bucket.key ? ' active' : ''));
+      chip.type = 'button'; chip.dataset.attendBucket = bucket.key; chip.setAttribute('aria-pressed', String(attendBucket === bucket.key));
+      chip.append(document.createTextNode(bucket.label + ' '), element('span', 'chip-count', String(value)), element('small', 'muted', ' ' + bucket.unit));
+      chip.title = bucket.key === 'todos' ? `${value} casos na fila (fora do assunto à parte)` : `${value} ${bucket.unit} · ${Math.max(0, total - value)} nos outros filtros`;
+      chip.addEventListener('click', () => { attendBucket = bucket.key; try { localStorage.setItem('mcs_attend_bucket', attendBucket); } catch (_) {} renderToday(todayItems, true); window.scrollTo(0, 0); });
+      root.append(chip);
+    });
+  }
+
   function renderToday(items, preserveAll=false) {
     const root = $('today-list');
     const stats = $('today-stats');
+    stageDecisionRows();
     root.replaceChildren();
     stats.replaceChildren();
     if(!preserveAll)todayItems = items.slice();
-    const all=preserveAll?todayItems:items.slice(),counts={all:all.length,with:all.filter(hasRef).length,without:all.filter((item)=>!hasRef(item)).length};
-    document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);const count=button.querySelector('span');if(count)count.textContent=String(counts[button.dataset.todayRef]||0);});
-    // The origin filter only narrows (never overrides the Ref chips or the numbers below).
+    const all=preserveAll?todayItems:items.slice();
+    const model = attendModel(all);
+    // The badge counts what depends on you, from the same model as the chips and the list.
+    setCount('today', model.counts.depende);
+    attendChips(model.counts, model.counts.todos);
+    if (!MCSAttend.BUCKETS.some((bucket) => bucket.key === attendBucket)) attendBucket = 'depende';
+    const inBucket = model.cases.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
     const origin=$('today-origin')?.value||'all';
-    const base=all.filter((item)=>(todayRefFilter==='all'||(todayRefFilter==='with'?hasRef(item):!hasRef(item)))&&MCSGroups.matchesOrigin(item,origin)).sort((a,b)=>{const ao=a.next_action_at&&Date.parse(a.next_action_at)<Date.now()?1:0,bo=b.next_action_at&&Date.parse(b.next_action_at)<Date.now()?1:0;return bo-ao;});
-    setCount('today', all.length+vitrineRequestCount);
-    // Every number is a button that shows its list, and says its complement.
+    // Ref and origin only narrow the cases of the chosen filter (never the numbers of the chips).
+    const refOk=(entry)=>todayRefFilter==='all'||(entry.item?(todayRefFilter==='with'?hasRef(entry.item):!hasRef(entry.item)):todayRefFilter==='without');
+    const originOk=(entry)=>!entry.item||MCSGroups.matchesOrigin(entry.item,origin);
+    const refCounts={all:inBucket.length,with:inBucket.filter((entry)=>entry.item&&hasRef(entry.item)).length,without:inBucket.filter((entry)=>!entry.item||!hasRef(entry.item)).length};
+    document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);const count=button.querySelector('span');if(count)count.textContent=String(refCounts[button.dataset.todayRef]||0);});
+    const shown=inBucket.filter((entry)=>refOk(entry)&&originOk(entry));
+    const base=shown.filter((entry)=>entry.item).map((entry)=>entry.item);
+    // Every number is a button that shows its list, and says its complement (same cases as the list).
     const STAT_FILTERS={awaiting:(item)=>item.awaitingReply,hot:(item)=>item.heat==='HOT',missing:(item)=>item.searchStage==='MISSING',sent:(item)=>item.searchStage==='SENT'};
     if(todayStatFilter&&!STAT_FILTERS[todayStatFilter])todayStatFilter=null;
     const stat = (key, label, complement) => {
-      const value=key?base.filter(STAT_FILTERS[key]).length:base.length;
+      const value=key?base.filter(STAT_FILTERS[key]).length:shown.length;
       const block = element('button', 'today-stat'+((todayStatFilter||null)===key?' active':''));block.type='button';block.dataset.todayStat=key||'all';block.setAttribute('aria-pressed',String((todayStatFilter||null)===key));
-      block.append(element('strong', '', value), element('span', '', label), element('small', 'muted', complement(base.length-value)));
+      block.append(element('strong', '', value), element('span', '', label), element('small', 'muted', complement(shown.length-value)));
       block.addEventListener('click',()=>{todayStatFilter=key&&todayStatFilter!==key?key:null;renderToday(todayItems,true);});
       stats.append(block);
     };
-    // M8: "aguardando você" counts only people whose last real message is theirs.
-    stat('awaiting', 'Aguardando você', (rest)=>`${rest} respondidos`);
-    stat(null, 'Na lista', ()=>`${all.length-base.length} fora dos filtros`);
-    if (base.some((item) => item.heat)) stat('hot', 'Quentes', (rest)=>`${rest} mornos ou frios`);
+    stat('awaiting', 'Aguardando sua resposta', (rest)=>`${rest} casos com a última mensagem sua ou sem conversa`);
+    stat(null, 'Casos neste filtro', ()=>`${inBucket.length-shown.length} fora de Ref/Origem`);
+    if (base.some((item) => item.heat)) stat('hot', 'Quentes', (rest)=>`${rest} mornos, frios ou sem calor`);
     if (base.some((item) => item.searchStage)) {
-      stat('missing', 'Falta buscar', (rest)=>`${rest} com busca feita ou sem busca`);
+      stat('missing', 'Busca não salva no Manheim', (rest)=>`${rest} com busca salva ou sem busca`);
       stat('sent', 'Opções enviadas', (rest)=>`${rest} sem opções enviadas`);
     }
-    items=todayStatFilter?base.filter(STAT_FILTERS[todayStatFilter]):base;
-    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({awaiting:'Aguardando você',hot:'Quentes',missing:'Falta buscar',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
-    if (!items.length) { root.append(element('p','empty-state', todayStatFilter||origin!=='all'||todayRefFilter!=='all'?'Ninguém neste filtro':'Nada pendente para hoje')); return; }
-    // Adendo: one section per group (não atendidos, origem, fora do assunto); the decision first.
-    const todayCard = (item) => {
+    const visible=todayStatFilter?shown.filter((entry)=>entry.item&&STAT_FILTERS[todayStatFilter](entry.item)):shown;
+    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({awaiting:'Aguardando sua resposta',hot:'Quentes',missing:'Busca não salva no Manheim',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
+    const offCount=model.counts.fora;
+    if (!visible.length) {
+      root.append(element('p','empty-state', todayStatFilter||origin!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));
+      if(offCount)root.append(element('p','muted',`${offCount} caso(s) fora do assunto estão na seção Fora do assunto, abaixo`));
+      return;
+    }
+    const reload=()=>loadCurrent('today',viewRequestVersion);
+    const todayCard = (entry) => {
+      const item = entry.item;
       const heat = String(item.heat || '').toUpperCase();
-      const card = element('article', `item-card today-card${heat ? ` heat-${heat.toLowerCase()}` : ''}`);
-      card.append(MCSContactGroups.decisionNode(item));
+      const card = element('article', `item-card today-card case-card${heat ? ` heat-${heat.toLowerCase()}` : ''}`);
+      // Why it is here, every reason of the case together, first.
+      const reasons = entry.reasons.map((reason) => reason.text);
+      const decision = MCSContactGroups.decisionNode(item);
+      if (!reasons.length) decision.replaceChildren(element('strong', 'card-decision-label', entry.bucket === 'agendado' ? 'Agendado' : 'Aguardando cliente'), document.createTextNode(entry.bucket === 'agendado' ? ' · Próxima ação marcada (abaixo)' : ' · Você respondeu · a vez é do cliente'));
+      if (reasons.length) { decision.replaceChildren(element('strong', 'card-decision-label', entry.bucket === 'depende' ? 'Depende de você' : MCSContactGroups.groupOf(item).label), document.createTextNode(' · ' + reasons.join(' · ') + (item.group?.unattended ? ` · Esperando há ${item.group.unattended.waitedText}` : ''))); decision.classList.add('decision-red'); }
+      card.append(decision);
       const head = element('div', 'item-head');
       if (item.kind === 'CALCULATOR_ORDER') {
         const title = element('div', 'identity');
@@ -1923,45 +2072,81 @@
         title.append(txt);
         head.append(title);
       } else {
-        head.append(identityHeader(item));
+        head.append(identityHeader(item, { compact: true }));
       }
+      // Origin and channel once, as a short chip.
+      const originChip=MCSContactGroups.originChip(item);if(originChip)head.append(originChip);
       card.append(head);
-      // Without a calculator order: the latest customer message, readable without opening the conversation.
-      const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)card.append(lastMessage);
+      // The customer's last message is shown when the reason is to answer it.
+      if(item.awaitingReply){const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)card.append(lastMessage);}
+      // An incomplete request of this person: what is missing (the request waits here, not in BUSCAR CARROS).
+      entry.requests.forEach((request)=>card.append(element('p','request-lacks case-request',`Completar pedido · ${request.criteriaText?request.criteriaText+' · ':''}${request.lacksText}`)));
+      const next=nextActionNode(item,reload,false);if(next)card.append(next);
+      const actions = element('div', 'inline-actions card-primary');
+      const replying = item.awaitingReply && item.kind !== 'CALCULATOR_ORDER';
+      const open = element('button', 'today-primary small', replying ? 'Responder' : item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
+      open.type = 'button';
+      open.addEventListener('click', (event) => { event.stopPropagation(); openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id, replying ? { anchor: 'lead-conversation' } : {}); });
+      actions.append(open);
+      card.append(actions);
+      // The other decisions of this case (link, review, triage, vitrine) with their own controls.
+      const decisions=element('div','case-decisions');decisions.dataset.caseKey=entry.key;card.append(decisions);
+      // Everything else stays one click away, in the same card and in the ficha.
+      const more=element('details','card-more case-more');more.append(element('summary','','⋯ Resumo do caso, mensagens e mais ações'));
+      more.addEventListener('click',(event)=>event.stopPropagation());
       const badges = element('div', 'badges');
-      const originChip=MCSContactGroups.originChip(item);if(originChip)badges.append(originChip);
       if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
-      if (item.wantsCar) badges.append(makeBadge('QUER ESTE CARRO', 'green'));
-      (item.todayReasons || []).forEach((reason) => badges.append(makeBadge(reason.detail ? `${reason.label} · ${reason.detail}` : reason.label, reason.urgency === 'red' ? 'red' : 'yellow')));
-      if(item.returnedToTalk)badges.append(makeBadge('VOLTOU A FALAR','yellow'));
-      if(item.pendingAiCount)badges.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
-      if(item.aiLinkSuggested)badges.append(makeBadge('🔗 ligação sugerida','yellow'));
       if(item.kind==='CALCULATOR_ORDER'){const contact=contactMeta(item);if(contact)badges.append(contact);}
       badges.append(makeBadge(item.goodHour ? 'bom horário' : 'fora de horário', item.goodHour ? 'green' : 'yellow'));
       if (item.budgetCents) badges.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
       if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
-      card.append(badges);
-      card.append(contextSlot({ journeyId: journeyIdOf(item), ref: refOf(item) }, { unattended: false }));
-      const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadCurrent('today',viewRequestVersion),true);if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
-      if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)card.append(copy);}
-      const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
-      const actions = element('div', 'inline-actions');
-      // The client wrote last: the primary action is to answer, and the card says the window it allows
-      // (estimated from the last message here; the server decides again on send).
-      const replying = item.awaitingReply && item.kind !== 'CALCULATOR_ORDER';
-      const open = element('button', 'today-primary small', replying ? 'Responder' : item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
-      open.type = 'button';
-      open.addEventListener('click', () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id, replying ? { anchor: 'lead-conversation' } : {}));
-      if (replying && item.lastCustomerAt) { const until = Date.parse(item.lastCustomerAt) + 86400000; card.append(element('p', 'muted reply-window-estimate', until > Date.now() ? `Janela do WhatsApp aberta até ${formatDate(new Date(until).toISOString())} (estimada) · responde pelo painel` : 'Janela do WhatsApp encerrada (estimada) · responde pelo WhatsApp do celular')); }
-      actions.append(open);
-      const topic=item.kind==='CALCULATOR_ORDER'?null:MCSContactGroups.topicButton(item,{request,refresh:()=>loadCurrent('today',viewRequestVersion),journeyId:journeyIdOf(item)});if(topic)actions.append(topic);
-      card.append(actions, dispositionControls(item));
-      if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(journeyIdOf(item),{request,onSent:()=>loadCurrent('today',viewRequestVersion)});if(tools)card.append(tools);}
+      more.append(badges);
+      if(!item.awaitingReply){const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)more.append(lastMessage);}
+      const context=contextSlot({ journeyId: journeyIdOf(item), ref: refOf(item) }, { unattended: false });more.append(context);
+      const waiting=waitClockNode(item),receipt=readReceiptNode(item);if(waiting)more.append(waiting);if(receipt)more.append(receipt);
+      if (replying && item.lastCustomerAt) { const until = Date.parse(item.lastCustomerAt) + 86400000; more.append(element('p', 'muted reply-window-estimate', until > Date.now() ? `Janela do WhatsApp aberta até ${formatDate(new Date(until).toISOString())} (estimada) · responde pelo painel` : 'Janela do WhatsApp encerrada (estimada) · responde pelo WhatsApp do celular')); }
+      if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)more.append(copy);}
+      const smsMissing=smsPrintMissing(item); if(smsMissing)more.append(smsMissing);
+      const moreActions=element('div','inline-actions');
+      const topic=item.kind==='CALCULATOR_ORDER'?null:MCSContactGroups.topicButton(item,{request,refresh:reload,journeyId:journeyIdOf(item)});if(topic)moreActions.append(topic);
+      more.append(moreActions, dispositionControls(item));
+      if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(journeyIdOf(item),{request,onSent:reload});if(tools)more.append(tools);}
+      more.addEventListener('toggle',()=>{if(more.open){hydrateContexts(more);MCSContactGroups.hydrateTranslations(more,{request}).catch(()=>{});}});
+      card.append(more);
       makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
       return card;
     };
-    MCSContactGroups.render(root, items, todayCard, { emptyText: 'Nada pendente para hoje' });
+    const buildCard = (entry) => {
+      const card = entry.item ? todayCard(entry) : caseShell(entry);
+      card.dataset.caseKey = entry.key; card.dataset.bucket = entry.bucket;
+      if (entry.journeyId) card.dataset.journeyId = entry.journeyId;
+      if (!entry.item) {
+        const decision = element('p', 'card-decision decision-red');
+        decision.append(element('strong', 'card-decision-label', entry.bucket === 'completar' ? 'Completar pedido' : 'Depende de você'), document.createTextNode(' · ' + (entry.reasons.map((reason) => reason.text).join(' · ') || entry.requests.map((request) => request.lacksText).join(' · '))));
+        card.prepend(decision);
+        entry.requests.forEach((request)=>card.append(element('p','request-lacks case-request',`Completar pedido · ${request.criteriaText?request.criteriaText+' · ':''}${request.lacksText}`)));
+        const decisions=element('div','case-decisions');decisions.dataset.caseKey=entry.key;card.append(decisions);
+      }
+      // The decision rows of the case (rendered by their own lists) come inside its card.
+      const holder = card.querySelector('.case-decisions');
+      entry.decisions.forEach((decision) => { const row = decisionRow(decision.key); if (row && holder) holder.append(row); });
+      if (holder && !holder.childElementCount) holder.remove();
+      return card;
+    };
+    // Cases with a HOJE item keep the old groups (não atendidos, atendidos) and areas by search type.
+    const withItem = visible.filter((entry) => entry.item), without = visible.filter((entry) => !entry.item);
+    const byItem = new Map(withItem.map((entry) => [entry.item, entry]));
+    if (without.length) {
+      const section = element('section', 'contact-group contact-group-decisoes'); section.dataset.group = attendBucket === 'completar' ? 'COMPLETAR' : 'DECISOES';
+      const head = element('header', 'contact-group-head');
+      head.append(element('strong', 'contact-group-label', attendBucket === 'completar' ? 'Pedidos para completar' : 'Decisões sem ficha na fila'), element('span', 'badge contact-group-count', String(without.length)), element('span', 'muted contact-group-hint', attendBucket === 'completar' ? 'Falta um dado do cliente para buscar · cada pedido diz o que falta' : 'Confirmar vínculo, revisar conversa, classificar ou pedido de vitrine'));
+      section.append(head);
+      without.forEach((entry) => section.append(buildCard(entry)));
+      root.append(section);
+    }
+    if (withItem.length) MCSContactGroups.render(root, withItem.map((entry) => entry.item), (item) => buildCard(byItem.get(item)), { emptyText: '' });
+    if(offCount&&attendBucket!=='fora')root.append(element('p','muted',`${offCount} caso(s) fora do assunto estão na seção Fora do assunto, abaixo`));
     hydrateContexts(root);
     MCSContactGroups.hydrateTranslations(root, { request }).catch(() => {});
   }
@@ -2649,6 +2834,8 @@
   }
 
   const MODE_ROOTS = { VALOR: 'valor', CARRO: 'carro' };
+  // People with cars of the active batch in ENVIAR OPÇÕES (a person with VALOR and CARRO cars is one).
+  const optionsPeopleOf = (data) => new Set((data && data.demands || []).filter((demand) => demand.matchCount > 0).map((demand) => demand.journeyId ? 'ficha:' + demand.journeyId : 'ref:' + String(demand.ref || '').toUpperCase())).size;
   const modeRoot = (mode, part) => $(`buscas-${MODE_ROOTS[mode]}-${part}`);
   let manheimData = null;
 
@@ -2662,9 +2849,11 @@
     renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas'; });
     // B5: people served by today's combinations, not the count frozen at upload time.
     setCount('manheim', data.upload ? (data.upload.current_lead_count ?? data.upload.lead_count ?? 0) : 0);
+    // ENVIAR OPÇÕES badge: the people this screen lists with cars (same rule as the counters).
+    setCount('searches', optionsPeopleOf(data));
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} carro(s) com combinação · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma importação ativa';
     // The comparison of the requests with this batch is run from PESQUISAS (one place): say so here.
-    if (data.upload) { const link = element('button', 'quiet small options-compare-link', 'Comparar pedidos com este lote (PESQUISAS)'); link.type = 'button'; link.addEventListener('click', () => switchPanel('requests').then(() => loadCurrent('requests', viewRequestVersion)).catch(() => {})); $('manheim-summary').append(document.createTextNode(' · '), link); }
+    if (data.upload) { const link = element('button', 'quiet small options-compare-link', 'Comparar pedidos com este lote (BUSCAR CARROS)'); link.type = 'button'; link.addEventListener('click', () => switchPanel('requests').then(() => loadCurrent('requests', viewRequestVersion)).catch(() => {})); $('manheim-summary').append(document.createTextNode(' · '), link); }
     renderBuscasCounters(data.counts);
     renderBatches(data.uploads || [], data.undoAvailable !== false, data.hiddenBatchIds);
     renderReview(data.review || []);
@@ -2721,9 +2910,9 @@
       if (notRun.length || !data.upload) {
         const section = element('section', 'search-group search-group-nao-rodada'); section.dataset.searchGroup = 'NAO_RODADA';
         const count = data.upload ? notRun.length : (data.demands || []).filter((demand) => demand.mode === mode).length + notRun.length;
-        const head = element('header', 'search-group-head'); head.append(element('strong', '', 'Busca ainda não rodada'), element('span', 'badge', String(count)), element('span', 'muted search-group-hint', data.upload ? 'Faltam dados do cliente para buscar · Os pedidos estão em Revisar, com o que falta' : 'Sem lote ativo: nenhuma busca rodou ainda'));
+        const head = element('header', 'search-group-head'); head.append(element('strong', '', 'Busca ainda não rodada'), element('span', 'badge', String(count)), element('span', 'muted search-group-hint', data.upload ? 'Faltam dados do cliente para buscar · Os pedidos estão em BUSCAR CARROS, Revisar tipo de busca, com o que falta' : 'Sem lote ativo: nenhuma busca rodou ainda'));
         section.append(head);
-        if (notRun.length) { const go = element('button', 'quiet small', `Ver o que falta (${notRun.length})`); go.type = 'button'; go.addEventListener('click', () => { const box = $('buscas-review'); if (box) { box.open = true; box.scrollIntoView({ block: 'start', behavior: 'smooth' }); } }); section.append(go); }
+        if (notRun.length) { const go = element('button', 'quiet small', `Ver o que falta (${notRun.length})`); go.type = 'button'; go.addEventListener('click', () => { switchPanel('requests').then(() => { const box = $('buscas-review'); if (box) { box.open = true; box.scrollIntoView({ block: 'start', behavior: 'smooth' }); } }).catch(() => {}); }); section.append(go); }
         root.append(section);
       }
       hydrateContexts(root);
@@ -2770,50 +2959,112 @@
   // Sem critérios para nenhum dos dois o pedido fica visível com o que falta e nunca é comparado,
   // contado como opção ou marcado como atendido.
   const REQUEST_STATES = ['FALTA_BUSCAR', 'COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO', 'PRECISA_DETALHE', 'PRECISA_REVISAO'];
-  const REQUEST_STATE_LABELS = { FALTA_BUSCAR: 'FALTA BUSCAR', COM_OPCOES: 'COM OPÇÕES NO LOTE', COM_CANDIDATOS: 'CANDIDATOS · VALOR A CONFERIR', SEM_OPCAO: 'SEM OPÇÃO NO LOTE', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' };
+  // The result of a request in the active batch (never the work stage, which is "Andamento").
+  const REQUEST_STATE_LABELS = { FALTA_BUSCAR: 'AINDA NÃO COMPARADO COM O LOTE', COM_OPCOES: 'COM OPÇÕES NO LOTE', COM_CANDIDATOS: 'CANDIDATOS · VALOR A CONFERIR', SEM_OPCAO: 'SEM OPÇÃO NO LOTE', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' };
   const REQUEST_STATE_TONES = { FALTA_BUSCAR: 'yellow', COM_OPCOES: 'green', COM_CANDIDATOS: 'yellow', SEM_OPCAO: '', PRECISA_DETALHE: 'yellow', PRECISA_REVISAO: 'red' };
+  const COLUMN_STATES = ['COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO', 'FALTA_BUSCAR'];
   const REQUEST_SOURCES = { FICHA: 'Ficha', CONVERSA: 'Conversa', CALCULADORA: 'Calculadora' };
   const EXTRACTION_TEXT = { SIMULADA: 'Leitura das conversas: simulada neste ambiente (sem IA)', DESLIGADA: 'Leitura das conversas por IA: desligada', SEM_CHAVE: 'Leitura das conversas por IA: sem chave', MODELO_INVALIDO: 'Leitura das conversas por IA: modelo não aprovado', LIGADA: 'Leitura das conversas por IA: ligada' };
   let requestsData = null;
   let requestsFilter = 'ALL';
   let requestsShown = 50;
+  const requestPersonKey = (item) => item.person && (item.person.journeyId || item.person.contactId || item.person.ref) || 'pedido:' + item.key;
+  // BUSCAR CARROS: complete requests in the column of their type; incomplete ones wait in
+  // ATENDIMENTO with what is missing; an unknown type goes to review (never "por valor" by default).
+  // The badge, the chips and the columns come from this one split.
+  function requestColumnsOf(data) {
+    const columns = { VALOR: [], CARRO: [] }, review = [], incomplete = [];
+    (data && data.items || []).forEach((item) => {
+      if (item.state === 'PRECISA_DETALHE') incomplete.push(item);
+      else if (item.state === 'PRECISA_REVISAO' || !columns[item.searchMode]) review.push(item);
+      else columns[item.searchMode].push(item);
+    });
+    const listed = columns.VALOR.concat(columns.CARRO);
+    return { columns, review, incomplete, total: listed.length, people: new Set(listed.map(requestPersonKey)).size };
+  }
   function renderRequests(data) {
     if (requestsData !== data) emptyReasonsCache = null;
     requestsData = data;
-    setCount('requests', (data.items || []).length);
+    const split = requestColumnsOf(data);
+    setCount('requests', split.total);
     const status = $('requests-status');
     const upload = data.upload ? `Lote ativo de ${formatDate(data.upload.uploadedAt)}` : 'Nenhum lote ativo';
     status.classList.remove('error');
     status.textContent = [upload, EXTRACTION_TEXT[data.extraction] || '', data.requestsPending ? 'Pedidos lidos das conversas indisponíveis · O painel precisa de uma atualização para liberar este recurso · Avise o responsável' : ''].filter(Boolean).join(' · ');
+    // What each number counts: requests (one per person and search type) and people.
+    const totals = $('requests-totals');
+    if (totals) {
+      totals.replaceChildren(element('strong', '', `${split.total} pedido${split.total === 1 ? '' : 's'} de ${split.people} pessoa${split.people === 1 ? '' : 's'}`),
+        element('span', 'muted', `${split.columns.VALOR.length} por valor · ${split.columns.CARRO.length} por carro · uma pessoa com os dois tipos conta como uma pessoa e dois pedidos · ${split.review.length} para revisar o tipo · ${split.incomplete.length} incompletos em Atendimento${data.mergedReadings ? ` · ${data.mergedReadings} leitura(s) da IA iguais ao pedido da ficha aparecem como evidência dentro dele` : ''}`));
+    }
     const filters = $('requests-filters');
     filters.replaceChildren();
+    const listed = split.columns.VALOR.concat(split.columns.CARRO);
     const chip = (key, label, count) => {
       const button = element('button', 'chip' + (requestsFilter === key ? ' active' : ''), '');
       button.type = 'button'; button.dataset.requestState = key;
       button.append(document.createTextNode(label + ' '), element('span', '', String(count)));
+      button.title = `${count} pedidos`;
       button.addEventListener('click', () => { requestsFilter = key; requestsShown = 50; renderRequests(requestsData); });
       filters.append(button);
     };
-    chip('ALL', 'Todos', (data.items || []).length);
-    REQUEST_STATES.forEach((state) => chip(state, REQUEST_STATE_LABELS[state], (data.counts || {})[state] || 0));
-    const root = $('requests-list');
-    root.replaceChildren();
-    const visible = (data.items || []).filter((item) => requestsFilter === 'ALL' || item.state === requestsFilter);
-    if (!visible.length) return empty(root, requestsFilter === 'ALL' ? 'Nenhum pedido de veículo registrado' : 'Nenhum pedido neste estado');
-    // Same criteria, one task; every person and conversation stays listed inside it.
-    const groups = new Map();
-    visible.forEach((item) => { if (!groups.has(item.groupKey)) groups.set(item.groupKey, []); groups.get(item.groupKey).push(item); });
-    const ordered = [...groups.values()].sort((left, right) => REQUEST_STATES.indexOf(left[0].state) - REQUEST_STATES.indexOf(right[0].state)
-      || String(latestOf(right)).localeCompare(String(latestOf(left))));
-    // Adendo, item 2: three groups that never mix (com carros, sem carros, busca ainda não rodada).
-    MCSSearchGroups.render(root, ordered.slice(0, requestsShown), requestCard, (members) => members[0].state);
-    hydrateContexts(root);
-    loadEmptyReasons(root);
-    if (ordered.length > requestsShown) {
-      const more = element('button', 'quiet small', `Mostrar mais (${ordered.length - requestsShown})`); more.type = 'button';
-      more.addEventListener('click', () => { requestsShown += 50; renderRequests(requestsData); });
-      root.append(more);
+    if (requestsFilter !== 'ALL' && !COLUMN_STATES.includes(requestsFilter)) requestsFilter = 'ALL';
+    chip('ALL', 'Todos', listed.length);
+    COLUMN_STATES.forEach((state) => chip(state, REQUEST_STATE_LABELS[state], listed.filter((item) => item.state === state).length));
+    ['VALOR', 'CARRO'].forEach((mode) => {
+      const root = $(mode === 'VALOR' ? 'requests-valor' : 'requests-carro');
+      root.replaceChildren();
+      const visible = split.columns[mode].filter((item) => requestsFilter === 'ALL' || item.state === requestsFilter);
+      // Same criteria in the same type, one task; every person and conversation stays listed inside it.
+      const groups = new Map();
+      visible.forEach((item) => { if (!groups.has(item.groupKey)) groups.set(item.groupKey, []); groups.get(item.groupKey).push(item); });
+      const ordered = [...groups.values()].sort((left, right) => COLUMN_STATES.indexOf(left[0].state) - COLUMN_STATES.indexOf(right[0].state) || String(latestOf(right)).localeCompare(String(latestOf(left))));
+      if (!ordered.length) empty(root, requestsFilter === 'ALL' ? 'Nenhum pedido completo deste tipo' : 'Nenhum pedido deste tipo neste resultado');
+      else MCSSearchGroups.render(root, ordered.slice(0, requestsShown), requestCard, (members) => members[0].state);
+      // A work stage (busca salva / opções enviadas) whose request is not on the list stays visible.
+      if (requestsFilter === 'ALL') {
+        const shownStages = new Set(split.columns[mode].map((item) => item.person?.journeyId ? item.person.journeyId + ':' + mode : null).filter(Boolean));
+        const orphans = [...searchStages.values()].filter((item) => item.mode === mode && !shownStages.has(item.journeyId + ':' + mode));
+        if (orphans.length) {
+          const section = element('details', 'search-group search-group-andamento'); section.dataset.searchGroup = 'ANDAMENTO';
+          section.append(element('summary', '', `Andamento sem pedido nesta lista (${orphans.length})`));
+          section.append(element('p', 'muted', 'Fichas com busca deste tipo cujo pedido não está na lista (por exemplo, pausadas ou sem mensagem real) · nada foi perdido'));
+          orphans.forEach((item) => section.append(searchStageCard(item, () => loadCurrent('requests', viewRequestVersion))));
+          root.append(section);
+        }
+      }
+      if (ordered.length > requestsShown) {
+        const more = element('button', 'quiet small', `Mostrar mais (${ordered.length - requestsShown})`); more.type = 'button';
+        more.addEventListener('click', () => { requestsShown += 50; renderRequests(requestsData); });
+        root.append(more);
+      }
+      hydrateContexts(root);
+      loadEmptyReasons(root);
+    });
+    renderRequestReview(split.review);
+    const note = $('requests-incomplete-note');
+    if (note) {
+      note.replaceChildren();
+      if (split.incomplete.length) {
+        note.append(document.createTextNode(`${split.incomplete.length} pedido${split.incomplete.length === 1 ? '' : 's'} incompleto${split.incomplete.length === 1 ? '' : 's'} (falta um dado para buscar) esperam em Atendimento, com o que falta · `));
+        const go = element('button', 'quiet small', 'Ver em Atendimento'); go.type = 'button';
+        go.addEventListener('click', () => { attendBucket = 'todos'; switchPanel('today').catch(() => {}); });
+        note.append(go);
+      }
     }
+  }
+  // Requests whose type is unknown or whose criteria fit no type: reviewed, never guessed. A ficha
+  // already listed by "Revisar tipo de busca" (with the buttons to define the type) is not repeated.
+  function renderRequestReview(items) {
+    const root = $('requests-review');
+    if (!root) return;
+    root.replaceChildren();
+    const fromReview = new Set([...document.querySelectorAll('#buscas-review-list [data-review-key]')].map((node) => node.dataset.journeyId).filter(Boolean));
+    const rest = items.filter((item) => !(item.typeUnknown && item.person?.journeyId && fromReview.has(item.person.journeyId)));
+    rest.forEach((item) => root.append(requestCard([item])));
+    const count = $('buscas-review-count');
+    if (count) count.textContent = String(rest.length + $('buscas-review-list').querySelectorAll('[data-review-key]').length);
+    hydrateContexts(root);
   }
   const latestOf = (members) => members.map((item) => item.lastMessageAt || '').sort().at(-1) || '';
   // The plain-language reason of every "sem carros" on screen, read once (no new comparison).
@@ -2829,13 +3080,17 @@
     const first = members[0];
     const card = element('article', 'item-card request-card');
     card.dataset.state = first.state;
+    card.dataset.requestKey = first.key;
     const head = element('div', 'request-head');
     // What the client asked (read from the conversation, not confirmed) is never mixed with the
     // criterion the system searches with (ficha or calculator, after the search rules).
     const criteriaLabel = first.source === 'CONVERSA' ? 'Pedido lido da conversa (IA, não confirmado)' : 'Critério usado na busca (sistema)';
     const criteria = element('div', 'request-criteria');
     criteria.append(element('span', 'request-criteria-label', criteriaLabel), element('strong', '', first.criteriaText || 'Sem critério'));
-    head.append(criteria, makeBadge(first.stateLabel, REQUEST_STATE_TONES[first.state]));
+    // Result in the batch, apart from the work stage ("Andamento", on each person below).
+    const result = element('span', 'request-result');
+    result.append(document.createTextNode('Resultado no lote: '), makeBadge(REQUEST_STATE_LABELS[first.state] || first.stateLabel, REQUEST_STATE_TONES[first.state]));
+    head.append(criteria, result);
     card.append(head);
     const fields = MCSSearchGroups.fields(first); if (fields) card.append(fields);
     // "Sem carros" always says why; "não rodada" says what is missing.
@@ -2851,6 +3106,7 @@
     if (first.state === 'PRECISA_DETALHE') card.append(element('p', 'request-lacks', first.lacksText || ''),
       element('p', 'muted', 'Sem busca no lote até a pessoa detalhar · Continua aqui, ligado à conversa'));
     if (first.reviewReason) card.append(element('p', 'muted', 'Revisão: ' + first.reviewReason));
+    const reload = () => loadCurrent('requests', viewRequestVersion);
     members.forEach((item) => {
       const line = element('div', 'request-person');
       const who = element('div', 'request-person-head');
@@ -2861,7 +3117,7 @@
         const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button';
         open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', item.person.journeyId); });
         who.append(open);
-        // The cars this result counts live in OPÇÕES (same ficha, same search type): one click lands on them.
+        // The cars this result counts are in ENVIAR OPÇÕES (same ficha, same type): one click opens them.
         if (item.optionCount && item.searchMode && ['COM_OPCOES', 'COM_CANDIDATOS'].includes(first.state)) {
           const options = element('button', 'primary small request-open-options request-view-options', `Ver as ${item.optionCount} ${item.optionCount === 1 ? 'opção' : 'opções'}`); options.type = 'button';
           options.addEventListener('click', (event) => { event.stopPropagation(); openOptionsCard(`journey:${item.person.journeyId}:${item.searchMode}`); });
@@ -2869,16 +3125,32 @@
         }
       }
       line.append(who);
+      // Work stage of this ficha and type (busca salva no Manheim, opções enviadas).
+      const stage = item.person?.journeyId && item.searchMode ? searchStages.get(item.person.journeyId + ':' + item.searchMode) : null;
+      if (stage) line.append(searchStageLine(stage, reload));
       // The client's case: the ficha when known; a conversation request only through its contact,
       // and only when that contact has exactly one ficha.
       const personJourney = UUID_RE.test(String(item.person?.journeyId || '')) ? item.person.journeyId : null;
       const personRef = REF_CODE_RE.test(String(item.person?.ref || '').toUpperCase()) ? String(item.person.ref).toUpperCase() : null;
       const personContact = UUID_RE.test(String(item.person?.contactId || '')) ? item.person.contactId : null;
-      line.append(contextSlot({ journeyId: personJourney, ref: personJourney ? null : personRef, contactId: personJourney || personRef ? null : personContact }, { focus: 'search', emptyText: 'Pedido sem cliente identificado: não é ligado a nenhuma ficha.' }));
+      const caseBox = element('details', 'request-case');
+      caseBox.append(element('summary', '', 'Resumo do caso'));
+      caseBox.append(contextSlot({ journeyId: personJourney, ref: personJourney ? null : personRef, contactId: personJourney || personRef ? null : personContact }, { focus: 'search', emptyText: 'Pedido sem cliente identificado: não é ligado a nenhuma ficha.' }));
+      caseBox.addEventListener('toggle', () => { if (caseBox.open) hydrateContexts(caseBox); });
+      line.append(caseBox);
       const evidence = element('details', 'request-evidence');
       evidence.append(element('summary', '', `Evidências (${(item.evidence || []).length})`));
       (item.evidence || []).forEach((entry) => evidence.append(element('p', 'muted', (entry.at ? formatDate(entry.at) + ' · ' : '') + entry.text)));
       line.append(evidence);
+      // The same request read by the AI from the conversation: evidence of this request, not a second one.
+      (item.aiEvidence || []).forEach((reading) => {
+        const box = element('details', 'request-evidence request-ai-evidence');
+        box.dataset.readingKey = reading.key;
+        box.append(element('summary', '', `Leitura da conversa pela IA (não confirmada) · mesmos critérios${reading.versions > 1 ? ` · ${reading.versions} versões` : ''}`));
+        box.append(element('p', 'muted', reading.criteriaText || ''));
+        (reading.evidence || []).forEach((entry) => box.append(element('p', 'muted', (entry.at ? formatDate(entry.at) + ' · ' : '') + entry.text)));
+        line.append(box);
+      });
       card.append(line);
     });
     return card;
@@ -2908,13 +3180,13 @@
         const optionsLeft = (result.options && result.options.remaining) || 0;
         status.textContent = result.remaining
           ? `Comparando com o lote ativo · ${result.remaining} pedido(s) restantes`
-          : `Levando para as fichas e OPÇÕES · ${carried} ficha(s) receberam o carro pedido na conversa · ${synced} cliente(s) atualizados em OPÇÕES`;
+          : `Levando para as fichas e ENVIAR OPÇÕES · ${carried} ficha(s) receberam o carro pedido na conversa · ${synced} cliente(s) atualizados em ENVIAR OPÇÕES`;
         const moved = (result.compared || 0) + (result.carried || 0) + ((result.options && result.options.synced) || 0) + (result.failed || []).length;
         if (!moved || (!result.remaining && !result.carryLeft && !optionsLeft)) break;
       }
       await loadCurrent();
       const kept = notCarried.FICHA_JA_TEM_CARRO || 0;
-      const summary = `Comparação concluída · ${carried} ficha(s) receberam o carro pedido na conversa · ${synced} cliente(s) atualizados em OPÇÕES` + (kept ? ` · ${kept} não gravados porque a ficha já tem carro definido` : '');
+      const summary = `Comparação concluída · ${carried} ficha(s) receberam o carro pedido na conversa · ${synced} cliente(s) atualizados em ENVIAR OPÇÕES` + (kept ? ` · ${kept} não gravados porque a ficha já tem carro definido` : '');
       // The list reload writes its own status line (reading mode); the result of this click comes first.
       const listLine = status.textContent;
       const outcome = summary + (skip.length ? ` · ${skip.length} pedido(s) com falha continuam em FALTA BUSCAR` : '');
@@ -3128,6 +3400,7 @@
     items.forEach((item) => {
       const line = element('article', 'item-card review-line');
       line.dataset.reviewKey = item.key;
+      if (item.journeyId) line.dataset.journeyId = item.journeyId;
       line.append(element('strong', 'identity-name', item.name || 'Cliente'), element('span', 'muted', `${item.ref ? `Ref ${item.ref}` : 'sem Ref'} · ${item.manual ? 'critério sem modo' : item.mode === 'REVIEW' ? 'tipo indefinido' : MCSVehicleMatch.modeLabel(item.mode)}`));
       const reasons = element('div', 'badges');
       (item.issues || []).forEach((issue) => reasons.append(makeBadge(issue.wish ? `${issue.wish}: ${issue.text}` : issue.text, 'yellow')));
@@ -3154,7 +3427,7 @@
         const save = element('button', 'small', 'Salvar lance'); save.type = 'button';
         MCSAction.bind(save, () => ({ scope: line, optimistic: () => { save.textContent = 'Salvando…'; },
           commit: () => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_mode_bid', journeyId: item.journeyId, value: bid.value }) }),
-          rollback: () => { save.textContent = 'Salvar lance'; }, successText: 'Lance salvo · OPÇÕES vai comparar esta busca com o lote', feedbackKey: 'review-bid:' + item.key,
+          rollback: () => { save.textContent = 'Salvar lance'; }, successText: 'Lance salvo · ENVIAR OPÇÕES vai comparar esta busca com o lote', feedbackKey: 'review-bid:' + item.key,
           errorText: (failure) => failure && failure.code === 'BID_VALUE_INVALID' ? 'Lance inválido · Use um valor entre US$ 3,000 e US$ 300,000' : 'Não consegui salvar o lance · tente de novo',
           refresh: () => loadCurrent() }));
         actions.append(bid, save);
@@ -3305,7 +3578,7 @@
       const smaller = uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
       if (!uniqueCount || smaller) {
         status.textContent = 'Aguardando confirmação';
-        const question = !uniqueCount ? 'Estes arquivos não têm nenhum carro · As combinações atuais de BUSCAS serão substituídas' : `Este lote tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
+        const question = !uniqueCount ? 'Estes arquivos não têm nenhum carro · As combinações atuais de ENVIAR OPÇÕES serão substituídas' : `Este lote tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
         if (!(await askInline(status, question, 'Enviar mesmo assim'))) { status.textContent = 'Envio cancelado'; return; }
       }
       const plan = MCSManheimUpload.planBatch(fileMeta, deduped.vehicles, MCSManheim);
@@ -3334,7 +3607,7 @@
           const id = failure.uploadId || uploadId;
           if (id) await request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'cancel', uploadId: id }) }).catch(() => null);
           renderUploadProgress(null);
-          status.textContent = 'Importação cancelada · Nenhum carro deste lote entrou em BUSCAS e o lote ativo não mudou';
+          status.textContent = 'Importação cancelada · Nenhum carro deste lote entrou em ENVIAR OPÇÕES e o lote ativo não mudou';
           return;
         }
         throw failure;
@@ -3607,7 +3880,7 @@
       const totals = await post({ action: 'complement-result', uploadId: latest.id }).catch(() => null);
       status.textContent = totals
         ? `Complemento concluído · ${totals.withSale} carros complementados · ${totals.lane} com Lane/Run · ${totals.offLane} Buy Now / Make Offer · ${totals.incomplete} ainda incompletos · ${totals.matches} combinações`
-        : `Complemento concluído · ${done.cars} carros complementados · Os totais aparecem em BUSCAS`;
+        : `Complemento concluído · ${done.cars} carros complementados · Os totais aparecem em ENVIAR OPÇÕES`;
       if (requestPool) requestPool.invalidate();
       await loadCurrent().catch(() => {});
     } catch (failure) {
@@ -4433,12 +4706,12 @@
       }
     });
     window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
-    ['today','entry','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
+    ['today','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
     $('clients-followup')?.addEventListener('toggle',()=>{if($('clients-followup').open)loadFollowup();});
     $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(currentView==='clients')loadClients();refreshCounters().catch(()=>{});});
     // Origem: the same options in HOJE, ENTRADA and CLIENTES (filled before the saved choice is restored).
-    ['today-origin','entry-origin','clients-origin'].forEach((id)=>MCSContactGroups.fillOriginSelect($(id)));
-    ['today-origin','entry-origin'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(id==='today-origin'&&currentView==='today')renderToday(todayItems,true);if(id==='entry-origin'&&currentView==='entry')loadQueue().catch(()=>{});});});
+    ['today-origin','clients-origin'].forEach((id)=>MCSContactGroups.fillOriginSelect($(id)));
+    ['today-origin'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='today')renderToday(todayItems,true);});});
     ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')loadClients();});});
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
     const weekly=$('weekly-summary');weekly.open=localStorage.getItem('mcs_weekly_open')==='true';weekly.addEventListener('toggle',()=>localStorage.setItem('mcs_weekly_open',String(weekly.open)));
@@ -4469,7 +4742,6 @@
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
     $('requests-compare').addEventListener('click', (event) => compareRequests(event.currentTarget).catch(() => {}));
-    $('entry-go-imports')?.addEventListener('click', () => document.querySelector('[data-view="imports"]')?.click());
     $('requests-history').addEventListener('click', (event) => openHistoryAudit(event.currentTarget).catch(() => {}));
     $('requests-history-pause').addEventListener('click', () => { historyPaused = true; $('requests-history-text').textContent = 'Pausando depois deste lote…'; });
     $('requests-audit').addEventListener('toggle', () => { if ($('requests-audit').open) loadRequestsAudit().catch(() => {}); });
