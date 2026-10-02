@@ -33,3 +33,13 @@ test('painel: filtros e selects oferecem os três estados', () => {
     assert.match(html, new RegExp('<option value="' + value + '">'));
   }
 });
+
+test('toque na vitrine com o código do link cai em um dos três estados de Ref', async () => {
+  const { payload } = require('../api/panel/vitrine-requests.js');
+  assert.equal(typeof payload, 'function');
+  const text = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'api', 'panel', 'vitrine-requests.js'), 'utf8');
+  // pedidos e sinais carregam refState e a ficha resolvida pelo código da vitrine
+  assert.match(text, /refState:refStateFor\(journeyId\)/);
+  assert.equal((text.match(/refState:refStateFor\(signalJourney\)/g) || []).length, 3);
+  assert.match(text, /groups\.refStateOf/);
+});

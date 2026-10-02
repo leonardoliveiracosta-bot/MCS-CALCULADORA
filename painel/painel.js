@@ -2108,7 +2108,7 @@
     (whatsapp?.phoneReviews || []).forEach((item) => out.push({ key: 'phone:' + item.id, kind: 'TELEFONE', journeyId: null, name: item.phone_e164 || null, label: 'Escolher o contato certo deste telefone' }));
     (triage?.review || []).forEach((item) => out.push({ key: 'triage:' + item.id, kind: 'TRIAGEM', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Classificar a conversa (pré-compra ou fora do funil)' }));
     entryReviewChats(entry).forEach((chat) => out.push({ key: 'chat:' + chat.id, kind: 'REVISAR_CONVERSA', journeyId: uuidOnly(chat.groupJourneyId), name: chat.contact?.display_name || chat.canonical_key || null, label: chat.resolution_status === 'RESOLVED' ? 'Conferir conversa com hora incerta' : 'Revisar conversa importada e ligar à ficha certa' }));
-    (vitrine?.requests || []).forEach((item) => out.push({ key: 'vitrine:' + item.id, kind: 'VITRINE', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: item.kind === 'BID' ? 'V2 · quer dar lance' : 'V1 · pediu para ver o carro' }));
+    (vitrine?.requests || []).forEach((item) => out.push({ key: 'vitrine:' + item.id, kind: 'VITRINE', refState: item.refState || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, label: item.kind === 'BID' ? 'V2 · quer dar lance' : 'V1 · pediu para ver o carro' }));
     return out;
   }
   // Incomplete requests (BUSCAR CARROS keeps only complete ones): they wait here with what is missing.
@@ -2165,7 +2165,8 @@
   const activityAt = (item) => Math.max(atMs(item?.lastCustomerAt) || 0, atMs(item?.latestMessage?.occurred_at_utc || item?.latestMessage?.created_at) || 0, atMs(item?.lastRealMessageAt) || 0, atMs(item?.occurredAt) || 0);
   function caseFacts(entry) {
     if (entry.item) return { known: true, hasRef: hasRef(entry.item), refState: refStateOf(entry.item), item: entry.item, at: activityAt(entry.item) };
-    if (!entry.journeyId) return { known: true, hasRef: false, refState: 'SEM_REF', item: null, at: 0 };
+    // A decision that carries its own state (a vitrine tap with the link code, resolved by the server) keeps it.
+    if (!entry.journeyId) { const carried = (entry.decisions || []).map((decision) => decision.refState).find(Boolean); return { known: true, hasRef: carried === 'COM_REF', refState: carried || 'SEM_REF', item: null, at: 0 }; }
     const identity = attendIdentity.get(entry.journeyId);
     if (identity === 'loading' || identity === undefined) return { known: false };
     if (!identity) return { known: true, hasRef: false, refState: 'SEM_REF', item: null, at: 0 };
