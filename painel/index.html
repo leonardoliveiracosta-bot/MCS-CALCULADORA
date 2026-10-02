@@ -48,28 +48,27 @@
         <picture class="panel-logo">
           <img src="/painel/mcs-logo-claro.svg" alt="My Car Scout">
         </picture>
-        <h1 id="page-title" class="visual-page-label" aria-live="polite">HOJE</h1>
+        <h1 id="page-title" class="visual-page-label" aria-live="polite">ATENDIMENTO</h1>
         <nav aria-label="Seções do painel">
-          <button class="tab active" type="button" data-view="today">HOJE <span data-count="today" title="Carregando">—</span></button>
-          <button class="tab" type="button" data-view="entry">ENTRADA <span data-count="entry" title="Carregando">—</span></button>
-          <button class="tab" type="button" data-view="clients">CLIENTES <span data-count="clients" title="Carregando">—</span></button>
-          <button class="tab" type="button" data-view="requests">PESQUISAS <span data-count="requests" title="Carregando">—</span></button>
-          <button class="tab" type="button" data-view="searches">OPÇÕES <span data-count="searches" title="Carregando">—</span></button>
-          <button class="tab" type="button" data-view="imports">IMPORTAÇÕES <span data-count="imports" title="Erros, arquivos e prints para revisar">—</span></button>
+          <button class="tab active" type="button" data-view="today" aria-current="page">ATENDIMENTO <span data-count="today" data-unit="casos que dependem de você" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="requests">BUSCAR CARROS <span data-count="requests" data-unit="pedidos de carro" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="searches">ENVIAR OPÇÕES <span data-count="searches" data-unit="pessoas com carros no lote" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="clients">CLIENTES <span data-count="clients" data-unit="pessoas no período" title="Carregando">—</span></button>
+          <button class="tab" type="button" data-view="imports">IMPORTAÇÕES <span data-count="imports" data-unit="arquivos e prints para revisar" title="Carregando">—</span></button>
         </nav>
         <form id="global-search" class="global-search" role="search">
           <label class="visually-hidden" for="global-search-input">Busca global</label>
           <div><input id="global-search-input" type="search" maxlength="100" placeholder="Nome, telefone ou Ref" required><button type="submit">Buscar</button></div>
         </form>
-        <div class="topbar-actions"><strong id="environment-badge" class="environment-badge" aria-live="polite"></strong><button id="logout" class="quiet" type="button">Sair</button><button id="notification-toggle" class="quiet small" type="button">Ativar avisos</button><button id="notification-test" class="quiet small" type="button">Enviar aviso de teste</button><span id="notification-status" class="sr-status" aria-live="polite"></span></div>
+        <div class="topbar-actions"><strong id="environment-badge" class="environment-badge" aria-live="polite"></strong><button class="quiet small settings-link" type="button" data-view="settings">Configurações e conexão</button><button id="logout" class="quiet" type="button">Sair</button></div>
       </header>
       <div id="search-results" class="card search-results hidden" aria-live="polite"><label>Ordenar<select id="search-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
       <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última mensagem do WhatsApp: <strong id="last-whatsapp-import">—</strong></span><details id="ai-budget" class="ai-budget hidden"><summary>Saldo da IA: <strong id="ai-budget-spent">—</strong></summary><p id="ai-budget-warning" class="warning hidden"></p><ul id="ai-budget-features" class="ai-budget-features"></ul></details></div>
       <section id="capture-warning" class="capture-warning hidden" aria-live="polite"></section>
-      <section id="today-panel" class="panel-view" aria-label="Hoje">
-        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Hoje</h2><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
+      <section id="today-panel" class="panel-view" aria-label="Atendimento">
+        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Atendimento</h2><p class="muted">Responder, completar pedido, confirmar vínculo e cumprir retornos · O que depende de você vem primeiro</p><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
+        <div id="attend-filters" class="filters attend-filters" role="group" aria-label="Filtrar o atendimento"></div>
         <div id="today-stats" class="today-stats" aria-live="polite"></div>
-        <section id="vitrine-requests" class="vitrine-requests card" aria-live="polite"></section>
         <section id="vitrine-signals" class="vitrine-signals" aria-live="polite"></section>
         <div id="today-ref-filters" class="filters ref-filters" aria-label="Filtrar Hoje por Ref">
           <button type="button" class="chip active" data-today-ref="all">Todos <span>—</span></button>
@@ -77,28 +76,8 @@
           <button type="button" class="chip" data-today-ref="without">Sem Ref <span>—</span></button>
         </div>
         <div id="today-list" class="stack" aria-live="polite"></div>
-        <details id="weekly-summary" class="card weekly-summary">
-          <summary>Esta semana</summary>
-          <p id="weekly-period" class="muted">Últimos 7 dias comparados com os 7 anteriores · horário da Flórida</p>
-          <div id="weekly-summary-content" aria-live="polite"></div>
-        </details>
-      </section>
-      <section id="entry-panel" class="hidden" aria-label="Entrada">
-        <div class="section-head entry-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Entrada</h2><p class="muted">Tudo que chega ao painel · Só pede sua ação quando houver dúvida real</p></div><label>Origem<select id="entry-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Ordenar<select id="entry-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
-        <section class="card whatsapp-card entry-signal" aria-labelledby="whatsapp-title">
-          <h2 id="whatsapp-title" class="visually-hidden">Sinal do WhatsApp</h2>
-          <div class="signal-live"><span class="signal-dot" aria-hidden="true"></span><p id="whatsapp-signal">Verificando sinal…</p></div>
-          <div class="signal-metric"><span>Última mensagem recebida</span><p id="whatsapp-received" class="muted"></p></div>
-          <div class="signal-metric"><span>Última enviada por você</span><p id="whatsapp-echo" class="muted">Nenhuma ainda</p></div>
-        </section>
-        <section class="card entry-needs" aria-labelledby="entry-needs-title">
-          <h2 id="entry-needs-title">Precisa de você</h2>
-          <p id="entry-needs-empty" class="entry-empty">Nada pendente ✓</p>
-          <div id="whatsapp-suggestions" class="queue" aria-live="polite"></div>
-          <div id="triage-review" class="queue triage-review" aria-live="polite"></div>
-          <p id="triage-state" class="muted triage-state"></p>
-          <button id="triage-run-pending" class="quiet small hidden" type="button">Classificar só as conversas de Precisa de você</button>
-        </section>
+        <p id="triage-state" class="muted triage-state"></p>
+        <button id="triage-run-pending" class="quiet small hidden" type="button">Classificar só as conversas que dependem de você</button>
         <details id="triage-out" class="card triage-out">
           <summary><strong>Fora do funil comercial</strong> <span id="triage-out-count" class="badge">—</span></summary>
           <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente · As conversas continuam guardadas e aparecem na busca global</p>
@@ -109,31 +88,41 @@
           <p class="muted">Conversas que nunca falaram de carro, compra, financiamento, orçamento ou serviço da MCS · Nada foi apagado · Na dúvida a conversa fica no fluxo principal · 'É sobre carro' corrige e fica guardado</p>
           <div id="topic-out-list" class="queue" aria-live="polite"></div>
         </details>
-        <section class="entry-add" aria-labelledby="entry-add-title">
-          <div class="entry-group-title"><p class="eyebrow">FERRAMENTAS</p><h2 id="entry-add-title">Adicionar ao painel</h2></div>
-          <div class="entry-tools">
-          <section id="entry-imports-link" class="card entry-tool entry-tool-featured">
-            <span class="entry-tool-icon" aria-hidden="true">📥</span><h2 data-draft>Importar prints, SMS e conversas</h2>
-            <p class="muted" data-draft>Prints, SMS colado, conversas do WhatsApp e o histórico do 360dialog agora ficam na aba IMPORTAÇÕES</p>
-            <div class="inline-actions"><button id="entry-go-imports" class="small" type="button" data-draft>Abrir IMPORTAÇÕES</button></div>
-          </section>
-          <details class="card manual-entry entry-tool" id="automatic-messages-card">
-            <summary><span class="entry-tool-icon" aria-hidden="true">🤖</span><span class="entry-tool-title">Mensagens automáticas</span><span class="entry-tool-copy">Nunca contam como resposta</span><span class="entry-open-button">Gerenciar</span></summary>
-            <p class="muted">Cole aqui saudações e ausências do WhatsApp Business · Elas nunca contam como resposta</p>
-            <textarea id="automatic-message-text" maxlength="25000" placeholder="Texto automático completo"></textarea>
-            <button id="automatic-message-save" type="button">Adicionar mensagem automática</button>
-            <div id="automatic-message-list" class="queue"></div>
-          </details>
-          </div>
+        <div id="attend-staging" class="hidden" aria-hidden="true">
+          <section id="vitrine-requests" class="vitrine-requests"></section>
+          <div id="whatsapp-suggestions" class="queue"></div>
+          <div id="triage-review" class="queue triage-review"></div>
+          <div id="entry-queue" class="queue"></div>
+        </div>
+        <details id="weekly-summary" class="card weekly-summary">
+          <summary>Esta semana</summary>
+          <p id="weekly-period" class="muted">Últimos 7 dias comparados com os 7 anteriores · horário da Flórida</p>
+          <div id="weekly-summary-content" aria-live="polite"></div>
+        </details>
+      </section>
+      <section id="settings-panel" class="panel-view hidden" aria-label="Configurações e conexão">
+        <div class="section-head"><div><h2>Configurações e conexão</h2><p class="muted">Sinal do WhatsApp, avisos deste aparelho e mensagens automáticas</p></div></div>
+        <section class="card whatsapp-card entry-signal" aria-labelledby="whatsapp-title">
+          <h2 id="whatsapp-title">Sinal do WhatsApp</h2>
+          <div class="signal-live"><span class="signal-dot" aria-hidden="true"></span><p id="whatsapp-signal">Verificando sinal…</p></div>
+          <div class="signal-metric"><span>Última mensagem recebida</span><p id="whatsapp-received" class="muted"></p></div>
+          <div class="signal-metric"><span>Última enviada por você</span><p id="whatsapp-echo" class="muted">Nenhuma ainda</p></div>
         </section>
-        <section class="card queue-card">
-          <h2>Revisão final</h2>
-          <p class="muted">Conversa lida, não identificada ou em revisão · Grupo não cria lead</p>
-          <div id="entry-queue" class="queue" aria-live="polite"></div>
+        <section class="card settings-notifications" aria-labelledby="settings-notifications-title">
+          <h2 id="settings-notifications-title">Avisos neste aparelho</h2>
+          <div class="inline-actions"><button id="notification-toggle" class="quiet small" type="button">Ativar avisos</button><button id="notification-test" class="quiet small" type="button">Enviar aviso de teste</button></div>
+          <span id="notification-status" class="sr-status" aria-live="polite"></span>
         </section>
+        <details class="card manual-entry entry-tool" id="automatic-messages-card">
+          <summary><span class="entry-tool-icon" aria-hidden="true">🤖</span><span class="entry-tool-title">Mensagens automáticas</span><span class="entry-tool-copy">Nunca contam como resposta</span><span class="entry-open-button">Gerenciar</span></summary>
+          <p class="muted">Cole aqui saudações e ausências do WhatsApp Business · Elas nunca contam como resposta</p>
+          <textarea id="automatic-message-text" maxlength="25000" placeholder="Texto automático completo"></textarea>
+          <button id="automatic-message-save" type="button">Adicionar mensagem automática</button>
+          <div id="automatic-message-list" class="queue"></div>
+        </details>
       </section>
       <section id="clients-panel" class="panel-view hidden" aria-label="Clientes">
-        <div class="section-head"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Conversa, qualificação e próximos passos em uma única lista</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
+        <div class="section-head"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Diretório para encontrar pessoas e abrir a ficha completa · O que fazer agora fica em Atendimento · Relatórios, filtros e histórico inteiro continuam aqui</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
         <section id="clients-general-card" class="card pending-general" aria-live="polite"></section>
         <details id="clients-followup" class="card followup-queue">
           <summary><strong>Retomar conversas antigas</strong> <span class="muted">revisão uma a uma, nada é enviado sozinho</span></summary>
@@ -174,33 +163,52 @@
         <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo</p></div><div class="inline-actions"><label>Ordenar<select id="qualification-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div></div>
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
-      <section id="requests-panel" class="panel-view hidden" aria-label="Pesquisas">
-        <div class="section-head"><div><h2>Pesquisas</h2><p class="muted">Todo pedido de veículo, com os critérios que a pessoa informou e de onde eles vieram</p></div><div class="inline-actions"><button id="requests-history" class="small" type="button">Iniciar / continuar auditoria histórica</button><button id="requests-compare" class="small quiet" type="button">Comparar com o lote ativo</button></div></div>
+      <section id="requests-panel" class="panel-view hidden" aria-label="Buscar carros">
+        <div class="section-head"><div><h2>Buscar carros</h2><p class="muted">Cada pedido completo no seu tipo de busca, com os critérios, o resultado no lote ativo e as buscas para salvar no Manheim</p></div><div class="inline-actions"><button id="requests-history" class="small" type="button">Iniciar / continuar auditoria histórica</button><button id="requests-compare" class="small quiet" type="button">Comparar com o lote ativo</button></div></div>
         <section id="requests-history-progress" class="card requests-history hidden" aria-live="polite">
           <div id="requests-history-confirm" class="hidden"><strong>Auditoria histórica de pedidos de veículo</strong><ul id="requests-history-terms"></ul><p id="requests-history-remaining" class="muted"></p><div class="inline-actions"><button id="requests-history-go" class="small" type="button">Confirmar e iniciar</button><button id="requests-history-cancel" class="quiet small" type="button">Cancelar</button></div></div>
           <p id="requests-history-text"></p><div class="inline-actions"><button id="requests-history-pause" class="quiet small hidden" type="button">Pausar</button></div></section>
         <p id="requests-status" class="status" role="status"></p>
-        <div id="requests-filters" class="filters requests-filters" aria-label="Estados dos pedidos"></div>
-        <div id="requests-list" class="stack" aria-live="polite"></div>
+        <div id="requests-totals" class="buscas-total" aria-live="polite"></div>
+        <div id="requests-filters" class="filters requests-filters" aria-label="Resultado dos pedidos no lote"></div>
+        <div id="requests-list" class="buscas-columns search-columns" aria-live="polite">
+          <section id="search-col-valor" class="buscas-column" data-mode="VALOR" aria-label="Por valor · Calculate My Cost">
+            <header class="buscas-column-head"><h2>Por valor · Calculate My Cost</h2><p class="muted">Marca, modelo e lance máximo · busca pela faixa de MMR (preço médio de leilão)</p></header>
+            <div id="requests-valor" class="stack search-column-list"></div>
+            <details class="saved-searches-box" open><summary>Quais buscas salvar no Manheim · Por valor</summary><div id="buscas-valor-saved" class="stack saved-searches"></div></details>
+          </section>
+          <section id="search-col-carro" class="buscas-column" data-mode="CARRO" aria-label="Por carro · Find One For Me">
+            <header class="buscas-column-head"><h2>Por carro · Find One For Me</h2><p class="muted">Marca, modelo, faixa de ano e de milhagem</p></header>
+            <div id="requests-carro" class="stack search-column-list"></div>
+            <details class="saved-searches-box" open><summary>Quais buscas salvar no Manheim · Por carro</summary><div id="buscas-carro-saved" class="stack saved-searches"></div></details>
+          </section>
+        </div>
+        <section id="manheim-saved-searches" class="card muted"></section>
+        <details id="buscas-review" class="card buscas-review">
+          <summary>Revisar tipo de busca <span id="buscas-review-count" class="badge">—</span></summary>
+          <p class="muted">Pedidos sem tipo definido ou com critério que não serve a nenhum dos dois tipos · Nada é adivinhado: defina por valor ou por carro, ou abra a ficha para completar</p>
+          <div id="requests-review" class="stack"></div>
+          <div id="buscas-review-list" class="stack"></div>
+        </details>
+        <p id="requests-incomplete-note" class="muted requests-incomplete-note" aria-live="polite"></p>
         <details id="requests-audit" class="card requests-audit">
           <summary>Auditoria desde 09/08/2026</summary>
           <div id="requests-audit-content" aria-live="polite"><p class="muted">Abra para calcular</p></div>
         </details>
       </section>
       <section id="imports-panel" class="panel-view hidden" aria-label="Importações">
-        <div class="section-head"><div><h2>Importações</h2><p class="muted">Arquivos do Manheim, lote ativo e histórico de lotes</p></div></div>
+        <div class="section-head"><div><h2>Importações</h2><p class="muted">CSV do Manheim e lotes, prints, SMS colado, conversas do WhatsApp, histórico do 360dialog e erros de processamento</p></div></div>
         <section id="imports-review" class="card imports-review" aria-labelledby="imports-review-title">
           <h2 id="imports-review-title">Erros, arquivos e prints para revisar</h2>
           <p id="imports-review-empty" class="entry-empty">Nada pendente ✓</p>
-          <p class="muted">Não são contatos: ficam aqui, fora dos grupos de contato da ENTRADA</p>
+          <p class="muted">Não são contatos: ficam aqui, fora dos casos do ATENDIMENTO</p>
           <div id="whatsapp-errors" class="queue" aria-live="polite"></div>
           <div id="imports-review-queue" class="queue" aria-live="polite"></div>
         </section>
-        <p class="import-draft-note" data-draft>Prévia: os textos novos desta aba são provisórios e aguardam aprovação</p>
         <div class="entry-tools import-cards">
           <section id="import-card-manheim" class="card entry-tool import-card">
-            <span class="entry-tool-icon" aria-hidden="true">🚗</span><h2 data-draft>Arquivos do Manheim</h2>
-            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="manheim" data-draft><li>Aceita arquivos .csv do Manheim, até 20 por vez e 25 MB cada</li><li>Até 100 mil carros por lote</li><li>O lote só vira ativo quando todos os arquivos chegam inteiros</li><li>Carro repetido entre arquivos entra uma vez só</li><li>Se a conexão cair, escolha os mesmos arquivos e o envio continua de onde parou</li><li>Lote vazio ou bem menor que o anterior pede confirmação antes do envio</li><li>Os carros aparecem em OPÇÕES e o lote aparece na lista abaixo</li><li>Complementar dados usa os mesmos arquivos do lote ativo e mostra uma prévia antes de gravar</li></ul></details>
+            <span class="entry-tool-icon" aria-hidden="true">🚗</span><h2>Arquivos do Manheim</h2>
+            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="manheim"><li>Aceita arquivos .csv do Manheim, até 20 por vez e 25 MB cada</li><li>Até 100 mil carros por lote</li><li>O lote só vira ativo quando todos os arquivos chegam inteiros</li><li>Carro repetido entre arquivos entra uma vez só</li><li>Se a conexão cair, escolha os mesmos arquivos e o envio continua de onde parou</li><li>Lote vazio ou bem menor que o anterior pede confirmação antes do envio</li><li>Os carros aparecem em ENVIAR OPÇÕES e o lote aparece na lista abaixo</li><li>Complementar dados usa os mesmos arquivos do lote ativo e mostra uma prévia antes de gravar</li></ul></details>
             <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
             <p id="manheim-status" class="status" role="status"></p>
             <div class="inline-actions manheim-complement"><button id="manheim-complement" class="quiet small" type="button">Complementar dados do lote ativo</button><span class="muted">Os mesmos CSVs do lote ativo, só para acrescentar Lane, Run, Inventory, Status e Event Sale Name</span><input id="manheim-complement-files" type="file" accept=".csv,text/csv" multiple hidden></div>
@@ -215,12 +223,12 @@
             <div class="inline-actions"><button id="auto-print-remove" class="quiet small hidden" type="button">Remover</button><button id="auto-print-send" type="button" disabled>Enviar</button></div>
             <p id="auto-print-status" class="status" role="status"></p>
             <section id="auto-print-result" class="sms-print-review hidden" aria-live="polite"></section>
-            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="print" data-draft><li>Aceita fotos JPG, PNG ou WebP de até 5 MB, várias de uma vez</li><li>Foto HEIC do iPhone não é aceita</li><li>O painel lê a Ref, o telefone e o nome que aparecem no print</li><li>Guarda sozinho quando a Ref ou o telefone apontam um único cliente</li><li>Sem cliente encontrado e com telefone no print, cria um lead novo</li><li>Se só o nome bate, o print fica em ENTRADA, Revisão final, para você decidir</li><li>Print repetido não é guardado de novo</li><li>O resultado aparece aqui, com Abrir lead e Desfazer</li><li>Dentro da ficha, Anexar print continua funcionando</li></ul></details>
+            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="print"><li>Aceita fotos JPG, PNG ou WebP de até 5 MB, várias de uma vez</li><li>Foto HEIC do iPhone não é aceita</li><li>O painel lê a Ref, o telefone e o nome que aparecem no print</li><li>Guarda sozinho quando a Ref ou o telefone apontam um único cliente</li><li>Sem cliente encontrado e com telefone no print, cria um lead novo</li><li>Se só o nome bate, o print fica aqui, em Erros, arquivos e prints para revisar, para você decidir</li><li>Print repetido não é guardado de novo</li><li>O resultado aparece aqui, com Abrir lead e Desfazer</li><li>Dentro da ficha, Anexar print continua funcionando</li></ul></details>
           </section>
           <details id="import-card-sms" class="card manual-entry entry-tool import-card">
             <summary><span class="entry-tool-icon" aria-hidden="true">✉️</span><span class="entry-tool-title">Colar SMS</span><span class="entry-tool-copy">Cole o texto de um SMS e escolha o cliente</span><span class="entry-open-button">Colar SMS</span></summary>
             <section>
-              <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="sms" data-draft><li>Aceita o texto de um SMS, até 25 mil caracteres</li><li>Você escolhe o contato, a busca, quem falou e a data</li><li>Contato novo precisa de nome e telefone</li><li>O mesmo SMS com a mesma data não entra duas vezes</li><li>A mensagem aparece na conversa da ficha</li></ul></details>
+              <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="sms"><li>Aceita o texto de um SMS, até 25 mil caracteres</li><li>Você escolhe o contato, a busca, quem falou e a data</li><li>Contato novo precisa de nome e telefone</li><li>O mesmo SMS com a mesma data não entra duas vezes</li><li>A mensagem aparece na conversa da ficha</li></ul></details>
               <form id="sms-form">
                 <label>Contato<select id="sms-contact"><option value="new">Novo contato</option></select></label>
                 <label id="sms-new-name-label">Nome do novo contato<input id="sms-new-name" maxlength="160"></label>
@@ -239,7 +247,7 @@
             <p class="muted">ZIPs ou TXT do WhatsApp · O arquivo é lido neste navegador e só as conversas importadas são enviadas ao painel</p>
             <label id="drop-zone" class="drop-zone" for="whatsapp-files">Arraste ZIPs/TXT aqui ou selecione arquivos<input id="whatsapp-files" type="file" accept=".zip,.txt,text/plain,application/zip" multiple></label>
             <p id="import-status" class="status" role="status"></p>
-            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="whatsapp" data-draft><li>Aceita arquivos .zip ou .txt exportados do WhatsApp, até 20 por vez</li><li>ZIP de até 100 MB e TXT de até 25 MB</li><li>Os arquivos são lidos neste navegador</li><li>Quando a conversa e a MCS são reconhecidas, grava sozinho e abre a ficha</li><li>Nos outros casos, Confirmar conversa aparece aqui para você escolher contato e busca</li><li>Cancelar este arquivo pula só esse arquivo, sem gravar nada</li><li>Grupo e horário incerto ficam em ENTRADA, Revisão final</li><li>Mensagem que já está no painel não entra de novo</li><li>Formato não reconhecido vai para ENTRADA, Revisão final, sem gravar mensagens</li></ul></details>
+            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="whatsapp"><li>Aceita arquivos .zip ou .txt exportados do WhatsApp, até 20 por vez</li><li>ZIP de até 100 MB e TXT de até 25 MB</li><li>Os arquivos são lidos neste navegador</li><li>Quando a conversa e a MCS são reconhecidas, grava sozinho e abre a ficha</li><li>Nos outros casos, Confirmar conversa aparece aqui para você escolher contato e busca</li><li>Cancelar este arquivo pula só esse arquivo, sem gravar nada</li><li>Grupo e horário incerto ficam em ATENDIMENTO, no caso da conversa</li><li>Mensagem que já está no painel não entra de novo</li><li>Formato não reconhecido fica aqui, em Erros, arquivos e prints para revisar, sem gravar mensagens</li></ul></details>
             <section id="import-review-card" class="hidden" aria-labelledby="import-review-title">
               <h3 id="import-review-title">Confirmar conversa</h3>
               <p id="import-review-summary" class="muted"></p>
@@ -263,15 +271,15 @@
             <button id="history-import-send" class="small" type="button" disabled>Importar</button>
             <p id="history-import-status" class="status" role="status"></p>
             <div id="history-import-errors" class="queue" aria-live="polite"></div>
-            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="history" data-draft><li>Aceita um arquivo .json do 360dialog, de até 100 MB</li><li>Só aceita o histórico do número da MCS</li><li>Grava sem prévia, em partes, e mostra o resumo aqui</li><li>Mensagem que já existia não entra de novo</li><li>Dúvida de telefone ou de ligação vai para ENTRADA, Precisa de você</li><li>As mensagens aparecem nas fichas</li></ul></details>
+            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="history"><li>Aceita um arquivo .json do 360dialog, de até 100 MB</li><li>Só aceita o histórico do número da MCS</li><li>Grava sem prévia, em partes, e mostra o resumo aqui</li><li>Mensagem que já existia não entra de novo</li><li>Dúvida de telefone ou de ligação vai para ATENDIMENTO, Depende de você</li><li>As mensagens aparecem nas fichas</li></ul></details>
           </section>
           <section id="import-card-automatic" class="card entry-tool import-card import-info">
-            <span class="entry-tool-icon" aria-hidden="true">🔄</span><h2 data-draft>Entram sozinhos</h2>
-            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="automatic" data-draft><li>Mensagens do WhatsApp chegam sozinhas pelo 360dialog</li><li>Fotos, áudios e documentos do cliente são baixados sozinhos em seguida</li><li>SMS enviados pelo atalho do iPhone entram sozinhos quando o remetente é conhecido</li><li>Nada disso precisa ser importado aqui</li><li>Problemas aparecem em ENTRADA, Precisa de você</li></ul></details>
+            <span class="entry-tool-icon" aria-hidden="true">🔄</span><h2>Entram sozinhos</h2>
+            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="automatic"><li>Mensagens do WhatsApp chegam sozinhas pelo 360dialog</li><li>Fotos, áudios e documentos do cliente são baixados sozinhos em seguida</li><li>SMS enviados pelo atalho do iPhone entram sozinhos quando o remetente é conhecido</li><li>Nada disso precisa ser importado aqui</li><li>Problemas aparecem aqui, em Erros, arquivos e prints para revisar</li></ul></details>
           </section>
           <section id="import-card-v2" class="card entry-tool import-card">
-            <span class="entry-tool-icon" aria-hidden="true">🖼️</span><h2 data-draft>Fotos da V2 (vitrine completa)</h2>
-            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="v2" data-draft><li>Escolha uma V2 já criada e acrescente fotos ao carro dela</li><li>Até 12 fotos por carro, reduzidas no próprio navegador</li><li>As fotos aparecem no link que o cliente já tem</li><li>Nova V2 continua saindo do pedido do cliente, em HOJE, com Montar V2</li></ul></details>
+            <span class="entry-tool-icon" aria-hidden="true">🖼️</span><h2>Fotos da V2 (vitrine completa)</h2>
+            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="v2"><li>Escolha uma V2 já criada e acrescente fotos ao carro dela</li><li>Até 12 fotos por carro, reduzidas no próprio navegador</li><li>As fotos aparecem no link que o cliente já tem</li><li>Nova V2 continua saindo do pedido do cliente, em ATENDIMENTO, com Montar V2</li></ul></details>
             <label>V2<select id="import-v2-select"><option value="">Carregando V2…</option></select></label>
             <div id="import-v2-body" class="hidden">
               <label id="import-v2-drop" class="v2-drop">Arraste as fotos aqui ou toque para escolher<input id="import-v2-file" class="visually-hidden" type="file" accept="image/*" multiple></label>
@@ -283,46 +291,30 @@
         </div>
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
       </section>
-      <section id="searches-panel" class="panel-view hidden" aria-label="Opções">
-        <div class="section-head searches-subsection"><div><h2>Opções</h2><p class="muted">Carros do lote ativo por cliente: seleção, V1 (vitrine simples) e envio</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
+      <section id="searches-panel" class="panel-view hidden" aria-label="Enviar opções">
+        <div class="section-head searches-subsection"><div><h2>Enviar opções</h2><p class="muted">Carros do lote ativo por pedido: revisão, seleção, preços, links V1 (vitrine simples) e V2, apresentação e envio · Cada envio é individual e confirmado</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
         <section class="card">
           <div id="manheim-summary" class="muted"></div>
           <div id="manheim-audit-note" class="manheim-audit-note hidden" aria-live="polite"></div>
           <div id="buscas-total" class="buscas-total" aria-live="polite"></div>
         </section>
         <div id="manheim-results" class="buscas-columns" aria-live="polite">
-          <section id="buscas-valor" class="buscas-column" data-mode="VALOR" aria-label="Calculate My Cost">
-            <header class="buscas-column-head"><h2>Calculate My Cost</h2><p class="muted">POR VALOR · marca, modelo, lance e faixa de MMR (preço médio de leilão)</p></header>
+          <section id="buscas-valor" class="buscas-column" data-mode="VALOR" aria-label="Por valor · Calculate My Cost">
+            <header class="buscas-column-head"><h2>Por valor · Calculate My Cost</h2><p class="muted">Carros pela faixa de MMR do lance de cada cliente</p></header>
             <div id="buscas-valor-counters" class="pending-stats buscas-counters"></div>
             <h3>Compatíveis</h3>
             <div id="buscas-valor-results" class="stack"></div>
-            <h3>Buscas por cliente</h3>
-            <div id="buscas-valor-summary" class="pending-stats"></div>
-            <div id="buscas-valor-clients" class="stack"></div>
-            <h3>Quais buscas salvar no Manheim</h3>
-            <div id="buscas-valor-saved" class="stack saved-searches"></div>
           </section>
-          <section id="buscas-carro" class="buscas-column" data-mode="CARRO" aria-label="Find One For Me">
-            <header class="buscas-column-head"><h2>Find One For Me</h2><p class="muted">POR ANO E MILHAGEM · marca, modelo, anos e milhagens</p></header>
+          <section id="buscas-carro" class="buscas-column" data-mode="CARRO" aria-label="Por carro · Find One For Me">
+            <header class="buscas-column-head"><h2>Por carro · Find One For Me</h2><p class="muted">Carros pela faixa de ano e de milhagem de cada cliente</p></header>
             <div id="buscas-carro-counters" class="pending-stats buscas-counters"></div>
             <h3>Compatíveis</h3>
             <div id="buscas-carro-results" class="stack"></div>
-            <h3>Buscas por cliente</h3>
-            <div id="buscas-carro-summary" class="pending-stats"></div>
-            <div id="buscas-carro-clients" class="stack"></div>
-            <h3>Quais buscas salvar no Manheim</h3>
-            <div id="buscas-carro-saved" class="stack saved-searches"></div>
           </section>
         </div>
-        <section id="manheim-saved-searches" class="card"></section>
-        <details id="buscas-review" class="card buscas-review">
-          <summary>Revisar tipo de busca <span id="buscas-review-count" class="badge">—</span></summary>
-          <p class="muted">Pedidos sem tipo definido ou com critério incompleto · Nada é adivinhado: defina CARRO ou VALOR, ou abra a ficha para completar</p>
-          <div id="buscas-review-list" class="stack"></div>
-        </details>
       </section>
       <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
-        <p class="visually-hidden">Conteúdo reunido nas abas OPÇÕES e IMPORTAÇÕES</p>
+        <p class="visually-hidden">Conteúdo reunido nas áreas ENVIAR OPÇÕES e IMPORTAÇÕES</p>
       </section>
       <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
         <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
@@ -358,12 +350,13 @@
   <script src="/manheim-offer.js?v=2" defer></script>
   <script src="/money-text.js?v=1" defer></script>
   <script src="/panel-origin.js?v=2" defer></script>
-  <script src="/panel-groups.js?v=3" defer></script>
+  <script src="/panel-groups.js?v=4" defer></script>
   <script src="/painel/action.js" defer></script>
   <script src="/painel/contexto.js?v=5" defer></script>
   <script src="/painel/whatsapp-app.js?v=1" defer></script>
   <script src="/painel/sugestoes.js?v=7" defer></script>
-  <script src="/painel/grupos.js?v=3" defer></script>
+  <script src="/painel/grupos.js?v=4" defer></script>
+  <script src="/painel/atendimento.js?v=1" defer></script>
   <script src="/painel/lead.js" defer></script>
   <script src="/painel/painel.js" defer></script>
   <script src="/painel/notifications.js" defer></script>

@@ -159,9 +159,10 @@ test('varredura de todos os botões do painel', async ({ page }) => {
 
   const ONLY = (process.env.BOTOES_SECTIONS || '').split(',').filter(Boolean);
   const want = (name) => !ONLY.length || ONLY.includes(name);
-  if (want('HOJE')) { await view('today'); await openDetails(); await sweep('HOJE', '#today-panel'); }
-  if (want('ENTRADA')) { await view('entry'); await openDetails(); await sweep('ENTRADA', '#entry-panel'); }
-  if (want('PESQUISAS')) { await view('requests'); await openDetails(); await sweep('PESQUISAS', '#requests-panel'); }
+  // ATENDIMENTO holds HOJE and the old ENTRADA; Configurações e conexão holds the settings.
+  if (want('HOJE') || want('ATENDIMENTO')) { await view('today'); await openDetails(); await sweep('ATENDIMENTO', '#today-panel'); }
+  if (want('ENTRADA') || want('CONFIGURACOES')) { await view('settings'); await openDetails(); await sweep('CONFIGURAÇÕES', '#settings-panel'); }
+  if (want('PESQUISAS') || want('BUSCAR')) { await view('requests'); await openDetails(); await sweep('BUSCAR CARROS', '#requests-panel'); }
   // OPÇÕES before CLIENTES: the CLIENTES sweep clicks "Desligar"/"Tratado"/"Não é lead" on the only ficha,
   // which (correctly) takes it out of OPÇÕES.
   if (want('OPÇÕES')) { await view('searches'); await expect(page.locator('#searches-panel .manheim-lead').first()).toBeVisible({ timeout: 60000 }); await page.waitForTimeout(1500);

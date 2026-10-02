@@ -35,7 +35,8 @@ test('C5: contador com erro 500 não desloga; mostra "—" e aviso', async ({ pa
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await session(page);
-  await mockApi(page, { '/api/panel/searches': ({ json }) => json({ error: 'PANEL_ACTION_FAILED' }, 500) });
+  // ENVIAR OPÇÕES counts from the batch view: that one fails, the others answer.
+  await mockApi(page, { '/api/panel/records': ({ json, url }) => url.searchParams.get('view') === 'manheim' ? json({ error: 'PANEL_ACTION_FAILED' }, 500) : json({ items: [], page: 1, pageSize: 50, total: 0, hasMore: false, counts: { periodLeads: 0, situations: {}, sections: {} }, meta: {} }) });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#app-view')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('#boot-warning')).toBeVisible({ timeout: 30000 });

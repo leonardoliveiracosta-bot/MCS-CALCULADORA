@@ -8,11 +8,16 @@ const html=fs.readFileSync(path.join(root,'painel/index.html'),'utf8');
 const js=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
 const css=fs.readFileSync(path.join(root,'painel/tema-mcs.css'),'utf8');
 
-test('painel publica seis abas (PEDIDOS fundido em ENTRADA e CLIENTES) e mantém os ids legados',()=>{
+test('painel publica cinco áreas com uma função cada (ENTRADA fundida em ATENDIMENTO) e mantém os ids legados',()=>{
   const tabs=[...html.matchAll(/class="tab(?: active)?"[^>]+data-view="([^"]+)"/g)].map((match)=>match[1]);
-  assert.deepEqual(tabs,['today','entry','clients','requests','searches','imports']);
-  // Lote 4: old links to PEDIDOS open ENTRADA; the order detail keeps its own address.
-  assert.match(js,/if \(view === 'orders'\) view = 'entry';/);
+  assert.deepEqual(tabs,['today','requests','searches','clients','imports']);
+  assert.match(html,/data-view="today"[^>]*>ATENDIMENTO/);
+  assert.match(html,/data-view="requests">BUSCAR CARROS/);
+  assert.match(html,/data-view="searches">ENVIAR OPÇÕES/);
+  // Configurações e conexão: área secundária, fora das abas principais.
+  assert.match(html,/class="quiet small settings-link" type="button" data-view="settings"/);
+  // Old links to PEDIDOS and ENTRADA open ATENDIMENTO; the order detail keeps its own address.
+  assert.match(js,/if \(view === 'orders' \|\| view === 'entry'\) view = 'today';/);
   assert.match(js,/pedidos:'entry'/);
   assert.match(js,/#pedido\//);
   for(const id of ['pending-panel','qualification-panel','records-panel','manheim-panel','pending-list','qualification-list','records-list','manheim-results'])assert.match(html,new RegExp(`id="${id}"`));

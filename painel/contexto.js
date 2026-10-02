@@ -280,7 +280,7 @@
     if (!(links.orders || []).length) add(orders, 'p', 'muted', (context.sharedRefs || []).length ? `A Ref ${context.sharedRefs.join(', ')} está em mais de uma ficha: não é mostrada como pedido de nenhuma.` : 'Nenhum pedido da calculadora ligado.');
     (links.orders || []).forEach((order) => add(orders, 'p', '', `Ref ${order.ref} · ${order.modeLabel} · ${order.vehicle || 'sem carro'} · ${date(order.at)}`));
     const requests = add(box, 'div');
-    add(requests, 'strong', '', 'Pedidos lidos da conversa (PESQUISAS)');
+    add(requests, 'strong', '', 'Pedidos lidos da conversa (BUSCAR CARROS)');
     if (links.requestsNote) add(requests, 'p', 'muted', links.requestsNote);
     else if (!(links.requests || []).length) add(requests, 'p', 'muted', 'Nenhum pedido lido da conversa.');
     (links.requests || []).forEach((item) => add(requests, 'p', '', `${item.vehicle || 'Carro não informado'} · lido em ${date(item.at)}${item.needsReview ? ' · a IA pediu revisão' : ''}`));

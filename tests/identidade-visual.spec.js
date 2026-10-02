@@ -20,7 +20,7 @@ let panel;
 test.beforeAll(async () => { panel = await createPanel(); });
 test.afterAll(async () => { if (panel) await panel.close(); });
 
-const VIEWS = ['today', 'entry', 'clients', 'searches'];
+const VIEWS = ['today', 'requests', 'settings', 'clients', 'searches'];
 
 async function open(page, width, height = 900) {
   const errors = [];
@@ -32,12 +32,12 @@ async function open(page, width, height = 900) {
 
 async function show(page, view) {
   await page.locator(`[data-view="${view}"]`).click();
-  if (view === 'entry') {
-    // ENTRADA has finished loading once the WhatsApp signal answered (the "pedidos sem conversa"
-    // section is gone: an order with no message is never listed).
-    await expect(page.locator('#entry-panel')).toBeVisible({ timeout: 30000 });
+  if (view === 'settings') {
+    // Configurações e conexão has finished loading once the WhatsApp signal answered.
+    await expect(page.locator('#settings-panel')).toBeVisible({ timeout: 30000 });
     await expect(page.locator('#whatsapp-signal')).not.toHaveText('Verificando sinal…', { timeout: 30000 });
   }
+  if (view === 'requests') await expect(page.locator('#requests-panel')).toBeVisible({ timeout: 30000 });
   if (view === 'clients') await expect(page.locator('#clients-list .client-card').first()).toBeVisible({ timeout: 30000 });
   if (view === 'searches') {
     await expect(page.locator('#buscas-valor .manheim-lead').first()).toBeVisible({ timeout: 30000 });
@@ -196,11 +196,11 @@ test('contraste: texto de todas as abas, da ficha e do login com pelo menos 4,5:
   // Error states the fixture does not render by itself: status errors and scoped action errors.
   const states = await page.evaluate(() => {
     const status = document.getElementById('import-status'); status.classList.add('error'); status.textContent = 'Falha na importação de teste';
-    const feedback = document.createElement('p'); feedback.className = 'status action-feedback error'; feedback.textContent = 'Não consegui salvar, tente de novo'; document.getElementById('entry-needs-empty').after(feedback);
+    const feedback = document.createElement('p'); feedback.className = 'status action-feedback error'; feedback.textContent = 'Não consegui salvar, tente de novo'; document.getElementById('whatsapp-signal').after(feedback);
     return [status, feedback].map((node) => getComputedStyle(node).color);
   });
   expect(states).toEqual(['rgb(185, 28, 28)', 'rgb(185, 28, 28)']);
-  await show(page, 'entry');
+  await show(page, 'settings');
   failures.push(...(await page.evaluate(measure.contrast)).filter((line) => /Falha na importação de teste|Não consegui salvar, tente/.test(line)).map((line) => `erro: ${line}`));
   expect(panel.failures, 'nenhum handler falhou no banco simulado').toEqual([]);
   console.log('CONTRASTE', failures.length ? failures.join('\n') : 'nenhuma falha');
@@ -246,7 +246,9 @@ test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com moti
     expect(box.x + box.width, label).toBeLessThanOrEqual(390);
   };
   // Temperature explanation on HOJE and discard reasons.
-  const card = page.locator('#today-list .today-card').first();
+  // ATENDIMENTO cards are compact: the rarer actions (discard) are under "⋯" on the same card.
+  const card = page.locator('#today-list .today-card').filter({ has: page.locator('.temperature-details') }).first();
+  await card.locator('.case-more > summary').click();
   await card.locator('.temperature-details summary').click();
   await inside(card.locator('.temperature-explanation'), 'calor');
   await card.locator('.temperature-details summary').click();
@@ -273,7 +275,7 @@ test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com moti
   expect(await page.evaluate(measure.overflow)).toEqual([]);
 });
 
-test('capturas: login, HOJE, ENTRADA, CLIENTES com prontuário e BUSCAS em 390 e 1280 px', async ({ page, browser }) => {
+test('capturas: login, ATENDIMENTO, BUSCAR CARROS, CLIENTES com prontuário e ENVIAR OPÇÕES em 390 e 1280 px', async ({ page, browser }) => {
   test.skip(!SHOTS, 'defina VISUAL_SHOTS para gerar as capturas');
   for (const width of [390, 1280]) {
     const height = width === 390 ? 844 : 900;
@@ -284,8 +286,8 @@ test('capturas: login, HOJE, ENTRADA, CLIENTES com prontuário e BUSCAS em 390 e
     await page.waitForTimeout(600);
     await page.screenshot({ path: path.join(SHOTS, `hoje-${width}.png`), fullPage: width !== 390 });
     if (width === 390) { await page.locator('#today-list .today-card').first().scrollIntoViewIfNeeded(); await page.evaluate(() => window.scrollBy(0, -60)); await page.screenshot({ path: path.join(SHOTS, 'hoje-cartao-390.png') }); }
-    await show(page, 'entry');
-    await page.screenshot({ path: path.join(SHOTS, `entrada-${width}.png`), fullPage: width !== 390 });
+    await show(page, 'requests');
+    await page.screenshot({ path: path.join(SHOTS, `buscar-carros-${width}.png`), fullPage: width !== 390 });
     await openRecord(page);
     await page.screenshot({ path: path.join(SHOTS, `clientes-prontuario-${width}.png`), fullPage: width !== 390 });
     if (width === 390) { await page.locator('#lead-conversation').scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(SHOTS, 'clientes-conversa-390.png') }); }

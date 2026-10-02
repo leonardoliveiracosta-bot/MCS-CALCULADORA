@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
         ref: lead.ref, tipoBusca: lead.order?.logicalModes?.length ? lead.order.logicalModes.map((mode) => mode === 'CARRO' ? 'POR_CARRO' : 'POR_VALOR') : null, desejo: lead.wishes, lanceMaximo: lead.maxBidCents ? lead.maxBidCents / 100 : null,
         tetoTotal: lead.totalCeilingCents ? lead.totalCeilingCents / 100 : null, pagamento: lead.payment,
         prazo: lead.record?.customer_deadline_text || lead.order?.deadlineText || null,
-        etapaBusca: stage?.label || '🔍 Falta buscar', diasSemResposta: lead.lastCustomerAt ? Math.floor((Date.now() - Date.parse(lead.lastCustomerAt)) / 86400000) : null,
+        etapaBusca: stage?.label || '🔍 Busca não salva no Manheim', diasSemResposta: lead.lastCustomerAt ? Math.floor((Date.now() - Date.parse(lead.lastCustomerAt)) / 86400000) : null,
         carrosCompativeisManheim: (lead.fits || []).slice(0, 8)
       },
       conversa: window.messages

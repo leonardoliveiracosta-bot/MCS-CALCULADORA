@@ -172,7 +172,8 @@ test('fix 10: "Ligar a um lead" offers neither not-lead nor switched-off fichas'
 
 test('fixes 1 and 7 (painel.js): ENTRADA hides triage out-of-funnel chats; CLIENTES keeps a Tratado/Descartado card', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
-  assert.match(js, /if \(view === 'entry'\) \{[\s\S]{0,300}renderQueue\(\(data\.chats \|\| \[\]\)\.filter\(\(chat\) => !chat\.triageOut\)/);
+  // ATENDIMENTO lists only conversations still waiting for a decision, never one out of the funnel.
+  assert.match(js, /const entryReviewChats = \(entry\) => \(entry && entry\.chats \|\| \[\]\)\.filter\(\(chat\) => !chat\.triageOut/);
   assert.match(js, /hide=Boolean\(status\)&&!currentDetail&&currentView==='today';/);
   assert.doesNotMatch(js, /\['today','clients'\]\.includes\(currentView\)/);
 });

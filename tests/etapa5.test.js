@@ -11,8 +11,9 @@ test('search identity is stable for peers and only complete wishes enter BUSCAS'
   const wish={make:'Porsche',model:'Cayenne',yearMin:2018};
   assert.equal(stage.searchKey(wish),stage.searchKey({make:'porsche',model:'Cayenne'}));
   assert.equal(stage.searchableWish([{make:'Porsche',model:''}]),null);
-  assert.equal(stage.stageLabel('MISSING'),'🔍 Falta buscar');
-  assert.equal(stage.stageLabel('SAVED'),'💾 Busca salva');
+  // The work stage never says "Falta buscar" (that is the result in the batch, shown apart).
+  assert.equal(stage.stageLabel('MISSING'),'🔍 Busca não salva no Manheim');
+  assert.equal(stage.stageLabel('SAVED'),'💾 Busca salva no Manheim');
   assert.equal(stage.stageLabel('SENT'),'📤 Opções enviadas');
 });
 

@@ -34,8 +34,8 @@ function manheimData(state) {
   const liveOld = [match('65000000-0000-4000-8000-000000000009', 'CARRO', 'BATE', 'VINOLD', { journey_id: JOURNEY })];
   const matches = state.undone ? liveOld : liveNew;
   const demands = [
-    { key: `journey:${JOURNEY}:VALOR`, mode: 'VALOR', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [], stage: 'SAVED', stageLabel: '💾 Busca salva' },
-    { key: `journey:${JOURNEY}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5', trim: 'xDrive40i', yearMin: 2020, yearMax: 2025, minMiles: 50000, maxMiles: 90000 }], bidCents: null, issues: [], stage: 'MISSING', stageLabel: '🔍 Falta buscar' },
+    { key: `journey:${JOURNEY}:VALOR`, mode: 'VALOR', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [], stage: 'SAVED', stageLabel: '💾 Busca salva no Manheim' },
+    { key: `journey:${JOURNEY}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5', trim: 'xDrive40i', yearMin: 2020, yearMax: 2025, minMiles: 50000, maxMiles: 90000 }], bidCents: null, issues: [], stage: 'MISSING', stageLabel: '🔍 Busca não salva no Manheim' },
     { key: 'ref:VAAA2:VALOR', mode: 'VALOR', targetType: 'ORDER', journeyId: null, ref: 'VAAA2', name: 'Pedido Só Valor', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [] }
   ];
   const count = (mode) => ({ demands: demands.filter((demand) => demand.mode === mode).length, served: new Set(matches.filter((item) => item.logical_mode === mode).map((item) => item.journey_id || item.calc_ref)).size, matches: matches.filter((item) => item.logical_mode === mode).length });
@@ -54,8 +54,16 @@ function manheimData(state) {
 const searchesData = {
   countsByMode: { VALOR: { MISSING: 0, SAVED: 1, SENT: 0 }, CARRO: { MISSING: 1, SAVED: 0, SENT: 0 } },
   items: [
-    { key: JOURNEY + ':VALOR', journeyId: JOURNEY, mode: 'VALOR', ref: 'DCCC4', name: 'Cliente Dois Modos', exactSearch: 'BMW X5 · lance até US$ 50.000', stage: 'SAVED', stageSource: 'MARK', stageLabel: '💾 Busca salva', days: 0, matchCount: 1 },
-    { key: JOURNEY + ':CARRO', journeyId: JOURNEY, mode: 'CARRO', ref: 'DCCC4', name: 'Cliente Dois Modos', exactSearch: 'BMW X5 xDrive40i · 2020 a 2025 · 50.000 a 90.000 milhas', stage: 'MISSING', stageSource: null, stageLabel: '🔍 Falta buscar', days: 0, matchCount: 1 }
+    { key: JOURNEY + ':VALOR', journeyId: JOURNEY, mode: 'VALOR', ref: 'DCCC4', name: 'Cliente Dois Modos', exactSearch: 'BMW X5 · lance até US$ 50.000', stage: 'SAVED', stageSource: 'MARK', stageLabel: '💾 Busca salva no Manheim', days: 0, matchCount: 1 },
+    { key: JOURNEY + ':CARRO', journeyId: JOURNEY, mode: 'CARRO', ref: 'DCCC4', name: 'Cliente Dois Modos', exactSearch: 'BMW X5 xDrive40i · 2020 a 2025 · 50.000 a 90.000 milhas', stage: 'MISSING', stageSource: null, stageLabel: '🔍 Busca não salva no Manheim', days: 0, matchCount: 1 }
+  ]
+};
+// BUSCAR CARROS: the same person with a request in each type (one per column).
+const pesquisasData = {
+  upload: { id: 'u', uploadedAt: '2026-09-29T10:00:00Z' }, extraction: 'SIMULADA', mergedReadings: 0,
+  items: [
+    { key: `ficha:journey:${JOURNEY}:VALOR`, groupKey: 'c:VALOR:h1', source: 'FICHA', searchMode: 'VALOR', state: 'COM_OPCOES', stateLabel: 'COM OPÇÕES NO LOTE', optionCount: 1, criteriaText: 'BMW X5 · lance US$ 50,000', person: { journeyId: JOURNEY, name: 'Cliente Dois Modos', ref: 'DCCC4' }, evidence: [] },
+    { key: `ficha:journey:${JOURNEY}:CARRO`, groupKey: 'c:CARRO:h2', source: 'FICHA', searchMode: 'CARRO', state: 'COM_OPCOES', stateLabel: 'COM OPÇÕES NO LOTE', optionCount: 1, criteriaText: 'BMW X5 xDrive40i · 2020 a 2025', person: { journeyId: JOURNEY, name: 'Cliente Dois Modos', ref: 'DCCC4' }, evidence: [] }
   ]
 };
 const savedData = {
@@ -79,6 +87,7 @@ async function openBuscas(page, state, calls, extra = {}) {
     if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') return json(asSummary(manheimData(state)));
     if (url.pathname === '/api/panel/manheim-options') return json(optionsPage(manheimData(state), url));
     if (url.pathname === '/api/panel/searches') return json(searchesData);
+    if (url.pathname === '/api/panel/pesquisas' && route.request().method() === 'GET') return json(pesquisasData);
     if (url.pathname === '/api/panel/manheim-searches') return json(savedData);
     if (url.pathname === '/api/panel/actions' && body?.action === 'manheim_undo') { state.undone = true; return json({ uploadId: body.uploadId, alreadyUndone: false, summary: { vehiclesWithdrawn: 312, matchesWithdrawn: 4, unitsPreserved: 1, vitrinesPreserved: 1 } }); }
     if (url.pathname === '/api/panel/actions' && body?.action === 'set_search_mode') return json({ journeyId: body.journeyId, modes: [body.mode] });
@@ -102,8 +111,8 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
   const [valor, carro] = await Promise.all(['#buscas-valor', '#buscas-carro'].map((selector) => page.locator(selector).boundingBox()));
   expect(Math.abs(valor.y - carro.y)).toBeLessThan(2);
   expect(valor.x).toBeLessThan(carro.x);
-  await expect(page.locator('#buscas-valor h2')).toHaveText('Calculate My Cost');
-  await expect(page.locator('#buscas-carro h2')).toHaveText('Find One For Me');
+  await expect(page.locator('#buscas-valor h2')).toContainText('Calculate My Cost');
+  await expect(page.locator('#buscas-carro h2')).toContainText('Find One For Me');
   // The same person has one card per mode, each with its own criteria and stage.
   const valorCard = page.locator('#buscas-valor .manheim-lead', { hasText: 'Cliente Dois Modos' });
   const carroCard = page.locator('#buscas-carro .manheim-lead', { hasText: 'Cliente Dois Modos' });
@@ -113,7 +122,7 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
   await expect(carroCard).not.toContainText('lance até');
   await expect(carroCard).not.toContainText('cabe no lance');
   await expect(valorCard).toContainText('Busca salva');
-  await expect(carroCard).toContainText('Falta buscar');
+  await expect(carroCard).toContainText('Busca não salva no Manheim');
   // Ref only VALOR only on the VALOR side.
   await expect(page.locator('#buscas-valor .manheim-lead', { hasText: 'Pedido Só Valor' })).toHaveCount(1);
   await expect(page.locator('#buscas-carro .manheim-lead', { hasText: 'Pedido Só Valor' })).toHaveCount(0);
@@ -121,9 +130,28 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
   await expect(page.locator('#buscas-valor-counters [data-counter="demandas"] strong')).toHaveText('2');
   await expect(page.locator('#buscas-carro-counters [data-counter="demandas"] strong')).toHaveText('1');
   await expect(page.locator('#buscas-total')).toContainText('Total geral');
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'enviar-opcoes-desktop.png'), fullPage: true });
+  // BUSCAR CARROS: one request per type in its column, the result apart from the work stage, and
+  // "Quais buscas salvar no Manheim" under each column.
+  await page.locator('[data-view="requests"]').click();
   await expect(page.locator('#buscas-valor-saved')).toContainText('POR VALOR #1');
   await expect(page.locator('#buscas-carro-saved')).toContainText('POR ANO E MILHAGEM #1');
-  await expect(page.locator('#buscas-carro-clients')).toContainText('POR ANO E MILHAGEM');
+  await expect(page.locator('#requests-valor .request-card')).toHaveCount(1);
+  await expect(page.locator('#requests-carro .request-card')).toHaveCount(1);
+  await expect(page.locator('#requests-carro .request-card')).toContainText('Resultado no lote: COM OPÇÕES NO LOTE');
+  await expect(page.locator('#requests-carro .request-card')).toContainText('Andamento: 🔍 Busca não salva no Manheim');
+  await expect(page.locator('#requests-valor .request-card')).toContainText('Andamento: 💾 Busca salva no Manheim');
+  await expect(page.locator('#requests-panel')).not.toContainText('Falta buscar');
+  await expect(page.locator('#requests-totals')).toContainText('2 pedidos de 1 pessoa');
+  await expect(page.locator('.tab[data-view="requests"] [data-count]')).toHaveText('2');
+  const [colValor, colCarro] = await Promise.all(['#search-col-valor', '#search-col-carro'].map((selector) => page.locator(selector).boundingBox()));
+  expect(Math.abs(colValor.width - colCarro.width)).toBeLessThan(2);
+  expect(colValor.x).toBeLessThan(colCarro.x);
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscar-carros-desktop.png'), fullPage: true });
+  // The result button opens the options of that request directly in ENVIAR OPÇÕES.
+  await page.locator('#requests-carro .request-view-options').click();
+  await expect(page.locator('#searches-panel')).toBeVisible();
+  await expect(page.locator(`#searches-panel [data-demand-key="journey:${JOURNEY}:CARRO"] .manheim-table`)).toBeVisible();
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscas-desktop.png'), fullPage: true });
   if (SHOTS) await page.locator('#manheim-results').screenshot({ path: path.join(SHOTS, 'buscas-mesma-pessoa.png') });
   expect(errors).toEqual([]);
@@ -147,6 +175,7 @@ test('20 · 390 px: VALOR em cima, CARRO embaixo, nada fora da tela e alvos de 4
 test('21-23 · Revisar tipo de busca define CARRO ou VALOR só para aquela demanda', async ({ page }) => {
   const calls = [];
   await openBuscas(page, { undone: false }, calls);
+  await page.locator('[data-view="requests"]').click();
   await page.locator('#buscas-review > summary').click();
   const line = page.locator('#buscas-review-list .review-line', { hasText: 'Cliente Sem Tipo' });
   await expect(line).toContainText('tipo de busca indefinido');

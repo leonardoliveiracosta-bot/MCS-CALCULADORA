@@ -78,9 +78,12 @@ for (const width of [1366, 390]) {
     const summaryOf = (card) => card.locator('.client-context[data-context-state="done"]').first();
     const reach = async (card) => { await card.scrollIntoViewIfNeeded(); return summaryOf(card); };
 
-    // HOJE: the client wrote last → depends on MCS, next action "Responder o cliente" (a suggestion).
+    // ATENDIMENTO: the client wrote last → depends on MCS, next action "Responder o cliente" (a
+    // suggestion). The compact card says why and what to do; the full summary is one click away.
     const todayCard = page.locator('#today-list .item-card', { hasText: 'Marina Demonstração' }).first();
     await expect(todayCard).toBeVisible({ timeout: 60000 });
+    await expect(todayCard.locator('.card-decision')).toContainText('Depende de você');
+    await todayCard.locator('.case-more > summary').click();
     const todaySummary = await reach(todayCard);
     await expect(todaySummary).toBeVisible({ timeout: 30000 });
     for (const text of ['Etapa', 'Em busca', 'Depende de', 'MCS', 'Próxima ação · sugestão do painel', 'Responder o cliente', 'Carro', 'Toyota Corolla', 'Informado pelo cliente', 'Lance máximo', 'US$ 18,000', 'Prazo', 'Até 30 dias']) await expect(todaySummary).toContainText(text);
@@ -89,19 +92,17 @@ for (const width of [1366, 390]) {
     await noOverflow();
     await shot(page, `hoje-${width}`);
 
-    // ENTRADA: a calculator order that only clicked and never wrote is not listed anywhere (the
-    // calculator has no phone); the "pedidos sem conversa" section is gone.
-    await page.locator('[data-view="entry"]').click();
-    await expect(page.locator('#entry-panel')).toBeVisible({ timeout: 60000 });
+    // A calculator order that only clicked and never wrote is not listed anywhere in ATENDIMENTO
+    // (the calculator has no phone); the "pedidos sem conversa" section is gone.
     await expect(page.locator('#entry-orders, #entry-simulated')).toHaveCount(0);
-    await expect(page.locator('#entry-panel')).not.toContainText(demo.LOOSE_REF);
-    await noOverflow();
-    await shot(page, `entrada-${width}`);
+    await expect(page.locator('#today-panel')).not.toContainText(demo.LOOSE_REF);
 
     // CLIENTES: same client, same context.
     await page.locator('[data-view="clients"]').click();
     const clientCard = page.locator('#clients-list .client-card', { hasText: 'Marina Demonstração' }).first();
     await expect(clientCard).toBeVisible({ timeout: 60000 });
+    // CLIENTES is a directory: the summary lives under "⋯ Mais" of the line.
+    await clientCard.locator('.client-more > summary').click();
     await expect(await reach(clientCard)).toContainText('Responder o cliente', { timeout: 30000 });
     // Field by field, with the source and the message it came from.
     await summaryOf(clientCard).locator('.context-more > summary').click();
@@ -118,6 +119,7 @@ for (const width of [1366, 390]) {
     const requestCard = page.locator('#requests-list .request-card', { hasText: 'Pedido lido da conversa (IA, não confirmado)' }).filter({ hasText: 'Marina Demonstração' }).first();
     await expect(requestCard).toBeVisible({ timeout: 60000 });
     await expect(requestCard).toContainText('Pedido lido da conversa (IA, não confirmado)');
+    await requestCard.locator('.request-case > summary').first().click();
     await expect(await reach(requestCard)).toContainText('Responder o cliente', { timeout: 30000 });
     const fichaRequest = page.locator('#requests-list .request-card', { hasText: 'Critério usado na busca (sistema)' }).filter({ hasText: 'Marina Demonstração' }).first();
     await expect(fichaRequest).toBeVisible();

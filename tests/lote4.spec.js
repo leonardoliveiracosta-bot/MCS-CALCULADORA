@@ -33,23 +33,27 @@ async function mockApi(page, overrides = {}) {
   return calls;
 }
 
-test('Lote 4: seis abas; ENTRADA carrega sem a seção de pedidos sem conversa', async ({ page }) => {
+test('Organização: cinco áreas; ATENDIMENTO reúne a antiga ENTRADA, sem a seção de pedidos sem conversa', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await session(page);
   const calls = await mockApi(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('[data-view]')).toHaveText([/HOJE/, /ENTRADA/, /CLIENTES/, /PESQUISAS/, /OPÇÕES/, /IMPORTAÇÕES/], { timeout: 30000 });
-  await page.locator('[data-view="entry"]').click();
-  await expect(page.locator('#entry-panel')).toBeVisible();
-  await expect(page.locator('#page-title')).toHaveText('ENTRADA');
-  await expect(page.locator('#entry-add-title')).toBeVisible();
-  await expect(page.locator('[data-count="entry"]')).toHaveText('0');
+  await expect(page.locator('nav [data-view]')).toHaveText([/ATENDIMENTO/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /CLIENTES/, /IMPORTAÇÕES/], { timeout: 30000 });
+  await expect(page.locator('#today-panel')).toBeVisible();
+  await expect(page.locator('#page-title')).toHaveText('ATENDIMENTO');
+  await expect(page.locator('nav [data-view="today"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-count="today"]')).toHaveText('0');
   // A calculator order with no message is never listed: the section and its hooks are gone.
   await expect(page.locator('#entry-orders, #entry-simulated, [data-entry-orders-period], .entry-orders, .entry-simulated')).toHaveCount(0);
-  await expect(page.locator('#entry-panel')).not.toContainText('Pediram contato, sem conversa');
-  await expect(page.locator('#entry-panel')).not.toContainText('Só simularam');
-  // ENTRADA still loads its queue.
+  await expect(page.locator('#today-panel')).not.toContainText('Pediram contato, sem conversa');
+  await expect(page.locator('#today-panel')).not.toContainText('Só simularam');
+  // Configurações e conexão: secondary area with the WhatsApp signal and the automatic messages.
+  await page.locator('[data-view="settings"]').click();
+  await expect(page.locator('#settings-panel')).toBeVisible();
+  await expect(page.locator('#settings-panel #automatic-messages-card')).toHaveCount(1);
+  await expect(page.locator('#settings-panel #whatsapp-signal')).toHaveCount(1);
+  // ATENDIMENTO still loads the queue of the old ENTRADA.
   await expect.poll(() => calls.some((call) => call.path === '/api/panel/entry')).toBe(true);
   expect(calls.some((call) => call.path === '/api/panel/orders' && call.params.scope === 'unlinked')).toBe(false);
   expect(errors).toEqual([]);
@@ -98,7 +102,7 @@ test('Lote 4: CLIENTES filtra por Origem, Tipo e Período', async ({ page }) => 
   expect(errors).toEqual([]);
 });
 
-test('Lote 4: link antigo #pedidos abre ENTRADA e #pedido/REF abre o pedido', async ({ page }) => {
+test('Lote 4: links antigos #pedidos e #entrada abrem ATENDIMENTO e #pedido/REF abre o pedido', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await session(page);
@@ -106,27 +110,26 @@ test('Lote 4: link antigo #pedidos abre ENTRADA e #pedido/REF abre o pedido', as
     '/api/panel/lead': ({ json }) => json({ ref: 'ABC23', hasCalculatorRef: true, order: { ref: 'ABC23' }, track: null, notes: [], events: [], promises: [], checklist: [], wishes: [], typical: [], offers: [], fits: [], zip: '', timezone: 'America/New_York', goodHour: true, payment: 'cash', plate: 'transf', florida: true, calculatorNews: [], ai: { reading: null, suggestion: null }, aiHelp: [], record: null })
   });
   await page.goto(base + '/painel/#pedidos', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#entry-panel')).toBeVisible({ timeout: 30000 });
-  await expect(page.locator('#page-title')).toHaveText('ENTRADA');
+  await expect(page.locator('#today-panel')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#page-title')).toHaveText('ATENDIMENTO');
   await page.goto(base + '/painel/#pedido/ABC23', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#detail-panel')).toBeVisible({ timeout: 30000 });
   await expect.poll(() => calls.some((call) => call.path === '/api/panel/lead' && call.params.ref === 'ABC23')).toBe(true);
   expect(errors).toEqual([]);
 });
 
-test('Lote 4: no celular (360 px) a ENTRADA cabe na tela, sem a seção de pedidos', async ({ page }) => {
+test('Lote 4: no celular (360 px) o ATENDIMENTO cabe na tela, sem a seção de pedidos', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await page.setViewportSize({ width: 360, height: 780 });
   await session(page);
   await mockApi(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="entry"]').click();
-  await expect(page.locator('#entry-panel')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#today-panel')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('#entry-orders')).toHaveCount(0);
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(width).toBeLessThanOrEqual(360);
-  const box = await page.locator('#entry-panel').boundingBox();
+  const box = await page.locator('#today-panel').boundingBox();
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(360);
   expect(errors).toEqual([]);
