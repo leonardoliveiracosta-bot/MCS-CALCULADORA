@@ -2521,7 +2521,7 @@
     const box = element('div', 'warning inline-confirm');
     box.append(element('p', '', 'O critério desta busca mudou depois da importação · As opções abaixo podem não servir mais'));
     const again = element('button', 'small', 'Comparar de novo'); again.type = 'button';
-    MCSAction.bind(again, () => ({ scope: box, optimistic: () => { again.textContent = 'Conferindo…'; }, commit: () => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }), timeoutMs: 60000 }), rollback: () => { again.textContent = 'Comparar de novo'; }, successText: 'Opções comparadas de novo com o critério atual', refresh: () => loadCurrent(), errorText: 'Não consegui conferir de novo, tente mais tarde' }));
+    MCSAction.bind(again, () => ({ scope: box, optimistic: () => { again.textContent = 'Conferindo…'; }, commit: () => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }), timeoutMs: 60000 }), rollback: () => { again.textContent = 'Comparar de novo'; }, onSuccess: (result) => { if (result && result.criteriaVersion) box.append(element('p', 'warning options-new-version', `Nova versão dos critérios (v${result.criteriaVersion}) · As opções antigas deste pedido foram invalidadas e as atuais valem só para esta versão`)); }, successText: 'Opções comparadas de novo com o critério atual', refresh: () => loadCurrent(), errorText: 'Não consegui conferir de novo, tente mais tarde' }));
     box.append(again);
     return box;
   }
@@ -2537,6 +2537,7 @@
     MANHEIM_SELECTION_PCT_INVALID: 'Percentual inválido: use de 0 a 50',
     MANHEIM_MATCH_WITHOUT_MMR: 'Carro sem MMR válido não pode ser selecionado',
     MANHEIM_MATCH_NOT_FOUND: 'Este carro não está mais no lote ativo',
+    MANHEIM_STAMP_INVALID: 'Este carro não serve mais ao pedido atual (lote ou critério mudou) · Recarregue as opções',
     MANHEIM_SELECTION_PENDING: 'Seleção indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável'
   };
   const offerError = (error) => OFFER_ERRORS[error && error.code] || 'Não consegui salvar, tente de novo';
@@ -2567,6 +2568,13 @@
       element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}${parsed.startsAt || parsed.saleDate ? ` · Leilão: ${parsed.startsAt || parsed.saleDate}` : ''}`));
     if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
     vehicle.append(offerFit(option), element('span', 'muted offer-consulted', `${state.uploadedAt ? 'Consultado no CSV do Manheim de ' + formatDate(state.uploadedAt) : 'Consultado no lote ativo do Manheim'} · Disponibilidade no leilão não confirmada`));
+    // Provenance stamp: where the car comes from and whether it still counts. Invalid cars are listed but never offered.
+    const stamp = option.stamp || null;
+    if (stamp) {
+      const short = (value) => value ? String(value).slice(0, 8) : '—';
+      vehicle.append(element('span', 'muted offer-stamp', `Carimbo · Ficha ${short(stamp.journeyId)} · Ref ${stamp.ref || '—'} · ${stamp.type || '—'} · critérios ${short(stamp.criteriaHash)}${stamp.version ? ' v' + stamp.version : ''} · lote ${short(stamp.uploadId)} · ${stamp.valid ? 'válido' : 'inválido'}`));
+      if (!stamp.valid) { row.classList.add('offer-invalid'); vehicle.append(element('span', 'warning offer-invalid-reason', `Não oferecer · ${stamp.reasonText || 'carro não vale mais para este pedido'}`)); }
+    }
     const saleFacts = [parsed.lane ? `Lane ${parsed.lane}` : '', parsed.run ? `Run ${parsed.run}` : '', parsed.saleType || '', parsed.buyNowPrice && OFFER && OFFER.buyNowCents(parsed) ? `Buy Now ${parsed.buyNowPrice}` : ''].filter(Boolean);
     if (saleFacts.length) vehicle.append(element('span', 'muted', saleFacts.join(' · ')));
     const badges = element('div', 'badges');
@@ -2609,9 +2617,10 @@
     const excludeButton = button('Manter fora', 'exclude', 'quiet');
     const paintActions = () => {
       const selected = info.status === 'SELECTED';
-      selectButton.hidden = selected || groupKey !== 'LANE';
-      manualButton.hidden = selected || groupKey === 'LANE';
-      reason.hidden = selected || groupKey === 'LANE';
+      const invalid = Boolean(stamp && !stamp.valid);
+      selectButton.hidden = selected || invalid || groupKey !== 'LANE';
+      manualButton.hidden = selected || invalid || groupKey === 'LANE';
+      reason.hidden = selected || invalid || groupKey === 'LANE';
       removeButton.hidden = !selected;
       excludeButton.hidden = info.status === 'EXCLUDED';
     };
@@ -2930,7 +2939,7 @@
     /* After a reload the card remembers its latest V1 (link and when it was sent) instead of "Gere a V1…". */
     latestV1For(journey.id).then((latest)=>{const item=latest[demand?.key||('journey:'+journey.id)];if(!item||v1Send.hasVitrine())return;v1Send.restore(item);});
     const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';
-    const v1Error=(error)=>error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_MATCH_WITHOUT_MMR'?'Carro sem MMR válido não entra na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável':'Não consegui gerar o link';
+    const v1Error=(error)=>error?.code==='MANHEIM_STAMP_INVALID'?'Algum carro não serve mais ao pedido atual (lote ou critério mudou) · Recarregue as opções e selecione de novo':error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_MATCH_WITHOUT_MMR'?'Carro sem MMR válido não entra na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável':'Não consegui gerar o link';
     vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();
       /* Only the cars selected for the customer go to the V1 (the server checks it again). */
       const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);

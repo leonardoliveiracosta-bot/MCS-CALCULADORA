@@ -19,6 +19,7 @@ const { demandContext } = require('../../panel-buscas-view');
 const batch = require('../../panel-manheim-batch');
 const offer = require('../../manheim-offer');
 const { rematchDemands, syncStaleDemands } = require('../../panel-rematch');
+const optionStamp = require('../../panel-option-stamp');
 
 const KEY = /^(journey:[0-9a-f-]{36}|ref:[A-HJ-NP-Z2-9]{5}):(VALOR|CARRO)$/;
 const PARSED_FIELDS = ['vin', 'year', 'make', 'model', 'trim', 'miles', 'location', 'locationDisplay', 'saleDate', 'startsAt', 'endsAt', 'mmrCents', 'exteriorColor', 'interiorColor', 'buyNowPrice', 'conditionGrade', 'lot', 'drivetrain', 'transmission', 'engine', 'makeNotice', 'matchNotice', 'matchedWishlistLabel', 'matchedWishlistIndex', 'dataGap', 'cleanTitle', 'odometerOk', 'lane', 'run', 'saleType', 'saleStatus', 'eventSaleName'];
@@ -69,7 +70,7 @@ async function alsoFitsFor(ctx, uploadId, page, base, journeyId) {
 // Before migration 20261006010000 the selection functions do not exist yet.
 const selectionMissing = (error) => error && (error.status === 404 || /PGRST202|42883/.test(String(error.code || '') + String(error.message || '')));
 
-function optionOut(match, key, demand, also) {
+function optionOut(match, key, demand, also, provenance = null) {
   const live = demand ? liveMatchesFor(match, [demand])[0] || null : null;
   const current = live || match;
   const parsed = slimParsed(match.vehicle_json && match.vehicle_json.parsed);
@@ -79,7 +80,9 @@ function optionOut(match, key, demand, also) {
     match_kind: current.match_kind, match_reason: current.match_reason, mmr_status: current.mmr_status, row_fingerprint: match.row_fingerprint,
     presented_unit_id: match.presented_unit_id || null, vehicle_json: { parsed },
     fitsBid: match.logical_mode === 'VALOR' && mmr && bid ? mmr <= bid : null,
-    alsoFitsFor: [...(also.get(upper(parsed.vin)) || [])], criteriaChanged: !live
+    alsoFitsFor: [...(also.get(upper(parsed.vin)) || [])], criteriaChanged: !live,
+    // Provenance stamp: ficha, Ref, type, criteria hash and version, lot, valid or not (and why).
+    stamp: provenance ? optionStamp.stampOf({ match, demand, key, ...provenance }) : null
   };
 }
 
@@ -100,8 +103,9 @@ async function groupPage(ctx, req, key, group, limit) {
   const { base, demand } = await contextFor(ctx, key);
   const page = (stored || []).slice(0, limit);
   const also = await alsoFitsFor(ctx, latest.id, page, base, demand && demand.journeyId);
+  const provenance = { activeUploadId: latest.id, hashes: await optionStamp.hashesFor(ctx, latest.id, key) };
   const optionsOut = page.map((row) => ({
-    ...optionOut(row, key, demand, also),
+    ...optionOut(row, key, demand, also, provenance),
     offer: {
       group: row.offer_group, cr: row.cr === null ? null : Number(row.cr), crMinimum: row.cr_minimum === null ? null : Number(row.cr_minimum),
       belowMinimum: row.below_minimum, tier: row.tier, mmrCents: Number(row.mmr_cents), defaultPct: Number(row.default_pct),
@@ -121,6 +125,11 @@ async function selectOption(ctx, body) {
   if (!/^[0-9a-f-]{36}$/.test(String(body.matchId || '')) || Number.isNaN(pct)) return send(ctx.res, 400, { error: pct !== pct ? 'MANHEIM_SELECTION_PCT_INVALID' : 'MANHEIM_SELECTION_INVALID' });
   const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 300) : null;
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : null;
+  // A car that no longer fits (lot or criteria changed) is not selected: the stamp is recomputed now.
+  if (body.action === 'select') {
+    const held = await optionStamp.gate(ctx, [body.matchId]);
+    if (held) return send(ctx.res, 409, { error: held.code, reason: held.reason, text: held.text });
+  }
   try {
     const result = await rpc(ctx, 'panel_manheim_offer_select', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_action: actions[body.action], p_manual_pct: pct, p_reason: reason || null, p_note: note || null });
     return send(ctx.res, 200, result);
@@ -149,8 +158,9 @@ async function options(ctx, req) {
   const more = (stored || []).length > limit;
   const also = await alsoFitsFor(ctx, latest.id, page, base, demand && demand.journeyId);
   // Today's rule, applied again to the stored car: a car that no longer fits says so.
-  const optionsOut = page.map((match) => optionOut(match, key, demand, also));
-  return send(ctx.res, 200, { key, uploadId: latest.id, options: optionsOut, nextCursor: more && page.length ? encodeCursor(page[page.length - 1]) : null, demandFound: Boolean(demand) });
+  const provenance = { activeUploadId: latest.id, hashes: await optionStamp.hashesFor(ctx, latest.id, key) };
+  const optionsOut = page.map((match) => optionOut(match, key, demand, also, provenance));
+  return send(ctx.res, 200, { key, uploadId: latest.id, criteriaVersion: demand ? provenance.hashes.indexOf(demand.criteriaHash) + 1 || null : null, options: optionsOut, nextCursor: more && page.length ? encodeCursor(page[page.length - 1]) : null, demandFound: Boolean(demand) });
 }
 
 // Directed rematch of one demand against the cars of the active batch, read by make only.
@@ -160,7 +170,12 @@ async function rematch(ctx, body) {
   const [outcome] = await rematchDemands(ctx, [key]);
   if (outcome.status === 'NO_BATCH') return send(ctx.res, 409, { error: 'MANHEIM_NO_ACTIVE_BATCH' });
   if (outcome.status !== 'DONE') return send(ctx.res, 409, { error: 'MANHEIM_DEMAND_NOT_ACTIVE' });
-  return send(ctx.res, 200, { ...outcome.result, compared: outcome.compared });
+  // Recalculating creates a new version of the request's criteria: said, never silent.
+  const latest = await latestActiveUpload(ctx, 'id');
+  const { demand } = await contextFor(ctx, key).catch(() => ({ demand: null }));
+  const hashes = latest ? await optionStamp.hashesFor(ctx, latest.id, key) : [];
+  const version = demand ? hashes.indexOf(demand.criteriaHash) + 1 || null : null;
+  return send(ctx.res, 200, { ...outcome.result, compared: outcome.compared, criteriaVersion: version });
 }
 
 module.exports = async (req, res) => {
