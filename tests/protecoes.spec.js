@@ -264,3 +264,26 @@ test('ATENDIMENTO: recusa automática de sugestão tem "Desfazer recusa" visíve
   expect(restored.id).toBe(uid(70));
   expect(errors).toEqual([]);
 });
+
+test('IMPORTAÇÕES: mensagem da calculadora na fila mostra motivo, evidência e candidatas lado a lado', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  let posted = null;
+  await open(page, {
+    '/api/panel/entry': ({ json }) => json({ chats: [], reviews: [], printReviews: [], failedPrints: [], printResolved: [], contacts: [], journeys: [], chatAliases: [], senderAliases: [],
+      calcQueue: [{ messageId: uid(80), reason: 'FILA_VARIAS_FICHAS', reasonText: 'O telefone tem mais de uma ficha: escolha a ficha (nada foi escolhido sozinho)', refState: 'REF_ILEGIVEL', ref: null, evidence: { name: 'Bruno Lima', vehicle: 'Dodge Challenger' }, channel: 'SMS', text: 'Hello! I just ran a simulation on the My Car Scout calculator\nRef: -----',
+        candidates: [{ journeyId: uid(81), name: 'Bruno Lima', ref: 'AB2CD', vehicle: 'Honda Civic' }, { journeyId: uid(82), name: 'Bruno Lima', ref: null, vehicle: 'Dodge Challenger' }] }] }),
+    '/api/panel/calc-route': async ({ json, route }) => { posted = JSON.parse(route.request().postData()); return json({ linked: true }); }
+  });
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#app-view')).toBeVisible({ timeout: 30000 });
+  await page.locator('[data-view="imports"]').click();
+  const card = page.locator('#imports-review-queue .calc-queue');
+  await expect(card).toHaveCount(1, { timeout: 30000 });
+  await expect(card).toContainText('mais de uma ficha');
+  await expect(card).toContainText('Ref ilegível na origem');
+  await expect(card.locator('.calc-candidate')).toHaveCount(2);
+  await card.locator('.calc-candidate').nth(1).getByRole('button', { name: 'Ligar a esta ficha' }).click();
+  await expect.poll(() => posted && posted.journeyId).toBe(uid(82));
+  expect(posted.action).toBe('link');
+  expect(errors).toEqual([]);
+});

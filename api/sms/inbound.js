@@ -9,8 +9,11 @@ const { waitUntil } = require('@vercel/functions');
 const { SERVER_ENVIRONMENT, allRows, configuration, insert, jsonBody, patchRows, rows, send } = require('../../panel-server');
 const { normalizePhone } = require('../../panel-phone');
 const { notificationTitle, sendPanelPush } = require('../../panel-push');
+const calcMessage = require('../../panel-calc-message');
+const calcRoute = require('../../panel-calc-route');
 
-const MAX_TEXT = 4000;
+// Long messages are kept (the calculator model never comes near this); only absurd payloads are refused.
+const MAX_TEXT = 25000;
 const REF = /\b[A-HJ-NP-Z2-9]{5}\b/g;
 const MIN_DATE = Date.parse('2009-01-01T00:00:00Z');
 
@@ -84,9 +87,19 @@ async function receive(ctx, body, services, now = Date.now()) {
   }
   const refJourney = await journeyByRef(ctx, text, services);
   if (!contactId && refJourney) contactId = refJourney.contact_id;
+  // A message in the calculator model is a lead by itself: from a new phone it is kept (new contact) and routed like every other
+  // calculator message (Ref -> phone -> new ficha -> queue). Anything else from an unknown sender is still dropped (privacy gate).
+  const calculator = calcMessage.isCalculator(text);
+  let newContact = false;
+  if (!contactId && calculator && phone) {
+    const [contact] = await services.insert(ctx, 'contacts', { environment: ctx.environment, display_name: (calcMessage.parse(text).name || senderName || phone).slice(0, 160), source: 'SMS_DIRECT', created_at: new Date(now).toISOString(), updated_at: new Date(now).toISOString() });
+    await services.insert(ctx, 'contact_phones', { environment: ctx.environment, contact_id: contact.id, phone_raw: phone, phone_e164: phone, is_current: true, is_primary: true, created_at: new Date(now).toISOString() }, false);
+    contactId = contact.id; newContact = true;
+  }
   if (!contactId) return { stored: false };
-  journey = refJourney && refJourney.contact_id === contactId ? refJourney : await latestJourney(ctx, contactId, services);
-  if (!journey) return { stored: false };
+  // Calculator messages are not attached to "the latest ficha": the router decides (one ficha and no contradiction, or the queue).
+  journey = refJourney && refJourney.contact_id === contactId ? refJourney : calculator ? null : await latestJourney(ctx, contactId, services);
+  if (!journey && !calculator) return { stored: false };
 
   // 2. chat SMS do remetente; se o número já é de outro contato, não mistura
   const key = phone ? 'sms:' + phone : 'sms:name:' + contactId;
@@ -113,8 +126,16 @@ async function receive(ctx, body, services, now = Date.now()) {
   }
   const [message] = await services.insert(ctx, 'messages', { environment: ctx.environment, chat_id: chat.id, channel: 'SMS', direction: 'CUSTOMER', body_text: text, body_normalized: norm,
     occurred_at_utc: stamp, time_uncertain: true, signature_base: 'SMS_SHORTCUT:' + crypto.randomUUID(), occurrence_index: 1, source_kind: 'SMS_SHORTCUT', created_at: nowIso });
-  await services.insert(ctx, 'message_journeys', { environment: ctx.environment, message_id: message.id, journey_id: journey.id, association_source: 'SMS_SHORTCUT', associated_at: nowIso }, false);
-  await services.insert(ctx, 'interactions', { environment: ctx.environment, journey_id: journey.id, message_id: message.id, type: 'INBOUND_MESSAGE', occurred_at: stamp, created_at: nowIso }, false);
+  if (journey) {
+    await services.insert(ctx, 'message_journeys', { environment: ctx.environment, message_id: message.id, journey_id: journey.id, association_source: 'SMS_SHORTCUT', associated_at: nowIso }, false);
+    await services.insert(ctx, 'interactions', { environment: ctx.environment, journey_id: journey.id, message_id: message.id, type: 'INBOUND_MESSAGE', occurred_at: stamp, created_at: nowIso }, false);
+  }
+  // Every calculator message gets its destination now (the cron repeats it if this step fails: nothing is lost).
+  if (calculator) {
+    const routed = !services.route ? null : await Promise.resolve().then(() => services.route(ctx, { message_id: message.id, chat_id: chat.id, channel: 'SMS', body_text: text, contact_id: contactId, linked_journeys: journey ? [journey.id] : [] })).catch(() => null);
+    if (!journey && routed && routed.result && routed.result.journeyId) journey = { id: routed.result.journeyId, reference_code: routed.ref || null, vehicle_text: null };
+  }
+  if (!journey) return { stored: true, queued: true, newContact };
   await services.patchRows(ctx, 'chats', { id: 'eq.' + chat.id, environment: 'eq.' + ctx.environment }, { last_seen_at: nowIso, updated_at: nowIso });
 
   // 5. aviso no celular
@@ -124,7 +145,7 @@ async function receive(ctx, body, services, now = Date.now()) {
   return { stored: true, push };
 }
 
-const defaultServices = { rows, allRows, insert, patchRows, push: sendPanelPush };
+const defaultServices = { rows, allRows, insert, patchRows, push: sendPanelPush, route: (ctx, message) => calcRoute.routeOne(ctx, message) };
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
