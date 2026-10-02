@@ -1475,11 +1475,18 @@
   const viewFetch = () => ({ signal: viewController ? viewController.signal : undefined });
   // OPÇÕES is the owner of the cars of a search: other tabs point at its card instead of copying it.
   // Switches the tab, waits for its load and scrolls to the demand card; says so when there is none.
-  async function openOptionsCard(demandKey) {
+  // context: what the clicked request showed (criteria hash and batch). If either changed by the time the options load, the
+  // screen says so; it never silently opens a different search.
+  async function openOptionsCard(demandKey, context = {}) {
     await switchPanel('searches');
     try { await loadCurrent('searches', viewRequestVersion); } catch (_) {}
     const card = demandKey ? document.querySelector(`#searches-panel [data-demand-key="${CSS.escape(demandKey)}"]`) : null;
     if (card) {
+      const live = (manheimData && manheimData.demands || []).find((demand) => demand.key === demandKey);
+      const changed = [];
+      if (context.criteriaHash && live && !live.reactivation && live.criteriaHash && context.criteriaHash !== live.criteriaHash) changed.push('Os critérios deste pedido mudaram desde o resultado que você abriu · As opções abaixo foram recalculadas com o critério atual');
+      if (context.uploadId && manheimData && manheimData.upload && manheimData.upload.id && context.uploadId !== manheimData.upload.id) changed.push('O lote ativo mudou desde o resultado que você abriu · As opções abaixo são as do lote atual');
+      changed.forEach((text) => { const note = element('p', 'warning options-updated', text); card.prepend(note); });
       // The options of that request open right away (the same button as "Ver opções" on the card).
       const toggle = card.querySelector('.manheim-options-toggle');
       if (toggle && !toggle.disabled && toggle.textContent.startsWith('Ver opções')) toggle.click();
@@ -3053,7 +3060,9 @@
     const listed = columns.VALOR.concat(columns.CARRO);
     return { columns, review, incomplete, total: listed.length, people: new Set(listed.map(requestPersonKey)).size };
   }
+  let requestsUploadId = null;
   function renderRequests(data) {
+    requestsUploadId = data && data.uploadId || null;
     if (requestsData !== data) emptyReasonsCache = null;
     requestsData = data;
     const split = requestColumnsOf(data);
@@ -3169,6 +3178,7 @@
     if (MCSSearchGroups.groupOf(first.state) === 'NAO_RODADA') card.append(element('p', 'muted search-not-run', MCSSearchGroups.notRunText(first)));
     if (members.length > 1) card.append(element('p', 'muted', `${members.length} pedidos com critérios exatamente iguais`));
     if (first.state === 'COM_OPCOES') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'opção válida' : 'opções válidas'} no lote ativo`));
+    if (first.state === 'COM_CANDIDATOS') card.append(element('p', 'request-lacks', 'Falta: o lance oficial do cliente · Abra a ficha e confirme o valor · Sem isso estes carros não viram opção válida nem vão para o envio'));
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'candidato' : 'candidatos'} no lote ativo por modelo, ano e milhagem. O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada`));
     if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo · Continua aqui para a próxima importação'));
     if (first.comparedAt) card.append(element('p', 'muted', `${first.comparedAtImport ? 'Comparado na importação de' : 'Última comparação'}: ${formatDate(first.comparedAt)}`));
@@ -3189,9 +3199,15 @@
         open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', item.person.journeyId); });
         who.append(open);
         // The cars this result counts are in ENVIAR OPÇÕES (same ficha, same type): one click opens them.
-        if (item.optionCount && item.searchMode && ['COM_OPCOES', 'COM_CANDIDATOS'].includes(first.state)) {
-          const options = element('button', 'primary small request-open-options request-view-options', `Ver as ${item.optionCount} ${item.optionCount === 1 ? 'opção' : 'opções'}`); options.type = 'button';
-          options.addEventListener('click', (event) => { event.stopPropagation(); openOptionsCard(`journey:${item.person.journeyId}:${item.searchMode}`); });
+        // Only a request that is an official demand (ficha or calculator) opens its own cars. A request read from a conversation has
+        // another criterion and no demand: the button would open a different search, so it points to the ficha instead.
+        if (item.optionCount && item.searchMode && ['COM_OPCOES', 'COM_CANDIDATOS'].includes(first.state) && item.source === 'CONVERSA' && !item.official) {
+          who.append(element('span', 'muted request-options-note', `Os ${item.optionCount} carros contados vêm da leitura da conversa · Confirme o pedido na ficha para abrir as opções dele`));
+        } else if (item.optionCount && item.searchMode && ['COM_OPCOES', 'COM_CANDIDATOS'].includes(first.state)) {
+          const options = element('button', 'primary small request-open-options request-view-options', first.state === 'COM_CANDIDATOS' ? `Ver ${item.optionCount === 1 ? 'o candidato' : 'os ' + item.optionCount + ' candidatos'} (valor a conferir)` : `Ver as ${item.optionCount} ${item.optionCount === 1 ? 'opção' : 'opções'}`); options.type = 'button';
+          // A candidate is never presented as a valid option: say what is missing and where to fix it.
+          if (first.state === 'COM_CANDIDATOS') { options.classList.remove('primary'); options.title = 'Candidato: carro do lote por modelo, ano e milhagem. Falta conferir o lance oficial do cliente (na ficha) para virar opção válida'; }
+          options.addEventListener('click', (event) => { event.stopPropagation(); openOptionsCard(`journey:${item.person.journeyId}:${item.searchMode}`, { criteriaHash: item.criteriaHash || null, uploadId: requestsUploadId }); });
           who.append(options);
         }
       }
