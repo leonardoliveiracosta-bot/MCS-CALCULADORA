@@ -81,6 +81,8 @@ create table if not exists public.panel_calc_message_route (
   destination text not null check (destination in ('LIGADA_REF','LIGADA_TELEFONE','NOVA_FICHA','FILA')),
   reason text not null check (length(reason) between 2 and 60),
   ref_state text not null check (ref_state in ('REF','REF_ILEGIVEL','SEM_LINHA_REF')),
+  -- where the Ref came from: the message text, or the print the SMS was read from
+  ref_source text check (ref_source is null or ref_source in ('TEXTO','PRINT')),
   ref text check (ref is null or ref ~ '^[A-HJ-NP-Z2-9]{5}$'),
   journey_id uuid references public.journeys(id),
   evidence jsonb not null default '{}'::jsonb,
@@ -101,11 +103,14 @@ grant select, insert, update on public.panel_calc_message_route to service_role;
 
 -- Mensagens da calculadora ainda sem destino nesta regra (ou na fila há mais de 10 min, para reavaliar). Decisão manual não volta.
 create or replace function public.panel_calc_route_pending(p_environment public.panel_environment, p_rule_version integer, p_limit integer default 50)
-returns table(message_id uuid, chat_id uuid, channel text, body_text text, occurred_at timestamptz, contact_id uuid, chat_key text, linked_journeys uuid[], previous text)
+returns table(message_id uuid, chat_id uuid, channel text, body_text text, occurred_at timestamptz, contact_id uuid, chat_key text, linked_journeys uuid[], previous text, print_ref text)
 language sql stable security definer set search_path = public as $$
   select m.id, m.chat_id, m.channel::text, m.body_text, coalesce(m.occurred_at_utc, m.created_at), c.contact_id, c.canonical_key,
     coalesce((select array_agg(mj.journey_id) from public.message_journeys mj where mj.environment = p_environment and mj.message_id = m.id and mj.undone_at is null), '{}'),
-    r.destination
+    r.destination,
+    -- An SMS that came in by print: the Ref the reader saw on the screenshot (another source when the text lost the line).
+    (select upper(pr.extracted_json->>'ref') from public.sms_print_reads pr where pr.environment = p_environment and pr.message_id = m.id and pr.status = 'CONFIRMED'
+       and coalesce(pr.extracted_json->>'ref', '') ~* '^[A-HJ-NP-Z2-9]{5}$' order by pr.updated_at desc limit 1)
   from public.messages m
   left join public.chats c on c.id = m.chat_id
   left join public.panel_calc_message_route r on r.environment = p_environment and r.message_id = m.id
@@ -124,7 +129,7 @@ grant execute on function public.panel_calc_route_pending(public.panel_environme
 create or replace function public.panel_calc_route_apply(
   p_environment public.panel_environment, p_message_id uuid, p_destination text, p_reason text, p_ref_state text, p_ref text,
   p_journey_id uuid, p_evidence jsonb, p_rule_version integer, p_link boolean default false, p_create boolean default false,
-  p_manual boolean default false, p_actor uuid default null, p_unlink_auto boolean default false)
+  p_manual boolean default false, p_actor uuid default null, p_unlink_auto boolean default false, p_ref_source text default null)
 returns jsonb language plpgsql security definer set search_path = public as $$
 #variable_conflict use_variable
 declare v_contact uuid; v_channel text; v_journey uuid := p_journey_id; v_previous public.panel_calc_message_route; v_ref text; v_linked boolean := false; v_created boolean := false; v_unlinked uuid[] := '{}';
@@ -170,14 +175,14 @@ begin
       returning mj.journey_id)
     select coalesce(array_agg(journey_id), '{}') into v_unlinked from gone;
   end if;
-  insert into public.panel_calc_message_route(environment, message_id, destination, reason, ref_state, ref, journey_id, evidence, rule_version, manual, decided_by, decided_at, updated_at)
-    values (p_environment, p_message_id, p_destination, p_reason, p_ref_state, v_ref, v_journey, coalesce(p_evidence, '{}'::jsonb) || jsonb_build_object('linkedNow', v_linked, 'createdJourney', v_created, 'unlinkedAuto', to_jsonb(v_unlinked)), p_rule_version, p_manual, p_actor, now(), now())
-    on conflict (environment, message_id) do update set destination = excluded.destination, reason = excluded.reason, ref_state = excluded.ref_state, ref = excluded.ref,
+  insert into public.panel_calc_message_route(environment, message_id, destination, reason, ref_state, ref, ref_source, journey_id, evidence, rule_version, manual, decided_by, decided_at, updated_at)
+    values (p_environment, p_message_id, p_destination, p_reason, p_ref_state, v_ref, case when v_ref is not null and p_ref_source in ('TEXTO','PRINT') then p_ref_source end, v_journey, coalesce(p_evidence, '{}'::jsonb) || jsonb_build_object('linkedNow', v_linked, 'createdJourney', v_created, 'unlinkedAuto', to_jsonb(v_unlinked)), p_rule_version, p_manual, p_actor, now(), now())
+    on conflict (environment, message_id) do update set destination = excluded.destination, reason = excluded.reason, ref_state = excluded.ref_state, ref = excluded.ref, ref_source = excluded.ref_source,
       journey_id = excluded.journey_id, evidence = excluded.evidence, rule_version = excluded.rule_version, manual = excluded.manual, decided_by = excluded.decided_by,
       decided_at = case when panel_calc_message_route.destination = excluded.destination and panel_calc_message_route.journey_id is not distinct from excluded.journey_id then panel_calc_message_route.decided_at else now() end,
       updated_at = now();
   return jsonb_build_object('journeyId', v_journey, 'linked', v_linked, 'createdJourney', v_created, 'unlinked', to_jsonb(v_unlinked), 'destination', p_destination);
 end;
 $$;
-revoke all on function public.panel_calc_route_apply(public.panel_environment, uuid, text, text, text, text, uuid, jsonb, integer, boolean, boolean, boolean, uuid, boolean) from public, anon, authenticated;
-grant execute on function public.panel_calc_route_apply(public.panel_environment, uuid, text, text, text, text, uuid, jsonb, integer, boolean, boolean, boolean, uuid, boolean) to service_role;
+revoke all on function public.panel_calc_route_apply(public.panel_environment, uuid, text, text, text, text, uuid, jsonb, integer, boolean, boolean, boolean, uuid, boolean, text) from public, anon, authenticated;
+grant execute on function public.panel_calc_route_apply(public.panel_environment, uuid, text, text, text, text, uuid, jsonb, integer, boolean, boolean, boolean, uuid, boolean, text) to service_role;

@@ -24,7 +24,7 @@ const REASONS = {
 
 // facts: { parsed, refOwners: [{id, contact_id}], contactId, fichas: [{id, contactName, vehicleText}], linked: [journeyId] }
 function decide({ parsed, refOwners = [], contactId = null, fichas = [], linked = [] }) {
-  const evidence = { refState: parsed.refState, ref: parsed.ref, diagnosis: parsed.diagnosis, name: parsed.name || null, vehicle: parsed.vehicle || null,
+  const evidence = { refState: parsed.refState, ref: parsed.ref, refSource: parsed.refState === 'REF' ? parsed.refSource || 'TEXTO' : null, diagnosis: parsed.diagnosis, name: parsed.name || null, vehicle: parsed.vehicle || null,
     candidates: fichas.map((ficha) => ficha.id), linkedBefore: linked };
   const base = { refState: parsed.refState, ref: parsed.refState === 'REF' ? parsed.ref : null, evidence };
   if (parsed.refState === 'REF' && refOwners.length) {
@@ -71,12 +71,17 @@ async function factsFor(ctx, message, read = rows) {
 
 async function routeOne(ctx, message, deps = {}) {
   const facts = await (deps.factsFor || factsFor)(ctx, message);
+  // (d) The text lost the Ref line but the print it was read from shows it: that Ref counts, and says where it came from.
+  if (facts.parsed.refState !== 'REF' && calcMessage.REF_RE.test(String(message.print_ref || ''))) {
+    facts.parsed = { ...facts.parsed, refState: 'REF', ref: String(message.print_ref).toUpperCase(), refSource: 'PRINT' };
+    if (!deps.factsFor) Object.assign(facts, await factsFor(ctx, { ...message, body_text: message.body_text + '\nRef: ' + facts.parsed.ref }), { parsed: facts.parsed });
+  }
   const verdict = decide(facts);
   const call = deps.rpc || rpc;
   const result = await call(ctx, 'panel_calc_route_apply', {
     p_message_id: message.message_id, p_destination: verdict.destination, p_reason: verdict.reason, p_ref_state: verdict.refState, p_ref: verdict.ref,
     p_journey_id: verdict.journeyId, p_evidence: verdict.evidence, p_rule_version: RULE_VERSION, p_link: Boolean(verdict.link), p_create: Boolean(verdict.create),
-    p_unlink_auto: Boolean(verdict.unlinkAuto)
+    p_unlink_auto: Boolean(verdict.unlinkAuto), p_ref_source: verdict.evidence.refSource || null
   });
   return { ...verdict, result };
 }

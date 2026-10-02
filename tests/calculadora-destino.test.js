@@ -129,3 +129,14 @@ test('similaridade sozinha nunca liga: mesmo carro e valor de outra ficha, sem R
   const verdict = route.decide({ parsed: { refState: 'SEM_LINHA_REF', ref: null, name: 'Outra Pessoa', vehicle: 'Dodge Challenger' }, refOwners: [], contactId: null, fichas: [], linked: [] });
   assert.deepEqual([verdict.destination, verdict.reason, verdict.link], ['FILA', 'SEM_CONTATO', undefined]);
 });
+
+test('(d) SMS lido de print sem a linha "Ref:" no texto: a Ref do print vale, com a fonte dita', async () => {
+  const verdict = await route.routeOne(ctx, { message_id: '00000000-0000-4000-8000-000000000000', body_text: calculatorText('QWRT7').replace(/\nRef: QWRT7$/, ''), contact_id: A, linked_journeys: [JA], print_ref: 'QWRT7' },
+    { rpc: async () => ({ linked: false }), factsFor: async () => ({ parsed: calcMessage.parse(calculatorText('QWRT7').replace(/\nRef: QWRT7$/, '')), refOwners: [{ id: JA, contact_id: A }], contactId: A, fichas: [{ id: JA, contactName: 'Ana Souza', vehicleText: '' }], linked: [JA] }) });
+  assert.deepEqual([verdict.destination, verdict.reason, verdict.evidence.refSource, verdict.ref], ['LIGADA_REF', 'REF_ENCONTRADA', 'PRINT', 'QWRT7']);
+});
+
+test('(e) a confirmação do print guarda o texto completo, com a linha "Ref:" que o print mostrava', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'api', 'panel', 'sms-print.js'), 'utf8');
+  assert.match(source, /refState==='SEM_LINHA_REF'\)values\.message=values\.message\.replace\(\/\\s\+\$\/,''\)\+'\\nRef: '\+values\.ref\.toUpperCase\(\)/);
+});
