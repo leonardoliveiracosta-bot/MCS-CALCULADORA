@@ -5,7 +5,7 @@
 -- Detecção única do modelo da calculadora (marca + algum marcador de qualquer versão/idioma do modelo).
 create or replace function public.panel_calc_template_text(p_text text)
 returns boolean language sql immutable as $$
-  select coalesce(p_text ~* 'my car scout' and p_text ~* '(vehicle search request|calculate my cost|find one for me|maximum bid|year range|mileage range|·\\s*FIND\\s*·|lance máximo|faixa de anos|rango de años|oferta máxima|solicitud de búsqueda|solicitação de busca|rango de millas|faixa de milhas|ran a simulation on the my car scout|ran an estimate on the my car scout|simulación en la calculadora|simulação na calculadora|discuss this simulation|discuss this vehicle search|estimate and not a commercial offer)', false)
+  select coalesce(p_text ~* 'my car scout' and p_text ~* '(vehicle search request|calculate my cost|find one for me|maximum bid|year range|mileage range|·\s*FIND\s*·|lance máximo|faixa de anos|rango de años|oferta máxima|solicitud de búsqueda|solicitação de busca|rango de millas|faixa de milhas|ran a simulation on the my car scout|ran an estimate on the my car scout|simulación en la calculadora|simulação na calculadora|discuss this simulation|discuss this vehicle search|estimate and not a commercial offer)', false)
 $$;
 grant execute on function public.panel_calc_template_text(text) to service_role;
 

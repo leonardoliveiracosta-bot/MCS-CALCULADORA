@@ -140,3 +140,8 @@ test('(e) a confirmação do print guarda o texto completo, com a linha "Ref:" q
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'api', 'panel', 'sms-print.js'), 'utf8');
   assert.match(source, /refState==='SEM_LINHA_REF'\)values\.message=values\.message\.replace\(\/\\s\+\$\/,''\)\+'\\nRef: '\+values\.ref\.toUpperCase\(\)/);
 });
+
+test('detecção no banco: o marcador "· FIND ·" sozinho também conta', async () => {
+  const [row] = await q(`select public.panel_calc_template_text('EN · FIND · NOW · 2021-2025 · Honda HR-V · 1st My Car Scout') ok`);
+  assert.equal(row.ok, true);
+});
