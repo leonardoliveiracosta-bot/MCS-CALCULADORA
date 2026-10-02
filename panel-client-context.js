@@ -13,6 +13,7 @@ const { clean, consolidateCalcRuns, fold, normalizeDeadline, time, wishlistsForJ
 const { loadSearchStageIndex } = require('./panel-search-stage');
 const groups = require('./panel-groups');
 const { buildIndex, factsOf, UNAVAILABLE } = require('./panel-classification');
+const orderSummary = require('./panel-order-summary');
 const refProof = require('./panel-ref-proof');
 const { loadVitrineOrigins } = require('./panel-vitrine-origin');
 const { batchSupported, latestActiveUpload } = require('./panel-manheim-state');
@@ -341,7 +342,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
   // The same identity and subject the lists use; a source that cannot be read is unavailable, never "not identified".
   const [identityRows, classRows] = ids.length ? await Promise.all([
     safe(inChunks(ctx, 'panel_identity_state', { select: 'journey_id,status,calc_origin,refs,conflict', environment: env }, 'journey_id', ids), null),
-    safe(inChunks(ctx, 'panel_conversation_class', { select: 'journey_id,subject,manual_subject,classified_at,reason', environment: env }, 'journey_id', ids), null)
+    safe(inChunks(ctx, 'panel_conversation_class', { select: 'journey_id,subject,manual_subject,classified_at,reason,request_summaries', environment: env }, 'journey_id', ids), null)
   ]) : [[], []];
   const classification = identityRows && classRows ? buildIndex(identityRows, classRows) : UNAVAILABLE;
   const refsOf = (journey) => [...new Set([journey.reference_code, ...journeyRefs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].map((ref) => clean(ref).toUpperCase()).filter((ref) => REF.test(ref)))];
@@ -449,6 +450,8 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       // wrote again is waiting for the MCS, never shown as answered.
       stage: { code: journey.stage || null, label: !closed && !off && owner.who === 'MCS' && ['RESPONDIDO', 'NOVO'].includes(journey.stage) ? 'Aguardando sua resposta' : JOURNEY_STAGES[journey.stage] || journey.stage || 'Sem etapa', status: journey.status || null, closed, off, closedReason: closed ? journey.closed_reason || null : null },
       searches, owner, conversation, v1,
+      // One summary per order (never per conversation); several orders the reading cannot tell apart are declared ambiguous.
+      aiOrders: orderSummary.orderSummaries({ orders: [...new Set([...ownOrders.map((order) => order.ref), ...(proof.calcRefs || [])])], summaries: classification.subjectOf(journey.id).summaries || [] }),
       aiReading: insight ? { summary: clean(insight.summary_text) || null, nextStep: clean(insight.next_step_text) || null, at: insight.updated_at || null, note: 'Leitura da IA da última mensagem · não confirmada' } : null,
       modes, fields, criteria: criteriaSummary(step), situation: null, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
       promises: promises.filter((row) => row.journey_id === journey.id).map((row) => ({ text: row.promise_text, dueAt: row.due_at })),

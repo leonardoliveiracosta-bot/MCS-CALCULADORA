@@ -139,6 +139,15 @@
     fact('Ref', ref || (refState === 'A_RECUPERAR' ? 'Calculadora, referência a recuperar' : '—')); fact('Carro', displayModel(vehicle) || 'não informado'); fact('Lance máx.', Number(cents) ? formatMoney(cents) : 'não informado');
     return wrap;
   };
+  // AI reading per order, never per conversation: one line per order, or the declared ambiguity. Without the per-order
+  // reading only the old text of the single order case is kept (a conversation text never goes to one of several orders).
+  function aiOrdersNode(aiOrders, legacy) {
+    const box = element('div', 'ai-orders');
+    if (!aiOrders) { if (legacy) box.append(element('p', 'pending-ai', `Leitura da IA (não confirmada): ${legacy}`)); return box; }
+    (aiOrders.items || []).forEach((entry) => box.append(element('p', 'pending-ai', `Resumo da IA · pedido ${entry.ref || 'sem Ref'} (não confirmado): ${entry.summary}`)));
+    if (aiOrders.state === 'AMBIGUO' && aiOrders.text) box.append(element('p', 'pending-ai ai-ambiguous', aiOrders.text));
+    return box;
+  }
   const contextSlot = (spec, options) => window.MCSContext ? MCSContext.slot(spec, options) : document.createComment('contexto');
   const hydrateContexts = (root) => { if (window.MCSContext && root) MCSContext.hydrate(root, { request, open: (kind, key) => openDetail(kind, key) }).catch(() => {}); };
 
@@ -1220,7 +1229,7 @@
     more.append(extra);
     const lastMessage=MCSContactGroups.lastMessageNode(item,item.id);if(lastMessage)more.append(lastMessage);
     else if(item.latestMessage?.body_text||item.latestMessageText)more.append(element('p','one-line message-preview',item.latestMessage?.body_text||item.latestMessageText));
-    if(item.aiSummary||item.summary)more.append(element('p','pending-ai',`Leitura da IA (não confirmada): ${item.aiSummary||item.summary}`));
+    more.append(aiOrdersNode(item.aiOrders,item.aiSummary||item.summary));
     more.append(contextSlot({journeyId:journeyIdOf(item)},{aiReading:false,unattended:false}));
     const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients(),true);if(waiting)more.append(waiting);if(receipt)more.append(receipt);if(next)more.append(next);
     const actions=element('div','inline-actions');more.append(actions);
@@ -2640,7 +2649,7 @@
     const list = element('div', 'manheim-table');
     const more = element('button', 'quiet small manheim-options-toggle', count ? `Ver opções (${count})` : 'Nenhum carro neste grupo');
     more.type = 'button'; more.disabled = !count;
-    let cursor = null, loadedCount = 0, busy = false;
+    let cursor = null, loadedCount = 0, busy = false, invalidBox = null;
     const loadPage = async () => {
       if (busy) return; busy = true; more.disabled = true; more.textContent = 'Carregando…';
       try {
@@ -2648,7 +2657,14 @@
         if (cursor) params.set('cursor', cursor);
         const page = await request('/api/panel/manheim-options?' + params.toString());
         if (page.uploadedAt) state.uploadedAt = page.uploadedAt;
-        (page.options || []).forEach((option) => { loadedCount += 1; state.loaded.push(option); list.insertBefore(offerRow(option, state, groupKey), more); });
+        (page.options || []).forEach((option) => {
+          loadedCount += 1; state.loaded.push(option);
+          // Only valid cars are offered; the invalidated ones wait in a closed box with the reason, never mixed in.
+          if (option.stamp && option.stamp.valid === false) {
+            if (!invalidBox) { invalidBox = element('details', 'offer-invalidated'); invalidBox.append(element('summary', '', 'Carros invalidados (não oferecer)')); details.append(invalidBox); }
+            invalidBox.append(offerRow(option, state, groupKey)); invalidBox.querySelector('summary').textContent = `Carros invalidados (não oferecer) · ${invalidBox.querySelectorAll('.offer-row').length}`;
+          } else list.insertBefore(offerRow(option, state, groupKey), more);
+        });
         cursor = page.nextCursor || null;
         // The divergences of the check name their car once the car is on screen.
         if (state.card) state.card.dispatchEvent(new CustomEvent('options-loaded'));

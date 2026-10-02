@@ -9,9 +9,10 @@ const { allRows } = require('./panel-server');
 
 const SUBJECT_KEYS = ['FINANCIAMENTO', 'PEDIDO_CARRO', 'SO_CUMPRIMENTO', 'OUTROS', 'NAO_IDENTIFICADO'];
 
+const summariesOf = (row) => Array.isArray(row && row.request_summaries) ? row.request_summaries : [];
 function subjectFromRow(row) {
-  if (row && row.manual_subject && SUBJECT_KEYS.includes(row.manual_subject)) return { key: row.manual_subject, source: 'MANUAL', state: 'OK', reason: null, readAt: null };
-  if (row && row.classified_at && SUBJECT_KEYS.includes(row.subject)) return { key: row.subject, source: 'CLAUDE', state: 'OK', reason: row.reason || null, readAt: row.classified_at };
+  if (row && row.manual_subject && SUBJECT_KEYS.includes(row.manual_subject)) return { key: row.manual_subject, source: 'MANUAL', state: 'OK', reason: null, readAt: null, summaries: summariesOf(row) };
+  if (row && row.classified_at && SUBJECT_KEYS.includes(row.subject)) return { key: row.subject, source: 'CLAUDE', state: 'OK', reason: row.reason || null, readAt: row.classified_at, summaries: summariesOf(row) };
   return { key: 'NAO_IDENTIFICADO', source: null, state: 'PENDENTE', reason: null, readAt: null };
 }
 
@@ -35,7 +36,7 @@ async function loadClassification(ctx) {
   try {
     const [identityRows, classRows] = await Promise.all([
       allRows(ctx, 'panel_identity_state', { select: 'journey_id,status,calc_origin,refs,conflict', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'panel_conversation_class', { select: 'journey_id,subject,manual_subject,classified_at,reason', environment: 'eq.' + ctx.environment })
+      allRows(ctx, 'panel_conversation_class', { select: 'journey_id,subject,manual_subject,classified_at,reason,request_summaries', environment: 'eq.' + ctx.environment })
     ]);
     return buildIndex(identityRows, classRows);
   } catch (_) { return UNAVAILABLE; }
