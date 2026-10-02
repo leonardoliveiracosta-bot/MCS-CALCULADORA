@@ -5,6 +5,8 @@ const { contactIndex, insightUsable } = require('./panel-contact');
 const { score, loadScoreVehicles } = require('./panel-ready');
 const { toggleEnabled } = require('./panel-domain');
 const refProof = require('./panel-ref-proof');
+const { loadClassification } = require('./panel-classification');
+const orderSummary = require('./panel-order-summary');
 
 const THREE_DAYS = 3 * 86400000;
 const GENERAL_MAX_MESSAGES = 150;
@@ -113,6 +115,8 @@ async function conversationGroups(ctx) {
     allRows(ctx,'promises',{select:'journey_id,status,due_at',environment:'eq.'+ctx.environment}),
     loadScoreVehicles(ctx).catch(()=>[])
   ]);
+  const classification=await loadClassification(ctx);
+  const runRefs=refProof.runRefsOf(calcRuns);
   const effectiveMessages=messages.filter((message)=>!message.undone_at),contactsIndex=contactIndex({calcRuns,messages:effectiveMessages,messageLinks:links});
   const byJourney=new Map(journeys.map((row)=>[row.id,row])),byContact=new Map(contacts.map((row)=>[row.id,row])),byChat=new Map(chats.map((row)=>[row.id,row])),byMessage=new Map(effectiveMessages.map((row)=>[row.id,row])),toggleByJourney=new Map(toggles.map((row)=>[row.journey_id,row])),insightByKey=new Map(insights.map((row)=>[row.journey_id+'|'+row.chat_id,row])),resolutionByKey=new Map(resolutions.map((row)=>[row.journey_id+'|'+row.chat_id,row]));
   const grouped=new Map();
@@ -120,7 +124,7 @@ async function conversationGroups(ctx) {
   const result=[];
   for(const group of grouped.values()){
     group.messages.sort((a,b)=>at(a)-at(b)||String(a.id).localeCompare(String(b.id)));group.latest=group.messages.filter((message)=>!message.is_automatic).at(-1)||group.messages.at(-1);if(!group.latest)continue;
-    group.phones=phones.filter((row)=>row.contact_id===group.journey.contact_id);group.phone=phoneFor(group.phones);group.ref=refFor(group.journey,refs);const facts=contactsIndex.facts({journeyId:group.journey.id,ref:group.ref,refs:refs.filter((row)=>row.journey_id===group.journey.id).map((row)=>row.ref_code)});if(!facts.entered)continue;group.contactFacts=facts;group.insight=insightByKey.get(group.key)||null;group.resolution=resolutionByKey.get(group.key)||null;const toggle=toggleByJourney.get(group.journey.id);group.enabled=toggleEnabled(group.journey.status,toggle);group.switchedAt=toggle?.switched_at||null;group.ready=score({zip:group.contact.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:group.journey.budget_cents}, {...group.journey,phones:group.phones,enabled:group.enabled}, {checklist,promises,messages:group.messages.map((message)=>({...message,journey_id:group.journey.id}))}, vehicles);result.push(group);
+    group.phones=phones.filter((row)=>row.contact_id===group.journey.contact_id);group.phone=phoneFor(group.phones);group.ref=refFor(group.journey,refs);{const ownRefs=[group.journey.reference_code,...refs.filter((row)=>row.journey_id===group.journey.id).map((row)=>row.ref_code)].filter(Boolean).map((ref)=>String(ref).trim().toUpperCase()),withRun=[...new Set(ownRefs.filter((ref)=>runRefs.has(ref)))];group.refsWithRun=withRun;group.classSummaries=classification.subjectOf(group.journey.id).summaries||[];}const facts=contactsIndex.facts({journeyId:group.journey.id,ref:group.ref,refs:refs.filter((row)=>row.journey_id===group.journey.id).map((row)=>row.ref_code)});if(!facts.entered)continue;group.contactFacts=facts;group.insight=insightByKey.get(group.key)||null;group.resolution=resolutionByKey.get(group.key)||null;const toggle=toggleByJourney.get(group.journey.id);group.enabled=toggleEnabled(group.journey.status,toggle);group.switchedAt=toggle?.switched_at||null;group.ready=score({zip:group.contact.location_text?.match(/\b\d{5}\b/)?.[0]||'',budgetCents:group.journey.budget_cents}, {...group.journey,phones:group.phones,enabled:group.enabled}, {checklist,promises,messages:group.messages.map((message)=>({...message,journey_id:group.journey.id}))}, vehicles);result.push(group);
   }
   return result;
 }
@@ -129,7 +133,9 @@ function itemFromGroup(group, now=Date.now()) {
   const situation=fixedSituation(group,group.insight,now),latestAt=at(group.latest),resolution=group.resolution;
   const resolved=Boolean(resolution&&resolution.resolved_message_id===group.latest.id);
   const customerTexts=(group.messages||[]).filter((message)=>message.direction==='CUSTOMER').map((message)=>message.body_text);const refState=customerTexts.some((text)=>refProof.explicitRefs(text).length)?'COM_REF':customerTexts.some((text)=>refProof.isCalculatorTemplate(text))?'A_RECUPERAR':'SEM_REF';
-  return {refState,journeyId:group.journey.id,chatId:group.chat.id,contactId:group.journey.contact_id,name:group.contact.display_name||'Contato sem nome',phone:group.phone?.phone_e164||group.phone?.phone_raw||null,ref:group.ref,
+  // One summary per order; a single conversation without orders says it is the conversation's; several orders it cannot tell apart are ambiguous.
+  const aiOrders=orderSummary.pendingSummary({orders:group.refsWithRun||[],summaries:group.classSummaries||[],conversationSummary:group.insight?.last_ai_message_id===group.latest.id?group.insight.summary_text||'':''});
+  return {aiOrders,refState,journeyId:group.journey.id,chatId:group.chat.id,contactId:group.journey.contact_id,name:group.contact.display_name||'Contato sem nome',phone:group.phone?.phone_e164||group.phone?.phone_raw||null,ref:group.ref,
     situation,...(()=>{/* A13: the AI heat counts only while it is valid (same rule as the other screens). */const valid=insightUsable(group.insight,{...group.journey,enabled:group.enabled},group.latest.id,now);return {heat:valid?heatFromAI(group.insight.heat):(group.ready?.score>=60?'HOT':group.ready?.score>=35?'WARM':'COLD'),heatSource:valid?'AI':'CALCULATED'};})(),aiSummary:group.insight?.summary_text||'',aiNextStep:group.insight?.next_step_text||'',daysStalled:Math.max(0,Math.floor((now-latestAt)/86400000)),latestMessage:group.latest.body_text||'',latestDirection:group.latest.direction,latestAt:new Date(latestAt).toISOString(),
     translation:group.insight?.last_ai_message_id===group.latest.id?group.insight.translation_text||'':'',summary:group.insight?.last_ai_message_id===group.latest.id?group.insight.summary_text||'':'',nextStep:group.insight?.last_ai_message_id===group.latest.id?group.insight.next_step_text||'':'',resolved,isLead:group.contact.is_lead!==false,contactAt:group.contactFacts?.latestAt?new Date(group.contactFacts.latestAt).toISOString():null,contactChannel:group.contactFacts?.channel||null};
 }

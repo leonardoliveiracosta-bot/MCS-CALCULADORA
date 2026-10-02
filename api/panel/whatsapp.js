@@ -52,7 +52,13 @@ module.exports=async(req,res)=>{
       const refChats=[...new Set(commercialSuggestions.filter((item)=>item.target_ref&&isUuid(item.source_chat_id)).map((item)=>item.source_chat_id))];
       const refTexts=refChats.length?await allRows(ctx,'messages',{select:'chat_id,body_text',environment:'eq.'+ctx.environment,direction:'eq.CUSTOMER',chat_id:'in.('+refChats.join(',')+')'}).catch(()=>[]):[];
       const refWritten=(item)=>Boolean(item.target_ref)&&refTexts.some((row)=>row.chat_id===item.source_chat_id&&new RegExp('\\b'+String(item.target_ref).replace(/[^A-Z0-9]/gi,'')+'\\b','i').test(String(row.body_text||'')));
-      return send(res,200,{lastEventAt:latest[0]?.received_at||null,lastInboundAt:inbound[0]?.received_at||null,lastEchoAt:echo[0]?.received_at||null,
+      // Turned down by the explicit-Ref rule in the last 30 days: listed with an "Desfazer recusa" button (suggestion_restore).
+      const since=new Date(Date.now()-30*86400000).toISOString();
+      const autoRejectedRows=await rows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_contact_id,target_contact_id,target_ref,resolved_at,undo_json',environment:'eq.'+ctx.environment,status:'eq.REJECTED','undo_json->>rule':'eq.EXPLICIT_REF',resolved_at:'gte.'+since,order:'resolved_at.desc',limit:'50'}).catch(()=>[]);
+      const rejectedContactIds=[...new Set(autoRejectedRows.map((item)=>item.source_contact_id).filter(isUuid))].filter((id)=>!names.has(id));
+      if(rejectedContactIds.length)(await rows(ctx,'contacts',{select:'id,display_name',environment:'eq.'+ctx.environment,id:'in.('+rejectedContactIds.join(',')+')'}).catch(()=>[])).forEach((contact)=>names.set(contact.id,contact.display_name));
+      const autoRejected=autoRejectedRows.map((item)=>({id:item.id,phone:item.phone_e164,suggestedRef:item.target_ref,writtenRefs:item.undo_json&&item.undo_json.writtenRefs||[],at:item.resolved_at,sourceName:names.get(item.source_contact_id)||null}));
+      return send(res,200,{autoRejected,lastEventAt:latest[0]?.received_at||null,lastInboundAt:inbound[0]?.received_at||null,lastEchoAt:echo[0]?.received_at||null,
         errors:errors.filter(x=>x.status!=='PROCESSING'||Date.now()-Date.parse(x.processing_started_at||0)>120000),ignored,itemErrors,
         suggestions:commercialSuggestions.map(x=>({...x,refConfirmed:refWritten(x),sourceName:names.get(x.source_contact_id),targetName:names.get(x.target_contact_id),sourceIsLead:contacts.find(c=>c.id===x.source_contact_id)?.is_lead!==false})),
         phoneReviews:phoneReviews.map(x=>({...x,candidates:(x.candidate_contact_ids||[]).map(id=>({id,name:names.get(id)||'Contato',isLead:contacts.find(c=>c.id===id)?.is_lead!==false}))}))});
