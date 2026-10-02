@@ -134,7 +134,7 @@ test('ATENDIMENTO: o badge e a lista usam o mesmo modelo; conversas lidas não v
   assert.match(client, /const model = MCSAttend\.model\(\{ todayItems: today\.items \|\| \[\], decisions: attendDecisions\(\{ entry, triage: triageData, whatsapp: whatsappData, vitrine: vitrineData \}\), incomplete: \[\] \}\);\n      setCount\('today', model\.counts\.depende\);/);
   assert.match(client, /chat\.resolution_status !== 'RESOLVED' \|\| chat\.hasTimeUncertain/);
   const html = read('painel/index.html');
-  assert.match(html, /<script src="\/painel\/atendimento\.js\?v=1" defer><\/script>/);
+  assert.match(html, /<script src="\/painel\/atendimento\.js\?v=\d+" defer><\/script>/);
   assert.ok(html.indexOf('atendimento.js') < html.indexOf('/painel/painel.js'));
 });
 

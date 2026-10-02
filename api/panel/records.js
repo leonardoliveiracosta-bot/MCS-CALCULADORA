@@ -17,6 +17,7 @@ const { manheimView } = require('../../panel-buscas-view');
 const { activeFilter, batchSupported, latestActiveUpload } = require('../../panel-manheim-state');
 const { outOfFunnelIndex } = require('../../panel-triage');
 const groups = require('../../panel-groups');
+const { loadClassification, factsOf } = require('../../panel-classification');
 const refProof = require('../../panel-ref-proof');
 const { loadTopic } = require('../../panel-topic');
 
@@ -93,7 +94,7 @@ async function clientList(ctx, activeBatch) {
   // Identity: Refs proven by the calculator (calc_runs or the client's calculator message).
   const runRefs=refProof.runRefsOf(calcRuns);
   // Fora do assunto (leitura da triagem ou correção sua) e quem veio pela vitrine; sem tabela, ninguém.
-  const [topic, vitrineOrigins] = await Promise.all([loadTopic(ctx).catch(()=>null), loadVitrineOrigins(ctx).catch(()=>null)]);
+  const [topic, vitrineOrigins, classification] = await Promise.all([loadTopic(ctx).catch(()=>null), loadVitrineOrigins(ctx).catch(()=>null), loadClassification(ctx)]);
   const now=Date.now();
   const summaryByJourney=new Map((messageFacts||[]).map((row)=>[row.journey_id,row]));
   const chatsByJourney=new Map();(chatLatest||[]).forEach((row)=>{if(!chatsByJourney.has(row.journey_id))chatsByJourney.set(row.journey_id,[]);chatsByJourney.get(row.journey_id).push(row);});
@@ -141,7 +142,7 @@ async function clientList(ctx, activeBatch) {
     if(proof.hasCalcRef&&!ownOrders.length){const types=proof.messageModes.map((mode)=>mode==='CARRO'?'BUSCA':mode==='VALOR'?'SIMULACAO':null).filter(Boolean);originInfo.calculatorTypes=types;}
     const offTopic=topic?topic.journey(item.id,{hasCalculator:ownOrders.length>0||proof.hasCalcRef}):null;
     const vitrine=vitrineOrigins?vitrineOrigins.forPerson({journeyId:item.id,contactId:item.contact_id}):null;
-    const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey:{...item,enabled:complete.enabled,switchedAt:state?.switched_at||null},disposition:disposition?.status||null,dispositionAt:disposition?.updated_at||null,offTopic,vitrine,situation:pending.situation||null,calcProof:proof}),now);
+    const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey:{...item,enabled:complete.enabled,switchedAt:state?.switched_at||null},disposition:disposition?.status||null,dispositionAt:disposition?.updated_at||null,offTopic,vitrine,situation:pending.situation||null,calcProof:proof,...factsOf(classification,item.id)}),now);
     return [decorateContact({ ...complete, ...ready, ...originInfo, ...pending, group, calcRefs:proof.calcRefs, calcRef:proof.calcRef, hasCalcRef:proof.hasCalcRef, calcRefsWithoutRun:proof.calcRefsWithoutRun, internalCode:proof.internalCode, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:summary.last_customer_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip, item.id)) },facts,insightByJourney.get(item.id),complete)];
   });
   return { listed, meta };

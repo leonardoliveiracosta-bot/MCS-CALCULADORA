@@ -12,6 +12,7 @@ const { allRows, rows, rpc } = require('./panel-server');
 const { clean, consolidateCalcRuns, fold, normalizeDeadline, time, wishlistsForJourney } = require('./panel-domain');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 const groups = require('./panel-groups');
+const { buildIndex, factsOf, UNAVAILABLE } = require('./panel-classification');
 const refProof = require('./panel-ref-proof');
 const { loadVitrineOrigins } = require('./panel-vitrine-origin');
 const { batchSupported, latestActiveUpload } = require('./panel-manheim-state');
@@ -337,6 +338,12 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     ids.length ? inChunks(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,switched_at', environment: env }, 'journey_id', ids) : [],
     ids.length ? safe(inChunks(ctx, 'conversation_pending_insights', { select: 'journey_id,summary_text,next_step_text,last_ai_message_id,updated_at', environment: env }, 'journey_id', ids), []) : []
   ]);
+  // The same identity and subject the lists use; a source that cannot be read is unavailable, never "not identified".
+  const [identityRows, classRows] = ids.length ? await Promise.all([
+    safe(inChunks(ctx, 'panel_identity_state', { select: 'journey_id,status,calc_origin,refs,conflict', environment: env }, 'journey_id', ids), null),
+    safe(inChunks(ctx, 'panel_conversation_class', { select: 'journey_id,subject,manual_subject,classified_at,reason', environment: env }, 'journey_id', ids), null)
+  ]) : [[], []];
+  const classification = identityRows && classRows ? buildIndex(identityRows, classRows) : UNAVAILABLE;
   const refsOf = (journey) => [...new Set([journey.reference_code, ...journeyRefs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].map((ref) => clean(ref).toUpperCase()).filter((ref) => REF.test(ref)))];
   const allRefs = [...new Set(journeys.flatMap(refsOf).concat(input.refs))];
   const [calcRuns, calcLinks] = allRefs.length ? await Promise.all([
@@ -405,7 +412,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const fields = buildFields([calculatorSources(ownOrders), fichaSources(journey, contact, modes), conversationSources(ownRequests, evidenceById)]);
     const conversation = conversationState(journeyMessages);
     const groupFacts = groups.factsFor({ calcProof: proof, messages: journeyMessages, orders: ownOrders, journey: { ...journey, enabled: toggles.find((row) => row.journey_id === journey.id)?.enabled, switchedAt: toggles.find((row) => row.journey_id === journey.id)?.switched_at || null },
-      vitrine: vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey.id, contactId: journey.contact_id }) : null });
+      vitrine: vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey.id, contactId: journey.contact_id }) : null, ...factsOf(classification, journey.id) });
     const grouped = groups.classify(groupFacts);
     const closed = journey.status === 'ENCERRADO';
     const toggle = toggles.find((row) => row.journey_id === journey.id);

@@ -9,12 +9,14 @@ const { outOfFunnelIndex } = require('../../panel-triage');
 const { score, loadScoreIndex } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems } = require('../../panel-sort');
+const attention = require('../../panel-attention');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 const { optOutOf } = require('../../panel-opt-out');
 const groups = require('../../panel-groups');
 const { loadTopic } = require('../../panel-topic');
 const { loadVitrineOrigins } = require('../../panel-vitrine-origin');
+const { loadClassification, factsOf } = require('../../panel-classification');
 
 function dueToday(promises, ref, zip, now, journeyId) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -48,8 +50,8 @@ module.exports = async (req, res) => {
       ,allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment })
     ]);
     // Adendo: fora do assunto (leitura da triagem ou correção sua); sem tabela, ninguém fica fora.
-    const [topic, vitrineOrigins, triageOut] = await Promise.all([loadTopic(ctx).catch(() => null), loadVitrineOrigins(ctx).catch(() => null),
-      outOfFunnelIndex(ctx, data.journeys, data.refs || []).catch(() => new Set())]);
+    const [topic, vitrineOrigins, triageOut, classification] = await Promise.all([loadTopic(ctx).catch(() => null), loadVitrineOrigins(ctx).catch(() => null),
+      outOfFunnelIndex(ctx, data.journeys, data.refs || []).catch(() => new Set()), loadClassification(ctx)]);
     // Identity of each ficha: Refs proven by the calculator (calc_runs or the client's calculator
     // message); a code of the ficha without that proof is only an internal code.
     const runRefs = refProof.runRefsOf(calcRuns);
@@ -212,12 +214,15 @@ module.exports = async (req, res) => {
       // An order card (no ficha) is the calculator Ref itself.
       if(item.kind==='CALCULATOR_ORDER'&&!proof.calcRefs.includes(ref)&&refProof.REF_RE.test(ref)){proof.calcRefs.unshift(ref);proof.hasCalcRef=true;proof.calcRef=ref;}
       const vitrine=vitrineOrigins?vitrineOrigins.forPerson({journeyId,contactId:journey?.contact_id||null}):null;
-      const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey,disposition:dispositionStatus,dispositionAt,offTopic,vitrine,calcProof:proof}),now);
+      const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey,disposition:dispositionStatus,dispositionAt,offTopic,vitrine,calcProof:proof,...factsOf(classification,journeyId)}),now);
       return decorateContact({ ...item, group, calcRefs:proof.calcRefs, calcRef:proof.calcRef, hasCalcRef:proof.hasCalcRef, calcRefsWithoutRun:proof.calcRefsWithoutRun, internalCode:proof.internalCode, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now, journeyId)), wantsCar: wantedAfterDisposition(ref,dispositionAt,dispositionStatus),
         todayReasons:journeyId&&dispositionStatus!=='DISCARDED'?(overdueByJourney.get(journeyId)||[]).filter((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)).map(({kind,label,dueAt,detail,urgency})=>({kind,label,dueAt:dueAt||null,detail:detail||null,urgency:urgency||'yellow'})):[],
         awaitingReply:Boolean(latestMessage&&latestMessage.direction==='CUSTOMER'),
         pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false }, facts, insightByJourney.get(journeyId), journey);
     }).sort((left, right) => {
+      // A client waiting for an answer, then an overdue return, come before any classification (see panel-attention).
+      const waiting = attention.compare(left, right, now);
+      if (waiting) return waiting;
       const wants = Number(Boolean(right.wantsCar)) - Number(Boolean(left.wantsCar));
       if (wants) return wants;
       const promise = Number(Boolean(right.promiseToday)) - Number(Boolean(left.promiseToday));

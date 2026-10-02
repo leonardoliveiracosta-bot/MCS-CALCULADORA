@@ -44,11 +44,21 @@
   const AREAS = {
     CALC_VALOR: { key: 'CALC_VALOR', label: 'Calculadora · Por valor', hint: 'Calculate My Cost: carro e lance máximo · gera a busca por valor (MMR)' },
     CALC_CARRO: { key: 'CALC_CARRO', label: 'Calculadora · Por carro', hint: 'Find One For Me: carro, faixa de ano e de milhagem · gera a busca por carro' },
-    CALC_SEM_TIPO: { key: 'CALC_SEM_TIPO', label: 'Calculadora · tipo a revisar', hint: 'Veio da calculadora sem dizer se é por valor ou por carro · nunca vira "por valor" sozinho: defina o tipo na ficha' },
-    DIRETA_INCOMPLETA: { key: 'DIRETA_INCOMPLETA', label: 'Conversa direta · busca incompleta', hint: 'Veio por mensagem ou pela vitrine, sem calculadora · ainda falta o tipo de busca ou um dado para buscar' },
-    DIRETA_DEFINIDA: { key: 'DIRETA_DEFINIDA', label: 'Conversa direta · busca definida', hint: 'Veio por mensagem ou pela vitrine, sem calculadora · a busca já está definida' }
+    CALC_SEM_TIPO: { key: 'CALC_SEM_TIPO', label: 'Calculadora · referência ou tipo a recuperar', hint: 'Há prova de que veio da calculadora, mas falta a Ref ou o tipo (por valor ou por carro) · nada é inventado: o pedido fica com os dados comprovados até a Ref aparecer' },
+    SEM_REF: { key: 'SEM_REF', label: 'Conversas sem Ref', hint: 'Sem calculadora comprovada · reunidas num bloco só e organizadas pelo assunto que o Claude identificou' }
   };
-  const AREA_ORDER = ['CALC_VALOR', 'CALC_CARRO', 'CALC_SEM_TIPO', 'DIRETA_INCOMPLETA', 'DIRETA_DEFINIDA'];
+  const AREA_ORDER = ['CALC_VALOR', 'CALC_CARRO', 'CALC_SEM_TIPO', 'SEM_REF'];
+  // The subject of a conversation (read by the Claude, or corrected by hand). It is not the origin (where the
+  // person came from) nor the channel (WhatsApp or SMS): a person from the calculator who then asked about
+  // financing keeps origin Calculadora and has subject Financiamento.
+  const SUBJECTS = {
+    FINANCIAMENTO: { key: 'FINANCIAMENTO', label: 'Financiamento' },
+    PEDIDO_CARRO: { key: 'PEDIDO_CARRO', label: 'Pedido de carro' },
+    SO_CUMPRIMENTO: { key: 'SO_CUMPRIMENTO', label: 'Só cumprimentou' },
+    OUTROS: { key: 'OUTROS', label: 'Outros assuntos' },
+    NAO_IDENTIFICADO: { key: 'NAO_IDENTIFICADO', label: 'Ainda não identificado' }
+  };
+  const SUBJECT_ORDER = ['FINANCIAMENTO', 'PEDIDO_CARRO', 'SO_CUMPRIMENTO', 'OUTROS', 'NAO_IDENTIFICADO'];
 
   const stamp = (value) => { if (typeof value === 'number') return Number.isFinite(value) ? value : 0; const parsed = Date.parse(value || ''); return Number.isFinite(parsed) ? parsed : 0; };
   const iso = (value) => { const at = stamp(value); return at ? new Date(at).toISOString() : null; };
@@ -79,7 +89,7 @@
   // The facts every rule below reads. summary: panel_journey_message_facts (or summaryFromMessages).
   // orders: calculator orders of the person (newest simulation first). vitrine: {version, at} when the
   // person is a new number that arrived through someone's V1/V2 link.
-  function factsFor({ summary = null, messages = null, orders = [], journey = null, disposition = null, dispositionAt = null, offTopic = null, vitrine = null, situation = null, calcProof = null } = {}) {
+  function factsFor({ summary = null, messages = null, orders = [], journey = null, disposition = null, dispositionAt = null, offTopic = null, vitrine = null, situation = null, calcProof = null, identity = null, subject = null } = {}) {
     const s = summary || summaryFromMessages(messages || []);
     const simulations = (orders || []).filter(Boolean).flatMap((order) => order.simulations && order.simulations.length ? order.simulations : [order])
       .slice().sort((a, b) => stamp(b.occurredAt) - stamp(a.occurredAt));
@@ -93,7 +103,10 @@
     const calcChannel = simulations.map((item) => String(item.contactChannel || item.channel || '').toUpperCase()).find((value) => /SMS|WHATSAPP/.test(value)) || null;
     const off = journey && (journey.enabled === false || journey.status === 'ENCERRADO');
     return {
-      hasCalculator: simulations.length > 0 || calcModes.length > 0 || Boolean(calcProof && calcProof.hasCalcRef),
+      // Origin Calculadora is also proven by the stored identity (the client's calculator message without a recoverable Ref).
+      hasCalculator: simulations.length > 0 || calcModes.length > 0 || Boolean(calcProof && calcProof.hasCalcRef) || Boolean(identity && identity.calcOrigin),
+      identityStatus: identity ? identity.status || null : null, identityState: identity ? identity.state || null : null,
+      subject: subject || null,
       calcModes, calcMode, calcAt: simulations[0] ? simulations[0].occurredAt || null : calcProof && calcProof.messageAt || null, calcChannel: calcChannel ? (calcChannel.includes('SMS') ? 'SMS' : 'WHATSAPP') : null,
       source: journey ? journey.source || null : null,
       financing: isFinancing(s.first_customer_text),
@@ -175,7 +188,8 @@
     const origin = originOf(f);
     const unattended = f.offTopic ? null : unattendedOf(f, now);
     const key = f.offTopic ? 'FORA_DO_ASSUNTO' : unattended ? 'NAO_ATENDIDO' : 'ATENDIDO';
-    return { key, label: SECTIONS[key].label, origin, unattended, hasCalculator: Boolean(f.hasCalculator), calcMode: f.calcMode || null, offTopic: Boolean(f.offTopic), offTopicSource: f.offTopic ? f.offTopicSource || null : null };
+    return { key, label: SECTIONS[key].label, origin, unattended, hasCalculator: Boolean(f.hasCalculator), calcMode: f.calcMode || null, offTopic: Boolean(f.offTopic), offTopicSource: f.offTopic ? f.offTopicSource || null : null,
+      identityStatus: f.identityStatus || null, subject: subjectOf(f.subject) };
   }
 
   // The area of a listed contact. searchModes: the search types already defined for the ficha
@@ -184,8 +198,30 @@
     const group = (item && item.group) || {};
     // An unknown calculator type is reviewed, never filed as "por valor" by default.
     if (group.hasCalculator) return group.calcMode === 'CARRO' ? 'CALC_CARRO' : group.calcMode === 'VALOR' ? 'CALC_VALOR' : 'CALC_SEM_TIPO';
-    const modes = item && (item.searchModes || []);
-    return modes && modes.length ? 'DIRETA_DEFINIDA' : 'DIRETA_INCOMPLETA';
+    // Everyone else is one block, "Conversas sem Ref"; the subject organizes it. Whether the search is already
+    // defined (searchModes) is a separate fact of the card, not a reason to split the block.
+    return 'SEM_REF';
+  }
+  // The subject shown for a person: key, label, where it came from and whether it is known. A source that failed to
+  // load is 'indisponível' (never "Ainda não identificado"); a conversation not read yet is "Ainda não identificado".
+  function subjectOf(value) {
+    const state = value && value.state || 'PENDENTE';
+    if (state === 'INDISPONIVEL' || !value) return { key: null, label: 'Assunto indisponível agora', source: null, state: 'INDISPONIVEL', reason: null };
+    const known = SUBJECTS[value.key] || SUBJECTS.NAO_IDENTIFICADO;
+    return { key: known.key, label: known.label, source: value.source || null, state: state, reason: value.reason || null };
+  }
+  // The conversations of one block by subject, in order (empty subjects left out; unavailable ones last, apart).
+  function bySubject(items) {
+    const buckets = new Map(SUBJECT_ORDER.map((key) => [key, []]));
+    const unavailable = [];
+    (items || []).forEach((item) => {
+      const subject = item && item.group && item.group.subject;
+      if (subject && subject.state === 'INDISPONIVEL') unavailable.push(item);
+      else buckets.get(subject && SUBJECTS[subject.key] ? subject.key : 'NAO_IDENTIFICADO').push(item);
+    });
+    const out = SUBJECT_ORDER.map((key) => ({ ...SUBJECTS[key], items: buckets.get(key) })).filter((group) => group.items.length);
+    if (unavailable.length) out.push({ key: 'INDISPONIVEL', label: 'Assunto indisponível agora', items: unavailable });
+    return out;
   }
   // The areas of a list of items, in order (empty ones left out).
   function areas(items) {
@@ -219,5 +255,5 @@
     return s.last_customer_id && String(s.last_customer_text || '').trim() ? { id: s.last_customer_id, text: String(s.last_customer_text).slice(0, 600), at: s.last_customer_at || null } : null;
   }
 
-  return { ORIGINS, ORIGIN_OPTIONS, SECTIONS, ORDER, AREAS, AREA_ORDER, areaOf, areas, STALE_DAYS, FINANCING_RE, isFinancing, channelOf, summaryFromMessages, factsFor, originOf, unattendedOf, classify, matchesOrigin, split, waited, latestCustomerMessage };
+  return { ORIGINS, ORIGIN_OPTIONS, SECTIONS, ORDER, AREAS, AREA_ORDER, SUBJECTS, SUBJECT_ORDER, subjectOf, bySubject, areaOf, areas, STALE_DAYS, FINANCING_RE, isFinancing, channelOf, summaryFromMessages, factsFor, originOf, unattendedOf, classify, matchesOrigin, split, waited, latestCustomerMessage };
 }));

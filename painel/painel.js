@@ -1189,7 +1189,7 @@
   function clientCard(item){
     const card=element('article',`item-card client-card client-row heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head client-row-head');
     head.append(identityHeader(item,{compact:true}));
-    const badges=element('div','badges');const chip=MCSContactGroups.originChip(item);if(chip)badges.append(chip);
+    const badges=element('div','badges');const chip=MCSContactGroups.originChip(item);if(chip)badges.append(chip);const subjectChip=MCSContactGroups.subjectChip(item);if(subjectChip)badges.append(subjectChip);
     if(item.situation)badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)));
     if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));
     if(item.lastRealMessageAt)badges.append(element('span','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));
@@ -1989,7 +1989,7 @@
   function incompleteRequests(pesquisas) {
     return (pesquisas && pesquisas.items || []).filter((item) => item.state === 'PRECISA_DETALHE').map((item) => ({ key: item.key, journeyId: uuidOnly(item.person?.journeyId), contactId: uuidOnly(item.person?.contactId), name: item.person?.name || null, lacksText: item.lacksText || 'Falta um dado do carro', criteriaText: item.criteriaText || '', source: item.source }));
   }
-  const attendModel = (items) => MCSAttend.model({ todayItems: items, decisions: attendDecisions(), incomplete: attendData.incomplete });
+  const attendModel = (items) => MCSAttend.model({ todayItems: items, decisions: attendDecisions(), incomplete: attendData.incomplete, sort: $('today-sort')?.value || 'ready' });
   // A decision row (link, review, triage, vitrine) of a case: found wherever it is, moved into the case card.
   const decisionRow = (key) => document.querySelector(`[data-decision-key="${CSS.escape(key)}"]`);
   function stageDecisionRows() {
@@ -2076,13 +2076,15 @@
     loadAttendIdentities(model.cases);
     // Ref, Origem and Período narrow the cases first; chips, Ref buttons and the list then count the
     // same cases. No period by default: an open contact stays whatever its age.
-    const origin=$('today-origin')?.value||'all',period=$('today-period')?.value||'all';
+    const origin=$('today-origin')?.value||'all',period=$('today-period')?.value||'all',subject=$('today-subject')?.value||'all';
     const since=period==='all'?0:Date.now()-Number(period)*86400000;
     const refOk=(facts)=>todayRefFilter==='all'||(facts.known&&(todayRefFilter==='with'?facts.hasRef:!facts.hasRef));
     const originOk=(facts)=>origin==='all'||(facts.known&&(!facts.item?false:MCSGroups.matchesOrigin(facts.item,origin)));
     const periodOk=(facts)=>!since||(facts.known&&facts.at>=since);
+    // Assunto (lido pelo Claude ou corrigido por você) é um filtro à parte da origem; sem leitura vale "Ainda não identificado".
+    const subjectOk=(facts)=>subject==='all'||(facts.known&&Boolean(facts.item)&&Boolean(facts.item.group&&facts.item.group.subject)&&facts.item.group.subject.key===subject);
     const factsOf=new Map(model.cases.map((entry)=>[entry.key,caseFacts(entry)]));
-    const narrowed=model.cases.filter((entry)=>{const facts=factsOf.get(entry.key);return originOk(facts)&&periodOk(facts);});
+    const narrowed=model.cases.filter((entry)=>{const facts=factsOf.get(entry.key);return originOk(facts)&&periodOk(facts)&&subjectOk(facts);});
     const passing=narrowed.filter((entry)=>refOk(factsOf.get(entry.key)));
     const counts=MCSAttend.countsOf(passing);
     attendChips(counts, counts.todos);
@@ -2115,7 +2117,7 @@
     if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({awaiting:'Aguardando sua resposta',hot:'Quentes',missing:'Busca não salva no Manheim',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
     const offCount=model.counts.fora;
     if (!visible.length) {
-      root.append(element('p','empty-state', todayStatFilter||origin!=='all'||period!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));
+      root.append(element('p','empty-state', todayStatFilter||origin!=='all'||period!=='all'||subject!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));
       if(offCount)root.append(element('p','muted',`${offCount} caso(s) fora do assunto estão na seção Fora do assunto, abaixo`));
       return;
     }
@@ -2143,6 +2145,7 @@
       }
       // Origin and channel once, as a short chip.
       const originChip=MCSContactGroups.originChip(item);if(originChip)head.append(originChip);
+      const subjectChip=MCSContactGroups.subjectChip(item);if(subjectChip)head.append(subjectChip);
       card.append(head);
       // The customer's last message is shown when the reason is to answer it.
       if(item.awaitingReply){const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)card.append(lastMessage);}
@@ -2177,6 +2180,7 @@
       const smsMissing=smsPrintMissing(item); if(smsMissing)more.append(smsMissing);
       const moreActions=element('div','inline-actions');
       const topic=item.kind==='CALCULATOR_ORDER'?null:MCSContactGroups.topicButton(item,{request,refresh:reload,journeyId:journeyIdOf(item)});if(topic)moreActions.append(topic);
+      const subjectFix=MCSContactGroups.subjectSelect(item,{request,refresh:reload,journeyId:journeyIdOf(item)});if(subjectFix)moreActions.append(subjectFix);
       more.append(moreActions, dispositionControls(item));
       if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(journeyIdOf(item),{request,onSent:reload});if(tools)more.append(tools);}
       more.addEventListener('toggle',()=>{if(more.open){hydrateContexts(more);MCSContactGroups.hydrateTranslations(more,{request}).catch(()=>{});}});
@@ -4779,6 +4783,7 @@
     // Origem: the same options in HOJE, ENTRADA and CLIENTES (filled before the saved choice is restored).
     ['today-origin','clients-origin'].forEach((id)=>MCSContactGroups.fillOriginSelect($(id)));
     $('today-period')?.addEventListener('change',()=>{if(currentView==='today')renderToday(todayItems,true);});
+    ['today-subject'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='today')renderToday(todayItems,true);});});
     ['today-origin'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='today')renderToday(todayItems,true);});});
     ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')loadClients();});});
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
