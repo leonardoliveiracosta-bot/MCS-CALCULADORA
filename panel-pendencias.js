@@ -4,6 +4,7 @@ const { allRows, insert, patchRows, rows, supabase } = require('./panel-server')
 const { contactIndex, insightUsable } = require('./panel-contact');
 const { score, loadScoreVehicles } = require('./panel-ready');
 const { toggleEnabled } = require('./panel-domain');
+const refProof = require('./panel-ref-proof');
 
 const THREE_DAYS = 3 * 86400000;
 const GENERAL_MAX_MESSAGES = 150;
@@ -127,7 +128,8 @@ async function conversationGroups(ctx) {
 function itemFromGroup(group, now=Date.now()) {
   const situation=fixedSituation(group,group.insight,now),latestAt=at(group.latest),resolution=group.resolution;
   const resolved=Boolean(resolution&&resolution.resolved_message_id===group.latest.id);
-  return {journeyId:group.journey.id,chatId:group.chat.id,contactId:group.journey.contact_id,name:group.contact.display_name||'Contato sem nome',phone:group.phone?.phone_e164||group.phone?.phone_raw||null,ref:group.ref,
+  const customerTexts=(group.messages||[]).filter((message)=>message.direction==='CUSTOMER').map((message)=>message.body_text);const refState=customerTexts.some((text)=>refProof.explicitRefs(text).length)?'COM_REF':customerTexts.some((text)=>refProof.isCalculatorTemplate(text))?'A_RECUPERAR':'SEM_REF';
+  return {refState,journeyId:group.journey.id,chatId:group.chat.id,contactId:group.journey.contact_id,name:group.contact.display_name||'Contato sem nome',phone:group.phone?.phone_e164||group.phone?.phone_raw||null,ref:group.ref,
     situation,...(()=>{/* A13: the AI heat counts only while it is valid (same rule as the other screens). */const valid=insightUsable(group.insight,{...group.journey,enabled:group.enabled},group.latest.id,now);return {heat:valid?heatFromAI(group.insight.heat):(group.ready?.score>=60?'HOT':group.ready?.score>=35?'WARM':'COLD'),heatSource:valid?'AI':'CALCULATED'};})(),aiSummary:group.insight?.summary_text||'',aiNextStep:group.insight?.next_step_text||'',daysStalled:Math.max(0,Math.floor((now-latestAt)/86400000)),latestMessage:group.latest.body_text||'',latestDirection:group.latest.direction,latestAt:new Date(latestAt).toISOString(),
     translation:group.insight?.last_ai_message_id===group.latest.id?group.insight.translation_text||'':'',summary:group.insight?.last_ai_message_id===group.latest.id?group.insight.summary_text||'':'',nextStep:group.insight?.last_ai_message_id===group.latest.id?group.insight.next_step_text||'':'',resolved,isLead:group.contact.is_lead!==false,contactAt:group.contactFacts?.latestAt?new Date(group.contactFacts.latestAt).toISOString():null,contactChannel:group.contactFacts?.channel||null};
 }

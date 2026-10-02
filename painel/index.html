@@ -66,13 +66,14 @@
       <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última mensagem do WhatsApp: <strong id="last-whatsapp-import">—</strong></span><details id="ai-budget" class="ai-budget hidden"><summary>Saldo da IA: <strong id="ai-budget-spent">—</strong></summary><p id="ai-budget-warning" class="warning hidden"></p><ul id="ai-budget-features" class="ai-budget-features"></ul></details></div>
       <section id="capture-warning" class="capture-warning hidden" aria-live="polite"></section>
       <section id="today-panel" class="panel-view" aria-label="Atendimento">
-        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Atendimento</h2><p class="muted">Responder, completar pedido, confirmar vínculo e cumprir retornos · O que depende de você vem primeiro</p><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Período<select id="today-period"><option value="all">Todos</option><option value="1">Últimas 24 h</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
+        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Atendimento</h2><p class="muted">Responder, completar pedido, confirmar vínculo e cumprir retornos · O que depende de você vem primeiro</p><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Assunto<select id="today-subject" class="subject-filter"><option value="all">Todos os assuntos</option><option value="FINANCIAMENTO">Financiamento</option><option value="PEDIDO_CARRO">Pedido de carro</option><option value="SO_CUMPRIMENTO">Só cumprimentou</option><option value="OUTROS">Outros assuntos</option><option value="NAO_IDENTIFICADO">Ainda não identificado</option></select></label><label>Período<select id="today-period"><option value="all">Todos</option><option value="1">Últimas 24 h</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
         <div id="attend-filters" class="filters attend-filters" role="group" aria-label="Filtrar o atendimento"></div>
         <div id="today-stats" class="today-stats" aria-live="polite"></div>
         <section id="vitrine-signals" class="vitrine-signals" aria-live="polite"></section>
         <div id="today-ref-filters" class="filters ref-filters" aria-label="Filtrar Hoje por Ref">
           <button type="button" class="chip active" data-today-ref="all">Todos <span>—</span></button>
           <button type="button" class="chip" data-today-ref="with">Com Ref <span>—</span></button>
+          <button type="button" class="chip" data-today-ref="recover">Calculadora, referência a recuperar <span>—</span></button>
           <button type="button" class="chip" data-today-ref="without">Sem Ref <span>—</span></button>
         </div>
         <div id="today-list" class="stack" aria-live="polite"></div>
@@ -132,7 +133,7 @@
         <div class="filters clients-filters" aria-label="Filtros de clientes">
           <label>Situação<select id="clients-situation"><option value="all">Todas</option><option value="NO_RESPONSE">Sem resposta</option><option value="MCS_PENDING">Parado com você</option><option value="CUSTOMER_PENDING">Parado com o cliente</option><option value="IN_PROGRESS">Em andamento</option><option value="CLOSED">Concluída</option></select></label>
           <label>Checklist<select id="clients-checklist"><option value="all">Todos</option><option value="complete">Completo 6/6</option><option value="incomplete">Incompleto</option></select></label>
-          <label>Ref<select id="clients-ref"><option value="all">Todos</option><option value="with">Com Ref</option><option value="without">Sem Ref</option></select></label>
+          <label>Ref<select id="clients-ref"><option value="all">Todos</option><option value="with">Com Ref</option><option value="recover">Calculadora, referência a recuperar</option><option value="without">Sem Ref</option></select></label>
           <label>Origem<select id="clients-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label>
           <label>Tipo<select id="clients-type"><option value="all">Todos</option><option value="SIMULACAO">Por valor (calculadora)</option><option value="BUSCA">Busca</option><option value="SEM_CALCULADORA">Sem calculadora</option></select></label>
           <label>Período<select id="clients-activity"><option value="30" selected>30 dias</option><option value="90">90 dias</option><option value="6m">6 meses</option><option value="12m">1 ano</option><option value="all">Tudo</option></select></label>
@@ -153,7 +154,7 @@
           <button type="button" class="chip" data-pending-situation="CUSTOMER_PENDING">🟡 Parada com o cliente</button>
           <button type="button" class="chip" data-pending-situation="IN_PROGRESS">🟢 Em andamento</button>
           <button type="button" class="chip" data-pending-situation="CLOSED">⚪ Concluída / sem interesse</button>
-          <label class="pending-ref-filter"><input id="pending-with-ref" type="checkbox"> Só com Ref</label>
+          <label class="pending-ref-filter">Ref <select id="pending-with-ref"><option value="all">Todos</option><option value="with">Com Ref</option><option value="recover">Calculadora, referência a recuperar</option><option value="without">Sem Ref</option></select></label>
           <label>Ordenar<select id="pending-sort"><option value="hot">Quentes primeiro</option><option value="oldest">Mais antigas</option><option value="recent">Mais recentes</option></select></label>
           <button id="pending-download" class="quiet small" type="button">Baixar relatório (planilha)</button>
         </div>
@@ -350,13 +351,14 @@
   <script src="/manheim-offer.js?v=2" defer></script>
   <script src="/money-text.js?v=1" defer></script>
   <script src="/panel-origin.js?v=2" defer></script>
-  <script src="/panel-groups.js?v=4" defer></script>
+  <script src="/panel-groups.js?v=6" defer></script>
+  <script src="/panel-attention.js?v=1" defer></script>
   <script src="/painel/action.js" defer></script>
-  <script src="/painel/contexto.js?v=5" defer></script>
+  <script src="/painel/contexto.js?v=6" defer></script>
   <script src="/painel/whatsapp-app.js?v=1" defer></script>
   <script src="/painel/sugestoes.js?v=7" defer></script>
-  <script src="/painel/grupos.js?v=4" defer></script>
-  <script src="/painel/atendimento.js?v=1" defer></script>
+  <script src="/painel/grupos.js?v=5" defer></script>
+  <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js" defer></script>
   <script src="/painel/painel.js" defer></script>
   <script src="/painel/notifications.js" defer></script>

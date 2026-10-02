@@ -12,6 +12,8 @@ const { allRows, rows, rpc } = require('./panel-server');
 const { clean, consolidateCalcRuns, fold, normalizeDeadline, time, wishlistsForJourney } = require('./panel-domain');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 const groups = require('./panel-groups');
+const { buildIndex, factsOf, UNAVAILABLE } = require('./panel-classification');
+const orderSummary = require('./panel-order-summary');
 const refProof = require('./panel-ref-proof');
 const { loadVitrineOrigins } = require('./panel-vitrine-origin');
 const { batchSupported, latestActiveUpload } = require('./panel-manheim-state');
@@ -337,6 +339,12 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     ids.length ? inChunks(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,switched_at', environment: env }, 'journey_id', ids) : [],
     ids.length ? safe(inChunks(ctx, 'conversation_pending_insights', { select: 'journey_id,summary_text,next_step_text,last_ai_message_id,updated_at', environment: env }, 'journey_id', ids), []) : []
   ]);
+  // The same identity and subject the lists use; a source that cannot be read is unavailable, never "not identified".
+  const [identityRows, classRows] = ids.length ? await Promise.all([
+    safe(inChunks(ctx, 'panel_identity_state', { select: 'journey_id,status,calc_origin,refs,conflict', environment: env }, 'journey_id', ids), null),
+    safe(inChunks(ctx, 'panel_conversation_class', { select: 'journey_id,subject,manual_subject,classified_at,reason,request_summaries', environment: env }, 'journey_id', ids), null)
+  ]) : [[], []];
+  const classification = identityRows && classRows ? buildIndex(identityRows, classRows) : UNAVAILABLE;
   const refsOf = (journey) => [...new Set([journey.reference_code, ...journeyRefs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].map((ref) => clean(ref).toUpperCase()).filter((ref) => REF.test(ref)))];
   const allRefs = [...new Set(journeys.flatMap(refsOf).concat(input.refs))];
   const [calcRuns, calcLinks] = allRefs.length ? await Promise.all([
@@ -405,7 +413,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const fields = buildFields([calculatorSources(ownOrders), fichaSources(journey, contact, modes), conversationSources(ownRequests, evidenceById)]);
     const conversation = conversationState(journeyMessages);
     const groupFacts = groups.factsFor({ calcProof: proof, messages: journeyMessages, orders: ownOrders, journey: { ...journey, enabled: toggles.find((row) => row.journey_id === journey.id)?.enabled, switchedAt: toggles.find((row) => row.journey_id === journey.id)?.switched_at || null },
-      vitrine: vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey.id, contactId: journey.contact_id }) : null });
+      vitrine: vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey.id, contactId: journey.contact_id }) : null, template: journeyMessages.some((message) => message.direction === 'CUSTOMER' && refProof.isCalculatorTemplate(message.body_text)), ...factsOf(classification, journey.id) });
     const grouped = groups.classify(groupFacts);
     const closed = journey.status === 'ENCERRADO';
     const toggle = toggles.find((row) => row.journey_id === journey.id);
@@ -433,15 +441,17 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     out.journeys[journey.id] = {
       key: 'journey:' + journey.id, journeyId: journey.id, contactId: journey.contact_id,
       ref: clean(journey.reference_code).toUpperCase() || own[0] || null, refs: own, sharedRefs,
-      calcRef: proof.calcRef, calcRefs: proof.calcRefs, hasCalcRef: proof.hasCalcRef, calcRefsWithoutRun: proof.calcRefsWithoutRun, internalCode: proof.internalCode,
+      calcRef: proof.calcRef, calcRefs: proof.calcRefs, hasCalcRef: proof.hasCalcRef, refState: grouped.refState, calcRefsWithoutRun: proof.calcRefsWithoutRun, internalCode: proof.internalCode,
       name: clean(contact && contact.display_name) || null,
       contact: { phones: phoneList, whatsappUsername: (userIds.find((row) => row.contact_id === journey.contact_id) || {}).username || null, location: clean(contact && contact.location_text) || null, note: phoneList.length ? null : 'Nenhum telefone salvo neste contato.' },
-      origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing, since: journey.created_at || null, calculator: ownOrders.length > 0 || proof.hasCalcRef },
+      origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing, since: journey.created_at || null, calculator: ownOrders.length > 0 || proof.hasCalcRef || grouped.refState === 'A_RECUPERAR' },
       unattended: grouped.unattended,
       // Etapa, falta and próxima ação come from the same facts: a ficha marked "Respondido" whose customer
       // wrote again is waiting for the MCS, never shown as answered.
       stage: { code: journey.stage || null, label: !closed && !off && owner.who === 'MCS' && ['RESPONDIDO', 'NOVO'].includes(journey.stage) ? 'Aguardando sua resposta' : JOURNEY_STAGES[journey.stage] || journey.stage || 'Sem etapa', status: journey.status || null, closed, off, closedReason: closed ? journey.closed_reason || null : null },
       searches, owner, conversation, v1,
+      // One summary per order (never per conversation); several orders the reading cannot tell apart are declared ambiguous.
+      aiOrders: orderSummary.orderSummaries({ orders: [...new Set([...ownOrders.map((order) => order.ref), ...(proof.calcRefs || [])])], summaries: classification.subjectOf(journey.id).summaries || [] }),
       aiReading: insight ? { summary: clean(insight.summary_text) || null, nextStep: clean(insight.next_step_text) || null, at: insight.updated_at || null, note: 'Leitura da IA da última mensagem · não confirmada' } : null,
       modes, fields, criteria: criteriaSummary(step), situation: null, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
       promises: promises.filter((row) => row.journey_id === journey.id).map((row) => ({ text: row.promise_text, dueAt: row.due_at })),

@@ -300,7 +300,15 @@
     add(searches, 'p', 'muted', links.cars && links.cars.uploadAt ? `Lote ativo carregado em ${date(links.cars.uploadAt)}. Disponibilidade no leilão não confirmada.` : 'Nenhum lote ativo do Manheim.');
     if ((context.promises || []).length) { const promises = add(box, 'div'); add(promises, 'strong', '', 'Promessas em aberto'); context.promises.forEach((item) => add(promises, 'p', '', `${item.text} · ${date(item.dueAt)}`)); }
     // aiReading=false: the card already shows the reading on its own line (CLIENTES).
-    if (context.aiReading && aiReading) { const ai = add(box, 'div'); add(ai, 'strong', '', 'Leitura da IA (não confirmada)'); if (context.aiReading.summary) add(ai, 'p', '', context.aiReading.summary); if (context.aiReading.nextStep) add(ai, 'p', 'muted', 'A IA sugere: ' + context.aiReading.nextStep); }
+    if ((context.aiOrders || context.aiReading) && aiReading) {
+      const ai = add(box, 'div'); add(ai, 'strong', '', 'Leitura da IA por pedido (não confirmada)');
+      const orders = context.aiOrders;
+      if (orders) {
+        (orders.items || []).forEach((entry) => add(ai, 'p', '', `Resumo da IA · pedido ${entry.ref || 'sem Ref'}: ${entry.summary}`));
+        if (orders.state !== 'POR_PEDIDO' && orders.text) add(ai, 'p', 'muted', orders.text);
+      } else if (context.aiReading && context.aiReading.summary) add(ai, 'p', '', context.aiReading.summary);
+      if (context.aiReading && context.aiReading.nextStep) add(ai, 'p', 'muted', 'A IA sugere: ' + context.aiReading.nextStep);
+    }
     return box;
   }
 

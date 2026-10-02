@@ -152,7 +152,8 @@ test('prints não guardados esperam na ENTRADA: tentar ler de novo, guardar ou d
   await expect(failed).toContainText('A leitura automática falhou agora');
   await expect(failed.locator('button', { hasText: 'Tentar ler de novo' })).toBeVisible();
   const read = cards.filter({ hasText: 'Hi, Ref ABCD2' });
-  await expect(read).toContainText('O print foi lido, mas não foi guardado');
+  // Four clear states (comando painel automático): não lido, lido e falta identificar, já vinculado, registro repetido.
+  await expect(read).toContainText('Lido · sem Ref nem telefone no print; falta identificar o cliente');
   await expect(read.locator('button', { hasText: 'Guardar pelo painel' })).toBeVisible();
   await expect(read.locator('input[type="tel"]')).toBeVisible();
   // A print being read right now is not an orphan and does not show up.
@@ -196,7 +197,7 @@ test('prints não guardados de ponta a ponta: Tentar ler de novo e Guardar pelo 
     // Tentar ler de novo: reads the stored print again and shows what it found, without saving.
     await retryCard.locator('button', { hasText: 'Tentar ler de novo' }).click();
     const fresh = cards.filter({ hasText: 'Quero um Civic 2020' });
-    await expect(fresh).toContainText('Print lido agora', { timeout: 30000 });
+    await expect(fresh).toContainText('Lido agora', { timeout: 30000 });
     await expect(fresh).toContainText('Telefone do print: +13055550142');
     expect(calls).toEqual({ ai: 1, read: 1, move: 0 });
     const afterRetry = (await backend.db.query(`select status,error_code,extracted_json->>'message' message from public.sms_print_reads where id='${retryId}'`)).rows[0];

@@ -161,7 +161,7 @@ test('ai-cron keeps only Claude and maintenance; the OpenAI readings run in open
   const ai=fs.readFileSync(path.join(root,'api/panel/ai-cron.js'),'utf8'),openai=fs.readFileSync(path.join(root,'api/panel/openai-cron.js'),'utf8'),config=JSON.parse(fs.readFileSync(path.join(root,'vercel.json'),'utf8'));
   assert.doesNotMatch(ai,/runTriage|runAudit|extractHistory/);
   assert.match(openai,/runAudit[\s\S]*extractHistory[\s\S]*runTriage/);
-  assert.deepEqual(config.crons.map((cron)=>cron.path+' '+cron.schedule),['/api/panel/ai-cron */10 * * * *','/api/panel/openai-cron 2-59/5 * * * *','/api/panel/media-cron * * * * *']);
+  assert.deepEqual(config.crons.map((cron)=>cron.path+' '+cron.schedule),['/api/panel/ai-cron */10 * * * *','/api/panel/subject-cron 3-59/5 * * * *','/api/panel/openai-cron 2-59/5 * * * *','/api/panel/media-cron * * * * *']);
 });
 
 test('the routine reserves on the ROTINA quota and an operator click on MANUAL',async()=>{

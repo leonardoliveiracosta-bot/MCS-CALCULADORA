@@ -20,6 +20,7 @@
     { key: 'agendado', label: 'Agendados', unit: 'casos' },
     { key: 'todos', label: 'Todos', unit: 'casos' }
   ]);
+  const attention = (typeof module === 'object' && module.exports) ? require('../panel-attention') : (typeof self !== 'undefined' ? self.MCSAttention : null);
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const uuid = (value) => UUID.test(String(value || '')) ? String(value) : null;
   const stamp = (value) => { const at = Date.parse(value || ''); return Number.isFinite(at) ? at : 0; };
@@ -42,6 +43,8 @@
     if (item.promiseToday) out.push({ kind: 'PROMESSA', text: 'Retorno prometido para hoje' });
     if (item.returnedToTalk) out.push({ kind: 'VOLTOU', text: 'Voltou a falar' });
     if (item.pendingAiCount) out.push({ kind: 'IA', text: `${item.pendingAiCount} itens da IA para confirmar` });
+    // Two simulations fit the same message (same window, same criteria): both are shown, nothing is linked on a guess.
+    if (Array.isArray(group.refTie) && group.refTie.length > 1) out.push({ kind: 'REF_EMPATE', text: 'Qual simulação é deste cliente? ' + group.refTie.map((entry) => `${entry.ref} (${[entry.marca, entry.modelo].filter(Boolean).join(' ') || 'carro não informado'}${entry.lance ? ' · lance US$ ' + Number(entry.lance).toLocaleString('en-US') : ''})`).join(' ou ') });
     if (item.aiLinkSuggested) out.push({ kind: 'VINCULO', text: 'Confirmar vínculo sugerido' });
     if (next && next <= now && !out.some((reason) => reason.kind === 'NEXT_ACTION')) out.push({ kind: 'NEXT_ACTION', text: 'Próxima ação vencida' });
     return out;
@@ -50,7 +53,7 @@
   // todayItems: /api/panel/today items. decisions: [{ key, kind, journeyId, label }] (vínculo,
   // revisão de conversa, triagem, vitrine). incomplete: [{ key, journeyId, contactId, lacksText }]
   // (pedidos que precisam de detalhe). Returns the cases with their bucket and the counts.
-  function model({ todayItems = [], decisions = [], incomplete = [], now = Date.now() } = {}) {
+  function model({ todayItems = [], decisions = [], incomplete = [], now = Date.now(), sort = 'ready' } = {}) {
     const cases = new Map();
     const add = (key, base) => { if (!cases.has(key)) cases.set(key, { key, journeyId: null, item: null, reasons: [], decisions: [], requests: [], ...base }); return cases.get(key); };
     (todayItems || []).forEach((item) => {
@@ -82,6 +85,14 @@
       else bucket = 'aguardando';
       return { ...entry, bucket };
     });
+    // Order AFTER the sources are gathered, never by the order they arrived in. The default puts a client waiting for an
+    // answer first, then an overdue return or a decision that is yours; a classification only orders inside the same grade.
+    // Any other sort chosen by the user keeps the order the server already applied.
+    if (sort === 'ready' && attention) {
+      const rankOf = (entry) => { const own = entry.item ? attention.rankOf(entry.item, now) : 2; return own === 0 ? 0 : entry.reasons.length ? 1 : 2; };
+      const index = new Map(list.map((entry, position) => [entry.key, position]));
+      list.sort((left, right) => rankOf(left) - rankOf(right) || (rankOf(left) === 0 && left.item && right.item ? attention.compare(left.item, right.item, now) : 0) || index.get(left.key) - index.get(right.key));
+    }
     return { cases: list, counts: countsOf(list) };
   }
   // The chip numbers of a list of cases (the same cases the list shows after Ref, Origem and Período).

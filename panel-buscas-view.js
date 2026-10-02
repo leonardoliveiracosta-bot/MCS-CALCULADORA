@@ -194,7 +194,7 @@ async function manheimView(ctx, options = {}) {
     return {
       key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId || null, ref: demand.ref || null, wishes: demand.activeWishes,
       bidCents: demand.mode === 'VALOR' ? demand.bidCents : null, issues: demand.issues, ...demandPerson(base, demand), stage: stage && stage.stage || null, stageLabel: stage && stage.label || null,
-      reactivation, matchCount, bateCount: row ? row.bate_count : 0, porValorCount: reactivation ? 0 : row ? row.por_valor_count : 0, presentedCount: row ? row.presented_count : 0, stale,
+      reactivation, criteriaHash: target ? target.criteriaHash : null, matchCount, bateCount: row ? row.bate_count : 0, porValorCount: reactivation ? 0 : row ? row.por_valor_count : 0, presentedCount: row ? row.presented_count : 0, stale,
       offer: offerByKey ? offerCounts(offerByKey.get(demand.key)) : null,
       // The selection could not be read (migration pending): say so, never zero.
       offerPending: Boolean(latest && batchOn && !offerByKey)

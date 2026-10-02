@@ -19,6 +19,9 @@ function explicitRefs(text) {
   for (const match of body.matchAll(EXPLICIT_REF)) out.add(match[1].toUpperCase());
   return [...out];
 }
+// A message in the calculator's model (with or without a Ref the client kept): proof that the person came from the calculator.
+const TEMPLATE_RE = /(vehicle search request|calculate my cost|find one for me|maximum bid|year range|mileage range|·\s*FIND\s*·|lance máximo|faixa de anos|rango de años)/i;
+function isCalculatorTemplate(text) { const body = String(text || ''); return CALCULATOR_MESSAGE.test(body) && TEMPLATE_RE.test(body); }
 // The calculator the message came from: Find One For Me (by car) or Calculate My Cost (by value).
 function messageMode(text) {
   const body = String(text || '');
@@ -69,4 +72,4 @@ function contradicts(suggestion, writtenRefs) {
   return Boolean(target && writtenRefs && writtenRefs.length && !writtenRefs.includes(target));
 }
 
-module.exports = { REF_RE, explicitRefs, messageMode, proofFor, loadExplicit, runRefsOf, contradicts };
+module.exports = { REF_RE, isCalculatorTemplate, explicitRefs, messageMode, proofFor, loadExplicit, runRefsOf, contradicts };

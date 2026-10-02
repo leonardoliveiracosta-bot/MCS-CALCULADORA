@@ -25,7 +25,7 @@ const client = (n, name, groupKey, originValue, extra = {}) => ({
 });
 const PAGE1 = [client(10, 'Ana Financiamento', 'NAO_ATENDIDO', origin('MENSAGEM', 'WHATSAPP', true)), client(20, 'Bruno Calculadora', 'ATENDIDO', origin('CALCULADORA', 'SMS'), { calcMode: 'CARRO' })];
 const PAGE2 = [client(30, 'Carla Vitrine', 'ATENDIDO', origin('VITRINE', 'V2'), { searchModes: ['VALOR'] })];
-const COUNTS = { periodLeads: 4, allLeads: 5, shownLeads: 3, nonLeads: 0, situations: { NO_RESPONSE: 1, MCS_PENDING: 0, CUSTOMER_PENDING: 0, IN_PROGRESS: 2, CLOSED: 0, NONE: 0 }, sections: { NAO_ATENDIDO: 1, ATENDIDO: 2, FORA_DO_ASSUNTO: 0, NAO_LEAD: 0 }, areas: { NAO_ATENDIDO: { DIRETA_INCOMPLETA: 1 }, ATENDIDO: { CALC_CARRO: 1, DIRETA_DEFINIDA: 1 } } };
+const COUNTS = { periodLeads: 4, allLeads: 5, shownLeads: 3, nonLeads: 0, situations: { NO_RESPONSE: 1, MCS_PENDING: 0, CUSTOMER_PENDING: 0, IN_PROGRESS: 2, CLOSED: 0, NONE: 0 }, sections: { NAO_ATENDIDO: 1, ATENDIDO: 2, FORA_DO_ASSUNTO: 0, NAO_LEAD: 0 }, areas: { NAO_ATENDIDO: { SEM_REF: 1 }, ATENDIDO: { CALC_CARRO: 1, SEM_REF: 1 } } };
 const OFF_TOPIC = { chatId: uuid(41), journeyId: uuid(40), name: 'Amiga Aniversário', source: 'AI', reason: 'Conversa pessoal', overrideId: null,
   group: { key: 'FORA_DO_ASSUNTO', label: 'Fora do assunto', origin: origin('MENSAGEM', 'WHATSAPP'), unattended: null, hasCalculator: false, offTopic: true, offTopicSource: 'AI' }, lastCustomerMessage: { id: uuid(42), text: 'Feliz aniversário!', at: hoursAgo(3) } };
 
@@ -114,8 +114,8 @@ for (const width of [1280, 390]) {
     await expect(list.locator('[data-group="NAO_ATENDIDO"] .contact-group-count')).toHaveText('1');
     await expect(list.locator('[data-group="ATENDIDO"] .contact-group-count')).toHaveText('2');
     // The two calculator types and the direct conversations in their own areas (not just a tag).
-    await expect(list.locator('[data-group="NAO_ATENDIDO"] section.contact-area[data-area="DIRETA_INCOMPLETA"] .contact-area-label')).toHaveText('Conversa direta · busca incompleta');
-    await expect(list.locator('[data-group="NAO_ATENDIDO"] section.contact-area[data-area="DIRETA_INCOMPLETA"]')).toContainText('Ana Financiamento');
+    await expect(list.locator('[data-group="NAO_ATENDIDO"] section.contact-area[data-area="SEM_REF"] .contact-area-label')).toHaveText('Conversas sem Ref');
+    await expect(list.locator('[data-group="NAO_ATENDIDO"] section.contact-area[data-area="SEM_REF"]')).toContainText('Ana Financiamento');
     await expect(list.locator('[data-group="ATENDIDO"] section.contact-area[data-area="CALC_CARRO"] .contact-area-label')).toHaveText('Calculadora · Por carro');
     await expect(list.locator('[data-group="ATENDIDO"] section.contact-area[data-area="CALC_CARRO"]')).toContainText('Bruno Calculadora');
     // Every number of the situation bar is a button with its complement.
@@ -126,8 +126,8 @@ for (const width of [1280, 390]) {
     const more = list.locator('.clients-more');
     if (await more.count()) await more.click().catch(() => {});
     await expect(list.locator('.client-card')).toHaveCount(3);
-    await expect(list.locator('[data-group="ATENDIDO"] section.contact-area[data-area="DIRETA_DEFINIDA"]')).toContainText('Carla Vitrine');
-    await expect(list.locator('section.contact-area[data-area="DIRETA_DEFINIDA"] .origin-chip')).toContainText('Veio pela vitrine · V2');
+    await expect(list.locator('[data-group="ATENDIDO"] section.contact-area[data-area="SEM_REF"]')).toContainText('Carla Vitrine');
+    await expect(list.locator('[data-group="ATENDIDO"] section.contact-area[data-area="SEM_REF"] .origin-chip')).toContainText('Veio pela vitrine · V2');
     expect(state.records.some((search) => /page=2/.test(search))).toBe(true);
     // Clicking a number opens its list.
     await noResponse.click();

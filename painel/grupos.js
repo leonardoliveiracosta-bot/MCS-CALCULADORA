@@ -24,6 +24,34 @@
     wrap.append(chip, e('span', 'badge yellow origin-financing', 'Financiamento'));
     return wrap;
   }
+  // "ASSUNTO": what the person is asking about now (read by the Claude, or corrected by you). Separate from the origin and from
+  // the channel. A source that did not load says so; it never shows as "Ainda não identificado".
+  function subjectChip(item) {
+    const subject = groupOf(item).subject;
+    if (!subject) return null;
+    const chip = e('span', 'badge subject-chip' + (subject.state === 'INDISPONIVEL' ? ' yellow' : ''), subject.label);
+    chip.dataset.subject = subject.key || 'INDISPONIVEL';
+    chip.title = 'Assunto' + (subject.source === 'MANUAL' ? ' · corrigido por você' : subject.source === 'CLAUDE' ? ' · lido pelo Claude' : subject.state === 'PENDENTE' ? ' · a conversa ainda não foi lida' : '') + (subject.reason ? ' · ' + subject.reason : '');
+    return chip;
+  }
+  // Your correction of the subject: stored, never overwritten by the Claude's reading, with "Desfazer".
+  function subjectSelect(item, { request, refresh, journeyId }) {
+    if (!journeyId) return null;
+    const current = groupOf(item).subject || {};
+    const select = e('select', 'subject-correct small');
+    select.setAttribute('aria-label', 'Corrigir o assunto');
+    select.append(new Option('Corrigir assunto…', ''));
+    Object.values(groupsApi().SUBJECTS).forEach((subject) => select.append(new Option(subject.label, subject.key)));
+    if (current.source === 'MANUAL') select.append(new Option('Voltar à leitura do Claude', 'AUTO'));
+    const post = (subject) => request('/api/panel/subject', { method: 'POST', body: JSON.stringify({ journeyId, subject }) });
+    select.addEventListener('change', () => {
+      const chosen = select.value;
+      if (!chosen) return;
+      const before = current.source === 'MANUAL' ? current.key : null;
+      window.MCSAction.run({ button: select, successScope: document.body, commit: () => post(chosen === 'AUTO' ? null : chosen), successText: 'Assunto corrigido', undo: { commit: () => post(before), successText: 'Correção desfeita', refresh }, refresh, errorText: 'Não consegui corrigir o assunto, tente de novo' }).finally(() => { select.value = ''; });
+    });
+    return select;
+  }
   // The origin filter (a select like "Ordenar"): everyone by default; it only narrows the list.
   function fillOriginSelect(select) {
     if (!select || select.dataset.filled) return;
@@ -124,7 +152,17 @@
         add(areaHead, 'strong', 'contact-area-label', area.label);
         add(areaHead, 'span', 'badge contact-area-count', String(area.items.length));
         add(areaHead, 'span', 'muted contact-area-hint', area.hint);
-        area.items.forEach((item) => place(box, item));
+        if (area.key === 'SEM_REF') {
+          // One block for every conversation without a Ref, organized by the subject.
+          groupsApi().bySubject(area.items).forEach((subject) => {
+            const part = add(box, 'section', 'contact-subject contact-subject-' + String(subject.key).toLowerCase().replace(/_/g, '-'));
+            part.dataset.subject = subject.key;
+            const partHead = add(part, 'header', 'contact-subject-head');
+            add(partHead, 'strong', 'contact-subject-label', subject.label);
+            add(partHead, 'span', 'badge contact-subject-count', String(subject.items.length));
+            subject.items.forEach((item) => place(part, item));
+          });
+        } else area.items.forEach((item) => place(box, item));
       });
       root.append(section);
     });
@@ -165,13 +203,13 @@
     });
   }
 
-  window.MCSContactGroups = Object.freeze({ render, decision, decisionNode, lastMessageNode, replyTools, topicButton, hydrateTranslations, groupOf, originChip, fillOriginSelect });
+  window.MCSContactGroups = Object.freeze({ render, decision, decisionNode, lastMessageNode, replyTools, topicButton, hydrateTranslations, groupOf, originChip, subjectChip, subjectSelect, fillOriginSelect });
 
   // ------------------------------------------------------------------ busca de carros em três grupos
   // Adendo, item 2: com carros × sem carros (a busca rodou) × busca ainda não rodada. Nunca misturados.
   // Every "sem carros" shows its reason in plain language; one field per piece of information.
   const SEARCH_GROUPS = [
-    { key: 'COM_CARROS', label: 'Com carros no lote', hint: 'A busca rodou e achou carros no lote ativo', states: ['COM_OPCOES', 'COM_CANDIDATOS'] },
+    { key: 'COM_CARROS', label: 'Com carros no lote', hint: 'A busca rodou e achou carros no lote ativo · Opção válida passou pelo cálculo oficial; candidato (valor a conferir) ainda não é opção', states: ['COM_OPCOES', 'COM_CANDIDATOS'] },
     { key: 'SEM_CARROS', label: 'Sem carros', hint: 'A busca rodou e não achou nenhum carro · O motivo aparece em cada pedido', states: ['SEM_OPCAO'] },
     { key: 'NAO_RODADA', label: 'Busca ainda não rodada', hint: 'Falta comparar com o lote, falta detalhe do cliente ou precisa de revisão', states: ['FALTA_BUSCAR', 'PRECISA_DETALHE', 'PRECISA_REVISAO'] }
   ];

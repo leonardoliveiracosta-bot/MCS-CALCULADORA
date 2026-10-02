@@ -70,6 +70,8 @@ async function rows(ctx, table, params) {
 // changes: they are paged in primary-key order.
 const PAGE_KEYS = {
   conversation_ai_attempt_state: ['environment', 'journey_id', 'chat_id'],
+  panel_identity_state: ['environment', 'journey_id'],
+  panel_conversation_class: ['environment', 'journey_id'],
   conversation_ai_link_state: ['environment', 'journey_id', 'chat_id'],
   conversation_general_read_progress: ['environment', 'journey_id', 'chat_id'],
   conversation_pending_insights: ['environment', 'journey_id', 'chat_id'],
