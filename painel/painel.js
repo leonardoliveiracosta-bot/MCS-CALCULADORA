@@ -133,10 +133,10 @@
   const uuidOnly = (value) => UUID_RE.test(String(value || '')) ? value : null;
   const refOf = (item) => { const ref = String(item && (item.ref || item.referenceCode || item.reference_code) || '').toUpperCase(); return REF_CODE_RE.test(ref) ? ref : null; };
   // Ref, car and bid as separate labeled facts (never one sentence mixing values).
-  const identityFacts = (ref, vehicle, cents) => {
+  const identityFacts = (ref, vehicle, cents, refState) => {
     const wrap = element('span', 'muted identity-facts');
     const fact = (label, value) => { const node = element('span', 'identity-fact'); node.append(element('b', '', label), document.createTextNode(value)); wrap.append(node); };
-    fact('Ref', ref || '—'); fact('Carro', displayModel(vehicle) || 'não informado'); fact('Lance máx.', Number(cents) ? formatMoney(cents) : 'não informado');
+    fact('Ref', ref || (refState === 'A_RECUPERAR' ? 'Calculadora, referência a recuperar' : '—')); fact('Carro', displayModel(vehicle) || 'não informado'); fact('Lance máx.', Number(cents) ? formatMoney(cents) : 'não informado');
     return wrap;
   };
   const contextSlot = (spec, options) => window.MCSContext ? MCSContext.slot(spec, options) : document.createComment('contexto');
@@ -1080,7 +1080,7 @@
   }
 
   function pendingQuery() {
-    const params=new URLSearchParams({situation:pendingSituation,sort:$('pending-sort').value,withRef:String($('pending-with-ref').checked)});
+    const params=new URLSearchParams({situation:pendingSituation,sort:$('pending-sort').value,ref:$('pending-with-ref').value});
     return '/api/panel/pendencias?'+params.toString();
   }
   function pendingAgo(value) {
@@ -1136,6 +1136,8 @@
 
   // Ref = a Ref proven by the calculator (simulation or the client's calculator message). When the
   // server says so (hasCalcRef), a code of the ficha without that proof is only an internal code.
+  // Three states: proven Ref, calculator origin with the Ref to recover, no calculator evidence.
+  function refStateOf(item){const state=item?.group?.refState||item?.refState;if(state)return state;return hasRef(item)?'COM_REF':'SEM_REF';}
   function hasRef(item){if(typeof item?.hasCalcRef==='boolean')return item.hasCalcRef;return Boolean(item?.ref||item?.referenceCode||item?.reference_code||(item?.refs||[]).some((entry)=>entry?.ref_code||entry));}
   const calcRefOf=(item)=>typeof item?.hasCalcRef==='boolean'?(item.calcRef||null):(item?.referenceCode||item?.reference_code||item?.ref||null);
   function checklistCompleted(item){return Number(item?.checklistSummary?.completed||item?.completedChecklist||0);}
@@ -1395,7 +1397,7 @@
     wrap.append(element('span', 'avatar', initials(name)));
     const text = element('div');
     const identityPhone=phoneNode(item);if(!ref)identityPhone.classList.add('no-ref-phone');text.append(element('strong', 'identity-name', name), identityPhone);
-    text.append(identityFacts(ref, item.vehicleText || item.vehicle_text, item.budgetCents||item.budget_cents));
+    text.append(identityFacts(ref, item.vehicleText || item.vehicle_text, item.budgetCents||item.budget_cents, refStateOf(item)));
     // compact: the card shows origin and channel once, as the origin chip.
     const direct=options.compact?null:directLeadBadge(item);if(direct)text.append(direct);
     const contact=contactMeta(item,{noChannel:Boolean(options.compact)});if(contact)text.append(contact);
@@ -1732,7 +1734,7 @@
       todayFilters: { origin: $('today-origin')?.value || 'all', subject: $('today-subject')?.value || 'all', period: $('today-period')?.value || 'all' },
       clients: currentView === 'clients' ? clientsSnapshot() : null,
       pendingSituation,
-      pendingWithRef: Boolean($('pending-with-ref')?.checked),
+      pendingRef: $('pending-with-ref')?.value || 'all',
       searchQuery: $('global-search-input')?.value || '',
       searchVisible: !$('search-results')?.classList.contains('hidden')
     };
@@ -1743,7 +1745,7 @@
     detailOrigin = null;
     currentDetail = null;
     pendingSituation = target.pendingSituation || pendingSituation;
-    if ($('pending-with-ref')) $('pending-with-ref').checked = Boolean(target.pendingWithRef);
+    if ($('pending-with-ref')) $('pending-with-ref').value = target.pendingRef || 'all';
     document.querySelectorAll('[data-pending-situation]').forEach((button) => button.classList.toggle('active', button.dataset.pendingSituation === pendingSituation));
     Object.entries(target.sorts||{}).forEach(([name,value])=>{const select=$(name+'-sort');if(select&&[...select.options].some((option)=>option.value===value))select.value=value;});
     if (target.attendBucket) attendBucket = target.attendBucket;
@@ -2138,7 +2140,7 @@
     const chunks = []; for (let index = 0; index < ids.length; index += 100) chunks.push(ids.slice(index, index + 100));
     Promise.all(chunks.map((journeyIds) => request('/api/panel/client-context', { method: 'POST', body: JSON.stringify({ journeyIds }) }).then((result) => {
       journeyIds.forEach((id) => { const context = result && result.journeys && result.journeys[id];
-        attendIdentity.set(id, context ? { hasCalcRef: Boolean(context.hasCalcRef), calcRef: context.calcRef || null, internalCode: context.internalCode || null, name: context.name || null,
+        attendIdentity.set(id, context ? { hasCalcRef: Boolean(context.hasCalcRef), refState: context.refState || null, calcRef: context.calcRef || null, internalCode: context.internalCode || null, name: context.name || null,
           origin: context.origin && context.origin.code ? { group: String(context.origin.code).split(':')[0], key: context.origin.code, label: context.origin.label, financing: Boolean(context.origin.financing) } : null,
           at: context.conversation && context.conversation.lastAt || null } : null); });
     }).catch(() => journeyIds.forEach((id) => attendIdentity.delete(id))))).then(() => scheduleAttendRender());
@@ -2147,12 +2149,12 @@
   const atMs = (value) => { const at = Date.parse(value || ''); return Number.isFinite(at) ? at : 0; };
   const activityAt = (item) => Math.max(atMs(item?.lastCustomerAt) || 0, atMs(item?.latestMessage?.occurred_at_utc || item?.latestMessage?.created_at) || 0, atMs(item?.lastRealMessageAt) || 0, atMs(item?.occurredAt) || 0);
   function caseFacts(entry) {
-    if (entry.item) return { known: true, hasRef: hasRef(entry.item), item: entry.item, at: activityAt(entry.item) };
-    if (!entry.journeyId) return { known: true, hasRef: false, item: null, at: 0 };
+    if (entry.item) return { known: true, hasRef: hasRef(entry.item), refState: refStateOf(entry.item), item: entry.item, at: activityAt(entry.item) };
+    if (!entry.journeyId) return { known: true, hasRef: false, refState: 'SEM_REF', item: null, at: 0 };
     const identity = attendIdentity.get(entry.journeyId);
     if (identity === 'loading' || identity === undefined) return { known: false };
-    if (!identity) return { known: true, hasRef: false, item: null, at: 0 };
-    return { known: true, hasRef: identity.hasCalcRef, item: identity.origin ? { group: { origin: identity.origin } } : null, at: atMs(identity.at) || 0, identity };
+    if (!identity) return { known: true, hasRef: false, refState: 'SEM_REF', item: null, at: 0 };
+    return { known: true, hasRef: identity.hasCalcRef, refState: identity.refState || (identity.hasCalcRef ? 'COM_REF' : 'SEM_REF'), item: identity.origin ? { group: { origin: identity.origin } } : null, at: atMs(identity.at) || 0, identity };
   }
   function attendChips(counts, total) {
     const root = $('attend-filters');
@@ -2188,7 +2190,8 @@
     // same cases. No period by default: an open contact stays whatever its age.
     const origin=$('today-origin')?.value||'all',period=$('today-period')?.value||'all',subject=$('today-subject')?.value||'all';
     const since=period==='all'?0:Date.now()-Number(period)*86400000;
-    const refOk=(facts)=>todayRefFilter==='all'||(facts.known&&(todayRefFilter==='with'?facts.hasRef:!facts.hasRef));
+    const REF_FILTER_STATE={with:'COM_REF',recover:'A_RECUPERAR',without:'SEM_REF'};
+    const refOk=(facts)=>todayRefFilter==='all'||(facts.known&&facts.refState===REF_FILTER_STATE[todayRefFilter]);
     const originOk=(facts)=>origin==='all'||(facts.known&&(!facts.item?false:MCSGroups.matchesOrigin(facts.item,origin)));
     const periodOk=(facts)=>!since||(facts.known&&facts.at>=since);
     // Assunto (lido pelo Claude ou corrigido por você) é um filtro à parte da origem; sem leitura vale "Ainda não identificado".
@@ -2201,7 +2204,8 @@
     if (!MCSAttend.BUCKETS.some((bucket) => bucket.key === attendBucket)) attendBucket = 'depende';
     const bucketAll = model.cases.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
     const bucketNarrowed = narrowed.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
-    const refCounts={all:bucketNarrowed.length,with:bucketNarrowed.filter((entry)=>{const facts=factsOf.get(entry.key);return facts.known&&facts.hasRef;}).length,without:bucketNarrowed.filter((entry)=>{const facts=factsOf.get(entry.key);return facts.known&&!facts.hasRef;}).length};
+    const countRef=(state)=>bucketNarrowed.filter((entry)=>{const facts=factsOf.get(entry.key);return facts.known&&facts.refState===state;}).length;
+    const refCounts={all:bucketNarrowed.length,with:countRef('COM_REF'),recover:countRef('A_RECUPERAR'),without:countRef('SEM_REF')};
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);const count=button.querySelector('span');if(count)count.textContent=String(refCounts[button.dataset.todayRef]||0);});
     const shown=passing.filter((entry)=>MCSAttend.inBucket(entry, attendBucket));
     const inBucket=bucketAll;
@@ -2247,7 +2251,7 @@
         const title = element('div', 'identity');
         title.append(element('span', 'order-icon', orderIcon(item)));
         const txt = element('div');
-        txt.append(element('strong', 'identity-name', item.contactName||`Pedido ${item.ref}`),phoneNode(item), identityFacts(item.ref, item.vehicleText, item.budgetCents));
+        txt.append(element('strong', 'identity-name', item.contactName||`Pedido ${item.ref}`),phoneNode(item), identityFacts(item.ref, item.vehicleText, item.budgetCents, refStateOf(item)));
         title.append(txt);
         head.append(title);
       } else {

@@ -13,7 +13,7 @@ function sheet(items) {
   return text.join('\r\n');
 }
 function visible(snapshot, query) {
-  const situation=String(query.situation||'all'),withRef=String(query.withRef||'')==='true',includeResolved=String(query.includeResolved||'')==='true',items=snapshot.items.filter((item)=>includeResolved||!item.resolved).filter((item)=>situation==='all'||item.situation===situation).filter((item)=>!withRef||Boolean(item.ref));
+  const situation=String(query.situation||'all'),withRef=String(query.withRef||'')==='true',refFilter=({with:'COM_REF',recover:'A_RECUPERAR',without:'SEM_REF'})[String(query.ref||'')]||null,includeResolved=String(query.includeResolved||'')==='true',items=snapshot.items.filter((item)=>includeResolved||!item.resolved).filter((item)=>situation==='all'||item.situation===situation).filter((item)=>!withRef||item.refState==='COM_REF').filter((item)=>!refFilter||item.refState===refFilter);
   return sortPending(items,String(query.sort||'hot'));
 }
 

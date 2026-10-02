@@ -94,7 +94,9 @@ async function clientList(ctx, activeBatch) {
   // Identity: Refs proven by the calculator (calc_runs or the client's calculator message).
   const runRefs=refProof.runRefsOf(calcRuns);
   // Fora do assunto (leitura da triagem ou correção sua) e quem veio pela vitrine; sem tabela, ninguém.
-  const [topic, vitrineOrigins, classification] = await Promise.all([loadTopic(ctx).catch(()=>null), loadVitrineOrigins(ctx).catch(()=>null), loadClassification(ctx)]);
+  const [topic, vitrineOrigins, classification, templateRows] = await Promise.all([loadTopic(ctx).catch(()=>null), loadVitrineOrigins(ctx).catch(()=>null), loadClassification(ctx), rpc(ctx, 'panel_journey_calc_templates', {p_environment: ctx.environment}).catch(()=>null)]);
+  // A message in the calculator model proves the origin even when the Ref is not recoverable.
+  const templateJourneys = new Set((templateRows || []).map((row) => row.journey_id));
   const now=Date.now();
   const summaryByJourney=new Map((messageFacts||[]).map((row)=>[row.journey_id,row]));
   const chatsByJourney=new Map();(chatLatest||[]).forEach((row)=>{if(!chatsByJourney.has(row.journey_id))chatsByJourney.set(row.journey_id,[]);chatsByJourney.get(row.journey_id).push(row);});
@@ -142,7 +144,7 @@ async function clientList(ctx, activeBatch) {
     if(proof.hasCalcRef&&!ownOrders.length){const types=proof.messageModes.map((mode)=>mode==='CARRO'?'BUSCA':mode==='VALOR'?'SIMULACAO':null).filter(Boolean);originInfo.calculatorTypes=types;}
     const offTopic=topic?topic.journey(item.id,{hasCalculator:ownOrders.length>0||proof.hasCalcRef}):null;
     const vitrine=vitrineOrigins?vitrineOrigins.forPerson({journeyId:item.id,contactId:item.contact_id}):null;
-    const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey:{...item,enabled:complete.enabled,switchedAt:state?.switched_at||null},disposition:disposition?.status||null,dispositionAt:disposition?.updated_at||null,offTopic,vitrine,situation:pending.situation||null,calcProof:proof,...factsOf(classification,item.id)}),now);
+    const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey:{...item,enabled:complete.enabled,switchedAt:state?.switched_at||null},disposition:disposition?.status||null,dispositionAt:disposition?.updated_at||null,offTopic,vitrine,situation:pending.situation||null,calcProof:proof,template:templateJourneys.has(item.id),...factsOf(classification,item.id)}),now);
     return [decorateContact({ ...complete, ...ready, ...originInfo, ...pending, group, ...((shown)=>({vehicleText:shown.vehicleText,budgetCents:shown.budgetCents||0,criteriaSource:{vehicle:shown.vehicleSource,bid:shown.bidSource}}))(listCriteria(item,ownOrders)), calcRefs:proof.calcRefs, calcRef:proof.calcRef, hasCalcRef:proof.hasCalcRef, calcRefsWithoutRun:proof.calcRefsWithoutRun, internalCode:proof.internalCode, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:summary.last_customer_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip, item.id)) },facts,insightByJourney.get(item.id),complete)];
   });
   return { listed, meta };
@@ -160,10 +162,11 @@ function clientsPage(listed, query = {}, now = Date.now()) {
   const inPeriod = (item) => insidePeriod(item, period, now);
   // Ref = a Ref proven by the calculator; an internal code of the ficha is not a Ref.
   const hasRef = (item) => typeof item.hasCalcRef === 'boolean' ? item.hasCalcRef : Boolean(item.reference_code || (item.refs || []).length);
+  const refStateOfItem = (item) => (item.group && item.group.refState) || (hasRef(item) ? 'COM_REF' : 'SEM_REF');
   const completed = (item) => Number(item.checklistSummary?.completed || 0);
   const late = (item) => { const latest = item.latestMessage; return Boolean(latest && !latest.is_automatic && latest.direction === 'CUSTOMER' && now - (time(latest.occurred_at_utc) || now) > 86400000); };
   // Every filter except the situation one (the bar counts by situation inside the rest).
-  const others = (item) => inPeriod(item) && (checklist === 'all' || (checklist === 'complete' ? completed(item) === 6 : completed(item) < 6)) && (ref === 'all' || (ref === 'with' ? hasRef(item) : !hasRef(item)))
+  const others = (item) => inPeriod(item) && (checklist === 'all' || (checklist === 'complete' ? completed(item) === 6 : completed(item) < 6)) && (ref === 'all' || refStateOfItem(item) === ({ with: 'COM_REF', recover: 'A_RECUPERAR', without: 'SEM_REF' })[ref])
     && (heat === 'all' || String(item.heat || '').toUpperCase() === heat) && groups.matchesOrigin(item, origin) && (type === 'all' || (item.calculatorTypes || []).includes(type)) && (!overdue24 || late(item));
   const base = listed.filter(others);
   const situations = { NO_RESPONSE: 0, MCS_PENDING: 0, CUSTOMER_PENDING: 0, IN_PROGRESS: 0, CLOSED: 0, NONE: 0 };

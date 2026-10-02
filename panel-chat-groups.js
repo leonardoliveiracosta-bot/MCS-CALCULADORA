@@ -5,6 +5,7 @@
 const { allRows } = require('./panel-server');
 const groups = require('./panel-groups');
 const { loadClassification, factsOf } = require('./panel-classification');
+const refProof = require('./panel-ref-proof');
 const { loadTopic } = require('./panel-topic');
 const { loadVitrineOrigins } = require('./panel-vitrine-origin');
 
@@ -42,7 +43,7 @@ async function chatGroupIndex(ctx, preloaded = {}) {
     const summary = groups.summaryFromMessages(byChat.get(chat.id) || []);
     const toggle = journey ? toggleOf.get(journey.id) : null;
     const vitrine = vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey ? journey.id : null, contactId: chat.contact_id }) : null;
-    const group = groups.classify(groups.factsFor({ summary, orders, journey: journey ? { ...journey, enabled: toggle ? toggle.enabled : undefined, switchedAt: toggle ? toggle.switched_at : null } : null, offTopic, vitrine, ...factsOf(classification, journey ? journey.id : null) }), now);
+    const group = groups.classify(groups.factsFor({ summary, orders, journey: journey ? { ...journey, enabled: toggle ? toggle.enabled : undefined, switchedAt: toggle ? toggle.switched_at : null } : null, offTopic, vitrine, template: (byChat.get(chat.id) || []).some((message) => message.direction === 'CUSTOMER' && refProof.isCalculatorTemplate(message.body_text)), ...factsOf(classification, journey ? journey.id : null) }), now);
     index.set(chat.id, { group, lastCustomerMessage: orders.length ? null : groups.latestCustomerMessage(summary), journeyId: journey ? journey.id : null });
   });
   return index;

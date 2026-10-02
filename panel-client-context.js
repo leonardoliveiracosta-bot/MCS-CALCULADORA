@@ -412,7 +412,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const fields = buildFields([calculatorSources(ownOrders), fichaSources(journey, contact, modes), conversationSources(ownRequests, evidenceById)]);
     const conversation = conversationState(journeyMessages);
     const groupFacts = groups.factsFor({ calcProof: proof, messages: journeyMessages, orders: ownOrders, journey: { ...journey, enabled: toggles.find((row) => row.journey_id === journey.id)?.enabled, switchedAt: toggles.find((row) => row.journey_id === journey.id)?.switched_at || null },
-      vitrine: vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey.id, contactId: journey.contact_id }) : null, ...factsOf(classification, journey.id) });
+      vitrine: vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey.id, contactId: journey.contact_id }) : null, template: journeyMessages.some((message) => message.direction === 'CUSTOMER' && refProof.isCalculatorTemplate(message.body_text)), ...factsOf(classification, journey.id) });
     const grouped = groups.classify(groupFacts);
     const closed = journey.status === 'ENCERRADO';
     const toggle = toggles.find((row) => row.journey_id === journey.id);
@@ -440,10 +440,10 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     out.journeys[journey.id] = {
       key: 'journey:' + journey.id, journeyId: journey.id, contactId: journey.contact_id,
       ref: clean(journey.reference_code).toUpperCase() || own[0] || null, refs: own, sharedRefs,
-      calcRef: proof.calcRef, calcRefs: proof.calcRefs, hasCalcRef: proof.hasCalcRef, calcRefsWithoutRun: proof.calcRefsWithoutRun, internalCode: proof.internalCode,
+      calcRef: proof.calcRef, calcRefs: proof.calcRefs, hasCalcRef: proof.hasCalcRef, refState: grouped.refState, calcRefsWithoutRun: proof.calcRefsWithoutRun, internalCode: proof.internalCode,
       name: clean(contact && contact.display_name) || null,
       contact: { phones: phoneList, whatsappUsername: (userIds.find((row) => row.contact_id === journey.contact_id) || {}).username || null, location: clean(contact && contact.location_text) || null, note: phoneList.length ? null : 'Nenhum telefone salvo neste contato.' },
-      origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing, since: journey.created_at || null, calculator: ownOrders.length > 0 || proof.hasCalcRef },
+      origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing, since: journey.created_at || null, calculator: ownOrders.length > 0 || proof.hasCalcRef || grouped.refState === 'A_RECUPERAR' },
       unattended: grouped.unattended,
       // Etapa, falta and próxima ação come from the same facts: a ficha marked "Respondido" whose customer
       // wrote again is waiting for the MCS, never shown as answered.

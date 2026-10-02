@@ -58,6 +58,20 @@
     OUTROS: { key: 'OUTROS', label: 'Outros assuntos' },
     NAO_IDENTIFICADO: { key: 'NAO_IDENTIFICADO', label: 'Ainda não identificado' }
   };
+  // The three states of the Ref, the same everywhere (lists, filters, counters, cards). "Calculadora, referência a recuperar" is
+  // origin Calculadora proven by the calculator's message (or the stored identity) when the Ref itself cannot be recovered: it is
+  // never downgraded to a direct conversation nor to "sem Ref". "Sem Ref" only when there is no calculator evidence at all.
+  const REF_STATES = {
+    COM_REF: { key: 'COM_REF', label: 'Com Ref', filter: 'with' },
+    A_RECUPERAR: { key: 'A_RECUPERAR', label: 'Calculadora, referência a recuperar', filter: 'recover' },
+    SEM_REF: { key: 'SEM_REF', label: 'Sem Ref', filter: 'without' }
+  };
+  const REF_STATE_ORDER = ['COM_REF', 'A_RECUPERAR', 'SEM_REF'];
+  function refStateOf({ hasCalcRef = false, identity = null, template = false } = {}) {
+    if (hasCalcRef || (identity && identity.status === 'REF_COMPROVADA')) return 'COM_REF';
+    if (template || (identity && (identity.status === 'CALCULADORA_REF_A_RECUPERAR' || identity.calcOrigin === true))) return 'A_RECUPERAR';
+    return 'SEM_REF';
+  }
   const SUBJECT_ORDER = ['FINANCIAMENTO', 'PEDIDO_CARRO', 'SO_CUMPRIMENTO', 'OUTROS', 'NAO_IDENTIFICADO'];
 
   const stamp = (value) => { if (typeof value === 'number') return Number.isFinite(value) ? value : 0; const parsed = Date.parse(value || ''); return Number.isFinite(parsed) ? parsed : 0; };
@@ -89,7 +103,7 @@
   // The facts every rule below reads. summary: panel_journey_message_facts (or summaryFromMessages).
   // orders: calculator orders of the person (newest simulation first). vitrine: {version, at} when the
   // person is a new number that arrived through someone's V1/V2 link.
-  function factsFor({ summary = null, messages = null, orders = [], journey = null, disposition = null, dispositionAt = null, offTopic = null, vitrine = null, situation = null, calcProof = null, identity = null, subject = null } = {}) {
+  function factsFor({ summary = null, messages = null, orders = [], journey = null, disposition = null, dispositionAt = null, offTopic = null, vitrine = null, situation = null, calcProof = null, identity = null, subject = null, template = false } = {}) {
     const s = summary || summaryFromMessages(messages || []);
     const simulations = (orders || []).filter(Boolean).flatMap((order) => order.simulations && order.simulations.length ? order.simulations : [order])
       .slice().sort((a, b) => stamp(b.occurredAt) - stamp(a.occurredAt));
@@ -104,7 +118,8 @@
     const off = journey && (journey.enabled === false || journey.status === 'ENCERRADO');
     return {
       // Origin Calculadora is also proven by the stored identity (the client's calculator message without a recoverable Ref).
-      hasCalculator: simulations.length > 0 || calcModes.length > 0 || Boolean(calcProof && calcProof.hasCalcRef) || Boolean(identity && identity.calcOrigin),
+      hasCalculator: simulations.length > 0 || calcModes.length > 0 || Boolean(calcProof && calcProof.hasCalcRef) || Boolean(identity && identity.calcOrigin) || Boolean(template),
+      refState: refStateOf({ hasCalcRef: simulations.length > 0 || calcModes.length > 0 || Boolean(calcProof && calcProof.hasCalcRef), identity, template }),
       identityStatus: identity ? identity.status || null : null, identityState: identity ? identity.state || null : null,
       subject: subject || null,
       calcModes, calcMode, calcAt: simulations[0] ? simulations[0].occurredAt || null : calcProof && calcProof.messageAt || null, calcChannel: calcChannel ? (calcChannel.includes('SMS') ? 'SMS' : 'WHATSAPP') : null,
@@ -189,7 +204,7 @@
     const unattended = f.offTopic ? null : unattendedOf(f, now);
     const key = f.offTopic ? 'FORA_DO_ASSUNTO' : unattended ? 'NAO_ATENDIDO' : 'ATENDIDO';
     return { key, label: SECTIONS[key].label, origin, unattended, hasCalculator: Boolean(f.hasCalculator), calcMode: f.calcMode || null, offTopic: Boolean(f.offTopic), offTopicSource: f.offTopic ? f.offTopicSource || null : null,
-      identityStatus: f.identityStatus || null, subject: subjectOf(f.subject) };
+      identityStatus: f.identityStatus || null, refState: f.refState || (f.hasCalculator ? 'COM_REF' : 'SEM_REF'), subject: subjectOf(f.subject) };
   }
 
   // The area of a listed contact. searchModes: the search types already defined for the ficha
@@ -255,5 +270,5 @@
     return s.last_customer_id && String(s.last_customer_text || '').trim() ? { id: s.last_customer_id, text: String(s.last_customer_text).slice(0, 600), at: s.last_customer_at || null } : null;
   }
 
-  return { ORIGINS, ORIGIN_OPTIONS, SECTIONS, ORDER, AREAS, AREA_ORDER, SUBJECTS, SUBJECT_ORDER, subjectOf, bySubject, areaOf, areas, STALE_DAYS, FINANCING_RE, isFinancing, channelOf, summaryFromMessages, factsFor, originOf, unattendedOf, classify, matchesOrigin, split, waited, latestCustomerMessage };
+  return { ORIGINS, ORIGIN_OPTIONS, SECTIONS, ORDER, AREAS, AREA_ORDER, REF_STATES, REF_STATE_ORDER, refStateOf, SUBJECTS, SUBJECT_ORDER, subjectOf, bySubject, areaOf, areas, STALE_DAYS, FINANCING_RE, isFinancing, channelOf, summaryFromMessages, factsFor, originOf, unattendedOf, classify, matchesOrigin, split, waited, latestCustomerMessage };
 }));
