@@ -1,46 +1,9 @@
--- Desfazer imediato em duas ações reversíveis que até aqui não tinham volta: "apresentar" um carro
--- e "ligar pedido à ficha" (a Ref sugerida). Aditiva: uma coluna nova, três funções novas; as
--- funções antigas continuam iguais. Envio de mensagem nunca tem desfazer (continua com confirmação).
+-- Desfazer imediato em "ligar pedido à ficha" (a Ref sugerida). Aditiva: uma coluna nova, duas
+-- funções novas; as funções antigas continuam iguais. (O desfazer de "apresentar" fica na API.) Envio de mensagem nunca tem desfazer (continua com confirmação).
 
 -- ------------------------------------------------------------------ apresentar
--- Desfaz uma apresentação recém-registrada pela mesma pessoa (até 30 minutos), antes de qualquer
--- resposta do cliente sobre o carro. Volta a etapa, a data de início da busca e o passo do
--- acompanhamento para o que eram, quando nenhuma outra unidade justifica a etapa.
-create or replace function public.panel_unit_present_undo(
-  p_environment public.panel_environment,
-  p_unit_id uuid,
-  p_actor uuid,
-  p_previous_stage text default null,
-  p_previous_search_started_at timestamptz default null,
-  p_ref text default null,
-  p_previous_tracking_step integer default null
-) returns jsonb language plpgsql security definer set search_path = public as $$
-declare
-  v_unit public.units%rowtype;
-  v_other boolean;
-begin
-  select * into v_unit from public.units where id = p_unit_id and environment = p_environment for update;
-  if not found then raise exception 'UNIT_NOT_FOUND'; end if;
-  if v_unit.created_by is distinct from p_actor then raise exception 'UNDO_NOT_ALLOWED'; end if;
-  if v_unit.created_at < now() - interval '30 minutes' then raise exception 'UNDO_EXPIRED'; end if;
-  if v_unit.last_customer_response_at is not null then raise exception 'UNIT_HAS_RESPONSE'; end if;
-  if exists (select 1 from public.lead_events where environment = p_environment and unit_id = p_unit_id and event_type <> 'CAR_PRESENTED') then
-    raise exception 'UNIT_IN_USE';
-  end if;
-  delete from public.lead_events where environment = p_environment and unit_id = p_unit_id and event_type = 'CAR_PRESENTED';
-  update public.manheim_matches set presented_unit_id = null where environment = p_environment and presented_unit_id = p_unit_id;
-  delete from public.units where id = p_unit_id;
-  v_other := exists (select 1 from public.units where environment = p_environment and journey_id = v_unit.journey_id and status <> 'WITHDRAWN');
-  if not v_other and p_previous_stage is not null then
-    update public.journeys set stage = p_previous_stage::public.panel_journey_stage, search_started_at = p_previous_search_started_at, updated_at = now(), updated_by = p_actor
-      where id = v_unit.journey_id and environment = p_environment and coalesce(stage_frozen, false) = false;
-  end if;
-  if p_ref is not null and p_previous_tracking_step is not null then
-    update public.lead_tracking set step = p_previous_tracking_step, updated_at = now()
-      where environment = p_environment and ref_code = p_ref and step = 2 and p_previous_tracking_step < 2;
-  end if;
-  return jsonb_build_object('undone', true, 'unitId', p_unit_id, 'stageRestored', not v_other and p_previous_stage is not null);
-end $$;
+-- O desfazer de "apresentar" fica na API do painel (api/panel/actions.js, presentUndo), com as
+-- mesmas regras: só quem registrou, em até 30 minutos, antes de qualquer resposta do cliente.
 
 -- ------------------------------------------------------------------ ligar pedido à ficha
 alter table public.whatsapp_link_suggestions add column if not exists undo_json jsonb;
@@ -107,9 +70,7 @@ begin
   return jsonb_build_object('undone', true, 'suggestionId', p_id);
 end $$;
 
-revoke all on function public.panel_unit_present_undo(public.panel_environment, uuid, uuid, text, timestamptz, text, integer) from public, anon, authenticated;
 revoke all on function public.panel_whatsapp_resolve_suggestion_undoable(public.panel_environment, uuid, uuid, boolean) from public, anon, authenticated;
 revoke all on function public.panel_whatsapp_link_ref_undo(public.panel_environment, uuid, uuid) from public, anon, authenticated;
-grant execute on function public.panel_unit_present_undo(public.panel_environment, uuid, uuid, text, timestamptz, text, integer) to service_role;
 grant execute on function public.panel_whatsapp_resolve_suggestion_undoable(public.panel_environment, uuid, uuid, boolean) to service_role;
 grant execute on function public.panel_whatsapp_link_ref_undo(public.panel_environment, uuid, uuid) to service_role;

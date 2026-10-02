@@ -487,25 +487,45 @@ async function actionUnit(ctx, journey, body) {
 
 // Desfazer "apresentar": removes the unit just created by the same person (database rule: up to
 // 30 minutes, before any customer answer) and puts the stage back when nothing else justifies it.
+// Undoes a presentation just registered by the same person (30 minutes), before any answer of the
+// customer about the car: the presented-car event and the unit go away, the Manheim option is free
+// again, and the stage, the search start and the tracking step go back to what they were when no
+// other unit justifies them. Same rules as the migration's panel_unit_present_undo.
+const UNDO_WINDOW_MS = 30 * 60 * 1000;
+const undoFailure = (code) => Object.assign(new Error(code), { code });
+async function presentUndo(ctx, journey, unitId, { previousStage, previousSearchStartedAt, ref, previousTrackingStep }, services = {}) {
+  const read = services.rows || rows, patch = services.patchRows || patchRows;
+  const remove = services.remove || ((table, filters) => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + new URLSearchParams(filters).toString(), { method: 'DELETE', headers: { prefer: 'return=representation' } }));
+  const env = 'eq.' + ctx.environment;
+  const unit = (await read(ctx, 'units', { select: 'id,journey_id,created_by,created_at,last_customer_response_at', environment: env, id: 'eq.' + unitId, journey_id: 'eq.' + journey.id, limit: '1' }))[0];
+  if (!unit) throw undoFailure('UNIT_NOT_FOUND');
+  if (unit.created_by !== ctx.panel.id) throw undoFailure('UNDO_NOT_ALLOWED');
+  if (Date.now() - Date.parse(unit.created_at) > UNDO_WINDOW_MS) throw undoFailure('UNDO_EXPIRED');
+  if (unit.last_customer_response_at) throw undoFailure('UNIT_HAS_RESPONSE');
+  const events = await read(ctx, 'lead_events', { select: 'id,event_type', environment: env, unit_id: 'eq.' + unitId });
+  if (events.some((event) => event.event_type !== 'CAR_PRESENTED')) throw undoFailure('UNIT_IN_USE');
+  await remove('lead_events', { environment: env, unit_id: 'eq.' + unitId, event_type: 'eq.CAR_PRESENTED' });
+  await patch(ctx, 'manheim_matches', { environment: env, presented_unit_id: 'eq.' + unitId }, { presented_unit_id: null });
+  // Only while still unanswered (an answer arriving now keeps the unit).
+  const removed = await remove('units', { environment: env, id: 'eq.' + unitId, last_customer_response_at: 'is.null' });
+  if (!Array.isArray(removed) || !removed.length) throw undoFailure('UNIT_HAS_RESPONSE');
+  const others = await read(ctx, 'units', { select: 'id', environment: env, journey_id: 'eq.' + journey.id, status: 'neq.WITHDRAWN', limit: '1' });
+  const stageRestored = !others.length && Boolean(previousStage);
+  if (stageRestored) await patch(ctx, 'journeys', { environment: env, id: 'eq.' + journey.id, stage_frozen: 'not.is.true' }, { stage: previousStage, search_started_at: previousSearchStartedAt, updated_at: isoNow(), updated_by: ctx.panel.id });
+  if (ref && Number.isInteger(previousTrackingStep) && previousTrackingStep < 2) await patch(ctx, 'lead_tracking', { environment: env, ref_code: 'eq.' + ref, step: 'eq.2' }, { step: previousTrackingStep, updated_at: isoNow() });
+  return { undone: true, unitId, stageRestored };
+}
 async function actionPresentUndo(ctx, journey, body) {
   if (!isUuid(body.unitId)) return send(ctx.res, 400, { error: 'UNIT_ID_INVALID' });
   const found = await rows(ctx, 'units', { select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + body.unitId, limit: '1' });
   if (!found[0]) return send(ctx.res, 404, { error: 'UNIT_NOT_FOUND' });
   const STAGES = ['NOVO', 'RESPONDIDO', 'EM_BUSCA', 'DECIDINDO', 'QUALIFICADO', 'AGUARDANDO_CLIENTE', 'PARADO'];
   const ref = /^[A-HJ-NP-Z2-9]{5}$/.test(String(body.ref || '')) ? String(body.ref) : null;
-  let result;
-  try {
-    result = await rpc(ctx, 'panel_unit_present_undo', {
-      p_environment: ctx.environment, p_unit_id: body.unitId, p_actor: ctx.panel.id,
-      p_previous_stage: STAGES.includes(body.previousStage) ? body.previousStage : null,
-      p_previous_search_started_at: body.previousSearchStartedAt && Number.isFinite(Date.parse(body.previousSearchStartedAt)) ? body.previousSearchStartedAt : null,
-      p_ref: ref, p_previous_tracking_step: Number.isInteger(body.previousTrackingStep) ? body.previousTrackingStep : null
-    });
-  } catch (failure) {
-    // The database function is not there yet (migration 20261014020000 not complete): nothing changed.
-    if (failure && failure.status === 404 && !failure.code) return send(ctx.res, 409, { error: 'UNDO_UNAVAILABLE' });
-    throw failure;
-  }
+  const result = await presentUndo(ctx, journey, body.unitId, {
+    previousStage: STAGES.includes(body.previousStage) ? body.previousStage : null,
+    previousSearchStartedAt: body.previousSearchStartedAt && Number.isFinite(Date.parse(body.previousSearchStartedAt)) ? body.previousSearchStartedAt : null,
+    ref, previousTrackingStep: Number.isInteger(body.previousTrackingStep) ? body.previousTrackingStep : null
+  });
   await recordMutation(ctx, { at: isoNow(), journeyId: journey.id, contactId: journey.contact_id, activityType: 'UNIT_UPDATED', summary: 'Apresentação desfeita', metadata: { unit_id: body.unitId },
     entityType: 'unit', entityId: body.unitId, action: 'UNDO', after: result });
   return send(ctx.res, 200, result);
@@ -868,3 +888,4 @@ module.exports = async (req, res) => {
     return send(res, 500, { error: 'PANEL_ACTION_FAILED' });
   }
 };
+module.exports.presentUndo = presentUndo;

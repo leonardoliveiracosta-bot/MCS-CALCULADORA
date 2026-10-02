@@ -1,8 +1,8 @@
 'use strict';
 
-// Comando 2: o resumo das conversas calculado no banco (CLIENTES) bate com o cálculo em JS, e as
-// duas ações novas com desfazer (apresentar um carro, ligar pedido à ficha) voltam exatamente ao
-// estado anterior. Banco PGlite local com todas as migrações; nada é enviado, nada vai ao Supabase.
+// Comando 2: o resumo das conversas calculado no banco (CLIENTES) bate com o cálculo em JS, e o
+// desfazer de "ligar pedido à ficha" volta exatamente ao estado anterior (o de "apresentar" está
+// em tests/desfazer-apresentar.test.js). Banco PGlite local com todas as migrações; nada é enviado, nada vai ao Supabase.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { migratedDatabase } = require('./sql/run');
@@ -59,29 +59,6 @@ test('resumo das mensagens no banco = resumo em JS (primeira, última do cliente
   const latest = (await db.query(`select * from public.panel_journey_chat_latest('preview',500,0)`)).rows.find((row) => row.journey_id === id(10));
   assert.equal(latest.chat_id, id(12));
   assert.equal(latest.message_id, id(102), 'a última mensagem real da conversa');
-});
-
-test('apresentar → desfazer volta etapa, início da busca e acompanhamento; só quem fez, em 30 minutos, sem resposta', async () => {
-  await db.exec(`update public.journeys set stage='RESPONDIDO',search_started_at=null where id='${id(10)}';
-    insert into public.lead_tracking(environment,ref_code,journey_id,public_code,step) values('preview','ABCDE','${id(10)}','codigo-publico-de-teste-0001',2);`);
-  const unit = (await db.query(`insert into public.units(environment,journey_id,vehicle_text,presented_at,status,created_by) values('preview',$1,'2020 Toyota Camry',now(),'PRESENTED',$2) returning id`, [id(10), ACTOR])).rows[0].id;
-  await db.query(`insert into public.lead_events(environment,ref_code,journey_id,unit_id,event_type,created_by) values('preview','ABCDE',$1,$2,'CAR_PRESENTED',$3)`, [id(10), unit, ACTOR]);
-  await db.query(`update public.journeys set stage='EM_BUSCA',search_started_at=now() where id=$1`, [id(10)]);
-  await assert.rejects(db.query(`select public.panel_unit_present_undo('preview',$1,$2,'RESPONDIDO',null,'ABCDE',1)`, [unit, OTHER]), /UNDO_NOT_ALLOWED/);
-  const result = (await db.query(`select public.panel_unit_present_undo('preview',$1,$2,'RESPONDIDO',null,'ABCDE',1) r`, [unit, ACTOR])).rows[0].r;
-  assert.equal(result.undone, true);
-  assert.equal(result.stageRestored, true);
-  const journey = (await db.query(`select stage,search_started_at from public.journeys where id=$1`, [id(10)])).rows[0];
-  assert.equal(journey.stage, 'RESPONDIDO');
-  assert.equal(journey.search_started_at, null);
-  assert.equal((await db.query(`select step from public.lead_tracking where ref_code='ABCDE'`)).rows[0].step, 1);
-  assert.equal((await db.query(`select count(*)::int n from public.units where id=$1`, [unit])).rows[0].n, 0);
-  assert.equal((await db.query(`select count(*)::int n from public.lead_events where unit_id=$1`, [unit])).rows[0].n, 0);
-  // A car the customer already answered, or an old one, has no undo.
-  const answered = (await db.query(`insert into public.units(environment,journey_id,vehicle_text,presented_at,status,created_by,last_customer_response_at) values('preview',$1,'2021 Honda Civic',now(),'PRESENTED',$2,now()) returning id`, [id(10), ACTOR])).rows[0].id;
-  await assert.rejects(db.query(`select public.panel_unit_present_undo('preview',$1,$2,'RESPONDIDO',null,null,null)`, [answered, ACTOR]), /UNIT_HAS_RESPONSE/);
-  const old = (await db.query(`insert into public.units(environment,journey_id,vehicle_text,presented_at,status,created_by,created_at) values('preview',$1,'2019 Honda Accord',now(),'PRESENTED',$2,now()-interval '2 hours') returning id`, [id(10), ACTOR])).rows[0].id;
-  await assert.rejects(db.query(`select public.panel_unit_present_undo('preview',$1,$2,'RESPONDIDO',null,null,null)`, [old, ACTOR]), /UNDO_EXPIRED/);
 });
 
 test('ligar pedido à ficha → desfazer tira a Ref, devolve os vínculos da calculadora e a sugestão volta a pendente', async () => {
