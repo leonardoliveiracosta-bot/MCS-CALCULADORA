@@ -79,18 +79,22 @@
   // The facts every rule below reads. summary: panel_journey_message_facts (or summaryFromMessages).
   // orders: calculator orders of the person (newest simulation first). vitrine: {version, at} when the
   // person is a new number that arrived through someone's V1/V2 link.
-  function factsFor({ summary = null, messages = null, orders = [], journey = null, disposition = null, dispositionAt = null, offTopic = null, vitrine = null, situation = null } = {}) {
+  function factsFor({ summary = null, messages = null, orders = [], journey = null, disposition = null, dispositionAt = null, offTopic = null, vitrine = null, situation = null, calcProof = null } = {}) {
     const s = summary || summaryFromMessages(messages || []);
     const simulations = (orders || []).filter(Boolean).flatMap((order) => order.simulations && order.simulations.length ? order.simulations : [order])
       .slice().sort((a, b) => stamp(b.occurredAt) - stamp(a.occurredAt));
     const calcModes = [...new Set(simulations.map((item) => item.logicalMode).concat((orders || []).flatMap((order) => (order && order.logicalModes) || [])).filter((mode) => mode === 'CARRO' || mode === 'VALOR'))];
     // The type of the most recent simulation decides the calculator area (one person, one place).
+    // A Ref proven by the client's calculator message (panel-ref-proof) is a calculator order even
+    // when the simulation is missing from calc_runs; the message says which calculator it was.
+    const proofModes = calcProof && calcProof.hasCalcRef ? (calcProof.messageModes || []).filter((mode) => mode === 'CARRO' || mode === 'VALOR') : [];
+    proofModes.forEach((mode) => { if (!calcModes.includes(mode)) calcModes.push(mode); });
     const calcMode = (simulations.find((item) => item.logicalMode === 'CARRO' || item.logicalMode === 'VALOR') || {}).logicalMode || (calcModes.length === 1 ? calcModes[0] : null);
     const calcChannel = simulations.map((item) => String(item.contactChannel || item.channel || '').toUpperCase()).find((value) => /SMS|WHATSAPP/.test(value)) || null;
     const off = journey && (journey.enabled === false || journey.status === 'ENCERRADO');
     return {
-      hasCalculator: simulations.length > 0 || calcModes.length > 0,
-      calcModes, calcMode, calcAt: simulations[0] ? simulations[0].occurredAt || null : null, calcChannel: calcChannel ? (calcChannel.includes('SMS') ? 'SMS' : 'WHATSAPP') : null,
+      hasCalculator: simulations.length > 0 || calcModes.length > 0 || Boolean(calcProof && calcProof.hasCalcRef),
+      calcModes, calcMode, calcAt: simulations[0] ? simulations[0].occurredAt || null : calcProof && calcProof.messageAt || null, calcChannel: calcChannel ? (calcChannel.includes('SMS') ? 'SMS' : 'WHATSAPP') : null,
       source: journey ? journey.source || null : null,
       financing: isFinancing(s.first_customer_text),
       firstCustomerAt: s.first_customer_at || null,
@@ -118,8 +122,9 @@
     const direct = viaVitrine || (f.firstCustomerAt && (!f.hasCalculator || f.financing || DIRECT_SOURCES.has(String(f.source || '').toUpperCase()))
       ? { group: 'MENSAGEM', sub: f.firstChannel || (String(f.source || '').toUpperCase() === 'SMS_DIRECT' ? 'SMS' : 'WHATSAPP'), at: stamp(f.firstCustomerAt) } : null);
     const calc = f.hasCalculator ? { group: 'CALCULADORA', sub: f.firstChannel || f.calcChannel || 'WHATSAPP', at: stamp(f.calcAt) } : null;
-    // b) both exist: the most recent origin wins.
-    let chosen = calc && direct ? (direct.at > calc.at ? direct : calc) : calc || direct;
+    // A proven calculator Ref keeps the case in Calculadora: a later WhatsApp or SMS message is only
+    // the channel and never changes the origin (a later vitrine link is another origin and still wins).
+    let chosen = calc ? (viaVitrine && viaVitrine.at > calc.at ? viaVitrine : calc) : direct;
     if (!chosen) chosen = { group: 'MENSAGEM', sub: String(f.source || '').toUpperCase() === 'SMS_DIRECT' ? 'SMS' : 'WHATSAPP', at: 0 };
     const group = ORIGINS[chosen.group];
     const financing = chosen.group === 'MENSAGEM' && Boolean(f.financing);

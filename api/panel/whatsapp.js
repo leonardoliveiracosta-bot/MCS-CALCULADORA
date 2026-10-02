@@ -1,6 +1,7 @@
 'use strict';
 const crypto=require('node:crypto');
-const {allRows,isUuid,jsonBody,patchRows,requirePanel,rows,send,supabase}=require('../../panel-server');
+const {allRows,insert,isUuid,jsonBody,patchRows,requirePanel,rows,send,supabase}=require('../../panel-server');
+const refProof=require('../../panel-ref-proof');
 const {normalizedItems,processItem,processRaw,resolveItemError,saveItemError}=require('../../whatsapp-receiver');
 const {recoverStalledEvents,reprocessItemError,resolveStoredItemErrors}=require('../../whatsapp-maintenance');
 const {activeRows:activeTriage}=require('../../panel-triage');
@@ -29,7 +30,21 @@ module.exports=async(req,res)=>{
       const contactOfChat=new Map(triageChats.map((chat)=>[chat.id,chat.contact_id]));
       const decisionsByContact=new Map();triage.forEach((row)=>{const contactId=contactOfChat.get(row.chat_id);if(!contactId)return;if(!decisionsByContact.has(contactId))decisionsByContact.set(contactId,[]);decisionsByContact.get(contactId).push(row.decision);});
       const outOfFunnel=(contactId)=>{const decisions=decisionsByContact.get(contactId)||[];return decisions.length>0&&decisions.every((decision)=>decision==='FORA_DO_FUNIL');};
-      const commercialSuggestions=suggestions.filter((item)=>!outOfFunnel(item.source_contact_id));
+      // A suggestion by similarity (name, car, time) that points to another Ref than the one the client
+      // wrote in the calculator message is wrong by rule: it is turned down automatically, recorded,
+      // and can be brought back ("suggestion_restore"). Nothing is linked or merged by this.
+      const allChats=[...new Set(suggestions.filter((item)=>item.target_ref&&isUuid(item.source_chat_id)).map((item)=>item.source_chat_id))];
+      const allTexts=allChats.length?await allRows(ctx,'messages',{select:'chat_id,body_text',environment:'eq.'+ctx.environment,direction:'eq.CUSTOMER',chat_id:'in.('+allChats.join(',')+')'}).catch(()=>[]):[];
+      const writtenByChat=new Map();allTexts.forEach((row)=>{const refs=refProof.explicitRefs(row.body_text);if(!refs.length)return;if(!writtenByChat.has(row.chat_id))writtenByChat.set(row.chat_id,new Set());refs.forEach((ref)=>writtenByChat.get(row.chat_id).add(ref));});
+      const contradicted=suggestions.filter((item)=>refProof.contradicts(item,[...(writtenByChat.get(item.source_chat_id)||[])]));
+      for(const item of contradicted){
+        const written=[...writtenByChat.get(item.source_chat_id)];
+        const undo={rule:'EXPLICIT_REF',writtenRefs:written,suggestedRef:item.target_ref,previousStatus:'PENDING',at:new Date().toISOString()};
+        const changed=await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,id:'eq.'+item.id,status:'eq.PENDING'},{status:'REJECTED',resolved_at:new Date().toISOString(),undo_json:undo},true).catch(()=>[]);
+        if(changed&&changed.length)await insert(ctx,'audit_log',{environment:ctx.environment,actor_user_id:null,entity_type:'whatsapp_link_suggestion',entity_id:item.id,action:'AUTO_REJECT_EXPLICIT_REF',before_json:{status:'PENDING',target_ref:item.target_ref},after_json:undo},false).catch(()=>null);
+      }
+      const contradictedIds=new Set(contradicted.map((item)=>item.id));
+      const commercialSuggestions=suggestions.filter((item)=>!contradictedIds.has(item.id)&&!outOfFunnel(item.source_contact_id));
       const contactIds=[...new Set(suggestions.flatMap((item)=>[item.source_contact_id,item.target_contact_id]).filter(Boolean).concat(phoneReviews.flatMap((item)=>(item.candidate_contact_ids||[]).filter(Boolean))))];
       const contacts=contactIds.length?await rows(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment,id:'in.('+contactIds.join(',')+')'}):[];
       const names=new Map(contacts.map(x=>[x.id,x.display_name]));
@@ -82,6 +97,14 @@ module.exports=async(req,res)=>{
       const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_resolve_suggestion_undoable',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_id:body.id,p_actor:ctx.panel.id,p_link:body.link})});
       return send(res,200,result);
+    }
+    // Brings back a suggestion turned down by the explicit-Ref rule (only those, never a manual decision).
+    if(body.action==='suggestion_restore'){
+      if(!isUuid(body.id))return send(res,400,{error:'SUGGESTION_INVALID'});
+      const restored=await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,id:'eq.'+body.id,status:'eq.REJECTED','undo_json->>rule':'eq.EXPLICIT_REF'},{status:'PENDING',resolved_at:null,resolved_by:null,undo_json:{rule:'EXPLICIT_REF_RESTORED',restoredBy:ctx.panel.id,at:new Date().toISOString()}},true);
+      if(!restored.length)return send(res,409,{error:'SUGGESTION_NOT_RESTORABLE'});
+      await insert(ctx,'audit_log',{environment:ctx.environment,actor_user_id:ctx.panel.id,entity_type:'whatsapp_link_suggestion',entity_id:body.id,action:'RESTORE_EXPLICIT_REF_REJECT',before_json:{status:'REJECTED'},after_json:{status:'PENDING'}},false).catch(()=>null);
+      return send(res,200,{restored:true});
     }
     if(body.action==='suggestion_undo'){
       if(!isUuid(body.id))return send(res,400,{error:'SUGGESTION_INVALID'});

@@ -12,6 +12,7 @@ const { allRows, rows, rpc } = require('./panel-server');
 const { clean, consolidateCalcRuns, fold, normalizeDeadline, time, wishlistsForJourney } = require('./panel-domain');
 const { loadSearchStageIndex } = require('./panel-search-stage');
 const groups = require('./panel-groups');
+const refProof = require('./panel-ref-proof');
 const { loadVitrineOrigins } = require('./panel-vitrine-origin');
 const { batchSupported, latestActiveUpload } = require('./panel-manheim-state');
 
@@ -211,6 +212,8 @@ function waitingOn({ closed, conversation, hasCalculator }) {
 const UNLINKED = Object.freeze({
   // Simulated or only clicked WhatsApp/SMS: no message from the client is linked to the order.
   AWAITING: { label: 'Aguardando contato do cliente', detail: 'Simulou ou só clicou em WhatsApp/SMS: nenhuma mensagem do cliente ligada a este pedido.', blocker: 'O cliente ainda não entrou em contato: nenhuma mensagem ligada ao pedido e a calculadora não guarda telefone.', action: 'Se a conversa do cliente chegou sem a Ref, ligar o pedido à ficha (ENTRADA › Ligar a um lead); se não, aguardar o contato', owner: { who: 'CLIENTE', label: 'Cliente', text: 'Aguardando o cliente mandar mensagem.' } },
+  // A conversation exists and its link to this order is not confirmed yet (a pending link suggestion).
+  PENDING_LINK: { label: 'Vínculo pendente', detail: 'Há uma conversa que pode ser deste pedido; o vínculo ainda não foi confirmado.', blocker: 'Vínculo pendente: a conversa ainda não foi confirmada como deste pedido.', action: 'Conferir a sugestão de vínculo e ligar o pedido à ficha certa', owner: { who: 'MCS', label: 'MCS', text: 'A MCS precisa confirmar a qual conversa este pedido pertence.' } },
   AMBIGUOUS: { label: 'Ref ligada a mais de uma ficha', detail: 'A mesma Ref está em mais de uma ficha.', blocker: 'A Ref está ligada a mais de uma ficha: o painel não escolhe uma.', action: 'Conferir a qual ficha esta Ref pertence', owner: { who: 'MCS', label: 'MCS', text: 'A MCS precisa decidir a qual ficha a Ref pertence.' } }
 });
 // The search criteria alone (complete or what is missing), apart from where the case stands.
@@ -394,16 +397,20 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       const version = latestVersion.get(row.id) || {};
       return { id: row.id, chatId: row.chat_id, criteria: version.criteria_json || {}, evidence: version.evidence_json || {}, needsReview: Boolean(version.needs_review), reviewReason: version.review_reason || null, missing: version.missing_fields || [], at: version.created_at || row.updated_at || null };
     }).filter((row) => Object.keys(row.criteria).length) : [];
-    const fields = buildFields([calculatorSources(ownOrders), fichaSources(journey, contact, modes), conversationSources(ownRequests, evidenceById)]);
     const journeyMessages = links.filter((row) => row.journey_id === journey.id).map((row) => messageById.get(row.message_id)).filter(Boolean);
+    // Identity: a Ref the client wrote in the calculator message is a Ref even without calc_runs.
+    const proof = refProof.proofFor({ journey, linkedRefs: own, runRefs: refProof.runRefsOf(calcRuns),
+      explicit: journeyMessages.filter((message) => message.direction === 'CUSTOMER').flatMap((message) => refProof.explicitRefs(message.body_text).map((ref) => ({ ref, mode: refProof.messageMode(message.body_text), at: message.occurred_at_utc || message.created_at || null }))) });
+    proof.messageModes.forEach((mode) => { if (REQUIRED[mode] && !modes.includes(mode)) modes.push(mode); });
+    const fields = buildFields([calculatorSources(ownOrders), fichaSources(journey, contact, modes), conversationSources(ownRequests, evidenceById)]);
     const conversation = conversationState(journeyMessages);
-    const groupFacts = groups.factsFor({ messages: journeyMessages, orders: ownOrders, journey: { ...journey, enabled: toggles.find((row) => row.journey_id === journey.id)?.enabled, switchedAt: toggles.find((row) => row.journey_id === journey.id)?.switched_at || null },
+    const groupFacts = groups.factsFor({ calcProof: proof, messages: journeyMessages, orders: ownOrders, journey: { ...journey, enabled: toggles.find((row) => row.journey_id === journey.id)?.enabled, switchedAt: toggles.find((row) => row.journey_id === journey.id)?.switched_at || null },
       vitrine: vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey.id, contactId: journey.contact_id }) : null });
     const grouped = groups.classify(groupFacts);
     const closed = journey.status === 'ENCERRADO';
     const toggle = toggles.find((row) => row.journey_id === journey.id);
     const off = !closed && Boolean(toggle && toggle.enabled === false);
-    const owner = waitingOn({ closed, conversation, hasCalculator: ownOrders.length > 0 });
+    const owner = waitingOn({ closed, conversation, hasCalculator: ownOrders.length > 0 || proof.hasCalcRef });
     const searches = stage && stage.modes && Object.keys(stage.modes).length
       ? Object.values(stage.modes).map((item) => ({ mode: item.mode, modeLabel: MODES[item.mode], stage: item.stage, label: SEARCH_STAGES[item.stage], at: item.at || null, cars: cars.byJourneyMode.get(journey.id + ':' + item.mode) || 0 }))
       : [];
@@ -426,9 +433,10 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     out.journeys[journey.id] = {
       key: 'journey:' + journey.id, journeyId: journey.id, contactId: journey.contact_id,
       ref: clean(journey.reference_code).toUpperCase() || own[0] || null, refs: own, sharedRefs,
+      calcRef: proof.calcRef, calcRefs: proof.calcRefs, hasCalcRef: proof.hasCalcRef, calcRefsWithoutRun: proof.calcRefsWithoutRun, internalCode: proof.internalCode,
       name: clean(contact && contact.display_name) || null,
       contact: { phones: phoneList, whatsappUsername: (userIds.find((row) => row.contact_id === journey.contact_id) || {}).username || null, location: clean(contact && contact.location_text) || null, note: phoneList.length ? null : 'Nenhum telefone salvo neste contato.' },
-      origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing, since: journey.created_at || null, calculator: ownOrders.length > 0 },
+      origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing, since: journey.created_at || null, calculator: ownOrders.length > 0 || proof.hasCalcRef },
       unattended: grouped.unattended,
       // Etapa, falta and próxima ação come from the same facts: a ficha marked "Respondido" whose customer
       // wrote again is waiting for the MCS, never shown as answered.
@@ -450,6 +458,9 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     out.contacts[contactId] = own.length === 1 ? { journeyId: own[0].id } : { journeyId: null, reason: own.length ? 'O contato tem mais de uma ficha: abra a certa pela lista de CLIENTES.' : 'O contato ainda não tem ficha.' };
   });
   const unlinkedRefs = input.refs.filter((ref) => journeysForRef(ref).length !== 1);
+  // A conversation already suggested for an unlinked Ref: the link is pending, the client did write.
+  const pendingLinks = unlinkedRefs.length ? await safe(inChunks(ctx, 'whatsapp_link_suggestions', { select: 'target_ref,source_journey_id', environment: env, status: 'eq.PENDING' }, 'target_ref', unlinkedRefs), []) : [];
+  const pendingLinkRefs = new Set(pendingLinks.map((row) => clean(row.target_ref).toUpperCase()));
   // A Ref with no ficha has no message (a calculator click is never contact, panel-contact.js).
   input.refs.forEach((ref) => {
     const owners = journeysForRef(ref);
@@ -458,7 +469,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const fields = buildFields([calculatorSources(refOrders)]);
     const modes = [...new Set(refOrders.map((order) => order.logicalMode).filter((mode) => REQUIRED[mode]))];
     // Same definition of "asked for contact" as ENTRADA (panel-contact); never a guessed ficha.
-    const code = owners.length ? 'AMBIGUOUS' : 'AWAITING';
+    const code = owners.length ? 'AMBIGUOUS' : pendingLinkRefs.has(ref) ? 'PENDING_LINK' : 'AWAITING';
     const situation = UNLINKED[code];
     const owner = situation.owner;
     const step = nextStep({ owner, fields, modes, unlinkedRef: code });

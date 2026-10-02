@@ -156,7 +156,9 @@
     const originChip = () => { const chip = e('span', 'badge origin-chip context-origin', context.origin.label); chip.title = 'De onde veio' + (context.origin.since ? ' · desde ' + day(context.origin.since) : ''); return chip; };
     if (identity) {
       add(who, 'strong', 'context-name', context.name || 'Contato sem nome');
-      if (context.ref) add(who, 'span', 'context-ref', 'Ref ' + context.ref);
+      // The calculator Ref only (a code of the ficha without proof is internal, said in the facts).
+      const shownRef = typeof context.hasCalcRef === 'boolean' ? context.calcRef : context.ref;
+      add(who, 'span', 'context-ref', shownRef ? 'Ref ' + shownRef : 'sem Ref da calculadora');
       const contactLine = add(who, 'span', 'context-contact muted');
       contactLine.textContent = (context.contact.phones || []).map(phone).join(' · ') || (context.contact.whatsappUsername ? '@' + context.contact.whatsappUsername : context.contact.note || 'Sem telefone salvo');
       who.append(originChip());
@@ -180,6 +182,9 @@
     // from whether the search criteria are complete: complete criteria never mean "free to go".
     if (context.situation) fact('Situação', context.situation.label + (context.situation.detail ? ' · ' + context.situation.detail : ''), 'is-missing');
     else fact('Etapa', context.stage.label + (context.stage.closed ? ' · encerrado' : context.stage.off ? ' · desligado' : '') + (searchText ? ' · ' + searchText : ''));
+    // A known Ref whose simulation is missing is still a Ref (never "Sem Ref"); said here, in the details.
+    if (context.calcRef && (context.calcRefsWithoutRun || []).includes(context.calcRef)) fact('Ref', `${context.calcRef} comprovada pela mensagem da calculadora · simulação não registrada`);
+    if (context.internalCode) fact('Código da ficha', `${context.internalCode} · interno, não é Ref da calculadora`);
     fact('Depende de', context.owner.label + (context.owner.since ? ' · desde ' + date(context.owner.since) : ''), OWNER_CLASS[context.owner.who]);
     const criteria = context.criteria || { complete: !(context.missing || []).length, text: (context.missing || []).length ? 'Faltam: ' + context.missing.join(', ') : 'Completos' };
     fact('Critérios da busca', criteria.text, criteria.complete ? '' : 'is-missing');

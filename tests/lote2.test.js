@@ -159,8 +159,10 @@ test('Lote 2 · HOJE: retorno vencido entra mesmo sem mensagem nas 24 h; data il
   const byPhone = await hoje({ journey: { next_action_at: hoursAgo(3), next_action_text: 'Ligar', phones: [{ phone_e164: '+13055550100', is_current: true }] } });
   assert.equal(byPhone.items.length, 1, 'ficha com telefone e sem mensagem também entra');
   assert.equal(byPhone.items[0].todayReasons[0].label, 'RETORNO VENCIDO');
+  // An unreadable date is not an overdue return; the open contact itself stays (no 24 h cut).
   const invalid = await hoje({ journey: { next_action_at: 'não é data' }, messages: older });
-  assert.equal(invalid.items.length, 0);
+  assert.equal(invalid.items.length, 1);
+  assert.deepEqual(invalid.items[0].todayReasons, []);
   // Nobody wrote and there is no phone: nothing to do with it, even with an overdue return.
   const unreachable = await hoje({ journey: { next_action_at: hoursAgo(3), next_action_text: 'Ligar' } });
   assert.equal(unreachable.items.length, 0);

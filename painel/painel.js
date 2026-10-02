@@ -1110,7 +1110,10 @@
     const response=await fetch(pendingQuery()+'&download=csv',{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('DOWNLOAD_FAILED');const blob=await response.blob(),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='pendencias-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
 
-  function hasRef(item){return Boolean(item?.ref||item?.referenceCode||item?.reference_code||(item?.refs||[]).some((entry)=>entry?.ref_code||entry));}
+  // Ref = a Ref proven by the calculator (simulation or the client's calculator message). When the
+  // server says so (hasCalcRef), a code of the ficha without that proof is only an internal code.
+  function hasRef(item){if(typeof item?.hasCalcRef==='boolean')return item.hasCalcRef;return Boolean(item?.ref||item?.referenceCode||item?.reference_code||(item?.refs||[]).some((entry)=>entry?.ref_code||entry));}
+  const calcRefOf=(item)=>typeof item?.hasCalcRef==='boolean'?(item.calcRef||null):(item?.referenceCode||item?.reference_code||item?.ref||null);
   function checklistCompleted(item){return Number(item?.checklistSummary?.completed||item?.completedChecklist||0);}
   function waitClockNode(item){
     const latest=item?.latestMessage;
@@ -1310,7 +1313,7 @@
   function clientSort(items,mode){const missing=(v)=>v===null||v===undefined||v==='';const value=(x)=>Number(x.budgetCents||x.budget_cents)||null;const hasSortAt=(x)=>Object.prototype.hasOwnProperty.call(x,'sortAt');const stamp=(x)=>hasSortAt(x)?(x.sortAt?Date.parse(x.sortAt)||null:null):(Date.parse(x.last_seen_at||x.updated_at||x.occurredAt||x.created_at||0)||0);const field=(x,kind)=>kind==='location'?(x.state||x.estado||x.contact?.location_text):kind==='vehicle'?(x.make||x.vehicleText||x.vehicle_text):value(x);return items.slice().sort((a,b)=>{if(mode==='recent'||mode==='oldest'){/* sortAt vem do servidor (ultima mensagem real); sem data vai para o fim */const sa=stamp(a),sb=stamp(b);if(sa===null)return sb===null?0:1;if(sb===null)return -1;return(sb-sa)*(mode==='recent'?1:-1);}const av=field(a,mode),bv=field(b,mode);if(missing(av))return missing(bv)?0:1;if(missing(bv))return -1;if(mode==='value_desc'||mode==='value_asc')return(av-bv)*(mode==='value_desc'?-1:1);return String(av).localeCompare(String(bv),'pt-BR');});}
 
   function identityHeader(item, options = {}) {
-    const ref = item.referenceCode || item.reference_code || item.ref || null;
+    const ref = calcRefOf(item);
     const name = item.name || item.contact && item.contact.display_name || item.contactName || (ref ? `Pedido ${ref}` : 'Pedido');
     const wrap = element('div', 'identity');
     wrap.append(element('span', 'avatar', initials(name)));
@@ -1987,12 +1990,41 @@
     const first = entry.decisions[0] || entry.requests[0] || {};
     const card = element('article', 'item-card today-card case-card case-shell');
     const head = element('div', 'item-head');
-    head.append(element('strong', 'identity-name', first.name || 'Conversa sem nome'));
+    const identity = entry.journeyId && attendIdentity.get(entry.journeyId);
+    const known = identity && identity !== 'loading' ? identity : null;
+    head.append(element('strong', 'identity-name', first.name || known?.name || 'Conversa sem nome'));
+    if (known) head.append(element('span', 'muted', known.calcRef ? `Ref ${known.calcRef}` : 'sem Ref da calculadora'));
     if (entry.journeyId) { const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', entry.journeyId); }); head.append(open); }
     card.append(head);
     if (entry.journeyId) card.append(contextSlot({ journeyId: entry.journeyId }, { withIdentity: false, unattended: false }));
     else if (first.contactId) card.append(contextSlot({ contactId: first.contactId }, { withIdentity: false, unattended: false, emptyText: 'Pedido sem ficha: abra a conversa pela busca global' }));
     return card;
+  }
+  // Identity of a case that has no HOJE item (only a decision or an incomplete request): the same
+  // proven Ref and origin as the cards, read once from the case context (only reading).
+  const attendIdentity = new Map();
+  function loadAttendIdentities(cases) {
+    const ids = [...new Set(cases.filter((entry) => !entry.item && entry.journeyId && !attendIdentity.has(entry.journeyId)).map((entry) => entry.journeyId))];
+    if (!ids.length) return;
+    ids.forEach((id) => attendIdentity.set(id, 'loading'));
+    const chunks = []; for (let index = 0; index < ids.length; index += 100) chunks.push(ids.slice(index, index + 100));
+    Promise.all(chunks.map((journeyIds) => request('/api/panel/client-context', { method: 'POST', body: JSON.stringify({ journeyIds }) }).then((result) => {
+      journeyIds.forEach((id) => { const context = result && result.journeys && result.journeys[id];
+        attendIdentity.set(id, context ? { hasCalcRef: Boolean(context.hasCalcRef), calcRef: context.calcRef || null, internalCode: context.internalCode || null, name: context.name || null,
+          origin: context.origin && context.origin.code ? { group: String(context.origin.code).split(':')[0], key: context.origin.code, label: context.origin.label, financing: Boolean(context.origin.financing) } : null,
+          at: context.conversation && context.conversation.lastAt || null } : null); });
+    }).catch(() => journeyIds.forEach((id) => attendIdentity.delete(id))))).then(() => scheduleAttendRender());
+  }
+  // What the Ref, Origem and Período filters read of a case (a card's own item, or the identity above).
+  const atMs = (value) => { const at = Date.parse(value || ''); return Number.isFinite(at) ? at : 0; };
+  const activityAt = (item) => Math.max(atMs(item?.lastCustomerAt) || 0, atMs(item?.latestMessage?.occurred_at_utc || item?.latestMessage?.created_at) || 0, atMs(item?.lastRealMessageAt) || 0, atMs(item?.occurredAt) || 0);
+  function caseFacts(entry) {
+    if (entry.item) return { known: true, hasRef: hasRef(entry.item), item: entry.item, at: activityAt(entry.item) };
+    if (!entry.journeyId) return { known: true, hasRef: false, item: null, at: 0 };
+    const identity = attendIdentity.get(entry.journeyId);
+    if (identity === 'loading' || identity === undefined) return { known: false };
+    if (!identity) return { known: true, hasRef: false, item: null, at: 0 };
+    return { known: true, hasRef: identity.hasCalcRef, item: identity.origin ? { group: { origin: identity.origin } } : null, at: atMs(identity.at) || 0, identity };
   }
   function attendChips(counts, total) {
     const root = $('attend-filters');
@@ -2018,20 +2050,30 @@
     if(!preserveAll)todayItems = items.slice();
     const all=preserveAll?todayItems:items.slice();
     const model = attendModel(all);
-    // The badge counts what depends on you, from the same model as the chips and the list; when a
-    // decision list did not load, the number would be too low, so it is marked as not updated.
+    // The badge counts what depends on you (all cases, whatever filter is on screen); when a decision
+    // list did not load, the number would be too low, so it is marked as not updated.
     if (attendData.entry && attendData.triage && attendData.whatsapp && attendData.vitrine) setCount('today', model.counts.depende);
     else setCountUnknown('today');
-    attendChips(model.counts, model.counts.todos);
+    loadAttendIdentities(model.cases);
+    // Ref, Origem and Período narrow the cases first; chips, Ref buttons and the list then count the
+    // same cases. No period by default: an open contact stays whatever its age.
+    const origin=$('today-origin')?.value||'all',period=$('today-period')?.value||'all';
+    const since=period==='all'?0:Date.now()-Number(period)*86400000;
+    const refOk=(facts)=>todayRefFilter==='all'||(facts.known&&(todayRefFilter==='with'?facts.hasRef:!facts.hasRef));
+    const originOk=(facts)=>origin==='all'||(facts.known&&(!facts.item?false:MCSGroups.matchesOrigin(facts.item,origin)));
+    const periodOk=(facts)=>!since||(facts.known&&facts.at>=since);
+    const factsOf=new Map(model.cases.map((entry)=>[entry.key,caseFacts(entry)]));
+    const narrowed=model.cases.filter((entry)=>{const facts=factsOf.get(entry.key);return originOk(facts)&&periodOk(facts);});
+    const passing=narrowed.filter((entry)=>refOk(factsOf.get(entry.key)));
+    const counts=MCSAttend.countsOf(passing);
+    attendChips(counts, counts.todos);
     if (!MCSAttend.BUCKETS.some((bucket) => bucket.key === attendBucket)) attendBucket = 'depende';
-    const inBucket = model.cases.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
-    const origin=$('today-origin')?.value||'all';
-    // Ref and origin only narrow the cases of the chosen filter (never the numbers of the chips).
-    const refOk=(entry)=>todayRefFilter==='all'||(entry.item?(todayRefFilter==='with'?hasRef(entry.item):!hasRef(entry.item)):todayRefFilter==='without');
-    const originOk=(entry)=>!entry.item||MCSGroups.matchesOrigin(entry.item,origin);
-    const refCounts={all:inBucket.length,with:inBucket.filter((entry)=>entry.item&&hasRef(entry.item)).length,without:inBucket.filter((entry)=>!entry.item||!hasRef(entry.item)).length};
+    const bucketAll = model.cases.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
+    const bucketNarrowed = narrowed.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
+    const refCounts={all:bucketNarrowed.length,with:bucketNarrowed.filter((entry)=>{const facts=factsOf.get(entry.key);return facts.known&&facts.hasRef;}).length,without:bucketNarrowed.filter((entry)=>{const facts=factsOf.get(entry.key);return facts.known&&!facts.hasRef;}).length};
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);const count=button.querySelector('span');if(count)count.textContent=String(refCounts[button.dataset.todayRef]||0);});
-    const shown=inBucket.filter((entry)=>refOk(entry)&&originOk(entry));
+    const shown=passing.filter((entry)=>MCSAttend.inBucket(entry, attendBucket));
+    const inBucket=bucketAll;
     const base=shown.filter((entry)=>entry.item).map((entry)=>entry.item);
     // Every number is a button that shows its list, and says its complement (same cases as the list).
     const STAT_FILTERS={awaiting:(item)=>item.awaitingReply,hot:(item)=>item.heat==='HOT',missing:(item)=>item.searchStage==='MISSING',sent:(item)=>item.searchStage==='SENT'};
@@ -2044,7 +2086,7 @@
       stats.append(block);
     };
     stat('awaiting', 'Aguardando sua resposta', (rest)=>`${rest} casos com a última mensagem sua ou sem conversa`);
-    stat(null, 'Casos neste filtro', ()=>`${inBucket.length-shown.length} fora de Ref/Origem`);
+    stat(null, 'Casos neste filtro', ()=>`${inBucket.length-shown.length} fora de Ref/Origem/Período`);
     if (base.some((item) => item.heat)) stat('hot', 'Quentes', (rest)=>`${rest} mornos, frios ou sem calor`);
     if (base.some((item) => item.searchStage)) {
       stat('missing', 'Busca não salva no Manheim', (rest)=>`${rest} com busca salva ou sem busca`);
@@ -2054,7 +2096,7 @@
     if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({awaiting:'Aguardando sua resposta',hot:'Quentes',missing:'Busca não salva no Manheim',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
     const offCount=model.counts.fora;
     if (!visible.length) {
-      root.append(element('p','empty-state', todayStatFilter||origin!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));
+      root.append(element('p','empty-state', todayStatFilter||origin!=='all'||period!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));
       if(offCount)root.append(element('p','muted',`${offCount} caso(s) fora do assunto estão na seção Fora do assunto, abaixo`));
       return;
     }
@@ -4717,6 +4759,7 @@
     $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(currentView==='clients')loadClients();refreshCounters().catch(()=>{});});
     // Origem: the same options in HOJE, ENTRADA and CLIENTES (filled before the saved choice is restored).
     ['today-origin','clients-origin'].forEach((id)=>MCSContactGroups.fillOriginSelect($(id)));
+    $('today-period')?.addEventListener('change',()=>{if(currentView==='today')renderToday(todayItems,true);});
     ['today-origin'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='today')renderToday(todayItems,true);});});
     ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')loadClients();});});
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});

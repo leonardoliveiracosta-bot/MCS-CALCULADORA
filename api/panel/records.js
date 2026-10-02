@@ -17,6 +17,7 @@ const { manheimView } = require('../../panel-buscas-view');
 const { activeFilter, batchSupported, latestActiveUpload } = require('../../panel-manheim-state');
 const { outOfFunnelIndex } = require('../../panel-triage');
 const groups = require('../../panel-groups');
+const refProof = require('../../panel-ref-proof');
 const { loadTopic } = require('../../panel-topic');
 
 // Cars of the latest live batch per person, counted by the database (never the cars themselves).
@@ -88,7 +89,9 @@ async function clientList(ctx, activeBatch) {
     allRows(ctx, 'conversation_pending_resolutions', { select: 'journey_id,chat_id,resolved_message_id', environment: env, undone_at: 'is.null' })
   ]);
   // Triagem: conversa fora do funil comercial não entra em CLIENTES (continua na busca global).
-  const triageOut=await outOfFunnelIndex(ctx,items,refs);
+  const [triageOut, explicitByJourney]=await Promise.all([outOfFunnelIndex(ctx,items,refs),refProof.loadExplicit(ctx,rpc).catch(()=>null)]);
+  // Identity: Refs proven by the calculator (calc_runs or the client's calculator message).
+  const runRefs=refProof.runRefsOf(calcRuns);
   // Fora do assunto (leitura da triagem ou correção sua) e quem veio pela vitrine; sem tabela, ninguém.
   const [topic, vitrineOrigins] = await Promise.all([loadTopic(ctx).catch(()=>null), loadVitrineOrigins(ctx).catch(()=>null)]);
   const now=Date.now();
@@ -132,10 +135,14 @@ async function clientList(ctx, activeBatch) {
     if(chat){const insight=insightByChat.get(item.id+'|'+chat.chat_id)||null,resolution=resolutionByChat.get(item.id+'|'+chat.chat_id)||null,latest={id:chat.message_id,direction:chat.direction,occurred_at_utc:chat.at};
       const situation=fixedSituation({contact:complete.contact||{},journey:item,enabled:complete.enabled,switchedAt:state?.switched_at||null,latest},insight,now);const fresh=insight&&insight.last_ai_message_id===chat.message_id;
       pending={chatId:chat.chat_id,situation,resolved:Boolean(resolution&&resolution.resolved_message_id===chat.message_id),summary:fresh?insight.summary_text||'':'',nextStep:fresh?insight.next_step_text||'':'',translation:fresh?insight.translation_text||'':'',latestAt:chat.at,daysStalled:Math.max(0,Math.floor((now-(time(chat.at)||now))/86400000))};}
-    const offTopic=topic?topic.journey(item.id,{hasCalculator:ownOrders.length>0}):null;
+    const proof=refProof.proofFor({journey:item,linkedRefs:refs.filter((ref)=>ref.journey_id===item.id).map((ref)=>ref.ref_code),runRefs,explicit:explicitByJourney?explicitByJourney.get(item.id)||[]:[]});
+    // A Ref proven only by the calculator message keeps the origin Calculadora (channels do not replace it).
+    if(proof.hasCalcRef&&!originInfo.origins.includes('CALCULADORA'))originInfo.origins.unshift('CALCULADORA');
+    if(proof.hasCalcRef&&!ownOrders.length){const types=proof.messageModes.map((mode)=>mode==='CARRO'?'BUSCA':mode==='VALOR'?'SIMULACAO':null).filter(Boolean);originInfo.calculatorTypes=types;}
+    const offTopic=topic?topic.journey(item.id,{hasCalculator:ownOrders.length>0||proof.hasCalcRef}):null;
     const vitrine=vitrineOrigins?vitrineOrigins.forPerson({journeyId:item.id,contactId:item.contact_id}):null;
-    const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey:{...item,enabled:complete.enabled,switchedAt:state?.switched_at||null},disposition:disposition?.status||null,dispositionAt:disposition?.updated_at||null,offTopic,vitrine,situation:pending.situation||null}),now);
-    return [decorateContact({ ...complete, ...ready, ...originInfo, ...pending, group, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:summary.last_customer_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip, item.id)) },facts,insightByJourney.get(item.id),complete)];
+    const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey:{...item,enabled:complete.enabled,switchedAt:state?.switched_at||null},disposition:disposition?.status||null,dispositionAt:disposition?.updated_at||null,offTopic,vitrine,situation:pending.situation||null,calcProof:proof}),now);
+    return [decorateContact({ ...complete, ...ready, ...originInfo, ...pending, group, calcRefs:proof.calcRefs, calcRef:proof.calcRef, hasCalcRef:proof.hasCalcRef, calcRefsWithoutRun:proof.calcRefsWithoutRun, internalCode:proof.internalCode, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), checklistSummary:checklistSummary(checklistByJourney.get(item.id)||[]), isLead:complete.contact?.is_lead!==false, lastRealMessageAt:lastRealAt, sortAt:lastRealAt||order?.occurredAt||null, latestMcsMessage,lastCustomerAt:summary.last_customer_at||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, promiseToday: ready.promiseToday || (complete.enabled !== false && newPromiseToday(leadPromises, String(item.reference_code || '').trim(), scoring.zip, item.id)) },facts,insightByJourney.get(item.id),complete)];
   });
   return { listed, meta };
 }
@@ -150,7 +157,8 @@ function clientsPage(listed, query = {}, now = Date.now()) {
   const period = q('period', 'all'), situation = q('situation'), checklist = q('checklist'), ref = q('ref'), heat = q('heat'), origin = q('origin'), type = q('type'), overdue24 = q('overdue24', 'false') === 'true';
   const leads = listed.filter((item) => item.isLead !== false);
   const inPeriod = (item) => insidePeriod(item, period, now);
-  const hasRef = (item) => Boolean(item.reference_code || (item.refs || []).length);
+  // Ref = a Ref proven by the calculator; an internal code of the ficha is not a Ref.
+  const hasRef = (item) => typeof item.hasCalcRef === 'boolean' ? item.hasCalcRef : Boolean(item.reference_code || (item.refs || []).length);
   const completed = (item) => Number(item.checklistSummary?.completed || 0);
   const late = (item) => { const latest = item.latestMessage; return Boolean(latest && !latest.is_automatic && latest.direction === 'CUSTOMER' && now - (time(latest.occurred_at_utc) || now) > 86400000); };
   // Every filter except the situation one (the bar counts by situation inside the rest).
@@ -248,6 +256,9 @@ module.exports = async (req, res) => {
     const toggle = toggleStates[0];
     const enabled = toggleEnabled(journey.status, toggle);
     const facts = contactIndex({ calcRuns: filteredRuns, messages: messages.filter((message)=>!message.undone_at), messageLinks: links.map((link) => ({ journey_id: journey.id, message_id: link.message_id })) }).facts({ journeyId: journey.id, ref: journey.reference_code, refs: refs.map((row) => row.ref_code) });
+    // Identity: the Ref the client wrote in the calculator message is a Ref even without calc_runs.
+    const explicit=conversation.filter((message)=>message.direction==='CUSTOMER').flatMap((message)=>refProof.explicitRefs(message.body_text).map((ref)=>({ref,mode:refProof.messageMode(message.body_text),at:message.occurred_at_utc||message.created_at||null})));
+    const proof=refProof.proofFor({journey,linkedRefs:refs.map((row)=>row.ref_code),runRefs:refProof.runRefsOf(filteredRuns),explicit});
     // A8: the most recent disposition of the person (ficha or any linked Ref) wins.
     const disposition=dispositionIndex(dispositions)(journey.id,[...refSet]);
     const refDisposition=disposition&&disposition.item_kind==='REF'?disposition:null;
@@ -258,7 +269,8 @@ module.exports = async (req, res) => {
         shortDeadline: shortDeadline(journey.customer_deadline_at), promises, units,
         returns: buildReturns(journey, promises), interactions: interactions.filter((item)=>!item.undone_at), divergences, declarations, attachments: attachments.filter((item)=>!item.undone_at), conversation, timeline,
         calculatorRequests, senderAliases: senderAliases.filter((alias) => conversation.some((message) => message.chat_id === alias.chat_id)),
-        manheimMatchCount: manheim.byJourney.get(id) || 0, manheimUploadAt: manheim.upload && manheim.upload.uploaded_at || null, contactChannel: facts.channel, enteredContact: facts.entered
+        manheimMatchCount: manheim.byJourney.get(id) || 0, manheimUploadAt: manheim.upload && manheim.upload.uploaded_at || null, contactChannel: facts.channel, enteredContact: facts.entered,
+        calcRefs: proof.calcRefs, calcRef: proof.calcRef, hasCalcRef: proof.hasCalcRef, calcRefsWithoutRun: proof.calcRefsWithoutRun, internalCode: proof.internalCode
       },
       meta
     });
