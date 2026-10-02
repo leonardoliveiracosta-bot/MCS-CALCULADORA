@@ -59,22 +59,29 @@ test('card UI preserves the missing-phone and missing-SMS paths',()=>{
   assert.match(client,/Não chegou SMS/);
 });
 
-test('SMS print reads count on their own daily quota, never on the conversation routine quota',async()=>{
+test('SMS print reads count on their own daily counter (no cap) and reserve the Claude prepaid balance first',async()=>{
   const {readPrint}=require('../panel-sms-print');
   const ctx={environment:'preview',config:{url:'https://banco.test',secretKey:'segredo-simulado'}};
   const png=Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]);
   const saved={fetch:globalThis.fetch,key:process.env.ANTHROPIC_API_KEY,model:process.env.ANTHROPIC_MODEL};
   process.env.ANTHROPIC_API_KEY='chave-simulada';process.env.ANTHROPIC_MODEL='modelo-simulado';
-  const calls=[];let allowed=true;
-  globalThis.fetch=async(url)=>{calls.push(String(url));return new Response(JSON.stringify({allowed,count:1}),{status:200,headers:{'content-type':'application/json'}});};
-  const anthropic=async()=>new Response(JSON.stringify({content:[{type:'text',text:'{"phone":"+13055550100","name":"Ana","ref":"","message":"Oi","translation":""}'}]}),{status:200});
+  const calls=[];let held=true;
+  const answer=(payload)=>new Response(JSON.stringify(payload),{status:200,headers:{'content-type':'application/json'}});
+  globalThis.fetch=async(url)=>{const path=String(url);calls.push(path);
+    if(path.endsWith('panel_anthropic_budget_hold'))return answer(held?{held:true,id:'reserva-1'}:{held:false,reason:'SALDO_INSUFICIENTE'});
+    if(path.endsWith('panel_anthropic_budget_settle'))return answer({settled:true});
+    return answer({allowed:true,count:1});};
+  let anthropicCalls=0;
+  const anthropic=async()=>{anthropicCalls++;return new Response(JSON.stringify({content:[{type:'text',text:'{"phone":"+13055550100","name":"Ana","ref":"","message":"Oi","translation":""}'}],usage:{input_tokens:900,output_tokens:40}}),{status:200});};
   try{
     const read=await readPrint(ctx,png,'image/png',anthropic);
     assert.equal(read.phone,'+13055550100');
-    assert.deepEqual(calls,['https://banco.test/rest/v1/rpc/panel_sms_print_reserve_read']);
-    allowed=false;
-    await assert.rejects(readPrint(ctx,png,'image/png',anthropic),/SMS_PRINT_DAILY_LIMIT/);
+    assert.deepEqual(calls.map((url)=>url.replace('https://banco.test/rest/v1/rpc/','')),['panel_sms_print_reserve_read','panel_anthropic_budget_hold','panel_anthropic_budget_settle']);
     assert.ok(!calls.some((url)=>url.includes('panel_ai_reserve_call')));
+    // Without prepaid balance left the provider is never called.
+    held=false;calls.length=0;
+    await assert.rejects(readPrint(ctx,png,'image/png',anthropic),/AI_UNAVAILABLE/);
+    assert.equal(anthropicCalls,1);
   }finally{globalThis.fetch=saved.fetch;for(const [k,v] of [['ANTHROPIC_API_KEY',saved.key],['ANTHROPIC_MODEL',saved.model]]){if(v===undefined)delete process.env[k];else process.env[k]=v;}}
 });
 

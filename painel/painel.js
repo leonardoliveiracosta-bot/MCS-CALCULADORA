@@ -18,8 +18,9 @@
   let chatAliases = [];
   let todayItems = [];
   let vitrineRequestCount = 0;
-  let clientsData = { items: [], pending: { items: [], counts: {} } };
+  let clientsData = { items: [], counts: {}, pending: {} };
   let todayRefFilter = localStorage.getItem('mcs_today_ref_filter') || 'all';
+  let todayStatFilter = null;
   let clientsOverdue24=false;
   let pendingSituation = 'all';
   let pendingContinueTimer = null;
@@ -113,7 +114,7 @@
   const PAYMENT_LABELS = Object.freeze({ cash: 'À vista', fin: 'Financiado', financing: 'Financiado' });
   // Same words as the client summary (panel-client-context.js); the stored code never changes.
   const DEADLINE_LABELS = Object.freeze({ none: 'Sem prazo definido', now: 'Imediatamente', '30d': 'Até 30 dias', '3m': '30 a 90 dias', '3mo': '30 a 90 dias', '90d': '30 a 90 dias', '6m': 'Até 6 meses', '12m': 'Até 12 meses' });
-  const SOURCE_LABELS = Object.freeze({ CALCULATOR: 'Calculadora', WHATSAPP_DIRECT: 'WhatsApp direto', SMS_DIRECT: 'SMS direto', MANUAL: 'Manual' });
+  const SOURCE_LABELS = Object.freeze({ CALCULATOR: 'Veio pela calculadora', WHATSAPP_DIRECT: 'Veio por mensagem · Via WhatsApp', SMS_DIRECT: 'Veio por mensagem · Via SMS', MANUAL: 'Manual' });
   const displayPayment = (value) => PAYMENT_LABELS[String(value || '').toLowerCase()] || value || 'Não informado';
   // An empty deadline is unknown, never "sem prazo".
   const displayDeadline = (value) => DEADLINE_LABELS[String(value || '').trim().toLowerCase()] || value || 'Não informado';
@@ -598,48 +599,73 @@
     return item;
   }
 
-  function renderQueue(items, reviews) {
-    items=clientSort(items,$('entry-sort')?.value||'recent');
-    const root = $('entry-queue');
-    root.replaceChildren();
-    printReviews.forEach((print) => root.append(printReviewCard(print)));
-    failedPrints.forEach((print) => root.append(failedPrintCard(print)));
-    if (!items.length && !reviews.length) {
-      if (printReviews.length || failedPrints.length) return;
-      const empty = document.createElement('p');
-      empty.className = 'muted';
-      empty.textContent = 'Nenhuma conversa importada';
-      root.append(empty);
-      return;
-    }
-    const reviewControls=(item,target,kind)=>{
-      const controls=element('div','entry-review-actions');
-      const select=element('select','');
-      select.setAttribute('aria-label','Lead para ligar');
-      select.append(new Option('Escolha um lead', ''));
-      journeys.filter((journey)=>journey.linkable!==false).forEach((journey)=>select.append(new Option(`${journey.contact?.display_name||journey.vehicle_text||'Lead'}${journey.reference_code?` · ${journey.reference_code}`:''}`,journey.id)));
-      const run=(button,action,successText)=>MCSAction.bind(button,()=>({
-        scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,
-        optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},
-        commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action,kind,id:target.id,journeyId:select.value||null})}),
-        rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},
-        successText,
-        undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},
-        refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'
-      }));
-      const link=element('button','small','Ligar a um lead');link.type='button';
-      MCSAction.bind(link,()=>{
-        if(!select.value)return{scope:item,commit:()=>Promise.reject(new Error('JOURNEY_REQUIRED')),errorText:'Escolha um lead antes de ligar'};
-        return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},successText:'Conversa ligada ao lead',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'};
-      });
-      const create=element('button','quiet small','Criar lead novo');create.type='button';run(create,'review_create','Lead criado e conversa ligada');
-      const dismiss=element('button','quiet small','Dispensar (não é cliente)');dismiss.type='button';run(dismiss,'review_dismiss','Conversa dispensada');
-      controls.append(select,link,create,dismiss);
-      return controls;
-    };
-    items.forEach((chat) => {
+  // Errors, files and prints are not contacts: they live in IMPORTAÇÕES, never in the contact groups.
+  function renderImportsReview(reviews) {
+    const queue = $('imports-review-queue');
+    if (!queue) return;
+    queue.replaceChildren();
+    printReviews.forEach((print) => queue.append(printReviewCard(print)));
+    failedPrints.forEach((print) => queue.append(failedPrintCard(print)));
+    (reviews || []).forEach((review) => {
       const item = document.createElement('article');
       item.className = 'queue-item';
+      const title = document.createElement('strong');
+      title.textContent = review.source_filename || 'Arquivo sem nome';
+      const note = document.createElement('span');
+      note.className = 'badge';
+      note.textContent = 'revisão, formato não suportado, manter em revisão';
+      item.append(title, note, entryReviewControls(item, review, 'review'));
+      queue.append(item);
+    });
+    paintImportsCount();
+  }
+  function paintImportsCount() {
+    // The tab badge counts files and prints waiting for review (the same number the counters compute);
+    // WhatsApp processing errors are listed here too, with their own retry, outside the badge.
+    const pending = $('imports-review-queue')?.childElementCount || 0;
+    $('imports-review-empty')?.classList.toggle('hidden', pending + ($('whatsapp-errors')?.childElementCount || 0) > 0);
+    setCount('imports', pending);
+  }
+  // Link / create / dismiss controls for a conversation or a file waiting for review (ENTRADA and IMPORTAÇÕES).
+  function entryReviewControls(item,target,kind){
+    // Files are counted in IMPORTAÇÕES, conversations in ENTRADA.
+    const badge=kind==='review'?'imports':'entry';
+    const controls=element('div','entry-review-actions');
+    const select=element('select','');
+    select.setAttribute('aria-label','Lead para ligar');
+    select.append(new Option('Escolha um lead', ''));
+    journeys.filter((journey)=>journey.linkable!==false).forEach((journey)=>select.append(new Option(`${journey.contact?.display_name||journey.vehicle_text||'Lead'}${journey.reference_code?` · ${journey.reference_code}`:''}`,journey.id)));
+    const run=(button,action,successText)=>MCSAction.bind(button,()=>({
+      scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,
+      optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue(badge);setCount(badge,Math.max(0,before-1));return before;},
+      commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action,kind,id:target.id,journeyId:select.value||null})}),
+      rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount(badge,before);},
+      successText,
+      undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},
+      refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'
+    }));
+    const link=element('button','small','Ligar a um lead');link.type='button';
+    MCSAction.bind(link,()=>{
+      if(!select.value)return{scope:item,commit:()=>Promise.reject(new Error('JOURNEY_REQUIRED')),errorText:'Escolha um lead antes de ligar'};
+      return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue(badge);setCount(badge,Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount(badge,before);},successText:'Conversa ligada ao lead',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'};
+    });
+    const create=element('button','quiet small','Criar lead novo');create.type='button';run(create,'review_create','Lead criado e conversa ligada');
+    const dismiss=element('button','quiet small','Dispensar (não é cliente)');dismiss.type='button';run(dismiss,'review_dismiss','Conversa dispensada');
+    controls.append(select,link,create,dismiss);
+    return controls;
+  }
+  function renderQueue(items, reviews) {
+    // The origin filter only narrows the list (the other filters and the groups stay as they are).
+    items=clientSort(items.filter((chat)=>MCSGroups.matchesOrigin(chat,$('entry-origin')?.value||'all')),$('entry-sort')?.value||'recent');
+    const root = $('entry-queue');
+    root.replaceChildren();
+    renderImportsReview(reviews);
+    if (!items.length) { root.append(element('p', 'muted', 'Nenhuma conversa importada')); return; }
+    // One section per group (não atendidos, atendidos); "fora do assunto" has its own section in ENTRADA.
+    const queueCard = (chat) => {
+      const item = document.createElement('article');
+      item.className = 'queue-item';
+      item.append(MCSContactGroups.decisionNode(chat));
       const header = document.createElement('header');
       const title = document.createElement('strong');
       title.textContent = chat.contact && chat.contact.display_name ? chat.contact.display_name : chat.canonical_key;
@@ -647,12 +673,14 @@
       badge.className = 'badge';
       badge.textContent = chat.is_group ? 'revisão, grupo' : chat.resolution_status === 'RESOLVED' ? 'lida' : chat.resolution_status === 'UNIDENTIFIED' ? 'não identificada' : 'revisão';
       header.append(title, badge);
+      const originChip = MCSContactGroups.originChip(chat); if (originChip) header.append(originChip);
       const count = document.createElement('span');
       count.className = 'muted';
       count.textContent = `${chat.newMessageCount} mensagem(ns) nova(s) na última importação`;
       item.append(header, count);
+      const lastMessage = MCSContactGroups.lastMessageNode(chat, UUID_RE.test(String(chat.groupJourneyId || '')) ? chat.groupJourneyId : null); if (lastMessage) item.append(lastMessage);
       // The contact's case, only when the contact has exactly one ficha (never guessed).
-      const chatContact=chat.contact_id||chat.contact?.id;if(UUID_RE.test(String(chatContact||'')))item.append(contextSlot({contactId:chatContact},{withIdentity:false}));
+      const chatContact=chat.contact_id||chat.contact?.id;if(UUID_RE.test(String(chatContact||'')))item.append(contextSlot({contactId:chatContact},{withIdentity:false,unattended:false}));
       if (chat.hasTimeUncertain) {
         const uncertain = document.createElement('span');
         uncertain.className = 'badge';
@@ -667,21 +695,16 @@
         MCSAction.bind(keep,()=>({scope:item,optimistic:()=>{const before=badge.textContent;badge.textContent='revisão';return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'resolve',chatId:chat.id,resolution:'review'})}),rollback:(before)=>{badge.textContent=before;},refresh:()=>loadQueue(),errorText:'Não consegui salvar, tente de novo'}));
         item.append(keep);
       }
-      if(chat.resolution_status!=='RESOLVED'||chat.hasTimeUncertain)item.append(reviewControls(item,chat,'chat'));
-      root.append(item);
-    });
-    reviews.forEach((review) => {
-      const item = document.createElement('article');
-      item.className = 'queue-item';
-      const title = document.createElement('strong');
-      title.textContent = review.source_filename || 'Arquivo sem nome';
-      const note = document.createElement('span');
-      note.className = 'badge';
-      note.textContent = 'revisão, formato não suportado, manter em revisão';
-      item.append(title, note,reviewControls(item,review,'review'));
-      root.append(item);
-    });
+      if(chat.resolution_status!=='RESOLVED'||chat.hasTimeUncertain)item.append(entryReviewControls(item,chat,'chat'));
+      const topic=MCSContactGroups.topicButton(chat,{request,refresh:()=>Promise.all([loadQueue(),loadTriage()]),chatId:chat.id});if(topic)item.append(topic);
+      if(chat.lastCustomerMessage&&UUID_RE.test(String(chat.groupJourneyId||''))){const tools=MCSContactGroups.replyTools(chat.groupJourneyId,{request,onSent:()=>loadQueue()});if(tools)item.append(tools);}
+      return item;
+    };
+    const offTopicCount = items.filter((chat) => MCSContactGroups.groupOf(chat).key === 'FORA_DO_ASSUNTO').length;
+    if (items.length) MCSContactGroups.render(root, items, queueCard, { skip: ['FORA_DO_ASSUNTO'], emptyText: 'Nenhuma conversa no fluxo principal' });
+    if (offTopicCount) root.append(element('p', 'muted', `${offTopicCount} conversa(s) fora do assunto estão na seção Fora do assunto, acima`));
     hydrateContexts(root);
+    MCSContactGroups.hydrateTranslations(root, { request }).catch(() => {});
   }
 
   function refreshSmsJourneys() {
@@ -717,20 +740,35 @@
     if(item.journeyId){const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));actions.append(open);}
     row.append(actions);return row;
   }
+  // Adendo: conversations that never discussed cars, in their own folded section. Nothing is
+  // deleted; "É sobre carro" brings one back to the main flow and the correction stays stored.
+  function renderOffTopic(list,refresh){
+    const root=$('topic-out-list');if(!root)return;root.replaceChildren();$('topic-out-count').textContent=String(list.length);
+    if(!list.length){root.append(element('p','muted','Nenhuma conversa fora do assunto'));return;}
+    list.forEach((item)=>{const row=element('div','queue-item topic-item');row.dataset.chatId=item.chatId;row.append(MCSContactGroups.decisionNode(item));const head=element('div','triage-head');head.append(element('strong','',item.name),makeBadge(item.source==='MANUAL'?'Correção sua':'Leitura da IA',item.source==='MANUAL'?'blue':''));row.append(head);
+      if(item.reason&&item.source!=='MANUAL')row.append(element('p','muted triage-reason',item.reason));
+      const last=MCSContactGroups.lastMessageNode(item,UUID_RE.test(String(item.journeyId||''))?item.journeyId:null);if(last)row.append(last);
+      const actions=element('div','inline-actions');const back=MCSContactGroups.topicButton(item,{request,refresh,chatId:item.chatId});if(back)actions.append(back);
+      if(UUID_RE.test(String(item.journeyId||''))){const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));actions.append(open);}
+      row.append(actions);root.append(row);});
+    $('topic-out')?.addEventListener('toggle',()=>MCSContactGroups.hydrateTranslations(root,{request}).catch(()=>{}),{once:true});
+  }
   async function loadTriage(){
     const data=await request('/api/panel/triage').catch(()=>null);
     const review=$('triage-review'),out=$('triage-out-list');review.replaceChildren();out.replaceChildren();
-    if(!data){$('triage-state').textContent='';$('triage-out-count').textContent='0';triageReviewCount=0;renderEntryCount();return {review:[],out:[]};}
+    if(!data){$('triage-state').textContent='';$('triage-out-count').textContent='0';triageReviewCount=0;renderEntryCount();renderOffTopic([],()=>{});return {review:[],out:[]};}
     triageReviewCount=(data.review||[]).length;renderEntryCount();
     const refresh=()=>Promise.all([loadTriage(),loadWhatsApp()]).then(()=>refreshCounters().catch(()=>{}));
-    (data.review||[]).forEach((item)=>review.append(triageCard(item,refresh)));
+    const reviewItems=(data.review||[]).filter((item)=>MCSGroups.matchesOrigin(item,$('entry-origin')?.value||'all'));
+    MCSContactGroups.render(review,reviewItems,(item)=>{const card=triageCard(item,refresh);card.prepend(MCSContactGroups.decisionNode(item));return card;},{emptyText:''});if(!reviewItems.length)review.replaceChildren();
+    renderOffTopic(data.offTopic||[],refresh);
     (data.out||[]).forEach((item)=>out.append(triageCard(item,refresh)));
     hydrateContexts(review);$('triage-out')?.addEventListener('toggle',()=>hydrateContexts(out),{once:true});
     if(!(data.out||[]).length)out.append(element('p','muted','Nenhuma conversa fora do funil'));
     $('triage-out-count').textContent=String((data.out||[]).length);
     $('triage-state').textContent=data.state==='LIGADA'?'':'Triagem automática desligada: as conversas novas seguem o fluxo normal';
     $('triage-run-pending').classList.toggle('hidden',data.state!=='LIGADA');
-    $('entry-needs-empty').classList.toggle('hidden',Boolean($('whatsapp-errors').childElementCount||$('whatsapp-suggestions').childElementCount||review.childElementCount));
+    $('entry-needs-empty').classList.toggle('hidden',Boolean($('whatsapp-suggestions').childElementCount||review.childElementCount));
     return data;
   }
 
@@ -759,21 +797,28 @@
     const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
     (data.suggestions || []).forEach((item) => {
       const row = element('div', 'queue-item');
-      row.append(element('strong', '', item.target_ref?`Esta conversa do WhatsApp (${item.phone_e164}) parece ser Ref ${item.target_ref}`:`Esta conversa do WhatsApp (${item.phone_e164}) parece ser a ficha ${item.targetName || 'sem nome'} — ${item.sourceName || 'novo contato'}`));
+      // "É a Ref X" when the customer wrote the Ref; "parece ser" only when there is real doubt.
+      row.append(element('strong', '', item.target_ref?(item.refConfirmed?`Esta conversa do WhatsApp (${item.phone_e164}) é a Ref ${item.target_ref}`:`Esta conversa do WhatsApp (${item.phone_e164}) parece ser Ref ${item.target_ref}`):`Esta conversa do WhatsApp (${item.phone_e164}) parece ser a ficha ${item.targetName || 'sem nome'} — ${item.sourceName || 'novo contato'}`));
       if(item.motives)row.append(element('span','muted',`Motivos: ${item.motives}`));
       // What the suggested target already has, so "Ligar" is decided with the case in view.
       row.append(element('span','muted context-caption','Caso sugerido:'),contextSlot({journeyId:UUID_RE.test(String(item.target_journey_id||''))?item.target_journey_id:null,ref:REF_CODE_RE.test(String(item.target_ref||''))?item.target_ref:null},{withIdentity:true,emptyText:'O caso sugerido não está salvo com ficha ou Ref.'}));
       if (UUID_RE.test(String(item.source_journey_id || ''))) { const decide = element('button', 'quiet small', 'Decidir na ficha'); decide.type = 'button'; decide.addEventListener('click', () => openDetail('ficha', item.source_journey_id)); row.append(decide); }
-      for (const [label, link] of [['Ligar ao pedido', true], ['Não é', false]]) {
+      for (const [label, link] of [['Ligar pedido à ficha', true], ['Não é', false]]) {
         const action = element('button', link ? 'small' : 'quiet small', label); action.type = 'button';
-        MCSAction.bind(action,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'suggestion',id:item.id,link})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));
+        const reload = () => Promise.all([loadWhatsApp(), loadQueue()]);
+        MCSAction.bind(action,()=>({scope:row,successScope:document.body,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'suggestion',id:item.id,link})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},
+          successText:link?(item.target_ref?`Ref ${item.target_ref} ligada à ficha`:'Conversa ligada à ficha'):'Sugestão recusada',
+          // Linking a Ref can be undone right away (the server keeps the state before); the other paths cannot.
+          undo:(result)=>link&&result&&result.undoable?{commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'suggestion_undo',id:item.id})}),successText:'Ligação desfeita · a sugestão voltou',refresh:reload}:null,
+          refresh:reload,errorText:'Não consegui salvar, tente de novo'}));
         row.append(action);
       }
-      const notLead=element('button','quiet small',item.sourceIsLead===false?'Restaurar lead':'Não é lead');notLead.type='button';MCSAction.bind(notLead,()=>{const before=item.sourceIsLead!==false;return{scope:row,optimistic:()=>{item.sourceIsLead=!before;notLead.textContent=item.sourceIsLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:!before})}),rollback:(value)=>{item.sourceIsLead=value;notLead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'};});row.append(notLead);
+      const notLead=element('button','quiet small',item.sourceIsLead===false?'Restaurar lead':'Não é lead');notLead.type='button';MCSAction.bind(notLead,()=>{const before=item.sourceIsLead!==false;return{scope:row,optimistic:()=>{item.sourceIsLead=!before;notLead.textContent=item.sourceIsLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:!before})}),successScope:document.body,successText:before?'Marcado como não é lead':'Restaurado como lead',undo:{commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:item.source_contact_id,isLead:before})}),successText:'Desfeito',refresh:()=>Promise.all([loadWhatsApp(),loadQueue()])},rollback:(value)=>{item.sourceIsLead=value;notLead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'};});row.append(notLead);
       suggestions.append(row);
     });
-    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';MCSAction.bind(choose,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=candidate.isLead!==false;return{scope:row,optimistic:()=>{candidate.isLead=!before;lead.textContent=candidate.isLead?'Não é lead':'Restaurar';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:!before})}),rollback:(value)=>{candidate.isLead=value;lead.textContent=value?'Não é lead':'Restaurar';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'};});group.append(choose,lead);row.append(group);});suggestions.append(row);});
-    $('entry-needs-empty').classList.toggle('hidden', Boolean(errors.childElementCount || suggestions.childElementCount || $('triage-review').childElementCount));
+    (data.phoneReviews||[]).forEach((item)=>{const row=element('div','queue-item');row.append(element('strong','',`O telefone ${item.phone_e164} está em mais de um contato. Escolha o correto:`));(item.candidates||[]).forEach((candidate)=>{const group=element('span','inline-actions');const choose=element('button','small',candidate.name);choose.type='button';MCSAction.bind(choose,()=>({scope:row,optimistic:()=>{row.classList.add('action-optimistic-hidden');},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'phone_review',id:item.id,contactId:candidate.id})}),rollback:()=>{row.classList.remove('action-optimistic-hidden');},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));const lead=element('button','quiet small',candidate.isLead===false?'Restaurar':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=candidate.isLead!==false;return{scope:row,optimistic:()=>{candidate.isLead=!before;lead.textContent=candidate.isLead?'Não é lead':'Restaurar';return before;},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:!before})}),successScope:document.body,successText:before?'Marcado como não é lead':'Restaurado como lead',undo:{commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'contact_lead',contactId:candidate.id,isLead:before})}),successText:'Desfeito',refresh:()=>Promise.all([loadWhatsApp(),loadQueue()])},rollback:(value)=>{candidate.isLead=value;lead.textContent=value?'Não é lead':'Restaurar';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'};});group.append(choose,lead);row.append(group);});suggestions.append(row);});
+    $('entry-needs-empty').classList.toggle('hidden', Boolean(suggestions.childElementCount || $('triage-review').childElementCount));
+    paintImportsCount();
     hydrateContexts(suggestions);
   }
 
@@ -902,9 +947,11 @@
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
     failedPrints = data.failedPrints || [];
-    entryQueueCount = chats.filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + printReviews.length + failedPrints.length;
+    // ENTRADA counts conversations only; errors, files and prints are counted in IMPORTAÇÕES.
+    entryQueueCount = chats.filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length;
     renderEntryCount();
     if (render) renderQueue(chats.filter((chat) => !chat.triageOut), data.reviews || []);
+    else renderImportsReview(data.reviews || []);
     return data;
   }
 
@@ -960,6 +1007,36 @@
     $('data-updated').textContent = formatDate(meta.dataUpdatedAt);
     const whatsappAt=meta.lastWhatsAppMessageAt||meta.lastWhatsAppImportAt;
     $('last-whatsapp-import').textContent = whatsappAt ? formatDate(whatsappAt) : 'nenhuma';
+    paintAiBudget(meta.ai);
+  }
+  // The prepaid balance of each AI (OpenAI and Claude), no internal ceiling. The header warns at
+  // 20% left or when the provider said there is no balance; the details show the spend per feature
+  // and take the balance seen in the provider's console. Never blocks the screen.
+  const AI_PROVIDERS=[['openai','OPENAI','OpenAI'],['anthropic','ANTHROPIC','Claude']];
+  function paintAiBudget(ai){
+    const box=$('ai-budget');if(!box||!ai)return;box.classList.remove('hidden');
+    const usd=(value)=>'US$ '+Number(value||0).toFixed(2);
+    const line=(name,state)=>!state?`${name}: —`:state.exhausted?`${name}: sem saldo`:state.sinceStart?`${name}: ${usd(state.spentUsd)} usados de ${usd(state.balanceUsd)}`:state.informed?`${name}: restam ${usd(state.remainingUsd)} de ${usd(state.balanceUsd)}`:`${name}: saldo não informado`;
+    $('ai-budget-spent').textContent=AI_PROVIDERS.map(([key,,name])=>line(name,ai[key])).join(' · ');
+    const warn=AI_PROVIDERS.filter(([key])=>ai[key]&&(ai[key].warn||ai[key].exhausted));box.classList.toggle('ai-budget-warn',warn.length>0);
+    const warning=$('ai-budget-warning');warning.classList.toggle('hidden',!warn.length);
+    warning.textContent=warn.map(([key,,name])=>ai[key].exhausted?`${name} sem saldo pré-pago: as funções dela param sozinhas até você informar um novo saldo · O painel continua funcionando`:ai[key].sinceStart?`Aviso: ${name} já usou ${usd(ai[key].spentUsd)} dos ${usd(ai[key].balanceUsd)} pré-pagos (aviso a partir de ${usd(ai[key].warnAtUsd)}) · Restam ${usd(ai[key].remainingUsd)}`:`${name}: restam ${usd(ai[key].remainingUsd)} (20% ou menos do saldo) · Recarregue no console do provedor e informe o novo saldo aqui`).join(' · ');
+    if(!box.dataset.bound){box.dataset.bound='1';box.addEventListener('toggle',()=>{if(box.open)loadAiBudgetDetails().catch(()=>{});});}
+  }
+  async function loadAiBudgetDetails(){
+    const usd=(value)=>'US$ '+Number(value||0).toFixed(2);
+    const list=$('ai-budget-features');list.replaceChildren(element('li','muted','Carregando o saldo e o gasto por função…'));
+    let data;try{data=await request('/api/panel/ai-budget');}catch(_){list.replaceChildren(element('li','error','Não consegui ler o saldo agora'));return;}
+    list.replaceChildren();
+    AI_PROVIDERS.forEach(([key,provider,name])=>{const state=data[key]||{};const item=element('li','ai-budget-provider');item.dataset.provider=provider;
+      item.append(element('strong','',name),element('p','muted',state.sinceStart?`Crédito pré-pago ${usd(state.balanceUsd)} · usado desde o começo ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)} · aviso a partir de ${usd(state.warnAtUsd)} · teto único: todas as funções usam o mesmo crédito, sem limite por função`:state.informed?`Saldo informado ${usd(state.balanceUsd)}${state.setAt?' em '+formatDate(state.setAt):''} · gasto desde então ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)}`:`Saldo não informado · gasto dos últimos 30 dias ${usd(state.spentUsd)} · sem saldo informado, o limite é o próprio pré-pago do provedor`));
+      if(state.exhausted)item.append(element('p','error','O provedor respondeu sem saldo: as funções dele estão paradas até um novo saldo'));
+      const features=element('ul','ai-budget-features-list');(state.features||[]).forEach((feature)=>features.append(element('li','',`${feature.label}: ${usd(feature.spentUsd)}`)));if((state.features||[]).length)item.append(features);
+      const form=element('div','inline-actions ai-budget-form');const input=element('input','');input.type='number';input.min='0';input.step='0.01';input.inputMode='decimal';input.placeholder=state.sinceStart?'Novo total carregado (US$)':'Saldo no console (US$)';input.setAttribute('aria-label',state.sinceStart?`Total de crédito pré-pago já carregado na ${name}, em dólares`:`Saldo pré-pago atual da ${name} em dólares`);
+      const save=element('button','small',state.sinceStart?'Informar novo total':'Informar saldo');save.type='button';
+      MCSAction.bind(save,()=>{const value=Number(String(input.value).replace(',','.'));if(!(value>=0))return{scope:item,commit:()=>Promise.reject(new Error('AI_BALANCE_INVALID')),errorText:'Digite o saldo em dólares'};
+        return{scope:item,successScope:item,commit:()=>request('/api/panel/ai-budget',{method:'POST',body:JSON.stringify({provider,balanceUsd:value})}),successText:`Saldo da ${name} informado: ${usd(value)}`,refresh:()=>Promise.all([loadAiBudgetDetails(),refreshCounters().catch(()=>{})]),errorText:'Não consegui salvar o saldo (só o dono pode informar)'};});
+      form.append(input,save);item.append(form,element('p','muted','Recarga só no console do provedor · Deixe a recarga automática desligada lá'));list.append(item);});
   }
 
   function pendingQuery() {
@@ -976,40 +1053,26 @@
   function pendingTone(value) { return {NO_RESPONSE:'red',MCS_PENDING:'yellow',CUSTOMER_PENDING:'yellow',IN_PROGRESS:'green',CLOSED:''}[value]||''; }
   function pendingHeatLabel(value) { return {HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'}[value]||'❄️ Frio'; }
   function renderPendingGeneral(data, rootId='pending-general-card') {
-    const root=$(rootId),run=data.run||{},active=run.status==='ACTIVE',paused=run.status==='PAUSED',limited=run.status==='LIMIT';
+    const root=$(rootId),run=data.run||{},active=run.status==='ACTIVE',paused=run.status==='PAUSED'||run.status==='LIMIT';
     root.replaceChildren();
     root.append(element('h2','', 'Leitura geral de todas as conversas'));
     if(!data.historyReady) {
       root.append(element('p','muted',`Aguardando o histórico terminar de chegar (última parte há ${pendingAgo(data.lastHistoryAt)})`));
       const button=element('button','quiet small','Fazer leitura geral');button.type='button';button.disabled=true;root.append(button);return;
     }
-    const total=Number(run.total_conversations||0),completed=Number(run.completed_conversations||0),spent=Number(run.spent_usd||0),budget=Number(run.budget_usd||20);
+    const total=Number(run.total_conversations||0),completed=Number(run.completed_conversations||0),spent=Number(run.spent_usd||0);
     if(run.status==='IDLE'||!run.status){
       root.append(element('p','muted','Lê todas as conversas, das mais recentes às mais antigas, inclusive conversas longas em partes'));
       const start=element('button','small','Fazer leitura geral');start.type='button';MCSAction.bind(start,()=>({scope:root,commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'start_general'})}),onSuccess:()=>continuePendingGeneral(),errorText:'IA indisponível, tente de novo'}));root.append(start);return;
     }
-    const status=limited?'limite atingido':paused?'pausada':run.status==='COMPLETED'?'concluída':'em andamento';
+    const status=paused?'pausada':run.status==='COMPLETED'?'concluída':'em andamento';
     root.append(element('p','',`Leitura geral ${status}`));
-    if (paused && run.last_error) root.append(element('p','error',run.last_error==='IA_UNAVAILABLE'?'IA indisponível · O painel continua disponível para uso manual':'A leitura foi pausada; tente continuar novamente'));
+    if (paused && run.last_error) root.append(element('p','error',run.last_error==='IA_SEM_SALDO'?'Claude sem saldo pré-pago · Recarregue no console e informe o novo saldo no topo do painel; depois clique em Continuar':run.last_error==='IA_UNAVAILABLE'?'IA indisponível · O painel continua disponível para uso manual':'A leitura foi pausada; tente continuar novamente'));
     const bar=element('div','pending-bar'),fill=element('i');fill.style.width=`${total?Math.min(100,completed/total*100):100}%`;bar.append(fill);root.append(bar);
-    root.append(element('p','muted',`${completed} de ${total} conversas lidas · gasto US$ ${spent.toFixed(2)} de US$ ${budget.toFixed(2)} · conversas longas são lidas em partes, até o fim`));
+    root.append(element('p','muted',`${completed} de ${total} conversas lidas · gasto US$ ${spent.toFixed(2)} · sem teto próprio: usa o saldo pré-pago do Claude · conversas longas são lidas em partes, até o fim`));
     const actions=element('div','inline-actions');
     if(active){const pause=element('button','quiet small','Pausar');pause.type='button';MCSAction.bind(pause,()=>({scope:root,optimistic:()=>{pause.textContent='Pausando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})}),rollback:()=>{pause.textContent='Pausar';},onSuccess:()=>currentView==='clients'?loadClients():loadPending(),errorText:'Não consegui salvar, tente de novo'}));actions.append(pause);}
     if(paused){const resume=element('button','small','Continuar');resume.type='button';MCSAction.bind(resume,()=>({scope:root,optimistic:()=>{resume.textContent='Continuando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resume_general'})}),rollback:()=>{resume.textContent='Continuar';},onSuccess:()=>continuePendingGeneral(),errorText:'Não consegui salvar, tente de novo'}));actions.append(resume);}
-    if(limited){
-      root.append(element('p','warning',`${completed} de ${total} lidas — faltam ${Math.max(0,total-completed)}.`));
-      const more=element('button','small','Liberar mais US$ 10');more.type='button';
-      more.addEventListener('click',()=>{
-        more.disabled=true;
-        const question=element('span','muted','Liberar mais US$ 10 para concluir a leitura geral?');
-        const cancel=element('button','quiet small','Cancelar');cancel.type='button';
-        const approve=element('button','small','Confirmar liberação');approve.type='button';
-        const confirmation=element('div','inline-actions');confirmation.append(question,cancel,approve);
-        cancel.addEventListener('click',()=>{confirmation.remove();more.disabled=false;});
-        MCSAction.bind(approve,()=>({scope:confirmation,optimistic:()=>{cancel.disabled=true;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'increase_budget',confirm:true})}),rollback:()=>{cancel.disabled=false;},onSuccess:()=>{confirmation.remove();continuePendingGeneral();},errorText:'Não consegui salvar, tente de novo'}));
-        root.append(confirmation);
-      });actions.append(more);
-    }
     root.append(actions);
   }
   function renderPending(data) {
@@ -1071,39 +1134,100 @@
 
   // CLIENTES filters in one place (list and CSV). Lote 4: Origem, Tipo and Última atividade
   // come from PEDIDOS, which is now part of CLIENTES.
-  function clientFilterMatch(item){
-    const situation=$('clients-situation').value,checklist=$('clients-checklist').value,ref=$('clients-ref').value,heat=$('clients-heat').value;
-    return (situation==='all'||item.situation===situation)&&(checklist==='all'||(checklist==='complete'?checklistCompleted(item)===6:checklistCompleted(item)<6))&&(ref==='all'||(ref==='with'?hasRef(item):!hasRef(item)))&&(heat==='all'||String(item.heat||'').toUpperCase()===heat)
-      &&MCSOrigin.matchesClientFilters(item,{origin:$('clients-origin')?.value||'all',type:$('clients-type')?.value||'all',days:$('clients-activity')?.value||'all'});
-  }
-  // CLIENTES period (30 dias, 90 dias, 6 meses, 1 ano, Tudo): the last real activity of the ficha
-  // (message from the client or from the MCS; a calculator event is not activity). It filters the list, the badge,
-  // the counters, the spreadsheet and the report; never the conversation inside the ficha.
+  // CLIENTES: the server filters, sorts, counts and pages (50 cards at a time); the browser only
+  // paints. Every number on the screen comes from the same answer, so the tab badge, "N de M
+  // clientes", the sections and the situation bar always agree.
   const clientsPeriod=()=>$('clients-activity')?.value||'30';
-  const clientsInPeriod=(items)=>(items||[]).filter((item)=>item.isLead!==false&&MCSOrigin.insidePeriod(item,clientsPeriod()));
-  function renderClients(data){
-    clientsData=data;const pendingByJourney=new Map((data.pending.items||[]).map((item)=>[item.journeyId,item]));
-    // A9: heat and score come from the same read as every other screen (records), not from the pending summary.
-    let items=(data.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id,latestMessage:item.latestMessage||null,heat:item.heat,heatSource:item.heatSource,score:item.score}));
-    items=items.filter(clientFilterMatch);
-    if(clientsOverdue24)items=items.filter((item)=>{const latest=item.latestMessage;if(!latest||latest.is_automatic||latest.direction!=='CUSTOMER')return false;return Date.now()-Date.parse(latest.occurred_at_utc||latest.occurred_at_local||latest.created_at)>86400000;});
-    items=clientSort(items,$('clients-sort').value);if($('clients-sort').value==='hot')items.sort((a,b)=>({HOT:0,WARM:1,COLD:2}[a.heat]??3)-({HOT:0,WARM:1,COLD:2}[b.heat]??3));
-    renderPendingGeneral(data.pending,'clients-general-card');const stats=$('clients-stats');stats.replaceChildren();const periodLeads=clientsInPeriod((data.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id})));const situationCount=(key)=>periodLeads.filter((item)=>item.situation===key).length;[['NO_RESPONSE','Sem resposta'],['MCS_PENDING','Parado com você'],['CUSTOMER_PENDING','Parado com o cliente'],['IN_PROGRESS','Em andamento'],['CLOSED','Concluída']].forEach(([key,label])=>{const stat=element('div','pending-stat');stat.append(element('strong','',String(situationCount(key))),element('span','muted',label));stats.append(stat);});
-    const allLeads=(data.items||[]).filter((item)=>item.isLead!==false).length;$('clients-period-note').textContent=clientsPeriod()==='all'?`Período: tudo, sem corte por data · ${allLeads} clientes`:`Período: atividade real ${MCSOrigin.periodLabel(clientsPeriod())} · ${periodLeads.length} de ${allLeads} clientes`;
-    // M5: "não é lead" stays reachable (to restore it) but at the end and outside the counter.
-    items=[...items.filter((item)=>item.isLead!==false),...items.filter((item)=>item.isLead===false)];
-    const root=$('clients-list');root.replaceChildren();setCount('clients',periodLeads.length);
-    // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
-    if(clientsOverdue24){const chip=element('button','chip active','Sem resposta há mais de 24 h ✕');chip.type='button';chip.addEventListener('click',()=>{clientsOverdue24=false;renderClients(clientsData);});root.append(chip);}
-    if(!items.length){if(clientsOverdue24)root.append(element('p','empty-state','Nenhum cliente neste filtro'));else empty(root,'Nenhum cliente neste filtro');return;}
-    items.forEach((item)=>{const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');head.append(identityHeader(item,{preview:item.latestMessage?.body_text||item.latestMessageText||''}));const badges=element('div','badges');if((item.origins||[]).includes('CALCULADORA'))badges.append(makeBadge(['Calculadora',...(item.calculatorTypes||[]).map((type)=>({BUSCA:'Busca',SIMULACAO:'Simulação'})[type]).filter(Boolean)].join(' · '),'blue'));badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)),makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));head.append(badges);card.append(head);if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`Leitura da IA (não confirmada): ${item.aiSummary||item.summary}`));card.append(contextSlot({journeyId:journeyIdOf(item)},{aiReading:false}));const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients(),true);if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
-// One primary row (open, treated/discard); the rarer decisions live under "⋯ Mais ações".
-const more=element('details','card-more');more.append(element('summary','','⋯ Mais ações'));const moreActions=element('div','inline-actions');more.append(moreActions);
-if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.append(copy);}const actions=moreActions,open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));actions.append(journeySwitch(item,()=>loadClients()));if(item.chatId){const resolved=Boolean(item.resolved),done=element('button','quiet small',resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>({scope:card,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:resolved?'unresolve':'resolve',journeyId:item.id,chatId:item.chatId})}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'}));actions.append(done);}const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(lead);const primary=element('div','inline-actions card-primary');primary.append(open,dispositionControls(item));card.append(primary,more);makeCardClickable(card,()=>openDetail('ficha',item.id));root.append(card);});hydrateContexts(root);
+  const CLIENT_SITUATIONS=[['NO_RESPONSE','Sem resposta'],['MCS_PENDING','Parado com você'],['CUSTOMER_PENDING','Parado com o cliente'],['IN_PROGRESS','Em andamento'],['CLOSED','Concluída'],['NONE','Sem conversa de WhatsApp']];
+  function clientsQuery(extra={}){
+    const params=new URLSearchParams({sort:$('clients-sort').value,period:clientsPeriod(),situation:$('clients-situation').value,checklist:$('clients-checklist').value,ref:$('clients-ref').value,heat:$('clients-heat').value,origin:$('clients-origin')?.value||'all',type:$('clients-type')?.value||'all',overdue24:String(clientsOverdue24),...extra});
+    return '/api/panel/records?'+params.toString();
   }
+  let clientsVersion=0,clientsObserver=null;
+  function clientCard(item){
+    const card=element('article',`item-card client-card heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head');
+    card.append(MCSContactGroups.decisionNode(item));
+    head.append(identityHeader(item,{preview:item.lastCustomerMessage?'':item.latestMessage?.body_text||item.latestMessageText||''}));
+    const badges=element('div','badges');const chip=MCSContactGroups.originChip(item);if(chip)badges.append(chip);
+    if(item.situation)badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)));badges.append(makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));
+    const heat=heatBadge(item);if(heat)badges.append(heat);if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
+    if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));
+    head.append(badges);card.append(head);
+    const lastMessage=MCSContactGroups.lastMessageNode(item,item.id);if(lastMessage)card.append(lastMessage);
+    if(item.lastRealMessageAt)card.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));
+    if(item.aiSummary||item.summary)card.append(element('p','pending-ai',`Leitura da IA (não confirmada): ${item.aiSummary||item.summary}`));
+    card.append(contextSlot({journeyId:journeyIdOf(item)},{aiReading:false,unattended:false}));
+    const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadClients(),true);if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
+    // One primary row (open, treated/discard); the rarer decisions live under "⋯ Mais ações".
+    const more=element('details','card-more');more.append(element('summary','','⋯ Mais ações'));const actions=element('div','inline-actions');more.append(actions);
+    if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)actions.append(copy);}
+    const open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.id));
+    actions.append(journeySwitch(item,()=>loadClients()));
+    if(item.chatId){const done=element('button','quiet small',item.resolved?'Restaurar pendência':'Já resolvi');done.type='button';MCSAction.bind(done,()=>{const resolved=Boolean(item.resolved);const body=(action)=>JSON.stringify({action,journeyId:item.id,chatId:item.chatId});return{scope:card,successScope:document.body,optimistic:()=>{done.textContent=resolved?'Restaurando…':'Salvando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:body(resolved?'unresolve':'resolve')}),rollback:()=>{done.textContent=resolved?'Restaurar pendência':'Já resolvi';},successText:resolved?'Pendência restaurada':'Marcado como resolvido',undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:body(resolved?'resolve':'unresolve')}),successText:'Desfeito',refresh:()=>loadClients()},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(done);}
+    const lead=element('button','quiet small',item.isLead===false?'Restaurar lead':'Não é lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead!==false;const save=(isLead)=>request('/api/panel/lead?id='+encodeURIComponent(item.id),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.id,isLead})});return{scope:card,successScope:document.body,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>save(!before),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},successText:before?'Marcado como não é lead':'Restaurado como lead',undo:{commit:()=>save(before),successText:'Desfeito',refresh:()=>loadClients()},refresh:()=>loadClients(),errorText:'Não consegui salvar, tente de novo'};});actions.append(lead);
+    const topic=MCSContactGroups.topicButton(item,{request,refresh:()=>loadClients(),journeyId:item.id});
+    const primary=element('div','inline-actions card-primary');primary.append(open,dispositionControls(item));
+    // "É sobre carro" stays in view on an off-topic card; "Fora do assunto" is a rarer decision (⋯).
+    if(topic){if(MCSContactGroups.groupOf(item).key==='FORA_DO_ASSUNTO')primary.append(topic);else actions.append(topic);}
+    card.append(primary,more);
+    if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(item.id,{request,onSent:()=>loadClients()});if(tools)card.append(tools);}
+    makeCardClickable(card,()=>openDetail('ficha',item.id));
+    return card;
+  }
+  // The situation bar: every number is a button that filters the list; the complement is shown.
+  function renderClientStats(counts){
+    const stats=$('clients-stats');stats.replaceChildren();const total=Object.values(counts.situations||{}).reduce((sum,value)=>sum+value,0),current=$('clients-situation').value;
+    CLIENT_SITUATIONS.forEach(([key,label])=>{const value=(counts.situations||{})[key]||0;if(key==='NONE'&&!value)return;const stat=element('button','pending-stat'+(current===key?' active':''));stat.type='button';stat.dataset.situation=key;stat.setAttribute('aria-pressed',String(current===key));
+      stat.append(element('strong','',String(value)),element('span','muted',label),element('small','muted',`${total-value} nos outros`));
+      stat.addEventListener('click',()=>{const select=$('clients-situation');const next=current===key||key==='NONE'?'all':key;select.value=next;localStorage.setItem('mcs_clients-situation',next);loadClients();});stats.append(stat);});
+  }
+  function clientSection(root,key,label,hint,count){
+    let section=root.querySelector(`[data-group="${key}"]`);if(section)return section;
+    const folded=key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD';
+    section=element(folded?'details':'section',`contact-group contact-group-${key.toLowerCase().replace(/_/g,'-')}`);section.dataset.group=key;
+    const head=element(folded?'summary':'header','contact-group-head');head.append(element('strong','contact-group-label',label),element('span','badge contact-group-count',String(count)),element('span','muted contact-group-hint',hint));section.append(head);
+    const list=root.querySelector('.clients-more');if(list)root.insertBefore(section,list);else root.append(section);return section;
+  }
+  // Inside a section, one area per search type: calculator by value, calculator by car, direct
+  // conversation with the search still incomplete, direct conversation with the search defined.
+  function clientArea(section,sectionKey,areaKey,count){
+    let area=section.querySelector(`:scope > [data-area="${areaKey}"]`);if(area)return area;
+    const spec=MCSGroups.AREAS[areaKey];area=element('section',`contact-area contact-area-${areaKey.toLowerCase().replace(/_/g,'-')}`);area.dataset.area=areaKey;area.dataset.section=sectionKey;
+    const head=element('header','contact-area-head');head.append(element('strong','contact-area-label',spec.label),element('span','badge contact-area-count',String(count)),element('span','muted contact-area-hint',spec.hint));area.append(head);section.append(area);return area;
+  }
+  function appendClients(root,data){
+    const sections=data.counts?.sections||{},areaCounts=data.counts?.areas||{};
+    // A page loaded after something changed may repeat a card already shown: it is shown once.
+    const shown=new Set([...root.querySelectorAll('.client-card[data-journey-id]')].map((card)=>card.dataset.journeyId));
+    data.items.filter((item)=>!shown.has(String(item.id))).forEach((item)=>{const key=item.isLead===false?'NAO_LEAD':(item.group?.key||'ATENDIDO');const spec=key==='NAO_LEAD'?{label:'Não é lead',hint:'Marcados como não é lead · ficam fora das contagens e podem ser restaurados'}:MCSGroups.SECTIONS[key];
+      const section=clientSection(root,key,spec.label,spec.hint,sections[key]||0);const card=clientCard(item);card.dataset.group=key;
+      const areaKey=MCSGroups.areaOf(item);card.dataset.area=areaKey;card.dataset.journeyId=String(item.id);
+      // Off-topic and "não é lead" stay as one list (no search to separate).
+      if(key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD')section.append(card);else clientArea(section,key,areaKey,(areaCounts[key]||{})[areaKey]||0).append(card);});
+    root.querySelector('.clients-more')?.remove();clientsObserver?.disconnect();
+    if(data.hasMore){const remaining=data.total-data.page*data.pageSize,more=element('button','quiet clients-more',`Mostrar mais (${remaining} restantes)`);more.type='button';more.dataset.page=String(data.page+1);
+      const next=()=>{if(more.disabled)return;more.disabled=true;more.textContent='Carregando…';loadClientsPage(data.page+1).catch(()=>{more.disabled=false;more.textContent=`Mostrar mais (${remaining} restantes)`;});};
+      more.addEventListener('click',next);root.append(more);
+      // Cards arrive in batches: the next one loads when the end of the list comes into view.
+      if(typeof IntersectionObserver==='function'){clientsObserver=new IntersectionObserver((entries)=>{if(entries.some((entry)=>entry.isIntersecting))next();},{rootMargin:'600px'});clientsObserver.observe(more);}}
+    hydrateContexts(root);MCSContactGroups.hydrateTranslations(root,{request}).catch(()=>{});
+  }
+  function renderClients(data){
+    clientsData=data;const counts=data.counts||{};
+    renderPendingGeneral(data.pending||{},'clients-general-card');renderClientStats(counts);
+    setCount('clients',counts.periodLeads||0);
+    const shown=counts.shownLeads||0,period=counts.periodLeads||0;
+    $('clients-period-note').textContent=(clientsPeriod()==='all'?`Período: tudo, sem corte por data`:`Período: atividade real ${MCSOrigin.periodLabel(clientsPeriod())}`)+` · ${shown} de ${period} clientes nesta lista · ${Math.max(0,period-shown)} fora dos filtros`+(counts.nonLeads?` · ${counts.nonLeads} não é lead (fora da contagem)`:'');
+    const root=$('clients-list');root.replaceChildren();
+    // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
+    if(clientsOverdue24){const chip=element('button','chip active','Sem resposta há mais de 24 h ✕');chip.type='button';chip.addEventListener('click',()=>{clientsOverdue24=false;loadClients();});root.append(chip);}
+    if(!data.items.length){root.append(element('p','empty-state','Nenhum cliente neste filtro'));return;}
+    appendClients(root,data);
+  }
+  async function loadClientsPage(page){const version=clientsVersion;const data=await request(clientsQuery({page:String(page)}));if(version!==clientsVersion||currentView!=='clients')return;appendClients($('clients-list'),data);}
   // Old conversations to pick up, oldest first, loaded only when the section is opened.
   function loadFollowup(){const list=$('clients-followup-list');if(!list||!window.MCSSuggest)return;MCSSuggest.queue(list,{request,open:(kind,key)=>openDetail(kind,key),contextSlot:(spec)=>contextSlot(spec),hydrate:hydrateContexts}).catch(()=>{});}
-  async function loadClients(){const [records,pending]=await Promise.all([request('/api/panel/records?sort='+encodeURIComponent($('clients-sort').value)),request('/api/panel/pendencias?situation=all&sort=hot&withRef=false&includeResolved=true')]);updateMeta(records.meta);renderClients({items:records.items||[],pending});}
+  async function loadClients(){const version=++clientsVersion;const records=await request(clientsQuery({page:'1'}));if(version!==clientsVersion)return;updateMeta(records.meta);renderClients(records);}
 
   const trend=(item)=>item?.trend==='up'?'↑':item?.trend==='down'?'↓':'→';
   const metricValue=(value)=>value===null||value===undefined?'—':String(value);
@@ -1119,11 +1243,11 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
   }
   async function loadWeekly(){const data=await request('/api/panel/weekly');renderWeekly(data);}
 
-  function downloadClientsCsv(){
-    const pendingByJourney=new Map((clientsData.pending?.items||[]).map((item)=>[item.journeyId,item]));
-    let items=(clientsData.items||[]).map((item)=>({...item,...(pendingByJourney.get(item.id)||{}),id:item.id,journeyId:item.id}));
-    // Same universe as the badge, the counters and the report: leads only ("não é lead" stays out).
-    items=items.filter((item)=>item.isLead!==false&&clientFilterMatch(item));
+  async function downloadClientsCsv(){
+    // Same universe as the badge, the counters and the report: leads only ("não é lead" stays out),
+    // with every filter on screen; the whole list is asked only now, for the file.
+    const data=await request(clientsQuery({page:'1',pageSize:'5000',export:'1'}));
+    const items=(data.items||[]).filter((item)=>item.isLead!==false);
     const csvCell=(value)=>{const raw=String(value??''),text=/^[=+\-@\t\r]/.test(raw)&&!/^[+-]?[\d\s().,-]+$/.test(raw)?"'"+raw:raw;return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;};
     const rows=[['nome','telefone','Ref','situação','checklist','calor','etapa da busca','resumo da IA'],...items.map((item)=>[item.name||item.contact?.display_name||'',primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||'',item.ref||item.referenceCode||item.reference_code||'',pendingSituationLabel(item.situation),`${checklistCompleted(item)}/6`,pendingHeatLabel(item.heat),item.searchStageLabel||'',item.aiSummary||item.summary||''])];
     const blob=new Blob(['\uFEFF'+rows.map((row)=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='clientes-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -1153,7 +1277,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
   function floridaArrival(value){if(!value)return '';const date=new Date(value),now=new Date();const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true});const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(date);const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(now);const yesterday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date(Date.now()-86400000));const prefix=day===today?'hoje':day===yesterday?'ontem':new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).format(date);return `chegou ${prefix} ${fmt.format(date)} (Flórida)`;}
   function heatBadge(item){const labels={HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'},tone={HOT:'red',WARM:'yellow',COLD:'blue'};const heat=String(item.heat||'').toUpperCase();if(!heat)return null;const badge=makeBadge(labels[heat]||labels.COLD,tone[heat]||'blue');badge.classList.add('heat-badge');return badge;}
   function contactMeta(item){const wrap=element('div','badges contact-meta');const channel=contactChannelLabel(item.contactChannel),arrival=floridaArrival(item.contactAt||item.lastCustomerAt);if(channel)wrap.append(makeBadge(channel,['WHATSAPP','WHATSAPP_HISTORY','WHATSAPP_CLICK'].includes(item.contactChannel)?'green':['SMS_CLICK','SMS'].includes(item.contactChannel)?'yellow':'blue'));if(arrival)wrap.append(makeBadge(arrival));const heat=heatBadge(item);if(heat){const details=element('details','temperature-details'),summary=element('summary','');summary.append(heat);details.append(summary,element('p','temperature-explanation',item.heatSource==='AI'?`Temperatura da IA: ${item.aiSummary||'Sem resumo.'}${item.aiNextStep?' Próximo passo: '+item.aiNextStep:''}`:'Temperatura calculada: telefone, checklist, prazo, orçamento x Manheim, conversa recente e horário.'));wrap.append(details);}return wrap.childNodes.length?wrap:null;}
-  function directLeadLabel(item){return item?.directLeadSource==='WHATSAPP_DIRECT'?'📱 veio direto pelo WhatsApp (sem calculadora)':item?.directLeadSource==='SMS_DIRECT'?'✉️ veio direto por SMS (sem calculadora)':'';}
+  function directLeadLabel(item){return item?.directLeadSource==='WHATSAPP_DIRECT'?'📱 Veio por mensagem · Via WhatsApp (sem calculadora)':item?.directLeadSource==='SMS_DIRECT'?'✉️ Veio por mensagem · Via SMS (sem calculadora)':'';}
   function directLeadBadge(item){const label=directLeadLabel(item);return label?makeBadge(label,'blue'):null;}
   /* dd/mm no horario da Florida */
   function floridaDayMonth(value){const date=new Date(value);if(Number.isNaN(date.getTime()))return '';const parts=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).formatToParts(date);const get=(type)=>parts.find((part)=>part.type===type)?.value||'';return `${get('day')}/${get('month')}`;}
@@ -1223,6 +1347,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     MCSAction.bind(toggle,()=>({scope:wrap,optimistic:()=>{toggle.textContent=enabled?'Desligando…':'Religando…';toggle.setAttribute('aria-checked',String(!enabled));},
       commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled:!enabled,reason:null})}),
       rollback:()=>{toggle.textContent=enabled?'Ligado':canReactivate?'Desligado — religar':'Desligado';toggle.setAttribute('aria-checked',String(enabled));},refresh:reload,
+      successScope:document.body,successText:enabled?'Desligado':'Religado',undo:{commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled,reason:enabled?null:item.offReason||null})}),successText:'Desfeito',refresh:reload},
       errorText:'Não consegui salvar, tente de novo'}));
     wrap.append(toggle);
     if (enabled) {
@@ -1232,7 +1357,8 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       [['MCS_PURCHASE', 'Comprou com a MCS'], ['OTHER_PURCHASE', 'Comprou em outro lugar'], ['GAVE_UP', 'Desistiu'], ['NO_RESPONSE', 'Sem resposta']].forEach(([reason, label]) => {
         const button = element('button', 'quiet small', label);
         button.type = 'button';
-        MCSAction.bind(button,()=>({scope:wrap,optimistic:()=>{button.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled:false,reason})}),rollback:()=>{button.textContent=label;},refresh:reload,errorText:'Não consegui salvar, tente de novo'}));
+        MCSAction.bind(button,()=>({scope:wrap,optimistic:()=>{button.textContent='Salvando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled:false,reason})}),rollback:()=>{button.textContent=label;},refresh:reload,
+          successScope:document.body,successText:`Desligado · ${label}`,undo:{commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'toggle_journey',journeyId:item.id,enabled:true,reason:null})}),successText:'Desfeito · religado',refresh:reload},errorText:'Não consegui salvar, tente de novo'}));
         choices.append(button);
       });
       reasons.append(choices);
@@ -1342,6 +1468,8 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       // The manual imports (SMS, WhatsApp conversation) choose among the contacts and fichas of
       // ENTRADA: loaded here too, so opening IMPORTAÇÕES directly never shows empty choices.
       loadQueue(false).catch(() => {});
+      // WhatsApp processing errors are listed in IMPORTAÇÕES too.
+      loadWhatsApp().catch(() => {});
       loadV2Photos().catch(() => {});
       const data = await request('/api/panel/records?view=manheim', viewFetch());
       if (!current()) return;
@@ -1381,7 +1509,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       sharedGet('/api/panel/today', 10000),
       sharedGet('/api/panel/entry', 10000),
       sharedGet('/api/panel/searches', 10000),
-      sharedGet('/api/panel/records', 10000),
+      sharedGet('/api/panel/records?pageSize=1&period=' + encodeURIComponent(clientsPeriod()), 10000),
       sharedGet('/api/panel/vitrine-requests', 10000),
       sharedGet('/api/panel/triage', 10000)
     ]);
@@ -1391,9 +1519,10 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     if (today && vitrineData) setCount('today', (today.items || []).length + ((vitrineData && vitrineData.requests) || []).length); else setCountUnknown('today');
     // Conversations the triage left in REVISAR also wait for a decision in ENTRADA.
     if (triageData) triageReviewCount = (triageData.review || []).length;
-    count('entry', triageData ? entry : null, (data) => { entryQueueCount = (data.chats || []).filter((chat) => !chat.triageOut && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length + (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length; return entryQueueCount + triageReviewCount; });
+    count('entry', triageData ? entry : null, (data) => { entryQueueCount = (data.chats || []).filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length; return entryQueueCount + triageReviewCount; });
+    count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length);
     // Same rule as the list: leads only, inside the CLIENTES period.
-    count('clients', records, (data) => clientsInPeriod(data.items).length);
+    count('clients', records, (data) => data.counts.periodLeads);
     // One person with a VALOR and a CARRO card is one person in the badge.
     count('searches', searches, (data) => new Set((data.items || []).map((item) => item.journeyId || item.key)).size);
     const failures = settled.filter((result) => result.status === 'rejected').map((result) => result.reason);
@@ -1755,25 +1884,36 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     if(!preserveAll)todayItems = items.slice();
     const all=preserveAll?todayItems:items.slice(),counts={all:all.length,with:all.filter(hasRef).length,without:all.filter((item)=>!hasRef(item)).length};
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);const count=button.querySelector('span');if(count)count.textContent=String(counts[button.dataset.todayRef]||0);});
-    items=all.filter((item)=>todayRefFilter==='all'||(todayRefFilter==='with'?hasRef(item):!hasRef(item))).sort((a,b)=>{const ao=a.next_action_at&&Date.parse(a.next_action_at)<Date.now()?1:0,bo=b.next_action_at&&Date.parse(b.next_action_at)<Date.now()?1:0;return bo-ao;});
+    // The origin filter only narrows (never overrides the Ref chips or the numbers below).
+    const origin=$('today-origin')?.value||'all';
+    const base=all.filter((item)=>(todayRefFilter==='all'||(todayRefFilter==='with'?hasRef(item):!hasRef(item)))&&MCSGroups.matchesOrigin(item,origin)).sort((a,b)=>{const ao=a.next_action_at&&Date.parse(a.next_action_at)<Date.now()?1:0,bo=b.next_action_at&&Date.parse(b.next_action_at)<Date.now()?1:0;return bo-ao;});
     setCount('today', all.length+vitrineRequestCount);
-    const stat = (value, label) => {
-      const block = element('div', 'today-stat');
-      block.append(element('strong', '', value), element('span', '', label));
+    // Every number is a button that shows its list, and says its complement.
+    const STAT_FILTERS={awaiting:(item)=>item.awaitingReply,hot:(item)=>item.heat==='HOT',missing:(item)=>item.searchStage==='MISSING',sent:(item)=>item.searchStage==='SENT'};
+    if(todayStatFilter&&!STAT_FILTERS[todayStatFilter])todayStatFilter=null;
+    const stat = (key, label, complement) => {
+      const value=key?base.filter(STAT_FILTERS[key]).length:base.length;
+      const block = element('button', 'today-stat'+((todayStatFilter||null)===key?' active':''));block.type='button';block.dataset.todayStat=key||'all';block.setAttribute('aria-pressed',String((todayStatFilter||null)===key));
+      block.append(element('strong', '', value), element('span', '', label), element('small', 'muted', complement(base.length-value)));
+      block.addEventListener('click',()=>{todayStatFilter=key&&todayStatFilter!==key?key:null;renderToday(todayItems,true);});
       stats.append(block);
     };
     // M8: "aguardando você" counts only people whose last real message is theirs.
-    stat(items.filter((item) => item.awaitingReply).length, 'Aguardando você');
-    stat(items.length, 'Na lista');
-    if (items.some((item) => item.heat)) stat(items.filter((item) => item.heat === 'HOT').length, 'Quentes');
-    if (items.some((item) => item.searchStage)) {
-      stat(items.filter((item) => item.searchStage === 'MISSING').length, 'Falta buscar');
-      stat(items.filter((item) => item.searchStage === 'SENT').length, 'Opções enviadas');
+    stat('awaiting', 'Aguardando você', (rest)=>`${rest} respondidos`);
+    stat(null, 'Na lista', ()=>`${all.length-base.length} fora dos filtros`);
+    if (base.some((item) => item.heat)) stat('hot', 'Quentes', (rest)=>`${rest} mornos ou frios`);
+    if (base.some((item) => item.searchStage)) {
+      stat('missing', 'Falta buscar', (rest)=>`${rest} com busca feita ou sem busca`);
+      stat('sent', 'Opções enviadas', (rest)=>`${rest} sem opções enviadas`);
     }
-    if (!items.length) return empty(root, 'Nada pendente para hoje');
-    items.forEach((item) => {
+    items=todayStatFilter?base.filter(STAT_FILTERS[todayStatFilter]):base;
+    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({awaiting:'Aguardando você',hot:'Quentes',missing:'Falta buscar',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
+    if (!items.length) { root.append(element('p','empty-state', todayStatFilter||origin!=='all'||todayRefFilter!=='all'?'Ninguém neste filtro':'Nada pendente para hoje')); return; }
+    // Adendo: one section per group (não atendidos, origem, fora do assunto); the decision first.
+    const todayCard = (item) => {
       const heat = String(item.heat || '').toUpperCase();
       const card = element('article', `item-card today-card${heat ? ` heat-${heat.toLowerCase()}` : ''}`);
+      card.append(MCSContactGroups.decisionNode(item));
       const head = element('div', 'item-head');
       if (item.kind === 'CALCULATOR_ORDER') {
         const title = element('div', 'identity');
@@ -1786,7 +1926,10 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
         head.append(identityHeader(item));
       }
       card.append(head);
+      // Without a calculator order: the latest customer message, readable without opening the conversation.
+      const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)card.append(lastMessage);
       const badges = element('div', 'badges');
+      const originChip=MCSContactGroups.originChip(item);if(originChip)badges.append(originChip);
       if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
       if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
       if (item.wantsCar) badges.append(makeBadge('QUER ESTE CARRO', 'green'));
@@ -1799,7 +1942,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       if (item.budgetCents) badges.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
       if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
       card.append(badges);
-      card.append(contextSlot({ journeyId: journeyIdOf(item), ref: refOf(item) }));
+      card.append(contextSlot({ journeyId: journeyIdOf(item), ref: refOf(item) }, { unattended: false }));
       const waiting=waitClockNode(item),receipt=readReceiptNode(item),next=nextActionNode(item,()=>loadCurrent('today',viewRequestVersion),true);if(waiting)card.append(waiting);if(receipt)card.append(receipt);if(next)card.append(next);
       if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)card.append(copy);}
       const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
@@ -1812,11 +1955,15 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       open.addEventListener('click', () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id, replying ? { anchor: 'lead-conversation' } : {}));
       if (replying && item.lastCustomerAt) { const until = Date.parse(item.lastCustomerAt) + 86400000; card.append(element('p', 'muted reply-window-estimate', until > Date.now() ? `Janela do WhatsApp aberta até ${formatDate(new Date(until).toISOString())} (estimada) · responde pelo painel` : 'Janela do WhatsApp encerrada (estimada) · responde pelo WhatsApp do celular')); }
       actions.append(open);
+      const topic=item.kind==='CALCULATOR_ORDER'?null:MCSContactGroups.topicButton(item,{request,refresh:()=>loadCurrent('today',viewRequestVersion),journeyId:journeyIdOf(item)});if(topic)actions.append(topic);
       card.append(actions, dispositionControls(item));
+      if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(journeyIdOf(item),{request,onSent:()=>loadCurrent('today',viewRequestVersion)});if(tools)card.append(tools);}
       makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
-      root.append(card);
-    });
+      return card;
+    };
+    MCSContactGroups.render(root, items, todayCard, { emptyText: 'Nada pendente para hoje' });
     hydrateContexts(root);
+    MCSContactGroups.hydrateTranslations(root, { request }).catch(() => {});
   }
 
   function renderQualification(items) {
@@ -1923,7 +2070,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
   // Why a reading is pending, in words (never a bare code).
   function auditPendingText(entry){
     const code=entry?.errorCode;
-    if(code==='OPENAI_BUDGET_LIMIT'||code==='OPENAI_BUDGET_UNAVAILABLE')return 'Sem saldo no teto de US$ 50 da OpenAI · Nada foi cobrado';
+    if(code==='OPENAI_BUDGET_LIMIT'||code==='OPENAI_BUDGET_UNAVAILABLE')return 'Sem saldo pré-pago na OpenAI para esta leitura · Nada foi cobrado';
     if(code==='AUDIT_DEADLINE')return `Tempo esgotado antes de terminar a conferência (${entry.attempts||0} ${entry.attempts===1?'tentativa':'tentativas'})`+(entry.canRetry?'':' · Sem nova tentativa: V1 bloqueada, aprove com motivo se conferir à mão');
     return 'A IA não respondeu · As opções continuam visíveis, sem aprovação automática';
   }
@@ -1949,8 +2096,8 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     const waiting=audit&&audit.state==='LIGADA'&&audit.run&&audit.run.status==='AGUARDANDO_AUTORIZACAO';
     note.classList.toggle('hidden',!waiting);if(!waiting)return;
     const cost=(value)=>'US$ '+Number(value||0).toFixed(2);
-    note.append(element('p','',`Conferência estimada em ${cost(audit.run.estimateUsd)}, acima do limite de ${cost(audit.run.limitUsd??audit.limitUsd)} deste lote. Nada foi cobrado`));
-    const authorize=element('button','small','Autorizar conferência');authorize.type='button';
+    note.append(element('p','',`Conferência estimada em ${cost(audit.run.estimateUsd)}, parada por um limite antigo deste lote (não existe mais limite por lote). Nada foi cobrado`));
+    const authorize=element('button','small','Continuar conferência');authorize.type='button';
     MCSAction.bind(authorize,()=>({scope:note,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'authorize'})}),refresh:()=>loadCurrent(),errorText:(error)=>error?.code==='AUDIT_ADMIN_ONLY'?'Só o administrador autoriza':'Não consegui autorizar, tente de novo'}));
     note.append(authorize);
   }
@@ -2378,7 +2525,8 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       if (Array.isArray(match.alsoFitsFor) && match.alsoFitsFor.length) badges.append(makeBadge(`também bate para ${match.alsoFitsFor.join(', ')}`, 'blue'));
       const presented = element('button', 'quiet small', match.presented_unit_id ? 'Apresentado' : journey.enabled === false ? 'Religue antes de apresentar' : 'Apresentei ao cliente');
       presented.type = 'button'; presented.disabled = Boolean(match.presented_unit_id) || journey.enabled === false;
-      MCSAction.bind(presented,()=>({scope:row,optimistic:()=>{presented.textContent='Apresentado';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:journey.id,manheimMatchId:match.id,status:'PRESENTED'})}),rollback:()=>{presented.textContent='Apresentei ao cliente';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar, tente de novo'}));
+      MCSAction.bind(presented,()=>({scope:row,optimistic:()=>{presented.textContent='Apresentado';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:journey.id,manheimMatchId:match.id,status:'PRESENTED'})}),rollback:()=>{presented.textContent='Apresentei ao cliente';},refresh:()=>loadCurrent(),
+        successScope:document.body,successText:'Apresentação registrada',undo:(result)=>result&&result.undo?{commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'present_undo',journeyId:journey.id,...result.undo})}),successText:'Apresentação desfeita',refresh:()=>loadCurrent()}:null,errorText:'Não consegui salvar, tente de novo'}));
       row.append(select, vehicle, badges, presented);
       return row;
     }, reactivation ? (match) => match.match_kind === 'BATE' : null);
@@ -2417,13 +2565,13 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       try{
         try{created=await create();}
         catch(error){
-          /* Not checked yet: one reading of this demand now (automatic rules and the US$ 50 ceiling on the server), then one more try. Never an approval. */
+          /* Not checked yet: one reading of this demand now (automatic rules and the OpenAI prepaid balance on the server), then one more try. Never an approval. */
           if(error?.code!=='MANHEIM_AUDIT_PENDING'||!demand?.key||!AUDIT_CHECK_FIRST.includes(auditEntry(demand)?.status))throw error;
           cardStatus.textContent='Conferindo este pedido antes do link…';
           const checked=await request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'check',key:demand.key})}).catch(()=>null);
           try{created=await create();}
           catch(again){
-            if(again?.code==='MANHEIM_AUDIT_PENDING'){cardStatus.textContent=checked?.providerLimit?'V1 bloqueada: sem saldo no teto de US$ 50 da OpenAI':checked?.inProgress?'V1 bloqueada: a conferência deste pedido já está em andamento, tente em instantes':'V1 bloqueada: a conferência não liberou este pedido · Atualize a página para ver o motivo';return;}
+            if(again?.code==='MANHEIM_AUDIT_PENDING'){cardStatus.textContent=checked?.providerLimit?'V1 bloqueada: sem saldo pré-pago na OpenAI para a conferência':checked?.inProgress?'V1 bloqueada: a conferência deste pedido já está em andamento, tente em instantes':'V1 bloqueada: a conferência não liberou este pedido · Atualize a página para ver o motivo';return;}
             throw again;
           }
         }
@@ -2546,11 +2694,50 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
           if (demand.bateCount) { renderManheimGroup(reactivate, journey, true, { ...demand, matchCount: demand.bateCount }); reactivateCount += 1; }
         } else { renderManheimGroup(standard, journey, false, demand); standardCount += 1; }
       });
-      if (standardCount) root.append(standard);
-      if (reactivateCount) root.append(reactivate);
-      if (!standardCount && !reactivateCount) empty(root, data.upload ? 'Nenhum carro compatível neste modo no lote ativo' : 'Nenhuma importação ativa');
+      // Adendo, item 2: three groups per search type, never mixed.
+      const withCars = element('section', 'search-group search-group-com-carros'); withCars.dataset.searchGroup = 'COM_CARROS';
+      const withHead = element('header', 'search-group-head'); withHead.append(element('strong', '', 'Com carros no lote'), element('span', 'badge', String(standardCount + reactivateCount)), element('span', 'muted search-group-hint', 'A busca rodou e achou carros no lote ativo'));
+      withCars.append(withHead);
+      if (standardCount) withCars.append(standard);
+      if (reactivateCount) withCars.append(reactivate);
+      if (!standardCount && !reactivateCount) withCars.append(element('p', 'empty-state', data.upload ? 'Nenhum carro compatível neste modo no lote ativo' : 'Nenhuma importação ativa'));
+      root.append(withCars);
+      const noCars = data.upload ? (data.demands || []).filter((demand) => demand.mode === mode && !(demand.matchCount > 0)) : [];
+      if (noCars.length) {
+        const section = element('section', 'search-group search-group-sem-carros'); section.dataset.searchGroup = 'SEM_CARROS';
+        const head = element('header', 'search-group-head'); head.append(element('strong', '', 'Sem carros'), element('span', 'badge', String(noCars.length)), element('span', 'muted search-group-hint', 'A busca rodou no lote ativo e não achou nenhum carro · O motivo aparece em cada pedido'));
+        section.append(head);
+        noCars.sort((a, b) => position(a) - position(b)).forEach((demand) => {
+          const line = element('article', 'item-card search-empty-card');
+          line.append(element('strong', 'identity-name', demand.name || demand.contactName || (demand.ref ? `Ref ${demand.ref}` : 'Cliente')));
+          const fields = MCSSearchGroups.fields({ searchMode: demand.mode, targets: [{ mode: demand.mode, wishes: demand.wishes || [], bidCents: demand.bidCents }] }); if (fields) line.append(fields);
+          const reason = element('p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = (demand.journeyId ? 'ficha:' : 'pedido:') + demand.key; line.append(reason);
+          if (demand.journeyId) { const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', () => openDetail('ficha', demand.journeyId)); line.append(open); }
+          section.append(line);
+        });
+        root.append(section);
+      }
+      const notRun = (data.review || []).filter((item) => item.mode === mode);
+      if (notRun.length || !data.upload) {
+        const section = element('section', 'search-group search-group-nao-rodada'); section.dataset.searchGroup = 'NAO_RODADA';
+        const count = data.upload ? notRun.length : (data.demands || []).filter((demand) => demand.mode === mode).length + notRun.length;
+        const head = element('header', 'search-group-head'); head.append(element('strong', '', 'Busca ainda não rodada'), element('span', 'badge', String(count)), element('span', 'muted search-group-hint', data.upload ? 'Faltam dados do cliente para buscar · Os pedidos estão em Revisar, com o que falta' : 'Sem lote ativo: nenhuma busca rodou ainda'));
+        section.append(head);
+        if (notRun.length) { const go = element('button', 'quiet small', `Ver o que falta (${notRun.length})`); go.type = 'button'; go.addEventListener('click', () => { const box = $('buscas-review'); if (box) { box.open = true; box.scrollIntoView({ block: 'start', behavior: 'smooth' }); } }); section.append(go); }
+        root.append(section);
+      }
       hydrateContexts(root);
+      loadOptionEmptyReasons(root);
     });
+  }
+  // Reasons of the "sem carros" demands of OPÇÕES (read only, same rule as PESQUISAS).
+  async function loadOptionEmptyReasons(root) {
+    const slots = [...root.querySelectorAll('.search-empty-reason[data-request-key]')];
+    if (!slots.length) return;
+    let reasons = {};
+    try { reasons = (await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'empty_reasons', keys: slots.map((slot) => slot.dataset.requestKey) }) })).reasons || {}; }
+    catch (_) { slots.forEach((slot) => { slot.textContent = 'Motivo: não consegui ler o lote agora · Atualize a página para tentar de novo'; }); return; }
+    slots.forEach((slot) => { const reason = reasons[slot.dataset.requestKey]; slot.textContent = 'Motivo: ' + (reason ? reason.text : 'nenhum carro do lote ativo serviu para estes critérios'); });
   }
 
   function renderBuscasCounters(counts) {
@@ -2591,6 +2778,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
   let requestsFilter = 'ALL';
   let requestsShown = 50;
   function renderRequests(data) {
+    if (requestsData !== data) emptyReasonsCache = null;
     requestsData = data;
     setCount('requests', (data.items || []).length);
     const status = $('requests-status');
@@ -2617,8 +2805,10 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     visible.forEach((item) => { if (!groups.has(item.groupKey)) groups.set(item.groupKey, []); groups.get(item.groupKey).push(item); });
     const ordered = [...groups.values()].sort((left, right) => REQUEST_STATES.indexOf(left[0].state) - REQUEST_STATES.indexOf(right[0].state)
       || String(latestOf(right)).localeCompare(String(latestOf(left))));
-    ordered.slice(0, requestsShown).forEach((members) => root.append(requestCard(members)));
+    // Adendo, item 2: three groups that never mix (com carros, sem carros, busca ainda não rodada).
+    MCSSearchGroups.render(root, ordered.slice(0, requestsShown), requestCard, (members) => members[0].state);
     hydrateContexts(root);
+    loadEmptyReasons(root);
     if (ordered.length > requestsShown) {
       const more = element('button', 'quiet small', `Mostrar mais (${ordered.length - requestsShown})`); more.type = 'button';
       more.addEventListener('click', () => { requestsShown += 50; renderRequests(requestsData); });
@@ -2626,6 +2816,15 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     }
   }
   const latestOf = (members) => members.map((item) => item.lastMessageAt || '').sort().at(-1) || '';
+  // The plain-language reason of every "sem carros" on screen, read once (no new comparison).
+  let emptyReasonsCache = null;
+  async function loadEmptyReasons(root) {
+    const slots = [...root.querySelectorAll('.search-empty-reason[data-request-key]')];
+    if (!slots.length) return;
+    try { if (!emptyReasonsCache) emptyReasonsCache = (await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'empty_reasons' }) })).reasons || {}; }
+    catch (_) { slots.forEach((slot) => { slot.textContent = 'Motivo: não consegui ler o lote agora · Atualize a página para tentar de novo'; }); return; }
+    slots.forEach((slot) => { const reason = emptyReasonsCache[slot.dataset.requestKey]; slot.textContent = 'Motivo: ' + (reason ? reason.text : 'a busca rodou com estes critérios e nenhum carro do lote ativo serviu'); });
+  }
   function requestCard(members) {
     const first = members[0];
     const card = element('article', 'item-card request-card');
@@ -2638,6 +2837,10 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     criteria.append(element('span', 'request-criteria-label', criteriaLabel), element('strong', '', first.criteriaText || 'Sem critério'));
     head.append(criteria, makeBadge(first.stateLabel, REQUEST_STATE_TONES[first.state]));
     card.append(head);
+    const fields = MCSSearchGroups.fields(first); if (fields) card.append(fields);
+    // "Sem carros" always says why; "não rodada" says what is missing.
+    if (first.state === 'SEM_OPCAO') { const reason = element('p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = first.key; card.append(reason); }
+    if (MCSSearchGroups.groupOf(first.state) === 'NAO_RODADA') card.append(element('p', 'muted search-not-run', MCSSearchGroups.notRunText(first)));
     if (members.length > 1) card.append(element('p', 'muted', `${members.length} pedidos com critérios exatamente iguais`));
     if (first.state === 'COM_OPCOES') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'opção válida' : 'opções válidas'} no lote ativo`));
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'candidato' : 'candidatos'} no lote ativo por modelo, ano e milhagem. O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada`));
@@ -2660,7 +2863,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
         who.append(open);
         // The cars this result counts live in OPÇÕES (same ficha, same search type): one click lands on them.
         if (item.optionCount && item.searchMode && ['COM_OPCOES', 'COM_CANDIDATOS'].includes(first.state)) {
-          const options = element('button', 'quiet small request-open-options', `Ver em OPÇÕES (${item.optionCount})`); options.type = 'button';
+          const options = element('button', 'primary small request-open-options request-view-options', `Ver as ${item.optionCount} ${item.optionCount === 1 ? 'opção' : 'opções'}`); options.type = 'button';
           options.addEventListener('click', (event) => { event.stopPropagation(); openOptionsCard(`journey:${item.person.journeyId}:${item.searchMode}`); });
           who.append(options);
         }
@@ -2723,13 +2926,13 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     } finally { button.disabled = false; }
   }
   // Auditoria histórica: um botão só. Confirma, testa o modelo uma vez (produção) e processa os
-  // lotes de 10 até acabar, pausar ou parar no teto. O ponto de retomada fica gravado no servidor:
+  // lotes de 10 até acabar, pausar ou parar sem saldo. O ponto de retomada fica gravado no servidor:
   // fechar a aba e clicar de novo continua de onde parou. Nada é enviado a ninguém.
   let historyPaused = false;
   const HISTORY_ERRORS = { OPENAI_MODEL_UNAVAILABLE: 'O modelo gpt-6-luna não está disponível para a chave OpenAI de produção · Nenhuma conversa foi lida e nenhum outro modelo foi tentado',
     OPENAI_KEY_INVALID: 'A chave OpenAI de produção foi recusada · Nenhuma conversa foi lida', OPENAI_QUOTA: 'A OpenAI recusou por saldo ou cota · Nenhuma conversa foi lida',
     MODEL_NOT_CHECKED: 'O teste do modelo ainda não passou · Nenhuma conversa foi lida', SEARCH_EXTRACTION_OFF: 'A leitura por IA está desligada neste ambiente',
-    PROVIDER_LIMIT: 'Teto de US$ 50 atingido · Parado com segurança; o restante continua pendente', PROVIDER_QUOTA: 'A OpenAI encerrou por saldo ou cota · Parado com segurança; o restante continua pendente',
+    PROVIDER_LIMIT: 'Crédito pré-pago da OpenAI esgotado · Parado com segurança; o restante continua pendente', PROVIDER_QUOTA: 'A OpenAI encerrou por saldo ou cota · Parado com segurança; o restante continua pendente',
     MODEL_UNAVAILABLE: 'O modelo deixou de estar disponível · Parado com segurança; o restante continua pendente' };
   const usd = (value) => 'US$ ' + Number(value || 0).toFixed(4);
   function historyText(state, prefix) {
@@ -2748,7 +2951,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     if (!state.available) { text.className = 'error'; text.textContent = HISTORY_ERRORS.SEARCH_EXTRACTION_OFF; button.disabled = false; return; }
     const who = state.provider === 'OPENAI' ? `OpenAI ${state.model}` : 'leitura simulada (sem IA, sem custo)';
     const terms = $('requests-history-terms');
-    terms.replaceChildren(...['Lê as conversas de clientes desde 09/08/2026', 'Não envia nenhuma mensagem', `Usa ${who}`, 'Pode pausar e continuar depois do mesmo ponto', `Teto máximo de US$ ${state.providerLimitUsd || 50}`].map((line) => element('li', '', line)));
+    terms.replaceChildren(...['Lê as conversas de clientes desde 09/08/2026', 'Não envia nenhuma mensagem', `Usa ${who}`, 'Pode pausar e continuar depois do mesmo ponto', 'Usa o crédito pré-pago de US$ 50 da OpenAI, o mesmo de todas as funções (sem limite só desta)'].map((line) => element('li', '', line)));
     $('requests-history-remaining').textContent = `Faltam ${state.remaining} de ${state.total} conversas · custo acumulado ${usd(state.spentUsd)}`;
     text.textContent = '';
     $('requests-history-confirm').classList.remove('hidden');
@@ -2809,7 +3012,7 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
     row('Conversas ainda não lidas', data.estimate.conversationsToRead);
     root.replaceChildren(table,
       element('p', data.allServed ? '' : 'warning', data.allServed ? 'Todos os pedidos têm opção válida no lote ativo' : 'Ainda não há prova de que todo pedido de veículo foi atendido'),
-      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}, dentro do limite de US$ ${data.estimate.providerLimitUsd} do provedor. Nada é lido sem autorização`));
+      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}, pagos pelo crédito pré-pago de US$ 50 da OpenAI (o mesmo de todas as funções). Nada é lido sem autorização`));
   }
 
   // Lotes: o ativo sempre à vista; os desfeitos num "Histórico de lotes" recolhido. Ocultar é só
@@ -4230,10 +4433,13 @@ if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)moreActions.appe
       }
     });
     window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
-    ['today','entry','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')renderClients(clientsData);return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
+    ['today','entry','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
     $('clients-followup')?.addEventListener('toggle',()=>{if($('clients-followup').open)loadFollowup();});
-    $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(currentView==='clients')renderClients(clientsData);refreshCounters().catch(()=>{});});
-    ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')renderClients(clientsData);});});
+    $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(currentView==='clients')loadClients();refreshCounters().catch(()=>{});});
+    // Origem: the same options in HOJE, ENTRADA and CLIENTES (filled before the saved choice is restored).
+    ['today-origin','entry-origin','clients-origin'].forEach((id)=>MCSContactGroups.fillOriginSelect($(id)));
+    ['today-origin','entry-origin'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(id==='today-origin'&&currentView==='today')renderToday(todayItems,true);if(id==='entry-origin'&&currentView==='entry')loadQueue().catch(()=>{});});});
+    ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')loadClients();});});
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
     const weekly=$('weekly-summary');weekly.open=localStorage.getItem('mcs_weekly_open')==='true';weekly.addEventListener('toggle',()=>localStorage.setItem('mcs_weekly_open',String(weekly.open)));
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));

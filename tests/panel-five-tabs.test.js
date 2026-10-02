@@ -38,7 +38,8 @@ test('login usa somente a imagem local e sai do modo fotográfico ao abrir o app
 test('CLIENTES preserva resolvidos, não leads e exporta a própria lista filtrada',()=>{
   const records=fs.readFileSync(path.join(root,'api/panel/records.js'),'utf8');
   const pending=fs.readFileSync(path.join(root,'api/panel/pendencias.js'),'utf8');
-  assert.match(js,/includeResolved=true/);
+  // The situation (and whether it is resolved) is computed by the server for every listed client.
+  assert.match(records,/resolved:Boolean\(resolution&&resolution\.resolved_message_id===chat\.message_id\)/);
   assert.match(js,/Restaurar pendência/);
   assert.match(js,/Restaurar lead/);
   assert.match(js,/function downloadClientsCsv/);

@@ -118,7 +118,9 @@ test('Lote 4 · aba PEDIDOS saiu; CLIENTES assume as funções, a seção de ped
   // Orders with no message are never listed, so the ENTRADA section that showed them is gone.
   assert.doesNotMatch(html, /id="entry-orders|id="entry-simulated|data-entry-orders-period|Pediram contato, sem conversa|Só simularam|class="[^"]*entry-(orders|simulated)/);
   assert.doesNotMatch(js, /loadEntryOrders|renderEntryOrders|refreshEntryOrders|entryOrders|function orderCard\(|entry-orders|entry-simulated/);
-  assert.match(html, /id="clients-origin"[\s\S]*Calculadora[\s\S]*WhatsApp direto[\s\S]*SMS direto/);
+  // Origin options come from MCSGroups.ORIGIN_OPTIONS (calculadora / mensagem / vitrine × canal).
+  assert.match(html, /id="clients-origin"/);
+  assert.match(js, /\['today-origin','entry-origin','clients-origin'\]\.forEach\(\(id\)=>MCSContactGroups\.fillOriginSelect/);
   // SIMULACAO is the calculator's mode VALOR (panel-origin.js): the label says so.
   assert.match(html, /id="clients-type"[\s\S]*value="SIMULACAO">Por valor \(calculadora\)[\s\S]*Busca[\s\S]*Sem calculadora/);
   assert.match(html, /id="clients-activity"[\s\S]*30 dias[\s\S]*90 dias[\s\S]*6 meses[\s\S]*1 ano[\s\S]*Tudo/);

@@ -23,7 +23,9 @@ const { allRows, supabase } = require('./panel-server');
 const aiClaim = require('./panel-ai-claim');
 const { undash } = require('./text-dash');
 
-const RULE_VERSION = 'triagem-v1';
+// v2: lê a conversa inteira e diz também se ela trata de carro (sobre_carro). Só vale para conteúdo
+// novo: conversa já lida com a v1 não é relida sem autorização (regra d).
+const RULE_VERSION = 'triagem-v2';
 const CATEGORIES = Object.freeze(['PRE_COMPRA_MCS', 'POS_VENDA', 'PESSOAL', 'OUTRO_NEGOCIO', 'NAO_CLIENTE', 'REVISAR']);
 const OUT_OF_FUNNEL = Object.freeze(['POS_VENDA', 'PESSOAL', 'OUTRO_NEGOCIO', 'NAO_CLIENTE']);
 const LABELS = Object.freeze({ PRE_COMPRA_MCS: 'Pré-compra MCS', POS_VENDA: 'Pós-venda', PESSOAL: 'Pessoal', OUTRO_NEGOCIO: 'Outro negócio', NAO_CLIENTE: 'Não é cliente', REVISAR: 'Revisar' });
@@ -33,8 +35,11 @@ const PRICES = Object.freeze({
   'gpt-5.4-nano': { input: 0.20, output: 1.25 }
 });
 const APPROVED_MODELS = Object.freeze(Object.keys(PRICES));
-const MAX_MESSAGES = 12;
-const MAX_TEXT = 400;
+// The whole conversation, up to 80 real messages (the first 20 and the latest 60 of a longer one),
+// each cut to 300 characters: enough to tell whether cars were ever discussed, at a bounded cost.
+const MAX_MESSAGES = 80;
+const HEAD_MESSAGES = 20;
+const MAX_TEXT = 300;
 const MAX_ATTEMPTS = 3;
 const TIMEOUT_MS = 20000;
 const BATCH_LIMIT = 10;
@@ -77,11 +82,12 @@ function redact(text) {
     .trim()
     .slice(0, MAX_TEXT);
 }
-// The last real messages of the conversation (both sides), oldest first.
+// The real messages of the whole conversation (both sides), oldest first. A very long conversation
+// keeps its beginning and its latest part.
 function evidenceFor(messages) {
   const real = (messages || []).filter((message) => message && !message.undone_at && !message.is_automatic && String(message.body_text || '').trim())
     .sort((a, b) => stampOf(a) - stampOf(b) || String(a.id).localeCompare(String(b.id)));
-  const chosen = real.slice(-MAX_MESSAGES);
+  const chosen = real.length > MAX_MESSAGES ? real.slice(0, HEAD_MESSAGES).concat(real.slice(-(MAX_MESSAGES - HEAD_MESSAGES))) : real;
   return chosen.map((message) => ({ id: message.id, from: message.direction === 'MCS' ? 'MCS' : message.direction === 'CUSTOMER' ? 'CLIENTE' : 'SISTEMA', text: redact(message.body_text), at: stampOf(message) }));
 }
 // The reading key is the newest customer message: a reply from MCS alone never triggers a new
@@ -94,9 +100,11 @@ function contentHash(evidence) {
 
 // ------------------------------------------------------------------ OpenAI
 const SCHEMA = {
-  type: 'object', additionalProperties: false, required: ['category', 'confidence', 'reason', 'evidence_ids'],
+  type: 'object', additionalProperties: false, required: ['category', 'confidence', 'reason', 'evidence_ids', 'sobre_carro', 'sobre_carro_certeza'],
   properties: {
     category: { type: 'string', enum: CATEGORIES },
+    sobre_carro: { type: 'boolean' },
+    sobre_carro_certeza: { type: 'string', enum: ['alta', 'baixa'] },
     confidence: { type: 'string', enum: ['alta', 'media', 'baixa'] },
     reason: { type: 'string' },
     evidence_ids: { type: 'array', items: { type: 'string' } }
@@ -112,7 +120,8 @@ const INSTRUCTIONS = [
   'NAO_CLIENTE: spam, número errado, contato sem relação comercial.',
   'REVISAR: contexto insuficiente, dúvida real ou sinais conflitantes.',
   'Nunca decida por uma palavra isolada. "Is it sold?" ou "já vendeu?" sobre um carro oferecido é pré-compra. Mencionar um carro vendido não basta para tirar a pessoa do funil. Uma conversa pessoal antiga não impede uma nova intenção de compra: se a parte mais recente mostra intenção de comprar, é PRE_COMPRA_MCS.',
-  'Use confidence "alta" só quando o caso for claro. reason: uma frase curta em português, sem nomes e sem dados pessoais. evidence_ids: os ids das mensagens que justificam.'
+  'Use confidence "alta" só quando o caso for claro. reason: uma frase curta em português, sem nomes e sem dados pessoais. evidence_ids: os ids das mensagens que justificam.',
+  'sobre_carro: olhe a conversa inteira, do começo ao fim. true quando em algum momento ela cita um veículo, compra de veículo, financiamento de veículo, orçamento ou um serviço da MCS (busca, leilão, lance, transporte, título). false só quando a conversa nunca tratou de nada disso. sobre_carro_certeza: "alta" só quando tiver certeza; na dúvida use sobre_carro true.'
 ].join('\n');
 
 async function classify(evidence, options = {}) {
@@ -128,7 +137,7 @@ async function classify(evidence, options = {}) {
     messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ mensagens: evidence.map((item) => ({ id: item.id, de: item.from, texto: item.text })) }) }],
     response_format: { type: 'json_schema', json_schema: { name: 'triagem_entrada', strict: true, schema: SCHEMA } }
   };
-  // The US$ 50 OpenAI reservation around the call (options.guard, panel-openai-budget).
+  // The OpenAI prepaid-balance reservation around the call (options.guard, panel-openai-budget).
   return require('./panel-openai-budget').paidCall(options.guard, { modelId, body, send: async (capped) => {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
@@ -136,7 +145,7 @@ async function classify(evidence, options = {}) {
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
       body: JSON.stringify(capped)
     });
-    if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
+    if (!response.ok) throw await require('./panel-openai-budget').openAiFailure(response);
     const payload = await response.json();
     const usage = { inputTokens: Number(payload?.usage?.prompt_tokens) || 0, outputTokens: Number(payload?.usage?.completion_tokens) || 0 };
     let parsed = null;
@@ -151,7 +160,17 @@ async function classify(evidence, options = {}) {
 
 // Server-side check of the structured answer: an unknown category, a missing reason, evidence
 // that was not sent or a confidence below "alta" never decides anything (it becomes REVISAR).
+// sobre_carro: only a sure "false" takes a conversation out of the main flow; anything else
+// (missing, unsure, invalid answer) is null or true and the conversation stays.
+function aboutCarOf(parsed) {
+  if (!parsed || typeof parsed.sobre_carro !== 'boolean') return null;
+  if (parsed.sobre_carro === false && parsed.sobre_carro_certeza !== 'alta') return true;
+  return parsed.sobre_carro;
+}
 function validated(parsed, evidence) {
+  return { ...validatedCategory(parsed, evidence), aboutCar: aboutCarOf(parsed) };
+}
+function validatedCategory(parsed, evidence) {
   const known = new Set(evidence.map((item) => item.id));
   const reason = typeof parsed?.reason === 'string' ? undash(parsed.reason.replace(/[\u0000-\u001f]/g, ' ')).trim().slice(0, 280).replace(/[.\s]+$/, '') : '';
   const ids = Array.isArray(parsed?.evidence_ids) ? [...new Set(parsed.evidence_ids.map(String))].filter((value) => known.has(value)) : [];
@@ -163,6 +182,17 @@ function validated(parsed, evidence) {
 
 // ------------------------------------------------------------------ gravação
 async function record(ctx, entry) {
+  const result = await recordCategory(ctx, entry);
+  // The topic answer goes on the AI row just written (or the same reading found again). Only a real
+  // answer is kept; a failure leaves it empty (= no reading, stays in the main flow).
+  if (entry.source === 'AI' && typeof entry.aboutCar === 'boolean' && result && result.id) {
+    await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/conversation_triage?environment=eq.' + ctx.environment + '&id=eq.' + result.id + '&source=eq.AI', {
+      method: 'PATCH', headers: { 'content-type': 'application/json', prefer: 'return=minimal' }, body: JSON.stringify({ about_car: entry.aboutCar })
+    }).catch(() => null);
+  }
+  return result;
+}
+async function recordCategory(ctx, entry) {
   return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_conversation_triage_record', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -225,7 +255,9 @@ async function candidates(ctx, options = {}) {
   const journeyOf = new Map(links.map((link) => [link.message_id, link.journey_id]));
   const byChat = new Map();
   messages.forEach((message) => { if (!byChat.has(message.chat_id)) byChat.set(message.chat_id, []); byChat.get(message.chat_id).push(message); });
-  const done = new Set(readings.filter((row) => row.source === 'AI' && settled(row)).map((row) => row.chat_id + ':' + row.content_hash + ':' + row.rule_version));
+  // Rule d): a conversation already read (any rule version) is never read again for the same content;
+  // the new rule applies only when the customer writes again. Re-reading the backlog needs a new authorization.
+  const done = new Set(readings.filter((row) => row.source === 'AI' && settled(row)).map((row) => row.chat_id + ':' + row.content_hash));
   const activeByChat = new Map(active.map((row) => [row.chat_id, row]));
   const list = [];
   chats.filter((chat) => !chat.is_group && (!options.onlyChats || options.onlyChats.has(chat.id))).forEach((chat) => {
@@ -237,7 +269,7 @@ async function candidates(ctx, options = {}) {
     const evidence = evidenceFor(own);
     if (!evidence.length) return;
     const hash = contentHash(evidence);
-    if (done.has(chat.id + ':' + hash + ':' + RULE_VERSION)) return;
+    if (done.has(chat.id + ':' + hash)) return;
     const current = activeByChat.get(chat.id);
     if (current && current.content_hash === hash && settled(current)) return;
     const journeyId = [...own].sort((a, b) => stampOf(b) - stampOf(a)).map((message) => journeyOf.get(message.id)).find(Boolean) || null;
@@ -266,7 +298,7 @@ async function runTriage(ctx, options = {}) {
   const pending = (await candidates(ctx, { ...options, env })).slice(0, options.limit || BATCH_LIMIT);
   const result = { processed: 0, funnel: 0, out: 0, review: 0, failed: 0, costUsd: 0, inProgress: 0 };
   const claims = options.claims || aiClaim;
-  // US$ 50 for all the panel's OpenAI features together (panel-openai-budget).
+  // The OpenAI prepaid balance for all the panel's features together (panel-openai-budget).
   const budget = options.budget || openAiBudget;
   const provider = pending.length ? await budget.spentUsd(ctx) : null;
   // The minimal model test (no customer data) must have passed before the first real reading.
@@ -282,11 +314,11 @@ async function runTriage(ctx, options = {}) {
     const guard = budget.guard ? budget.guard(ctx, 'ENTRADA', item.chatId, options.budgetServices) : null;
     try {
       const answer = await classify(item.evidence, { env, fetchImpl: options.fetchImpl, guard });
-      entry = { ...item, source: 'AI', category: answer.category, reason: answer.reason, evidence: answer.evidence, model: answer.model,
+      entry = { ...item, source: 'AI', category: answer.category, reason: answer.reason, evidence: answer.evidence, model: answer.model, aboutCar: answer.aboutCar ?? null,
         inputTokens: answer.usage.inputTokens, outputTokens: answer.usage.outputTokens, costUsd: answer.costUsd, errorCode: answer.errorCode };
       result.costUsd += answer.costUsd || 0;
     } catch (failure) {
-      // No room in the US$ 50 (or the ceiling could not be read): nothing was called; stop here.
+      // No room in the prepaid balance (or it could not be read): nothing was called; stop here.
       if (failure && (failure.code === 'OPENAI_BUDGET_LIMIT' || failure.code === 'OPENAI_BUDGET_UNAVAILABLE')) {
         await claims.finishTask(ctx, claim, false).catch(() => null);
         result.stoppedReason = 'PROVIDER_LIMIT'; result.deferred = pending.length - result.processed - result.inProgress; break;
@@ -318,13 +350,13 @@ function estimate(conversations, modelId) {
   const system = Math.ceil(INSTRUCTIONS.length / 4) + 120;
   let input = 0, messages = 0;
   conversations.forEach((evidence) => { messages += evidence.length; input += system + evidence.reduce((sum, item) => sum + Math.ceil(item.text.length / 4) + 18, 0); });
-  const output = conversations.length * 90;
+  const output = conversations.length * 100;
   const price = PRICES[modelId];
   return { conversations: conversations.length, messages, inputTokens: input, outputTokens: output, model: modelId || null, costUsd: price ? estimateCostUsd(modelId, input, output) : null };
 }
 
 module.exports = {
   RULE_VERSION, CATEGORIES, OUT_OF_FUNNEL, LABELS, APPROVED_MODELS, PRICES, INSTRUCTIONS, MAX_ATTEMPTS,
-  decisionOf, model, since, status, enabled, estimateCostUsd, redact, evidenceFor, contentHash, classify, validated,
+  decisionOf, model, since, status, enabled, estimateCostUsd, redact, evidenceFor, contentHash, classify, validated, aboutCarOf,
   record, undo, activeRows, outOfFunnelJourneys, outOfFunnelIndex, candidates, runTriage, runPending, pendingChats, estimate
 };

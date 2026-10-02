@@ -42,7 +42,9 @@
       let notice = null;
       const successScope=options.successScope||scope;
       if (options.successText) notice = feedback(successScope, options.successText, '', options.feedbackKey);
-      if (options.undo && notice) {
+      // undo may depend on the answer (a function of the result): no undo when the server says so.
+      const undoSpec = typeof options.undo === 'function' ? options.undo(result, snapshot) : options.undo;
+      if (undoSpec && notice) {
         const undo = document.createElement('button');
         undo.type = 'button';
         undo.className = 'quiet small';
@@ -52,12 +54,12 @@
           button: undo,
           scope:successScope,
           feedbackKey: options.feedbackKey,
-          optimistic: options.undo.optimistic,
-          commit: () => options.undo.commit(result, snapshot),
-          rollback: options.undo.rollback,
-          successText: options.undo.successText || 'Ação desfeita',
-          errorText: options.errorText,
-          refresh: options.undo.refresh || options.refresh
+          optimistic: undoSpec.optimistic,
+          commit: () => undoSpec.commit(result, snapshot),
+          rollback: undoSpec.rollback,
+          successText: undoSpec.successText || 'Ação desfeita',
+          errorText: undoSpec.errorText || options.errorText,
+          refresh: undoSpec.refresh || options.refresh
         }));
       }
       if (options.refresh) Promise.resolve().then(() => options.refresh(result, snapshot)).catch(() => {});

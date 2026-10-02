@@ -3,7 +3,7 @@
 // Before the first real reading of any OpenAI feature (ENTRADA triage, Manheim match audit and
 // Manheim CSV normalization), one minimal call with the configured model and no customer data
 // must have passed. It is recorded like the PESQUISAS model check (vehicle_request_batches with
-// conversations = 0) and counts in the US$ 50 OpenAI ceiling. Outside production nothing is
+// conversations = 0) and counts against the OpenAI prepaid balance. Outside production nothing is
 // called: the Preview is always simulated.
 const { insert, rows } = require('./panel-server');
 const openAiBudget = require('./panel-openai-budget');

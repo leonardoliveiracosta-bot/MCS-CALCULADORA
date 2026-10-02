@@ -16,7 +16,7 @@ const { localToUtc, timezoneForZip } = require('../../panel-lead');
 const presentation = require('../../panel-presentation');
 const {
   allRows, insert, isUuid, jsonBody, patchRows, recordMutation, requirePanel,
-  rows, safeText, send, supabase
+  rows, rpc, safeText, send, supabase
 } = require('../../panel-server');
 
 const isoNow = () => new Date().toISOString();
@@ -424,6 +424,7 @@ async function actionUnit(ctx, journey, body) {
   if (!journeyEnabled(journey)) return send(ctx.res, 409, { error: 'JOURNEY_DISABLED' });
   const at = isoNow();
   let unitId = body.unitId;
+  const presentedNow = !body.unitId;
   let status = String(body.status || 'PRESENTED');
   if (!['PRESENTED', 'UNDER_REVIEW', 'ACCEPTED', 'DECLINED', 'WITHDRAWN'].includes(status)) return send(ctx.res, 400, { error: 'UNIT_STATUS_INVALID' });
   if (unitId) {
@@ -479,7 +480,62 @@ async function actionUnit(ctx, journey, body) {
     activityType: 'UNIT_UPDATED', summary: 'Unidade apresentada atualizada', metadata: { unit_id: unitId, status, customer_responded: body.customerResponded === true },
     entityType: 'unit', entityId: unitId, action: 'UPSERT', after: { status, stage }
   });
-  return send(ctx.res, 200, { unitId, status, stage });
+  // A car just presented (a new unit) can be undone right away; an update of an existing unit cannot.
+  const undo = presentedNow ? { unitId, previousStage: journey.stage || null, previousSearchStartedAt: journey.search_started_at || null } : null;
+  return send(ctx.res, 200, { unitId, status, stage, undo });
+}
+
+// Desfazer "apresentar": removes the unit just created by the same person (database rule: up to
+// 30 minutes, before any customer answer) and puts the stage back when nothing else justifies it.
+// Undoes a presentation just registered by the same person (30 minutes), before any answer of the
+// customer about the car: the presented-car event and the unit go away, the Manheim option is free
+// again, and the stage, the search start and the tracking step go back to what they were when no
+// other unit justifies them. Same rules as the migration's panel_unit_present_undo.
+const UNDO_WINDOW_MS = 30 * 60 * 1000;
+const undoFailure = (code) => Object.assign(new Error(code), { code });
+async function presentUndo(ctx, journey, unitId, { previousStage, previousSearchStartedAt, ref, previousTrackingStep }, services = {}) {
+  const read = services.rows || rows, patch = services.patchRows || patchRows;
+  const remove = services.remove || ((table, filters) => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + new URLSearchParams(filters).toString(), { method: 'DELETE', headers: { prefer: 'return=representation' } }));
+  const env = 'eq.' + ctx.environment;
+  const unit = (await read(ctx, 'units', { select: 'id,journey_id,created_by,created_at,last_customer_response_at', environment: env, id: 'eq.' + unitId, journey_id: 'eq.' + journey.id, limit: '1' }))[0];
+  if (!unit) throw undoFailure('UNIT_NOT_FOUND');
+  if (unit.created_by !== ctx.panel.id) throw undoFailure('UNDO_NOT_ALLOWED');
+  if (Date.now() - Date.parse(unit.created_at) > UNDO_WINDOW_MS) throw undoFailure('UNDO_EXPIRED');
+  if (unit.last_customer_response_at) throw undoFailure('UNIT_HAS_RESPONSE');
+  const events = await read(ctx, 'lead_events', { select: 'id,event_type', environment: env, unit_id: 'eq.' + unitId });
+  if (events.some((event) => event.event_type !== 'CAR_PRESENTED')) throw undoFailure('UNIT_IN_USE');
+  const linked = await read(ctx, 'manheim_matches', { select: 'id', environment: env, presented_unit_id: 'eq.' + unitId });
+  const removedEvents = await remove('lead_events', { environment: env, unit_id: 'eq.' + unitId, event_type: 'eq.CAR_PRESENTED' });
+  await patch(ctx, 'manheim_matches', { environment: env, presented_unit_id: 'eq.' + unitId }, { presented_unit_id: null });
+  // Only while still unanswered (an answer arriving now keeps the unit). If the customer answered in
+  // between, the event and the option link go back exactly as they were: nothing is lost.
+  const removed = await remove('units', { environment: env, id: 'eq.' + unitId, last_customer_response_at: 'is.null' });
+  if (!Array.isArray(removed) || !removed.length) {
+    const restore = services.insert || insert;
+    for (const event of Array.isArray(removedEvents) ? removedEvents : []) await restore(ctx, 'lead_events', event, false);
+    for (const match of linked) await patch(ctx, 'manheim_matches', { environment: env, id: 'eq.' + match.id }, { presented_unit_id: unitId });
+    throw undoFailure('UNIT_HAS_RESPONSE');
+  }
+  const others = await read(ctx, 'units', { select: 'id', environment: env, journey_id: 'eq.' + journey.id, status: 'neq.WITHDRAWN', limit: '1' });
+  const stageRestored = !others.length && Boolean(previousStage);
+  if (stageRestored) await patch(ctx, 'journeys', { environment: env, id: 'eq.' + journey.id, stage_frozen: 'not.is.true' }, { stage: previousStage, search_started_at: previousSearchStartedAt, updated_at: isoNow(), updated_by: ctx.panel.id });
+  if (ref && Number.isInteger(previousTrackingStep) && previousTrackingStep < 2) await patch(ctx, 'lead_tracking', { environment: env, ref_code: 'eq.' + ref, step: 'eq.2' }, { step: previousTrackingStep, updated_at: isoNow() });
+  return { undone: true, unitId, stageRestored };
+}
+async function actionPresentUndo(ctx, journey, body) {
+  if (!isUuid(body.unitId)) return send(ctx.res, 400, { error: 'UNIT_ID_INVALID' });
+  const found = await rows(ctx, 'units', { select: 'id', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + body.unitId, limit: '1' });
+  if (!found[0]) return send(ctx.res, 404, { error: 'UNIT_NOT_FOUND' });
+  const STAGES = ['NOVO', 'RESPONDIDO', 'EM_BUSCA', 'DECIDINDO', 'QUALIFICADO', 'AGUARDANDO_CLIENTE', 'PARADO'];
+  const ref = /^[A-HJ-NP-Z2-9]{5}$/.test(String(body.ref || '')) ? String(body.ref) : null;
+  const result = await presentUndo(ctx, journey, body.unitId, {
+    previousStage: STAGES.includes(body.previousStage) ? body.previousStage : null,
+    previousSearchStartedAt: body.previousSearchStartedAt && Number.isFinite(Date.parse(body.previousSearchStartedAt)) ? body.previousSearchStartedAt : null,
+    ref, previousTrackingStep: Number.isInteger(body.previousTrackingStep) ? body.previousTrackingStep : null
+  });
+  await recordMutation(ctx, { at: isoNow(), journeyId: journey.id, contactId: journey.contact_id, activityType: 'UNIT_UPDATED', summary: 'Apresentação desfeita', metadata: { unit_id: body.unitId },
+    entityType: 'unit', entityId: body.unitId, action: 'UNDO', after: result });
+  return send(ctx.res, 200, result);
 }
 
 async function actionResolveDivergence(ctx, journey, body) {
@@ -559,7 +615,7 @@ async function actionReturn(ctx, journey, body) {
 // is off or fails, the browser keeps importing the valid rows and sends only these to review.
 // Every OpenAI call of the CSV reading is recorded on the server (provider, model, tokens, cost,
 // row count), whether or not the browser later sends its batch summary. Never a cell or a prompt.
-// US$ 50 for all the panel's OpenAI features together; a failed read of the spend blocks the call.
+// The OpenAI prepaid balance for all the panel's features together; a failed read blocks the call.
 async function openAiFits(ctx) {
   try {
     if (!openAiBudget.fits(await openAiBudget.spentUsd(ctx))) return false;
@@ -821,6 +877,7 @@ module.exports = async (req, res) => {
       case 'client_ok': return await actionClientOk(ctx, journey, body);
       case 'link_request': return await actionLinkRequest(ctx, journey, body);
       case 'unit': return await actionUnit(ctx, journey, body);
+      case 'present_undo': return await actionPresentUndo(ctx, journey, body);
       case 'resolve_divergence': return await actionResolveDivergence(ctx, journey, body);
       case 'interaction': return await actionInteraction(ctx, journey, body);
       case 'toggle_journey': return await actionToggleJourney(ctx, journey, body);
@@ -834,7 +891,8 @@ module.exports = async (req, res) => {
   } catch (failure) {
     if (failure && failure.message === 'PAYLOAD_TOO_LARGE') return send(res, 413, { error: 'PAYLOAD_TOO_LARGE' });
     // Lifecycle rules enforced by the database answer with their own code, not a generic 500.
-    if (['JOURNEY_FROZEN', 'JOURNEY_CLOSED', 'JOURNEY_MERGED', 'JOURNEY_NOT_FOUND'].includes(failure?.code)) return send(res, 409, { error: failure.code });
+    if (['JOURNEY_FROZEN', 'JOURNEY_CLOSED', 'JOURNEY_MERGED', 'JOURNEY_NOT_FOUND', 'UNDO_EXPIRED', 'UNDO_NOT_ALLOWED', 'UNIT_HAS_RESPONSE', 'UNIT_IN_USE', 'UNIT_NOT_FOUND'].includes(failure?.code)) return send(res, 409, { error: failure.code });
     return send(res, 500, { error: 'PANEL_ACTION_FAILED' });
   }
 };
+module.exports.presentUndo = presentUndo;

@@ -95,8 +95,8 @@ for (const width of [1366, 390]) {
 test('tentar de novo, aprovação manual com motivo e autorização acima do limite', async ({ page }) => {
   const waiting = { ...ON, run: { status: 'AGUARDANDO_AUTORIZACAO', estimateUsd: 2.4, spentUsd: 0, limitUsd: 2 } };
   const posts = await open(page, 1366, waiting);
-  await expect(page.locator('#manheim-audit-note')).toContainText('Conferência estimada em US$ 2.40, acima do limite de US$ 2.00 deste lote. Nada foi cobrado');
-  await page.locator('#manheim-audit-note').getByRole('button', { name: 'Autorizar conferência' }).click();
+  await expect(page.locator('#manheim-audit-note')).toContainText('Conferência estimada em US$ 2.40, parada por um limite antigo deste lote (não existe mais limite por lote). Nada foi cobrado');
+  await page.locator('#manheim-audit-note').getByRole('button', { name: 'Continuar conferência' }).click();
   await expect.poll(() => posts.filter((item) => item && item.action === 'authorize').length).toBe(1);
   const order = card(page, 'valor', 'Pedido Só Valor');
   await order.getByRole('button', { name: 'Tentar de novo' }).click();

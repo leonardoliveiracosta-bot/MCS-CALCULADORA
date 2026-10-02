@@ -171,6 +171,7 @@ module.exports = async (req, res) => {
       let unit;
       try { unit = (await insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(' '), details_json: details, vehicle_identity: identity, presented_at: at, status: 'PRESENTED', created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id }))[0]; }
       catch(error) { if(error.status===409) { const prior=await rows(ctx,'units',{select:'id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,vehicle_identity:'eq.'+identity,limit:'1'});if(prior[0])return send(res,200,{unitId:prior[0].id,duplicate:true}); } throw error; }
+      const trackingBefore = (await rows(ctx, 'lead_tracking', { select: 'step', environment: 'eq.' + ctx.environment, ref_code: 'eq.' + lead.ref, limit: '1' }).catch(() => []))[0];
       await patchRows(ctx, 'lead_tracking', { environment: 'eq.' + ctx.environment, ref_code: 'eq.' + lead.ref, step: 'lt.2' }, { step: 2, updated_at: at });
       await insert(ctx, 'lead_events', { environment: ctx.environment, ref_code: lead.ref, journey_id: journey.id, unit_id: unit.id, event_type: 'CAR_PRESENTED', detail_json: { vehicle: unit.vehicle_text, ...(presentedMode ? { logical_mode: presentedMode } : {}) }, occurred_at: at, created_by: ctx.panel.id }, false);
       // A10: presenting a car starts the search (stages only move forward).
@@ -178,7 +179,8 @@ module.exports = async (req, res) => {
       const stage = forwardStage(currentStage, 'EM_BUSCA');
       const searchStart = lead.record?.search_started_at ? {} : { search_started_at: at };
       if (stage !== currentStage || searchStart.search_started_at) await patchRows(ctx, 'journeys', { environment: 'eq.' + ctx.environment, id: 'eq.' + journey.id }, { stage, ...searchStart, updated_at: at, updated_by: ctx.panel.id });
-      return send(res, 201, { unitId: unit.id, stage });
+      // "Desfazer" right away: the state before the presentation (POST /api/panel/actions present_undo).
+      return send(res, 201, { unitId: unit.id, stage, undo: { unitId: unit.id, previousStage: currentStage, previousSearchStartedAt: lead.record?.search_started_at || journey.search_started_at || null, ref: lead.ref || null, previousTrackingStep: Number.isInteger(trackingBefore?.step) ? trackingBefore.step : null } });
     }
     if (body.action === 'retail') {
       const unit = (await rows(ctx, 'units', { select: 'id,details_json', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id, id: 'eq.' + body.unitId, limit: '1' }))[0];

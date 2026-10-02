@@ -14,7 +14,7 @@
 //    conversa, endereço ou documento, e nunca o CSV inteiro.
 //  * Desligada por padrão: só com MANHEIM_MATCH_AUDIT_ENABLED=1 e OPENAI_API_KEY. Modelo fixo da
 //    allowlist (gpt-6-luna); MANHEIM_MATCH_AUDIT_MODEL fora da allowlist desliga tudo.
-//  * Até o teto compartilhado da OpenAI (US$ 50 somando todas as funções), reservado no banco
+//  * Até o saldo pré-pago da OpenAI (todas as funções juntas), reservado no banco
 //    antes de cada chamada (panel_manheim_audit_budget_hold). Acima dele nada é chamado. O mesmo
 //    lote, demanda, critérios, matches e versão da regra nunca são cobrados duas vezes (hash único no banco, com a linha reservada antes da chamada).
 //  * Falha, tempo esgotado ou resposta inválida: "Conferência pendente". Nada é aprovado em
@@ -34,9 +34,8 @@ const aiClaim = require('./panel-ai-claim');
 const RULE_VERSION = 'conferencia-v1';
 const DEFAULT_MODEL = 'gpt-6-luna';
 const APPROVED_MODELS = Object.freeze(['gpt-6-luna']);
-// Per import: the owner authorized the Manheim readings up to the OpenAI ceiling (US$ 50 for all
-// features together, panel-openai-budget), so an import no longer stops at US$ 2 waiting for approval.
-const LIMIT_USD = 50;
+// No limit per import and no "waiting for authorization": the only limit is the OpenAI prepaid
+// balance, checked per call by panel-openai-budget (reservation of the worst case).
 const MAX_ATTEMPTS = 3;
 // Options per call; a broad demand (hundreds of cars) is checked in several calls.
 const CHUNK_OPTIONS = 100;
@@ -45,7 +44,7 @@ const TIMEOUT_MS = 25000;
 const STALE_CLAIM_MS = 5 * 60 * 1000;
 const OK = Object.freeze(['CONFERIDO', 'APROVADO_MANUAL']);
 const FINAL_ERRORS = new Set(['OPENAI_RESPONSE_INVALID']);
-// No room in the US$ 50 OpenAI ceiling: nothing was called, so it never uses up an attempt.
+// No room in the OpenAI prepaid balance: nothing was called, so it never uses up an attempt.
 const BUDGET_ERRORS = new Set(['OPENAI_BUDGET_LIMIT', 'OPENAI_BUDGET_UNAVAILABLE']);
 // At most one attempt beyond the 3 automatic ones, and then never again (manual retry included):
 // automatic for a reading cut by the function's deadline, by the button for the other failures. The
@@ -267,7 +266,7 @@ async function callChunk(group, chunk, options) {
   if (timer.unref) timer.unref();
   const body = { model: modelId, messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify(payloadOf(group, chunk)) }],
     response_format: { type: 'json_schema', json_schema: { name: 'conferencia_manheim', strict: true, schema: SCHEMA } } };
-  // The US$ 50 OpenAI reservation around each call (options.guard, panel-openai-budget).
+  // The OpenAI prepaid-balance reservation around each call (options.guard, panel-openai-budget).
   return require('./panel-openai-budget').paidCall(options.guard, { modelId, body, send: async (capped) => {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
@@ -275,7 +274,7 @@ async function callChunk(group, chunk, options) {
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
       body: JSON.stringify(capped)
     });
-    if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
+    if (!response.ok) throw await require('./panel-openai-budget').openAiFailure(response);
     const payload = await response.json();
     const inputTokens = Number(payload?.usage?.prompt_tokens) || 0, outputTokens = Number(payload?.usage?.completion_tokens) || 0;
     let parsed = null;
@@ -335,21 +334,17 @@ async function ensureRun(ctx, uploadId, estimateUsd) {
   const existing = await runRow(ctx, uploadId);
   if (existing) {
     if (existing.status === 'AUTORIZADO') return existing;
-    // A batch created under the old US$ 2 limit shows and uses the OpenAI ceiling; spending, holds
-    // and audits are untouched.
+    // A batch that was waiting for an authorization (old per-import limit) goes on; spending,
+    // holds and audits are untouched.
     const patch = {};
     if (Number(existing.estimate_usd) !== estimateUsd) patch.estimate_usd = estimateUsd;
-    if (Number(existing.limit_usd) < LIMIT_USD) {
-      patch.limit_usd = LIMIT_USD;
-      // It was waiting only because of the old limit.
-      if (existing.status === 'AGUARDANDO_AUTORIZACAO') patch.status = 'ABERTO';
-    }
+    if (existing.status === 'AGUARDANDO_AUTORIZACAO') patch.status = 'ABERTO';
     if (Object.keys(patch).length) await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + existing.id }, { ...patch, updated_at: new Date().toISOString() });
     return { ...existing, ...patch };
   }
   const created = await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/manheim_audit_runs?on_conflict=environment,upload_id', {
     method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=representation' },
-    body: JSON.stringify({ environment: ctx.environment, upload_id: uploadId, status: 'ABERTO', estimate_usd: estimateUsd, limit_usd: LIMIT_USD, spent_usd: 0 })
+    body: JSON.stringify({ environment: ctx.environment, upload_id: uploadId, status: 'ABERTO', estimate_usd: estimateUsd, spent_usd: 0 })
   });
   return (created && created[0]) || runRow(ctx, uploadId);
 }
@@ -406,7 +401,7 @@ async function viewState(ctx, input, options = {}) {
         lastStatus: row && row.status || null, attempts: row && row.attempts || 0, canApprove: false, canRetry: false };
     });
   }
-  return { state, uploadId: input.upload.id, limitUsd: LIMIT_USD, estimateUsd: Math.round(estimate * 1e6) / 1e6, run: run ? { status: run.status, estimateUsd: Number(run.estimate_usd), spentUsd: Number(run.spent_usd), limitUsd: Number(run.limit_usd) } : null, byDemand };
+  return { state, uploadId: input.upload.id, limitUsd: null, estimateUsd: Math.round(estimate * 1e6) / 1e6, run: run ? { status: run.status, estimateUsd: Number(run.estimate_usd), spentUsd: Number(run.spent_usd), limitUsd: null } : null, byDemand };
 }
 const usable = (entry) => !entry || OK.includes(entry.status);
 // V1 and V2 gate for one car of the active batch. demandKey (sent by the BUSCAS card) checks that
@@ -449,19 +444,7 @@ async function runAudit(ctx, input, options = {}) {
   const modelId = model(envValues);
   const estimate = Math.round(pending.reduce((sum, group) => sum + estimateGroup(group, modelId).costUsd, 0) * 1e6) / 1e6;
   const run = await ensureRun(ctx, input.upload.id, estimate);
-  // options.limitUsd exists only so the tests can prove the block without millions of tokens.
-  const baseLimit = Number.isFinite(options.limitUsd) ? options.limitUsd : LIMIT_USD;
-  // An old authorization never lowers the ceiling; nothing goes above the OpenAI ceiling.
-  const limit = run.status === 'AUTORIZADO' ? Math.min(Math.max(Number(run.limit_usd), baseLimit), LIMIT_USD) : baseLimit;
-  const spentBefore = await spentOf(ctx, input.upload.id);
-  // Above the limit (or past what was authorized): nothing is called, the estimate waits for a
-  // new authorization.
-  if (spentBefore + estimate > limit) {
-    await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AGUARDANDO_AUTORIZACAO', estimate_usd: estimate, authorized_by: null, authorized_at: null, updated_at: new Date().toISOString() });
-    return { ...result, awaitingAuthorization: true, estimateUsd: estimate, limitUsd: limit };
-  }
-  // US$ 50 for all the panel's OpenAI features together (panel-openai-budget); the per-import
-  // limit above still applies.
+  // The OpenAI prepaid balance for all the panel's features together (panel-openai-budget).
   const budget = options.budget || openAiBudget;
   const provider = await budget.spentUsd(ctx);
   // The minimal model test (no customer data) must have passed before the first real reading.
@@ -475,7 +458,7 @@ async function runAudit(ctx, input, options = {}) {
     if (!task.claimed) { result.inProgress += 1; continue; }
     // Then the batch budget, atomically per upload: two demands at the same time never pass the
     // remaining limit together. Twice the estimate is held, so the real cost never crosses the cap.
-    const hold = await holdBudget(ctx, input.upload.id, group.key, Math.max(estimateGroup(group, modelId).costUsd * 2, 0.000001), baseLimit);
+    const hold = await holdBudget(ctx, input.upload.id, group.key, Math.max(estimateGroup(group, modelId).costUsd * 2, 0.000001), null);
     if (!hold.held) {
       await claims.finishTask(ctx, task, false).catch(() => null);
       result.awaitingAuthorization = true;
@@ -499,8 +482,8 @@ async function runAudit(ctx, input, options = {}) {
       // attempts), so a reading cut by the deadline keeps its count and its reason.
       const before = byHash.get(group.hash);
       patch = BUDGET_ERRORS.has(code) ? (before && before.status === 'PENDENTE'
-        ? { status: 'PENDENTE', error_code: before.error_code, attempts: before.attempts, reason: 'Sem saldo no teto de US$ 50 da OpenAI' }
-        : { status: 'PENDENTE', error_code: code, attempts: Math.max(1, Number(before && before.attempts || 1)), reason: 'Sem saldo no teto de US$ 50 da OpenAI' })
+        ? { status: 'PENDENTE', error_code: before.error_code, attempts: before.attempts, reason: 'Sem saldo pré-pago na OpenAI' }
+        : { status: 'PENDENTE', error_code: code, attempts: Math.max(1, Number(before && before.attempts || 1)), reason: 'Sem saldo pré-pago na OpenAI' })
         : { status: 'PENDENTE', error_code: code, reason: code === 'AUDIT_DEADLINE' ? 'Tempo esgotado antes de terminar a conferência' : 'IA indisponível' };
       if (BUDGET_ERRORS.has(code)) { result.providerLimit = true; budgetStop = true; }
     }
@@ -536,14 +519,12 @@ async function runAudit(ctx, input, options = {}) {
   return result;
 }
 
-// Operator authorizes a batch above its limit (never above the US$ 50 OpenAI ceiling). The ceiling
-// covers the safety hold (twice the estimate per call); what is spent is always the real cost.
+// A batch left waiting by the old per-import limit goes on (there is no limit per import any more).
 async function authorize(ctx, uploadId, actorId) {
   const run = await runRow(ctx, uploadId);
   if (!run || run.status !== 'AGUARDANDO_AUTORIZACAO') { const failure = new Error('AUDIT_NOTHING_TO_AUTHORIZE'); failure.code = 'AUDIT_NOTHING_TO_AUTHORIZE'; throw failure; }
-  const limit = Math.min(Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 2.5) * 1e6) / 1e6, LIMIT_USD);
-  await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AUTORIZADO', limit_usd: limit, authorized_by: actorId, authorized_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-  return { authorized: true, limitUsd: limit };
+  await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AUTORIZADO', authorized_by: actorId, authorized_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+  return { authorized: true, limitUsd: null };
 }
 
 // Manual approval with a reason, so the operation never stops. Never over a fact found by the
@@ -564,6 +545,6 @@ async function approve(ctx, input, key, reason, actorId) {
 }
 
 module.exports = {
-  RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, LIMIT_USD, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS, DEADLINE_ATTEMPTS, retryAllowed,
+  RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS, DEADLINE_ATTEMPTS, retryAllowed,
   model, status, buildGroups, payloadOf, estimateGroup, validated, callOpenAI, viewState, usable, heldFor, runAudit, authorize, approve, auditRows
 };

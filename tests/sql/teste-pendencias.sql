@@ -25,10 +25,13 @@ begin
   perform public.panel_pending_finish_general_read('preview',j,ch,2,'resumo final',true,'IN_PROGRESS','WARM','resumo','retornar',null,m2,0.01,0.1,null);
   if (select completed_conversations from public.conversation_general_read_runs where environment='preview')<>1 then raise exception 'PENDING_COMPLETION_NOT_SAVED'; end if;
 
-  update public.conversation_general_read_runs set status='ACTIVE',spent_usd=19.99,reserved_usd=0,budget_usd=20 where environment='preview';
+  -- No own budget per run any more: a run stopped by the old US$ 20 (LIMIT) goes on, and spending
+  -- above US$ 20 never stops it (the provider's prepaid balance is checked per call).
+  update public.conversation_general_read_progress set status='PENDING' where environment='preview' and journey_id=j and chat_id=ch;
+  update public.conversation_general_read_runs set status='LIMIT',spent_usd=19.99,reserved_usd=0,budget_usd=20 where environment='preview';
   select * into second_claim from public.panel_pending_claim_general_read('preview',0.1);
   select status into current_status from public.conversation_general_read_runs where environment='preview';
-  if second_claim.journey_id is not null or current_status<>'LIMIT' then raise exception 'PENDING_BUDGET_LIMIT_FAILED'; end if;
-  raise notice 'OK: pendências retoma sem duplicar e respeita o teto próprio';
+  if second_claim.journey_id is null or current_status<>'ACTIVE' then raise exception 'PENDING_STILL_CAPPED:%', current_status; end if;
+  raise notice 'OK: pendências retoma sem duplicar e sem teto próprio';
 end $$;
 rollback;

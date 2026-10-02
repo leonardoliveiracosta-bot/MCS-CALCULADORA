@@ -93,7 +93,7 @@ module.exports = async (req, res) => {
       const disposition = personDisposition(item.id, refsOfJourney(item));
       const complete={...item,phones:item.phones||[]};const ready=score(complete,complete,{checklist:data.checklist,promises:data.promises,messages:data.messages},scoreVehicles);return [decorateContact({
         key: 'direct:' + item.id, kind: 'DIRECT', journeyId: item.id, latestMessage: latest || null,
-        sourceLabel: item.source === 'SMS_DIRECT' ? 'SMS direto' : 'WhatsApp direto',
+        sourceLabel: item.source === 'SMS_DIRECT' ? 'Veio por mensagem · Via SMS' : 'Veio por mensagem · Via WhatsApp',
         logicalMode: journeyLogicalMode(item), logicalModes: [journeyLogicalMode(item)],
         simulationCount: 0, simulations: [],
         vehicleText: item.vehicle_text, budgetCents: item.budget_cents,

@@ -4,7 +4,7 @@ const {allConversationData,calculatorOrders,deterministicCandidates,readConversa
 const {insert,isUuid,jsonBody,patchRows,requirePanel,rows,send,supabase}=require('../../panel-server');
 
 async function resolveSuggestion(ctx,id,link){
-  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_resolve_suggestion',{
+  return supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_resolve_suggestion_undoable',{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_id:id,p_actor:ctx.panel.id,p_link:link})
   });
 }
@@ -46,6 +46,10 @@ module.exports=async(req,res)=>{
       if(!isUuid(body.suggestionId)||typeof body.link!=='boolean')return send(res,400,{error:'SUGGESTION_INVALID'});
       return send(res,200,await resolveSuggestion(ctx,body.suggestionId,body.link));
     }
+    if(body.action==='suggestion_undo'){
+      if(!isUuid(body.suggestionId))return send(res,400,{error:'SUGGESTION_INVALID'});
+      return send(res,200,await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_link_ref_undo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_id:body.suggestionId,p_actor:ctx.panel.id})}));
+    }
     if(body.action==='alternatives'){
       const group=(await allConversationData(ctx)).find((candidate)=>candidate.journey.id===body.journeyId&&candidate.lastCustomer);
       if(!group)return send(res,404,{error:'CONVERSATION_NOT_FOUND'});
@@ -71,8 +75,9 @@ module.exports=async(req,res)=>{
     // A RAISE inside the RPC arrives as error.code (see panel-server supabase()).
     const code=String(error&&(error.code||error.message)||'');
     if(code==='AI_DAILY_LIMIT')return send(res,429,{error:code,message:'limite do dia atingido'});
+    if(code==='AI_BALANCE_LIMIT')return send(res,402,{error:code,message:'Claude sem saldo pré-pago'});
     if(['AI_UNAVAILABLE','AI_RESPONSE_INVALID'].includes(code))return send(res,503,{error:'AI_UNAVAILABLE',message:'IA indisponível'});
-    if(['AI_REF_REQUIRED','AI_ITEMS_UNAVAILABLE','REF_ALREADY_LINKED','JOURNEY_FROZEN','JOURNEY_MERGED','CONFIRMATION_KEY_REUSED'].includes(code))return send(res,409,{error:code});
+    if(['AI_REF_REQUIRED','AI_ITEMS_UNAVAILABLE','REF_ALREADY_LINKED','JOURNEY_FROZEN','JOURNEY_MERGED','CONFIRMATION_KEY_REUSED','UNDO_UNAVAILABLE','UNDO_EXPIRED','UNDO_NOT_ALLOWED','SUGGESTION_UNAVAILABLE'].includes(code))return send(res,409,{error:code});
     if(code==='JOURNEY_NOT_FOUND')return send(res,404,{error:code});
     return send(res,500,{error:'AI_ACTION_FAILED'});
   }

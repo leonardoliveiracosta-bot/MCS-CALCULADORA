@@ -10,6 +10,9 @@ const { sortItems } = require('../../panel-sort');
 const { contactIndex, decorateContact } = require('../../panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('../../panel-search-stage');
 const { optOutOf } = require('../../panel-opt-out');
+const groups = require('../../panel-groups');
+const { loadTopic } = require('../../panel-topic');
+const { loadVitrineOrigins } = require('../../panel-vitrine-origin');
 
 function dueToday(promises, ref, zip, now, journeyId) {
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -42,6 +45,8 @@ module.exports = async (req, res) => {
       allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' })
       ,allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment })
     ]);
+    // Adendo: fora do assunto (leitura da triagem ou correção sua); sem tabela, ninguém fica fora.
+    const [topic, vitrineOrigins] = await Promise.all([loadTopic(ctx).catch(() => null), loadVitrineOrigins(ctx).catch(() => null)]);
     const contacts = contactIndex({ calcRuns, messages: data.messages, messageLinks: data.messages.map((message) => ({ journey_id: message.journey_id, message_id: message.id })) });
     const insightByJourney = new Map(pendingInsights.map((item) => [item.journey_id, item]));
     const wantedAtByRef = new Map();
@@ -181,7 +186,13 @@ module.exports = async (req, res) => {
       const facts=contacts.facts({journeyId:journey?.id,ref,refs:journey?(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});
       const ownMessages=journeyId?data.messages.filter((message)=>message.journey_id===journeyId).sort((a,b)=>(time(b.occurred_at_utc||b.created_at)||0)-(time(a.occurred_at_utc||a.created_at)||0)):[];
       const latestMessage=ownMessages.find((message)=>!message.is_automatic)||ownMessages[0]||null,latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
-      return decorateContact({ ...item, phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now, journeyId)), wantsCar: wantedAfterDisposition(ref,dispositionAt,dispositionStatus),
+      // Adendo: one group per person (fora do assunto > não atendido > origem), presentation only.
+      const ownOrders=item.kind==='CALCULATOR_ORDER'?[item]:(journey?refsOf(journey).map((own)=>ordersByRef.get(own)).filter(Boolean):[]);
+      const offTopic=topic&&journeyId?topic.journey(journeyId,{hasCalculator:ownOrders.length>0}):null;
+      const summary=groups.summaryFromMessages(ownMessages);
+      const vitrine=vitrineOrigins?vitrineOrigins.forPerson({journeyId,contactId:journey?.contact_id||null}):null;
+      const group=groups.classify(groups.factsFor({summary,orders:ownOrders,journey,disposition:dispositionStatus,dispositionAt,offTopic,vitrine}),now);
+      return decorateContact({ ...item, group, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now, journeyId)), wantsCar: wantedAfterDisposition(ref,dispositionAt,dispositionStatus),
         todayReasons:journeyId&&dispositionStatus!=='DISCARDED'?(overdueByJourney.get(journeyId)||[]).filter((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)).map(({kind,label,dueAt,detail,urgency})=>({kind,label,dueAt:dueAt||null,detail:detail||null,urgency:urgency||'yellow'})):[],
         awaitingReply:Boolean(latestMessage&&latestMessage.direction==='CUSTOMER'),
         pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false }, facts, insightByJourney.get(journeyId), journey);

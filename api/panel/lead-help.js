@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
     await reserveCall(ctx);
     const parsed = await anthropicJson(
       'Você ajuda o dono da My Car Scout. Responda SOMENTE JSON {situacao,sugestao,mensagem_en,traducao_pt}. situacao e sugestao em português. Use exclusivamente os dados recebidos; nunca prometa carro, preço, prazo ou disponibilidade. Regra da mesa: quem busca POR CARRO (Find One: carro, faixa de ano e de milhagem) nunca recebe pergunta de lance, orçamento ou valor; quem busca POR VALOR (carro e lance máximo) nunca recebe pergunta de ano ou milhagem; não sugira perguntar o que o cliente ou a calculadora já informaram. Abaixo de US$ 10 mil: breve e factual; carro até US$ 7.000 só à vista. mensagem_en deve ser inglês natural e informal, uma única frase corrida ligada por vírgulas, sem tom de vendedor. traducao_pt é a tradução completa da mensagem_en.',
-      JSON.stringify(context)
+      JSON.stringify(context),fetch,{ctx,feature:'OPINIAO_IA',subject:String(journey.id)}
     );
     const result = answer(parsed);
     await insert(ctx, 'lead_ai_help', { environment: ctx.environment, journey_id: journey.id, ref_code: lead.ref || null, question, answer_json: result, created_by: ctx.panel.id }, false);

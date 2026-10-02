@@ -17,7 +17,7 @@
   const formatPhone=(value)=>{const digits=String(value||'').replace(/\D/g,'');if(digits.length===11&&digits[0]==='1')return `(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`;return value||'sem telefone';};
   const elapsed = (value) => { const hours=(Date.now()-Date.parse(value))/3600000; return hours < 1 ? `${Math.max(1,Math.round(hours*60))} min` : hours < 48 ? `${Math.floor(hours)} h` : `${Math.floor(hours/24)} dias`; };
   const safeString = (value) => value === null || value === undefined ? '' : String(value);
-  const directLeadLabel = (source) => source==='WHATSAPP_DIRECT'?'📱 veio direto pelo WhatsApp (sem calculadora)':source==='SMS_DIRECT'?'✉️ veio direto por SMS (sem calculadora)':'';
+  const directLeadLabel = (source) => source==='WHATSAPP_DIRECT'?'📱 Veio por mensagem · Via WhatsApp (sem calculadora)':source==='SMS_DIRECT'?'✉️ Veio por mensagem · Via SMS (sem calculadora)':'';
   function model(wish) { const make=safeString(wish.make);let name=safeString(wish.model);if(/^not sure$/i.test(name))name='';if(/^other model$/i.test(name))name='Outro modelo';return make&&name.toLowerCase().startsWith(make.toLowerCase()+' ') ? name : [make,name].filter(Boolean).join(' '); }
   const moneyLabel=(value)=>fmt(Number(value));
   function itemLabel(item,tz) {
@@ -61,6 +61,11 @@
       return result;
     };
     const reload=async()=>{const position=window.scrollY; await onChanged(); requestAnimationFrame(()=>window.scrollTo(0,position));};
+    // "Desfazer" right after a reversible action: a notice pinned to the page (it survives the ficha
+    // being redrawn) with one button that puts the previous state back.
+    const undoNotice=(text,undoFn)=>{const notice=window.MCSAction&&MCSAction.feedback(document.body,text,'','lead-undo');if(!notice)return;const back=e('button','quiet small','Desfazer');back.type='button';notice.append(' ',back);
+      back.addEventListener('click',async()=>{back.disabled=true;try{await undoFn();notice.replaceChildren(document.createTextNode('Desfeito'));await reload();}catch(failure){back.disabled=false;notice.append(' · '+(failure&&failure.code==='UNDO_EXPIRED'?'Passou o tempo para desfazer':'Não consegui desfazer'));}});};
+    const actionsApi=(action,fields)=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action,journeyId,...fields})});
     const failed=(card,text)=>append(card,'p','status error',text);
     const title=record.contact?.display_name||order.contactName||'Contato sem nome';
     const phones=(record.phones||[]).filter((item)=>item.is_current!==false).sort((a,b)=>Number(Boolean(b.is_primary))-Number(Boolean(a.is_primary)));
@@ -87,7 +92,7 @@
     if(data.disposition)badges.append(badge(data.disposition==='TREATED'?'Tratado':'Descartado',data.disposition==='DISCARDED'?'red':''));
     if(dispositionControls) heading.append(dispositionControls(order.ref?{kind:'CALCULATOR',ref,disposition:data.disposition}:{kind:'JOURNEY',id:record.id,disposition:data.disposition}));
     // Two clicks on the page itself (a browser dialog can be answered "no" without showing up).
-    const restoring=record.contact?.is_lead===false;const leadToggle=button(heading,restoring?'Restaurar como lead':'Não é lead',async()=>{if(leadToggle.dataset.confirmed!=='true'){leadToggle.dataset.confirmed='true';leadToggle.textContent=restoring?'Confirmar: restaurar como lead':'Confirmar: não é lead (as mensagens ficam guardadas)';return;}await api('contact_lead',{isLead:restoring});await onChanged();});
+    const restoring=record.contact?.is_lead===false;const leadToggle=button(heading,restoring?'Restaurar como lead':'Não é lead',async()=>{if(leadToggle.dataset.confirmed!=='true'){leadToggle.dataset.confirmed='true';leadToggle.textContent=restoring?'Confirmar: restaurar como lead':'Confirmar: não é lead (as mensagens ficam guardadas)';return;}await api('contact_lead',{isLead:restoring});undoNotice(restoring?'Restaurado como lead':'Marcado como não é lead',()=>api('contact_lead',{isLead:!restoring}));await onChanged();});
     const aiReading=data.ai?.reading;
     let aiReadingBlock=null;
     if(aiReading){
@@ -100,15 +105,17 @@
     const aiSuggestion=data.ai?.suggestion;
     if(aiSuggestion){
       const suggestion=append(heading,'div','lead-card lead-highlight ai-link-suggestion');append(suggestion,'span','lead-label','LIGAÇÃO SUGERIDA');
-      const text=append(suggestion,'p');text.append(document.createTextNode('Esta conversa parece ser o pedido '));append(text,'strong','ref',`Ref ${aiSuggestion.target_ref}`);
+      // "É a Ref X" when the customer wrote the Ref in this conversation; "parece ser" only with real doubt.
+      const refWritten=new RegExp('\\b'+String(aiSuggestion.target_ref||'').replace(/[^A-Z0-9]/gi,'')+'\\b','i');const confirmedRef=Boolean(aiSuggestion.target_ref)&&(record.conversation||[]).some((message)=>message.direction==='CUSTOMER'&&refWritten.test(String(message.body_text||'')));
+      const text=append(suggestion,'p');text.append(document.createTextNode(confirmedRef?'Esta conversa é a ':'Esta conversa parece ser o pedido '));append(text,'strong','ref',`Ref ${aiSuggestion.target_ref}`);
       append(suggestion,'div','muted',`Motivos: ${aiSuggestion.motives||'sinais da conversa e da simulação.'}`);
       const actions=append(suggestion,'div','lead-actions');
-      button(actions,'Ligar ao pedido',async()=>{await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'suggestion',journeyId:record.id,suggestionId:aiSuggestion.id,link:true})});await reload();},'small');
+      button(actions,'Ligar pedido à ficha',async()=>{const result=await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'suggestion',journeyId:record.id,suggestionId:aiSuggestion.id,link:true})});if(result&&result.undoable)undoNotice(`Ref ${aiSuggestion.target_ref} ligada à ficha`,()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'suggestion_undo',journeyId:record.id,suggestionId:aiSuggestion.id})}));await reload();},'small');
       button(actions,'Não é',async()=>{await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'suggestion',journeyId:record.id,suggestionId:aiSuggestion.id,link:false})});await reload();},'quiet small');
       button(actions,'Escolher outro pedido',async()=>{const result=await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'alternatives',journeyId:record.id})});
         let picker=suggestion.querySelector('.ai-alternative-picker');if(picker)picker.remove();picker=append(suggestion,'div','lead-actions ai-alternative-picker');const select=append(picker,'select');select.append(new Option('Escolha outro pedido',''));
         (result.items||[]).filter((item)=>item.ref!==aiSuggestion.target_ref).forEach((item)=>select.append(new Option(`Ref ${item.ref} · ${item.name||'sem nome'} · ${item.vehicle||'sem carro'} · ${cents(item.budgetCents)}`,item.ref)));
-        button(picker,'Ligar escolhido',async()=>{if(!select.value)return;await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'choose',journeyId:record.id,ref:select.value})});await reload();},'small');
+        button(picker,'Ligar pedido escolhido à ficha',async()=>{if(!select.value)return;await request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'choose',journeyId:record.id,ref:select.value})});await reload();},'small');
       },'quiet small');
     }
 
@@ -136,7 +143,7 @@
     if(!data.typical.length) append(reality,'p','muted','MMR típico: sem referência');
     data.typical.forEach((wish)=>{ append(reality,'p','muted',`MMR típico ${model(wish)}: ${wish.mmrCents?cents(wish.mmrCents):'sem referência'}`);
       if(wish.mmrCents&&data.bid!==null&&wish.mmrCents>data.bid*100) reality.append(badge(`Teto curto em ~${cents(wish.mmrCents-data.bid*100)}`,'yellow')); });
-    append(reality,'p','muted','Cabe no teto: '+(data.fits.length?data.fits.map((car)=>`${car.make} ${car.model} ${car.year} · ${Number(car.miles).toLocaleString('en-US')} mi`).join(' · '):'sem combinação nos CSVs'));
+    append(reality,'p','muted','Dentro do teto do cliente: '+(data.fits.length?data.fits.map((car)=>`${car.make} ${car.model} ${car.year} · ${Number(car.miles).toLocaleString('en-US')} mi`).join(' · '):'sem combinação nos CSVs'));
     const numbers=section(trio,6,'NÚMEROS PRONTOS');
     if(data.costs){const c=data.costs;row(numbers,'Depósito',fmt(c.deposito));row(numbers,'Taxa de serviço',fmt(c.servico));row(numbers,'Taxa do leilão + fixas',fmt(c.gLeilao));row(numbers,'Tax, title & registration',fmt(c.gTaxReg));row(numbers,'Total estimado',fmt(c.totalProjetado));}
     else append(numbers,'p','muted',data.totalCeilingCents?'O teto não cobre o lance mínimo e os custos':'Lance máximo ainda não informado');
@@ -153,11 +160,17 @@
     append(offers,'p','muted',`${data.offers.length} carro(s) compatível(is) no lote ativo · A seleção para o cliente e a V1 são feitas em OPÇÕES`);
     if(journeyId&&(openOptions||openTab)){const go=append(offers,'div','lead-actions');if(offerModes.length&&openOptions)offerModes.forEach((mode)=>button(go,`Abrir em OPÇÕES · ${mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM'}`,()=>openOptions(`journey:${journeyId}:${mode}`),'small'));else if(openTab)button(go,'Abrir OPÇÕES',()=>openTab('searches'),'small');}
     if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes');
+    // Adendo, item 2: each search type in one group (com carros, sem carros with the reason, ainda não rodada).
+    (data.searchModes||[]).forEach((mode)=>{const count=data.offers.filter((car)=>car.mode===mode).length,label=mode==='VALOR'?'Por valor':'Por carro (ano e milhagem)';const line=append(offers,'p','lead-search-group');
+      if(!data.batchActive){line.dataset.searchGroup='NAO_RODADA';line.textContent=`Busca ainda não rodada · ${label}: nenhum lote ativo do Manheim`;return;}
+      if(count){line.dataset.searchGroup='COM_CARROS';line.textContent=`Com carros · ${label}: ${count} carro(s) no lote ativo`;return;}
+      line.dataset.searchGroup='SEM_CARROS';line.textContent=`Sem carros · ${label}: a busca rodou no lote ativo e nenhum carro serviu`;
+      if(journeyId){const reason=append(offers,'p','search-empty-reason','Motivo: lendo o lote…');request('/api/panel/pesquisas',{method:'POST',timeoutMs:60000,body:JSON.stringify({action:'empty_reasons',keys:[`ficha:journey:${journeyId}:${mode}`]})}).then((out)=>{const found=(out.reasons||{})[`ficha:journey:${journeyId}:${mode}`];reason.textContent='Motivo: '+(found?found.text:'nenhum carro do lote ativo serviu para estes critérios');}).catch(()=>{reason.textContent='Motivo: não consegui ler o lote agora';});}});
     data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind==='POR_VALOR'?'POR VALOR · ligar':car.kind,car.kind==='BATE'?'green':car.kind==='POR_VALOR'?'blue':'yellow'));
       append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('en-US')+' mi'} · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
       if(car.matchNotice)line.append(badge(car.matchNotice,'yellow'));else if(car.matchReason)append(line,'span','muted',car.matchReason);
       if(car.mode)line.append(badge(car.mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM',car.mode==='VALOR'?'blue':'green'));
-      button(line,'Registrar que apresentei',async()=>{await api('present',{fingerprint:car.rowFingerprint,mode:car.mode||null});await reload();}); });
+      button(line,'Registrar que apresentei',async()=>{const result=await api('present',{fingerprint:car.rowFingerprint,mode:car.mode||null});if(result&&result.undo)undoNotice('Apresentação registrada',()=>actionsApi('present_undo',result.undo));await reload();}); });
     const context=section(second,9,'CONTEXTO RÁPIDO');
     const allPromises=[...(record.promises||[]),...(data.promises||[])];
     const promises=allPromises.filter((promise)=>promise.status==='OPEN');
@@ -276,12 +289,12 @@
     const tr=journeyId&&window.MCSSuggest&&MCSSuggest.translator?MCSSuggest.translator(journeyId,{request,onChange:()=>draw()}):null;
     // Counts what the button translates: the pending messages shown with the current filter.
     const paintTranslate=()=>{if(!translateButton)return;const pending=tr.pending().filter((id)=>visibleIds.includes(id)).length;translateButton.disabled=tr.busy()||!pending;translateButton.textContent=tr.busy()?'Traduzindo…':pending?`Traduzir conversa (${pending})`:(tr.hasAny()?'Conversa traduzida':'Traduzir conversa');};
-    if(tr){translateButton=button(controls,'Traduzir conversa',async()=>{if(tr.busy())return;translateStatus.textContent='';try{const out=await tr.translate(visibleIds);if(out&&out.simulated)translateStatus.textContent='Tradução simulada neste ambiente · sem IA e sem custo';}catch(error){translateStatus.textContent=error&&error.code==='OPENAI_BUDGET_LIMIT'?'Sem saldo no teto de US$ 50 da OpenAI · Nada foi cobrado':'Não consegui traduzir agora · tente de novo';}finally{setTimeout(paintTranslate,0);}},'small');translateButton.classList.add('translate-conversation');translateStatus=append(controls,'span','status','');paintTranslate();}
+    if(tr){translateButton=button(controls,'Traduzir conversa',async()=>{if(tr.busy())return;translateStatus.textContent='';try{const out=await tr.translate(visibleIds);if(out&&out.simulated)translateStatus.textContent='Tradução simulada neste ambiente · sem IA e sem custo';}catch(error){translateStatus.textContent=error&&error.code==='OPENAI_BUDGET_LIMIT'?'Sem saldo pré-pago na OpenAI · Nada foi cobrado':'Não consegui traduzir agora · tente de novo';}finally{setTimeout(paintTranslate,0);}},'small');translateButton.classList.add('translate-conversation');translateStatus=append(controls,'span','status','');paintTranslate();}
     const draw=()=>{thread.replaceChildren();let list=messages.filter((message)=>filter.value==='all'||message.direction===filter.value);if(sort.value==='recent')list=list.slice().reverse();visibleIds=list.map((message)=>message.id);
       list.forEach((message)=>{const bubble=append(thread,'article','lead-message '+(message.direction==='MCS'?'m':'c'));
         append(bubble,'small','muted',`${message.channel} · ${message.direction==='CUSTOMER'?'Cliente':'MCS'} · ${date(message.occurred_at_utc||message.created_at,data.timezone)}${message.is_automatic?' · 🤖 automática':''}`);
         append(bubble,'p','',message.body_text);
-        if(tr){const done=tr.get(message.id);if(done){const box=append(bubble,'div','message-translation');append(box,'small','muted','Tradução para português');append(box,'p','',done.textPt);}else if(tr.canTranslate(message.id)&&tr.hasAny()){const one=button(bubble,'traduzir',async()=>{if(tr.busy())return;translateStatus.textContent='';try{await tr.translate([message.id]);}catch(error){translateStatus.textContent=error&&error.code==='OPENAI_BUDGET_LIMIT'?'Sem saldo no teto de US$ 50 da OpenAI · Nada foi cobrado':'Não consegui traduzir esta mensagem · tente de novo';}},'quiet small');one.classList.add('translate-one');}}
+        if(tr){const done=tr.get(message.id);if(done){const box=append(bubble,'div','message-translation');append(box,'small','muted','Tradução para português');append(box,'p','',done.textPt);}else if(tr.canTranslate(message.id)&&tr.hasAny()){const one=button(bubble,'traduzir',async()=>{if(tr.busy())return;translateStatus.textContent='';try{await tr.translate([message.id]);}catch(error){translateStatus.textContent=error&&error.code==='OPENAI_BUDGET_LIMIT'?'Sem saldo pré-pago na OpenAI · Nada foi cobrado':'Não consegui traduzir esta mensagem · tente de novo';}},'quiet small');one.classList.add('translate-one');}}
         if(message.direction==='MCS'&&message.media_kind)append(bubble,'span','muted',({image:'Foto enviada',audio:'Áudio enviado',video:'Vídeo enviado',document:'Documento enviado',sticker:'Sticker enviado'}[message.media_kind]||'Mídia enviada'));else if(message.media_status==='STORED'&&mediaObjectUrl){const media=append(bubble,'div','whatsapp-media'),load=append(media,'button','quiet small',message.media_kind==='document'?'Baixar':'Carregar mídia');load.type='button';load.addEventListener('click',async()=>{load.disabled=true;try{const url=await mediaObjectUrl(message.id);load.remove();if(message.media_kind==='image'){const image=append(media,'img','whatsapp-media-image');image.alt='Foto da conversa';image.src=url;image.addEventListener('click',()=>window.open(url,'_blank','noopener'));}else if(message.media_kind==='audio'){const player=append(media,'audio');player.controls=true;player.src=url;}else if(message.media_kind==='video'){const player=append(media,'video');player.controls=true;player.src=url;}else{const link=append(media,'a','', 'Baixar');link.href=url;link.download='';link.target='_blank';link.rel='noopener';}}catch(_){load.disabled=false;load.textContent='Mídia não disponível';}});}else if(message.media_status==='FAILED')append(bubble,'span','muted','Mídia não disponível');
         if(message.direction==='MCS'){const automatic=button(bubble,message.is_automatic?'não é automática':'marcar como automática',async()=>{automatic.disabled=true;try{await request('/api/panel/messages',{method:'POST',body:JSON.stringify({messageId:message.id,automatic:!message.is_automatic})});await reload();}finally{automatic.disabled=false;}});automatic.classList.add('quiet','small');}
         if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref,data.timezone));});
@@ -321,9 +334,9 @@
     const power=append(history,'div','lead-actions');
     // A7: a closed ficha is reopened explicitly; one merged into another conversation stays closed.
     if(record.status==='ENCERRADO'&&record.closed_reason==='WHATSAPP_LINKED')append(power,'p','muted','Ficha juntada a outra conversa');
-    else if(record.enabled===false)button(power,record.status==='ENCERRADO'?'Reabrir ficha':'Ligar lead',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:true}});await reload();});
+    else if(record.enabled===false)button(power,record.status==='ENCERRADO'?'Reabrir ficha':'Ligar lead',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:true}});undoNotice('Ficha religada',()=>api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:record.offReason||null}}));await reload();});
     else {const reason=append(power,'select');[['','Desligar com motivo'],['MCS_PURCHASE','Comprou com a MCS'],['OTHER_PURCHASE','Comprou em outro lugar'],['GAVE_UP','Desistiu'],['NO_RESPONSE','Sem resposta']].forEach(([v,label])=>reason.append(new Option(label,v)));
-      const off=button(power,'Desligar',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:reason.value}});await reload();});
+      const off=button(power,'Desligar',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:reason.value}});undoNotice('Ficha desligada',()=>api('manual',{panelAction:'toggle_journey',payload:{enabled:true}}));await reload();});
       off.disabled=true;off.title='Escolha o motivo';reason.addEventListener('change',()=>{off.disabled=!reason.value;});}
     // Order on screen: header → case summary → conversation → quick result → the rest.
     topAnchor.replaceWith(conversation,quick);finalGrid.classList.add('lead-one');

@@ -102,7 +102,7 @@ async function suggestRows(rows, options = {}) {
     messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ rows: rows.map((row) => ({ id: row.id, ...row.cells })) }) }],
     response_format: { type: 'json_schema', json_schema: { name: 'manheim_rows', strict: true, schema: SCHEMA } }
   };
-  // The US$ 50 OpenAI reservation around the call (options.guard, panel-openai-budget).
+  // The OpenAI prepaid-balance reservation around the call (options.guard, panel-openai-budget).
   return require('./panel-openai-budget').paidCall(options.guard, { modelId, body, send: async (capped) => {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
@@ -110,7 +110,7 @@ async function suggestRows(rows, options = {}) {
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
       body: JSON.stringify(capped)
     });
-    if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; failure.status = response.status; throw failure; }
+    if (!response.ok) throw await require('./panel-openai-budget').openAiFailure(response);
     const payload = await response.json();
     let parsed = null;
     try { parsed = JSON.parse(payload?.choices?.[0]?.message?.content || ''); } catch (_) { parsed = null; }
@@ -165,7 +165,7 @@ async function suggestHeaders(input, options = {}) {
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
       body: JSON.stringify(capped)
     });
-    if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
+    if (!response.ok) throw await require('./panel-openai-budget').openAiFailure(response);
     const payload = await response.json();
     let parsed = null;
     try { parsed = JSON.parse(payload?.choices?.[0]?.message?.content || ''); } catch (_) { parsed = null; }

@@ -1161,3 +1161,56 @@ body > .action-feedback { position: fixed; left: 16px; right: 16px; bottom: 16px
 .reply-window-estimate { margin: 4px 0 0; font-size: .85rem; }
 .lead-question button { margin-left: 8px; }
 .lead-grid.lead-one { grid-template-columns: 1fr; }
+/* Adendo: grupos de contato (HOJE, ENTRADA, CLIENTES) e busca em três grupos */
+.contact-group { display: grid; gap: 10px; margin: 14px 0; }
+.contact-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; padding: 6px 0; border-bottom: 1px solid var(--mcs-line); }
+details.contact-group > summary.contact-group-head { cursor: pointer; }
+.contact-group-label { font-size: 1rem; }
+.contact-group-hint { font-size: .8rem; flex-basis: 100%; }
+.contact-group-nao-atendido > .contact-group-head .contact-group-label { color: var(--mcs-red); }
+.card-decision { margin: 0 0 8px; padding: 6px 10px; border-radius: var(--mcs-radius-sm); font-size: .9rem; background: var(--mcs-elevated); border-left: 3px solid var(--mcs-line); }
+.card-decision.decision-red { background: var(--mcs-red-tint); border-left-color: var(--mcs-red-strong); }
+.card-decision.decision-yellow { background: var(--mcs-amber-tint); border-left-color: var(--mcs-amber-strong); }
+.card-decision.decision-blue { background: var(--mcs-blue-tint); border-left-color: var(--mcs-blue); }
+.card-decision-label { margin-right: 2px; }
+.card-last-message { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--mcs-gold); background: var(--mcs-gold-tint); border-radius: var(--mcs-radius-sm); }
+.card-last-message-label { display: block; font-size: .78rem; color: var(--mcs-muted); }
+.card-last-message-text { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.card-last-message-translation { margin: 6px 0 0; font-size: .88rem; color: var(--mcs-text-2); }
+.translate-link { margin-top: 4px; font-size: .82rem; }
+.card-reply-tools { margin-top: 8px; }
+.card-reply-tools > summary { cursor: pointer; font-size: .88rem; }
+.search-group { display: grid; gap: 10px; margin: 12px 0; }
+.search-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; border-bottom: 1px solid var(--mcs-line); padding: 6px 0; }
+.search-group-hint { font-size: .8rem; flex-basis: 100%; }
+.search-empty-reason { margin: 6px 0 0; padding: 6px 10px; border-radius: var(--mcs-radius-sm); background: var(--mcs-amber-tint); font-size: .9rem; }
+.search-fields { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; font-size: .9rem; }
+.search-fields dt { color: var(--mcs-muted); }
+.search-fields dd { margin: 0; }
+/* Teto único da IA no cabeçalho, aviso a partir de 80% */
+.ai-budget > summary { cursor: pointer; }
+.ai-budget-warn > summary strong { color: var(--mcs-red); }
+.ai-budget-features { margin: 6px 0 0; padding-left: 18px; font-size: .85rem; }
+.origin-chip { font-weight: 600; }
+.origin-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.context-unattended { margin: 6px 0; padding: 6px 10px; border-radius: var(--mcs-radius-sm); background: var(--mcs-red-tint); border-left: 3px solid var(--mcs-red-strong); font-size: .9rem; }
+.context-evidence-again { font-size: .85rem; }
+.today-stat, .pending-stat { cursor: pointer; text-align: left; }
+.today-stat.active, .pending-stat.active { outline: 2px solid var(--mcs-gold); }
+.today-stat small, .pending-stat small { display: block; font-size: .75rem; }
+.request-view-options { font-weight: 600; }
+.clients-more { margin: 12px auto; display: block; }
+
+/* Áreas dentro de cada grupo de contato: calculadora por valor, por carro e conversa direta
+   (busca incompleta / definida) em blocos visuais próprios. */
+.contact-area { display: grid; gap: 10px; margin: 6px 0 10px; padding: 10px 0 0 12px; border-left: 3px solid var(--mcs-line); }
+.contact-area-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.contact-area-label { font-size: 0.95rem; }
+.contact-area-hint { font-size: 0.82rem; }
+.contact-area-calc-valor { border-left-color: var(--mcs-blue, #3b82f6); }
+.contact-area-calc-carro { border-left-color: var(--mcs-green, #22c55e); }
+.contact-area-direta-incompleta { border-left-color: var(--mcs-yellow, #eab308); }
+.contact-area-direta-definida { border-left-color: var(--mcs-line); }
+@media (max-width: 520px) { .contact-area { padding-left: 8px; } }
+.ai-budget-provider { display: grid; gap: 4px; margin: 6px 0; }
+.ai-budget-form input { max-width: 180px; }

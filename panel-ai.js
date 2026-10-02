@@ -6,6 +6,7 @@ const { validItems, prepareItems } = require('./panel-note');
 const { allRows, insert, patchRows, rows, supabase } = require('./panel-server');
 const { timezoneForZip } = require('./panel-lead');
 const { storeDailyInsight } = require('./panel-pendencias');
+const anthropicBudget = require('./panel-anthropic-budget');
 
 const AI_TYPES = new Set(['call_result','checklist','budget','payment','deadline','wishlist','phone','promise','return','stage','disable']);
 const DAY_MS = 86400000;
@@ -46,23 +47,30 @@ async function reserveCall(ctx, kind = 'MANUAL') {
   return result;
 }
 
-async function anthropicJson(system, user, fetchImpl = fetch) {
+// budget: { ctx, feature, subject } — the reservation against the Claude prepaid balance
+// (panel-anthropic-budget); required in production.
+async function anthropicJson(system, user, fetchImpl = fetch, budget = null) {
   if (!process.env.ANTHROPIC_API_KEY || !process.env.ANTHROPIC_MODEL) throw new Error('AI_UNAVAILABLE');
+  const model = process.env.ANTHROPIC_MODEL, maxTokens = 2400;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   try {
-    const response = await fetchImpl('https://api.anthropic.com/v1/messages', {
-      method: 'POST', signal: controller.signal,
-      headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL, max_tokens: 2400, temperature: 0,
-        system, messages: [{ role: 'user', content: user }] })
-    });
-    if (!response.ok) throw new Error('AI_UNAVAILABLE');
-    const payload = await response.json();
-    const text = (payload.content || []).filter((part) => part.type === 'text').map((part) => part.text).join('\n');
+    const result = await anthropicBudget.paidCall(budget, { model, system, user, maxTokens, send: async () => {
+      const response = await (fetchImpl || fetch)('https://api.anthropic.com/v1/messages', {
+        method: 'POST', signal: controller.signal,
+        headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0,
+          system, messages: [{ role: 'user', content: user }] })
+      });
+      if (!response.ok) return { status: response.status, detail: await response.text().catch(() => '') };
+      return { status: response.status, payload: await response.json() };
+    } });
+    if (!result || !result.payload) throw new Error('AI_UNAVAILABLE');
+    const text = (result.payload.content || []).filter((part) => part.type === 'text').map((part) => part.text).join('\n');
     return firstJson(text);
   } catch (error) {
     if (error.message === 'AI_RESPONSE_INVALID') throw error;
+    if (error.code === 'AI_BALANCE_LIMIT') throw error;
     throw new Error('AI_UNAVAILABLE');
   } finally { clearTimeout(timeout); }
 }
@@ -240,7 +248,7 @@ async function readConversation(ctx, group, options={}) {
       'Cada item deve usar apenas estes tipos: call_result, checklist, budget, payment, deadline, wishlist, phone, promise, return, stage, disable. '+
       'Cada item precisa de evidence copiada literalmente de uma única mensagem do Cliente e o valor precisa estar provado nessa mesma frase. Nunca use fala da MCS como evidência. '+
       'Para budget, value é o valor total em dólares. Para checklist, point é 1 a 6 e value é OK. Não invente nada. O resumo é em português e Dinheiro diferencia o lance da calculadora do valor falado. missing lista só o que o tipo de busca (busca.tipos) ainda precisa e que não está na conversa nem em busca.calculadora. Regra da mesa: quem busca POR CARRO (Find One: carro, faixa de ano e de milhagem) nunca recebe pergunta de lance, orçamento ou valor; quem busca POR VALOR (carro e lance máximo) nunca recebe pergunta de ano ou milhagem; não sugira perguntar o que o cliente ou a calculadora já informaram. Acrescente pending {situation,heat,summary,nextStep,translation}: situation é MCS_PENDING, CUSTOMER_PENDING, IN_PROGRESS ou CLOSED; heat é HOT, WARM ou COLD; translation só quando a última mensagem estiver em outro idioma. summary, nextStep e translation sempre em português.',
-      prompt.user,options.fetchImpl
+      prompt.user,options.fetchImpl,{ctx,feature:options.manual?'LEITURA_MANUAL':'LEITURA',subject:String(group.chatId||group.journey?.id||'-')}
     );
     const zip=(group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'';
     const lead={wishes:mergeWishlists([],group.journey.criteria_json?.wishlists||[]),timezone:timezoneForZip(zip)};
@@ -277,7 +285,7 @@ async function suggestLink(ctx,group,orders,options={}){
     await reserveCall(ctx,'ROTINA');
     const parsed=await anthropicJson('Escolha somente entre os candidatos fornecidos o pedido mais provável para esta conversa. Responda SOMENTE JSON {"ref":"ABCDE" ou null,"reasons":["motivo curto"]}. Não invente dados.',JSON.stringify({
       contato:group.contact.display_name,mensagens:group.customerMessages.slice(-10).map((message)=>message.body_text),candidatos:candidates.map((candidate)=>({ref:candidate.ref,nome:candidate.contactName,carro:candidate.vehicleText,valor:candidate.budgetCents?Number(candidate.budgetCents)/100:null,data:candidate.occurredAt,sinais:candidate.reasons}))
-    }),options.fetchImpl);
+    }),options.fetchImpl,{ctx,feature:'LIGAR_PEDIDO',subject:String(group.chatId||group.journey?.id||'-')});
     const chosen=candidates.find((candidate)=>candidate.ref===String(parsed.ref||'').trim().toUpperCase());
     await markLinkState(ctx,group,latestOrderAt?new Date(latestOrderAt).toISOString():null,false);
     if(!chosen){await recordAttempt(ctx,group,true).catch(()=>null);return null;}

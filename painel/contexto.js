@@ -26,6 +26,8 @@
     // Inside a card that already shows name and phone, the summary skips them (no repetition).
     if (options.withIdentity) node.dataset.contextIdentity = 'true';
     if (options.aiReading === false) node.dataset.contextAiReading = 'false';
+    // The card already shows the "não atendido" line first (HOJE, ENTRADA, CLIENTES): not repeated here.
+    if (options.unattended === false) node.dataset.contextUnattended = 'false';
     if (!keyOf(spec)) { node.classList.add('client-context-none'); node.textContent = options.emptyText || 'Sem cliente ligado a este item.'; return node; }
     add(node, 'span', 'client-context-loading muted', 'Carregando o contexto do cliente…');
     // A click inside the summary never opens the card around it.
@@ -77,7 +79,7 @@
       node.dataset.contextState = 'done';
       if (!context) { node.replaceChildren(e('span', 'muted', 'Cliente não encontrado neste ambiente.')); return; }
       if (context.unlinked) { node.replaceChildren(e('span', 'client-context-warning', context.unlinked)); return; }
-      node.replaceChildren(...compact(context, { open, focus: node.dataset.contextFocus || null, identity: node.dataset.contextIdentity === 'true', aiReading: node.dataset.contextAiReading !== 'false' }).childNodes);
+      node.replaceChildren(...compact(context, { open, focus: node.dataset.contextFocus || null, identity: node.dataset.contextIdentity === 'true', aiReading: node.dataset.contextAiReading !== 'false', unattended: node.dataset.contextUnattended !== 'false' }).childNodes);
     });
   }
   async function fill(nodes, { request, open }) {
@@ -136,19 +138,33 @@
     return box;
   }
 
-  function compact(context, { open, focus, identity = true, aiReading = true } = {}) {
+  // Não atendido: the reason, how long it has waited, what is missing and the next action, in every
+  // tab where the client appears (same rule as the HOJE, ENTRADA and CLIENTES cards).
+  function unattendedLine(parent, context) {
+    const u = context.unattended;
+    if (!u) return null;
+    const line = add(parent, 'p', 'context-unattended decision-red');
+    add(line, 'strong', '', 'Não atendido');
+    line.append(document.createTextNode(` · ${u.reasonText} · Esperando há ${u.waitedText} · Falta: ${u.missing} · Agora: ${u.next}`));
+    return line;
+  }
+  function compact(context, { open, focus, identity = true, aiReading = true, unattended = true } = {}) {
     const root = e('div');
     const head = add(root, 'div', 'context-head');
     const who = add(head, 'div', 'context-who');
-    const origin = context.origin.label + (context.origin.calculator && context.origin.code !== 'CALCULATOR' ? ' + calculadora' : '');
+    // DE ONDE VEIO: a short chip (never a sentence repeated on every line).
+    const originChip = () => { const chip = e('span', 'badge origin-chip context-origin', context.origin.label); chip.title = 'De onde veio' + (context.origin.since ? ' · desde ' + day(context.origin.since) : ''); return chip; };
     if (identity) {
       add(who, 'strong', 'context-name', context.name || 'Contato sem nome');
       if (context.ref) add(who, 'span', 'context-ref', 'Ref ' + context.ref);
       const contactLine = add(who, 'span', 'context-contact muted');
-      contactLine.textContent = [(context.contact.phones || []).map(phone).join(' · ') || (context.contact.whatsappUsername ? '@' + context.contact.whatsappUsername : context.contact.note || 'Sem telefone salvo'), 'Origem: ' + origin].join(' · ');
+      contactLine.textContent = (context.contact.phones || []).map(phone).join(' · ') || (context.contact.whatsappUsername ? '@' + context.contact.whatsappUsername : context.contact.note || 'Sem telefone salvo');
+      who.append(originChip());
+      if (context.origin.financing) add(who, 'span', 'badge yellow origin-financing', 'Financiamento');
     } else {
       add(who, 'span', 'context-kicker', 'Contexto do cliente');
-      add(who, 'span', 'context-contact muted', 'Origem: ' + origin + (context.origin.since ? ' · desde ' + day(context.origin.since) : ''));
+      who.append(originChip());
+      if (context.origin.financing) add(who, 'span', 'badge yellow origin-financing', 'Financiamento');
     }
     // Inside a card, only the ficha is a new destination (the card already opens its order).
     if (typeof open === 'function' && (context.journeyId || (identity && context.ref))) {
@@ -156,6 +172,7 @@
       button.type = 'button';
       button.addEventListener('click', (event) => { event.stopPropagation(); open(context.journeyId ? 'ficha' : 'order', context.journeyId || context.ref); });
     }
+    if (unattended) unattendedLine(root, context);
     const facts = add(root, 'dl', 'context-facts');
     const fact = (label, value, cls) => { const wrap = add(facts, 'div', 'context-fact' + (cls ? ' ' + cls : '')); add(wrap, 'dt', '', label); add(wrap, 'dd', '', value); return wrap; };
     const searchText = (context.searches || []).map((item) => (item.mode ? (item.mode === 'VALOR' ? 'Por valor: ' : 'Por carro: ') : '') + item.label).join(' · ');
@@ -173,6 +190,8 @@
     if (focus === 'cars' || focus === 'search') {
       const cars = (context.links || {}).cars || {};
       add(root, 'p', 'muted context-cars', cars.uploadAt ? `Lote ativo de ${day(cars.uploadAt)}: ${cars.total || 0} carro(s) com MMR ligado(s) a este cliente` : 'Nenhum lote ativo do Manheim.');
+      (context.searches || []).forEach((item) => searchGroupLine(root, context, item));
+      fillReasons();
     }
     const more = add(root, 'details', 'context-more');
     add(more, 'summary', '', 'Ver dados campo a campo, origem e vínculos');
@@ -181,7 +200,8 @@
   }
 
   // ----------------------------------------------------------------- dados completos
-  function sourceList(item) {
+  // A message quoted for several fields appears once; the next fields point back to it.
+  function sourceList(item, shown = new Set()) {
     const list = e('ul', 'context-sources');
     if (!item.sources.length) { add(list, 'li', 'muted', item.note || 'Nenhuma fonte informou.'); return list; }
     item.sources.forEach((source) => {
@@ -190,7 +210,12 @@
       add(li, 'span', '', ' ' + source.value);
       const extra = [source.ref ? 'Ref ' + source.ref : null, source.detail, source.at ? date(source.at) : null].filter(Boolean).join(' · ');
       if (extra) add(li, 'span', 'muted', ' · ' + extra);
-      (source.messages || []).forEach((message) => { const quote = add(li, 'blockquote', 'context-evidence'); add(quote, 'span', 'muted', 'Mensagem do cliente · ' + date(message.at) + ': '); quote.append(document.createTextNode('“' + message.text + '”')); });
+      (source.messages || []).forEach((message) => {
+        const key = (message.at || '') + '|' + message.text;
+        if (shown.has(key)) { add(li, 'span', 'muted context-evidence-again', ' · mesma mensagem do cliente citada acima (' + date(message.at) + ')'); return; }
+        shown.add(key);
+        const quote = add(li, 'blockquote', 'context-evidence'); add(quote, 'span', 'muted', 'Mensagem do cliente · ' + date(message.at) + ': '); quote.append(document.createTextNode('“' + message.text + '”'));
+      });
     });
     if (item.note) add(list, 'li', 'context-note', item.note);
     return list;
@@ -201,19 +226,53 @@
     const head = add(add(table, 'thead'), 'tr');
     ['Campo', 'Valor usado', 'Situação', 'De onde veio'].forEach((label) => add(head, 'th', '', label));
     const body = add(table, 'tbody');
+    const shown = new Set();
     (context.fields || []).forEach((item) => {
       const tr = add(body, 'tr', STATUS_CLASS[item.status] || '');
       add(tr, 'th', '', item.label).scope = 'row';
       add(tr, 'td', 'context-value', item.value || (item.status === 'AMBIGUO' ? 'Não escolhido: as fontes discordam' : '—'));
       const status = add(tr, 'td'); status.append(statusTag(item));
-      add(tr, 'td').append(sourceList(item));
+      add(tr, 'td').append(sourceList(item, shown));
     });
     const wrap = e('div', 'context-table-wrap');
     wrap.append(table);
     return wrap;
   }
 
-  function linksBlock(context, { aiReading = true } = {}) {
+  // Adendo, item 2: each search in one of three groups (com carros, sem carros, ainda não rodada).
+  // A "sem carros" gets its plain-language reason from PESQUISAS (read only).
+  function searchGroupLine(parent, context, item) {
+    const cars = (context.links || {}).cars || {};
+    const line = add(parent, 'p', 'context-search-group');
+    const label = item.modeLabel || 'Tipo não definido';
+    if (!item.mode) { line.dataset.searchGroup = 'NAO_RODADA'; line.textContent = `Busca ainda não rodada · ${label}: ${item.label}${(item.issues || []).length ? ' · falta: ' + item.issues.map((issue) => issue.text || issue).join(', ') : ''}`; return line; }
+    if (!cars.uploadAt) { line.dataset.searchGroup = 'NAO_RODADA'; line.textContent = `Busca ainda não rodada · ${label}: nenhum lote ativo do Manheim`; return line; }
+    if (item.cars > 0) { line.dataset.searchGroup = 'COM_CARROS'; line.textContent = `Com carros · ${label}: ${item.cars} carro(s) no lote ativo · ${item.label}`; return line; }
+    line.dataset.searchGroup = 'SEM_CARROS';
+    line.textContent = `Sem carros · ${label}: a busca rodou no lote ativo e nenhum carro serviu`;
+    if (context.journeyId) { const reason = add(parent, 'p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = `ficha:journey:${context.journeyId}:${item.mode}`; }
+    return line;
+  }
+  // Reasons are read in one batch per moment (slots that appear together share one request).
+  const reasonCache = new Map();
+  let reasonTimer = null;
+  function fillReasons() {
+    clearTimeout(reasonTimer);
+    reasonTimer = setTimeout(async () => {
+      const slots = [...document.querySelectorAll('.client-context .search-empty-reason[data-request-key]:not([data-filled])')];
+      if (!slots.length || !handlers || typeof handlers.request !== 'function') return;
+      slots.forEach((slot) => { slot.dataset.filled = '1'; });
+      const missing = [...new Set(slots.map((slot) => slot.dataset.requestKey))].filter((key) => !reasonCache.has(key));
+      let failed = false;
+      if (missing.length) {
+        try { const out = await handlers.request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'empty_reasons', keys: missing }) }); missing.forEach((key) => reasonCache.set(key, (out.reasons || {})[key] || null)); }
+        catch (_) { failed = true; }
+      }
+      slots.forEach((slot) => { const found = reasonCache.get(slot.dataset.requestKey); slot.textContent = failed && !reasonCache.has(slot.dataset.requestKey) ? 'Motivo: não consegui ler o lote agora' : 'Motivo: ' + (found ? found.text : 'nenhum carro do lote ativo serviu para estes critérios'); });
+    }, 80);
+  }
+
+  function linksBlock(context, { aiReading = true, searchGroups = true } = {}) {
     const box = e('div', 'context-links');
     const links = context.links || {};
     const orders = add(box, 'div');
@@ -225,10 +284,14 @@
     if (links.requestsNote) add(requests, 'p', 'muted', links.requestsNote);
     else if (!(links.requests || []).length) add(requests, 'p', 'muted', 'Nenhum pedido lido da conversa.');
     (links.requests || []).forEach((item) => add(requests, 'p', '', `${item.vehicle || 'Carro não informado'} · lido em ${date(item.at)}${item.needsReview ? ' · a IA pediu revisão' : ''}`));
+    // In the ficha the per-search groups live in O QUE OFERECER; the batch line stays here.
     const searches = add(box, 'div');
     add(searches, 'strong', '', 'Busca e carros');
-    if (!(context.searches || []).length) add(searches, 'p', 'muted', 'Sem busca: o pedido ainda não tem o que a busca precisa, ou o caso está encerrado.');
-    (context.searches || []).forEach((item) => add(searches, 'p', '', `${item.modeLabel || 'Tipo não definido'}: ${item.label}${item.mode ? ` · ${item.cars} carro(s) no lote ativo` : ''}`));
+    const groupLines = searchGroups ? searches : e('div');
+    if (!(context.searches || []).length) add(groupLines, 'p', 'muted', 'Sem busca: o pedido ainda não tem o que a busca precisa, ou o caso está encerrado.');
+    (context.searches || []).forEach((item) => searchGroupLine(groupLines, context, item));
+    if (!searchGroups) add(searches, 'p', 'muted', 'Com carros, sem carros e busca não rodada: veja O QUE OFERECER.');
+    fillReasons();
     add(searches, 'p', 'muted', links.cars && links.cars.uploadAt ? `Lote ativo carregado em ${date(links.cars.uploadAt)}. Disponibilidade no leilão não confirmada.` : 'Nenhum lote ativo do Manheim.');
     if ((context.promises || []).length) { const promises = add(box, 'div'); add(promises, 'strong', '', 'Promessas em aberto'); context.promises.forEach((item) => add(promises, 'p', '', `${item.text} · ${date(item.dueAt)}`)); }
     // aiReading=false: the card already shows the reading on its own line (CLIENTES).
@@ -246,7 +309,8 @@
     card.append(...summary.childNodes);
     add(card, 'h3', 'context-subtitle', 'O que o cliente informou, campo a campo');
     add(card, 'p', 'muted', 'Cada valor mostra de onde veio. “Lido pela IA” nunca é confirmação do cliente; campos ambíguos não têm valor escolhido.');
-    card.append(fullTable(context), linksBlock(context));
+    // The ficha shows the search groups in O QUE OFERECER (section 8): not repeated here.
+    card.append(fullTable(context), linksBlock(context, { searchGroups: false }));
     return card;
   }
 

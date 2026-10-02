@@ -250,15 +250,19 @@ test('9 · teste do modelo aprovado, lotes de 10 e retomada sem ler duas vezes',
   assert.deepEqual(await q(`select count(distinct chat_id)::int chats, count(*)::int runs from public.vehicle_request_runs where provider = 'OPENAI'`), [{ chats: 16, runs: 16 }]);
 });
 
-test('10 · teto de US$ 50: para antes de uma chamada que possa passar dele', async () => {
+test('10 · saldo pré-pago: sem teto próprio (US$ 50 gastos não param), mas para antes de uma chamada que passe do saldo informado', async () => {
   await newMessages('b');
+  // US$ 49.995 already spent by PESQUISAS: no ceiling of its own any more.
   await backend.db.exec(`insert into public.vehicle_request_runs(environment,chat_id,provider,model,rule_version,input_hash,status,cost_usd) values('preview','${id(31)}','OPENAI','gpt-6-luna','manual','${'f'.repeat(64)}','DONE',49.995)`);
+  // The owner informed US$ 0.00 left in the OpenAI console.
+  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',0,null)");
   openAiCalls.length = 0;
   await asProduction(() => reply(JSON.stringify({ hasRequest: false, requests: [] })), async () => {
     const stopped = (await history('extract_history')).payload;
     assert.deepEqual([stopped.stoppedReason, stopped.read, stopped.remaining > 0], ['PROVIDER_LIMIT', 0, true]);
   });
-  assert.equal(openAiCalls.length, 0, 'nenhuma chamada depois do teto');
+  assert.equal(openAiCalls.length, 0, 'nenhuma chamada sem saldo');
+  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',100,null)");
 });
 
 test('11 · zero mensagens: nada enviado, nenhuma V1 e nada fora do banco e da OpenAI simulada', async () => {

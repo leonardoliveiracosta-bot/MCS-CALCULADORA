@@ -52,11 +52,13 @@ test('Lote 3: print de SMS que só bate pelo nome espera na ENTRADA e vira lead 
     '/api/panel/sms-print': ({ json }) => json({ journeyId: JOURNEY, contactId: JOURNEY }, 201)
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="entry"]').click();
-  const card = page.locator('#entry-queue .queue-item', { hasText: 'Print de SMS · Ana Souza' });
+  await page.locator('[data-view="imports"]').click();
+  const card = page.locator('#imports-review-queue .queue-item', { hasText: 'Print de SMS · Ana Souza' });
   await expect(card).toBeVisible({ timeout: 30000 });
   await expect(card).toContainText('O nome bate com Ana Souza · Ref ABC23, mas o telefone não');
-  await expect(page.locator('[data-count="entry"]')).toHaveText('1');
+  // A print is not a contact: it is counted in IMPORTAÇÕES, never in ENTRADA.
+  await expect(page.locator('[data-count="imports"]')).toHaveText('1');
+  await expect(page.locator('[data-count="entry"]')).toHaveText('0');
   await card.getByRole('button', { name: 'Criar lead novo' }).click();
   await expect.poll(() => calls.find((call) => call.path === '/api/panel/sms-print')?.body).toMatchObject({ action: 'confirm', auto: true, newLead: true, readId: READ, phone: '+13055550000' });
   expect(errors).toEqual([]);
@@ -152,8 +154,8 @@ test('Lote 3: print sem telefone pede o número antes de salvar', async ({ page 
     '/api/panel/sms-print': ({ json }) => json({ journeyId: JOURNEY, contactId: JOURNEY }, 201)
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="entry"]').click();
-  const card = page.locator('#entry-queue .queue-item', { hasText: 'Print de SMS · Maria Silva' });
+  await page.locator('[data-view="imports"]').click();
+  const card = page.locator('#imports-review-queue .queue-item', { hasText: 'Print de SMS · Maria Silva' });
   await expect(card).toBeVisible({ timeout: 30000 });
   await card.getByRole('button', { name: 'Guardar em Maria Silva' }).click();
   await expect(card).toContainText('Digite o telefone do cliente antes de salvar');

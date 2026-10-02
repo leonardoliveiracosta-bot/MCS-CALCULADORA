@@ -211,33 +211,34 @@ test('falha da OpenAI: Conferência pendente, opções visíveis, novas tentativ
   await assert.rejects(audit.approve(ctx, invalid, `journey:${J.closed}:CARRO`, 'Quero liberar mesmo assim', ACTOR), { code: 'AUDIT_LOCAL_DIVERGENCE' });
 });
 
-test('limite por importação: acima dele nada é chamado, mostra a estimativa e espera autorização', async () => {
+test('sem limite por importação: confere sem pedir autorização; só o saldo pré-pago da OpenAI para a chamada', async () => {
   const valorKey = `journey:${J.valor}:VALOR`;
   const view = input({ mutate: (value) => { value.demands[0].bidCents = 3100000; return value; } });
   const calls = [];
-  const blocked = await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: 0.00001 });
-  assert.equal(calls.length, 0);
-  assert.equal(blocked.awaitingAuthorization, true);
-  assert.ok(blocked.estimateUsd > 0);
+  // A batch left waiting by the old per-import limit goes on by itself.
+  await backend.db.query("insert into public.manheim_audit_runs(environment,upload_id,status,estimate_usd,limit_usd,spent_usd) values('preview',$1,'AGUARDANDO_AUTORIZACAO',3,2,0) on conflict (environment,upload_id) do update set status='AGUARDANDO_AUTORIZACAO'", [UPLOAD]);
+  const done = await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls) });
+  assert.equal(calls.length, 1);
+  assert.notEqual(done.awaitingAuthorization, true);
   const state = await audit.viewState(ctx, view, { env: ENV });
-  assert.equal(state.run.status, 'AGUARDANDO_AUTORIZACAO');
-  assert.equal(state.byDemand[valorKey].status, 'AGUARDANDO_AUTORIZACAO');
-  assert.equal(state.limitUsd, 50);
-  await audit.authorize(ctx, UPLOAD, ACTOR);
-  await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: 0.00001 });
-  assert.equal(calls.length, 1);
-  assert.equal((await audit.viewState(ctx, view, { env: ENV })).byDemand[valorKey].status, 'CONFERIDO');
-  // The authorized amount is used up: a new reading of the batch waits for a new authorization.
+  assert.equal(state.run.status, 'ABERTO');
+  assert.equal(state.byDemand[valorKey].status, 'CONFERIDO');
+  assert.equal(state.limitUsd, null, 'sem limite por lote');
+  // No balance left in the OpenAI prepaid credit: nothing is called, nothing waits for authorization.
+  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',0,null)");
   const more = input({ mutate: (value) => { value.demands[0].bidCents = 3150000; return value; } });
-  const again = await audit.runAudit(ctx, more, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: 0.00001 });
-  assert.equal(again.awaitingAuthorization, true);
+  const stopped = await audit.runAudit(ctx, more, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls) });
   assert.equal(calls.length, 1);
-  assert.equal((await audit.viewState(ctx, more, { env: ENV })).run.status, 'AGUARDANDO_AUTORIZACAO');
-  await backend.db.query("update public.manheim_audit_runs set status='ABERTO', authorized_by=null, authorized_at=null, limit_usd=2 where upload_id=$1", [UPLOAD]);
+  assert.equal(stopped.providerLimit, true);
+  assert.notEqual(stopped.awaitingAuthorization, true);
+  // A new balance informed: the reading goes on.
+  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',10,null)");
+  await audit.runAudit(ctx, more, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls) });
+  assert.equal(calls.length, 2);
   // Deadline: never start a call the function could be stopped in the middle of.
   const late = input({ mutate: (value) => { value.demands[0].bidCents = 3200000; return value; } });
   const deferred = await audit.runAudit(ctx, late, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), deadlineAt: Date.now() + 1000 });
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(deferred.deferred, 1);
 });
 
@@ -313,16 +314,9 @@ test('V1 checa a demanda do cartão: carro que serve VALOR e CARRO não troca a 
   assert.equal(audit.heldFor(state, [car, same], 'outro'), null);
 });
 
-test('gasto do lote é a soma real das conferências e nenhuma aprovação passa por cima de uma leitura em andamento', async () => {
+test('nenhuma aprovação passa por cima de uma leitura em andamento', async () => {
   const valorKey = `journey:${J.valor}:VALOR`;
-  const spent = (await backend.db.query('select coalesce(sum(cost_usd),0) s from public.manheim_match_audits where upload_id=$1', [UPLOAD])).rows[0].s;
   const view = input({ mutate: (value) => { value.demands[0].bidCents = 3300000; return value; } });
-  // Already spent (by any run) counts against the limit: a limit just below it blocks every call.
-  const calls = [];
-  await backend.db.query("update public.manheim_audit_runs set status='ABERTO', authorized_by=null, authorized_at=null where upload_id=$1", [UPLOAD]);
-  const blocked = await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: Number(spent) });
-  assert.equal(blocked.awaitingAuthorization, true);
-  assert.equal(calls.length, 0);
   const group = audit.buildGroups(view).find((item) => item.key === valorKey);
   await backend.db.query(`insert into public.manheim_match_audits(environment,upload_id,journey_id,logical_mode,demand_key,content_hash,rule_version,status,attempts) values('preview',$1,$2,'VALOR',$3,$4,$5,'CONFERINDO',1)`, [UPLOAD, J.valor, valorKey, group.hash, audit.RULE_VERSION]);
   await assert.rejects(audit.approve(ctx, view, valorKey, 'Aprovar durante a leitura', ACTOR), { code: 'AUDIT_IN_PROGRESS' });

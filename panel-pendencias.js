@@ -77,15 +77,22 @@ function firstJson(text) {
   }
   throw new Error('AI_RESPONSE_INVALID');
 }
+// options.budget: { ctx, feature, subject } — the reservation against the Claude prepaid balance
+// (panel-anthropic-budget); required in production.
 async function callAnthropic(system,user,options={}) {
   if(!process.env.ANTHROPIC_API_KEY||!process.env.ANTHROPIC_MODEL)throw new Error('AI_UNAVAILABLE');
+  const model=process.env.ANTHROPIC_MODEL,maxTokens=1200;
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000),fetchImpl=options.fetchImpl||fetch;
   try{
-    const response=await fetchImpl('https://api.anthropic.com/v1/messages',{method:'POST',signal:controller.signal,headers:{'content-type':'application/json','x-api-key':process.env.ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:process.env.ANTHROPIC_MODEL,max_tokens:1200,temperature:0,system,messages:[{role:'user',content:user}]})});
-    if(!response.ok)throw new Error('AI_UNAVAILABLE');
-    const payload=await response.json(),text=(payload.content||[]).filter((part)=>part.type==='text').map((part)=>part.text).join('\n');
+    const result=await require('./panel-anthropic-budget').paidCall(options.budget||null,{model,system,user,maxTokens,send:async()=>{
+      const response=await fetchImpl('https://api.anthropic.com/v1/messages',{method:'POST',signal:controller.signal,headers:{'content-type':'application/json','x-api-key':process.env.ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01'},body:JSON.stringify({model,max_tokens:maxTokens,temperature:0,system,messages:[{role:'user',content:user}]})});
+      if(!response.ok)return {status:response.status,detail:await response.text().catch(()=>'')};
+      return {status:response.status,payload:await response.json()};
+    }});
+    if(!result||!result.payload)throw new Error('AI_UNAVAILABLE');
+    const payload=result.payload,text=(payload.content||[]).filter((part)=>part.type==='text').map((part)=>part.text).join('\n');
     return {parsed:firstJson(text),usage:payload.usage||{}};
-  }catch(error){if(error.message==='AI_RESPONSE_INVALID')throw error;throw new Error('AI_UNAVAILABLE');}finally{clearTimeout(timer);}
+  }catch(error){if(error.message==='AI_RESPONSE_INVALID'||error.code==='AI_BALANCE_LIMIT')throw error;throw new Error('AI_UNAVAILABLE');}finally{clearTimeout(timer);}
 }
 
 async function conversationGroups(ctx) {
@@ -128,7 +135,7 @@ function sortPending(items, mode) { return items.slice().sort((a,b)=>{if(mode===
 async function pendingSnapshot(ctx) {
   const [groups,run,history]=await Promise.all([conversationGroups(ctx),rows(ctx,'conversation_general_read_runs',{select:'status,total_conversations,completed_conversations,budget_usd,spent_usd,reserved_usd,last_error,started_at,updated_at',environment:'eq.'+ctx.environment,limit:'1'}),rows(ctx,'whatsapp_raw_events',{select:'received_at',environment:'eq.'+ctx.environment,event_type:'in.(history,mixed)',order:'received_at.desc',limit:'1'})]);
   const now=Date.now(),items=groups.map((group)=>itemFromGroup(group,now)),counts={NO_RESPONSE:0,MCS_PENDING:0,CUSTOMER_PENDING:0,IN_PROGRESS:0,CLOSED:0};items.forEach((item)=>{if(!item.resolved)counts[item.situation]++;});
-  return {groups,items,counts,run:run[0]||{status:'IDLE',total_conversations:0,completed_conversations:0,budget_usd:20,spent_usd:0,reserved_usd:0},lastHistoryAt:history[0]?.received_at||null};
+  return {groups,items,counts,run:run[0]||{status:'IDLE',total_conversations:0,completed_conversations:0,budget_usd:null,spent_usd:0,reserved_usd:0},lastHistoryAt:history[0]?.received_at||null};
 }
 async function generalStatus(ctx) { const snapshot=await pendingSnapshot(ctx); return {run:snapshot.run,lastHistoryAt:snapshot.lastHistoryAt,historyReady:!snapshot.lastHistoryAt||Date.now()-Date.parse(snapshot.lastHistoryAt)>=30*60000,counts:snapshot.counts,items:snapshot.items}; }
 async function startGeneralRead(ctx) {
@@ -149,10 +156,10 @@ async function generalBatch(ctx, options={}) {
       const segment=formatSegment(group.messages.slice(0,claim.message_count),Number(claim.next_message_index||0),claim.accumulated_summary||'');const final=segment.nextIndex>=Number(claim.message_count);const system=final
         ? 'Você revisa uma conversa da My Car Scout. Responda SOMENTE JSON {accumulated,situation,heat,summary,nextStep,translation}. situation é MCS_PENDING, CUSTOMER_PENDING, IN_PROGRESS ou CLOSED; heat é HOT, WARM ou COLD. Resumo, próximo passo e tradução em português. Regra da mesa: quem busca POR CARRO (Find One: carro, faixa de ano e de milhagem) nunca recebe pergunta de lance, orçamento ou valor; quem busca POR VALOR (carro e lance máximo) nunca recebe pergunta de ano ou milhagem; não sugira perguntar o que o cliente ou a calculadora já informaram. translation só recebe texto se a última mensagem estiver em outro idioma. Não invente fatos.'
         : 'Você resume uma parte de uma conversa da My Car Scout. Responda SOMENTE JSON {accumulated}. Preserve fatos, promessas, interesse, carro, dinheiro e próximo passo, em português, sem inventar.';
-      const answer=await callAnthropic(system,segment.user,options),parsed=validatedGeneral(answer.parsed),actual=usageCostUsd(answer.usage,process.env.ANTHROPIC_MODEL);
+      const answer=await callAnthropic(system,segment.user,{...options,budget:{ctx,feature:'LEITURA_GERAL',subject:String(claim.chat_id)}}),parsed=validatedGeneral(answer.parsed),actual=usageCostUsd(answer.usage,process.env.ANTHROPIC_MODEL);
       const fallback=fixedSituation(group,null),finalSituation=parsed.situation==='UNKNOWN'?fallback:parsed.situation;
       const latest=group.messages[Math.min(group.messages.length,Number(claim.message_count))-1];await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_pending_finish_general_read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_journey:claim.journey_id,p_chat:claim.chat_id,p_next:segment.nextIndex,p_summary:parsed.accumulated,p_completed:final,p_situation:final?finalSituation:null,p_heat:final?parsed.heat:null,p_final_summary:final?parsed.summary:null,p_next_step:final?parsed.nextStep:null,p_translation:final?parsed.translation:null,p_last_message:final?latest.id:null,p_actual_usd:actual,p_reserved_usd:claim.reserved_usd,p_error:null})});output.processed++;if(final)output.completed++;
-    }catch(error){await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_pending_finish_general_read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_journey:claim.journey_id,p_chat:claim.chat_id,p_next:claim.next_message_index,p_summary:claim.accumulated_summary||'',p_completed:false,p_actual_usd:0,p_reserved_usd:claim.reserved_usd,p_error:error.message==='AI_UNAVAILABLE'?'IA_UNAVAILABLE':'GENERAL_READ_FAILED'})}).catch(()=>null);output.unavailable=error.message==='AI_UNAVAILABLE';output.paused=true;break;}
+    }catch(error){await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_pending_finish_general_read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_journey:claim.journey_id,p_chat:claim.chat_id,p_next:claim.next_message_index,p_summary:claim.accumulated_summary||'',p_completed:false,p_actual_usd:0,p_reserved_usd:claim.reserved_usd,p_error:error.code==='AI_BALANCE_LIMIT'?'IA_SEM_SALDO':error.message==='AI_UNAVAILABLE'?'IA_UNAVAILABLE':'GENERAL_READ_FAILED'})}).catch(()=>null);output.unavailable=error.message==='AI_UNAVAILABLE'||error.code==='AI_BALANCE_LIMIT';output.noBalance=error.code==='AI_BALANCE_LIMIT';output.paused=true;break;}
   }
   const state=await generalStatus(ctx);output.status=state.run.status;output.limited=state.run.status==='LIMIT';return output;
 }

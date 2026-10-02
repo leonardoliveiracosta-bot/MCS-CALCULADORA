@@ -17,7 +17,7 @@ const SHOTS = process.env.ABAS_SHOTS || '';
 test.setTimeout(120000);
 
 const TODAY = { items: [{ ref: 'AAAA2', key: 'AAAA2', pending: true, contactName: 'Cliente Hoje', simulations: [] }], meta: { dataUpdatedAt: new Date().toISOString() } };
-const RECORDS = { items: [], meta: {} };
+const RECORDS = { items: [], page: 1, pageSize: 50, total: 0, hasMore: false, counts: { periodLeads: 0, allLeads: 0, shownLeads: 0, nonLeads: 0, situations: {}, sections: {} }, meta: {} };
 const SEARCHES = { items: [{ key: 'j1:VALOR', journeyId: 'j1', mode: 'VALOR' }, { key: 'j2:CARRO', journeyId: 'j2', mode: 'CARRO' }], countsByMode: {} };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

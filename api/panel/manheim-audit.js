@@ -6,7 +6,7 @@
 //            automáticas: nunca repete além do limite de tentativas nem passa do teto da OpenAI
 //  retry     tenta de novo uma demanda com "Conferência pendente"
 //  approve   aprovação manual com motivo registrado (nunca sobre um fato achado pelo servidor)
-//  authorize libera um lote parado em "aguardando autorização" (só administrador; nunca acima do teto de US$ 50 da OpenAI)
+//  authorize libera um lote parado em "aguardando autorização" (só administrador; sem limite por lote)
 // Com MANHEIM_MATCH_AUDIT_ENABLED desligada nada é chamado e nada é bloqueado.
 const { jsonBody, requirePanel, send } = require('../../panel-server');
 const { manheimView } = require('../../panel-buscas-view');

@@ -144,8 +144,9 @@ test('prints não guardados esperam na ENTRADA: tentar ler de novo, guardar ou d
   await openPanel(page);
   await page.goto(base + '/painel/');
   await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
-  await page.locator('[data-view="entry"]').click();
-  const cards = page.locator('#entry-queue .failed-print');
+  // Prints that were not saved are not contacts: they wait in IMPORTAÇÕES.
+  await page.locator('[data-view="imports"]').click();
+  const cards = page.locator('#imports-review-queue .failed-print');
   await expect(cards).toHaveCount(2, { timeout: 30000 });
   const failed = cards.filter({ hasText: 'falhou.png' });
   await expect(failed).toContainText('A leitura automática falhou agora');
@@ -188,8 +189,8 @@ test('prints não guardados de ponta a ponta: Tentar ler de novo e Guardar pelo 
     await openPanel(page);
     await page.goto(base + '/painel/');
     await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
-    await page.locator('[data-view="entry"]').click();
-    const cards = page.locator('#entry-queue .failed-print');
+    await page.locator('[data-view="imports"]').click();
+    const cards = page.locator('#imports-review-queue .failed-print');
     const retryCard = cards.filter({ hasText: 'denovo.png' });
     await expect(retryCard).toContainText('A leitura automática falhou agora', { timeout: 30000 });
     // Tentar ler de novo: reads the stored print again and shows what it found, without saving.

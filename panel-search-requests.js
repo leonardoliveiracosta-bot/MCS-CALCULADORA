@@ -21,9 +21,8 @@ const PRICES = Object.freeze({ 'gpt-6-luna': { input: 0.10, output: 0.50 }, 'gpt
 // options.timeoutMs (the history routine gives up to LONG_TIMEOUT_MS when its window allows).
 const TIMEOUT_MS = 20000;
 const LONG_TIMEOUT_MS = 40000;
-// The historical audit has a cumulative ceiling of US$ 50 (no credit is ever added). A call only
-// starts when even an unusually large reading (MAX_CALL_USD, far above a real one) still fits.
-const PROVIDER_LIMIT_USD = Object.freeze({ OPENAI: 50 });
+// No ceiling of its own: a reading starts when even an unusually large one (MAX_CALL_USD, far
+// above a real one) still fits in the OpenAI prepaid balance left (panel-openai-budget).
 const MAX_CALL_USD = 0.01;
 const HISTORY_SINCE = '2026-08-09T00:00:00Z';
 
@@ -73,7 +72,7 @@ async function failureOf(response) {
   else failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : response.status === 401 ? 'OPENAI_KEY_INVALID' : 'OPENAI_FAILED';
   return failure;
 }
-// options.guard: the reservation of the US$ 50 OpenAI ceiling (panel-openai-budget.paidCall).
+// options.guard: the reservation against the OpenAI prepaid balance (panel-openai-budget.paidCall).
 async function openAiChat(body, options = {}) {
   const env = options.env || process.env;
   const modelId = env.SEARCH_EXTRACTION_MODEL;
@@ -145,7 +144,7 @@ async function extractChat(ctx, chatId, options = {}) {
     if (failedRun && (Number(failedRun.attempts) || 1) >= MAX_FAILED_READS) return { status, alreadyRead: true, gaveUp: true, runId: failedRun.id };
   }
   // A paid reading: one caller per conversation content (cron and button at the same time), and the
-  // US$ 50 OpenAI reservation around the call.
+  // OpenAI prepaid-balance reservation around the call.
   const claims = options.claims || require('./panel-ai-claim');
   const task = provider === 'OPENAI' && !options.dryRun ? await claims.claimTask(ctx, { kind: 'PESQUISAS', subject: chatId, hash, rule: requests.RULE_VERSION }) : null;
   if (task && !task.claimed) return { status, inProgress: true };
@@ -173,7 +172,7 @@ async function extractChat(ctx, chatId, options = {}) {
     else [run] = await services.insert(ctx, 'vehicle_request_runs', { environment: ctx.environment, chat_id: chatId, contact_id: chat.contact_id, provider, rule_version: requests.RULE_VERSION, input_hash: hash, ...done });
     if (!run) throw Object.assign(new Error('RUN_NOT_SAVED'), { code: 'RUN_NOT_SAVED' });
   } catch (error) {
-    // The cost stays on the reservation (it keeps counting in the US$ 50); the reading is done: a
+    // The cost stays on the reservation (it keeps counting against the prepaid balance); the reading is done: a
     // new call for the same content would pay twice.
     if (task) await claims.finishTask(ctx, task, true).catch(() => null);
     throw error;
@@ -264,4 +263,4 @@ async function compareItems(ctx, items, options = {}) {
   return { uploadId: upload.id, compared: results.length, failed, results };
 }
 
-module.exports = { LONG_TIMEOUT_MS, MAX_FAILED_READS, openAiChat, HISTORY_SINCE, MAX_CALL_USD, PRICES, PROVIDER_LIMIT_USD, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };
+module.exports = { LONG_TIMEOUT_MS, MAX_FAILED_READS, openAiChat, HISTORY_SINCE, MAX_CALL_USD, PRICES, checkModel, makeKeysOf, compareItems, compareOne, conversationOf, estimateCostUsd, extractChat, extractionStatus, readWithAi, tableMissing };

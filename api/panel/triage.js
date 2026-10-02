@@ -5,6 +5,8 @@
 // GET ?estimate=1 conta o acervo e estima tokens e custo sem chamar ninguém.
 const { allRows, isUuid, jsonBody, requirePanel, rows, send } = require('../../panel-server');
 const triage = require('../../panel-triage');
+const topicStore = require('../../panel-topic');
+const { chatGroupIndex } = require('../../panel-chat-groups');
 
 const snippet = (text) => triage.redact(text).slice(0, 160);
 // Id lists go in small chunks so the query string never grows with the number of conversations.
@@ -52,9 +54,14 @@ module.exports = async (req, res) => {
   try {
     if (req.method === 'GET') {
       if (String(req.query?.estimate || '') === '1') return send(res, 200, { ruleVersion: triage.RULE_VERSION, state: triage.status(), estimate: await estimateBacklog(ctx) });
-      const active = await triage.activeRows(ctx);
-      const shown = active.filter((row) => row.decision !== 'FUNIL');
-      const chatIds = [...new Set(shown.map((row) => row.chat_id))];
+      const [active, topic] = await Promise.all([triage.activeRows(ctx), topicStore.loadTopic(ctx).catch(() => null)]);
+      // Adendo: a conversation that never discussed cars has its own group (fora do assunto) and
+      // leaves "Precisa de você" and "Fora do funil" (one group per contact; nothing is deleted).
+      const groupsByChat = await chatGroupIndex(ctx, { topic }).catch(() => new Map());
+      const offTopicIds = new Set([...groupsByChat].filter(([, entry]) => entry.group && entry.group.key === 'FORA_DO_ASSUNTO').map(([chatId]) => chatId));
+      const shown = active.filter((row) => row.decision !== 'FUNIL' && !offTopicIds.has(row.chat_id));
+      const offTopicReadings = new Map((topic ? topic.offTopicChats() : []).map((entry) => [entry.chatId, entry]));
+      const chatIds = [...new Set(shown.map((row) => row.chat_id).concat([...offTopicIds]))];
       const chats = await byIds(ctx, 'chats', 'id,contact_id', chatIds);
       const contactIds = [...new Set(chats.map((chat) => chat.contact_id).filter(Boolean))];
       const contacts = await byIds(ctx, 'contacts', 'id,display_name', contactIds);
@@ -66,11 +73,15 @@ module.exports = async (req, res) => {
       const items = shown.map((row) => ({
         id: row.id, chatId: row.chat_id, journeyId: row.journey_id, source: row.source, category: row.category, label: triage.LABELS[row.category], decision: row.decision,
         reason: row.reason, errorCode: row.error_code, model: row.model, createdAt: row.created_at, name: nameOf.get(contactOf.get(row.chat_id)) || 'Contato sem nome',
-        evidence: (row.evidence_message_ids || []).map((id) => quoteOf.get(id)).filter(Boolean).slice(0, 3)
+        evidence: (row.evidence_message_ids || []).map((id) => quoteOf.get(id)).filter(Boolean).slice(0, 3),
+        group: groupsByChat.get(row.chat_id)?.group || null, lastCustomerMessage: groupsByChat.get(row.chat_id)?.lastCustomerMessage || null
       })).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+      const offTopic = [...offTopicIds].map((chatId) => { const reading = offTopicReadings.get(chatId) || {}; const entry = groupsByChat.get(chatId) || {};
+        return { chatId, journeyId: entry.journeyId || reading.journeyId || null, name: nameOf.get(contactOf.get(chatId)) || 'Contato sem nome', source: reading.source || 'AI', reason: reading.reason || '', overrideId: reading.overrideId || null, group: entry.group || null, lastCustomerMessage: entry.lastCustomerMessage || null };
+      }).sort((a, b) => Date.parse(b.lastCustomerMessage?.at || 0) - Date.parse(a.lastCustomerMessage?.at || 0));
       return send(res, 200, {
         state: triage.status(), ruleVersion: triage.RULE_VERSION, labels: triage.LABELS,
-        review: items.filter((item) => item.decision === 'PENDENTE'), out: items.filter((item) => item.decision === 'FORA_DO_FUNIL')
+        review: items.filter((item) => item.decision === 'PENDENTE'), out: items.filter((item) => item.decision === 'FORA_DO_FUNIL'), offTopic
       });
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -91,6 +102,14 @@ module.exports = async (req, res) => {
       if (triage.status() !== 'LIGADA') return send(res, 200, { skipped: triage.status(), processed: 0 });
       return send(res, 200, await triage.runPending(ctx, { deadlineAt: Date.now() + 50000 }));
     }
+    // Adendo: your correction of "fora do assunto" (per conversation, or every conversation of a
+    // ficha). It is stored, wins over the AI and has "Desfazer". Nothing is deleted or sent.
+    if (body.action === 'topic') {
+      if (typeof body.aboutCar !== 'boolean') return send(res, 400, { error: 'TOPIC_VALUE_INVALID' });
+      if (!isUuid(body.chatId) && !isUuid(body.journeyId)) return send(res, 400, { error: 'TOPIC_CHAT_REQUIRED' });
+      return send(res, 200, await topicStore.correct(ctx, { chatId: isUuid(body.chatId) ? body.chatId : null, journeyId: isUuid(body.journeyId) ? body.journeyId : null, aboutCar: body.aboutCar }));
+    }
+    if (body.action === 'topic_undo') return send(res, 200, await topicStore.undoCorrection(ctx, body.ids));
     if (body.action === 'undo') {
       if (!isUuid(body.triageId)) return send(res, 400, { error: 'TRIAGE_ID_INVALID' });
       return send(res, 200, await triage.undo(ctx, body.triageId, ctx.panel.id));

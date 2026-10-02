@@ -5,7 +5,7 @@
 // Nunca envia: a sugestão só aparece no painel, editável. Quem envia é a pessoa, no WhatsApp
 // (ou, só na janela de 24 h e só pelo "Responder pelo painel" já existente, depois da revisão).
 // A IA é a OpenAI já aprovada no projeto (modelo da allowlist, o mesmo da triagem), sempre dentro
-// do teto compartilhado de US$ 50 (reserva antes, custo gravado depois). Fora de produção, ou com a
+// do saldo pré-pago da OpenAI (reserva antes, custo gravado depois). Fora de produção, ou com a
 // função desligada, a sugestão é simulada e marcada como tal: nenhuma chamada paga.
 //
 // Quem pediu para não receber contato (opt-out), número inválido ou ligação incerta: sem
@@ -135,7 +135,7 @@ async function openAiSuggest(input, options = {}) {
         method: 'POST', signal: controller.signal,
         headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY }, body: JSON.stringify(capped)
       });
-      if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
+      if (!response.ok) throw await require('./panel-openai-budget').openAiFailure(response);
       const payload = await response.json();
       const usage = { inputTokens: Number(payload?.usage?.prompt_tokens) || 0, outputTokens: Number(payload?.usage?.completion_tokens) || 0 };
       let parsed = null;
@@ -349,7 +349,7 @@ async function suggest(ctx, body, services = {}) {
         const code = failure && failure.code || 'OPENAI_FAILED';
         return { status: code === 'OPENAI_BUDGET_LIMIT' ? 402 : 503, error: code === 'OPENAI_BUDGET_LIMIT' ? 'OPENAI_BUDGET_LIMIT' : 'AI_UNAVAILABLE', detail: code };
       }
-      // The cost goes to the audit log (counted in the US$ 50 ceiling); then the hold stops counting.
+      // The cost goes to the audit log (counted against the OpenAI prepaid balance); then the hold stops counting.
       const saved = await (services.insert || insert)(ctx, 'audit_log', { environment: ctx.environment, actor_user_id: ctx.panel.id, entity_type: 'reply_suggestion_openai', entity_id: journeyId, action: 'SUGGEST',
         after_json: { provider: 'openai', model: result.model, mode, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, costUsd: result.costUsd } }, false).then(() => true, () => false);
       if (saved) await openAiBudget.recorded(guard);
