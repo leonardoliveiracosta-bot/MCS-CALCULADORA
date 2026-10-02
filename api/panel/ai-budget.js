@@ -1,9 +1,9 @@
 'use strict';
 
-// Saldo pré-pago de cada IA (OpenAI e Claude), sem teto interno. Nenhum provedor expõe o saldo por
-// API: o dono informa o saldo do console e o painel desconta o gasto de cada chamada (reserva do
-// pior caso, liquidada pelo custo real). Aviso com 20% ou menos; o provedor que disse "sem saldo"
-// para até um novo saldo ser informado. Nunca chama uma IA.
+// Crédito pré-pago de cada IA. OpenAI: US$ 50 já pagos são o teto único, contando todo o gasto desde
+// o começo, com aviso em US$ 40 e nenhum limite por função (o dono informa um novo total se carregar
+// mais). Claude: saldo informado do console, sem teto interno. O provedor que disse "sem saldo" para
+// até um novo valor ser informado. Nunca chama uma IA.
 const { allRows, jsonBody, requirePanel, rpc, send } = require('../../panel-server');
 const budget = require('../../panel-openai-budget');
 
@@ -12,7 +12,7 @@ const CLAUDE_LABELS = Object.freeze({ LEITURA: 'Leitura automática das conversa
 const round = (value) => Math.round(Number(value || 0) * 1e6) / 1e6;
 const view = (state) => ({ balanceUsd: state.balance === null || state.balance === undefined ? null : Number(state.balance), setAt: state.setAt || null,
   spentUsd: round(state.spent), remainingUsd: state.remaining === null || state.remaining === undefined ? null : round(state.remaining),
-  warn: Boolean(state.warn), exhausted: Boolean(state.exhausted), informed: Boolean(state.informed) });
+  warn: Boolean(state.warn), warnAtUsd: state.warnAt === undefined || state.warnAt === null ? null : Number(state.warnAt), exhausted: Boolean(state.exhausted), informed: Boolean(state.informed), sinceStart: Boolean(state.sinceStart) });
 
 async function claudeByFeature(ctx, since) {
   const rows = await allRows(ctx, 'anthropic_budget_holds', { select: 'feature,status,amount_usd,actual_usd', environment: 'eq.' + ctx.environment, status: 'neq.LIBERADA', ...(since ? { created_at: 'gte.' + since } : {}) });

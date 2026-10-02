@@ -1014,11 +1014,11 @@
   function paintAiBudget(ai){
     const box=$('ai-budget');if(!box||!ai)return;box.classList.remove('hidden');
     const usd=(value)=>'US$ '+Number(value||0).toFixed(2);
-    const line=(name,state)=>!state?`${name}: —`:state.exhausted?`${name}: sem saldo`:state.informed?`${name}: ${usd(state.remainingUsd)} de ${usd(state.balanceUsd)}`:`${name}: saldo não informado`;
+    const line=(name,state)=>!state?`${name}: —`:state.exhausted?`${name}: sem saldo`:state.sinceStart?`${name}: ${usd(state.spentUsd)} usados de ${usd(state.balanceUsd)}`:state.informed?`${name}: restam ${usd(state.remainingUsd)} de ${usd(state.balanceUsd)}`:`${name}: saldo não informado`;
     $('ai-budget-spent').textContent=AI_PROVIDERS.map(([key,,name])=>line(name,ai[key])).join(' · ');
     const warn=AI_PROVIDERS.filter(([key])=>ai[key]&&(ai[key].warn||ai[key].exhausted));box.classList.toggle('ai-budget-warn',warn.length>0);
     const warning=$('ai-budget-warning');warning.classList.toggle('hidden',!warn.length);
-    warning.textContent=warn.map(([key,,name])=>ai[key].exhausted?`${name} sem saldo pré-pago: as funções dela param sozinhas até você informar um novo saldo · O painel continua funcionando`:`${name}: restam ${usd(ai[key].remainingUsd)} (20% ou menos do saldo) · Recarregue no console do provedor e informe o novo saldo aqui`).join(' · ');
+    warning.textContent=warn.map(([key,,name])=>ai[key].exhausted?`${name} sem saldo pré-pago: as funções dela param sozinhas até você informar um novo saldo · O painel continua funcionando`:ai[key].sinceStart?`Aviso: ${name} já usou ${usd(ai[key].spentUsd)} dos ${usd(ai[key].balanceUsd)} pré-pagos (aviso a partir de ${usd(ai[key].warnAtUsd)}) · Restam ${usd(ai[key].remainingUsd)}`:`${name}: restam ${usd(ai[key].remainingUsd)} (20% ou menos do saldo) · Recarregue no console do provedor e informe o novo saldo aqui`).join(' · ');
     if(!box.dataset.bound){box.dataset.bound='1';box.addEventListener('toggle',()=>{if(box.open)loadAiBudgetDetails().catch(()=>{});});}
   }
   async function loadAiBudgetDetails(){
@@ -1027,11 +1027,11 @@
     let data;try{data=await request('/api/panel/ai-budget');}catch(_){list.replaceChildren(element('li','error','Não consegui ler o saldo agora'));return;}
     list.replaceChildren();
     AI_PROVIDERS.forEach(([key,provider,name])=>{const state=data[key]||{};const item=element('li','ai-budget-provider');item.dataset.provider=provider;
-      item.append(element('strong','',name),element('p','muted',state.informed?`Saldo informado ${usd(state.balanceUsd)}${state.setAt?' em '+formatDate(state.setAt):''} · gasto desde então ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)}`:`Saldo não informado · gasto dos últimos 30 dias ${usd(state.spentUsd)} · sem saldo informado, o limite é o próprio pré-pago do provedor`));
+      item.append(element('strong','',name),element('p','muted',state.sinceStart?`Crédito pré-pago ${usd(state.balanceUsd)} · usado desde o começo ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)} · aviso a partir de ${usd(state.warnAtUsd)} · teto único: todas as funções usam o mesmo crédito, sem limite por função`:state.informed?`Saldo informado ${usd(state.balanceUsd)}${state.setAt?' em '+formatDate(state.setAt):''} · gasto desde então ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)}`:`Saldo não informado · gasto dos últimos 30 dias ${usd(state.spentUsd)} · sem saldo informado, o limite é o próprio pré-pago do provedor`));
       if(state.exhausted)item.append(element('p','error','O provedor respondeu sem saldo: as funções dele estão paradas até um novo saldo'));
       const features=element('ul','ai-budget-features-list');(state.features||[]).forEach((feature)=>features.append(element('li','',`${feature.label}: ${usd(feature.spentUsd)}`)));if((state.features||[]).length)item.append(features);
-      const form=element('div','inline-actions ai-budget-form');const input=element('input','');input.type='number';input.min='0';input.step='0.01';input.inputMode='decimal';input.placeholder='Saldo no console (US$)';input.setAttribute('aria-label',`Saldo pré-pago atual da ${name} em dólares`);
-      const save=element('button','small','Informar saldo');save.type='button';
+      const form=element('div','inline-actions ai-budget-form');const input=element('input','');input.type='number';input.min='0';input.step='0.01';input.inputMode='decimal';input.placeholder=state.sinceStart?'Novo total carregado (US$)':'Saldo no console (US$)';input.setAttribute('aria-label',state.sinceStart?`Total de crédito pré-pago já carregado na ${name}, em dólares`:`Saldo pré-pago atual da ${name} em dólares`);
+      const save=element('button','small',state.sinceStart?'Informar novo total':'Informar saldo');save.type='button';
       MCSAction.bind(save,()=>{const value=Number(String(input.value).replace(',','.'));if(!(value>=0))return{scope:item,commit:()=>Promise.reject(new Error('AI_BALANCE_INVALID')),errorText:'Digite o saldo em dólares'};
         return{scope:item,successScope:item,commit:()=>request('/api/panel/ai-budget',{method:'POST',body:JSON.stringify({provider,balanceUsd:value})}),successText:`Saldo da ${name} informado: ${usd(value)}`,refresh:()=>Promise.all([loadAiBudgetDetails(),refreshCounters().catch(()=>{})]),errorText:'Não consegui salvar o saldo (só o dono pode informar)'};});
       form.append(input,save);item.append(form,element('p','muted','Recarga só no console do provedor · Deixe a recarga automática desligada lá'));list.append(item);});
@@ -2926,7 +2926,7 @@
   const HISTORY_ERRORS = { OPENAI_MODEL_UNAVAILABLE: 'O modelo gpt-6-luna não está disponível para a chave OpenAI de produção · Nenhuma conversa foi lida e nenhum outro modelo foi tentado',
     OPENAI_KEY_INVALID: 'A chave OpenAI de produção foi recusada · Nenhuma conversa foi lida', OPENAI_QUOTA: 'A OpenAI recusou por saldo ou cota · Nenhuma conversa foi lida',
     MODEL_NOT_CHECKED: 'O teste do modelo ainda não passou · Nenhuma conversa foi lida', SEARCH_EXTRACTION_OFF: 'A leitura por IA está desligada neste ambiente',
-    PROVIDER_LIMIT: 'Sem saldo pré-pago na OpenAI · Parado com segurança; o restante continua pendente', PROVIDER_QUOTA: 'A OpenAI encerrou por saldo ou cota · Parado com segurança; o restante continua pendente',
+    PROVIDER_LIMIT: 'Crédito pré-pago da OpenAI esgotado · Parado com segurança; o restante continua pendente', PROVIDER_QUOTA: 'A OpenAI encerrou por saldo ou cota · Parado com segurança; o restante continua pendente',
     MODEL_UNAVAILABLE: 'O modelo deixou de estar disponível · Parado com segurança; o restante continua pendente' };
   const usd = (value) => 'US$ ' + Number(value || 0).toFixed(4);
   function historyText(state, prefix) {
@@ -2945,7 +2945,7 @@
     if (!state.available) { text.className = 'error'; text.textContent = HISTORY_ERRORS.SEARCH_EXTRACTION_OFF; button.disabled = false; return; }
     const who = state.provider === 'OPENAI' ? `OpenAI ${state.model}` : 'leitura simulada (sem IA, sem custo)';
     const terms = $('requests-history-terms');
-    terms.replaceChildren(...['Lê as conversas de clientes desde 09/08/2026', 'Não envia nenhuma mensagem', `Usa ${who}`, 'Pode pausar e continuar depois do mesmo ponto', 'Sem teto próprio: usa o saldo pré-pago da OpenAI'].map((line) => element('li', '', line)));
+    terms.replaceChildren(...['Lê as conversas de clientes desde 09/08/2026', 'Não envia nenhuma mensagem', `Usa ${who}`, 'Pode pausar e continuar depois do mesmo ponto', 'Usa o crédito pré-pago de US$ 50 da OpenAI, o mesmo de todas as funções (sem limite só desta)'].map((line) => element('li', '', line)));
     $('requests-history-remaining').textContent = `Faltam ${state.remaining} de ${state.total} conversas · custo acumulado ${usd(state.spentUsd)}`;
     text.textContent = '';
     $('requests-history-confirm').classList.remove('hidden');
@@ -3006,7 +3006,7 @@
     row('Conversas ainda não lidas', data.estimate.conversationsToRead);
     root.replaceChildren(table,
       element('p', data.allServed ? '' : 'warning', data.allServed ? 'Todos os pedidos têm opção válida no lote ativo' : 'Ainda não há prova de que todo pedido de veículo foi atendido'),
-      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}, pagos pelo saldo pré-pago da OpenAI. Nada é lido sem autorização`));
+      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}, pagos pelo crédito pré-pago de US$ 50 da OpenAI (o mesmo de todas as funções). Nada é lido sem autorização`));
   }
 
   // Lotes: o ativo sempre à vista; os desfeitos num "Histórico de lotes" recolhido. Ocultar é só

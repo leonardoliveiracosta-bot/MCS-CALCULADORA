@@ -86,9 +86,11 @@ test('lote antigo passa de US$ 2 sem limite por lote; a pendente por AUDIT_DEADL
   assert.equal(Number(holds.open), 0);
 });
 
-test('saldo pré-pago: a reserva que passaria do saldo informado é recusada no banco, sem chamada e sem pedir autorização', async () => {
-  // The owner informed a balance that no reading fits in (US$ 0.00 left).
-  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',0,null)");
+test('crédito de US$ 50: a reserva que passaria dele é recusada no banco, sem chamada e sem pedir autorização', async () => {
+  // Other features already took the US$ 50 prepaid credit to its end (US$ 0.000001 left).
+  const spent = Number((await backend.db.query("select public.panel_ai_balance_state('preview','OPENAI')->>'spent' s")).rows[0].s);
+  await backend.db.query(`insert into public.audit_log(environment,entity_type,action,after_json) values('preview','manheim_openai','READ',jsonb_build_object('costUsd',$1::numeric))`, [Math.round((50 - spent - 0.000001) * 1e6) / 1e6]);
+  const holdsBefore = Number((await backend.db.query("select count(*) n from public.openai_budget_holds where environment='preview'")).rows[0].n);
   const more = { ...input, matches: input.matches.map((match) => ({ ...match, vehicle_json: { parsed: { ...match.vehicle_json.parsed, miles: 31000 } } })) };
   const calls = [];
   const result = await audit.runAudit(ctx, more, { env: ENV, fetchImpl: fakeOpenAI(calls), budget: openBudget });
@@ -97,5 +99,6 @@ test('saldo pré-pago: a reserva que passaria do saldo informado é recusada no 
   assert.equal(result.awaitingAuthorization, undefined);
   assert.equal((await backend.db.query('select status from public.manheim_audit_runs where upload_id=$1', [UPLOAD])).rows[0].status, 'ABERTO');
   const left = (await backend.db.query("select public.panel_ai_balance_state('preview','OPENAI') s")).rows[0].s;
-  assert.equal(Number(left.spent), 0, 'nada gasto depois do saldo informado');
+  assert.ok(Number(left.spent) <= 50, `gasto ${left.spent} nunca acima de US$ 50`);
+  assert.equal(Number((await backend.db.query("select count(*) n from public.openai_budget_holds where environment='preview'")).rows[0].n), holdsBefore, 'nenhuma reserva nova');
 });

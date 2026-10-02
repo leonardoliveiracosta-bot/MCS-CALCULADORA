@@ -70,46 +70,55 @@ const reserve = (db, amount, feature = 'ENTRADA', env = 'production') => db.quer
 const settle = (db, holdId, status, actual = null, env = 'production') => db.query(`select public.panel_openai_budget_settle('${env}','${holdId}','${status}',${actual === null ? 'null' : actual}) r`).then((res) => res.rows[0].r);
 const projected = async (db, env = 'production') => Number((await one(db, `select public.panel_openai_budget_state('${env}')->>'projected' p`)).p);
 
-test('sem limite por lote nem teto de US$ 50; o saldo pré-pago informado é exato por ambiente (migração 20261014040000)', async () => {
+test('sem limite por lote; o crédito pré-pago de US$ 50 é o teto único, exato por ambiente, contando todo o gasto (migrações 20261014040000/050000)', async () => {
   const { db } = await migratedDatabase();
   await db.exec(seed() + audit(UPLOAD, 1, 'CONFERIDO', 3.5));
-  // US$ 3.50 already spent by this batch: no limit per batch any more, any amount is held.
+  // US$ 3.50 already spent by this batch: no limit per batch, any amount is held for the batch.
   const lot = await hold(db, 100);
   assert.deepEqual([lot.held, lot.limit], [true, null], 'sem limite por lote');
-  // No balance informed: no internal ceiling (US$ 50 or any other) for the OpenAI reservation.
-  const free = await reserve(db, 60, 'PESQUISAS');
-  assert.equal(free.held, true);
-  await settle(db, free.id, 'LIBERADA');
-  // The owner informs US$ 2 seen in the OpenAI console.
-  await db.query("select public.panel_ai_set_balance('production','OPENAI',2,null)");
+  // The batch's recorded spend counts in the US$ 50 (everything since the start).
+  assert.equal(await projected(db), 3.5);
+  // Other OpenAI features count against the same US$ 50 (here, the Manheim CSV reading).
+  await db.query(`insert into public.audit_log(environment,entity_type,action,after_json) values('production','manheim_openai','READ','{"costUsd":44.5}')`);
+  assert.equal(await projected(db), 48);
   const first = await reserve(db, 1.5, 'PESQUISAS');
   assert.equal(first.held, true);
-  // 1.5 + 0.500001 would pass the US$ 2.
+  // 48 + 1.5 = 49.5; 0.500001 more would be 50.000001.
   const over = await reserve(db, 0.500001, 'MANHEIM_AUDIT');
   assert.deepEqual([over.held, over.reason, Number(over.remaining)], [false, 'SALDO_INSUFICIENTE', 0.5]);
   const exact = await reserve(db, 0.5, 'MANHEIM_AUDIT');
-  assert.deepEqual([exact.held, Number(exact.remaining)], [true, 0.5], 'exatamente o saldo ainda cabe');
+  assert.deepEqual([exact.held, Number(exact.remaining)], [true, 0.5], 'exatamente US$ 50 ainda cabe');
   assert.equal((await reserve(db, 0.000001, 'MODELO_TESTE')).held, false);
-  assert.equal(await projected(db), 2);
-  // Answered: the reservation holds the real cost (0.02).
+  assert.equal(await projected(db), 50);
+  // Answered: the reservation holds the real cost (0.02) until the feature writes it.
   assert.equal((await settle(db, first.id, 'PAGA', 0.02)).settled, true);
-  assert.equal(await projected(db), 0.52);
+  assert.equal(await projected(db), 48.52);
   // Refused by the provider: nothing counts.
   assert.equal((await settle(db, exact.id, 'LIBERADA')).settled, true);
-  assert.equal(await projected(db), 0.02);
-  // Written to the feature's table: still counted against the balance (once).
+  assert.equal(await projected(db), 48.02);
+  // Written to the feature's table: the reservation stops counting (the table counts it).
+  await db.query(`insert into public.audit_log(environment,entity_type,action,after_json) values('production','manheim_openai','READ','{"costUsd":0.02}')`);
+  assert.equal(await projected(db), 48.04, 'contado duas vezes até marcar REGISTRADA: nunca a menos');
   assert.equal((await settle(db, first.id, 'REGISTRADA')).settled, true);
-  assert.equal(await projected(db), 0.02);
+  assert.equal(await projected(db), 48.02);
+  // Warning from US$ 40.
+  const state = (await one(db, "select public.panel_ai_balance_state('production','OPENAI') s")).s;
+  assert.deepEqual([Number(state.balance), state.warn, Number(state.warnAt)], [50, true, 40]);
   // Transitions only go forward.
   assert.equal((await settle(db, first.id, 'PAGA', 0.01)).settled, false);
   assert.equal((await settle(db, exact.id, 'REGISTRADA')).settled, false);
-  // Another environment never counts here (and has its own balance).
-  assert.equal((await reserve(db, 1.5, 'ENTRADA', 'preview')).held, true);
-  assert.equal(await projected(db), 0.02);
+  // Another environment never counts here.
+  await db.query(`insert into public.audit_log(environment,entity_type,action,after_json) values('preview','manheim_openai','READ','{"costUsd":49}')`);
+  assert.equal(await projected(db), 48.02);
+  assert.equal((await reserve(db, 1.5, 'ENTRADA', 'preview')).held, false);
   // An abandoned reservation (the function died) keeps counting at its full amount.
   const lost = await reserve(db, 1.9, 'ENTRADA');
   assert.equal(lost.held, true);
-  assert.equal(await projected(db), 1.92);
+  await db.query("update public.openai_budget_holds set created_at = now() - interval '2 days' where id = $1", [lost.id]);
+  assert.equal(await projected(db), 49.92);
+  // A recharge: the owner informs the new total loaded (US$ 70).
+  await db.query("select public.panel_ai_set_balance('production','OPENAI',70,null)");
+  assert.equal(Number((await one(db, "select public.panel_ai_balance_state('production','OPENAI')->>'remaining' r")).r), 20.08);
   await db.close();
 });
 

@@ -61,10 +61,11 @@ function openAI(calls, { delayMs = 20, fail = null } = {}) {
 const projected = async () => Number((await backend.db.query("select public.panel_openai_budget_state('preview')->>'projected' p")).rows[0].p);
 let balance = null;
 const ledger = async (where = '') => (await backend.db.query(`select feature,status,amount_usd,actual_usd from public.openai_budget_holds where environment='preview' ${where} order by created_at`)).rows;
-// Informs a prepaid balance of exactly `remaining` (what the owner sees in the OpenAI console).
+// Informs a total prepaid credit that leaves exactly `remaining` after everything already spent.
 async function leave(remaining) {
-  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',$1,null)", [remaining]);
-  balance = remaining;
+  const spent = Number((await backend.db.query("select public.panel_ai_balance_state('preview','OPENAI')->>'spent' s")).rows[0].s);
+  balance = Math.round((spent + remaining) * 1e6) / 1e6;
+  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',$1,null)", [balance]);
   assert.equal(Number((await backend.db.query("select public.panel_ai_balance_state('preview','OPENAI')->>'remaining' r")).rows[0].r), remaining);
 }
 const auditInput = (journey) => {
@@ -153,11 +154,10 @@ test('limite exato e sem saldo: a chamada que passaria do saldo não sai; nada �
   assert.equal(audited.providerLimit, true);
   // Stopped before reserving the demand: no audit row, no attempt used.
   assert.equal((await backend.db.query('select count(*)::int n from public.manheim_match_audits where demand_key=$1', [`journey:${id(PEOPLE[3])}:CARRO`])).rows[0].n, 0);
-  assert.equal(await projected(), 0);
+  assert.equal(await projected(), balance);
   // A bound of exactly the remaining balance fits; one millionth more does not.
-  // The balance is informed in cents, as in the provider's console.
-  await leave(0.01);
-  const exact = await backend.db.query("select public.panel_openai_budget_hold('preview','ENTRADA','x','gpt-6-luna',0.01) r");
+  await leave(0.004);
+  const exact = await backend.db.query("select public.panel_openai_budget_hold('preview','ENTRADA','x','gpt-6-luna',0.004) r");
   assert.equal(exact.rows[0].r.held, true);
   const over = await backend.db.query("select public.panel_openai_budget_hold('preview','ENTRADA','x','gpt-6-luna',0.000001) r");
   assert.equal(over.rows[0].r.held, false);
@@ -166,6 +166,7 @@ test('limite exato e sem saldo: a chamada que passaria do saldo não sai; nada �
 
 test('falha ao gravar o custo: o custo continua contando e a mesma leitura não é paga de novo', async () => {
   await leave(5);
+  const start = await projected();
   const calls = [];
   // ENTRADA: the answer arrives, the triage row cannot be written.
   const failing = await triage.runTriage(ctx, { env: ENV, fetchImpl: openAI(calls), record: async () => { throw Object.assign(new Error('GRAVACAO_FALHOU'), { code: 'GRAVACAO_FALHOU' }); } }).catch((error) => ({ error: error.code }));
@@ -174,7 +175,7 @@ test('falha ao gravar o custo: o custo continua contando e a mesma leitura não 
   const paid = (await ledger("and feature='ENTRADA' and status='PAGA'"));
   assert.equal(paid.length, 1, 'o custo pago e não gravado continua contando');
   const counted = await projected();
-  assert.ok(Math.abs(counted - Number(paid[0].actual_usd)) < 1e-6, `projetado ${counted}`);
+  assert.ok(Math.abs(counted - (start + Number(paid[0].actual_usd))) < 1e-6, `projetado ${counted}`);
   // Next cycle: the same content is not paid again.
   await triage.runTriage(ctx, { env: ENV, fetchImpl: openAI(calls) });
   assert.equal(calls.filter((body) => kindOf(body) === 'triage' && body.messages[1].content.includes(id(PEOPLE[0] + 5))).length, 1, 'mesma conversa não chamada de novo');
