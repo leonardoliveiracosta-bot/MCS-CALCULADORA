@@ -8,6 +8,9 @@ const { patchRows, rows } = require('./panel-server');
 const smsPrint = require('./api/panel/sms-print');
 
 const RETRY_CODES = new Set(['AI_DAILY_LIMIT', 'AI_UNAVAILABLE', 'SMS_PRINT_DAILY_LIMIT', 'SMS_PRINT_UPLOAD_NOT_FOUND']);
+// A passing failure (no balance, the API down, the daily quota) never uses up the attempts: the print is read again as soon as
+// the cause is gone, even days later. Only a failure that repeats for the file itself (missing upload, invalid image) counts.
+const TRANSIENT_CODES = new Set(['AI_DAILY_LIMIT', 'AI_UNAVAILABLE', 'SMS_PRINT_DAILY_LIMIT']);
 const MAX_ATTEMPTS = 6;
 const SETTLE_MS = 2 * 60 * 1000;      // the upload screen saves a print within seconds; leave it alone until then
 const BACKOFF_MS = 10 * 60 * 1000;    // between two cron tries of the same print
@@ -38,11 +41,16 @@ async function resumeOne(ctx, read, deps = smsPrint) {
   let record = await deps.printRecord(ctx, read.id);
   if (!record) return { id: read.id, outcome: 'GONE' };
   const needsRead = !hasReading(record) || Boolean(record.error_code);
-  await (deps.patchRows || patchRows)(ctx, 'sms_print_reads', { environment: 'eq.' + ctx.environment, id: 'eq.' + read.id }, { resume_attempts: Number(read.resume_attempts || 0) + (needsRead ? 1 : 0), last_resume_at: new Date().toISOString() });
+  const touch = (extra = {}) => (deps.patchRows || patchRows)(ctx, 'sms_print_reads', { environment: 'eq.' + ctx.environment, id: 'eq.' + read.id }, { last_resume_at: new Date().toISOString(), ...extra });
+  await touch();
   if (needsRead) {
     const result = await deps.readPrintRecord(actor, record);
     record = result.read;
-    if (!record || record.error_code || !hasReading(record)) return { id: read.id, outcome: 'UNREAD', errorCode: record && record.error_code || null };
+    if (!record || record.error_code || !hasReading(record)) {
+      const code = record && record.error_code || null;
+      if (!code || !TRANSIENT_CODES.has(code)) await touch({ resume_attempts: Number(read.resume_attempts || 0) + 1 });
+      return { id: read.id, outcome: 'UNREAD', errorCode: code };
+    }
   }
   const values = record.extracted_json || {};
   let outcome = null;
@@ -70,4 +78,4 @@ async function resumePrints(ctx, { max = 4, deadlineAt = Date.now() + 25000, dep
   return summary;
 }
 
-module.exports = { resumable, resumeOne, resumePrints, hasReading, RETRY_CODES, MAX_ATTEMPTS };
+module.exports = { resumable, resumeOne, resumePrints, hasReading, RETRY_CODES, TRANSIENT_CODES, MAX_ATTEMPTS };

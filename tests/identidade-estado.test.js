@@ -77,3 +77,17 @@ test('varredura retomável: sem resultado primeiro, repetir não liga duas vezes
   assert.equal(applied.length, 2, 'prova igual: nada aplicado de novo');
   assert.deepEqual(touched, ['eq.' + A]);
 });
+
+test('palavra comum depois de "ref:" nunca vira Ref; Ref do Claude só vale com simulação conhecida', () => {
+  const lower = decide(base({ explicit: [{ ref: 'CAMRY', raw: 'Camry', mode: 'CARRO', messageId: 'm1' }], owners: { CAMRY: [] }, template: true }));
+  assert.deepEqual(lower.linkRefs, [], 'digitada em minúsculas e sem simulação: não liga');
+  assert.equal(lower.status, 'CALCULADORA_REF_A_RECUPERAR');
+  const typedUpper = decide(base({ explicit: [{ ref: 'WSR3X', raw: 'WSR3X', messageId: 'm1' }], owners: {} }));
+  assert.deepEqual(typedUpper.linkRefs, ['WSR3X']);
+  const withRun = decide(base({ explicit: [{ ref: 'CAMRY', raw: 'Camry', messageId: 'm1' }], run_refs: ['CAMRY'], owners: {} }));
+  assert.deepEqual(withRun.linkRefs, ['CAMRY'], 'se existe a simulação dessa Ref, a escrita do cliente vale');
+  const claudeNoRun = decide(base({ claude_refs: [{ ref: 'ABCD2', messageId: 'm2', verified: true }], owners: {}, template: true }));
+  assert.deepEqual(claudeNoRun.linkRefs, []);
+  const claudeRun = decide(base({ claude_refs: [{ ref: 'ABCD2', messageId: 'm2', verified: true }], run_refs: ['ABCD2'], owners: {} }));
+  assert.deepEqual(claudeRun.linkRefs, ['ABCD2']);
+});

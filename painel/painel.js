@@ -1273,7 +1273,7 @@
       else{const box=clientArea(section,key,areaKey,(areaCounts[key]||{})[areaKey]||0);(areaKey==='SEM_REF'?clientSubject(box,item):box).append(card);if(areaKey==='SEM_REF')refreshSubjectCounts(box);}});
     root.querySelector('.clients-more')?.remove();clientsObserver?.disconnect();
     if(data.hasMore){const remaining=data.total-data.page*data.pageSize,more=element('button','quiet clients-more',`Mostrar mais (${remaining} restantes)`);more.type='button';more.dataset.page=String(data.page+1);
-      const next=()=>{if(more.disabled)return;more.disabled=true;more.textContent='Carregando…';loadClientsPage(data.page+1).catch(()=>{more.disabled=false;more.textContent=`Mostrar mais (${remaining} restantes)`;});};
+      const next=()=>{if(more.disabled||clientsRestoring)return;more.disabled=true;more.textContent='Carregando…';loadClientsPage(data.page+1).catch(()=>{more.disabled=false;more.textContent=`Mostrar mais (${remaining} restantes)`;});};
       more.addEventListener('click',next);root.append(more);
       // Cards arrive in batches: the next one loads when the end of the list comes into view.
       if(typeof IntersectionObserver==='function'){clientsObserver=new IntersectionObserver((entries)=>{if(entries.some((entry)=>entry.isIntersecting))next();},{rootMargin:'600px'});clientsObserver.observe(more);}}
@@ -1302,8 +1302,12 @@
     const anchor=cards.find((card)=>card.getBoundingClientRect().bottom>0)||cards[0]||null;
     return {pages:clientsPagesLoaded,anchorId:anchor?anchor.dataset.journeyId:null,ids:cards.map((card)=>card.dataset.journeyId).slice(0,5000)};
   }
+  let clientsRestoring=false;
   async function restoreClientsPosition(saved,fallbackY){
-    const version=clientsVersion;
+    const version=clientsVersion;clientsRestoring=true;
+    try{await restoreClientsPages(saved,fallbackY,version);}finally{clientsRestoring=false;}
+  }
+  async function restoreClientsPages(saved,fallbackY,version){
     for(let page=clientsPagesLoaded+1;page<=saved.pages;page+=1){
       if(version!==clientsVersion||currentView!=='clients')return;
       if(clientCardOf(saved.anchorId))break;
@@ -1345,8 +1349,10 @@
       if(!data.hasMore)break;
       page+=1;if(page>200)throw Object.assign(new Error('EXPORT_TOO_LARGE'),{code:'EXPORT_TOO_LARGE'});
     }
-    if(all.length<total)throw Object.assign(new Error('EXPORT_INCOMPLETE'),{code:'EXPORT_INCOMPLETE'});
-    const items=all.filter((item)=>item.isLead!==false);
+    // The list may change between pages: a person is written once, and the file must have every person the filter counted.
+    const unique=[...new Map(all.map((item)=>[item.id,item])).values()];
+    if(unique.length<total)throw Object.assign(new Error('EXPORT_INCOMPLETE'),{code:'EXPORT_INCOMPLETE'});
+    const items=unique.filter((item)=>item.isLead!==false);
     const csvCell=(value)=>{const raw=String(value??''),text=/^[=+\-@\t\r]/.test(raw)&&!/^[+-]?[\d\s().,-]+$/.test(raw)?"'"+raw:raw;return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;};
     const rows=[['nome','telefone','Ref','situação','checklist','calor','etapa da busca','resumo da IA'],...items.map((item)=>[item.name||item.contact?.display_name||'',primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||'',item.ref||item.referenceCode||item.reference_code||'',pendingSituationLabel(item.situation),`${checklistCompleted(item)}/6`,pendingHeatLabel(item.heat),item.searchStageLabel||'',item.aiSummary||item.summary||''])];
     const blob=new Blob(['\uFEFF'+rows.map((row)=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='clientes-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -1908,7 +1914,7 @@
     const thumbs=$('import-v2-thumbs'),target=v2Target(),send=$('import-v2-send');if(!thumbs)return;
     $('import-v2-body')?.classList.toggle('hidden',!target);
     thumbs.replaceChildren();
-    v2Photos.photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.addEventListener('click',()=>{URL.revokeObjectURL(photo.url);v2Photos.photos.splice(index,1);paintV2Photos();});item.append(img,remove);thumbs.append(item);});
+    v2Photos.photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.disabled=v2Photos.busy;remove.addEventListener('click',()=>{if(v2Photos.busy)return;URL.revokeObjectURL(photo.url);v2Photos.photos.splice(index,1);paintV2Photos();});item.append(img,remove);thumbs.append(item);});
     if(send){send.disabled=v2Photos.busy||!target||!v2Photos.photos.length;send.textContent=v2Photos.photos.length?`Enviar ${v2Photos.photos.length} foto(s)`:'Enviar fotos';}
     ['import-v2-select','import-v2-file'].forEach((id)=>{const control=$(id);if(control)control.disabled=v2Photos.busy;});
     $('import-v2-drop')?.classList.toggle('disabled',v2Photos.busy);
@@ -1964,13 +1970,14 @@
       try{
         for(const photo of queue){
           if(gen!==v2Photos.gen)break;
+          if(!v2Photos.photos.includes(photo))continue;
           status.textContent=`Enviando foto ${sent+1} de ${queue.length}…`;
           await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(dest.vitrineId)+'&carId='+encodeURIComponent(dest.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photo.blob,timeoutMs:60000});
           settle(photo);sent+=1;
         }
         status.textContent=`${sent} foto(s) enviada(s) para esta V2`;
       }catch(error){
-        uncertain=error.code==='REQUEST_TIMEOUT'||error.code==='NETWORK_ERROR'||!error.code;
+        uncertain=error.code==='REQUEST_TIMEOUT'||error.code==='NETWORK_ERROR';
         status.textContent=(error.code==='PHOTO_LIMIT_REACHED'?'Esta V2 chegou a 12 fotos':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':uncertain?'A resposta não chegou; conferindo o que foi gravado antes de reenviar':'Não consegui enviar a foto')+(sent?` · ${sent} já enviada(s), as outras continuam aqui`:'');
       }
       v2Photos.busy=false;
@@ -1981,7 +1988,8 @@
         const car=(v2Photos.list.find((item)=>item.vitrineId===dest.vitrineId)?.cars||[]).find((item)=>item.carId===dest.carId);
         const saved=car?Math.max(0,car.photoCount-before-sent):0;
         for(let index=0;index<saved&&v2Photos.photos.length;index+=1)settle(v2Photos.photos[0]);
-        if(car)status.textContent=saved?`Conferido: ${saved} foto(s) já estavam gravadas e saíram da fila · faltam ${v2Photos.photos.length}`:`Conferido: nada além das ${sent} enviada(s) foi gravado · faltam ${v2Photos.photos.length}`;
+        if(!car)status.textContent='Não consegui conferir o que foi gravado agora · Nada foi reenviado; atualize a página antes de tentar de novo';
+        else status.textContent=saved?`Conferido: ${saved} foto(s) já estavam gravadas e saíram da fila · faltam ${v2Photos.photos.length}`:`Conferido: nada além das ${sent} enviada(s) foi gravado · faltam ${v2Photos.photos.length}`;
         paintV2Photos();
       }
     });
@@ -2184,7 +2192,7 @@
     const originOk=(facts)=>origin==='all'||(facts.known&&(!facts.item?false:MCSGroups.matchesOrigin(facts.item,origin)));
     const periodOk=(facts)=>!since||(facts.known&&facts.at>=since);
     // Assunto (lido pelo Claude ou corrigido por você) é um filtro à parte da origem; sem leitura vale "Ainda não identificado".
-    const subjectOk=(facts)=>subject==='all'||(facts.known&&Boolean(facts.item)&&Boolean(facts.item.group&&facts.item.group.subject)&&facts.item.group.subject.key===subject);
+    const subjectOk=(facts)=>subject==='all'||(facts.known&&(facts.item&&facts.item.group&&facts.item.group.subject?facts.item.group.subject.key===subject:subject==='NAO_IDENTIFICADO'));
     const factsOf=new Map(model.cases.map((entry)=>[entry.key,caseFacts(entry)]));
     const narrowed=model.cases.filter((entry)=>{const facts=factsOf.get(entry.key);return originOk(facts)&&periodOk(facts)&&subjectOk(facts);});
     const passing=narrowed.filter((entry)=>refOk(factsOf.get(entry.key)));

@@ -121,11 +121,15 @@ test('retomada: lê de novo, salva o que a Ref prova, deixa o resto pendente com
   const read = { id: state.record.id, created_by: ACTOR, resume_attempts: 0 };
   const first = await resumeOne({ environment: ENV }, read, deps);
   assert.equal(first.outcome, 'SAVED');
-  assert.equal(state.patches[0].resume_attempts, 1, 'a leitura paga conta uma tentativa');
+  assert.ok(state.patches.every((patch) => patch.resume_attempts === undefined), 'leitura bem-sucedida não gasta tentativa');
   const again = await resumeOne({ environment: ENV }, read, deps);
   assert.equal(again.outcome, 'SAVED', 'repetir um print já guardado não faz nada novo');
   const unread = await resumeOne({ environment: ENV }, read, { ...deps, printRecord: async () => ({ ...printRecord(), error_code: 'AI_UNAVAILABLE' }), readPrintRecord: async () => ({ read: { ...printRecord(), error_code: 'AI_UNAVAILABLE', extracted_json: {} }, manual: true }) });
   assert.equal(unread.outcome, 'UNREAD');
+  assert.ok(state.patches.every((patch) => patch.resume_attempts === undefined), 'falha passageira (AI_UNAVAILABLE) nunca gasta tentativa');
+  const permanent = await resumeOne({ environment: ENV }, { ...read, resume_attempts: 2 }, { ...deps, printRecord: async () => ({ ...printRecord(), error_code: 'SMS_PRINT_UPLOAD_NOT_FOUND' }), readPrintRecord: async () => ({ read: { ...printRecord(), error_code: 'SMS_PRINT_UPLOAD_NOT_FOUND', extracted_json: {} } }) });
+  assert.equal(permanent.outcome, 'UNREAD');
+  assert.equal(state.patches.at(-1).resume_attempts, 3, 'falha permanente do arquivo conta');
   const pending = await resumeOne({ environment: ENV }, read, { ...deps, printRecord: async () => printRecord({ extracted_json: { ref: 'ZZZZ9', message: OTHER } }), confirmPrint: async (_c, _r, _b, reply) => reply(400, { error: 'SMS_PRINT_VALUES_INVALID' }) });
   assert.equal(pending.outcome, 'PENDING');
   assert.equal(pending.reason, 'SMS_PRINT_VALUES_INVALID');

@@ -35,11 +35,14 @@ function decide(evidence) {
     entry.sources.add(source);
     if (messageId && !entry.messageId) entry.messageId = messageId;
   };
-  written.forEach((entry) => add(entry.ref, 'MENSAGEM', entry.messageId));
+  // A Ref written in a message binds only when it was typed in capitals (the calculator writes it that way) or a simulation of that
+  // Ref exists: a common word after "ref:" ("ref: Camry") is never a Ref. Without that proof it stays a plain candidate.
+  written.forEach((entry) => { if (runs.has(up(entry.ref)) || String(entry.raw || entry.ref) === up(entry.ref)) add(entry.ref, 'MENSAGEM', entry.messageId); });
   prints.forEach((ref) => add(ref, 'PRINT', null));
   // Refs the Claude found: only those whose quotation was checked word for word against the message (panel-subject).
   const claudeRefs = (evidence.claude_refs || []).filter((entry) => entry && entry.verified === true && REF_RE.test(up(entry.ref)));
-  claudeRefs.forEach((entry) => add(entry.ref, 'CLAUDE', entry.messageId));
+  // A Ref the Claude found is stronger-checked: it must also exist as a simulation of the calculator.
+  claudeRefs.filter((entry) => runs.has(up(entry.ref))).forEach((entry) => add(entry.ref, 'CLAUDE', entry.messageId));
   const linkRefs = [], messageIds = [], conflicts = [], proven = new Set();
   for (const [ref, entry] of candidates) {
     if (own.has(ref)) { proven.add(ref); continue; }
@@ -59,7 +62,7 @@ function decide(evidence) {
 // The same proofs, the same rule version: nothing to redo.
 function hashOf(evidence) {
   const stable = [RULE_VERSION, up(evidence.reference_code), [...(evidence.linked_refs || [])].map(up).sort(),
-    (evidence.explicit || []).map((entry) => [up(entry.ref), entry.messageId || null]).sort(), [...(evidence.print_refs || [])].map(up).sort(),
+    (evidence.explicit || []).map((entry) => [up(entry.ref), entry.raw || null, entry.messageId || null]).sort(), [...(evidence.print_refs || [])].map(up).sort(),
     Boolean(evidence.template), Number(evidence.message_count || 0), [...(evidence.run_refs || [])].map(up).sort(), evidence.owners || {},
     (evidence.claude_refs || []).filter((entry) => entry && entry.verified === true).map((entry) => [up(entry.ref), entry.messageId || null]).sort()];
   return crypto.createHash('sha256').update(JSON.stringify(stable)).digest('hex').slice(0, 32);

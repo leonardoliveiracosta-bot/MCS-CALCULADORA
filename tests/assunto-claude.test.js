@@ -40,6 +40,8 @@ function deps(overrides = {}) {
   return { calls, deps: {
     rpc: async (_ctx, name, body) => { calls.push({ name, body }); return name === 'panel_subject_claim' ? 'tok' : true; },
     loadMessages: async () => messages,
+    knownRefs: async () => ['WSR3X'],
+    dailyCount: async () => 0,
     ask: async () => ({ subject: 'FINANCIAMENTO', confidence: 0.8, reason: 'pergunta de entrada e parcelas', refs: [{ ref: 'WSR3X', message: 'm1', quote: 'My ref is wsr3x' }] }),
     ...overrides
   } };
@@ -49,7 +51,7 @@ test('classifica uma conversa: reserva, lê, confere e grava com a versão da re
   const { calls, deps: d } = deps();
   const out = await classifyOne({ environment: 'production' }, { journey_id: J, content_hash: 'h1' }, d);
   assert.deepEqual([out.outcome, out.subject, out.verifiedRefs], ['CLASSIFIED', 'FINANCIAMENTO', 1]);
-  const finish = calls.find((call) => call.name === 'panel_subject_finish');
+  const finish = calls.find((call) => call.name === 'panel_subject_finish_v2');
   assert.equal(finish.body.p_hash, 'h1');
   assert.equal(finish.body.p_rule_version, RULE_VERSION);
   assert.equal(finish.body.p_claude_refs[0].verified, true);
@@ -61,7 +63,7 @@ test('outra execução com a conversa reservada não paga de novo; falha libera 
   const failing = deps({ ask: async () => { throw new Error('AI_UNAVAILABLE'); } });
   const out = await classifyOne({ environment: 'production' }, { journey_id: J, content_hash: 'h' }, failing.deps);
   assert.equal(out.outcome, 'FAILED');
-  assert.ok(failing.calls.some((call) => call.name === 'panel_subject_release'), 'a reserva volta para a próxima rodada');
+  assert.ok(failing.calls.some((call) => call.name === 'panel_subject_fail' && call.body.p_hash === 'h'), 'a falha entra em recuo (não é relida a cada ciclo) e libera a reserva');
   assert.ok(!failing.calls.some((call) => call.name === 'panel_subject_finish'));
 });
 
@@ -79,4 +81,27 @@ test('ciclo: processa os candidatos em paralelo, uma falha não perde as outras 
   const stopped = await classifyConversations({ environment: 'production' }, { max: 5, concurrency: 1, deps: out.deps });
   assert.equal(stopped.stopped, 'AI_BALANCE_LIMIT');
   assert.equal(stopped.failed, 1, 'depois do saldo esgotado nenhuma outra conversa é enviada');
+});
+
+test('resumo da IA é por pedido: só nomeia uma Ref que a ficha tem; sem separação clara declara ambiguidade', () => {
+  const { ids } = buildConversation(messages, ['WSR3X', 'RNEVL']);
+  const out = validate({ subject: 'PEDIDO_CARRO', pedidos: [
+    { ref: 'wsr3x', resumo: 'Mustang até US$ 30 mil' },
+    { ref: 'ZZZZ9', resumo: 'Fala de outro carro' },
+    { ref: null, resumo: 'Não dá para separar', ambiguo: true },
+    { ref: 'RNEVL', resumo: '' }
+  ] }, ids, ['WSR3X', 'RNEVL']);
+  assert.deepEqual(out.requests.map((entry) => [entry.ref, entry.ambiguous]), [['WSR3X', false], [null, true], [null, true]]);
+  // a single known request: a summary without a Ref is still that request's, not ambiguous
+  const single = validate({ subject: 'OUTROS', pedidos: [{ ref: null, resumo: 'Quer financiar' }] }, ids, ['WSR3X']);
+  assert.deepEqual(single.requests.map((entry) => [entry.ref, entry.ambiguous]), [[null, false]]);
+});
+
+test('teto diário próprio: passou do limite, nenhuma conversa é enviada ao Claude', async () => {
+  const { DAILY_CAP } = require('../panel-subject');
+  let asked = 0;
+  const d = deps({ ask: async () => { asked += 1; return { subject: 'OUTROS' }; }, dailyCount: async () => DAILY_CAP });
+  const summary = await classifyConversations({ environment: 'production' }, { deps: d.deps });
+  assert.equal(summary.stopped, 'DAILY_CAP');
+  assert.equal(asked, 0);
 });
