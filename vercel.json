@@ -57,6 +57,9 @@
       { "key": "X-Content-Type-Options", "value": "nosniff" }
     ] }
   ],
+  "redirects": [
+    { "source": "/:path([Pp][Aa][Ii][Nn][Ee][Ll])", "destination": "/painel/", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/api/panel/(.*)", "destination": "/api/panel/$1" },
     { "source": "/api/whatsapp/(.*)", "destination": "/api/whatsapp/$1" },
