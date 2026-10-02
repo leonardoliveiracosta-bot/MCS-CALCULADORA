@@ -537,6 +537,7 @@
   // Four clear states: could not read, read and still to identify, already linked, repeated record.
   // The printed Ref always shows, and a Ref that already belongs to a ficha says so.
   function printStateText(print) {
+    if (!print.errorCode && print.pendingText) return `Lido · ${print.pendingText}`;
     if (print.errorCode) return `Não foi possível ler · ${printReadFailText(print.errorCode)}`;
     if (print.justRead) return 'Lido agora · confira os dados e guarde';
     if (print.refMatch) return `Lido · a Ref ${print.ref} já pertence à ficha de ${print.refMatch.name || 'um cliente'}; o sistema conclui o vínculo sozinho, ou use Guardar pelo painel`;
@@ -555,6 +556,11 @@
     header.append(element('strong', '', `Print não guardado · ${print.name || print.phone || print.filename || 'sem nome'}`), element('span', 'badge', print.errorCode ? 'não lido' : 'falta identificar'));
     item.append(header, element('span', 'muted', printStateText(print)));
     if (print.ref) item.append(element('span', 'print-ref', `Ref do print: ${print.ref}`));
+    if ((print.pendingCandidates || []).length > 1 || print.pendingReason === 'FILA_CONTRADICAO') {
+      const list = element('ul', 'print-candidates');
+      print.pendingCandidates.forEach((candidate) => list.append(element('li', '', `${candidate.name || 'ficha'} · Ref ${candidate.ref || '—'} · ${candidate.vehicle || 'carro não informado'}`)));
+      item.append(list);
+    }
     if (print.phone) item.append(element('span', 'muted', `Telefone do print: ${print.phone}`));
     if (print.message) item.append(element('p', '', print.message.length > 280 ? `${print.message.slice(0, 280)}…` : print.message));
     let phoneInput = null;

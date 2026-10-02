@@ -55,10 +55,12 @@ async function resumeOne(ctx, read, deps = smsPrint) {
   const values = record.extracted_json || {};
   let outcome = null;
   const reply = (code, payload) => { outcome = { code, payload }; return outcome; };
-  await deps.confirmPrint(actor, record, { auto: true, phone: values.phone || '', name: values.name || '', ref: values.ref || '', message: values.message || '', translation: values.translation || '' }, reply);
+  await deps.confirmPrint(actor, record, { auto: true, strict: true, phone: values.phone || '', name: values.name || '', ref: values.ref || '', message: values.message || '', translation: values.translation || '' }, reply);
   const saved = Boolean(outcome && outcome.code >= 200 && outcome.code < 300 && !outcome.payload.review);
-  const reason = saved ? null : outcome && outcome.payload && (outcome.payload.error || (outcome.payload.review ? 'NAME_MATCH_REVIEW' : null)) || 'NOT_SAVED';
-  await (deps.patchRows || patchRows)(ctx, 'sms_print_reads', { environment: 'eq.' + ctx.environment, id: 'eq.' + read.id }, { pending_reason: saved ? null : reason }).catch(() => {});
+  const queued = outcome && outcome.payload && outcome.payload.queue || null;
+  const reason = saved ? null : queued || outcome && outcome.payload && (outcome.payload.error || (outcome.payload.review ? 'NAME_MATCH_REVIEW' : null)) || 'NOT_SAVED';
+  // A queued print keeps the reason with its candidate fichas written by confirmPrint.
+  if (!queued) await (deps.patchRows || patchRows)(ctx, 'sms_print_reads', { environment: 'eq.' + ctx.environment, id: 'eq.' + read.id }, { pending_reason: saved ? null : reason }).catch(() => {});
   return { id: read.id, outcome: saved ? 'SAVED' : 'PENDING', reason };
 }
 

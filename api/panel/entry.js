@@ -1,4 +1,5 @@
 'use strict';
+const phoneLink = require('../../panel-phone-link');
 
 const crypto = require('crypto');
 const { consolidateCalcRuns, toggleEnabled } = require('../../panel-domain');
@@ -375,11 +376,11 @@ const STALE_READY_MS = 30 * 60 * 1000;
 // state: NAO_LIDO (the reading failed) or LIDO_FALTA_IDENTIFICAR (read, but the save needs one more proof).
 // refMatch is the ficha the printed Ref already belongs to, so the card never says there is no client when
 // the ficha was found; pendingReason is why the automatic save did not conclude.
-function smsPrintFailures(reads, now = Date.now(), refMatchOf = () => null) {
-  return reads.filter((read) => read.error_code ? read.error_code !== 'NAME_MATCH_REVIEW' : now - Date.parse(read.updated_at || read.created_at) > STALE_READY_MS).map((read) => {
+function smsPrintFailures(reads, now = Date.now(), refMatchOf = () => null, candidateOf = () => null) {
+  return reads.filter((read) => read.error_code ? read.error_code !== 'NAME_MATCH_REVIEW' : (read.pending_reason || now - Date.parse(read.updated_at || read.created_at) > STALE_READY_MS)).map((read) => {
     const values = read.extracted_json || {};
     return { id: read.id, filename: read.original_filename, createdAt: read.created_at, errorCode: read.error_code || null,
-      state: read.error_code ? 'NAO_LIDO' : 'LIDO_FALTA_IDENTIFICAR', pendingReason: read.pending_reason || null, refMatch: refMatchOf(values.ref),
+      state: read.error_code ? 'NAO_LIDO' : 'LIDO_FALTA_IDENTIFICAR', pendingReason: phoneLink.parse(read.pending_reason).code, pendingText: phoneLink.REASONS[phoneLink.parse(read.pending_reason).code] || null, pendingCandidates: phoneLink.parse(read.pending_reason).candidates.map((id) => candidateOf(id) || { journeyId: id }), refMatch: refMatchOf(values.ref),
       name: String(values.name || '').trim() || null, phone: values.phone || null, ref: values.ref || null, message: values.message || '', translation: values.translation || '' };
   });
 }
@@ -429,7 +430,8 @@ async function queue(ctx, res) {
   ]);
   const printReviews = smsPrintReviews(printReads.filter((read) => read.error_code === 'NAME_MATCH_REVIEW'), contacts, journeys);
   const refMatchOf = (ref) => { const code = String(ref || '').toUpperCase(); if (!code) return null; const found = journeys.find((journey) => journey.reference_code === code) || journeys.find((journey) => journeyRefs.some((link) => link.journey_id === journey.id && link.ref_code === code)); if (!found) return null; const owner = contacts.find((contact) => contact.id === found.contact_id); return { journeyId: found.id, name: owner ? owner.display_name : null }; };
-  const failedPrints = smsPrintFailures(printReads, Date.now(), refMatchOf);
+  const candidateOf = (id) => { const found = journeys.find((journey) => journey.id === id); if (!found) return null; const owner = contacts.find((contact) => contact.id === found.contact_id); return { journeyId: found.id, name: owner ? owner.display_name : null, ref: found.reference_code || null, vehicle: found.vehicle_text || null }; };
+  const failedPrints = smsPrintFailures(printReads, Date.now(), refMatchOf, candidateOf);
   const printResolved = smsPrintResolved(resolvedReads, new Map(contacts.map((item) => [item.id, item])), new Map(journeys.map((item) => [item.id, item])));
   // Triagem: conversa fora do funil comercial sai da fila da ENTRADA (continua guardada e na busca global).
   const triageOut = new Set((await activeTriage(ctx)).filter((row) => row.decision === 'FORA_DO_FUNIL').map((row) => row.chat_id));
