@@ -541,7 +541,8 @@ async function runAudit(ctx, input, options = {}) {
 async function authorize(ctx, uploadId, actorId) {
   const run = await runRow(ctx, uploadId);
   if (!run || run.status !== 'AGUARDANDO_AUTORIZACAO') { const failure = new Error('AUDIT_NOTHING_TO_AUTHORIZE'); failure.code = 'AUDIT_NOTHING_TO_AUTHORIZE'; throw failure; }
-  const limit = Math.min(Math.round(((await spentOf(ctx, uploadId)) + Number(run.estimate_usd) * 2.5) * 1e6) / 1e6, LIMIT_USD);
+  // One global ceiling (US$ 50 for every OpenAI feature): an authorization never sets a smaller sub-limit.
+  const limit = LIMIT_USD;
   await patchRows(ctx, 'manheim_audit_runs', { environment: env(ctx), id: 'eq.' + run.id }, { status: 'AUTORIZADO', limit_usd: limit, authorized_by: actorId, authorized_at: new Date().toISOString(), updated_at: new Date().toISOString() });
   return { authorized: true, limitUsd: limit };
 }

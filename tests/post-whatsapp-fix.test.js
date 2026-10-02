@@ -60,6 +60,6 @@ test('direct-origin status is based on calculator refs shared by journey and jou
   assert.equal(directLeadSource(journey,true),null);
   assert.equal(directLeadSource({...journey,source:'SMS_DIRECT'},false),'SMS_DIRECT');
   assert.match(read('api/panel/searches.js'),/hasCalculatorOrder: stage\.hasCalculatorOrder, directLeadSource: stage\.directLeadSource/);
-  assert.match(read('painel/painel.js'),/veio direto pelo WhatsApp \(sem calculadora\)/);
-  assert.match(read('painel/lead.js'),/veio direto por SMS \(sem calculadora\)/);
+  assert.match(read('painel/painel.js'),/Veio por mensagem · Via WhatsApp \(sem calculadora\)/);
+  assert.match(read('painel/lead.js'),/Veio por mensagem · Via SMS \(sem calculadora\)/);
 });

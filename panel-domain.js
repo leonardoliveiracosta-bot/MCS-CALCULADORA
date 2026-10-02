@@ -485,7 +485,7 @@ function buildTodayItems(input, nowValue = new Date()) {
       else if (due - nowMs <= 2 * 60 * 60 * 1000) add('NEXT_ACTION', 'RETORNO EM ATÉ 2H', due, { dueAt: journey.next_action_at, detail: clean(journey.next_action_text), urgency: 'yellow' });
     }
     const missingSince = time(journey.next_action_missing_since);
-    if (!journey.next_action_at && missingSince && nowMs - missingSince >= 2 * DAY_MS) add('MISSING_NEXT_ACTION', 'SEM PRÓXIMA AÇÃO', missingSince + 2 * DAY_MS);
+    if (!journey.next_action_at && missingSince && nowMs - missingSince >= 2 * DAY_MS) add('MISSING_NEXT_ACTION', 'MARCAR DATA DA PRÓXIMA AÇÃO', missingSince + 2 * DAY_MS);
     for (const item of divergences.filter((value) => value.journey_id === journey.id && value.status === 'OPEN')) add('DIVERGENCE', `DIVERGÊNCIA: ${item.field}`, time(item.created_at));
     for (const item of promises.filter((value) => value.journey_id === journey.id && value.status === 'OPEN' && time(value.due_at) !== null)) {
       const due = time(item.due_at);

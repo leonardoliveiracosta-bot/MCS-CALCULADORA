@@ -1,7 +1,7 @@
 (() => {
   'use strict';
-  // Adendo: grupos de contato em HOJE, ENTRADA e CLIENTES. Cada contato aparece em um grupo só
-  // (fora do assunto > não atendido > origem) e, em cada cartão, o que fazer agora vem primeiro.
+  // Contatos em HOJE, ENTRADA e CLIENTES. Cada contato fica em uma seção só (fora do assunto >
+  // não atendidos > atendidos), com a origem como etiqueta curta e filtro; o que fazer agora vem primeiro.
   // Só apresentação: nada aqui grava, exceto a correção de "fora do assunto" que você pedir, e nada
   // é enviado. Tradução: só a já guardada aparece; sem ela, um link "traduzir" (nunca automático).
   const e = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined && text !== null) node.textContent = String(text); return node; };
@@ -9,14 +9,35 @@
   const when = (value) => value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '';
   const groupsApi = () => window.MCSGroups;
 
-  // The group of an item (computed by the server); an item without one counts as "direto".
-  const groupOf = (item) => item && item.group && item.group.key ? item.group : { key: 'DIRETO', label: groupsApi().GROUPS.DIRETO.label, origin: 'DIRETO', originLabel: groupsApi().GROUPS.DIRETO.label, unattended: null };
+  // The group of an item (computed by the server); an item without one counts as attended.
+  const groupOf = (item) => item && item.group && item.group.key ? item.group : { key: 'ATENDIDO', label: groupsApi().SECTIONS.ATENDIDO.label, origin: null, unattended: null };
+
+  // "DE ONDE VEIO": a short chip (never a sentence repeated on every line), with the financing tag.
+  function originChip(item) {
+    const origin = groupOf(item).origin;
+    if (!origin) return null;
+    const chip = e('span', 'badge origin-chip', origin.label);
+    chip.dataset.origin = origin.key;
+    chip.title = 'De onde veio';
+    if (!origin.financing) return chip;
+    const wrap = e('span', 'origin-chips');
+    wrap.append(chip, e('span', 'badge yellow origin-financing', 'Financiamento'));
+    return wrap;
+  }
+  // The origin filter (a select like "Ordenar"): everyone by default; it only narrows the list.
+  function fillOriginSelect(select) {
+    if (!select || select.dataset.filled) return;
+    select.dataset.filled = '1';
+    const current = select.value;
+    select.replaceChildren(...groupsApi().ORIGIN_OPTIONS.map(([value, label]) => new Option(label, value)));
+    if ([...select.options].some((option) => option.value === current)) select.value = current;
+  }
 
   // What to do now, first on every card.
   function decision(item) {
     const group = groupOf(item);
     if (group.key === 'FORA_DO_ASSUNTO') return { tone: 'muted', text: `Fora do assunto (${group.offTopicSource === 'MANUAL' ? 'correção sua' : 'leitura da IA'}) · Nada a fazer · Se for sobre carro, use "É sobre carro"` };
-    if (group.unattended) { const u = group.unattended; return { tone: 'red', text: `Esperando há ${u.waitedText} · Falta: ${u.missing} · Agora: ${u.next}` }; }
+    if (group.unattended) { const u = group.unattended; return { tone: 'red', text: `${u.reasonText} · Esperando há ${u.waitedText} · Falta: ${u.missing} · Agora: ${u.next}` }; }
     const next = item.next_action_text || item.nextActionText;
     if (next) return { tone: 'yellow', text: `Agora: ${next}${item.next_action_at ? ' · ' + when(item.next_action_at) : ''}` };
     if (item.searchStageLabel) return { tone: 'blue', text: `Agora: ${item.searchStageLabel}` };
@@ -65,7 +86,7 @@
     const offTopic = groupOf(item).key === 'FORA_DO_ASSUNTO';
     if (!chatId && !journeyId) return null;
     // A calculator order is always about a car: no "fora do assunto" for it.
-    if (!offTopic && /^CALC_/.test(groupOf(item).origin || '')) return null;
+    if (!offTopic && groupOf(item).hasCalculator) return null;
     const button = e('button', 'quiet small topic-correct', offTopic ? 'É sobre carro' : 'Fora do assunto');
     button.type = 'button';
     button.title = offTopic ? 'Volta para o fluxo principal e fica guardado' : 'A conversa nunca falou de carro · Vai para o grupo Fora do assunto · Nada é apagado';
@@ -132,7 +153,7 @@
     });
   }
 
-  window.MCSContactGroups = Object.freeze({ render, decision, decisionNode, lastMessageNode, replyTools, topicButton, hydrateTranslations, groupOf });
+  window.MCSContactGroups = Object.freeze({ render, decision, decisionNode, lastMessageNode, replyTools, topicButton, hydrateTranslations, groupOf, originChip, fillOriginSelect });
 
   // ------------------------------------------------------------------ busca de carros em três grupos
   // Adendo, item 2: com carros × sem carros (a busca rodou) × busca ainda não rodada. Nunca misturados.

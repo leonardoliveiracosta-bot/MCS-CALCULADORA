@@ -26,6 +26,8 @@
     // Inside a card that already shows name and phone, the summary skips them (no repetition).
     if (options.withIdentity) node.dataset.contextIdentity = 'true';
     if (options.aiReading === false) node.dataset.contextAiReading = 'false';
+    // The card already shows the "não atendido" line first (HOJE, ENTRADA, CLIENTES): not repeated here.
+    if (options.unattended === false) node.dataset.contextUnattended = 'false';
     if (!keyOf(spec)) { node.classList.add('client-context-none'); node.textContent = options.emptyText || 'Sem cliente ligado a este item.'; return node; }
     add(node, 'span', 'client-context-loading muted', 'Carregando o contexto do cliente…');
     // A click inside the summary never opens the card around it.
@@ -77,7 +79,7 @@
       node.dataset.contextState = 'done';
       if (!context) { node.replaceChildren(e('span', 'muted', 'Cliente não encontrado neste ambiente.')); return; }
       if (context.unlinked) { node.replaceChildren(e('span', 'client-context-warning', context.unlinked)); return; }
-      node.replaceChildren(...compact(context, { open, focus: node.dataset.contextFocus || null, identity: node.dataset.contextIdentity === 'true', aiReading: node.dataset.contextAiReading !== 'false' }).childNodes);
+      node.replaceChildren(...compact(context, { open, focus: node.dataset.contextFocus || null, identity: node.dataset.contextIdentity === 'true', aiReading: node.dataset.contextAiReading !== 'false', unattended: node.dataset.contextUnattended !== 'false' }).childNodes);
     });
   }
   async function fill(nodes, { request, open }) {
@@ -136,19 +138,33 @@
     return box;
   }
 
-  function compact(context, { open, focus, identity = true, aiReading = true } = {}) {
+  // Não atendido: the reason, how long it has waited, what is missing and the next action, in every
+  // tab where the client appears (same rule as the HOJE, ENTRADA and CLIENTES cards).
+  function unattendedLine(parent, context) {
+    const u = context.unattended;
+    if (!u) return null;
+    const line = add(parent, 'p', 'context-unattended decision-red');
+    add(line, 'strong', '', 'Não atendido');
+    line.append(document.createTextNode(` · ${u.reasonText} · Esperando há ${u.waitedText} · Falta: ${u.missing} · Agora: ${u.next}`));
+    return line;
+  }
+  function compact(context, { open, focus, identity = true, aiReading = true, unattended = true } = {}) {
     const root = e('div');
     const head = add(root, 'div', 'context-head');
     const who = add(head, 'div', 'context-who');
-    const origin = context.origin.label + (context.origin.calculator && context.origin.code !== 'CALCULATOR' ? ' + calculadora' : '');
+    // DE ONDE VEIO: a short chip (never a sentence repeated on every line).
+    const originChip = () => { const chip = e('span', 'badge origin-chip context-origin', context.origin.label); chip.title = 'De onde veio' + (context.origin.since ? ' · desde ' + day(context.origin.since) : ''); return chip; };
     if (identity) {
       add(who, 'strong', 'context-name', context.name || 'Contato sem nome');
       if (context.ref) add(who, 'span', 'context-ref', 'Ref ' + context.ref);
       const contactLine = add(who, 'span', 'context-contact muted');
-      contactLine.textContent = [(context.contact.phones || []).map(phone).join(' · ') || (context.contact.whatsappUsername ? '@' + context.contact.whatsappUsername : context.contact.note || 'Sem telefone salvo'), 'Origem: ' + origin].join(' · ');
+      contactLine.textContent = (context.contact.phones || []).map(phone).join(' · ') || (context.contact.whatsappUsername ? '@' + context.contact.whatsappUsername : context.contact.note || 'Sem telefone salvo');
+      who.append(originChip());
+      if (context.origin.financing) add(who, 'span', 'badge yellow origin-financing', 'Financiamento');
     } else {
       add(who, 'span', 'context-kicker', 'Contexto do cliente');
-      add(who, 'span', 'context-contact muted', 'Origem: ' + origin + (context.origin.since ? ' · desde ' + day(context.origin.since) : ''));
+      who.append(originChip());
+      if (context.origin.financing) add(who, 'span', 'badge yellow origin-financing', 'Financiamento');
     }
     // Inside a card, only the ficha is a new destination (the card already opens its order).
     if (typeof open === 'function' && (context.journeyId || (identity && context.ref))) {
@@ -156,6 +172,7 @@
       button.type = 'button';
       button.addEventListener('click', (event) => { event.stopPropagation(); open(context.journeyId ? 'ficha' : 'order', context.journeyId || context.ref); });
     }
+    if (unattended) unattendedLine(root, context);
     const facts = add(root, 'dl', 'context-facts');
     const fact = (label, value, cls) => { const wrap = add(facts, 'div', 'context-fact' + (cls ? ' ' + cls : '')); add(wrap, 'dt', '', label); add(wrap, 'dd', '', value); return wrap; };
     const searchText = (context.searches || []).map((item) => (item.mode ? (item.mode === 'VALOR' ? 'Por valor: ' : 'Por carro: ') : '') + item.label).join(' · ');
@@ -183,7 +200,8 @@
   }
 
   // ----------------------------------------------------------------- dados completos
-  function sourceList(item) {
+  // A message quoted for several fields appears once; the next fields point back to it.
+  function sourceList(item, shown = new Set()) {
     const list = e('ul', 'context-sources');
     if (!item.sources.length) { add(list, 'li', 'muted', item.note || 'Nenhuma fonte informou.'); return list; }
     item.sources.forEach((source) => {
@@ -192,7 +210,12 @@
       add(li, 'span', '', ' ' + source.value);
       const extra = [source.ref ? 'Ref ' + source.ref : null, source.detail, source.at ? date(source.at) : null].filter(Boolean).join(' · ');
       if (extra) add(li, 'span', 'muted', ' · ' + extra);
-      (source.messages || []).forEach((message) => { const quote = add(li, 'blockquote', 'context-evidence'); add(quote, 'span', 'muted', 'Mensagem do cliente · ' + date(message.at) + ': '); quote.append(document.createTextNode('“' + message.text + '”')); });
+      (source.messages || []).forEach((message) => {
+        const key = (message.at || '') + '|' + message.text;
+        if (shown.has(key)) { add(li, 'span', 'muted context-evidence-again', ' · mesma mensagem do cliente citada acima (' + date(message.at) + ')'); return; }
+        shown.add(key);
+        const quote = add(li, 'blockquote', 'context-evidence'); add(quote, 'span', 'muted', 'Mensagem do cliente · ' + date(message.at) + ': '); quote.append(document.createTextNode('“' + message.text + '”'));
+      });
     });
     if (item.note) add(list, 'li', 'context-note', item.note);
     return list;
@@ -203,12 +226,13 @@
     const head = add(add(table, 'thead'), 'tr');
     ['Campo', 'Valor usado', 'Situação', 'De onde veio'].forEach((label) => add(head, 'th', '', label));
     const body = add(table, 'tbody');
+    const shown = new Set();
     (context.fields || []).forEach((item) => {
       const tr = add(body, 'tr', STATUS_CLASS[item.status] || '');
       add(tr, 'th', '', item.label).scope = 'row';
       add(tr, 'td', 'context-value', item.value || (item.status === 'AMBIGUO' ? 'Não escolhido: as fontes discordam' : '—'));
       const status = add(tr, 'td'); status.append(statusTag(item));
-      add(tr, 'td').append(sourceList(item));
+      add(tr, 'td').append(sourceList(item, shown));
     });
     const wrap = e('div', 'context-table-wrap');
     wrap.append(table);

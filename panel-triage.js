@@ -23,7 +23,8 @@ const { allRows, supabase } = require('./panel-server');
 const aiClaim = require('./panel-ai-claim');
 const { undash } = require('./text-dash');
 
-// v2 (adendo, item 4): lê a conversa inteira e diz também se ela trata de carro (sobre_carro).
+// v2: lê a conversa inteira e diz também se ela trata de carro (sobre_carro). Só vale para conteúdo
+// novo: conversa já lida com a v1 não é relida sem autorização (regra d).
 const RULE_VERSION = 'triagem-v2';
 const CATEGORIES = Object.freeze(['PRE_COMPRA_MCS', 'POS_VENDA', 'PESSOAL', 'OUTRO_NEGOCIO', 'NAO_CLIENTE', 'REVISAR']);
 const OUT_OF_FUNNEL = Object.freeze(['POS_VENDA', 'PESSOAL', 'OUTRO_NEGOCIO', 'NAO_CLIENTE']);
@@ -254,7 +255,9 @@ async function candidates(ctx, options = {}) {
   const journeyOf = new Map(links.map((link) => [link.message_id, link.journey_id]));
   const byChat = new Map();
   messages.forEach((message) => { if (!byChat.has(message.chat_id)) byChat.set(message.chat_id, []); byChat.get(message.chat_id).push(message); });
-  const done = new Set(readings.filter((row) => row.source === 'AI' && settled(row)).map((row) => row.chat_id + ':' + row.content_hash + ':' + row.rule_version));
+  // Rule d): a conversation already read (any rule version) is never read again for the same content;
+  // the new rule applies only when the customer writes again. Re-reading the backlog needs a new authorization.
+  const done = new Set(readings.filter((row) => row.source === 'AI' && settled(row)).map((row) => row.chat_id + ':' + row.content_hash));
   const activeByChat = new Map(active.map((row) => [row.chat_id, row]));
   const list = [];
   chats.filter((chat) => !chat.is_group && (!options.onlyChats || options.onlyChats.has(chat.id))).forEach((chat) => {
@@ -266,7 +269,7 @@ async function candidates(ctx, options = {}) {
     const evidence = evidenceFor(own);
     if (!evidence.length) return;
     const hash = contentHash(evidence);
-    if (done.has(chat.id + ':' + hash + ':' + RULE_VERSION)) return;
+    if (done.has(chat.id + ':' + hash)) return;
     const current = activeByChat.get(chat.id);
     if (current && current.content_hash === hash && settled(current)) return;
     const journeyId = [...own].sort((a, b) => stampOf(b) - stampOf(a)).map((message) => journeyOf.get(message.id)).find(Boolean) || null;

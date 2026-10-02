@@ -227,17 +227,19 @@ test('limite por importação: acima dele nada é chamado, mostra a estimativa e
   await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: 0.00001 });
   assert.equal(calls.length, 1);
   assert.equal((await audit.viewState(ctx, view, { env: ENV })).byDemand[valorKey].status, 'CONFERIDO');
-  // The authorized amount is used up: a new reading of the batch waits for a new authorization.
+  // One global ceiling (US$ 50): once authorized, a new reading of the batch never waits for a
+  // smaller sub-limit of its own.
+  const authorizedRun = (await backend.db.query('select limit_usd from public.manheim_audit_runs where upload_id=$1', [UPLOAD])).rows[0];
+  assert.equal(Number(authorizedRun.limit_usd), 50);
   const more = input({ mutate: (value) => { value.demands[0].bidCents = 3150000; return value; } });
   const again = await audit.runAudit(ctx, more, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), limitUsd: 0.00001 });
-  assert.equal(again.awaitingAuthorization, true);
-  assert.equal(calls.length, 1);
-  assert.equal((await audit.viewState(ctx, more, { env: ENV })).run.status, 'AGUARDANDO_AUTORIZACAO');
+  assert.notEqual(again.awaitingAuthorization, true);
+  assert.equal(calls.length, 2);
   await backend.db.query("update public.manheim_audit_runs set status='ABERTO', authorized_by=null, authorized_at=null, limit_usd=2 where upload_id=$1", [UPLOAD]);
   // Deadline: never start a call the function could be stopped in the middle of.
   const late = input({ mutate: (value) => { value.demands[0].bidCents = 3200000; return value; } });
   const deferred = await audit.runAudit(ctx, late, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), deadlineAt: Date.now() + 1000 });
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(deferred.deferred, 1);
 });
 

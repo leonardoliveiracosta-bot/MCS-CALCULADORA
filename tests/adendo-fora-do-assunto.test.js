@@ -118,7 +118,8 @@ test('não atendido e origem nos cartões de CLIENTES e da ENTRADA', async () =>
   const records = (await call('records', '/api/panel/records?sort=ready')).payload.items;
   const carro = records.find((item) => item.id === id(10));
   assert.equal(carro.group.key, 'NAO_ATENDIDO');
-  assert.equal(carro.group.origin, 'DIRETO');
+  assert.equal(carro.group.origin.label, 'Veio por mensagem · Via WhatsApp');
+  assert.equal(carro.group.unattended.reasonText, 'Mensagem do cliente sem resposta');
   assert.match(carro.group.unattended.waitedText, /h|min/);
   assert.equal(carro.lastCustomerMessage.text, 'Hi, I am looking for a 2019 Honda Civic');
   const entry = (await call('entry', '/api/panel/entry')).payload;

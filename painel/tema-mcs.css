@@ -1187,3 +1187,16 @@ details.contact-group > summary.contact-group-head { cursor: pointer; }
 .search-fields { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; font-size: .9rem; }
 .search-fields dt { color: var(--mcs-muted); }
 .search-fields dd { margin: 0; }
+/* Teto único da IA no cabeçalho, aviso a partir de 80% */
+.ai-budget > summary { cursor: pointer; }
+.ai-budget-warn > summary strong { color: var(--mcs-red); }
+.ai-budget-features { margin: 6px 0 0; padding-left: 18px; font-size: .85rem; }
+.origin-chip { font-weight: 600; }
+.origin-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.context-unattended { margin: 6px 0; padding: 6px 10px; border-radius: var(--mcs-radius-sm); background: var(--mcs-red-tint); border-left: 3px solid var(--mcs-red-strong); font-size: .9rem; }
+.context-evidence-again { font-size: .85rem; }
+.today-stat, .pending-stat { cursor: pointer; text-align: left; }
+.today-stat.active, .pending-stat.active { outline: 2px solid var(--mcs-gold); }
+.today-stat small, .pending-stat small { display: block; font-size: .75rem; }
+.request-view-options { font-weight: 600; }
+.clients-more { margin: 12px auto; display: block; }

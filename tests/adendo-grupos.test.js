@@ -15,38 +15,58 @@ const iso = (hoursAgo) => new Date(NOW - hoursAgo * 3600000).toISOString();
 const msg = (id, direction, hoursAgo, text = 'oi', extra = {}) => ({ id, direction, body_text: text, occurred_at_utc: iso(hoursAgo), ...extra });
 const car = (make, model, year, miles, mmr = 1500000) => ({ make, model, year, miles, mmr_cents: mmr, mmr: mmr / 100, mmrCents: mmr });
 
-test('origem: pedido da calculadora vence; o modo da simulação mais recente decide VALOR ou CARRO', () => {
-  const facts = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 3), msg('b', 'MCS', 2)], orders: [{ simulations: [{ logicalMode: 'VALOR', occurredAt: iso(10) }, { logicalMode: 'CARRO', occurredAt: iso(5) }] }], journey: { source: 'CALCULATOR' } });
-  assert.equal(groups.originOf(facts), 'CALC_CARRO');
-  const valor = groups.factsFor({ orders: [{ simulations: [{ logicalMode: 'VALOR', occurredAt: iso(5) }] }] });
-  assert.equal(groups.originOf(valor), 'CALC_VALOR');
+const sim = (hoursAgo, extra = {}) => ({ simulations: [{ logicalMode: 'VALOR', occurredAt: iso(hoursAgo), ...extra }] });
+
+test('origem: calculadora, mensagem ou vitrine, cada uma com o canal; "Direto" sozinho nunca aparece', () => {
+  const calc = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 3), msg('b', 'MCS', 2)], orders: [sim(10)], journey: { source: 'CALCULATOR' } }));
+  assert.deepEqual([calc.group, calc.sub, calc.label], ['CALCULADORA', 'WHATSAPP', 'Veio pela calculadora · Via WhatsApp']);
+  const calcSms = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 3, 'oi', { channel: 'SMS' })], orders: [sim(10)], journey: { source: 'CALCULATOR' } }));
+  assert.equal(calcSms.label, 'Veio pela calculadora · Via SMS');
+  const message = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 3, 'hello')], journey: { source: 'WHATSAPP_DIRECT' } }));
+  assert.equal(message.label, 'Veio por mensagem · Via WhatsApp');
+  const sms = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 3, 'hello', { source_kind: 'SMS_SHORTCUT' })] }));
+  assert.equal(sms.label, 'Veio por mensagem · Via SMS');
+  const v2 = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 3, 'hello')], vitrine: { version: 'V2', at: iso(4) } }));
+  assert.equal(v2.label, 'Veio pela vitrine · V2');
+  const all = [calc, calcSms, message, sms, v2].map((origin) => origin.label).concat(groups.ORIGIN_OPTIONS.map((option) => option[1]));
+  all.forEach((label) => assert.doesNotMatch(label, /^Direto$|· Direto$/));
 });
 
-test('origem: sem pedido, vale a primeira mensagem (financiamento pela mensagem pronta do site, senão direto)', () => {
-  const fin = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 9, "Hi! I want to finance a car. I can put $5,000 down and pay around $600/month"), msg('b', 'CUSTOMER', 1, 'still there?')] });
-  assert.equal(groups.originOf(fin), 'FINANCIAMENTO');
-  const finDefault = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 9, "Hi! I'd like to talk about financing a car with you")] });
-  assert.equal(groups.originOf(finDefault), 'FINANCIAMENTO');
+test('origem a) financiamento só pela primeira mensagem ser um dos dois textos do site; etiqueta dentro de "Veio por mensagem"', () => {
+  const fin = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 9, 'Hi! I want to finance a car. I can put $5,000 down and pay around $600/month'), msg('b', 'CUSTOMER', 1, 'still there?')] }));
+  assert.equal(fin.group, 'MENSAGEM');
+  assert.equal(fin.financing, true);
+  assert.equal(groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 9, "Hi! I'd like to talk about financing a car with you")] })).financing, true);
   // Financing mentioned later is not the origin: the first message decides.
-  const direct = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 9, 'Hello, looking for a Camry'), msg('b', 'CUSTOMER', 1, 'I want to finance a car')], journey: { source: 'WHATSAPP_DIRECT' } });
-  assert.equal(groups.originOf(direct), 'DIRETO');
+  assert.equal(groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 9, 'Hello, looking for a Camry'), msg('b', 'CUSTOMER', 1, 'I want to finance a car')] })).financing, false);
+  // The filter: everyone by default, the group, the channel and the financing tag.
+  const item = { group: { origin: fin } };
+  assert.equal(groups.matchesOrigin(item, 'all'), true);
+  assert.equal(groups.matchesOrigin(item, 'MENSAGEM'), true);
+  assert.equal(groups.matchesOrigin(item, 'MENSAGEM:WHATSAPP'), true);
+  assert.equal(groups.matchesOrigin(item, 'MENSAGEM:FINANCIAMENTO'), true);
+  assert.equal(groups.matchesOrigin(item, 'CALCULADORA'), false);
+  assert.ok(groups.ORIGIN_OPTIONS.some(([value]) => value === 'MENSAGEM:FINANCIAMENTO'));
 });
 
-test('origem: contato com as duas origens fica com a mais recente', () => {
-  const directLater = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 2, 'hello')], orders: [{ simulations: [{ logicalMode: 'VALOR', occurredAt: iso(30) }] }], journey: { source: 'WHATSAPP_DIRECT' } });
-  assert.equal(groups.originOf(directLater), 'DIRETO');
-  const calcLater = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 30, 'hello')], orders: [{ simulations: [{ logicalMode: 'VALOR', occurredAt: iso(2) }] }], journey: { source: 'WHATSAPP_DIRECT' } });
-  assert.equal(groups.originOf(calcLater), 'CALC_VALOR');
+test('origem b) com pedido da calculadora e conversa direta, vale a mais recente', () => {
+  const directLater = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 2, 'hello')], orders: [sim(30)], journey: { source: 'WHATSAPP_DIRECT' } }));
+  assert.equal(directLater.group, 'MENSAGEM');
+  const calcLater = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 30, 'hello')], orders: [sim(2)], journey: { source: 'WHATSAPP_DIRECT' } }));
+  assert.equal(calcLater.group, 'CALCULADORA');
   // A calculator ficha whose customer wrote after the order is still calculator (not "both").
-  const calcFicha = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 2, 'hello')], orders: [{ simulations: [{ logicalMode: 'CARRO', occurredAt: iso(30) }] }], journey: { source: 'CALCULATOR' } });
-  assert.equal(groups.originOf(calcFicha), 'CALC_CARRO');
+  const calcFicha = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 2, 'hello')], orders: [sim(30)], journey: { source: 'CALCULATOR' } }));
+  assert.equal(calcFicha.group, 'CALCULADORA');
+  const vitrineLater = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 2, 'hello')], orders: [sim(30)], journey: { source: 'CALCULATOR' }, vitrine: { version: 'V1', at: iso(3) } }));
+  assert.equal(vitrineLater.label, 'Veio pela vitrine · V1');
 });
 
-test('não atendido: mensagem do cliente sem resposta, com o tempo de espera, o que falta e o próximo passo', () => {
+test('não atendido: mensagem do cliente sem resposta, com motivo, tempo de espera, o que falta e o próximo passo', () => {
   const facts = groups.factsFor({ messages: [msg('a', 'MCS', 50), msg('b', 'CUSTOMER', 26)], journey: { source: 'WHATSAPP_DIRECT', created_at: iso(60) } });
   const group = groups.classify(facts, NOW);
   assert.equal(group.key, 'NAO_ATENDIDO');
-  assert.equal(group.origin, 'DIRETO');
+  assert.equal(group.origin.group, 'MENSAGEM');
+  assert.equal(group.unattended.reasonText, 'Mensagem do cliente sem resposta');
   assert.equal(group.unattended.waitedText, '26 h');
   assert.match(group.unattended.missing, /Resposta/);
   assert.equal(group.unattended.next, 'Responder o cliente');
@@ -55,48 +75,70 @@ test('não atendido: mensagem do cliente sem resposta, com o tempo de espera, o 
   assert.equal(groups.classify(auto, NOW).key, 'NAO_ATENDIDO');
 });
 
-test('não atendido: nenhuma ação há 7 dias ou mais; próxima ação futura, caso encerrado ou tratado não entram', () => {
+test('não atendido: nenhuma ação há 7 dias ou mais; c) próxima ação futura, caso encerrado ou tratado não entram', () => {
   const stale = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 9), msg('b', 'MCS', 24 * 8)], journey: { created_at: iso(24 * 10) } });
   const group = groups.classify(stale, NOW);
   assert.equal(group.key, 'NAO_ATENDIDO');
   assert.equal(group.unattended.reason, 'NO_ACTION');
   assert.equal(group.unattended.waitedText, '8 dias');
   const recent = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 6 + 20), msg('b', 'MCS', 24 * 5)] });
-  assert.notEqual(groups.classify(recent, NOW).key, 'NAO_ATENDIDO');
-  const planned = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 9), msg('b', 'MCS', 24 * 8)], journey: { next_action_at: new Date(NOW + 86400000).toISOString() } });
-  assert.notEqual(groups.classify(planned, NOW).key, 'NAO_ATENDIDO');
+  assert.equal(groups.classify(recent, NOW).key, 'ATENDIDO');
+  const future = { next_action_at: new Date(NOW + 86400000).toISOString() };
+  assert.equal(groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 9), msg('b', 'MCS', 24 * 8)], journey: future }), NOW).key, 'ATENDIDO');
+  // c) also when the latest message is the customer's: the scheduled next action counts as attended.
+  assert.equal(groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 5)], journey: future }), NOW).key, 'ATENDIDO');
   const overdue = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 9), msg('b', 'MCS', 24 * 8)], journey: { next_action_at: iso(24), next_action_text: 'Ligar' } });
   assert.match(groups.classify(overdue, NOW).unattended.missing, /venceu: Ligar/);
   const closed = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 9), msg('b', 'MCS', 24 * 8)], journey: { status: 'ENCERRADO' } });
-  assert.notEqual(groups.classify(closed, NOW).key, 'NAO_ATENDIDO');
+  assert.equal(groups.classify(closed, NOW).key, 'ATENDIDO');
   const treated = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 9)], disposition: 'TREATED', dispositionAt: iso(24 * 8) });
-  assert.notEqual(groups.classify(treated, NOW).key, 'NAO_ATENDIDO');
+  assert.equal(groups.classify(treated, NOW).key, 'ATENDIDO');
 });
 
-test('precedência: fora do assunto > não atendido > origem; cada contato em exatamente um grupo, com rótulo', () => {
+test('caso concluído nunca fica em Não atendidos (cenário "TESTE FICTICIO PR20 20260925")', () => {
+  // The audit case: last customer message on 25/09, ficha closed on 29/09.
+  const now = Date.parse('2026-10-02T12:00:00Z');
+  const pr20 = groups.factsFor({ messages: [{ id: 'b', direction: 'CUSTOMER', body_text: 'TESTE FICTICIO PR20 20260925', occurred_at_utc: '2026-09-25T14:00:00Z' }],
+    journey: { status: 'ENCERRADO', closed_at: '2026-09-29T10:00:00Z', created_at: '2026-09-25T13:00:00Z' } });
+  assert.equal(groups.classify(pr20, now).key, 'ATENDIDO');
+  // Concluded by the reading (situation CLOSED) too.
+  assert.equal(groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 30)], situation: 'CLOSED' }), NOW).key, 'ATENDIDO');
+  // The customer wrote again after closing: it is a new message waiting for a reply.
+  const reopened = groups.factsFor({ messages: [{ id: 'c', direction: 'CUSTOMER', body_text: 'oi de novo', occurred_at_utc: '2026-09-30T10:00:00Z' }], journey: { status: 'ENCERRADO', closed_at: '2026-09-29T10:00:00Z' } });
+  assert.equal(groups.classify(reopened, now).key, 'NAO_ATENDIDO');
+});
+
+test('precedência: fora do assunto > não atendido > atendido; cada contato em exatamente um grupo, com rótulo', () => {
   const off = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 1, 'happy birthday')], offTopic: { offTopic: true, source: 'AI' } });
   const group = groups.classify(off, NOW);
   assert.equal(group.key, 'FORA_DO_ASSUNTO');
   assert.equal(group.unattended, null);
   assert.equal(group.label, 'Fora do assunto');
+  assert.match(groups.SECTIONS.FORA_DO_ASSUNTO.hint, /Na dúvida a conversa fica no fluxo principal/);
+  assert.match(groups.SECTIONS.FORA_DO_ASSUNTO.hint, /'É sobre carro' corrige e fica guardado/);
   const items = [
     { id: 1, group: groups.classify(off, NOW) },
     { id: 2, group: groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 1)] }), NOW) },
-    { id: 3, group: groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 3), msg('b', 'MCS', 1)], orders: [{ logicalModes: ['VALOR'], simulations: [{ logicalMode: 'VALOR', occurredAt: iso(5) }] }] }), NOW) },
+    { id: 3, group: groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 3), msg('b', 'MCS', 1)], orders: [sim(5)] }), NOW) },
     { id: 4, group: groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 3), msg('b', 'MCS', 1)] }), NOW) }
   ];
   const split = groups.split(items);
   const placed = split.flatMap((section) => section.items.map((item) => item.id));
   assert.deepEqual(placed.slice().sort(), [1, 2, 3, 4]);
   assert.equal(new Set(placed).size, placed.length);
-  assert.deepEqual(split.filter((section) => section.items.length).map((section) => section.key), ['NAO_ATENDIDO', 'CALC_VALOR', 'DIRETO', 'FORA_DO_ASSUNTO']);
-  split.forEach((section) => assert.ok(section.label && section.label.length > 3));
+  assert.deepEqual(split.map((section) => [section.key, section.items.length]), [['NAO_ATENDIDO', 1], ['ATENDIDO', 2], ['FORA_DO_ASSUNTO', 1]]);
+  // Counts agree: the sections add up to the total.
+  assert.equal(split.reduce((sum, section) => sum + section.items.length, 0), items.length);
 });
 
-test('última mensagem do cliente para o cartão sem pedido da calculadora', () => {
-  const latest = groups.latestCustomerMessage([msg('a', 'CUSTOMER', 5, 'first'), msg('b', 'CUSTOMER', 2, 'latest'), msg('c', 'MCS', 1, 'reply'), msg('d', 'CUSTOMER', 1, '', {})]);
+test('última mensagem do cliente para o cartão sem pedido da calculadora, a partir do resumo', () => {
+  const summary = groups.summaryFromMessages([msg('a', 'CUSTOMER', 5, 'first'), msg('b', 'CUSTOMER', 2, 'latest'), msg('c', 'MCS', 1, 'reply')]);
+  const latest = groups.latestCustomerMessage(summary);
   assert.equal(latest.id, 'b');
   assert.equal(latest.text, 'latest');
+  assert.equal(summary.first_customer_text, 'first');
+  assert.equal(summary.latest_direction, 'MCS');
+  assert.equal(groups.latestCustomerMessage(groups.summaryFromMessages([msg('c', 'MCS', 1)])), null);
 });
 
 test('fora do assunto: a correção vence a IA, persiste por conversa e nada some', () => {

@@ -213,8 +213,12 @@ async function panelMeta(ctx) {
     select:'occurred_at_utc,created_at',environment:'eq.'+ctx.environment,channel:'eq.WHATSAPP',
     source_kind:'in.(WHATSAPP_ZIP,WHATSAPP_TXT,WHATSAPP_HISTORY,WHATSAPP_WEBHOOK,IMPORT)',order:'occurred_at_utc.desc',limit:'1'
   })]);
+  // One global OpenAI ceiling (US$ 50): the header shows the spend and warns from 80% (US$ 40).
+  const budget=await rpc(ctx,'panel_openai_budget_state',{p_environment:ctx.environment}).catch(()=>null);
+  const spent=budget?Number(budget.projected??budget.spent)||0:null,limit=budget?Number(budget.limit)||50:50;
   return { dataUpdatedAt: new Date().toISOString(), lastWhatsAppImportAt: latestImport[0] ? latestImport[0].completed_at : null,
-    lastWhatsAppMessageAt:latestMessage[0]&&(latestMessage[0].occurred_at_utc||latestMessage[0].created_at)||null };
+    lastWhatsAppMessageAt:latestMessage[0]&&(latestMessage[0].occurred_at_utc||latestMessage[0].created_at)||null,
+    openAi: spent===null?null:{ spentUsd:Math.round(spent*1e4)/1e4, limitUsd:limit, warn:spent>=limit*0.8 } };
 }
 
 async function recordMutation(ctx, input) {

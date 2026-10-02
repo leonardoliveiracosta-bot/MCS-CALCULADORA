@@ -4,43 +4,112 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  // Grupos de contato em HOJE, ENTRADA e CLIENTES. Só apresentação: nada aqui grava, envia ou muda regra.
-  // Um contato fica em um grupo só, nesta ordem de precedência:
-  //   1. FORA_DO_ASSUNTO  a conversa nunca tratou de carro (triagem da IA ou correção sua)
-  //   2. NAO_ATENDIDO     mensagem do cliente sem resposta, ou nenhuma ação registrada há 7 dias ou mais
-  //   3. origem           calculadora por valor, calculadora por carro, financiamento ou direto
-  // Origem: calculadora quando há pedido da calculadora ligado ao contato; senão, a origem da primeira
-  // mensagem. Contato com as duas (pedido da calculadora e conversa que começou direto) fica com a mais recente.
+  // Contatos em HOJE, ENTRADA e CLIENTES. Só apresentação: nada aqui grava, envia ou muda regra.
+  //
+  // Seções (um contato fica em uma só): FORA_DO_ASSUNTO > NAO_ATENDIDO > ATENDIDO.
+  // Origem (filtro e etiqueta, nunca seção):
+  //   Veio pela calculadora · Via WhatsApp | Via SMS
+  //   Veio por mensagem     · Via WhatsApp | Via SMS   (+ etiqueta "Financiamento")
+  //   Veio pela vitrine     · V1 | V2                  (número novo pelo link V1/V2 de outra pessoa)
+  // Regras travadas:
+  //   a) financiamento = a primeira mensagem é um dos dois textos prontos do formulário do site;
+  //   b) com pedido da calculadora e conversa direta (ou pela vitrine), vale a origem mais recente;
+  //   c) próxima ação marcada para o futuro conta como atendido;
+  //   d) nada é relido pela IA por causa desta regra.
   const DAY = 86400000;
   const STALE_DAYS = 7;
   const DIRECT_SOURCES = new Set(['WHATSAPP_DIRECT', 'SMS_DIRECT']);
   // As duas mensagens prontas do formulário de financiamento do site (index.html, bloco 4).
   const FINANCING_RE = /talk about financing a car|want to finance a car/i;
 
-  const GROUPS = {
-    NAO_ATENDIDO: { key: 'NAO_ATENDIDO', label: 'Não atendidos', hint: 'Mensagem do cliente sem resposta, ou nenhuma ação registrada há 7 dias ou mais', order: 0 },
-    CALC_VALOR: { key: 'CALC_VALOR', label: 'Calculadora · por valor', hint: 'Pedido da calculadora com lance máximo (VALOR)', order: 1 },
-    CALC_CARRO: { key: 'CALC_CARRO', label: 'Calculadora · por carro', hint: 'Pedido da calculadora com carro, anos e milhagem (CARRO)', order: 2 },
-    FINANCIAMENTO: { key: 'FINANCIAMENTO', label: 'Financiamento', hint: 'Começou pelo formulário de financiamento do site', order: 3 },
-    DIRETO: { key: 'DIRETO', label: 'Direto pelo WhatsApp ou SMS', hint: 'Escreveu direto, sem pedido da calculadora', order: 4 },
-    FORA_DO_ASSUNTO: { key: 'FORA_DO_ASSUNTO', label: 'Fora do assunto', hint: 'A conversa nunca tratou de carro, compra, financiamento, orçamento ou serviço da MCS · Nada foi apagado', order: 5 }
+  const ORIGINS = {
+    CALCULADORA: { key: 'CALCULADORA', label: 'Veio pela calculadora', subs: { WHATSAPP: 'Via WhatsApp', SMS: 'Via SMS' } },
+    MENSAGEM: { key: 'MENSAGEM', label: 'Veio por mensagem', subs: { WHATSAPP: 'Via WhatsApp', SMS: 'Via SMS' } },
+    VITRINE: { key: 'VITRINE', label: 'Veio pela vitrine', subs: { V1: 'V1', V2: 'V2' } }
   };
-  const ORDER = Object.values(GROUPS).sort((a, b) => a.order - b.order).map((group) => group.key);
+  // The origin filter, mobile-first like "Ordenar": everyone by default, then a group or a sub-group.
+  const ORIGIN_OPTIONS = [['all', 'Todas as origens']].concat(...Object.values(ORIGINS).map((group) => [[group.key, group.label]]
+    .concat(Object.entries(group.subs).map(([sub, label]) => [group.key + ':' + sub, group.label + ' · ' + label]))
+    .concat(group.key === 'MENSAGEM' ? [['MENSAGEM:FINANCIAMENTO', group.label + ' · Financiamento']] : [])));
+
+  const SECTIONS = {
+    NAO_ATENDIDO: { key: 'NAO_ATENDIDO', label: 'Não atendidos', hint: 'Mensagem do cliente sem resposta, ou nenhuma ação registrada há 7 dias ou mais', order: 0 },
+    ATENDIDO: { key: 'ATENDIDO', label: 'Atendidos', hint: 'Respondidos, com próxima ação marcada ou com ação nos últimos 7 dias', order: 1 },
+    FORA_DO_ASSUNTO: { key: 'FORA_DO_ASSUNTO', label: 'Fora do assunto', hint: 'A conversa inteira nunca tratou de carro, compra, financiamento, orçamento ou serviço da MCS · Na dúvida a conversa fica no fluxo principal · \'É sobre carro\' corrige e fica guardado · Nada é apagado', order: 2 }
+  };
+  const ORDER = ['NAO_ATENDIDO', 'ATENDIDO', 'FORA_DO_ASSUNTO'];
 
   const stamp = (value) => { if (typeof value === 'number') return Number.isFinite(value) ? value : 0; const parsed = Date.parse(value || ''); return Number.isFinite(parsed) ? parsed : 0; };
+  const iso = (value) => { const at = stamp(value); return at ? new Date(at).toISOString() : null; };
   const isFinancing = (text) => FINANCING_RE.test(String(text || ''));
+  // SMS when the message says so (channel, iPhone shortcut or SMS print); every other one is WhatsApp.
+  const channelOf = (channel, source) => String(channel || '').toUpperCase() === 'SMS' || /^SMS/.test(String(source || '').toUpperCase()) ? 'SMS' : 'WHATSAPP';
+  const messageAt = (message) => stamp(message && (message.occurred_at_utc || message.occurred_at_local || message.created_at));
+
+  // The same summary the database returns (panel_journey_message_facts), built from a message list.
+  function summaryFromMessages(messages) {
+    const own = (messages || []).filter((message) => message && !message.undone_at && ['CUSTOMER', 'MCS'].includes(message.direction))
+      .slice().sort((a, b) => messageAt(a) - messageAt(b) || String(a.id).localeCompare(String(b.id)));
+    const customer = own.filter((message) => message.direction === 'CUSTOMER');
+    const mcs = own.filter((message) => message.direction === 'MCS');
+    const real = own.filter((message) => !message.is_automatic);
+    const first = customer[0] || null, lastCustomer = customer.at(-1) || null, lastMcs = mcs.at(-1) || null, latest = real.at(-1) || own.at(-1) || null;
+    return {
+      message_count: own.length, customer_count: customer.length,
+      first_customer_at: first ? iso(messageAt(first)) : null, first_customer_channel: first ? first.channel || null : null, first_customer_source: first ? first.source_kind || null : null, first_customer_text: first ? String(first.body_text || '').slice(0, 300) : null,
+      last_customer_id: lastCustomer ? lastCustomer.id : null, last_customer_at: lastCustomer ? iso(messageAt(lastCustomer)) : null, last_customer_text: lastCustomer ? String(lastCustomer.body_text || '').slice(0, 600) : null,
+      last_customer_channel: lastCustomer ? lastCustomer.channel || null : null, last_customer_source: lastCustomer ? lastCustomer.source_kind || null : null,
+      last_mcs_id: lastMcs ? lastMcs.id : null, last_mcs_at: lastMcs ? iso(messageAt(lastMcs)) : null,
+      latest_id: latest ? latest.id : null, latest_direction: latest ? latest.direction : null, latest_at: latest ? iso(messageAt(latest)) : null, latest_text: latest ? String(latest.body_text || '').slice(0, 600) : null, latest_automatic: latest ? Boolean(latest.is_automatic) : null,
+      latest_real_mcs_at: (() => { const value = real.filter((message) => message.direction === 'MCS').at(-1); return value ? iso(messageAt(value)) : null; })()
+    };
+  }
+
+  // The facts every rule below reads. summary: panel_journey_message_facts (or summaryFromMessages).
+  // orders: calculator orders of the person (newest simulation first). vitrine: {version, at} when the
+  // person is a new number that arrived through someone's V1/V2 link.
+  function factsFor({ summary = null, messages = null, orders = [], journey = null, disposition = null, dispositionAt = null, offTopic = null, vitrine = null, situation = null } = {}) {
+    const s = summary || summaryFromMessages(messages || []);
+    const simulations = (orders || []).filter(Boolean).flatMap((order) => order.simulations && order.simulations.length ? order.simulations : [order])
+      .slice().sort((a, b) => stamp(b.occurredAt) - stamp(a.occurredAt));
+    const calcModes = [...new Set(simulations.map((item) => item.logicalMode).concat((orders || []).flatMap((order) => (order && order.logicalModes) || [])).filter((mode) => mode === 'CARRO' || mode === 'VALOR'))];
+    const calcChannel = simulations.map((item) => String(item.contactChannel || item.channel || '').toUpperCase()).find((value) => /SMS|WHATSAPP/.test(value)) || null;
+    const off = journey && (journey.enabled === false || journey.status === 'ENCERRADO');
+    return {
+      hasCalculator: simulations.length > 0 || calcModes.length > 0,
+      calcModes, calcAt: simulations[0] ? simulations[0].occurredAt || null : null, calcChannel: calcChannel ? (calcChannel.includes('SMS') ? 'SMS' : 'WHATSAPP') : null,
+      source: journey ? journey.source || null : null,
+      financing: isFinancing(s.first_customer_text),
+      firstCustomerAt: s.first_customer_at || null,
+      firstChannel: s.first_customer_at ? channelOf(s.first_customer_channel, s.first_customer_source) : null,
+      lastCustomerAt: s.last_customer_at || null,
+      lastMcsAt: s.last_mcs_at || null,
+      lastActionAt: journey ? journey.last_effective_contact_at || null : null,
+      nextActionAt: journey ? journey.next_action_at || null : null,
+      nextActionText: journey ? journey.next_action_text || null : null,
+      createdAt: journey ? journey.created_at || null : null,
+      awaitingReply: s.latest_direction === 'CUSTOMER',
+      closed: Boolean(off), closedAt: off ? (Math.max(stamp(journey.closed_at), stamp(journey.switchedAt || journey.switched_at)) ? iso(Math.max(stamp(journey.closed_at), stamp(journey.switchedAt || journey.switched_at))) : null) : null,
+      situation: situation || null,
+      disposition: disposition || null, dispositionAt: dispositionAt || null,
+      vitrine: vitrine && vitrine.version ? { version: vitrine.version === 'V2' ? 'V2' : 'V1', at: vitrine.at || null } : null,
+      offTopic: Boolean(offTopic && offTopic.offTopic), offTopicSource: offTopic && offTopic.offTopic ? offTopic.source || null : null
+    };
+  }
 
   function originOf(facts) {
     const f = facts || {};
-    const modes = (f.calcModes || []).filter((mode) => mode === 'VALOR' || mode === 'CARRO');
-    const financing = Boolean(f.financing);
-    const directKey = financing ? 'FINANCIAMENTO' : 'DIRETO';
-    if (!modes.length) return directKey;
-    const calcKey = (f.calcMode === 'CARRO' || f.calcMode === 'VALOR' ? f.calcMode : modes[0]) === 'CARRO' ? 'CALC_CARRO' : 'CALC_VALOR';
-    // Com as duas origens, vale a mais recente: a conversa direta só ganha quando começou depois do pedido.
-    const direct = financing || DIRECT_SOURCES.has(String(f.source || '').toUpperCase());
-    if (direct && stamp(f.firstCustomerAt) > stamp(f.calcAt)) return directKey;
-    return calcKey;
+    // The conversation that did not start from the calculator: a vitrine link or a direct message.
+    const viaVitrine = f.vitrine ? { group: 'VITRINE', sub: f.vitrine.version, at: stamp(f.vitrine.at) || stamp(f.firstCustomerAt) } : null;
+    const direct = viaVitrine || (f.firstCustomerAt && (!f.hasCalculator || f.financing || DIRECT_SOURCES.has(String(f.source || '').toUpperCase()))
+      ? { group: 'MENSAGEM', sub: f.firstChannel || (String(f.source || '').toUpperCase() === 'SMS_DIRECT' ? 'SMS' : 'WHATSAPP'), at: stamp(f.firstCustomerAt) } : null);
+    const calc = f.hasCalculator ? { group: 'CALCULADORA', sub: f.firstChannel || f.calcChannel || 'WHATSAPP', at: stamp(f.calcAt) } : null;
+    // b) both exist: the most recent origin wins.
+    let chosen = calc && direct ? (direct.at > calc.at ? direct : calc) : calc || direct;
+    if (!chosen) chosen = { group: 'MENSAGEM', sub: String(f.source || '').toUpperCase() === 'SMS_DIRECT' ? 'SMS' : 'WHATSAPP', at: 0 };
+    const group = ORIGINS[chosen.group];
+    const financing = chosen.group === 'MENSAGEM' && Boolean(f.financing);
+    return { group: chosen.group, sub: chosen.sub, key: chosen.group + ':' + chosen.sub, groupLabel: group.label, subLabel: group.subs[chosen.sub], label: group.label + ' · ' + group.subs[chosen.sub], financing };
   }
 
   function waited(ms) {
@@ -51,24 +120,28 @@
     return `${Math.floor(hours / 24)} dias`;
   }
 
-  // Não atendido: a mesma "Sem resposta" da PENDÊNCIAS (a última mensagem real é do cliente), ou nenhuma
-  // ação registrada há 7 dias ou mais. Próxima ação marcada para o futuro conta como ação registrada.
-  // Caso encerrado, desligado, tratado ou descartado depois do último fato não entra pela regra dos 7 dias.
+  // Não atendido: the same "Sem resposta" of PENDÊNCIAS (the latest real message is the customer's),
+  // or no action registered for 7 days or more. Never for a concluded case: closed or switched off
+  // (unless the customer wrote after it), "sem interesse"/concluded by the reading, treated or
+  // discarded after the last customer message. A next action in the future counts as attended (c).
   function unattendedOf(facts, now = Date.now()) {
     const f = facts || {};
-    const disposedAt = f.disposition ? stamp(f.dispositionAt) : 0;
     const lastCustomer = stamp(f.lastCustomerAt);
-    if (f.awaitingReply && lastCustomer && !(disposedAt && disposedAt >= lastCustomer)) {
-      return { since: new Date(lastCustomer).toISOString(), waitedMs: now - lastCustomer, waitedText: waited(now - lastCustomer), reason: 'NO_RESPONSE', missing: 'Resposta à última mensagem do cliente', next: 'Responder o cliente' };
-    }
-    if (f.closed || disposedAt) return null;
+    const disposedAt = f.disposition ? stamp(f.dispositionAt) : 0;
+    if (f.closed && !(lastCustomer && lastCustomer > stamp(f.closedAt))) return null;
+    if (f.situation === 'CLOSED') return null;
+    if (disposedAt && disposedAt >= lastCustomer) return null;
     const next = stamp(f.nextActionAt);
     if (next && next > now) return null;
+    if (f.awaitingReply && lastCustomer) {
+      return { since: new Date(lastCustomer).toISOString(), waitedMs: now - lastCustomer, waitedText: waited(now - lastCustomer), reason: 'NO_RESPONSE', reasonText: 'Mensagem do cliente sem resposta', missing: 'Resposta à última mensagem do cliente', next: 'Responder o cliente' };
+    }
+    if (f.closed) return null;
     const lastAction = Math.max(stamp(f.lastMcsAt), stamp(f.lastActionAt));
     const base = lastAction || stamp(f.createdAt) || stamp(f.firstCustomerAt);
     if (!base || now - base < STALE_DAYS * DAY) return null;
     return {
-      since: new Date(base).toISOString(), waitedMs: now - base, waitedText: waited(now - base), reason: 'NO_ACTION',
+      since: new Date(base).toISOString(), waitedMs: now - base, waitedText: waited(now - base), reason: 'NO_ACTION', reasonText: `Nenhuma ação registrada há ${STALE_DAYS} dias ou mais`,
       missing: next ? `A próxima ação venceu${f.nextActionText ? ': ' + f.nextActionText : ''}` : lastAction ? 'Nenhuma ação registrada desde o último contato da MCS' : 'Nenhuma ação registrada desde a entrada',
       next: next ? 'Fazer a próxima ação vencida ou marcar outra data' : 'Retomar o contato ou marcar a próxima ação'
     };
@@ -77,59 +150,35 @@
   function classify(facts, now = Date.now()) {
     const f = facts || {};
     const origin = originOf(f);
-    const unattended = unattendedOf(f, now);
-    const key = f.offTopic ? 'FORA_DO_ASSUNTO' : unattended ? 'NAO_ATENDIDO' : origin;
-    return { key, label: GROUPS[key].label, origin, originLabel: GROUPS[origin].label, unattended: f.offTopic ? null : unattended, offTopic: Boolean(f.offTopic), offTopicSource: f.offTopic ? f.offTopicSource || null : null };
+    const unattended = f.offTopic ? null : unattendedOf(f, now);
+    const key = f.offTopic ? 'FORA_DO_ASSUNTO' : unattended ? 'NAO_ATENDIDO' : 'ATENDIDO';
+    return { key, label: SECTIONS[key].label, origin, unattended, hasCalculator: Boolean(f.hasCalculator), offTopic: Boolean(f.offTopic), offTopicSource: f.offTopic ? f.offTopicSource || null : null };
   }
 
-  // The facts above from what the screens already read: the person's real messages (automatic ones
-  // never count), the calculator orders linked to them (newest simulation first), the ficha and its
-  // disposition. Used by the server; the browser only reads the resulting group.
-  const messageAt = (message) => stamp(message && (message.occurred_at_utc || message.occurred_at_local || message.created_at));
-  function factsFor({ messages = [], orders = [], journey = null, disposition = null, dispositionAt = null, offTopic = null } = {}) {
-    const real = (messages || []).filter((message) => message && !message.undone_at && !message.is_automatic && ['CUSTOMER', 'MCS'].includes(message.direction))
-      .slice().sort((a, b) => messageAt(a) - messageAt(b));
-    const customer = real.filter((message) => message.direction === 'CUSTOMER');
-    const mcs = real.filter((message) => message.direction === 'MCS');
-    const firstCustomer = customer[0] || null, lastCustomer = customer.at(-1) || null, last = real.at(-1) || null;
-    const simulations = (orders || []).filter(Boolean).flatMap((order) => order.simulations && order.simulations.length ? order.simulations : [order])
-      .slice().sort((a, b) => stamp(b.occurredAt) - stamp(a.occurredAt));
-    const calcModes = [...new Set(simulations.map((item) => item.logicalMode).concat((orders || []).flatMap((order) => (order && order.logicalModes) || [])).filter((mode) => mode === 'CARRO' || mode === 'VALOR'))];
-    const toggledOff = journey && (journey.enabled === false || journey.status === 'ENCERRADO');
-    return {
-      calcModes, calcMode: simulations.find((item) => item.logicalMode === 'CARRO' || item.logicalMode === 'VALOR')?.logicalMode || null,
-      calcAt: simulations[0] ? simulations[0].occurredAt || null : null,
-      source: journey ? journey.source || null : null,
-      financing: Boolean(firstCustomer && isFinancing(firstCustomer.body_text)),
-      firstCustomerAt: firstCustomer ? new Date(messageAt(firstCustomer)).toISOString() : null,
-      lastCustomerAt: lastCustomer ? new Date(messageAt(lastCustomer)).toISOString() : null,
-      lastMcsAt: mcs.length ? new Date(messageAt(mcs.at(-1))).toISOString() : null,
-      lastActionAt: journey ? journey.last_effective_contact_at || null : null,
-      nextActionAt: journey ? journey.next_action_at || null : null,
-      nextActionText: journey ? journey.next_action_text || null : null,
-      createdAt: journey ? journey.created_at || null : null,
-      awaitingReply: Boolean(last && last.direction === 'CUSTOMER'),
-      closed: Boolean(toggledOff),
-      disposition: disposition || null, dispositionAt: dispositionAt || null,
-      offTopic: Boolean(offTopic && offTopic.offTopic), offTopicSource: offTopic && offTopic.offTopic ? offTopic.source || null : null
-    };
+  // Origin filter: 'all', a group ('MENSAGEM'), a sub-group ('MENSAGEM:SMS') or the financing tag.
+  function matchesOrigin(item, value) {
+    const filter = String(value || 'all');
+    if (filter === 'all') return true;
+    const origin = item && item.group && item.group.origin;
+    if (!origin) return false;
+    if (filter === 'MENSAGEM:FINANCIAMENTO') return origin.group === 'MENSAGEM' && origin.financing;
+    return filter.includes(':') ? origin.key === filter : origin.group === filter;
   }
 
-  // The latest customer message, for the card of a contact without a calculator order.
-  function latestCustomerMessage(messages) {
-    const customer = (messages || []).filter((message) => message && !message.undone_at && !message.is_automatic && message.direction === 'CUSTOMER' && String(message.body_text || '').trim());
-    const latest = customer.sort((a, b) => messageAt(b) - messageAt(a))[0];
-    return latest ? { id: latest.id, text: String(latest.body_text).slice(0, 600), at: new Date(messageAt(latest)).toISOString() } : null;
-  }
-
-  // Splits a list into the ordered groups (empty groups included, so every label is stable).
+  // The ordered sections (empty ones included, so every label and count is stable).
   function split(items, groupOf = (item) => item && item.group) {
     const buckets = new Map(ORDER.map((key) => [key, []]));
-    (items || []).forEach((item) => { const group = groupOf(item); const key = group && buckets.has(group.key) ? group.key : 'DIRETO'; buckets.get(key).push(item); });
-    // Não atendidos: quem espera há mais tempo primeiro.
-    buckets.get('NAO_ATENDIDO').sort((a, b) => ((groupOf(b)?.unattended?.waitedMs) || 0) - ((groupOf(a)?.unattended?.waitedMs) || 0));
-    return ORDER.map((key) => ({ ...GROUPS[key], items: buckets.get(key) }));
+    (items || []).forEach((item) => { const group = groupOf(item); const key = group && buckets.has(group.key) ? group.key : 'ATENDIDO'; buckets.get(key).push(item); });
+    // Não atendidos: whoever has waited longest first.
+    buckets.get('NAO_ATENDIDO').sort((a, b) => ((groupOf(b) && groupOf(b).unattended && groupOf(b).unattended.waitedMs) || 0) - ((groupOf(a) && groupOf(a).unattended && groupOf(a).unattended.waitedMs) || 0));
+    return ORDER.map((key) => ({ ...SECTIONS[key], items: buckets.get(key) }));
   }
 
-  return { GROUPS, ORDER, STALE_DAYS, FINANCING_RE, isFinancing, originOf, unattendedOf, classify, split, waited, factsFor, latestCustomerMessage };
+  // The card's latest customer message (contacts without a calculator order).
+  function latestCustomerMessage(summary) {
+    const s = summary || {};
+    return s.last_customer_id && String(s.last_customer_text || '').trim() ? { id: s.last_customer_id, text: String(s.last_customer_text).slice(0, 600), at: s.last_customer_at || null } : null;
+  }
+
+  return { ORIGINS, ORIGIN_OPTIONS, SECTIONS, ORDER, STALE_DAYS, FINANCING_RE, isFinancing, channelOf, summaryFromMessages, factsFor, originOf, unattendedOf, classify, matchesOrigin, split, waited, latestCustomerMessage };
 }));

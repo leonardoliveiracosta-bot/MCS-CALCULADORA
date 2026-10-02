@@ -55,7 +55,7 @@
           <button class="tab" type="button" data-view="clients">CLIENTES <span data-count="clients" title="Carregando">—</span></button>
           <button class="tab" type="button" data-view="requests">PESQUISAS <span data-count="requests" title="Carregando">—</span></button>
           <button class="tab" type="button" data-view="searches">OPÇÕES <span data-count="searches" title="Carregando">—</span></button>
-          <button class="tab" type="button" data-view="imports">IMPORTAÇÕES</button>
+          <button class="tab" type="button" data-view="imports">IMPORTAÇÕES <span data-count="imports" title="Erros, arquivos e prints para revisar">—</span></button>
         </nav>
         <form id="global-search" class="global-search" role="search">
           <label class="visually-hidden" for="global-search-input">Busca global</label>
@@ -64,10 +64,10 @@
         <div class="topbar-actions"><strong id="environment-badge" class="environment-badge" aria-live="polite"></strong><button id="logout" class="quiet" type="button">Sair</button><button id="notification-toggle" class="quiet small" type="button">Ativar avisos</button><button id="notification-test" class="quiet small" type="button">Enviar aviso de teste</button><span id="notification-status" class="sr-status" aria-live="polite"></span></div>
       </header>
       <div id="search-results" class="card search-results hidden" aria-live="polite"><label>Ordenar<select id="search-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
-      <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última mensagem do WhatsApp: <strong id="last-whatsapp-import">—</strong></span></div>
+      <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última mensagem do WhatsApp: <strong id="last-whatsapp-import">—</strong></span><details id="ai-budget" class="ai-budget hidden"><summary>IA (OpenAI): <strong id="ai-budget-spent">—</strong></summary><p id="ai-budget-warning" class="warning hidden"></p><ul id="ai-budget-features" class="ai-budget-features"></ul></details></div>
       <section id="capture-warning" class="capture-warning hidden" aria-live="polite"></section>
       <section id="today-panel" class="panel-view" aria-label="Hoje">
-        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Hoje</h2><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
+        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Hoje</h2><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
         <div id="today-stats" class="today-stats" aria-live="polite"></div>
         <section id="vitrine-requests" class="vitrine-requests card" aria-live="polite"></section>
         <section id="vitrine-signals" class="vitrine-signals" aria-live="polite"></section>
@@ -84,7 +84,7 @@
         </details>
       </section>
       <section id="entry-panel" class="hidden" aria-label="Entrada">
-        <div class="section-head entry-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Entrada</h2><p class="muted">Tudo que chega ao painel · Só pede sua ação quando houver dúvida real</p></div><label>Ordenar<select id="entry-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
+        <div class="section-head entry-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Entrada</h2><p class="muted">Tudo que chega ao painel · Só pede sua ação quando houver dúvida real</p></div><label>Origem<select id="entry-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Ordenar<select id="entry-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
         <section class="card whatsapp-card entry-signal" aria-labelledby="whatsapp-title">
           <h2 id="whatsapp-title" class="visually-hidden">Sinal do WhatsApp</h2>
           <div class="signal-live"><span class="signal-dot" aria-hidden="true"></span><p id="whatsapp-signal">Verificando sinal…</p></div>
@@ -94,7 +94,6 @@
         <section class="card entry-needs" aria-labelledby="entry-needs-title">
           <h2 id="entry-needs-title">Precisa de você</h2>
           <p id="entry-needs-empty" class="entry-empty">Nada pendente ✓</p>
-          <div id="whatsapp-errors" class="queue" aria-live="polite"></div>
           <div id="whatsapp-suggestions" class="queue" aria-live="polite"></div>
           <div id="triage-review" class="queue triage-review" aria-live="polite"></div>
           <p id="triage-state" class="muted triage-state"></p>
@@ -107,7 +106,7 @@
         </details>
         <details id="topic-out" class="card topic-out">
           <summary><strong>Fora do assunto</strong> <span id="topic-out-count" class="badge">—</span></summary>
-          <p class="muted">Conversas que nunca falaram de carro, compra, financiamento, orçamento ou serviço da MCS · Nada foi apagado · Na dúvida a conversa fica no fluxo principal · "É sobre carro" corrige e fica guardado</p>
+          <p class="muted">Conversas que nunca falaram de carro, compra, financiamento, orçamento ou serviço da MCS · Nada foi apagado · Na dúvida a conversa fica no fluxo principal · 'É sobre carro' corrige e fica guardado</p>
           <div id="topic-out-list" class="queue" aria-live="polite"></div>
         </details>
         <section class="entry-add" aria-labelledby="entry-add-title">
@@ -145,7 +144,7 @@
           <label>Situação<select id="clients-situation"><option value="all">Todas</option><option value="NO_RESPONSE">Sem resposta</option><option value="MCS_PENDING">Parado com você</option><option value="CUSTOMER_PENDING">Parado com o cliente</option><option value="IN_PROGRESS">Em andamento</option><option value="CLOSED">Concluída</option></select></label>
           <label>Checklist<select id="clients-checklist"><option value="all">Todos</option><option value="complete">Completo 6/6</option><option value="incomplete">Incompleto</option></select></label>
           <label>Ref<select id="clients-ref"><option value="all">Todos</option><option value="with">Com Ref</option><option value="without">Sem Ref</option></select></label>
-          <label>Origem<select id="clients-origin"><option value="all">Todas</option><option value="CALCULADORA">Calculadora</option><option value="WHATSAPP">WhatsApp direto</option><option value="SMS">SMS direto</option></select></label>
+          <label>Origem<select id="clients-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label>
           <label>Tipo<select id="clients-type"><option value="all">Todos</option><option value="SIMULACAO">Por valor (calculadora)</option><option value="BUSCA">Busca</option><option value="SEM_CALCULADORA">Sem calculadora</option></select></label>
           <label>Período<select id="clients-activity"><option value="30" selected>30 dias</option><option value="90">90 dias</option><option value="6m">6 meses</option><option value="12m">1 ano</option><option value="all">Tudo</option></select></label>
           <label>Calor<select id="clients-heat"><option value="all">Todos</option><option value="HOT">Quente</option><option value="WARM">Morno</option><option value="COLD">Frio</option></select></label>
@@ -190,6 +189,13 @@
       </section>
       <section id="imports-panel" class="panel-view hidden" aria-label="Importações">
         <div class="section-head"><div><h2>Importações</h2><p class="muted">Arquivos do Manheim, lote ativo e histórico de lotes</p></div></div>
+        <section id="imports-review" class="card imports-review" aria-labelledby="imports-review-title">
+          <h2 id="imports-review-title">Erros, arquivos e prints para revisar</h2>
+          <p id="imports-review-empty" class="entry-empty">Nada pendente ✓</p>
+          <p class="muted">Não são contatos: ficam aqui, fora dos grupos de contato da ENTRADA</p>
+          <div id="whatsapp-errors" class="queue" aria-live="polite"></div>
+          <div id="imports-review-queue" class="queue" aria-live="polite"></div>
+        </section>
         <p class="import-draft-note" data-draft>Prévia: os textos novos desta aba são provisórios e aguardam aprovação</p>
         <div class="entry-tools import-cards">
           <section id="import-card-manheim" class="card entry-tool import-card">
@@ -264,7 +270,7 @@
             <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="automatic" data-draft><li>Mensagens do WhatsApp chegam sozinhas pelo 360dialog</li><li>Fotos, áudios e documentos do cliente são baixados sozinhos em seguida</li><li>SMS enviados pelo atalho do iPhone entram sozinhos quando o remetente é conhecido</li><li>Nada disso precisa ser importado aqui</li><li>Problemas aparecem em ENTRADA, Precisa de você</li></ul></details>
           </section>
           <section id="import-card-v2" class="card entry-tool import-card">
-            <span class="entry-tool-icon" aria-hidden="true">🖼️</span><h2 data-draft>Fotos da V2</h2>
+            <span class="entry-tool-icon" aria-hidden="true">🖼️</span><h2 data-draft>Fotos da V2 (vitrine completa)</h2>
             <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="v2" data-draft><li>Escolha uma V2 já criada e acrescente fotos ao carro dela</li><li>Até 12 fotos por carro, reduzidas no próprio navegador</li><li>As fotos aparecem no link que o cliente já tem</li><li>Nova V2 continua saindo do pedido do cliente, em HOJE, com Montar V2</li></ul></details>
             <label>V2<select id="import-v2-select"><option value="">Carregando V2…</option></select></label>
             <div id="import-v2-body" class="hidden">
@@ -278,7 +284,7 @@
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
       </section>
       <section id="searches-panel" class="panel-view hidden" aria-label="Opções">
-        <div class="section-head searches-subsection"><div><h2>Opções</h2><p class="muted">Carros do lote ativo por cliente: seleção, V1 e envio</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
+        <div class="section-head searches-subsection"><div><h2>Opções</h2><p class="muted">Carros do lote ativo por cliente: seleção, V1 (vitrine simples) e envio</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
         <section class="card">
           <div id="manheim-summary" class="muted"></div>
           <div id="manheim-audit-note" class="manheim-audit-note hidden" aria-live="polite"></div>
@@ -286,7 +292,7 @@
         </section>
         <div id="manheim-results" class="buscas-columns" aria-live="polite">
           <section id="buscas-valor" class="buscas-column" data-mode="VALOR" aria-label="Calculate My Cost">
-            <header class="buscas-column-head"><h2>Calculate My Cost</h2><p class="muted">POR VALOR · marca, modelo, lance e faixa de MMR</p></header>
+            <header class="buscas-column-head"><h2>Calculate My Cost</h2><p class="muted">POR VALOR · marca, modelo, lance e faixa de MMR (preço médio de leilão)</p></header>
             <div id="buscas-valor-counters" class="pending-stats buscas-counters"></div>
             <h3>Compatíveis</h3>
             <div id="buscas-valor-results" class="stack"></div>
@@ -352,12 +358,12 @@
   <script src="/manheim-offer.js?v=2" defer></script>
   <script src="/money-text.js?v=1" defer></script>
   <script src="/panel-origin.js?v=2" defer></script>
-  <script src="/panel-groups.js?v=1" defer></script>
+  <script src="/panel-groups.js?v=2" defer></script>
   <script src="/painel/action.js" defer></script>
-  <script src="/painel/contexto.js?v=4" defer></script>
+  <script src="/painel/contexto.js?v=5" defer></script>
   <script src="/painel/whatsapp-app.js?v=1" defer></script>
   <script src="/painel/sugestoes.js?v=7" defer></script>
-  <script src="/painel/grupos.js?v=1" defer></script>
+  <script src="/painel/grupos.js?v=2" defer></script>
   <script src="/painel/lead.js" defer></script>
   <script src="/painel/painel.js" defer></script>
   <script src="/painel/notifications.js" defer></script>

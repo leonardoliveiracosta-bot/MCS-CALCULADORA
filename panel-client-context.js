@@ -11,6 +11,8 @@
 const { allRows, rows, rpc } = require('./panel-server');
 const { clean, consolidateCalcRuns, fold, normalizeDeadline, time, wishlistsForJourney } = require('./panel-domain');
 const { loadSearchStageIndex } = require('./panel-search-stage');
+const groups = require('./panel-groups');
+const { loadVitrineOrigins } = require('./panel-vitrine-origin');
 const { batchSupported, latestActiveUpload } = require('./panel-manheim-state');
 
 const MAX_IDS = 100;
@@ -30,7 +32,7 @@ const SOURCE = Object.freeze({ CALCULADORA: 'Calculadora', FICHA: 'Ficha', CONVE
 const JOURNEY_STAGES = Object.freeze({ NOVO: 'Novo', RESPONDIDO: 'Respondido', EM_BUSCA: 'Em busca', DECIDINDO: 'Decidindo', QUALIFICADO: 'Qualificado', AGUARDANDO_CLIENTE: 'Aguardando cliente', PARADO: 'Parado' });
 const SEARCH_STAGES = Object.freeze({ MISSING: 'Falta buscar', SAVED: 'Busca salva', SENT: 'Opções enviadas', QUALIFY: 'Precisa qualificar' });
 const MODES = Object.freeze({ VALOR: 'Por valor (lance máximo)', CARRO: 'Por carro (ano e milhagem)' });
-const ORIGINS = Object.freeze({ WHATSAPP_DIRECT: 'WhatsApp direto', WHATSAPP: 'WhatsApp', SMS: 'SMS', CALCULATOR: 'Calculadora', CALCULADORA: 'Calculadora', IMPORT: 'Conversa importada', MANUAL: 'Cadastro manual' });
+const ORIGINS = Object.freeze({ WHATSAPP_DIRECT: 'Veio por mensagem · Via WhatsApp', SMS_DIRECT: 'Veio por mensagem · Via SMS', WHATSAPP: 'Veio por mensagem · Via WhatsApp', SMS: 'Veio por mensagem · Via SMS', CALCULATOR: 'Veio pela calculadora', CALCULADORA: 'Veio pela calculadora', IMPORT: 'Conversa importada', MANUAL: 'Cadastro manual' });
 // Fields that decide whether a search can be made, per mode (the rules of vehicle-match stay the
 // same; this only says which of the client's answers are still missing).
 const REQUIRED = Object.freeze({ VALOR: ['carro', 'valor'], CARRO: ['carro', 'anos', 'milhas'] });
@@ -271,7 +273,7 @@ function normalizedInput(input) {
   };
 }
 
-const JOURNEY_COLUMNS = 'id,contact_id,reference_code,source,status,stage,vehicle_text,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,criteria_json,next_action_text,next_action_at,created_at,updated_at,closed_reason';
+const JOURNEY_COLUMNS = 'id,contact_id,reference_code,source,status,stage,vehicle_text,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,criteria_json,next_action_text,next_action_at,last_effective_contact_at,created_at,updated_at,closed_at,closed_reason';
 
 async function loadJourneys(ctx, input) {
   const env = 'eq.' + ctx.environment;
@@ -329,7 +331,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     ids.length ? inChunks(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env }, 'journey_id', ids) : [],
     ids.length ? inChunks(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }, 'journey_id', ids) : [],
     ids.length ? inChunks(ctx, 'promises', { select: 'journey_id,promise_text,due_at,status', environment: env, status: 'eq.OPEN' }, 'journey_id', ids) : [],
-    ids.length ? inChunks(ctx, 'journey_toggle_states', { select: 'journey_id,enabled', environment: env }, 'journey_id', ids) : [],
+    ids.length ? inChunks(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,switched_at', environment: env }, 'journey_id', ids) : [],
     ids.length ? safe(inChunks(ctx, 'conversation_pending_insights', { select: 'journey_id,summary_text,next_step_text,last_ai_message_id,updated_at', environment: env }, 'journey_id', ids), []) : []
   ]);
   const refsOf = (journey) => [...new Set([journey.reference_code, ...journeyRefs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].map((ref) => clean(ref).toUpperCase()).filter((ref) => REF.test(ref)))];
@@ -352,7 +354,9 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     ownersByRef.get(key).add(owner);
   });
   const messageIds = [...new Set(links.map((row) => row.message_id))];
-  const messages = messageIds.length ? await inChunks(ctx, 'messages', { select: 'id,direction,is_automatic,occurred_at_utc,created_at,channel,undone_at', environment: env }, 'id', messageIds) : [];
+  const messages = messageIds.length ? await inChunks(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,occurred_at_utc,created_at,channel,source_kind,undone_at', environment: env }, 'id', messageIds) : [];
+  // The same origin and "não atendido" rule as HOJE, ENTRADA and CLIENTES (panel-groups).
+  const vitrineOrigins = await loadVitrineOrigins(ctx).catch(() => null);
   const messageById = new Map(messages.filter((message) => !message.undone_at).map((message) => [message.id, message]));
   // Requests read from the conversation belong to the contact: the ficha link is never stored, so
   // they only count for a contact with exactly one ficha.
@@ -393,6 +397,9 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const fields = buildFields([calculatorSources(ownOrders), fichaSources(journey, contact, modes), conversationSources(ownRequests, evidenceById)]);
     const journeyMessages = links.filter((row) => row.journey_id === journey.id).map((row) => messageById.get(row.message_id)).filter(Boolean);
     const conversation = conversationState(journeyMessages);
+    const groupFacts = groups.factsFor({ messages: journeyMessages, orders: ownOrders, journey: { ...journey, enabled: toggles.find((row) => row.journey_id === journey.id)?.enabled, switchedAt: toggles.find((row) => row.journey_id === journey.id)?.switched_at || null },
+      vitrine: vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey.id, contactId: journey.contact_id }) : null });
+    const grouped = groups.classify(groupFacts);
     const closed = journey.status === 'ENCERRADO';
     const toggle = toggles.find((row) => row.journey_id === journey.id);
     const off = !closed && Boolean(toggle && toggle.enabled === false);
@@ -421,8 +428,11 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       ref: clean(journey.reference_code).toUpperCase() || own[0] || null, refs: own, sharedRefs,
       name: clean(contact && contact.display_name) || null,
       contact: { phones: phoneList, whatsappUsername: (userIds.find((row) => row.contact_id === journey.contact_id) || {}).username || null, location: clean(contact && contact.location_text) || null, note: phoneList.length ? null : 'Nenhum telefone salvo neste contato.' },
-      origin: { code: journey.source || null, label: ORIGINS[journey.source] || journey.source || 'Não registrada', since: journey.created_at || null, calculator: ownOrders.length > 0 },
-      stage: { code: journey.stage || null, label: JOURNEY_STAGES[journey.stage] || journey.stage || 'Sem etapa', status: journey.status || null, closed, off, closedReason: closed ? journey.closed_reason || null : null },
+      origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing, since: journey.created_at || null, calculator: ownOrders.length > 0 },
+      unattended: grouped.unattended,
+      // Etapa, falta and próxima ação come from the same facts: a ficha marked "Respondido" whose customer
+      // wrote again is waiting for the MCS, never shown as answered.
+      stage: { code: journey.stage || null, label: !closed && !off && owner.who === 'MCS' && ['RESPONDIDO', 'NOVO'].includes(journey.stage) ? 'Aguardando sua resposta' : JOURNEY_STAGES[journey.stage] || journey.stage || 'Sem etapa', status: journey.status || null, closed, off, closedReason: closed ? journey.closed_reason || null : null },
       searches, owner, conversation, v1,
       aiReading: insight ? { summary: clean(insight.summary_text) || null, nextStep: clean(insight.next_step_text) || null, at: insight.updated_at || null, note: 'Leitura da IA da última mensagem · não confirmada' } : null,
       modes, fields, criteria: criteriaSummary(step), situation: null, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
@@ -456,7 +466,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       key: 'ref:' + ref, journeyId: null, contactId: null, ref, refs: [ref], sharedRefs: owners.length > 1 ? [ref] : [],
       name: clean((refOrders[0] || {}).contactName) || null,
       contact: { phones: [], whatsappUsername: null, location: null, note: 'A calculadora não guarda telefone.' },
-      origin: { code: 'CALCULATOR', label: 'Calculadora', since: (refOrders.at(-1) || {}).occurredAt || null, calculator: refOrders.length > 0 },
+      origin: { code: 'CALCULADORA', label: 'Veio pela calculadora', since: (refOrders.at(-1) || {}).occurredAt || null, calculator: refOrders.length > 0 },
       stage: { code: null, label: situation.label, status: null, closed: false, off: false },
       searches: [], owner, conversation: { messageCount: 0, lastAt: null, lastFrom: null }, aiReading: null,
       situation: { code, label: situation.label, detail: situation.detail }, criteria: criteriaSummary(step),

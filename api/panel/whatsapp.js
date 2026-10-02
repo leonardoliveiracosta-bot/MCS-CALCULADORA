@@ -18,7 +18,7 @@ module.exports=async(req,res)=>{
         rows(ctx,'whatsapp_raw_events',{select:'id,event_type,status,error_code,received_at,processing_started_at,attempts',environment:'eq.'+ctx.environment,status:'in.(ERROR,PENDING,PROCESSING)',order:'received_at.desc',limit:'50'}),
         rows(ctx,'whatsapp_raw_events',{select:'id,event_type,status,error_code,received_at',environment:'eq.'+ctx.environment,status:'eq.IGNORED',event_type:'neq.statuses',order:'received_at.desc',limit:'20'}),
         rows(ctx,'whatsapp_item_errors',{select:'id,raw_event_id,item_index,error_code,status,attempts,processing_started_at,created_at',environment:'eq.'+ctx.environment,status:'neq.RESOLVED',order:'created_at.desc',limit:'50'}),
-        allRows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_contact_id,source_journey_id,target_contact_id,target_journey_id,target_ref,motives,suggestion_kind,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
+        allRows(ctx,'whatsapp_link_suggestions',{select:'id,phone_e164,source_chat_id,source_contact_id,source_journey_id,target_contact_id,target_journey_id,target_ref,motives,suggestion_kind,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
         ,allRows(ctx,'whatsapp_phone_reviews',{select:'id,phone_e164,candidate_contact_ids,created_at',environment:'eq.'+ctx.environment,status:'eq.PENDING',order:'created_at.desc'})
       ]);
       // Triagem: a conversa classificada fora do funil comercial sai da pendência (a sugestão fica guardada).
@@ -33,9 +33,13 @@ module.exports=async(req,res)=>{
       const contactIds=[...new Set(suggestions.flatMap((item)=>[item.source_contact_id,item.target_contact_id]).filter(Boolean).concat(phoneReviews.flatMap((item)=>(item.candidate_contact_ids||[]).filter(Boolean))))];
       const contacts=contactIds.length?await rows(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment,id:'in.('+contactIds.join(',')+')'}):[];
       const names=new Map(contacts.map(x=>[x.id,x.display_name]));
+      // "É a Ref X" only when the customer wrote that Ref in the conversation; otherwise it is a guess ("parece ser").
+      const refChats=[...new Set(commercialSuggestions.filter((item)=>item.target_ref&&isUuid(item.source_chat_id)).map((item)=>item.source_chat_id))];
+      const refTexts=refChats.length?await allRows(ctx,'messages',{select:'chat_id,body_text',environment:'eq.'+ctx.environment,direction:'eq.CUSTOMER',chat_id:'in.('+refChats.join(',')+')'}).catch(()=>[]):[];
+      const refWritten=(item)=>Boolean(item.target_ref)&&refTexts.some((row)=>row.chat_id===item.source_chat_id&&new RegExp('\\b'+String(item.target_ref).replace(/[^A-Z0-9]/gi,'')+'\\b','i').test(String(row.body_text||'')));
       return send(res,200,{lastEventAt:latest[0]?.received_at||null,lastInboundAt:inbound[0]?.received_at||null,lastEchoAt:echo[0]?.received_at||null,
         errors:errors.filter(x=>x.status!=='PROCESSING'||Date.now()-Date.parse(x.processing_started_at||0)>120000),ignored,itemErrors,
-        suggestions:commercialSuggestions.map(x=>({...x,sourceName:names.get(x.source_contact_id),targetName:names.get(x.target_contact_id),sourceIsLead:contacts.find(c=>c.id===x.source_contact_id)?.is_lead!==false})),
+        suggestions:commercialSuggestions.map(x=>({...x,refConfirmed:refWritten(x),sourceName:names.get(x.source_contact_id),targetName:names.get(x.target_contact_id),sourceIsLead:contacts.find(c=>c.id===x.source_contact_id)?.is_lead!==false})),
         phoneReviews:phoneReviews.map(x=>({...x,candidates:(x.candidate_contact_ids||[]).map(id=>({id,name:names.get(id)||'Contato',isLead:contacts.find(c=>c.id===id)?.is_lead!==false}))}))});
     }
     if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});
@@ -74,8 +78,15 @@ module.exports=async(req,res)=>{
     }
     if(body.action==='suggestion'){
       if(!isUuid(body.id)||typeof body.link!=='boolean')return send(res,400,{error:'SUGGESTION_INVALID'});
-      const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_resolve_suggestion',{
+      // Linking a Ref keeps the state before, so "Desfazer" can put it back right away.
+      const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_resolve_suggestion_undoable',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_id:body.id,p_actor:ctx.panel.id,p_link:body.link})});
+      return send(res,200,result);
+    }
+    if(body.action==='suggestion_undo'){
+      if(!isUuid(body.id))return send(res,400,{error:'SUGGESTION_INVALID'});
+      const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_whatsapp_link_ref_undo',{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_id:body.id,p_actor:ctx.panel.id})});
       return send(res,200,result);
     }
     if(body.action==='phone_review'){
@@ -97,6 +108,9 @@ module.exports=async(req,res)=>{
     }
     return send(res,400,{error:'ACTION_INVALID'});
   }catch(error){
+    const code=String(error&&(error.code||error.message)||'');
+    // An undo that is no longer possible (too late, another person, already changed) is said plainly.
+    if(['UNDO_UNAVAILABLE','UNDO_EXPIRED','UNDO_NOT_ALLOWED','SUGGESTION_UNAVAILABLE','REF_ALREADY_LINKED'].includes(code))return send(res,409,{error:code});
     const requestId=crypto.randomUUID().slice(0,8);
     console.error('[panel-whatsapp]',{requestId,route:'/api/panel/whatsapp',message:String(error?.message||'UNKNOWN'),stack:error?.stack||null});
     return send(res,500,{error:'WHATSAPP_PANEL_UNAVAILABLE',requestId});
