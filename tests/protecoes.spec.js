@@ -287,3 +287,23 @@ test('IMPORTAÇÕES: mensagem da calculadora na fila mostra motivo, evidência e
   expect(posted.action).toBe('link');
   expect(errors).toEqual([]);
 });
+
+test('ATENDIMENTO: candidata a fora da MCS aparece com motivo e frase, e só sai com a confirmação', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  let posted = null;
+  await open(page, { '/api/panel/triage': async ({ json, route }) => {
+    if (route.request().method() === 'POST') { posted = JSON.parse(route.request().postData()); return json({ journeyId: uid(90), review: 'CONFIRMADO', triageIds: [uid(91)] }); }
+    return json({ state: 'DESLIGADA', review: [], out: [], offTopic: [], offMcs: [{ journeyId: uid(90), name: 'Primo Zé', category: 'PESSOAL', label: 'Assunto pessoal', reason: 'Conversa de família sobre uma festa', quote: 'a festa da vovó é sábado' }] });
+  } });
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#app-view')).toBeVisible({ timeout: 30000 });
+  const card = page.locator('.offmcs-item');
+  await expect(card).toHaveCount(1, { timeout: 30000 });
+  await expect(card).toContainText('Conversa de família sobre uma festa');
+  await expect(card).toContainText('a festa da vovó é sábado');
+  expect(posted).toBe(null);
+  await card.getByRole('button', { name: 'Confirmar fora da MCS' }).click();
+  await expect.poll(() => posted && posted.action).toBe('offmcs_confirm');
+  expect(posted.journeyId).toBe(uid(90));
+  expect(errors).toEqual([]);
+});

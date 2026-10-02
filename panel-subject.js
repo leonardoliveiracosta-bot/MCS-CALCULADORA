@@ -8,7 +8,8 @@
 const { anthropicJson } = require('./panel-ai');
 const { isUuid, rows, supabase } = require('./panel-server');
 
-const RULE_VERSION = 2;
+// v3: the same reading also says whether the conversation is outside the MCS business (a candidate for review, never an action).
+const RULE_VERSION = 3;
 const DAILY_CAP = 500;
 const SUBJECTS = ['FINANCIAMENTO', 'PEDIDO_CARRO', 'SO_CUMPRIMENTO', 'OUTROS', 'NAO_IDENTIFICADO'];
 const SUBJECT_LABELS = { FINANCIAMENTO: 'Financiamento', PEDIDO_CARRO: 'Pedido de carro', SO_CUMPRIMENTO: 'Só cumprimentou', OUTROS: 'Outros assuntos', NAO_IDENTIFICADO: 'Ainda não identificado' };
@@ -30,7 +31,11 @@ const SYSTEM = [
   'refs: códigos de 5 letras/números que o CLIENTE escreveu como referência da calculadora (Ref, referência, reference, código). Para cada um:',
   '{"ref":"ABCDE","message":"<id da mensagem, ex. m3>","quote":"<trecho copiado exatamente da mensagem que contém o código>"}. Nunca invente; lista vazia se não houver.',
   'pedidos: um resumo curto (em português) POR PEDIDO de carro do cliente, nunca da conversa inteira: [{"ref":"<uma das refsConhecidas ou null>","resumo":"..."}].',
-  'Só use um ref de refsConhecidas quando a conversa deixa claro de qual pedido o trecho fala. Se há mais de um pedido e você não consegue separá-los, devolva UM item com ref null e "ambiguo":true: nunca adivinhe.'
+  'Só use um ref de refsConhecidas quando a conversa deixa claro de qual pedido o trecho fala. Se há mais de um pedido e você não consegue separá-los, devolva UM item com ref null e "ambiguo":true: nunca adivinhe.',
+  'fora_mcs: a conversa INTEIRA não é negócio da My Car Scout? {"candidato":true|false,"categoria":"PESSOAL|VENDA_FORA_DO_SISTEMA|OUTRO_NEGOCIO","certeza":"alta|media|baixa","motivo":"<frase curta em português>","message":"<id, ex. m2>","quote":"<frase copiada exatamente dessa mensagem>"}.',
+  'candidato só é true quando NADA na conversa trata de carro pelo sistema MCS (simulação, calculadora, busca de carro, lance, leilão, compra de carro, financiamento de carro):',
+  '- PESSOAL: assunto pessoal, família, amizade; VENDA_FORA_DO_SISTEMA: compra/venda combinada fora do sistema MCS (sem simulação, busca ou lance), venda de algo que não é o serviço; OUTRO_NEGOCIO: outro negócio, fornecedor, propaganda, serviço que não é da MCS.',
+  'Qualquer mensagem do cliente sobre carro ou financiamento de carro, ou qualquer dúvida: candidato false. Na dúvida, NÃO marque.'
 ].join('\n');
 
 const norm = (value) => String(value || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -81,7 +86,23 @@ function validate(parsed, ids, knownRefs = []) {
     const named = known.has(ref) ? ref : null;
     return { ref: named, summary, ambiguous: !named && (known.size > 1 || Boolean(entry && entry.ambiguo)) };
   }).filter(Boolean);
-  return { subject, confidence: Number.isFinite(confidence) ? confidence : null, reason: String(parsed.reason || '').slice(0, 300), refs, requests };
+  return { subject, confidence: Number.isFinite(confidence) ? confidence : null, reason: String(parsed.reason || '').slice(0, 300), refs, requests, offMcs: offMcsOf(parsed, ids, subject) };
+}
+
+// "Fora da MCS" is only a candidate for the operator's review, and only when the reading is sure, the reason is written and the
+// quote exists word for word in the message it names. A conversation about cars or financing is never a candidate.
+const OFF_MCS_CATEGORIES = ['PESSOAL', 'VENDA_FORA_DO_SISTEMA', 'OUTRO_NEGOCIO'];
+const NOT_A_CANDIDATE = Object.freeze({ candidate: false });
+function offMcsOf(parsed, ids, subject) {
+  const entry = parsed && parsed.fora_mcs;
+  if (!entry || entry.candidato !== true || entry.certeza !== 'alta') return NOT_A_CANDIDATE;
+  if (['FINANCIAMENTO', 'PEDIDO_CARRO'].includes(subject)) return NOT_A_CANDIDATE;
+  const category = String(entry.categoria || '').toUpperCase();
+  const reason = String(entry.motivo || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 300);
+  const message = ids.get(String(entry.message || ''));
+  const quote = String(entry.quote || '').trim();
+  if (!OFF_MCS_CATEGORIES.includes(category) || !reason || !message || !quote || !norm(message.body_text).includes(norm(quote))) return NOT_A_CANDIDATE;
+  return { candidate: true, category, reason, quote: quote.slice(0, 400), messageId: isUuid(message.id) ? message.id : null };
 }
 
 async function loadMessages(ctx, journeyId) {
@@ -113,8 +134,11 @@ async function classifyOne(ctx, candidate, deps = {}) {
     const conversation = buildConversation(messages, known);
     const parsed = await ask(SYSTEM, conversation.user, undefined, { ctx, feature: 'ASSUNTO', subject: String(candidate.journey_id) });
     const verdict = validate(parsed, conversation.ids, known);
-    await rpcCall(ctx, 'panel_subject_finish_v2', { p_journey_id: candidate.journey_id, p_token: token, p_hash: candidate.content_hash, p_rule_version: RULE_VERSION, p_subject: verdict.subject, p_confidence: verdict.confidence, p_reason: verdict.reason, p_claude_refs: verdict.refs, p_request_summaries: verdict.requests });
-    return { outcome: 'CLASSIFIED', subject: verdict.subject, refs: verdict.refs.length, verifiedRefs: verdict.refs.filter((ref) => ref.verified).length };
+    // A ficha that came from the calculator (a Ref, or a message in the calculator model) is MCS business by definition.
+    const calculatorFicha = known.length > 0 || messages.some((message) => message.direction === 'CUSTOMER' && require('./panel-calc-message').isCalculator(message.body_text));
+    const offMcs = calculatorFicha ? NOT_A_CANDIDATE : verdict.offMcs;
+    await rpcCall(ctx, 'panel_subject_finish_v3', { p_journey_id: candidate.journey_id, p_token: token, p_hash: candidate.content_hash, p_rule_version: RULE_VERSION, p_subject: verdict.subject, p_confidence: verdict.confidence, p_reason: verdict.reason, p_claude_refs: verdict.refs, p_request_summaries: verdict.requests, p_offmcs: offMcs });
+    return { outcome: 'CLASSIFIED', offMcs: offMcs.candidate, subject: verdict.subject, refs: verdict.refs.length, verifiedRefs: verdict.refs.filter((ref) => ref.verified).length };
   } catch (error) {
     // A failed reading is not asked again right away: back off, and stop after five failures for the same content (a new message
     // restarts it). The reservation is released either way.
@@ -145,4 +169,4 @@ async function classifyConversations(ctx, { max = 12, concurrency = 3, deadlineA
   return summary;
 }
 
-module.exports = { RULE_VERSION, DAILY_CAP, knownRefsOf, SUBJECTS, SUBJECT_LABELS, SYSTEM, buildConversation, validate, classifyOne, classifyConversations };
+module.exports = { RULE_VERSION, DAILY_CAP, OFF_MCS_CATEGORIES, offMcsOf, knownRefsOf, SUBJECTS, SUBJECT_LABELS, SYSTEM, buildConversation, validate, classifyOne, classifyConversations };
