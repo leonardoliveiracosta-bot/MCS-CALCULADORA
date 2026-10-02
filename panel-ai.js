@@ -164,7 +164,11 @@ async function allConversationData(ctx) {
     group.mcsCount=group.messages.filter((message)=>message.direction==='MCS'&&!message.is_automatic).length;
     group.lastCustomer=group.customerMessages.at(-1)||null;
     group.firstCustomer=group.customerMessages[0]||null;
-    group.refs=[String(group.journey.reference_code||'').trim().toUpperCase(),...(refsByJourney.get(group.journey.id)||[])].filter((ref)=>REF_RE.test(ref)&&calculatorRefs.has(ref));
+    // A Ref the client wrote in the calculator message proves the order even without calc_runs:
+    // the conversation is identified and no similarity suggestion (name, car, time) is made.
+    const written=new Set(group.customerMessages.flatMap((message)=>require('./panel-ref-proof').explicitRefs(message.body_text)));
+    group.writtenRefs=[...written];
+    group.refs=[...new Set([String(group.journey.reference_code||'').trim().toUpperCase(),...(refsByJourney.get(group.journey.id)||[])].filter((ref)=>REF_RE.test(ref)&&(calculatorRefs.has(ref)||written.has(ref))).concat(group.writtenRefs))];
     group.reading=readings.find((reading)=>reading.journey_id===group.journey.id&&reading.chat_id===group.chatId)||null;
     group.linkState=states.find((state)=>state.journey_id===group.journey.id&&state.chat_id===group.chatId)||null;
     group.attemptState=attempts.find((state)=>state.journey_id===group.journey.id&&state.chat_id===group.chatId)||null;

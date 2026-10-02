@@ -49,9 +49,9 @@ test('origem a) financiamento só pela primeira mensagem ser um dos dois textos 
   assert.ok(groups.ORIGIN_OPTIONS.some(([value]) => value === 'MENSAGEM:FINANCIAMENTO'));
 });
 
-test('origem b) com pedido da calculadora e conversa direta, vale a mais recente', () => {
+test('origem b) com pedido da calculadora e conversa direta, a calculadora fica (WhatsApp/SMS é canal)', () => {
   const directLater = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 2, 'hello')], orders: [sim(30)], journey: { source: 'WHATSAPP_DIRECT' } }));
-  assert.equal(directLater.group, 'MENSAGEM');
+  assert.equal(directLater.group, 'CALCULADORA');
   const calcLater = groups.originOf(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 30, 'hello')], orders: [sim(2)], journey: { source: 'WHATSAPP_DIRECT' } }));
   assert.equal(calcLater.group, 'CALCULADORA');
   // A calculator ficha whose customer wrote after the order is still calculator (not "both").

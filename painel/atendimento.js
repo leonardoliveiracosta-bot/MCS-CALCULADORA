@@ -82,11 +82,15 @@
       else bucket = 'aguardando';
       return { ...entry, bucket };
     });
+    return { cases: list, counts: countsOf(list) };
+  }
+  // The chip numbers of a list of cases (the same cases the list shows after Ref, Origem and Período).
+  function countsOf(list) {
     const counts = { depende: 0, completar: 0, aguardando: 0, agendado: 0, fora: 0, todos: 0 };
-    list.forEach((entry) => { counts[entry.bucket] += 1; if (entry.bucket !== 'fora') counts.todos += 1; });
-    return { cases: list, counts };
+    (list || []).forEach((entry) => { counts[entry.bucket] += 1; if (entry.bucket !== 'fora') counts.todos += 1; });
+    return counts;
   }
   const inBucket = (entry, bucket) => bucket === 'todos' ? entry.bucket !== 'fora' : entry.bucket === bucket;
 
-  return { BUCKETS, model, inBucket, reasonsOf, caseKeyOf, journeyOf };
+  return { BUCKETS, model, countsOf, inBucket, reasonsOf, caseKeyOf, journeyOf };
 }));

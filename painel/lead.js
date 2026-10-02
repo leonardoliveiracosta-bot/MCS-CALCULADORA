@@ -53,7 +53,9 @@
     const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer,openOptions,openTab} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     root.replaceChildren(); root.classList.add('lead-detail');
-    const record=data.record||{},order=data.order||{},track=data.track||null,ref=data.ref,hasCalculatorRef=data.hasCalculatorRef!==false&&Boolean(data.order),journeyId=record.id;
+    const record=data.record||{},order=data.order||{},track=data.track||null,ref=data.ref,hasCalculatorRef=(data.hasCalculatorRef!==false&&Boolean(data.order))||record.hasCalcRef===true,journeyId=record.id;
+    // Ref = proven by the calculator (simulation or the client's calculator message); a code of the ficha without that proof is internal.
+    const calcRef=record.hasCalcRef===true?record.calcRef:record.hasCalcRef===false?null:(ref||record.reference_code||null);
     let activeUndo=null;
     const api=async(action,fields={})=>{
       const result=await request('/api/panel/lead',{method:'POST',body:JSON.stringify({action,ref,journeyId,...fields})});
@@ -72,7 +74,7 @@
     const heading=section(root,1,'CABEÇALHO DA LIGAÇÃO');
     const header=append(heading,'div','lead-header');
     append(header,'div','lead-score',data.score===null?'—':data.score);
-    const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — Ref ${ref||record.reference_code||'—'}`);const directOrigin=directLeadLabel(data.directLeadSource);if(directOrigin)append(identity,'span','lead-badge blue',directOrigin);
+    const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — ${calcRef?'Ref '+calcRef:'sem Ref da calculadora'}`);if(calcRef&&(record.calcRefsWithoutRun||[]).includes(calcRef))append(identity,'span','muted lead-ref-note',`Ref ${calcRef} comprovada pela mensagem da calculadora · simulação não registrada`);if(record.internalCode)append(identity,'span','muted lead-ref-note',`Código da ficha ${record.internalCode} · interno, não é Ref da calculadora`);const directOrigin=directLeadLabel(data.directLeadSource);if(directOrigin)append(identity,'span','lead-badge blue',directOrigin);
     const locationLine=append(identity,'p','muted',`${data.city?data.city+', ':''}${data.state?.uf||'Local não identificado'}${data.zip?` · ZIP ${data.zip}`:''}`);
     if(data.zip&&!data.city)request('/api/panel/lead?cityZip='+encodeURIComponent(data.zip)).then((place)=>{
       if(locationLine.isConnected&&place.city)locationLine.textContent=`${place.city}, ${data.state?.uf||''} · ZIP ${data.zip}`;
