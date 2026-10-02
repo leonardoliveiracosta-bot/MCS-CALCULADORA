@@ -85,8 +85,16 @@ test('não atendido: nenhuma ação há 7 dias ou mais; c) próxima ação futur
   assert.equal(groups.classify(recent, NOW).key, 'ATENDIDO');
   const future = { next_action_at: new Date(NOW + 86400000).toISOString() };
   assert.equal(groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 9), msg('b', 'MCS', 24 * 8)], journey: future }), NOW).key, 'ATENDIDO');
-  // c) also when the latest message is the customer's: the scheduled next action counts as attended.
-  assert.equal(groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 5)], journey: future }), NOW).key, 'ATENDIDO');
+  // c) a customer message that arrived BEFORE the next action was scheduled: attended.
+  const scheduledAfter = { ...future, next_action_set_at: iso(4) };
+  assert.equal(groups.classify(groups.factsFor({ messages: [msg('a', 'CUSTOMER', 5)], journey: scheduledAfter }), NOW).key, 'ATENDIDO');
+  // A new message AFTER the scheduling, still without a reply: não atendido even before the date.
+  const scheduledBefore = { ...future, next_action_set_at: iso(6) };
+  const newer = groups.classify(groups.factsFor({ messages: [msg('a', 'MCS', 7), msg('b', 'CUSTOMER', 5)], journey: scheduledBefore }), NOW);
+  assert.equal(newer.key, 'NAO_ATENDIDO');
+  assert.equal(newer.unattended.reason, 'NO_RESPONSE');
+  // Once we reply, it is attended again (the next action is still in the future).
+  assert.equal(groups.classify(groups.factsFor({ messages: [msg('b', 'CUSTOMER', 5), msg('c', 'MCS', 1)], journey: scheduledBefore }), NOW).key, 'ATENDIDO');
   const overdue = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 9), msg('b', 'MCS', 24 * 8)], journey: { next_action_at: iso(24), next_action_text: 'Ligar' } });
   assert.match(groups.classify(overdue, NOW).unattended.missing, /venceu: Ligar/);
   const closed = groups.factsFor({ messages: [msg('a', 'CUSTOMER', 24 * 9), msg('b', 'MCS', 24 * 8)], journey: { status: 'ENCERRADO' } });

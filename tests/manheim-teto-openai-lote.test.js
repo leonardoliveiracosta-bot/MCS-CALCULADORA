@@ -1,8 +1,8 @@
 'use strict';
 
-// runAudit sobre o banco simulado (PGlite + PostgREST) com a migração do teto da OpenAI: o lote
-// ABERTO criado com limite de US$ 2 passa a usar e mostrar US$ 50, continua conferindo depois de
-// US$ 2 gastos, para no teto global sem pedir autorização, e a conferência PENDENTE por
+// runAudit sobre o banco simulado (PGlite + PostgREST): sem limite por lote, o lote ABERTO criado
+// com limite de US$ 2 continua conferindo depois de US$ 2 gastos, para só quando o saldo pré-pago
+// informado da OpenAI não cobre a chamada (sem pedir autorização), e a conferência PENDENTE por
 // AUDIT_DEADLINE com 3 tentativas não é chamada de novo sozinha. OpenAI simulada.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -30,7 +30,7 @@ function fakeOpenAI(calls) {
   };
 }
 // The per-call JS check always passes here, so the database hold is what is being tested.
-// (The per-call reservation of the US$ 50 stays the real one, in the database.)
+// (The per-call reservation against the prepaid balance stays the real one, in the database.)
 const openBudget = { ...require('../panel-openai-budget'), spentUsd: async () => ({ total: 0 }), fits: () => true };
 
 let backend, ctx;
@@ -52,7 +52,7 @@ test.before(async () => {
 });
 test.after(async () => { if (backend) await backend.db.close(); });
 
-test('lote antigo passa de US$ 2 e mostra US$ 50; a pendente por AUDIT_DEADLINE tem uma única tentativa a mais', async () => {
+test('lote antigo passa de US$ 2 sem limite por lote; a pendente por AUDIT_DEADLINE tem uma única tentativa a mais', async () => {
   const calls = [];
   // The extra attempt of the pending demand (car VINT0) still gets no confirmation (provider error).
   const fetchImpl = async (url, options) => {
@@ -67,13 +67,12 @@ test('lote antigo passa de US$ 2 e mostra US$ 50; a pendente por AUDIT_DEADLINE 
   assert.equal(result.awaitingAuthorization, undefined);
   const run = (await backend.db.query('select status,limit_usd,spent_usd from public.manheim_audit_runs where upload_id=$1', [UPLOAD])).rows[0];
   assert.equal(run.status, 'ABERTO');
-  assert.equal(Number(run.limit_usd), 50);
   assert.ok(Number(run.spent_usd) > 2.509014, `gasto acumulado ${run.spent_usd}`);
   const pending = (await backend.db.query('select status,error_code,attempts,cost_usd from public.manheim_match_audits where demand_key=$1', [key(J[0])])).rows[0];
   assert.deepEqual([pending.status, pending.error_code, pending.attempts, Number(pending.cost_usd)], ['PENDENTE', 'OPENAI_FAILED', 4, 0.009014], 'continua pendente, nada aprovado');
   const state = await audit.viewState(ctx, input, { env: ENV });
-  assert.equal(state.limitUsd, 50);
-  assert.equal(state.run.limitUsd, 50);
+  assert.equal(state.limitUsd, null, 'sem limite por lote');
+  assert.equal(state.run.limitUsd, null);
   assert.deepEqual([state.byDemand[key(J[0])].status, state.byDemand[key(J[0])].canRetry, state.byDemand[key(J[0])].attempts], ['PENDENTE', false, 4], 'bloqueada, sem novo botão de tentativa');
   assert.equal(audit.usable(state.byDemand[key(J[0])]), false);
   // Nothing more: neither the next cycle nor the button calls again.
@@ -87,10 +86,9 @@ test('lote antigo passa de US$ 2 e mostra US$ 50; a pendente por AUDIT_DEADLINE 
   assert.equal(Number(holds.open), 0);
 });
 
-test('teto global: a reserva que passaria de US$ 50 é recusada no banco, sem chamada e sem pedir autorização', async () => {
-  // Other features already took the budget close to US$ 50.
-  const spent = Number((await backend.db.query("select public.panel_openai_spent_usd('preview') s")).rows[0].s);
-  await backend.db.query(`insert into public.audit_log(environment,entity_type,action,after_json) values('preview','manheim_openai','READ',jsonb_build_object('costUsd',$1::numeric))`, [Math.round((50 - spent - 0.000001) * 1e6) / 1e6]);
+test('saldo pré-pago: a reserva que passaria do saldo informado é recusada no banco, sem chamada e sem pedir autorização', async () => {
+  // The owner informed a balance that no reading fits in (US$ 0.00 left).
+  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',0,null)");
   const more = { ...input, matches: input.matches.map((match) => ({ ...match, vehicle_json: { parsed: { ...match.vehicle_json.parsed, miles: 31000 } } })) };
   const calls = [];
   const result = await audit.runAudit(ctx, more, { env: ENV, fetchImpl: fakeOpenAI(calls), budget: openBudget });
@@ -98,6 +96,6 @@ test('teto global: a reserva que passaria de US$ 50 é recusada no banco, sem ch
   assert.equal(result.providerLimit, true);
   assert.equal(result.awaitingAuthorization, undefined);
   assert.equal((await backend.db.query('select status from public.manheim_audit_runs where upload_id=$1', [UPLOAD])).rows[0].status, 'ABERTO');
-  const projected = Number((await backend.db.query("select public.panel_openai_spent_usd('preview') + coalesce((select sum(amount_usd) from public.manheim_audit_budget_holds where environment='preview' and status='ABERTA'),0) p")).rows[0].p);
-  assert.ok(projected <= 50, `projetado ${projected}`);
+  const left = (await backend.db.query("select public.panel_ai_balance_state('preview','OPENAI') s")).rows[0].s;
+  assert.equal(Number(left.spent), 0, 'nada gasto depois do saldo informado');
 });

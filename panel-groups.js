@@ -14,7 +14,8 @@
   // Regras travadas:
   //   a) financiamento = a primeira mensagem é um dos dois textos prontos do formulário do site;
   //   b) com pedido da calculadora e conversa direta (ou pela vitrine), vale a origem mais recente;
-  //   c) próxima ação marcada para o futuro conta como atendido;
+  //   c) próxima ação marcada para o futuro conta como atendido, menos para uma mensagem do cliente
+  //      chegada depois do agendamento e ainda sem resposta;
   //   d) nada é relido pela IA por causa desta regra.
   const DAY = 86400000;
   const STALE_DAYS = 7;
@@ -87,6 +88,7 @@
       lastActionAt: journey ? journey.last_effective_contact_at || null : null,
       nextActionAt: journey ? journey.next_action_at || null : null,
       nextActionText: journey ? journey.next_action_text || null : null,
+      nextActionSetAt: journey ? journey.next_action_set_at || null : null,
       createdAt: journey ? journey.created_at || null : null,
       awaitingReply: s.latest_direction === 'CUSTOMER',
       closed: Boolean(off), closedAt: off ? (Math.max(stamp(journey.closed_at), stamp(journey.switchedAt || journey.switched_at)) ? iso(Math.max(stamp(journey.closed_at), stamp(journey.switchedAt || journey.switched_at))) : null) : null,
@@ -132,7 +134,11 @@
     if (f.situation === 'CLOSED') return null;
     if (disposedAt && disposedAt >= lastCustomer) return null;
     const next = stamp(f.nextActionAt);
-    if (next && next > now) return null;
+    // c) a next action in the future counts as attended, except for a customer message that arrived
+    // after it was scheduled and still has no reply (or when the scheduling time is unknown).
+    const scheduledAt = stamp(f.nextActionSetAt);
+    const newerMessage = Boolean(f.awaitingReply && lastCustomer && (!scheduledAt || lastCustomer > scheduledAt));
+    if (next && next > now && !newerMessage) return null;
     if (f.awaitingReply && lastCustomer) {
       return { since: new Date(lastCustomer).toISOString(), waitedMs: now - lastCustomer, waitedText: waited(now - lastCustomer), reason: 'NO_RESPONSE', reasonText: 'Mensagem do cliente sem resposta', missing: 'Resposta à última mensagem do cliente', next: 'Responder o cliente' };
     }

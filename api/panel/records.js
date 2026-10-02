@@ -63,7 +63,7 @@ async function clientList(ctx, activeBatch) {
   const env = 'eq.' + ctx.environment;
   const [items, contacts, phones, refs, toggleStates, manheim, meta, checklist, promises, scoreIndex, calcRuns, calcLinks, leadPromises, aiItems, aiSuggestions, userIds, dispositions, messageFacts, chatLatest, insights, resolutions] = await Promise.all([
     allRows(ctx, 'journeys', {
-      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,last_effective_contact_at,qualified_at,closed_at,closed_reason,created_at,updated_at',
+      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,customer_deadline_at,next_action_text,next_action_at,next_action_set_at,last_effective_contact_at,qualified_at,closed_at,closed_reason,created_at,updated_at',
       environment: env, order: 'updated_at.desc'
     }),
     allRows(ctx, 'contacts', { select: 'id,display_name,location_text,is_lead', environment: env }),
@@ -190,11 +190,11 @@ module.exports = async (req, res) => {
       const page = clientsPage(listed, req.query || {});
       const lastHistoryAt = history[0]?.received_at || null;
       return send(res, 200, { environment: ctx.environment, ...page, items: page.items.map((item) => decorateWithSearchStage(item, stageIndex)), meta,
-        pending: { run: pendingRun[0] || { status: 'IDLE', total_conversations: 0, completed_conversations: 0, budget_usd: 20, spent_usd: 0, reserved_usd: 0 }, lastHistoryAt, historyReady: !lastHistoryAt || Date.now() - Date.parse(lastHistoryAt) >= 30 * 60000 } });
+        pending: { run: pendingRun[0] || { status: 'IDLE', total_conversations: 0, completed_conversations: 0, budget_usd: null, spent_usd: 0, reserved_usd: 0 }, lastHistoryAt, historyReady: !lastHistoryAt || Date.now() - Date.parse(lastHistoryAt) >= 30 * 60000 } });
     }
     if (!isUuid(id)) return send(res, 400, { error: 'JOURNEY_ID_INVALID' });
     const found = await rows(ctx, 'journeys', {
-      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
+      select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_set_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
       environment: 'eq.' + ctx.environment, id: 'eq.' + id, limit: '1'
     });
     const journey = found[0];

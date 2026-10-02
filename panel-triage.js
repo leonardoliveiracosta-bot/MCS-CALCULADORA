@@ -137,7 +137,7 @@ async function classify(evidence, options = {}) {
     messages: [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: JSON.stringify({ mensagens: evidence.map((item) => ({ id: item.id, de: item.from, texto: item.text })) }) }],
     response_format: { type: 'json_schema', json_schema: { name: 'triagem_entrada', strict: true, schema: SCHEMA } }
   };
-  // The US$ 50 OpenAI reservation around the call (options.guard, panel-openai-budget).
+  // The OpenAI prepaid-balance reservation around the call (options.guard, panel-openai-budget).
   return require('./panel-openai-budget').paidCall(options.guard, { modelId, body, send: async (capped) => {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
@@ -145,7 +145,7 @@ async function classify(evidence, options = {}) {
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY },
       body: JSON.stringify(capped)
     });
-    if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
+    if (!response.ok) throw await require('./panel-openai-budget').openAiFailure(response);
     const payload = await response.json();
     const usage = { inputTokens: Number(payload?.usage?.prompt_tokens) || 0, outputTokens: Number(payload?.usage?.completion_tokens) || 0 };
     let parsed = null;
@@ -298,7 +298,7 @@ async function runTriage(ctx, options = {}) {
   const pending = (await candidates(ctx, { ...options, env })).slice(0, options.limit || BATCH_LIMIT);
   const result = { processed: 0, funnel: 0, out: 0, review: 0, failed: 0, costUsd: 0, inProgress: 0 };
   const claims = options.claims || aiClaim;
-  // US$ 50 for all the panel's OpenAI features together (panel-openai-budget).
+  // The OpenAI prepaid balance for all the panel's features together (panel-openai-budget).
   const budget = options.budget || openAiBudget;
   const provider = pending.length ? await budget.spentUsd(ctx) : null;
   // The minimal model test (no customer data) must have passed before the first real reading.
@@ -318,7 +318,7 @@ async function runTriage(ctx, options = {}) {
         inputTokens: answer.usage.inputTokens, outputTokens: answer.usage.outputTokens, costUsd: answer.costUsd, errorCode: answer.errorCode };
       result.costUsd += answer.costUsd || 0;
     } catch (failure) {
-      // No room in the US$ 50 (or the ceiling could not be read): nothing was called; stop here.
+      // No room in the prepaid balance (or it could not be read): nothing was called; stop here.
       if (failure && (failure.code === 'OPENAI_BUDGET_LIMIT' || failure.code === 'OPENAI_BUDGET_UNAVAILABLE')) {
         await claims.finishTask(ctx, claim, false).catch(() => null);
         result.stoppedReason = 'PROVIDER_LIMIT'; result.deferred = pending.length - result.processed - result.inProgress; break;

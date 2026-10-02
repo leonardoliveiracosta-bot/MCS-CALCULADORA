@@ -581,7 +581,7 @@ async function actionReturn(ctx, journey, body) {
 // is off or fails, the browser keeps importing the valid rows and sends only these to review.
 // Every OpenAI call of the CSV reading is recorded on the server (provider, model, tokens, cost,
 // row count), whether or not the browser later sends its batch summary. Never a cell or a prompt.
-// US$ 50 for all the panel's OpenAI features together; a failed read of the spend blocks the call.
+// The OpenAI prepaid balance for all the panel's features together; a failed read blocks the call.
 async function openAiFits(ctx) {
   try {
     if (!openAiBudget.fits(await openAiBudget.spentUsd(ctx))) return false;

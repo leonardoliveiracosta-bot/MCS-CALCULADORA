@@ -1,8 +1,8 @@
 'use strict';
 
-// Teto único de US$ 50 da OpenAI com reserva por chamada (openai_budget_holds): as quatro funções
-// (PESQUISAS, ENTRADA, conferência Manheim e leitura do CSV Manheim) ao mesmo tempo nunca passam do
-// teto; o limite é exato; sem saldo nada é chamado; falha ao gravar o custo deixa o custo contando e
+// OpenAI pelo saldo pré-pago informado, com reserva por chamada (openai_budget_holds), sem teto
+// interno: as quatro funções (PESQUISAS, ENTRADA, conferência Manheim e leitura do CSV Manheim) ao
+// mesmo tempo nunca passam do saldo; o limite é exato; sem saldo nada é chamado; falha ao gravar o custo deixa o custo contando e
 // não paga de novo; tempo esgotado conta o pior caso; recusa do provedor libera; retomada sem
 // chamada duplicada. Banco PGlite com as migrações e OpenAI simulada: nada sai da máquina.
 const test = require('node:test');
@@ -45,7 +45,8 @@ const answers = {
 };
 const kindOf = (body) => body.response_format?.json_schema?.name === 'triagem_entrada' ? 'triage' : body.response_format?.json_schema?.name === 'pedido_de_veiculo' ? 'search'
   : body.response_format?.json_schema?.name === 'manheim_rows' ? 'csv' : 'audit';
-// Simulated OpenAI. During each call, the projected spend is read: it must never pass US$ 50.
+// Simulated OpenAI. During each call, the spend since the balance was informed is read: it must
+// never pass that balance.
 function openAI(calls, { delayMs = 20, fail = null } = {}) {
   return async (url, options) => {
     const body = JSON.parse(options.body);
@@ -58,13 +59,13 @@ function openAI(calls, { delayMs = 20, fail = null } = {}) {
   };
 }
 const projected = async () => Number((await backend.db.query("select public.panel_openai_budget_state('preview')->>'projected' p")).rows[0].p);
+let balance = null;
 const ledger = async (where = '') => (await backend.db.query(`select feature,status,amount_usd,actual_usd from public.openai_budget_holds where environment='preview' ${where} order by created_at`)).rows;
-// Fills the ceiling so that exactly `remaining` is left (a CSV reading already recorded).
+// Informs a prepaid balance of exactly `remaining` (what the owner sees in the OpenAI console).
 async function leave(remaining) {
-  await backend.db.query("delete from public.audit_log where entity_type='manheim_openai' and action='TESTE_SALDO'");
-  const now = await projected();
-  await backend.db.query(`insert into public.audit_log(environment,entity_type,action,after_json) values('preview','manheim_openai','TESTE_SALDO',jsonb_build_object('costUsd',$1::numeric))`, [Math.round((50 - now - remaining) * 1e6) / 1e6]);
-  assert.equal(Math.round((50 - await projected()) * 1e6) / 1e6, remaining);
+  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',$1,null)", [remaining]);
+  balance = remaining;
+  assert.equal(Number((await backend.db.query("select public.panel_ai_balance_state('preview','OPENAI')->>'remaining' r")).rows[0].r), remaining);
 }
 const auditInput = (journey) => {
   const key = `journey:${journey}:CARRO`;
@@ -118,18 +119,19 @@ test('as quatro funções ao mesmo tempo, com saldo para todas: cada chamada res
   assert.deepEqual([...new Set(rows.filter((row) => row.feature !== 'MANHEIM_CSV').map((row) => row.status))], ['REGISTRADA']);
   assert.deepEqual(rows.filter((row) => row.feature === 'MANHEIM_CSV').map((row) => row.status), ['PAGA']);
   assert.ok(rows.every((row) => Number(row.actual_usd) <= Number(row.amount_usd)), 'custo real nunca acima do reservado');
-  assert.ok(calls.projected <= 50);
+  // No balance informed: no internal ceiling (US$ 50 or any other) stopped anything.
+  assert.equal(triaged.stoppedReason || null, null);
 });
 
-test('as quatro funções ao mesmo tempo perto do teto: só entra o que cabe; nunca acima de US$ 50', async () => {
+test('as quatro funções ao mesmo tempo perto do fim do saldo: só entra o que cabe; nunca acima do saldo', async () => {
   // New content for every feature (new customer message, new batch content).
   for (const n of PEOPLE) await backend.db.query(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(n + 4)}','preview','${id(n + 2)}','WHATSAPP','CUSTOMER','Ainda quero o CR-V','x',now(),'t${n}',1,'WHATSAPP_WEBHOOK',now())`);
   await leave(0.01);
   const calls = [];
   const results = await runAll(openAI(calls), { auditJourney: PEOPLE[2] });
   const after = await projected();
-  assert.ok(after <= 50, `projetado ${after}`);
-  assert.ok(calls.projected <= 50, `projetado durante as chamadas ${calls.projected}`);
+  assert.ok(after <= balance, `projetado ${after}`);
+  assert.ok(calls.projected <= balance, `projetado durante as chamadas ${calls.projected}`);
   // With US$ 0.01 left, a few calls fit and the rest was refused before calling anything.
   assert.ok(calls.length >= 1 && calls.length < PEOPLE.length + 3, `${calls.length} chamadas`);
   assert.equal(results[0].stoppedReason, 'PROVIDER_LIMIT', JSON.stringify(results[0]));
@@ -137,7 +139,7 @@ test('as quatro funções ao mesmo tempo perto do teto: só entra o que cabe; nu
   assert.equal((await ledger()).length, PEOPLE.length + 3 + calls.length);
 });
 
-test('limite exato e sem saldo: a chamada que passaria de US$ 50 não sai; nada é gasto nem tentativa consumida', async () => {
+test('limite exato e sem saldo: a chamada que passaria do saldo não sai; nada é gasto nem tentativa consumida', async () => {
   await leave(0);
   const calls = [];
   for (const n of PEOPLE) await backend.db.query(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(n + 5)}','preview','${id(n + 2)}','WHATSAPP','CUSTOMER','Tem novidade?','x',now(),'u${n}',1,'WHATSAPP_WEBHOOK',now())`);
@@ -151,10 +153,11 @@ test('limite exato e sem saldo: a chamada que passaria de US$ 50 não sai; nada 
   assert.equal(audited.providerLimit, true);
   // Stopped before reserving the demand: no audit row, no attempt used.
   assert.equal((await backend.db.query('select count(*)::int n from public.manheim_match_audits where demand_key=$1', [`journey:${id(PEOPLE[3])}:CARRO`])).rows[0].n, 0);
-  assert.equal(await projected(), 50);
+  assert.equal(await projected(), 0);
   // A bound of exactly the remaining balance fits; one millionth more does not.
-  await leave(0.004);
-  const exact = await backend.db.query("select public.panel_openai_budget_hold('preview','ENTRADA','x','gpt-6-luna',0.004) r");
+  // The balance is informed in cents, as in the provider's console.
+  await leave(0.01);
+  const exact = await backend.db.query("select public.panel_openai_budget_hold('preview','ENTRADA','x','gpt-6-luna',0.01) r");
   assert.equal(exact.rows[0].r.held, true);
   const over = await backend.db.query("select public.panel_openai_budget_hold('preview','ENTRADA','x','gpt-6-luna',0.000001) r");
   assert.equal(over.rows[0].r.held, false);
@@ -171,7 +174,7 @@ test('falha ao gravar o custo: o custo continua contando e a mesma leitura não 
   const paid = (await ledger("and feature='ENTRADA' and status='PAGA'"));
   assert.equal(paid.length, 1, 'o custo pago e não gravado continua contando');
   const counted = await projected();
-  assert.ok(Math.abs(counted - (45 + Number(paid[0].actual_usd))) < 1e-6, `projetado ${counted}`);
+  assert.ok(Math.abs(counted - Number(paid[0].actual_usd)) < 1e-6, `projetado ${counted}`);
   // Next cycle: the same content is not paid again.
   await triage.runTriage(ctx, { env: ENV, fetchImpl: openAI(calls) });
   assert.equal(calls.filter((body) => kindOf(body) === 'triage' && body.messages[1].content.includes(id(PEOPLE[0] + 5))).length, 1, 'mesma conversa não chamada de novo');

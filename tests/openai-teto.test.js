@@ -1,5 +1,5 @@
 'use strict';
-// Teto único da OpenAI: US$ 50 somando PESQUISAS, ENTRADA, conferência e normalização do Manheim.
+// OpenAI pelo saldo pré-pago: gasto somado de todas as funções, sem teto interno.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const budget = require('../panel-openai-budget');
@@ -12,10 +12,16 @@ test('soma o gasto das frentes OpenAI (sugestões, resposta orientada e traduç�
   assert.deepEqual(spent.byFeature, { pesquisas: 10.5, entrada: 2, manheimAudit: 3, manheimCsv: 4, resposta: 0.25, respostaOrientada: 0.5, traducao: 0.25 });
 });
 
-test('uma chamada só começa se o pior caso ainda cabe em US$ 50', () => {
-  assert.equal(budget.fits({ total: 49.9 }, 0.05), true);
-  assert.equal(budget.fits({ total: 49.96 }, 0.05), false);
-  assert.equal(budget.fits({ total: 49.9 }, 0.05, 0.06), false);
+test('uma chamada só começa se o pior caso ainda cabe no saldo pré-pago que resta; sem saldo informado não há teto interno', () => {
+  // Saldo informado: restam US$ 0,10.
+  assert.equal(budget.fits({ total: 49.9, remaining: 0.1 }, 0.05), true);
+  assert.equal(budget.fits({ total: 49.9, remaining: 0.04 }, 0.05), false);
+  assert.equal(budget.fits({ total: 49.9, remaining: 0.1 }, 0.05, 0.06), false);
+  // Sem saldo informado: nem US$ 50 nem nenhum outro teto do painel (o limite é o pré-pago do provedor).
+  assert.equal(budget.fits({ total: 120, remaining: null }, 0.05), true);
+  // O provedor disse "sem saldo": nada sai até informar um novo saldo.
+  assert.equal(budget.fits({ total: 1, remaining: null, exhausted: true }, 0.05), false);
+  assert.equal(budget.LIMIT_USD, undefined);
 });
 
 test('em produção, falha ao ler o gasto bloqueia a chamada', async () => {

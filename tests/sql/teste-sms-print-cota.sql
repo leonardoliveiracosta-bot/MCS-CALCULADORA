@@ -1,4 +1,4 @@
--- Print de SMS tem cota diária própria: a cota da rotina de conversas esgotada não bloqueia o print,
+-- Print de SMS tem contagem diária própria (sem cota): a cota da rotina de conversas esgotada não bloqueia o print,
 -- e o print não consome a cota da rotina.
 do $$ declare allowed jsonb; today date := (now() at time zone 'America/New_York')::date;
 begin
@@ -10,8 +10,10 @@ begin
   if (public.panel_ai_reserve_call('preview')->>'allowed')::boolean then raise exception 'CONVERSATION_QUOTA_CHANGED'; end if;
   update public.sms_print_ai_daily_usage set call_count=1999 where environment='preview' and day_et=today;
   allowed:=public.panel_sms_print_reserve_read('preview');
-  if not (allowed->>'allowed')::boolean or (allowed->>'count')::integer<>2000 then raise exception 'PRINT_LIMIT_2000_FAILED'; end if;
-  if (public.panel_sms_print_reserve_read('preview')->>'allowed')::boolean then raise exception 'PRINT_LIMIT_EXCEEDED'; end if;
+  if not (allowed->>'allowed')::boolean or (allowed->>'count')::integer<>2000 then raise exception 'PRINT_COUNT_FAILED'; end if;
+  -- No daily cap any more (the limit is the provider's prepaid balance): the read keeps counting.
+  allowed:=public.panel_sms_print_reserve_read('preview');
+  if not (allowed->>'allowed')::boolean or (allowed->>'count')::integer<>2001 then raise exception 'PRINT_STILL_CAPPED'; end if;
   insert into public.sms_print_ai_daily_usage values('production',today-1,2000,now());
   if not (public.panel_sms_print_reserve_read('production')->>'allowed')::boolean then raise exception 'PRINT_DAY_DID_NOT_RESET'; end if;
   raise notice 'OK: print de SMS com cota diária própria';

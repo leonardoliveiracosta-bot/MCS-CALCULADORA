@@ -18,7 +18,7 @@ async function readPrint(ctx,bytes,mime,fetchImpl=fetch){
     const parsed=await anthropicJson(
       'Você lê UM print de SMS da My Car Scout. Responda SOMENTE JSON. Não invente nem complete dados que não estejam visíveis.',
       [{type:'image',source:{type:'base64',media_type:mime,data:bytes.toString('base64')}},{type:'text',text:'Extraia exatamente {phone,name,ref,message,translation}. phone em E.164 se estiver visível; name é o nome exibido; ref são 5 caracteres quando visível; message é a mensagem COMPLETA recebida do cliente, sem resumir. translation é a tradução integral em português apenas se a mensagem não estiver em português. Use string vazia no que não estiver visível.'}],
-      fetchImpl
+      fetchImpl,{ctx,feature:'PRINT_SMS',subject:'print'}
     );
     return candidate(parsed);
   } catch(error) { if(error.message==='SMS_PRINT_INVALID_IMAGE')throw error; throw new Error('AI_UNAVAILABLE'); }

@@ -12,7 +12,7 @@
     SUGGESTION_BLOCKED: null,
     NO_CONVERSATION: 'Esta ficha ainda não tem conversa para sugerir resposta',
     SUGGESTION_IN_PROGRESS: 'Já existe uma sugestão sendo preparada para esta conversa',
-    OPENAI_BUDGET_LIMIT: 'Sem saldo no teto de US$ 50 da OpenAI · Nada foi cobrado',
+    OPENAI_BUDGET_LIMIT: 'Sem saldo pré-pago na OpenAI · Nada foi cobrado',
     AI_UNAVAILABLE: 'IA indisponível agora · Escreva a resposta manualmente',
     AI_RESPONSE_INVALID: 'A IA respondeu fora do formato · Tente de novo ou escreva manualmente'
   };

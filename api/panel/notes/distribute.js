@@ -24,7 +24,7 @@ module.exports=async(req,res)=>{
     await reserveCall(ctx);
     const parsed=await anthropicJson(
       'Organize a anotação em JSON {"items":[...]}. Cada item cita trecho literal contínuo que comprova especificamente o destino e valor. Sem invenções. Tipos: call_result (ANSWERED/NO_ANSWER/LATER/IN_PERSON/DEPOSIT), checklist (point 1..6, value OK), budget (teto TOTAL confirmado em dólares, nunca lance máximo), payment (cash/fin), deadline (now/30d/3m/none), wishlist (value {operation:include/remove/reorder/update,car:{make,model,yearMin,yearMax,maxMiles},preference}), phone ({number,owner}), promise/return ({text,at} data/hora local ISO), stage, disable ({reason} sugestão). Só inclua datas expressas na anotação; converta as relativas no fuso do cliente. Retorne somente JSON.',
-      JSON.stringify({note,current,now:new Date().toISOString()})
+      JSON.stringify({note,current,now:new Date().toISOString()}),fetch,{ctx,feature:'NOTA',subject:String(lead.ref||body.journeyId||'-')}
     );
     const items=prepareItems(validItems(note,parsed.items),lead);
     return send(res,200,{items,signature:digest(ctx.config.secretKey,lead.ref,note,items)});

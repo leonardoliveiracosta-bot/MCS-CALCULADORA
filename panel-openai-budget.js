@@ -1,13 +1,13 @@
 'use strict';
 
-// One OpenAI ceiling for the whole panel: US$ 50 summed over every OpenAI feature
-// (PESQUISAS reading and its model checks, ENTRADA triage, Manheim match audit, the Manheim
-// CSV normalization and the reply suggestions of the conversations). Each feature keeps its own limits; this one is checked before every paid
-// call and a call starts only when the worst case still fits. In production a failed read of the
-// spend blocks the call (never spend blind); elsewhere nothing real is paid.
+// OpenAI spend of the whole panel against the provider's prepaid balance (no internal ceiling).
+// The balance is the one informed in the panel (OpenAI has no balance API); every paid call
+// reserves its worst case and starts only when it still fits in what is left. Without an informed
+// balance the limit is the provider's own prepaid credit. "No balance" from OpenAI stops every
+// feature until a new balance is informed. In production a failed read of the state blocks the
+// call (never spend blind); elsewhere nothing real is paid.
 const { allRows, supabase } = require('./panel-server');
 
-const LIMIT_USD = 50;
 const MAX_CALL_USD = 0.05;
 
 const number = (value) => Number(value) || 0;
@@ -37,17 +37,45 @@ async function spentUsd(ctx, services = {}) {
       traducao: sum(translations, (row) => row.after_json && row.after_json.costUsd)
     };
     const total = Object.values(byFeature).reduce((a, b) => a + b, 0);
-    return { total: Math.round(total * 1e6) / 1e6, byFeature, limit: LIMIT_USD };
+    let balance;
+    try { balance = await balanceState(ctx, services); }
+    catch (error) { if (isProduction()) throw error; balance = { balance: null, remaining: null, exhausted: false, unavailable: true }; }
+    return { total: Math.round(total * 1e6) / 1e6, byFeature, limit: balance.balance, remaining: balance.remaining, exhausted: Boolean(balance.exhausted), balance };
   } catch (error) {
     if (process.env.VERCEL_ENV === 'production') throw Object.assign(new Error('OPENAI_BUDGET_UNAVAILABLE'), { code: 'OPENAI_BUDGET_UNAVAILABLE' });
-    return { total: 0, byFeature: {}, limit: LIMIT_USD, unavailable: true };
+    return { total: 0, byFeature: {}, limit: null, remaining: null, exhausted: false, unavailable: true };
   }
 }
+// The prepaid balance state (balance, spent since it was informed, remaining, warn, exhausted).
+async function balanceState(ctx, services = {}) {
+  const item = { ctx, services };
+  const state = await callRpc(item, 'panel_ai_balance_state', { p_environment: ctx.environment, p_provider: 'OPENAI' });
+  return state || {};
+}
 
-// True when a call that may cost up to `nextUsd` still fits under the ceiling, given `extraUsd`
-// already spent in this run but not yet read back.
+// True when a call that may cost up to `nextUsd` still fits in the prepaid balance left, given
+// `extraUsd` already spent in this run but not yet read back. No informed balance: always true
+// (the provider's prepaid credit is the limit and the reservation still runs per call).
 function fits(spent, nextUsd = MAX_CALL_USD, extraUsd = 0) {
-  return number(spent.total) + number(extraUsd) + number(nextUsd) <= LIMIT_USD;
+  if (!spent || spent.exhausted) return false;
+  if (spent.remaining === null || spent.remaining === undefined) return true;
+  return number(extraUsd) + number(nextUsd) <= number(spent.remaining);
+}
+// "No balance" from OpenAI (insufficient_quota / billing): every feature stops until a new
+// balance is informed. Never throws.
+async function markExhausted(ctx, reason, services = {}) {
+  try { await callRpc({ ctx, services }, 'panel_ai_mark_exhausted', { p_environment: ctx.environment, p_provider: 'OPENAI', p_reason: String(reason || 'OPENAI_QUOTA').slice(0, 200) }); } catch (_) {}
+}
+// One reading of a failed OpenAI response for every feature: quota/billing is OPENAI_QUOTA
+// (no balance), 429 otherwise a rate limit, anything else a failure.
+async function openAiFailure(response) {
+  let detail = '';
+  try { detail = await response.text(); } catch (_) {}
+  const failure = new Error('OPENAI_FAILED');
+  failure.status = response.status;
+  if ((response.status === 429 && /insufficient_quota|billing|credit/i.test(detail)) || response.status === 402) failure.code = 'OPENAI_QUOTA';
+  else failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED';
+  return failure;
 }
 
 // ------------------------------------------------------------------ reserva por chamada
@@ -95,7 +123,7 @@ async function reserve(item, modelId, amountUsd) {
     if (isProduction()) throw failure('OPENAI_BUDGET_UNAVAILABLE');
     return { id: null, simulated: true };
   }
-  if (!answer || answer.held !== true) throw Object.assign(failure('OPENAI_BUDGET_LIMIT'), { remainingUsd: Number(answer && answer.remaining) || 0 });
+  if (!answer || answer.held !== true) throw Object.assign(failure('OPENAI_BUDGET_LIMIT'), { reason: (answer && answer.reason) || 'SALDO_INSUFICIENTE', remainingUsd: Number(answer && answer.remaining) || 0 });
   return { id: answer.id };
 }
 async function settle(item, hold, status, actualUsd = null) {
@@ -120,6 +148,7 @@ async function paidCall(item, { modelId, body, send }) {
   catch (error) {
     const billed = !NOT_BILLED.has(error && error.code);
     await settle(item, hold, billed ? 'PAGA' : 'LIBERADA', billed ? amount : 0);
+    if (error && error.code === 'OPENAI_QUOTA') await markExhausted(item.ctx, 'OPENAI_QUOTA', item.services);
     throw error;
   }
   await settle(item, hold, 'PAGA', Number(result && result.costUsd) || 0);
@@ -138,4 +167,4 @@ async function state(ctx, services = {}) {
   return callRpc(item, 'panel_openai_budget_state', { p_environment: ctx.environment });
 }
 
-module.exports = { LIMIT_USD, MAX_CALL_USD, OUTPUT_CAP, spentUsd, fits, maxCostUsd, guard, paidCall, recorded, state };
+module.exports = { MAX_CALL_USD, OUTPUT_CAP, spentUsd, balanceState, fits, markExhausted, openAiFailure, maxCostUsd, guard, paidCall, recorded, state };

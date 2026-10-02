@@ -125,7 +125,7 @@ test('conferência Manheim: disparo do upload e cron ao mesmo tempo fazem uma ch
   assert.ok(Number(rows[0].cost_usd) > 0);
 });
 
-test('teto atômico por importação: duas demandas ao mesmo tempo nunca passam juntas do saldo', async () => {
+test('saldo pré-pago atômico: duas demandas ao mesmo tempo nunca passam juntas do saldo da OpenAI (sem limite por lote)', async () => {
   const UPLOAD2 = id(3);
   await backend.db.query(`insert into public.manheim_uploads(id,environment,source_file_count,vehicle_count,created_by) values('${UPLOAD2}','preview',1,10,'${ACTOR}')`);
   const wish = { make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022, minMiles: 1000, maxMiles: 60000 };
@@ -137,25 +137,22 @@ test('teto atômico por importação: duas demandas ao mesmo tempo nunca passam 
     matches: [match(600, id(10), keyA), match(601, id(20), keyB)],
     base: { journeyById: new Map([id(10), id(20)].map((journey) => [journey, { id: journey, status: 'ATIVO', contact: { is_lead: true } }])), refsOf: () => [], calcRuns: [] }
   };
-  const holdOf = (key) => Math.round(audit.estimateGroup(audit.buildGroups(input).find((group) => group.key === key), 'gpt-6-luna').costUsd * 2 * 1e6) / 1e6;
-  // Remaining balance: enough for one demand's hold, not for both.
-  const limit = Math.round((holdOf(keyA) + holdOf(keyB) / 2) * 1e6) / 1e6;
-  assert.ok(limit < holdOf(keyA) + holdOf(keyB));
+  // Prepaid balance of US$ 0.01: one reading's worst case (~US$ 0.0085) fits, two do not.
+  await backend.db.query("select public.panel_ai_set_balance('preview','OPENAI',0.01,null)");
+  // The JS pre-check always passes here, so the database reservation is what is being tested.
+  const openBudget = { ...require('../panel-openai-budget'), spentUsd: async () => ({ total: 0 }), fits: () => true };
   const calls = [];
   const fetchImpl = slowOpenAI(calls, () => JSON.stringify({ aprovado: true, divergencias: [] }));
   const [left, right] = await Promise.all([
-    audit.runAudit(ctx, input, { env: ENV, fetchImpl, onlyKey: keyA, limitUsd: limit }),
-    audit.runAudit(ctx, input, { env: ENV, fetchImpl, onlyKey: keyB, limitUsd: limit })
+    audit.runAudit(ctx, input, { env: ENV, fetchImpl, onlyKey: keyA, budget: openBudget }),
+    audit.runAudit(ctx, input, { env: ENV, fetchImpl, onlyKey: keyB, budget: openBudget })
   ]);
   assert.equal(calls.length, 1, 'só a demanda que cabe no saldo chama a OpenAI');
-  assert.equal([left, right].filter((result) => result.awaitingAuthorization).length, 1, 'a outra fica aguardando autorização');
-  const holds = (await backend.db.query('select demand_key,amount_usd,status from public.manheim_audit_budget_holds where upload_id=$1', [UPLOAD2])).rows;
-  assert.equal(holds.length, 1, 'apenas o valor que cabe foi reservado');
-  assert.equal(holds[0].status, 'ENCERRADA');
+  assert.equal([left, right].filter((result) => result.awaitingAuthorization).length, 0, 'nada fica aguardando autorização');
   const state = await audit.viewState(ctx, input, { env: ENV });
   const statuses = [state.byDemand[keyA].status, state.byDemand[keyB].status].sort();
-  assert.deepEqual(statuses, ['AGUARDANDO_AUTORIZACAO', 'CONFERIDO']);
-  assert.equal(state.run.status, 'AGUARDANDO_AUTORIZACAO');
-  const spent = Number((await backend.db.query('select coalesce(sum(cost_usd),0) s from public.manheim_match_audits where upload_id=$1', [UPLOAD2])).rows[0].s);
-  assert.ok(spent > 0 && spent <= limit, `gasto ${spent} dentro do limite ${limit}`);
+  assert.ok(statuses.includes('CONFERIDO'), JSON.stringify(statuses));
+  assert.notEqual(state.run.status, 'AGUARDANDO_AUTORIZACAO');
+  const balance = (await backend.db.query("select public.panel_ai_balance_state('preview','OPENAI') s")).rows[0].s;
+  assert.ok(Number(balance.spent) > 0 && Number(balance.spent) <= 0.01, `gasto ${balance.spent} dentro do saldo`);
 });

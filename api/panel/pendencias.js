@@ -34,10 +34,6 @@ module.exports=async(req,res)=>{
     if(body.action==='pause_general'||body.action==='resume_general'){
       const status=body.action==='pause_general'?'PAUSED':'ACTIVE';const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_pending_set_general_status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_status:status})});return send(res,200,result);
     }
-    if(body.action==='increase_budget'){
-      if(body.confirm!==true)return send(res,400,{error:'BUDGET_CONFIRMATION_REQUIRED'});
-      const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_pending_add_general_budget',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_add_usd:10})});return send(res,200,result);
-    }
     if(body.action==='resolve'){
       if(!isUuid(body.journeyId)||!isUuid(body.chatId))return send(res,400,{error:'CONVERSATION_ID_INVALID'});await resolvePending(ctx,body);return send(res,200,{resolved:true});
     }

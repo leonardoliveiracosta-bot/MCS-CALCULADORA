@@ -6,7 +6,7 @@
 //     conferido ficam presas) e PESQUISAS (conversas novas ou com mensagem nova, quem escreveu por
 //     último primeiro, sem limite de quantidade: só a janela do ciclo e o teto da OpenAI).
 //  2. Triagem da ENTRADA com o tempo que sobra.
-// Cada uma respeita a própria flag, o teste mínimo do modelo e o teto de US$ 50 da OpenAI.
+// Cada uma respeita a própria flag, o teste mínimo do modelo e o saldo pré-pago da OpenAI.
 // Só classificam e organizam: nada é enviado nem respondido ao cliente.
 const crypto=require('node:crypto');
 const {configuration,SERVER_ENVIRONMENT,send}=require('../../panel-server');

@@ -11,7 +11,7 @@
 //  POST sample         leitura simulada de uma conversa sem gravar nada
 //  POST history_status  progresso da auditoria histórica (processadas, pedidos, custo)
 //  POST model_check     chamada mínima de teste do modelo, sem dado de cliente (só produção)
-//  POST extract_history próximas conversas do histórico (retomável; teto de US$ 50)
+//  POST extract_history próximas conversas do histórico (retomável; saldo pré-pago da OpenAI)
 // Só entra quem mandou mensagem de verdade (pedido da calculadora sem mensagem não entra) e não
 // está encerrado, desligado, descartado, fora do funil ou marcado como "não é lead". Fora isso,
 // nenhum pedido sai da lista por estágio, previsão de compra ou prazo.
@@ -206,7 +206,7 @@ async function audit(ctx) {
     withoutReliableLink: list.items.filter((item) => !item.person || (!item.person.journeyId && !item.person.contactId && item.source !== 'CALCULADORA')).length,
     unverifiedReadings: (runs || []).filter((run) => run.error_code === 'EXTRACTION_UNVERIFIED').length,
     estimate: { conversationsToRead: unread.length, messagesToRead: toRead, inputTokens, outputTokens, model, costUsd: search.estimateCostUsd(model, inputTokens, outputTokens),
-      spentUsd: spentBy('OPENAI'), providerLimitUsd: search.PROVIDER_LIMIT_USD.OPENAI, provider },
+      spentUsd: spentBy('OPENAI'), providerLimitUsd: null, provider },
     // Tracked: every conversation read and every request compared or waiting on a person. Served
     // is only claimed when every request has at least one valid option.
     trackingComplete: unread.length === 0 && byState.FALTA_BUSCAR === 0 && byState.PRECISA_REVISAO === 0 && !list.requestsPending,
@@ -220,7 +220,7 @@ async function audit(ctx) {
 // de leituras é o ponto de retomada; o mesmo conteúdo nunca é lido duas vezes). Com a IA:
 //  * antes da primeira conversa real, uma chamada mínima de teste do modelo, sem dado de cliente;
 //    modelo indisponível para a auditoria antes de ler qualquer conversa (sem trocar de modelo);
-//  * teto cumulativo de US$ 50: uma chamada só começa se ainda cabe inteira; a cota do próprio
+//  * saldo pré-pago da OpenAI: uma chamada só começa se ainda cabe inteira; a cota do próprio
 //    provedor também para com segurança; cada lote é registrado (provedor, modelo, tokens, custo).
 // Nada é enviado a ninguém. Fora de produção a leitura é sempre simulada.
 const HISTORY_BATCH = 10;
@@ -261,7 +261,7 @@ function historyContext() {
   const status = search.extractionStatus();
   if (status !== 'SIMULADA' && status !== 'LIGADA') return { error: 'SEARCH_EXTRACTION_OFF', status };
   const provider = status === 'LIGADA' ? 'OPENAI' : 'SIMULATED';
-  return { status, provider, model: provider === 'OPENAI' ? process.env.SEARCH_EXTRACTION_MODEL : null, limitUsd: provider === 'OPENAI' ? search.PROVIDER_LIMIT_USD.OPENAI : null };
+  return { status, provider, model: provider === 'OPENAI' ? process.env.SEARCH_EXTRACTION_MODEL : null, limitUsd: null };
 }
 const modelChecked = (state, model) => Boolean(state.lastCheck && state.lastCheck.stopped_reason === CHECK_OK && state.lastCheck.model === model);
 function progressOf(state, context, extra = {}) {
@@ -280,9 +280,9 @@ async function modelCheck(ctx, options = {}) {
   if (context.error) return { status: 409, error: context.error, extraction: context.status };
   if (context.provider !== 'OPENAI') return { status: 200, ok: true, simulated: true, model: null };
   const state = await historyState(ctx, context.provider);
-  // The ceiling is the whole OpenAI spend of the panel (every feature), not only this one.
+  // The limit is the OpenAI prepaid balance left (every feature together), never a ceiling of its own.
   const provider = await openAiBudget.spentUsd(ctx);
-  if (state.spentUsd + search.MAX_CALL_USD > context.limitUsd || !openAiBudget.fits(provider, search.MAX_CALL_USD)) return { status: 409, error: 'PROVIDER_LIMIT', spentUsd: state.spentUsd, providerSpentUsd: provider.total };
+  if (!openAiBudget.fits(provider, search.MAX_CALL_USD)) return { status: 409, error: 'PROVIDER_LIMIT', spentUsd: state.spentUsd, providerSpentUsd: provider.total };
   let result, failure = null;
   const guard = openAiBudget.guard(ctx, 'MODELO_TESTE', 'pesquisas:' + context.model);
   try { result = await search.checkModel({ ...options, guard }); } catch (error) { failure = error.code || 'OPENAI_FAILED'; }
@@ -309,8 +309,8 @@ async function extractHistory(ctx, limit, options = {}) {
   const hardStopAt = deadlineAt + 8000;
   if (!state.pending.length) return progressOf(state, context, { read: 0, failed: 0, stoppedReason: null, batchCostUsd: 0 });
   const provider = context.provider === 'OPENAI' ? await openAiBudget.spentUsd(ctx) : null;
-  // The cron reads with no count limit (Infinity), only its time window and the US$ 50 OpenAI ceiling;
-  // the panel button keeps its batch of 10.
+  // The cron reads with no count limit (Infinity), only its time window and the OpenAI prepaid
+  // balance; the panel button reads in batches of 10 and goes on by itself until the end.
   const wanted = limit === Infinity ? Infinity : Math.min(limit || HISTORY_BATCH, HISTORY_BATCH);
   const workers = Math.max(1, Math.min(8, Number(options.concurrency) || 1));
   // A conversation whose newer customer message has no text keeps the same content: it is
@@ -319,7 +319,7 @@ async function extractHistory(ctx, limit, options = {}) {
   const stop = (reason) => { if (!batch.stoppedReason) batch.stoppedReason = reason; };
   async function worker() {
     while (!batch.stoppedReason && next < state.pending.length && attempted < wanted) {
-      if (context.limitUsd !== null && (state.spentUsd + batch.costUsd + search.MAX_CALL_USD * workers > context.limitUsd || (provider && !openAiBudget.fits(provider, search.MAX_CALL_USD * workers, batch.costUsd)))) { stop('PROVIDER_LIMIT'); return; }
+      if (provider && !openAiBudget.fits(provider, search.MAX_CALL_USD * workers, batch.costUsd)) { stop('PROVIDER_LIMIT'); return; }
       if (Date.now() > deadlineAt) return;
       // A reading may take up to LONG_TIMEOUT_MS, but never past the function's limit: it starts
       // only with enough time left, and waits at most what is left (a slow reading used to be cut
@@ -347,7 +347,7 @@ async function extractHistory(ctx, limit, options = {}) {
 }
 
 // One conversation read now for PESQUISAS (ficha "Ler conversa agora"), same rules as the batch:
-// extraction on, model test passed, US$ 50 ceiling (inside extractChat). Never sends anything.
+// extraction on, model test passed, OpenAI prepaid balance (inside extractChat). Never sends anything.
 async function extractNow(ctx, chatId) {
   const context = historyContext();
   if (context.error) return { skipped: context.status };

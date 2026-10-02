@@ -1,7 +1,7 @@
 'use strict';
 
 // Ficha › CONVERSA: duas ferramentas novas, separadas da sugestão automática (panel-reply-suggest.js,
-// que continua igual) e que reaproveitam o mesmo caso, o mesmo Brief e o mesmo teto de US$ 50.
+// que continua igual) e que reaproveitam o mesmo caso, o mesmo Brief e o mesmo saldo pré-pago da OpenAI.
 //  1. Resposta orientada: o operador escreve em português o que quer transmitir; a IA redige a
 //     mensagem no idioma do cliente, com tradução, e aponta o que conflita com a ficha ou a conversa.
 //  2. Tradução da conversa: sob demanda, por mensagem (ID + conteúdo), guardada e reaproveitada.
@@ -38,7 +38,7 @@ async function openAiJson({ instructions, input, schema, name }, options = {}) {
         method: 'POST', signal: controller.signal,
         headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.OPENAI_API_KEY }, body: JSON.stringify(capped)
       });
-      if (!response.ok) { const failure = new Error('OPENAI_FAILED'); failure.code = response.status === 429 ? 'OPENAI_RATE_LIMIT' : 'OPENAI_FAILED'; throw failure; }
+      if (!response.ok) throw await require('./panel-openai-budget').openAiFailure(response);
       const payload = await response.json();
       const usage = { inputTokens: Number(payload?.usage?.prompt_tokens) || 0, outputTokens: Number(payload?.usage?.completion_tokens) || 0 };
       let parsed = null;
@@ -50,7 +50,7 @@ async function openAiJson({ instructions, input, schema, name }, options = {}) {
     } finally { clearTimeout(timer); }
   } });
 }
-// The cost goes to the audit log (counted in the US$ 50 ceiling); then the hold stops counting.
+// The cost goes to the audit log (counted against the OpenAI prepaid balance); then the hold stops counting.
 async function recordCost(ctx, guard, entity, entityId, action, result, extra, services) {
   const saved = await (services.insert || insert)(ctx, 'audit_log', { environment: ctx.environment, actor_user_id: ctx.panel.id, entity_type: entity, entity_id: entityId, action,
     after_json: { provider: 'openai', model: result.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, costUsd: result.costUsd, ...extra } }, false).then(() => true, () => false);

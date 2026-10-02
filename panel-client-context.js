@@ -273,7 +273,7 @@ function normalizedInput(input) {
   };
 }
 
-const JOURNEY_COLUMNS = 'id,contact_id,reference_code,source,status,stage,vehicle_text,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,criteria_json,next_action_text,next_action_at,last_effective_contact_at,created_at,updated_at,closed_at,closed_reason';
+const JOURNEY_COLUMNS = 'id,contact_id,reference_code,source,status,stage,vehicle_text,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,criteria_json,next_action_text,next_action_at,next_action_set_at,last_effective_contact_at,created_at,updated_at,closed_at,closed_reason';
 
 async function loadJourneys(ctx, input) {
   const env = 'eq.' + ctx.environment;

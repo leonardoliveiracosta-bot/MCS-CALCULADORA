@@ -16,7 +16,7 @@ async function chatGroupIndex(ctx, preloaded = {}) {
     preloaded.chats || read('chats', { select: 'id,contact_id', environment: env }),
     preloaded.messages || read('messages', { select: MESSAGE_SELECT, environment: env }),
     read('calculator_request_links', { select: 'contact_id,journey_id,logical_mode,linked_at', environment: env }),
-    read('journeys', { select: 'id,contact_id,source,status,closed_at,next_action_at,next_action_text,last_effective_contact_at,created_at,updated_at', environment: env, order: 'updated_at.desc' }),
+    read('journeys', { select: 'id,contact_id,source,status,closed_at,next_action_at,next_action_set_at,next_action_text,last_effective_contact_at,created_at,updated_at', environment: env, order: 'updated_at.desc' }),
     read('journey_toggle_states', { select: 'journey_id,enabled,switched_at', environment: env }),
     preloaded.topic !== undefined ? preloaded.topic : loadTopic(ctx).catch(() => null),
     loadVitrineOrigins(ctx).catch(() => null)

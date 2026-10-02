@@ -1005,19 +1005,36 @@
     $('data-updated').textContent = formatDate(meta.dataUpdatedAt);
     const whatsappAt=meta.lastWhatsAppMessageAt||meta.lastWhatsAppImportAt;
     $('last-whatsapp-import').textContent = whatsappAt ? formatDate(whatsappAt) : 'nenhuma';
-    paintAiBudget(meta.openAi);
+    paintAiBudget(meta.ai);
   }
-  // One global OpenAI ceiling (US$ 50, no sub-limit per feature). From 80% (US$ 40) the header warns;
-  // the spend of each feature opens on click and never blocks the screen.
-  function paintAiBudget(openAi){
-    const box=$('ai-budget');if(!box||!openAi)return;box.classList.remove('hidden');
+  // The prepaid balance of each AI (OpenAI and Claude), no internal ceiling. The header warns at
+  // 20% left or when the provider said there is no balance; the details show the spend per feature
+  // and take the balance seen in the provider's console. Never blocks the screen.
+  const AI_PROVIDERS=[['openai','OPENAI','OpenAI'],['anthropic','ANTHROPIC','Claude']];
+  function paintAiBudget(ai){
+    const box=$('ai-budget');if(!box||!ai)return;box.classList.remove('hidden');
     const usd=(value)=>'US$ '+Number(value||0).toFixed(2);
-    $('ai-budget-spent').textContent=`${usd(openAi.spentUsd)} de ${usd(openAi.limitUsd)}`;box.classList.toggle('ai-budget-warn',Boolean(openAi.warn));
-    const warning=$('ai-budget-warning');warning.classList.toggle('hidden',!openAi.warn);
-    warning.textContent=openAi.warn?`Aviso: ${Math.round(Number(openAi.spentUsd)/Number(openAi.limitUsd)*100)}% do teto de ${usd(openAi.limitUsd)} da IA usado · Ao chegar no teto, as funções de IA param sozinhas; o painel continua funcionando`:'';
-    if(!box.dataset.bound){box.dataset.bound='1';box.addEventListener('toggle',async()=>{if(!box.open)return;const list=$('ai-budget-features');list.replaceChildren(element('li','muted','Carregando o gasto por função…'));
-      try{const data=await request('/api/panel/ai-budget');list.replaceChildren(...data.features.map((item)=>element('li','',`${item.label}: ${usd(item.spentUsd)}`)),element('li','muted',`Total ${usd(data.spentUsd)} de ${usd(data.limitUsd)} · teto único para todas as funções · aviso a partir de ${usd(data.warnAtUsd)}`));}
-      catch(_){list.replaceChildren(element('li','error','Não consegui ler o gasto agora'));}});}
+    const line=(name,state)=>!state?`${name}: —`:state.exhausted?`${name}: sem saldo`:state.informed?`${name}: ${usd(state.remainingUsd)} de ${usd(state.balanceUsd)}`:`${name}: saldo não informado`;
+    $('ai-budget-spent').textContent=AI_PROVIDERS.map(([key,,name])=>line(name,ai[key])).join(' · ');
+    const warn=AI_PROVIDERS.filter(([key])=>ai[key]&&(ai[key].warn||ai[key].exhausted));box.classList.toggle('ai-budget-warn',warn.length>0);
+    const warning=$('ai-budget-warning');warning.classList.toggle('hidden',!warn.length);
+    warning.textContent=warn.map(([key,,name])=>ai[key].exhausted?`${name} sem saldo pré-pago: as funções dela param sozinhas até você informar um novo saldo · O painel continua funcionando`:`${name}: restam ${usd(ai[key].remainingUsd)} (20% ou menos do saldo) · Recarregue no console do provedor e informe o novo saldo aqui`).join(' · ');
+    if(!box.dataset.bound){box.dataset.bound='1';box.addEventListener('toggle',()=>{if(box.open)loadAiBudgetDetails().catch(()=>{});});}
+  }
+  async function loadAiBudgetDetails(){
+    const usd=(value)=>'US$ '+Number(value||0).toFixed(2);
+    const list=$('ai-budget-features');list.replaceChildren(element('li','muted','Carregando o saldo e o gasto por função…'));
+    let data;try{data=await request('/api/panel/ai-budget');}catch(_){list.replaceChildren(element('li','error','Não consegui ler o saldo agora'));return;}
+    list.replaceChildren();
+    AI_PROVIDERS.forEach(([key,provider,name])=>{const state=data[key]||{};const item=element('li','ai-budget-provider');item.dataset.provider=provider;
+      item.append(element('strong','',name),element('p','muted',state.informed?`Saldo informado ${usd(state.balanceUsd)}${state.setAt?' em '+formatDate(state.setAt):''} · gasto desde então ${usd(state.spentUsd)} · restam ${usd(state.remainingUsd)}`:`Saldo não informado · gasto dos últimos 30 dias ${usd(state.spentUsd)} · sem saldo informado, o limite é o próprio pré-pago do provedor`));
+      if(state.exhausted)item.append(element('p','error','O provedor respondeu sem saldo: as funções dele estão paradas até um novo saldo'));
+      const features=element('ul','ai-budget-features-list');(state.features||[]).forEach((feature)=>features.append(element('li','',`${feature.label}: ${usd(feature.spentUsd)}`)));if((state.features||[]).length)item.append(features);
+      const form=element('div','inline-actions ai-budget-form');const input=element('input','');input.type='number';input.min='0';input.step='0.01';input.inputMode='decimal';input.placeholder='Saldo no console (US$)';input.setAttribute('aria-label',`Saldo pré-pago atual da ${name} em dólares`);
+      const save=element('button','small','Informar saldo');save.type='button';
+      MCSAction.bind(save,()=>{const value=Number(String(input.value).replace(',','.'));if(!(value>=0))return{scope:item,commit:()=>Promise.reject(new Error('AI_BALANCE_INVALID')),errorText:'Digite o saldo em dólares'};
+        return{scope:item,successScope:item,commit:()=>request('/api/panel/ai-budget',{method:'POST',body:JSON.stringify({provider,balanceUsd:value})}),successText:`Saldo da ${name} informado: ${usd(value)}`,refresh:()=>Promise.all([loadAiBudgetDetails(),refreshCounters().catch(()=>{})]),errorText:'Não consegui salvar o saldo (só o dono pode informar)'};});
+      form.append(input,save);item.append(form,element('p','muted','Recarga só no console do provedor · Deixe a recarga automática desligada lá'));list.append(item);});
   }
 
   function pendingQuery() {
@@ -1034,40 +1051,26 @@
   function pendingTone(value) { return {NO_RESPONSE:'red',MCS_PENDING:'yellow',CUSTOMER_PENDING:'yellow',IN_PROGRESS:'green',CLOSED:''}[value]||''; }
   function pendingHeatLabel(value) { return {HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'}[value]||'❄️ Frio'; }
   function renderPendingGeneral(data, rootId='pending-general-card') {
-    const root=$(rootId),run=data.run||{},active=run.status==='ACTIVE',paused=run.status==='PAUSED',limited=run.status==='LIMIT';
+    const root=$(rootId),run=data.run||{},active=run.status==='ACTIVE',paused=run.status==='PAUSED'||run.status==='LIMIT';
     root.replaceChildren();
     root.append(element('h2','', 'Leitura geral de todas as conversas'));
     if(!data.historyReady) {
       root.append(element('p','muted',`Aguardando o histórico terminar de chegar (última parte há ${pendingAgo(data.lastHistoryAt)})`));
       const button=element('button','quiet small','Fazer leitura geral');button.type='button';button.disabled=true;root.append(button);return;
     }
-    const total=Number(run.total_conversations||0),completed=Number(run.completed_conversations||0),spent=Number(run.spent_usd||0),budget=Number(run.budget_usd||20);
+    const total=Number(run.total_conversations||0),completed=Number(run.completed_conversations||0),spent=Number(run.spent_usd||0);
     if(run.status==='IDLE'||!run.status){
       root.append(element('p','muted','Lê todas as conversas, das mais recentes às mais antigas, inclusive conversas longas em partes'));
       const start=element('button','small','Fazer leitura geral');start.type='button';MCSAction.bind(start,()=>({scope:root,commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'start_general'})}),onSuccess:()=>continuePendingGeneral(),errorText:'IA indisponível, tente de novo'}));root.append(start);return;
     }
-    const status=limited?'limite atingido':paused?'pausada':run.status==='COMPLETED'?'concluída':'em andamento';
+    const status=paused?'pausada':run.status==='COMPLETED'?'concluída':'em andamento';
     root.append(element('p','',`Leitura geral ${status}`));
-    if (paused && run.last_error) root.append(element('p','error',run.last_error==='IA_UNAVAILABLE'?'IA indisponível · O painel continua disponível para uso manual':'A leitura foi pausada; tente continuar novamente'));
+    if (paused && run.last_error) root.append(element('p','error',run.last_error==='IA_SEM_SALDO'?'Claude sem saldo pré-pago · Recarregue no console e informe o novo saldo no topo do painel; depois clique em Continuar':run.last_error==='IA_UNAVAILABLE'?'IA indisponível · O painel continua disponível para uso manual':'A leitura foi pausada; tente continuar novamente'));
     const bar=element('div','pending-bar'),fill=element('i');fill.style.width=`${total?Math.min(100,completed/total*100):100}%`;bar.append(fill);root.append(bar);
-    root.append(element('p','muted',`${completed} de ${total} conversas lidas · gasto US$ ${spent.toFixed(2)} de US$ ${budget.toFixed(2)} · conversas longas são lidas em partes, até o fim`));
+    root.append(element('p','muted',`${completed} de ${total} conversas lidas · gasto US$ ${spent.toFixed(2)} · sem teto próprio: usa o saldo pré-pago do Claude · conversas longas são lidas em partes, até o fim`));
     const actions=element('div','inline-actions');
     if(active){const pause=element('button','quiet small','Pausar');pause.type='button';MCSAction.bind(pause,()=>({scope:root,optimistic:()=>{pause.textContent='Pausando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})}),rollback:()=>{pause.textContent='Pausar';},onSuccess:()=>currentView==='clients'?loadClients():loadPending(),errorText:'Não consegui salvar, tente de novo'}));actions.append(pause);}
     if(paused){const resume=element('button','small','Continuar');resume.type='button';MCSAction.bind(resume,()=>({scope:root,optimistic:()=>{resume.textContent='Continuando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resume_general'})}),rollback:()=>{resume.textContent='Continuar';},onSuccess:()=>continuePendingGeneral(),errorText:'Não consegui salvar, tente de novo'}));actions.append(resume);}
-    if(limited){
-      root.append(element('p','warning',`${completed} de ${total} lidas — faltam ${Math.max(0,total-completed)}.`));
-      const more=element('button','small','Liberar mais US$ 10');more.type='button';
-      more.addEventListener('click',()=>{
-        more.disabled=true;
-        const question=element('span','muted','Liberar mais US$ 10 para concluir a leitura geral?');
-        const cancel=element('button','quiet small','Cancelar');cancel.type='button';
-        const approve=element('button','small','Confirmar liberação');approve.type='button';
-        const confirmation=element('div','inline-actions');confirmation.append(question,cancel,approve);
-        cancel.addEventListener('click',()=>{confirmation.remove();more.disabled=false;});
-        MCSAction.bind(approve,()=>({scope:confirmation,optimistic:()=>{cancel.disabled=true;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'increase_budget',confirm:true})}),rollback:()=>{cancel.disabled=false;},onSuccess:()=>{confirmation.remove();continuePendingGeneral();},errorText:'Não consegui salvar, tente de novo'}));
-        root.append(confirmation);
-      });actions.append(more);
-    }
     root.append(actions);
   }
   function renderPending(data) {
@@ -2051,7 +2054,7 @@
   // Why a reading is pending, in words (never a bare code).
   function auditPendingText(entry){
     const code=entry?.errorCode;
-    if(code==='OPENAI_BUDGET_LIMIT'||code==='OPENAI_BUDGET_UNAVAILABLE')return 'Sem saldo no teto de US$ 50 da OpenAI · Nada foi cobrado';
+    if(code==='OPENAI_BUDGET_LIMIT'||code==='OPENAI_BUDGET_UNAVAILABLE')return 'Sem saldo pré-pago na OpenAI para esta leitura · Nada foi cobrado';
     if(code==='AUDIT_DEADLINE')return `Tempo esgotado antes de terminar a conferência (${entry.attempts||0} ${entry.attempts===1?'tentativa':'tentativas'})`+(entry.canRetry?'':' · Sem nova tentativa: V1 bloqueada, aprove com motivo se conferir à mão');
     return 'A IA não respondeu · As opções continuam visíveis, sem aprovação automática';
   }
@@ -2077,8 +2080,8 @@
     const waiting=audit&&audit.state==='LIGADA'&&audit.run&&audit.run.status==='AGUARDANDO_AUTORIZACAO';
     note.classList.toggle('hidden',!waiting);if(!waiting)return;
     const cost=(value)=>'US$ '+Number(value||0).toFixed(2);
-    note.append(element('p','',`Conferência estimada em ${cost(audit.run.estimateUsd)}, acima do limite de ${cost(audit.run.limitUsd??audit.limitUsd)} deste lote. Nada foi cobrado`));
-    const authorize=element('button','small','Autorizar conferência');authorize.type='button';
+    note.append(element('p','',`Conferência estimada em ${cost(audit.run.estimateUsd)}, parada por um limite antigo deste lote (não existe mais limite por lote). Nada foi cobrado`));
+    const authorize=element('button','small','Continuar conferência');authorize.type='button';
     MCSAction.bind(authorize,()=>({scope:note,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'authorize'})}),refresh:()=>loadCurrent(),errorText:(error)=>error?.code==='AUDIT_ADMIN_ONLY'?'Só o administrador autoriza':'Não consegui autorizar, tente de novo'}));
     note.append(authorize);
   }
@@ -2546,13 +2549,13 @@
       try{
         try{created=await create();}
         catch(error){
-          /* Not checked yet: one reading of this demand now (automatic rules and the US$ 50 ceiling on the server), then one more try. Never an approval. */
+          /* Not checked yet: one reading of this demand now (automatic rules and the OpenAI prepaid balance on the server), then one more try. Never an approval. */
           if(error?.code!=='MANHEIM_AUDIT_PENDING'||!demand?.key||!AUDIT_CHECK_FIRST.includes(auditEntry(demand)?.status))throw error;
           cardStatus.textContent='Conferindo este pedido antes do link…';
           const checked=await request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'check',key:demand.key})}).catch(()=>null);
           try{created=await create();}
           catch(again){
-            if(again?.code==='MANHEIM_AUDIT_PENDING'){cardStatus.textContent=checked?.providerLimit?'V1 bloqueada: sem saldo no teto de US$ 50 da OpenAI':checked?.inProgress?'V1 bloqueada: a conferência deste pedido já está em andamento, tente em instantes':'V1 bloqueada: a conferência não liberou este pedido · Atualize a página para ver o motivo';return;}
+            if(again?.code==='MANHEIM_AUDIT_PENDING'){cardStatus.textContent=checked?.providerLimit?'V1 bloqueada: sem saldo pré-pago na OpenAI para a conferência':checked?.inProgress?'V1 bloqueada: a conferência deste pedido já está em andamento, tente em instantes':'V1 bloqueada: a conferência não liberou este pedido · Atualize a página para ver o motivo';return;}
             throw again;
           }
         }
@@ -2907,13 +2910,13 @@
     } finally { button.disabled = false; }
   }
   // Auditoria histórica: um botão só. Confirma, testa o modelo uma vez (produção) e processa os
-  // lotes de 10 até acabar, pausar ou parar no teto. O ponto de retomada fica gravado no servidor:
+  // lotes de 10 até acabar, pausar ou parar sem saldo. O ponto de retomada fica gravado no servidor:
   // fechar a aba e clicar de novo continua de onde parou. Nada é enviado a ninguém.
   let historyPaused = false;
   const HISTORY_ERRORS = { OPENAI_MODEL_UNAVAILABLE: 'O modelo gpt-6-luna não está disponível para a chave OpenAI de produção · Nenhuma conversa foi lida e nenhum outro modelo foi tentado',
     OPENAI_KEY_INVALID: 'A chave OpenAI de produção foi recusada · Nenhuma conversa foi lida', OPENAI_QUOTA: 'A OpenAI recusou por saldo ou cota · Nenhuma conversa foi lida',
     MODEL_NOT_CHECKED: 'O teste do modelo ainda não passou · Nenhuma conversa foi lida', SEARCH_EXTRACTION_OFF: 'A leitura por IA está desligada neste ambiente',
-    PROVIDER_LIMIT: 'Teto de US$ 50 atingido · Parado com segurança; o restante continua pendente', PROVIDER_QUOTA: 'A OpenAI encerrou por saldo ou cota · Parado com segurança; o restante continua pendente',
+    PROVIDER_LIMIT: 'Sem saldo pré-pago na OpenAI · Parado com segurança; o restante continua pendente', PROVIDER_QUOTA: 'A OpenAI encerrou por saldo ou cota · Parado com segurança; o restante continua pendente',
     MODEL_UNAVAILABLE: 'O modelo deixou de estar disponível · Parado com segurança; o restante continua pendente' };
   const usd = (value) => 'US$ ' + Number(value || 0).toFixed(4);
   function historyText(state, prefix) {
@@ -2932,7 +2935,7 @@
     if (!state.available) { text.className = 'error'; text.textContent = HISTORY_ERRORS.SEARCH_EXTRACTION_OFF; button.disabled = false; return; }
     const who = state.provider === 'OPENAI' ? `OpenAI ${state.model}` : 'leitura simulada (sem IA, sem custo)';
     const terms = $('requests-history-terms');
-    terms.replaceChildren(...['Lê as conversas de clientes desde 09/08/2026', 'Não envia nenhuma mensagem', `Usa ${who}`, 'Pode pausar e continuar depois do mesmo ponto', `Teto máximo de US$ ${state.providerLimitUsd || 50}`].map((line) => element('li', '', line)));
+    terms.replaceChildren(...['Lê as conversas de clientes desde 09/08/2026', 'Não envia nenhuma mensagem', `Usa ${who}`, 'Pode pausar e continuar depois do mesmo ponto', 'Sem teto próprio: usa o saldo pré-pago da OpenAI'].map((line) => element('li', '', line)));
     $('requests-history-remaining').textContent = `Faltam ${state.remaining} de ${state.total} conversas · custo acumulado ${usd(state.spentUsd)}`;
     text.textContent = '';
     $('requests-history-confirm').classList.remove('hidden');
@@ -2993,7 +2996,7 @@
     row('Conversas ainda não lidas', data.estimate.conversationsToRead);
     root.replaceChildren(table,
       element('p', data.allServed ? '' : 'warning', data.allServed ? 'Todos os pedidos têm opção válida no lote ativo' : 'Ainda não há prova de que todo pedido de veículo foi atendido'),
-      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}, dentro do limite de US$ ${data.estimate.providerLimitUsd} do provedor. Nada é lido sem autorização`));
+      element('p', 'muted', `Leitura do histórico: ${data.estimate.conversationsToRead} conversas, ${data.estimate.messagesToRead} mensagens, cerca de US$ ${Number(data.estimate.costUsd || 0).toFixed(2)} com ${data.estimate.model}, pagos pelo saldo pré-pago da OpenAI. Nada é lido sem autorização`));
   }
 
   // Lotes: o ativo sempre à vista; os desfeitos num "Histórico de lotes" recolhido. Ocultar é só

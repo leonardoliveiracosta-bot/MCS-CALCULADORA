@@ -42,12 +42,12 @@ const TRANSLATE_SYSTEM = 'Você traduz mensagens da My Car Scout (serviço que c
   '"en": tradução fiel do texto em português para inglês americano natural e informal, como uma mensagem de WhatsApp; não acrescente nem remova informação; não use travessão (em-dash). ' +
   '"pt_back": tradução de volta do "en" para o português, para conferência.';
 
-async function translate(text, services) {
+async function translate(text, services, ctx = null) {
   const source = String(text || '').trim();
   if (!source) return { status: 400, error: 'TEXT_REQUIRED' };
   if (source.length > MAX_TEXT) return { status: 400, error: 'TEXT_TOO_LONG' };
   let result;
-  try { result = await services.anthropicJson(TRANSLATE_SYSTEM, source); } catch (_) { return { status: 502, error: 'AI_UNAVAILABLE' }; }
+  try { result = await services.anthropicJson(TRANSLATE_SYSTEM, source, fetch, ctx ? { ctx, feature: 'TRADUCAO_RESPOSTA', subject: 'resposta' } : null); } catch (_) { return { status: 502, error: 'AI_UNAVAILABLE' }; }
   const en = typeof result?.en === 'string' ? undash(result.en).trim() : '';
   const ptBack = typeof result?.pt_back === 'string' ? result.pt_back.trim() : '';
   if (!en || !ptBack || en.length > MAX_TEXT) return { status: 502, error: 'AI_UNAVAILABLE' };
@@ -85,7 +85,7 @@ const defaultServices = { rows, insert, applyMessage, anthropicJson, d360Send };
 
 async function handle(ctx, body, services = defaultServices, now = Date.now()) {
   const action = String(body?.action || '');
-  if (action === 'translate') return translate(body.text, services);
+  if (action === 'translate') return translate(body.text, services, ctx);
   if (action !== 'window' && action !== 'send') return { status: 400, error: 'ACTION_INVALID' };
   const journeyId = String(body?.journeyId || '');
   if (action === 'send') {
