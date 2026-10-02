@@ -33,6 +33,10 @@ module.exports = async (req, res) => {
   try {
     const now = Date.now();
     const cutoff = now - 24 * 60 * 60 * 1000;
+    // A secondary source that cannot be read degrades only its own detail and is reported (never silent): the list is still
+    // drawn from the healthy sources and the screen says which one is out of date.
+    const degraded = [];
+    const soft = (name, fallback) => () => { degraded.push(name); return fallback; };
     // HOJE never reads Manheim cars: the score gets one reference MMR per person from the database
     // (live batches only; an undone or unfinished batch never feeds HOJE).
     const [data, calcRuns, links, dispositions, meta, responses, vehicles, leadPromises, aiItems, aiSuggestions, pendingInsights] = await Promise.all([
@@ -43,15 +47,16 @@ module.exports = async (req, res) => {
       panelMeta(ctx),
       // A12: "quero este carro" stays until it is handled, not only for 24 hours (30 days at most).
       allRows(ctx, 'lead_events', { select: 'ref_code,journey_id,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(now - 30 * 86400000).toISOString() }),
-      loadScoreIndex(ctx, now).catch(() => []),
+      loadScoreIndex(ctx, now).catch(soft('pontuação', [])),
       allRows(ctx, 'lead_promises', { select: 'ref_code,journey_id,promise_text,due_at,status', environment: 'eq.' + ctx.environment, status: 'eq.OPEN' }),
       allRows(ctx, 'conversation_ai_items', { select: 'journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING' }),
       allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' })
       ,allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment })
     ]);
     // Adendo: fora do assunto (leitura da triagem ou correção sua); sem tabela, ninguém fica fora.
-    const [topic, vitrineOrigins, triageOut, classification] = await Promise.all([loadTopic(ctx).catch(() => null), loadVitrineOrigins(ctx).catch(() => null),
-      outOfFunnelIndex(ctx, data.journeys, data.refs || []).catch(() => new Set()), loadClassification(ctx)]);
+    const [topic, vitrineOrigins, triageOut, classification] = await Promise.all([loadTopic(ctx).catch(soft('fora do assunto', null)), loadVitrineOrigins(ctx).catch(soft('origem pela vitrine', null)),
+      outOfFunnelIndex(ctx, data.journeys, data.refs || []).catch(soft('triagem (fora do funil)', new Set())), loadClassification(ctx)]);
+    if (!classification.available) degraded.push('assunto e identidade');
     // Identity of each ficha: Refs proven by the calculator (calc_runs or the client's calculator
     // message); a code of the ficha without that proof is only an internal code.
     const runRefs = refProof.runRefsOf(calcRuns);
@@ -248,12 +253,13 @@ module.exports = async (req, res) => {
     const requestedSort=String(req.query?.sort||'ready');
     if(requestedSort!=='ready')items=sortItems(items,requestedSort,'ready');
 
-    const stageIndex=await loadSearchStageIndex(ctx).catch(()=>new Map());
+    const stageIndex=await loadSearchStageIndex(ctx).catch(soft('andamento da busca',new Map()));
     return send(res, 200, {
       environment: ctx.environment,
       windowHours: 24,
       generatedAt: new Date(now).toISOString(),
       items:items.map((item)=>decorateWithSearchStage(item,stageIndex)),
+      degraded: [...new Set(degraded)],
       meta
     });
   } catch (_) {

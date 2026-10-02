@@ -965,8 +965,11 @@
     await refreshCounters().catch(() => {});
   }
 
+  let queueSeq = 0;
   async function loadQueue(render = true) {
+    const seq = ++queueSeq;
     const data = await request('/api/panel/entry');
+    if (seq !== queueSeq) return data;
     contacts = data.contacts || [];
     chats = data.chats || [];
     journeys = data.journeys || [];
@@ -1123,7 +1126,9 @@
     });
     if(['pending','clients'].includes(currentView)&&data.run?.status==='ACTIVE')pendingContinueTimer=setTimeout(()=>continuePendingGeneral().catch(()=>{}),500);
   }
-  async function loadPending() { const data=await request(pendingQuery());renderPending(data);return data; }
+  // An answer for an old filter never replaces the one for the current filter.
+  let pendingSeq=0;
+  async function loadPending() { const seq=++pendingSeq;const data=await request(pendingQuery());if(seq!==pendingSeq)return data;renderPending(data);return data; }
   async function continuePendingGeneral() { if(!['pending','clients'].includes(currentView))return;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'continue_general'})});return currentView==='clients'?loadClients():loadPending(); }
   async function downloadPendingCsv() {
     const response=await fetch(pendingQuery()+'&download=csv',{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('DOWNLOAD_FAILED');const blob=await response.blob(),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='pendencias-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -1183,7 +1188,7 @@
     const params=new URLSearchParams({sort:$('clients-sort').value,period:clientsPeriod(),situation:$('clients-situation').value,checklist:$('clients-checklist').value,ref:$('clients-ref').value,heat:$('clients-heat').value,origin:$('clients-origin')?.value||'all',type:$('clients-type')?.value||'all',overdue24:String(clientsOverdue24),...extra});
     return '/api/panel/records?'+params.toString();
   }
-  let clientsVersion=0,clientsObserver=null;
+  let clientsVersion=0,clientsObserver=null,clientsPagesLoaded=1;
   // CLIENTES is a directory: one compact line per person to find them and open the full ficha. The
   // queue of what to do lives in ATENDIMENTO; every other field and action stays in "⋯ Mais" and in the ficha.
   function clientCard(item){
@@ -1244,6 +1249,18 @@
     const spec=MCSGroups.AREAS[areaKey];area=element('section',`contact-area contact-area-${areaKey.toLowerCase().replace(/_/g,'-')}`);area.dataset.area=areaKey;area.dataset.section=sectionKey;
     const head=element('header','contact-area-head');head.append(element('strong','contact-area-label',spec.label),element('span','badge contact-area-count',String(count)),element('span','muted contact-area-hint',spec.hint));area.append(head);section.append(area);return area;
   }
+  // "Conversas sem Ref" is one block, organized by the subject (same order as ATENDIMENTO); a subject appears when it has someone.
+  function clientSubject(box,item){
+    const subject=item.group&&item.group.subject,order=[...MCSGroups.SUBJECT_ORDER,'INDISPONIVEL'];
+    const key=subject&&subject.state==='INDISPONIVEL'?'INDISPONIVEL':subject&&MCSGroups.SUBJECTS[subject.key]?subject.key:'NAO_IDENTIFICADO';
+    let part=box.querySelector(`:scope > [data-subject="${key}"]`);if(part)return part;
+    const label=key==='INDISPONIVEL'?'Assunto indisponível agora':MCSGroups.SUBJECTS[key].label;
+    part=element('section',`contact-subject contact-subject-${key.toLowerCase().replace(/_/g,'-')}`);part.dataset.subject=key;
+    const head=element('header','contact-subject-head');head.append(element('strong','contact-subject-label',label),element('span','badge contact-subject-count','0'));part.append(head);
+    const later=[...box.querySelectorAll(':scope > .contact-subject')].find((other)=>order.indexOf(other.dataset.subject)>order.indexOf(key));
+    if(later)box.insertBefore(part,later);else box.append(part);return part;
+  }
+  function refreshSubjectCounts(box){box.querySelectorAll(':scope > .contact-subject').forEach((part)=>{const count=part.querySelector('.contact-subject-count');if(count)count.textContent=String(part.querySelectorAll(':scope > .client-card').length);});}
   function appendClients(root,data){
     const sections=data.counts?.sections||{},areaCounts=data.counts?.areas||{};
     // A page loaded after something changed may repeat a card already shown: it is shown once.
@@ -1252,7 +1269,8 @@
       const section=clientSection(root,key,spec.label,spec.hint,sections[key]||0);const card=clientCard(item);card.dataset.group=key;
       const areaKey=MCSGroups.areaOf(item);card.dataset.area=areaKey;card.dataset.journeyId=String(item.id);
       // Off-topic and "não é lead" stay as one list (no search to separate).
-      if(key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD')section.append(card);else clientArea(section,key,areaKey,(areaCounts[key]||{})[areaKey]||0).append(card);});
+      if(key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD')section.append(card);
+      else{const box=clientArea(section,key,areaKey,(areaCounts[key]||{})[areaKey]||0);(areaKey==='SEM_REF'?clientSubject(box,item):box).append(card);if(areaKey==='SEM_REF')refreshSubjectCounts(box);}});
     root.querySelector('.clients-more')?.remove();clientsObserver?.disconnect();
     if(data.hasMore){const remaining=data.total-data.page*data.pageSize,more=element('button','quiet clients-more',`Mostrar mais (${remaining} restantes)`);more.type='button';more.dataset.page=String(data.page+1);
       const next=()=>{if(more.disabled)return;more.disabled=true;more.textContent='Carregando…';loadClientsPage(data.page+1).catch(()=>{more.disabled=false;more.textContent=`Mostrar mais (${remaining} restantes)`;});};
@@ -1272,10 +1290,33 @@
     if(!data.items.length){root.append(element('p','empty-state','Nenhum cliente neste filtro'));return;}
     appendClients(root,data);
   }
-  async function loadClientsPage(page){const version=clientsVersion;const data=await request(clientsQuery({page:String(page)}));if(version!==clientsVersion||currentView!=='clients')return;appendClients($('clients-list'),data);}
+  async function loadClientsPage(page){const version=clientsVersion;const data=await request(clientsQuery({page:String(page)}));if(version!==clientsVersion||currentView!=='clients')return;clientsPagesLoaded=Math.max(clientsPagesLoaded,page);appendClients($('clients-list'),data);}
   // Old conversations to pick up, oldest first, loaded only when the section is opened.
   function loadFollowup(){const list=$('clients-followup-list');if(!list||!window.MCSSuggest)return;MCSSuggest.queue(list,{request,open:(kind,key)=>openDetail(kind,key),contextSlot:(spec)=>contextSlot(spec),hydrate:hydrateContexts}).catch(()=>{});}
-  async function loadClients(){const version=++clientsVersion;const records=await request(clientsQuery({page:'1'}));if(version!==clientsVersion)return;updateMeta(records.meta);renderClients(records);}
+  async function loadClients(){const version=++clientsVersion;const records=await request(clientsQuery({page:'1'}));if(version!==clientsVersion)return;clientsPagesLoaded=1;updateMeta(records.meta);renderClients(records);}
+  // Back from a ficha: the pages that were loaded come back (beyond the first 50) and the list returns to the person who was
+  // at the top. If that person left the filter, it goes to the nearest one that is still listed.
+  const clientCardOf=(id)=>id?document.querySelector(`#clients-list .client-card[data-journey-id="${CSS.escape(String(id))}"]`):null;
+  function clientsSnapshot(){
+    const cards=[...document.querySelectorAll('#clients-list .client-card[data-journey-id]')];
+    const anchor=cards.find((card)=>card.getBoundingClientRect().bottom>0)||cards[0]||null;
+    return {pages:clientsPagesLoaded,anchorId:anchor?anchor.dataset.journeyId:null,ids:cards.map((card)=>card.dataset.journeyId).slice(0,5000)};
+  }
+  async function restoreClientsPosition(saved,fallbackY){
+    const version=clientsVersion;
+    for(let page=clientsPagesLoaded+1;page<=saved.pages;page+=1){
+      if(version!==clientsVersion||currentView!=='clients')return;
+      if(clientCardOf(saved.anchorId))break;
+      try{await loadClientsPage(page);}catch(_){break;}
+    }
+    if(version!==clientsVersion||currentView!=='clients')return;
+    let card=clientCardOf(saved.anchorId);
+    if(!card&&saved.anchorId){
+      const at=saved.ids.indexOf(saved.anchorId);
+      for(let step=1;!card&&at>=0&&step<saved.ids.length;step+=1)card=clientCardOf(saved.ids[at-step])||clientCardOf(saved.ids[at+step]);
+    }
+    if(card)card.scrollIntoView({block:'start'});else window.scrollTo(0,Number(fallbackY||0));
+  }
 
   const trend=(item)=>item?.trend==='up'?'↑':item?.trend==='down'?'↓':'→';
   const metricValue=(value)=>value===null||value===undefined?'—':String(value);
@@ -1294,8 +1335,18 @@
   async function downloadClientsCsv(){
     // Same universe as the badge, the counters and the report: leads only ("não é lead" stays out),
     // with every filter on screen; the whole list is asked only now, for the file.
-    const data=await request(clientsQuery({page:'1',pageSize:'5000',export:'1'}));
-    const items=(data.items||[]).filter((item)=>item.isLead!==false);
+    // Every page of the filtered result, with the filters that were on screen when the button was pressed (a filter changed
+    // meanwhile does not change the file). It never stops silently at a page: a short file is an error.
+    const base=clientsQuery({pageSize:'1000',export:'1'});
+    const all=[];let page=1,total=0;
+    for(;;){
+      const data=await request(base+'&page='+page,{timeoutMs:60000});
+      all.push(...(data.items||[]));total=Number(data.total)||total;
+      if(!data.hasMore)break;
+      page+=1;if(page>200)throw Object.assign(new Error('EXPORT_TOO_LARGE'),{code:'EXPORT_TOO_LARGE'});
+    }
+    if(all.length<total)throw Object.assign(new Error('EXPORT_INCOMPLETE'),{code:'EXPORT_INCOMPLETE'});
+    const items=all.filter((item)=>item.isLead!==false);
     const csvCell=(value)=>{const raw=String(value??''),text=/^[=+\-@\t\r]/.test(raw)&&!/^[+-]?[\d\s().,-]+$/.test(raw)?"'"+raw:raw;return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;};
     const rows=[['nome','telefone','Ref','situação','checklist','calor','etapa da busca','resumo da IA'],...items.map((item)=>[item.name||item.contact?.display_name||'',primaryPhone(item)?.phone_e164||primaryPhone(item)?.phone_raw||'',item.ref||item.referenceCode||item.reference_code||'',pendingSituationLabel(item.situation),`${checklistCompleted(item)}/6`,pendingHeatLabel(item.heat),item.searchStageLabel||'',item.aiSummary||item.summary||''])];
     const blob=new Blob(['\uFEFF'+rows.map((row)=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='clientes-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -1524,11 +1575,13 @@
       if(entryData)renderQueue(entryData.chats||[],entryData.reviews||[]);
       renderTriage(triageData);
       if(whatsappData)renderWhatsApp(whatsappData);
-      const missing=[!vitrineData&&'pedidos de vitrine',!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos'].filter(Boolean);
+      const missing=[!vitrineData&&'pedidos de vitrine',!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos',...((data.degraded||[]).map((name)=>name+' (desatualizado)'))].filter(Boolean);
       $('triage-state').textContent=[missing.length?`Não consegui carregar agora: ${missing.join(', ')} · o resto da fila vale`:'',triageData&&triageData.state!=='LIGADA'?'Triagem automática desligada: as conversas novas seguem o fluxo normal':''].filter(Boolean).join(' · ');
       renderToday(data.items || []);
       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
-      sharedGet('/api/panel/pesquisas', 30000).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);renderToday(todayItems,true);}).catch(()=>{});
+      sharedGet('/api/panel/pesquisas', 30000).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;renderToday(todayItems,true);})
+        // A failed source is said on screen and the last good list stays; "Completar pedido" never turns into an empty count.
+        .catch(()=>{if(!current())return;attendData.incompleteFailed=true;const note=$('triage-state');if(note&&!note.textContent.includes('pedidos incompletos'))note.textContent=[note.textContent,'Não consegui carregar os pedidos incompletos agora · Completar pedido mostra o último valor conhecido'].filter(Boolean).join(' · ');renderToday(todayItems,true);});
       return;
     }
     if (view === 'qualification') {
@@ -1669,6 +1722,9 @@
       sorts,
       // The filters of the area the ficha was opened from come back with it.
       attendBucket, todayStatFilter, todayRefFilter, requestsFilter,
+      // ATENDIMENTO: Origem, Assunto and Período come back with the rest; CLIENTES: loaded pages and the person at the top.
+      todayFilters: { origin: $('today-origin')?.value || 'all', subject: $('today-subject')?.value || 'all', period: $('today-period')?.value || 'all' },
+      clients: currentView === 'clients' ? clientsSnapshot() : null,
       pendingSituation,
       pendingWithRef: Boolean($('pending-with-ref')?.checked),
       searchQuery: $('global-search-input')?.value || '',
@@ -1688,12 +1744,14 @@
     if (target.todayStatFilter !== undefined) todayStatFilter = target.todayStatFilter;
     if (target.todayRefFilter) todayRefFilter = target.todayRefFilter;
     if (target.requestsFilter) requestsFilter = target.requestsFilter;
+    Object.entries(target.todayFilters || {}).forEach(([name, value]) => { const select = $('today-' + name); if (select && [...select.options].some((option) => option.value === value)) select.value = value; });
     await switchPanel(target.view || 'today', { scrollY: Number(target.scrollY || 0) });
+    if (target.view === 'clients' && target.clients) await restoreClientsPosition(target.clients, target.scrollY);
     if (target.searchVisible && target.searchQuery) {
       $('global-search-input').value=target.searchQuery;
       await globalSearch({preventDefault(){}});
     }
-    requestAnimationFrame(() => window.scrollTo(0, Number(target.scrollY || 0)));
+    if (!(target.view === 'clients' && target.clients && target.clients.anchorId)) requestAnimationFrame(() => window.scrollTo(0, Number(target.scrollY || 0)));
   }
 
   const DISCARD_REASONS=Object.freeze({PRICE:'Preço',DISAPPEARED:'Sumiu',BOUGHT_ELSEWHERE:'Comprou em outro lugar',NO_CREDIT:'Sem crédito',CURIOSITY:'Só curiosidade',OTHER:'Outro'});
@@ -1819,7 +1877,7 @@
     try {
       let leadDetailData=null;
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
-      await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest,
+      await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest, isCurrent: () => requestVersion === detailRequestVersion,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
         actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
@@ -1843,7 +1901,8 @@
 
   /* ===== IMPORTAÇÕES · Fotos da V2: acrescenta fotos ao carro de uma V2 que já existe ===== */
   // Only adds photos (same route and limits as Montar V2). It never creates, publishes or sends a V2.
-  const v2Photos={list:[],photos:[],busy:false};
+  // gen changes whenever the destination changes or the queue is cleared: an old resize, upload or list answer is dropped.
+  const v2Photos={list:[],photos:[],busy:false,gen:0,loadSeq:0};
   const v2Target=()=>{const [vitrineId,carId]=($('import-v2-select')?.value||'').split('|');const v2=v2Photos.list.find((item)=>item.vitrineId===vitrineId);const car=v2?.cars.find((item)=>item.carId===carId);return v2&&car?{v2,car}:null;};
   function paintV2Photos(){
     const thumbs=$('import-v2-thumbs'),target=v2Target(),send=$('import-v2-send');if(!thumbs)return;
@@ -1851,11 +1910,15 @@
     thumbs.replaceChildren();
     v2Photos.photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.addEventListener('click',()=>{URL.revokeObjectURL(photo.url);v2Photos.photos.splice(index,1);paintV2Photos();});item.append(img,remove);thumbs.append(item);});
     if(send){send.disabled=v2Photos.busy||!target||!v2Photos.photos.length;send.textContent=v2Photos.photos.length?`Enviar ${v2Photos.photos.length} foto(s)`:'Enviar fotos';}
+    ['import-v2-select','import-v2-file'].forEach((id)=>{const control=$(id);if(control)control.disabled=v2Photos.busy;});
+    $('import-v2-drop')?.classList.toggle('disabled',v2Photos.busy);
   }
   async function loadV2Photos(){
     const select=$('import-v2-select');if(!select)return;
     const keep=select.value;
-    let data;try{data=await request('/api/panel/vitrines',{method:'GET'});}catch(_){select.replaceChildren(new Option('Não consegui carregar as V2',''));paintV2Photos();return;}
+    const seq=++v2Photos.loadSeq;
+    let data;try{data=await request('/api/panel/vitrines',{method:'GET'});}catch(_){if(seq!==v2Photos.loadSeq)return;select.replaceChildren(new Option('Não consegui carregar as V2',''));paintV2Photos();return;}
+    if(seq!==v2Photos.loadSeq)return;
     v2Photos.list=data.v2||[];
     const options=[new Option(v2Photos.list.length?'Escolha a V2':'Nenhuma V2 aberta','')];
     for(const v2 of v2Photos.list)for(const car of v2.cars){const who=[v2.customerName,v2.referenceCode].filter(Boolean).join(' · ')||'Cliente sem nome';options.push(new Option(`${who} · ${car.vehicle} · ${car.photoCount}/${V2_MAX_PHOTOS} fotos`,v2.vitrineId+'|'+car.carId));}
@@ -1864,15 +1927,25 @@
     paintV2Photos();
   }
   async function addV2Photos(files){
-    const target=v2Target(),status=$('import-v2-status');if(!target)return;
+    // The destination and the queue generation are fixed when the files are chosen: a resize that finishes after the
+    // destination changed (or while sending) is dropped, never added to another car.
+    const target=v2Target(),status=$('import-v2-status'),gen=v2Photos.gen;if(!target||v2Photos.busy)return;
     const room=V2_MAX_PHOTOS-target.car.photoCount-v2Photos.photos.length;
     let taken=0;
-    for(const file of [...files]){if(taken>=room){status.textContent=`Esta V2 aceita só mais ${Math.max(0,V2_MAX_PHOTOS-target.car.photoCount)} foto(s)`;break;}try{const blob=await resizePhoto(file);v2Photos.photos.push({blob,url:URL.createObjectURL(blob)});taken++;}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':/\.hei[cf]$/i.test(file.name||'')||/hei[cf]/i.test(file.type||'')?'Foto HEIC não abriu neste navegador · Use JPEG ou PNG':'Um dos arquivos não é uma imagem';}}
-    paintV2Photos();
+    for(const file of [...files]){
+      if(taken>=room){status.textContent=`Esta V2 aceita só mais ${Math.max(0,V2_MAX_PHOTOS-target.car.photoCount)} foto(s)`;break;}
+      try{
+        const blob=await resizePhoto(file);
+        const current=v2Target();
+        if(gen!==v2Photos.gen||v2Photos.busy||!current||current.car.carId!==target.car.carId||current.v2.vitrineId!==target.v2.vitrineId)return;
+        v2Photos.photos.push({blob,url:URL.createObjectURL(blob)});taken++;
+      }catch(error){if(gen!==v2Photos.gen)return;status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':error.message==='NOT_IMAGE'?'Um arquivo não é imagem':'Não consegui preparar uma foto';}
+    }
+    if(gen===v2Photos.gen)paintV2Photos();
   }
   function bindV2Photos(){
     const select=$('import-v2-select'),input=$('import-v2-file'),drop=$('import-v2-drop'),send=$('import-v2-send'),status=$('import-v2-status');if(!select)return;
-    select.addEventListener('change',()=>{v2Photos.photos.forEach((photo)=>URL.revokeObjectURL(photo.url));v2Photos.photos=[];const target=v2Target();status.textContent=target&&target.car.photoCount>=V2_MAX_PHOTOS?'Esta V2 já tem 12 fotos':'';paintV2Photos();});
+    select.addEventListener('change',()=>{v2Photos.gen+=1;v2Photos.photos.forEach((photo)=>URL.revokeObjectURL(photo.url));v2Photos.photos=[];const target=v2Target();status.textContent=target&&target.car.photoCount>=V2_MAX_PHOTOS?'Esta V2 já tem 12 fotos':'';paintV2Photos();});
     input.addEventListener('change',()=>{addV2Photos(input.files);input.value='';});
     drop.addEventListener('dragover',(event)=>{event.preventDefault();drop.classList.add('over');});
     drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
@@ -1884,12 +1957,33 @@
       const count=v2Photos.photos.length;
       if(!(await askInline(send.parentElement,`${count} foto(s) vão aparecer imediatamente no link da V2 que o cliente já recebeu · Salvar mesmo assim?`,'Salvar fotos')))return;
       const chosen=v2Target();if(!chosen||chosen.car.carId!==target.car.carId||!v2Photos.photos.length||v2Photos.busy)return;
-      v2Photos.busy=true;paintV2Photos();let sent=0;
+      // Destination and files are fixed here, for the whole operation: nothing chosen later changes what is sent or where.
+      const dest={vitrineId:target.v2.vitrineId,carId:target.car.carId},before=target.car.photoCount,gen=v2Photos.gen,queue=v2Photos.photos.slice();
+      v2Photos.busy=true;paintV2Photos();let sent=0,uncertain=false;
+      const settle=(photo)=>{const at=v2Photos.photos.indexOf(photo);if(at>=0)v2Photos.photos.splice(at,1);URL.revokeObjectURL(photo.url);};
       try{
-        while(v2Photos.photos.length){const photo=v2Photos.photos[0];status.textContent=`Enviando foto ${sent+1}…`;await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(target.v2.vitrineId)+'&carId='+encodeURIComponent(target.car.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photo.blob});URL.revokeObjectURL(photo.url);v2Photos.photos.shift();sent++;}
+        for(const photo of queue){
+          if(gen!==v2Photos.gen)break;
+          status.textContent=`Enviando foto ${sent+1} de ${queue.length}…`;
+          await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(dest.vitrineId)+'&carId='+encodeURIComponent(dest.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photo.blob,timeoutMs:60000});
+          settle(photo);sent+=1;
+        }
         status.textContent=`${sent} foto(s) enviada(s) para esta V2`;
-      }catch(error){status.textContent=(error.code==='PHOTO_LIMIT_REACHED'?'Esta V2 chegou a 12 fotos':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':'Não consegui enviar a foto')+(sent?` · ${sent} já enviada(s), as outras continuam aqui`:'');}
-      v2Photos.busy=false;await loadV2Photos();
+      }catch(error){
+        uncertain=error.code==='REQUEST_TIMEOUT'||error.code==='NETWORK_ERROR'||!error.code;
+        status.textContent=(error.code==='PHOTO_LIMIT_REACHED'?'Esta V2 chegou a 12 fotos':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':uncertain?'A resposta não chegou; conferindo o que foi gravado antes de reenviar':'Não consegui enviar a foto')+(sent?` · ${sent} já enviada(s), as outras continuam aqui`:'');
+      }
+      v2Photos.busy=false;
+      await loadV2Photos();
+      // An uncertain answer: the car's photo count says what was really saved. The photos that already got there leave the queue,
+      // so only the files that did not arrive are sent again.
+      if(uncertain&&gen===v2Photos.gen){
+        const car=(v2Photos.list.find((item)=>item.vitrineId===dest.vitrineId)?.cars||[]).find((item)=>item.carId===dest.carId);
+        const saved=car?Math.max(0,car.photoCount-before-sent):0;
+        for(let index=0;index<saved&&v2Photos.photos.length;index+=1)settle(v2Photos.photos[0]);
+        if(car)status.textContent=saved?`Conferido: ${saved} foto(s) já estavam gravadas e saíram da fila · faltam ${v2Photos.photos.length}`:`Conferido: nada além das ${sent} enviada(s) foi gravado · faltam ${v2Photos.photos.length}`;
+        paintV2Photos();
+      }
     });
   }
   bindV2Photos();
@@ -1980,7 +2074,7 @@
   // ATENDIMENTO: HOJE + the decisions of the old ENTRADA in one queue (painel/atendimento.js decides
   // the case, its reasons and its filter; the badge, the chips and the list come from that one call).
   let attendBucket = (() => { try { return localStorage.getItem('mcs_attend_bucket') || 'depende'; } catch (_) { return 'depende'; } })();
-  const attendData = { entry: null, triage: null, whatsapp: null, vitrine: null, incomplete: [] };
+  const attendData = { entry: null, triage: null, whatsapp: null, vitrine: null, incomplete: [], incompleteFailed: false };
   // Conversations of the old ENTRADA that still wait for a decision (same rule as before for its badge).
   const entryReviewChats = (entry) => (entry && entry.chats || []).filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain));
   function attendDecisions({ entry, triage, whatsapp, vitrine } = attendData) {
@@ -2058,10 +2152,11 @@
     root.replaceChildren();
     MCSAttend.BUCKETS.forEach((bucket) => {
       const value = counts[bucket.key] || 0;
+      const unknown = bucket.key === 'completar' && attendData.incompleteFailed && !attendData.incomplete.length;
       const chip = element('button', 'chip' + (attendBucket === bucket.key ? ' active' : ''));
       chip.type = 'button'; chip.dataset.attendBucket = bucket.key; chip.setAttribute('aria-pressed', String(attendBucket === bucket.key));
-      chip.append(document.createTextNode(bucket.label + ' '), element('span', 'chip-count', String(value)), element('small', 'muted', ' ' + bucket.unit));
-      chip.title = bucket.key === 'todos' ? `${value} casos na fila (fora do assunto à parte)` : `${value} ${bucket.unit} · ${Math.max(0, total - value)} nos outros filtros`;
+      chip.append(document.createTextNode(bucket.label + ' '), element('span', 'chip-count', unknown ? '—' : String(value)), element('small', 'muted', ' ' + bucket.unit));
+      chip.title = unknown ? 'Não consegui carregar os pedidos incompletos agora' : bucket.key === 'todos' ? `${value} casos na fila (fora do assunto à parte)` : `${value} ${bucket.unit} · ${Math.max(0, total - value)} nos outros filtros`;
       chip.addEventListener('click', () => { attendBucket = bucket.key; try { localStorage.setItem('mcs_attend_bucket', attendBucket); } catch (_) {} renderToday(todayItems, true); window.scrollTo(0, 0); });
       root.append(chip);
     });
@@ -4809,7 +4904,8 @@
     $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha'));}finally{button.disabled=false;}});
     // Separate, owner-authorized reading of the conversations in "Precisa de você" only.
     MCSAction.bind($('triage-run-pending'),()=>({scope:$('triage-run-pending').parentElement,commit:async()=>{const result=await request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'run_pending'})});if(result.skipped)throw Object.assign(Error('TRIAGE_OFF'),{code:'TRIAGE_OFF'});if(result.inProgress&&!result.processed)throw Object.assign(Error('TRIAGE_BUSY'),{code:'TRIAGE_BUSY'});if(result.failed||result.deferred||result.inProgress)throw Object.assign(Error('TRIAGE_PARTIAL'),{code:'TRIAGE_PARTIAL'});return result;},successText:'Leitura concluída, confira Precisa de você',refresh:()=>loadTriage().then(()=>refreshCounters().catch(()=>{})),errorText:(error)=>error?.code==='TRIAGE_ADMIN_ONLY'?'Só o administrador pode iniciar':error?.code==='TRIAGE_OFF'?'Triagem desligada, nada foi lido':error?.code==='TRIAGE_BUSY'?'Já em processamento pela rotina automática, confira em instantes':error?.code==='TRIAGE_PARTIAL'?'Parte das conversas ficou pendente, tente de novo':'Não consegui classificar, tente de novo'}));
-    $('clients-download').addEventListener('click',()=>{const button=$('clients-download');button.disabled=true;try{downloadClientsCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha'));}finally{button.disabled=false;}});
+    // One export at a time: the button stays blocked until the file is done or failed, and a failure is said on screen.
+    $('clients-download').addEventListener('click',async()=>{const button=$('clients-download');if(button.disabled)return;button.disabled=true;button.parentElement?.querySelectorAll('.export-error').forEach((node)=>node.remove());try{await downloadClientsCsv();}catch(failure){button.after(element('span','error export-error',failure&&failure.code==='EXPORT_INCOMPLETE'?'A planilha ficaria incompleta; tente de novo':'Não foi possível baixar a planilha'));}finally{button.disabled=false;}});
     document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar')); $('search-results').classList.remove('hidden'); }));
     $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
