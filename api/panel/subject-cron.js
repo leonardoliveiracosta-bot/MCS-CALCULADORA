@@ -31,7 +31,7 @@ module.exports=async(req,res)=>{
     const calculator=await guarded('calc-route',()=>routeCalculatorMessages(ctx,{max:60,deadlineAt:Date.now()+Math.min(8000,left()-30000)}));
     const prints=left()>20000?await guarded('print-resume',()=>resumePrints(ctx,{max:3,deadlineAt:Date.now()+Math.min(14000,left()-18000)})):{skipped:true};
     const identity=left()>12000?await guarded('identity',()=>reconcileIdentity(ctx,{max:120,deadlineAt:Date.now()+Math.min(9000,left()-8000)})):{skipped:true};
-    const subjects=left()>12000?await guarded('subject',()=>classifyConversations(ctx,{max:12,concurrency:3,deadlineAt:Date.now()+left()-10000})):{skipped:true};
+    const subjects=left()>12000?await guarded('subject',()=>classifyConversations(ctx,{max:30,concurrency:6,deadlineAt:Date.now()+left()-10000})):{skipped:true};
     return send(res,200,{calculator,prints,identity,subjects,tookMs:Date.now()-startedAt});
   }catch(error){
     const requestId=crypto.randomUUID().slice(0,8);
