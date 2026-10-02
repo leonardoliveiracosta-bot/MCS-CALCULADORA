@@ -626,37 +626,37 @@
     $('imports-review-empty')?.classList.toggle('hidden', pending + ($('whatsapp-errors')?.childElementCount || 0) > 0);
     setCount('imports', pending);
   }
-  let entryReviewControls = () => document.createElement('div');
+  // Link / create / dismiss controls for a conversation or a file waiting for review (ENTRADA and IMPORTAÇÕES).
+  function entryReviewControls(item,target,kind){
+    const controls=element('div','entry-review-actions');
+    const select=element('select','');
+    select.setAttribute('aria-label','Lead para ligar');
+    select.append(new Option('Escolha um lead', ''));
+    journeys.filter((journey)=>journey.linkable!==false).forEach((journey)=>select.append(new Option(`${journey.contact?.display_name||journey.vehicle_text||'Lead'}${journey.reference_code?` · ${journey.reference_code}`:''}`,journey.id)));
+    const run=(button,action,successText)=>MCSAction.bind(button,()=>({
+      scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,
+      optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},
+      commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action,kind,id:target.id,journeyId:select.value||null})}),
+      rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},
+      successText,
+      undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},
+      refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'
+    }));
+    const link=element('button','small','Ligar a um lead');link.type='button';
+    MCSAction.bind(link,()=>{
+      if(!select.value)return{scope:item,commit:()=>Promise.reject(new Error('JOURNEY_REQUIRED')),errorText:'Escolha um lead antes de ligar'};
+      return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},successText:'Conversa ligada ao lead',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'};
+    });
+    const create=element('button','quiet small','Criar lead novo');create.type='button';run(create,'review_create','Lead criado e conversa ligada');
+    const dismiss=element('button','quiet small','Dispensar (não é cliente)');dismiss.type='button';run(dismiss,'review_dismiss','Conversa dispensada');
+    controls.append(select,link,create,dismiss);
+    return controls;
+  }
   function renderQueue(items, reviews) {
     // The origin filter only narrows the list (the other filters and the groups stay as they are).
     items=clientSort(items.filter((chat)=>MCSGroups.matchesOrigin(chat,$('entry-origin')?.value||'all')),$('entry-sort')?.value||'recent');
     const root = $('entry-queue');
     root.replaceChildren();
-    const reviewControls=entryReviewControls=(item,target,kind)=>{
-      const controls=element('div','entry-review-actions');
-      const select=element('select','');
-      select.setAttribute('aria-label','Lead para ligar');
-      select.append(new Option('Escolha um lead', ''));
-      journeys.filter((journey)=>journey.linkable!==false).forEach((journey)=>select.append(new Option(`${journey.contact?.display_name||journey.vehicle_text||'Lead'}${journey.reference_code?` · ${journey.reference_code}`:''}`,journey.id)));
-      const run=(button,action,successText)=>MCSAction.bind(button,()=>({
-        scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,
-        optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},
-        commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action,kind,id:target.id,journeyId:select.value||null})}),
-        rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},
-        successText,
-        undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},
-        refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'
-      }));
-      const link=element('button','small','Ligar a um lead');link.type='button';
-      MCSAction.bind(link,()=>{
-        if(!select.value)return{scope:item,commit:()=>Promise.reject(new Error('JOURNEY_REQUIRED')),errorText:'Escolha um lead antes de ligar'};
-        return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue('entry');setCount('entry',Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount('entry',before);},successText:'Conversa ligada ao lead',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'};
-      });
-      const create=element('button','quiet small','Criar lead novo');create.type='button';run(create,'review_create','Lead criado e conversa ligada');
-      const dismiss=element('button','quiet small','Dispensar (não é cliente)');dismiss.type='button';run(dismiss,'review_dismiss','Conversa dispensada');
-      controls.append(select,link,create,dismiss);
-      return controls;
-    };
     renderImportsReview(reviews);
     if (!items.length) { root.append(element('p', 'muted', 'Nenhuma conversa importada')); return; }
     // One section per group (não atendidos, atendidos); "fora do assunto" has its own section in ENTRADA.
@@ -693,7 +693,7 @@
         MCSAction.bind(keep,()=>({scope:item,optimistic:()=>{const before=badge.textContent;badge.textContent='revisão';return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'resolve',chatId:chat.id,resolution:'review'})}),rollback:(before)=>{badge.textContent=before;},refresh:()=>loadQueue(),errorText:'Não consegui salvar, tente de novo'}));
         item.append(keep);
       }
-      if(chat.resolution_status!=='RESOLVED'||chat.hasTimeUncertain)item.append(reviewControls(item,chat,'chat'));
+      if(chat.resolution_status!=='RESOLVED'||chat.hasTimeUncertain)item.append(entryReviewControls(item,chat,'chat'));
       const topic=MCSContactGroups.topicButton(chat,{request,refresh:()=>Promise.all([loadQueue(),loadTriage()]),chatId:chat.id});if(topic)item.append(topic);
       if(chat.lastCustomerMessage&&UUID_RE.test(String(chat.groupJourneyId||''))){const tools=MCSContactGroups.replyTools(chat.groupJourneyId,{request,onSent:()=>loadQueue()});if(tools)item.append(tools);}
       return item;
@@ -949,6 +949,7 @@
     entryQueueCount = chats.filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain)).length;
     renderEntryCount();
     if (render) renderQueue(chats.filter((chat) => !chat.triageOut), data.reviews || []);
+    else renderImportsReview(data.reviews || []);
     return data;
   }
 

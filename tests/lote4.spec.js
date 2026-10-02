@@ -59,13 +59,18 @@ test('Lote 4: CLIENTES filtra por Origem, Tipo e Período', async ({ page }) => 
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await session(page);
-  const client = (id, name, origins, calculatorTypes, hours) => ({ id, name, contact: { display_name: name }, phones: [], stage: 'RESPONDIDO', status: 'ATIVO', checklist: [], origins, calculatorTypes, lastActivityAt: iso(hours), isLead: true });
+  const origin = (group, sub, label) => ({ group, sub, key: group + ':' + sub, label, financing: false });
+  const client = (id, name, origins, calculatorTypes, hours, groupOrigin) => ({ id, name, contact: { display_name: name }, phones: [], stage: 'RESPONDIDO', status: 'ATIVO', checklist: [], origins, calculatorTypes, lastActivityAt: iso(hours), isLead: true,
+    group: { key: 'ATENDIDO', label: 'Atendidos', origin: groupOrigin, unattended: null, hasCalculator: groupOrigin.group === 'CALCULADORA' } });
+  // The real server filter (clientsPage) over the fictitious list.
+  const { clientsPage } = require('../api/panel/records');
+  const listed = [
+    client('54000000-0000-4000-8000-000000000011', 'Bruno Calc', ['CALCULADORA', 'WHATSAPP'], ['SIMULACAO'], 2, origin('CALCULADORA', 'WHATSAPP', 'Veio pela calculadora · Via WhatsApp')),
+    client('54000000-0000-4000-8000-000000000012', 'Carla Busca', ['CALCULADORA'], ['BUSCA'], 24 * 20, origin('CALCULADORA', 'WHATSAPP', 'Veio pela calculadora · Via WhatsApp')),
+    client('54000000-0000-4000-8000-000000000013', 'Davi SMS', ['SMS'], ['SEM_CALCULADORA'], 24 * 60, origin('MENSAGEM', 'SMS', 'Veio por mensagem · Via SMS'))
+  ];
   await mockApi(page, {
-    '/api/panel/records': ({ json }) => json({ items: [
-      client('54000000-0000-4000-8000-000000000011', 'Bruno Calc', ['CALCULADORA', 'WHATSAPP'], ['SIMULACAO'], 2),
-      client('54000000-0000-4000-8000-000000000012', 'Carla Busca', ['CALCULADORA'], ['BUSCA'], 24 * 20),
-      client('54000000-0000-4000-8000-000000000013', 'Davi SMS', ['SMS'], ['SEM_CALCULADORA'], 24 * 60)
-    ], meta: {} }),
+    '/api/panel/records': ({ json, url }) => json({ ...clientsPage(listed, Object.fromEntries(new URL(url).searchParams)), pending: {}, meta: {} }),
     '/api/panel/pendencias': ({ json }) => json({ items: [], counts: {} })
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
@@ -76,8 +81,8 @@ test('Lote 4: CLIENTES filtra por Origem, Tipo e Período', async ({ page }) => 
   await expect(page.locator('#clients-activity')).toHaveValue('30');
   await page.locator('#clients-activity').selectOption('all');
   await expect(list.locator('.client-card')).toHaveCount(3);
-  await expect(list.locator('.client-card', { hasText: 'Bruno Calc' })).toContainText('Calculadora · Simulação');
-  await page.locator('#clients-origin').selectOption('SMS');
+  await expect(list.locator('.client-card', { hasText: 'Bruno Calc' }).locator('.origin-chip')).toContainText('Veio pela calculadora · Via WhatsApp');
+  await page.locator('#clients-origin').selectOption('MENSAGEM:SMS');
   await expect(list.locator('.client-card')).toHaveCount(1);
   await expect(list).toContainText('Davi SMS');
   await page.locator('#clients-origin').selectOption('all');
