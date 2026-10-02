@@ -118,6 +118,11 @@ test('ATENDIMENTO: um caso por ficha, motivos reunidos, filtros e contagem do me
   assert.deepEqual(out.counts, { depende: 2, completar: 1, aguardando: 1, agendado: 1, fora: 1, todos: 5 });
   // Every filter lists exactly what its number says.
   for (const bucket of ['depende', 'completar', 'aguardando', 'agendado', 'todos']) assert.equal(out.cases.filter((entry) => attend.inBucket(entry, bucket)).length, out.counts[bucket], bucket);
+  // The client wrote, then the operator scheduled the next action for later: it is "agendado"
+  // until the date (a message after the scheduling makes it unattended, decided by the server).
+  const scheduled = attend.model({ todayItems: [{ kind: 'JOURNEY', id: J2, awaitingReply: true, group: { key: 'ATENDIDO' }, next_action_at: '2026-10-09T12:00:00Z' }], now });
+  assert.equal(scheduled.cases[0].bucket, 'agendado');
+  assert.equal(scheduled.counts.depende, 0);
   // A resolved conversation is not a pending case just because it stays in the history.
   const resolved = attend.model({ todayItems: [], decisions: [], incomplete: [], now });
   assert.equal(resolved.counts.depende, 0);

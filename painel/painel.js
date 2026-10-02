@@ -647,19 +647,22 @@
     select.setAttribute('aria-label','Lead para ligar');
     select.append(new Option('Escolha um lead', ''));
     journeys.filter((journey)=>journey.linkable!==false).forEach((journey)=>select.append(new Option(`${journey.contact?.display_name||journey.vehicle_text||'Lead'}${journey.reference_code?` · ${journey.reference_code}`:''}`,journey.id)));
+    // A conversation is one reason of a case: the case badge is recounted after the answer, never guessed.
+    const optimisticCount=(before)=>{if(badge==='imports')setCount(badge,Math.max(0,before-1));};
+    const reloadAfter=()=>loadQueue(currentView==='today').then(()=>refreshCounters().catch(()=>{}));
     const run=(button,action,successText)=>MCSAction.bind(button,()=>({
       scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,
-      optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue(badge);setCount(badge,Math.max(0,before-1));return before;},
+      optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue(badge);optimisticCount(before);return before;},
       commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action,kind,id:target.id,journeyId:select.value||null})}),
       rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount(badge,before);},
       successText,
-      undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},
-      refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'
+      undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:reloadAfter},
+      refresh:reloadAfter,errorText:'Não consegui salvar, tente de novo'
     }));
     const link=element('button','small','Ligar a um lead');link.type='button';
     MCSAction.bind(link,()=>{
       if(!select.value)return{scope:item,commit:()=>Promise.reject(new Error('JOURNEY_REQUIRED')),errorText:'Escolha um lead antes de ligar'};
-      return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue(badge);setCount(badge,Math.max(0,before-1));return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount(badge,before);},successText:'Conversa ligada ao lead',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:()=>loadQueue()},refresh:()=>loadQueue(false),errorText:'Não consegui salvar, tente de novo'};
+      return{scope:item,successScope:document.body,feedbackKey:`entry:${kind}:${target.id}`,optimistic:()=>{item.classList.add('action-optimistic-hidden');const before=countValue(badge);optimisticCount(before);return before;},commit:()=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_link',kind,id:target.id,journeyId:select.value})}),rollback:(before)=>{item.classList.remove('action-optimistic-hidden');setCount(badge,before);},successText:'Conversa ligada ao lead',undo:{commit:(result)=>request('/api/panel/entry',{method:'POST',body:JSON.stringify({action:'review_undo',undo:result.undo})}),successText:'A conversa voltou para revisão',refresh:reloadAfter},refresh:reloadAfter,errorText:'Não consegui salvar, tente de novo'};
     });
     const create=element('button','quiet small','Criar lead novo');create.type='button';run(create,'review_create','Lead criado e conversa ligada');
     const dismiss=element('button','quiet small','Dispensar (não é cliente)');dismiss.type='button';run(dismiss,'review_dismiss','Conversa dispensada');
@@ -961,7 +964,8 @@
     failedPrints = data.failedPrints || [];
     // Conversations waiting for a decision go to ATENDIMENTO; errors, files and prints to IMPORTAÇÕES.
     attendData.entry = data;
-    if (render) renderQueue(chats, data.reviews || []);
+    // In ATENDIMENTO the conversations are reasons of the cases on screen: always drawn again.
+    if (render || currentView === 'today') renderQueue(chats, data.reviews || []);
     else renderImportsReview(data.reviews || []);
     return data;
   }
@@ -1926,13 +1930,13 @@
         // "Pedido atendido" (not "Tratado"): this closes the customer's request, not the person's disposition.
         const treated=element('button','small','Pedido atendido');treated.type='button';
         // M26/D18: the failure is shown on the card, Desfazer handles its own failure and the counters follow
-        MCSAction.bind(treated,()=>({scope:card,successScope:root,feedbackKey:`vitrine-request:${request.id}`,
+        MCSAction.bind(treated,()=>({scope:card,successScope:document.body,feedbackKey:`vitrine-request:${request.id}`,
           optimistic:()=>{card.classList.add('action-optimistic-hidden');},
           commit:()=>requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:request.id}),
           rollback:()=>{card.classList.remove('action-optimistic-hidden');},
           successText:'Pedido marcado como atendido',
           undo:{commit:()=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:request.id}),successText:'Voltou para a lista',refresh:()=>{loadCurrent('today',viewRequestVersion);refreshCounters().catch(()=>{});}},
-          refresh:()=>refreshCounters().catch(()=>{}),
+          refresh:()=>Promise.all([loadCurrent('today',viewRequestVersion),refreshCounters().catch(()=>{})]),
           errorText:'Não consegui marcar como atendido, tente de novo'}));actions.append(build,open,treated);card.append(actions);block.append(card);
       });
       root.append(block);
@@ -2014,8 +2018,10 @@
     if(!preserveAll)todayItems = items.slice();
     const all=preserveAll?todayItems:items.slice();
     const model = attendModel(all);
-    // The badge counts what depends on you, from the same model as the chips and the list.
-    setCount('today', model.counts.depende);
+    // The badge counts what depends on you, from the same model as the chips and the list; when a
+    // decision list did not load, the number would be too low, so it is marked as not updated.
+    if (attendData.entry && attendData.triage && attendData.whatsapp && attendData.vitrine) setCount('today', model.counts.depende);
+    else setCountUnknown('today');
     attendChips(model.counts, model.counts.todos);
     if (!MCSAttend.BUCKETS.some((bucket) => bucket.key === attendBucket)) attendBucket = 'depende';
     const inBucket = model.cases.filter((entry) => MCSAttend.inBucket(entry, attendBucket));

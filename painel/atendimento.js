@@ -32,15 +32,17 @@
   function reasonsOf(item, now) {
     const out = [];
     const group = item && item.group || {};
+    const next = stamp(item.next_action_at || item.nextActionAt);
     if (group.key === 'NAO_ATENDIDO' && group.unattended) out.push({ kind: 'NAO_ATENDIDO', text: group.unattended.reasonText });
-    else if (item.awaitingReply) out.push({ kind: 'RESPONDER', text: 'Responder o cliente' });
+    // A message that came before the next action was scheduled is handled by that schedule
+    // (agendado); a message after it makes the case unattended (above).
+    else if (item.awaitingReply && !(next > now)) out.push({ kind: 'RESPONDER', text: 'Responder o cliente' });
     (item.todayReasons || []).forEach((reason) => out.push({ kind: reason.kind || 'RETORNO', text: reason.detail ? `${reason.label} · ${reason.detail}` : reason.label }));
     if (item.wantsCar) out.push({ kind: 'QUER_CARRO', text: 'Quer este carro' });
     if (item.promiseToday) out.push({ kind: 'PROMESSA', text: 'Retorno prometido para hoje' });
     if (item.returnedToTalk) out.push({ kind: 'VOLTOU', text: 'Voltou a falar' });
     if (item.pendingAiCount) out.push({ kind: 'IA', text: `${item.pendingAiCount} itens da IA para confirmar` });
     if (item.aiLinkSuggested) out.push({ kind: 'VINCULO', text: 'Confirmar vínculo sugerido' });
-    const next = stamp(item.next_action_at || item.nextActionAt);
     if (next && next <= now && !out.some((reason) => reason.kind === 'NEXT_ACTION')) out.push({ kind: 'NEXT_ACTION', text: 'Próxima ação vencida' });
     return out;
   }
