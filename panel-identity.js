@@ -37,6 +37,9 @@ function decide(evidence) {
   };
   written.forEach((entry) => add(entry.ref, 'MENSAGEM', entry.messageId));
   prints.forEach((ref) => add(ref, 'PRINT', null));
+  // Refs the Claude found: only those whose quotation was checked word for word against the message (panel-subject).
+  const claudeRefs = (evidence.claude_refs || []).filter((entry) => entry && entry.verified === true && REF_RE.test(up(entry.ref)));
+  claudeRefs.forEach((entry) => add(entry.ref, 'CLAUDE', entry.messageId));
   const linkRefs = [], messageIds = [], conflicts = [], proven = new Set();
   for (const [ref, entry] of candidates) {
     if (own.has(ref)) { proven.add(ref); continue; }
@@ -49,7 +52,7 @@ function decide(evidence) {
   return {
     status, calcOrigin: status !== 'SEM_ORIGEM_CALCULADORA' || Boolean(evidence.template), refs, linkRefs, messageIds,
     conflict: conflicts.length ? { conflicts } : null,
-    evidence: { written: written.map((entry) => ({ ref: up(entry.ref), mode: entry.mode || null, messageId: entry.messageId || null })), prints, runs: [...runs].sort(), template: Boolean(evidence.template) }
+    evidence: { claude: claudeRefs.map((entry) => ({ ref: up(entry.ref), messageId: entry.messageId || null, quote: entry.quote || null })), written: written.map((entry) => ({ ref: up(entry.ref), mode: entry.mode || null, messageId: entry.messageId || null })), prints, runs: [...runs].sort(), template: Boolean(evidence.template) }
   };
 }
 
@@ -57,7 +60,8 @@ function decide(evidence) {
 function hashOf(evidence) {
   const stable = [RULE_VERSION, up(evidence.reference_code), [...(evidence.linked_refs || [])].map(up).sort(),
     (evidence.explicit || []).map((entry) => [up(entry.ref), entry.messageId || null]).sort(), [...(evidence.print_refs || [])].map(up).sort(),
-    Boolean(evidence.template), Number(evidence.message_count || 0), [...(evidence.run_refs || [])].map(up).sort(), evidence.owners || {}];
+    Boolean(evidence.template), Number(evidence.message_count || 0), [...(evidence.run_refs || [])].map(up).sort(), evidence.owners || {},
+    (evidence.claude_refs || []).filter((entry) => entry && entry.verified === true).map((entry) => [up(entry.ref), entry.messageId || null]).sort()];
   return crypto.createHash('sha256').update(JSON.stringify(stable)).digest('hex').slice(0, 32);
 }
 

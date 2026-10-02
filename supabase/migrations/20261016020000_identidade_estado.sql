@@ -20,10 +20,107 @@ alter table public.panel_identity_state enable row level security;
 revoke all on public.panel_identity_state from public, anon, authenticated;
 grant select, insert, update on public.panel_identity_state to service_role;
 
+
+-- Assunto da conversa lido pelo Claude, por ficha: um dos cinco assuntos, com o motivo e as Refs que ele achou com
+-- citação já validada. A correção manual (manual_subject) nunca é sobrescrita. A reserva (claim_token) impede que duas
+-- execuções leiam a mesma conversa ao mesmo tempo; input_hash/rule_version evitam reler o que não mudou.
+create table if not exists public.panel_conversation_class (
+  environment public.panel_environment not null,
+  journey_id uuid not null references public.journeys(id),
+  subject text not null default 'NAO_IDENTIFICADO' check (subject in ('FINANCIAMENTO','PEDIDO_CARRO','SO_CUMPRIMENTO','OUTROS','NAO_IDENTIFICADO')),
+  confidence numeric,
+  reason text,
+  claude_refs jsonb not null default '[]'::jsonb,
+  input_hash text not null default '',
+  rule_version integer not null default 0,
+  classified_at timestamptz,
+  manual_subject text check (manual_subject in ('FINANCIAMENTO','PEDIDO_CARRO','SO_CUMPRIMENTO','OUTROS','NAO_IDENTIFICADO')),
+  manual_at timestamptz,
+  manual_by uuid,
+  claim_token uuid,
+  claimed_until timestamptz,
+  primary key (environment, journey_id)
+);
+alter table public.panel_conversation_class enable row level security;
+revoke all on public.panel_conversation_class from public, anon, authenticated;
+grant select, insert, update on public.panel_conversation_class to service_role;
+
+-- Fichas cujo conteúdo mudou desde a última leitura (ou nunca lidas), as mais recentes primeiro.
+create or replace function public.panel_subject_candidates(p_environment public.panel_environment, p_rule_version integer, p_limit integer)
+returns table(journey_id uuid, message_count integer, last_customer_at timestamptz, content_hash text)
+language sql stable security definer set search_path = public as $$
+  with msgs as (
+    select mj.journey_id, m.id, m.direction, coalesce(m.occurred_at_utc, m.created_at) at
+    from public.message_journeys mj join public.messages m on m.id = mj.message_id and m.undone_at is null
+    where mj.environment = p_environment and mj.undone_at is null
+  ), agg as (
+    select journey_id, count(*)::int n, max(at) filter (where direction = 'CUSTOMER') last_customer,
+           md5(string_agg(id::text, ',' order by at, id)) h
+    from msgs group by journey_id having count(*) filter (where direction = 'CUSTOMER') > 0
+  )
+  select a.journey_id, a.n, a.last_customer, a.h
+  from agg a left join public.panel_conversation_class c on c.environment = p_environment and c.journey_id = a.journey_id
+  where (c.journey_id is null or c.input_hash <> a.h or c.rule_version <> p_rule_version)
+    and c.manual_subject is null and (c.claimed_until is null or c.claimed_until < now())
+  order by a.last_customer desc nulls last, a.journey_id
+  limit greatest(p_limit, 0)
+$$;
+revoke all on function public.panel_subject_candidates(public.panel_environment, integer, integer) from public, anon, authenticated;
+grant execute on function public.panel_subject_candidates(public.panel_environment, integer, integer) to service_role;
+
+create or replace function public.panel_subject_claim(p_environment public.panel_environment, p_journey_id uuid, p_ttl_seconds integer)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare token uuid := gen_random_uuid();
+begin
+  insert into public.panel_conversation_class(environment, journey_id, claim_token, claimed_until)
+  values (p_environment, p_journey_id, token, now() + make_interval(secs => p_ttl_seconds))
+  on conflict (environment, journey_id) do update set claim_token = excluded.claim_token, claimed_until = excluded.claimed_until
+  where public.panel_conversation_class.claimed_until is null or public.panel_conversation_class.claimed_until < now();
+  if not found then return null; end if;
+  return token;
+end $$;
+revoke all on function public.panel_subject_claim(public.panel_environment, uuid, integer) from public, anon, authenticated;
+grant execute on function public.panel_subject_claim(public.panel_environment, uuid, integer) to service_role;
+
+create or replace function public.panel_subject_finish(p_environment public.panel_environment, p_journey_id uuid, p_token uuid, p_hash text, p_rule_version integer,
+  p_subject text, p_confidence numeric, p_reason text, p_claude_refs jsonb)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  update public.panel_conversation_class set subject = p_subject, confidence = p_confidence, reason = left(p_reason, 500), claude_refs = coalesce(p_claude_refs, '[]'::jsonb),
+    input_hash = p_hash, rule_version = p_rule_version, classified_at = now(), claim_token = null, claimed_until = null
+  where environment = p_environment and journey_id = p_journey_id and claim_token = p_token;
+  return found;
+end $$;
+revoke all on function public.panel_subject_finish(public.panel_environment, uuid, uuid, text, integer, text, numeric, text, jsonb) from public, anon, authenticated;
+grant execute on function public.panel_subject_finish(public.panel_environment, uuid, uuid, text, integer, text, numeric, text, jsonb) to service_role;
+
+create or replace function public.panel_subject_release(p_environment public.panel_environment, p_journey_id uuid, p_token uuid)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  update public.panel_conversation_class set claim_token = null, claimed_until = null where environment = p_environment and journey_id = p_journey_id and claim_token = p_token;
+  return found;
+end $$;
+revoke all on function public.panel_subject_release(public.panel_environment, uuid, uuid) from public, anon, authenticated;
+grant execute on function public.panel_subject_release(public.panel_environment, uuid, uuid) to service_role;
+
+-- Correção manual do assunto (ou null para voltar à leitura do Claude). Nunca é sobrescrita pelas leituras.
+create or replace function public.panel_subject_set_manual(p_environment public.panel_environment, p_journey_id uuid, p_subject text, p_actor uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  perform 1 from public.journeys where id = p_journey_id and environment = p_environment;
+  if not found then raise exception 'SUBJECT_JOURNEY_NOT_FOUND'; end if;
+  insert into public.panel_conversation_class(environment, journey_id, manual_subject, manual_at, manual_by)
+  values (p_environment, p_journey_id, p_subject, case when p_subject is null then null else now() end, case when p_subject is null then null else p_actor end)
+  on conflict (environment, journey_id) do update set manual_subject = excluded.manual_subject, manual_at = excluded.manual_at, manual_by = excluded.manual_by;
+  return jsonb_build_object('journeyId', p_journey_id, 'manualSubject', p_subject);
+end $$;
+revoke all on function public.panel_subject_set_manual(public.panel_environment, uuid, text, uuid) from public, anon, authenticated;
+grant execute on function public.panel_subject_set_manual(public.panel_environment, uuid, text, uuid) to service_role;
+
 -- Provas de cada ficha, só leitura: Refs escritas pelo cliente na mensagem da calculadora, Refs lidas em
 -- prints confirmados, Refs já ligadas, se há mensagem do modelo da calculadora, e quem mais possui cada Ref.
 create or replace function public.panel_identity_evidence(p_environment public.panel_environment, p_journey_ids uuid[] default null)
-returns table(journey_id uuid, reference_code text, linked_refs text[], explicit jsonb, print_refs text[], template boolean, message_count integer, last_message_at timestamptz, run_refs text[], owners jsonb)
+returns table(journey_id uuid, reference_code text, linked_refs text[], explicit jsonb, print_refs text[], template boolean, message_count integer, last_message_at timestamptz, run_refs text[], owners jsonb, claude_refs jsonb)
 language sql stable security definer set search_path = public as $$
   with scope as (
     select j.id, upper(j.reference_code) code from public.journeys j
@@ -49,6 +146,8 @@ language sql stable security definer set search_path = public as $$
   ), candidates as (
     select journey_id, ref from written where ref is not null union select journey_id, ref from prints union select journey_id, ref from linked
     union select id, code from scope where code is not null
+    union select cc.journey_id, upper(x->>'ref') from public.panel_conversation_class cc, jsonb_array_elements(cc.claude_refs) x
+      where cc.environment = p_environment and cc.journey_id in (select id from scope) and coalesce((x->>'verified')::boolean, false)
   ), owners as (
     select c.ref, jsonb_agg(distinct o.jid) filter (where o.jid is not null) jids
     from (select distinct ref from candidates) c
@@ -65,7 +164,8 @@ language sql stable security definer set search_path = public as $$
     (select count(*)::int from msgs where msgs.journey_id = s.id),
     (select max(at) from msgs where msgs.journey_id = s.id),
     coalesce((select array_agg(distinct upper(cr.dados->>'ref')) from public.calc_runs cr where not cr.is_test and upper(cr.dados->>'ref') in (select c2.ref from candidates c2 where c2.journey_id = s.id)), '{}'),
-    coalesce((select jsonb_object_agg(o2.ref, coalesce(o2.jids, '[]'::jsonb)) from owners o2 where o2.ref in (select c3.ref from candidates c3 where c3.journey_id = s.id)), '{}'::jsonb)
+    coalesce((select jsonb_object_agg(o2.ref, coalesce(o2.jids, '[]'::jsonb)) from owners o2 where o2.ref in (select c3.ref from candidates c3 where c3.journey_id = s.id)), '{}'::jsonb),
+    coalesce((select cc2.claude_refs from public.panel_conversation_class cc2 where cc2.environment = p_environment and cc2.journey_id = s.id), '[]'::jsonb)
   from scope s
 $$;
 revoke all on function public.panel_identity_evidence(public.panel_environment, uuid[]) from public, anon, authenticated;
