@@ -1083,8 +1083,6 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #requests-panel .buscas-column-head > h2,
 #requests-panel #buscas-review > summary,
 #requests-panel #requests-audit > summary,
-#searches-panel #buscas-total > strong,
-#searches-panel #v1-demo > h2,
 #searches-panel .buscas-column-head > h2,
 #clients-panel #clients-general-card > h2,
 #clients-panel #clients-followup > summary > strong,
@@ -1092,8 +1090,6 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #requests-panel .buscas-column-head > h2::before,
 #requests-panel #buscas-review > summary::after,
 #requests-panel #requests-audit > summary::after,
-#searches-panel #buscas-total > strong::before,
-#searches-panel #v1-demo > h2::before,
 #searches-panel .buscas-column-head > h2::before,
 #clients-panel #clients-general-card > h2::before,
 #clients-panel #clients-followup > summary > strong::before,
@@ -1110,5 +1106,19 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 :is(#requests-panel, #searches-panel, #clients-panel) :is(button.primary, .card-primary > button, button.v1-send-go):not(.chip):not(.tab):not(.pending-stat):hover { background: #BE9820; }
 :is(#requests-panel, #searches-panel, #clients-panel) button:disabled { opacity: .55; }
 :is(#requests-panel, #searches-panel, #clients-panel) select { min-height: 44px; border: 1px solid #8A837B; border-radius: 8px; background-color: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 14px; }
-#requests-panel .requests-sort { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
-#requests-panel .requests-sort select { letter-spacing: 0; text-transform: none; font-weight: 400; }
+#requests-panel .requests-sort, #searches-panel .requests-sort { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
+#requests-panel .requests-sort select, #searches-panel .requests-sort select { letter-spacing: 0; text-transform: none; font-weight: 400; }
+
+/* Elementos internos das três abas: mesmo estilo dos cartões do Atendimento. */
+:is(#requests-panel, #searches-panel, #clients-panel) .pending-stat { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 14px; box-shadow: none; color: #1B1A18; }
+:is(#requests-panel, #searches-panel, #clients-panel) .pending-stat strong { color: #1B1A18; }
+:is(#requests-panel, #searches-panel) .search-group { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 14px; padding: 16px; color: #1B1A18; }
+:is(#requests-panel, #searches-panel) .search-group-head { border-bottom: 1px solid #EEE8DE; padding-bottom: 10px; margin-bottom: 12px; }
+#searches-panel .offer-section { gap: 12px; }
+#searches-panel .offer-group { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 14px; padding: 10px 16px; color: #1B1A18; }
+#searches-panel .offer-group > summary { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
+#searches-panel .offer-row { border-top: 1px solid #EEE8DE; }
+#searches-panel .manheim-table { display: grid; gap: 8px; }
+#searches-panel .manheim-row { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 12px; padding: 12px 14px; color: #1B1A18; }
+#searches-panel :is(.offer-row, .manheim-row) strong { color: #1B1A18; }
+:is(#requests-panel, #searches-panel) .search-fields, :is(#requests-panel, #searches-panel) .request-person { font-family: "Noto Sans", system-ui, sans-serif; }
