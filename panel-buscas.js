@@ -2,7 +2,8 @@
 
 // BUSCAS and Manheim read the same demands: one per person (ficha or Ref without ficha) and
 // logical mode. VALOR and CARRO never share criteria and are never merged into one demand.
-const { allRows } = require('./panel-server');
+const { allRows, rpc } = require('./panel-server');
+const refProof = require('./panel-ref-proof');
 const { buildSearchDemands, consolidateCalcRuns, groupCalculatorByRef, matchManheimDemand, reactivationEligible, toggleEnabled } = require('./panel-domain');
 const vehicleMatch = require('./vehicle-match');
 const { contactIndex } = require('./panel-contact');
@@ -28,7 +29,8 @@ async function loadBuscasBase(ctx, services = {}) {
     read(ctx, 'messages', { select: 'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: env })
   ]);
   const triage = await activeRows(ctx, read);
-  return buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage });
+  const explicit = await refProof.loadExplicit(ctx, services.rpc || rpc).catch(() => null);
+  return buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage, explicit });
 }
 
 function buildBuscasBase(input) {
@@ -59,17 +61,21 @@ function buildBuscasBase(input) {
   const journeyDisposition = (journey) => personDisposition(journey.id, [journey.reference_code, ...refsOf(journey)].filter(Boolean));
   const journeyEntered = (journey) => contact.facts({ journeyId: journey.id, ref: journey.reference_code, refs: refsOf(journey) }).entered;
   const orderEntered = (ref) => contact.facts({ ref }).entered;
-  return { ...input, journeys, journeyById, refs, refsOf, modeItems, grouped, groupedByRef, demands, contact, personDisposition, journeyDisposition, journeyEntered, orderEntered, contactsById, phonesFor, primaryPhone };
+  // The calculator Ref shown on screen: the same proof as the ficha detail (a code without it is the ficha's internal code).
+  const runRefs = refProof.runRefsOf(input.calcRuns || []);
+  const calcRefOf = (journey) => refProof.proofFor({ journey, linkedRefs: refsOf(journey), runRefs, explicit: input.explicit && input.explicit.get(journey.id) || [] }).calcRef;
+  return { ...input, journeys, journeyById, refs, refsOf, modeItems, grouped, groupedByRef, demands, contact, personDisposition, journeyDisposition, journeyEntered, orderEntered, contactsById, phonesFor, primaryPhone, calcRefOf };
 }
 
 // The person behind a demand, as BUSCAS shows it.
 function demandPerson(base, demand) {
   if (demand.journeyId) {
     const journey = base.journeyById.get(demand.journeyId);
-    return { journeyId: demand.journeyId, name: journey && journey.contact && journey.contact.display_name || `Pedido ${journey && journey.reference_code || '—'}`, phone: journey ? base.primaryPhone(journey.contact_id) : null, ref: journey && (journey.reference_code || base.refsOf(journey)[0]) || null };
+    return { journeyId: demand.journeyId, name: journey && journey.contact && journey.contact.display_name || `Pedido ${journey && journey.reference_code || '—'}`, phone: journey ? base.primaryPhone(journey.contact_id) : null, ref: journey && (journey.reference_code || base.refsOf(journey)[0]) || null , calcRef: journey && base.calcRefOf ? base.calcRefOf(journey) : null };
   }
   const order = base.groupedByRef.get(upper(demand.ref));
-  return { journeyId: null, name: order && order.contactName || `Pedido ${demand.ref}`, phone: null, ref: demand.ref };
+  // A Ref without a ficha is a calculator order: its Ref is the simulation itself.
+  return { journeyId: null, name: order && order.contactName || `Pedido ${demand.ref}`, phone: null, ref: demand.ref, calcRef: demand.ref || null };
 }
 
 // Only what the browser needs to match a car against a demand (never a person's data).

@@ -1,6 +1,8 @@
 'use strict';
 // Toda mensagem da calculadora termina em exatamente um destino (panel_calc_message_route), retomável e idempotente:
-//   1. Ref escrita ("Ref: XXXXX") -> a ficha dessa Ref (se a Ref é de outro contato, ou de várias fichas: fila)
+//   1. Ref escrita ("Ref: XXXXX") -> a ficha dessa Ref (se a Ref é de outro contato, ou de várias fichas: fila). A Ref também
+//      passa pela checagem de contradição: o nome ou o carro da mensagem contra o que a ficha já sabe por outras fontes
+//      (contato, outras simulações, outras mensagens da calculadora); qualquer divergência vai para "Confirmar vínculo".
 //   2. sem Ref legível (ou Ref ainda sem ficha) -> o telefone: uma ficha e zero contradição de nome/carro liga
 //   3. telefone sem ficha -> ficha nova
 //   4. o resto -> fila dela, com motivo escrito e evidência (candidatas, Ref, telefone)
@@ -32,6 +34,10 @@ function decide({ parsed, refOwners = [], contactId = null, fichas = [], linked 
     if (owners.length > 1) return { ...base, destination: 'FILA', reason: 'REF_EM_VARIAS_FICHAS', journeyId: null, unlinkAuto: true, evidence: { ...evidence, candidates: owners.map((owner) => owner.id) } };
     const [owner] = owners;
     if (contactId && owner.contact_id && owner.contact_id !== contactId) return { ...base, destination: 'FILA', reason: 'REF_DE_OUTRO_CONTATO', journeyId: null, unlinkAuto: true, evidence: { ...evidence, candidates: [owner.id, ...fichas.map((ficha) => ficha.id)] } };
+    // Second way: the Ref proves the simulation, the name and the car must agree with the ficha that owns it. A ficha that
+    // knows no name has nothing to contradict here (the Ref is the proof); a different name or car never joins by itself.
+    const conflicts = [phoneLink.nameConflict(parsed.name, { ...owner, sameChat: true }), phoneLink.carContradicts(parsed.vehicle, owner) && 'carro'].filter(Boolean);
+    if (conflicts.length) return { ...base, destination: 'FILA', reason: 'FILA_CONTRADICAO', journeyId: null, unlinkAuto: true, evidence: { ...evidence, via: 'REF', conflicts, candidates: [owner.id] } };
     return { ...base, destination: 'LIGADA_REF', reason: 'REF_ENCONTRADA', journeyId: owner.id, link: true };
   }
   // No readable Ref, or a Ref no ficha owns yet: the phone decides (one ficha, zero contradiction).
@@ -52,6 +58,31 @@ async function journeyNames(ctx, journeyIds) {
   return new Map((Array.isArray(list) ? list : []).map((row) => [row.journey_id, row]));
 }
 
+// What the ficha that owns the Ref knows about its person, from every source except this message and this Ref's own
+// simulation (they always agree with themselves): the contact's name, the names and cars of its other calculator
+// messages and of its other simulations, and its car.
+async function ownerIdentity(ctx, owner, message, ref, read = rows) {
+  const env = 'eq.' + ctx.environment;
+  const [journey, contact, links, refRows] = await Promise.all([
+    read(ctx, 'journeys', { select: 'id,reference_code,vehicle_text', environment: env, id: 'eq.' + owner.id, limit: '1' }).then((list) => list[0] || {}),
+    owner.contact_id ? read(ctx, 'contacts', { select: 'id,display_name', environment: env, id: 'eq.' + owner.contact_id, limit: '1' }).then((list) => list[0] || {}) : {},
+    read(ctx, 'message_journeys', { select: 'message_id', environment: env, journey_id: 'eq.' + owner.id, undone_at: 'is.null', limit: '400' }),
+    read(ctx, 'journey_refs', { select: 'ref_code', environment: env, journey_id: 'eq.' + owner.id })
+  ]);
+  const otherIds = links.map((row) => row.message_id).filter((id) => id && id !== message.message_id);
+  const others = [];
+  for (let index = 0; index < otherIds.length; index += 100) others.push(...await read(ctx, 'messages', { select: 'id,body_text', environment: env, id: 'in.(' + otherIds.slice(index, index + 100).join(',') + ')', direction: 'eq.CUSTOMER', undone_at: 'is.null' }));
+  const parsedOthers = others.map((row) => calcMessage.parse(row.body_text)).filter((item) => item.calculator);
+  const otherRefs = [...new Set([journey.reference_code, ...refRows.map((row) => row.ref_code)].map((value) => String(value || '').toUpperCase()).filter((value) => /^[A-HJ-NP-Z2-9]{5}$/.test(value) && value !== String(ref || '').toUpperCase()))];
+  const runs = otherRefs.length ? await read(ctx, 'calc_runs', { select: 'dados,is_test', 'dados->>ref': 'in.(' + otherRefs.join(',') + ')' }).catch(() => []) : [];
+  const realRuns = runs.filter((row) => row && row.is_test !== true && row.dados);
+  return {
+    ...owner, contactName: contact.display_name || '',
+    names: [...parsedOthers.map((item) => item.name), ...realRuns.map((row) => row.dados.nome)].filter(Boolean),
+    vehicleText: [journey.vehicle_text, ...parsedOthers.map((item) => item.vehicle), ...realRuns.map((row) => [row.dados.marca, row.dados.modelo].filter(Boolean).join(' '))].filter(Boolean).join(' · ')
+  };
+}
+
 async function factsFor(ctx, message, read = rows, names = journeyNames) {
   const parsed = calcMessage.parse(message.body_text);
   const env = 'eq.' + ctx.environment;
@@ -64,6 +95,7 @@ async function factsFor(ctx, message, read = rows, names = journeyNames) {
     const linkedIds = byLink.map((row) => row.journey_id).filter((id) => !byCode.some((row) => row.id === id));
     const extra = linkedIds.length ? await read(ctx, 'journeys', { select: 'id,contact_id', environment: env, id: 'in.(' + linkedIds.join(',') + ')' }) : [];
     refOwners = [...byCode, ...extra];
+    if (refOwners.length === 1) refOwners = [await ownerIdentity(ctx, refOwners[0], message, parsed.ref, read)];
   }
   let fichas = [];
   if (message.contact_id) {
@@ -130,4 +162,4 @@ async function loadQueue(ctx, read = rows) {
   });
 }
 
-module.exports = { RULE_VERSION, REASONS, decide, factsFor, routeOne, routeCalculatorMessages, loadQueue };
+module.exports = { RULE_VERSION, REASONS, decide, factsFor, ownerIdentity, routeOne, routeCalculatorMessages, loadQueue };

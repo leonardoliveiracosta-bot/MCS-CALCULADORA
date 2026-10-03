@@ -27,7 +27,8 @@ async function loadReviews(ctx) {
   const joined = (Array.isArray(candidates) ? candidates : [])
     .filter((row) => !phoneLink.namesAgree(row.message_name, [row.contact_name, ...(row.other_names || [])]))
     .map(fromCandidate);
-  const byName = queued.filter((row) => (row.evidence?.conflicts || []).some((code) => code === 'nome' || code === 'nome-desconhecido') && (row.evidence?.candidates || []).length === 1);
+  // Any contradiction (name, unknown name, car), by the phone or by the Ref: one candidate ficha waits for the decision.
+  const byName = queued.filter((row) => (row.evidence?.conflicts || []).some((code) => ['nome', 'nome-desconhecido', 'carro'].includes(code)) && (row.evidence?.candidates || []).length === 1);
   if (!byName.length) return joined;
   const journeyIds = [...new Set(byName.map((row) => row.evidence.candidates[0]))];
   const messageIds = byName.map((row) => row.message_id);
@@ -45,7 +46,8 @@ async function loadReviews(ctx) {
     const journeyId = row.evidence.candidates[0], message = messageOf.get(row.message_id) || {}, known = namesOf.get(journeyId) || {}, journey = journeyOf.get(journeyId) || {};
     const phone = phones.filter((entry) => entry.contact_id === journey.contact_id).sort((a, b) => Number(b.is_primary) - Number(a.is_primary))[0];
     return {
-      key: `namelink:${row.message_id}:${journeyId}`, state: 'FILA', messageId: row.message_id, journeyId, ref: journey.reference_code || null, phone: phone ? phone.phone_e164 : null,
+      key: `namelink:${row.message_id}:${journeyId}`, state: 'FILA', via: row.evidence.via === 'REF' ? 'REF' : 'TELEFONE', conflicts: row.evidence.conflicts || [], messageRef: row.evidence.ref || null,
+      messageId: row.message_id, journeyId, ref: journey.reference_code || null, phone: phone ? phone.phone_e164 : null,
       simulation: { name: row.evidence.name || null, channel: message.channel || null, at: message.occurred_at_utc || message.created_at || null },
       ficha: { names: personNames([known.contact_name, ...(known.calc_names || [])]), channel: known.last_channel || null, lastAt: known.last_at || null }
     };

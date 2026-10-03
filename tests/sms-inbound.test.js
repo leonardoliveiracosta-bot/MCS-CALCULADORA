@@ -41,6 +41,8 @@ function memoryDb(overrides = {}) {
     return params.limit ? list.slice(0, Number(params.limit)) : list;
   };
   const services = {
+    // The calculator Ref proven for the ficha (panel-ref-proof); here ABCDE has its simulation, any other code does not.
+    calcRef: async (_, journey) => journey && journey.reference_code === 'ABCDE' ? 'ABCDE' : null,
     rows: async (_, table, params) => select(table, params),
     allRows: async (_, table, params) => select(table, params),
     async insert(_, table, payload) {

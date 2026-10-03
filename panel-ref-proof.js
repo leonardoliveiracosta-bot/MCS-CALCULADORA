@@ -73,4 +73,28 @@ function contradicts(suggestion, writtenRefs) {
   return Boolean(target && writtenRefs && writtenRefs.length && !writtenRefs.includes(target));
 }
 
-module.exports = { REF_RE, isCalculatorTemplate, explicitRefs, messageMode, proofFor, loadExplicit, runRefsOf, contradicts };
+// The simulations of these Refs in calc_runs (tests never count), read in small batches.
+async function runRefsAmong(ctx, rows, refs) {
+  const found = new Set();
+  const list = [...new Set((refs || []).map(upper).filter((ref) => REF_RE.test(ref)))];
+  for (let index = 0; index < list.length; index += 150) {
+    const part = list.slice(index, index + 150);
+    runRefsOf(await rows(ctx, 'calc_runs', { select: 'dados,is_test', 'dados->>ref': 'in.(' + part.join(',') + ')' })).forEach((ref) => found.add(ref));
+  }
+  return found;
+}
+
+// The calculator Ref of each ficha with the same proof as the ficha detail (simulation in calc_runs, or the client's
+// calculator message): "Ref" on screen only for a proven Ref; a code without proof is only the ficha's internal code.
+// linkedByJourney: Map(journeyId -> [ref_code]) from journey_refs.
+async function proofIndex(ctx, { rows, rpc }, journeys, linkedByJourney = new Map()) {
+  const list = (journeys || []).filter((journey) => journey && journey.id);
+  if (!list.length) return new Map();
+  const ids = list.map((journey) => journey.id);
+  const explicit = (await loadExplicit(ctx, rpc, ids.length <= 200 ? ids : null).catch(() => null)) || new Map();
+  const candidates = list.flatMap((journey) => [journey.reference_code, ...(linkedByJourney.get(journey.id) || []), ...(explicit.get(journey.id) || []).map((entry) => entry.ref)]);
+  const runRefs = await runRefsAmong(ctx, rows, candidates).catch(() => new Set());
+  return new Map(list.map((journey) => [journey.id, proofFor({ journey, linkedRefs: linkedByJourney.get(journey.id) || [], runRefs, explicit: explicit.get(journey.id) || [] })]));
+}
+
+module.exports = { REF_RE, isCalculatorTemplate, explicitRefs, messageMode, proofFor, loadExplicit, runRefsOf, runRefsAmong, proofIndex, contradicts };

@@ -51,12 +51,22 @@ test('leitura do texto real: Ref, "Ref: -----", sem linha, modelo antigo e espan
 });
 
 test('(i) "Ref: XXXXX" liga à ficha da Ref', async () => {
-  const out = await receive('+13055559999', calculatorText('QWRT7'), '2026-10-02T12:00:00Z');
+  // The name agrees with the ficha of the Ref (Ana Souza): the second way finds no contradiction.
+  const out = await receive('+13055559999', calculatorText('QWRT7', 'Ana Souza'), '2026-10-02T12:00:00Z');
   assert.equal(out.stored, true);
   const [row] = await q(`select r.destination, r.reason, r.journey_id from public.panel_calc_message_route r join public.messages m on m.id=r.message_id where m.body_text like '%Ref: QWRT7'`);
   assert.deepEqual([row.destination, row.reason, row.journey_id], ['LIGADA_REF', 'REF_ENCONTRADA', JA]);
   const links = await q(`select mj.journey_id from public.message_journeys mj join public.messages m on m.id=mj.message_id where m.body_text like '%Ref: QWRT7' and mj.undone_at is null`);
   assert.deepEqual(links.map((link) => link.journey_id), [JA]);
+});
+
+test('(i-b) "Ref: XXXXX" de uma ficha com outro nome: Confirmar vínculo, nunca junta sozinho', async () => {
+  const out = await receive('+13055558888', calculatorText('QWRT7', 'Carla Dias').replace('Dodge Challenger', 'Dodge Challenger '), '2026-10-02T12:01:00Z');
+  assert.equal(out.stored, true);
+  const [row] = await q(`select r.destination, r.reason, r.evidence from public.panel_calc_message_route r join public.messages m on m.id=r.message_id where m.body_text like '%Carla Dias%Ref: QWRT7'`);
+  assert.deepEqual([row.destination, row.reason, row.evidence.via, row.evidence.conflicts, row.evidence.candidates], ['FILA', 'FILA_CONTRADICAO', 'REF', ['nome'], [JA]]);
+  const links = await q(`select mj.journey_id from public.message_journeys mj join public.messages m on m.id=mj.message_id where m.body_text like '%Carla Dias%Ref: QWRT7' and mj.undone_at is null`);
+  assert.deepEqual(links, []);
 });
 
 test('(ii) "Ref: -----" de telefone novo cria ficha nova e nunca vira Ref', async () => {
@@ -106,7 +116,7 @@ test('(iv) reprocessar não duplica: cron de novo, SMS repetido e decisão manua
   await route.routeCalculatorMessages(ctx, { max: 50 });
   await q(`update public.panel_calc_message_route set updated_at=now()-interval '1 hour'`);
   await route.routeCalculatorMessages(ctx, { max: 50 });
-  const repeated = await receive('+13055559999', calculatorText('QWRT7'), '2026-10-02T12:00:00Z');
+  const repeated = await receive('+13055559999', calculatorText('QWRT7', 'Ana Souza'), '2026-10-02T12:00:00Z');
   assert.equal(repeated.duplicate, true);
   assert.deepEqual(await count(), before);
   // the operator decides one queue item; the rule never undoes it
