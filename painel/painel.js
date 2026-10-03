@@ -151,6 +151,41 @@
     if (aiOrders.state === 'AMBIGUO' && aiOrders.text) box.append(element('p', 'pending-ai ai-ambiguous', aiOrders.text));
     return box;
   }
+  // Short status of an Atendimento case ("Cliente sem resposta há 13 dias"), from its reasons.
+  function shortStatus(entry, item) {
+    const kinds = new Set((entry.reasons || []).map((reason) => reason.kind));
+    const waited = item?.group?.unattended?.waitedText;
+    if (kinds.has('NAO_ATENDIDO') || kinds.has('RESPONDER')) {
+      const head = item?.group?.unattended?.reason === 'NO_ACTION' && !kinds.has('RESPONDER')
+        ? (waited ? `Sem ação há ${waited}` : 'Sem ação há dias')
+        : (waited ? `Cliente sem resposta há ${waited}` : 'Cliente sem resposta');
+      // A decision waiting on her (link, tie, triage) stays visible next to the waiting time.
+      const decision = (entry.reasons || []).find((reason) => ['VINCULO', 'REF_EMPATE', 'FORA_MCS', 'TRIAGEM'].includes(reason.kind));
+      return decision ? `${head} · ${decision.text}` : head;
+    }
+    const short = { NEXT_ACTION: 'Retorno vencido', PROMESSA: 'Retorno prometido para hoje', VOLTOU: 'Voltou a falar', QUER_CARRO: 'Quer este carro', IA: 'Itens da IA para confirmar', VINCULO: 'Confirmar vínculo', REF_EMPATE: 'Escolher a simulação do cliente', FORA_MCS: 'Revisar: fora da MCS?', TRIAGEM: 'Classificar a conversa', VITRINE: 'Pedido na vitrine' };
+    const texts = [...new Set((entry.reasons || []).map((reason) => short[reason.kind] || reason.text))];
+    if (texts.length) return texts.slice(0, 2).join(' · ');
+    return entry.bucket === 'agendado' ? 'Agendado' : 'Aguardando o cliente';
+  }
+  // The request exactly as the calculator was filled: by value (car · bid) or by car (car · years · mileage), plus the ZIP line.
+  function caseRequestLines(item) {
+    const facts = item.cardFacts || {};
+    const per = facts.perMode || {};
+    const lines = [];
+    const modes = (facts.modes || []).filter((mode) => per[mode]);
+    if (modes.includes('VALOR')) { const v = per.VALOR; lines.push(['Por valor:', displayModel(v.vehicleText) || 'carro não informado', v.budgetCents ? `lance máx. ${formatMoney(v.budgetCents)}` : 'lance não informado'].join(' ')); }
+    if (modes.includes('CARRO')) { const c = per.CARRO; lines.push(['Por carro:', [displayModel(c.vehicleText) || 'carro não informado', c.yearsText ? `anos ${c.yearsText}` : '', c.mileageText ? `milhas ${c.mileageText}` : ''].filter(Boolean).join(' · ')].join(' ')); }
+    if (!modes.length) { const vehicle = displayModel(facts.vehicleText || item.vehicleText); const bid = Number(facts.budgetCents || item.budgetCents) || 0; if (vehicle || bid) lines.push([vehicle || 'carro não informado', bid ? `lance máx. ${formatMoney(bid)}` : ''].filter(Boolean).join(' · ')); }
+    if (facts.zipText) lines.push(`ZIP ${facts.zipText}`);
+    return lines;
+  }
+  function calculatorLabel(item) {
+    const modes = (item.cardFacts && item.cardFacts.modes) || [];
+    const names = modes.map((mode) => mode === 'VALOR' ? 'Calculate My Cost (por valor)' : mode === 'CARRO' ? 'Find One For Me (por carro)' : null).filter(Boolean);
+    if (names.length) return 'Calculadora: ' + names.join(' + ');
+    return refStateOf(item) === 'A_RECUPERAR' ? 'Calculadora (tipo a recuperar)' : 'Sem calculadora · mensagem direta';
+  }
   const contextSlot = (spec, options) => window.MCSContext ? MCSContext.slot(spec, options) : document.createComment('contexto');
   const hydrateContexts = (root) => { if (window.MCSContext && root) MCSContext.hydrate(root, { request, open: (kind, key) => openDetail(kind, key) }).catch(() => {}); };
 
@@ -2157,6 +2192,8 @@
     };
     group('VIEW','V1 · Pediram para ver o carro');group('BID','V2 · Querem dar lance');scheduleAttendRender();
     (data?.signals||[]).forEach((signal)=>{const target=uuidOnly(signal.journeyId)?['ficha',signal.journeyId]:signal.referenceCode?['order',signal.referenceCode]:null;const label=`Ref ${signal.referenceCode||'—'} · ${signal.text}${target?' · abrir':''}`;const node=target?element('button','vitrine-signal',label):element('span','vitrine-signal',label);if(target){node.type='button';node.addEventListener('click',()=>openDetail(target[0],target[1]));}signals.append(node);});
+    // The "abriu o link / tocou e não enviou" strip is not shown in ATENDIMENTO any more (too much noise); a real V1/V2 request still is.
+    signals.classList.add('hidden');
   }
 
   function relativeAuction(value){const hours=Math.max(0,Math.ceil((Date.parse(value)-Date.now())/3600000));return hours>=24?`em ${Math.floor(hours/24)} dia${Math.floor(hours/24)===1?'':'s'} ${hours%24} h`:`em ${hours} h`;}
@@ -2323,32 +2360,25 @@
       const item = entry.item;
       const heat = String(item.heat || '').toUpperCase();
       const card = element('article', `item-card today-card case-card${heat ? ` heat-${heat.toLowerCase()}` : ''}`);
-      // Why it is here, every reason of the case together, first.
-      const reasons = entry.reasons.map((reason) => reason.text);
+      // One short status line: why the case is here, in a few words (the full reasons are in the ficha).
       const decision = MCSContactGroups.decisionNode(item);
-      if (!reasons.length) decision.replaceChildren(element('strong', 'card-decision-label', entry.bucket === 'agendado' ? 'Agendado' : 'Aguardando cliente'), document.createTextNode(entry.bucket === 'agendado' ? ' · Próxima ação marcada (abaixo)' : ' · Você respondeu · a vez é do cliente'));
-      if (reasons.length) { decision.replaceChildren(element('strong', 'card-decision-label', entry.bucket === 'depende' ? 'Depende de você' : MCSContactGroups.groupOf(item).label), document.createTextNode(' · ' + reasons.join(' · ') + (item.group?.unattended ? ` · Esperando há ${item.group.unattended.waitedText}` : ''))); decision.classList.add('decision-red'); }
+      decision.replaceChildren(element('strong', 'card-decision-label', shortStatus(entry, item)));
       card.append(decision);
-      const head = element('div', 'item-head');
-      if (item.kind === 'CALCULATOR_ORDER') {
-        const title = element('div', 'identity');
-        title.append(element('span', 'order-icon', orderIcon(item)));
-        const txt = element('div');
-        txt.append(element('strong', 'identity-name', item.contactName||`Pedido ${item.ref}`),phoneNode(item), identityFacts(item.ref, item.vehicleText, item.budgetCents, refStateOf(item)));
-        title.append(txt);
-        head.append(title);
-      } else {
-        head.append(identityHeader(item, { compact: true }));
-      }
-      // Origin and channel once, as a short chip.
-      const originChip=MCSContactGroups.originChip(item);if(originChip)head.append(originChip);
-      const subjectChip=MCSContactGroups.subjectChip(item);if(subjectChip)head.append(subjectChip);
+      // Only what decides the next step: who (phone, once), the Ref, the request as the calculator filled it, and which calculator.
+      const head = element('div', 'case-identity');
+      const name = String(item.contactName || item.name || item.contact?.display_name || '').trim();
+      const phone = primaryPhone(item);
+      const phoneText = phone ? phoneDisplay(phone.phone_e164 || phone.phone_raw || '') : '';
+      const digits = (value) => String(value || '').replace(/\D/g, '');
+      if (name && digits(name) !== digits(phone?.phone_e164 || phone?.phone_raw || '') && !/^\+?\d[\d\s()-]+$/.test(name)) head.append(element('strong', 'case-name', name));
+      head.append(phoneText ? element('strong', 'case-phone', '📞 ' + phoneText) : phoneNode(item));
+      const ref = refOf(item) || calcRefOf(item);
+      head.append(element('span', 'case-ref', ref ? `Ref ${ref}` : refStateOf(item) === 'A_RECUPERAR' ? 'Ref: calculadora, referência a recuperar' : 'Sem Ref'));
+      caseRequestLines(item).forEach((line) => head.append(element('span', 'case-request-line', line)));
+      head.append(element('span', 'case-calculator', calculatorLabel(item)));
       card.append(head);
-      // The customer's last message is shown when the reason is to answer it.
-      if(item.awaitingReply){const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)card.append(lastMessage);}
       // An incomplete request of this person: what is missing (the request waits here, not in BUSCAR CARROS).
       entry.requests.forEach((request)=>card.append(element('p','request-lacks case-request',`Completar pedido · ${request.criteriaText?request.criteriaText+' · ':''}${request.lacksText}`)));
-      const next=nextActionNode(item,reload,false);if(next)card.append(next);
       const actions = element('div', 'inline-actions card-primary');
       const replying = item.awaitingReply && item.kind !== 'CALCULATOR_ORDER';
       const open = element('button', 'today-primary small', replying ? 'Responder' : item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
@@ -2369,7 +2399,8 @@
       if (item.budgetCents) badges.append(makeBadge(formatMoney(item.budgetCents), 'blue'));
       if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
       more.append(badges);
-      if(!item.awaitingReply){const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)more.append(lastMessage);}
+      {const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)more.append(lastMessage);}
+      const nextInMore=nextActionNode(item,reload,false);if(nextInMore)more.append(nextInMore);
       const context=contextSlot({ journeyId: journeyIdOf(item), ref: refOf(item) }, { unattended: false });more.append(context);
       const waiting=waitClockNode(item),receipt=readReceiptNode(item);if(waiting)more.append(waiting);if(receipt)more.append(receipt);
       if (replying && item.lastCustomerAt) { const until = Date.parse(item.lastCustomerAt) + 86400000; more.append(element('p', 'muted reply-window-estimate', until > Date.now() ? `Janela do WhatsApp aberta até ${formatDate(new Date(until).toISOString())} (estimada) · responde pelo painel` : 'Janela do WhatsApp encerrada (estimada) · responde pelo WhatsApp do celular')); }

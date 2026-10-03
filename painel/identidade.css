@@ -722,3 +722,25 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 .requests-audit > summary { cursor: pointer; font-weight: 600; min-height: var(--mcs-touch); display: flex; align-items: center; }
 .requests-audit-table { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 8px 0; }
 .requests-audit-table dd { margin: 0; text-align: right; font-weight: 600; }
+
+/* ATENDIMENTO enxuto: a lista usa a largura toda e os cartões ficam lado a lado (até 3), com 2/3 do tamanho anterior. */
+#today-list { grid-template-columns: minmax(0, 1fr); }
+#today-list .contact-area,
+#today-list .contact-subject,
+#today-list .contact-group-decisoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(max(280px, calc((100% - 28px) / 3)), 1fr)); gap: 14px; align-items: start; }
+#today-list .contact-area > header,
+#today-list .contact-subject > header,
+#today-list .contact-subject,
+#today-list .contact-group-decisoes > header { grid-column: 1 / -1; }
+#today-list .today-card { padding: 12px 14px; gap: 6px; font-size: 14px; }
+#today-list .today-card .card-decision { padding: 6px 10px; font-size: 13px; }
+#today-list .case-identity { display: grid; gap: 2px; grid-column: 1 / -1; }
+#today-list .case-name { font-size: 15px; font-weight: 600; }
+#today-list .case-phone { font-size: 16px; font-weight: 600; color: var(--mcs-text); }
+#today-list .case-ref { font-size: 13px; font-weight: 600; }
+#today-list .case-request-line { font-size: 13px; color: var(--mcs-text); }
+#today-list .case-calculator { font-size: 12px; color: var(--mcs-muted); }
+#today-list .today-card > .inline-actions > .today-primary { flex: 0 0 auto; max-width: 180px; min-height: 34px; padding: 6px 14px; font-size: 13px; }
+#today-list .today-card .case-more > summary { font-size: 12px; }
+/* On a phone the primary button keeps the 44 px touch target. */
+@media (max-width: 640px), (pointer: coarse) { #today-list .today-card > .inline-actions > .today-primary { min-height: 44px; } }
