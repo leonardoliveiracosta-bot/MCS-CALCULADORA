@@ -208,21 +208,28 @@
     return list;
   }
 
-  function fullTable(context) {
+  function fieldTable(items) {
     const table = e('table', 'context-table');
     const head = add(add(table, 'thead'), 'tr');
     ['Campo', 'Valor usado', 'Situação'].forEach((label) => add(head, 'th', '', label));
     const body = add(table, 'tbody');
-    // Not shown: "Uso do carro" (the panel never collects it) and "Teto total" (not used at this stage).
-    (context.fields || []).filter((item) => item.key !== 'uso' && item.key !== 'teto').forEach((field) => {
-      const item = withAllCars(field);
+    items.forEach((item) => {
       const tr = add(body, 'tr', STATUS_CLASS[item.status] || '');
       add(tr, 'th', '', item.label).scope = 'row';
       add(tr, 'td', 'context-value', item.value || (item.status === 'AMBIGUO' ? 'Não escolhido: as fontes discordam' : '—'));
       const status = add(tr, 'td'); status.append(statusTag(item));
     });
+    return table;
+  }
+  function fullTable(context) {
     const wrap = e('div', 'context-table-wrap');
-    wrap.append(table);
+    // Not shown: "Uso do carro" (the panel never collects it) and "Teto total" (not used at this stage).
+    const fields = (context.fields || []).filter((item) => item.key !== 'uso' && item.key !== 'teto');
+    const blocks = context.carBlocks || [];
+    if (blocks.length < 2) { wrap.append(fieldTable(fields.map(withAllCars))); return wrap; }
+    // More than one car: one block per car (Carro, Anos, Milhagem), the client's own fields once, outside the blocks.
+    blocks.forEach((block) => { const table = fieldTable([block.carro, block.anos, block.milhas]); table.classList.add('context-car-block'); wrap.append(table); });
+    const own = fieldTable(fields.filter((item) => !['carro', 'anos', 'milhas'].includes(item.key))); own.classList.add('context-client-block'); wrap.append(own);
     return wrap;
   }
 

@@ -1070,3 +1070,5 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .unlock-option .unlock-wa, .unlock-option .unlock-sms { min-height: 36px; padding: 7px 14px; border-radius: 8px; background: #1B1A18; color: #FFFFFF; border: 0; font-weight: 700; }
 .unlock-option .unlock-wa:disabled, .unlock-option .unlock-sms:disabled { opacity: .5; }
 .unlock-option .unlock-send-status { font-size: 12.5px; }
+
+.context-table-wrap .context-car-block, .context-table-wrap .context-client-block { margin-bottom: 14px; }
