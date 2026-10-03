@@ -513,7 +513,7 @@ body.login-screen .error { color: var(--mcs-red); }
     bottom: 0;
     z-index: 40;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0;
     width: 100%;
     max-width: none;
@@ -534,9 +534,13 @@ body.login-screen .error { color: var(--mcs-red); }
     justify-content: center;
     gap: 2px;
     min-height: 52px;
-    padding: 6px 2px;
-    font-size: 11px;
-    letter-spacing: .06em;
+    padding: 6px 1px;
+    font-size: 10px;
+    letter-spacing: 0;
+    line-height: 1.15;
+    text-align: center;
+    white-space: normal;
+    min-width: 0;
   }
   .tab.active { box-shadow: inset 0 2px 0 var(--mcs-gold); }
   .tab [data-count],
@@ -734,8 +738,8 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 #today-list .today-card { position: relative; display: flex; flex-direction: column; padding: 12px 14px; gap: 8px; font-size: 14px; min-width: 0; }
 #today-list .today-card .card-decision { margin: 0; padding: 6px 10px; font-size: 13px; }
 #today-list .case-fields { display: grid; gap: 3px; margin: 0; }
-#today-list .case-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; align-items: baseline; }
-#today-list .case-field-label { margin: 0; font-size: 12px; color: var(--mcs-muted); }
+#today-list .case-field { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 6px; align-items: baseline; }
+#today-list .case-field-label { margin: 0; font-size: 13px; color: var(--mcs-muted); }
 #today-list .case-field-value { margin: 0; font-size: 14px; color: var(--mcs-text); overflow-wrap: anywhere; }
 #today-list .case-phone .case-field-value,
 #today-list .case-name .case-field-value { font-weight: 600; }

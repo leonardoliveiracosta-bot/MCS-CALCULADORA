@@ -87,7 +87,7 @@ test('tema claro único, fontes locais e logo em SVG', () => {
     assert.doesNotMatch(text, /Anton|fonts\.googleapis|fonts\.gstatic/, file);
   }
   assert.doesNotMatch(layer, /https?:\/\//);
-  assert.match(html, /href="\/painel\/tema-mcs\.css">\s*<link rel="stylesheet" href="\/painel\/identidade\.css">/);
+  assert.match(html, /href="\/painel\/tema-mcs\.css(?:\?v=[\w-]+)?">\s*<link rel="stylesheet" href="\/painel\/identidade\.css(?:\?v=[\w-]+)?">/);
   assert.ok(fs.existsSync(path.join(root, 'painel/mcs-logo-claro.svg')), 'nenhum SVG apagado');
   assert.equal(JSON.parse(read('painel/manifest.webmanifest')).theme_color.toUpperCase(), '#FFFFFF');
 });
