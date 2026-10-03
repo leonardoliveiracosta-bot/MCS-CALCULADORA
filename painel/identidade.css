@@ -1027,3 +1027,6 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .context-card .lead-context-link.context-last { margin: 0 0 10px; font-size: 15px; color: #1B1A18; }
 .context-card .lead-context-link.context-older { margin: 0 0 8px; padding: 10px 12px; border-radius: 8px; background: #F6F2E9; font-size: 13px; color: #6F675D; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .offer-card .offer-item, .offer-card .offer-count, .offer-card .offer-note { text-align: left; align-items: flex-start; } .offer-card .offer-tags { justify-content: flex-start; }
+/* Listas de carros (cartões 5 e 8): 10 visíveis, o resto em "Ver mais (N)". */
+.list-more-hidden { display: none !important; }
+.list-more { display: block; width: 100%; margin-top: 12px; min-height: 38px; padding: 8px 14px; border: 1.5px solid #CFC6B6; border-radius: 8px; background: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; }
