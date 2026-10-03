@@ -259,12 +259,17 @@ module.exports = async (req, res) => {
     const requestedSort=String(req.query?.sort||'ready');
     if(requestedSort!=='ready')items=sortItems(items,requestedSort,'ready');
 
+    // "Excluir": a discarded person that is not back in HOJE also leaves the other rows of ATENDIMENTO
+    // (link, triage, vitrine, incomplete request); the screen hides them by this list.
+    const liveJourneys=new Set(items.map((item)=>item.journeyId||(item.kind==='JOURNEY'?item.id:null)).filter(Boolean));
+    const discardedJourneys=data.journeys.filter((journey)=>!liveJourneys.has(journey.id)&&dispositionFor(journey)?.status==='DISCARDED').map((journey)=>journey.id);
     const stageIndex=await loadSearchStageIndex(ctx).catch(soft('andamento da busca',new Map()));
     return send(res, 200, {
       environment: ctx.environment,
       windowHours: 24,
       generatedAt: new Date(now).toISOString(),
       items:items.map((item)=>decorateWithSearchStage(item,stageIndex)),
+      discardedJourneys,
       degraded: [...new Set(degraded)],
       meta
     });

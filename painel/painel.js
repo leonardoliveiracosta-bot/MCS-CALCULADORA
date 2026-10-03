@@ -1731,6 +1731,7 @@
       if(whatsappData)renderWhatsApp(whatsappData);
       const missing=[!vitrineData&&'pedidos de vitrine',!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos',...((data.degraded||[]).map((name)=>name+' (desatualizado)'))].filter(Boolean);
       $('triage-state').textContent=[missing.length?`Não consegui carregar agora: ${missing.join(', ')} · o resto da fila vale`:'',triageData&&triageData.state!=='LIGADA'?'Triagem automática desligada: as conversas novas seguem o fluxo normal':''].filter(Boolean).join(' · ');
+      attendData.discarded=new Set(data.discardedJourneys||[]);
       renderToday(data.items || []);
       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
       sharedGet('/api/panel/pesquisas', 30000).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;renderToday(todayItems,true);})
@@ -1815,7 +1816,7 @@
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
     // ATENDIMENTO: the cases that depend on you, from the same model as its chips and list.
     if (today && entry && vitrineData && triageData && whatsappData) {
-      const model = MCSAttend.model({ todayItems: today.items || [], decisions: attendDecisions({ entry, triage: triageData, whatsapp: whatsappData, vitrine: vitrineData }), incomplete: [] });
+      const model = MCSAttend.model({ todayItems: today.items || [], decisions: withoutExcluded(today.items, attendDecisions({ entry, triage: triageData, whatsapp: whatsappData, vitrine: vitrineData }), new Set(today.discardedJourneys || [])), incomplete: [] });
       setCount('today', model.counts.depende);
     } else setCountUnknown('today');
     count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length + (data.calcQueue || []).length);
@@ -1918,9 +1919,10 @@
     toast.append(element('span', '', label));
     const undo = element('button', 'quiet small', 'Desfazer');
     undo.type = 'button';
-    MCSAction.bind(undo,()=>({scope:scope||document.body,feedbackKey:`undo:${scopeKey}`,optimistic:()=>{toast.classList.add('action-optimistic-hidden');return null;},
+    const wasExcluded=itemKind==='JOURNEY'&&excludedHere.has(itemKey);
+    MCSAction.bind(undo,()=>({scope:scope||document.body,feedbackKey:`undo:${scopeKey}`,optimistic:()=>{toast.classList.add('action-optimistic-hidden');if(itemKind==='JOURNEY'&&previousStatus!=='DISCARDED')excludedHere.delete(itemKey);return null;},
       commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status:previousStatus,previousStatus,previousReason})}),
-      rollback:()=>toast.classList.remove('action-optimistic-hidden'),successText:'Ação desfeita',
+      rollback:()=>{toast.classList.remove('action-optimistic-hidden');if(wasExcluded)excludedHere.add(itemKey);},successText:'Ação desfeita',
       refresh:async()=>{toast.remove();if(refresh)await refresh();await refreshCounters();await loadCaptureWarning();}}));
     toast.append(undo);
     document.body.append(toast);
@@ -1960,10 +1962,10 @@
 
   function setDisposition(item,status,button,reason=null) {
     const {itemKind,itemKey}=dispositionIdentity(item),previousStatus=item.disposition||null,previousReason=item.discardReason||null,scope=button.closest('.item-card,.lead-card,.record-block')||document.body;
-    return MCSAction.run({button,scope,feedbackKey:`disposition:${itemKind}:${itemKey}`,optimistic:()=>applyDispositionVisual(button,item,status),
+    return MCSAction.run({button,scope,feedbackKey:`disposition:${itemKind}:${itemKey}`,optimistic:()=>{markExcluded(item,status==='DISCARDED');return applyDispositionVisual(button,item,status);},
       commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'set_disposition',itemKind,itemKey,status,reason})}),
-      rollback:(snapshot)=>rollbackDisposition(item,snapshot),errorText:'Não consegui salvar, tente de novo',
-      onSuccess:()=>{item.discardReason=status==='DISCARDED'?reason:null;showUndo({itemKind,itemKey,previousStatus,previousReason,label:status==='TREATED'?'Marcado como Tratado':status==='DISCARDED'?`Descartado · ${discardLabel(reason)}`:'Voltou para pendente',scope,refresh:dispositionRefresh});},
+      rollback:(snapshot)=>{markExcluded(item,previousStatus==='DISCARDED');rollbackDisposition(item,snapshot);},errorText:'Não consegui salvar, tente de novo',
+      onSuccess:()=>{item.discardReason=status==='DISCARDED'?reason:null;showUndo({itemKind,itemKey,previousStatus,previousReason,label:status==='TREATED'?'Marcado como Tratado':status==='DISCARDED'?'Excluído do painel':'Voltou para pendente',scope,refresh:dispositionRefresh});},
       refresh:async()=>{await dispositionRefresh();await refreshCounters();}});
   }
 
@@ -2232,14 +2234,23 @@
   // ATENDIMENTO: HOJE + the decisions of the old ENTRADA in one queue (painel/atendimento.js decides
   // the case, its reasons and its filter; the badge, the chips and the list come from that one call).
   let attendBucket = (() => { try { return localStorage.getItem('mcs_attend_bucket') || 'depende'; } catch (_) { return 'depende'; } })();
-  const attendData = { entry: null, triage: null, whatsapp: null, vitrine: null, incomplete: [], incompleteFailed: false };
+  const attendData = { entry: null, triage: null, whatsapp: null, vitrine: null, incomplete: [], incompleteFailed: false, discarded: new Set() };
+  // "Excluir": the person leaves ATENDIMENTO whole. Its link/triage/vitrine rows and incomplete requests stay out too
+  // (the server's list, plus the ones excluded here before the next answer), until the person is a HOJE item again.
+  const excludedHere = new Set();
+  function withoutExcluded(items, rows, serverIds) {
+    const live = new Set((items || []).map(MCSAttend.journeyOf).filter(Boolean));
+    const out = (row) => { const journeyId = uuidOnly(row.journeyId); return journeyId && !live.has(journeyId) && (excludedHere.has(journeyId) || (serverIds && serverIds.has(journeyId))); };
+    return (rows || []).filter((row) => !out(row));
+  }
+  function markExcluded(item, excluded) { const journeyId = MCSAttend.journeyOf(item); if (journeyId) excluded ? excludedHere.add(journeyId) : excludedHere.delete(journeyId); }
   // Conversations of the old ENTRADA that still wait for a decision (same rule as before for its badge).
   const entryReviewChats = (entry) => (entry && entry.chats || []).filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain));
   function attendDecisions({ entry, triage, whatsapp, vitrine } = attendData) {
     const out = [];
     (whatsapp?.suggestions || []).forEach((item) => out.push({ key: 'suggestion:' + item.id, kind: 'VINCULO', journeyId: uuidOnly(item.source_journey_id), name: item.sourceName || item.phone_e164 || null, phone: item.phone_e164 || null, label: item.target_ref ? `Confirmar vínculo: esta conversa ${item.refConfirmed ? 'é' : 'parece ser'} a Ref ${item.target_ref}` : 'Confirmar vínculo desta conversa com uma ficha' }));
     (whatsapp?.phoneReviews || []).forEach((item) => out.push({ key: 'phone:' + item.id, kind: 'TELEFONE', journeyId: null, name: item.phone_e164 || null, phone: item.phone_e164 || null, label: 'Escolher o contato certo deste telefone' }));
-    (triage?.review || []).forEach((item) => out.push({ key: 'triage:' + item.id, kind: 'TRIAGEM', journeyId: uuidOnly(item.journeyId), name: item.name || null, phone: item.phone_e164 || item.phone || null, label: 'Classificar a conversa (pré-compra ou fora do funil)' }));
+    (triage?.review || []).forEach((item) => out.push({ key: 'triage:' + item.id, kind: 'TRIAGEM', chatId: item.chatId || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, phone: item.phone_e164 || item.phone || null, label: 'Classificar a conversa (pré-compra ou fora do funil)' }));
     (triage?.offMcs || []).forEach((item) => out.push({ key: 'offmcs:' + item.journeyId, kind: 'FORA_MCS', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Revisar: candidata a fora da MCS · ' + (item.label || '') }));
     entryReviewChats(entry).forEach((chat) => out.push({ key: 'chat:' + chat.id, kind: 'REVISAR_CONVERSA', journeyId: uuidOnly(chat.groupJourneyId), name: chat.contact?.display_name || chat.canonical_key || null, label: chat.resolution_status === 'RESOLVED' ? 'Conferir conversa com hora incerta' : 'Revisar conversa importada e ligar à ficha certa' }));
     (vitrine?.requests || []).forEach((item) => out.push({ key: 'vitrine:' + item.id, kind: 'VITRINE', refState: item.refState || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, label: item.kind === 'BID' ? 'V2 · quer dar lance' : 'V1 · pediu para ver o carro' }));
@@ -2249,7 +2260,7 @@
   function incompleteRequests(pesquisas) {
     return (pesquisas && pesquisas.items || []).filter((item) => item.state === 'PRECISA_DETALHE').map((item) => ({ key: item.key, journeyId: uuidOnly(item.person?.journeyId), contactId: uuidOnly(item.person?.contactId), name: item.person?.name || null, lacksText: item.lacksText || 'Falta um dado do carro', criteriaText: item.criteriaText || '', source: item.source }));
   }
-  const attendModel = (items) => MCSAttend.model({ todayItems: items, decisions: attendDecisions(), incomplete: attendData.incomplete, sort: $('today-sort')?.value || 'ready' });
+  const attendModel = (items) => MCSAttend.model({ todayItems: items, decisions: withoutExcluded(items, attendDecisions(), attendData.discarded), incomplete: withoutExcluded(items, attendData.incomplete, attendData.discarded), sort: $('today-sort')?.value || 'ready' });
   // A decision row (link, review, triage, vitrine) of a case: found wherever it is, moved into the case card.
   const decisionRow = (key) => document.querySelector(`[data-decision-key="${CSS.escape(key)}"]`);
   function stageDecisionRows() {
@@ -2272,20 +2283,35 @@
     clear.addEventListener('click', () => { document.querySelectorAll('#today-list .case-pick-box:checked').forEach((box) => { box.checked = false; box.closest('.today-card')?.classList.remove('case-picked'); }); updateBulkBar(); });
     const remove = element('button', 'small attend-bulk-delete', 'Excluir selecionados'); remove.type = 'button';
     remove.addEventListener('click', () => {
-      const cards = [...document.querySelectorAll('#today-list .today-card.case-picked')].filter((card) => card.attendItem);
+      const cards = [...document.querySelectorAll('#today-list .today-card.case-picked')].filter((card) => card.attendItem || card.attendShell);
       if (!cards.length) return;
-      const keys = cards.map((card) => dispositionIdentity(card.attendItem));
-      const post = (status) => Promise.all(keys.map(({ itemKind, itemKey }) => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status, reason: status ? 'OTHER' : null }) })));
+      // A client card or a decision with a ficha: the person is excluded (the same "Excluir" as in the ficha). A conversation
+      // without a ficha waiting for classification is marked out of the funnel (reversible in "Fora do funil comercial").
+      const keys = [], chats = [], shellJourneys = [];
+      cards.forEach((card) => { if (card.attendItem) keys.push(dispositionIdentity(card.attendItem)); else if (card.attendShell.journeyId) { keys.push({ itemKind: 'JOURNEY', itemKey: card.attendShell.journeyId }); shellJourneys.push(card.attendShell.journeyId); } else chats.push(...card.attendShell.chats); });
+      const mark = (excluded) => { cards.forEach((card) => { if (card.attendItem) markExcluded(card.attendItem, excluded); }); shellJourneys.forEach((id) => excluded ? excludedHere.add(id) : excludedHere.delete(id)); };
+      const post = (status) => Promise.all([
+        ...keys.map(({ itemKind, itemKey }) => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status, reason: status ? 'OTHER' : null }) })),
+        ...(status ? chats.map((chatId) => request('/api/panel/triage', { method: 'POST', body: JSON.stringify({ action: 'set', chatId, category: 'NAO_CLIENTE' }) })) : [])
+      ]);
       MCSAction.run({ button: remove, scope: document.body, successScope: document.body, feedbackKey: 'attend-bulk-delete',
-        optimistic: () => { cards.forEach((card) => card.classList.add('action-optimistic-hidden')); bar.classList.add('hidden'); return cards; },
+        optimistic: () => { cards.forEach((card) => card.classList.add('action-optimistic-hidden')); bar.classList.add('hidden'); mark(true); return cards; },
         commit: () => post('DISCARDED'),
-        rollback: (snapshot) => { (snapshot || []).forEach((card) => card.classList.remove('action-optimistic-hidden')); updateBulkBar(); },
+        // Some may have been saved before one failed: the list is read again, so it shows what the server kept.
+        rollback: (snapshot) => { mark(false); (snapshot || []).forEach((card) => card.classList.remove('action-optimistic-hidden')); updateBulkBar(); loadCurrent('today', viewRequestVersion).catch(() => {}); },
         successText: `${cards.length} excluído(s) do painel`, errorText: 'Não consegui excluir, tente de novo',
-        undo: { commit: () => post(null), successText: 'Voltaram para o painel', refresh: async () => { await loadCurrent('today', viewRequestVersion); await refreshCounters(); } },
+        undo: { optimistic: () => mark(false), rollback: () => mark(true), commit: () => post(null), successText: 'Voltaram para o painel', refresh: async () => { await loadCurrent('today', viewRequestVersion); await refreshCounters(); } },
         refresh: async () => { await loadCurrent('today', viewRequestVersion); await refreshCounters(); } });
     });
     bar.append(count, remove, clear);
     return bar;
+  }
+  function pickBox(card) {
+    const pick = element('label', 'case-pick'); pick.title = 'Selecionar';
+    const box = element('input'); box.type = 'checkbox'; box.className = 'case-pick-box'; box.setAttribute('aria-label', 'Selecionar');
+    pick.append(box); pick.addEventListener('click', (event) => event.stopPropagation());
+    box.addEventListener('change', () => { card.classList.toggle('case-picked', box.checked); updateBulkBar(); });
+    return pick;
   }
   function updateBulkBar() {
     const bar = document.querySelector('#today-list .attend-bulk'); if (!bar) return;
@@ -2300,6 +2326,7 @@
     // the other cards (status, labelled fields, buttons); the decision controls are under "⋯ Mais".
     const first = entry.decisions[0] || entry.requests[0] || {};
     const card = element('article', 'item-card today-card case-card case-shell');
+    card.attendShell = { journeyId: uuidOnly(entry.journeyId) || null, chats: entry.decisions.filter((decision) => decision.kind === 'TRIAGEM' && decision.chatId).map((decision) => decision.chatId) };
     const identity = entry.journeyId && attendIdentity.get(entry.journeyId);
     const known = identity && identity !== 'loading' ? identity : null;
     const head = element('dl', 'case-identity case-fields');
@@ -2439,12 +2466,8 @@
       const decision = MCSContactGroups.decisionNode(item);
       decision.replaceChildren(element('strong', 'card-decision-label', shortStatus(entry, item)));
       // Small selection box: select one or many cards, then "Excluir selecionados" at the top of the list.
-      const pick = element('label', 'case-pick'); pick.title = 'Selecionar';
-      const box = element('input'); box.type = 'checkbox'; box.className = 'case-pick-box'; box.setAttribute('aria-label', 'Selecionar este cliente');
-      pick.append(box); pick.addEventListener('click', (event) => event.stopPropagation());
-      box.addEventListener('change', () => { card.classList.toggle('case-picked', box.checked); updateBulkBar(); });
       card.attendItem = item;
-      decision.append(pick);
+      decision.append(pickBox(card));
       card.append(decision);
       // Only what decides the next step, one labelled field per line: name, phone (once), Ref, the
       // request as the calculator filled it, ZIP and which calculator. Nothing here repeats elsewhere on the card.
@@ -2488,6 +2511,7 @@
       if (!entry.item) {
         const decision = element('p', 'card-decision decision-red');
         decision.append(element('strong', 'card-decision-label', entry.bucket === 'completar' && !entry.decisions.length ? 'Completar pedido' : shortStatus(entry, null)));
+        decision.append(pickBox(card));
         card.prepend(decision);
         const fields = card.querySelector('.case-fields');
         entry.requests.forEach((request)=>{const row=element('div','case-field request-lacks case-request');row.append(element('dt','case-field-label','Falta:'),element('dd','case-field-value',`${request.criteriaText?request.criteriaText+' · ':''}${request.lacksText}`));fields.append(row);});
