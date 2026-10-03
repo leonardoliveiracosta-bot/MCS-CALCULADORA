@@ -73,7 +73,7 @@ test('listing never returns code or hash, and revoke is scoped to id and environ
 });
 
 test('migration and settings card keep hashes private and the feature inside the existing settings view', () => {
-  const sql = fs.readFileSync(path.join(root, 'supabase/migrations/20261020010000_sms_device_tokens.sql'), 'utf8');
+  const sql = fs.readFileSync(path.join(root, 'supabase/migrations/20261003235011_sms_device_tokens.sql'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'painel/index.html'), 'utf8');
   const js = fs.readFileSync(path.join(root, 'painel/sms-device-tokens.js'), 'utf8');
   assert.match(sql, /create table public\.sms_device_tokens/);
