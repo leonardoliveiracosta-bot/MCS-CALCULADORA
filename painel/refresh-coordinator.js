@@ -151,6 +151,8 @@
         inflight.set(key, promise);
         return promise;
       },
+      // An answer already in hand (the panel's single opening call) serves the next identical GET of the ttl.
+      prime(key, value) { cache.set(key, { value, at: now() }); },
       invalidate(prefix) { if (!prefix) { cache.clear(); return; } [...cache.keys()].filter((key) => key.startsWith(prefix)).forEach((key) => cache.delete(key)); },
       inflightCount: () => inflight.size
     };
