@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans:wght@400;600;700&family=Noto+Sans+Mono:wght@500&family=Noto+Serif:wght@600&display=swap">
   <link rel="stylesheet" href="/painel/painel.css?v=20261003s">
   <link rel="stylesheet" href="/painel/tema-mcs.css?v=20261003s">
-  <link rel="stylesheet" href="/painel/identidade.css?v=20261004c">
+  <link rel="stylesheet" href="/painel/identidade.css?v=20261004d">
 </head>
 <body class="login-screen">
   <main class="shell">
@@ -303,13 +303,13 @@
         </section>
         <div id="manheim-results" class="buscas-columns" aria-live="polite">
           <section id="buscas-valor" class="buscas-column" data-mode="VALOR" aria-label="Por valor · Calculate My Cost">
-            <header class="buscas-column-head"><h2>Por valor · Calculate My Cost</h2><p class="muted">Carros pela faixa de MMR do lance de cada cliente</p></header>
+            <header class="buscas-column-head"><h2>Por valor · Calculate My Cost</h2><p class="muted">Carros pela faixa de MMR do lance de cada cliente</p><label class="requests-sort">Ordenar <select id="options-sort-valor"><option value="mais">Mais opções primeiro</option><option value="menos">Menos opções primeiro</option><option value="recente" selected>Mensagem mais recente</option><option value="lance-maior">Lance maior primeiro</option><option value="lance-menor">Lance menor primeiro</option></select></label></header>
             <div id="buscas-valor-counters" class="pending-stats buscas-counters"></div>
             <h3>Compatíveis</h3>
             <div id="buscas-valor-results" class="stack"></div>
           </section>
           <section id="buscas-carro" class="buscas-column" data-mode="CARRO" aria-label="Por carro · Find One For Me">
-            <header class="buscas-column-head"><h2>Por carro · Find One For Me</h2><p class="muted">Carros pela faixa de ano e de milhagem de cada cliente</p></header>
+            <header class="buscas-column-head"><h2>Por carro · Find One For Me</h2><p class="muted">Carros pela faixa de ano e de milhagem de cada cliente</p><label class="requests-sort">Ordenar <select id="options-sort-carro"><option value="mais">Mais opções primeiro</option><option value="menos">Menos opções primeiro</option><option value="recente" selected>Mensagem mais recente</option><option value="ano-maior">Ano maior primeiro</option><option value="ano-menor">Ano menor primeiro</option></select></label></header>
             <div id="buscas-carro-counters" class="pending-stats buscas-counters"></div>
             <h3>Compatíveis</h3>
             <div id="buscas-carro-results" class="stack"></div>
@@ -364,7 +364,7 @@
   <script src="/painel/grupos.js?v=20261003s" defer></script>
   <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js?v=20261004c" defer></script>
-  <script src="/painel/painel.js?v=20261004c" defer></script>
+  <script src="/painel/painel.js?v=20261004d" defer></script>
   <script src="/painel/notifications.js" defer></script>
 </body>
 </html>

@@ -3374,6 +3374,23 @@
   const modeRoot = (mode, part) => $(`buscas-${MODE_ROOTS[mode]}-${part}`);
   let manheimData = null;
 
+  // "Ordenar" of each column of ENVIAR OPÇÕES; default "Mensagem mais recente" keeps the order of before.
+  const optionsSort = { VALOR: 'recente', CARRO: 'recente' };
+  function optionsOrder(mode, a, b) {
+    const years = (demand, high) => { const list = (demand.wishes || []).flatMap((wish) => [Number(wish.yearMin) || null, Number(wish.yearMax) || null]).filter(Boolean); return list.length ? (high ? Math.max(...list) : Math.min(...list)) : null; };
+    const bid = (demand) => Number(demand.bidCents) || null;
+    const last = (value, fallback) => value === null ? fallback : value;
+    switch (optionsSort[mode]) {
+      case 'mais': return (Number(b.matchCount) || 0) - (Number(a.matchCount) || 0);
+      case 'menos': return (Number(a.matchCount) || 0) - (Number(b.matchCount) || 0);
+      case 'lance-maior': return last(bid(b), -Infinity) - last(bid(a), -Infinity);
+      case 'lance-menor': return last(bid(a), Infinity) - last(bid(b), Infinity);
+      case 'ano-maior': return last(years(b, true), -Infinity) - last(years(a, true), -Infinity);
+      case 'ano-menor': return last(years(a, false), Infinity) - last(years(b, false), Infinity);
+      default: return 0;
+    }
+  }
+  ['VALOR', 'CARRO'].forEach((mode) => { const select = document.getElementById('options-sort-' + mode.toLowerCase()); if (select) select.addEventListener('change', () => { optionsSort[mode] = select.value; if (manheimData) renderManheim(manheimData); }); });
   function renderManheim(data) {
     manheimData = data;
     const mode=$('manheim-sort')?.value||'recent';
@@ -3404,7 +3421,7 @@
       const standard = element('section', 'stack'), reactivate = element('section', 'stack');
       reactivate.append(element('h4', '', 'Reativar'));
       let standardCount = 0, reactivateCount = 0;
-      withOptions.filter((demand) => demand.mode === mode).sort((a, b) => position(a) - position(b)).forEach((demand) => {
+      withOptions.filter((demand) => demand.mode === mode).sort((a, b) => optionsOrder(mode, a, b) || position(a) - position(b)).forEach((demand) => {
         if (!demand.journeyId) {
           const order = byOrder.get(String(demand.ref || '').trim());
           if (!order) return;
