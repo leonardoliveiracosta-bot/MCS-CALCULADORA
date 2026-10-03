@@ -3393,8 +3393,8 @@
   ['VALOR', 'CARRO'].forEach((mode) => { const select = document.getElementById('options-sort-' + mode.toLowerCase()); if (select) select.addEventListener('change', () => { optionsSort[mode] = select.value; if (manheimData) renderManheim(manheimData); }); });
   function renderManheim(data) {
     manheimData = data;
-    const mode=$('manheim-sort')?.value||'recent';
-    const cardMode=mode==='customers'?'recent':mode;
+    // The cards follow the most recent message; each column's own "Ordenar" reorders from there.
+    const cardMode='recent';
     manheimJourneys = clientSort(data.items || [],cardMode);
     manheimOrders = clientSort(data.orders || [],cardMode);
     manheimMatches = [];
@@ -4031,7 +4031,7 @@
     intro.replaceChildren(element('p','muted','Cada linha é uma busca para você salvar no Manheim · As primeiras atendem mais clientes · Conta só quem entrou em contato · POR VALOR e POR ANO E MILHAGEM têm porcentagens separadas; o que está em revisão não entra no %'));
     const roots = { VALOR: modeRoot('VALOR', 'saved'), CARRO: modeRoot('CARRO', 'saved') };
     Object.entries(roots).forEach(([mode, root]) => { root.replaceChildren(); if (!data.groups.some((group) => group.mode === mode)) empty(root, 'Nenhuma busca ativa neste modo'); });
-    const mode=$('manheim-sort')?.value||'customers';
+    const mode='customers';
     const rankOf=(group)=>group.searches===null||group.searches===undefined?Infinity:group.searches;
     const groups=data.groups.slice().sort((a,b)=>(mode==='vehicle'?`${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`,'pt-BR'):mode==='recent'?(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)||rankOf(a)-rankOf(b)):rankOf(a)-rankOf(b)));
     const searchTitle=(group)=>{
