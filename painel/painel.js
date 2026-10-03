@@ -1111,9 +1111,9 @@
   }
 
   let queueSeq = 0;
-  async function loadQueue(render = true) {
+  async function loadQueue(render = true, preloaded = null) {
     const seq = ++queueSeq;
-    const data = await fresh('/api/panel/entry');
+    const data = preloaded || await fresh('/api/panel/entry');
     if (seq !== queueSeq) return data;
     contacts = data.contacts || [];
     chats = data.chats || [];
@@ -1723,16 +1723,24 @@
       // decision list that fails stays out (said on screen) and never empties the queue.
       // The last answer saved in this browser is drawn at once (the page opens without waiting); the fresh answer
       // replaces it as soon as it arrives. Each request is shared with the tab counters (never fetched twice).
-      const pending=Promise.all([fresh(todayPath()),fresh('/api/panel/vitrine-requests').catch(()=>null),loadWeekly().catch(()=>null),
-        loadQueue(false).catch(()=>null),fresh('/api/panel/triage').catch(()=>null),fresh('/api/panel/whatsapp').catch(()=>null)]);
+      // Abertura rápida: one call brings the five lists (one shared read in the database, message previews only, and
+      // only what changed since the last load); if it fails, the five lists are read one by one as before.
+      const viaBoot=bootLoad('main',{sort:$('today-sort')?.value||''}).then(async(parts)=>{if(!parts.today)throw new Error('BOOT_INCOMPLETE');
+        primeBoot({[todayPath()]:parts.today,'/api/panel/vitrine-requests':parts.vitrine,'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
+        const entryData=parts.entry?await loadQueue(false,parts.entry).catch(()=>null):null;
+        return [parts.today,parts.vitrine||null,null,entryData,parts.triage||null,parts.whatsapp||null];});
+      const pending=viaBoot.catch(()=>Promise.all([fresh(todayPath()),fresh('/api/panel/vitrine-requests').catch(()=>null),null,
+        loadQueue(false).catch(()=>null),fresh('/api/panel/triage').catch(()=>null),fresh('/api/panel/whatsapp').catch(()=>null)]));
+      loadWeekly().catch(()=>null);
       let freshArrived=false;pending.then(()=>{freshArrived=true;},()=>{});
-      if (!attendSnapshotTried) { attendSnapshotTried = true; await readAttendSnapshot().then((snap) => { if (snap && !freshArrived && current()) applyAttend(snap.today, snap.vitrine, snap.entry, snap.triage, snap.whatsapp, snap.at); }).catch(() => {}); }
+      if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.vitrine?.body || null, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
       const [data,vitrineData,,entryData,triageData,whatsappData]=await pending;
       if (!current()) return;
       applyAttend(data, vitrineData, entryData, triageData, whatsappData, null);
-      if (vitrineData && entryData && triageData && whatsappData) saveAttendSnapshot({ at: new Date().toISOString(), today: data, vitrine: vitrineData, entry: entryData, triage: triageData, whatsapp: whatsappData });
+      // The tab counters' heavier lists (BUSCAR CARROS, CLIENTES, ENVIAR OPÇÕES) come in a second single call, then the counters.
+      countersBoot=bootLoad('counters',{period:clientsPeriod()}).then((parts)=>{primeBoot({'/api/panel/pesquisas':parts.pesquisas,['/api/panel/records?pageSize=1&period='+encodeURIComponent(clientsPeriod())]:parts.records,'/api/panel/records?view=manheim':parts.manheim});}).catch(()=>{});
       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
-      sharedGet('/api/panel/pesquisas', 30000).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;renderToday(todayItems,true);})
+      (countersBoot||Promise.resolve()).then(()=>sharedGet('/api/panel/pesquisas', 30000)).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;renderToday(todayItems,true);})
         // A failed source is said on screen and the last good list stays; "Completar pedido" never turns into an empty count.
         .catch(()=>{if(!current())return;attendData.incompleteFailed=true;const note=$('triage-state');if(note&&!note.textContent.includes('pedidos incompletos'))note.textContent=[note.textContent,'Não consegui carregar os pedidos incompletos agora · Completar pedido mostra o último valor conhecido'].filter(Boolean).join(' · ');renderToday(todayItems,true);});
       return;
@@ -1795,7 +1803,10 @@
     countersRunning = refreshCountersNow().finally(() => { countersRunning = null; });
     return countersRunning;
   }
+  let countersBoot = null;
   async function refreshCountersNow() {
+    // The opening's single call for the counters' lists is waited for (its answers serve the counters).
+    if (countersBoot) { const waiting = countersBoot; countersBoot = null; await waiting; }
     // C5: only the visible tabs are counted. Each GET is shared with an identical one already running
     // and reuses an answer of the last seconds. Every badge uses the same rule as its list.
     const settled = await Promise.allSettled([
@@ -2289,11 +2300,41 @@
   // One request per path at a time, shared with the counters; the answer is kept for the counters of the next seconds.
   const fresh = (path) => requestPool ? requestPool.get(path, () => request(path), { ttlMs: 0 }) : request(path);
   const todayPath = () => '/api/panel/today?sort=' + encodeURIComponent($('today-sort')?.value || '');
-  // ATENDIMENTO snapshot in IndexedDB (no size limit like localStorage): only in this browser, replaced on every load.
-  let attendSnapshotTried = false;
+  // What the panel already received, kept in this browser (IndexedDB, no size limit like localStorage): it is drawn at
+  // once on the next opening and tells the server what not to send again (hash of each list and of each case).
+  let attendSnapshotTried = false, bootStore = null;
   function attendDb() { return new Promise((resolve, reject) => { if (!window.indexedDB) return reject(new Error('NO_IDB')); const open = indexedDB.open('mcs-painel', 1); open.onupgradeneeded = () => open.result.createObjectStore('snap'); open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error); }); }
-  async function readAttendSnapshot() { const db = await attendDb(); return new Promise((resolve) => { const req = db.transaction('snap').objectStore('snap').get('attend'); req.onsuccess = () => resolve(req.result || null); req.onerror = () => resolve(null); }); }
-  function saveAttendSnapshot(value) { attendDb().then((db) => { db.transaction('snap', 'readwrite').objectStore('snap').put(value, 'attend'); }).catch(() => {}); }
+  async function bootState() {
+    if (bootStore) return bootStore;
+    const saved = await attendDb().then((db) => new Promise((resolve) => { const req = db.transaction('snap').objectStore('snap').get('boot'); req.onsuccess = () => resolve(req.result || null); req.onerror = () => resolve(null); })).catch(() => null);
+    bootStore = saved && saved.parts && saved.items ? saved : { at: null, parts: {}, items: {} };
+    return bootStore;
+  }
+  function saveBootState(store) { attendDb().then((db) => { db.transaction('snap', 'readwrite').objectStore('snap').put(store, 'boot'); }).catch(() => {}); }
+  async function bootLoad(part, extra = {}) {
+    const store = await bootState();
+    const have = {};
+    Object.entries(store.parts).forEach(([name, saved]) => { if (saved && saved.hash && saved.body) have[name] = saved.hash; });
+    if (part === 'main') have.todayItems = Object.keys(store.items);
+    const answer = await request('/api/panel/boot', { method: 'POST', body: JSON.stringify({ part, have, ...extra }) });
+    const out = {};
+    Object.entries((answer && answer.parts) || {}).forEach(([name, got]) => {
+      if (!got || !got.ok) { out[name] = null; return; }
+      if (got.same) { out[name] = store.parts[name] ? store.parts[name].body : null; return; }
+      let body = got.body;
+      if (name === 'today' && Array.isArray(got.order)) {
+        Object.entries(got.items || {}).forEach(([key, item]) => { store.items[key] = item; });
+        body = { ...got.body, items: got.order.map((key) => store.items[key]).filter(Boolean) };
+        const keep = new Set(got.order); Object.keys(store.items).forEach((key) => { if (!keep.has(key)) delete store.items[key]; });
+      }
+      store.parts[name] = { hash: got.hash, body };
+      out[name] = body;
+    });
+    if (part === 'main') store.at = answer.generatedAt || new Date().toISOString();
+    saveBootState(store);
+    return out;
+  }
+  function primeBoot(map) { if (!requestPool || !requestPool.prime) return; Object.entries(map).forEach(([path, value]) => { if (value) requestPool.prime(path, value); }); }
   const ATTEND_PAGE = 30;
   let attendLimit = ATTEND_PAGE, attendPageKey = '';
   function bulkBar() {

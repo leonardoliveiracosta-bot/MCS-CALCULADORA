@@ -59,7 +59,14 @@ function query(params) {
 }
 
 async function rows(ctx, table, params) {
-  return supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + query(params));
+  const path = '/rest/v1/' + table + '?' + query(params);
+  // Abertura rápida: inside one /api/panel/boot call, the same read (same table, filters and page) is done once in the
+  // database and shared by every list; each caller gets its own copy, so no list changes another's rows.
+  if (ctx.readCache) {
+    if (!ctx.readCache.has(path)) ctx.readCache.set(path, supabase(ctx.config.url, ctx.config.secretKey, path).catch((error) => { ctx.readCache.delete(path); throw error; }));
+    return ctx.readCache.get(path).then((value) => structuredClone(value));
+  }
+  return supabase(ctx.config.url, ctx.config.secretKey, path);
 }
 
 // Stable paging. Offset pages over an unordered (or updatable) sort can skip or repeat rows when
@@ -276,6 +283,8 @@ async function panelUser(config, authUserId) {
 }
 
 async function requirePanel(req, res, options = {}) {
+  // A list called from inside /api/panel/boot reuses the session already checked there (and its shared reads).
+  if (req && req.__mcsCtx) return req.__mcsCtx;
   const config = configuration();
   if (!config) {
     send(res, 503, { error: 'PANEL_NOT_CONFIGURED' });
