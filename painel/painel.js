@@ -698,7 +698,7 @@
       const save = element('button', print.errorCode ? 'quiet small' : 'small', 'Guardar pelo painel'); save.type = 'button';
       MCSAction.bind(save, () => {
         const values = { phone: print.phone || phoneInput?.value.trim() || '', name: print.name || '', ref: print.ref || '', message: print.message || '', translation: print.translation || '' };
-        return { scope: item, commit: () => post({ action: 'confirm', auto: true, ...values }), successText: 'Print guardado', refresh: () => loadQueue(), onError: (error) => offerPhoneOwner(item, error, values), errorText: (error) => error?.code === 'SMS_PRINT_VALUES_INVALID' ? 'Digite o telefone do cliente antes de guardar' : error?.code === 'SMS_PRINT_PHONE_OWNER' ? `Este telefone já é de ${error.reason?.name || 'outro contato'}` : 'Não consegui guardar, tente de novo' };
+        return { scope: item, commit: () => post({ action: 'confirm', auto: true, ...values }), successText: 'Print guardado', refresh: () => loadQueue(), onError: (error) => offerPhoneOwner(item, error, values), errorText: printSaveError };
       });
       actions.append(save);
     }
@@ -709,15 +709,35 @@
     item.append(actions);
     return item;
   }
+  // The real reason a print was not saved, in words (never only "Não consegui guardar").
+  function printSaveError(error) {
+    const code = error && error.code;
+    const texts = {
+      SMS_PRINT_PHONE_OWNER: `Este telefone já é de ${error?.reason?.name || 'outro contato'}`,
+      SMS_PRINT_PHONE_CONFLICT: 'O telefone ou a conversa SMS deste print já está ligado a outro contato',
+      SMS_PRINT_STORAGE_MOVE_FAILED: 'Não consegui mover o arquivo do print · tente de novo',
+      SMS_PRINT_NOT_READY: 'Este print já foi tratado · atualize a fila',
+      SMS_PRINT_NOT_FOUND: 'Este print não existe mais · atualize a fila',
+      SMS_PRINT_REF_DECISION_REQUIRED: 'A Ref do print é de outra ficha · escolha onde guardar',
+      SMS_PRINT_TARGET_INVALID: 'A ficha de destino não foi encontrada',
+      SMS_PRINT_VALUES_INVALID: 'Digite o telefone do cliente antes de guardar',
+      SMS_PRINT_PHONE_INVALID: 'O telefone do print não é válido',
+      SMS_PRINT_REF_INVALID: 'A Ref do print não é válida'
+    };
+    return texts[code] || `Não consegui guardar${code ? ` (${code})` : ''} · tente de novo`;
+  }
   // The phone of the print already has an owner: one button saves the print in that contact's ficha (never a generic error).
   function offerPhoneOwner(item, error, values) {
     const owner = error && error.code === 'SMS_PRINT_PHONE_OWNER' ? error.reason : null;
-    if (!owner || !owner.journeyId || item.querySelector('.print-owner-save')) return;
+    if (!owner || !owner.journeyId) return;
+    const previous = item.querySelector('.print-owner-save'); if (previous && previous.dataset.journeyId === owner.journeyId) return; if (previous) previous.remove();
     item.classList.remove('action-optimistic-hidden');
-    const save = element('button', 'small print-owner-save', `Guardar em ${owner.name}${owner.ref ? ` · ${owner.ref}` : ''}`); save.type = 'button';
+    const save = element('button', 'small print-owner-save', `Guardar em ${owner.name}${owner.ref ? ` · ${owner.ref}` : ''}`); save.type = 'button'; save.dataset.journeyId = owner.journeyId;
     const readId = item.dataset.readId;
     MCSAction.bind(save, () => ({ scope: item, successScope: document.body, commit: () => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId, action: 'confirm', targetJourneyId: owner.journeyId, keepSource: true, ...values }) }),
-      successText: `Print guardado em ${owner.name}`, refresh: () => loadQueue(), errorText: 'Não consegui guardar, tente de novo' }));
+      // Saved: the card leaves at once (the queue is read again behind it); refused: the real reason, and a new owner offered if the server names one.
+      successText: `Print guardado em ${owner.name}`, onSuccess: () => { item.remove(); setCount('imports', Math.max(0, countValue('imports') - 1)); }, refresh: () => loadQueue(),
+      onError: (failure) => offerPhoneOwner(item, failure, values), errorText: printSaveError }));
     (item.querySelector('.inline-actions') || item).prepend(save);
   }
   function printReviewCard(print) {
@@ -741,7 +761,7 @@
       commit: () => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId: print.id, ...body }) }),
       rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('imports', before); },
       successText, refresh: () => loadQueue(), onError: (error) => { if (body.action === 'confirm') offerPhoneOwner(item, error, values()); },
-      errorText: (error) => error?.code === 'SMS_PRINT_PHONE_OWNER' ? `Este telefone já é de ${error.reason?.name || 'outro contato'}` : 'Não consegui salvar, tente de novo'
+      errorText: printSaveError
     }; });
     if (print.candidate) {
       const keep = element('button', 'small', `Guardar em ${print.candidate.name}`); keep.type = 'button';

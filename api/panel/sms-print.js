@@ -76,8 +76,11 @@ module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)re
   if(body.action==='discard'){if(record.status==='CONFIRMED')return send(res,409,{error:'SMS_PRINT_CONFIRMED'});await patchRows(ctx,'sms_print_reads',{environment:'eq.'+ctx.environment,id:'eq.'+record.id},{status:'DISCARDED',updated_by:ctx.panel.id});return send(res,200,{discarded:true});}
   if(body.action==='undo'){const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_sms_print_undo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_actor:ctx.panel.id,p_read:record.id})});return send(res,200,result);}
   if(body.action==='photo'){if(record.status!=='READY'||!isUuid(body.targetJourneyId))return send(res,400,{error:'SMS_PRINT_TARGET_REQUIRED'});const stored=await move(ctx,record);const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_sms_print_attach_photo',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_actor:ctx.panel.id,p_read:record.id,p_target_journey:body.targetJourneyId,p_attachment:stored.attachment,p_bucket:BUCKET,p_storage_path:stored.canonical})});return send(res,201,result);}
-  { const outcome=await confirmPrint(ctx,record,body,(code,payload)=>({code,payload}));return send(res,outcome.code,outcome.payload); }
-}catch(error){return send(res,500,{error:error?.message==='SMS_PRINT_STORAGE_MOVE_FAILED'?'SMS_PRINT_STORAGE_MOVE_FAILED':'SMS_PRINT_REQUEST_FAILED'});}};
+  { const outcome=await confirmPrint(ctx,record,body,(code,payload)=>({code,payload}));
+    // The real reason of a refused save stays in the logs (never only a generic error on screen).
+    if(outcome.code>=400)console.warn(JSON.stringify({smsPrintConfirm:outcome.payload&&outcome.payload.error,status:outcome.code,readId:record.id,target:isUuid(body.targetJourneyId)?body.targetJourneyId:null,auto:body.auto===true}));
+    return send(res,outcome.code,outcome.payload); }
+}catch(error){const code=error?.message==='SMS_PRINT_STORAGE_MOVE_FAILED'?'SMS_PRINT_STORAGE_MOVE_FAILED':error?.code||'SMS_PRINT_REQUEST_FAILED';console.warn(JSON.stringify({smsPrintError:code,status:error?.status||null,message:String(error?.message||'').slice(0,200)}));return send(res,500,{error:code});}};
 
 module.exports.confirmPrint=confirmPrint;
 module.exports.readPrintRecord=read;
