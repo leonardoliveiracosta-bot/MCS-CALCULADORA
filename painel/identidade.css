@@ -835,3 +835,49 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 #today-list .attend-more.hidden { display: none; }
 #today-list .attend-more-button { font-family: "Inter", system-ui, sans-serif; min-height: 54px; padding: 13px 32px; border-radius: 4px; border: 2px solid #010205; background: #FFFFFF; color: #010205; font-size: 16px; font-weight: 600; cursor: pointer; }
 #today-list .attend-more-button:hover { background: #010205; color: #FFFFFF; }
+
+/* ATENDIMENTO · cartão no formato do modelo (faixa de status, carro em destaque com a Ref em etiqueta, ficha técnica
+   em bloco tonalizado com separadores, bloco dourado do que falta, botão dourado em largura total). */
+#today-list .contact-group-flat { gap: 24px; }
+#today-list .today-card { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 14px; padding: 0 0 20px; gap: 0; box-shadow: none; color: #1B1A18; }
+#today-list .today-card:hover { border-color: #D9D0C2; }
+#today-list .today-card.case-picked { border: 1px solid #1B1A18; padding: 0 0 20px; box-shadow: 0 0 0 1px #1B1A18; }
+#today-list .today-card > .card-decision { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; padding: 12px 20px; border: 0; border-radius: 13px 13px 0 0; background: #F9E9E6; }
+#today-list .today-card > .card-decision.decision-red,
+#today-list .today-card > .card-decision { background: #F9E9E6; }
+#today-list .today-card > .card-decision::before { display: none; }
+#today-list .today-card > .card-decision .card-decision-label { display: inline-flex; align-items: center; gap: 8px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #B4373A; line-height: 1.3; }
+#today-list .today-card > .card-decision .card-decision-label::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #C0393B; flex: 0 0 7px; }
+#today-list .today-card .case-pick { width: 24px; height: 24px; margin: 0; }
+#today-list .today-card .case-pick-box { width: 18px; height: 18px; border: 1.5px solid #B9A7A3; border-radius: 4px; background-color: #FFFFFF; background-size: 13px 13px; }
+#today-list .today-card .case-pick-box:checked { background-color: #1B1A18; border-color: #1B1A18; }
+#today-list .today-card .case-face { display: block; padding: 0 20px; }
+#today-list .today-card .case-face-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 20px; }
+#today-list .today-card .case-face-title { margin: 0; font-family: "Noto Serif", Georgia, serif; font-size: 28px; font-weight: 600; line-height: 1.15; color: #1B1A18; letter-spacing: -.005em; min-width: 0; overflow-wrap: anywhere; }
+#today-list .today-card .case-face-ref { flex: 0 0 auto; margin-top: 2px; padding: 4px 10px; border: 1px solid #E5D39A; border-radius: 6px; background: #FBF5E2; color: #8A6D1E; font-family: "Noto Sans Mono", ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
+#today-list .today-card .case-face-phone { margin: 6px 0 0; font-size: 15px; color: #8A837B; font-weight: 400; }
+#today-list .today-card .case-face-spec { display: block; margin: 14px -6px 0; padding: 2px 14px; background: #F6F2E9; border-radius: 10px; }
+#today-list .today-card .case-face-spec .case-field { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0; grid-template-columns: none; }
+#today-list .today-card .case-face-spec .case-field + .case-field { border-top: 1px solid #E8E1D3; }
+#today-list .today-card .case-face-spec .case-field-label { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #9C9488; white-space: nowrap; }
+#today-list .today-card .case-face-spec .case-field-value { margin: 0; font-size: 14px; font-weight: 700; color: #1B1A18; text-align: right; line-height: 1.35; letter-spacing: 0; }
+#today-list .today-card .case-face-spec .case-field-value strong { font-weight: 700; }
+#today-list .today-card .case-face-spec .case-field-soft { font-weight: 400; color: #8A837B; }
+#today-list .today-card .case-face-lacks { margin: 12px -6px 0; padding: 10px 14px 12px; background: #FCF5DD; border: 1px solid #EAD68E; border-radius: 10px; }
+#today-list .today-card .case-face-lacks-title { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
+#today-list .today-card .case-face-lacks-list { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 8px 0 0; padding: 0; list-style: none; }
+#today-list .today-card .case-face-lacks-list li { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; color: #3A352E; }
+#today-list .today-card .case-face-lacks-list li::before { content: ""; width: 8px; height: 8px; border: 1.5px solid #B8961F; border-radius: 50%; flex: 0 0 auto; }
+#today-list .today-card > .inline-actions.card-primary { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 14px 20px 0; padding: 0; }
+#today-list .today-card > .inline-actions > .today-primary { flex: 0 0 auto; width: 100%; max-width: none; min-height: 48px; padding: 12px 16px; border: 0; border-radius: 8px; background: #C9A227; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0; box-shadow: none; }
+#today-list .today-card > .inline-actions > .today-primary:hover { background: #BE9820; filter: none; }
+#today-list .today-card > .inline-actions > .case-more { flex: 0 0 auto; text-align: center; }
+#today-list .today-card > .inline-actions > .case-more > summary { font-size: 13px; color: #8A837B; }
+@media (max-width: 640px) { #today-list .today-card .case-face-title { font-size: 24px; } }
+/* Faixa: vermelha quando depende de você; neutra quando agendado ou aguardando o cliente. */
+#today-list .today-card > .card-decision:not(.decision-red) { background: #F3EFE7; }
+#today-list .today-card > .card-decision:not(.decision-red) .card-decision-label { color: #6F675D; }
+#today-list .today-card > .card-decision:not(.decision-red) .card-decision-label::before { background: #A99F92; }
+#today-list .today-card .case-pick-box { background-color: transparent; }
+#today-list .today-card .case-face-spec .case-calculator .case-field-value { white-space: nowrap; }
+#today-list .today-card .case-face-spec .case-field { gap: 8px; }
