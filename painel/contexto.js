@@ -113,7 +113,6 @@
   }
 
   // ----------------------------------------------------------------- resumo compacto
-  const fieldOf = (context, key) => (context.fields || []).find((item) => item.key === key) || null;
   // Every car the client gave, by any channel (calculator, WhatsApp, SMS), joined by "·": never "não escolhido".
   function withAllCars(field) {
     if (!field || field.key !== 'carro') return field;
@@ -121,29 +120,6 @@
     return cars.length > 1 ? { ...field, value: cars.join(' · '), divergent: false, status: 'CLIENTE', statusLabel: 'Informado pelo cliente' } : field;
   }
   function statusTag(item) { return e('span', 'context-status ' + (STATUS_CLASS[item.status] || ''), item.statusLabel); }
-  function fieldLine(parent, field) {
-    if (!field) return;
-    const item = withAllCars(field);
-    const line = add(parent, 'div', 'context-field');
-    add(line, 'span', 'context-field-label', item.label);
-    add(line, 'span', 'context-field-value', item.value || (item.status === 'AMBIGUO' ? 'Fontes diferentes' : '—'));
-    line.append(statusTag(item));
-    if (item.divergent) add(line, 'span', 'context-status is-ambiguous', 'Diverge');
-  }
-  function essentialKeys(context) {
-    const modes = (context.searches || []).map((item) => item.mode).filter(Boolean);
-    const orderModes = ((context.links || {}).orders || []).map((item) => item.mode);
-    const all = new Set([...modes, ...orderModes]);
-    return ['carro', ...(all.has('VALOR') || !all.size ? ['valor'] : []), ...(all.has('CARRO') ? ['anos', 'milhas'] : []), 'prazo'];
-  }
-
-  function nextActionNode(action) {
-    const box = e('div', 'context-next' + (action.kind === 'EQUIPE' ? ' is-team' : ' is-suggestion') + (action.overdue ? ' is-overdue' : ''));
-    add(box, 'span', 'context-next-kind', action.kind === 'EQUIPE' ? 'Próxima ação · definida pela equipe' : 'Próxima ação · sugestão do painel');
-    add(box, 'strong', 'context-next-text', action.text);
-    if (action.at) add(box, 'span', 'muted', (action.overdue ? 'Venceu em ' : 'Para ') + date(action.at));
-    return box;
-  }
 
   // Não atendido: the reason, how long it has waited, what is missing and the next action, in every
   // tab where the client appears (same rule as the HOJE, ENTRADA and CLIENTES cards).
@@ -196,9 +172,6 @@
     const criteria = context.criteria || { complete: !(context.missing || []).length, text: (context.missing || []).length ? 'Faltam: ' + context.missing.join(', ') : 'Completos' };
     fact('Critérios da busca', criteria.text, criteria.complete ? '' : 'is-missing');
     if (context.blocker) fact('O que impede', context.blocker);
-    root.append(nextActionNode(context.nextAction));
-    // An order card already lists what the calculator received, field by field.
-    if (focus !== 'order') { const essentials = add(root, 'div', 'context-fields'); essentialKeys(context).forEach((key) => fieldLine(essentials, fieldOf(context, key))); }
     if (focus === 'cars' || focus === 'search') {
       const cars = (context.links || {}).cars || {};
       add(root, 'p', 'muted context-cars', cars.uploadAt ? `Lote ativo de ${day(cars.uploadAt)}: ${cars.total || 0} carro(s) com MMR ligado(s) a este cliente` : 'Nenhum lote ativo do Manheim.');
@@ -207,7 +180,9 @@
     }
     const more = add(root, 'details', 'context-more');
     add(more, 'summary', '', 'Ver dados campo a campo, origem e vínculos');
-    more.append(fullTable(context), linksBlock(context, { aiReading }));
+    // The field-by-field view is only the title, the subtitle and the table (same as the ficha).
+    more.classList.add('client-context-full');
+    fieldsView(more, context);
     return root;
   }
 
@@ -284,49 +259,17 @@
     }, 80);
   }
 
-  function linksBlock(context, { aiReading = true, searchGroups = true } = {}) {
-    const box = e('div', 'context-links');
-    const links = context.links || {};
-    const orders = add(box, 'div');
-    add(orders, 'strong', '', 'Pedidos da calculadora');
-    if (!(links.orders || []).length) add(orders, 'p', 'muted', (context.sharedRefs || []).length ? `A Ref ${context.sharedRefs.join(', ')} está em mais de uma ficha: não é mostrada como pedido de nenhuma.` : 'Nenhum pedido da calculadora ligado.');
-    (links.orders || []).forEach((order) => add(orders, 'p', '', `Ref ${order.ref} · ${order.modeLabel} · ${order.vehicle || 'sem carro'} · ${date(order.at)}`));
-    const requests = add(box, 'div');
-    add(requests, 'strong', '', 'Pedidos lidos da conversa (BUSCAR CARROS)');
-    if (links.requestsNote) add(requests, 'p', 'muted', links.requestsNote);
-    else if (!(links.requests || []).length) add(requests, 'p', 'muted', 'Nenhum pedido lido da conversa.');
-    (links.requests || []).forEach((item) => add(requests, 'p', '', `${item.vehicle || 'Carro não informado'} · lido em ${date(item.at)}${item.needsReview ? ' · a IA pediu revisão' : ''}`));
-    // In the ficha the per-search groups live in O QUE OFERECER; the batch line stays here.
-    const searches = add(box, 'div');
-    add(searches, 'strong', '', 'Busca e carros');
-    const groupLines = searchGroups ? searches : e('div');
-    if (!(context.searches || []).length) add(groupLines, 'p', 'muted', 'Sem busca: o pedido ainda não tem o que a busca precisa, ou o caso está encerrado.');
-    (context.searches || []).forEach((item) => searchGroupLine(groupLines, context, item));
-    if (!searchGroups) add(searches, 'p', 'muted', 'Com carros, sem carros e busca não rodada: veja O QUE OFERECER.');
-    fillReasons();
-    add(searches, 'p', 'muted', links.cars && links.cars.uploadAt ? `Lote ativo carregado em ${date(links.cars.uploadAt)}. Disponibilidade no leilão não confirmada.` : 'Nenhum lote ativo do Manheim.');
-    if ((context.promises || []).length) { const promises = add(box, 'div'); add(promises, 'strong', '', 'Promessas em aberto'); context.promises.forEach((item) => add(promises, 'p', '', `${item.text} · ${date(item.dueAt)}`)); }
-    // aiReading=false: the card already shows the reading on its own line (CLIENTES).
-    if ((context.aiOrders || context.aiReading) && aiReading) {
-      const ai = add(box, 'div'); add(ai, 'strong', '', 'Leitura da IA por pedido (não confirmada)');
-      const orders = context.aiOrders;
-      if (orders) {
-        (orders.items || []).forEach((entry) => add(ai, 'p', '', `Resumo da IA · pedido ${entry.ref || 'sem Ref'}: ${entry.summary}`));
-        if (orders.state !== 'POR_PEDIDO' && orders.text) add(ai, 'p', 'muted', orders.text);
-      } else if (context.aiReading && context.aiReading.summary) add(ai, 'p', '', context.aiReading.summary);
-      if (context.aiReading && context.aiReading.nextStep) add(ai, 'p', 'muted', 'A IA sugere: ' + context.aiReading.nextStep);
-    }
-    return box;
-  }
-
   // The full case summary for the ficha (always open).
   function full(context) {
     // Only the title, the subtitle and the table: no next-action box, no field summary, no orders/search/AI columns.
     const card = e('section', 'lead-card client-context-full');
-    add(card, 'h3', 'context-subtitle', 'O que o cliente informou, campo a campo');
-    add(card, 'p', 'muted context-subtitle-note', 'Campo a campo, com a situação de cada valor');
-    card.append(fullTable(context));
+    fieldsView(card, context);
     return card;
+  }
+  function fieldsView(parent, context) {
+    add(parent, 'h3', 'context-subtitle', 'O que o cliente informou, campo a campo');
+    add(parent, 'p', 'muted context-subtitle-note', 'Campo a campo, com a situação de cada valor');
+    parent.append(fullTable(context));
   }
 
   async function forJourney(journeyId, request) {

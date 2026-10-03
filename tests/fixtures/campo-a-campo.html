@@ -1,0 +1,26 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Campo a campo</title>
+<link rel="stylesheet" href="/painel/painel.css"><link rel="stylesheet" href="/painel/tema-mcs.css"><link rel="stylesheet" href="/painel/identidade.css"></head>
+<body><div id="ficha"></div><div id="cartao"></div>
+<script src="/painel/contexto.js"></script>
+<script>
+// Página de teste: a tela campo a campo da ficha (MCSContext.full) e a mesma tela aberta num cartão (MCSContext.compact).
+const f = (key, label, value, status, statusLabel, sources = []) => ({ key, label, value, status, statusLabel, sources, divergent: false });
+window.CONTEXTO = { name: 'Diego', ref: 'UUA6J', calcRef: 'UUA6J', hasCalcRef: true, contact: { phones: ['+15513009180'] }, origin: { label: 'Veio pela calculadora · Via WhatsApp', since: null },
+  stage: { label: 'Em busca' }, owner: { label: 'MCS', who: 'MCS' }, criteria: { complete: true, text: 'Completos' }, missing: [], unattended: null,
+  nextAction: { kind: 'SUGESTAO', text: 'Responder o cliente' }, searches: [{ mode: 'VALOR', modeLabel: 'Por valor', label: 'BMW M4', cars: 0 }],
+  links: { orders: [{ ref: 'UUA6J', modeLabel: 'Por valor', vehicle: 'BMW M4', at: '2026-09-19T14:23:00Z', mode: 'VALOR' }], requests: [], cars: {} },
+  aiReading: { summary: 'Quer um BMW M4', nextStep: 'Mandar opções' },
+  fields: [f('tipo', 'Tipo de busca', 'Por valor (lance máximo)', 'CLIENTE', 'Informado pelo cliente'),
+    f('carro', 'Carro', null, 'AMBIGUO', 'Ambíguo · fontes diferentes', [{ kind: 'CALCULADORA', label: 'Calculadora', value: 'BMW M4' }, { kind: 'CONVERSA', label: 'Conversa', value: 'BMW 328i' }]),
+    f('anos', 'Anos', null, 'AUSENTE', 'Não informado'), f('milhas', 'Milhagem', null, 'AUSENTE', 'Não informado'),
+    f('valor', 'Lance máximo', 'US$ 4.000', 'CLIENTE', 'Informado pelo cliente'), f('teto', 'Teto total (tudo incluso)', null, 'AUSENTE', 'Não informado'),
+    f('pagamento', 'Pagamento', 'cash', 'CLIENTE', 'Informado pelo cliente'), f('prazo', 'Prazo', 'Imediatamente', 'CLIENTE', 'Informado pelo cliente'),
+    f('local', 'Localização', 'NJ · ZIP 07501', 'CLIENTE', 'Informado pelo cliente'), f('placa', 'Placa', 'transf', 'CLIENTE', 'Informado pelo cliente'),
+    f('uso', 'Uso do carro', null, 'AUSENTE', 'Não coletado')] };
+try {
+  document.getElementById('ficha').append(MCSContext.full(window.CONTEXTO));
+  document.getElementById('cartao').append(MCSContext.compact(window.CONTEXTO, { open: null }));
+  document.querySelectorAll('#cartao details.context-more').forEach((node) => { node.open = true; });
+  document.body.dataset.ready = '1';
+} catch (error) { document.body.dataset.error = String(error && error.stack || error); }
+</script></body></html>
