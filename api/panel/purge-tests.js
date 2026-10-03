@@ -20,6 +20,9 @@ const LEAVES = [
   ['conversation_pending_insights', 'chat_id', 'chats'], ['conversation_pending_insights', 'journey_id', 'journeys'], ['conversation_pending_insights', 'last_ai_message_id', 'messages'],
   ['conversation_general_read_progress', 'chat_id', 'chats'], ['conversation_general_read_progress', 'journey_id', 'journeys'], ['conversation_general_read_progress', 'snapshot_last_message_id', 'messages']
 ];
+// Child rows (with their own id) that hold listed non-core rows: found in the real database after the first run
+// (import_batches.import_job_id kept the 3 test import jobs, which kept the chats and those the contacts).
+const CHILDREN = [['import_batches', 'import_job_id', 'import_jobs']];
 const TABLE = /^[a-z_]{2,60}$/;
 
 const chunks = (list) => { const out = []; for (let index = 0; index < list.length; index += BATCH) out.push(list.slice(index, index + BATCH)); return out; };
@@ -47,6 +50,7 @@ async function run(ctx) {
     for (const ids of chunks(byTable.get(parent) || [])) count(table, ((await remove(ctx, table, column, ids).catch((error) => { if (error.status === 404) return []; throw error; })) || []).length);
   }
   for (const ids of chunks(byTable.get('vehicle_requests') || [])) count('vehicle_request_versions', ((await remove(ctx, 'vehicle_request_versions', 'request_id', ids)) || []).length);
+  for (const [table, column, parent] of CHILDREN) for (const ids of chunks(byTable.get(parent) || [])) count(table, ((await remove(ctx, table, column, ids)) || []).length);
   // Children before parents: a table whose rows are still referenced answers 409 and waits for the next pass.
   const order = [...byTable.keys()].filter((table) => !CORE.includes(table)).concat(['messages', 'journeys', 'chats', 'contacts'].filter((table) => byTable.has(table)));
   let left = new Set(order);
@@ -70,8 +74,9 @@ module.exports = async (req, res) => {
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await jsonBody(req, 4096).catch(() => ({}));
     if (body.action !== 'run' || body.confirm !== 'APAGAR TESTES') return send(res, 400, { error: 'PURGE_CONFIRM_REQUIRED' });
+    // Resumable: what was deleted stays deleted and leaves the list; what is still held is said by table (left).
     const out = await run(ctx);
-    return send(res, out.left.length ? 409 : 200, { ...out, after: await summary(ctx) });
+    return send(res, 200, { ...out, complete: !out.left.length, after: await summary(ctx) });
   } catch (error) { return send(res, 500, { error: 'PURGE_FAILED', status: error.status || null }); }
 };
 module.exports.LEAVES = LEAVES;
