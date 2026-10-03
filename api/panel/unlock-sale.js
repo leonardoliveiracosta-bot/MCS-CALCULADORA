@@ -18,14 +18,14 @@ const BRIEF = [
   'A mensagem para o cliente: nunca soa como promoção de loja nem como vendedor de loja; sem emojis; sem listas numeradas; sem "responda com o número"; sem pressa fabricada ("saem em breve", "só hoje") e sem nada que você não saiba pelos dados.',
   'Tom das grandes marcas: desejo, emoção e conexão, nunca pressão de balcão. Nada com cara de máquina.',
   'Quando perguntar, faça uma pergunta aberta, que leve a pessoa a falar do que ela quer viver com o carro. Curta, humana, no tom de uma conversa entre adultos.',
-  'Escreva a mensagem no idioma em que o cliente escreve na conversa. Nunca prometa carro, preço, prazo ou disponibilidade.',
-  'Responda SOMENTE JSON {"titulo","acao","porque","mensagem"}: titulo curto; acao é UMA ação concreta para hoje (o que fazer, como e por quê agora); porque em 1 a 2 frases com base nos dados; mensagem é o texto pronto para mandar ao cliente. Tudo em português, menos a mensagem.'
+  'Nunca prometa carro, preço, prazo ou disponibilidade.',
+  'Responda SOMENTE JSON {"titulo","acao","porque","mensagemPt","mensagemEn"}: titulo curto; acao é UMA ação concreta para hoje (o que fazer, como e por quê agora); porque em 1 a 2 frases com base nos dados; mensagemEn é o texto pronto para mandar ao cliente, em inglês natural de quem vive nos EUA; mensagemPt é a mesma mensagem em português, fiel ao inglês, para o vendedor ler. Tudo em português, menos a mensagemEn.'
 ].join(' ');
 const OWN_STYLE = ' Gere a sua própria opção, no seu próprio estilo: outro especialista vai propor a dele lado a lado.';
 const PEOPLE = BRIEF + OWN_STYLE;
 const SALES = BRIEF + OWN_STYLE;
-const SCHEMA = { type: 'object', additionalProperties: false, required: ['titulo', 'acao', 'porque', 'mensagem'], properties: { titulo: { type: 'string' }, acao: { type: 'string' }, porque: { type: 'string' }, mensagem: { type: 'string' } } };
-const clean = (value) => { const source = value && typeof value === 'object' ? value : {}; return { titulo: safeText(source.titulo, 200) || '', acao: safeText(source.acao, 2000) || '', porque: safeText(source.porque, 1200) || '', mensagem: safeText(source.mensagem, 1500) || '' }; };
+const SCHEMA = { type: 'object', additionalProperties: false, required: ['titulo', 'acao', 'porque', 'mensagemPt', 'mensagemEn'], properties: { titulo: { type: 'string' }, acao: { type: 'string' }, porque: { type: 'string' }, mensagemPt: { type: 'string' }, mensagemEn: { type: 'string' } } };
+const clean = (value) => { const source = value && typeof value === 'object' ? value : {}; return { titulo: safeText(source.titulo, 200) || '', acao: safeText(source.acao, 2000) || '', porque: safeText(source.porque, 1200) || '', mensagemPt: safeText(source.mensagemPt, 1500) || '', mensagemEn: safeText(source.mensagemEn || source.mensagem, 1500) || '' }; };
 
 async function contextOf(ctx, req, body) {
   const lead = await leadData(ctx, req, String(body.ref || '').toUpperCase(), body.journeyId);
