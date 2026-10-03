@@ -315,10 +315,12 @@
   // The full case summary for the ficha (always open).
   function full(context) {
     const card = e('section', 'lead-card client-context-full');
-    add(card, 'span', 'lead-label', 'RESUMO DO CASO');
     const summary = compact(context, { open: null });
     const more = summary.querySelector('.context-more');
     if (more) more.remove();
+    // Not shown in the ficha: the "RESUMO DO CASO" title, the phone/Ref/origin header, the "Não atendido" line and the
+    // Etapa · Código da ficha · Depende de · Critérios da busca · O que impede row.
+    summary.querySelectorAll(':scope > .context-head, :scope > .context-unattended, :scope > .context-facts').forEach((node) => node.remove());
     card.append(...summary.childNodes);
     add(card, 'h3', 'context-subtitle', 'O que o cliente informou, campo a campo');
     add(card, 'p', 'muted', 'Cada valor mostra de onde veio. “Lido pela IA” nunca é confirmação do cliente; campos ambíguos não têm valor escolhido.');
