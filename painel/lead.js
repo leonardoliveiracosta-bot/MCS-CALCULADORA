@@ -418,7 +418,7 @@
       off.disabled=true;off.title='Escolha o motivo';reason.addEventListener('change',()=>{off.disabled=!reason.value;});}
     // Order on screen: header → case summary → conversation → quick result → the rest.
     topAnchor.replaceWith(conversation,quick);finalGrid.classList.add('lead-one');
-    if(downloadShortlist){const matching=(data.offers||[]).map((car)=>({vehicle_json:{parsed:car}}));if(matching.length){button(history,'Baixar PDF',()=>downloadShortlist(matching,ref));append(history,'span','muted','PDF com todos os compatíveis do lote · o PDF só dos selecionados para o cliente fica em ENVIAR OPÇÕES');}}
+    if(downloadShortlist){const matching=(data.offers||[]).map((car)=>({vehicle_json:{parsed:car}}));if(matching.length){const pdfStatus=e('span','status','');button(history,'Baixar PDF',async()=>{pdfStatus.textContent='Preparando o PDF…';try{await downloadShortlist(matching,ref,journeyId);pdfStatus.textContent='PDF pronto · escolha Salvar como PDF';}catch(_){pdfStatus.textContent='Não consegui preparar o PDF, tente de novo';}});history.append(pdfStatus);append(history,'span','muted','PDF com todos os compatíveis do lote · o PDF só dos selecionados para o cliente fica em ENVIAR OPÇÕES');}}
   }
   window.MCSLead={open};
 })();

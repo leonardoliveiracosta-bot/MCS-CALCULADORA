@@ -2718,51 +2718,29 @@
   // printed from a hidden frame so the browser saves it as PDF.
   async function optionsPdf(cars, journey) {
     const data = await request('/api/panel/vitrines', { method: 'POST', body: JSON.stringify({ action: 'pdf', journeyId: journey.id, matchIds: cars.map((car) => car.id) }) });
+    await printVitrine(data, journey.reference_code);
+  }
+  async function printVitrine(data, referenceCode) {
     if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
     const frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true'); frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
     document.body.append(frame);
     const doc = frame.contentDocument;
     doc.open();
-    doc.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>shortlist-${MCSVitrineRender.escape(journey.reference_code || 'lead')}</title><link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600&family=Montserrat:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/v/vitrine.css"><style>@page{size:A4;margin:0}html,body{background:#0b0d10;-webkit-print-color-adjust:exact;print-color-adjust:exact}.car,.footer{break-inside:avoid}</style></head><body><main id="app">${MCSVitrineRender.page(data, true)}</main></body></html>`);
+    doc.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>shortlist-${MCSVitrineRender.escape(referenceCode || 'lead')}</title><link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600&family=Montserrat:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/v/vitrine.css"><style>@page{size:A4;margin:0}html,body{background:#0b0d10;-webkit-print-color-adjust:exact;print-color-adjust:exact}.car,.footer{break-inside:avoid}</style></head><body><main id="app">${MCSVitrineRender.page(data, true)}</main></body></html>`);
     doc.close();
     await new Promise((resolve) => { if (doc.readyState === 'complete') resolve(); else frame.contentWindow.addEventListener('load', resolve, { once: true }); setTimeout(resolve, 4000); });
     await Promise.race([doc.fonts ? doc.fonts.ready : null, new Promise((resolve) => setTimeout(resolve, 3000))]);
     frame.contentWindow.focus(); frame.contentWindow.print();
     setTimeout(() => frame.remove(), 60000);
   }
-  function downloadShortlist(matches, referenceCode) {
+  // PDF of every compatible car of the lot (timeline of the ficha): the same link page, from the cars of the ficha.
+  const PDF_FIELDS = ['year', 'make', 'model', 'trim', 'miles', 'exteriorColor', 'interiorColor', 'drivetrain', 'transmission', 'engine', 'location', 'state', 'startsAt', 'saleDate', 'endsAt', 'mmrCents', 'cleanTitle', 'odometerOk'];
+  async function downloadShortlist(matches, referenceCode, journeyId) {
     if (!matches.length) return;
-    const plain = (value) => String(value || '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').slice(0, 105);
-    const escape = (value) => plain(value).replace(/[\\()]/g, '\\$&');
-    const lines = [`MY CAR SCOUT - SHORTLIST - REF ${plain(referenceCode || '')}`,
-      ...matches.slice(0, 44).map((match) => {
-        const vehicle = match.vehicle_json.parsed || match.vehicle_json.raw || {};
-        const miles = vehicle.miles ?? vehicle.Miles;
-        return [vehicle.year || vehicle.Year, vehicle.make || vehicle.Make, vehicle.model || vehicle.Model,
-          miles !== null && miles !== undefined && miles !== '' && Number.isFinite(Number(miles)) ? `${Number(miles).toLocaleString('en-US')} mi` : '',
-          vehicle.locationDisplay || vehicle.location || ''].filter(Boolean).join(' | ');
-      }),
-      // P19.10: the page holds 44 cars; the rest is said, never cut in silence
-      ...(matches.length > 44 ? [`+ ${matches.length - 44} more cars not listed on this page`] : [])];
-    const content = `BT /F1 11 Tf 40 790 Td 14 TL ${lines.map((line,index) => `${index?'T* ':''}(${escape(line)}) Tj`).join('\n')} ET`;
-    const objects = ['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
-      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
-      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
-    let pdf = '%PDF-1.4\n'; const offsets = [0];
-    objects.forEach((object,index) => { offsets.push(pdf.length); pdf += `${index+1} 0 obj\n${object}\nendobj\n`; });
-    const xref = pdf.length; pdf += `xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;
-    offsets.slice(1).forEach((offset) => { pdf += String(offset).padStart(10,'0')+' 00000 n \n'; });
-    pdf += `trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-    const url = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `shortlist-${referenceCode || 'lead'}.pdf`;
-    // In the page while clicking (some browsers ignore a click on a detached link), and the file kept long enough to save.
-    link.style.display = 'none'; document.body.append(link);
-    link.click();
-    setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 60000);
+    const vehicles = matches.slice(0, 200).map((match) => { const vehicle = match.vehicle_json.parsed || {}; return Object.fromEntries(PDF_FIELDS.filter((field) => vehicle[field] !== undefined).map((field) => [field, vehicle[field]])); });
+    const data = await request('/api/panel/vitrines', { method: 'POST', body: JSON.stringify({ action: 'pdf', journeyId: journeyId || null, referenceCode: referenceCode || '', vehicles }) });
+    await printVitrine(data, referenceCode);
   }
 
   // Unknown odometer is shown as unknown, never as 0 miles (R3e).
