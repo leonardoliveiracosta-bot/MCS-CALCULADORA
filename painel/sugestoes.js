@@ -129,6 +129,8 @@
       });
       if (discard) actions.insertBefore(openLink, discard); else actions.append(openLink);
       refresh();
+      // On a computer: "No celular" (QR code with the current text / push) next to "No WhatsApp Web".
+      if (window.MCSWaHandoff) window.MCSWaHandoff.attach(openLink, { request, before: () => { refresh(); if (!ready()) { done.textContent = SEND_ERRORS.NOT_READY; return false; } done.textContent = 'QR code aberto · O envio é feito por você no celular'; return true; } });
     };
     const closeWindow = () => { open = false; if (sendButton) { sendButton.remove(); sendButton = null; } paintPath(); showOpenLink(); };
     const confirmSend = () => {
