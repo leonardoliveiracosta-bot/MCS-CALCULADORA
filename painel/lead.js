@@ -10,7 +10,7 @@
   // M31: a button that cannot act yet says why instead of doing nothing
   const needs = (message) => Object.assign(new Error('INPUT_REQUIRED'), { userMessage: message });
   // Car lists (cards 5 and 8): at most 10 on screen, in the order already set; "Ver mais (N)" shows the rest.
-  const limitList=(parent,items,after)=>{const extra=items.slice(10);if(!extra.length)return;extra.forEach((node)=>node.classList.add('list-more-hidden'));const more=document.createElement('button');more.type='button';more.className='list-more';more.textContent=`Ver mais (${extra.length})`;more.addEventListener('click',(event)=>{event.stopPropagation();extra.forEach((node)=>node.classList.remove('list-more-hidden'));more.remove();});(after||parent).after?(after||parent).after(more):parent.append(more);};
+  const limitList=(parent,items,after,limit=10)=>{const extra=items.slice(limit);if(!extra.length)return;extra.forEach((node)=>node.classList.add('list-more-hidden'));const more=document.createElement('button');more.type='button';more.className='list-more';more.textContent=`Ver mais (${extra.length})`;more.addEventListener('click',(event)=>{event.stopPropagation();extra.forEach((node)=>node.classList.remove('list-more-hidden'));more.remove();});(after||parent).after?(after||parent).after(more):parent.append(more);};
   const section = (root,n,title,cls='') => { const card=append(root,'section','lead-card '+cls); append(card,'span','lead-label',`${n} — ${title}`); return card; };
   const row = (root,...values) => { const line=append(root,'div','lead-line'); values.forEach((value)=> append(line,'span','',value || '—')); return line; };
   const stageNames = ['Searching','Cars presented','Bid scheduled','Result'];
@@ -189,13 +189,22 @@
       if(journeyId){const reason=append(offers,'p','search-empty-reason','Motivo: lendo o lote…');request('/api/panel/pesquisas',{method:'POST',timeoutMs:60000,body:JSON.stringify({action:'empty_reasons',keys:[`ficha:journey:${journeyId}:${mode}`]})}).then((out)=>{const found=(out.reasons||{})[`ficha:journey:${journeyId}:${mode}`];reason.textContent='Motivo: '+(found?found.text:'nenhum carro do lote ativo serviu para estes critérios');}).catch(()=>{reason.textContent='Motivo: não consegui ler o lote agora';});}});
     const usdBr=(centsValue)=>'$'+Math.round(Number(centsValue)/100).toLocaleString('pt-BR');
     const auctionWhen=(value)=>{const at=Date.parse(value);if(!value)return 'data não informada';if(Number.isNaN(at))return String(value);const parts=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(at));const get=(type)=>parts.find((part)=>part.type===type)?.value||'';return `${get('day')}/${get('month')} · ${get('hour')}:${get('minute')} (Flórida)`;};
-    data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer offer-item');
+    // Order chosen at the top (default: year, newest first); at most 6 cars on screen, "Ver mais (N)" shows the rest.
+    const OFFER_SORTS=[['year-desc','Ano maior primeiro'],['year-asc','Ano menor primeiro'],['miles-desc','Milhas maior primeiro'],['miles-asc','Milhas menor primeiro'],['mmr-desc','MMR maior primeiro'],['mmr-asc','MMR menor primeiro']];
+    const offerList=append(offers,'div','offer-list');
+    if(data.offers.length>1){const sortSelect=document.createElement('select');sortSelect.className='offer-sort';sortSelect.setAttribute('aria-label','Ordenar');OFFER_SORTS.forEach(([value,label])=>sortSelect.append(new Option(label,value)));sortSelect.value='year-desc';offers.querySelector('.lead-label').after(sortSelect);sortSelect.addEventListener('change',()=>drawOffers(sortSelect.value));}
+    const numberOr=(value,missing)=>value===null||value===undefined||value===''||Number.isNaN(Number(value))?missing:Number(value);
+    const drawOffers=(order)=>{offerList.replaceChildren();offers.querySelectorAll(':scope > .list-more').forEach((node)=>node.remove());
+      const [field,direction]=order.split('-'),sign=direction==='desc'?-1:1,key=(car)=>field==='year'?numberOr(car.year,null):field==='miles'?numberOr(car.miles,null):numberOr(car.mmrCents,null);
+      const sorted=data.offers.slice().sort((a,b)=>{const x=key(a),y=key(b);if(x===null&&y===null)return 0;if(x===null)return 1;if(y===null)return -1;return (x-y)*sign||numberOr(a.miles,Infinity)-numberOr(b.miles,Infinity);});
+      sorted.forEach((car)=>{const line=append(offerList,'div','lead-offer offer-item');
       const tags=append(line,'div','offer-tags');tags.append(badge(car.mode==='CARRO'?'POR ANO E MILHAGEM':car.mode==='VALOR'||car.kind==='POR_VALOR'?'POR VALOR':car.kind,car.mode==='CARRO'?'green':'blue'));if(car.matchNotice)tags.append(badge(car.matchNotice,'yellow'));
       append(line,'strong','offer-title',[car.year,car.make,car.model,car.trim].filter(Boolean).join(' '));
       append(line,'span','offer-meta',[car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('pt-BR')+' mi',car.locationDisplay||car.location||''].filter(Boolean).join(' · '));
       append(line,'span','offer-meta','Leilão '+auctionWhen(car.saleDate));
       const value=[car.mmrCents?'MMR '+usdBr(car.mmrCents):'',car.matchNotice?'':car.matchReason||''].filter(Boolean).join(' · ');if(value)append(line,'span','offer-meta',value); });
-    limitList(offers,[...offers.querySelectorAll('.offer-item')],[...offers.querySelectorAll('.offer-item')].at(-1));
+      limitList(offers,[...offerList.querySelectorAll('.offer-item')],offerList,6);};
+    drawOffers('year-desc');
     const context=section(second,9,'CONTEXTO RÁPIDO','context-card');
     const allPromises=[...(record.promises||[]),...(data.promises||[])];
     const promises=allPromises.filter((promise)=>promise.status==='OPEN');
