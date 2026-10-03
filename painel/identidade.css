@@ -1109,6 +1109,6 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 :is(#requests-panel, #searches-panel, #clients-panel) :is(button.primary, .card-primary > button, button.v1-send-go):not(.chip):not(.tab):not(.pending-stat) { border: 0; background: #C9A227; color: #1B1A18; font-weight: 700; }
 :is(#requests-panel, #searches-panel, #clients-panel) :is(button.primary, .card-primary > button, button.v1-send-go):not(.chip):not(.tab):not(.pending-stat):hover { background: #BE9820; }
 :is(#requests-panel, #searches-panel, #clients-panel) button:disabled { opacity: .55; }
-:is(#requests-panel, #searches-panel, #clients-panel) select { min-height: 44px; border: 1px solid #E7E1D7; border-radius: 8px; background-color: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 14px; }
+:is(#requests-panel, #searches-panel, #clients-panel) select { min-height: 44px; border: 1px solid #8A837B; border-radius: 8px; background-color: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 14px; }
 #requests-panel .requests-sort { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
 #requests-panel .requests-sort select { letter-spacing: 0; text-transform: none; font-weight: 400; }
