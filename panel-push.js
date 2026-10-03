@@ -173,5 +173,5 @@ async function sendVitrinePush(ctx, payload) {
 
 module.exports = {
   THROTTLE_MS, canSendForContact, deliverToSubscriptions, notificationTitle,
-  sendCustomerMessagePushes, sendPanelPush, sendTestPush, sendVitrinePush, vapidDetails
+  sendCustomerMessagePushes, sendPanelPush, sendTestPush, sendVitrinePush, subscriptionsFor, vapidDetails
 };

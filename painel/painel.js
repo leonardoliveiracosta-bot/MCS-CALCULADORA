@@ -3040,6 +3040,8 @@
     const textLabel = element('label', 'v1-send-message hidden', 'Mensagem para o cliente (com o link da V1) · editável');
     const textarea = element('textarea', 'v1-send-text'); textarea.rows = 7; textarea.maxLength = 4000; textLabel.append(textarea);
     const actions = element('div', 'inline-actions v1-send-actions'); actions.append(button, fallback, copy);
+    // On a computer: "No celular" (QR code / push) next to "No WhatsApp Web"; on the phone the link stays as it was.
+    if (window.MCSWaHandoff) MCSWaHandoff.attach(fallback, { request });
     const copied = element('p', 'muted v1-send-copied', '');
     // What this card already did with a V1, after a reload: when it was sent (or generated).
     const sentHistory = element('p', 'muted v1-send-history hidden');
