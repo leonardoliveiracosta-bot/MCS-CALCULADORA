@@ -38,8 +38,8 @@ test('HOJE keeps contact metadata once for journeys and once for calculator orde
   const today=panel.slice(panel.indexOf('function renderToday'),panel.indexOf('function orderCard'));
   assert.equal((identity.match(/contactMeta\(item[,)]/g)||[]).length,1);
   // ATENDIMENTO cards are lean: phone once, Ref, the request and which calculator (no channel badge on the front).
-  assert.match(today,/const head = element\('div', 'case-identity'\)/);
-  assert.match(today,/element\('span', 'case-calculator', calculatorLabel\(item\)\)/);
+  assert.match(today,/const head = element\('dl', 'case-identity case-fields'\)/);
+  assert.match(today,/field\('Calculadora', calculatorLabel\(item\), 'case-calculator'\)/);
   assert.match(today,/if\(item\.kind==='CALCULATOR_ORDER'\)\{const contact=contactMeta\(item\);if\(contact\)badges\.append\(contact\);\}/);
   assert.equal((today.match(/contactMeta\(item\)/g)||[]).length,1);
   assert.doesNotMatch(panel,/\$\{item\.contactChannel\} CLICADO/);

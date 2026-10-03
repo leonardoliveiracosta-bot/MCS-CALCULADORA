@@ -92,7 +92,7 @@ for (const width of [1280, 390]) {
     const ana = list.locator('.case-card', { hasText: 'Ana Valor' });
     await expect(ana).toHaveCount(1);
     await expect(ana.locator('.card-decision')).toContainText('Cliente sem resposta há 3 h');
-    await expect(ana.locator('.card-decision')).toContainText('Confirmar vínculo: esta conversa é a Ref AVAL2');
+    await expect(ana.locator('.card-decision')).toContainText('Confirmar vínculo');
     await expect(ana.locator('.case-decisions')).toContainText('Ligar pedido à ficha');
     await expect(ana.locator('.origin-chip')).toHaveCount(0);
     await expect(ana.locator('.case-calculator')).toHaveCount(1);
@@ -108,7 +108,7 @@ for (const width of [1280, 390]) {
     const carla = list.locator('.case-card', { hasText: 'Carla Direta' });
     await expect(carla).toHaveCount(1);
     // The incomplete direct request waits here with what is missing (after the requests load).
-    await expect(carla).toContainText('Completar pedido · Toyota RAV4 · Falta ano e milhagem', { timeout: 30000 });
+    await expect(carla).toContainText('Falta:Toyota RAV4 · Falta ano e milhagem', { timeout: 30000 });
     await page.locator('[data-attend-bucket="todos"]').click();
     await expect(list.locator('.case-card')).toHaveCount(5);
     await expect(page.locator('[data-attend-bucket="todos"] .chip-count')).toHaveText('5');

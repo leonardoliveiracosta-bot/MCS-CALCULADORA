@@ -84,12 +84,14 @@ test('ATENDIMENTO: conversas sem Ref num bloco só por assunto, filtro de assunt
   await open(page, { '/api/panel/today': ({ json }) => json({ items, degraded: ['assunto e identidade'], meta: {} }) });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('#attend-filters [data-attend-bucket="todos"]').click({ timeout: 30000 });
-  const block = page.locator('#today-list section.contact-area[data-area="SEM_REF"]');
-  await expect(block).toHaveCount(1, { timeout: 30000 });
-  await expect(block.locator('.contact-area-label')).toHaveText('Conversas sem Ref');
-  await expect(block.locator('.contact-subject-label')).toHaveText(['Financiamento', 'Pedido de carro', 'Só cumprimentou', 'Outros assuntos', 'Ainda não identificado']);
+  // One grid, no section headers: the order is kept (conversations without Ref by subject) and each card carries its area.
+  await expect(page.locator('#today-list .contact-group-flat')).toHaveCount(1, { timeout: 30000 });
+  await expect(page.locator('#today-list .contact-area-head, #today-list .contact-subject-head')).toHaveCount(0);
+  const semRef = page.locator('#today-list .today-card[data-area="SEM_REF"]');
+  await expect(semRef).toHaveCount(5);
+  expect(await semRef.evaluateAll((cards) => cards.map((card) => card.dataset.subject))).toEqual(['FINANCIAMENTO', 'PEDIDO_CARRO', 'SO_CUMPRIMENTO', 'OUTROS', 'NAO_IDENTIFICADO']);
   // origin Calculadora with subject Financiamento stays in the calculator area; the lean card says which calculator, not the subject
-  const calc = page.locator('#today-list section.contact-area[data-area="CALC_SEM_TIPO"]');
+  const calc = page.locator('#today-list .today-card[data-area="CALC_SEM_TIPO"]');
   await expect(calc).toContainText('Fábio Calc');
   await expect(calc.locator('.case-calculator')).toHaveCount(1);
   await expect(calc.locator('.subject-chip')).toHaveCount(0);
@@ -302,6 +304,7 @@ test('ATENDIMENTO: candidata a fora da MCS aparece com motivo e frase, e só sai
   await expect(card).toContainText('Conversa de família sobre uma festa');
   await expect(card).toContainText('a festa da vovó é sábado');
   expect(posted).toBe(null);
+  await page.locator('#today-list .case-card', { has: card }).first().locator('.case-more > summary').click();
   await card.getByRole('button', { name: 'Confirmar fora da MCS' }).click();
   await expect.poll(() => posted && posted.action).toBe('offmcs_confirm');
   expect(posted.journeyId).toBe(uid(90));
