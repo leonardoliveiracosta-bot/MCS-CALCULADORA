@@ -86,14 +86,15 @@
 
   // The same summary the database returns (panel_journey_message_facts), built from a message list.
   function summaryFromMessages(messages) {
-    const own = (messages || []).filter((message) => message && !message.undone_at && ['CUSTOMER', 'MCS'].includes(message.direction))
-      .slice().sort((a, b) => messageAt(a) - messageAt(b) || String(a.id).localeCompare(String(b.id)));
+    const all = (messages || []).filter((message) => message && !message.undone_at && ['CUSTOMER', 'MCS'].includes(message.direction));
+    // A print without its original date counts as a message but is never the first, last or latest one.
+    const own = all.filter((message) => !message.date_unknown).sort((a, b) => messageAt(a) - messageAt(b) || String(a.id).localeCompare(String(b.id)));
     const customer = own.filter((message) => message.direction === 'CUSTOMER');
     const mcs = own.filter((message) => message.direction === 'MCS');
     const real = own.filter((message) => !message.is_automatic);
     const first = customer[0] || null, lastCustomer = customer.at(-1) || null, lastMcs = mcs.at(-1) || null, latest = real.at(-1) || own.at(-1) || null;
     return {
-      message_count: own.length, customer_count: customer.length,
+      message_count: all.length, customer_count: all.filter((message) => message.direction === 'CUSTOMER').length,
       first_customer_at: first ? iso(messageAt(first)) : null, first_customer_channel: first ? first.channel || null : null, first_customer_source: first ? first.source_kind || null : null, first_customer_text: first ? String(first.body_text || '').slice(0, 300) : null,
       last_customer_id: lastCustomer ? lastCustomer.id : null, last_customer_at: lastCustomer ? iso(messageAt(lastCustomer)) : null, last_customer_text: lastCustomer ? String(lastCustomer.body_text || '').slice(0, 600) : null,
       last_customer_channel: lastCustomer ? lastCustomer.channel || null : null, last_customer_source: lastCustomer ? lastCustomer.source_kind || null : null,

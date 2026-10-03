@@ -193,7 +193,7 @@ test('a PANEL reply counts as my reply: weekly summary and every "my reply" read
   assert.equal(result.unanswered24h.current, 0);
   // HOJE e CLIENTES: a última resposta minha é a última MCS, venha de onde vier
   const today = fs.readFileSync('api/panel/today.js', 'utf8'), records = fs.readFileSync('api/panel/records.js', 'utf8'), entry = fs.readFileSync('api/panel/entry.js', 'utf8'), weekly = fs.readFileSync('panel-weekly.js', 'utf8');
-  assert.match(today, /latestMcsMessage=ownMessages\.find\(\(message\)=>message\.direction==='MCS'\)/);
+  assert.match(today, /latestMcsMessage=timedMessages\.find\(\(message\)=>message\.direction==='MCS'\)/);
   // CLIENTES: the database summary keeps the latest MCS message by direction (panel_journey_message_facts).
   assert.match(records, /latestMcsMessage=summary\.last_mcs_id\?\{id:summary\.last_mcs_id,direction:'MCS'/);
   assert.match(fs.readFileSync('supabase/migrations/20261014010000_clientes_resumo_mensagens.sql', 'utf8'), /direction = 'MCS'/);

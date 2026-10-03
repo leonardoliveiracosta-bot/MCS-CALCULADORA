@@ -232,7 +232,9 @@ module.exports = async (req, res) => {
       const journeyId=journey?.id;
       const facts=contacts.facts({journeyId:journey?.id,ref,refs:journey?(data.refs||[]).filter((row)=>row.journey_id===journey.id).map((row)=>row.ref_code):[]});
       const ownMessages=journeyId?(messagesByJourney.get(journeyId)||[]).slice().sort((a,b)=>(time(b.occurred_at_utc||b.created_at)||0)-(time(a.occurred_at_utc||a.created_at)||0)):[];
-      const latestMessage=ownMessages.find((message)=>!message.is_automatic)||ownMessages[0]||null,latestMcsMessage=ownMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=ownMessages.find((message)=>message.direction==='CUSTOMER')||null;
+      // A print without its original date is never the latest message nor the client's last one (it is never "recent").
+      const timedMessages=ownMessages.filter((message)=>!message.date_unknown);
+      const latestMessage=timedMessages.find((message)=>!message.is_automatic)||timedMessages[0]||null,latestMcsMessage=timedMessages.find((message)=>message.direction==='MCS')||null,lastCustomer=timedMessages.find((message)=>message.direction==='CUSTOMER')||null;
       // Adendo: one group per person (fora do assunto > não atendido > origem), presentation only.
       const ownOrders=item.kind==='CALCULATOR_ORDER'?[item]:(journey?refsOf(journey).map((own)=>ordersByRef.get(own)).filter(Boolean):[]);
       const offTopic=topic&&journeyId?topic.journey(journeyId,{hasCalculator:ownOrders.length>0}):null;

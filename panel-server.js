@@ -58,7 +58,31 @@ function query(params) {
   return new URLSearchParams(params).toString();
 }
 
+// A print of SMS without its original date (no Ref, or a Ref the calculator never recorded) has no moment at all: the
+// time it was confirmed is never its date. Every read of messages that falls back to created_at gets it empty instead,
+// so the message is never "recent" (not the latest, not in HOJE, no "há X min"); date_unknown says why on screen.
+const UNKNOWN_DATE_TEXT = 'data original desconhecida';
+const DATE_FIELDS = ['source_kind', 'occurred_at_utc', 'original_datetime_text'];
+function messageDateParams(params) {
+  const fields = params && params.select ? topLevelFields(params.select) : ['*'];
+  if (fields.includes('*') || !fields.includes('created_at')) return { params, added: [] };
+  const added = DATE_FIELDS.filter((field) => !fields.includes(field));
+  return { params: added.length ? { ...params, select: fields.concat(added).join(',') } : params, added };
+}
+function maskUnknownDates(list, added) {
+  if (!Array.isArray(list)) return list;
+  list.forEach((row) => {
+    if (row && row.source_kind === 'SMS_PRINT' && !row.occurred_at_utc && row.original_datetime_text === UNKNOWN_DATE_TEXT && 'created_at' in row) { row.created_at = null; row.date_unknown = true; }
+    added.forEach((field) => { if (row) delete row[field]; });
+  });
+  return list;
+}
+
 async function rows(ctx, table, params) {
+  if (table === 'messages') { const shaped = messageDateParams(params); return maskUnknownDates(await readRows(ctx, table, shaped.params), shaped.added); }
+  return readRows(ctx, table, params);
+}
+async function readRows(ctx, table, params) {
   const path = '/rest/v1/' + table + '?' + query(params);
   // Abertura rápida: inside one /api/panel/boot call, the same read (same table, filters and page) is done once in the
   // database and shared by every list; each caller gets its own copy, so no list changes another's rows.
