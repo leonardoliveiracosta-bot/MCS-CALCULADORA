@@ -1122,3 +1122,16 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #searches-panel .manheim-row { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 12px; padding: 12px 14px; color: #1B1A18; }
 #searches-panel :is(.offer-row, .manheim-row) strong { color: #1B1A18; }
 :is(#requests-panel, #searches-panel) .search-fields, :is(#requests-panel, #searches-panel) .request-person { font-family: "Noto Sans", system-ui, sans-serif; }
+
+/* Falhas do teste visual: texto de apoio com contraste mínimo de 4,5:1, alvo de toque de 44 px e sem rolagem lateral. */
+#today-list .today-card .case-face-ref { color: #725915; }
+#today-list .today-card .case-face-phone { color: #6F675D; }
+#today-list .today-card .case-face-spec .case-field-label { color: #6A6258; }
+#today-list .today-card .case-face-spec .case-field-soft { color: #6A6258; }
+.wa-thread .wa-bubble .wa-time { color: #615A51; }
+.wa-thread .wa-day span { color: #5F574E; }
+.ai-conversation-review > .ai-review-rule, .reality-card .reality-verdict.is-empty, .offer-card .offer-note { color: #6F675D; }
+.context-card .context-last-label { color: #6F675D; }
+#today-list .today-card .case-pick { width: 44px; height: 44px; margin: -10px; }
+#today-list .today-card .case-face-spec .case-field-value { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 1279px) { #today-list .today-card .case-face-spec .case-calculator .case-field-value { white-space: normal; } }
