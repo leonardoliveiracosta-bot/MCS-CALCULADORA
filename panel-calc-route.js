@@ -17,7 +17,7 @@ const REASONS = {
   TELEFONE_FICHA_UNICA: 'Sem Ref legível: o telefone tem uma ficha só e nada contradiz',
   FICHA_NOVA_TELEFONE_NOVO: 'Telefone sem ficha: ficha nova criada',
   FILA_VARIAS_FICHAS: 'O telefone tem mais de uma ficha: escolha a ficha (nada foi escolhido sozinho)',
-  FILA_CONTRADICAO: 'O nome ou o carro da mensagem contradiz a única ficha do telefone',
+  FILA_CONTRADICAO: 'Telefone igual, mas o nome (diferente ou sem como conferir) ou o carro não bate com a única ficha do telefone: confirme o vínculo',
   SEM_CONTATO: 'A conversa não tem contato nem telefone para seguir',
   REF_ILEGIVEL: 'Ref ilegível na origem ("Ref: -----"): seguiu pelo telefone'
 };
@@ -45,7 +45,14 @@ function decide({ parsed, refOwners = [], contactId = null, fichas = [], linked 
 
 const rpc = (ctx, name, body) => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/' + name, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment, ...body }) });
 
-async function factsFor(ctx, message, read = rows) {
+// The names each ficha already knows (contact, its calculator messages) and its chats: a name is only checked against these.
+async function journeyNames(ctx, journeyIds) {
+  if (!journeyIds.length) return new Map();
+  const list = await rpc(ctx, 'panel_journey_names', { p_journey_ids: journeyIds }).catch(() => []);
+  return new Map((Array.isArray(list) ? list : []).map((row) => [row.journey_id, row]));
+}
+
+async function factsFor(ctx, message, read = rows, names = journeyNames) {
   const parsed = calcMessage.parse(message.body_text);
   const env = 'eq.' + ctx.environment;
   let refOwners = [];
@@ -64,7 +71,9 @@ async function factsFor(ctx, message, read = rows) {
       read(ctx, 'journeys', { select: 'id,vehicle_text', environment: env, contact_id: 'eq.' + message.contact_id, limit: '20' }),
       read(ctx, 'contacts', { select: 'id,display_name', environment: env, id: 'eq.' + message.contact_id, limit: '1' })
     ]);
-    fichas = journeys.map((row) => ({ id: row.id, contactName: contacts[0] && contacts[0].display_name || '', vehicleText: row.vehicle_text || '' }));
+    const known = await names(ctx, journeys.map((row) => row.id));
+    fichas = journeys.map((row) => { const own = known.get(row.id) || {}; return { id: row.id, contactName: contacts[0] && contacts[0].display_name || '', names: own.calc_names || [],
+      sameChat: Boolean(message.chat_id && (own.chat_ids || []).includes(message.chat_id)), vehicleText: row.vehicle_text || '' }; });
   }
   return { parsed, refOwners, contactId: message.contact_id || null, fichas, linked: message.linked_journeys || [] };
 }

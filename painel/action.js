@@ -41,7 +41,8 @@
       const result = await options.commit();
       let notice = null;
       const successScope=options.successScope||scope;
-      if (options.successText) notice = feedback(successScope, options.successText, '', options.feedbackKey);
+      const successText = typeof options.successText === 'function' ? options.successText(result) : options.successText;
+      if (successText) notice = feedback(successScope, successText, '', options.feedbackKey);
       // undo may depend on the answer (a function of the result): no undo when the server says so.
       const undoSpec = typeof options.undo === 'function' ? options.undo(result, snapshot) : options.undo;
       if (undoSpec && notice) {
