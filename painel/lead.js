@@ -363,8 +363,9 @@
     // centred date dividers, time inside the bubble); the list "Vai para:" comes right below it.
     const thread=append(conversation,'div','lead-thread wa-thread');aiStatus.after(thread);const messages=record.conversation||[];
     const tzOf=data.timezone||'America/New_York';
-    const dayOf=(value)=>{try{return new Intl.DateTimeFormat('pt-BR',{timeZone:tzOf,day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(value));}catch(_){return '';}};
-    const timeOf=(value)=>{try{return new Intl.DateTimeFormat('pt-BR',{timeZone:tzOf,hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value));}catch(_){return '';}};
+    // No date (null, 0 or empty: a print without its original date) gives no day and no time, never 31/12/1969 or 19:00.
+    const dayOf=(value)=>{if(!value)return '';try{return new Intl.DateTimeFormat('pt-BR',{timeZone:tzOf,day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(value));}catch(_){return '';}};
+    const timeOf=(value)=>{if(!value)return '';try{return new Intl.DateTimeFormat('pt-BR',{timeZone:tzOf,hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value));}catch(_){return '';}};
     // Translation on demand (cached by message): shown under the original, which never changes.
     let visibleIds=[];const translateButton=null,translateStatus={textContent:''};
     const tr=journeyId&&window.MCSSuggest&&MCSSuggest.translator?MCSSuggest.translator(journeyId,{request,onChange:()=>draw()}):null;
