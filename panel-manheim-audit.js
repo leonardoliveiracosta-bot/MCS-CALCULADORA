@@ -28,10 +28,11 @@ const { allRows, insert, patchRows, rows, supabase } = require('./panel-server')
 const { matchManheimDemand } = require('./panel-domain');
 const { undash } = require('./text-dash');
 const { hasValidMmr } = require('./vehicle-match');
+const { modelsMatch } = require('./vehicle-catalog');
 const { PRICES } = require('./panel-triage');
 const aiClaim = require('./panel-ai-claim');
 
-const RULE_VERSION = 'conferencia-v1';
+const RULE_VERSION = 'conferencia-v2';
 const DEFAULT_MODEL = 'gpt-6-luna';
 const APPROVED_MODELS = Object.freeze(['gpt-6-luna']);
 // No limit per import and no "waiting for authorization": the only limit is the OpenAI prepaid
@@ -59,7 +60,7 @@ function retryAllowed(row, manual = false) {
 }
 // Facts found by the server that no manual approval can override. The others (a repeated VIN or row
 // from overlapping CSV splits, too many options) can be approved by hand with a reason.
-const HARD_CODES = new Set(['DEMAND_MISSING', 'DEMAND_INCOMPLETE', 'MODE_MISSING', 'OTHER_MODE_MATCH', 'PERSON_MISMATCH', 'JOURNEY_CLOSED', 'NOT_LEAD', 'TEST_RECORD', 'BATCH_UNDONE', 'CRITERIA_MISMATCH', 'BID_IS_CEILING', 'MMR_MISSING', 'ODOMETER_UNKNOWN']);
+const HARD_CODES = new Set(['MAKE_MODEL', 'DEMAND_MISSING', 'DEMAND_INCOMPLETE', 'MODE_MISSING', 'OTHER_MODE_MATCH', 'PERSON_MISMATCH', 'JOURNEY_CLOSED', 'NOT_LEAD', 'TEST_RECORD', 'BATCH_UNDONE', 'CRITERIA_MISMATCH', 'BID_IS_CEILING', 'MMR_MISSING', 'ODOMETER_UNKNOWN']);
 const hardDivergence = (divergences) => (divergences || []).some((item) => item.source === 'LOCAL' && HARD_CODES.has(item.code));
 
 const CODES = Object.freeze({
@@ -88,7 +89,8 @@ const CODES = Object.freeze({
   OTHER: 'outra divergência'
 });
 // Codes the model may return (the facts are checked here, not by the model).
-const MODEL_CODES = Object.freeze(['PERSON_MISMATCH', 'OTHER_MODE_MATCH', 'MAKE_MODEL', 'BID_WRONG', 'BID_IS_CEILING', 'MMR_MISSING', 'MMR_OUT_OF_RANGE', 'YEAR_OUT_OF_RANGE', 'MILES_OUT_OF_RANGE', 'ODOMETER_UNKNOWN', 'CROSS_MODE_CRITERIA', 'VIN_DUPLICATE', 'SPLIT_DUPLICATE', 'DEMAND_INCOMPLETE', 'OTHER']);
+// MAKE_MODEL is not here: make/model is checked only by the server, with the same modelsMatch of the search (one rule).
+const MODEL_CODES = Object.freeze(['PERSON_MISMATCH', 'OTHER_MODE_MATCH', 'BID_WRONG', 'BID_IS_CEILING', 'MMR_MISSING', 'MMR_OUT_OF_RANGE', 'YEAR_OUT_OF_RANGE', 'MILES_OUT_OF_RANGE', 'ODOMETER_UNKNOWN', 'CROSS_MODE_CRITERIA', 'VIN_DUPLICATE', 'SPLIT_DUPLICATE', 'DEMAND_INCOMPLETE', 'OTHER']);
 const LABELS = Object.freeze({ CONFERINDO: 'Conferindo', CONFERIDO: 'Conferido', REVISAR: 'Revisar', PENDENTE: 'Conferência pendente', APROVADO_MANUAL: 'Aprovado à mão', AGUARDANDO_AUTORIZACAO: 'Aguardando autorização', SEM_SELECAO: 'Conferência começa ao selecionar carros' });
 
 // ------------------------------------------------------------------ configuração
@@ -196,6 +198,9 @@ function buildGroups(input) {
       // MMR is mandatory in both modes (in CARRO its amount decides nothing).
       if (!hasValidMmr(parsed)) { add('MMR_MISSING', option); return; }
       if (!demand || !demand.active) return;
+      // Make/model: the catalog rule of the search (Escalade ESV = Escalade, Yukon XL = Yukon, ...), never the AI.
+      const wishes = demand.activeWishes || demand.wishes || [];
+      if (wishes.length && !wishes.some((wish) => modelsMatch(parsed.model, wish.model, parsed.make, wish.make))) { add('MAKE_MODEL', option); return; }
       // The same deterministic rule the import used, applied again to the stored car.
       const result = matchManheimDemand(parsed, { ...demand, wishes: demand.activeWishes });
       if (!result) { add('CRITERIA_MISMATCH', option); return; }
@@ -218,8 +223,9 @@ const SCHEMA = {
 };
 const INSTRUCTIONS = [
   'Você confere as opções de carros de leilão (Manheim) que o sistema da My Car Scout separou para uma demanda de cliente. Responda só com o JSON pedido.',
-  'Modo VALOR: vale marca e modelo pedidos e o lance da própria demanda. O MMR é obrigatório e numérico. Lance até US$ 60.000: MMR entre 70% e 115% do lance; acima de US$ 60.000: entre 75% e 110%. O teto total nunca é lance. Ano e milhagem não contam em VALOR.',
-  'Modo CARRO: vale marca e modelo, ano dentro da faixa e milhagem dentro da faixa, com odômetro informado. Não existe tolerância. O MMR precisa existir e ser numérico, mas o valor dele não decide; o lance não conta em CARRO.',
+  'Marca e modelo já foram conferidos pelo servidor com o catálogo (o cliente não informa versão: o modelo pedido vale para a família inteira, como Escalade ESV para Escalade). Nunca aponte divergência de marca ou modelo.',
+  'Modo VALOR: vale o lance da própria demanda. O MMR é obrigatório e numérico. Lance até US$ 60.000: MMR entre 70% e 115% do lance; acima de US$ 60.000: entre 75% e 110%. O teto total nunca é lance. Ano e milhagem não contam em VALOR.',
+  'Modo CARRO: vale ano dentro da faixa e milhagem dentro da faixa, com odômetro informado. Não existe tolerância. O MMR precisa existir e ser numérico, mas o valor dele não decide; o lance não conta em CARRO.',
   'Aponte critério de um modo usado no outro, opção de outra pessoa, VIN repetido, carro repetido e demanda incompleta.',
   'aprovado: true só quando todas as opções cumprem a regra do modo. Cada divergência traz a opção (id, ou vazio para a demanda inteira), o código e um motivo curto em português, sem ponto final.'
 ].join('\n');
