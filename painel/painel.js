@@ -157,8 +157,8 @@
     const waited = item?.group?.unattended?.waitedText;
     if (kinds.has('NAO_ATENDIDO') || kinds.has('RESPONDER')) {
       const head = item?.group?.unattended?.reason === 'NO_ACTION' && !kinds.has('RESPONDER')
-        ? (waited ? `Sem ação há ${waited}` : 'Sem ação há dias')
-        : (waited ? `Cliente sem resposta há ${waited}` : 'Cliente sem resposta');
+        ? (waited ? `Sem ação · ${waited}` : 'Sem ação')
+        : (waited ? `Sem resposta · ${waited}` : 'Sem resposta');
       // A decision waiting on her (link, tie, triage) stays visible next to the waiting time.
       const decision = (entry.reasons || []).find((reason) => ['VINCULO', 'REF_EMPATE', 'FORA_MCS', 'TRIAGEM'].includes(reason.kind));
       const label = decision && { VINCULO: 'Confirmar vínculo', REF_EMPATE: 'Escolher a simulação', FORA_MCS: 'Revisar: fora da MCS?', TRIAGEM: 'Classificar a conversa' }[decision.kind];
@@ -214,6 +214,44 @@
     const names = modes.map((mode) => mode === 'VALOR' ? 'Calculate My Cost (por valor)' : mode === 'CARRO' ? 'Find One For Me (por carro)' : null).filter(Boolean);
     if (names.length) return names.join(' + ');
     return refStateOf(item) === 'A_RECUPERAR' ? 'tipo a recuperar' : 'nenhuma · mensagem direta';
+  }
+  // The face of an ATENDIMENTO card (one format for every card).
+  const LACK_WORDS = [['marca', 'Marca'], ['modelo', 'Modelo'], ['ano', 'Ano'], ['milhagem', 'Milhagem'], ['lance', 'Lance'], ['zip', 'ZIP']];
+  function lacksOf(request) {
+    const listed = (request.missing || []).map((value) => String(value).trim()).filter(Boolean);
+    const text = String(request.lacksText || '').toLowerCase();
+    const found = listed.length ? listed.map((value) => value.charAt(0).toUpperCase() + value.slice(1)) : LACK_WORDS.filter(([word]) => new RegExp('\\b' + word).test(text)).map(([, label]) => label);
+    return found.length ? [...new Set(found)] : [request.lacksText || 'Falta um dado do carro'];
+  }
+  function caseFace({ title, ref, phone, rows, requests }) {
+    const face = element('div', 'case-face case-identity');
+    const head = element('div', 'case-face-head');
+    head.append(element('h3', 'case-face-title case-name', title));
+    if (ref) head.append(element('span', 'case-face-ref case-ref', /^[A-Z0-9]{5}$/.test(String(ref)) ? 'Ref ' + ref : ref));
+    face.append(head);
+    if (phone) face.append(element('p', 'case-face-phone case-phone', phone));
+    if (rows.length) {
+      const spec = element('dl', 'case-face-spec case-fields');
+      rows.forEach(([label, value, cls]) => {
+        const row = element('div', 'case-field ' + (cls || ''));
+        const dd = element('dd', 'case-field-value');
+        const split = /^(.*?)\s(\(.+\))$/.exec(String(value));
+        if (split && cls === 'case-calculator') dd.append(element('strong', '', split[1]), document.createTextNode(' '), element('span', 'case-field-soft', split[2])); else dd.textContent = value;
+        row.append(element('dt', 'case-field-label', label), dd);
+        spec.append(row);
+        if (label === 'Local') fillZipPlace(dd, value);
+      });
+      face.append(spec);
+    }
+    (requests || []).forEach((request) => {
+      const lacks = element('div', 'case-face-lacks request-lacks case-request');
+      lacks.append(element('span', 'case-face-lacks-title', 'Falta para buscar'));
+      const list = element('ul', 'case-face-lacks-list');
+      lacksOf(request).forEach((label) => list.append(element('li', '', label)));
+      lacks.append(list);
+      face.append(lacks);
+    });
+    return face;
   }
   const contextSlot = (spec, options) => window.MCSContext ? MCSContext.slot(spec, options) : document.createComment('contexto');
   const hydrateContexts = (root) => { if (window.MCSContext && root) MCSContext.hydrate(root, { request, open: (kind, key) => openDetail(kind, key) }).catch(() => {}); };
@@ -2267,7 +2305,7 @@
   }
   // Incomplete requests (BUSCAR CARROS keeps only complete ones): they wait here with what is missing.
   function incompleteRequests(pesquisas) {
-    return (pesquisas && pesquisas.items || []).filter((item) => item.state === 'PRECISA_DETALHE').map((item) => ({ key: item.key, journeyId: uuidOnly(item.person?.journeyId), contactId: uuidOnly(item.person?.contactId), name: item.person?.name || null, lacksText: item.lacksText || 'Falta um dado do carro', criteriaText: item.criteriaText || '', source: item.source }));
+    return (pesquisas && pesquisas.items || []).filter((item) => item.state === 'PRECISA_DETALHE').map((item) => ({ key: item.key, journeyId: uuidOnly(item.person?.journeyId), contactId: uuidOnly(item.person?.contactId), name: item.person?.name || null, lacksText: item.lacksText || 'Falta um dado do carro', missing: Array.isArray(item.missing) ? item.missing : [], criteriaText: item.criteriaText || '', source: item.source }));
   }
   const attendModel = (items) => MCSAttend.model({ todayItems: items, decisions: withoutExcluded(items, attendDecisions(), attendData.discarded), incomplete: withoutExcluded(items, attendData.incomplete, attendData.discarded), sort: $('today-sort')?.value || 'ready' });
   // A decision row (link, review, triage, vitrine) of a case: found wherever it is, moved into the case card.
@@ -2390,15 +2428,10 @@
     card.attendShell = { journeyId: uuidOnly(entry.journeyId) || null, chats: entry.decisions.filter((decision) => decision.kind === 'TRIAGEM' && decision.chatId).map((decision) => decision.chatId) };
     const identity = entry.journeyId && attendIdentity.get(entry.journeyId);
     const known = identity && identity !== 'loading' ? identity : null;
-    const head = element('dl', 'case-identity case-fields');
-    const field = (label, value, cls) => { const row = element('div', 'case-field' + (cls ? ' ' + cls : '')); row.append(element('dt', 'case-field-label', label + ':'), element('dd', 'case-field-value', value)); head.append(row); };
-    // The name only when it is a person's name (never "sem nome" or a technical value); the phone once.
     const shellName = [first.name, first.sourceName, known?.name].find(realName);
-    if (shellName) field('Nome', shellName, 'case-name identity-name');
     const shellPhone = [...entry.decisions, ...entry.requests].map((row) => row.phone || '').find(Boolean);
-    if (shellPhone) field('Telefone', phoneDisplay(shellPhone), 'case-phone');
-    if (known) field('Ref', known.calcRef || 'sem Ref', 'case-ref');
-    card.append(head);
+    const shellPhoneText = shellPhone ? phoneDisplay(shellPhone) : '';
+    card.append(caseFace({ title: shellName || shellPhoneText || 'Sem nome', ref: known ? (known.calcRef || 'sem Ref') : '', phone: shellName ? shellPhoneText : '', rows: [], requests: entry.requests }));
     const actions = element('div', 'inline-actions card-primary');
     if (entry.journeyId) { const open = element('button', 'today-primary small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', entry.journeyId); }); actions.append(open); }
     const more = element('details', 'card-more case-more'); more.append(element('summary', '', '⋯ Mais'));
@@ -2526,27 +2559,23 @@
       // One short status line: why the case is here, in a few words (the full reasons are in the ficha).
       const decision = MCSContactGroups.decisionNode(item);
       decision.replaceChildren(element('strong', 'card-decision-label', shortStatus(entry, item)));
+      decision.classList.toggle('decision-red', entry.bucket === 'depende');
       // Small selection box: select one or many cards, then "Excluir selecionados" at the top of the list.
       card.attendItem = item;
       decision.append(pickBox(card));
       card.append(decision);
-      // Only what decides the next step, one labelled field per line: name, phone (once), Ref, the
-      // request as the calculator filled it, ZIP and which calculator. Nothing here repeats elsewhere on the card.
-      const head = element('dl', 'case-identity case-fields');
-      const field = (label, value, cls) => { const row = element('div', 'case-field' + (cls ? ' ' + cls : '')); row.append(element('dt', 'case-field-label', label + ':'), element('dd', 'case-field-value', value)); head.append(row); return row; };
+      // Card face (same format as the model): the car in front with the Ref tag, the phone, the request as a spec sheet
+      // (bid or years/mileage, location, calculator) and, when a request is incomplete, what is missing to search.
       const name = String(item.contactName || item.name || item.contact?.display_name || '').trim();
       const phone = primaryPhone(item);
       const phoneText = phone ? phoneDisplay(phone.phone_e164 || phone.phone_raw || '') : '';
-      const digits = (value) => String(value || '').replace(/\D/g, '');
-      if (realName(name) && digits(name) !== digits(phone?.phone_e164 || phone?.phone_raw || '')) field('Nome', name, 'case-name');
-      field('Telefone', phoneText || 'falta o número', 'case-phone');
       const ref = refOf(item) || calcRefOf(item);
-      field('Ref', ref || (refStateOf(item) === 'A_RECUPERAR' ? 'a recuperar' : 'sem Ref'), 'case-ref');
-      caseRequestFields(item).forEach(([label, value]) => { const row = field(label, value, 'case-request-line'); if (label === 'ZIP') fillZipPlace(row.querySelector('.case-field-value'), value); });
-      field('Calculadora', calculatorLabel(item), 'case-calculator');
-      card.append(head);
-      // An incomplete request of this person: what is missing (the request waits here, not in BUSCAR CARROS).
-      entry.requests.forEach((request)=>field('Falta',`${request.criteriaText?request.criteriaText+' · ':''}${request.lacksText}`,'request-lacks case-request'));
+      const fields = caseRequestFields(item);
+      const cars = [...new Set(fields.filter(([label]) => /^Carro/.test(label)).map(([, value]) => value).filter((value) => value && value !== 'não informado'))];
+      const title = cars.join(' · ') || (realName(name) ? name : '') || phoneText || 'Sem nome';
+      const rows = fields.filter(([label]) => !/^Carro/.test(label)).map(([label, value]) => [label === 'ZIP' ? 'Local' : label, value, label === 'ZIP' ? 'case-request-line case-zip' : 'case-request-line']);
+      rows.push(['Calculadora', calculatorLabel(item), 'case-calculator']);
+      card.append(caseFace({ title, ref: ref || (refStateOf(item) === 'A_RECUPERAR' ? 'a recuperar' : 'sem Ref'), phone: title === phoneText ? '' : phoneText, rows, requests: entry.requests }));
       const actions = element('div', 'inline-actions card-primary');
       const replying = item.awaitingReply && item.kind !== 'CALCULATOR_ORDER';
       const open = element('button', 'today-primary small', replying ? 'Responder' : item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
@@ -2574,8 +2603,6 @@
         decision.append(element('strong', 'card-decision-label', entry.bucket === 'completar' && !entry.decisions.length ? 'Completar pedido' : shortStatus(entry, null)));
         decision.append(pickBox(card));
         card.prepend(decision);
-        const fields = card.querySelector('.case-fields');
-        entry.requests.forEach((request)=>{const row=element('div','case-field request-lacks case-request');row.append(element('dt','case-field-label','Falta:'),element('dd','case-field-value',`${request.criteriaText?request.criteriaText+' · ':''}${request.lacksText}`));fields.append(row);});
       }
       // The decision rows of the case (rendered by their own lists) come inside its card.
       const holder = card.querySelector('.case-decisions');
