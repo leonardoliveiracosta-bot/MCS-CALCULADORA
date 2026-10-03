@@ -130,9 +130,23 @@
 
   // Sections per group: header with the label, the count and what the group means. Empty groups
   // are left out; "Fora do assunto" stays folded.
-  function render(root, items, renderCard, { skip = [], emptyText = 'Nada aqui', onRendered = null } = {}) {
+  function render(root, items, renderCard, { skip = [], emptyText = 'Nada aqui', onRendered = null, flat = false } = {}) {
     const sections = groupsApi().split(items, groupOf).filter((group) => group.items.length && !skip.includes(group.key));
     if (!sections.length) { add(root, 'p', 'empty-state', emptyText); return []; }
+    if (flat) {
+      // One grid for every case, in the same order (group, search type, subject), without section
+      // headers: the card itself says why it is here and which calculator, so a header would repeat it.
+      const grid = add(root, 'section', 'contact-group contact-group-flat');
+      sections.forEach((group) => {
+        const place = (item, area, subjectKey) => { const card = renderCard(item); if (!card) return; card.dataset.group = group.key; card.dataset.area = area; if (subjectKey) card.dataset.subject = subjectKey; grid.append(card); };
+        groupsApi().areas(group.items).forEach((area) => {
+          if (area.key === 'SEM_REF') groupsApi().bySubject(area.items).forEach((subject) => subject.items.forEach((item) => place(item, area.key, subject.key)));
+          else area.items.forEach((item) => place(item, area.key));
+        });
+      });
+      if (onRendered) onRendered(root);
+      return sections;
+    }
     sections.forEach((group) => {
       const folded = group.key === 'FORA_DO_ASSUNTO';
       const section = e(folded ? 'details' : 'section', `contact-group contact-group-${group.key.toLowerCase().replace(/_/g, '-')}`);

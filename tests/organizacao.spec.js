@@ -92,7 +92,7 @@ for (const width of [1280, 390]) {
     const ana = list.locator('.case-card', { hasText: 'Ana Valor' });
     await expect(ana).toHaveCount(1);
     await expect(ana.locator('.card-decision')).toContainText('Cliente sem resposta há 3 h');
-    await expect(ana.locator('.card-decision')).toContainText('Confirmar vínculo: esta conversa é a Ref AVAL2');
+    await expect(ana.locator('.card-decision')).toContainText('Confirmar vínculo');
     await expect(ana.locator('.case-decisions')).toContainText('Ligar pedido à ficha');
     await expect(ana.locator('.origin-chip')).toHaveCount(0);
     await expect(ana.locator('.case-calculator')).toHaveCount(1);
