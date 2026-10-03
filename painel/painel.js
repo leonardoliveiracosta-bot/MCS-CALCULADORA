@@ -906,7 +906,7 @@
   function nameLinkSides(link) {
     const sim = link.simulation || {}, ficha = link.ficha || {};
     const simChannel = channelName(sim.channel), simAgo = agoText(sim.at), fichaChannel = channelName(ficha.channel), fichaDay = dayText(ficha.lastAt);
-    const left = { name: sim.name || 'Sem nome na simulação', detail: simChannel && simAgo ? `simulação por ${simChannel} há ${simAgo}` : 'simulação' };
+    const left = { name: sim.name || 'Sem nome na simulação', detail: simChannel && simAgo ? `simulação por ${simChannel} há ${simAgo}` : simChannel && !sim.at ? `simulação por ${simChannel} · data original desconhecida` : 'simulação' };
     const right = { name: (ficha.names || []).length ? ficha.names.join(' / ') : 'Sem nome na ficha', detail: [fichaChannel && fichaDay ? `${fichaChannel}, última mensagem ${fichaDay}` : fichaChannel || '', link.ref ? `Ref ${link.ref}` : ''].filter(Boolean).join(' · ') };
     return { left, right };
   }
@@ -5077,7 +5077,7 @@
           return;
         }
         const row = element('article', 'message ' + message.direction.toLowerCase());
-        const meta = `${message.channel} · ${message.direction === 'CUSTOMER' ? 'Cliente' : message.direction === 'MCS' ? 'MCS' : 'Sistema'} · ${formatDate(message.occurred_at_utc || message.occurred_at_local || message.created_at)}${message.time_uncertain ? ' · hora incerta' : ''}`;
+        const meta = `${message.channel} · ${message.direction === 'CUSTOMER' ? 'Cliente' : message.direction === 'MCS' ? 'MCS' : 'Sistema'} · ${message.date_unknown ? 'data original desconhecida' : formatDate(message.occurred_at_utc || message.occurred_at_local || message.created_at)}${message.time_uncertain ? ' · hora incerta' : ''}`;
         row.append(element('span', 'message-meta', meta), element('p', 'message-body', message.body_text));
         if (item.enabled && !item.stage_frozen && message.direction !== 'SYSTEM') row.append(actionMessage(message, id, reload));
         timeline.append(row);

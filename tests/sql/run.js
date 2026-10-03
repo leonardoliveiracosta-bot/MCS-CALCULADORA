@@ -23,7 +23,7 @@ create table storage.buckets(id text primary key, name text, public bool, file_s
 create table storage.objects(id uuid default gen_random_uuid() primary key, bucket_id text, name text, owner uuid, metadata jsonb);
 alter table storage.objects enable row level security;
 create function storage.foldername(name text) returns text[] language sql as $$select string_to_array(name,'/')$$;
-create table public.calc_runs(id bigserial primary key, created_at timestamptz default now(), zip text, estado text, lance numeric, total numeric, pagamento text, idioma text, whatsapp text, origem text, dados jsonb);
+create table public.calc_runs(id bigserial primary key, created_at timestamptz default now(), zip text, estado text, lance numeric, total numeric, pagamento text, idioma text, whatsapp text, origem text, dados jsonb, is_test boolean not null default false);
 `;
 
 // before: optional migration version; that migration and the later ones are not applied.
