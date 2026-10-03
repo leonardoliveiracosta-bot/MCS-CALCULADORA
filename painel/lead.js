@@ -164,37 +164,47 @@
     else append(numbers,'p','muted',data.totalCeilingCents?'O teto não cobre o lance mínimo e os custos':'Lance máximo ainda não informado');
 
     const second=append(root,'div','lead-grid lead-three');
-    const questions=section(second,7,'PERGUNTAR NA LIGAÇÃO');
+    const questions=section(second,7,'PERGUNTAR NA LIGAÇÃO','ask-card');
     // The open points are marked here (the owner of the question); DADOS E HISTÓRICO lists the done ones.
-    data.checklist.filter((point)=>point.status!=='COMPLETE').forEach((point)=>{const line=append(questions,'p','lead-question',`${point.point_number}. ${point.point_label}?`);button(line,'Marcar OK',async()=>{await api('checklist',{point:point.point_number,complete:true});await reload();});});
-    if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)) append(questions,'p','',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);
-    if(!questions.querySelector('p'))append(questions,'p','muted','Checklist completo');
-    const offers=section(second,8,'O QUE OFERECER');
+    const doneCount=data.checklist.filter((point)=>point.status==='COMPLETE').length;
+    questions.querySelector('.lead-label').append(Object.assign(document.createElement('span'),{className:'ask-count',textContent:`${doneCount} de ${data.checklist.length||6}`}));
+    data.checklist.filter((point)=>point.status!=='COMPLETE').forEach((point)=>{const line=append(questions,'div','ask-row lead-question');append(line,'span','ask-text',`${point.point_label}?`);button(line,'Marcar OK',async()=>{await api('checklist',{point:point.point_number,complete:true});await reload();},'ask-ok');});
+    if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)){const line=append(questions,'div','ask-row');append(line,'span','ask-text',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);}
+    if(!questions.querySelector('.ask-row'))append(questions,'p','muted','Checklist completo');
+    const offers=section(second,8,'O QUE OFERECER','offer-card');
     // OPÇÕES owns the selection for the client and the V1; this section shows what the batch has and leads there.
+    // A car becomes "apresentado" by itself when the send is confirmed in ENVIAR OPÇÕES (no manual registration here).
     const offerModes=[...new Set((data.offers||[]).map((car)=>car.mode).filter(Boolean))];
-    append(offers,'p','muted',`${data.offers.length} carro(s) compatível(is) no lote ativo · A seleção para o cliente e a V1 são feitas em ENVIAR OPÇÕES`);
-    if(journeyId&&(openOptions||openTab)){const go=append(offers,'div','lead-actions');if(offerModes.length&&openOptions)offerModes.forEach((mode)=>button(go,`Abrir em ENVIAR OPÇÕES · ${mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM'}`,()=>openOptions(`journey:${journeyId}:${mode}`),'small'));else if(openTab)button(go,'Abrir ENVIAR OPÇÕES',()=>openTab('searches'),'small');}
+    append(offers,'p','offer-count',`${data.offers.length} ${data.offers.length===1?'carro compatível':'carros compatíveis'} no lote ativo`);
+    append(offers,'p','offer-note','A seleção para o cliente e a V1 são feitas em ENVIAR OPÇÕES');
+    if(journeyId&&(openOptions||openTab)){const go=append(offers,'div','offer-go');if(offerModes.length&&openOptions)offerModes.forEach((mode)=>button(go,`Abrir em ENVIAR OPÇÕES · ${mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM'}`,()=>openOptions(`journey:${journeyId}:${mode}`),'offer-open'));else if(openTab)button(go,'Abrir ENVIAR OPÇÕES',()=>openTab('searches'),'offer-open');}
     if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes');
-    // Adendo, item 2: each search type in one group (com carros, sem carros with the reason, ainda não rodada).
-    (data.searchModes||[]).forEach((mode)=>{const count=data.offers.filter((car)=>car.mode===mode).length,label=mode==='VALOR'?'Por valor':'Por carro (ano e milhagem)';const line=append(offers,'p','lead-search-group');
+    // A search type without cars still says why (ainda não rodada, or sem carros with the reason).
+    (data.searchModes||[]).forEach((mode)=>{const count=data.offers.filter((car)=>car.mode===mode).length,label=mode==='VALOR'?'Por valor':'Por carro (ano e milhagem)';if(count)return;const line=append(offers,'p','lead-search-group');
       if(!data.batchActive){line.dataset.searchGroup='NAO_RODADA';line.textContent=`Busca ainda não rodada · ${label}: nenhum lote ativo do Manheim`;return;}
-      if(count){line.dataset.searchGroup='COM_CARROS';line.textContent=`Com carros · ${label}: ${count} carro(s) no lote ativo`;return;}
       line.dataset.searchGroup='SEM_CARROS';line.textContent=`Sem carros · ${label}: a busca rodou no lote ativo e nenhum carro serviu`;
       if(journeyId){const reason=append(offers,'p','search-empty-reason','Motivo: lendo o lote…');request('/api/panel/pesquisas',{method:'POST',timeoutMs:60000,body:JSON.stringify({action:'empty_reasons',keys:[`ficha:journey:${journeyId}:${mode}`]})}).then((out)=>{const found=(out.reasons||{})[`ficha:journey:${journeyId}:${mode}`];reason.textContent='Motivo: '+(found?found.text:'nenhum carro do lote ativo serviu para estes critérios');}).catch(()=>{reason.textContent='Motivo: não consegui ler o lote agora';});}});
-    data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer');line.append(badge(car.kind==='POR_VALOR'?'POR VALOR · ligar':car.kind,car.kind==='BATE'?'green':car.kind==='POR_VALOR'?'blue':'yellow'));
-      append(line,'span','',`${car.year} ${car.make} ${car.model} ${car.trim||''} · ${car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('en-US')+' mi'} · ${car.locationDisplay||car.location||''} · ${car.saleDate||'data não informada'}`);
-      if(car.matchNotice)line.append(badge(car.matchNotice,'yellow'));else if(car.matchReason)append(line,'span','muted',car.matchReason);
-      if(car.mode)line.append(badge(car.mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM',car.mode==='VALOR'?'blue':'green'));
-      button(line,'Registrar que apresentei',async()=>{const result=await api('present',{fingerprint:car.rowFingerprint,mode:car.mode||null});if(result&&result.undo)undoNotice('Apresentação registrada',()=>actionsApi('present_undo',result.undo));await reload();}); });
-    const context=section(second,9,'CONTEXTO RÁPIDO');
+    const usdBr=(centsValue)=>'$'+Math.round(Number(centsValue)/100).toLocaleString('pt-BR');
+    const auctionWhen=(value)=>{const at=Date.parse(value);if(!value)return 'data não informada';if(Number.isNaN(at))return String(value);const parts=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(at));const get=(type)=>parts.find((part)=>part.type===type)?.value||'';return `${get('day')}/${get('month')} · ${get('hour')}:${get('minute')} (Flórida)`;};
+    data.offers.forEach((car)=>{const line=append(offers,'div','lead-offer offer-item');
+      const tags=append(line,'div','offer-tags');tags.append(badge(car.mode==='CARRO'?'POR ANO E MILHAGEM':car.mode==='VALOR'||car.kind==='POR_VALOR'?'POR VALOR':car.kind,car.mode==='CARRO'?'green':'blue'));if(car.matchNotice)tags.append(badge(car.matchNotice,'yellow'));
+      append(line,'strong','offer-title',[car.year,car.make,car.model,car.trim].filter(Boolean).join(' '));
+      append(line,'span','offer-meta',[car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('pt-BR')+' mi',car.locationDisplay||car.location||''].filter(Boolean).join(' · '));
+      append(line,'span','offer-meta','Leilão '+auctionWhen(car.saleDate));
+      const value=[car.mmrCents?'MMR '+usdBr(car.mmrCents):'',car.matchNotice?'':car.matchReason||''].filter(Boolean).join(' · ');if(value)append(line,'span','offer-meta',value); });
+    const context=section(second,9,'CONTEXTO RÁPIDO','context-card');
     const allPromises=[...(record.promises||[]),...(data.promises||[])];
     const promises=allPromises.filter((promise)=>promise.status==='OPEN');
     const clientDay=(value)=>new Intl.DateTimeFormat('en-CA',{timeZone:data.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
     promises.forEach((promise)=>{const line=append(context,'p','',`Prometi: ${promise.promise_text}`);const due=clientDay(promise.due_at),today=clientDay(Date.now());if(due<=today)line.append(badge(due<today?'vencida':'vence hoje',due<today?'red':'yellow'));});
-    const presented=append(context,'p','',`Já apresentados: ${record.units?.length?record.units.map((unit)=>unit.vehicle_text).join(' · '):'nenhum carro'}`);
+    // Filled by itself when a send is confirmed in ENVIAR OPÇÕES (each car with the date and time it was sent).
+    const shortWhen=(value)=>{try{return new Intl.DateTimeFormat('pt-BR',{timeZone:data.timezone||'America/New_York',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value)).replace(' ',' ');}catch(_){return '';}};
+    const presented=append(context,'p','context-presented',`Já apresentados: ${record.units?.length?record.units.map((unit)=>unit.vehicle_text+(unit.presented_at?` (${shortWhen(unit.presented_at)})`:'')).join(' · '):'nenhum carro'}`);
     if(record.units?.length){const seeUnits=button(presented,'↓ detalhes em DADOS E HISTÓRICO',()=>document.getElementById('lead-units')?.scrollIntoView({behavior:'smooth'}));seeUnits.classList.add('lead-context-link');}
-    [...(record.conversation||[])].filter((message)=>message.direction==='CUSTOMER').slice(-3).reverse().forEach((message)=>{
-      const link=button(context,`↓ ${safeString(message.body_text).slice(0,120)}`,()=>document.getElementById('lead-conversation')?.scrollIntoView({behavior:'smooth'}));link.classList.add('lead-context-link'); });
+    const lastCustomers=[...(record.conversation||[])].filter((message)=>message.direction==='CUSTOMER').slice(-3).reverse();
+    if(lastCustomers.length){append(context,'span','context-last-label','Última mensagem do cliente');
+      lastCustomers.forEach((message,index)=>{const text=safeString(message.body_text).replace(/\s+/g,' ').trim();const at=message.occurred_at_utc||message.created_at;
+        const link=button(context,index===0?`${text.slice(0,80)}${text.length>80?'…':''} · ${shortWhen(at)}`:`${text.slice(0,60)}${text.length>60?'…':''}`,()=>document.getElementById('lead-conversation')?.scrollIntoView({behavior:'smooth'}));link.classList.add('lead-context-link',index===0?'context-last':'context-older');});}
 
     const note=section(root,10,'ANOTAÇÕES E AJUDA DA IA','lead-highlight');
     append(note,'p','muted','Escreva do seu jeito, em português · Peça uma opinião sobre este cliente, ou anote o que conversou por telefone ou pessoalmente');
