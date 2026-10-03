@@ -790,3 +790,43 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 #today-list .case-phone .case-field-value { font-size: 20px; }
 #today-list .today-card > .inline-actions > .today-primary { font-size: 17px; min-height: 48px; }
 @media (max-width: 1279px) { #today-list .case-field { grid-template-columns: 116px minmax(0, 1fr); } #today-list .case-field-label { font-size: 15px; } #today-list .case-field-value { font-size: 17px; } }
+/* Botão principal com exatamente metade da largura do cartão (a caixa interna + o recuo de 16 px de cada lado). */
+#today-list .today-card > .inline-actions > .today-primary { flex: 0 0 calc(50% + 16px); }
+@media (max-width: 640px) { #today-list .today-card > .inline-actions > .today-primary { flex-basis: calc(50% + 16px); } }
+/* Celular: a barra de exclusão quebra em linhas inteiras em vez de espremer o texto dos botões. */
+@media (max-width: 640px) { #today-list .attend-bulk { flex-wrap: wrap; gap: 8px 10px; } #today-list .attend-bulk-count { flex: 1 1 100%; } #today-list .attend-bulk > button { flex: 1 1 0; white-space: nowrap; min-height: 44px; } }
+
+/* ATENDIMENTO no padrão Porsche Design System (forma, escala e regras):
+   - fonte: Porsche Next é licenciada só para a Porsche; usamos Inter, a sans geométrica aberta mais próxima;
+   - cores neutras PDS: texto #010205, rótulo #6B6D70, linha #D8D8DB, superfície #EEEFF2, erro #CC1922;
+   - raios PDS: 4 px (controles), 12 px (cartão); sem sombra; espaçamento em múltiplos de 4 px;
+   - botão: altura 54 px, raio 4 px, semibold 16 px (a cor continua o dourado da MCS);
+   - checkbox: 24 px, borda 2 px #6B6D70, raio 4 px, marcado preto com check branco. */
+#today-list .today-card { font-family: "Inter", "Instrument Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #D8D8DB; border-radius: 12px; box-shadow: none; padding: 20px 24px 24px; gap: 16px; color: #010205; -webkit-font-smoothing: antialiased; }
+#today-list .today-card:hover { border-color: #6B6D70; }
+#today-list .today-card .card-decision { background: #EEEFF2; border: 0; border-radius: 4px; padding: 10px 12px; margin: 0; }
+#today-list .today-card .card-decision.decision-red { background: #FADEE0; }
+#today-list .today-card .card-decision::before { display: none; }
+#today-list .today-card .card-decision-label { font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1.5; color: #010205; letter-spacing: 0; }
+#today-list .case-fields { gap: 8px; }
+#today-list .case-field { grid-template-columns: 128px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+#today-list .case-field-label { font-family: inherit; font-size: 16px; font-weight: 400; line-height: 1.5; color: #6B6D70; white-space: nowrap; }
+#today-list .case-field-value { font-family: inherit; font-size: 18px; font-weight: 600; line-height: 1.45; color: #010205; letter-spacing: -0.005em; }
+#today-list .case-phone .case-field-value { font-size: 20px; }
+#today-list .today-card > .inline-actions > .today-primary { font-family: inherit; flex: 0 0 calc(50% + 24px); min-height: 54px; padding: 13px 26px; border-radius: 4px; font-size: 16px; font-weight: 600; letter-spacing: 0; box-shadow: none; }
+#today-list .today-card .case-more > summary { font-size: 14px; color: #6B6D70; }
+/* Checkbox PDS. */
+#today-list .case-pick { width: 32px; height: 32px; margin: -4px -4px -4px 0; border-radius: 4px; }
+#today-list .case-pick:hover { background: transparent; }
+#today-list .case-pick-box { -webkit-appearance: none; appearance: none; width: 24px; height: 24px; margin: 0; border: 2px solid #6B6D70; border-radius: 4px; background: #FFFFFF center / 16px 16px no-repeat; cursor: pointer; transition: background-color .15s, border-color .15s; }
+#today-list .case-pick-box:hover { border-color: #010205; }
+#today-list .case-pick-box:checked { background-color: #010205; border-color: #010205; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round' d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E"); }
+#today-list .case-pick-box:focus-visible { outline: 2px solid #1A44EA; outline-offset: 2px; }
+#today-list .today-card.case-picked { outline: 0; border: 2px solid #010205; padding: 19px 23px 23px; }
+/* Barra de exclusão PDS. */
+#today-list .attend-bulk { font-family: "Inter", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #D8D8DB; border-radius: 12px; box-shadow: none; padding: 12px 16px; font-size: 16px; color: #010205; }
+#today-list .attend-bulk > button { min-height: 54px; border-radius: 4px; padding: 13px 26px; font-size: 16px; font-weight: 600; }
+#today-list .attend-bulk-delete { background: #010205; color: #FFFFFF; }
+#today-list .attend-bulk-clear { background: transparent; color: #010205; border: 2px solid #010205; }
+@media (max-width: 1279px) { #today-list .case-field { grid-template-columns: 112px minmax(0, 1fr); } #today-list .case-field-value { font-size: 17px; } #today-list .case-field-label { font-size: 15px; } }
+@media (max-width: 640px) { #today-list .today-card { padding: 16px; } #today-list .today-card.case-picked { padding: 15px; } #today-list .case-pick { width: 44px; height: 44px; } }
