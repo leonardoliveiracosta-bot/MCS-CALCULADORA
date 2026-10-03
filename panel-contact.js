@@ -2,7 +2,7 @@
 
 // One definition of "entered in contact" for every panel list.  Calculator
 // rows are retained in calc_runs; this module only decides whether to show one.
-const { time } = require('./panel-domain');
+const { time, normalizeDeadline } = require('./panel-domain');
 
 function data(row) { return row && row.dados && typeof row.dados === 'object' ? row.dados : {}; }
 function refOf(row) { return String(data(row).ref || '').trim().toUpperCase(); }
@@ -69,13 +69,20 @@ function insightUsable(insight, journey, latestMessageId, now = Date.now()) {
   const changedAt = Math.max(time(journey?.closed_at) || 0, time(journey?.qualified_at) || 0);
   return !(changedAt && updated < changedAt);
 }
+// Purchase window from the deadline the client gave in the calculator (or the ficha): NOW, 30D, 3M or NONE.
+function purchaseWindowOf(item) {
+  const simulations = Array.isArray(item && item.simulations) ? item.simulations : [];
+  const latest = simulations.slice().sort((a, b) => (time(b && (b.occurredAt || b.created_at)) || 0) - (time(a && (a.occurredAt || a.created_at)) || 0)).map((entry) => entry && entry.deadlineText).find(Boolean);
+  const value = normalizeDeadline(item && item.customer_deadline_text) || normalizeDeadline(item && item.deadlineText) || normalizeDeadline(latest);
+  return value === 'now' ? 'NOW' : value === '30d' ? '30D' : value === '3m' ? '3M' : 'NONE';
+}
 function decorateContact(item, facts, insight, journey) {
   const result = { ...item, contactAt: facts.latestAt ? new Date(facts.latestAt).toISOString() : null, contactFirstAt: facts.firstAt ? new Date(facts.firstAt).toISOString() : null, contactChannel: facts.channel || item.contactChannel || null, enteredContact: facts.entered };
   const owner = journey || (item && item.status ? item : null);
   const latestId = item?.latestMessage?.id || null;
   if (insightUsable(insight, owner, latestId)) { result.aiHeat = insight.heat; result.aiSummary = insight.summary_text || ''; result.aiNextStep = insight.next_step_text || ''; }
   const heat = heatFor(result);
-  return { ...result, heat: heat.key, heatSource: heat.source };
+  return { ...result, heat: heat.key, heatSource: heat.source, purchaseWindow: purchaseWindowOf(journey ? { ...result, customer_deadline_text: journey.customer_deadline_text || result.customer_deadline_text } : result) };
 }
 
-module.exports = { contactIndex, decorateContact, heatFor, insightUsable, messageChannel, clickChannel, refOf, INSIGHT_SELECT: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at' };
+module.exports = { purchaseWindowOf, contactIndex, decorateContact, heatFor, insightUsable, messageChannel, clickChannel, refOf, INSIGHT_SELECT: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at' };
