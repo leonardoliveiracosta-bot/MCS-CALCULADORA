@@ -1,0 +1,63 @@
+.sms-device-card {
+  display: grid;
+  gap: 12px;
+}
+
+.sms-device-card h2,
+.sms-device-card p {
+  margin: 0;
+}
+
+.sms-device-card > button,
+.sms-device-once button {
+  justify-self: start;
+}
+
+.sms-device-once {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--mcs-gold, #e6b93b);
+  border-radius: 10px;
+  background: var(--mcs-gold-tint, #2b2414);
+  color: var(--mcs-text, #fff1bd);
+}
+
+.sms-device-once code {
+  display: block;
+  padding: 12px;
+  border: 1px solid var(--mcs-line, #31516d);
+  border-radius: 8px;
+  background: var(--mcs-elevated, #071421);
+  color: var(--mcs-text, #f4f7fb);
+  font-size: .92rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.sms-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sms-device-row > span {
+  display: grid;
+  gap: 3px;
+}
+
+.sms-device-row .badge {
+  justify-self: start;
+}
+
+@media (max-width: 620px) {
+  .sms-device-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sms-device-row button {
+    align-self: start;
+  }
+}

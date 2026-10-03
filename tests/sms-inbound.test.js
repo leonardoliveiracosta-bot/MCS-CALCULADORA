@@ -173,6 +173,31 @@ test('bad or missing secret is 401; a valid secret always answers 200', async ()
   } finally { if (previousEnv === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = previousEnv; fresh(); }
 });
 
+test('current secret and active device code are accepted; wrong and revoked codes are 401', async () => {
+  const previousEnv = process.env.VERCEL_ENV;
+  process.env.VERCEL_ENV = 'production';
+  const fresh = () => { for (const key of Object.keys(require.cache)) if (!key.includes('node_modules') && !key.endsWith('.test.js')) delete require.cache[key]; return require('../api/sms/inbound'); };
+  const live = fresh();
+  const code = 'iphone-device-code';
+  const tokenHash = require('node:crypto').createHash('sha256').update(code).digest('hex');
+  let revoked = false;
+  live.services = {
+    rows: async (_ctx, table) => table === 'sms_device_tokens' && !revoked ? [{ token_hash: tokenHash }] : [],
+    allRows: async () => [], insert: async () => [], patchRows: async () => [], push: async () => null
+  };
+  const env = { SMS_INBOUND_SECRET: 'right-secret', SUPABASE_URL: 'https://x.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'p', SUPABASE_SECRET_KEY: 's' };
+  try {
+    assert.equal((await callWith(live, { 'x-sms-secret': 'right-secret' }, { text: 'hello' }, env)).status, 200);
+    assert.equal((await callWith(live, { 'x-sms-secret': code }, { text: 'hello' }, env)).status, 200);
+    assert.equal((await callWith(live, { 'x-sms-secret': 'wrong-device-code' }, { text: 'hello' }, env)).status, 401);
+    revoked = true;
+    assert.equal((await callWith(live, { 'x-sms-secret': code }, { text: 'hello' }, env)).status, 401);
+  } finally {
+    if (previousEnv === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = previousEnv;
+    fresh();
+  }
+});
+
 test('endpoint source: timing-safe secret, never logs the body, no panel auth, no vercel.json route', () => {
   const source = fs.readFileSync('api/sms/inbound.js', 'utf8');
   assert.match(source, /timingSafeEqual/);

@@ -25,6 +25,26 @@ function secretMatches(supplied, expected) {
   return crypto.timingSafeEqual(given, wanted);
 }
 
+async function deviceTokenMatches(ctx, supplied, services) {
+  if (!ctx || typeof supplied !== 'string' || !supplied) return false;
+  const suppliedHash = crypto.createHash('sha256').update(supplied, 'utf8').digest();
+  let tokens;
+  try {
+    tokens = await services.rows(ctx, 'sms_device_tokens', {
+      select: 'token_hash', environment: 'eq.' + ctx.environment, revoked_at: 'is.null'
+    });
+  } catch (_) {
+    return false;
+  }
+  let matched = false;
+  for (const token of tokens || []) {
+    if (!/^[0-9a-f]{64}$/.test(String(token?.token_hash || ''))) continue;
+    const storedHash = Buffer.from(token.token_hash, 'hex');
+    matched = crypto.timingSafeEqual(suppliedHash, storedHash) || matched;
+  }
+  return matched;
+}
+
 const plainName = (value) => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 const normalizedBody = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -151,12 +171,16 @@ const defaultServices = { rows, allRows, insert, patchRows, push: sendPanelPush,
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
-  if (!secretMatches(req.headers['x-sms-secret'], process.env.SMS_INBOUND_SECRET)) return send(res, 401, { error: 'UNAUTHORIZED' });
   const config = configuration();
-  if (!config || !SERVER_ENVIRONMENT) return send(res, 200, { stored: false });
+  const ctx = config && SERVER_ENVIRONMENT ? { config, environment: SERVER_ENVIRONMENT } : null;
+  const supplied = req.headers['x-sms-secret'];
+  const authorized = secretMatches(supplied, process.env.SMS_INBOUND_SECRET)
+    || await deviceTokenMatches(ctx, supplied, module.exports.services);
+  if (!authorized) return send(res, 401, { error: 'UNAUTHORIZED' });
+  if (!ctx) return send(res, 200, { stored: false });
   try {
     const body = await jsonBody(req, 64 * 1024);
-    const result = await receive({ config, environment: SERVER_ENVIRONMENT }, body, module.exports.services);
+    const result = await receive(ctx, body, module.exports.services);
     if (result.push) (typeof req.waitUntil === 'function' ? req.waitUntil : waitUntil)(Promise.resolve(result.push).catch(() => null));
     return send(res, 200, result.duplicate ? { stored: false, duplicate: true } : { stored: Boolean(result.stored) });
   } catch (_) {
@@ -168,5 +192,6 @@ module.exports = async (req, res) => {
 module.exports.services = defaultServices;
 module.exports.receive = receive;
 module.exports.secretMatches = secretMatches;
+module.exports.deviceTokenMatches = deviceTokenMatches;
 module.exports.messageDate = messageDate;
 module.exports.plainName = plainName;

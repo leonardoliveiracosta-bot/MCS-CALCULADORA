@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/painel/painel.css?v=20261003s">
   <link rel="stylesheet" href="/painel/tema-mcs.css?v=20261003s">
   <link rel="stylesheet" href="/painel/identidade.css?v=20261019a">
+  <link rel="stylesheet" href="/painel/sms-device-tokens.css?v=20261020a">
 </head>
 <body class="login-screen">
   <main class="shell">
@@ -105,7 +106,7 @@
         </details>
       </section>
       <section id="settings-panel" class="panel-view hidden" aria-label="Configurações e conexão">
-        <div class="section-head"><div><h2>Configurações e conexão</h2><p class="muted">Sinal do WhatsApp, avisos deste aparelho e mensagens automáticas</p></div></div>
+        <div class="section-head"><div><h2>Configurações e conexão</h2><p class="muted">WhatsApp, conexão do iPhone, avisos e mensagens automáticas</p></div></div>
         <section id="purge-tests-card" class="card hidden" aria-live="polite"></section>
         <section class="card whatsapp-card entry-signal" aria-labelledby="whatsapp-title">
           <h2 id="whatsapp-title">Sinal do WhatsApp</h2>
@@ -117,6 +118,18 @@
           <h2 id="settings-notifications-title">Avisos neste aparelho</h2>
           <div class="inline-actions"><button id="notification-toggle" class="quiet small" type="button">Ativar avisos</button><button id="notification-test" class="quiet small" type="button">Enviar aviso de teste</button></div>
           <span id="notification-status" class="sr-status" aria-live="polite"></span>
+        </section>
+        <section class="card sms-device-card" aria-labelledby="sms-device-title">
+          <h2 id="sms-device-title">Conectar este iPhone</h2>
+          <p class="muted">Gere um código para o Atalho que envia SMS ao painel. Um novo código revoga o anterior.</p>
+          <button id="sms-device-generate" type="button">Gerar código para este iPhone</button>
+          <div id="sms-device-once" class="sms-device-once hidden" aria-live="polite">
+            <strong>Copie agora: este código não será exibido de novo.</strong>
+            <code id="sms-device-code"></code>
+            <button id="sms-device-copy" class="quiet small" type="button">Copiar código</button>
+          </div>
+          <p id="sms-device-status" class="status" role="status"></p>
+          <div id="sms-device-list" class="queue" aria-live="polite"></div>
         </section>
         <details class="card manual-entry entry-tool" id="automatic-messages-card">
           <summary><span class="entry-tool-icon" aria-hidden="true">🤖</span><span class="entry-tool-title">Mensagens automáticas</span><span class="entry-tool-copy">Nunca contam como resposta</span><span class="entry-open-button">Gerenciar</span></summary>
@@ -367,6 +380,7 @@
   <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js?v=20261019c" defer></script>
   <script src="/painel/painel.js?v=20261019c" defer></script>
+  <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
   <script src="/painel/notifications.js" defer></script>
 </body>
 </html>
