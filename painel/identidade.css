@@ -967,3 +967,8 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 .wa-thread .wa-bubble > button.quiet.small { align-self: flex-start; width: auto; min-height: 0; padding: 2px 8px; border: 0; background: transparent; color: #8A837B; font-size: 12px; font-weight: 500; }
 .ai-conversation-review > .lead-route input[type="checkbox"] { min-width: 18px; min-height: 18px; max-width: 18px; max-height: 18px; padding: 0; }
 @media (hover: none) { .wa-thread .wa-bubble > .message-menu, .wa-thread .wa-bubble > details { display: block; } }
+.ai-conversation-review > .ai-new-summary { margin: 0 0 18px; padding: 12px 16px; background: #F6F2E9; border-radius: 10px; font-size: 14px; color: #1B1A18; }
+.ai-conversation-review > .ai-new-summary p { margin: 2px 0; }
+.ai-conversation-review > .ai-note-line { display: flex; flex-direction: column; gap: 2px; margin: 0 0 14px 30px; font-size: 14px; color: #1B1A18; }
+.ai-conversation-review > .ai-note-line small { font-size: 12px; font-style: italic; color: #8A837B; }
+.ai-conversation-review > .ai-nothing-new { margin: 0 0 18px; padding: 12px 16px; background: #F6F2E9; border-radius: 10px; font-size: 14px; color: #6F675D; }

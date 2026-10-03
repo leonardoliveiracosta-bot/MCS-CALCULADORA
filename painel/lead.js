@@ -262,6 +262,12 @@
     const readNow=append(aiReview,'button','quiet small ai-outline','Ler conversa agora');readNow.type='button';MCSAction.bind(readNow,()=>({scope:aiReview,optimistic:()=>{aiStatus.textContent='Lendo conversa…';},commit:()=>request('/api/panel/ai-conversations',{method:'POST',body:JSON.stringify({action:'read',journeyId:record.id,chatId:aiReading?.chat_id||null})}),onSuccess:()=>reload(),onError:(error)=>{aiStatus.textContent=error.code==='AI_DAILY_LIMIT'?'limite do dia atingido':'IA indisponível';},errorText:'Não consegui salvar, tente de novo'}));
     if(aiReading){
       if(!hasCalculatorRef)append(aiReview,'p','muted','Ficha sem Ref da calculadora · o que você confirmar vai direto para esta ficha');
+      // Only what is new since the ficha: a 3-line summary, unanswered questions, contradictions and the items to confirm.
+      const sj=aiReading.summary_json||{};
+      if(sj.want||sj.status||sj.next){const box=append(aiReview,'div','ai-new-summary');[['O que quer',sj.want],['Em que pé está',sj.status],['Próximo passo',sj.next]].forEach(([label,value])=>{if(!value)return;const row=append(box,'p','');append(row,'b','',label+': ');row.append(document.createTextNode(value));});}
+      if(sj.questions?.length){append(aiReview,'div','ai-route-title','Perguntas sem resposta:');sj.questions.forEach((entry)=>{const row=append(aiReview,'div','ai-note-line');append(row,'span','',entry.question);append(row,'small','muted',`Cliente: “${entry.evidence}”`);});}
+      if(sj.contradictions?.length){append(aiReview,'div','ai-route-title','Contradições:');sj.contradictions.forEach((entry)=>{const row=append(aiReview,'div','ai-note-line');append(row,'span','',`${entry.field}: ficha ${entry.ficha} · cliente ${entry.cliente}`);append(row,'small','muted',`Cliente: “${entry.evidence}”`);});}
+      if(sj.onlyNew&&!aiReading.items?.length&&!sj.questions?.length&&!sj.contradictions?.length)append(aiReview,'p','ai-nothing-new','Nada novo desde a última leitura');
       if(aiReading.items?.length)append(aiReview,'div','ai-route-title','Vai para:');
       const selected=[];
       (aiReading.items||[]).forEach((item)=>{const line=append(aiReview,'label','lead-route');const input=append(line,'input');input.type='checkbox';input.checked=!item.manual_review&&item.type!=='budget';selected.push({input,id:item.id});
