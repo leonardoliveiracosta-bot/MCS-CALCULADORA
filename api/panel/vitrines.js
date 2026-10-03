@@ -1,6 +1,6 @@
 'use strict';
 const {insert,isUuid,jsonBody,patchRows,requirePanel,rows,safeText,send}=require('../../panel-server');
-const {expiresAt,publicVehicle,randomCode,randomToken,vehicleName}=require('../../vitrine-domain');
+const {expiresAt,publicVehicle,publicResponse,randomCode,randomToken,vehicleName}=require('../../vitrine-domain');
 const {parseMoneyCents}=require('../../money-text');
 const {activeFilter,liveUploadFilter}=require('../../panel-manheim-state');
 const {hasValidMmr}=require('../../vehicle-match');
@@ -179,9 +179,27 @@ async function listV2(ctx,services={rows},now=Date.now()){
   const cars=await services.rows(ctx,'vitrine_cars',{select:'id,vitrine_id,vehicle_snapshot,photo_paths',environment:'eq.'+ctx.environment,vitrine_id:'in.('+vitrines.map((item)=>item.id).join(',')+')'});
   return {v2:vitrines.map((item)=>({vitrineId:item.id,link:'/v/'+item.token,customerName:item.customer_name||null,referenceCode:item.reference_code||null,expiresAt:item.expires_at,createdAt:item.created_at,cars:cars.filter((car)=>car.vitrine_id===item.id).map((car)=>({carId:car.id,vehicle:vehicleName(car.vehicle_snapshot||{})||'Carro',photoCount:Array.isArray(car.photo_paths)?car.photo_paths.length:0}))})).filter((item)=>item.cars.length)};
 }
+/* PDF of ENVIAR OPÇÕES: the same data the link page shows (publicResponse of a V1), built from the cars picked
+   on screen. Nothing is saved: no vitrine, no code, no event. */
+async function pdfData(ctx,body,services={rows}){
+  if(!isUuid(body.journeyId)||!Array.isArray(body.matchIds)||!body.matchIds.length||body.matchIds.length>60||!body.matchIds.every(isUuid))return null;
+  const [journey]=await services.rows(ctx,'journeys',{select:'id,contact_id,reference_code',environment:'eq.'+ctx.environment,id:'eq.'+body.journeyId,limit:'1'});
+  if(!journey)return null;
+  const ids=[...new Set(body.matchIds)];
+  const [contact,matches,selections]=await Promise.all([
+    services.rows(ctx,'contacts',{select:'display_name',environment:'eq.'+ctx.environment,id:'eq.'+journey.contact_id,limit:'1'}),
+    services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,id:'in.('+ids.join(',')+')',limit:String(ids.length)}),
+    services.rows(ctx,'manheim_option_selections',{select:'match_id,status,final_cents',environment:'eq.'+ctx.environment,match_id:'in.('+ids.join(',')+')',limit:String(ids.length)}).catch(()=>[])]);
+  const byId=new Map(matches.map((match)=>[match.id,match]));
+  const chosen=new Map((selections||[]).filter((row)=>row.status==='SELECTED'&&Number(row.final_cents)>0).map((row)=>[row.match_id,row]));
+  const cars=ids.map((id)=>byId.get(id)).filter(Boolean).map((match)=>{const vehicle=publicVehicle(match.vehicle_json?.parsed||{});const selection=chosen.get(match.id);return {short_code:null,vehicle_snapshot:selection?priced(vehicle,selection):vehicle};});
+  if(!cars.length)return null;
+  return publicResponse({version:'V1',reference_code:journey.reference_code||'',customer_name:contact[0]?.display_name||null,expires_at:new Date(Date.now()+86400000).toISOString()},cars);
+}
 const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='MANHEIM_OPTION_NOT_SELECTED'||error==='MANHEIM_STAMP_INVALID'||error==='MANHEIM_SELECTION_PENDING'||error==='VITRINE_REQUEST_TREATED'||error==='VITRINE_SOURCE_UNDONE'||error==='MANHEIM_AUDIT_PENDING'||error==='MANHEIM_MATCH_WITHOUT_MMR'||error==='VITRINE_SOURCE_MISSING'||error==='VITRINE_CONTACT_BLOCKED'?409:400;
-module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,65536);if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,statusFor(out.error),{error:out.error}):send(res,out.reused?200:201,out);}const out=await create(ctx,body);if(out&&out.error)return send(res,statusFor(out.error),{error:out.error,...(out.reason?{reason:out.reason}:{})});return out?send(res,out.reused?200:201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='GET')return send(res,200,await listV2(ctx));if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?.error?send(res,400,{error:out.error}):out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
+module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,65536);if(body.action==='pdf'){const out=await pdfData(ctx,body);return out?send(res,200,out):send(res,400,{error:'VITRINE_PDF_INVALID'});}if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,statusFor(out.error),{error:out.error}):send(res,out.reused?200:201,out);}const out=await create(ctx,body);if(out&&out.error)return send(res,statusFor(out.error),{error:out.error,...(out.reason?{reason:out.reason}:{})});return out?send(res,out.reused?200:201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='GET')return send(res,200,await listV2(ctx));if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?.error?send(res,400,{error:out.error}):out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
 module.exports.create=create;
+module.exports.pdfData=pdfData;
 module.exports.auditGate=auditGate;
 module.exports.createV2=createV2;
 module.exports.update=update;

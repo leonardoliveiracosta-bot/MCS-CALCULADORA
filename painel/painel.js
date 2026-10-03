@@ -2714,6 +2714,23 @@
     }
     return found;
   }
+  // PDF of ENVIAR OPÇÕES: the link page itself (same markup, /v/vitrine.css, black and gold), without the buttons,
+  // printed from a hidden frame so the browser saves it as PDF.
+  async function optionsPdf(cars, journey) {
+    const data = await request('/api/panel/vitrines', { method: 'POST', body: JSON.stringify({ action: 'pdf', journeyId: journey.id, matchIds: cars.map((car) => car.id) }) });
+    if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true'); frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.append(frame);
+    const doc = frame.contentDocument;
+    doc.open();
+    doc.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>shortlist-${MCSVitrineRender.escape(journey.reference_code || 'lead')}</title><link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600&family=Montserrat:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/v/vitrine.css"><style>@page{size:A4;margin:0}html,body{background:#0b0d10;-webkit-print-color-adjust:exact;print-color-adjust:exact}.car,.footer{break-inside:avoid}</style></head><body><main id="app">${MCSVitrineRender.page(data, true)}</main></body></html>`);
+    doc.close();
+    await new Promise((resolve) => { if (doc.readyState === 'complete') resolve(); else frame.contentWindow.addEventListener('load', resolve, { once: true }); setTimeout(resolve, 4000); });
+    await Promise.race([doc.fonts ? doc.fonts.ready : null, new Promise((resolve) => setTimeout(resolve, 3000))]);
+    frame.contentWindow.focus(); frame.contentWindow.print();
+    setTimeout(() => frame.remove(), 60000);
+  }
   function downloadShortlist(matches, referenceCode) {
     if (!matches.length) return;
     const plain = (value) => String(value || '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').slice(0, 105);
@@ -3266,7 +3283,9 @@
       if (!selected.length && !(state && state.selectedIds.size)) { cardStatus.textContent = 'Selecione pelo menos um carro para o PDF'; return; }
       // Selected cars whose group is not open on this page are read from the server: the PDF always has every selected car.
       const missing = state ? [...state.selectedIds].filter((id) => !selected.some((option) => option.id === id)) : [];
-      const finish = (cars) => { downloadShortlist(cars, journey.reference_code); cardStatus.textContent = `PDF com ${cars.length} ${cars.length === 1 ? 'carro' : 'carros'} baixado`; };
+      const finish = (cars) => { exportButton.disabled = true; cardStatus.textContent = 'Preparando o PDF…';
+        optionsPdf(cars, journey).then(() => { cardStatus.textContent = `PDF com ${cars.length} ${cars.length === 1 ? 'carro' : 'carros'} pronto · escolha Salvar como PDF`; })
+          .catch(() => { cardStatus.textContent = 'Não consegui preparar o PDF, tente de novo'; }).finally(() => { exportButton.disabled = false; }); };
       if (!missing.length) { finish(selected); return; }
       exportButton.disabled = true; cardStatus.textContent = 'Preparando o PDF…';
       selectedOptions(demand.key, new Set(missing)).then((more) => { const cars = [...selected, ...more]; if (!cars.length) { cardStatus.textContent = 'Não encontrei os carros selecionados no lote ativo · Recarregue as opções'; return; } finish(cars); })

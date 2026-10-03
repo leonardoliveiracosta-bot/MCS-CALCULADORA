@@ -143,6 +143,7 @@ async function renderPage(data){
   const app={innerHTML:'',textContent:'',querySelectorAll:()=>[],querySelector:()=>({})};
   const context={document:{querySelector:()=>app},location:{pathname:'/v/'+TOKEN,href:''},
     fetch:async(_url,options)=>options&&options.method==='POST'?{ok:true}:{ok:true,json:async()=>data},console};
+  context.window=context;vm.runInNewContext(read('v/vitrine-render.js'),context);
   vm.runInNewContext(read('v/vitrine.js'),context);
   for(let i=0;i<5;i++)await new Promise((resolve)=>setImmediate(resolve));
   return app.innerHTML||app.textContent;
