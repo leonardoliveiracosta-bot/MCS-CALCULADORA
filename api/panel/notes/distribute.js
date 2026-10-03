@@ -31,7 +31,8 @@ module.exports=async(req,res)=>{
   } catch (_) {
     // Without a calculator Ref the note is still saved, keyed by the ficha (journey).
     const hasRef=/^[A-HJ-NP-Z2-9]{5}$/.test(ref);
-    if(note&&(hasRef?(!body?.journeyId||isUuid(body.journeyId)):isUuid(body?.journeyId))) {
+    // "Extrair novidades" (noSave): nothing is saved without Confirmar, not even the note.
+    if(body?.noSave!==true&&note&&(hasRef?(!body?.journeyId||isUuid(body.journeyId)):isUuid(body?.journeyId))) {
       try {
         const key=isUuid(body?.fallbackKey)?body.fallbackKey:crypto.randomUUID();
         await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_confirm_lead_note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
