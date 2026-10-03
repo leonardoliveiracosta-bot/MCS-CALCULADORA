@@ -2698,7 +2698,10 @@
     if (withItem.length) {
       const scratch = document.createElement('div');
       MCSContactGroups.render(scratch, withItem.map((entry) => entry.item), (item) => { const stub = document.createElement('i'); stub.attendEntry = byItem.get(item); return stub; }, { emptyText: '', flat: true });
-      scratch.querySelectorAll('i').forEach((stub) => order.push({ entry: stub.attendEntry, data: { ...stub.dataset } }));
+      const placed = [...scratch.querySelectorAll('i')].map((stub) => ({ entry: stub.attendEntry, data: { ...stub.dataset } }));
+      // "Pronto para ligar" keeps the groups; any other Ordenar keeps the order the server applied (the groups would undo it).
+      if (($('today-sort')?.value || 'ready') === 'ready') order.push(...placed);
+      else { const dataOf = new Map(placed.map((one) => [one.entry, one.data])); withItem.forEach((entry) => order.push({ entry, data: dataOf.get(entry) || {} })); }
     }
     const filterKey = [attendBucket, origin, period, subject, todayRefFilter, todayStatFilter].join('|');
     if (filterKey !== attendPageKey) { attendPageKey = filterKey; attendLimit = ATTEND_PAGE; }
