@@ -1975,9 +1975,10 @@
     }
     // "Tratado" is automatic: a message you send to the client after the client's last message takes the case out of HOJE (it comes
     // back when the client writes again, a return is due or the client wants a car). Only "Descartar" stays manual.
-    const discarded = element('button', 'quiet small', 'Descartar');
+    // "Excluir" takes the case out of the panel at once (reversible with "Desfazer"); a new message from the client brings it back.
+    const discarded = element('button', 'quiet small', 'Excluir');
     discarded.type = 'button';
-    discarded.addEventListener('click', (event) => {event.preventDefault();event.stopPropagation();if(actions.querySelector('.discard-reasons'))return;const reasons=element('div','discard-reasons');Object.entries(DISCARD_REASONS).forEach(([value,label])=>{const choice=element('button','quiet small',label);choice.type='button';choice.addEventListener('click',(choiceEvent)=>{choiceEvent.preventDefault();choiceEvent.stopPropagation();setDisposition(item,'DISCARDED',choice,value);});reasons.append(choice);});actions.append(reasons);});
+    discarded.addEventListener('click', (event) => {event.preventDefault();event.stopPropagation();setDisposition(item,'DISCARDED',discarded,'OTHER');});
     actions.append(discarded);
     return actions;
   }
@@ -2263,6 +2264,35 @@
     clearTimeout(attendRenderTimer);
     attendRenderTimer = setTimeout(() => { if (currentView === 'today') renderToday(todayItems, true); }, 40);
   }
+  // "Excluir selecionados": every selected card leaves the panel (the same "Excluir" as in the ficha), with one "Desfazer".
+  function bulkBar() {
+    const bar = element('div', 'attend-bulk hidden');
+    const count = element('span', 'attend-bulk-count', '');
+    const clear = element('button', 'quiet small attend-bulk-clear', 'Limpar seleção'); clear.type = 'button';
+    clear.addEventListener('click', () => { document.querySelectorAll('#today-list .case-pick-box:checked').forEach((box) => { box.checked = false; box.closest('.today-card')?.classList.remove('case-picked'); }); updateBulkBar(); });
+    const remove = element('button', 'small attend-bulk-delete', 'Excluir selecionados'); remove.type = 'button';
+    remove.addEventListener('click', () => {
+      const cards = [...document.querySelectorAll('#today-list .today-card.case-picked')].filter((card) => card.attendItem);
+      if (!cards.length) return;
+      const keys = cards.map((card) => dispositionIdentity(card.attendItem));
+      const post = (status) => Promise.all(keys.map(({ itemKind, itemKey }) => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status, reason: status ? 'OTHER' : null }) })));
+      MCSAction.run({ button: remove, scope: document.body, successScope: document.body, feedbackKey: 'attend-bulk-delete',
+        optimistic: () => { cards.forEach((card) => card.classList.add('action-optimistic-hidden')); bar.classList.add('hidden'); return cards; },
+        commit: () => post('DISCARDED'),
+        rollback: (snapshot) => { (snapshot || []).forEach((card) => card.classList.remove('action-optimistic-hidden')); updateBulkBar(); },
+        successText: `${cards.length} excluído(s) do painel`, errorText: 'Não consegui excluir, tente de novo',
+        undo: { commit: () => post(null), successText: 'Voltaram para o painel', refresh: async () => { await loadCurrent('today', viewRequestVersion); await refreshCounters(); } },
+        refresh: async () => { await loadCurrent('today', viewRequestVersion); await refreshCounters(); } });
+    });
+    bar.append(count, remove, clear);
+    return bar;
+  }
+  function updateBulkBar() {
+    const bar = document.querySelector('#today-list .attend-bulk'); if (!bar) return;
+    const n = document.querySelectorAll('#today-list .today-card.case-picked').length;
+    bar.classList.toggle('hidden', !n);
+    const count = bar.querySelector('.attend-bulk-count'); if (count) count.textContent = `${n} selecionado(s)`;
+  }
   // One "⋯ Mais" open at a time in ATENDIMENTO: the panel opens over the grid, never over another open one.
   function closeOtherMores(current) { document.querySelectorAll('#today-list .case-more[open]').forEach((node) => { if (node !== current) node.open = false; }); }
   function caseShell(entry) {
@@ -2408,6 +2438,13 @@
       // One short status line: why the case is here, in a few words (the full reasons are in the ficha).
       const decision = MCSContactGroups.decisionNode(item);
       decision.replaceChildren(element('strong', 'card-decision-label', shortStatus(entry, item)));
+      // Small selection box: select one or many cards, then "Excluir selecionados" at the top of the list.
+      const pick = element('label', 'case-pick'); pick.title = 'Selecionar';
+      const box = element('input'); box.type = 'checkbox'; box.className = 'case-pick-box'; box.setAttribute('aria-label', 'Selecionar este cliente');
+      pick.append(box); pick.addEventListener('click', (event) => event.stopPropagation());
+      box.addEventListener('change', () => { card.classList.toggle('case-picked', box.checked); updateBulkBar(); });
+      card.attendItem = item;
+      decision.append(pick);
       card.append(decision);
       // Only what decides the next step, one labelled field per line: name, phone (once), Ref, the
       // request as the calculator filled it, ZIP and which calculator. Nothing here repeats elsewhere on the card.
@@ -2465,6 +2502,7 @@
     // Cases with a HOJE item keep the old groups (não atendidos, atendidos) and areas by search type.
     const withItem = visible.filter((entry) => entry.item), without = visible.filter((entry) => !entry.item);
     const byItem = new Map(withItem.map((entry) => [entry.item, entry]));
+    root.append(bulkBar());
     // Every case in one grid (left, centre, right), the cases without a HOJE item first: no section
     // headers, since each card already says why it is here.
     if (withItem.length) MCSContactGroups.render(root, withItem.map((entry) => entry.item), (item) => buildCard(byItem.get(item)), { emptyText: '', flat: true });
