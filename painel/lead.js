@@ -9,6 +9,8 @@
   const button = (parent,label,commit,cls='quiet small') => { const node=append(parent,'button',cls,label); node.type='button'; MCSAction.bind(node,()=>({scope:parent,commit,errorText:(error)=>error?.userMessage||'Não consegui salvar, tente de novo'})); return node; };
   // M31: a button that cannot act yet says why instead of doing nothing
   const needs = (message) => Object.assign(new Error('INPUT_REQUIRED'), { userMessage: message });
+  // Car lists (cards 5 and 8): at most 10 on screen, in the order already set; "Ver mais (N)" shows the rest.
+  const limitList=(parent,items,after)=>{const extra=items.slice(10);if(!extra.length)return;extra.forEach((node)=>node.classList.add('list-more-hidden'));const more=document.createElement('button');more.type='button';more.className='list-more';more.textContent=`Ver mais (${extra.length})`;more.addEventListener('click',(event)=>{event.stopPropagation();extra.forEach((node)=>node.classList.remove('list-more-hidden'));more.remove();});(after||parent).after?(after||parent).after(more):parent.append(more);};
   const section = (root,n,title,cls='') => { const card=append(root,'section','lead-card '+cls); append(card,'span','lead-label',`${n} — ${title}`); return card; };
   const row = (root,...values) => { const line=append(root,'div','lead-line'); values.forEach((value)=> append(line,'span','',value || '—')); return line; };
   const stageNames = ['Searching','Cars presented','Bid scheduled','Result'];
@@ -157,6 +159,7 @@
           if(rl.column==='MMR')append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));
           else if(rl.column==='MILHAS_MMR'){append(line,'span','reality-miles','· '+mi(row.miles));append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));}
           else append(line,'span','reality-miles','· '+mi(row.miles));});
+        limitList(reality,[...list.querySelectorAll('.reality-row')],list);
       }
     }else append(reality,'p','muted','Nenhuma opção no lote dentro dos filtros');
     const numbers=section(trio,6,'NÚMEROS PRONTOS');
@@ -192,6 +195,7 @@
       append(line,'span','offer-meta',[car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('pt-BR')+' mi',car.locationDisplay||car.location||''].filter(Boolean).join(' · '));
       append(line,'span','offer-meta','Leilão '+auctionWhen(car.saleDate));
       const value=[car.mmrCents?'MMR '+usdBr(car.mmrCents):'',car.matchNotice?'':car.matchReason||''].filter(Boolean).join(' · ');if(value)append(line,'span','offer-meta',value); });
+    limitList(offers,[...offers.querySelectorAll('.offer-item')],[...offers.querySelectorAll('.offer-item')].at(-1));
     const context=section(second,9,'CONTEXTO RÁPIDO','context-card');
     const allPromises=[...(record.promises||[]),...(data.promises||[])];
     const promises=allPromises.filter((promise)=>promise.status==='OPEN');
