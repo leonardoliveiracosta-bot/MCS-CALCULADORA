@@ -881,3 +881,36 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 #today-list .today-card .case-pick-box { background-color: transparent; }
 #today-list .today-card .case-face-spec .case-calculator .case-field-value { white-space: nowrap; }
 #today-list .today-card .case-face-spec .case-field { gap: 8px; }
+
+/* "O que o cliente informou, campo a campo": título, subtítulo, cabeçalho de colunas fora do bloco branco, linhas com
+   separadores e a situação em pílulas (mesmo padrão dos cartões do Atendimento). */
+.client-context-full .context-subtitle { margin: 24px 0 4px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 20px; font-weight: 700; color: #1B1A18; letter-spacing: -.005em; }
+.client-context-full .context-subtitle-note { margin: 0 0 16px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 13px; color: #8A837B; }
+.client-context-full .context-table-wrap { overflow: visible; }
+.client-context-full .context-table { display: block; width: 100%; font-family: "Noto Sans", system-ui, sans-serif; border-collapse: separate; }
+.client-context-full .context-table thead,
+.client-context-full .context-table tbody { display: block; }
+.client-context-full .context-table tr { display: grid; grid-template-columns: 23% 42% minmax(0, 1fr); align-items: center; }
+.client-context-full .context-table thead tr { padding: 0 20px 8px; }
+.client-context-full .context-table thead th { padding: 0; border: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #A39A86; text-align: left; }
+.client-context-full .context-table tbody { background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 12px; padding: 2px 20px; }
+.client-context-full .context-table tbody tr { min-height: 46px; background: transparent; }
+.client-context-full .context-table tbody tr + tr { border-top: 1px solid #EEE8DE; }
+.client-context-full .context-table tbody th,
+.client-context-full .context-table tbody td { padding: 10px 0; border: 0; vertical-align: middle; text-align: left; }
+.client-context-full .context-table tbody th { font-size: 14px; font-weight: 700; color: #1B1A18; }
+.client-context-full .context-table tbody td.context-value { font-size: 14px; font-weight: 400; color: #1B1A18; padding-right: 16px; }
+.client-context-full .context-table tbody tr.is-missing td.context-value { color: #B9B1A5; }
+.client-context-full .context-table .context-status { display: inline-block; padding: 4px 12px; border: 0; border-radius: 999px; font-size: 12.5px; font-weight: 500; line-height: 1.3; white-space: nowrap; }
+.client-context-full .context-table .context-status.is-client,
+.client-context-full .context-table .context-status.is-confirmed { background: #E8F5EA; color: #2F7D3B; }
+.client-context-full .context-table .context-status.is-missing { background: #EDE7DF; color: #8A837B; }
+.client-context-full .context-table .context-status.is-ai { background: #FBF3DC; color: #8A6D1E; }
+.client-context-full .context-table .context-status.is-team { background: #E7EEF8; color: #2E5A8A; }
+.client-context-full .context-table .context-status.is-ambiguous { background: #F9E9E6; color: #B4373A; }
+@media (max-width: 640px) {
+  .client-context-full .context-table thead { display: none; }
+  .client-context-full .context-table tbody tr { grid-template-columns: 1fr; gap: 4px; padding: 10px 0; }
+  .client-context-full .context-table tbody th, .client-context-full .context-table tbody td { padding: 0; }
+}
+.client-context-full .context-table tbody th { white-space: nowrap; padding-right: 12px; }

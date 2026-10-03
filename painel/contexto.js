@@ -114,9 +114,16 @@
 
   // ----------------------------------------------------------------- resumo compacto
   const fieldOf = (context, key) => (context.fields || []).find((item) => item.key === key) || null;
+  // Every car the client gave, by any channel (calculator, WhatsApp, SMS), joined by "·": never "não escolhido".
+  function withAllCars(field) {
+    if (!field || field.key !== 'carro') return field;
+    const cars = [...new Map((field.sources || []).map((source) => String(source.value || '').trim()).filter(Boolean).map((value) => [value.toLowerCase(), value])).values()];
+    return cars.length > 1 ? { ...field, value: cars.join(' · '), divergent: false, status: 'CLIENTE', statusLabel: 'Informado pelo cliente' } : field;
+  }
   function statusTag(item) { return e('span', 'context-status ' + (STATUS_CLASS[item.status] || ''), item.statusLabel); }
-  function fieldLine(parent, item) {
-    if (!item) return;
+  function fieldLine(parent, field) {
+    if (!field) return;
+    const item = withAllCars(field);
     const line = add(parent, 'div', 'context-field');
     add(line, 'span', 'context-field-label', item.label);
     add(line, 'span', 'context-field-value', item.value || (item.status === 'AMBIGUO' ? 'Fontes diferentes' : '—'));
@@ -229,15 +236,15 @@
   function fullTable(context) {
     const table = e('table', 'context-table');
     const head = add(add(table, 'thead'), 'tr');
-    ['Campo', 'Valor usado', 'Situação', 'De onde veio'].forEach((label) => add(head, 'th', '', label));
+    ['Campo', 'Valor usado', 'Situação'].forEach((label) => add(head, 'th', '', label));
     const body = add(table, 'tbody');
-    const shown = new Set();
-    (context.fields || []).forEach((item) => {
+    // Not shown: "Uso do carro" (the panel never collects it) and "Teto total" (not used at this stage).
+    (context.fields || []).filter((item) => item.key !== 'uso' && item.key !== 'teto').forEach((field) => {
+      const item = withAllCars(field);
       const tr = add(body, 'tr', STATUS_CLASS[item.status] || '');
       add(tr, 'th', '', item.label).scope = 'row';
       add(tr, 'td', 'context-value', item.value || (item.status === 'AMBIGUO' ? 'Não escolhido: as fontes discordam' : '—'));
       const status = add(tr, 'td'); status.append(statusTag(item));
-      add(tr, 'td').append(sourceList(item, shown));
     });
     const wrap = e('div', 'context-table-wrap');
     wrap.append(table);
@@ -323,7 +330,7 @@
     summary.querySelectorAll(':scope > .context-head, :scope > .context-unattended, :scope > .context-facts').forEach((node) => node.remove());
     card.append(...summary.childNodes);
     add(card, 'h3', 'context-subtitle', 'O que o cliente informou, campo a campo');
-    add(card, 'p', 'muted', 'Cada valor mostra de onde veio. “Lido pela IA” nunca é confirmação do cliente; campos ambíguos não têm valor escolhido.');
+    add(card, 'p', 'muted context-subtitle-note', 'Campo a campo, com a situação de cada valor');
     // The ficha shows the search groups in O QUE OFERECER (section 8): not repeated here.
     card.append(fullTable(context), linksBlock(context, { searchGroups: false }));
     return card;
