@@ -1030,3 +1030,5 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 /* Listas de carros (cartões 5 e 8): 10 visíveis, o resto em "Ver mais (N)". */
 .list-more-hidden { display: none !important; }
 .list-more { display: block; width: 100%; margin-top: 12px; min-height: 38px; padding: 8px 14px; border: 1.5px solid #CFC6B6; border-radius: 8px; background: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; }
+/* Cartão 8: ordenação no topo. */
+.offer-card .offer-sort { display: block; width: 100%; margin: 0 0 12px; min-height: 38px; padding: 7px 12px; border: 1.5px solid #CFC6B6; border-radius: 8px; background: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 13px; font-weight: 600; }
