@@ -164,8 +164,15 @@
       const label = decision && { VINCULO: 'Confirmar vínculo', REF_EMPATE: 'Escolher a simulação', FORA_MCS: 'Revisar: fora da MCS?', TRIAGEM: 'Classificar a conversa' }[decision.kind];
       return label ? `${head} · ${label}` : head;
     }
-    const short = { NEXT_ACTION: 'Retorno vencido', PROMESSA: 'Retorno prometido para hoje', VOLTOU: 'Voltou a falar', QUER_CARRO: 'Quer este carro', IA: 'Itens da IA para confirmar', VINCULO: 'Confirmar vínculo', REF_EMPATE: 'Escolher a simulação do cliente', FORA_MCS: 'Revisar: fora da MCS?', TRIAGEM: 'Classificar a conversa', VITRINE: 'Pedido na vitrine' };
-    const texts = [...new Set((entry.reasons || []).map((reason) => short[reason.kind] || reason.text))];
+    const short = { PROMESSA: 'Retorno prometido para hoje', VOLTOU: 'Voltou a falar', QUER_CARRO: 'Quer este carro', IA: 'Itens da IA para confirmar', VINCULO: 'Confirmar vínculo', REF_EMPATE: 'Escolher a simulação do cliente', FORA_MCS: 'Revisar: fora da MCS?', TRIAGEM: 'Classificar a conversa', VITRINE: 'Pedido na vitrine' };
+    // Only the reason itself, never its detail (the next step text, the car): those live in the ficha.
+    const own = (reason) => {
+      if (short[reason.kind]) return short[reason.kind];
+      const text = String(reason.text || '').split(' · ')[0].trim();
+      if (/^pr[óo]xima a[çc][ãa]o vencida$/i.test(text)) return 'Retorno vencido';
+      return text && text === text.toUpperCase() ? text.charAt(0) + text.slice(1).toLowerCase() : text;
+    };
+    const texts = [...new Set((entry.reasons || []).map(own).filter(Boolean))];
     if (texts.length) return texts.slice(0, 2).join(' · ');
     return entry.bucket === 'agendado' ? 'Agendado' : 'Aguardando o cliente';
   }
@@ -177,8 +184,8 @@
     const fields = [];
     const modes = (facts.modes || []).filter((mode) => per[mode]);
     const both = modes.includes('VALOR') && modes.includes('CARRO');
-    if (modes.includes('VALOR')) { const v = per.VALOR; fields.push([both ? 'Carro (valor)' : 'Carro', displayModel(v.vehicleText) || 'não informado'], ['Lance máximo', v.budgetCents ? formatMoney(v.budgetCents) : 'não informado']); }
-    if (modes.includes('CARRO')) { const c = per.CARRO; fields.push([both ? 'Carro (carro)' : 'Carro', displayModel(c.vehicleText) || 'não informado'], ['Anos', c.yearsText || 'não informado'], ['Milhas', c.mileageText || 'não informado']); }
+    if (modes.includes('VALOR')) { const v = per.VALOR; fields.push([both ? 'Carro (por valor)' : 'Carro', displayModel(v.vehicleText) || 'não informado'], ['Lance máximo', v.budgetCents ? formatMoney(v.budgetCents) : 'não informado']); }
+    if (modes.includes('CARRO')) { const c = per.CARRO; fields.push([both ? 'Carro (por carro)' : 'Carro', displayModel(c.vehicleText) || 'não informado'], ['Anos', c.yearsText || 'não informado'], ['Milhas', c.mileageText || 'não informado']); }
     if (!modes.length) { const vehicle = displayModel(facts.vehicleText || item.vehicleText); const bid = Number(facts.budgetCents || item.budgetCents) || 0; if (vehicle) fields.push(['Carro', vehicle]); if (bid) fields.push(['Lance máximo', formatMoney(bid)]); }
     if (facts.zipText) fields.push(['ZIP', facts.zipText]);
     return fields;
@@ -189,8 +196,14 @@
   // up once (zippopotam, the same service the calculator uses) and kept in this browser.
   const zipPlaces = new Map();
   function fillZipPlace(node, value) {
-    const zip = String(value || '').trim();
-    if (!node || !/^\d{5}$/.test(zip)) return;
+    // The calculator writes "33101 — Miami, FL" (city, state) or only the number (or the state, or
+    // "not recognized"): the place is looked up whenever the city is missing.
+    const text = String(value || '').trim();
+    const found = /^(\d{5})(?:-\d{4})?\b\s*(?:·\s*)?(.*)$/.exec(text);
+    if (!node || !found) return;
+    const zip = found[1];
+    const rest = found[2].trim();
+    if (rest && !/^[A-Z]{2}$/.test(rest) && !/recogni|reconhec|reconoc|identif/i.test(rest)) { node.textContent = zip + ' · ' + rest.replace(/\s*,\s*/, ' · '); return; }
     let cached = null; try { cached = localStorage.getItem('mcs_zip_' + zip); } catch {}
     if (cached) { node.textContent = zip + ' · ' + cached; return; }
     if (!zipPlaces.has(zip)) zipPlaces.set(zip, fetch('https://api.zippopotam.us/us/' + zip).then((response) => response.ok ? response.json() : null).then((data) => { const place = data && data.places && data.places[0]; const text = place ? `${place['place name']} · ${place['state abbreviation']}` : null; if (text) { try { localStorage.setItem('mcs_zip_' + zip, text); } catch {} } return text; }).catch(() => null));
@@ -2223,9 +2236,9 @@
   const entryReviewChats = (entry) => (entry && entry.chats || []).filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain));
   function attendDecisions({ entry, triage, whatsapp, vitrine } = attendData) {
     const out = [];
-    (whatsapp?.suggestions || []).forEach((item) => out.push({ key: 'suggestion:' + item.id, kind: 'VINCULO', journeyId: uuidOnly(item.source_journey_id), name: item.sourceName || item.phone_e164 || null, label: item.target_ref ? `Confirmar vínculo: esta conversa ${item.refConfirmed ? 'é' : 'parece ser'} a Ref ${item.target_ref}` : 'Confirmar vínculo desta conversa com uma ficha' }));
-    (whatsapp?.phoneReviews || []).forEach((item) => out.push({ key: 'phone:' + item.id, kind: 'TELEFONE', journeyId: null, name: item.phone_e164 || null, label: 'Escolher o contato certo deste telefone' }));
-    (triage?.review || []).forEach((item) => out.push({ key: 'triage:' + item.id, kind: 'TRIAGEM', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Classificar a conversa (pré-compra ou fora do funil)' }));
+    (whatsapp?.suggestions || []).forEach((item) => out.push({ key: 'suggestion:' + item.id, kind: 'VINCULO', journeyId: uuidOnly(item.source_journey_id), name: item.sourceName || item.phone_e164 || null, phone: item.phone_e164 || null, label: item.target_ref ? `Confirmar vínculo: esta conversa ${item.refConfirmed ? 'é' : 'parece ser'} a Ref ${item.target_ref}` : 'Confirmar vínculo desta conversa com uma ficha' }));
+    (whatsapp?.phoneReviews || []).forEach((item) => out.push({ key: 'phone:' + item.id, kind: 'TELEFONE', journeyId: null, name: item.phone_e164 || null, phone: item.phone_e164 || null, label: 'Escolher o contato certo deste telefone' }));
+    (triage?.review || []).forEach((item) => out.push({ key: 'triage:' + item.id, kind: 'TRIAGEM', journeyId: uuidOnly(item.journeyId), name: item.name || null, phone: item.phone_e164 || item.phone || null, label: 'Classificar a conversa (pré-compra ou fora do funil)' }));
     (triage?.offMcs || []).forEach((item) => out.push({ key: 'offmcs:' + item.journeyId, kind: 'FORA_MCS', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Revisar: candidata a fora da MCS · ' + (item.label || '') }));
     entryReviewChats(entry).forEach((chat) => out.push({ key: 'chat:' + chat.id, kind: 'REVISAR_CONVERSA', journeyId: uuidOnly(chat.groupJourneyId), name: chat.contact?.display_name || chat.canonical_key || null, label: chat.resolution_status === 'RESOLVED' ? 'Conferir conversa com hora incerta' : 'Revisar conversa importada e ligar à ficha certa' }));
     (vitrine?.requests || []).forEach((item) => out.push({ key: 'vitrine:' + item.id, kind: 'VITRINE', refState: item.refState || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, label: item.kind === 'BID' ? 'V2 · quer dar lance' : 'V1 · pediu para ver o carro' }));
@@ -2261,21 +2274,24 @@
     const known = identity && identity !== 'loading' ? identity : null;
     const head = element('dl', 'case-identity case-fields');
     const field = (label, value, cls) => { const row = element('div', 'case-field' + (cls ? ' ' + cls : '')); row.append(element('dt', 'case-field-label', label + ':'), element('dd', 'case-field-value', value)); head.append(row); };
-    const shellName = [first.name, known?.name].find(realName);
-    field('Nome', shellName || 'sem nome', 'case-name identity-name');
+    // The name only when it is a person's name (never "sem nome" or a technical value); the phone once.
+    const shellName = [first.name, first.sourceName, known?.name].find(realName);
+    if (shellName) field('Nome', shellName, 'case-name identity-name');
+    const shellPhone = [...entry.decisions, ...entry.requests].map((row) => row.phone || '').find(Boolean);
+    if (shellPhone) field('Telefone', phoneDisplay(shellPhone), 'case-phone');
     if (known) field('Ref', known.calcRef || 'sem Ref', 'case-ref');
     card.append(head);
     const actions = element('div', 'inline-actions card-primary');
     if (entry.journeyId) { const open = element('button', 'today-primary small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', entry.journeyId); }); actions.append(open); }
     const more = element('details', 'card-more case-more'); more.append(element('summary', '', '⋯ Mais'));
     more.addEventListener('click', (event) => event.stopPropagation());
+    // Only the decision controls (they exist nowhere else); the rest is in the ficha, one click away.
     const body = element('div', 'case-more-body');
     const decisions = element('div', 'case-decisions'); decisions.dataset.caseKey = entry.key; body.append(decisions);
-    if (entry.journeyId) body.append(contextSlot({ journeyId: entry.journeyId }, { withIdentity: false, unattended: false }));
-    else if (first.contactId) body.append(contextSlot({ contactId: first.contactId }, { withIdentity: false, unattended: false, emptyText: 'Pedido sem ficha: abra a conversa pela busca global' }));
     more.append(body);
-    more.addEventListener('toggle', () => { if (more.open) { closeOtherMores(more); hydrateContexts(more); } });
+    more.addEventListener('toggle', () => { if (more.open) closeOtherMores(more); });
     actions.append(more); card.append(actions);
+    if (entry.journeyId) makeCardClickable(card, () => openDetail('ficha', entry.journeyId));
     return card;
   }
   // Identity of a case that has no HOJE item (only a decision or an incomplete request): the same
@@ -2417,31 +2433,13 @@
       open.addEventListener('click', (event) => { event.stopPropagation(); openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id, replying ? { anchor: 'lead-conversation' } : {}); });
       actions.append(open);
       card.append(actions);
-      // The other decisions of this case (link, review, triage, vitrine) with their own controls.
-      // Everything else, the decision controls first, stays one click away ("⋯ Mais"), over the grid.
+      // "⋯ Mais" holds only the decision controls of this case (link, review, triage, vitrine): they exist
+      // nowhere else. Everything else (conversation, reply, discard, context) is in the ficha/pedido, opened
+      // by a click on the card, so nothing on the card is repeated when it opens.
       const more=element('details','card-more case-more');more.append(element('summary','','⋯ Mais'));
-      const decisions=element('div','case-decisions');decisions.dataset.caseKey=entry.key;more.append(decisions);
       more.addEventListener('click',(event)=>event.stopPropagation());
-      // The stage, bid, waiting time and next step are already on the front or in the context below: not repeated.
-      const badges = element('div', 'badges');
-      if (item.simulationCount > 1) badges.append(makeBadge(`${item.simulationCount} simulações`, 'blue'));
-      if(item.kind==='CALCULATOR_ORDER'){const contact=contactMeta(item);if(contact)badges.append(contact);}
-      badges.append(makeBadge(item.goodHour ? 'bom horário' : 'fora de horário', item.goodHour ? 'green' : 'yellow'));
-      if (item.outOfStandard) badges.append(makeBadge('Valor fora do padrão', 'yellow'));
-      more.append(badges);
-      {const lastMessage=MCSContactGroups.lastMessageNode(item,journeyIdOf(item));if(lastMessage)more.append(lastMessage);}
-      const context=contextSlot({ journeyId: journeyIdOf(item), ref: refOf(item) }, { unattended: false, focus: 'order' });more.append(context);
-      const receipt=readReceiptNode(item);if(receipt)more.append(receipt);
-      if (replying && item.lastCustomerAt) { const until = Date.parse(item.lastCustomerAt) + 86400000; more.append(element('p', 'muted reply-window-estimate', until > Date.now() ? `Janela do WhatsApp aberta até ${formatDate(new Date(until).toISOString())} (estimada) · responde pelo painel` : 'Janela do WhatsApp encerrada (estimada) · responde pelo WhatsApp do celular')); }
-      if(!hasRef(item)){const copy=copyPhoneButton(item,card);if(copy)more.append(copy);}
-      const smsMissing=smsPrintMissing(item); if(smsMissing)more.append(smsMissing);
-      const moreActions=element('div','inline-actions');
-      const topic=item.kind==='CALCULATOR_ORDER'?null:MCSContactGroups.topicButton(item,{request,refresh:reload,journeyId:journeyIdOf(item)});if(topic)moreActions.append(topic);
-      const subjectFix=MCSContactGroups.subjectSelect(item,{request,refresh:reload,journeyId:journeyIdOf(item)});if(subjectFix)moreActions.append(subjectFix);
-      more.append(moreActions, dispositionControls(item));
-      if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(journeyIdOf(item),{request,onSent:reload});if(tools)more.append(tools);}
-      more.addEventListener('toggle',()=>{if(more.open){closeOtherMores(more);hydrateContexts(more);MCSContactGroups.hydrateTranslations(more,{request}).catch(()=>{});}});
-      const body=element('div','case-more-body');body.append(...[...more.childNodes].filter((node)=>node.nodeName!=='SUMMARY'));more.append(body);
+      const body=element('div','case-more-body');const decisions=element('div','case-decisions');decisions.dataset.caseKey=entry.key;body.append(decisions);more.append(body);
+      more.addEventListener('toggle',()=>{if(more.open)closeOtherMores(more);});
       actions.append(more);
       makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
       return card;
@@ -2461,7 +2459,7 @@
       const holder = card.querySelector('.case-decisions');
       entry.decisions.forEach((decision) => { const row = decisionRow(decision.key); if (row && holder) holder.append(row); });
       // Without a pending decision the card is only the essentials: a click on it opens the full ficha.
-      if (holder && !holder.childElementCount) { holder.remove(); if (entry.item) card.querySelector('.case-more')?.remove(); }
+      if (holder && !holder.childElementCount) { holder.remove(); card.querySelector('.case-more')?.remove(); }
       return card;
     };
     // Cases with a HOJE item keep the old groups (não atendidos, atendidos) and areas by search type.
