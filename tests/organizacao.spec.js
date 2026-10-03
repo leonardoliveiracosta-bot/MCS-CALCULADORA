@@ -81,7 +81,7 @@ for (const width of [1280, 390]) {
   test(`${width}px · ATENDIMENTO: um caso por pessoa, motivos reunidos, filtros e contagem iguais à lista`, async ({ page }) => {
     const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
     const posts = await open(page, width);
-    await expect(page.locator('nav [data-view]')).toHaveText([/ATENDIMENTO/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /CLIENTES/, /IMPORTAÇÕES/]);
+    await expect(page.locator('nav [data-view]')).toHaveText([/ATENDER AGORA/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /TODOS/, /IMPORTAÇÕES/]);
     await expect(page.locator('nav [data-view="today"]')).toHaveAttribute('aria-current', 'page');
     // Depende de você: Ana (sem resposta + confirmar vínculo), Davi (sem resposta) and the triage decision.
     const list = page.locator('#today-list');
@@ -150,7 +150,7 @@ for (const width of [1280, 390]) {
     const g63 = carro.locator('.request-card', { hasText: 'G63' });
     await expect(g63.locator('.request-ai-evidence > summary')).toContainText('Leitura da conversa pela IA (não confirmada) · mesmos critérios · 2 versões');
     // Result in the batch apart from the work stage; never "Falta buscar" next to valid options.
-    await expect(g63).toContainText('Resultado no lote: COM OPÇÕES NO LOTE');
+    await expect(g63).toContainText(/opç(ão|ões) no lote/);
     await expect(g63).toContainText('Andamento: 🔍 Busca não salva no Manheim');
     await expect(page.locator('#requests-panel')).not.toContainText('Falta buscar');
     await expect(carro.locator('.request-card', { hasText: 'Davi Direto' })).toContainText('Resultado no lote: AINDA NÃO COMPARADO COM O LOTE');

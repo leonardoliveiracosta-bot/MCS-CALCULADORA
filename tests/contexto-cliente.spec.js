@@ -121,7 +121,7 @@ for (const width of [1366, 390]) {
     await expect(requestCard).toContainText('Pedido lido da conversa (IA, não confirmado)');
     await requestCard.locator('.request-case > summary').first().click();
     await expect(await reach(requestCard)).toContainText('Responder o cliente', { timeout: 30000 });
-    const fichaRequest = page.locator('#requests-list .request-card', { hasText: 'Critério usado na busca (sistema)' }).filter({ hasText: 'Marina Demonstração' }).first();
+    const fichaRequest = page.locator('#requests-list .request-card', { hasText: 'O que o cliente pediu' }).filter({ hasText: 'Marina Demonstração' }).first();
     await expect(fichaRequest).toBeVisible();
     await noOverflow();
     await shot(page, `pesquisas-${width}`);

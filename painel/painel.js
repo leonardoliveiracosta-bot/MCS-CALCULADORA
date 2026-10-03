@@ -2924,7 +2924,8 @@
   // it (CARRO, VALOR, MMR) are the server's; this only reads them.
   function offerFit(option) {
     const parsed = option.vehicle_json && option.vehicle_json.parsed || {};
-    const reasons = [option.match_reason, option.mmr_status ? mmrLabel(option.mmr_status) : null, parsed.matchNotice].filter(Boolean);
+    // The MMR is said once, in the car's highlight: the reason keeps only what is not about the MMR.
+    const reasons = [option.match_kind === 'POR_VALOR' || /mmr/i.test(String(option.match_reason || '')) ? null : option.match_reason, parsed.matchNotice].filter(Boolean);
     const verdict = option.criteriaChanged ? ['Precisa de conferência', 'o pedido do cliente mudou depois deste CSV'] :
       option.match_kind === 'BATE' ? ['Atende ao pedido', null] :
       option.match_kind === 'POR_VALOR' ? ['Atende pelo valor', 'confirmar com o cliente antes de oferecer'] :
@@ -2932,8 +2933,18 @@
     const node = element('span', 'offer-fit ' + (verdict[0] === 'Atende ao pedido' ? 'is-fit' : verdict[0] === 'Atende pelo valor' ? 'is-value' : 'is-check'));
     node.append(element('strong', '', verdict[0]));
     const why = [verdict[1], ...reasons].filter(Boolean);
-    if (why.length) node.append(document.createTextNode(' · Motivo: ' + why.join(' · ')));
+    if (why.length) node.append(document.createTextNode(' · ' + why.join(' · ')));
     return node;
+  }
+  // Auction day and hour in Florida time, readable ("qui., 1 de out., 10:00"); a date without hour shows only the day.
+  function auctionWhen(value) {
+    const text = String(value || '').trim(); if (!text) return '';
+    let hit = text.match(/^(\d{4})-(\d{2})-(\d{2})$/) || null;
+    if (hit) return new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(Date.UTC(+hit[1], +hit[2] - 1, +hit[3])));
+    hit = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (hit) return new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(Date.UTC(+hit[3], +hit[1] - 1, +hit[2])));
+    const at = new Date(text); if (!Number.isFinite(at.getTime())) return text;
+    return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(at) + ' (Flórida)';
   }
   function offerRow(option, state, groupKey) {
     const parsed = option.vehicle_json.parsed || {};
@@ -2941,23 +2952,23 @@
     const row = element('div', `manheim-row offer-row ${kindClass(option.match_kind)}`);
     row.dataset.matchId = option.id; row.dataset.status = info.status || 'AVAILABLE';
     const vehicle = element('div');
-    vehicle.append(element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
-      element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}${parsed.startsAt || parsed.saleDate ? ` · Leilão: ${parsed.startsAt || parsed.saleDate}` : ''}`));
-    if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
-    vehicle.append(offerFit(option), element('span', 'muted offer-consulted', `${state.uploadedAt ? 'Consultado no CSV do Manheim de ' + formatDate(state.uploadedAt) : 'Consultado no lote ativo do Manheim'} · Disponibilidade no leilão não confirmada`));
-    // Provenance stamp: where the car comes from and whether it still counts. Invalid cars are listed but never offered.
+    // Essential to decide first: the car, miles and place, then the MMR with its verdict, then CR and auction day.
+    vehicle.append(element('strong', 'offer-car', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
+      element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}`));
+    const bidCents = state.demand && state.demand.mode === 'VALOR' ? Number(state.demand.bidCents) || 0 : 0;
+    if (info.mmrCents) vehicle.append(element('span', 'offer-mmr', `MMR ${formatMoney(info.mmrCents)}${bidCents ? ` · ${Number(info.mmrCents) > bidCents ? 'acima' : 'dentro'} do lance de ${formatMoney(bidCents)}` : ''}`));
+    const when = auctionWhen(parsed.startsAt || parsed.saleDate);
+    const crText = info.cr !== null && info.cr !== undefined ? `CR ${info.cr}` : 'sem CR';
+    vehicle.append(element('span', 'offer-cr-when', [crText, when ? `Leilão ${when}` : ''].filter(Boolean).join(' · ')));
+    vehicle.append(offerFit(option));
+    // Provenance: a car that no longer counts is listed but never offered (the technical stamp line is not shown).
     const stamp = option.stamp || null;
-    if (stamp) {
-      const short = (value) => value ? String(value).slice(0, 8) : '—';
-      vehicle.append(element('span', 'muted offer-stamp', `Carimbo · Ficha ${short(stamp.journeyId)} · Ref ${stamp.ref || '—'} · ${stamp.type || '—'} · critérios ${short(stamp.criteriaHash)}${stamp.version ? ' v' + stamp.version : ''} · lote ${short(stamp.uploadId)} · ${stamp.valid ? 'válido' : 'inválido'}`));
-      if (!stamp.valid) { row.classList.add('offer-invalid'); vehicle.append(element('span', 'warning offer-invalid-reason', `Não oferecer · ${stamp.reasonText || 'carro não vale mais para este pedido'}`)); }
-    }
+    if (stamp && !stamp.valid) { row.classList.add('offer-invalid'); vehicle.append(element('span', 'warning offer-invalid-reason', `Não oferecer · ${stamp.reasonText || 'carro não vale mais para este pedido'}`)); }
     const saleFacts = [parsed.lane ? `Lane ${parsed.lane}` : '', parsed.run ? `Run ${parsed.run}` : '', parsed.saleType || '', parsed.buyNowPrice && OFFER && OFFER.buyNowCents(parsed) ? `Buy Now ${parsed.buyNowPrice}` : ''].filter(Boolean);
-    if (saleFacts.length) vehicle.append(element('span', 'muted', saleFacts.join(' · ')));
+    if (saleFacts.length) vehicle.append(element('span', 'muted offer-detail', saleFacts.join(' · ')));
+    if (parsed.vin) vehicle.append(element('span', 'muted offer-detail', `VIN: ${parsed.vin}`));
+    vehicle.append(element('span', 'muted offer-consulted offer-detail', `${state.uploadedAt ? 'Consultado no CSV do Manheim de ' + formatDate(state.uploadedAt) : 'Consultado no lote ativo do Manheim'} · Disponibilidade no leilão não confirmada`));
     const badges = element('div', 'badges');
-    badges.append(makeBadge(kindLabel(option.match_kind), kindTone(option.match_kind)));
-    if (info.cr !== null && info.cr !== undefined) badges.append(makeBadge(`CR ${info.cr}`, info.belowMinimum ? 'yellow' : 'green'));
-    else badges.append(makeBadge('sem CR', 'yellow'));
     if (info.belowMinimum) badges.append(makeBadge(`Abaixo do CR recomendado (mínimo ${info.crMinimum})`, 'yellow'));
     if (option.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
     if (info.manual) badges.append(makeBadge('Inclusão manual', 'blue'));
@@ -2973,7 +2984,7 @@
     const updateFinal = () => { const pct = OFFER ? OFFER.validPct(pctInput.value) : Number(pctInput.value); finalValue.textContent = OFFER && Number.isFinite(pct) ? formatMoney(OFFER.finalCents(info.mmrCents, pct)) : '—'; };
     pctInput.addEventListener('input', updateFinal);
     const note = element('input', 'offer-note'); note.type = 'text'; note.maxLength = 500; note.placeholder = 'Observação interna (opcional)'; note.value = info.note || '';
-    price.append(element('span', 'muted', `MMR interno ${formatMoney(info.mmrCents)}`), element('span', 'muted', `Padrão ${pctText(info.defaultPct)}`),
+    price.append(element('span', 'muted', `Padrão ${pctText(info.defaultPct)}`),
       element('label', 'offer-pct-label', 'Ajustado '), pctInput, element('span', 'muted', 'Referência estimada para o cliente'), finalValue, note);
     price.querySelector('.offer-pct-label').append(pctInput);
     const actions = element('div', 'inline-actions offer-actions');
@@ -3006,7 +3017,11 @@
     pctInput.addEventListener('change', () => { if (!OFFER || !Number.isFinite(OFFER.validPct(pctInput.value))) { finalValue.textContent = 'Percentual inválido'; return; }
       request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, pct: pctInput.value, note: note.value.trim() || null }) }).then(apply).catch((error) => { finalValue.textContent = offerError(error); }); });
     actions.append(reason, manualButton, selectButton, removeButton, excludeButton);
-    row.append(vehicle, badges, price, actions);
+    // Empty pills are never drawn.
+    badges.querySelectorAll('.badge:not(.offer-status)').forEach((pill) => { if (!pill.textContent.trim()) pill.remove(); });
+    row.append(vehicle);
+    if (badges.childElementCount) row.append(badges);
+    row.append(price, actions);
     return row;
   }
   // One group of a demand: opened by the operator, 10 cars at a time, in the server's CR order.
@@ -3212,7 +3227,7 @@
   }
   function offerSection(card, demand) {
     const offerCounts = demand.offer;
-    const state = { loaded: [], selectedIds: new Set(offerCounts.selectedIds || []), listeners: [] };
+    const state = { loaded: [], selectedIds: new Set(offerCounts.selectedIds || []), listeners: [], demand };
     const box = element('div', 'offer-section');
     const counter = element('p', 'offer-counter');
     // Scannable: only what exists (zeros hidden); the total is already in the card's highlight and the audit has its own badge.
@@ -3721,20 +3736,21 @@
     const head = element('div', 'request-head');
     // What the client asked (read from the conversation, not confirmed) is never mixed with the
     // criterion the system searches with (ficha or calculator, after the search rules).
-    const criteriaLabel = first.source === 'CONVERSA' ? 'Pedido lido da conversa (IA, não confirmado)' : 'Critério usado na busca (sistema)';
+    const criteriaLabel = first.source === 'CONVERSA' ? 'Pedido lido da conversa (IA, não confirmado)' : 'O que o cliente pediu';
     const criteria = element('div', 'request-criteria');
-    criteria.append(element('span', 'request-criteria-label', criteriaLabel), element('strong', '', first.criteriaText || 'Sem critério'));
-    // Result in the batch, apart from the work stage ("Andamento", on each person below).
-    const result = element('span', 'request-result');
-    result.append(document.createTextNode('Resultado no lote: '), makeBadge(REQUEST_STATE_LABELS[first.state] || first.stateLabel, REQUEST_STATE_TONES[first.state]));
-    head.append(criteria, result);
+    // The essential in front: the car and its main criterion, with the options in the batch when there are some.
+    const essential = element('strong', 'request-essential', first.criteriaText || 'Sem critério');
+    if (first.state === 'COM_OPCOES' && first.optionCount) essential.append(element('span', 'request-options', ` · ${first.optionCount} ${first.optionCount === 1 ? 'opção' : 'opções'} no lote`));
+    criteria.append(element('span', 'request-criteria-label', criteriaLabel), essential);
+    head.append(criteria);
+    // Result in the batch, apart from the work stage. "Com opções" is already said by the group and the highlight.
+    if (first.state !== 'COM_OPCOES') { const result = element('span', 'request-result'); result.append(document.createTextNode('Resultado no lote: '), makeBadge(REQUEST_STATE_LABELS[first.state] || first.stateLabel, REQUEST_STATE_TONES[first.state])); head.append(result); }
     card.append(head);
     const fields = MCSSearchGroups.fields(first); if (fields) card.append(fields);
     // "Sem carros" always says why; "não rodada" says what is missing.
     if (first.state === 'SEM_OPCAO') { const reason = element('p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = first.key; card.append(reason); }
     if (MCSSearchGroups.groupOf(first.state) === 'NAO_RODADA') card.append(element('p', 'muted search-not-run', MCSSearchGroups.notRunText(first)));
     if (members.length > 1) card.append(element('p', 'muted', `${members.length} pedidos com critérios exatamente iguais`));
-    if (first.state === 'COM_OPCOES') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'opção válida' : 'opções válidas'} no lote ativo`));
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', 'request-lacks', 'Falta: o lance oficial do cliente · Abra a ficha e confirme o valor · Sem isso estes carros não viram opção válida nem vão para o envio'));
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'candidato' : 'candidatos'} no lote ativo por modelo, ano e milhagem. O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada`));
     if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo · Continua aqui para a próxima importação'));
