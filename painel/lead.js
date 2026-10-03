@@ -257,11 +257,13 @@
     const unlock=button(noteActions,'Destravar esta venda',async()=>{
       unlock.disabled=true;unlockBox.replaceChildren();append(unlockBox,'p','muted','Os dois especialistas estão pensando…');
       try{const out=await request('/api/panel/unlock-sale',{method:'POST',timeoutMs:65000,body:JSON.stringify({ref,journeyId})});unlockBox.replaceChildren();
-        (out.options||[]).forEach((option)=>{const card=append(unlockBox,'div','unlock-option'+(option.ok?'':' is-failed'));append(card,'span','unlock-role',`${option.role} · ${option.provider}`);
-          if(!option.ok){append(card,'p','muted','Não consegui gerar esta opção agora');return;}
+        const drawOption=(option,slot)=>{const card=document.createElement('div');card.className='unlock-option'+(option.ok?'':' is-failed');if(slot)slot.replaceWith(card);else unlockBox.append(card);append(card,'span','unlock-role',`${option.role} · ${option.provider}`);
+          if(!option.ok){const retry=append(card,'button','small ai-confirm unlock-retry','Tentar de novo');retry.type='button';retry.addEventListener('click',async()=>{retry.disabled=true;retry.textContent='Pensando…';
+            try{const again=await request('/api/panel/unlock-sale',{method:'POST',timeoutMs:65000,body:JSON.stringify({ref,journeyId,only:option.provider})});drawOption((again.options||[])[0]||option,card);}catch(_){retry.disabled=false;retry.textContent='Tentar de novo';}});return;}
           append(card,'strong','unlock-title',option.titulo);append(card,'p','unlock-action',option.acao);if(option.porque)append(card,'p','muted unlock-why',option.porque);
           if(option.mensagem){const msg=append(card,'textarea','unlock-message');msg.rows=4;msg.value=option.mensagem;}
-          const pick=append(card,'button','small ai-confirm unlock-pick','Escolher esta');pick.type='button';pick.addEventListener('click',()=>{unlockBox.querySelectorAll('.unlock-option').forEach((node)=>node.classList.toggle('is-chosen',node===card));const msg=card.querySelector('.unlock-message');if(msg)navigator.clipboard?.writeText(msg.value).catch(()=>{});});});
+          const pick=append(card,'button','small ai-confirm unlock-pick','Escolher esta');pick.type='button';pick.addEventListener('click',()=>{unlockBox.querySelectorAll('.unlock-option').forEach((node)=>node.classList.toggle('is-chosen',node===card));const msg=card.querySelector('.unlock-message');if(msg)navigator.clipboard?.writeText(msg.value).catch(()=>{});});};
+        (out.options||[]).forEach((option)=>drawOption(option));
       }catch(_){unlockBox.replaceChildren();append(unlockBox,'p','muted','Não consegui gerar as opções agora · tente de novo');}finally{unlock.disabled=false;}
     },'small');
     const help=button(noteActions,'💡 Pedir ajuda à IA',async()=>{
