@@ -57,5 +57,5 @@ test('latest contact chooses channel and Florida metadata uses the customer cont
 test('temperature thresholds and AI heat override the calculated score',()=>{
   assert.equal(heatFor({score:34}).key,'COLD');assert.equal(heatFor({score:35}).key,'WARM');assert.equal(heatFor({score:59}).key,'WARM');assert.equal(heatFor({score:60}).key,'HOT');
   assert.equal(heatFor({score:99,aiHeat:'WARM'}).key,'WARM');
-  const ordered=sortItems([{id:'warm',score:99,heat:'WARM'},{id:'hot',score:1,heat:'HOT'}],'ready','ready');assert.equal(ordered[0].id,'hot');
+  const ordered=sortItems([{id:'later',score:99,heat:'HOT',purchaseWindow:'3M'},{id:'now',score:1,heat:'COLD',purchaseWindow:'NOW'}],'ready','ready');assert.equal(ordered[0].id,'now');
 });

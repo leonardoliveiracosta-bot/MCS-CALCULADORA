@@ -1598,7 +1598,9 @@
   function phoneNode(item){const phone=primaryPhone(item);if(!phone){if(item?.whatsappWithoutPhone){const username=String(item.whatsappUsername||'').replace(/^@/,'');const name=String(item.name||item.contactName||item.contact?.display_name||'').trim().replace(/^@/,'');const showUsername=username&&name.toLocaleLowerCase('pt-BR')!==username.toLocaleLowerCase('pt-BR');const withUsername=`💬 ${username?'@'+username+' · ':''}WhatsApp sem número`;return element('span','identity-ref-phone whatsapp-user-id',showUsername?withUsername:'💬 WhatsApp sem número');}return element('span','identity-ref-phone phone-missing','📞 falta o número');}const raw=phone.phone_e164||phone.phone_raw;const link=element('a','identity-ref-phone phone-link','📞 '+phoneDisplay(raw));link.href='tel:'+String(raw).replace(/[^+\d]/g,'');link.addEventListener('click',(event)=>event.stopPropagation());return link;}
   function contactChannelLabel(channel){return {WHATSAPP:'💬 WhatsApp',WHATSAPP_HISTORY:'💬 WhatsApp · histórico',WHATSAPP_CLICK:'💬 Clicou em WhatsApp',SMS_CLICK:'✉️ Clicou em mensagem de texto',SMS:'✉️ SMS',CONTACT_CLICK_UNKNOWN:'💬 Clicou para falar (canal não registrado)',IMPORTED:'📎 Conversa importada/colada'}[channel]||'';}
   function floridaArrival(value){if(!value)return '';const date=new Date(value),now=new Date();const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true});const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(date);const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(now);const yesterday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date(Date.now()-86400000));const prefix=day===today?'hoje':day===yesterday?'ontem':new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit'}).format(date);return `chegou ${prefix} ${fmt.format(date)} (Flórida)`;}
-  function heatBadge(item){const labels={HOT:'🔥 Quente',WARM:'🌤 Morno',COLD:'❄️ Frio'},tone={HOT:'red',WARM:'yellow',COLD:'blue'};const heat=String(item.heat||'').toUpperCase();if(!heat)return null;const badge=makeBadge(labels[heat]||labels.COLD,tone[heat]||'blue');badge.classList.add('heat-badge');return badge;}
+  // Purchase window the client gave in the calculator (never the AI's "heat").
+  const WINDOW_LABELS={NOW:'Pronto para comprar agora','30D':'Em até 30 dias','3M':'Em até 3 meses',NONE:'Sem prazo informado'};
+  function heatBadge(item){const key=String(item.purchaseWindow||'NONE');const badge=makeBadge(WINDOW_LABELS[key]||WINDOW_LABELS.NONE,key==='NOW'?'red':key==='30D'?'yellow':key==='3M'?'blue':'');badge.classList.add('purchase-window');return badge;}
   function contactMeta(item,options={}){const wrap=element('div','badges contact-meta');const channel=options.noChannel?null:contactChannelLabel(item.contactChannel),arrival=floridaArrival(item.contactAt||item.lastCustomerAt);if(channel)wrap.append(makeBadge(channel,['WHATSAPP','WHATSAPP_HISTORY','WHATSAPP_CLICK'].includes(item.contactChannel)?'green':['SMS_CLICK','SMS'].includes(item.contactChannel)?'yellow':'blue'));if(arrival)wrap.append(makeBadge(arrival));const heat=heatBadge(item);if(heat){const details=element('details','temperature-details'),summary=element('summary','');summary.append(heat);details.append(summary,element('p','temperature-explanation',item.heatSource==='AI'?`Temperatura da IA: ${item.aiSummary||'Sem resumo.'}${item.aiNextStep?' Próximo passo: '+item.aiNextStep:''}`:'Temperatura calculada: telefone, checklist, prazo, orçamento x Manheim, conversa recente e horário.'));wrap.append(details);}return wrap.childNodes.length?wrap:null;}
   function directLeadLabel(item){return item?.directLeadSource==='WHATSAPP_DIRECT'?'📱 Veio por mensagem · Via WhatsApp (sem calculadora)':item?.directLeadSource==='SMS_DIRECT'?'✉️ Veio por mensagem · Via SMS (sem calculadora)':'';}
   function directLeadBadge(item){const label=directLeadLabel(item);return label?makeBadge(label,'blue'):null;}
@@ -2599,7 +2601,7 @@
     const inBucket=bucketAll;
     const base=shown.filter((entry)=>entry.item).map((entry)=>entry.item);
     // Every number is a button that shows its list, and says its complement (same cases as the list).
-    const STAT_FILTERS={awaiting:(item)=>item.awaitingReply,hot:(item)=>item.heat==='HOT',missing:(item)=>item.searchStage==='MISSING',sent:(item)=>item.searchStage==='SENT'};
+    const STAT_FILTERS={awaiting:(item)=>item.awaitingReply,hot:(item)=>item.purchaseWindow==='NOW',missing:(item)=>item.searchStage==='MISSING',sent:(item)=>item.searchStage==='SENT'};
     if(todayStatFilter&&!STAT_FILTERS[todayStatFilter])todayStatFilter=null;
     const stat = (key, label, complement) => {
       const value=key?base.filter(STAT_FILTERS[key]).length:shown.length;
@@ -2610,13 +2612,15 @@
     };
     stat('awaiting', 'Aguardando sua resposta', (rest)=>`${rest} casos com a última mensagem sua ou sem conversa`);
     stat(null, 'Casos neste filtro', ()=>`${inBucket.length-shown.length} fora de Ref/Origem/Período`);
-    if (base.some((item) => item.heat)) stat('hot', 'Quentes', (rest)=>`${rest} mornos, frios ou sem calor`);
+    // Purchase window (calculator deadline): how many in each range; the number filters the ones ready to buy now.
+    const windowCount=(key)=>base.filter((item)=>String(item.purchaseWindow||'NONE')===key).length;
+    stat('hot', 'Pronto para comprar agora', ()=>`${windowCount('30D')} em até 30 dias · ${windowCount('3M')} em até 3 meses · ${windowCount('NONE')} sem prazo informado`);
     if (base.some((item) => item.searchStage)) {
       stat('missing', 'Busca não salva no Manheim', (rest)=>`${rest} com busca salva ou sem busca`);
       stat('sent', 'Opções enviadas', (rest)=>`${rest} sem opções enviadas`);
     }
     const visible=todayStatFilter?shown.filter((entry)=>entry.item&&STAT_FILTERS[todayStatFilter](entry.item)):shown;
-    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({awaiting:'Aguardando sua resposta',hot:'Quentes',missing:'Busca não salva no Manheim',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
+    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({awaiting:'Aguardando sua resposta',hot:'Pronto para comprar agora',missing:'Busca não salva no Manheim',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
     const offCount=model.counts.fora;
     if (!visible.length) {
       root.append(element('p','empty-state', todayStatFilter||origin!=='all'||period!=='all'||subject!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));

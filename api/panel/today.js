@@ -246,7 +246,7 @@ module.exports = async (req, res) => {
       // as the calculator wrote it in the message ("11434 · Jamaica, New York"), never a city looked up elsewhere.
       const order=ownOrders[0]||null;const zipLine=(()=>{for(const message of ownMessages){if(message.direction!=='CUSTOMER')continue;const found=/ZIP code:\s*([^\n]+)/i.exec(String(message.body_text||''));if(found)return found[1].replace(/\s*<<<.*$/,'').replace(/\s+[—·-]\s+/,' · ').trim();}return null;})();
       const cardFacts={modes:order?.logicalModes||[],perMode:order?.modeSummaries||{},vehicleText:order?.vehicleText||item.vehicleText||null,budgetCents:order?.budgetCents||item.budgetCents||null,zipText:zipLine||(order?.zip?String(order.zip).replace(/\D/g,'').slice(0,5):null)};
-      return decorateContact({ ...item, cardFacts, group, calcRefs:proof.calcRefs, calcRef:proof.calcRef, hasCalcRef:proof.hasCalcRef, calcRefsWithoutRun:proof.calcRefsWithoutRun, internalCode:proof.internalCode, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now, journeyId)), wantsCar: wantedAfterDisposition(ref,dispositionAt,dispositionStatus),
+      return decorateContact({ ...item, deadlineText: item.deadlineText || simulations.map((entry) => entry && entry.deadlineText).find(Boolean) || null, cardFacts, group, calcRefs:proof.calcRefs, calcRef:proof.calcRef, hasCalcRef:proof.hasCalcRef, calcRefsWithoutRun:proof.calcRefsWithoutRun, internalCode:proof.internalCode, lastCustomerMessage:ownOrders.length?null:groups.latestCustomerMessage(summary), phones:item.phones||journey?.phones||[], ...ready, latestMessage,latestMcsMessage,lastCustomerAt:lastCustomer?.occurred_at_utc||lastCustomer?.created_at||null, returnedToTalk:returned, promiseToday: ready.promiseToday || (journey?.enabled !== false && dueToday(leadPromises, ref, item.zip, now, journeyId)), wantsCar: wantedAfterDisposition(ref,dispositionAt,dispositionStatus),
         todayReasons:journeyId&&dispositionStatus!=='DISCARDED'?(overdueByJourney.get(journeyId)||[]).filter((reason)=>eventAfterDisposition(reason.anchor,dispositionAt)).map(({kind,label,dueAt,detail,urgency})=>({kind,label,dueAt:dueAt||null,detail:detail||null,urgency:urgency||'yellow'})):[],
         awaitingReply:Boolean(latestMessage&&latestMessage.direction==='CUSTOMER'),
         pendingAiCount:journeyId?aiItems.filter((entry)=>entry.journey_id===journeyId).length:0,aiLinkSuggested:journeyId?aiSuggestions.some((entry)=>entry.source_journey_id===journeyId):false }, facts, insightByJourney.get(journeyId), journey);
@@ -258,8 +258,9 @@ module.exports = async (req, res) => {
       if (wants) return wants;
       const promise = Number(Boolean(right.promiseToday)) - Number(Boolean(left.promiseToday));
       if (promise) return promise;
-      const heat={HOT:3,WARM:2,COLD:1};
-      const temperature=(heat[String(right.heat||'').toUpperCase()]||0)-(heat[String(left.heat||'').toUpperCase()]||0);
+      // Purchase window from the calculator (agora > 30 dias > 3 meses > sem prazo), never the AI's "heat".
+      const windowRank={NOW:3,'30D':2,'3M':1,NONE:0};
+      const temperature=(windowRank[right.purchaseWindow]||0)-(windowRank[left.purchaseWindow]||0);
       if(temperature)return temperature;
       const ready = Number(right.score || 0) - Number(left.score || 0);
       if (ready) return ready;
