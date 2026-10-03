@@ -1045,7 +1045,7 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .unlock-option .unlock-action { margin: 0; font-size: 14px; line-height: 1.45; }
 .unlock-option .unlock-why { margin: 0; font-size: 13px; }
 .unlock-option .unlock-message { width: 100%; font: inherit; font-size: 13px; }
-.unlock-option .unlock-pick { align-self: flex-start; margin-top: auto; min-height: 36px; padding: 7px 14px; border-radius: 8px; background: #C9A227; color: #1B1A18; border: 0; font-weight: 700; }
+.unlock-option .unlock-pick { min-height: 36px; padding: 7px 14px; border-radius: 8px; background: #C9A227; color: #1B1A18; border: 0; font-weight: 700; }
 @media (max-width: 760px) { .unlock-options { grid-template-columns: 1fr; } }
 
 /* Cartão 10: os itens da anotação com a mesma estrutura dos itens da leitura de conversa. */
@@ -1063,3 +1063,10 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .note-extract > .lead-actions > .ai-outline { background: #FFFFFF00; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .note-extract > .lead-route input[type="checkbox"] { min-width: 18px; min-height: 18px; max-width: 18px; max-height: 18px; padding: 0; }
 .note-extract > .ai-nothing-new { margin: 0 0 18px; padding: 12px 16px; background: #F6F2E9; border-radius: 10px; font-size: 14px; color: #6F675D; }
+
+.unlock-option .unlock-lang { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.unlock-option .unlock-message-pt { width: 100%; font: inherit; font-size: 13px; background: #FAF8F4; color: #4A4740; }
+.unlock-option .unlock-send { margin-top: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+.unlock-option .unlock-wa, .unlock-option .unlock-sms { min-height: 36px; padding: 7px 14px; border-radius: 8px; background: #1B1A18; color: #FFFFFF; border: 0; font-weight: 700; }
+.unlock-option .unlock-wa:disabled, .unlock-option .unlock-sms:disabled { opacity: .5; }
+.unlock-option .unlock-send-status { font-size: 12.5px; }

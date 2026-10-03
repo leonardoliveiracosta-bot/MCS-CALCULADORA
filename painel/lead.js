@@ -261,8 +261,24 @@
           if(!option.ok){const retry=append(card,'button','small ai-confirm unlock-retry','Tentar de novo');retry.type='button';retry.addEventListener('click',async()=>{retry.disabled=true;retry.textContent='Pensando…';
             try{const again=await request('/api/panel/unlock-sale',{method:'POST',timeoutMs:65000,body:JSON.stringify({ref,journeyId,only:option.provider})});drawOption((again.options||[])[0]||option,card);}catch(_){retry.disabled=false;retry.textContent='Tentar de novo';}});return;}
           append(card,'strong','unlock-title',option.titulo);append(card,'p','unlock-action',option.acao);if(option.porque)append(card,'p','muted unlock-why',option.porque);
-          if(option.mensagem){const msg=append(card,'textarea','unlock-message');msg.rows=4;msg.value=option.mensagem;}
-          const pick=append(card,'button','small ai-confirm unlock-pick','Escolher esta');pick.type='button';pick.addEventListener('click',()=>{unlockBox.querySelectorAll('.unlock-option').forEach((node)=>node.classList.toggle('is-chosen',node===card));const msg=card.querySelector('.unlock-message');if(msg)navigator.clipboard?.writeText(msg.value).catch(()=>{});});};
+          // Portuguese first (to read), English after (what goes to the customer).
+          if(option.mensagemPt){append(card,'span','muted unlock-lang','Português');const pt=append(card,'textarea','unlock-message-pt');pt.rows=4;pt.value=option.mensagemPt;pt.readOnly=true;}
+          append(card,'span','muted unlock-lang','Inglês · vai para o cliente');const msg=append(card,'textarea','unlock-message');msg.rows=4;msg.value=option.mensagemEn||option.mensagem||'';
+          const sendRow=append(card,'div','inline-actions unlock-send');const sendStatus=append(card,'span','status unlock-send-status','');
+          const pick=append(sendRow,'button','small ai-confirm unlock-pick','Escolher esta');pick.type='button';pick.addEventListener('click',()=>{unlockBox.querySelectorAll('.unlock-option').forEach((node)=>node.classList.toggle('is-chosen',node===card));navigator.clipboard?.writeText(msg.value).catch(()=>{});});
+          const digits=String(phones[0]?.phone_e164||phones[0]?.phone_raw||'').replace(/[^\d+]/g,'');
+          // WhatsApp: sent by the panel (360dialog, inside the 24 h window, recorded in the conversation); outside the window, WhatsApp opens with the text ready.
+          const wa=append(sendRow,'button','small unlock-wa','Enviar por WhatsApp');wa.type='button';let armed=false;
+          wa.addEventListener('click',async()=>{const text=msg.value.trim();if(!text){sendStatus.textContent='Mensagem vazia';return;}
+            if(!armed){armed=true;wa.textContent='Confirmar envio por WhatsApp';sendStatus.textContent=`Vai para ${title}${digits?' · '+formatPhone(digits):''}`;setTimeout(()=>{if(armed&&!wa.disabled){armed=false;wa.textContent='Enviar por WhatsApp';sendStatus.textContent='';}},8000);return;}
+            armed=false;wa.disabled=true;wa.textContent='Enviando…';
+            try{const result=await request('/api/panel/reply',{method:'POST',timeoutMs:30000,body:JSON.stringify({action:'send',journeyId,textEn:text})});wa.textContent='Enviado';sendStatus.textContent='Enviado pelo WhatsApp'+(result&&result.simulated?' · simulado neste ambiente':' · já está na conversa');}
+            catch(failure){const code=failure&&failure.code;wa.disabled=false;wa.textContent='Enviar por WhatsApp';
+              if((code==='WINDOW_CLOSED'||code==='REPLY_NOT_ELIGIBLE')&&digits){const href='https://wa.me/'+digits.replace(/^\+/,'')+'?text='+encodeURIComponent(text);const opened=window.open(href,'_blank','noopener');sendStatus.textContent=code==='WINDOW_CLOSED'?'Janela de 24 h fechada · WhatsApp com a mensagem pronta':'WhatsApp com a mensagem pronta';if(!opened){const link=append(sendStatus,'a','',' · Abrir no WhatsApp');link.href=href;link.target='_blank';link.rel='noopener';}}
+              else sendStatus.textContent=code==='SENT_NOT_RECORDED'?'Enviado, mas não registrado na conversa':'Não enviado · tente de novo'+(code?` (${code})`:'');}});
+          // SMS: the phone's messages app with the text ready.
+          const sms=append(sendRow,'button','small unlock-sms','Enviar por SMS');sms.type='button';sms.disabled=!digits;
+          sms.addEventListener('click',()=>{const text=msg.value.trim();if(!text||!digits)return;location.href='sms:'+digits+'?&body='+encodeURIComponent(text);sendStatus.textContent='Abri o SMS com a mensagem pronta';});};
         (out.options||[]).forEach((option)=>drawOption(option));
       }catch(_){unlockBox.replaceChildren();append(unlockBox,'p','muted','Não consegui gerar as opções agora · tente de novo');}finally{unlock.disabled=false;}
     },'small');
