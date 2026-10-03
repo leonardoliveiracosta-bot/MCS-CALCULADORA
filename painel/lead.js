@@ -123,11 +123,7 @@
       },'quiet small');
     }
 
-    // The case summary, the same data every tab shows: field by field with its source, stage, who it
-    // depends on, what is missing and the next action. Loaded apart: the ficha never waits for it.
-    if(window.MCSContext){const slot=append(root,'section','lead-card client-context-full');append(slot,'span','lead-label','RESUMO DO CASO');append(slot,'p','muted','Carregando o resumo do caso…');
-      (journeyId?MCSContext.forJourney(journeyId,request):MCSContext.forRef(ref,request)).then((context)=>{if(!slot.isConnected)return;if(!context||context.unlinked){slot.replaceChildren(e('span','lead-label','RESUMO DO CASO'),e('p','muted',context&&context.unlinked||'Resumo indisponível para este caso.'));return;}slot.replaceWith(MCSContext.full(context));})
-        .catch(()=>{if(slot.isConnected)slot.replaceChildren(e('span','lead-label','RESUMO DO CASO'),e('p','muted','Não foi possível carregar o resumo agora · O resto da ficha continua valendo'));});}
+    // No "Resumo do caso" block: the ficha shows the data itself (the summary repeated it).
     if(aiReadingBlock)root.append(aiReadingBlock);
     // The conversation and the quick result come right after the summary (built below, moved here).
     const topAnchor=append(root,'div','lead-top-anchor');
