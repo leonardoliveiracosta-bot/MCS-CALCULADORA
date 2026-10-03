@@ -173,6 +173,34 @@ function conversationSources(requests, messagesById) {
   return out;
 }
 
+// "Campo a campo", one block per car: every car the client gave (calculator, ficha, conversation), each with its own
+// years and mileage, judged by the same rule as the fields. Only cars, never the client's own fields.
+function carEntries({ orders = [], journey = null, requests = [] }) {
+  const out = [];
+  const push = (kind, item, extra) => { const car = vehicleName(item); if (!car) return; out.push({ kind, car, compare: [item.make, item.model].filter(Boolean).join(' ') || car, anos: range(item.yearMin, item.yearMax), milhas: range(item.minMiles, item.maxMiles, ' mi'), ...extra }); };
+  orders.forEach((order) => {
+    const wishes = (order.wishlists || []).length ? order.wishlists : [order.wishlist || {}];
+    const carMode = order.logicalMode === 'CARRO';
+    wishes.forEach((item) => push('CALCULADORA', carMode ? item : { make: item.make, model: item.model, trim: item.trim }, { at: order.occurredAt, ref: order.ref }));
+  });
+  if (journey) wishlistsForJourney(journey).forEach((item) => push('FICHA', item, { at: journey.updated_at || null }));
+  requests.forEach((request) => push('CONVERSA_IA', request.criteria || {}, { at: request.at, needsReview: request.needsReview, reviewReason: request.reviewReason }));
+  return out;
+}
+function carBlocks(entries) {
+  const groups = [];
+  entries.forEach((entry) => { const group = groups.find((item) => same(item.key, entry.compare)); if (group) group.entries.push(entry); else groups.push({ key: entry.compare, entries: [entry] }); });
+  if (groups.length < 2) return [];
+  return groups.map((group) => {
+    const of = (value, entry) => value ? { ...entry, value } : null;
+    return {
+      carro: field('carro', group.entries.map((entry) => of(entry.car, entry))),
+      anos: field('anos', group.entries.map((entry) => of(entry.anos, { ...entry, compare: null }))),
+      milhas: field('milhas', group.entries.map((entry) => of(entry.milhas, { ...entry, compare: null })))
+    };
+  });
+}
+
 const FIELD_OPTIONS = { tipo: { multi: true, noConflict: true }, carro: { multi: true }, local: { noConflict: true } };
 function buildFields(parts) {
   const merged = (key) => parts.flatMap((part) => part[key] || []);
@@ -453,7 +481,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       // One summary per order (never per conversation); several orders the reading cannot tell apart are declared ambiguous.
       aiOrders: orderSummary.orderSummaries({ orders: [...new Set([...ownOrders.map((order) => order.ref), ...(proof.calcRefs || [])])], summaries: classification.subjectOf(journey.id).summaries || [] }),
       aiReading: insight ? { summary: clean(insight.summary_text) || null, nextStep: clean(insight.next_step_text) || null, at: insight.updated_at || null, note: 'Leitura da IA da última mensagem · não confirmada' } : null,
-      modes, fields, criteria: criteriaSummary(step), situation: null, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
+      modes, fields, carBlocks: carBlocks(carEntries({ orders: ownOrders, journey, requests: ownRequests })), criteria: criteriaSummary(step), situation: null, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
       promises: promises.filter((row) => row.journey_id === journey.id).map((row) => ({ text: row.promise_text, dueAt: row.due_at })),
       links: {
         orders: ownOrders.map(orderLink),
@@ -491,7 +519,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       stage: { code: null, label: situation.label, status: null, closed: false, off: false },
       searches: [], owner, conversation: { messageCount: 0, lastAt: null, lastFrom: null }, aiReading: null,
       situation: { code, label: situation.label, detail: situation.detail }, criteria: criteriaSummary(step),
-      fields, missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
+      fields, carBlocks: carBlocks(carEntries({ orders: refOrders })), missing: step.missing, aiOnly: step.aiOnly, ambiguous: step.ambiguous, blocker: step.blocker, nextAction: step.action,
       ambiguousOwners: owners.length > 1 ? owners.map((journey) => journey.id) : [],
       promises: [], links: { orders: refOrders.map(orderLink), requests: [], requestsNote: null, cars: { total: cars.byRef.get(ref) || 0, byMode: {}, uploadAt } }
     };
@@ -499,4 +527,4 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
   return out;
 }
 
-module.exports = { DEADLINE_LABELS, UNLINKED, criteriaSummary, deadlineLabel, FIELD_LABELS, JOURNEY_STAGES, MAX_IDS, MODES, REQUIRED, SEARCH_STAGES, STATUS, buildContexts, buildFields, calculatorSources, conversationSources, conversationState, field, fichaSources, nextStep, normalizedInput, waitingOn };
+module.exports = { DEADLINE_LABELS, UNLINKED, carBlocks, carEntries, criteriaSummary, deadlineLabel, FIELD_LABELS, JOURNEY_STAGES, MAX_IDS, MODES, REQUIRED, SEARCH_STAGES, STATUS, buildContexts, buildFields, calculatorSources, conversationSources, conversationState, field, fichaSources, nextStep, normalizedInput, waitingOn };
