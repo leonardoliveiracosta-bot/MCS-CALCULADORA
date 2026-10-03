@@ -1758,7 +1758,13 @@
     go.addEventListener('click', async () => {
       if (!armed) { armed = true; go.textContent = 'Confirmar: apagar de verdade'; status.textContent = 'Não dá para desfazer'; return; }
       go.disabled = true; go.textContent = 'Apagando…';
-      try { const out = await request('/api/panel/purge-tests', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'run', confirm: 'APAGAR TESTES' }) }); status.textContent = 'Apagado: ' + Object.entries(out.deleted || {}).map(([table, n]) => `${table} ${n}`).join(' · '); go.remove(); }
+      try {
+        const out = await request('/api/panel/purge-tests', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'run', confirm: 'APAGAR TESTES' }) });
+        const done = Object.entries(out.deleted || {}).map(([table, n]) => `${table} ${n}`).join(' · ') || 'nada nesta rodada';
+        // Resumable: what was deleted is said, and the tables still held by a reference are named.
+        status.textContent = out.complete ? 'Apagado: ' + done : `Apagado: ${done} · Ficaram presas por referência: ${(out.left || []).join(', ')} (${out.after?.pending || 0} registros) · Rode de novo depois da correção`;
+        if (out.complete) go.remove(); else { go.disabled = false; armed = false; go.textContent = 'Apagar de verdade'; }
+      }
       catch (error) { go.disabled = false; armed = false; go.textContent = 'Apagar de verdade'; status.textContent = 'Não terminou · tente de novo' + (error && error.code ? ` (${error.code})` : ''); }
     });
     box.append(go, status);
