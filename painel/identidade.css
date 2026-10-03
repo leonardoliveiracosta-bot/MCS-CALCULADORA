@@ -1135,3 +1135,11 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #today-list .today-card .case-pick { width: 44px; height: 44px; margin: -10px; }
 #today-list .today-card .case-face-spec .case-field-value { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 1279px) { #today-list .today-card .case-face-spec .case-calculator .case-field-value { white-space: normal; } }
+
+/* Cartões de demanda do Enviar opções: nome maior, o pedido e as opções em destaque logo abaixo. */
+#searches-panel .manheim-lead .identity-name { font-size: 22px; font-weight: 700; line-height: 1.2; color: #1B1A18; }
+#searches-panel .manheim-lead .identity a, #searches-panel .manheim-lead .identity-ref-phone a { text-decoration: none; }
+#searches-panel .manheim-lead > .request-criteria-label { display: block; margin: 14px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
+#searches-panel .manheim-lead > .demand-essential { margin: 0 0 8px; font-size: 17px; font-weight: 700; line-height: 1.35; color: #1B1A18; }
+#searches-panel .manheim-lead > .demand-options-count { align-self: flex-start; display: inline-block; margin: 0 0 12px; font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; }
+#searches-panel .offer-counter { font-size: 13px; color: #6F675D; }

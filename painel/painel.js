@@ -2685,7 +2685,7 @@
   function demandSummary(demand) {
     const wishes = (demand && demand.wishes || []).slice(0, 5);
     const number = (value) => Number(value).toLocaleString('pt-BR');
-    if (demand && demand.mode === 'VALOR') return `${wishes.map((wish) => [wish.make, wish.model].filter(Boolean).join(' ')).join(' | ')}${demand.bidCents ? ` · lance até ${formatMoney(demand.bidCents)}` : ''}`;
+    if (demand && demand.mode === 'VALOR') return `${wishes.map((wish) => [wish.make, wish.model].filter(Boolean).join(' ')).join(' | ')}${demand.bidCents ? ` · lance máximo ${formatMoney(demand.bidCents)}` : ''}`;
     return wishes.map((wish) => [[wish.make, wish.model, wish.trim].filter(Boolean).join(' '), `${wish.yearMin} a ${wish.yearMax}`, `${number(wish.minMiles)} a ${number(wish.maxMiles)} milhas`].join(' · ')).join(' | ');
   }
 
@@ -2797,10 +2797,17 @@
   const MANHEIM_PAGE_ROWS = 10;
   // Counts of a demand, answered by the server (no car is loaded for this).
   const demandCountsBadge = (demand) => {
-    const parts = [`${demand.bateCount || 0} BATE`];
-    if (demand.porValorCount) parts.push(`${demand.porValorCount} POR VALOR`);
-    return makeBadge(parts.join(' · '), demand.bateCount ? 'green' : demand.porValorCount ? 'blue' : 'yellow');
+    // Plain words, zeros hidden: "2 opções no lote · 2 pelo valor".
+    const total = Number(demand.matchCount) || 0;
+    const parts = [`${total} ${total === 1 ? 'opção' : 'opções'} no lote`];
+    if (demand.bateCount) parts.push(`${demand.bateCount} ${demand.bateCount === 1 ? 'bate' : 'batem'} com o pedido`);
+    if (demand.porValorCount) parts.push(`${demand.porValorCount} pelo valor`);
+    const badge = makeBadge(parts.join(' · '), demand.bateCount ? 'green' : demand.porValorCount ? 'blue' : 'yellow');
+    badge.classList.add('demand-options-count');
+    return badge;
   };
+  // Demand card of ENVIAR OPÇÕES: the order line already says the car and the bid, so the header does not repeat them as "não informado".
+  const dropWishFacts = (node) => { node.querySelectorAll('.identity-fact').forEach((fact) => { const label = fact.querySelector('b')?.textContent || ''; if (label === 'Carro' || label === 'Lance máx.') fact.remove(); }); return node; };
   // The options of ONE demand arrive only when the operator opens it, 10 at a time, in the order of
   // the server (BATE, POR VALOR, lowest mileage) and with a stable cursor.
   function lazyOptions(card, demand, loaded, renderRow, filter) {
@@ -3155,8 +3162,8 @@
     const state = { loaded: [], selectedIds: new Set(offerCounts.selectedIds || []), listeners: [] };
     const box = element('div', 'offer-section');
     const counter = element('p', 'offer-counter');
-    const auditText = auditOn() ? `Conferência: ${auditEntry(demand).label || auditEntry(demand).status}` : 'Conferência desligada';
-    const paint = () => { counter.textContent = `${demand.matchCount} matches internos · ${offerCounts.lane} passam em Lane/Run · ${offerCounts.offLane} Buy Now / Make Offer / fora de Lane-Run · ${offerCounts.incomplete} incompletos · Selecionados ${state.selectedIds.size} de ${offerCounts.max || 10} · ${auditText}`; };
+    // Scannable: only what exists (zeros hidden); the total is already in the card's highlight and the audit has its own badge.
+    const paint = () => { counter.textContent = [offerCounts.lane ? `${offerCounts.lane} em Lane/Run` : '', offerCounts.offLane ? `${offerCounts.offLane} em Buy Now / Make Offer` : '', offerCounts.incomplete ? `${offerCounts.incomplete} com informação incompleta` : '', `${state.selectedIds.size} de ${offerCounts.max || 10} selecionados`].filter(Boolean).join(' · '); };
     state.setSelected = (id, on, total) => { if (on) state.selectedIds.add(id); else state.selectedIds.delete(id); paint(); state.listeners.forEach((listener) => listener()); };
     paint();
     box.append(counter, offerGroup(demand, 'LANE', offerCounts.lane, state), offerGroup(demand, 'OFFLANE', offerCounts.offLane, state), offerGroup(demand, 'INCOMPLETE', offerCounts.incomplete, state));
@@ -3193,10 +3200,11 @@
     const loaded = [];
     const head = element('div', 'item-head');
     const stageLabel = demand ? demand.stageLabel : journey.searchStageLabel, stage = demand ? demand.stage : journey.searchStage;
-    head.append(identityHeader(journey), demandCountsBadge(demand));if(stageLabel)head.append(makeBadge(stageLabel,stage==='SENT'?'green':stage==='SAVED'?'blue':'yellow'));
+    head.append(demand ? dropWishFacts(identityHeader(journey)) : identityHeader(journey));if(stageLabel)head.append(makeBadge(stageLabel,stage==='SENT'?'green':stage==='SAVED'?'blue':'yellow'));
     card.append(head);
-    if (demand) card.append(element('span', 'request-criteria-label', 'Critério usado na busca (sistema)'));
-    card.append(element('p', 'muted', (demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents))));
+    if (demand) card.append(element('span', 'request-criteria-label', 'O que o cliente pediu'));
+    card.append(element('p', 'demand-essential', (demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents))));
+    if (demand) card.append(demandCountsBadge(demand));
     // The client context stays one click away: the card is about the cars and the next step.
     const contextMore = element('details', 'card-more context-details'); contextMore.append(element('summary', '', 'Contexto do cliente'), contextSlot({ journeyId: journeyIdOf(journey) }, { focus: 'cars' })); card.append(contextMore);
     contextMore.addEventListener('toggle', () => { if (contextMore.open) hydrateContexts(contextMore); });
@@ -3317,18 +3325,18 @@
     const identity = element('div', 'identity');
     identity.append(element('span', 'order-icon', orderIcon(order)));
     const text = element('div');
-    text.append(element('strong', 'identity-name', order.contactName||`Pedido ${order.ref}`),phoneNode(order), identityFacts(order.ref, order.vehicleText || 'Pedido da calculadora', order.budgetCents));
+    text.append(element('strong', 'identity-name', order.contactName||`Pedido ${order.ref}`),phoneNode(order), demand ? dropWishFacts(identityFacts(order.ref, order.vehicleText || 'Pedido da calculadora', order.budgetCents)) : identityFacts(order.ref, order.vehicleText || 'Pedido da calculadora', order.budgetCents));
     identity.append(text);
     head.append(identity);
     card.append(head);
     const summary = element('div', 'badges');
-    summary.append(demandCountsBadge(demand));
     const seenOrder=()=>loaded.concat(card.offerState?card.offerState.loaded:[]);
     let orderAudit=auditBlock(demand,seenOrder());
     summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
     card.append(summary);
-    if (demand) card.append(element('span', 'request-criteria-label', 'Critério usado na busca (sistema)'));
-    card.append(element('p', 'muted', demand ? demandSummary(demand) : order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
+    if (demand) card.append(element('span', 'request-criteria-label', 'O que o cliente pediu'));
+    card.append(element('p', 'demand-essential', demand ? demandSummary(demand) : order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
+    if (demand) card.append(demandCountsBadge(demand));
     card.append(contextSlot({ ref: refOf(order) }, { focus: 'cars' }));
     const stale = staleNotice(card, demand); if (stale) card.append(stale);
     if (orderAudit) card.append(orderAudit);

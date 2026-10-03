@@ -116,10 +116,10 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
   // The same person has one card per mode, each with its own criteria and stage.
   const valorCard = page.locator('#buscas-valor .manheim-lead', { hasText: 'Cliente Dois Modos' });
   const carroCard = page.locator('#buscas-carro .manheim-lead', { hasText: 'Cliente Dois Modos' });
-  const valorCriteria = valorCard.locator(':scope > p.muted').first(), carroCriteria = carroCard.locator(':scope > p.muted').first();
-  await expect(valorCriteria).toHaveText('BMW X5 · lance até US$ 50.000,00');
+  const valorCriteria = valorCard.locator(':scope > p.demand-essential').first(), carroCriteria = carroCard.locator(':scope > p.demand-essential').first();
+  await expect(valorCriteria).toHaveText('BMW X5 · lance máximo US$ 50.000,00');
   await expect(carroCriteria).toHaveText('BMW X5 xDrive40i · 2020 a 2025 · 50.000 a 90.000 milhas');
-  await expect(carroCard).not.toContainText('lance até');
+  await expect(carroCard).not.toContainText('lance máximo');
   await expect(carroCard).not.toContainText('cabe no lance');
   await expect(valorCard).toContainText('Busca salva');
   await expect(carroCard).toContainText('Busca não salva no Manheim');

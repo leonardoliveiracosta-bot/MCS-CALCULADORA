@@ -134,7 +134,7 @@ for (const width of [1366, 390]) {
     // The client context is one click away in OPÇÕES (the card is about the cars).
     await optionCard.locator('.context-details > summary').click();
     await expect(await reach(optionCard)).toContainText('carro(s) com MMR ligado(s) a este cliente', { timeout: 30000 });
-    await expect(optionCard).toContainText('Critério usado na busca (sistema)');
+    await expect(optionCard).toContainText('O que o cliente pediu');
     const lane = optionCard.locator('details.offer-group[data-group="LANE"]');
     if (await lane.count()) {
       await lane.locator('summary').click();
