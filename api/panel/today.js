@@ -37,10 +37,21 @@ module.exports = async (req, res) => {
     // drawn from the healthy sources and the screen says which one is out of date.
     const degraded = [];
     const soft = (name, fallback) => () => { degraded.push(name); return fallback; };
+    // Timing of each phase in the logs ([today-timing]) to find what is slow; the independent reads start together.
+    const timing = {}; const mark = (name, started) => { timing[name] = Date.now() - started; };
+    const t0 = Date.now();
+    const timed = (name, promise) => { const started = Date.now(); return Promise.resolve(promise).finally(() => mark(name, started)); };
+    const early = {
+      topic: timed('topic', loadTopic(ctx).catch(soft('fora do assunto', null))),
+      vitrine: timed('vitrine', loadVitrineOrigins(ctx).catch(soft('origem pela vitrine', null))),
+      classification: timed('classification', loadClassification(ctx)),
+      stageIndex: timed('stageIndex', loadSearchStageIndex(ctx).catch(soft('andamento da busca', new Map())))
+    };
+    Object.values(early).forEach((promise) => promise.catch(() => {}));
     // HOJE never reads Manheim cars: the score gets one reference MMR per person from the database
     // (live batches only; an undone or unfinished batch never feeds HOJE).
     const [data, calcRuns, links, dispositions, meta, responses, vehicles, leadPromises, aiItems, aiSuggestions, pendingInsights] = await Promise.all([
-      operational(ctx),
+      timed('operational', operational(ctx)),
       allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
       allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
       allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
@@ -54,8 +65,12 @@ module.exports = async (req, res) => {
       ,allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment })
     ]);
     // Adendo: fora do assunto (leitura da triagem ou correção sua); sem tabela, ninguém fica fora.
-    const [topic, vitrineOrigins, triageOut, classification] = await Promise.all([loadTopic(ctx).catch(soft('fora do assunto', null)), loadVitrineOrigins(ctx).catch(soft('origem pela vitrine', null)),
-      outOfFunnelIndex(ctx, data.journeys, data.refs || []).catch(soft('triagem (fora do funil)', new Set())), loadClassification(ctx)]);
+    mark('phase1', t0);
+    const t1 = Date.now();
+    const [topic, vitrineOrigins, triageOut, classification] = await Promise.all([early.topic, early.vitrine,
+      timed('triageOut', outOfFunnelIndex(ctx, data.journeys, data.refs || []).catch(soft('triagem (fora do funil)', new Set()))), early.classification]);
+    mark('phase2', t1);
+    const t2 = Date.now();
     if (!classification.available) degraded.push('assunto e identidade');
     // Identity of each ficha: Refs proven by the calculator (calc_runs or the client's calculator
     // message); a code of the ficha without that proof is only an internal code.
@@ -263,7 +278,10 @@ module.exports = async (req, res) => {
     // (link, triage, vitrine, incomplete request); the screen hides them by this list.
     const liveJourneys=new Set(items.map((item)=>item.journeyId||(item.kind==='JOURNEY'?item.id:null)).filter(Boolean));
     const discardedJourneys=data.journeys.filter((journey)=>!liveJourneys.has(journey.id)&&dispositionFor(journey)?.status==='DISCARDED').map((journey)=>journey.id);
-    const stageIndex=await loadSearchStageIndex(ctx).catch(soft('andamento da busca',new Map()));
+    mark('compute', t2);
+    const stageIndex=await early.stageIndex;
+    mark('total', t0);
+    console.log('[today-timing]', JSON.stringify({ ...timing, items: items.length, journeys: data.journeys.length, messages: data.messages.length }));
     return send(res, 200, {
       environment: ctx.environment,
       windowHours: 24,
