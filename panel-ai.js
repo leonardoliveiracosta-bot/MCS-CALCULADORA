@@ -250,12 +250,19 @@ function readingPrompt(group, maximumBid, order=null) {
   return {transcript,user:window.user,messages:window.messages,messageCount:window.messages.length,truncated:window.truncated};
 }
 
+// A "Teto total" item exists only with a clean positive dollar number.
+function budgetValue(value) {
+  // Same rule the save applies (a positive number): 35000 or "35000"; a sentence or "—" is never a ceiling.
+  const amount = typeof value === 'number' ? value : /^\s*\d+(?:\.\d+)?\s*$/.test(String(value ?? '')) ? Number(value) : NaN;
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
 function validatedReading(parsed, transcript, lead, customerBodies, ficha=null) {
   const line=(key)=>String(parsed&&parsed.summary&&parsed.summary[key]||'').trim().slice(0,700);
   const summary=parsed&&parsed.summary&&typeof parsed.summary==='object'?{want:line('want'),money:line('money'),missing:line('missing'),status:line('status'),next:line('next')}:{want:'',money:'',missing:'',status:'',next:''};
   const calculatorBodies=ficha?customerBodies.filter((body)=>refProof.isCalculatorTemplate(body)):[];
   if(ficha){summary.questions=verifiedNotes(parsed&&parsed.questions,customerBodies,calculatorBodies,['question']);summary.contradictions=verifiedNotes(parsed&&parsed.contradictions,customerBodies,calculatorBodies,['field','ficha','cliente']);summary.onlyNew=true;}
-  const raw=(Array.isArray(parsed&&parsed.items)?parsed.items:[]).filter((item)=>item&&AI_TYPES.has(item.type)&&typeof item.evidence==='string'&&customerBodies.some((body)=>body.includes(item.evidence))&&!(ficha&&alreadyInFicha(item,ficha,calculatorBodies)));
+  const raw=(Array.isArray(parsed&&parsed.items)?parsed.items:[]).filter((item)=>item&&AI_TYPES.has(item.type)&&(item.type!=='budget'||budgetValue(item.value)!==null)&&typeof item.evidence==='string'&&customerBodies.some((body)=>body.includes(item.evidence))&&!(ficha&&alreadyInFicha(item,ficha,calculatorBodies)));
   const prepared=prepareItems(validItems(transcript,raw),lead).map((item)=>item.type==='budget'?{...item,manualReview:true}:item);
   const items=prepared.map((item)=>{
     // Evidence may legitimately change between readings.  The durable identity is
@@ -285,7 +292,7 @@ async function readConversation(ctx, group, options={}) {
       'summary.want é o que ele quer, summary.status em que pé está e summary.next o próximo passo, uma linha cada. Sem nada novo, items, questions e contradictions vêm vazios. '+
       'Cada item deve usar apenas estes tipos: call_result, checklist, budget, payment, deadline, wishlist, phone, promise, return, stage, disable. '+
       'Cada item precisa de evidence copiada literalmente de uma única mensagem do Cliente e o valor precisa estar provado nessa mesma frase. Nunca use fala da MCS como evidência. '+
-      'Para budget, value é o valor total em dólares. Para checklist, point é 1 a 6 e value é OK. Não invente nada. O resumo é em português e Dinheiro diferencia o lance da calculadora do valor falado. missing lista só o que o tipo de busca (busca.tipos) ainda precisa e que não está na conversa nem em busca.calculadora. Regra da mesa: quem busca POR CARRO (Find One: carro, faixa de ano e de milhagem) nunca recebe pergunta de lance, orçamento ou valor; quem busca POR VALOR (carro e lance máximo) nunca recebe pergunta de ano ou milhagem; não sugira perguntar o que o cliente ou a calculadora já informaram. Acrescente pending {situation,heat,summary,nextStep,translation}: situation é MCS_PENDING, CUSTOMER_PENDING, IN_PROGRESS ou CLOSED; heat é HOT, WARM ou COLD; translation só quando a última mensagem estiver em outro idioma. summary, nextStep e translation sempre em português.',
+      'Para budget, value é o valor total em dólares, só o número (ex.: 35000). Só gere budget quando a frase do cliente trouxer um valor numérico em dólares; sem número na frase, não gere budget. Para checklist, point é 1 a 6 e value é OK. Não invente nada. O resumo é em português e Dinheiro diferencia o lance da calculadora do valor falado. missing lista só o que o tipo de busca (busca.tipos) ainda precisa e que não está na conversa nem em busca.calculadora. Regra da mesa: quem busca POR CARRO (Find One: carro, faixa de ano e de milhagem) nunca recebe pergunta de lance, orçamento ou valor; quem busca POR VALOR (carro e lance máximo) nunca recebe pergunta de ano ou milhagem; não sugira perguntar o que o cliente ou a calculadora já informaram. Acrescente pending {situation,heat,summary,nextStep,translation}: situation é MCS_PENDING, CUSTOMER_PENDING, IN_PROGRESS ou CLOSED; heat é HOT, WARM ou COLD; translation só quando a última mensagem estiver em outro idioma. summary, nextStep e translation sempre em português.',
       prompt.user,options.fetchImpl,{ctx,feature:options.manual?'LEITURA_MANUAL':'LEITURA',subject:String(group.chatId||group.journey?.id||'-')}
     );
     const zip=(group.contact.location_text||'').match(/\b\d{5}\b/)?.[0]||'';
@@ -411,4 +418,4 @@ async function latestAiForJourney(ctx,journeyId){
   return {reading:reading?{...reading,items:items.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:suggestions[0]||null};
 }
 
-module.exports={fichaFacts,alreadyInFicha,stoppedJourneys,AI_MIN_MCS_MESSAGES,AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};
+module.exports={budgetValue,fichaFacts,alreadyInFicha,stoppedJourneys,AI_MIN_MCS_MESSAGES,AI_CONTEXT_MAX_CHARS,AI_CONTEXT_MAX_MESSAGES,AI_FAILURE_BACKOFF_MS,aiContextWindow,anthropicJson,allConversationData,automaticAttemptAllowed,calculatorOrders,deterministicCandidates,firstJson,latestAiForJourney,readConversation,reserveCall,runCron,suggestLink,validatedReading};
