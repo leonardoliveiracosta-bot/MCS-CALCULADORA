@@ -14,6 +14,7 @@
   let journeys = [];
   let printReviews = [];
   let calcQueue = [];
+  let nameLinks = [];
   let failedPrints = [];
   let printResolved = [];
   let senderAliases = [];
@@ -154,11 +155,11 @@
   // Short status of an Atendimento case ("Cliente sem resposta há 13 dias"), from its reasons.
   function shortStatus(entry, item) {
     const kinds = new Set((entry.reasons || []).map((reason) => reason.kind));
-    const waited = item?.group?.unattended?.waitedText;
+    // A time only with its channel and what it measures ("WhatsApp há 8 dias · sem resposta"); without a known channel, no time.
+    const timeLabel = item?.group?.unattended?.timeLabel || null;
     if (kinds.has('NAO_ATENDIDO') || kinds.has('RESPONDER')) {
-      const head = item?.group?.unattended?.reason === 'NO_ACTION' && !kinds.has('RESPONDER')
-        ? (waited ? `Sem ação · ${waited}` : 'Sem ação')
-        : (waited ? `Sem resposta · ${waited}` : 'Sem resposta');
+      const noAction = item?.group?.unattended?.reason === 'NO_ACTION' && !kinds.has('RESPONDER');
+      const head = timeLabel && (noAction || item?.group?.unattended?.reason === 'NO_RESPONSE') ? timeLabel : noAction ? 'Sem ação' : 'Sem resposta';
       // A decision waiting on her (link, tie, triage) stays visible next to the waiting time.
       const decision = (entry.reasons || []).find((reason) => ['VINCULO', 'REF_EMPATE', 'FORA_MCS', 'TRIAGEM'].includes(reason.kind));
       const label = decision && { VINCULO: 'Confirmar vínculo', REF_EMPATE: 'Escolher a simulação', FORA_MCS: 'Revisar: fora da MCS?', TRIAGEM: 'Classificar a conversa' }[decision.kind];
@@ -698,7 +699,8 @@
       const save = element('button', print.errorCode ? 'quiet small' : 'small', 'Guardar pelo painel'); save.type = 'button';
       MCSAction.bind(save, () => {
         const values = { phone: print.phone || phoneInput?.value.trim() || '', name: print.name || '', ref: print.ref || '', message: print.message || '', translation: print.translation || '' };
-        return { scope: item, commit: () => post({ action: 'confirm', auto: true, ...values }), successText: 'Print guardado', refresh: () => loadQueue(), onError: (error) => offerPhoneOwner(item, error, values), errorText: printSaveError };
+        // Telefone igual, nome diferente: nothing is saved; the two sides come up for "Confirmar vínculo".
+        return { scope: item, commit: () => post({ action: 'confirm', auto: true, ...values }), successText: (result) => result && result.review ? (result.confirm ? 'Não guardei: telefone igual, nome diferente · confirme o vínculo' : 'Não guardei: precisa da sua decisão') : 'Print guardado', onSuccess: (result) => { if (result && result.review && result.confirm && result.confirm.journeyId) offerLinkConfirm(item, result.confirm, values); }, refresh: (result) => result && result.review && result.confirm ? null : loadQueue(), onError: (error) => offerPhoneOwner(item, error, values), errorText: printSaveError };
       });
       actions.append(save);
     }
@@ -707,6 +709,10 @@
       commit: () => post({ action: 'discard' }), rollback: (before) => { item.classList.remove('action-optimistic-hidden'); setCount('imports', before); }, successText: 'Print descartado', refresh: () => loadQueue(), errorText: 'Não consegui descartar, tente de novo' }));
     actions.append(discard);
     item.append(actions);
+    // Kept back by the phone rule (same phone, different name or car, one ficha): the two sides and "Confirmar vínculo" here.
+    const single = print.pendingReason === 'FILA_CONTRADICAO' && (print.pendingCandidates || []).length === 1 ? print.pendingCandidates[0] : null;
+    if (single && single.journeyId) offerLinkConfirm(item, { journeyId: single.journeyId, ref: single.ref || null, name: single.name || null, printName: print.name || null, fichaNames: realName(single.name) ? [single.name] : [], nameConflict: 'nome', lastChannel: null, lastAt: null },
+      { phone: print.phone || '', name: print.name || '', ref: print.ref || '', message: print.message || '', translation: print.translation || '' });
     return item;
   }
   // The real reason a print was not saved, in words (never only "Não consegui guardar").
@@ -730,13 +736,28 @@
   function offerPhoneOwner(item, error, values) {
     const owner = error && error.code === 'SMS_PRINT_PHONE_OWNER' ? error.reason : null;
     if (!owner || !owner.journeyId) return;
+    offerLinkConfirm(item, owner, values);
+  }
+  // The print and the ficha of its phone side by side; with a different (or uncheckable) name the button says
+  // "Confirmar vínculo" and the decision is kept, so the link never comes back for review.
+  function offerLinkConfirm(item, owner, values) {
     const previous = item.querySelector('.print-owner-save'); if (previous && previous.dataset.journeyId === owner.journeyId) return; if (previous) previous.remove();
+    item.querySelector('.print-owner-sides')?.remove();
     item.classList.remove('action-optimistic-hidden');
-    const save = element('button', 'small print-owner-save', `Guardar em ${owner.name}${owner.ref ? ` · ${owner.ref}` : ''}`); save.type = 'button'; save.dataset.journeyId = owner.journeyId;
+    const conflict = Boolean(owner.nameConflict);
+    const fichaName = (owner.fichaNames || []).length ? owner.fichaNames.join(' / ') : (realName(owner.name) ? owner.name : 'Sem nome na ficha');
+    if (conflict || owner.printName) {
+      const { left, right } = nameLinkSides({ ref: owner.ref, simulation: { name: owner.printName, channel: 'SMS', at: null }, ficha: { names: (owner.fichaNames || []).length ? owner.fichaNames : (realName(owner.name) ? [owner.name] : []), channel: owner.lastChannel, lastAt: owner.lastAt } });
+      const sides = element('div', 'name-link-sides print-owner-sides');
+      const side = (data, cls) => { const box = element('div', 'name-link-side ' + cls); box.append(element('strong', 'name-link-name', data.name), element('span', 'muted', data.detail)); return box; };
+      sides.append(side({ name: left.name, detail: 'print de SMS' }, 'name-link-simulation'), element('span', 'name-link-vs', conflict ? '≠' : '='), side(right, 'name-link-ficha'));
+      item.insertBefore(sides, item.querySelector('.inline-actions'));
+    }
+    const save = element('button', 'small print-owner-save', conflict ? `Confirmar vínculo e guardar em ${fichaName}${owner.ref ? ` · ${owner.ref}` : ''}` : `Guardar em ${fichaName}${owner.ref ? ` · ${owner.ref}` : ''}`); save.type = 'button'; save.dataset.journeyId = owner.journeyId;
     const readId = item.dataset.readId;
-    MCSAction.bind(save, () => ({ scope: item, successScope: document.body, commit: () => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId, action: 'confirm', targetJourneyId: owner.journeyId, keepSource: true, ...values }) }),
+    MCSAction.bind(save, () => ({ scope: item, successScope: document.body, commit: () => request('/api/panel/sms-print', { method: 'POST', body: JSON.stringify({ readId, action: 'confirm', targetJourneyId: owner.journeyId, keepSource: true, nameConfirmed: conflict, ...values }) }),
       // Saved: the card leaves at once (the queue is read again behind it); refused: the real reason, and a new owner offered if the server names one.
-      successText: `Print guardado em ${owner.name}`, onSuccess: () => { item.remove(); setCount('imports', Math.max(0, countValue('imports') - 1)); }, refresh: () => loadQueue(),
+      successText: `Print guardado em ${fichaName}`, onSuccess: () => { item.remove(); setCount('imports', Math.max(0, countValue('imports') - 1)); }, refresh: () => loadQueue(),
       onError: (failure) => offerPhoneOwner(item, failure, values), errorText: printSaveError }));
     (item.querySelector('.inline-actions') || item).prepend(save);
   }
@@ -868,7 +889,62 @@
   }
   // The imported conversations that still wait for a decision become reasons of their case in
   // ATENDIMENTO (each row keeps its own controls). Read conversations are history: ficha and CLIENTES.
+  // Every time on a card says its channel and what it measures ("SMS há 18 min", "WhatsApp há 8 dias · sem resposta").
+  // Without a known channel the time is not shown.
+  const CHANNEL_NAMES = { SMS: 'SMS', WHATSAPP: 'WhatsApp' };
+  const channelName = (value) => CHANNEL_NAMES[String(value || '').toUpperCase()] || null;
+  function agoText(at) {
+    const ms = Date.now() - Date.parse(at || '');
+    if (!Number.isFinite(ms)) return null;
+    const minutes = Math.max(1, Math.floor(ms / 60000));
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    return hours < 48 ? `${hours} h` : `${Math.floor(hours / 24)} dias`;
+  }
+  const dayText = (at) => at ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', day: '2-digit', month: '2-digit' }).format(new Date(at)) : null;
+  // The two sides of a link by phone: "Dante · simulação por SMS há 18 min" vs "Taee · WhatsApp, última mensagem 25/09".
+  function nameLinkSides(link) {
+    const sim = link.simulation || {}, ficha = link.ficha || {};
+    const simChannel = channelName(sim.channel), simAgo = agoText(sim.at), fichaChannel = channelName(ficha.channel), fichaDay = dayText(ficha.lastAt);
+    const left = { name: sim.name || 'Sem nome na simulação', detail: simChannel && simAgo ? `simulação por ${simChannel} há ${simAgo}` : 'simulação' };
+    const right = { name: (ficha.names || []).length ? ficha.names.join(' / ') : 'Sem nome na ficha', detail: [fichaChannel && fichaDay ? `${fichaChannel}, última mensagem ${fichaDay}` : fichaChannel || '', link.ref ? `Ref ${link.ref}` : ''].filter(Boolean).join(' · ') };
+    return { left, right };
+  }
+  const pendingNameLinks = (journeyId) => journeyId ? nameLinks.filter((link) => link.journeyId === journeyId) : [];
+  function nameConflictRows(journeyId) {
+    return pendingNameLinks(journeyId).map((link) => { const { left, right } = nameLinkSides(link); return ['Nomes', `${left.name} (${left.detail}) ≠ ${right.name}${right.detail ? ` (${right.detail})` : ''}`, 'case-request-line case-name-conflict']; });
+  }
+  function renderNameLinks() {
+    const root = $('name-link-reviews');
+    if (!root) return;
+    document.querySelectorAll('[data-decision-source="namelink"]').forEach((node) => node.remove());
+    root.replaceChildren();
+    nameLinks.forEach((link) => {
+      const row = element('div', 'queue-item name-link');
+      row.dataset.decisionKey = link.key; row.dataset.decisionSource = 'namelink';
+      const { left, right } = nameLinkSides(link);
+      row.append(element('strong', '', (link.ficha?.names || []).length ? 'Confirmar vínculo · telefone igual, nome diferente' : 'Confirmar vínculo · telefone igual, a ficha não tem nome para conferir'));
+      const sides = element('div', 'name-link-sides');
+      const side = (data, cls) => { const box = element('div', 'name-link-side ' + cls); box.append(element('strong', 'name-link-name', data.name), element('span', 'muted', data.detail)); return box; };
+      sides.append(side(left, 'name-link-simulation'), element('span', 'name-link-vs', '≠'), side(right, 'name-link-ficha'));
+      row.append(sides);
+      row.append(element('span', 'muted', link.state === 'JUNTO' ? 'Estão juntos na mesma ficha desde antes desta regra · nada foi desfeito: decida abaixo' : 'Não foram juntados · só juntam com a sua confirmação'));
+      const actions = element('div', 'inline-actions');
+      const refresh = () => Promise.all([loadQueue(), loadCurrent().catch(() => {})]);
+      const post = (action) => request('/api/panel/calc-route', { method: 'POST', body: JSON.stringify({ action, messageId: link.messageId, journeyId: link.journeyId }) });
+      const confirm = element('button', 'small', 'É a mesma pessoa · confirmar vínculo'); confirm.type = 'button';
+      MCSAction.bind(confirm, () => ({ scope: row, successScope: document.body, commit: () => post('name_confirm'), successText: 'Vínculo confirmado', refresh, errorText: 'Não consegui confirmar, tente de novo' }));
+      const separate = element('button', 'quiet small', 'Não é a mesma pessoa'); separate.type = 'button';
+      const sure = element('button', 'small danger hidden', `Separar: ${left.name} vai para uma ficha própria`); sure.type = 'button';
+      separate.addEventListener('click', (event) => { event.stopPropagation(); sure.classList.remove('hidden'); separate.classList.add('hidden'); });
+      MCSAction.bind(sure, () => ({ scope: row, successScope: document.body, commit: () => post('name_separate'), successText: `Separado · ${left.name} ganhou uma ficha própria`, refresh, errorText: 'Não consegui separar, tente de novo' }));
+      actions.append(confirm, separate, sure);
+      row.append(actions);
+      root.append(row);
+    });
+  }
   function renderQueue(items, reviews) {
+    renderNameLinks();
     const root = $('entry-queue');
     document.querySelectorAll('[data-decision-source="chat"]').forEach((node) => node.remove());
     root.replaceChildren();
@@ -1198,6 +1274,7 @@
     refreshSmsJourneys();
     printReviews = data.printReviews || [];
     calcQueue = data.calcQueue || [];
+    nameLinks = data.nameLinks || [];
     failedPrints = data.failedPrints || [];
     printResolved = data.printResolved || [];
     // Conversations waiting for a decision go to ATENDIMENTO; errors, files and prints to IMPORTAÇÕES.
@@ -2356,6 +2433,7 @@
     (triage?.review || []).forEach((item) => out.push({ key: 'triage:' + item.id, kind: 'TRIAGEM', chatId: item.chatId || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, phone: item.phone_e164 || item.phone || null, label: 'Classificar a conversa (pré-compra ou fora do funil)' }));
     (triage?.offMcs || []).forEach((item) => out.push({ key: 'offmcs:' + item.journeyId, kind: 'FORA_MCS', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Revisar: candidata a fora da MCS · ' + (item.label || '') }));
     entryReviewChats(entry).forEach((chat) => out.push({ key: 'chat:' + chat.id, kind: 'REVISAR_CONVERSA', journeyId: uuidOnly(chat.groupJourneyId), name: chat.contact?.display_name || chat.canonical_key || null, label: chat.resolution_status === 'RESOLVED' ? 'Conferir conversa com hora incerta' : 'Revisar conversa importada e ligar à ficha certa' }));
+    nameLinks.forEach((link) => out.push({ key: link.key, kind: 'VINCULO', journeyId: uuidOnly(link.journeyId), name: link.simulation?.name || null, phone: link.phone || null, label: 'Confirmar vínculo: telefone igual, nome diferente' }));
     (vitrine?.requests || []).forEach((item) => out.push({ key: 'vitrine:' + item.id, kind: 'VITRINE', refState: item.refState || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, label: item.kind === 'BID' ? 'V2 · quer dar lance' : 'V1 · pediu para ver o carro' }));
     return out;
   }
@@ -2382,7 +2460,7 @@
   function applyAttend(data, vitrineData, entryData, triageData, whatsappData, savedAt) {
     updateMeta(data.meta);
     renderVitrineRequests(vitrineData||{requests:[],signals:[]});
-    if(entryData)renderQueue(entryData.chats||[],entryData.reviews||[]);
+    if(entryData){if(Array.isArray(entryData.nameLinks))nameLinks=entryData.nameLinks;renderQueue(entryData.chats||[],entryData.reviews||[]);}
     renderTriage(triageData);
     if(whatsappData)renderWhatsApp(whatsappData);
     const missing=[!vitrineData&&'pedidos de vitrine',!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos',...((data.degraded||[]).map((name)=>name+' (desatualizado)'))].filter(Boolean);
@@ -2504,7 +2582,7 @@
     const shellName = [first.name, first.sourceName, known?.name].find(realName);
     const shellPhone = [...entry.decisions, ...entry.requests].map((row) => row.phone || '').find(Boolean);
     const shellPhoneText = shellPhone ? phoneDisplay(shellPhone) : '';
-    card.append(caseFace({ title: shellName || shellPhoneText || 'Sem nome', ref: known ? (known.calcRef || 'sem Ref') : '', phone: shellName ? shellPhoneText : '', rows: [], requests: entry.requests }));
+    card.append(caseFace({ title: shellName || shellPhoneText || 'Sem nome', ref: known ? (known.calcRef || 'sem Ref') : '', phone: shellName ? shellPhoneText : '', rows: nameConflictRows(entry.journeyId), requests: entry.requests }));
     const actions = element('div', 'inline-actions card-primary');
     if (entry.journeyId) { const open = element('button', 'today-primary small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', entry.journeyId); }); actions.append(open); }
     const more = element('details', 'card-more case-more'); more.append(element('summary', '', '⋯ Mais'));
@@ -2650,6 +2728,8 @@
       const title = cars.join(' · ') || (realName(name) ? name : '') || phoneText || 'Sem nome';
       const rows = fields.filter(([label]) => !/^Carro/.test(label)).map(([label, value]) => [label === 'ZIP' ? 'Local' : label, value, label === 'ZIP' ? 'case-request-line case-zip' : 'case-request-line']);
       rows.push(['Calculadora', calculatorLabel(item), 'case-calculator']);
+      // Telefone igual, nome diferente and not decided yet: both names stay on the card, none disappears.
+      nameConflictRows(entry.journeyId).forEach((row) => rows.unshift(row));
       card.append(caseFace({ title, ref: ref || (refStateOf(item) === 'A_RECUPERAR' ? 'a recuperar' : 'sem Ref'), phone: title === phoneText ? '' : phoneText, rows, requests: entry.requests }));
       const actions = element('div', 'inline-actions card-primary');
       const replying = item.awaitingReply && item.kind !== 'CALCULATOR_ORDER';

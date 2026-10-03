@@ -1158,3 +1158,11 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 
 /* Enviar opções: cards outside the screen are not laid out until they come near it (same look, less work). */
 #searches-panel .manheim-lead { content-visibility: auto; contain-intrinsic-size: auto 520px; }
+
+/* Confirmar vínculo: the simulation and the ficha side by side (telefone igual, nome diferente). */
+.name-link-sides { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: stretch; margin: 6px 0; }
+.name-link-side { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid #E2DACB; border-radius: 8px; background: #FBF8F2; min-width: 0; overflow-wrap: anywhere; }
+.name-link-side .name-link-name { font-size: 15px; }
+.name-link-vs { align-self: center; font-weight: 700; color: #B3261E; }
+.case-name-conflict .case-field-value { color: #B3261E; font-weight: 600; }
+@media (max-width: 480px) { .name-link-sides { grid-template-columns: 1fr; } .name-link-vs { justify-self: center; } }

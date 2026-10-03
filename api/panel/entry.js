@@ -1,6 +1,7 @@
 'use strict';
 const phoneLink = require('../../panel-phone-link');
 const calcRoute = require('../../panel-calc-route');
+const nameLink = require('../../panel-name-link');
 
 const crypto = require('crypto');
 const { consolidateCalcRuns, toggleEnabled } = require('../../panel-domain');
@@ -452,6 +453,7 @@ async function queue(ctx, res) {
     // "não é lead" nor a switched-off ficha (R3). The list itself stays whole for the other forms.
     // Calculator messages the rule did not decide alone: reason and evidence, decided here (never lost, never guessed).
     calcQueue: await calcRoute.loadQueue(ctx).catch(() => null),
+    nameLinks: await nameLink.loadReviews(ctx).catch(() => null),
     reviews, printReviews, failedPrints, printResolved, contacts, journeys: journeys.map((journey) => ({ ...journey, refs: journeyRefs.filter((item) => item.journey_id === journey.id),
       linkable: contactsById.get(journey.contact_id)?.is_lead !== false && toggleEnabled(journey.status, toggleStates.find((state) => state.journey_id === journey.id)) })), chatAliases, senderAliases
   });

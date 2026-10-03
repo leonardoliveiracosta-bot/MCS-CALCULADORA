@@ -78,6 +78,9 @@
   const iso = (value) => { const at = stamp(value); return at ? new Date(at).toISOString() : null; };
   const isFinancing = (text) => FINANCING_RE.test(String(text || ''));
   // SMS when the message says so (channel, iPhone shortcut or SMS print); every other one is WhatsApp.
+  // The channel only when the message says it (no default): a time without a known channel is never shown.
+  const knownChannel = (channel, source) => { const value = String(channel || '').toUpperCase(), from = String(source || '').toUpperCase(); return value === 'SMS' || /^SMS/.test(from) ? 'SMS' : value === 'WHATSAPP' || /^WHATSAPP/.test(from) ? 'WHATSAPP' : null; };
+  const CHANNEL_LABEL = { SMS: 'SMS', WHATSAPP: 'WhatsApp' };
   const channelOf = (channel, source) => String(channel || '').toUpperCase() === 'SMS' || /^SMS/.test(String(source || '').toUpperCase()) ? 'SMS' : 'WHATSAPP';
   const messageAt = (message) => stamp(message && (message.occurred_at_utc || message.occurred_at_local || message.created_at));
 
@@ -94,7 +97,7 @@
       first_customer_at: first ? iso(messageAt(first)) : null, first_customer_channel: first ? first.channel || null : null, first_customer_source: first ? first.source_kind || null : null, first_customer_text: first ? String(first.body_text || '').slice(0, 300) : null,
       last_customer_id: lastCustomer ? lastCustomer.id : null, last_customer_at: lastCustomer ? iso(messageAt(lastCustomer)) : null, last_customer_text: lastCustomer ? String(lastCustomer.body_text || '').slice(0, 600) : null,
       last_customer_channel: lastCustomer ? lastCustomer.channel || null : null, last_customer_source: lastCustomer ? lastCustomer.source_kind || null : null,
-      last_mcs_id: lastMcs ? lastMcs.id : null, last_mcs_at: lastMcs ? iso(messageAt(lastMcs)) : null,
+      last_mcs_id: lastMcs ? lastMcs.id : null, last_mcs_at: lastMcs ? iso(messageAt(lastMcs)) : null, last_mcs_channel: lastMcs ? lastMcs.channel || null : null, last_mcs_source: lastMcs ? lastMcs.source_kind || null : null,
       latest_id: latest ? latest.id : null, latest_direction: latest ? latest.direction : null, latest_at: latest ? iso(messageAt(latest)) : null, latest_text: latest ? String(latest.body_text || '').slice(0, 600) : null, latest_automatic: latest ? Boolean(latest.is_automatic) : null,
       latest_real_mcs_at: (() => { const value = real.filter((message) => message.direction === 'MCS').at(-1); return value ? iso(messageAt(value)) : null; })()
     };
@@ -127,8 +130,11 @@
       financing: isFinancing(s.first_customer_text),
       firstCustomerAt: s.first_customer_at || null,
       firstChannel: s.first_customer_at ? channelOf(s.first_customer_channel, s.first_customer_source) : null,
+      firstChannelKnown: s.first_customer_at ? knownChannel(s.first_customer_channel, s.first_customer_source) : null,
       lastCustomerAt: s.last_customer_at || null,
+      lastCustomerChannel: s.last_customer_at ? knownChannel(s.last_customer_channel, s.last_customer_source) : null,
       lastMcsAt: s.last_mcs_at || null,
+      lastMcsChannel: s.last_mcs_at ? knownChannel(s.last_mcs_channel, s.last_mcs_source) : null,
       lastActionAt: journey ? journey.last_effective_contact_at || null : null,
       nextActionAt: journey ? journey.next_action_at || null : null,
       nextActionText: journey ? journey.next_action_text || null : null,
@@ -185,14 +191,19 @@
     const newerMessage = Boolean(f.awaitingReply && lastCustomer && (!scheduledAt || lastCustomer > scheduledAt));
     if (next && next > now && !newerMessage) return null;
     if (f.awaitingReply && lastCustomer) {
-      return { since: new Date(lastCustomer).toISOString(), waitedMs: now - lastCustomer, waitedText: waited(now - lastCustomer), reason: 'NO_RESPONSE', reasonText: 'Mensagem do cliente sem resposta', missing: 'Resposta à última mensagem do cliente', next: 'Responder o cliente' };
+      // The time says its channel and what it measures: "WhatsApp há 8 dias · sem resposta" (the client's last message).
+      const channel = CHANNEL_LABEL[f.lastCustomerChannel] || null;
+      return { since: new Date(lastCustomer).toISOString(), waitedMs: now - lastCustomer, waitedText: waited(now - lastCustomer), timeLabel: channel ? `${channel} há ${waited(now - lastCustomer)} · sem resposta` : null, reason: 'NO_RESPONSE', reasonText: 'Mensagem do cliente sem resposta', missing: 'Resposta à última mensagem do cliente', next: 'Responder o cliente' };
     }
     if (f.closed) return null;
     const lastAction = Math.max(stamp(f.lastMcsAt), stamp(f.lastActionAt));
     const base = lastAction || stamp(f.createdAt) || stamp(f.firstCustomerAt);
     if (!base || now - base < STALE_DAYS * DAY) return null;
+    // Measured from our last message (its channel) or from the client's first message; any other base has no channel.
+    const fromOurs = base === stamp(f.lastMcsAt) && CHANNEL_LABEL[f.lastMcsChannel], fromFirst = !lastAction && base === stamp(f.firstCustomerAt) && CHANNEL_LABEL[f.firstChannelKnown];
+    const timeLabel = fromOurs ? `${fromOurs} há ${waited(now - base)} · nossa última mensagem, sem ação depois` : fromFirst ? `${fromFirst} há ${waited(now - base)} · primeira mensagem, sem ação depois` : null;
     return {
-      since: new Date(base).toISOString(), waitedMs: now - base, waitedText: waited(now - base), reason: 'NO_ACTION', reasonText: `Nenhuma ação registrada há ${STALE_DAYS} dias ou mais`,
+      since: new Date(base).toISOString(), waitedMs: now - base, waitedText: waited(now - base), timeLabel, reason: 'NO_ACTION', reasonText: `Nenhuma ação registrada há ${STALE_DAYS} dias ou mais`,
       missing: next ? `A próxima ação venceu${f.nextActionText ? ': ' + f.nextActionText : ''}` : lastAction ? 'Nenhuma ação registrada desde o último contato da MCS' : 'Nenhuma ação registrada desde a entrada',
       next: next ? 'Fazer a próxima ação vencida ou marcar outra data' : 'Retomar o contato ou marcar a próxima ação'
     };
