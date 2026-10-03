@@ -755,3 +755,38 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 #today-list .today-card:has(.case-more[open]) { z-index: 40; }
 /* One column on a phone: the panel opens inside the card, never over the next one. */
 @media (max-width: 640px) { #today-list .today-card .case-more-body { position: static; margin-top: 8px; box-shadow: none; max-height: none; } #today-list .today-card > .inline-actions.card-primary { flex-wrap: wrap; } #today-list .today-card .case-more[open] { flex: 1 1 100%; } }
+
+/* ATENDIMENTO · leitura: Instrument Sans (a fonte do sistema) em tamanho que preenche a caixa. */
+#today-list .today-card { font-family: "Instrument Sans", system-ui, sans-serif; font-size: 16px; gap: 10px; padding: 14px 16px 16px; }
+#today-list .today-card .card-decision { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; font-size: 15px; }
+#today-list .today-card .card-decision-label { font-size: 15px; font-weight: 600; }
+#today-list .case-fields { gap: 6px; }
+#today-list .case-field { grid-template-columns: 118px minmax(0, 1fr); gap: 10px; }
+#today-list .case-field-label { font-size: 14px; font-weight: 500; color: var(--mcs-muted); }
+#today-list .case-field-value { font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--mcs-text); }
+#today-list .case-phone .case-field-value { font-size: 17px; }
+/* Abrir pedido / Responder / Abrir ficha: dourado, metade da caixa, centralizado. */
+#today-list .today-card > .inline-actions.card-primary { justify-content: center; flex-wrap: wrap; gap: 8px; }
+#today-list .today-card > .inline-actions > .today-primary { flex: 0 0 50%; max-width: none; min-height: 44px; padding: 10px 16px; font-size: 16px; font-weight: 600; background: var(--mcs-gold); color: var(--mcs-on-gold); border: 0; border-radius: var(--mcs-radius-sm); justify-content: center; text-align: center; }
+#today-list .today-card > .inline-actions > .today-primary:hover { filter: brightness(1.05); }
+#today-list .today-card > .inline-actions > .case-more { flex: 1 1 100%; text-align: center; }
+/* Seleção: uma abinha pequena no canto do status. */
+#today-list .case-pick { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin: -4px -6px -4px 0; border-radius: 8px; cursor: pointer; flex: 0 0 auto; }
+#today-list .case-pick:hover { background: var(--mcs-hover); }
+#today-list .case-pick-box { width: 20px; height: 20px; margin: 0; accent-color: var(--mcs-gold); cursor: pointer; }
+#today-list .today-card.case-picked { outline: 2px solid var(--mcs-gold); outline-offset: 0; }
+/* Barra de exclusão no início da lista. */
+#today-list .attend-bulk { position: sticky; top: 64px; z-index: 35; display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 12px; background: var(--mcs-elevated, var(--mcs-card)); border: 1px solid var(--mcs-line); border-radius: var(--mcs-radius); box-shadow: var(--mcs-shadow); font-size: 15px; }
+#today-list .attend-bulk.hidden { display: none; }
+#today-list .attend-bulk-count { font-weight: 600; margin-right: auto; }
+#today-list .attend-bulk-delete { background: var(--mcs-red); color: #fff; border: 0; min-height: 40px; padding: 8px 16px; font-weight: 600; }
+@media (max-width: 640px) { #today-list .case-field { grid-template-columns: 104px minmax(0, 1fr); } #today-list .today-card > .inline-actions > .today-primary { flex-basis: 60%; } #today-list .case-pick { width: 44px; height: 44px; } }
+/* Letras maiores: o texto ocupa ao menos 80% da caixa. */
+#today-list .today-card .card-decision-label { font-size: 17px; }
+#today-list .case-fields { gap: 8px; }
+#today-list .case-field { grid-template-columns: 132px minmax(0, 1fr); gap: 12px; }
+#today-list .case-field-label { font-size: 16px; white-space: nowrap; }
+#today-list .case-field-value { font-size: 19px; font-weight: 600; letter-spacing: .005em; line-height: 1.35; }
+#today-list .case-phone .case-field-value { font-size: 20px; }
+#today-list .today-card > .inline-actions > .today-primary { font-size: 17px; min-height: 48px; }
+@media (max-width: 1279px) { #today-list .case-field { grid-template-columns: 116px minmax(0, 1fr); } #today-list .case-field-label { font-size: 15px; } #today-list .case-field-value { font-size: 17px; } }
