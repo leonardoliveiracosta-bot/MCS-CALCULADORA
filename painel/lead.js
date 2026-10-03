@@ -142,12 +142,23 @@
     append(wishes,'p','muted',`${data.zipKnown===false?'ZIP não informado (estimativa como FL)':data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':data.plateInformed===false?'não informada (custo calculado como transferir)':'transferir'}`);
     const ceilingForm=append(wishes,'div','lead-actions');const ceilingInput=append(ceilingForm,'input');ceilingInput.type='number';ceilingInput.min='1';ceilingInput.step='1';ceilingInput.placeholder='Teto total confirmado (US$)';ceilingInput.value=data.totalCeilingCents?data.totalCeilingCents/100:'';
     button(ceilingForm,'Confirmar teto total',async()=>{await api('total_ceiling',{amount:ceilingInput.value});await reload();});
-    const reality=section(trio,5,'REALIDADE (SÓ PARA VOCÊ)');
-    append(reality,'p','',`Lance realista: ${data.bid===null?(data.totalCeilingCents?'sem lance viável no teto':'lance máximo não informado'):fmt(data.bid)}`);
-    if(!data.typical.length) append(reality,'p','muted','MMR típico: sem referência');
-    data.typical.forEach((wish)=>{ append(reality,'p','muted',`MMR típico ${model(wish)}: ${wish.mmrCents?cents(wish.mmrCents):'sem referência'}`);
-      if(wish.mmrCents&&data.bid!==null&&wish.mmrCents>data.bid*100) reality.append(badge(`Teto curto em ~${cents(wish.mmrCents-data.bid*100)}`,'yellow')); });
-    append(reality,'p','muted','Dentro do teto do cliente: '+(data.fits.length?data.fits.map((car)=>`${car.make} ${car.model} ${car.year} · ${Number(car.miles).toLocaleString('en-US')} mi`).join(' · '):'sem combinação nos CSVs'));
+    const reality=section(trio,5,'REALIDADE · SÓ PARA VOCÊ');reality.classList.add('reality-card');
+    // Deterministic list (server): year + model as in the CSV + the column the rule chose; "Nenhuma opção..." when empty.
+    const rl=data.reality||null;
+    const usd=(value)=>'$'+Math.round(Number(value)/100).toLocaleString('pt-BR');
+    const mi=(value)=>value===null||value===undefined?'milhas não informadas':Number(value).toLocaleString('pt-BR')+' mi';
+    if(rl){
+      append(reality,'p',rl.rows.length?'reality-verdict':'reality-verdict is-empty',rl.verdict);
+      if(rl.typicalCents)append(reality,'p','reality-typical','MMR típico: '+usd(rl.typicalCents));
+      if(rl.rows.length){
+        if(rl.label)append(reality,'p','reality-label',rl.label);
+        const list=append(reality,'div','reality-list'+(rl.column==='MILHAS_MMR'?' four':''));
+        rl.rows.forEach((row)=>{const line=append(list,'div','reality-row');append(line,'strong','reality-year',String(row.year||'—'));append(line,'span','reality-model',row.model||'—');
+          if(rl.column==='MMR')append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));
+          else if(rl.column==='MILHAS_MMR'){append(line,'span','reality-miles','· '+mi(row.miles));append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));}
+          else append(line,'span','reality-miles','· '+mi(row.miles));});
+      }
+    }else append(reality,'p','muted','Nenhuma opção no lote dentro dos filtros');
     const numbers=section(trio,6,'NÚMEROS PRONTOS');
     if(data.costs){const c=data.costs;row(numbers,'Depósito',fmt(c.deposito));row(numbers,'Taxa de serviço',fmt(c.servico));row(numbers,'Taxa do leilão + fixas',fmt(c.gLeilao));row(numbers,'Tax, title & registration',fmt(c.gTaxReg));row(numbers,'Total estimado',fmt(c.totalProjetado));}
     else append(numbers,'p','muted',data.totalCeilingCents?'O teto não cobre o lance mínimo e os custos':'Lance máximo ainda não informado');

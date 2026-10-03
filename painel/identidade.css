@@ -988,3 +988,16 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .wa-handoff-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .wa-handoff-actions .wa-handoff-push { background: #C9A227; color: #1B1A18; border: 1px solid #C9A227; min-height: 40px; padding: 8px 16px; border-radius: 8px; font-weight: 700; }
 .wa-handoff-status:empty { display: none; }
+
+/* Cartão 5 "REALIDADE · SÓ PARA VOCÊ": veredito, MMR típico (quando fora das linhas), rótulo e lista ano/modelo/coluna. */
+.reality-card .reality-verdict { margin: 4px 0 2px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 16px; font-weight: 700; color: #2F7D3B; }
+.reality-card .reality-verdict.is-empty { color: #8A837B; font-weight: 600; }
+.reality-card .reality-typical { margin: 0 0 10px; font-size: 13px; color: #8A837B; }
+.reality-card .reality-label { margin: 10px 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #A39A86; }
+.reality-card .reality-list { display: grid; grid-template-columns: max-content max-content 1fr; gap: 6px 12px; align-items: baseline; font-family: "Noto Sans", system-ui, sans-serif; font-size: 14px; }
+.reality-card .reality-list.four { grid-template-columns: max-content max-content max-content 1fr; }
+.reality-card .reality-row { display: contents; }
+.reality-card .reality-year { font-weight: 700; color: #1B1A18; }
+.reality-card .reality-model { color: #1B1A18; }
+.reality-card .reality-miles { color: #8A837B; }
+.reality-card .reality-value { font-weight: 700; color: #1B1A18; }
