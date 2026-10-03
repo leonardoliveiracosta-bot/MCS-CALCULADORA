@@ -1,6 +1,6 @@
 'use strict';
 
-const {allConversationData,calculatorOrders,deterministicCandidates,readConversation}=require('../../panel-ai');
+const {allConversationData,budgetValue,calculatorOrders,deterministicCandidates,readConversation}=require('../../panel-ai');
 const {insert,isUuid,jsonBody,patchRows,requirePanel,rows,send,supabase}=require('../../panel-server');
 
 async function resolveSuggestion(ctx,id,link){
@@ -29,6 +29,11 @@ module.exports=async(req,res)=>{
       if(!isUuid(body.readingId)||!isUuid(body.confirmationKey)||!Array.isArray(body.itemIds)||!body.itemIds.length||body.itemIds.some((id)=>!isUuid(id)))return send(res,400,{error:'AI_SELECTION_REQUIRED'});
       const journey=(await rows(ctx,'journeys',{select:'id,contact_id,reference_code,vehicle_text,criteria_json,budget_cents,payment_text,customer_deadline_text',environment:'eq.'+ctx.environment,id:'eq.'+body.journeyId,limit:'1'}))[0];
       if(!journey)return send(res,404,{error:'JOURNEY_NOT_FOUND'});
+      // A "Teto total" item without a dollar number can never be saved: dropped before the save.
+      const chosen=await rows(ctx,'conversation_ai_items',{select:'id,item_json',environment:'eq.'+ctx.environment,id:'in.('+body.itemIds.join(',')+')'});
+      const empty=new Set(chosen.filter((row)=>row.item_json?.type==='budget'&&budgetValue(row.item_json?.value)===null).map((row)=>row.id));
+      body.itemIds=body.itemIds.filter((id)=>!empty.has(id));
+      if(!body.itemIds.length)return send(res,400,{error:'AI_ITEM_NO_VALUE'});
       const result=await supabase(ctx.config.url,ctx.config.secretKey,'/rest/v1/rpc/panel_ai_confirm_items',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_actor:ctx.panel.id,p_journey:body.journeyId,
           p_reading:body.readingId,p_item_ids:body.itemIds,p_key:body.confirmationKey,p_initial:{vehicle:journey.vehicle_text,wishes:journey.criteria_json?.wishlists||[],maxBidCents:journey.budget_cents,payment:journey.payment_text,deadline:journey.customer_deadline_text}})
