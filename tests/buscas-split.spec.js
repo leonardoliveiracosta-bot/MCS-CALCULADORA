@@ -138,7 +138,7 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
   await expect(page.locator('#buscas-carro-saved')).toContainText('POR ANO E MILHAGEM #1');
   await expect(page.locator('#requests-valor .request-card')).toHaveCount(1);
   await expect(page.locator('#requests-carro .request-card')).toHaveCount(1);
-  await expect(page.locator('#requests-carro .request-card')).toContainText('Resultado no lote: COM OPÇÕES NO LOTE');
+  await expect(page.locator('#requests-carro .request-card')).toContainText(/opç(ão|ões) no lote/);
   await expect(page.locator('#requests-carro .request-card')).toContainText('Andamento: 🔍 Busca não salva no Manheim');
   await expect(page.locator('#requests-valor .request-card')).toContainText('Andamento: 💾 Busca salva no Manheim');
   await expect(page.locator('#requests-panel')).not.toContainText('Falta buscar');

@@ -223,7 +223,7 @@
   // Adendo, item 2: com carros × sem carros (a busca rodou) × busca ainda não rodada. Nunca misturados.
   // Every "sem carros" shows its reason in plain language; one field per piece of information.
   const SEARCH_GROUPS = [
-    { key: 'COM_CARROS', label: 'Com carros no lote', hint: 'A busca rodou e achou carros no lote ativo · Opção válida passou pelo cálculo oficial; candidato (valor a conferir) ainda não é opção', states: ['COM_OPCOES', 'COM_CANDIDATOS'] },
+    { key: 'COM_CARROS', label: 'Com carros no lote', hint: 'A busca achou carros no lote ativo', states: ['COM_OPCOES', 'COM_CANDIDATOS'] },
     { key: 'SEM_CARROS', label: 'Sem carros', hint: 'A busca rodou e não achou nenhum carro · O motivo aparece em cada pedido', states: ['SEM_OPCAO'] },
     { key: 'NAO_RODADA', label: 'Busca ainda não rodada', hint: 'Falta comparar com o lote, falta detalhe do cliente ou precisa de revisão', states: ['FALTA_BUSCAR', 'PRECISA_DETALHE', 'PRECISA_REVISAO'] }
   ];
