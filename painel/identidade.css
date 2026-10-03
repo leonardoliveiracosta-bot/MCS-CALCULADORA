@@ -830,3 +830,8 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 #today-list .attend-bulk-clear { background: transparent; color: #010205; border: 2px solid #010205; }
 @media (max-width: 1279px) { #today-list .case-field { grid-template-columns: 112px minmax(0, 1fr); } #today-list .case-field-value { font-size: 17px; } #today-list .case-field-label { font-size: 15px; } }
 @media (max-width: 640px) { #today-list .today-card { padding: 16px; } #today-list .today-card.case-picked { padding: 15px; } #today-list .case-pick { width: 44px; height: 44px; } }
+/* "Mostrar mais": 30 caixas por vez. */
+#today-list .attend-more { display: flex; justify-content: center; margin: 24px 0 8px; }
+#today-list .attend-more.hidden { display: none; }
+#today-list .attend-more-button { font-family: "Inter", system-ui, sans-serif; min-height: 54px; padding: 13px 32px; border-radius: 4px; border: 2px solid #010205; background: #FFFFFF; color: #010205; font-size: 16px; font-weight: 600; cursor: pointer; }
+#today-list .attend-more-button:hover { background: #010205; color: #FFFFFF; }
