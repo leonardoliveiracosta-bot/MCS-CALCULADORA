@@ -183,6 +183,19 @@
     if (facts.zipText) fields.push(['ZIP', facts.zipText]);
     return fields;
   }
+  // A name is shown only when it is a person's name: never a technical value like "_chat", "null" or a number.
+  function realName(value) { const text = String(value || '').trim(); return Boolean(text) && !/^[_@#]/.test(text) && !/^(chat|null|undefined|unknown|sem nome|contato sem nome)$/i.test(text) && /\p{L}{2,}/u.test(text) && !/^\+?\d[\d\s()-]+$/.test(text); }
+  // ZIP with city and state: when the calculator message brought only the number, the place is looked
+  // up once (zippopotam, the same service the calculator uses) and kept in this browser.
+  const zipPlaces = new Map();
+  function fillZipPlace(node, value) {
+    const zip = String(value || '').trim();
+    if (!node || !/^\d{5}$/.test(zip)) return;
+    let cached = null; try { cached = localStorage.getItem('mcs_zip_' + zip); } catch {}
+    if (cached) { node.textContent = zip + ' · ' + cached; return; }
+    if (!zipPlaces.has(zip)) zipPlaces.set(zip, fetch('https://api.zippopotam.us/us/' + zip).then((response) => response.ok ? response.json() : null).then((data) => { const place = data && data.places && data.places[0]; const text = place ? `${place['place name']} · ${place['state abbreviation']}` : null; if (text) { try { localStorage.setItem('mcs_zip_' + zip, text); } catch {} } return text; }).catch(() => null));
+    zipPlaces.get(zip).then((text) => { if (text && node.isConnected) node.textContent = zip + ' · ' + text; });
+  }
   function calculatorLabel(item) {
     const modes = (item.cardFacts && item.cardFacts.modes) || [];
     const names = modes.map((mode) => mode === 'VALOR' ? 'Calculate My Cost (por valor)' : mode === 'CARRO' ? 'Find One For Me (por carro)' : null).filter(Boolean);
@@ -2248,7 +2261,8 @@
     const known = identity && identity !== 'loading' ? identity : null;
     const head = element('dl', 'case-identity case-fields');
     const field = (label, value, cls) => { const row = element('div', 'case-field' + (cls ? ' ' + cls : '')); row.append(element('dt', 'case-field-label', label + ':'), element('dd', 'case-field-value', value)); head.append(row); };
-    field('Nome', first.name || known?.name || 'Conversa sem nome', 'case-name identity-name');
+    const shellName = [first.name, known?.name].find(realName);
+    field('Nome', shellName || 'sem nome', 'case-name identity-name');
     if (known) field('Ref', known.calcRef || 'sem Ref', 'case-ref');
     card.append(head);
     const actions = element('div', 'inline-actions card-primary');
@@ -2387,11 +2401,11 @@
       const phone = primaryPhone(item);
       const phoneText = phone ? phoneDisplay(phone.phone_e164 || phone.phone_raw || '') : '';
       const digits = (value) => String(value || '').replace(/\D/g, '');
-      if (name && digits(name) !== digits(phone?.phone_e164 || phone?.phone_raw || '') && !/^\+?\d[\d\s()-]+$/.test(name)) field('Nome', name, 'case-name');
+      if (realName(name) && digits(name) !== digits(phone?.phone_e164 || phone?.phone_raw || '')) field('Nome', name, 'case-name');
       field('Telefone', phoneText || 'falta o número', 'case-phone');
       const ref = refOf(item) || calcRefOf(item);
       field('Ref', ref || (refStateOf(item) === 'A_RECUPERAR' ? 'a recuperar' : 'sem Ref'), 'case-ref');
-      caseRequestFields(item).forEach(([label, value]) => field(label, value, 'case-request-line'));
+      caseRequestFields(item).forEach(([label, value]) => { const row = field(label, value, 'case-request-line'); if (label === 'ZIP') fillZipPlace(row.querySelector('.case-field-value'), value); });
       field('Calculadora', calculatorLabel(item), 'case-calculator');
       card.append(head);
       // An incomplete request of this person: what is missing (the request waits here, not in BUSCAR CARROS).
