@@ -1113,7 +1113,7 @@
   let queueSeq = 0;
   async function loadQueue(render = true) {
     const seq = ++queueSeq;
-    const data = await request('/api/panel/entry');
+    const data = await fresh('/api/panel/entry');
     if (seq !== queueSeq) return data;
     contacts = data.contacts || [];
     chats = data.chats || [];
@@ -1721,18 +1721,16 @@
     if (view === 'today') {
       // ATENDIMENTO: HOJE and the decisions of the old ENTRADA, drawn once everything arrived. A
       // decision list that fails stays out (said on screen) and never empties the queue.
-      const [data,vitrineData,,entryData,triageData,whatsappData]=await Promise.all([request('/api/panel/today?sort='+encodeURIComponent($('today-sort').value),viewFetch()),request('/api/panel/vitrine-requests',viewFetch()).catch(()=>null),loadWeekly().catch(()=>null),
-        loadQueue(false).catch(()=>null),request('/api/panel/triage').catch(()=>null),request('/api/panel/whatsapp').catch(()=>null)]);
+      // The last answer saved in this browser is drawn at once (the page opens without waiting); the fresh answer
+      // replaces it as soon as it arrives. Each request is shared with the tab counters (never fetched twice).
+      const pending=Promise.all([fresh(todayPath()),fresh('/api/panel/vitrine-requests').catch(()=>null),loadWeekly().catch(()=>null),
+        loadQueue(false).catch(()=>null),fresh('/api/panel/triage').catch(()=>null),fresh('/api/panel/whatsapp').catch(()=>null)]);
+      let freshArrived=false;pending.then(()=>{freshArrived=true;},()=>{});
+      if (!attendSnapshotTried) { attendSnapshotTried = true; await readAttendSnapshot().then((snap) => { if (snap && !freshArrived && current()) applyAttend(snap.today, snap.vitrine, snap.entry, snap.triage, snap.whatsapp, snap.at); }).catch(() => {}); }
+      const [data,vitrineData,,entryData,triageData,whatsappData]=await pending;
       if (!current()) return;
-      updateMeta(data.meta);
-      renderVitrineRequests(vitrineData||{requests:[],signals:[]});
-      if(entryData)renderQueue(entryData.chats||[],entryData.reviews||[]);
-      renderTriage(triageData);
-      if(whatsappData)renderWhatsApp(whatsappData);
-      const missing=[!vitrineData&&'pedidos de vitrine',!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos',...((data.degraded||[]).map((name)=>name+' (desatualizado)'))].filter(Boolean);
-      $('triage-state').textContent=[missing.length?`Não consegui carregar agora: ${missing.join(', ')} · o resto da fila vale`:'',triageData&&triageData.state!=='LIGADA'?'Triagem automática desligada: as conversas novas seguem o fluxo normal':''].filter(Boolean).join(' · ');
-      attendData.discarded=new Set(data.discardedJourneys||[]);
-      renderToday(data.items || []);
+      applyAttend(data, vitrineData, entryData, triageData, whatsappData, null);
+      if (vitrineData && entryData && triageData && whatsappData) saveAttendSnapshot({ at: new Date().toISOString(), today: data, vitrine: vitrineData, entry: entryData, triage: triageData, whatsapp: whatsappData });
       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
       sharedGet('/api/panel/pesquisas', 30000).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;renderToday(todayItems,true);})
         // A failed source is said on screen and the last good list stays; "Completar pedido" never turns into an empty count.
@@ -1801,7 +1799,7 @@
     // C5: only the visible tabs are counted. Each GET is shared with an identical one already running
     // and reuses an answer of the last seconds. Every badge uses the same rule as its list.
     const settled = await Promise.allSettled([
-      sharedGet('/api/panel/today', 10000),
+      sharedGet(todayPath(), 10000),
       sharedGet('/api/panel/entry', 10000),
       Promise.resolve(null),
       sharedGet('/api/panel/records?pageSize=1&period=' + encodeURIComponent(clientsPeriod()), 10000),
@@ -2276,6 +2274,26 @@
     attendRenderTimer = setTimeout(() => { if (currentView === 'today') renderToday(todayItems, true); }, 40);
   }
   // "Excluir selecionados": every selected card leaves the panel (the same "Excluir" as in the ficha), with one "Desfazer".
+  function applyAttend(data, vitrineData, entryData, triageData, whatsappData, savedAt) {
+    updateMeta(data.meta);
+    renderVitrineRequests(vitrineData||{requests:[],signals:[]});
+    if(entryData)renderQueue(entryData.chats||[],entryData.reviews||[]);
+    renderTriage(triageData);
+    if(whatsappData)renderWhatsApp(whatsappData);
+    const missing=[!vitrineData&&'pedidos de vitrine',!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos',...((data.degraded||[]).map((name)=>name+' (desatualizado)'))].filter(Boolean);
+    $('triage-state').textContent=[missing.length?`Não consegui carregar agora: ${missing.join(', ')} · o resto da fila vale`:'',triageData&&triageData.state!=='LIGADA'?'Triagem automática desligada: as conversas novas seguem o fluxo normal':''].filter(Boolean).join(' · ');
+    attendData.discarded=new Set(data.discardedJourneys||[]);
+    renderToday(data.items || []);
+    if (savedAt) { const note = $('triage-state'); if (note) note.textContent = [`Mostrando os dados de ${formatDate(savedAt)} · atualizando…`, note.textContent].filter(Boolean).join(' · '); }
+  }
+  // One request per path at a time, shared with the counters; the answer is kept for the counters of the next seconds.
+  const fresh = (path) => requestPool ? requestPool.get(path, () => request(path), { ttlMs: 0 }) : request(path);
+  const todayPath = () => '/api/panel/today?sort=' + encodeURIComponent($('today-sort')?.value || '');
+  // ATENDIMENTO snapshot in IndexedDB (no size limit like localStorage): only in this browser, replaced on every load.
+  let attendSnapshotTried = false;
+  function attendDb() { return new Promise((resolve, reject) => { if (!window.indexedDB) return reject(new Error('NO_IDB')); const open = indexedDB.open('mcs-painel', 1); open.onupgradeneeded = () => open.result.createObjectStore('snap'); open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error); }); }
+  async function readAttendSnapshot() { const db = await attendDb(); return new Promise((resolve) => { const req = db.transaction('snap').objectStore('snap').get('attend'); req.onsuccess = () => resolve(req.result || null); req.onerror = () => resolve(null); }); }
+  function saveAttendSnapshot(value) { attendDb().then((db) => { db.transaction('snap', 'readwrite').objectStore('snap').put(value, 'attend'); }).catch(() => {}); }
   const ATTEND_PAGE = 30;
   let attendLimit = ATTEND_PAGE, attendPageKey = '';
   function bulkBar() {
