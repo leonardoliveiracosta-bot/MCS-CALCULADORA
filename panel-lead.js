@@ -241,6 +241,12 @@ async function leadData(ctx, req, refInput, idInput) {
   const fitSeen = new Set();
   const fits = offers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind) && !fitSeen.has(vehicle.rowFingerprint) && fitSeen.add(vehicle.rowFingerprint))
     .map((vehicle) => ({ year: vehicle.year, miles: vehicle.miles, make: vehicle.make, model: vehicle.model })).slice(0, 8);
+  // Cartão 5: every option of the batch inside the filters, with the column chosen by the deterministic rule.
+  const servedSeen = new Set();
+  const servedOptions = offers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind) && !servedSeen.has(vehicle.rowFingerprint) && servedSeen.add(vehicle.rowFingerprint));
+  const reference = [...unique.values()].filter((car) => matchesFor(car).some(({ result }) => !result.dataGap));
+  const milesCap = wishes.some((wish) => Number(wish.maxMiles) > 0) || demands.some((demand) => (demand.activeWishes || []).some((wish) => Number(wish.maxMiles) > 0));
+  const reality = require('./panel-reality').realityList({ options: servedOptions, reference, maxBidCents, milesCap, typicalCents: typical.map((wish) => wish.mmrCents) });
   const lastCustomer = record && [...(record.conversation || [])].reverse().find((message) => message.direction === 'CUSTOMER');
   const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
   const goodHour = hour >= 9 && hour < 20;
@@ -269,7 +275,7 @@ async function leadData(ctx, req, refInput, idInput) {
   // Adendo, item 2: which search types the person has and whether a batch is active (the ficha
   // splits "O QUE OFERECER" into com carros, sem carros and busca ainda não rodada).
   const batchActive = Boolean(activeUpload || (demands.length ? await latestActiveUpload(ctx, 'id').catch(() => null) : null));
-  return { searchModes: [...new Set(demands.map((demand) => demand.mode))], batchActive, plateInformed: Boolean(order && order.plate), paymentKnown: paymentKnown || null, zipKnown: Boolean(state), deadlineKnown: normalizeDeadline(record?.customer_deadline_text) || normalizeDeadline(order?.deadlineText) || null, ref, hasCalculatorRef:hasRef||record?.hasCalcRef===true, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, calculatorNews: news, bidSource: criteria.bidSource, wishesSource: criteria.wishesSource, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
+  return { reality, searchModes: [...new Set(demands.map((demand) => demand.mode))], batchActive, plateInformed: Boolean(order && order.plate), paymentKnown: paymentKnown || null, zipKnown: Boolean(state), deadlineKnown: normalizeDeadline(record?.customer_deadline_text) || normalizeDeadline(order?.deadlineText) || null, ref, hasCalculatorRef:hasRef||record?.hasCalcRef===true, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, calculatorNews: news, bidSource: criteria.bidSource, wishesSource: criteria.wishesSource, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
 }
 
 async function belongsToJourney(ctx, ref, journey) {
