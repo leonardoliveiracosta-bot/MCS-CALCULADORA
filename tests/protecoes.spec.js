@@ -88,11 +88,11 @@ test('ATENDIMENTO: conversas sem Ref num bloco só por assunto, filtro de assunt
   await expect(block).toHaveCount(1, { timeout: 30000 });
   await expect(block.locator('.contact-area-label')).toHaveText('Conversas sem Ref');
   await expect(block.locator('.contact-subject-label')).toHaveText(['Financiamento', 'Pedido de carro', 'Só cumprimentou', 'Outros assuntos', 'Ainda não identificado']);
-  // origin Calculadora with subject Financiamento stays in the calculator area, subject is a separate chip
+  // origin Calculadora with subject Financiamento stays in the calculator area; the lean card says which calculator, not the subject
   const calc = page.locator('#today-list section.contact-area[data-area="CALC_SEM_TIPO"]');
   await expect(calc).toContainText('Fábio Calc');
-  await expect(calc.locator('.subject-chip')).toHaveText('Financiamento');
-  await expect(calc.locator('.origin-chip')).toContainText('Veio pela calculadora');
+  await expect(calc.locator('.case-calculator')).toHaveCount(1);
+  await expect(calc.locator('.subject-chip')).toHaveCount(0);
   await expect(page.locator('#triage-state')).toContainText('assunto e identidade (desatualizado)');
   // the subject filter narrows the list and says so when empty
   await page.locator('#today-subject').selectOption('SO_CUMPRIMENTO');

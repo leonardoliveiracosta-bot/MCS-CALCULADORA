@@ -82,13 +82,13 @@ for (const width of [1366, 390]) {
     // suggestion). The compact card says why and what to do; the full summary is one click away.
     const todayCard = page.locator('#today-list .item-card', { hasText: 'Marina Demonstração' }).first();
     await expect(todayCard).toBeVisible({ timeout: 60000 });
-    await expect(todayCard.locator('.card-decision')).toContainText('Depende de você');
+    await expect(todayCard.locator('.card-decision')).toContainText('Cliente sem resposta');
     await todayCard.locator('.case-more > summary').click();
     const todaySummary = await reach(todayCard);
     await expect(todaySummary).toBeVisible({ timeout: 30000 });
     for (const text of ['Etapa', 'Em busca', 'Depende de', 'MCS', 'Próxima ação · sugestão do painel', 'Responder o cliente', 'Carro', 'Toyota Corolla', 'Informado pelo cliente', 'Lance máximo', 'US$ 18,000', 'Prazo', 'Até 30 dias']) await expect(todaySummary).toContainText(text);
     await expect(todaySummary.locator('.context-fact', { hasText: 'Critérios da busca' })).toContainText('Completos');
-    await expect(todayCard.locator('.identity-facts')).toContainText('Ref');
+    await expect(todayCard.locator('.case-ref')).toContainText('Ref');
     await noOverflow();
     await shot(page, `hoje-${width}`);
 

@@ -51,7 +51,7 @@ test('Lote 2: HOJE mostra retorno vencido e conta só quem aguarda resposta', as
   ], meta: {} }) });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#today-list .today-card')).toHaveCount(2, { timeout: 30000 });
-  await expect(page.locator('#today-list .today-card').first()).toContainText('RETORNO VENCIDO · Ligar');
+  await expect(page.locator('#today-list .today-card').first()).toContainText('Retorno vencido');
   await expect(page.locator('#today-stats')).toContainText('1Aguardando sua resposta');
   await expect(page.locator('#today-stats')).toContainText('2Casos neste filtro');
   // Both depend on you (overdue return, client waiting): the badge counts the same cases.

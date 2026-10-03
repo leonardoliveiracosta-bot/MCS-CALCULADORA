@@ -91,10 +91,11 @@ for (const width of [1280, 390]) {
     // Ana appears once (ficha + calculator order + link suggestion are one case), with every reason.
     const ana = list.locator('.case-card', { hasText: 'Ana Valor' });
     await expect(ana).toHaveCount(1);
-    await expect(ana.locator('.card-decision')).toContainText('Mensagem do cliente sem resposta');
+    await expect(ana.locator('.card-decision')).toContainText('Cliente sem resposta há 3 h');
     await expect(ana.locator('.card-decision')).toContainText('Confirmar vínculo: esta conversa é a Ref AVAL2');
     await expect(ana.locator('.case-decisions')).toContainText('Ligar pedido à ficha');
-    await expect(ana.locator('.origin-chip')).toHaveCount(1);
+    await expect(ana.locator('.origin-chip')).toHaveCount(0);
+    await expect(ana.locator('.case-calculator')).toHaveCount(1);
     await expect(ana.locator('.today-primary')).toHaveText('Responder');
     // The rest of the card is one click away (never lost).
     await expect(ana.locator('.case-more')).toHaveCount(1);
