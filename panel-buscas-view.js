@@ -126,8 +126,7 @@ async function auditOptions(ctx, uploadId, context, services = { allRows, rpc })
 
 // Input of MANHEIM_MATCH_AUDIT: the options of the active batch grouped by demand. Server only.
 async function auditInputFor(ctx) {
-  const supported = await undoSupported(ctx, { rows });
-  const batchOn = await batchSupported(ctx, { rows }).catch(() => false);
+  const [supported, batchOn] = await Promise.all([undoSupported(ctx, { rows }), batchSupported(ctx, { rows }).catch(() => false)]);
   const [base, uploads] = await Promise.all([loadBuscasBase(ctx, { allRows }), loadUploads(ctx, supported, 20, batchOn)]);
   const latest = await latestLiveUpload(ctx, uploads, supported, batchOn);
   const context = demandContext(base);
@@ -137,8 +136,7 @@ async function auditInputFor(ctx) {
 
 async function manheimView(ctx, options = {}) {
   if (options.auditInput) return auditInputFor(ctx);
-  const supported = await undoSupported(ctx, { rows });
-  const batchOn = await batchSupported(ctx, { rows }).catch(() => false);
+  const [supported, batchOn] = await Promise.all([undoSupported(ctx, { rows }), batchSupported(ctx, { rows }).catch(() => false)]);
   const [base, uploads, meta, userIds, insights, checklist, stageIndex, scoreIndex] = await Promise.all([
     loadBuscasBase(ctx, { allRows }),
     loadUploads(ctx, supported, 20, batchOn),
@@ -169,10 +167,18 @@ async function manheimView(ctx, options = {}) {
 
   // Counts of the batch per demand, answered by the database. A demand counts only while it is
   // still a target today; a batch compared with an older criterion asks to be checked again.
-  const summary = latest && batchOn ? await rpc(ctx, 'panel_manheim_batch_summary', { p_environment: ctx.environment, p_upload_id: latest.id }) : [];
+  // The reads below do not depend on each other: they run together (they used to run one after the other).
+  const activeIdsEarly = uploads.filter((row) => !row.undone_at).map((row) => row.id).concat(latest && !uploads.some((row) => row.id === latest.id) ? [latest.id] : []);
+  const [summaryRead, offerRead, carsRead, hiddenRead] = await Promise.all([
+    latest && batchOn ? rpc(ctx, 'panel_manheim_batch_summary', { p_environment: ctx.environment, p_upload_id: latest.id }) : [],
+    latest && batchOn ? rpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch(() => null) : [],
+    batchOn && activeIdsEarly.length ? rpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIdsEarly }).catch(() => []) : [],
+    rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' }).then((found) => found.map((row) => row.upload_id)).catch(() => null)
+  ]);
+  const summary = summaryRead;
   // Selection for the customer (migration 20261006010000): counts per group and what is selected.
   // Before that migration the summary goes without it (null), never with a false zero.
-  const offerRows = latest && batchOn ? await rpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch(() => null) : [];
+  const offerRows = offerRead;
   const offerByKey = Array.isArray(offerRows) ? new Map(offerRows.map((row) => [row.demand_key, row])) : null;
   const summaryByKey = new Map((summary || []).map((row) => [row.demand_key, row]));
   const counts = { VALOR: emptyCounts(), CARRO: emptyCounts(), total: { people: 0, served: 0, matches: 0, review: 0 } };
@@ -216,14 +222,13 @@ async function manheimView(ctx, options = {}) {
   // Operational count of each active batch: different cars with a valid MMR, answered by the
   // database (the number frozen at upload may include cars that are no longer eligible). Undone
   // batches keep the number they had.
-  const activeIds = uploads.filter((row) => !row.undone_at).map((row) => row.id).concat(latest && !uploads.some((row) => row.id === latest.id) ? [latest.id] : []);
+  const activeIds = activeIdsEarly;
   const operational = new Map();
-  if (batchOn && activeIds.length) (await rpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIds }).catch(() => []) || []).forEach((row) => operational.set(row.upload_id, Number(row.car_count) || 0));
+  if (batchOn && activeIds.length) (carsRead || []).forEach((row) => operational.set(row.upload_id, Number(row.car_count) || 0));
   activeIds.forEach((uploadId) => { if (batchOn && !operational.has(uploadId)) operational.set(uploadId, 0); });
   const upload = latest ? { ...latest, frozen_matched_vehicle_count: latest.matched_vehicle_count, matched_vehicle_count: operational.has(latest.id) ? operational.get(latest.id) : latest.matched_vehicle_count, current_lead_count: allServed.size } : null;
   // Undone batches this operator hid from the list (display only; null before the migration).
-  const hiddenBatchIds = await rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' })
-    .then((found) => found.map((row) => row.upload_id)).catch(() => null);
+  const hiddenBatchIds = hiddenRead;
   const batches = uploads.map((row) => ({
     id: row.id, uploadedAt: row.uploaded_at, fileCount: row.source_file_count, vehicleCount: row.vehicle_count,
     matchCount: operational.has(row.id) ? operational.get(row.id) : row.matched_vehicle_count, frozenMatchCount: row.matched_vehicle_count, leadCount: row.lead_count,

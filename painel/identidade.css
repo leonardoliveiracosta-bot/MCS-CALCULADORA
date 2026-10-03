@@ -1155,3 +1155,6 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #requests-panel .request-card .request-options { font-weight: 700; color: #2F7D3B; }
 #requests-panel .request-card > p.muted, #requests-panel .request-card .search-fields, #requests-panel .request-card .request-person-head, #requests-panel .request-card .request-person-head .muted { font-size: 12.5px; color: #6F675D; }
 #requests-panel .request-card .request-person-head a { text-decoration: none; }
+
+/* Enviar opções: cards outside the screen are not laid out until they come near it (same look, less work). */
+#searches-panel .manheim-lead { content-visibility: auto; contain-intrinsic-size: auto 520px; }
