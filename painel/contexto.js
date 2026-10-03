@@ -321,18 +321,11 @@
 
   // The full case summary for the ficha (always open).
   function full(context) {
+    // Only the title, the subtitle and the table: no next-action box, no field summary, no orders/search/AI columns.
     const card = e('section', 'lead-card client-context-full');
-    const summary = compact(context, { open: null });
-    const more = summary.querySelector('.context-more');
-    if (more) more.remove();
-    // Not shown in the ficha: the "RESUMO DO CASO" title, the phone/Ref/origin header, the "Não atendido" line and the
-    // Etapa · Código da ficha · Depende de · Critérios da busca · O que impede row.
-    summary.querySelectorAll(':scope > .context-head, :scope > .context-unattended, :scope > .context-facts').forEach((node) => node.remove());
-    card.append(...summary.childNodes);
     add(card, 'h3', 'context-subtitle', 'O que o cliente informou, campo a campo');
     add(card, 'p', 'muted context-subtitle-note', 'Campo a campo, com a situação de cada valor');
-    // The ficha shows the search groups in O QUE OFERECER (section 8): not repeated here.
-    card.append(fullTable(context), linksBlock(context, { searchGroups: false }));
+    card.append(fullTable(context));
     return card;
   }
 
