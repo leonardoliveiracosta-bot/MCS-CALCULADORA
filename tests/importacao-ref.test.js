@@ -140,15 +140,27 @@ test('print antigo pendente é resolvido quando outro print da mesma Ref é conf
   // O print 9236 foi lido antes de o 9244 existir: a mensagem era nova e não havia como saber o telefone da pessoa.
   db.messages.length = 0; db.message_journeys.length = 0;
   const NEW = 'EN · FIND · NOW · 2020-2026 · Chevrolet Camaro · 1st\n\nHello! I just sent a vehicle search request through My Car Scout\n\nName: Tremel Jones\nPlanning to buy: Ready to buy now\nYear range: 2020-2026\nVehicle: Chevrolet Camaro\nTrim: SS\nMileage range: 5,000-70,000\nZIP code: 70301 · Thibodaux, Louisiana\n\nI\'d like to discuss this vehicle search\nRef: RNEVL';
-  const early = await confirm(ctx, printRecord(), { auto: true, phone: '', name: 'Tremel Jones', ref: 'CG8LN', message: NEW });
+  // Same name as the ficha of the Ref (the second way agrees); a different name is covered in the next test.
+  const early = await confirm(ctx, printRecord(), { auto: true, phone: '', name: 'Harman Harman', ref: 'CG8LN', message: NEW.replace('Tremel Jones', 'Harman Harman') });
   // Sem nenhuma mensagem na ficha, o telefone único da ficha comprovada pela Ref já resolve (mensagem nova, não repetida).
   assert.equal(early.code, 201);
   assert.equal(early.payload.inheritedPhone, true);
   // Depois disso, o mesmo texto (outro print) só anexa a foto: não vira segunda mensagem.
-  db.messages.push({ id: 'c3333333-3333-4333-8333-333333333333', environment: ENV, body_text: NEW, body_normalized: NEW.trim().toLowerCase().replace(/\s+/g, ' ') });
+  const SAVED = NEW.replace('Tremel Jones', 'Harman Harman');
+  db.messages.push({ id: 'c3333333-3333-4333-8333-333333333333', environment: ENV, body_text: SAVED, body_normalized: SAVED.trim().toLowerCase().replace(/\s+/g, ' ') });
   db.message_journeys.push({ environment: ENV, message_id: 'c3333333-3333-4333-8333-333333333333', journey_id: JOURNEY, undone_at: null });
   calls.length = 0;
-  const again = await confirm(ctx, printRecord({ id: 'a2222222-2222-4222-8222-222222222222' }), { auto: true, phone: '', name: 'Tremel J.', ref: 'CG8LN', message: NEW.replace('Name: Tremel Jones\n', '') });
+  const again = await confirm(ctx, printRecord({ id: 'a2222222-2222-4222-8222-222222222222' }), { auto: true, phone: '', name: 'Harman H.', ref: 'CG8LN', message: SAVED.replace('Name: Harman Harman\n', '') });
   assert.equal(again.payload.duplicateMessage, true);
+  assert.ok(!calls.some((call) => call.rpc === 'panel_sms_print_confirm'));
+});
+
+test('print com a Ref de uma ficha de outro nome: não guarda sozinho, oferece Confirmar vínculo com os dois lados', async () => {
+  const { ctx, calls } = world();
+  const out = await confirm(ctx, printRecord(), { auto: true, phone: '', name: 'Tremel Jones', ref: 'CG8LN', message: OTHER });
+  assert.equal(out.code, 202);
+  assert.equal(out.payload.queue, 'FILA_CONTRADICAO');
+  assert.equal(out.payload.confirm.journeyId, JOURNEY);
+  assert.equal(out.payload.confirm.printName, 'Tremel Jones');
   assert.ok(!calls.some((call) => call.rpc === 'panel_sms_print_confirm'));
 });

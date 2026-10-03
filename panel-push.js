@@ -3,6 +3,7 @@
 const webpush = require('web-push');
 const { allRows, isUuid, patchRows, query, rows, supabase } = require('./panel-server');
 const { allowedCustomerChatIds, isEligibleCustomerMessage } = require('./panel-notifications');
+const refProof = require('./panel-ref-proof');
 
 const THROTTLE_MS = 5 * 60 * 1000;
 
@@ -11,10 +12,12 @@ function clean(value, maximum = 160) {
   return text ? text.slice(0, maximum) : null;
 }
 
-function notificationTitle({ name, phone, ref, vehicle }) {
+// ref is the calculator Ref proven for the ficha (never its internal code); noRef: a ficha without one says "sem Ref".
+function notificationTitle({ name, phone, ref, vehicle, noRef = false }) {
   const person = clean(name) || clean(phone) || 'Cliente';
   const parts = [person];
   if (clean(ref, 20)) parts.push('Ref ' + clean(ref, 20));
+  else if (noRef) parts.push('sem Ref');
   if (clean(vehicle, 180)) parts.push(clean(vehicle, 180));
   if (parts.length === 1) parts.push('nova mensagem');
   return parts.join(' · ');
@@ -134,6 +137,15 @@ async function sendPanelPush(ctx, input) {
   return deliverToSubscriptions(ctx, subscriptions, input.payload);
 }
 
+// The calculator Ref of one ficha, with the same proof as the ficha detail (panel-ref-proof).
+async function calcRefOfJourney(ctx, journey) {
+  if (!journey || !isUuid(journey.id)) return null;
+  const linked = await rows(ctx, 'journey_refs', { select: 'ref_code', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + journey.id });
+  const rpc = (context, name, args) => supabase(context.config.url, context.config.secretKey, '/rest/v1/rpc/' + name, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args || {}) });
+  const proofs = await refProof.proofIndex(ctx, { rows, rpc }, [journey], new Map([[journey.id, linked.map((row) => row.ref_code)]]));
+  return (proofs.get(journey.id) || {}).calcRef || null;
+}
+
 async function sendCustomerMessagePushes(ctx, candidates) {
   if (!Array.isArray(candidates) || !candidates.length || !configureWebPush()) return { accepted: 0, failed: 0 };
   const allowedChatIds = await allowedCustomerChatIds(ctx);
@@ -143,9 +155,10 @@ async function sendCustomerMessagePushes(ctx, candidates) {
   for (const candidate of candidates) {
     const details = await messageContext(ctx, candidate, allowedChatIds).catch(() => null);
     if (!details || !details.contactId) continue;
+    const calcRef = await calcRefOfJourney(ctx, details.journey).catch(() => null);
     const title = notificationTitle({
       name: details.contact && details.contact.display_name, phone: details.phone,
-      ref: details.journey && details.journey.reference_code, vehicle: details.journey && details.journey.vehicle_text
+      ref: calcRef, noRef: Boolean(details.journey), vehicle: details.journey && details.journey.vehicle_text
     });
     const result = await sendPanelPush(ctx, {
       contactId: details.contactId, messageId: details.message.id,
@@ -172,6 +185,7 @@ async function sendVitrinePush(ctx, payload) {
 }
 
 module.exports = {
+  calcRefOfJourney,
   THROTTLE_MS, canSendForContact, deliverToSubscriptions, notificationTitle,
   sendCustomerMessagePushes, sendPanelPush, sendTestPush, sendVitrinePush, subscriptionsFor, vapidDetails
 };

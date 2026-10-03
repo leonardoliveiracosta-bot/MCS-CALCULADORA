@@ -133,12 +133,14 @@
   // A ficha id only: an order card's id is its Ref key ("ref:XXXXX"), never a ficha.
   const journeyIdOf = (item) => { const id = item && (item.journeyId || item.journey_id || (['CALCULATOR', 'CALCULATOR_ORDER'].includes(item.kind) ? null : item.id)); return UUID_RE.test(String(id || '')) ? id : null; };
   const uuidOnly = (value) => UUID_RE.test(String(value || '')) ? value : null;
+  // The Ref to show: the calculator Ref the server proved (calcRef), never the ficha's internal code; older payloads keep ref.
+  const shownRef = (item) => item && 'calcRef' in item ? item.calcRef || null : item && item.ref || null;
   const refOf = (item) => { const ref = String(item && (item.ref || item.referenceCode || item.reference_code) || '').toUpperCase(); return REF_CODE_RE.test(ref) ? ref : null; };
   // Ref, car and bid as separate labeled facts (never one sentence mixing values).
   const identityFacts = (ref, vehicle, cents, refState) => {
     const wrap = element('span', 'muted identity-facts');
     const fact = (label, value) => { const node = element('span', 'identity-fact'); node.append(element('b', '', label), document.createTextNode(value)); wrap.append(node); };
-    fact('Ref', ref || (refState === 'A_RECUPERAR' ? 'Calculadora, referência a recuperar' : '—')); fact('Carro', displayModel(vehicle) || 'não informado'); fact('Lance máx.', Number(cents) ? formatMoney(cents) : 'não informado');
+    fact('Ref', ref || (refState === 'A_RECUPERAR' ? 'Calculadora, referência a recuperar' : 'sem Ref')); fact('Carro', displayModel(vehicle) || 'não informado'); fact('Lance máx.', Number(cents) ? formatMoney(cents) : 'não informado');
     return wrap;
   };
   // AI reading per order, never per conversation: one line per order, or the declared ambiguity. Without the per-order
@@ -923,7 +925,10 @@
       const row = element('div', 'queue-item name-link');
       row.dataset.decisionKey = link.key; row.dataset.decisionSource = 'namelink';
       const { left, right } = nameLinkSides(link);
-      row.append(element('strong', '', (link.ficha?.names || []).length ? 'Confirmar vínculo · telefone igual, nome diferente' : 'Confirmar vínculo · telefone igual, a ficha não tem nome para conferir'));
+      const carOnly = (link.conflicts || []).length > 0 && (link.conflicts || []).every((code) => code === 'carro');
+      const why = link.via === 'REF' ? `a Ref ${link.messageRef || ''} é desta ficha, mas ${carOnly ? 'o carro é diferente' : 'o nome é diferente'}`.replace('Ref  é', 'Ref é')
+        : carOnly ? 'telefone igual, carro diferente' : (link.ficha?.names || []).length ? 'telefone igual, nome diferente' : 'telefone igual, a ficha não tem nome para conferir';
+      row.append(element('strong', '', `Confirmar vínculo · ${why}`));
       const sides = element('div', 'name-link-sides');
       const side = (data, cls) => { const box = element('div', 'name-link-side ' + cls); box.append(element('strong', 'name-link-name', data.name), element('span', 'muted', data.detail)); return box; };
       sides.append(side(left, 'name-link-simulation'), element('span', 'name-link-vs', '≠'), side(right, 'name-link-ficha'));
@@ -2433,7 +2438,7 @@
     (triage?.review || []).forEach((item) => out.push({ key: 'triage:' + item.id, kind: 'TRIAGEM', chatId: item.chatId || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, phone: item.phone_e164 || item.phone || null, label: 'Classificar a conversa (pré-compra ou fora do funil)' }));
     (triage?.offMcs || []).forEach((item) => out.push({ key: 'offmcs:' + item.journeyId, kind: 'FORA_MCS', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Revisar: candidata a fora da MCS · ' + (item.label || '') }));
     entryReviewChats(entry).forEach((chat) => out.push({ key: 'chat:' + chat.id, kind: 'REVISAR_CONVERSA', journeyId: uuidOnly(chat.groupJourneyId), name: chat.contact?.display_name || chat.canonical_key || null, label: chat.resolution_status === 'RESOLVED' ? 'Conferir conversa com hora incerta' : 'Revisar conversa importada e ligar à ficha certa' }));
-    nameLinks.forEach((link) => out.push({ key: link.key, kind: 'VINCULO', journeyId: uuidOnly(link.journeyId), name: link.simulation?.name || null, phone: link.phone || null, label: 'Confirmar vínculo: telefone igual, nome diferente' }));
+    nameLinks.forEach((link) => out.push({ key: link.key, kind: 'VINCULO', journeyId: uuidOnly(link.journeyId), name: link.simulation?.name || null, phone: link.phone || null, label: link.via === 'REF' ? 'Confirmar vínculo: Ref desta ficha com divergência' : 'Confirmar vínculo: telefone igual, nome diferente' }));
     (vitrine?.requests || []).forEach((item) => out.push({ key: 'vitrine:' + item.id, kind: 'VITRINE', refState: item.refState || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, label: item.kind === 'BID' ? 'V2 · quer dar lance' : 'V1 · pediu para ver o carro' }));
     return out;
   }
@@ -2722,12 +2727,14 @@
       const name = String(item.contactName || item.name || item.contact?.display_name || '').trim();
       const phone = primaryPhone(item);
       const phoneText = phone ? phoneDisplay(phone.phone_e164 || phone.phone_raw || '') : '';
-      const ref = refOf(item) || calcRefOf(item);
+      // "Ref" only for the calculator Ref the server proved (hasCalcRef/calcRef); the ficha's own code is "Código".
+      const ref = calcRefOf(item);
       const fields = caseRequestFields(item);
       const cars = [...new Set(fields.filter(([label]) => /^Carro/.test(label)).map(([, value]) => value).filter((value) => value && value !== 'não informado'))];
       const title = cars.join(' · ') || (realName(name) ? name : '') || phoneText || 'Sem nome';
       const rows = fields.filter(([label]) => !/^Carro/.test(label)).map(([label, value]) => [label === 'ZIP' ? 'Local' : label, value, label === 'ZIP' ? 'case-request-line case-zip' : 'case-request-line']);
       rows.push(['Calculadora', calculatorLabel(item), 'case-calculator']);
+      if (!ref && item.internalCode) rows.push(['Código', `${item.internalCode} · interno, não é Ref da calculadora`, 'case-request-line case-internal-code']);
       // Telefone igual, nome diferente and not decided yet: both names stay on the card, none disappears.
       nameConflictRows(entry.journeyId).forEach((row) => rows.unshift(row));
       card.append(caseFace({ title, ref: ref || (refStateOf(item) === 'A_RECUPERAR' ? 'a recuperar' : 'sem Ref'), phone: title === phoneText ? '' : phoneText, rows, requests: entry.requests }));
@@ -3632,7 +3639,7 @@
         section.append(head);
         noCars.sort((a, b) => position(a) - position(b)).forEach((demand) => {
           const line = element('article', 'item-card search-empty-card');
-          line.append(element('strong', 'identity-name', demand.name || demand.contactName || (demand.ref ? `Ref ${demand.ref}` : 'Cliente')));
+          line.append(element('strong', 'identity-name', demand.name || demand.contactName || (shownRef(demand) ? `Ref ${shownRef(demand)}` : 'Cliente')));
           const fields = MCSSearchGroups.fields({ searchMode: demand.mode, targets: [{ mode: demand.mode, wishes: demand.wishes || [], bidCents: demand.bidCents }] }); if (fields) line.append(fields);
           const reason = element('p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = (demand.journeyId ? 'ficha:' : 'pedido:') + demand.key; line.append(reason);
           if (demand.journeyId) { const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', () => openDetail('ficha', demand.journeyId)); line.append(open); }
@@ -4167,7 +4174,7 @@
       const line = element('article', 'item-card review-line');
       line.dataset.reviewKey = item.key;
       if (item.journeyId) line.dataset.journeyId = item.journeyId;
-      line.append(element('strong', 'identity-name', item.name || 'Cliente'), element('span', 'muted', `${item.ref ? `Ref ${item.ref}` : 'sem Ref'} · ${item.manual ? 'critério sem modo' : item.mode === 'REVIEW' ? 'tipo indefinido' : MCSVehicleMatch.modeLabel(item.mode)}`));
+      line.append(element('strong', 'identity-name', item.name || 'Cliente'), element('span', 'muted', `${shownRef(item) ? `Ref ${shownRef(item)}` : 'sem Ref'} · ${item.manual ? 'critério sem modo' : item.mode === 'REVIEW' ? 'tipo indefinido' : MCSVehicleMatch.modeLabel(item.mode)}`));
       const reasons = element('div', 'badges');
       (item.issues || []).forEach((issue) => reasons.append(makeBadge(issue.wish ? `${issue.wish}: ${issue.text}` : issue.text, 'yellow')));
       line.append(reasons);
@@ -4863,8 +4870,11 @@
     dataBlock.append(statusBadges);
     const definitions = element('dl', 'definition-grid');
     definition(definitions, 'Telefones', item.phones.map((phone) => phone.phone_e164 || phone.phone_raw).join(', '));
-    definition(definitions, 'Ref', item.reference_code);
-    definition(definitions, 'Refs da calculadora/conversa', item.refs.map((ref) => ref.ref_code).join(', '));
+    // Same rule as the ficha detail: "Ref" only for a calculator Ref with proof; the ficha's own code otherwise is "Código".
+    const provenRefs = typeof item.hasCalcRef === 'boolean' ? (item.calcRefs || []) : null;
+    definition(definitions, 'Ref', provenRefs ? (provenRefs[0] || 'sem Ref') : item.reference_code);
+    if (provenRefs && item.internalCode) definition(definitions, 'Código', `${item.internalCode} · interno, não é Ref da calculadora`);
+    definition(definitions, 'Refs da calculadora/conversa', provenRefs ? provenRefs.join(', ') : item.refs.map((ref) => ref.ref_code).join(', '));
     const origin = sourceLabel(item.source);
     if (origin) definition(definitions, 'Origem', origin);
     definition(definitions, 'Pagamento', displayPayment(item.payment_text));

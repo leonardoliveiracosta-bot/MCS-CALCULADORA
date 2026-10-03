@@ -8,7 +8,7 @@ const crypto = require('node:crypto');
 const { waitUntil } = require('@vercel/functions');
 const { SERVER_ENVIRONMENT, allRows, configuration, insert, jsonBody, patchRows, rows, send } = require('../../panel-server');
 const { normalizePhone } = require('../../panel-phone');
-const { notificationTitle, sendPanelPush } = require('../../panel-push');
+const { calcRefOfJourney, notificationTitle, sendPanelPush } = require('../../panel-push');
 const calcMessage = require('../../panel-calc-message');
 const calcRoute = require('../../panel-calc-route');
 
@@ -140,12 +140,14 @@ async function receive(ctx, body, services, now = Date.now()) {
 
   // 5. aviso no celular
   const [contact] = await services.rows(ctx, 'contacts', { select: 'id,display_name', environment: 'eq.' + ctx.environment, id: 'eq.' + contactId, limit: '1' });
-  const title = notificationTitle({ name: contact?.display_name, phone, ref: journey.reference_code, vehicle: journey.vehicle_text });
+  // "Ref" only for the calculator Ref proven for the ficha; its internal code never shows as Ref.
+  const calcRef = services.calcRef ? await services.calcRef(ctx, journey).catch(() => null) : null;
+  const title = notificationTitle({ name: contact?.display_name, phone, ref: calcRef, noRef: true, vehicle: journey.vehicle_text });
   const push = services.push(ctx, { contactId, messageId: message.id, payload: { type: 'customer-message', messageId: message.id, journeyId: journey.id, title } });
   return { stored: true, push };
 }
 
-const defaultServices = { rows, allRows, insert, patchRows, push: sendPanelPush, route: (ctx, message) => calcRoute.routeOne(ctx, message) };
+const defaultServices = { rows, allRows, insert, patchRows, push: sendPanelPush, calcRef: calcRefOfJourney, route: (ctx, message) => calcRoute.routeOne(ctx, message) };
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });

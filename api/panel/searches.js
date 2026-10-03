@@ -7,6 +7,7 @@ const { dispositionIndex } = require('../../panel-disposition');
 const { floridaDays, loadSearchStageIndex, searchableWish } = require('../../panel-search-stage');
 const { latestActiveUpload, undoSupported } = require('../../panel-manheim-state');
 const { outOfFunnelIndex } = require('../../panel-triage');
+const refProof = require('../../panel-ref-proof');
 
 const activeStatus = (journey, disabled) => journey && journey.status !== 'ENCERRADO' && !disabled.has(journey.id);
 const phoneFor = (phones, contactId) => {
@@ -50,6 +51,10 @@ async function payload(ctx) {
   const contactById = new Map(contacts.map((row) => [row.id, row]));
   const disabled = new Set(toggles.filter((row) => !row.enabled).map((row) => row.journey_id));
   const refsFor = (journey) => refs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code);
+  // "Ref" on screen only for the calculator Ref with proof (same rule as the ficha detail); the ficha's code otherwise is internal.
+  const runRefs = refProof.runRefsOf(calcRuns);
+  const explicitByJourney = (await refProof.loadExplicit(ctx, rpc).catch(() => null)) || new Map();
+  const proofOf = (journey) => refProof.proofFor({ journey, linkedRefs: refsFor(journey), runRefs, explicit: explicitByJourney.get(journey.id) || [] });
   const rowsOut = [];
   journeys.forEach((journey) => {
     const person = contactById.get(journey.contact_id);
@@ -59,12 +64,13 @@ async function payload(ctx) {
     const facts = contact.facts({ journeyId: journey.id, ref: journey.reference_code, refs: refsFor(journey) });
     if (!facts.entered) return;
     const stage = stageIndex.get(journey.id);
+    const proof = proofOf(journey);
     // One card per ficha and mode: VALOR and CARRO keep their own stage and search.
     Object.values(stage && stage.modes || {}).forEach((entry) => {
       const wish = entry.wish;
       const extraWishes = (entry.wishes || []).filter((other) => other !== wish && searchableWish([other])).map((other) => title(other, null, entry.mode));
       rowsOut.push({
-        key: journey.id + ':' + entry.mode, journeyId: journey.id, mode: entry.mode, ref: journey.reference_code || refsFor(journey)[0] || null,
+        key: journey.id + ':' + entry.mode, journeyId: journey.id, mode: entry.mode, ref: proof.calcRef, hasCalcRef: proof.hasCalcRef, internalCode: proof.internalCode,
         name: person?.display_name || `Pedido ${journey.reference_code || '—'}`,
         phone: phoneFor(phones, journey.contact_id), wish, searchKey: entry.searchKey, basis: entry.basis, extraWishes,
         exactSearch: title(wish, Number(entry.bidCents || 0) / 100, entry.mode),
