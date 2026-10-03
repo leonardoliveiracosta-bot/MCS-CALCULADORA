@@ -1001,3 +1001,29 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .reality-card .reality-model { color: #1B1A18; }
 .reality-card .reality-miles { color: #8A837B; }
 .reality-card .reality-value { font-weight: 700; color: #1B1A18; }
+
+/* Cartões 7, 8 e 9 da ficha no formato do modelo. */
+.ask-card, .offer-card, .context-card { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 14px; box-shadow: none; padding: 20px 20px 18px; color: #1B1A18; }
+.ask-card > .lead-label, .offer-card > .lead-label, .context-card > .lead-label { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; background: none; padding: 0; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
+.ask-card .ask-count { padding: 3px 10px; border-radius: 999px; background: #EDE7DF; color: #6F675D; font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.ask-card .ask-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; margin: 0; }
+.ask-card .ask-row + .ask-row { border-top: 1px solid #EEE8DE; }
+.ask-card .ask-text { font-size: 15px; color: #1B1A18; line-height: 1.4; }
+.ask-card .ask-ok { flex: 0 0 auto; min-height: 32px; padding: 6px 12px; border: 1px solid #CFC6B6; border-radius: 6px; background: #FFFFFF; color: #1B1A18; font-size: 13px; font-weight: 700; cursor: pointer; }
+.offer-card .offer-count { margin: 0 0 4px; font-size: 15px; font-weight: 700; color: #1B1A18; }
+.offer-card .offer-note { margin: 0 0 12px; font-size: 13px; color: #8A837B; max-width: 26ch; }
+.offer-card .offer-go { display: grid; gap: 8px; margin-bottom: 14px; }
+.offer-card .offer-open { width: 100%; min-height: 40px; padding: 9px 14px; border: 0; border-radius: 8px; background: #C9A227; color: #1B1A18; font-size: 13px; font-weight: 700; cursor: pointer; }
+.offer-card .offer-item { display: flex; flex-direction: column; gap: 3px; padding: 12px 0; border: 0; background: none; }
+.offer-card .offer-item + .offer-item { border-top: 1px solid #EEE8DE; }
+.offer-card .offer-tags { display: flex; gap: 6px; margin-bottom: 6px; }
+.offer-card .offer-tags .lead-badge { padding: 3px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
+.offer-card .offer-tags .lead-badge.blue { background: #E7EEF8; color: #2E5A8A; }
+.offer-card .offer-title { font-size: 15px; font-weight: 700; color: #1B1A18; }
+.offer-card .offer-meta { font-size: 13px; color: #8A837B; line-height: 1.45; }
+.context-card .context-presented { margin: 0 0 12px; padding-bottom: 12px; border-bottom: 1px solid #EEE8DE; font-size: 15px; color: #1B1A18; }
+.context-card .context-last-label { display: block; margin: 0 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #A39A86; }
+.context-card .lead-context-link { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0; font-family: inherit; cursor: pointer; }
+.context-card .lead-context-link.context-last { margin: 0 0 10px; font-size: 15px; color: #1B1A18; }
+.context-card .lead-context-link.context-older { margin: 0 0 8px; padding: 10px 12px; border-radius: 8px; background: #F6F2E9; font-size: 13px; color: #6F675D; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.offer-card .offer-item, .offer-card .offer-count, .offer-card .offer-note { text-align: left; align-items: flex-start; } .offer-card .offer-tags { justify-content: flex-start; }
