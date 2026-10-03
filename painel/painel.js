@@ -617,7 +617,7 @@
   // One function per area. ENTRADA (and the old PEDIDOS) is part of ATENDIMENTO now: an old link
   // or history entry opens ATENDIMENTO. Each area keeps its own position when you come back to it.
   const VIEWS = ['today', 'requests', 'searches', 'clients', 'imports', 'settings'];
-  const VIEW_LABELS = { today: 'ATENDIMENTO', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'CLIENTES', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
+  const VIEW_LABELS = { today: 'ATENDER AGORA', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'TODOS', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
   const viewScroll = new Map();
   async function switchPanel(view, options = {}) {
     if (view === 'orders' || view === 'entry') view = 'today';

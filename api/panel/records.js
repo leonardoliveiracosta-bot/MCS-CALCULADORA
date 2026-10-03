@@ -173,12 +173,15 @@ function clientsPage(listed, query = {}, now = Date.now()) {
   const situations = { NO_RESPONSE: 0, MCS_PENDING: 0, CUSTOMER_PENDING: 0, IN_PROGRESS: 0, CLOSED: 0, NONE: 0 };
   base.filter((item) => item.isLead !== false).forEach((item) => { situations[situations[item.situation] === undefined ? 'NONE' : item.situation] += 1; });
   const filtered = base.filter((item) => situation === 'all' || item.situation === situation);
-  const sorted = sortItems(filtered, q('sort', 'ready'), 'ready');
+  const sortKey = q('sort', 'ready');
+  const sorted = sortItems(filtered, sortKey, 'ready');
+  // "Não atendidos" by longest wait only with the default order (Pronto para ligar); any other choice applies there too.
+  const waitFirst = sortKey === 'ready';
   // Sections first (não atendidos, atendidos, fora do assunto); "não é lead" at the very end, apart.
   const sectionOf = (item) => item.isLead === false ? 3 : SECTION_ORDER[item.group?.key] ?? 1;
   // Inside each section, the areas (calculator by value, by car, direct incomplete, direct defined).
   const areaRank = (item) => groups.AREA_ORDER.indexOf(groups.areaOf(item));
-  const ordered = sorted.map((item, index) => ({ item, index })).sort((a, b) => sectionOf(a.item) - sectionOf(b.item) || areaRank(a.item) - areaRank(b.item) || (a.item.group?.key === 'NAO_ATENDIDO' && b.item.group?.key === 'NAO_ATENDIDO' ? (b.item.group.unattended?.waitedMs || 0) - (a.item.group.unattended?.waitedMs || 0) : 0) || a.index - b.index).map((entry) => entry.item);
+  const ordered = sorted.map((item, index) => ({ item, index })).sort((a, b) => sectionOf(a.item) - sectionOf(b.item) || areaRank(a.item) - areaRank(b.item) || (waitFirst && a.item.group?.key === 'NAO_ATENDIDO' && b.item.group?.key === 'NAO_ATENDIDO' ? (b.item.group.unattended?.waitedMs || 0) - (a.item.group.unattended?.waitedMs || 0) : 0) || a.index - b.index).map((entry) => entry.item);
   const sections = { NAO_ATENDIDO: 0, ATENDIDO: 0, FORA_DO_ASSUNTO: 0, NAO_LEAD: 0 };
   const areas = {};
   ordered.forEach((item) => {
