@@ -8,6 +8,7 @@
     "api/panel/manheim-batch.js": { "maxDuration": 30 },
     "api/panel/manheim-options.js": { "maxDuration": 30 },
     "api/panel/triage.js": { "maxDuration": 60 },
+    "api/panel/unlock-sale.js": { "maxDuration": 60 },
     "api/panel/ai-conversations.js": { "maxDuration": 30 },
     "api/panel/reply.js": { "maxDuration": 30 },
     "api/panel/pesquisas.js": { "maxDuration": 60 },

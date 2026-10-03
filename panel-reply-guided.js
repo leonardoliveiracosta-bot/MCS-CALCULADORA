@@ -326,4 +326,4 @@ async function cachedMessages(ctx, body, services = {}) {
   return { status: 200, translations: saved, translatable: usable.filter((message) => foreign(message) && !saved[message.id]).map((message) => message.id) };
 }
 
-module.exports = { cachedMessages, GUIDANCE_MAX, GUIDED_INSTRUCTIONS, GUIDED_SCHEMA, TRANSLATE_INSTRUCTIONS, TRANSLATE_SCHEMA, conflictsOf, contentHash, guided, translate, translations };
+module.exports = { openAiJson, recordCost, cachedMessages, GUIDANCE_MAX, GUIDED_INSTRUCTIONS, GUIDED_SCHEMA, TRANSLATE_INSTRUCTIONS, TRANSLATE_SCHEMA, conflictsOf, contentHash, guided, translate, translations };

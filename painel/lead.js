@@ -13,7 +13,7 @@
   const limitList=(parent,items,after,limit=10)=>{const extra=items.slice(limit);if(!extra.length)return;extra.forEach((node)=>node.classList.add('list-more-hidden'));const more=document.createElement('button');more.type='button';more.className='list-more';more.textContent=`Ver mais (${extra.length})`;more.addEventListener('click',(event)=>{event.stopPropagation();extra.forEach((node)=>node.classList.remove('list-more-hidden'));more.remove();});(after||parent).after?(after||parent).after(more):parent.append(more);};
   const section = (root,n,title,cls='') => { const card=append(root,'section','lead-card '+cls); append(card,'span','lead-label',`${n} — ${title}`); return card; };
   const row = (root,...values) => { const line=append(root,'div','lead-line'); values.forEach((value)=> append(line,'span','',value || '—')); return line; };
-  const stageNames = ['Searching','Cars presented','Bid scheduled','Result'];
+  const stageNames = ['Buscando','Carros apresentados','Lance agendado','Resultado'];
   const deadlineLabel = {now:'Imediatamente','30d':'Até 30 dias','3m':'30 a 90 dias',none:'Sem prazo definido','6m':'Até 6 meses','12m':'Até 12 meses'};
   const paymentLabel = {cash:'À vista',fin:'Financiado'};
   const formatPhone=(value)=>{const digits=String(value||'').replace(/\D/g,'');if(digits.length===11&&digits[0]==='1')return `(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`;return value||'sem telefone';};
@@ -219,19 +219,21 @@
       lastCustomers.forEach((message,index)=>{const text=safeString(message.body_text).replace(/\s+/g,' ').trim();const at=message.occurred_at_utc||message.created_at;
         const link=button(context,index===0?`${text.slice(0,80)}${text.length>80?'…':''} · ${shortWhen(at)}`:`${text.slice(0,60)}${text.length>60?'…':''}`,()=>document.getElementById('lead-conversation')?.scrollIntoView({behavior:'smooth'}));link.classList.add('lead-context-link',index===0?'context-last':'context-older');});}
 
-    const note=section(root,10,'ANOTAÇÕES E AJUDA DA IA','lead-highlight');
-    append(note,'p','muted','Escreva do seu jeito, em português · Peça uma opinião sobre este cliente, ou anote o que conversou por telefone ou pessoalmente');
+    const note=section(root,10,'O QUE A IA NÃO VIU','lead-highlight');
+    append(note,'p','muted','Alimente aqui com o que não está na conversa: ligação, pessoalmente, qualquer informação que a IA não tem como saber');
     const textarea=append(note,'textarea','lead-note');textarea.placeholder='Anote a conversa aqui…';textarea.maxLength=12000;
     const draftKey='mcs_lead_draft_'+(ref||journeyId);textarea.value=sessionStorage.getItem(draftKey)||'';
     textarea.addEventListener('input',()=>sessionStorage.setItem(draftKey,textarea.value));
-    const noteStatus=append(note,'p','status','');const review=append(note,'div','lead-review');
-    button(note,'📋 Distribuir o que conversei',async()=>{
-      const body=textarea.value.trim();if(!body){noteStatus.textContent='Escreva a anotação antes de distribuir';textarea.focus();return;}
-      noteStatus.textContent='Distribuindo…';review.replaceChildren();const confirmationKey=crypto.randomUUID();
+    const noteStatus=append(note,'p','status','');const review=append(note,'div','lead-review note-extract');
+    // "Extrair novidades da anotação": the AI turns the note into items to confirm (the same items as the conversation
+    // reading); nothing is saved, not even the note, until Confirmar.
+    const noteActions=append(note,'div','lead-actions note-actions');
+    button(noteActions,'Extrair novidades da anotação',async()=>{
+      const body=textarea.value.trim();if(!body){noteStatus.textContent='Escreva a anotação antes de extrair';textarea.focus();return;}
+      noteStatus.textContent='Lendo a anotação…';review.replaceChildren();const confirmationKey=crypto.randomUUID();
       try{
-        const proposal=await request('/api/panel/notes/distribute',{method:'POST',body:JSON.stringify({ref,journeyId,note:body,fallbackKey:confirmationKey})});
-        if(proposal.saved){sessionStorage.removeItem(draftKey);textarea.value='';noteStatus.textContent=proposal.message;return;}
-        noteStatus.textContent='Vai para:';
+        const proposal=await request('/api/panel/notes/distribute',{method:'POST',body:JSON.stringify({ref,journeyId,note:body,noSave:true})});
+        noteStatus.textContent='';if(!(proposal.items||[]).length){append(review,'p','ai-nothing-new','Nada novo nesta anotação');}else append(review,'div','ai-route-title','Vai para:');
         const selected=[],manualDates={};
         proposal.items.forEach((item,index)=>{
           const line=append(review,'label','lead-route');const input=append(line,'input');input.type='checkbox';input.checked=!item.manualReview;selected.push(input);
@@ -246,11 +248,23 @@
           }
         });
         const actions=append(review,'div','lead-actions');
-        button(actions,'Confirmar',async()=>{await api('note',{note:body,proposal:proposal.items,signature:proposal.signature,selected:selected.flatMap((input,index)=>input.checked?[index]:[]),manualDates,confirmationKey});sessionStorage.removeItem(draftKey);await reload();},'small');
-        button(actions,'Editar anotação',()=>{review.replaceChildren();noteStatus.textContent='';});
-      }catch(_){await api('note',{note:body,proposal:[],selected:[],confirmationKey});sessionStorage.removeItem(draftKey);textarea.value='';review.replaceChildren();noteStatus.textContent='Anotação salva; distribuição indisponível agora — tentar de novo';}
+        button(actions,'Confirmar',async()=>{await api('note',{note:body,proposal:proposal.items,signature:proposal.signature,selected:selected.flatMap((input,index)=>input.checked?[index]:[]),manualDates,confirmationKey});sessionStorage.removeItem(draftKey);await reload();},'small ai-confirm');
+        button(actions,'Descartar',()=>{review.replaceChildren();noteStatus.textContent='';},'quiet small ai-outline');
+      }catch(_){review.replaceChildren();noteStatus.textContent='Não consegui ler a anotação agora · nada foi gravado · tente de novo';}
     },'small');
-    const help=button(note,'💡 Pedir ajuda à IA',async()=>{
+    // "Destravar esta venda": two specialists (people via OpenAI, sales via Claude), one concrete action each, side by side.
+    const unlockBox=append(note,'div','unlock-options');
+    const unlock=button(noteActions,'Destravar esta venda',async()=>{
+      unlock.disabled=true;unlockBox.replaceChildren();append(unlockBox,'p','muted','Os dois especialistas estão pensando…');
+      try{const out=await request('/api/panel/unlock-sale',{method:'POST',timeoutMs:65000,body:JSON.stringify({ref,journeyId})});unlockBox.replaceChildren();
+        (out.options||[]).forEach((option)=>{const card=append(unlockBox,'div','unlock-option'+(option.ok?'':' is-failed'));append(card,'span','unlock-role',`${option.role} · ${option.provider}`);
+          if(!option.ok){append(card,'p','muted','Não consegui gerar esta opção agora');return;}
+          append(card,'strong','unlock-title',option.titulo);append(card,'p','unlock-action',option.acao);if(option.porque)append(card,'p','muted unlock-why',option.porque);
+          if(option.mensagem){const msg=append(card,'textarea','unlock-message');msg.rows=4;msg.value=option.mensagem;}
+          const pick=append(card,'button','small ai-confirm unlock-pick','Escolher esta');pick.type='button';pick.addEventListener('click',()=>{unlockBox.querySelectorAll('.unlock-option').forEach((node)=>node.classList.toggle('is-chosen',node===card));const msg=card.querySelector('.unlock-message');if(msg)navigator.clipboard?.writeText(msg.value).catch(()=>{});});});
+      }catch(_){unlockBox.replaceChildren();append(unlockBox,'p','muted','Não consegui gerar as opções agora · tente de novo');}finally{unlock.disabled=false;}
+    },'small');
+    const help=button(noteActions,'💡 Pedir ajuda à IA',async()=>{
       const question=textarea.value.trim();if(!question){noteStatus.textContent='Escreva a pergunta para a IA na anotação';textarea.focus();return;}help.disabled=true;noteStatus.textContent='Pensando no contexto deste lead…';
       try{const result=await request('/api/panel/lead-help',{method:'POST',body:JSON.stringify({ref,journeyId,question})});const answer=result.answer||{};const box=append(note,'div','ai-summary');append(box,'h3','','💡 Opinião da IA');append(box,'p','',`O que está acontecendo: ${answer.situacao}`);append(box,'p','',`O que eu faria: ${answer.sugestao}`);if(answer.mensagem_en){const msgLabel=append(box,'label','suggestion-edit','Mensagem sugerida (editável)');const msg=append(msgLabel,'textarea','suggestion-text lead-help-message');msg.rows=4;msg.maxLength=4000;msg.value=answer.mensagem_en;append(box,'p','muted',`Tradução: ${answer.traducao_pt}`);
         // Same send path as the suggestions: the window decides (panel with confirmation, or the phone).
@@ -280,12 +294,12 @@
     const resultChoice=append(tracking,'div','lead-actions');resultChoice.hidden=true;
     if(track){const steps=append(tracking,'div','lead-steps');stageNames.forEach((label,index)=>button(steps,label,async()=>{
       if(index===3){resultChoice.hidden=false;return;}await api('tracking_step',{step:index+1});await reload();},'lead-step '+(index+1<=track.step?'on':'')));
-      button(resultChoice,'Won',async()=>{await api('tracking_step',{step:4,result:'WON'});await reload();});
-      button(resultChoice,'Not won',async()=>{await api('tracking_step',{step:4,result:'NOT_WON'});await reload();});
+      button(resultChoice,'Ganhou',async()=>{await api('tracking_step',{step:4,result:'WON'});await reload();});
+      button(resultChoice,'Não ganhou',async()=>{await api('tracking_step',{step:4,result:'NOT_WON'});await reload();});
       button(tracking,'Copiar link de acompanhamento',()=>navigator.clipboard.writeText(location.origin+'/t/'+track.public_code));
     }else append(tracking,'p','muted','Ligue ao pedido para criar a página do cliente');
     const customerResponses=(data.events||[]).filter((entry)=>['WANT_CAR','NOT_FOR_ME'].includes(entry.event_type));
-    append(tracking,'p','muted',customerResponses.length?customerResponses.map((entry)=>`${entry.detail_json.vehicle}: ${entry.event_type==='WANT_CAR'?'I want this':'Not for me'}`).join(' · '):'O cliente ainda não respondeu aos carros');
+    append(tracking,'p','muted',customerResponses.length?customerResponses.map((entry)=>`${entry.detail_json.vehicle}: ${entry.event_type==='WANT_CAR'?'Quero este carro':'Não é para mim'}`).join(' · '):'O cliente ainda não respondeu aos carros');
 
     const finalGrid=append(root,'div','lead-grid lead-two');
     const conversation=section(finalGrid,2,'CONVERSA','lead-highlight');conversation.id='lead-conversation';

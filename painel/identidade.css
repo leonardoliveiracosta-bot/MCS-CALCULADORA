@@ -1032,3 +1032,34 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .list-more { display: block; width: 100%; margin-top: 12px; min-height: 38px; padding: 8px 14px; border: 1.5px solid #CFC6B6; border-radius: 8px; background: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; }
 /* Cartão 8: ordenação no topo. */
 .offer-card .offer-sort { display: block; width: 100%; margin: 0 0 12px; min-height: 38px; padding: 7px 12px; border: 1.5px solid #CFC6B6; border-radius: 8px; background: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 13px; font-weight: 600; }
+
+/* Cartão 10: ações lado a lado e as duas opções do "Destravar esta venda". */
+.note-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+.note-extract { padding-top: 0; }
+.unlock-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 12px; }
+.unlock-options > p { grid-column: 1 / -1; }
+.unlock-option { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 12px; font-family: "Noto Sans", system-ui, sans-serif; color: #1B1A18; }
+.unlock-option.is-chosen { border: 2px solid #C9A227; padding: 13px 15px; }
+.unlock-option .unlock-role { font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
+.unlock-option .unlock-title { font-size: 16px; }
+.unlock-option .unlock-action { margin: 0; font-size: 14px; line-height: 1.45; }
+.unlock-option .unlock-why { margin: 0; font-size: 13px; }
+.unlock-option .unlock-message { width: 100%; font: inherit; font-size: 13px; }
+.unlock-option .unlock-pick { align-self: flex-start; margin-top: auto; min-height: 36px; padding: 7px 14px; border-radius: 8px; background: #C9A227; color: #1B1A18; border: 0; font-weight: 700; }
+@media (max-width: 760px) { .unlock-options { grid-template-columns: 1fr; } }
+
+/* Cartão 10: os itens da anotação com a mesma estrutura dos itens da leitura de conversa. */
+.note-extract > .ai-route-title { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #1B1A18; }
+.note-extract > .lead-route { display: grid; grid-template-columns: 30px 160px minmax(0, 1fr); align-items: start; gap: 0; padding: 0 0 18px; border: 0; }
+.note-extract > .lead-route input[type="checkbox"] { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin: 2px 0 0; border: 1.5px solid #B9AE9C; border-radius: 4px; background: #FFFFFF center / 13px 13px no-repeat; cursor: pointer; }
+.note-extract > .lead-route input[type="checkbox"]:checked { background-color: #1B1A18; border-color: #1B1A18; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round' d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E"); }
+.note-extract > .lead-route > strong { font-size: 14px; font-weight: 700; color: #1B1A18; padding-top: 1px; }
+.note-extract .lead-route-value { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; color: #1B1A18; }
+.note-extract .lead-route-value .lead-badge.yellow { padding: 3px 10px; border: 1px solid #EAD68E; border-radius: 999px; background: #FDF6DF; color: #6B5413; font-size: 11.5px; font-weight: 500; }
+.note-extract .lead-route-value small.muted { flex: 1 1 100%; margin-top: 2px; font-size: 12px; font-style: italic; color: #8A837B; }
+.note-extract > .lead-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+.note-extract > .lead-actions > button { min-height: 40px; padding: 9px 18px; border-radius: 8px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 14px; font-weight: 700; }
+.note-extract > .lead-actions > .ai-confirm { background: #C9A227; color: #1B1A18; border: 1px solid #C9A227; }
+.note-extract > .lead-actions > .ai-outline { background: #FFFFFF00; color: #1B1A18; border: 1.5px solid #CFC6B6; }
+.note-extract > .lead-route input[type="checkbox"] { min-width: 18px; min-height: 18px; max-width: 18px; max-height: 18px; padding: 0; }
+.note-extract > .ai-nothing-new { margin: 0 0 18px; padding: 12px 16px; background: #F6F2E9; border-radius: 10px; font-size: 14px; color: #6F675D; }
