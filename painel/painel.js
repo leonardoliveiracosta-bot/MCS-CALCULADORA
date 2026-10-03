@@ -2421,13 +2421,30 @@
       if (!cards.length) return;
       // A client card or a decision with a ficha: the person is excluded (the same "Excluir" as in the ficha). A conversation
       // without a ficha waiting for classification is marked out of the funnel (reversible in "Fora do funil comercial").
-      const keys = [], chats = [], shellJourneys = [];
-      cards.forEach((card) => { if (card.attendItem) keys.push(dispositionIdentity(card.attendItem)); else if (card.attendShell.journeyId) { keys.push({ itemKind: 'JOURNEY', itemKey: card.attendShell.journeyId }); shellJourneys.push(card.attendShell.journeyId); } else chats.push(...card.attendShell.chats); });
+      // Each card leaves for good: the person is excluded when there is a ficha (never a null key), and the pending item
+      // that created a decision card is resolved at its source, so the card does not come back on the next reading:
+      // a link suggestion is set aside, a conversation to classify goes out of the funnel, a "fora da MCS?" candidate is confirmed.
+      const keys = [], shellJourneys = [], sources = [];
+      cards.forEach((card) => {
+        if (card.attendItem) { const identity = dispositionIdentity(card.attendItem); if (identity && identity.itemKey) keys.push(identity); }
+        else if (card.attendShell && card.attendShell.journeyId) { keys.push({ itemKind: 'JOURNEY', itemKey: card.attendShell.journeyId }); shellJourneys.push(card.attendShell.journeyId); }
+        (card.attendDecisions || []).forEach((decision) => {
+          const id = String(decision.key || '').split(':').slice(1).join(':');
+          if (decision.kind === 'VINCULO' && UUID_RE.test(id)) sources.push({ kind: 'VINCULO', id });
+          else if (decision.kind === 'TRIAGEM' && decision.chatId) sources.push({ kind: 'TRIAGEM', chatId: decision.chatId });
+          else if (decision.kind === 'FORA_MCS' && UUID_RE.test(String(decision.journeyId || ''))) sources.push({ kind: 'FORA_MCS', journeyId: decision.journeyId });
+        });
+      });
       const mark = (excluded) => { cards.forEach((card) => { if (card.attendItem) markExcluded(card.attendItem, excluded); }); shellJourneys.forEach((id) => excluded ? excludedHere.add(id) : excludedHere.delete(id)); };
-      const post = (status) => Promise.all([
-        ...keys.map(({ itemKind, itemKey }) => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status, reason: status ? 'OTHER' : null }) })),
-        ...(status ? chats.map((chatId) => request('/api/panel/triage', { method: 'POST', body: JSON.stringify({ action: 'set', chatId, category: 'NAO_CLIENTE' }) })) : [])
-      ]);
+      const undoBy = [];
+      const resolveSource = async (source) => {
+        if (source.kind === 'VINCULO') { await request('/api/panel/whatsapp', { method: 'POST', body: JSON.stringify({ action: 'suggestion_exclude', id: source.id }) }); undoBy.push(() => request('/api/panel/whatsapp', { method: 'POST', body: JSON.stringify({ action: 'suggestion_restore', id: source.id }) })); }
+        if (source.kind === 'TRIAGEM') { const out = await request('/api/panel/triage', { method: 'POST', body: JSON.stringify({ action: 'set', chatId: source.chatId, category: 'NAO_CLIENTE' }) }); if (out && out.id) undoBy.push(() => request('/api/panel/triage', { method: 'POST', body: JSON.stringify({ action: 'undo', triageId: out.id }) })); }
+        if (source.kind === 'FORA_MCS') { const out = await request('/api/panel/triage', { method: 'POST', body: JSON.stringify({ action: 'offmcs_confirm', journeyId: source.journeyId }) }); undoBy.push(() => request('/api/panel/triage', { method: 'POST', body: JSON.stringify({ action: 'offmcs_undo', journeyId: source.journeyId, triageIds: (out && out.triageIds) || [] }) })); }
+      };
+      const post = (status) => status
+        ? Promise.all([...keys.map(({ itemKind, itemKey }) => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status, reason: 'OTHER' }) })), ...sources.map(resolveSource)])
+        : Promise.all([...keys.map(({ itemKind, itemKey }) => request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'set_disposition', itemKind, itemKey, status: null, reason: null }) })), ...undoBy.splice(0).map((run) => run().catch(() => null))]);
       MCSAction.run({ button: remove, scope: document.body, successScope: document.body, feedbackKey: 'attend-bulk-delete',
         optimistic: () => { cards.forEach((card) => card.classList.add('action-optimistic-hidden')); bar.classList.add('hidden'); mark(true); return cards; },
         commit: () => post('DISCARDED'),
@@ -2631,6 +2648,7 @@
     };
     const buildCard = (entry) => {
       const card = entry.item ? todayCard(entry) : caseShell(entry);
+      card.attendDecisions = entry.decisions || [];
       card.dataset.caseKey = entry.key; card.dataset.bucket = entry.bucket;
       if (entry.journeyId) card.dataset.journeyId = entry.journeyId;
       if (!entry.item) {

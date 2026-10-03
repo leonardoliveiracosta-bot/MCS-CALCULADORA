@@ -105,9 +105,16 @@ module.exports=async(req,res)=>{
       return send(res,200,result);
     }
     // Brings back a suggestion turned down by the explicit-Ref rule (only those, never a manual decision).
+    // "Excluir" on a CONFIRMAR VÍNCULO card of ATENDER AGORA: the suggestion is set aside (never linked), so the card
+    // does not come back; "Desfazer" brings it back through suggestion_restore.
+    if(body.action==='suggestion_exclude'){
+      if(!isUuid(body.id))return send(res,400,{error:'SUGGESTION_INVALID'});
+      const excluded=await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,id:'eq.'+body.id,status:'eq.PENDING'},{status:'REJECTED',resolved_at:new Date().toISOString(),resolved_by:ctx.panel.id,undo_json:{rule:'PANEL_EXCLUDE',by:ctx.panel.id,at:new Date().toISOString()}},true);
+      return send(res,200,{excluded:excluded.length});
+    }
     if(body.action==='suggestion_restore'){
       if(!isUuid(body.id))return send(res,400,{error:'SUGGESTION_INVALID'});
-      const restored=await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,id:'eq.'+body.id,status:'eq.REJECTED','undo_json->>rule':'eq.EXPLICIT_REF'},{status:'PENDING',resolved_at:null,resolved_by:null,undo_json:{rule:'EXPLICIT_REF_RESTORED',restoredBy:ctx.panel.id,at:new Date().toISOString()}},true);
+      const restored=await patchRows(ctx,'whatsapp_link_suggestions',{environment:'eq.'+ctx.environment,id:'eq.'+body.id,status:'eq.REJECTED','undo_json->>rule':'in.(EXPLICIT_REF,PANEL_EXCLUDE)'},{status:'PENDING',resolved_at:null,resolved_by:null,undo_json:{rule:'EXPLICIT_REF_RESTORED',restoredBy:ctx.panel.id,at:new Date().toISOString()}},true);
       if(!restored.length)return send(res,409,{error:'SUGGESTION_NOT_RESTORABLE'});
       await insert(ctx,'audit_log',{environment:ctx.environment,actor_user_id:ctx.panel.id,entity_type:'whatsapp_link_suggestion',entity_id:body.id,action:'RESTORE_EXPLICIT_REF_REJECT',before_json:{status:'REJECTED'},after_json:{status:'PENDING'}},false).catch(()=>null);
       return send(res,200,{restored:true});
