@@ -2276,6 +2276,8 @@
     attendRenderTimer = setTimeout(() => { if (currentView === 'today') renderToday(todayItems, true); }, 40);
   }
   // "Excluir selecionados": every selected card leaves the panel (the same "Excluir" as in the ficha), with one "Desfazer".
+  const ATTEND_PAGE = 30;
+  let attendLimit = ATTEND_PAGE, attendPageKey = '';
   function bulkBar() {
     const bar = element('div', 'attend-bulk hidden');
     const count = element('span', 'attend-bulk-count', '');
@@ -2528,13 +2530,32 @@
     const byItem = new Map(withItem.map((entry) => [entry.item, entry]));
     root.append(bulkBar());
     // Every case in one grid (left, centre, right), the cases without a HOJE item first: no section
-    // headers, since each card already says why it is here.
-    if (withItem.length) MCSContactGroups.render(root, withItem.map((entry) => entry.item), (item) => buildCard(byItem.get(item)), { emptyText: '', flat: true });
-    if (without.length) {
-      let grid = root.querySelector('.contact-group-flat');
-      if (!grid) { grid = element('section', 'contact-group contact-group-flat'); root.append(grid); }
-      grid.prepend(...without.map((entry) => { const card = buildCard(entry); card.dataset.group = attendBucket === 'completar' ? 'COMPLETAR' : 'DECISOES'; return card; }));
+    // headers, since each card already says why it is here. Only 30 cards are built at a time (the page
+    // stays fast); "Mostrar mais" adds the next 30, or what is left.
+    const order = without.map((entry) => ({ entry, data: { group: attendBucket === 'completar' ? 'COMPLETAR' : 'DECISOES' } }));
+    if (withItem.length) {
+      const scratch = document.createElement('div');
+      MCSContactGroups.render(scratch, withItem.map((entry) => entry.item), (item) => { const stub = document.createElement('i'); stub.attendEntry = byItem.get(item); return stub; }, { emptyText: '', flat: true });
+      scratch.querySelectorAll('i').forEach((stub) => order.push({ entry: stub.attendEntry, data: { ...stub.dataset } }));
     }
+    const filterKey = [attendBucket, origin, period, subject, todayRefFilter, todayStatFilter].join('|');
+    if (filterKey !== attendPageKey) { attendPageKey = filterKey; attendLimit = ATTEND_PAGE; }
+    const grid = element('section', 'contact-group contact-group-flat');
+    root.append(grid);
+    const moreWrap = element('div', 'attend-more');
+    const moreButton = element('button', 'attend-more-button', ''); moreButton.type = 'button'; moreWrap.append(moreButton); root.append(moreWrap);
+    let built = 0;
+    const buildUpTo = (limit) => {
+      const slice = order.slice(built, limit);
+      slice.forEach(({ entry, data }) => { const card = buildCard(entry); Object.assign(card.dataset, data); grid.append(card); });
+      built += slice.length;
+      const rest = order.length - built;
+      moreWrap.classList.toggle('hidden', rest <= 0);
+      moreButton.textContent = `Mostrar mais ${Math.min(ATTEND_PAGE, rest)}${rest > ATTEND_PAGE ? ` · ${rest} restantes` : ''}`;
+      if (slice.length) { hydrateContexts(grid); MCSContactGroups.hydrateTranslations(grid, { request }).catch(() => {}); }
+    };
+    moreButton.addEventListener('click', () => { attendLimit = built + ATTEND_PAGE; buildUpTo(attendLimit); });
+    buildUpTo(Math.max(ATTEND_PAGE, attendLimit));
     if(offCount&&attendBucket!=='fora')root.append(element('p','muted',`${offCount} caso(s) fora do assunto estão na seção Fora do assunto, abaixo`));
     hydrateContexts(root);
     MCSContactGroups.hydrateTranslations(root, { request }).catch(() => {});
