@@ -1072,3 +1072,43 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .unlock-option .unlock-send-status { font-size: 12.5px; }
 
 .context-table-wrap .context-car-block, .context-table-wrap .context-client-block { margin-bottom: 14px; }
+
+/* ---------- Buscar carros, Enviar opções e Clientes com a identidade do Atendimento ---------- */
+#requests-panel, #searches-panel, #clients-panel { counter-reset: mcs-card; }
+:is(#requests-panel, #searches-panel, #clients-panel) :is(.card, .buscas-column, .item-card) { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 14px; box-shadow: none; color: #1B1A18; }
+:is(#requests-panel, #searches-panel, #clients-panel) :is(.card, .buscas-column) { padding: 20px 20px 18px; }
+:is(#requests-panel, #searches-panel, #clients-panel) .item-card { padding: 16px 18px; }
+:is(#requests-panel, #searches-panel, #clients-panel) .item-card .item-card { border-color: #EEE8DE; }
+/* Título de cada cartão: numerado, em dourado, como os cartões da ficha. */
+#requests-panel .buscas-column-head > h2,
+#requests-panel #buscas-review > summary,
+#requests-panel #requests-audit > summary,
+#searches-panel #buscas-total > strong,
+#searches-panel #v1-demo > h2,
+#searches-panel .buscas-column-head > h2,
+#clients-panel #clients-general-card > h2,
+#clients-panel #clients-followup > summary > strong,
+#clients-panel .contact-group-head > .contact-group-label { counter-increment: mcs-card; margin: 0 0 12px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 11px; font-weight: 700; line-height: 1.4; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
+#requests-panel .buscas-column-head > h2::before,
+#requests-panel #buscas-review > summary::after,
+#requests-panel #requests-audit > summary::after,
+#searches-panel #buscas-total > strong::before,
+#searches-panel #v1-demo > h2::before,
+#searches-panel .buscas-column-head > h2::before,
+#clients-panel #clients-general-card > h2::before,
+#clients-panel #clients-followup > summary > strong::before,
+#clients-panel .contact-group-head > .contact-group-label::before { content: counter(mcs-card) " — "; }
+#requests-panel #buscas-review > summary::after,
+#requests-panel #requests-audit > summary::after { order: -1; }
+#requests-panel #buscas-review > summary, #requests-panel #requests-audit > summary { display: flex; align-items: center; gap: 8px; }
+:is(#requests-panel, #searches-panel, #clients-panel) :is(.search-group-head, .contact-area-head) strong { font-family: "Noto Sans", system-ui, sans-serif; font-weight: 700; color: #1B1A18; }
+:is(#requests-panel, #searches-panel, #clients-panel) .muted { color: #6F675D; }
+/* Botões: os mesmos do Atendimento. */
+:is(#requests-panel, #searches-panel, #clients-panel) button:not(.chip):not(.tab):not(.pending-stat) { min-height: 44px; padding: 8px 14px; border: 1px solid #E7E1D7; border-radius: 8px; background: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 14px; font-weight: 600; letter-spacing: 0; box-shadow: none; }
+:is(#requests-panel, #searches-panel, #clients-panel) button:not(.chip):not(.tab):not(.pending-stat):hover { border-color: #C9A227; filter: none; }
+:is(#requests-panel, #searches-panel, #clients-panel) :is(button.primary, .card-primary > button, button.v1-send-go):not(.chip):not(.tab):not(.pending-stat) { border: 0; background: #C9A227; color: #1B1A18; font-weight: 700; }
+:is(#requests-panel, #searches-panel, #clients-panel) :is(button.primary, .card-primary > button, button.v1-send-go):not(.chip):not(.tab):not(.pending-stat):hover { background: #BE9820; }
+:is(#requests-panel, #searches-panel, #clients-panel) button:disabled { opacity: .55; }
+:is(#requests-panel, #searches-panel, #clients-panel) select { min-height: 44px; border: 1px solid #E7E1D7; border-radius: 8px; background-color: #FFFFFF; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 14px; }
+#requests-panel .requests-sort { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
+#requests-panel .requests-sort select { letter-spacing: 0; text-transform: none; font-weight: 400; }

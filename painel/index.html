@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans:wght@400;600;700&family=Noto+Sans+Mono:wght@500&family=Noto+Serif:wght@600&display=swap">
   <link rel="stylesheet" href="/painel/painel.css?v=20261003s">
   <link rel="stylesheet" href="/painel/tema-mcs.css?v=20261003s">
-  <link rel="stylesheet" href="/painel/identidade.css?v=20261004a">
+  <link rel="stylesheet" href="/painel/identidade.css?v=20261004b">
 </head>
 <body class="login-screen">
   <main class="shell">
@@ -125,7 +125,7 @@
         </details>
       </section>
       <section id="clients-panel" class="panel-view hidden" aria-label="Clientes">
-        <div class="section-head"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Diretório para encontrar pessoas e abrir a ficha completa · O que fazer agora fica em Atendimento · Relatórios, filtros e histórico inteiro continuam aqui</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
+        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Clientes</h2><p class="muted">Diretório para encontrar pessoas e abrir a ficha completa · O que fazer agora fica em Atendimento · Relatórios, filtros e histórico inteiro continuam aqui</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div></div>
         <section id="clients-general-card" class="card pending-general" aria-live="polite"></section>
         <details id="clients-followup" class="card followup-queue">
           <summary><strong>Retomar conversas antigas</strong> <span class="muted">revisão uma a uma, nada é enviado sozinho</span></summary>
@@ -167,7 +167,7 @@
         <div id="qualification-list" class="stack" aria-live="polite"></div>
       </section>
       <section id="requests-panel" class="panel-view hidden" aria-label="Buscar carros">
-        <div class="section-head"><div><h2>Buscar carros</h2><p class="muted">Cada pedido completo no seu tipo de busca, com os critérios, o resultado no lote ativo e as buscas para salvar no Manheim</p></div><div class="inline-actions"><button id="requests-history" class="small" type="button">Iniciar / continuar auditoria histórica</button><button id="requests-compare" class="small quiet" type="button">Comparar com o lote ativo</button></div></div>
+        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Buscar carros</h2><p class="muted">Cada pedido completo no seu tipo de busca, com os critérios, o resultado no lote ativo e as buscas para salvar no Manheim</p></div><div class="inline-actions"><button id="requests-history" class="small" type="button">Iniciar / continuar auditoria histórica</button><button id="requests-compare" class="small quiet" type="button">Comparar com o lote ativo</button></div></div>
         <section id="requests-history-progress" class="card requests-history hidden" aria-live="polite">
           <div id="requests-history-confirm" class="hidden"><strong>Auditoria histórica de pedidos de veículo</strong><ul id="requests-history-terms"></ul><p id="requests-history-remaining" class="muted"></p><div class="inline-actions"><button id="requests-history-go" class="small" type="button">Confirmar e iniciar</button><button id="requests-history-cancel" class="quiet small" type="button">Cancelar</button></div></div>
           <p id="requests-history-text"></p><div class="inline-actions"><button id="requests-history-pause" class="quiet small hidden" type="button">Pausar</button></div></section>
@@ -176,12 +176,12 @@
         <div id="requests-filters" class="filters requests-filters" aria-label="Resultado dos pedidos no lote"></div>
         <div id="requests-list" class="buscas-columns search-columns" aria-live="polite">
           <section id="search-col-valor" class="buscas-column" data-mode="VALOR" aria-label="Por valor · Calculate My Cost">
-            <header class="buscas-column-head"><h2>Por valor · Calculate My Cost</h2><p class="muted">Marca, modelo e lance máximo · busca pela faixa de MMR (preço médio de leilão)</p></header>
+            <header class="buscas-column-head"><h2>Por valor · Calculate My Cost</h2><p class="muted">Marca, modelo e lance máximo · busca pela faixa de MMR (preço médio de leilão)</p><label class="requests-sort">Ordenar <select id="requests-sort-valor" data-mode="VALOR"><option value="mais">Mais opções primeiro</option><option value="menos">Menos opções primeiro</option><option value="recente" selected>Mensagem mais recente</option><option value="lance-maior">Lance maior primeiro</option><option value="lance-menor">Lance menor primeiro</option></select></label></header>
             <div id="requests-valor" class="stack search-column-list"></div>
             <details class="saved-searches-box" open><summary>Quais buscas salvar no Manheim · Por valor</summary><div id="buscas-valor-saved" class="stack saved-searches"></div></details>
           </section>
           <section id="search-col-carro" class="buscas-column" data-mode="CARRO" aria-label="Por carro · Find One For Me">
-            <header class="buscas-column-head"><h2>Por carro · Find One For Me</h2><p class="muted">Marca, modelo, faixa de ano e de milhagem</p></header>
+            <header class="buscas-column-head"><h2>Por carro · Find One For Me</h2><p class="muted">Marca, modelo, faixa de ano e de milhagem</p><label class="requests-sort">Ordenar <select id="requests-sort-carro" data-mode="CARRO"><option value="mais">Mais opções primeiro</option><option value="menos">Menos opções primeiro</option><option value="recente" selected>Mensagem mais recente</option><option value="ano-maior">Ano maior primeiro</option><option value="ano-menor">Ano menor primeiro</option></select></label></header>
             <div id="requests-carro" class="stack search-column-list"></div>
             <details class="saved-searches-box" open><summary>Quais buscas salvar no Manheim · Por carro</summary><div id="buscas-carro-saved" class="stack saved-searches"></div></details>
           </section>
@@ -295,7 +295,7 @@
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
       </section>
       <section id="searches-panel" class="panel-view hidden" aria-label="Enviar opções">
-        <div class="section-head searches-subsection"><div><h2>Enviar opções</h2><p class="muted">Carros do lote ativo por pedido: revisão, seleção, preços, links V1 (vitrine simples) e V2, apresentação e envio · Cada envio é individual e confirmado</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
+        <div class="section-head today-heading searches-subsection"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Enviar opções</h2><p class="muted">Carros do lote ativo por pedido: revisão, seleção, preços, links V1 (vitrine simples) e V2, apresentação e envio · Cada envio é individual e confirmado</p></div><div class="inline-actions"><label>Ordenar<select id="manheim-sort"><option value="customers">Mais clientes</option><option value="vehicle">Marca do carro</option><option value="recent">Mais recentes</option></select></label><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
         <section class="card">
           <div id="manheim-summary" class="muted"></div>
           <div id="manheim-audit-note" class="manheim-audit-note hidden" aria-live="polite"></div>
@@ -364,7 +364,7 @@
   <script src="/painel/grupos.js?v=20261003s" defer></script>
   <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js?v=20261004c" defer></script>
-  <script src="/painel/painel.js?v=20261004a" defer></script>
+  <script src="/painel/painel.js?v=20261004b" defer></script>
   <script src="/painel/notifications.js" defer></script>
 </body>
 </html>

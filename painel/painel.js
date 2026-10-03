@@ -3503,6 +3503,28 @@
   let requestsData = null;
   let requestsFilter = 'ALL';
   let requestsShown = 50;
+  // "Ordenar" of each column of BUSCAR CARROS (inside each result group); default: most recent message.
+  const requestsSort = { VALOR: 'recente', CARRO: 'recente' };
+  const requestWish = (item) => (item.targets && item.targets[0] && (item.targets[0].wishes || [])[0]) || item.criteria || {};
+  const requestBid = (members) => Math.max(0, ...members.map((item) => Number(item.sort?.bidUsd) || Number(requestWish(item).budgetUsd) || 0));
+  const requestYear = (members, high) => { const years = members.map((item) => { const wish = requestWish(item); return Number(high ? item.sort?.yearMax || wish.yearMax || wish.yearMin : item.sort?.yearMin || wish.yearMin || wish.yearMax) || null; }).filter(Boolean); return years.length ? (high ? Math.max(...years) : Math.min(...years)) : null; };
+  const requestOptions = (members) => Math.max(0, ...members.map((item) => Number(item.optionCount) || 0));
+  function sortRequestGroups(groups, mode) {
+    const recent = (left, right) => String(latestOf(right)).localeCompare(String(latestOf(left)));
+    const last = (value, fallback) => value === null ? fallback : value;
+    const by = {
+      mais: (left, right) => requestOptions(right) - requestOptions(left),
+      menos: (left, right) => requestOptions(left) - requestOptions(right),
+      'lance-maior': (left, right) => requestBid(right) - requestBid(left),
+      'lance-menor': (left, right) => last(requestBid(left) || null, Infinity) - last(requestBid(right) || null, Infinity),
+      'ano-maior': (left, right) => last(requestYear(right, true), -Infinity) - last(requestYear(left, true), -Infinity),
+      'ano-menor': (left, right) => last(requestYear(left, false), Infinity) - last(requestYear(right, false), Infinity)
+    }[requestsSort[mode]] || (() => 0);
+    // The chosen order applies inside each result group shown on screen (Com carros, Sem carros, Ainda não rodada).
+    const groupIndex = (members) => { const keys = (MCSSearchGroups.GROUPS || []).map((group) => group.key); const index = keys.indexOf(MCSSearchGroups.groupOf(members[0].state)); return index < 0 ? keys.length : index; };
+    return groups.sort((left, right) => groupIndex(left) - groupIndex(right) || by(left, right) || COLUMN_STATES.indexOf(left[0].state) - COLUMN_STATES.indexOf(right[0].state) || recent(left, right));
+  }
+  ['VALOR', 'CARRO'].forEach((mode) => { const select = document.getElementById('requests-sort-' + mode.toLowerCase()); if (select) select.addEventListener('change', () => { requestsSort[mode] = select.value; if (requestsData) renderRequests(requestsData); }); });
   const requestPersonKey = (item) => item.person && (item.person.journeyId || item.person.contactId || item.person.ref) || 'pedido:' + item.key;
   // BUSCAR CARROS: complete requests in the column of their type; incomplete ones wait in
   // ATENDIMENTO with what is missing; an unknown type goes to review (never "por valor" by default).
@@ -3555,7 +3577,7 @@
       // Same criteria in the same type, one task; every person and conversation stays listed inside it.
       const groups = new Map();
       visible.forEach((item) => { if (!groups.has(item.groupKey)) groups.set(item.groupKey, []); groups.get(item.groupKey).push(item); });
-      const ordered = [...groups.values()].sort((left, right) => COLUMN_STATES.indexOf(left[0].state) - COLUMN_STATES.indexOf(right[0].state) || String(latestOf(right)).localeCompare(String(latestOf(left))));
+      const ordered = sortRequestGroups([...groups.values()], mode);
       if (!ordered.length) empty(root, requestsFilter === 'ALL' ? 'Nenhum pedido completo deste tipo' : 'Nenhum pedido deste tipo neste resultado');
       else MCSSearchGroups.render(root, ordered.slice(0, requestsShown), requestCard, (members) => members[0].state);
       // A work stage (busca salva / opções enviadas) whose request is not on the list stays visible.

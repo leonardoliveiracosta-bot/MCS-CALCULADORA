@@ -432,7 +432,12 @@ module.exports = async (req, res) => {
       // The ficha request and the same request read by the AI from its conversation are one
       // request on screen (the reading stays as its unconfirmed evidence); the counts follow the list.
       const shown = merge.present(list.items);
-      const items = shown.items.map(({ targets, ...item }) => item);
+      // Only the numbers the "Ordenar" of each column needs (bid, years) leave with the item; the targets stay on the server.
+      const sortOf = (item) => { const target = (item.targets || [])[0] || null; const wishes = target ? target.wishes || [] : [item.criteria || {}];
+        const years = wishes.flatMap((wish) => [Number(wish.yearMin) || null, Number(wish.yearMax) || null]).filter(Boolean);
+        const bid = target && target.bidCents ? Math.round(target.bidCents / 100) : Number(item.criteria?.budgetUsd) || null;
+        return { bidUsd: bid, yearMin: years.length ? Math.min(...years) : null, yearMax: years.length ? Math.max(...years) : null }; };
+      const items = shown.items.map(({ targets, ...item }) => ({ ...item, sort: sortOf({ targets, ...item }) }));
       return send(res, 200, { ...list, items, counts: Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length])),
         totals: merge.counts(items, STATES), mergedReadings: shown.merged });
     }
