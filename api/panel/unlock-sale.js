@@ -19,6 +19,8 @@ const BRIEF = [
   'Tom das grandes marcas: desejo, emoção e conexão, nunca pressão de balcão. Nada com cara de máquina.',
   'Quando perguntar, faça uma pergunta aberta, que leve a pessoa a falar do que ela quer viver com o carro. Curta, humana, no tom de uma conversa entre adultos.',
   'Nunca prometa carro, preço, prazo ou disponibilidade.',
+  'TEMPO DA CONVERSA: antes de escrever, veja em tempo.diasDesdeUltimaTroca há quanto tempo foi a última troca com o cliente. Conversa recente (até 1 dia): fale direto, continuando de onde parou. Conversa parada há dias ou semanas: comece reaproximando a pessoa com naturalidade, como quem retoma contato de verdade; nunca entre direto no assunto como se tivessem falado ontem.',
+  'A mensagem pode vir dividida no mesmo campo, em blocos "Mensagem 1:", "Mensagem 2:" (e "Mensagem 3:", se preciso), separados por uma linha em branco. Com conversa parada, a Mensagem 1 é a reaproximação; imagine a provável resposta da pessoa e escreva a Mensagem 2 (e a 3) a partir dela. Sem precisar de continuação, você ainda pode dividir em 2 ou 3 mensagens curtas: primeiro aborda a pessoa, depois entrega a mensagem principal. mensagemPt segue a mesma divisão de mensagemEn.',
   'Responda SOMENTE JSON {"titulo","acao","porque","mensagemPt","mensagemEn"}: titulo curto; acao é UMA ação concreta para hoje (o que fazer, como e por quê agora); porque em 1 a 2 frases com base nos dados; mensagemEn é o texto pronto para mandar ao cliente, em inglês natural de quem vive nos EUA; mensagemPt é a mesma mensagem em português, fiel ao inglês, para o vendedor ler. Tudo em português, menos a mensagemEn.'
 ].join(' ');
 const OWN_STYLE = ' Gere a sua própria opção, no seu próprio estilo: outro especialista vai propor a dele lado a lado.';
@@ -26,6 +28,13 @@ const PEOPLE = BRIEF + OWN_STYLE;
 const SALES = BRIEF + OWN_STYLE;
 const SCHEMA = { type: 'object', additionalProperties: false, required: ['titulo', 'acao', 'porque', 'mensagemPt', 'mensagemEn'], properties: { titulo: { type: 'string' }, acao: { type: 'string' }, porque: { type: 'string' }, mensagemPt: { type: 'string' }, mensagemEn: { type: 'string' } } };
 const clean = (value) => { const source = value && typeof value === 'object' ? value : {}; return { titulo: safeText(source.titulo, 200) || '', acao: safeText(source.acao, 2000) || '', porque: safeText(source.porque, 1200) || '', mensagemPt: safeText(source.mensagemPt, 1500) || '', mensagemEn: safeText(source.mensagemEn || source.mensagem, 1500) || '' }; };
+
+// How long since the last exchange with the customer (any side), so the message never sounds like yesterday after weeks.
+function since(messages, now = Date.now()) {
+  const last = messages.map((message) => Date.parse(message.occurred_at_utc || message.created_at || '')).filter(Number.isFinite).sort((a, b) => b - a)[0];
+  if (!last) return { ultimaTroca: null, diasDesdeUltimaTroca: null, agora: new Date(now).toISOString() };
+  return { ultimaTroca: new Date(last).toISOString(), diasDesdeUltimaTroca: Math.floor((now - last) / 86400000), agora: new Date(now).toISOString() };
+}
 
 async function contextOf(ctx, req, body) {
   const lead = await leadData(ctx, req, String(body.ref || '').toUpperCase(), body.journeyId);
@@ -37,7 +46,7 @@ async function contextOf(ctx, req, body) {
       tetoTotal: lead.totalCeilingCents ? lead.totalCeilingCents / 100 : null, pagamento: lead.paymentKnown || null, prazo: lead.record?.customer_deadline_text || lead.order?.deadlineText || null,
       carrosNoLote: (lead.offers || []).slice(0, 8).map((car) => ({ ano: car.year, modelo: [car.make, car.model, car.trim].filter(Boolean).join(' '), milhas: car.miles, mmr: car.mmrCents ? car.mmrCents / 100 : null })),
       jaApresentados: (lead.record?.units || []).map((unit) => unit.vehicle_text), anotacoes: (lead.notes || []).slice(-5).map((note) => String(note.body_text || '').slice(0, 600)) },
-    conversa: window.messages } };
+    tempo: since(messages), conversa: window.messages } };
 }
 
 module.exports = async (req, res) => {
