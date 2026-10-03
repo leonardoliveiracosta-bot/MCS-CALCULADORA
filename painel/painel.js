@@ -1747,11 +1747,28 @@
     catch (failure) { if (failure && failure.code === 'REQUEST_ABORTED') return; throw failure; }
     finally { if (viewController === controller) viewController = null; }
   }
+  // One-off hard delete of the test records the owner approved (list in _purge_teste); admin only, two clicks.
+  async function loadPurgeTests() {
+    const box = $('purge-tests-card'); if (!box) return;
+    let data; try { data = await request('/api/panel/purge-tests'); } catch (_) { box.classList.add('hidden'); return; }
+    box.replaceChildren(); box.classList.toggle('hidden', !data.pending);
+    if (!data.pending) return;
+    box.append(element('h2', '', 'Apagar registros de teste'), element('p', 'muted', `Apaga de verdade do banco ${data.pending} registros ligados a: ${data.names.join(', ')} · O lote Manheim ativo não é tocado`));
+    const go = element('button', 'small', 'Apagar de verdade'); go.type = 'button'; const status = element('p', 'status', ''); let armed = false;
+    go.addEventListener('click', async () => {
+      if (!armed) { armed = true; go.textContent = 'Confirmar: apagar de verdade'; status.textContent = 'Não dá para desfazer'; return; }
+      go.disabled = true; go.textContent = 'Apagando…';
+      try { const out = await request('/api/panel/purge-tests', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'run', confirm: 'APAGAR TESTES' }) }); status.textContent = 'Apagado: ' + Object.entries(out.deleted || {}).map(([table, n]) => `${table} ${n}`).join(' · '); go.remove(); }
+      catch (error) { go.disabled = false; armed = false; go.textContent = 'Apagar de verdade'; status.textContent = 'Não terminou · tente de novo' + (error && error.code ? ` (${error.code})` : ''); }
+    });
+    box.append(go, status);
+  }
   async function loadCurrentNow(view, requestVersion) {
     if (window.MCSContext) MCSContext.forget();
     const current = () => currentView === view && viewRequestVersion === requestVersion;
     if (view === 'settings') {
       loadAutomaticMessages().catch(() => {});
+      loadPurgeTests().catch(() => {});
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp'; });
     }
     if (view === 'pending') return loadPending();
