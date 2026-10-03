@@ -66,7 +66,7 @@ test('valor na conversa: milhagem não vira dinheiro e "20k" vale 20 mil', () =>
 });
 
 test('página do cliente: milhagem sempre no formato americano', () => {
-  assert.doesNotMatch(read('v/vitrine.js'), /toLocaleString\(\)/);
+  assert.doesNotMatch((read('v/vitrine-render.js')+read('v/vitrine.js')), /toLocaleString\(\)/);
 });
 
 test('estado morto "pediu contato pela calculadora" removido do contexto', () => {
