@@ -2237,6 +2237,8 @@
     clearTimeout(attendRenderTimer);
     attendRenderTimer = setTimeout(() => { if (currentView === 'today') renderToday(todayItems, true); }, 40);
   }
+  // One "⋯ Mais" open at a time in ATENDIMENTO: the panel opens over the grid, never over another open one.
+  function closeOtherMores(current) { document.querySelectorAll('#today-list .case-more[open]').forEach((node) => { if (node !== current) node.open = false; }); }
   function caseShell(entry) {
     // A case without a HOJE item (only a decision or an incomplete request): the same format as
     // the other cards (status, labelled fields, buttons); the decision controls are under "⋯ Mais".
@@ -2258,7 +2260,7 @@
     if (entry.journeyId) body.append(contextSlot({ journeyId: entry.journeyId }, { withIdentity: false, unattended: false }));
     else if (first.contactId) body.append(contextSlot({ contactId: first.contactId }, { withIdentity: false, unattended: false, emptyText: 'Pedido sem ficha: abra a conversa pela busca global' }));
     more.append(body);
-    more.addEventListener('toggle', () => { if (more.open) hydrateContexts(more); });
+    more.addEventListener('toggle', () => { if (more.open) { closeOtherMores(more); hydrateContexts(more); } });
     actions.append(more); card.append(actions);
     return card;
   }
@@ -2424,7 +2426,7 @@
       const subjectFix=MCSContactGroups.subjectSelect(item,{request,refresh:reload,journeyId:journeyIdOf(item)});if(subjectFix)moreActions.append(subjectFix);
       more.append(moreActions, dispositionControls(item));
       if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(journeyIdOf(item),{request,onSent:reload});if(tools)more.append(tools);}
-      more.addEventListener('toggle',()=>{if(more.open){hydrateContexts(more);MCSContactGroups.hydrateTranslations(more,{request}).catch(()=>{});}});
+      more.addEventListener('toggle',()=>{if(more.open){closeOtherMores(more);hydrateContexts(more);MCSContactGroups.hydrateTranslations(more,{request}).catch(()=>{});}});
       const body=element('div','case-more-body');body.append(...[...more.childNodes].filter((node)=>node.nodeName!=='SUMMARY'));more.append(body);
       actions.append(more);
       makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
@@ -2444,7 +2446,8 @@
       // The decision rows of the case (rendered by their own lists) come inside its card.
       const holder = card.querySelector('.case-decisions');
       entry.decisions.forEach((decision) => { const row = decisionRow(decision.key); if (row && holder) holder.append(row); });
-      if (holder && !holder.childElementCount) holder.remove();
+      // Without a pending decision the card is only the essentials: a click on it opens the full ficha.
+      if (holder && !holder.childElementCount) { holder.remove(); if (entry.item) card.querySelector('.case-more')?.remove(); }
       return card;
     };
     // Cases with a HOJE item keep the old groups (não atendidos, atendidos) and areas by search type.

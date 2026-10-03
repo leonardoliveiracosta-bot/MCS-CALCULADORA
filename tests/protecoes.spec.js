@@ -304,6 +304,7 @@ test('ATENDIMENTO: candidata a fora da MCS aparece com motivo e frase, e só sai
   await expect(card).toContainText('Conversa de família sobre uma festa');
   await expect(card).toContainText('a festa da vovó é sábado');
   expect(posted).toBe(null);
+  await page.locator('#today-list .case-card', { has: card }).first().locator('.case-more > summary').click();
   await card.getByRole('button', { name: 'Confirmar fora da MCS' }).click();
   await expect.poll(() => posted && posted.action).toBe('offmcs_confirm');
   expect(posted.journeyId).toBe(uid(90));

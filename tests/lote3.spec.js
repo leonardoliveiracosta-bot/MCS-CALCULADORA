@@ -96,7 +96,10 @@ test('Lote 3: vitrine "Tratado" com falha volta o card e mostra o erro', async (
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   const card = page.locator('.vitrine-request-card', { hasText: 'Bia' });
-  await expect(card).toBeVisible({ timeout: 30000 });
+  // The decision controls are under "⋯ Mais" of the case card.
+  await expect(card).toHaveCount(1, { timeout: 30000 });
+  await page.locator('#today-list .case-card', { has: card }).first().locator('.case-more > summary').click();
+  await expect(card).toBeVisible();
   await card.getByRole('button', { name: 'Pedido atendido' }).click();
   await expect(card).toContainText('Não consegui marcar como atendido, tente de novo');
   await expect(card).toBeVisible();

@@ -108,7 +108,7 @@ for (const width of [1280, 390]) {
     const carla = list.locator('.case-card', { hasText: 'Carla Direta' });
     await expect(carla).toHaveCount(1);
     // The incomplete direct request waits here with what is missing (after the requests load).
-    await expect(carla).toContainText('Completar pedido · Toyota RAV4 · Falta ano e milhagem', { timeout: 30000 });
+    await expect(carla).toContainText('Falta:Toyota RAV4 · Falta ano e milhagem', { timeout: 30000 });
     await page.locator('[data-attend-bucket="todos"]').click();
     await expect(list.locator('.case-card')).toHaveCount(5);
     await expect(page.locator('[data-attend-bucket="todos"] .chip-count')).toHaveText('5');

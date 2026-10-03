@@ -39,7 +39,7 @@ async function open(page, width) {
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   // ATENDIMENTO opens first: the triage decisions are reasons of their cases.
-  await expect(page.locator('#today-list .triage-item').first()).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#today-list .triage-item').first()).toHaveCount(1, { timeout: 30000 });
   return posts;
 }
 
@@ -50,13 +50,15 @@ for (const width of [1280, 390]) {
     await open(page, width);
     const review = page.locator('#today-list .triage-item');
     await expect(review).toHaveCount(2);
+    // The triage controls are under "⋯ Mais" of each case card.
+    await page.locator('#today-list .case-card', { has: review.first() }).first().locator('.case-more > summary').click();
     await expect(review.first()).toContainText('Contato Ambíguo');
     await expect(review.first()).toContainText('IA · Contexto insuficiente');
     await expect(review.first()).toContainText('Oi, tudo bem?');
     await expect(review.nth(1)).toContainText('Leitura automática falhou, decida manualmente');
     // Each REVISAR is its own case (different fichas), with the reason first.
     await expect(page.locator('#today-list .case-card')).toHaveCount(2);
-    await expect(page.locator('#today-list .case-card').first()).toContainText('Classificar a conversa (pré-compra ou fora do funil)');
+    await expect(page.locator('#today-list .case-card').first()).toContainText('Classificar a conversa');
     await expect(page.locator('#triage-state')).toHaveText('Triagem automática desligada: as conversas novas seguem o fluxo normal');
     await expect(page.locator('#triage-out-count')).toHaveText('2');
     await expect(page.locator('#triage-out-list')).toBeHidden();
@@ -82,6 +84,7 @@ for (const width of [1280, 390]) {
 test('é pré-compra, corrigir, manter pendente e desfazer mandam só a decisão ao servidor', async ({ page }) => {
   const posts = await open(page, 1280);
   const first = page.locator('#today-list .triage-item').first();
+  await page.locator('#today-list .case-card', { has: first }).first().locator('.case-more > summary').click();
   await first.getByRole('button', { name: 'É pré-compra' }).click();
   await expect.poll(() => posts.length).toBe(1);
   await page.locator('#triage-out summary').click();
