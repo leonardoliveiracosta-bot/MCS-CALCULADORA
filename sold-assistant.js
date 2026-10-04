@@ -282,8 +282,12 @@
   }
 
   /* ---------- o personagem ---------- */
+  /* Marrom marfim: madeira clara, cor de marfim puxada para o caramelo. O boneco inteiro é o martelo: a cabeça é a
+     cabeça do martelo. No ciclo ele bate três vezes no ar (não há mesa: só o estalo da batida) e pula de alegria,
+     de olhos fechados de felicidade e boca aberta, como quem acabou de arrematar. */
   function character(size, headOnly) {
     var id = 'sold' + Math.random().toString(36).slice(2, 8);
+    var ink = '#4a3320';
     var head =
       '<g class="sold-head">' +
         '<rect x="10" y="12" width="100" height="60" rx="24" fill="url(#' + id + 'w)"/>' +
@@ -291,54 +295,77 @@
         '<rect x="97" y="10" width="17" height="64" rx="8.5" fill="url(#' + id + 'c)"/>' +
         '<rect x="23" y="11" width="4.5" height="62" rx="2" fill="#c9a34e"/>' +
         '<rect x="92.5" y="11" width="4.5" height="62" rx="2" fill="#c9a34e"/>' +
-        '<path d="M32 26 Q60 21 88 26 M30 62 Q60 67 90 62 M34 34 Q46 32 52 34" stroke="rgba(92,50,18,.28)" stroke-width="1.4" fill="none" stroke-linecap="round"/>' +
-        '<rect x="32" y="16" width="56" height="7" rx="3.5" fill="rgba(255,255,255,.22)"/>' +
-        '<path d="M40 31 Q47 27 54 30 M66 30 Q73 27 80 31" stroke="#3a1f0c" stroke-width="2.6" fill="none" stroke-linecap="round"/>' +
+        '<path d="M32 26 Q60 21 88 26 M30 62 Q60 67 90 62 M34 34 Q46 32 52 34" stroke="rgba(122,88,50,.28)" stroke-width="1.4" fill="none" stroke-linecap="round"/>' +
+        '<rect x="32" y="16" width="56" height="7" rx="3.5" fill="rgba(255,255,255,.35)"/>' +
+        '<path class="sold-brows" d="M40 31 Q47 27 54 30 M66 30 Q73 27 80 31" stroke="' + ink + '" stroke-width="2.6" fill="none" stroke-linecap="round"/>' +
         '<g class="sold-eyes">' +
           '<ellipse cx="47" cy="41" rx="6" ry="7" fill="#fff"/><ellipse cx="73" cy="41" rx="6" ry="7" fill="#fff"/>' +
           '<circle cx="48" cy="42" r="3.4" fill="#1a1d21"/><circle cx="74" cy="42" r="3.4" fill="#1a1d21"/>' +
           '<circle cx="49.3" cy="40.4" r="1.2" fill="#fff"/><circle cx="75.3" cy="40.4" r="1.2" fill="#fff"/>' +
         '</g>' +
-        '<ellipse cx="37" cy="53" rx="5.5" ry="3.2" fill="#e8835f" opacity=".42"/><ellipse cx="83" cy="53" rx="5.5" ry="3.2" fill="#e8835f" opacity=".42"/>' +
-        '<path d="M49 52 Q60 63 71 52 Q60 57 49 52 Z" fill="#3a1f0c"/>' +
-        '<path d="M53 56.5 Q60 60 67 56.5" stroke="#d9655a" stroke-width="2" fill="none" stroke-linecap="round"/>' +
+        '<path class="sold-joy" d="M41 43 Q47 35 53 43 M67 43 Q73 35 79 43" stroke="' + ink + '" stroke-width="3" fill="none" stroke-linecap="round" opacity="0"/>' +
+        '<ellipse cx="37" cy="53" rx="5.5" ry="3.2" fill="#e8835f" opacity=".5"/><ellipse cx="83" cy="53" rx="5.5" ry="3.2" fill="#e8835f" opacity=".5"/>' +
+        '<g class="sold-mouth"><path d="M49 52 Q60 63 71 52 Q60 57 49 52 Z" fill="' + ink + '"/>' +
+        '<path d="M53 56.5 Q60 60 67 56.5" stroke="#d9655a" stroke-width="2" fill="none" stroke-linecap="round"/></g>' +
+        '<g class="sold-grin" opacity="0"><path d="M46 50 Q60 71 74 50 Z" fill="' + ink + '"/><path d="M52 60 Q60 67 68 60 Q60 63 52 60 Z" fill="#d9655a"/></g>' +
       '</g>';
     var body =
-      '<ellipse cx="60" cy="149" rx="26" ry="3.6" fill="rgba(0,0,0,.22)"/>' +
+      '<ellipse class="sold-shadow" cx="60" cy="149" rx="26" ry="3.6" fill="rgba(0,0,0,.22)"/>' +
+      '<g class="sold-burst" stroke="#f3d77a" stroke-width="2.6" stroke-linecap="round" opacity="0">' +
+        '<path d="M4 96 L-2 92 M6 104 L-1 106 M12 110 L9 117 M20 111 L22 118 M2 100 L-4 99"/>' +
+      '</g>' +
+      '<g class="sold-rig">' +
       '<g class="sold-body">' +
-        '<rect x="50" y="74" width="9" height="64" rx="4.5" fill="#8a5226"/><rect x="61" y="74" width="9" height="64" rx="4.5" fill="#8a5226"/>' +
+        '<rect x="50" y="74" width="9" height="64" rx="4.5" fill="#b89466"/><rect x="61" y="74" width="9" height="64" rx="4.5" fill="#b89466"/>' +
         '<rect x="48" y="70" width="24" height="52" rx="12" fill="url(#' + id + 'h)"/>' +
-        '<ellipse cx="52" cy="142" rx="9.5" ry="5" fill="#4f2b12"/><ellipse cx="68" cy="142" rx="9.5" ry="5" fill="#4f2b12"/>' +
-        '<g class="sold-arm-wave"><path d="M50 84 Q38 78 31 64" stroke="#9a5f2e" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="30" cy="61" r="6" fill="#c98a4f"/></g>' +
-        '<path d="M70 86 Q80 94 85 104" stroke="#9a5f2e" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="86" cy="107" r="6" fill="#c98a4f"/>' +
+        '<ellipse cx="52" cy="142" rx="9.5" ry="5" fill="#6e5034"/><ellipse cx="68" cy="142" rx="9.5" ry="5" fill="#6e5034"/>' +
+        '<g class="sold-arm-wave"><path d="M50 84 Q38 78 31 64" stroke="#c4a173" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="30" cy="61" r="6" fill="#efdcb8"/></g>' +
+        '<g class="sold-arm-r"><path d="M70 86 Q80 94 85 104" stroke="#c4a173" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="86" cy="107" r="6" fill="#efdcb8"/></g>' +
         '<path d="M60 77 L47 70 L47 84 Z M60 77 L73 70 L73 84 Z" fill="#c9a34e" stroke="#7d612f" stroke-width="1.4" stroke-linejoin="round"/>' +
         '<circle cx="60" cy="77" r="3.6" fill="#a8873f" stroke="#7d612f" stroke-width="1.2"/>' +
       '</g>';
     var defs =
       '<defs>' +
-        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#dfa86c"/><stop offset=".55" stop-color="#bd7d43"/><stop offset="1" stop-color="#8d5527"/></linearGradient>' +
-        '<linearGradient id="' + id + 'c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7a4520"/><stop offset="1" stop-color="#4a2810"/></linearGradient>' +
-        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#94592a"/><stop offset=".5" stop-color="#cc8f53"/><stop offset="1" stop-color="#8a5226"/></linearGradient>' +
+        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4e7cf"/><stop offset=".55" stop-color="#dcc29a"/><stop offset="1" stop-color="#b8956a"/></linearGradient>' +
+        '<linearGradient id="' + id + 'c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a6835a"/><stop offset="1" stop-color="#76573a"/></linearGradient>' +
+        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#c2a073"/><stop offset=".5" stop-color="#ead6b2"/><stop offset="1" stop-color="#bc9a6c"/></linearGradient>' +
       '</defs>';
-    var viewBox = headOnly ? '4 6 112 72' : '0 4 120 150';
-    return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false">' + defs + (headOnly ? '' : body) + head + '</svg>';
+    var viewBox = headOnly ? '4 6 112 72' : '-6 4 126 150';
+    return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false" overflow="visible">' + defs + (headOnly ? head : body + head + '</g>') + '</svg>';
   }
 
   /* ---------- estilo ---------- */
   var css = [
     '.sold-launcher{position:fixed;right:10px;bottom:calc(158px + env(safe-area-inset-bottom,0px));z-index:71;width:66px;height:84px;padding:0;border:0;background:none;cursor:pointer;filter:drop-shadow(0 8px 12px rgba(0,0,0,.38));-webkit-tap-highlight-color:transparent}',
-    '.sold-launcher .sold-figure{display:block;width:66px;height:auto;animation:sold-bob 3.4s ease-in-out infinite}',
-    '.sold-launcher:hover .sold-arm-wave,.sold-launcher:focus-visible .sold-arm-wave{animation:sold-wave .9s ease-in-out 2}',
+    '.sold-launcher .sold-figure{display:block;width:66px;height:auto}',
     '.sold-launcher:focus-visible{outline:2px solid #c9a34e;outline-offset:4px;border-radius:12px}',
     '.sold-launcher.hidden{display:none}',
-    '.sold-arm-wave{transform-box:view-box;transform-origin:50px 84px}',
-    '.sold-eyes{transform-box:view-box;transform-origin:60px 41px;animation:sold-blink 5s infinite}',
-    '.sold-head{transform-box:view-box;transform-origin:60px 72px}',
-    '.sold-tap .sold-head{animation:sold-tap .5s ease-out}',
-    '@keyframes sold-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}',
+    '.sold-figure *{transform-box:view-box}',
+    '.sold-head{transform-origin:60px 74px}.sold-rig{transform-origin:60px 146px}.sold-burst{transform-origin:8px 104px}',
+    '.sold-arm-wave{transform-origin:50px 84px}.sold-arm-r{transform-origin:70px 86px}.sold-eyes{transform-origin:60px 41px}',
+    '.sold-eyes{animation:sold-blink 5s infinite}',
+    /* o ciclo do arremate (4,6 s): parado, prepara, bate três vezes no ar, pula de alegria duas vezes */
+    '.sold-launcher .sold-head{animation:sold-strike 4.6s ease-in-out infinite}',
+    '.sold-launcher .sold-rig{animation:sold-hop 4.6s ease-in-out infinite}',
+    '.sold-launcher .sold-burst{animation:sold-burst 4.6s linear infinite}',
+    '.sold-launcher .sold-eyes,.sold-launcher .sold-mouth,.sold-launcher .sold-brows{animation:sold-calm 4.6s step-end infinite}',
+    '.sold-launcher .sold-joy,.sold-launcher .sold-grin{animation:sold-happy 4.6s step-end infinite}',
+    '.sold-launcher .sold-arm-wave{animation:sold-cheer-l 4.6s ease-in-out infinite}',
+    '.sold-launcher .sold-arm-r{animation:sold-cheer-r 4.6s ease-in-out infinite}',
+    '.sold-launcher .sold-shadow{transform-origin:60px 149px;animation:sold-shadow 4.6s ease-in-out infinite}',
+    '.sold-launcher:hover .sold-arm-wave,.sold-launcher:focus-visible .sold-arm-wave{animation:sold-wave .9s ease-in-out 2}',
+    '.sold-tap .sold-head{animation:sold-tap .5s ease-out!important}',
+    '@keyframes sold-strike{0%,40%{transform:rotate(0)}46%{transform:rotate(14deg)}50%{transform:rotate(-30deg)}54%{transform:rotate(10deg)}58%{transform:rotate(-30deg)}62%{transform:rotate(10deg)}66%{transform:rotate(-30deg)}72%,100%{transform:rotate(0)}}',
+    '@keyframes sold-hop{0%,40%{transform:translateY(0) rotate(0)}46%{transform:translateY(0) rotate(3deg)}50%,58%,66%{transform:translateY(1px) rotate(-5deg)}54%,62%{transform:translateY(0) rotate(1deg)}72%{transform:translateY(0) rotate(0)}78%{transform:translateY(-14px) rotate(0)}84%{transform:translateY(0) rotate(0)}89%{transform:translateY(-8px) rotate(0)}94%,100%{transform:translateY(0) rotate(0)}}',
+    '@keyframes sold-burst{0%,49.9%{opacity:0;transform:scale(.5)}50%{opacity:1;transform:scale(1)}53%{opacity:0;transform:scale(1.35)}57.9%{opacity:0;transform:scale(.5)}58%{opacity:1;transform:scale(1)}61%{opacity:0;transform:scale(1.35)}65.9%{opacity:0;transform:scale(.5)}66%{opacity:1;transform:scale(1.1)}70%,100%{opacity:0;transform:scale(1.5)}}',
+    '@keyframes sold-calm{0%{opacity:1}49%{opacity:0}96%{opacity:1}}',
+    '@keyframes sold-happy{0%{opacity:0}49%{opacity:1}96%{opacity:0}}',
+    '@keyframes sold-cheer-l{0%,72%{transform:rotate(0)}78%{transform:rotate(-30deg)}84%{transform:rotate(-8deg)}89%{transform:rotate(-30deg)}96%,100%{transform:rotate(0)}}',
+    '@keyframes sold-cheer-r{0%,72%{transform:rotate(0)}78%{transform:rotate(-62deg)}84%{transform:rotate(-35deg)}89%{transform:rotate(-62deg)}96%,100%{transform:rotate(0)}}',
+    '@keyframes sold-shadow{0%,72%,84%,94%,100%{transform:scaleX(1);opacity:1}78%{transform:scaleX(.7);opacity:.6}89%{transform:scaleX(.82);opacity:.8}}',
     '@keyframes sold-wave{0%,100%{transform:rotate(0)}30%{transform:rotate(-16deg)}70%{transform:rotate(12deg)}}',
     '@keyframes sold-blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}',
-    '@keyframes sold-tap{0%{transform:rotate(0)}35%{transform:rotate(-18deg)}60%{transform:rotate(6deg)}100%{transform:rotate(0)}}',
+    '@keyframes sold-tap{0%{transform:rotate(0)}35%{transform:rotate(-30deg)}60%{transform:rotate(8deg)}100%{transform:rotate(0)}}',
     '.sold-teaser{position:fixed;right:82px;bottom:calc(196px + env(safe-area-inset-bottom,0px));z-index:71;max-width:230px;background:#fff;color:#0b0d10;border:1px solid rgba(201,163,78,.55);border-radius:14px 14px 4px 14px;padding:11px 30px 11px 13px;font:600 14px/1.35 "Barlow",system-ui,sans-serif;box-shadow:0 10px 26px rgba(0,0,0,.28);cursor:pointer;animation:sold-pop .35s ease-out}',
     '.sold-teaser button{position:absolute;top:4px;right:4px;width:24px;height:24px;border:0;background:none;color:#5a5f66;font-size:16px;line-height:1;cursor:pointer}',
     '@keyframes sold-pop{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}',
@@ -369,7 +396,7 @@
     '@media (max-width:820px){.sold-panel{right:0;left:0;bottom:0;width:100%;max-height:82vh;border-radius:18px 18px 0 0}}',
     /* computador: o WhatsApp fica no canto (22px); o Sold fica logo acima dele, centrado no mesmo eixo */
     '@media (min-width:821px){.sold-launcher{right:11px;bottom:74px}.sold-teaser{bottom:112px}}',
-    '@media (prefers-reduced-motion:reduce){.sold-launcher .sold-figure,.sold-eyes,.sold-arm-wave,.sold-panel,.sold-teaser{animation:none!important}}'
+    '@media (prefers-reduced-motion:reduce){.sold-figure *,.sold-panel,.sold-teaser{animation:none!important}}'
   ].join('\n');
 
   /* ---------- montagem ---------- */
