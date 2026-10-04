@@ -46,4 +46,28 @@ async function attach(ctx, base, read) {
   }
   return base;
 }
-module.exports = { attach };
+// The same conversation requests for ONE ficha (the ficha screen), reading only what it needs: the
+// requests linked to it directly or by its messages (a message owned by two fichas links neither, as
+// in BUSCAS). demands: the ficha's own demands (journeyDemands). Returns its demands with the requests.
+async function forJourney(ctx, journey, demands, read) {
+  const env = 'eq.' + ctx.environment;
+  const [stored, versions, ownLinks] = await Promise.all([
+    read(ctx, 'vehicle_requests', { select: 'id,journey_id', environment: env }),
+    read(ctx, 'vehicle_request_versions', { select: 'id,request_id,evidence_json', environment: env, order: 'created_at.asc,id.asc' }),
+    read(ctx, 'message_journeys', { select: 'message_id', environment: env, journey_id: 'eq.' + journey.id, undone_at: 'is.null' })
+  ]);
+  const own = new Set(ownLinks.map((link) => link.message_id));
+  const latest = new Map(versions.map((v) => [v.request_id, v]));
+  const evidenceOf = (request) => Object.values((latest.get(request.id) || {}).evidence_json || {}).flat().map(String);
+  const candidates = stored.filter((request) => request.journey_id === journey.id || (!request.journey_id && evidenceOf(request).some((id) => own.has(id))));
+  if (!candidates.length) return demands;
+  const evidence = [...new Set(candidates.flatMap(evidenceOf))].filter((id) => /^[0-9a-f-]{36}$/.test(id));
+  const messageLinks = [];
+  for (let index = 0; index < evidence.length; index += 150) messageLinks.push(...await read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null', message_id: 'in.(' + evidence.slice(index, index + 150).join(',') + ')' }));
+  const base = { journeyById: new Map([[journey.id, journey]]), demands: { byJourney: new Map([[journey.id, demands]]) }, messageLinks };
+  const ids = new Set(candidates.map((request) => request.id));
+  await attach(ctx, base, (c, table, query) => table === 'vehicle_requests' ? Promise.resolve(stored.filter((request) => ids.has(request.id)))
+    : table === 'vehicle_request_versions' ? read(c, table, { ...query, request_id: 'in.(' + [...ids].join(',') + ')' }) : read(c, table, { ...query, journey_id: 'eq.' + journey.id }));
+  return base.demands.byJourney.get(journey.id) || demands;
+}
+module.exports = { attach, forJourney };

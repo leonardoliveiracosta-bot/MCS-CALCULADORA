@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const calc = require('./calc-core');
 const vehicleMatch = require('./vehicle-match');
-const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, journeyDemands, normalizeDeadline, normalizePayment, orderDemand, REF_RE } = require('./panel-domain');
+const { calculatorNews, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, journeyDemands, mergeWishlists, normalizeDeadline, normalizePayment, orderDemand, REF_RE } = require('./panel-domain');
 const { batchSupported, latestActiveUpload, liveUploadIds } = require('./panel-manheim-state');
 const { allRows, insert, isUuid, patchRows, rows, supabase } = require('./panel-server');
 const { loadSearchStageIndex } = require('./panel-search-stage');
@@ -189,7 +189,7 @@ async function leadData(ctx, req, refInput, idInput) {
   const ai={reading:aiReading?{...aiReading,items:aiItems.map((item)=>({...item,...item.item_json,evidence:item.evidence_text}))}:null,suggestion:aiSuggestions[0]||null};
   // R1: the ficha's confirmed wishes and bid win; the calculator only fills what is missing.
   const criteria = effectiveCriteria(record, order);
-  const wishes = criteria.wishes;
+  let wishes = criteria.wishes;
   const news = calculatorNews(record, record?.contact?.display_name, order);
   const rawZip = order && order.zip || (record?.contact?.location_text || '').match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || '';
   const zip = String(rawZip).replace(/\D/g, '').slice(0, 5);
@@ -208,7 +208,13 @@ async function leadData(ctx, req, refInput, idInput) {
   // The person's demands, one per mode: VALOR (make, model, bid) and CARRO (make, model, year
   // and mileage ranges). The same car can be an offer in both modes; each mode uses its own rule.
   const modeEntries = order && Array.isArray(order.simulations) ? order.simulations : [];
-  const demands = (record ? journeyDemands(record, modeEntries) : modeEntries.map(orderDemand).filter(Boolean)).filter((demand) => demand.active);
+  const ownDemands = record ? journeyDemands(record, modeEntries) : modeEntries.map(orderDemand).filter(Boolean);
+  // The requests read from the conversations join the ficha's demands exactly as in ENVIAR OPÇÕES
+  // (panel-request-demands): the ficha shows the same cars, offers and counts as the options.
+  const withRequests = record ? await optionalRead('conversation_requests', () => require('./panel-request-demands').forJourney(ctx, record, ownDemands, allRows)) : ownDemands;
+  const demands = (Array.isArray(withRequests) && withRequests.length ? withRequests : ownDemands).filter((demand) => demand.active);
+  // A ficha without its own cars shows the cars of its live requests (never the reverse).
+  if (!wishes.length) wishes = mergeWishlists([], demands.flatMap((demand) => demand.activeWishes || demand.wishes || []));
   // Cold inventory, read only for the makes this person asked for, in the live batches of the last
   // 60 days (never the whole inventory; a car without make is kept, the matcher decides).
   const makes = [...new Set(wishes.concat(demands.flatMap((demand) => demand.activeWishes || [])).map((wish) => vehicleMatch.fold(wish && wish.make)).filter(Boolean))];

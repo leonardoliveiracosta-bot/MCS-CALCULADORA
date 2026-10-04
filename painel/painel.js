@@ -3223,6 +3223,12 @@
     whyInput.addEventListener('change', saveWhy);
     whyInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); whyInput.blur(); } });
     paintWhy();
+    // Removed from "Selecionados para o cliente" (any sale of this VIN): the row follows without a reload.
+    const memberIds = parsed.memberMatchIds || [option.id];
+    state.listeners.push(() => {
+      if (info.status !== 'SELECTED' || memberIds.some((id) => state.selectedIds.has(id))) return;
+      info.status = 'AVAILABLE'; row.dataset.status = 'AVAILABLE'; statusBadge.textContent = OFFER_STATUS.AVAILABLE || ''; statusBadge.hidden = !OFFER_STATUS.AVAILABLE; paintActions(); paintWhy();
+    });
     // Empty pills are never drawn.
     badges.querySelectorAll('.badge:not(.offer-status)').forEach((pill) => { if (!pill.textContent.trim()) pill.remove(); });
     row.append(vehicle);
@@ -3533,7 +3539,48 @@
     const paint = () => { const many = state.selectedIds.size > OFFER_ADVISED_MAX; advice.classList.toggle('hidden', !many); advice.textContent = many ? `${state.selectedIds.size} selecionados · o recomendado é de 3 a ${OFFER_ADVISED_MAX} carros por cliente (os melhores, cada um com um motivo)` : ''; counter.textContent = [offerCounts.lane ? `${offerCounts.lane} em Lane/Run` : '', offerCounts.offLane ? `${offerCounts.offLane} em Buy Now / Make Offer` : '', offerCounts.incomplete ? `${offerCounts.incomplete} com informação incompleta` : '', `${state.selectedIds.size} de ${offerCounts.max || 10} selecionados`].filter(Boolean).join(' · '); };
     state.setSelected = (id, on, total) => { if (on) state.selectedIds.add(id); else state.selectedIds.delete(id); paint(); state.listeners.forEach((listener) => listener()); };
     paint();
-    box.append(counter, advice, offerGroup(demand, 'LANE', offerCounts.lane, state), offerGroup(demand, 'OFFLANE', offerCounts.offLane, state), offerGroup(demand, 'INCOMPLETE', offerCounts.incomplete, state));
+    // The cars already selected for this customer, to review and remove (one by one or all), wherever they are in the groups.
+    const picked = element('details', 'offer-picked');
+    const pickedSummary = element('summary', '', '');
+    const pickedList = element('div', 'offer-picked-list');
+    picked.append(pickedSummary, pickedList);
+    const paintPicked = () => { pickedSummary.textContent = `Selecionados para o cliente (${state.selectedIds.size})`; picked.hidden = !state.selectedIds.size; if (picked.open) loadPicked(); };
+    let pickedBusy = false;
+    async function loadPicked() {
+      if (pickedBusy) return; pickedBusy = true;
+      pickedList.replaceChildren(element('p', 'muted', 'Carregando…'));
+      try {
+        const answer = await request('/api/panel/manheim-options?' + new URLSearchParams({ key: demand.key, selected: '1' }).toString());
+        const cars = answer.selected || [];
+        pickedList.replaceChildren();
+        if (!cars.length) { pickedList.append(element('p', 'muted', 'Nenhum carro selecionado')); return; }
+        const remove = (car) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'remove', matchId: car.matchId }) }).then(() => { state.setSelected(car.matchId, false); });
+        cars.forEach((car) => {
+          const line = element('div', 'offer-picked-row');
+          line.append(element('span', '', [car.year, car.make, car.model, car.trim].filter(Boolean).join(' ') + (car.miles !== null && car.miles !== undefined ? ` · ${milesText(car.miles)}` : '') + (car.vin ? ` · VIN final ${String(car.vin).slice(-6)}` : '') + (car.finalCents ? ` · ${formatMoney(car.finalCents)}` : '')));
+          const out = element('button', 'quiet small', 'Remover'); out.type = 'button';
+          MCSAction.bind(out, () => ({ scope: line, commit: () => remove(car), onSuccess: () => { line.remove(); paintPicked(); }, errorText: offerError }));
+          line.append(out); pickedList.append(line);
+        });
+        const all = element('button', 'quiet small offer-picked-all', `Remover todos (${cars.length})`); all.type = 'button';
+        let armed = false;
+        all.addEventListener('click', async (event) => {
+          event.stopPropagation();
+          if (!armed) { armed = true; all.textContent = `Confirmar: remover os ${cars.length} selecionados`; setTimeout(() => { if (armed) { armed = false; all.textContent = `Remover todos (${cars.length})`; } }, 8000); return; }
+          armed = false; all.disabled = true; all.textContent = 'Removendo…';
+          let failed = 0;
+          for (const car of cars) { try { await remove(car); } catch (_) { failed += 1; } }
+          pickedBusy = false; await loadPicked();
+          if (failed) pickedList.prepend(element('p', 'warning', `${failed} não saiu(ram) da seleção · tente de novo`));
+        });
+        pickedList.append(all);
+      } catch (error) { pickedList.replaceChildren(element('p', 'warning', offerError(error))); }
+      finally { pickedBusy = false; }
+    }
+    picked.addEventListener('toggle', () => { if (picked.open) loadPicked(); });
+    state.listeners.push(() => { pickedSummary.textContent = `Selecionados para o cliente (${state.selectedIds.size})`; picked.hidden = !state.selectedIds.size; if (picked.open && !pickedBusy) loadPicked(); });
+    paintPicked();
+    box.append(counter, advice, picked, offerGroup(demand, 'LANE', offerCounts.lane, state), offerGroup(demand, 'OFFLANE', offerCounts.offLane, state), offerGroup(demand, 'INCOMPLETE', offerCounts.incomplete, state));
     card.offerState = state; state.card = card;
     return box;
   }

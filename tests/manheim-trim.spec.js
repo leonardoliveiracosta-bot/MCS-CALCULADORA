@@ -179,3 +179,40 @@ test('cartão: só abre a ficha com apertar e soltar no mesmo lugar livre (tela 
   });
   await expect(page.locator('text=O que o cliente informou').first()).toBeVisible({ timeout: 15000 });
 });
+
+test('selecionados: lista no pedido, remover um e remover todos, e as linhas abertas acompanham', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  await page.addInitScript(() => localStorage.removeItem('mcs-buscas-trims'));
+  await openPanel(page);
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const group = card.locator('.offer-group[data-group="LANE"]');
+  await group.locator('> summary').click({ timeout: 60000 });
+  const rows = group.locator('.offer-row');
+  await expect(rows).toHaveCount(10);
+  // Clean start: whatever an earlier test selected is removed first.
+  await backend.db.query(`update public.manheim_option_selections set status='AVAILABLE' where status='SELECTED'`);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  await group.locator('> summary').click({ timeout: 60000 });
+  for (const index of [0, 1, 2]) { await rows.nth(index).locator('[data-offer-action="select"]:visible').click(); await expect(rows.nth(index)).toHaveAttribute('data-status', 'SELECTED'); }
+  const picked = card.locator('.offer-picked');
+  await expect(picked.locator('> summary')).toHaveText('Selecionados para o cliente (3)');
+  await picked.locator('> summary').click();
+  await expect(picked.locator('.offer-picked-row')).toHaveCount(3);
+  await picked.locator('.offer-picked-row').first().getByRole('button', { name: 'Remover' }).click();
+  await expect(picked.locator('> summary')).toHaveText('Selecionados para o cliente (2)');
+  await expect(rows.nth(0)).toHaveAttribute('data-status', 'AVAILABLE');
+  const all = picked.locator('.offer-picked-all');
+  await all.click();
+  await expect(all).toHaveText('Confirmar: remover os 2 selecionados');
+  await all.click();
+  await expect(picked).toBeHidden();
+  await expect(rows.nth(1)).toHaveAttribute('data-status', 'AVAILABLE');
+  await expect(rows.nth(2)).toHaveAttribute('data-status', 'AVAILABLE');
+  await expect(card.locator('.offer-counter')).toContainText('0 de 10');
+  const { rows: [{ n }] } = await backend.db.query(`select count(*)::int n from public.manheim_option_selections where status='SELECTED'`);
+  expect(n).toBe(0);
+  expect(errors).toEqual([]);
+});

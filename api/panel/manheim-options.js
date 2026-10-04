@@ -208,12 +208,26 @@ async function saveReason(ctx, body) {
   }
 }
 
+// The cars selected for the customer in one request (at most 10), to review or remove them.
+async function selectedList(ctx, key) {
+  const latest = await latestActiveUpload(ctx, 'id');
+  if (!latest) return send(ctx.res, 200, { key, selected: [] });
+  let picked;
+  try { picked = await rows(ctx, 'manheim_option_selections', { select: 'match_id,final_cents,client_reason,updated_at', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id, demand_key: 'eq.' + key, status: 'eq.SELECTED', order: 'updated_at.asc', limit: '50' }); }
+  catch (error) { if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' }); throw error; }
+  const ids = picked.map((row) => row.match_id);
+  const matches = ids.length ? await rows(ctx, 'manheim_matches', { select: 'id,vehicle_json', environment: 'eq.' + ctx.environment, id: 'in.(' + ids.join(',') + ')', limit: String(ids.length) }) : [];
+  const byId = new Map(matches.map((row) => [row.id, row.vehicle_json && row.vehicle_json.parsed || {}]));
+  return send(ctx.res, 200, { key, selected: picked.map((row) => { const parsed = byId.get(row.match_id) || {}; return { matchId: row.match_id, year: parsed.year || null, make: parsed.make || '', model: parsed.model || '', trim: parsed.trim || '', miles: parsed.miles ?? null, vin: parsed.vin || '', finalCents: Number(row.final_cents) || null, clientReason: row.client_reason || null }; }) });
+}
+
 async function options(ctx, req) {
   const key = String(req.query && req.query.key || '');
   if (!KEY.test(key)) return send(ctx.res, 400, { error: 'MANHEIM_DEMAND_KEY_INVALID' });
   const group = req.query && req.query.group ? String(req.query.group) : null;
   if (group && !offer.GROUPS.includes(group)) return send(ctx.res, 400, { error: 'MANHEIM_GROUP_INVALID' });
   if (group) return groupPage(ctx, req, key, group, Math.min(Math.max(Number(req.query && req.query.limit) || 10, 1), 50));
+  if (req.query && req.query.selected === '1') return selectedList(ctx, key);
   const limit = Math.min(Math.max(Number(req.query && req.query.limit) || 10, 1), 50);
   const cursor = decodeCursor(req.query && req.query.cursor);
   if (req.query && req.query.cursor && !cursor) return send(ctx.res, 400, { error: 'MANHEIM_CURSOR_INVALID' });

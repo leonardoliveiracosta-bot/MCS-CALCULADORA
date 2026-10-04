@@ -695,6 +695,13 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 .offer-counter { color: var(--mcs-muted); font-size: 13px; margin: 0; }
 .offer-advice { margin: 4px 0 0; font-size: 13px; font-weight: 600; color: #8A6D1E; }
 .offer-advice.hidden { display: none; }
+.offer-picked { margin: 8px 0; border: 1px solid #E7E1D7; border-radius: 10px; padding: 6px 12px; background: #FFFFFF; }
+.offer-picked[hidden] { display: none; }
+.offer-picked > summary { cursor: pointer; font-size: 13px; font-weight: 700; color: #6E5414; min-height: 32px; display: flex; align-items: center; }
+.offer-picked-list { display: grid; gap: 4px; padding: 4px 0; }
+.offer-picked-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid #F0EBE1; min-width: 0; }
+.offer-picked-row span { min-width: 0; overflow-wrap: anywhere; }
+.offer-picked-all { justify-self: start; margin-top: 4px; }
 .offer-why { display: grid; gap: 4px; margin-top: 8px; font-size: 13px; font-weight: 600; color: #6E5414; }
 .offer-why[hidden] { display: none; }
 .offer-why-input { width: 100%; box-sizing: border-box; min-height: 38px; padding: 6px 10px; border: 1px solid #D9CFB9; border-radius: 8px; font: inherit; font-weight: 400; color: #1B1A18; background: #FFFFFF; }
