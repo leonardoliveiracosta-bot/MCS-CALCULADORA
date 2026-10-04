@@ -40,3 +40,43 @@ test('v3.2 30 complete files, versioned editing, manual attention and dynamic al
  const out=await search.compareItems(ctx,[item],{services:{upsertCheck:async()=>{}}});assert.equal(out.results[0].count,15);
  assert.deepEqual(backend.refused,[]);
 });
+
+test('v3.3 rematch adds cheaper FIND options without losing selections or sent snapshots',async()=>{
+ const api=require('../api/panel/pesquisas'), rematch=require('../panel-rematch');
+ let list=await api.buildList(ctx),item=list.items.find(x=>x.source==='CONVERSA');
+ const edited=await api.editRequest(ctx,{key:item.key,criteriaHash:item.criteriaHash,patch:{model:'Camry',yearMin:2019,budgetUsd:18000}});
+ assert.equal(edited.status,200);
+ const key=`journey:${id(3)}:CARRO`;
+ const query=async(sql,args=[])=>(await backend.db.query(sql,args)).rows;
+ const [selected]=await query("select id,upload_id from manheim_matches where demand_key=$1 and mmr_cents=1600000 and undone_at is null order by id limit 1",[key]);
+ assert.ok(selected);
+ // Reproduce a v3.2 lot: the cheaper cars had been filtered by its lower budget bound.
+ await backend.db.query("update manheim_matches set undone_at=now() where demand_key=$1 and mmr_cents=800000",[key]);
+ await rpc(ctx,'panel_manheim_offer_select_v2',{p_environment:'preview',p_actor_id:id(1),p_match_id:selected.id,p_action:'SELECT',p_manual_pct:null,p_reason:'Cliente aceita Buy Now',p_note:'Preservar esta seleção',p_final_cents:null});
+ const res={statusCode:200,setHeader(){},status(code){this.statusCode=code;return this;},json(value){this.payload=value;return value;},end(){}};
+ await require('../api/panel/vitrines')({method:'POST',url:'/api/panel/vitrines',headers:{authorization:'Bearer token-simulado'},body:{journeyId:id(3),matchIds:[selected.id],demandKey:key}},res);
+ assert.equal(res.statusCode,201,JSON.stringify(res.payload));
+ const snapshot=async()=>({
+  selections:await query('select * from manheim_option_selections order by id'),
+  vitrines:await query('select * from vitrines order by id'),
+  cars:await query('select * from vitrine_cars order by id'),
+  messages:await query('select * from messages order by id'),
+  inventory:await query('select id,row_fingerprint,vehicle_json,undone_at from manheim_vehicles order by id')
+ });
+ const before=await snapshot();
+ const [done]=await rematch.rematchDemands(ctx,[key]);
+ assert.equal(done.status,'DONE');assert.equal(done.matches,30);
+ assert.deepEqual(await snapshot(),before,'seleção, V1, mensagens e inventário permanecem intactos');
+ const rows=await query('select id,vehicle_json from manheim_matches where demand_key=$1 and undone_at is null order by id',[key]);
+ assert.ok(rows.some(row=>row.id===selected.id));
+ assert.ok(rows.every(row=>!row.vehicle_json.parsed.budgetFallback&&!/acima do valor informado/.test(row.vehicle_json.parsed.matchNotice||'')));
+ await rematch.rematchDemands(ctx,[key]);
+ assert.deepEqual((await query('select id from manheim_matches where demand_key=$1 and undone_at is null order by id',[key])).map(row=>row.id),rows.map(row=>row.id),'recálculo repetido mantém as identidades');
+ assert.deepEqual(await snapshot(),before);
+ // No active batch means no writes and no resurrection of an undone import.
+ await backend.db.query('update manheim_uploads set undone_at=now() where id=$1',[selected.upload_id]);
+ const inactive=await snapshot();
+ assert.deepEqual(await rematch.rematchDemands(ctx,[key]),[{key,status:'NO_BATCH'}]);
+ assert.deepEqual(await snapshot(),inactive);
+ assert.deepEqual(backend.refused,[]);
+});

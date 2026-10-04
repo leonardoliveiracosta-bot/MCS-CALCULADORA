@@ -65,3 +65,47 @@ test('v3.2 VIN + lane/run dedup keeps different auction entries',()=>{
  const parser=require('../painel/manheim');const a=car({vin:'19XFA1F53BE031124'}),b={...a,lane:'4'};
  assert.notEqual(parser.fingerprint(a),parser.fingerprint(b));assert.equal(parser.chooseAuctionRows([a,a,b]).length,2);
 });
+
+test('v3.3 FIND with budget keeps cheaper cars and only warns above the ceiling',()=>{
+ const demand=find({budgetUsd:25000});
+ for(const [amounts,expected,fallback] of [
+  [[15000,24000],[15000,24000],false],
+  [[15000],[15000],false],
+  [[30000],[30000],true],
+  [[28000,40000],[28000],false],
+  [[1500,24000],[1500,24000],false]
+ ]){
+  const cars=amounts.map(usd=>car({year:2019,mmrCents:usd*100}));
+  const found=match.matchLot(cars,demand);
+  assert.deepEqual(found.map(x=>cars[x.index].mmrCents/100),expected);
+  for(const {result} of found){
+   assert.equal(result.budgetFallback,fallback);
+   assert.equal(/acima do valor informado/.test(result.notice||''),fallback);
+  }
+ }
+ const fees=match.matchLot([car({mmrCents:1500000})],find({budgetUsd:25000,notes:'inclui frete e taxas'}))[0].result;
+ assert.match(fees.notice,/valor informado inclui frete\/taxas/);
+ assert.doesNotMatch(fees.notice,/acima do valor informado/);
+ for(const mmrCents of [null,0,-1,'N/A'])assert.equal(match.matchLot([car({mmrCents})],demand).length,0);
+ assert.equal(match.RULE_VERSION,'manheim-v3.3');
+});
+
+test('v3.3 FIND ceiling edges, VALOR lower bounds and batch-wide fallback stay independent',()=>{
+ for(const [budget,ceiling] of [[2500000,2875000],[6000000,6900000],[6000100,6600110]]){
+  assert.equal(match.withinClientBudget(1,budget),true);
+  assert.equal(match.withinClientBudget(ceiling,budget),true);
+  assert.equal(match.withinClientBudget(ceiling+1,budget),false);
+ }
+ assert.equal(match.matchDemand(car({mmrCents:1500000}),valor(25000)),null);
+ assert.equal(match.matchDemand(car({mmrCents:5000000}),valor(80000)),null);
+ assert.ok(match.matchDemand(car({mmrCents:6000000}),valor(80000)));
+ const [target]=batch.snapshotTargets([{...find({budgetUsd:25000}),key:'journey:x:CARRO',targetType:'JOURNEY',journeyId:'x'}]);
+ const entries=[15000,24000,40000].map((usd,i)=>({vehicle:car({mmrCents:usd*100}),mmrCents:usd*100,makeKey:'toyota',fingerprint:'vin:'+i}));
+ const found=batch.matchChunk(entries,[target]);
+ assert.deepEqual(found.map(m=>m.mmrCents),[1500000,2400000]);
+ assert.ok(found.every(m=>!m.vehicle.parsed.budgetFallback));
+ assert.equal(batch.matchChunk(entries,[target],undefined,{staging:true}).length,3);
+ const audit=require('../panel-manheim-audit');
+ assert.match(audit.INSTRUCTIONS,/Não existe limite inferior/);
+ assert.doesNotMatch(audit.INSTRUCTIONS,/faixa de MMR igual a VALOR/);
+});

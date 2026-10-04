@@ -47,7 +47,7 @@ async function rematchDemands(ctx, keys, options = {}) {
   const write = options.insert || insert;
   for (const done of out.filter((item) => item.status === 'DONE' && item.criteriaHash)) {
     await write(ctx, 'manheim_demand_syncs', { environment: ctx.environment, upload_id: done.uploadId, demand_key: done.key, criteria_hash: done.criteriaHash, matches: done.matches, synced_by: ctx.panel.id }, false)
-      .catch((error) => { if (!/duplicate|23505|409/i.test(String(error && (error.code || error.message) || ''))) throw error; });
+      .catch((error) => { if (error?.status !== 409 && !/duplicate|23505|409/i.test(String(error && (error.code || error.message) || ''))) throw error; });
   }
   return out;
 }

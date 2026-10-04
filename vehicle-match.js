@@ -8,7 +8,7 @@
   'use strict';
 
   // Shared permanent rules for all request and option paths (v3.2).
-  const RULE_VERSION = 'manheim-v3.2';
+  const RULE_VERSION = 'manheim-v3.3';
   const VALUE_THRESHOLD_CENTS = 6000000;
   const MODES = Object.freeze(['VALOR', 'CARRO']);
   const NOTICE = {
@@ -72,6 +72,15 @@
 
   function inBand(mmrCents, band) {
     return mmrCents * 100 >= band.bidCents * band.low && mmrCents * 100 <= band.bidCents * band.high;
+  }
+
+  // FIND with a budget has only a ceiling. Cheaper cars remain valid options; the
+  // two-sided MMR band belongs exclusively to VALOR.
+  function withinClientBudget(mmrCents, budgetCents) {
+    const mmr = validMmrCents(mmrCents), budget = positive(budgetCents);
+    if (!mmr || !budget) return false;
+    const ceilingPercent = budget <= VALUE_THRESHOLD_CENTS ? 115 : 110;
+    return mmr * 100 <= budget * ceilingPercent;
   }
 
   function usd(cents) {
@@ -150,7 +159,7 @@
   function matchCarroWish(vehicle, wish, index = 0, demand = {}) {
     if (carroWishIssue(wish) || !hasValidMmr(vehicle) || !qualityEligible(vehicle, { ...demand, ...wish }) || !characteristicsFit(vehicle, wish, 'CARRO')) return null;
     const budget = wishBudgetCents(wish,demand.bidCents);
-    const outside = budget && !inBand(validMmrCents(vehicle.mmrCents), valueBand(budget));
+    const outside = budget && !withinClientBudget(vehicle.mmrCents, budget);
     if (outside && !demand.allowBudgetFallback) return null;
     const notices = [];
     if (outside) notices.push('acima do valor informado');
@@ -212,5 +221,5 @@
     return code === 'MMR acima do teto' ? 'MMR acima do lance' : code === 'MMR dentro do teto' ? 'MMR dentro do lance' : code || '';
   }
 
-  return { wishBudgetCents, RULE_VERSION, mileageCap, conditionGrade, buyNowCents, saleEligible, qualityEligible, characteristicsFit, matchLot, ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, validMmrCents, hasValidMmr, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
+  return { withinClientBudget, wishBudgetCents, RULE_VERSION, mileageCap, conditionGrade, buyNowCents, saleEligible, qualityEligible, characteristicsFit, matchLot, ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, validMmrCents, hasValidMmr, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
 }));
