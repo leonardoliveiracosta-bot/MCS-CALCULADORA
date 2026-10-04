@@ -388,20 +388,16 @@
   section.calc-block{position:relative;margin:0 -20px;padding:0 0 28px;background:#050506}
   section.calc-block iframe.calc-frame{display:block;width:100%;border:0;background:transparent}
   /* ---------- Bloco 3: palco de cinema atras da capa da calculadora ----------
-     Cybertruck no escuro; ao chegar no bloco, a barra de luz dianteira acende em neon
-     e a foto clareia ate o veu padrao do site. A foto nunca fica totalmente clara */
+     O pátio do leilão no escuro, com um carro sob a luz dourada no corredor do meio ("entre milhares, a gente
+     acha o seu"); ao chegar no bloco a foto clareia ate o veu padrao do site. A foto nunca fica totalmente clara */
   section.calc-block .calc-stage{position:absolute;left:0;right:0;top:0;height:0;overflow:hidden;pointer-events:none;z-index:0;background:#050506;
     transition:opacity .5s ease}
   section.calc-block .calc-stage.off{opacity:0}
   /* como o Bloco 1: a foto e o fundo inteiro do bloco (cover, centralizada) */
   section.calc-block .calc-stage-art{position:absolute;inset:0}
-  section.calc-block .calc-stage-photo,section.calc-block .calc-stage-neon{position:absolute;inset:0;width:100%;height:100%;display:block}
+  section.calc-block .calc-stage-art.lados{-webkit-mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent);mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent)}
+  section.calc-block .calc-stage-photo{position:absolute;inset:0;width:100%;height:100%;display:block}
   section.calc-block .calc-stage-photo{object-fit:cover;object-position:center center}
-  section.calc-block .calc-stage-neon{overflow:visible}
-  .calc-stage-neon path{opacity:0;will-change:opacity}
-  .calc-stage-neon .neon-core{fill:#f4fbff}
-  .calc-stage-neon .neon-glow{fill:#d9f1ff}
-  .calc-stage-neon .neon-halo{fill:#b9e3ff}
   section.calc-block .calc-stage-veil{position:absolute;inset:0;background:#050506;opacity:.94;will-change:opacity}
   section.calc-block iframe.calc-frame,section.calc-block .calc-after-note{position:relative;z-index:1}
 
@@ -962,11 +958,10 @@
       padding-left:max(0px,calc((100% - 780px)/2));padding-right:max(0px,calc((100% - 780px)/2))}
     section.hero .hero-credential{left:max(20px,calc((100% - 820px)/2 + 20px));right:max(20px,calc((100% - 820px)/2 + 20px))}
     main.wrap > footer{max-width:780px;margin-left:auto;margin-right:auto}
-    /* Calculadora: a foto e o farol crescem com a tela, mas a barra de luz fica onde ficava na coluna de 820px
-       (metade da altura + 56px, entre os dois botões). A arte tem a proporção da foto (1320x1980): a barra está
-       a 1080/1320 = 81,818% da largura a partir do topo; margin-top em % é medida pela largura. Em tela alta o
-       script do bloco ainda posiciona a arte por conta própria (estilo em linha). */
-    section.calc-block .calc-stage-art{inset:auto;left:0;width:100%;aspect-ratio:1320/1980;top:calc(50% + 56px);margin-top:-81.818%}
+    /* Calculadora sem script: a foto cresce com a tela e o carro iluminado fica na metade da altura + 56px.
+       A arte tem a proporção da foto (944x1680): o centro do carro está a 735/944 = 77,9% da largura a partir do
+       topo; margin-top em % é medida pela largura. Com script, o bloco posiciona a arte (estilo em linha). */
+    section.calc-block .calc-stage-art{inset:auto;left:0;width:100%;aspect-ratio:944/1680;top:calc(50% + 56px);margin-top:-77.9%}
   }
   /* Tela grande: a página inteira (texto, imagens, botões, calculadora) cresce por degraus, para a coluna
      acompanhar a largura. A altura também conta, para não estourar em notebook baixo. Abaixo de 1280px nada muda. */
@@ -1308,17 +1303,9 @@
   <section class="calc-block" id="calculadora-widget">
     <div class="calc-stage" aria-hidden="true">
       <div class="calc-stage-art">
-        <img class="calc-stage-photo" src="mcs-calc-cybertruck.jpg" alt="" decoding="async" loading="lazy">
+        <img class="calc-stage-photo" src="mcs-calc-leilao.jpg" alt="" decoding="async" loading="lazy">
         <div class="calc-stage-veil"></div>
-        <svg class="calc-stage-neon" viewBox="0 0 1320 1980" preserveAspectRatio="xMidYMid slice">
-          <defs>
-            <filter id="neonHalo" x="-30%" y="-900%" width="160%" height="1900%"><feGaussianBlur stdDeviation="34"/></filter>
-            <filter id="neonGlow" x="-10%" y="-200%" width="120%" height="500%"><feGaussianBlur stdDeviation="5"/></filter>
-          </defs>
-          <path class="neon-halo" d="M722 1053 L905 1071 L1320 1079 L1320 1103 L915 1099 L722 1087 Z" filter="url(#neonHalo)"/>
-          <path class="neon-glow" d="M722 1053 L905 1071 L1320 1079 L1320 1103 L915 1099 L722 1087 Z" filter="url(#neonGlow)"/>
-          <path class="neon-core" d="M722 1053 L905 1071 L1320 1079 L1320 1103 L915 1099 L722 1087 Z"/>
-        </svg>
+        
       </div>
     </div>
     <iframe class="calc-frame" src="/msc-calculadora.html" title="My Car Scout auction cost calculator" loading="lazy"></iframe>
@@ -2102,13 +2089,12 @@ else ligar();
 
 <script>
 /* Bloco 3: palco de cinema, o inverso do Bloco 1. A foto e o fundo do bloco (so enquanto a
-   capa esta aberta) e, ao chegar no bloco, foto e farol clareiam juntos. Por quadro: so opacity */
+   capa esta aberta) e, ao chegar no bloco, a foto clareia e o carro sob a luz dourada aparece. Por quadro: so opacity */
 (function(){
   var sec = document.getElementById("calculadora-widget");
   if (!sec) return;
   var palco = sec.querySelector(".calc-stage"), arte = sec.querySelector(".calc-stage-art");
   var veu = sec.querySelector(".calc-stage-veil"), f = sec.querySelector("iframe.calc-frame");
-  var halo = sec.querySelector(".neon-halo"), glow = sec.querySelector(".neon-glow"), core = sec.querySelector(".neon-core");
   if (!palco || !arte || !f) return;
   var parado = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var agendado = false;
@@ -2122,19 +2108,20 @@ else ligar();
     if (!aberta) return;
     var W = sec.clientWidth, H = sec.clientHeight;
     palco.style.height = H + "px";
-    /* tela larga: foto cobre o bloco inteiro, centralizada (como o Bloco 1).
-       tela em pe (celular): a foto continua cobrindo o bloco inteiro, mas ampliada para a
-       barra de luz acender logo abaixo das portas, e nao escondida atras do botao dourado */
-    var IW = 1320, IH = 1980, BAR_Y = 1080;
-    if (W / H >= 0.8){ arte.removeAttribute("style"); }
-    else {
-      var porta = d.querySelector(".gate-door--quiet");
-      var alvoY = porta ? f.offsetTop + porta.getBoundingClientRect().bottom + 44 : H * 0.8;
-      var esc = Math.max(W / IW, H / IH, alvoY / BAR_Y);
-      var w = IW * esc, h = IH * esc, top = alvoY - BAR_Y * esc;
-      if (top + h < H) top = H - h;
-      arte.style.cssText = "inset:auto;width:" + w + "px;height:" + h + "px;left:" + (W - w) + "px;top:" + top + "px";
-    }
+    /* a foto cobre o bloco inteiro e o carro iluminado (centro em x=481, y=735 na foto de 944x1680) fica
+       bem atrás do botão "Find one for me": o carro sob a luz no meio de milhares é o "a gente acha o seu" */
+    var IW = 944, IH = 1680, CAR_Y = 735, CAR_X = 481;
+    var porta = d.querySelector(".gate-door--quiet");
+    var caixa = porta ? porta.getBoundingClientRect() : null;
+    var alvoY = f.offsetTop + (caixa ? (caixa.top + caixa.bottom) / 2 : H * 0.6);
+    var esc = Math.max(H / IH, alvoY / CAR_Y);
+    if (IW * esc < W && W < 821) esc = W / IW;
+    var w = IW * esc, h = IH * esc, top = alvoY - CAR_Y * esc;
+    if (top + h < H) top = H - h;
+    var estreita = w < W;
+    var left = estreita ? W / 2 - CAR_X * esc : Math.min(0, Math.max(W - w, W / 2 - CAR_X * esc));
+    arte.classList.toggle("lados", estreita);
+    arte.style.cssText = "inset:auto;margin-top:0;width:" + w + "px;height:" + h + "px;left:" + left + "px;top:" + top + "px";
     atualizar();
   }
 
@@ -2144,12 +2131,8 @@ else ligar();
     /* p vai de 0 (bloco entrando por baixo da tela) a 1 (bloco chegou ao topo da tela) */
     var p = parado ? 1 : Math.min(Math.max((vh - r.top) / vh, 0), 1);
     var e = p * p * (3 - 2 * p); /* suaviza inicio e fim */
-    /* foto e farol na mesma curva: clareiam juntos, em sintonia.
-       veu: de quase preto (.94) ate .68 no final, mais escuro que o veu padrao */
+    /* veu: de quase preto (.94) ate .68 no final, mais escuro que o veu padrao */
     veu.style.opacity = (0.94 - 0.26 * e).toFixed(3);
-    core.style.opacity = e.toFixed(3);
-    glow.style.opacity = (e * 0.9).toFixed(3);
-    halo.style.opacity = e.toFixed(3);
   }
   function aoRolar(){ if (!agendado){ agendado = true; requestAnimationFrame(atualizar); } }
 
