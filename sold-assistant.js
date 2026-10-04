@@ -470,7 +470,9 @@
     }
     var body =
       '<g class="sold-sky" pointer-events="none">' +
-        firework(1, 8, -2, 25, gold) + firework(2, 114, -6, 23, '#c4414a') + firework(3, 62, -66, 21, ivory) + firework(4, 18, -54, 16, '#c4414a') + firework(5, 106, -54, 16, gold) +
+        // as cores da bandeira dos EUA: vermelho, branco e azul (o azul da bandeira, #3C3B6E, some no fundo escuro,
+        // então é o mesmo azul mais claro)
+        firework(1, 8, -2, 25, '#e0283a') + firework(2, 114, -6, 23, '#4d6cf0') + firework(3, 62, -66, 21, '#ffffff') + firework(4, 18, -54, 16, '#4d6cf0') + firework(5, 106, -54, 16, '#e0283a') +
       '</g>' +
       '<ellipse class="sold-shadow" cx="60" cy="146" rx="22" ry="3" fill="rgba(0,0,0,.35)"/>' +
 
