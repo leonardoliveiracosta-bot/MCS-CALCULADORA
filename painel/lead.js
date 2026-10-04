@@ -154,9 +154,10 @@
       if(rl.typicalCents)append(reality,'p','reality-typical','MMR típico: '+usd(rl.typicalCents));
       if(rl.rows.length){
         if(rl.label)append(reality,'p','reality-label',rl.label);
-        const list=append(reality,'div','reality-list'+(rl.column==='MILHAS_MMR'?' four':''));
+        const list=append(reality,'div','reality-list'+(rl.column==='MILHAS_MMR'||rl.column==='MMR'?' four':''));
         rl.rows.forEach((row)=>{const line=append(list,'div','reality-row');append(line,'strong','reality-year',String(row.year||'—'));append(line,'span','reality-model',row.model||'—');
-          if(rl.column==='MMR')append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));
+          // Miles always shown with the MMR: two different cars of the same year can share an MMR.
+          if(rl.column==='MMR'){append(line,'span','reality-miles','· '+mi(row.miles));append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));}
           else if(rl.column==='MILHAS_MMR'){append(line,'span','reality-miles','· '+mi(row.miles));append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));}
           else append(line,'span','reality-miles','· '+mi(row.miles));});
         limitList(reality,[...list.querySelectorAll('.reality-row')],list);

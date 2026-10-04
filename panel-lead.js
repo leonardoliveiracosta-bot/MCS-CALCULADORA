@@ -235,15 +235,20 @@ async function leadData(ctx, req, refInput, idInput) {
   });
   // Offers use each demand's own rule (VALOR: the maximum bid, never the total ceiling, R2).
   // A QUASE caused by missing data keeps its notice so it is not read as a fit.
-  const offers = [...(activeUpload ? current : unique).values()].flatMap((vehicle) => matchesFor(vehicle).map(({ demand, result }) => ({ ...vehicle, mode: demand.mode, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap })))
-    .sort((a, b) => offerRank(a) - offerRank(b)).slice(0, 80);
+  const allOffers = [...(activeUpload ? current : unique).values()].flatMap((vehicle) => matchesFor(vehicle).map(({ demand, result }) => ({ ...vehicle, mode: demand.mode, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap })))
+    .sort((a, b) => offerRank(a) - offerRank(b));
+  // One car per VIN (v3.4): the same VIN in Lane/Run and in Buy Now (or in two CSV rows) is one car
+  // (in each search mode: a car that fits VALOR and CARRO is an offer in both).
+  const { carKey } = require('./panel-reality');
+  const offerSeen = new Set();
+  const offers = allOffers.filter((vehicle) => { const key = vehicle.mode + '|' + carKey(vehicle); if (offerSeen.has(key)) return false; offerSeen.add(key); return true; }).slice(0, 80);
   // "Cabe" = BATE or POR_VALOR (real opportunities); QUASE never counts as a fit.
   const fitSeen = new Set();
-  const fits = offers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind) && !fitSeen.has(vehicle.rowFingerprint) && fitSeen.add(vehicle.rowFingerprint))
+  const fits = offers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind) && !fitSeen.has(carKey(vehicle)) && fitSeen.add(carKey(vehicle)))
     .map((vehicle) => ({ year: vehicle.year, miles: vehicle.miles, make: vehicle.make, model: vehicle.model })).slice(0, 8);
-  // Cartão 5: every option of the batch inside the filters, with the column chosen by the deterministic rule.
+  // Cartão 5: every option of the batch inside the filters (all of them counted, one per VIN), with the column chosen by the deterministic rule.
   const servedSeen = new Set();
-  const servedOptions = offers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind) && !servedSeen.has(vehicle.rowFingerprint) && servedSeen.add(vehicle.rowFingerprint));
+  const servedOptions = allOffers.filter((vehicle) => vehicleMatch.countsAsServed(vehicle.kind) && !servedSeen.has(carKey(vehicle)) && servedSeen.add(carKey(vehicle)));
   const reference = [...unique.values()].filter((car) => matchesFor(car).some(({ result }) => !result.dataGap));
   const milesCap = wishes.some((wish) => Number(wish.maxMiles) > 0) || demands.some((demand) => (demand.activeWishes || []).some((wish) => Number(wish.maxMiles) > 0));
   const reality = require('./panel-reality').realityList({ options: servedOptions, reference, maxBidCents, milesCap, typicalCents: typical.map((wish) => wish.mmrCents) });

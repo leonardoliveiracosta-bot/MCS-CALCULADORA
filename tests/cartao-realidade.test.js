@@ -41,3 +41,17 @@ test('sem lance e sem teto de milhas: quatro colunas; sem opções: mensagem; um
   assert.equal(none.verdict, 'Nenhuma opção no lote dentro dos filtros');
   assert.equal(none.rows.length, 0);
 });
+
+test('um carro por VIN: o mesmo VIN em Lane/Run e em Buy Now é uma linha; cada linha com o MMR do próprio carro; veredito conta todos', () => {
+  const sale = (vin, fp, mmr, extra = {}) => ({ year: 2023, make: 'Mercedes-Benz', model: 'S-Class', miles: 20000 + Number(vin.slice(-2)), mmrCents: mmr, vin, rowFingerprint: fp, ...extra });
+  const options = [sale('VIN01', 'f1', 6310000, { lane: '1', run: '10' }), sale('VIN01', 'f2', 6310000, { buyNowPrice: '65000' }), sale('vin01 ', 'f3', 6310000), sale('VIN02', 'f4', 5980000), sale('VIN03', 'f5', 6650000)];
+  const out = realityList({ options, reference: options, maxBidCents: null, milesCap: true, typicalCents: [6310000] });
+  assert.equal(out.rows.length, 3, 'VIN01 aparece uma vez só');
+  assert.equal(out.verdict, '3 opções dentro das milhas');
+  assert.deepEqual(out.rows.map((row) => row.mmrCents).sort(), [5980000, 6310000, 6650000], 'MMR de cada carro, não a mediana do ano');
+  const many = Array.from({ length: 95 }, (_, n) => sale('VINX' + String(n).padStart(3, '0'), 'g' + n, 6000000 + n * 1000));
+  const big = realityList({ options: many, reference: many, maxBidCents: null, milesCap: true, typicalCents: [] });
+  assert.equal(big.verdict, '95 opções dentro das milhas', 'conta todos');
+  assert.equal(big.rows.length, 80);
+  assert.match(big.label, /95 \(mostrando 80\)/);
+});
