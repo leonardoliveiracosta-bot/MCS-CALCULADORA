@@ -948,6 +948,26 @@
   .wa-float svg{width:29px;height:29px;display:block;position:relative;z-index:3}
   .wa-float{opacity:0;pointer-events:none;transform:translateY(8px)}
   .wa-float.on{opacity:1;pointer-events:auto;transform:none}
+
+  /* ===== COMPUTADOR: a página ocupa a tela inteira ===== */
+  /* Só de 821px para cima (o celular não muda nada). Os fundos de cada seção vão de ponta a ponta da tela;
+     o conteúdo fica na mesma coluna de 820px de antes, centralizada. As porcentagens abaixo são da largura
+     do main (tela - 40px): (100% - 740px)/2 centra 780px de conteúdo; (100% - 780px)/2 centra 820px. */
+  @media (min-width:821px){
+    main.wrap{max-width:none}
+    header.top{padding-left:max(20px,calc((100% - 740px)/2));padding-right:max(20px,calc((100% - 740px)/2))}
+    section.search-criteria,section.financing,section.why,section.policy,section.fees,section.faq,section.ready-cta{
+      padding-left:max(20px,calc((100% - 740px)/2));padding-right:max(20px,calc((100% - 740px)/2))}
+    section.hero,section.real-purchase,section.calc-block,section.reel,section.examples-dark,section.how{
+      padding-left:max(0px,calc((100% - 780px)/2));padding-right:max(0px,calc((100% - 780px)/2))}
+    section.hero .hero-credential{left:max(20px,calc((100% - 820px)/2 + 20px));right:max(20px,calc((100% - 820px)/2 + 20px))}
+    main.wrap > footer{max-width:780px;margin-left:auto;margin-right:auto}
+    /* Calculadora: a foto e o farol crescem com a tela, mas a barra de luz fica onde ficava na coluna de 820px
+       (metade da altura + 56px, entre os dois botões). A arte tem a proporção da foto (1320x1980): a barra está
+       a 1080/1320 = 81,818% da largura a partir do topo; margin-top em % é medida pela largura. Em tela alta o
+       script do bloco ainda posiciona a arte por conta própria (estilo em linha). */
+    section.calc-block .calc-stage-art{inset:auto;left:0;width:100%;aspect-ratio:1320/1980;top:calc(50% + 56px);margin-top:-81.818%}
+  }
 </style>
 </head>
 <body>
