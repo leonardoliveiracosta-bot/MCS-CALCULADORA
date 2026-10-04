@@ -9,6 +9,7 @@
 
   var CALC = '#calculadora-widget';
   var WHATSAPP = 'https://wa.me/13055400742';
+  var SMS = 'sms:+13055400742';
   var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   var TEXT = {
@@ -31,7 +32,12 @@
       ask: 'Type your question',
       send: 'Send',
       more: 'Other questions',
-      sold: 'SOLD!'
+      sold: 'SOLD!',
+      waButton: 'WhatsApp',
+      smsButton: 'Text message',
+      prefill: "Hi! I came from the My Car Scout site and I want to buy a car at the dealer auctions.",
+      prefillQ: 'My question: {q}',
+      feeHook: "That's the whole service fee, and you only pay it if we buy your car. See your full total in the calculator."
     },
     es: {
       tagline: 'Tu guía de subastas',
@@ -52,7 +58,12 @@
       ask: 'Escribe tu pregunta',
       send: 'Enviar',
       more: 'Otras preguntas',
-      sold: '¡VENDIDO!'
+      sold: '¡VENDIDO!',
+      waButton: 'WhatsApp',
+      smsButton: 'Mensaje de texto',
+      prefill: '¡Hola! Vengo del sitio de My Car Scout y quiero comprar un auto en las subastas de dealers.',
+      prefillQ: 'Mi pregunta: {q}',
+      feeHook: 'Esa es toda la tarifa de servicio, y solo la pagas si compramos tu auto. Mira tu total completo en la calculadora.'
     },
     pt: {
       tagline: 'Seu guia de leilão',
@@ -73,7 +84,12 @@
       ask: 'Digite sua pergunta',
       send: 'Enviar',
       more: 'Outras perguntas',
-      sold: 'VENDIDO!'
+      sold: 'VENDIDO!',
+      waButton: 'WhatsApp',
+      smsButton: 'Mensagem de texto (SMS)',
+      prefill: 'Oi! Vim do site da My Car Scout e quero comprar um carro nos leilões de dealers.',
+      prefillQ: 'Minha dúvida: {q}',
+      feeHook: 'Essa é a taxa de serviço inteira, e você só paga se a gente comprar o seu carro. Veja o seu total completo na calculadora.'
     }
   };
 
@@ -96,6 +112,12 @@
     { id: 'how', special: 'how', go: 'calc', sec: 'como-funciona',
       k: 'how it works|how does it work|how does this work|how do you work|how this works|process|steps|step by step|como funciona|proceso|processo|passo a passo|paso a paso|pasos|etapas|funciona',
       chip: { en: 'How it works', es: 'Cómo funciona', pt: 'Como funciona' } },
+    /* Estoque: não existe vitrine aberta. A resposta de sempre: "me mostra qual antes" e a gente traz as opções reais. */
+    { id: 'inventory', go: 'both', chip: { en: 'Inventory', es: 'Inventario', pt: 'Estoque' },
+      k: 'inventory|in stock|stock|do you have|which cars|what cars|cars are available|quais carros|que carros|que autos|what do you have|what cars do you have|cars do you have|cars available|available cars|whats available|show me cars|show me the cars|see the cars|list of cars|catalog|showroom|inventario|tienen autos|tienen carros|que tienen|que autos tienen|autos disponibles|carros disponibles|catalogo|lista de autos|estoque|tem carro|voces tem|vcs tem|o que voces tem|que carros voces tem|carros disponiveis|vitrine|fotos dos carros|lista de carros|ver os carros',
+      en: 'We don\'t keep a lot of cars waiting for you: we search the dealer auctions, where new wholesale inventory comes in every day.\nShow me which car you want first (make, model, years and your max) and we bring you real auction options to review before any bid.',
+      es: 'No tenemos un lote de autos esperándote: buscamos en las subastas de dealers, donde cada día entra inventario mayorista nuevo.\nMuéstrame primero cuál auto quieres (marca, modelo, años y tu máximo) y te traemos opciones reales de subasta para revisar antes de cualquier oferta.',
+      pt: 'A gente não tem um pátio de carros parados esperando você: a gente busca nos leilões de dealers, onde todo dia entra estoque novo de atacado.\nMe mostra qual carro você quer antes (marca, modelo, anos e o seu máximo) e a gente traz opções reais do leilão para você analisar antes de qualquer lance.' },
     { id: 'fees', sec: 'taxas', chip: { en: 'Service fees', es: 'Tarifas de servicio', pt: 'Taxas de serviço' },
       k: 'fee|fees|service fee|your fee|commission|charge|charges|how much do you charge|what do you charge|tarifa|tarifas|comision|cuanto cobran|que cobran|cobran|cobra|comissao|taxa|taxas|quanto cobram|quanto voces cobram|cobram',
       en: 'Our service fee is based only on the winning bid:\n• Up to $3,000: $300\n• $3,001 – $5,000: $400\n• $5,001 – $7,500: $550\n• $7,501 – $10,000: $650\n• $10,001 – $15,000: $750\n• $15,001 – $20,000: $900\n• Above $20,000: $900 + $50 for each additional $2,500 (or portion)\nIf we don\'t buy a vehicle for you, you don\'t pay a service fee. Tell me an amount, like "fee for $12,000", and I\'ll show you the fee.',
@@ -180,7 +202,7 @@
       es: 'En los ejemplos reales, "referencia" es la guía de precios de la propia subasta para un auto en esa condición. No es un precio: la oferta ganadora puede quedar por encima o por debajo. En el caso del BMW X3 comparamos con la referencia minorista Black Book XClean ($25,800); el auto costó $20,094 en total.',
       pt: 'Nos exemplos reais, "referência" é o guia de preços do próprio leilão para um carro naquela condição. Não é um preço: o lance vencedor pode ficar acima ou abaixo. No caso do BMW X3 a gente compara com a referência de varejo Black Book XClean ($25.800); o carro custou $20.094 no total.' },
     { id: 'examples', go: 'calc', sec: 'exemplos',
-      k: 'example|examples|real cars|what cars|which cars|cars do you have|inventory|stock|available|ejemplo|ejemplos|inventario|disponible|que autos|exemplo|exemplos|estoque|disponivel|que carros',
+      k: 'example|examples|real cars|real examples|past purchases|cars you bought|ejemplo|ejemplos|autos reales|exemplo|exemplos|carros reais|ja compraram',
       en: 'New wholesale inventory comes in every day. Real examples that crossed our desk (auction reference, not a price):\n' + EXAMPLES_EN + '\nTell us the car you want and your max, and we scan the auctions for you.',
       es: 'Cada día entra inventario mayorista nuevo. Ejemplos reales que pasaron por nuestras manos (referencia de la subasta, no un precio):\n' + EXAMPLES_EN + '\nDinos el auto que quieres y tu máximo, y buscamos en las subastas por ti.',
       pt: 'Todo dia entra estoque novo de atacado. Exemplos reais que passaram pela nossa mesa (referência do leilão, não um preço):\n' + EXAMPLES_PT + '\nDiga o carro que você quer e o seu máximo, e a gente varre os leilões por você.' },
@@ -213,7 +235,7 @@
     { id: 'language', go: 'wa',
       k: 'spanish|portuguese|english|language|languages|espanol|portugues|ingles|idioma|idiomas|lingua|habla|hablan|fala|falam|speak',
       en: '{lang_full}', es: '{lang_full}', pt: '{lang_full}' },
-    { id: 'contact', go: 'wa', chip: { en: 'Talk to a person', es: 'Hablar con una persona', pt: 'Falar com uma pessoa' },
+    { id: 'contact', go: 'contact', chip: { en: 'Talk to a person', es: 'Hablar con una persona', pt: 'Falar com uma pessoa' },
       k: 'whatsapp|phone|call|text|sms|contact|instagram|email|talk to|speak to|speak with|human|person|agent|specialist|someone|telefono|llamar|contacto|hablar con|persona|agente|especialista|alguien|telefone|ligar|contato|falar com|atendente|pessoa|alguem',
       en: 'WhatsApp: +1 305 540 0742\nText message: (305) 540-0742\nInstagram: @mycarscout\nA real person replies in English, Spanish or Portuguese.',
       es: 'WhatsApp: +1 305 540 0742\nMensaje de texto: (305) 540-0742\nInstagram: @mycarscout\nUna persona real responde en inglés, español o portugués.',
@@ -257,6 +279,134 @@
       k: 'thank|thanks|thx|gracias|obrigad|valeu|perfect|great|okay|perfecto|perfeito|otimo',
       en: 'You\'re welcome! Anything else, just ask.', es: '¡Con gusto! Si tienes otra pregunta, aquí estoy.', pt: 'Imagina! Se tiver outra dúvida, é só perguntar.' }
   ];
+  /* O gancho: depois de esclarecer, uma linha que deixa a pessoa mais perto do carro que ela quer. Só com o que o
+     site garante (mesmos carros dos dealers, sem a margem deles, o máximo é dela, sem compra não há taxa, estoque
+     novo todo dia); nunca promete preço, prazo ou aprovação. [en, es, pt] */
+  var HOOK = {
+    how: ['You\'re one message away from step 1. Tell us the car and your max, and we start scanning the auctions for you.',
+      'Estás a un mensaje del paso 1. Dinos el auto y tu máximo, y empezamos a buscar en las subastas por ti.',
+      'Você está a uma mensagem do passo 1. Diga o carro e o seu máximo, e a gente começa a varrer os leilões por você.'],
+    inventory: ['The car you want may cross an auction this week. Which one is it?',
+      'El auto que quieres puede pasar por una subasta esta semana. ¿Cuál es?',
+      'O carro que você quer pode passar num leilão esta semana. Qual é?'],
+    fees: ['No car bought, no service fee. Want the exact fee for your budget? Type an amount, like 15000.',
+      'Sin compra, no hay tarifa de servicio. ¿Quieres la tarifa exacta para tu presupuesto? Escribe un monto, como 15000.',
+      'Sem compra, sem taxa de serviço. Quer a taxa exata para o seu orçamento? Digite um valor, como 15000.'],
+    shipcost: ['Pickup or delivery, the car comes to you. See your total with the calculator.',
+      'Recogida o entrega, el auto llega a ti. Mira tu total con la calculadora.',
+      'Retirada ou entrega, o carro chega até você. Veja o seu total na calculadora.'],
+    depositAmount: ['The deposit is what turns your search into a real bid on the car you approved.',
+      'El depósito es lo que convierte tu búsqueda en una oferta real por el auto que aprobaste.',
+      'O depósito é o que transforma a sua busca num lance de verdade pelo carro que você aprovou.'],
+    refund: ['Written rules, and you approve every step. Ready to see what your car would cost?',
+      'Reglas escritas, y tú apruebas cada paso. ¿Listo para ver cuánto costaría tu auto?',
+      'Regras escritas, e você aprova cada passo. Pronto para ver quanto sairia o seu carro?'],
+    backout: ['You only commit to a car you already reviewed and approved. See your numbers first, with no obligation.',
+      'Solo te comprometes con un auto que ya revisaste y aprobaste. Mira tus números primero, sin obligación.',
+      'Você só se compromete com um carro que já analisou e aprovou. Veja seus números antes, sem obrigação.'],
+    deposit: ['It\'s the step that puts your max on the table for the car you chose. Want to see your total before it?',
+      'Es el paso que pone tu máximo sobre la mesa por el auto que elegiste. ¿Quieres ver tu total antes?',
+      'É o passo que coloca o seu máximo na mesa pelo carro que você escolheu. Quer ver o seu total antes?'],
+    lose: ['And with new inventory every day, there\'s always a next chance. What car should we go after?',
+      'Y con inventario nuevo cada día, siempre hay una próxima oportunidad. ¿Qué auto buscamos?',
+      'E com estoque novo todo dia, sempre tem uma próxima chance. Qual carro a gente vai buscar?'],
+    decide: ['You set the ceiling, we fight for the car below it. What car and what max do you have in mind?',
+      'Tú pones el techo, nosotros peleamos por el auto debajo de él. ¿Qué auto y qué máximo tienes en mente?',
+      'Você define o teto, a gente briga pelo carro abaixo dele. Qual carro e qual máximo você tem em mente?'],
+    license: ['No license needed: you get in through the same door dealers use. What car do you want?',
+      'No necesitas licencia: entras por la misma puerta que los dealers. ¿Qué auto quieres?',
+      'Sem licença: você entra pela mesma porta dos dealers. Qual carro você quer?'],
+    choose: ['You choose the car, we do the hunting. Which one is it?',
+      'Tú eliges el auto, nosotros lo cazamos. ¿Cuál es?',
+      'Você escolhe o carro, a gente vai atrás. Qual é?'],
+    after: ['From the winning bid to pickup or delivery, you\'re not alone. Want to see the full cost up front?',
+      'Desde la oferta ganadora hasta la recogida o la entrega, no estás solo. ¿Quieres ver el costo completo desde ya?',
+      'Do lance vencedor até a retirada ou a entrega, você não fica sozinho. Quer ver o custo completo desde já?'],
+    testdrive: ['You decide with photos and condition info before any bid, and never pay above your max. Which car should we look for?',
+      'Decides con fotos e información del estado antes de cualquier oferta, y nunca pagas más que tu máximo. ¿Qué auto buscamos?',
+      'Você decide com fotos e informações da condição antes de qualquer lance, e nunca paga acima do seu máximo. Qual carro a gente procura?'],
+    inspection: ['You see the condition before we bid a cent, so you decide with your eyes open. What car are you after?',
+      'Ves el estado antes de que ofertemos un centavo, así decides con los ojos abiertos. ¿Qué auto buscas?',
+      'Você vê a condição antes de qualquer centavo de lance, e decide de olhos abertos. Qual carro você procura?'],
+    receive: ['Pick it up or have it shipped: either way, it\'s yours. Ready to see your numbers?',
+      'Lo recoges o te lo enviamos: de cualquier forma, es tuyo. ¿Listo para ver tus números?',
+      'Você retira ou a gente ajuda a enviar: de um jeito ou de outro, é seu. Pronto para ver seus números?'],
+    finance: ['Financing the wholesale price instead of the dealer price can make the payment lighter. Tell us the car you want.',
+      'Financiar el precio mayorista en vez del precio del dealer puede aliviar la cuota. Dinos el auto que quieres.',
+      'Financiar o preço de atacado em vez do preço do dealer pode deixar a parcela mais leve. Diga o carro que você quer.'],
+    pay: ['Your deposit counts toward the car, so nothing is wasted. A specialist walks you through it on WhatsApp.',
+      'Tu depósito cuenta para el auto, nada se pierde. Un especialista te guía por WhatsApp.',
+      'O seu depósito conta para o carro, nada se perde. Um especialista te acompanha no WhatsApp.'],
+    bid: ['Live bidding, your rules. Which car should we bid on for you?',
+      'Oferta en vivo, con tus reglas. ¿Por qué auto ofertamos por ti?',
+      'Lance ao vivo, com as suas regras. Em qual carro a gente dá o lance por você?'],
+    save: ['That\'s money that stays with you, not with a dealer. What could it be on your car?',
+      'Ese dinero se queda contigo, no con un dealer. ¿Cuánto sería en tu auto?',
+      'É dinheiro que fica com você, não com o dealer. Quanto seria no seu carro?'],
+    markup: ['Same cars, without the markup. Want to see what that means on the car you want?',
+      'Los mismos autos, sin el margen. ¿Quieres ver qué significa eso en el auto que quieres?',
+      'Os mesmos carros, sem a margem. Quer ver o que isso significa no carro que você quer?'],
+    total: ['You see every line before you decide. Run your numbers for the car you want.',
+      'Ves cada línea antes de decidir. Calcula tus números para el auto que quieres.',
+      'Você vê cada linha antes de decidir. Faça a conta do carro que você quer.'],
+    calc: ['No obligation, and you see the whole picture. Try it now.',
+      'Sin obligación, y ves el panorama completo. Pruébala ahora.',
+      'Sem obrigação, e você vê o quadro completo. Experimente agora.'],
+    reference: ['References help you set a smart max, and you decide where to stop. See the total for yours.',
+      'Las referencias te ayudan a fijar un máximo inteligente, y tú decides dónde parar. Mira el total del tuyo.',
+      'As referências ajudam você a definir um máximo inteligente, e você decide onde parar. Veja o total do seu.'],
+    examples: ['Your car could be the next one on this list. Which one do you want?',
+      'Tu auto puede ser el próximo de esta lista. ¿Cuál quieres?',
+      'O seu carro pode ser o próximo desta lista. Qual você quer?'],
+    title: ['That filter runs before you even see a car. What are you looking for?',
+      'Ese filtro se aplica antes de que veas un auto. ¿Qué buscas?',
+      'Esse filtro vem antes de você ver qualquer carro. O que você procura?'],
+    carfax: ['You see the facts before you commit. What car should we look for?',
+      'Ves los datos antes de comprometerte. ¿Qué auto buscamos?',
+      'Você vê os fatos antes de se comprometer. Qual carro a gente procura?'],
+    warranty: ['Knowing exactly what you\'re buying is your best protection, and you review every car before any bid. Which car do you want?',
+      'Saber exactamente qué compras es tu mejor protección, y revisas cada auto antes de cualquier oferta. ¿Qué auto quieres?',
+      'Saber exatamente o que você está comprando é a sua melhor proteção, e você analisa cada carro antes de qualquer lance. Qual carro você quer?'],
+    time: ['The sooner we know your car and your max, the sooner we start bidding. What are you looking for?',
+      'Cuanto antes sepamos tu auto y tu máximo, antes empezamos a ofertar. ¿Qué buscas?',
+      'Quanto antes a gente souber o carro e o seu máximo, antes começa a dar lance. O que você procura?'],
+    taxes: ['A specialist goes over your state with you, so you know the full cost before deciding.',
+      'Un especialista revisa tu estado contigo, para que sepas el costo completo antes de decidir.',
+      'Um especialista vê o seu estado com você, para você saber o custo completo antes de decidir.'],
+    where: ['We buy nationwide, so distance doesn\'t limit your options. What car do you want?',
+      'Compramos en todo el país, la distancia no limita tus opciones. ¿Qué auto quieres?',
+      'A gente compra no país todo, a distância não limita as suas opções. Qual carro você quer?'],
+    language: ['Talk in the language you\'re most comfortable with. A specialist is one message away.',
+      'Habla en el idioma que te quede más cómodo. Un especialista está a un mensaje.',
+      'Fale no idioma em que você se sente melhor. Um especialista está a uma mensagem.'],
+    contact: ['Tell us the car you want in your first message, and we get started faster.',
+      'Dinos el auto que quieres en tu primer mensaje, y empezamos más rápido.',
+      'Diga o carro que você quer já na primeira mensagem, e a gente começa mais rápido.'],
+    trust: ['Don\'t take our word for it: see the documented BMW X3 case and ask us anything on WhatsApp.',
+      'No te quedes con nuestra palabra: mira el caso documentado del BMW X3 y pregúntanos lo que quieras por WhatsApp.',
+      'Não fique só na nossa palavra: veja o caso documentado do BMW X3 e pergunte o que quiser no WhatsApp.'],
+    mileage: ['Tell us your limit and we filter the auctions for you. What car, and up to how many miles?',
+      'Dinos tu límite y filtramos las subastas por ti. ¿Qué auto, y hasta cuántas millas?',
+      'Diga o seu limite e a gente filtra os leilões por você. Qual carro, e até quantas milhas?'],
+    auction: ['Those doors are open to you now. Which car do you want?',
+      'Esas puertas ahora están abiertas para ti. ¿Qué auto quieres?',
+      'Essas portas agora estão abertas para você. Qual carro você quer?'],
+    about: ['Ready to buy where dealers buy? Tell us the car.',
+      '¿Listo para comprar donde compran los dealers? Dinos el auto.',
+      'Pronto para comprar onde os dealers compram? Diga o carro.'],
+    price: ['The best way to know your price is your own numbers. Run them now.',
+      'La mejor forma de saber tu precio son tus propios números. Calcúlalos ahora.',
+      'O melhor jeito de saber o seu preço são os seus números. Faça a conta agora.'],
+    start: ['Today is a good day to start. Which car do you want?',
+      'Hoy es un buen día para empezar. ¿Qué auto quieres?',
+      'Hoje é um bom dia para começar. Qual carro você quer?'],
+    hello: ['To start: what car are you looking for?',
+      'Para empezar: ¿qué auto buscas?',
+      'Para começar: qual carro você procura?']
+  };
+  var LANGS = ['en', 'es', 'pt'];
+  function hookFor(id) { var list = HOOK[id]; return list ? list[LANGS.indexOf(lang())] || list[0] : ''; }
+
   KB.forEach(function (entry) {
     entry.keys = entry.k ? entry.k.split('|') : [];
     if (entry.pair) entry.pair = entry.pair.map(function (list) { return list.split('|'); });
@@ -305,11 +455,23 @@
         '<path class="sold-mouth" d="M51 46 Q60 53 69 46" stroke="' + gold + '" stroke-width="2.4" fill="none" stroke-linecap="round"/>' +
         '<path class="sold-grin" d="M49 44 Q60 58 71 44 Z" fill="' + dark + '" stroke="' + gold + '" stroke-width="1.8" stroke-linejoin="round" opacity="0"/>' +
       '</g>';
+    // fogos de artifício em segundo plano: raios e pontos saindo do centro
+    function firework(n, cx, cy, r, color) {
+      var rays = '', dots = '';
+      for (var i = 0; i < 10; i++) {
+        var a = i * Math.PI / 5 + n, c = Math.cos(a), s = Math.sin(a);
+        rays += 'M' + (cx + c * r * .38).toFixed(1) + ' ' + (cy + s * r * .38).toFixed(1) + 'L' + (cx + c * r).toFixed(1) + ' ' + (cy + s * r).toFixed(1);
+        dots += '<circle cx="' + (cx + c * r * 1.22).toFixed(1) + '" cy="' + (cy + s * r * 1.22).toFixed(1) + '" r="1.5"/>';
+      }
+      return '<g class="sold-fw sold-fw' + n + '" style="transform-origin:' + cx + 'px ' + cy + 'px" opacity="0" fill="' + color + '">' +
+        '<path d="' + rays + '" stroke="' + color + '" stroke-width="2" stroke-linecap="round"/>' + dots + '</g>';
+    }
     var body =
-      '<ellipse class="sold-shadow" cx="60" cy="146" rx="22" ry="3" fill="rgba(0,0,0,.35)"/>' +
-      '<g class="sold-burst" stroke="' + gold + '" stroke-width="2.4" stroke-linecap="round" opacity="0">' +
-        '<path d="M4 84 L-1 80 M2 90 L-5 89 M5 97 L-1 101 M12 99 L10 106 M19 99 L21 106"/>' +
+      '<g class="sold-sky" pointer-events="none">' +
+        firework(1, 8, -2, 25, gold) + firework(2, 114, -6, 23, '#c4414a') + firework(3, 62, -66, 21, ivory) + firework(4, 18, -54, 16, '#c4414a') + firework(5, 106, -54, 16, gold) +
       '</g>' +
+      '<ellipse class="sold-shadow" cx="60" cy="146" rx="22" ry="3" fill="rgba(0,0,0,.35)"/>' +
+
       '<g class="sold-rig">' +
         '<rect x="53" y="106" width="6" height="34" rx="3" fill="#3a1512"/><rect x="61" y="106" width="6" height="34" rx="3" fill="#3a1512"/>' +
         '<ellipse cx="54.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/><ellipse cx="65.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/>' +
@@ -327,7 +489,12 @@
         '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2e110e"/><stop offset=".45" stop-color="#7a3a2e"/><stop offset="1" stop-color="#2a0f0c"/></linearGradient>' +
       '</defs>';
     var viewBox = headOnly ? '2 10 116 56' : '-8 6 128 146';
-    return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false" overflow="visible">' + defs + (headOnly ? head : body + head + '</g>') + '</svg>';
+    // a palavra SOLD explode por cima de tudo quando ele sobe
+    // o golpe no chão: o estalo dourado onde a ponta do martelo bate (na frente dele, para aparecer)
+    var dust = '<g class="sold-dust" opacity="0" stroke="' + gold + '" stroke-width="3.2" stroke-linecap="round">' +
+        '<path d="M-29 134 L-29 121 M-41 138 L-51 129 M-17 138 L-7 129 M-47 147 L-59 147 M-11 147 L1 147"/></g>';
+    var word = dust + '<text class="sold-word" x="60" y="-14" text-anchor="middle" opacity="0" font-family="Barlow,system-ui,sans-serif" font-weight="900" font-size="31" letter-spacing="2" fill="url(#' + id + 'g)" stroke="' + dark + '" stroke-width="1.4" paint-order="stroke">SOLD</text>';
+    return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false" overflow="visible">' + defs + (headOnly ? head : body + head + '</g>' + word) + '</svg>';
   }
 
   /* ---------- estilo ---------- */
@@ -337,28 +504,37 @@
     '.sold-launcher:focus-visible{outline:2px solid #c9a34e;outline-offset:4px;border-radius:12px}',
     '.sold-launcher.hidden{display:none}',
     '.sold-figure *{transform-box:view-box}',
-    '.sold-head{transform-origin:60px 64px}.sold-rig{transform-origin:60px 146px}.sold-burst{transform-origin:8px 92px}',
+    '.sold-head{transform-origin:60px 64px}.sold-rig{transform-origin:60px 146px}',
     '.sold-arm-wave{transform-origin:53px 76px}.sold-arm-r{transform-origin:67px 78px}.sold-eyes{transform-origin:60px 36px}',
     '.sold-eyes{animation:sold-blink 5s infinite}',
-    /* o ciclo do arremate (4,6 s): parado, prepara, bate três vezes no ar, pula de alegria duas vezes */
-    '.sold-launcher .sold-head{animation:sold-strike 4.6s ease-in-out infinite}',
-    '.sold-launcher .sold-rig{animation:sold-hop 4.6s ease-in-out infinite}',
-    '.sold-launcher .sold-burst{animation:sold-burst 4.6s linear infinite}',
-    '.sold-launcher .sold-eyes,.sold-launcher .sold-mouth,.sold-launcher .sold-brows{animation:sold-calm 4.6s step-end infinite}',
-    '.sold-launcher .sold-joy,.sold-launcher .sold-grin{animation:sold-happy 4.6s step-end infinite}',
-    '.sold-launcher .sold-arm-wave{animation:sold-cheer-l 4.6s ease-in-out infinite}',
-    '.sold-launcher .sold-arm-r{animation:sold-cheer-r 4.6s ease-in-out infinite}',
-    '.sold-launcher .sold-shadow{transform-origin:60px 146px;animation:sold-shadow 4.6s ease-in-out infinite}',
+    /* o ciclo do arremate (5,4 s): parado, toma impulso, bate o martelo até o chão, sobe pulando de alegria
+       enquanto os fogos estouram ao fundo e a palavra SOLD explode no alto */
+    '.sold-launcher svg{pointer-events:none}',
+    '.sold-word{transform-origin:60px -24px}',
+    '.sold-launcher .sold-head{animation:sold-strike 5.4s ease-in-out infinite}',
+    '.sold-launcher .sold-rig{animation:sold-hop 5.4s ease-in-out infinite}',
+    '.sold-launcher .sold-dust{transform-origin:-29px 146px;animation:sold-dust 5.4s ease-out infinite}',
+    '.sold-launcher .sold-fw{animation:sold-fw 5.4s ease-out infinite}',
+    '.sold-launcher .sold-fw2{animation-delay:.18s}.sold-launcher .sold-fw3{animation-delay:.36s}.sold-launcher .sold-fw4{animation-delay:.54s}.sold-launcher .sold-fw5{animation-delay:.72s}',
+    '.sold-launcher .sold-word{animation:sold-word 5.4s ease-out infinite}',
+    '.sold-launcher .sold-eyes,.sold-launcher .sold-mouth,.sold-launcher .sold-brows{animation:sold-calm 5.4s step-end infinite}',
+    '.sold-launcher .sold-joy,.sold-launcher .sold-grin{animation:sold-happy 5.4s step-end infinite}',
+    '.sold-launcher .sold-arm-wave{animation:sold-cheer-l 5.4s ease-in-out infinite}',
+    '.sold-launcher .sold-arm-r{animation:sold-cheer-r 5.4s ease-in-out infinite}',
+    '.sold-launcher .sold-shadow{transform-origin:60px 146px;animation:sold-shadow 5.4s ease-in-out infinite}',
     '.sold-launcher:hover .sold-arm-wave,.sold-launcher:focus-visible .sold-arm-wave{animation:sold-wave .9s ease-in-out 2}',
     '.sold-tap .sold-head{animation:sold-tap .5s ease-out!important}',
-    '@keyframes sold-strike{0%,40%{transform:rotate(0)}46%{transform:rotate(14deg)}50%{transform:rotate(-30deg)}54%{transform:rotate(10deg)}58%{transform:rotate(-30deg)}62%{transform:rotate(10deg)}66%{transform:rotate(-30deg)}72%,100%{transform:rotate(0)}}',
-    '@keyframes sold-hop{0%,40%{transform:translateY(0) rotate(0)}46%{transform:translateY(0) rotate(3deg)}50%,58%,66%{transform:translateY(1px) rotate(-5deg)}54%,62%{transform:translateY(0) rotate(1deg)}72%{transform:translateY(0) rotate(0)}78%{transform:translateY(-14px) rotate(0)}84%{transform:translateY(0) rotate(0)}89%{transform:translateY(-8px) rotate(0)}94%,100%{transform:translateY(0) rotate(0)}}',
-    '@keyframes sold-burst{0%,49.9%{opacity:0;transform:scale(.5)}50%{opacity:1;transform:scale(1)}53%{opacity:0;transform:scale(1.35)}57.9%{opacity:0;transform:scale(.5)}58%{opacity:1;transform:scale(1)}61%{opacity:0;transform:scale(1.35)}65.9%{opacity:0;transform:scale(.5)}66%{opacity:1;transform:scale(1.1)}70%,100%{opacity:0;transform:scale(1.5)}}',
-    '@keyframes sold-calm{0%{opacity:1}49%{opacity:0}96%{opacity:1}}',
-    '@keyframes sold-happy{0%{opacity:0}49%{opacity:1}96%{opacity:0}}',
-    '@keyframes sold-cheer-l{0%,72%{transform:rotate(0)}78%{transform:rotate(-30deg)}84%{transform:rotate(-8deg)}89%{transform:rotate(-30deg)}96%,100%{transform:rotate(0)}}',
-    '@keyframes sold-cheer-r{0%,72%{transform:rotate(0)}78%{transform:rotate(-62deg)}84%{transform:rotate(-35deg)}89%{transform:rotate(-62deg)}96%,100%{transform:rotate(0)}}',
-    '@keyframes sold-shadow{0%,72%,84%,94%,100%{transform:scaleX(1);opacity:1}78%{transform:scaleX(.7);opacity:.6}89%{transform:scaleX(.82);opacity:.8}}',
+    // corpo inclina 50° sobre os pés e a cabeça mais 40° no pescoço: a ponta do martelo encosta no chão (y=146)
+    '@keyframes sold-strike{0%,30%{transform:rotate(0)}36%{transform:rotate(20deg)}42%,48%{transform:rotate(-40deg)}45%{transform:rotate(-36deg)}55%,100%{transform:rotate(0)}}',
+    '@keyframes sold-hop{0%,30%{transform:translateY(0) rotate(0)}36%{transform:translateY(0) rotate(8deg)}42%,48%{transform:translateY(0) rotate(-50deg)}45%{transform:translateY(0) rotate(-46deg)}55%{transform:translateY(0) rotate(0)}61%{transform:translateY(-18px) rotate(-3deg)}67%{transform:translateY(0) rotate(0)}72%{transform:translateY(-11px) rotate(3deg)}77%,100%{transform:translateY(0) rotate(0)}}',
+    '@keyframes sold-dust{0%,41.9%{opacity:0;transform:scale(.4)}42%{opacity:1;transform:scale(.7)}50%,100%{opacity:0;transform:scale(1.5)}}',
+    '@keyframes sold-fw{0%,53.9%{opacity:0;transform:scale(.15)}54%{opacity:1;transform:scale(.15)}62%{opacity:1;transform:scale(1.1)}70%,100%{opacity:0;transform:scale(1.3)}}',
+    '@keyframes sold-word{0%,53.9%{opacity:0;transform:scale(0)}57%{opacity:1;transform:scale(1.4)}60%{transform:scale(.92)}63%{transform:scale(1.06)}66%,84%{opacity:1;transform:scale(1)}91%,100%{opacity:0;transform:scale(1.12)}}',
+    '@keyframes sold-calm{0%{opacity:1}42%{opacity:0}92%{opacity:1}}',
+    '@keyframes sold-happy{0%{opacity:0}42%{opacity:1}92%{opacity:0}}',
+    '@keyframes sold-cheer-l{0%,55%{transform:rotate(0)}61%{transform:rotate(-34deg)}67%{transform:rotate(-8deg)}72%{transform:rotate(-34deg)}80%,100%{transform:rotate(0)}}',
+    '@keyframes sold-cheer-r{0%,55%{transform:rotate(0)}61%{transform:rotate(-66deg)}67%{transform:rotate(-35deg)}72%{transform:rotate(-66deg)}80%,100%{transform:rotate(0)}}',
+    '@keyframes sold-shadow{0%,30%,55%,67%,77%,100%{transform:scaleX(1);opacity:1}42%,48%{transform:scaleX(1.5);opacity:.8}61%{transform:scaleX(.62);opacity:.5}72%{transform:scaleX(.78);opacity:.7}}',
     '@keyframes sold-wave{0%,100%{transform:rotate(0)}30%{transform:rotate(-16deg)}70%{transform:rotate(12deg)}}',
     '@keyframes sold-blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}',
     '@keyframes sold-tap{0%{transform:rotate(0)}35%{transform:rotate(-30deg)}60%{transform:rotate(8deg)}100%{transform:rotate(0)}}',
@@ -381,6 +557,12 @@
     '.sold-cta:active{transform:translateY(3px);box-shadow:0 1px 0 #6e5428}',
     '.sold-link{align-self:flex-start;font-size:14px;font-weight:700;color:#3ede7c;text-decoration:none;padding:4px 2px}',
     '.sold-page{color:#c9a34e;padding-top:0}',
+    '.sold-msg.sold-hook{background:linear-gradient(180deg,#221c12 0%,#17140f 100%);border-color:rgba(201,163,78,.55);border-left:3px solid #c9a34e;color:#f6ead2;font-weight:600}',
+    '.sold-actions{align-self:stretch;display:flex;gap:8px;margin:2px 0 4px}',
+    '.sold-btn{flex:1 1 0;display:flex;align-items:center;justify-content:center;min-height:44px;padding:10px 12px;border-radius:10px;font:800 14px/1.15 "Barlow",system-ui,sans-serif;letter-spacing:.03em;text-align:center;text-decoration:none}',
+    '.sold-wa{background:#25d366;color:#06240f;box-shadow:0 3px 0 #128c4a}',
+    '.sold-sms{background:transparent;color:#f2efe9;border:1px solid rgba(201,163,78,.6)}',
+    '.sold-btn:active{transform:translateY(2px)}',
     '.sold-chips{flex:0 0 auto;display:flex;flex-wrap:nowrap;gap:6px;padding:8px 12px 10px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;border-top:1px solid rgba(201,163,78,.2);background:#0d0e11;mask-image:linear-gradient(90deg,#000 88%,transparent)}',
     '.sold-chip{flex:0 0 auto;white-space:nowrap;border:1px solid rgba(201,163,78,.45);background:transparent;color:#e9dcc0;border-radius:999px;padding:7px 12px;font:600 13px/1.2 "Barlow",system-ui,sans-serif;cursor:pointer}',
     '.sold-chip:hover{border-color:#c9a34e;background:rgba(201,163,78,.12)}',
@@ -447,10 +629,30 @@
     log.appendChild(button);
     scrollDown();
   }
+  /* A mensagem já sai escrita: quem veio do site e, se a pessoa digitou uma pergunta, a pergunta dela. */
+  var lastAsked = '';
+  function prefill() { return t('prefill') + (lastAsked ? '\n' + fill(t('prefillQ'), { q: lastAsked }) : ''); }
+  function waHref() { return WHATSAPP + '?text=' + encodeURIComponent(prefill()); }
+  // "?&body=" abre o SMS com o texto no iPhone e no Android.
+  function smsHref() { return SMS + '?&body=' + encodeURIComponent(prefill()); }
+  function contactButtons() {
+    var row = document.createElement('div');
+    row.className = 'sold-actions';
+    [['sold-btn sold-wa', waHref(), t('waButton'), '_blank'], ['sold-btn sold-sms', smsHref(), t('smsButton'), '']].forEach(function (item) {
+      var link = document.createElement('a');
+      link.className = item[0];
+      link.href = item[1];
+      link.textContent = item[2];
+      if (item[3]) { link.target = item[3]; link.rel = 'noopener'; }
+      row.appendChild(link);
+    });
+    log.appendChild(row);
+    scrollDown();
+  }
   function whatsappLink() {
     var link = document.createElement('a');
     link.className = 'sold-link';
-    link.href = WHATSAPP;
+    link.href = waHref();
     link.target = '_blank';
     link.rel = 'noopener';
     link.textContent = t('whatsapp') + ' →';
@@ -528,14 +730,18 @@
   var lastId = null;
   function answer(result) {
     var entry = result && result.entry;
-    if (result && result.fee) { answerFee(result.fee); sectionLink('taxas'); lastId = 'fees'; return; }
-    if (!entry) { say(t('fallback')); whatsappLink(); lastId = null; return; }
+    if (result && result.fee) { answerFee(result.fee); say(t('feeHook'), 'bot sold-hook'); cta(); sectionLink('taxas'); lastId = 'fees'; return; }
+    if (!entry) { say(t('fallback')); contactButtons(); lastId = null; return; }
     lastId = entry.id;
     if (entry.special === 'how') answerHow();
     else if (entry[lang()]) say(compose(entry[lang()]));
     else if (entry.faq) say(dot(pageText('a' + entry.faq)) || t('fallback'));
-    if (entry.go === 'calc' || entry.go === 'both') cta();
-    if (entry.go === 'wa' || entry.go === 'both') whatsappLink();
+    // esclarece e, logo depois, o gancho; sem destino próprio, o gancho leva para a calculadora
+    var hook = hookFor(entry.id), go = entry.go || (hook ? 'calc' : '');
+    if (hook) say(hook, 'bot sold-hook');
+    if (go === 'calc' || go === 'both') cta();
+    if (go === 'wa' || go === 'both') whatsappLink();
+    if (go === 'contact') contactButtons();
     if (entry.sec) sectionLink(entry.sec);
   }
 
@@ -573,7 +779,7 @@
       chip.type = 'button';
       chip.className = 'sold-chip';
       chip.textContent = label;
-      chip.addEventListener('click', function () { say(label, 'me'); answer({ id: entry.id, entry: entry }); });
+      chip.addEventListener('click', function () { say(label, 'me'); lastAsked = ''; answer({ id: entry.id, entry: entry }); });
       chips.appendChild(chip);
     });
   }
@@ -660,6 +866,7 @@
     if (!text) return;
     input.value = '';
     say(text, 'me');
+    lastAsked = text;
     answer(classify(text));
   });
   // The visitor changed the language: the next texts follow (what was already said stays).
