@@ -60,7 +60,19 @@ test('contraste: texto preto sobre dourado e branco nunca sobre dourado', () => 
     if (selector.trim() === '.pending-bar i') continue;
     assert.match(block, /color:\s*var\(--mcs-on-gold\)/, selector.trim());
   }
-  assert.doesNotMatch(layer, /color:\s*#fff\b|color:\s*#ffffff\b|color:\s*white\b/i);
+  // Branco só existe como texto de botão sobre fundo escuro (Excluir em vermelho, e30a883; preto PDS,
+  // 650f765/4be413b; WhatsApp/SMS, 20cab95): nunca sobre dourado e sempre com 4,5:1 ou mais.
+  // (background-color: #FFFFFF é fundo, não texto: o lookbehind evita o falso positivo.)
+  const resolve = (value) => { const v = value.trim(); const ref = v.match(/^var\(--([\w-]+)\)$/); return ref ? token(ref[1]) : /^#[0-9A-Fa-f]{6}$/.test(v) ? v : null; };
+  const white = [...layer.matchAll(/([^{}]+){([^{}]*(?<![\w-])color:\s*(?:#fff|#ffffff|white)\b[^{}]*)}/gi)];
+  for (const [, selector, block] of white) {
+    const background = block.match(/(?<![\w-])background(?:-color)?:\s*([^;]+)/);
+    assert.ok(background, `${selector.trim()}: texto branco sem fundo próprio`);
+    assert.doesNotMatch(background[1], /--mcs-gold\b/, `${selector.trim()}: branco sobre dourado`);
+    const bg = resolve(background[1]);
+    assert.ok(bg, `${selector.trim()}: fundo ${background[1]} não resolvido`);
+    assert.ok(ratio('#FFFFFF', bg) >= 4.5, `${selector.trim()}: branco sobre ${bg} ${ratio('#FFFFFF', bg).toFixed(2)}`);
+  }
 });
 
 test('bordas de campo: pelo menos 3:1 contra fundo, superfície e superfície elevada', () => {
@@ -84,9 +96,22 @@ test('tema claro único, fontes locais e logo em SVG', () => {
   assert.match(theme, /color-scheme:\s*light/);
   for (const [file, text] of [['index.html', html], ['tema-mcs.css', theme], ['identidade.css', layer], ['painel.css', read('painel/painel.css')]]) {
     assert.doesNotMatch(text, /prefers-color-scheme/, file);
-    assert.doesNotMatch(text, /Anton|fonts\.googleapis|fonts\.gstatic/, file);
+    assert.doesNotMatch(text, /Anton/, file);
   }
-  assert.doesNotMatch(layer, /https?:\/\//);
+  // 650f765 (ATENDIMENTO no padrão Porsche Design System) passou a carregar Inter/Noto do Google Fonts
+  // no index.html. Os CSS continuam sem nenhuma fonte ou recurso externo; o HTML só fala com o Google
+  // Fonts, e só para as famílias da identidade.
+  for (const [file, text] of [['tema-mcs.css', theme], ['identidade.css', layer], ['painel.css', read('painel/painel.css')]]) {
+    assert.doesNotMatch(text, /fonts\.googleapis|fonts\.gstatic|@import/, file);
+    // data: URIs (SVG do checkbox) trazem o namespace http://www.w3.org/2000/svg, que não é rede.
+    assert.doesNotMatch(text.replace(/url\("data:[^"]*"\)/g, ''), /https?:\/\//, file);
+  }
+  const external = [...html.matchAll(/https?:\/\/[^"'\s)]+/g)].map(([url]) => url);
+  assert.deepEqual([...new Set(external.map((url) => new URL(url).host))].sort(), ['fonts.googleapis.com', 'fonts.gstatic.com']);
+  for (const url of external.filter((value) => /\/css2\?/.test(value))) {
+    const families = new URL(url).searchParams.getAll('family').map((family) => family.split(':')[0]);
+    assert.deepEqual(families.filter((family) => !['Inter', 'Noto Sans', 'Noto Sans Mono', 'Noto Serif'].includes(family)), [], url);
+  }
   assert.match(html, /href="\/painel\/tema-mcs\.css(?:\?v=[\w-]+)?">\s*<link rel="stylesheet" href="\/painel\/identidade\.css(?:\?v=[\w-]+)?">/);
   assert.ok(fs.existsSync(path.join(root, 'painel/mcs-logo-claro.svg')), 'nenhum SVG apagado');
   assert.equal(JSON.parse(read('painel/manifest.webmanifest')).theme_color.toUpperCase(), '#FFFFFF');

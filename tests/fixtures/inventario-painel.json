@@ -450,12 +450,6 @@
    ]
   },
   {
-   "name": "manheim-sort",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
    "name": "manheim-status",
    "usedBy": [
     "painel/painel.js",
@@ -869,12 +863,6 @@
    ]
   },
   {
-   "name": "discard-reasons",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
    "name": "disposition-controls",
    "usedBy": [
     "painel/painel.js"
@@ -913,12 +901,6 @@
   },
   {
    "name": "freshness",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
-   "name": "heat-badge",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -1401,7 +1383,6 @@
    "manheim-panel",
    "manheim-results",
    "manheim-saved-searches",
-   "manheim-sort",
    "manheim-status",
    "manheim-summary",
    "mcs-sender",
@@ -1521,7 +1502,6 @@
    "detail-simulations",
    "detail-toolbar",
    "disabled",
-   "discard-reasons",
    "disposition-controls",
    "disposition-state",
    "dragging",
@@ -1545,7 +1525,6 @@
    "freshness",
    "global-search",
    "heat-",
-   "heat-badge",
    "hidden",
    "history-import",
    "identity",
@@ -1756,6 +1735,16 @@
     "entry-heading",
     "entry-needs",
     "queue-card"
+   ]
+  },
+  "2026-10-ordenar-excluir-prazo": {
+   "motivo": "Removidos de propósito: #manheim-sort saiu com \"um Ordenar só no Enviar opções\" (bb8608a, #166); .discard-reasons saiu com \"Excluir no lugar de Descartar\" (e30a883); .heat-badge saiu com \"Calor da IA trocado por prazo de compra da calculadora\" (cbfb6eb, #176)",
+   "ids": [
+    "manheim-sort"
+   ],
+   "classes": [
+    "discard-reasons",
+    "heat-badge"
    ]
   }
  }

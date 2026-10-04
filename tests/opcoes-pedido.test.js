@@ -45,7 +45,14 @@ test('candidato não validado nunca é apresentado como opção válida', () => 
   assert.match(client, /first\.state === 'COM_CANDIDATOS' \? `Ver \$\{item\.optionCount === 1 \? 'o candidato'/);
   assert.match(client, /Falta: o lance oficial do cliente/);
   assert.match(client, /não é opção confirmada/);
-  assert.match(read('painel/grupos.js'), /candidato \(valor a conferir\) ainda não é opção/);
+  // ac38433 (#173, "sem jargão") encurtou a dica do grupo COM_CARROS; o aviso de que candidato não é
+  // opção ficou no próprio cartão (acima). A dica do grupo que contém COM_CANDIDATOS nunca chama os
+  // carros de opção.
+  const group = read('painel/grupos.js').match(/\{ key: 'COM_CARROS',[^}]*\}/);
+  assert.ok(group, 'grupo COM_CARROS');
+  assert.match(group[0], /states: \['COM_OPCOES', 'COM_CANDIDATOS'\]/);
+  assert.doesNotMatch(group[0].match(/hint: '([^']*)'/)[1], /opç/i);
+  assert.match(client, /Sem isso estes carros não viram opção válida nem vão para o envio/);
   // and the shipping side only reads what was explicitly selected
   assert.match(read('api/panel/vitrines.js'), /selectedFor|SELECTED/);
 });

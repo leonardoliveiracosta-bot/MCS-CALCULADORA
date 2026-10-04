@@ -10,8 +10,10 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 test('tema MCS é carregado depois do CSS legado', () => {
   const html = read('painel/index.html');
-  const legacy = html.indexOf('href="/painel/painel.css"');
-  const theme = html.indexOf('href="/painel/tema-mcs.css"');
+  // d37dbb6: os CSS ganharam versão para o cache (?v=...); a ordem continua a mesma.
+  const at = (file) => { const hit = new RegExp(`href="/painel/${file}(?:\\?v=[\\w-]+)?"`).exec(html); return hit ? hit.index : -1; };
+  const legacy = at('painel\\.css');
+  const theme = at('tema-mcs\\.css');
   assert.ok(legacy >= 0);
   assert.ok(theme > legacy);
 });

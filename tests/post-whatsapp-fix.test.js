@@ -35,13 +35,19 @@ test('GET WhatsApp ignores null suggestion contacts and remains available',async
 test('HOJE keeps contact metadata once for journeys and once for calculator orders, without technical click badges',()=>{
   const panel=read('painel/painel.js');
   const identity=panel.slice(panel.indexOf('function identityHeader'),panel.indexOf('function smsPrintMissing'));
-  const today=panel.slice(panel.indexOf('function renderToday'),panel.indexOf('function orderCard'));
+  // orderCard saiu em 7c9c86f: o trecho de HOJE/ATENDIMENTO vai até a função seguinte.
+  const todayStart=panel.indexOf('function renderToday'),todayEnd=panel.indexOf('function renderQualification');
+  assert.ok(todayStart>0&&todayEnd>todayStart,'renderToday delimitado');
+  const today=panel.slice(todayStart,todayEnd);
+  const face=panel.slice(panel.indexOf('function caseFace'),panel.indexOf('function',panel.indexOf('function caseFace')+10));
   assert.equal((identity.match(/contactMeta\(item[,)]/g)||[]).length,1);
-  // ATENDIMENTO cards are lean: phone once, Ref, the request and which calculator (no channel badge on the front).
-  assert.match(today,/const head = element\('dl', 'case-identity case-fields'\)/);
-  assert.match(today,/field\('Calculadora', calculatorLabel\(item\), 'case-calculator'\)/);
-  assert.match(today,/if\(item\.kind==='CALCULATOR_ORDER'\)\{const contact=contactMeta\(item\);if\(contact\)badges\.append\(contact\);\}/);
-  assert.equal((today.match(/contactMeta\(item\)/g)||[]).length,1);
+  // ATENDIMENTO cards are lean (3102cd2: one face for every card): phone once, Ref, the request and which
+  // calculator. 3a0886c ("⋯ Mais só com a decisão") removed the badges, so no channel badge at all.
+  assert.match(face,/const face = element\('div', 'case-face case-identity'\)/);
+  assert.match(face,/if \(phone\) face\.append\(element\('p', 'case-face-phone case-phone', phone\)\)/);
+  assert.match(today,/rows\.push\(\['Calculadora', calculatorLabel\(item\), 'case-calculator'\]\)/);
+  assert.match(today,/card\.append\(caseFace\(\{ title, ref: ref \|\| \(refStateOf\(item\) === 'A_RECUPERAR' \? 'a recuperar' : 'sem Ref'\), phone: title === phoneText \? '' : phoneText, rows, requests: entry\.requests \}\)\)/);
+  assert.equal((today.match(/contactMeta\(/g)||[]).length,0);
   assert.doesNotMatch(panel,/\$\{item\.contactChannel\} CLICADO/);
 });
 

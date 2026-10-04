@@ -33,9 +33,12 @@ const choose = (body) => call('manheim-options', '/api/panel/manheim-options', '
 
 // 12 cars in Lane/Run with CR from 4.9 down to 1.9; one in Lane/Run WITH a Buy Now price (stays in
 // Lane/Run); one without Lane/Run and with Buy Now (outside Lane/Run); one without Lane/Run nor Buy Now.
+// Leilão sempre no futuro (relativo a agora): a V1 expira 48 h depois do último leilão, e uma data
+// fixa fazia a vitrine pública nascer expirada depois de 03/10/2026 (a regra de expiração não muda).
+const STARTS_AT = new Date(Date.now() + 7 * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const car = (n, extra = {}) => {
   const vin = 'SELV' + String(n).padStart(13, '0');
-  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: '2026-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (4.9 - n * 0.3).toFixed(1), cleanTitle: true, odometerOk: true, ...extra } };
+  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: STARTS_AT, lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (4.9 - n * 0.3).toFixed(1), cleanTitle: true, odometerOk: true, ...extra } };
 };
 const cars = [...Array.from({ length: 12 }, (_, n) => car(n)), car(20, { buyNowPrice: '26500' }), car(21, { lane: '', run: '', buyNowPrice: '26500' }), car(22, { lane: '', run: '' })];
 

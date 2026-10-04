@@ -11,7 +11,9 @@ const css=fs.readFileSync(path.join(root,'painel/tema-mcs.css'),'utf8');
 test('painel publica cinco áreas com uma função cada (ENTRADA fundida em ATENDIMENTO) e mantém os ids legados',()=>{
   const tabs=[...html.matchAll(/class="tab(?: active)?"[^>]+data-view="([^"]+)"/g)].map((match)=>match[1]);
   assert.deepEqual(tabs,['today','requests','searches','clients','imports']);
-  assert.match(html,/data-view="today"[^>]*>ATENDIMENTO/);
+  // 4bf9aec (#163): as abas ATENDIMENTO e CLIENTES viraram ATENDER AGORA e TODOS.
+  assert.match(html,/data-view="today"[^>]*>ATENDER AGORA/);
+  assert.match(html,/data-view="clients">TODOS/);
   assert.match(html,/data-view="requests">BUSCAR CARROS/);
   assert.match(html,/data-view="searches">ENVIAR OPÇÕES/);
   // Configurações e conexão: área secundária, fora das abas principais.
