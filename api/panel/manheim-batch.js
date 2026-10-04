@@ -7,7 +7,8 @@
 //  POST chunk              um bloco de até 500 carros; vale pelo conteúdo (hash no manifesto):
 //                          o mesmo bloco de novo não grava nada, conteúdo diferente é recusado
 //  POST status             blocos já confirmados, para retomar do ponto em que parou
-//  POST finalize           ativa o lote inteiro de uma vez (nunca pela metade)
+//  POST finalize           ativa o lote inteiro de uma vez (nunca pela metade); num acréscimo (start com
+//                          append: true), junta os carros novos ao lote ativo, também de uma vez
 //  POST cancel             cancela um lote ainda em montagem (nada é apagado)
 //  POST visibility        ocultar ou mostrar um lote desfeito na lista deste operador (só exibição)
 //  POST complement-*       os mesmos CSVs do lote ativo, lidos de novo, acrescentam só Lane, Run,
@@ -55,6 +56,10 @@ function startInput(body) {
 async function actionStart(ctx, body) {
   const input = startInput(body);
   if (!input) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
+  // Acrescentar ao lote ativo: precisa existir um lote ativo, e é sempre ele o alvo.
+  const append = body.append === true;
+  const target = append ? await latestActiveUpload(ctx, 'id') : null;
+  if (append && !target) return send(ctx.res, 409, { error: 'MANHEIM_APPEND_NO_ACTIVE' });
   // One snapshot of today's demands for every block of this batch (the same criterion for all).
   const targets = batch.snapshotTargets(await loadMatchTargets(ctx));
   const hash = batch.targetsHash(targets);
@@ -64,11 +69,12 @@ async function actionStart(ctx, body) {
   });
   // Same files, but the content or the demands changed: never continue silently.
   if (result && result.mismatch) return send(ctx.res, 409, { error: 'MANHEIM_BATCH_RESUME_MISMATCH', uploadId: result.uploadId, reason: result.reason, received: result.received });
-  return send(ctx.res, result && result.resumed ? 200 : 201, { ...result, targetCount: targets.length });
+  if (append) await rpc(ctx, 'panel_manheim_batch_append_mark', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: result.uploadId, p_target_id: target.id });
+  return send(ctx.res, result && result.resumed ? 200 : 201, { ...result, targetCount: targets.length, ...(append ? { appendTo: target.id } : {}) });
 }
 
 async function stagingUpload(ctx, uploadId) {
-  const [upload] = await rows(ctx, 'manheim_uploads', { select: 'id,activated_at,canceled_at,undone_at,files_json,targets_json', environment: 'eq.' + ctx.environment, id: 'eq.' + uploadId, created_by: 'eq.' + ctx.panel.id, limit: '1' });
+  const [upload] = await rows(ctx, 'manheim_uploads', { select: 'id,activated_at,canceled_at,undone_at,files_json,targets_json,append_to', environment: 'eq.' + ctx.environment, id: 'eq.' + uploadId, created_by: 'eq.' + ctx.panel.id, limit: '1' });
   return upload || null;
 }
 
@@ -126,7 +132,9 @@ async function actionFinalize(ctx, body) {
   if (!isUuid(body.uploadId)) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
   const upload = await stagingUpload(ctx, body.uploadId);
   if (!upload) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
-  const result = await rpc(ctx, 'panel_manheim_batch_finalize', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: upload.id });
+  // Acréscimo: junta ao lote ativo em vez de virar um lote novo.
+  const finalizer = upload.append_to ? 'panel_manheim_batch_append_finalize' : 'panel_manheim_batch_finalize';
+  const result = await rpc(ctx, finalizer, { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: upload.id });
   targetCache.delete(upload.id);
   const chunks = await rows(ctx, 'manheim_upload_chunks', { select: 'discarded_count', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + upload.id, limit: '2000' });
   return send(ctx.res, 200, { ...result, discarded: chunks.reduce((sum, chunk) => sum + chunk.discarded_count, 0) });
@@ -245,7 +253,7 @@ const insertIgnore = (ctx, table, payload) => supabase(ctx.config.url, ctx.confi
   method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(payload) });
 const patchOrDelete = (ctx, table, filters) => supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/' + table + '?' + new URLSearchParams(filters).toString(), { method: 'DELETE', headers: { prefer: 'return=minimal' } });
 
-const CONFLICT_CODES = new Set(['MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_CANCELED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_COMPLEMENT_NOT_ACTIVE', 'MANHEIM_COMPLEMENT_MISMATCH', 'MANHEIM_BATCH_NOT_UNDONE', 'MANHEIM_COMPLEMENT_INCOMPLETE', 'MANHEIM_COMPLEMENT_CANCELED']);
+const CONFLICT_CODES = new Set(['MANHEIM_APPEND_NO_ACTIVE', 'MANHEIM_APPEND_TARGET_CHANGED', 'MANHEIM_BATCH_INCOMPLETE', 'MANHEIM_BATCH_CANCELED', 'MANHEIM_BATCH_ALREADY_ACTIVE', 'MANHEIM_CHUNK_CONFLICT', 'MANHEIM_CHUNK_HASH_MISMATCH', 'MANHEIM_BATCH_INTEGRITY_ERROR', 'MANHEIM_COMPLEMENT_NOT_ACTIVE', 'MANHEIM_COMPLEMENT_MISMATCH', 'MANHEIM_BATCH_NOT_UNDONE', 'MANHEIM_COMPLEMENT_INCOMPLETE', 'MANHEIM_COMPLEMENT_CANCELED']);
 const ACTIONS = { start: actionStart, chunk: actionChunk, status: actionStatus, finalize: actionFinalize, cancel: actionCancel,
   'complement-check': actionComplementCheck, 'complement-start': actionComplementStart, 'complement-stage': actionComplementStage, 'complement-apply': actionComplementApply, 'complement-result': actionComplementResult, 'complement-cancel': actionComplementCancel, visibility: actionVisibility };
 

@@ -229,7 +229,7 @@
     const { manifest } = options;
     if (!manifest || !Array.isArray(manifest.files) || !manifest.manifestHash) throw codedError('MANHEIM_UPLOAD_INVALID');
     const started = await withRetry(() => post({ action: 'start', clientKey: options.clientKey, vehicleCount: options.vehicleCount, headers: options.headers, headerMap: options.headerMap,
-      files: manifest.files, manifestHash: manifest.manifestHash }), options);
+      files: manifest.files, manifestHash: manifest.manifestHash, ...(options.append ? { append: true } : {}) }), options);
     const uploadId = started.uploadId;
     const received = new Set((started.received || []).map(([file, chunk]) => file + ':' + chunk));
     const totals = { storedVehicles: 0, storedMatches: 0, discarded: 0, withoutMmr: 0, resumedChunks: received.size };
