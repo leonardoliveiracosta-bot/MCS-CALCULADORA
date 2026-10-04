@@ -1,2 +1,7 @@
 card-preview.html
 card-review.html
+docs/
+tests/
+test-results/
+supabase/
+playwright.config.js
