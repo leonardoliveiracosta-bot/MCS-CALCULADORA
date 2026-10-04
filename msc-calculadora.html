@@ -958,7 +958,7 @@
 
 </main>
 
-<script src="/calc-core.js?v=financiamento-7001-20261001"></script>
+<script src="/calc-core.js?v=deposito-faixas-20261004"></script>
 <script>
 "use strict";
 /* Informa ao site a altura real da calculadora para evitar rolagem dupla. */
@@ -1558,13 +1558,13 @@ function render(){
 
   h += '<div class="box calm"><strong>' + T("teto_t") + '</strong>' + T("teto_p") + '</div>';
 
-  const depFixo = (r.lance * (P.depPct / 100)) <= P.depMin;
+  const depFixo = (r.lance * (r.depPct / 100)) <= P.depMin;
   h += '<details open class="box calm dep"><summary><strong>' + T("dep_t", { v: usd(r.deposito) }) + '</strong>' +
        '<span class="how">' + T("dep_how") + '</span></summary>' +
        '<p>' + T("dep_p") +
        (depFixo
-         ? T("dep_fixo", { a: usd(P.depMin / (P.depPct / 100)), b: usd(P.depMin) })
-         : T("dep_pct",  { p: P.depPct })) +
+         ? T("dep_fixo", { a: usd(P.depMin / (MCSCalcCore.depositoPctDe(0) / 100)), b: usd(P.depMin) })
+         : T("dep_pct",  { p: r.depPct })) +
        '</p></details>';
 
   h += '<div class="box calm"><strong>' + T("ret_t", { d: P.dias }) + '</strong>' +

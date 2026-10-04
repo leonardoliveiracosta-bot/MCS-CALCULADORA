@@ -24,7 +24,9 @@ function roundedMmr(cents){ const amount=Number(cents)||0; return amount?Math.ro
 function randomToken(){ return crypto.randomBytes(32).toString('base64url'); }
 function randomCode(){ return 'MCS-'+[0,1,2,3].map(()=>CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)]).join(''); }
 function extractCode(text){ const hit=String(text||'').match(CODE_RE); return hit?'MCS-'+hit[1].toUpperCase():null; }
-function deposit(cents){ const amount=Math.max(0,Number(cents)||0)/100; return amount<=5000?500:Math.round(amount*.1); }
+// Mesma regra da calculadora (calc-core.js): % por faixa do lance (10% até $50.000, 15% até $99.999, 20% a partir de $100.000), mínimo de $500.
+const {depositoDe}=require('./calc-core');
+function deposit(cents){ const amount=Math.max(0,Number(cents)||0)/100; return Math.round(depositoDe(amount)); }
 // Auction date of one car in ms, or NaN when the car has no date (a missing date never means "year 2000").
 function auctionTime(car){
   const vehicle=car?.vehicle_snapshot||car?.vehicle||car||{};
