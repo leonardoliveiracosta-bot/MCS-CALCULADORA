@@ -163,7 +163,7 @@
       }
     }else append(reality,'p','muted','Nenhuma opção no lote dentro dos filtros');
     const numbers=section(trio,6,'NÚMEROS PRONTOS');
-    if(data.costs){const c=data.costs;row(numbers,'Depósito',fmt(c.deposito));row(numbers,'Taxa de serviço',fmt(c.servico));row(numbers,'Taxa do leilão + fixas',fmt(c.gLeilao));row(numbers,'Tax, title & registration',fmt(c.gTaxReg));row(numbers,'Total estimado',fmt(c.totalProjetado));}
+    if(data.costs){const c=data.costs;row(numbers,'Depósito',data.paymentKnown==='fin'?'Avaliado caso a caso (financiado)':fmt(c.deposito));row(numbers,'Taxa de serviço',fmt(c.servico));row(numbers,'Taxa do leilão + fixas',fmt(c.gLeilao));row(numbers,'Tax, title & registration',fmt(c.gTaxReg));row(numbers,'Total estimado',fmt(c.totalProjetado));}
     else append(numbers,'p','muted',data.totalCeilingCents?'O teto não cobre o lance mínimo e os custos':'Lance máximo ainda não informado');
 
     const second=append(root,'div','lead-grid lead-three');

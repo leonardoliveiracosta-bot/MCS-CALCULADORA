@@ -1173,3 +1173,8 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 /* Ordenar os carros de um grupo (ano, MMR) */
 .offer-sort { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; font-size: 13px; color: #5A5F66; }
 .offer-sort select { min-height: 36px; border: 1px solid #D9CFB9; border-radius: 10px; padding: 4px 10px; background: #FFFFFF; color: #1B1A18; font: inherit; font-weight: 600; }
+/* Títulos dos grupos de carros (Passa em Lane/Run, Buy Now…, Informação incompleta): no computador, maiores e
+   mais escuros para ler de longe. O celular não muda. */
+@media (min-width: 900px) {
+  #searches-panel .offer-group > summary { font-size: 15px; letter-spacing: .08em; color: #6E5414; }
+}
