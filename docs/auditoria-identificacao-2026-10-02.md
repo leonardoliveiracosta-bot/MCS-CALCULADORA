@@ -15,10 +15,10 @@ nunca por SQL avulso em dados de cliente.
 Os 22 READY:
 
 * **2 sem telefone, com Ref de ficha já identificada** (os casos do comando)
-  * `IMG_9241.jpeg` · Ref `CG8LN` · Herman Harman · mensagem cortada, sem a linha "Ref" e com o nome lido como "Herman".
-    Já confirmados: `IMG_9240.jpeg` e `IMG_9243.png` (mesma Ref, telefone `+17183747832`, ficha `dbcf30a7…`, contato "Harman Harman").
-  * `IMG_9236.jpeg` · Ref `RNEVL` · Tremel Jones · texto idêntico (mesmo hash) ao de `IMG_9244.png`, confirmado depois
-    (telefone `+12252811369`, ficha `dcb30ec9…`). Quando o 9236 foi lido, o 9244 ainda não existia.
+  * `IMG_9241.jpeg` · Ref `CG8LN` · cliente A · mensagem cortada, sem a linha "Ref" e com o nome lido só com o primeiro nome.
+    Já confirmados: `IMG_9240.jpeg` e `IMG_9243.png` (mesma Ref, telefone `+1718•••••••`, ficha `dbcf30a7…`, contato do cliente A).
+  * `IMG_9236.jpeg` · Ref `RNEVL` · cliente B · texto idêntico (mesmo hash) ao de `IMG_9244.png`, confirmado depois
+    (telefone `+1225•••••••`, ficha `dcb30ec9…`). Quando o 9236 foi lido, o 9244 ainda não existia.
   * Causa: o servidor exige telefone para guardar a mensagem e a função `panel_sms_print_confirm` também; a comparação de
     mensagem repetida era por texto normalizado idêntico (o nome lido diferente e a linha "Ref" cortada quebravam a igualdade).
 * **4 lidos, com Ref e telefone, ainda não guardados**: `AGGRE`, `L3PD9`, `NTHQS`, `RDM3H`.
@@ -28,7 +28,7 @@ Os 22 READY:
 ## Identidade por Ref
 
 * 292 pares ficha × Ref escrita pelo cliente na mensagem da calculadora: **292 já ligados à ficha, 0 a ligar, 0 conflitos**.
-* Caso Ivan: ficha `4bc06bb9…` com `WSR3X` escrita na mensagem, em `journey_refs` e como código da ficha; `FMLNA` não é da ficha.
+* Caso do cliente C: ficha `4bc06bb9…` com `WSR3X` escrita na mensagem, em `journey_refs` e como código da ficha; `FMLNA` não é da ficha.
 * 361 fichas com mensagem do modelo da calculadora do cliente: 287 com "Ref:" no texto, **74 sem Ref no texto**.
   * dos 74: 74 têm um código interno na ficha, **1** desses códigos existe em `calc_runs`, **0** têm qualquer código de 5 letras
     de simulação conhecida escrito em alguma mensagem da conversa.
@@ -42,7 +42,7 @@ Os 22 READY:
 * A ficha mostra Dodge Charger e US$ 5.000 (critério efetivo); a lista de Clientes e os cartões de ficha sem pedido liam
   `vehicle_text`/`budget_cents` crus e ficavam em branco.
 
-## Buscar carros (Alana, `9BN8J`)
+## Buscar carros (cliente D, `9BN8J`)
 
 * Ficha `77c63c19…`, tipo CARRO. Lote ativo `84b9bf0e…`: **92** carros na demanda oficial `journey:77c63c19…:CARRO`.
 * O **100** vem de pedidos lidos da conversa (`vehicle_request_checks.request_key` = `conversa:…`, 100 opções), que têm outro
