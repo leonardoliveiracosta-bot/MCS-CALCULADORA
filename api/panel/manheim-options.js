@@ -4,6 +4,8 @@
 //  GET  ?key=journey:<id>:CARRO&cursor=<...>&limit=10   até 50 carros por página, cursor estável
 //  GET  ?key=...&group=LANE|OFFLANE|INCOMPLETE&cursor=<n>&sort=cr|year_desc|year_asc|mmr_desc|mmr_asc
 //       um grupo da demanda, 10 por vez, na ordem por CR (padrão), por ano ou por MMR
+//       &trims=<chave>,<chave>  só os trims marcados (só visualização; vazio = tudo). A primeira
+//       página traz os trims do grupo com a contagem (trims: [{ key, label, count, selected }])
 //  POST { action: 'sync' }                             compara de novo os pedidos defasados (critério
 //                                                     novo ou alterado depois do lote)
 //  POST { action: 'rematch', key }                     critério mudou: o servidor compara de novo só
@@ -104,6 +106,17 @@ function sortedGroup(list, sort) {
     .map((entry) => entry.row);
 }
 
+// Trim filter of a group (view only): the normalized keys of the trims checked by the operator, as
+// panel_manheim_trim_key gives them ('' = no trim). At most 40, each up to 80 characters.
+const trimKey = (value) => String(value || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+function trimsOf(query) {
+  if (!query || typeof query.trims !== 'string' || !query.trims.length) return [];
+  let list;
+  try { list = JSON.parse(query.trims); } catch (_) { return null; }
+  if (!Array.isArray(list) || list.length > 40 || list.some((item) => typeof item !== 'string' || item.length > 80)) return null;
+  return [...new Set(list.map(trimKey))];
+}
+
 // One group of one demand, ordered by CR (up to 5 at or above the recommended minimum, then up to 5
 // below it, then the rest). The page carries the price and the selection state of each car.
 async function groupPage(ctx, req, key, group, limit) {
@@ -112,10 +125,17 @@ async function groupPage(ctx, req, key, group, limit) {
   const latest = await latestActiveUpload(ctx, 'id,uploaded_at');
   if (!latest) return send(ctx.res, 200, { key, group, uploadId: null, options: [], nextCursor: null, total: 0 });
   const sort = SORTS[req.query && req.query.sort] ? String(req.query.sort) : 'cr';
-  let stored;
+  const trims = trimsOf(req.query);
+  if (trims === null) return send(ctx.res, 400, { error: 'MANHEIM_TRIMS_INVALID' });
+  let stored, facets = null;
   try {
-    if (sort === 'cr') [stored] = await Promise.all([rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_offset: offset, p_limit: limit + 1 })]);
-    else stored = await rpc(ctx, 'panel_manheim_offer_page_sorted', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_sort: sort, p_offset: offset, p_limit: limit + 1 });
+    // The first page also lists the trims of the whole group (with the counts), filtered or not. Both
+    // reads run together; the trim list is only a view aid, so its failure never blocks the cars.
+    const facetsRead = offset === 0 ? rpc(ctx, 'panel_manheim_offer_trims', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group }).catch((error) => { console.error('[manheim-trims]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : Promise.resolve(null);
+    const pageRead = trims.length ? rpc(ctx, 'panel_manheim_offer_page_trim', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_sort: sort, p_trims: trims, p_offset: offset, p_limit: limit + 1 })
+      : sort === 'cr' ? rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_offset: offset, p_limit: limit + 1 })
+      : rpc(ctx, 'panel_manheim_offer_page_sorted', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_sort: sort, p_offset: offset, p_limit: limit + 1 });
+    [facets, stored] = await Promise.all([facetsRead, pageRead]);
   } catch (error) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
     throw error;
@@ -136,7 +156,8 @@ async function groupPage(ctx, req, key, group, limit) {
   const total = page.length ? Number(page[0].total_in_group) || 0 : 0;
   // Next page from the group total (the database caps a page at 50, so "one extra row" never shows on a page of 50).
   const more = (stored || []).length > limit || (total > 0 && offset + page.length < total && page.length === limit);
-  return send(ctx.res, 200, { key, group, uploadId: latest.id, uploadedAt: latest.uploaded_at || null, options: optionsOut, total, nextCursor: more ? String(offset + limit) : null });
+  const trimList = Array.isArray(facets) ? facets.map((row) => ({ key: row.trim_key || '', label: row.trim_key ? row.label || row.trim_key : 'Sem trim', count: Number(row.car_count) || 0, selected: Number(row.selected_count) || 0 })) : null;
+  return send(ctx.res, 200, { key, group, uploadId: latest.id, uploadedAt: latest.uploaded_at || null, options: optionsOut, total, trims: trimList, filter: trims, nextCursor: more ? String(offset + limit) : null });
 }
 
 // Selection for the customer. The database enforces the rules (active batch, valid MMR, 10 per
@@ -232,3 +253,4 @@ module.exports = async (req, res) => {
 module.exports.encodeCursor = encodeCursor;
 module.exports.decodeCursor = decodeCursor;
 module.exports.sortedGroup = sortedGroup;
+module.exports.trimKey = trimKey;

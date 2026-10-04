@@ -1177,6 +1177,28 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 /* Ordenar os carros de um grupo (ano, MMR) */
 .offer-sort { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; font-size: 13px; color: #5A5F66; }
 .offer-sort select { min-height: 36px; border: 1px solid #D9CFB9; border-radius: 10px; padding: 4px 10px; background: #FFFFFF; color: #1B1A18; font: inherit; font-weight: 600; }
+/* Filtro por trim (só visualização), na mesma linha do "Ordenar" no computador; no celular cabe na largura. */
+.offer-tools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; margin: 6px 0 10px; min-width: 0; }
+.offer-tools .offer-sort { margin: 0; }
+.offer-trim { position: relative; min-width: 0; max-width: 100%; font-size: 13px; color: #1B1A18; }
+.offer-trim > summary { list-style: none; display: inline-flex; align-items: center; min-height: 36px; padding: 4px 12px; border: 1px solid #D9CFB9; border-radius: 10px; background: #FFFFFF; font-weight: 600; cursor: pointer; }
+.offer-trim > summary::-webkit-details-marker { display: none; }
+.offer-trim > summary::after { content: "▾"; margin-left: 8px; color: #8A6D1E; }
+.offer-trim[open] > summary { border-color: #C9A227; }
+.offer-trim-list { display: grid; gap: 2px; margin-top: 6px; padding: 6px; max-height: 260px; overflow-y: auto; border: 1px solid #E7E1D7; border-radius: 10px; background: #FFFFFF; min-width: 220px; max-width: min(360px, calc(100vw - 64px)); }
+.offer-trim-option { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 2px 6px; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+.offer-trim-option:hover { background: #FAF6EC; }
+.offer-trim-option input { flex: none; width: 18px; height: 18px; accent-color: #C9A227; }
+.offer-trim-asked { margin: 4px 0 0; font-size: 13px; color: #5A5F66; overflow-wrap: anywhere; }
+.offer-trim-outside { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #8A6D1E; }
+.offer-trim-outside.hidden { display: none; }
+@media (max-width: 640px) {
+  .offer-tools { flex-direction: column; align-items: stretch; }
+  .offer-tools .offer-sort { flex-wrap: wrap; }
+  .offer-tools .offer-sort select { flex: 1 1 160px; min-width: 0; max-width: 100%; }
+  .offer-trim > summary { width: 100%; box-sizing: border-box; }
+  .offer-trim-list { min-width: 0; max-width: 100%; }
+}
 /* Títulos dos grupos de carros (Passa em Lane/Run, Buy Now…, Informação incompleta): no computador, maiores e
    mais escuros para ler de longe. O celular não muda. */
 @media (min-width: 900px) {

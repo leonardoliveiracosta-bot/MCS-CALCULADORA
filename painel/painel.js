@@ -3203,11 +3203,17 @@
     row.append(price, actions);
     return row;
   }
+  // Trim filter of BUSCAS (view only), kept per request (demand key) in this browser.
+  const TRIM_STORE = 'mcs-buscas-trims';
+  const trimFilters = (key) => { try { const all = JSON.parse(localStorage.getItem(TRIM_STORE) || '{}'); return all && typeof all === 'object' && all[key] && typeof all[key] === 'object' ? all[key] : {}; } catch (_) { return {}; } };
+  const saveTrimFilter = (key, group, list) => { try { const all = JSON.parse(localStorage.getItem(TRIM_STORE) || '{}') || {}; const own = { ...(all[key] || {}) }; if (list.length) own[group] = list; else delete own[group]; if (Object.keys(own).length) all[key] = own; else delete all[key]; localStorage.setItem(TRIM_STORE, JSON.stringify(all)); } catch (_) { /* no storage: the filter lives until the page reloads */ } };
   // One group of a demand: opened by the operator, 10 cars at a time, in the server's CR order.
   function offerGroup(demand, groupKey, count, state) {
     const details = element('details', 'offer-group');
     details.dataset.group = groupKey;
-    details.append(element('summary', '', `${OFFER ? OFFER.GROUP_LABELS[groupKey] : groupKey} (${count})`));
+    const groupLabel = OFFER ? OFFER.GROUP_LABELS[groupKey] : groupKey;
+    const summary = element('summary', '', `${groupLabel} (${count})`);
+    details.append(summary);
     const list = element('div', 'manheim-table');
     const more = element('button', 'quiet small manheim-options-toggle', count ? `Ver opções (${count})` : 'Nenhum carro neste grupo');
     more.type = 'button'; more.disabled = !count;
@@ -3220,14 +3226,62 @@
       .forEach(([value, label]) => { const option = element('option', '', label); option.value = value; sortSelect.append(option); });
     sortSelect.setAttribute('aria-label', 'Ordenar carros deste grupo');
     sortBar.append(sortSelect); sortBar.hidden = count < 2;
+    // Trim (multiple choice): only the trims of this group, with counts; nothing is checked by itself.
+    const saved = trimFilters(demand.key)[groupKey];
+    let trims = Array.isArray(saved) ? saved.filter((item) => typeof item === 'string').slice(0, 40) : [];
+    let facets = null, filteredTotal = count;
+    const tools = element('div', 'offer-tools');
+    const asked = [...new Set((demand.wishes || []).map((wish) => String(wish && wish.trim || '').trim()).filter(Boolean))];
+    const askedLine = asked.length ? element('p', 'offer-trim-asked', 'Cliente pediu: ' + asked.join(' · ')) : null;
+    const trimBox = element('details', 'offer-trim');
+    const trimSummary = element('summary', '', 'Trim');
+    const trimList = element('div', 'offer-trim-list');
+    trimBox.append(trimSummary, trimList); trimBox.hidden = true;
+    const outside = element('p', 'offer-trim-outside hidden');
+    tools.append(sortBar, trimBox);
+    const paintTrims = () => {
+      trimSummary.textContent = trims.length ? `Trim (${trims.length})` : 'Trim: todos';
+      summary.textContent = trims.length ? `${groupLabel} (${filteredTotal} de ${count})` : `${groupLabel} (${count})`;
+      const out = trims.length && facets ? facets.filter((item) => !trims.includes(item.key)).reduce((sum, item) => sum + item.selected, 0) : 0;
+      outside.replaceChildren(); outside.classList.toggle('hidden', !out);
+      if (out) {
+        outside.append(element('span', '', `${out} ${out === 1 ? 'selecionado fora do filtro' : 'selecionados fora do filtro'}`));
+        const clear = element('button', 'quiet small', 'Limpar filtro'); clear.type = 'button';
+        clear.addEventListener('click', (event) => { event.stopPropagation(); setTrims([]); });
+        outside.append(clear);
+      }
+      trimList.querySelectorAll('input').forEach((box) => { box.checked = trims.includes(box.value); });
+    };
+    const renderFacets = (list) => {
+      facets = list;
+      trimList.replaceChildren();
+      list.forEach((item) => {
+        const line = element('label', 'offer-trim-option');
+        const box = element('input'); box.type = 'checkbox'; box.value = item.key; box.checked = trims.includes(item.key);
+        box.addEventListener('change', () => setTrims(box.checked ? [...trims, item.key] : trims.filter((value) => value !== item.key)));
+        line.append(box, element('span', '', `${item.label} (${item.count})`));
+        trimList.append(line);
+      });
+      trimBox.hidden = list.length < 2 && !trims.length;
+      paintTrims();
+    };
     const loadPage = async () => {
-      if (busy) return; busy = true; more.disabled = true; more.textContent = 'Carregando…';
+      if (busy) return; busy = true; let reload = false; more.disabled = true; more.textContent = 'Carregando…';
       try {
         const params = new URLSearchParams({ key: demand.key, group: groupKey, limit: String(MANHEIM_PAGE_ROWS) });
         if (cursor) params.set('cursor', cursor);
         if (sort !== 'cr') params.set('sort', sort);
+        if (trims.length) params.set('trims', JSON.stringify(trims));
         const page = await request('/api/panel/manheim-options?' + params.toString());
         if (page.uploadedAt) state.uploadedAt = page.uploadedAt;
+        if (!cursor) filteredTotal = trims.length ? Number(page.total) || 0 : count;
+        if (Array.isArray(page.trims)) {
+          // A saved trim that is no longer in the group (the car left the batch) is dropped quietly.
+          const known = new Set(page.trims.map((item) => item.key)), kept = trims.filter((item) => known.has(item));
+          if (kept.length !== trims.length) { trims = kept; saveTrimFilter(demand.key, groupKey, trims); reload = !trims.length; }
+          renderFacets(page.trims);
+        } else paintTrims();
+        if (reload) return;
         (page.options || []).forEach((option) => {
           loadedCount += 1; loadedIds.add(option.id); state.loaded.push(option);
           // Only valid cars are offered; the invalidated ones wait in a closed box with the reason, never mixed in.
@@ -3239,26 +3293,40 @@
         cursor = page.nextCursor || null;
         // The divergences of the check name their car once the car is on screen.
         if (state.card) state.card.dispatchEvent(new CustomEvent('options-loaded'));
-        if (cursor) { more.textContent = `Ver mais (${Math.max(count - loadedCount, 1)})`; more.disabled = false; } else more.remove();
+        if (cursor) { more.textContent = `Ver mais (${Math.max(filteredTotal - loadedCount, 1)})`; more.disabled = false; } else more.remove();
       } catch (failure) {
         console.error(failure); more.disabled = false;
         more.textContent = failure && failure.code === 'MANHEIM_SELECTION_PENDING' ? OFFER_ERRORS.MANHEIM_SELECTION_PENDING : 'Não consegui carregar, tentar de novo';
       } finally { busy = false; }
+      // Every saved trim left the group: the whole group again, without a filter.
+      if (reload) restart();
     };
     more.addEventListener('click', (event) => { event.stopPropagation(); loadPage(); });
     details.addEventListener('toggle', () => { if (details.open && !loadedCount && count && !busy && cursor === null) loadPage(); });
-    // A new order starts the list again from the first car (what was typed and saved stays on the server).
-    sortSelect.addEventListener('change', () => {
-      if (busy) { sortSelect.value = sort; return; }
-      sort = sortSelect.value;
+    // A new order or trim filter starts the list again from the first car (what was typed and saved
+    // stays on the server; the selection for the customer never changes here).
+    function restart() {
       list.querySelectorAll('.offer-row').forEach((row) => row.remove());
       if (invalidBox) { invalidBox.remove(); invalidBox = null; }
       state.loaded = state.loaded.filter((option) => !loadedIds.has(option.id));
       loadedIds.clear(); cursor = null; loadedCount = 0;
       if (!more.isConnected) list.append(more);
-      loadPage();
+      return loadPage();
+    }
+    function setTrims(next) {
+      if (busy) { paintTrims(); return; }
+      trims = [...new Set(next)];
+      saveTrimFilter(demand.key, groupKey, trims);
+      paintTrims();
+      restart();
+    }
+    sortSelect.addEventListener('change', () => {
+      if (busy) { sortSelect.value = sort; return; }
+      sort = sortSelect.value;
+      restart();
     });
-    list.append(more); details.append(sortBar, list);
+    if (trims.length) paintTrims();
+    list.append(more); details.append(...(askedLine ? [askedLine] : []), tools, outside, list);
     return details;
   }
   // Envio manual da V1 pelo WhatsApp (360dialog). Só depois de gerar a V1, sempre com confirmação:
@@ -3302,7 +3370,7 @@
     // action follows the window (panel send with confirmation, or WhatsApp on the phone), plus "Copiar".
     const node = element('div', 'v1-send');
     const button = element('button', 'small v1-send-go', 'Enviar no WhatsApp'); button.type = 'button'; button.disabled = true;
-    const fallback = element('a', 'small hidden v1-send-fallback suggestion-open', 'Abrir no WhatsApp do celular');
+    const fallback = element('a', 'small hidden v1-send-fallback suggestion-open', 'Abrir no WhatsApp');
     fallback.target = '_blank'; fallback.rel = 'noopener';
     const copy = element('button', 'quiet small v1-send-copy hidden', 'Copiar mensagem'); copy.type = 'button';
     const state = element('p', 'muted v1-send-state', 'Gere a V1 para enviar no WhatsApp');
@@ -3311,6 +3379,8 @@
     const actions = element('div', 'inline-actions v1-send-actions'); actions.append(button, fallback, copy);
     // On a computer: "No celular" (QR code / push) next to "No WhatsApp Web"; on the phone the link stays as it was.
     if (window.MCSWaHandoff) MCSWaHandoff.attach(fallback, { request });
+    // The link's name says where it opens: the app on the phone, WhatsApp Web on a computer (wa-link.js).
+    fallback.textContent = window.MCSWaLink && !MCSWaLink.isPhone(navigator) ? 'Abrir no WhatsApp Web' : 'Abrir no WhatsApp';
     const copied = element('p', 'muted v1-send-copied', '');
     // What this card already did with a V1, after a reload: when it was sent (or generated).
     const sentHistory = element('p', 'muted v1-send-history hidden');
