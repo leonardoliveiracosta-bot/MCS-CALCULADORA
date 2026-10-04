@@ -537,6 +537,10 @@
   .gate-eyebrow{margin:0 0 14px;font-size:11px;font-weight:600;letter-spacing:3px;color:#c9a34e;text-transform:uppercase}
   .gate-title{margin:0 0 14px;font-family:"Anton",sans-serif;font-weight:400;font-size:34px;line-height:1.08;color:#fff;text-transform:uppercase;letter-spacing:.01em}
   .gate-sub{margin:0 0 30px;font-size:15px;line-height:1.55;color:#b7bdc6}
+  /* Contador real dos últimos 30 dias (vem do servidor; sem número, não aparece) */
+  .gate-proof{margin:26px auto 0;max-width:420px;display:grid;gap:6px;text-align:center;font-size:14px;line-height:1.45;color:#b7bdc6}
+  .gate-proof p{margin:0}
+  .gate-proof strong{color:#c9a34e;font-weight:800;font-variant-numeric:tabular-nums}
   .gate-door{position:relative;display:block;width:100%;margin:0 0 16px;padding:22px 18px 20px;border-radius:10px;cursor:pointer;font:inherit;text-align:center;transition:transform .12s ease,border-color .15s ease}
   .gate-door:active{transform:translateY(2px)}
   .gate-door strong{display:block;text-transform:uppercase}
@@ -601,6 +605,10 @@
         <strong data-i18n="gate_find">FIND ONE FOR ME</strong>
         <span class="gate-door-sub" data-i18n="gate_find_sub">I know the car I want</span>
       </button>
+      <div class="gate-proof" id="gate-proof" hidden aria-live="polite">
+        <p id="proof-total"></p>
+        <p id="proof-ready"></p>
+      </div>
     </div>
   </section>
 
@@ -1165,6 +1173,9 @@ try {
 /* T("chave") ou T("chave", {e:"Nevada", p:7}) */
 /* Bloco 3: capa de duas portas. Titulos das portas reaproveitam as traducoes existentes em es/pt */
 Object.assign(I18N.en,{gate_eyebrow:"THE CALCULATOR",gate_title:"HOW WOULD YOU LIKE TO START?",gate_sub:"Start with your budget<br>and get your answer faster",gate_fastest:"FASTEST",gate_calc:"CALCULATE MY COST",gate_calc_sub:"I know my budget",gate_find:"FIND ONE FOR ME",gate_find_sub:"I know the car I want"});
+Object.assign(I18N.en,{proof_total:"<strong>{n}</strong> buyers explored the dealer auction market with us in the last 30 days",proof_ready:"<strong>{n}</strong> told us they're ready to buy now"});
+Object.assign(I18N.es,{proof_total:"<strong>{n}</strong> compradores exploraron con nosotros el mercado de subastas de dealers en los últimos 30 días",proof_ready:"<strong>{n}</strong> nos dijeron que están listos para comprar ya"});
+Object.assign(I18N.pt,{proof_total:"<strong>{n}</strong> compradores exploraram com a gente o mercado de leilões de dealers nos últimos 30 dias",proof_ready:"<strong>{n}</strong> nos disseram que estão prontos para comprar agora"});
 Object.assign(I18N.es,{gate_title:I18N.es.start_title,gate_calc:I18N.es.start_calc_title,gate_find:I18N.es.start_find_title});
 Object.assign(I18N.pt,{gate_title:I18N.pt.start_title,gate_calc:I18N.pt.start_calc_title,gate_find:I18N.pt.start_find_title});
 
@@ -1198,6 +1209,34 @@ function aplicarIdioma(){
   Array.prototype.forEach.call(bts, function(b){
     b.setAttribute("aria-pressed", b.getAttribute("data-lang") === LANG ? "true" : "false");
   });
+  pintarContador();
+}
+
+/* Contador público: os números reais dos últimos 30 dias (cada visitante uma vez), lidos do servidor.
+   Sem resposta, ou com menos do que o mínimo, o bloco simplesmente não aparece. */
+var CONTADOR = null;
+var CONTADOR_MINIMO = 100;
+function pintarContador(){
+  var box = document.getElementById("gate-proof");
+  if (!box) return;
+  if (!CONTADOR || CONTADOR.total < CONTADOR_MINIMO) { box.hidden = true; return; }
+  var fmt = function(n){ try { return Number(n).toLocaleString(LANG === "pt" ? "pt-BR" : LANG === "es" ? "es-US" : "en-US"); } catch (e) { return String(n); } };
+  document.getElementById("proof-total").innerHTML = T("proof_total", { n: fmt(CONTADOR.total) });
+  var ready = document.getElementById("proof-ready");
+  ready.innerHTML = CONTADOR.ready > 0 ? T("proof_ready", { n: fmt(CONTADOR.ready) }) : "";
+  ready.hidden = !(CONTADOR.ready > 0);
+  box.hidden = false;
+}
+function carregarContador(){
+  try {
+    fetch("/api/calc-stats", { headers: { accept: "application/json" } })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (!d || !isFinite(d.total) || !isFinite(d.ready)) return;
+        CONTADOR = { total: Math.floor(d.total), ready: Math.floor(d.ready) };
+        pintarContador();
+      }).catch(function(){});
+  } catch (e) {}
 }
 
 function trocarIdioma(novo){
@@ -2492,6 +2531,7 @@ window.addEventListener("pagehide", function(){
 });
 
 aplicarIdioma();
+carregarContador();
 marcaAtual = null;
 aplicarMarca();
 mostrarPrecoInspecao();
