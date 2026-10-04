@@ -282,12 +282,12 @@
   }
 
   /* ---------- o personagem ---------- */
-  /* Marrom marfim: madeira clara, cor de marfim puxada para o caramelo. O boneco inteiro é o martelo: a cabeça é a
+  /* Marrom vinho: madeira escura, marrom puxado para o vinho (marfim escuro). O boneco inteiro é o martelo: a cabeça é a
      cabeça do martelo. No ciclo ele bate três vezes no ar (não há mesa: só o estalo da batida) e pula de alegria,
      de olhos fechados de felicidade e boca aberta, como quem acabou de arrematar. */
   function character(size, headOnly) {
     var id = 'sold' + Math.random().toString(36).slice(2, 8);
-    var ink = '#4a3320';
+    var ink = '#f3e2c4', mouth = '#220d0a';
     var head =
       '<g class="sold-head">' +
         '<rect x="10" y="12" width="100" height="60" rx="24" fill="url(#' + id + 'w)"/>' +
@@ -295,8 +295,8 @@
         '<rect x="97" y="10" width="17" height="64" rx="8.5" fill="url(#' + id + 'c)"/>' +
         '<rect x="23" y="11" width="4.5" height="62" rx="2" fill="#c9a34e"/>' +
         '<rect x="92.5" y="11" width="4.5" height="62" rx="2" fill="#c9a34e"/>' +
-        '<path d="M32 26 Q60 21 88 26 M30 62 Q60 67 90 62 M34 34 Q46 32 52 34" stroke="rgba(122,88,50,.28)" stroke-width="1.4" fill="none" stroke-linecap="round"/>' +
-        '<rect x="32" y="16" width="56" height="7" rx="3.5" fill="rgba(255,255,255,.35)"/>' +
+        '<path d="M32 26 Q60 21 88 26 M30 62 Q60 67 90 62 M34 34 Q46 32 52 34" stroke="rgba(255,214,170,.16)" stroke-width="1.4" fill="none" stroke-linecap="round"/>' +
+        '<rect x="32" y="16" width="56" height="7" rx="3.5" fill="rgba(255,235,210,.16)"/>' +
         '<path class="sold-brows" d="M40 31 Q47 27 54 30 M66 30 Q73 27 80 31" stroke="' + ink + '" stroke-width="2.6" fill="none" stroke-linecap="round"/>' +
         '<g class="sold-eyes">' +
           '<ellipse cx="47" cy="41" rx="6" ry="7" fill="#fff"/><ellipse cx="73" cy="41" rx="6" ry="7" fill="#fff"/>' +
@@ -304,10 +304,10 @@
           '<circle cx="49.3" cy="40.4" r="1.2" fill="#fff"/><circle cx="75.3" cy="40.4" r="1.2" fill="#fff"/>' +
         '</g>' +
         '<path class="sold-joy" d="M41 43 Q47 35 53 43 M67 43 Q73 35 79 43" stroke="' + ink + '" stroke-width="3" fill="none" stroke-linecap="round" opacity="0"/>' +
-        '<ellipse cx="37" cy="53" rx="5.5" ry="3.2" fill="#e8835f" opacity=".5"/><ellipse cx="83" cy="53" rx="5.5" ry="3.2" fill="#e8835f" opacity=".5"/>' +
-        '<g class="sold-mouth"><path d="M49 52 Q60 63 71 52 Q60 57 49 52 Z" fill="' + ink + '"/>' +
+        '<ellipse cx="37" cy="53" rx="5.5" ry="3.2" fill="#e0705a" opacity=".38"/><ellipse cx="83" cy="53" rx="5.5" ry="3.2" fill="#e0705a" opacity=".38"/>' +
+        '<g class="sold-mouth"><path d="M49 52 Q60 63 71 52 Q60 57 49 52 Z" fill="' + mouth + '"/>' +
         '<path d="M53 56.5 Q60 60 67 56.5" stroke="#d9655a" stroke-width="2" fill="none" stroke-linecap="round"/></g>' +
-        '<g class="sold-grin" opacity="0"><path d="M46 50 Q60 71 74 50 Z" fill="' + ink + '"/><path d="M52 60 Q60 67 68 60 Q60 63 52 60 Z" fill="#d9655a"/></g>' +
+        '<g class="sold-grin" opacity="0"><path d="M46 50 Q60 71 74 50 Z" fill="' + mouth + '"/><path d="M52 60 Q60 67 68 60 Q60 63 52 60 Z" fill="#d9655a"/></g>' +
       '</g>';
     var body =
       '<ellipse class="sold-shadow" cx="60" cy="149" rx="26" ry="3.6" fill="rgba(0,0,0,.22)"/>' +
@@ -316,19 +316,19 @@
       '</g>' +
       '<g class="sold-rig">' +
       '<g class="sold-body">' +
-        '<rect x="50" y="74" width="9" height="64" rx="4.5" fill="#b89466"/><rect x="61" y="74" width="9" height="64" rx="4.5" fill="#b89466"/>' +
+        '<rect x="50" y="74" width="9" height="64" rx="4.5" fill="#4a1f19"/><rect x="61" y="74" width="9" height="64" rx="4.5" fill="#4a1f19"/>' +
         '<rect x="48" y="70" width="24" height="52" rx="12" fill="url(#' + id + 'h)"/>' +
-        '<ellipse cx="52" cy="142" rx="9.5" ry="5" fill="#6e5034"/><ellipse cx="68" cy="142" rx="9.5" ry="5" fill="#6e5034"/>' +
-        '<g class="sold-arm-wave"><path d="M50 84 Q38 78 31 64" stroke="#c4a173" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="30" cy="61" r="6" fill="#efdcb8"/></g>' +
-        '<g class="sold-arm-r"><path d="M70 86 Q80 94 85 104" stroke="#c4a173" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="86" cy="107" r="6" fill="#efdcb8"/></g>' +
+        '<ellipse cx="52" cy="142" rx="9.5" ry="5" fill="#1e0c09"/><ellipse cx="68" cy="142" rx="9.5" ry="5" fill="#1e0c09"/>' +
+        '<g class="sold-arm-wave"><path d="M50 84 Q38 78 31 64" stroke="#6e3428" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="30" cy="61" r="6" fill="#9a5a46"/></g>' +
+        '<g class="sold-arm-r"><path d="M70 86 Q80 94 85 104" stroke="#6e3428" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="86" cy="107" r="6" fill="#9a5a46"/></g>' +
         '<path d="M60 77 L47 70 L47 84 Z M60 77 L73 70 L73 84 Z" fill="#c9a34e" stroke="#7d612f" stroke-width="1.4" stroke-linejoin="round"/>' +
         '<circle cx="60" cy="77" r="3.6" fill="#a8873f" stroke="#7d612f" stroke-width="1.2"/>' +
       '</g>';
     var defs =
       '<defs>' +
-        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4e7cf"/><stop offset=".55" stop-color="#dcc29a"/><stop offset="1" stop-color="#b8956a"/></linearGradient>' +
-        '<linearGradient id="' + id + 'c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a6835a"/><stop offset="1" stop-color="#76573a"/></linearGradient>' +
-        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#c2a073"/><stop offset=".5" stop-color="#ead6b2"/><stop offset="1" stop-color="#bc9a6c"/></linearGradient>' +
+        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7e3a2e"/><stop offset=".55" stop-color="#5c2822"/><stop offset="1" stop-color="#3e1917"/></linearGradient>' +
+        '<linearGradient id="' + id + 'c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a1613"/><stop offset="1" stop-color="#200c0a"/></linearGradient>' +
+        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5a2620"/><stop offset=".5" stop-color="#8a4636"/><stop offset="1" stop-color="#55241e"/></linearGradient>' +
       '</defs>';
     var viewBox = headOnly ? '4 6 112 72' : '-6 4 126 150';
     return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false" overflow="visible">' + defs + (headOnly ? head : body + head + '</g>') + '</svg>';
