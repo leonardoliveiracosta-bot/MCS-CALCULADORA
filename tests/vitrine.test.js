@@ -117,3 +117,9 @@ test('V2 is refused when the V1 car came from an undone Manheim import batch',as
   assert.deepEqual(out,{error:'VITRINE_SOURCE_UNDONE'});
   assert.equal(db.vitrines.length,before,'nothing is created');
 });
+
+test('deposit by tier: 10% up to $50,000, 15% up to $99,999, 20% from $100,000, minimum $500',()=>{
+  assert.equal(deposit(5000000),5000);assert.equal(deposit(5000100),7500);assert.equal(deposit(5010000),7515);
+  assert.equal(deposit(9990000),14985);assert.equal(deposit(10000000),20000);assert.equal(deposit(15000000),30000);
+  assert.equal(deposit(300000),500);
+});

@@ -112,7 +112,13 @@ const CONFIG = {
   margemTotalPct: 0,
 
 
-  depositoPct: 10,
+  /* Depósito por faixa do lance máximo autorizado (mínimo de $500):
+     até $50.000: 10% · de $50.001 até $99.999: 15% · a partir de $100.000: 20% */
+  depositoFaixas: [
+    { ate: 50000, pct: 10 },
+    { ate: 99999.99, pct: 15 },
+    { ate: Infinity, pct: 20 }
+  ],
   depositoMinimo: 500,
 
 
@@ -170,12 +176,25 @@ function zipEstado(zip){
 
 function defaultParams(){
   return {
-    margemPct: CONFIG.margemTotalPct, depPct: CONFIG.depositoPct,
+    margemPct: CONFIG.margemTotalPct,
     depMin: CONFIG.depositoMinimo, impostoPct: CONFIG.impostoPct,
     inspecao: CONFIG.inspecao, documentacaoFixa: CONFIG.documentacaoFixa,
     transferencia: CONFIG.titulo.transferencia, placaNova: CONFIG.titulo.placaNova,
     dias: CONFIG.diasRetirada, ovLeilao: null, ovServico: null
   };
+}
+
+/* % do depósito para um lance: a faixa da tabela depositoFaixas. */
+function depositoPctDe(lance){
+  for (const f of CONFIG.depositoFaixas){
+    if (lance <= f.ate) return f.pct;
+  }
+  return CONFIG.depositoFaixas[CONFIG.depositoFaixas.length - 1].pct;
+}
+
+/* Depósito: o % da faixa sobre o lance, nunca abaixo do mínimo. */
+function depositoDe(lance, P = defaultParams()){
+  return Math.max(lance * (depositoPctDe(lance) / 100), P.depMin);
 }
 
 function taxaLeilaoDe(lance, P = defaultParams()){
@@ -224,7 +243,8 @@ function calcular(d, P = defaultParams()){
     total: null,
     totalMin: null,
     totalMax: null,
-    deposito: Math.max(lance * (P.depPct / 100), P.depMin)
+    deposito: depositoDe(lance, P),
+    depPct: depositoPctDe(lance)
   };
 
   if (d.florida){
@@ -306,5 +326,5 @@ function calcular(d, P = defaultParams()){
   return r;
 }
 
-return { CONFIG, defaultParams, taxaLeilaoDe, servicoDe, calcular, zipEstado };
+return { CONFIG, defaultParams, depositoPctDe, depositoDe, taxaLeilaoDe, servicoDe, calcular, zipEstado };
 });

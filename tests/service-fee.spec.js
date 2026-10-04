@@ -35,7 +35,7 @@ test('calculadora: taxa e total da tabela nova em Florida e fora, sem gravar nad
   if (await page.locator('#modal-ok').isVisible()) await page.locator('#modal-ok').click();
   await expect(page.locator('#resultado')).toBeVisible();
   const loaded = await page.evaluate(() => [...document.scripts].map((script) => script.getAttribute('src')).filter((src) => src && src.includes('calc-core')));
-  expect(loaded).toEqual(['/calc-core.js?v=financiamento-7001-20261001']);
+  expect(loaded).toEqual(['/calc-core.js?v=deposito-faixas-20261004']);
   const rows = [];
   for (const [zip, florida] of [['33101', true], ['97201', false]]) {
     for (const bid of BIDS) {
@@ -58,8 +58,8 @@ test('calculadora: taxa e total da tabela nova em Florida e fora, sem gravar nad
   // Oregon has no sales tax: outside Florida the total goes up exactly by the fee difference.
   const oregon = rows.filter((row) => !row.florida);
   for (const row of oregon) expect(row.tax).toBe(0);
-  // Deposit rule untouched: 10% of the bid, minimum $500.
-  for (const row of rows) expect(row.deposit).toBe(Math.max(row.bid * 0.1, 500));
+  // Deposit: 10% of the bid up to $50,000 (15% above, 20% from $100,000), minimum $500.
+  for (const row of rows) expect(row.deposit).toBe(Math.max(row.bid * (row.bid <= 50000 ? 0.1 : row.bid < 100000 ? 0.15 : 0.2), 500));
   // The image card and the WhatsApp text come from the same calcular(d).
   const image = await page.evaluate(() => { const canvas = cartaoAtual(); return canvas.width > 0 && canvas.height > 0; });
   expect(image).toBe(true);

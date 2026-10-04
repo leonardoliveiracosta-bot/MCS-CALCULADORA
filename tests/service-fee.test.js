@@ -170,7 +170,7 @@ test('fonte única: calculadora, site e painel usam o calc-core e não há outra
 test('cache: site e calculadora carregam a mesma versão do calc-core', () => {
   const siteSrc = site.match(/<script src="\/?(calc-core\.js[^"]*)"><\/script>/)[1];
   const calcSrc = calculator.match(/<script src="\/?(calc-core\.js[^"]*)"><\/script>/)[1];
-  assert.equal(siteSrc, 'calc-core.js?v=financiamento-7001-20261001');
+  assert.equal(siteSrc, 'calc-core.js?v=deposito-faixas-20261004');
   assert.equal(calcSrc, siteSrc);
   assert.equal((site.match(/calc-core\.js/g) || []).length - (site.match(/\(calc-core\.js\)/g) || []).length, 1, 'uma única tag no site');
 });
@@ -184,5 +184,14 @@ test('valores antigos: nada da tabela anterior no que vai ao ar', () => {
     assert.doesNotMatch(text, /valor: 250\b[\s\S]{0,80}valor: 350\b/, file);
     assert.doesNotMatch(text, /\$250<\/td>|\$350<\/td>|\$450<\/td>/, file);
     assert.doesNotMatch(text, /\$19,994|\$5,806 LESS|22\.50% BELOW/, file);
+  }
+});
+
+test('depósito por faixa: 10% até $50.000, 15% até $99.999, 20% a partir de $100.000, mínimo de $500', () => {
+  const dep = (lance) => core.calcular({ lance, florida: true, estado: '', pgto: 'cash', inspecao: false, placa: 'transfer', zip: '' });
+  for (const [lance, pct, valor] of [[3000, 10, 500], [12000, 10, 1200], [50000, 10, 5000], [50100, 15, 7515], [99900, 15, 14985], [100000, 20, 20000], [150000, 20, 30000]]) {
+    const r = dep(lance);
+    assert.equal(r.depPct, pct, `faixa ${lance}`);
+    assert.equal(Math.round(r.deposito), valor, `depósito ${lance}`);
   }
 });
