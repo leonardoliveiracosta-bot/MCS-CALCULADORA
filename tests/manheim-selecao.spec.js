@@ -31,7 +31,8 @@ const car = (n, extra = {}) => {
 };
 // 14 in Lane/Run, one in Lane/Run WITH Buy Now Price and one without CR (both stay in Lane/Run), one
 // without Lane/Run and with Buy Now (outside Lane/Run), two without Lane/Run nor Buy Now (incomplete).
-const cars = [...Array.from({ length: 14 }, (_, n) => car(n)), car(30, { buyNowPrice: '26500' }), car(32, { conditionGrade: '' }), car(33, { lane: '', run: '', buyNowPrice: '26500' }), car(31, { lane: '', run: '' }), car(34, { lane: '', run: '' })];
+// Car 12 is the oldest (2019, lowest MMR) and car 13 the newest (2022, highest MMR): the order must reach them in the whole group.
+const cars = [...Array.from({ length: 12 }, (_, n) => car(n)), car(12, { year: 2019, mmrCents: 2200000 }), car(13, { year: 2022, mmrCents: 3200000 }), car(30, { buyNowPrice: '26500' }), car(32, { conditionGrade: '' }), car(33, { lane: '', run: '', buyNowPrice: '26500' }), car(31, { lane: '', run: '' }), car(34, { lane: '', run: '' })];
 
 let backend, handlers;
 async function run(handler, request) {
@@ -115,6 +116,36 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
   expect(n).toBe(3);
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
+});
+
+test('ordenar o grupo por ano e por MMR considera o grupo inteiro, não só os 10 da tela', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  await openPanel(page);
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const group = card.locator('.offer-group[data-group="LANE"]');
+  await group.locator('> summary').click({ timeout: 60000 });
+  const rows = group.locator('.offer-row');
+  await expect(rows).toHaveCount(10);
+  await group.locator('.offer-sort-select').selectOption('mmr_desc');
+  await expect(rows.first().locator('.offer-mmr')).toContainText('32.000,00');
+  await expect(rows).toHaveCount(10);
+  await group.locator('.offer-sort-select').selectOption('year_desc');
+  await expect(rows.first().locator('.offer-car')).toHaveText(/^2022 /);
+  await group.locator('.offer-sort-select').selectOption('year_asc');
+  await expect(rows.first().locator('.offer-car')).toHaveText(/^2019 /);
+  await group.locator('.offer-sort-select').selectOption('mmr_asc');
+  await expect(rows.first().locator('.offer-mmr')).toContainText('22.000,00');
+  // "Ver mais" continues in the same order, without repeating cars.
+  await group.locator('.manheim-options-toggle').click();
+  await expect(rows).toHaveCount(16);
+  const mmrs = await rows.locator('.offer-mmr').allTextContents();
+  const values = mmrs.map((text) => Number(text.match(/MMR US\$\s?([\d.]+)/)[1].replace(/\./g, '')));
+  expect(values).toEqual([...values].sort((a, b) => a - b));
+  await group.locator('.offer-sort-select').selectOption('cr');
+  await expect(rows).toHaveCount(10);
+  expect(errors).toEqual([]);
 });
 
 // The same CSV the active batch was imported from, as the real batch (no sale fields stored). The
