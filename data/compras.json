@@ -8,6 +8,7 @@
     "taxaLeilao": 550,
     "taxaAmbiental": 50,
     "envioTitulo": 45,
+    "taxaServico": 550,
     "referencia": 19850,
     "fonteRef": "CARFAX Retail",
     "foto": "img/compras/2018-dodge-charger-rt.jpg"
@@ -21,6 +22,7 @@
     "taxaLeilao": 600,
     "taxaAmbiental": 50,
     "envioTitulo": 45,
+    "taxaServico": 1000,
     "referencia": 41000,
     "fonteRef": "CARFAX Retail",
     "foto": "img/compras/2020-cadillac-escalade-luxury.jpg"
@@ -34,6 +36,7 @@
     "taxaLeilao": 600,
     "taxaAmbiental": 50,
     "envioTitulo": 45,
+    "taxaServico": 800,
     "referencia": 26730,
     "fonteRef": "CARFAX Retail",
     "foto": "img/compras/2018-porsche-macan-gts.jpg"
@@ -45,8 +48,9 @@
     "milhas": 57347,
     "lance": 17900,
     "taxaLeilao": 600,
-    "taxaAmbiental": 50,
-    "envioTitulo": 45,
+    "taxaAmbiental": 15,
+    "envioTitulo": 20,
+    "taxaServico": 800,
     "referencia": 25800,
     "fonteRef": "Black Book XClean",
     "foto": "img/compras/2021-bmw-x3.jpg"

@@ -85,7 +85,7 @@ test('calculadora: taxa e total da tabela nova em Florida e fora, sem gravar nad
   console.log('TOTAIS', JSON.stringify(rows.map((row) => [row.bid, row.florida ? 'FL' : 'OR', OLD[row.bid] + '→' + row.fee, row.total])));
 });
 
-test('site: tabela de taxas nos três idiomas e compras reais recalculadas', async ({ page }) => {
+test('site: tabela de taxas nos três idiomas e compras reais com os valores pagos', async ({ page }) => {
   await isolate(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(base + '/index.html');
@@ -99,10 +99,10 @@ test('site: tabela de taxas nos três idiomas e compras reais recalculadas', asy
   })));
   const byTitle = Object.fromEntries(cards.map((card) => [card.title, card]));
   const expected = {
-    '2018 Dodge Charger R/T': ['$650', '$11,594', '$8,256 LESS', '41.59% BELOW REFERENCE'],
-    '2018 Porsche Macan GTS': ['$900', '$20,294', '$6,436 LESS', '24.08% BELOW REFERENCE'],
-    '2021 BMW X3': ['$900', '$20,094', '$5,706 LESS', '22.12% BELOW REFERENCE'],
-    '2020 Cadillac Escalade Luxury': ['$1,100', '$32,294', '$8,706 LESS', '21.23% BELOW REFERENCE']
+    '2018 Dodge Charger R/T': ['$550', '$10,895', '$8,955 LESS', '45.11% BELOW REFERENCE'],
+    '2018 Porsche Macan GTS': ['$800', '$19,595', '$7,135 LESS', '26.69% BELOW REFERENCE'],
+    '2021 BMW X3': ['$800', '$19,335', '$6,465 LESS', '25.06% BELOW REFERENCE'],
+    '2020 Cadillac Escalade Luxury': ['$1,000', '$31,595', '$9,405 LESS', '22.94% BELOW REFERENCE']
   };
   for (const [title, [fee, total, less, pct]] of Object.entries(expected)) {
     const card = byTitle[title];
@@ -146,8 +146,8 @@ test('site: cartão estático do X3 igual ao renderizado e 390 px sem rolagem la
     rows: [...card.querySelectorAll('.rpx-row')].map((row) => [...row.children].map((cell) => cell.textContent))
   })).find((card) => card.title === '2021 BMW X3'));
   expect(fallback).toEqual(rendered);
-  expect(fallback.rows).toEqual([['Auction purchase', '$17,900'], ['Auction fee', '$650'], ['Purchase & title', '$644'], ['Service fee', '$900'], ['Total paid', '$20,094']]);
-  expect([fallback.price, fallback.ref, fallback.less, fallback.pct]).toEqual(['$20,094', '$25,800', '$5,706 LESS', '22.12% BELOW REFERENCE']);
+  expect(fallback.rows).toEqual([['Auction purchase', '$17,900'], ['Auction fee', '$600'], ['Environmental fee', '$15'], ['Title mailing', '$20'], ['Service fee', '$800'], ['Total paid', '$19,335']]);
+  expect([fallback.price, fallback.ref, fallback.less, fallback.pct]).toEqual(['$19,335', '$25,800', '$6,465 LESS', '25.06% BELOW REFERENCE']);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   const above = page.locator('#taxas .fee-above');
