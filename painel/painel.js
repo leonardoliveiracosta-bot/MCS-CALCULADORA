@@ -1732,11 +1732,20 @@
   function makeCardClickable(card, action) {
     card.tabIndex = 0;
     card.classList.add('clickable-card');
+    // Where the press started: when the screen changes between press and release (a refresh, a
+    // value saved on blur, a list redrawn), the browser sends the click to the card itself. Only a
+    // press and release on the same plain part of the card opens it; selecting text never does.
+    let pressed = null;
+    card.addEventListener('pointerdown', (event) => { pressed = event.target; }, true);
+    const isControl = (node) => { const control = node && node.closest && node.closest('button,input,select,textarea,a,label,details,summary'); return Boolean(control && !control.contains(card)); };
     card.addEventListener('click', (event) => {
+      const origin = pressed; pressed = null;
       // A control stops the click unless it is an ancestor of the card (Lote 4: order cards now
       // live inside a <details>). A button removed by its own click (Cancelar) still stops it.
-      const control = event.target.closest('button,input,select,textarea,a,details,summary');
-      if (control && !control.contains(card)) return;
+      if (isControl(event.target)) return;
+      if (origin && (!origin.isConnected || isControl(origin) || !event.target.contains(origin))) return;
+      const selected = window.getSelection && String(window.getSelection() || '');
+      if (selected && selected.trim()) return;
       action();
     });
     card.addEventListener('keydown', (event) => {
