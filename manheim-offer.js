@@ -74,5 +74,33 @@
     return { defaultPct: base, pct, finalCents: finalCents(mmrCents, pct) };
   };
 
-  return { GROUPS, GROUP_LABELS, MAX_SELECTED, buyNowCents, classify, crMinimum, crOf, defaultPct, finalCents, priceFor, saleMarked, saleRead, validPct };
+  const parsedOf = (row) => row?.vehicle_json?.parsed || row?.vehicle_json || row?.vehicle_snapshot || row || {};
+  const vinOf = (row) => text(parsedOf(row).vin || row?.vin).toUpperCase();
+  const saleActive = (sale, now = Date.now()) => !Number.isFinite(Date.parse(sale?.endsAt)) || Date.parse(sale.endsAt) > now;
+  const SALE_FIELDS = ['lane','run','buyNowPrice','saleType','saleStatus','eventSaleName','startsAt','saleDate','endsAt','location'];
+  const saleOption = (p) => Object.fromEntries(SALE_FIELDS.filter(k => p[k] !== undefined).map(k => [k,p[k]]));
+  const purchaseOptions = (p, now = Date.now()) => (Array.isArray(p?.purchaseOptions) ? p.purchaseOptions : [saleOption(p || {})]).filter(s => saleActive(s, now));
+  // One physical car per demand. Never merge unknown VINs; retain every source ID, including
+  // expired sales, so an earlier human selection still belongs to the surviving car.
+  function groupVehicles(rows, now = Date.now()) {
+    const groups = new Map();
+    (rows || []).forEach((row,index) => {
+      const scope = row.demandKey || row.demand_key || [row.journey_id || row.calc_ref || '',row.logical_mode || ''].join(':');
+      const key = scope + '|' + (vinOf(row) || row.id || row.row_fingerprint || 'unknown:' + index);
+      if (!groups.has(key)) groups.set(key,[]);
+      groups.get(key).push(row);
+    });
+    return [...groups.values()].flatMap(members => {
+      const live = members.filter(r => purchaseOptions(parsedOf(r),now).length);
+      const rank = r => { const p=parsedOf(r);return text(p.lane)&&text(p.run)?0:buyNowCents(p)>0?1:2; };
+      live.sort((a,b)=>rank(a)-rank(b)||text(a.id||a.row_fingerprint).localeCompare(text(b.id||b.row_fingerprint)));
+      if (!live.length) return [];
+      const primary=live[0], p=parsedOf(primary);
+      const sales=[...new Map(live.flatMap(r=>purchaseOptions(parsedOf(r),now)).map(s=>[JSON.stringify(SALE_FIELDS.map(k=>s[k]||'')),s])).values()];
+      const memberMatchIds=[...new Set(members.flatMap(r=>parsedOf(r).memberMatchIds || (r.id?[r.id]:[])))];
+      const parsed={...p,purchaseOptions:sales,...(memberMatchIds.length?{memberMatchIds}:{})};
+      return [primary.vehicle_json?.parsed?{...primary,vehicle_json:{...primary.vehicle_json,parsed}}:primary.vehicle_json?{...primary,vehicle_json:parsed}:primary.vehicle_snapshot?{...primary,vehicle_snapshot:parsed}:parsed];
+    });
+  }
+  return { groupVehicles, parsedOf, vinOf, saleActive, purchaseOptions, GROUPS, GROUP_LABELS, MAX_SELECTED, buyNowCents, classify, crMinimum, crOf, defaultPct, finalCents, priceFor, saleMarked, saleRead, validPct };
 }));

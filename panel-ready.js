@@ -66,7 +66,7 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   if(isScoreIndex(vehicles)){
     if(demands.length)mmr=vehicles.mmrFor([id?'j:'+id:null,item.ref?'r:'+String(item.ref).trim().toUpperCase():null].filter(Boolean));
   }else if(demands.length){
-    const comparable=vehicles.filter((vehicle)=>demands.some((demand)=>vehicleMatch.countsAsServed(vehicleMatch.matchDemand(vehicle,{...demand,wishes:demand.activeWishes.slice(0,1)})?.kind)));
+    const comparable=require('./manheim-offer').groupVehicles(vehicles.filter((vehicle)=>demands.some((demand)=>vehicleMatch.countsAsServed(vehicleMatch.matchDemand(vehicle,{...demand,wishes:demand.activeWishes.slice(0,1)})?.kind))));
     mmr=median(comparable.map((vehicle)=>vehicle.mmrCents));
   }
   const state=calc.zipEstado(zip);

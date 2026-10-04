@@ -4,6 +4,7 @@
 // marcas e modelos, VIN repetido entre arquivos, MMR válido, vazio, zero, negativo, "N/A", texto e
 // linhas sem odômetro. Determinístico: a mesma chamada gera sempre os mesmos arquivos.
 const HEADERS = ['Inventory', 'Vin', 'Year', 'Make', 'Model', 'Trim', 'Exterior Color', 'Odometer Value', 'Odometer Units', 'MMR', 'Condition Report Grade', 'Pickup Location', 'Starts At', 'Ends At', 'Buy Now Price', 'Seller Comments'];
+const TEST_SALE_START=new Date(Date.now()+7*86400000).toISOString(),TEST_SALE_END=new Date(Date.now()+8*86400000).toISOString();
 const MODELS = [
   ['Honda', 'CR-V'], ['Toyota', 'Camry'], ['BMW', 'X5'], ['Ford', 'F-150'],
   ['Chevrolet', 'Malibu'], ['Jeep', 'Wrangler'], ['Nissan', 'Altima'], ['Tesla', 'Model 3']
@@ -29,7 +30,7 @@ function carRow(n) {
     Trim: ['Base', 'Sport', 'Limited', 'Touring'][n % 4], 'Exterior Color': ['Black', 'White', 'Gray', 'Blue'][n % 4],
     'Odometer Value': n % 97 === 0 ? 'TMU' : String(1000 + ((n * 104729) % 149000)), 'Odometer Units': 'mi',
     MMR: mmrFor(n), 'Condition Report Grade': (2 + (n % 30) / 10).toFixed(1), 'Pickup Location': ['FL - ORLANDO', 'GA - TUCKER', 'TX - HOUSTON'][n % 3],
-    'Starts At': '2026-10-01T15:00:00Z', 'Ends At': '2026-10-02T15:00:00Z', 'Buy Now Price': n % 11 === 0 ? String(30000 + n % 5000) : '',
+    'Starts At': TEST_SALE_START, 'Ends At': TEST_SALE_END, 'Buy Now Price': n % 11 === 0 ? String(30000 + n % 5000) : '',
     'Seller Comments': n % 5 === 0 ? 'Carro ficticio ' + n + ', sem historico real' : ''
   };
 }

@@ -167,7 +167,7 @@ test('falha no registro da apresentação nunca transforma um envio feito em err
     const sent = await v1Send.handle(ctx, { action: 'send', token: token(3), text: `Hi ${LINK(3)}`, confirmed: true, requestKey: id(911), demandKey: `journey:${JOURNEY2}:CARRO` }, services);
     assert.deepEqual([sent.status, sent.sendStatus, sent.presentationRecorded], [200, 'SENT', false]);
     // 2) A read inside the real bookkeeping fails (vitrine cars).
-    const broken = { rows: async (c, table, params) => { if (table === 'vitrine_cars') throw Object.assign(new Error('down'), { status: 500 }); return rows(c, table, params); }, insert, patchRows, applyMessage: reply.applyMessage, d360Send: reply.d360Send };
+    const broken = { rows: async (c, table, params) => { if (table === 'vitrine_cars' && params.select === 'source_match_id') throw Object.assign(new Error('down'), { status: 500 }); return rows(c, table, params); }, insert, patchRows, applyMessage: reply.applyMessage, d360Send: reply.d360Send };
     const resent = await v1Send.handle(ctx, { action: 'send', token: token(3), text: `Hi ${LINK(3)}`, confirmed: true, requestKey: id(912), resend: true, demandKey: `journey:${JOURNEY2}:CARRO` }, broken);
     assert.deepEqual([resent.status, resent.sendStatus, resent.presentationRecorded], [200, 'SENT', false]);
   } finally { console.error = quiet; }

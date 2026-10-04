@@ -3085,8 +3085,10 @@
     // Provenance: a car that no longer counts is listed but never offered (the technical stamp line is not shown).
     const stamp = option.stamp || null;
     if (stamp && !stamp.valid) { row.classList.add('offer-invalid'); vehicle.append(element('span', 'warning offer-invalid-reason', `Não oferecer · ${stamp.reasonText || 'carro não vale mais para este pedido'}`)); }
-    const saleFacts = [parsed.lane ? `Lane ${parsed.lane}` : '', parsed.run ? `Run ${parsed.run}` : '', parsed.saleType || '', parsed.buyNowPrice && OFFER && OFFER.buyNowCents(parsed) ? `Buy Now ${parsed.buyNowPrice}` : ''].filter(Boolean);
-    if (saleFacts.length) vehicle.append(element('span', 'muted offer-detail', saleFacts.join(' · ')));
+    for (const sale of OFFER.purchaseOptions(parsed)) {
+      const saleFacts = [sale.lane && sale.run ? `Leilão Lane ${sale.lane} / Run ${sale.run}` : '', OFFER.buyNowCents(sale) ? `Buy Now ${formatMoney(OFFER.buyNowCents(sale))}` : '', sale.saleType || '', sale.startsAt || sale.saleDate ? auctionWhen(sale.startsAt || sale.saleDate) : '', sale.endsAt ? `até ${formatDate(sale.endsAt)}` : ''].filter(Boolean);
+      if (saleFacts.length) vehicle.append(element('span', 'muted offer-detail', saleFacts.join(' · ')));
+    }
     if (parsed.vin) vehicle.append(element('span', 'muted offer-detail', `VIN: ${parsed.vin}`));
     vehicle.append(element('span', 'muted offer-consulted offer-detail', `${state.uploadedAt ? 'Consultado no CSV do Manheim de ' + formatDate(state.uploadedAt) : 'Consultado no lote ativo do Manheim'} · Disponibilidade no leilão não confirmada`));
     const badges = element('div', 'badges');

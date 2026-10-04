@@ -54,6 +54,14 @@ const baseUrlOf = (value) => { const text = String(value || ''); return /^https?
 const waLink = (phone, text) => 'https://wa.me/' + phone.replace(/^\+/, '') + '?text=' + encodeURIComponent(text);
 const missingTable = (error) => error && (error.status === 404 || /PGRST205|PGRST202|42P01/.test(String(error.code || '') + String(error.message || '')));
 const sendOut = (row) => row ? { status: row.status, at: row.updated_at || row.created_at, simulated: row.simulated === true, resend: row.resend === true, errorCode: row.error_code || null } : null;
+async function duplicateCars(ctx,vitrine,services) {
+  const cars=await services.rows(ctx,'vitrine_cars',{select:'source_match_id,vehicle_snapshot',environment:'eq.'+ctx.environment,vitrine_id:'eq.'+vitrine.id});
+  const ids=[...new Set(cars.filter(c=>!c.vehicle_snapshot?.vin).map(c=>c.source_match_id).filter(Boolean))];
+  const matches=ids.length?await services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'in.('+ids.join(',')+')'}):[];
+  const byId=new Map(matches.map(m=>[m.id,m.vehicle_json?.parsed?.vin]));
+  const vins=cars.map(c=>String(c.vehicle_snapshot?.vin||byId.get(c.source_match_id)||'').trim().toUpperCase()).filter(Boolean);
+  return new Set(vins).size!==vins.length;
+}
 
 async function vitrineFor(ctx, token, services) {
   if (!/^[A-Za-z0-9_-]{16,80}$/.test(String(token || ''))) return null;
@@ -68,6 +76,7 @@ async function lastSend(ctx, vitrineId, services) {
 async function prepare(ctx, body, services, env) {
   const vitrine = await vitrineFor(ctx, body.token, services);
   if (!vitrine) return { status: 404, error: 'VITRINE_NOT_FOUND' };
+  if(await duplicateCars(ctx,vitrine,services))return {status:409,error:'VITRINE_VIN_DUPLICATE'};
   const base = baseUrlOf(body.baseUrl);
   if (!base) return { status: 400, error: 'V1_SEND_INVALID' };
   const previous = await lastSend(ctx, vitrine.id, services);
@@ -118,6 +127,7 @@ async function sendV1(ctx, body, services, env, now) {
   if (!isUuid(body.requestKey) || body.confirmed !== true) return { status: 400, error: 'V1_SEND_CONFIRM_REQUIRED' };
   const vitrine = await vitrineFor(ctx, body.token, services);
   if (!vitrine) return { status: 404, error: 'VITRINE_NOT_FOUND' };
+  if(await duplicateCars(ctx,vitrine,services))return {status:409,error:'VITRINE_VIN_DUPLICATE'};
   // The message always carries this V1's link.
   if (!text.includes('/v/' + vitrine.token)) return { status: 400, error: 'V1_LINK_MISSING' };
   const mode = sendMode(env);

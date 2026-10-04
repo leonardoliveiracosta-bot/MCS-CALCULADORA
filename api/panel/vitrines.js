@@ -1,5 +1,11 @@
 'use strict';
-const {insert,isUuid,jsonBody,patchRows,requirePanel,rows,safeText,send}=require('../../panel-server');
+const {insert,isUuid,jsonBody,patchRows,requirePanel,rows,rpc,safeText,send}=require('../../panel-server');
+const grouping=require('../../manheim-offer');
+async function groupedFor(ctx,matches,services){
+  if(services.groupedMatches)return services.groupedMatches(ctx,matches);
+  if(services.rows===rows)return rpc(ctx,'panel_manheim_grouped_matches',{p_environment:ctx.environment,p_match_ids:matches.map(m=>m.id)});
+  return grouping.groupVehicles(matches);
+}
 const {expiresAt,publicVehicle,publicResponse,randomCode,randomToken,vehicleName}=require('../../vitrine-domain');
 const {parseMoneyCents}=require('../../money-text');
 const {activeFilter,liveUploadFilter}=require('../../panel-manheim-state');
@@ -43,10 +49,13 @@ async function auditGate(ctx,matchIds,demandKey=null){
 // (manheim_option_selections, migração 20261006010000). Returns Map(matchId -> selection) or an error.
 async function selectedFor(ctx,matchIds,services){
   const reader=services.selectionRows||services.rows;
+  const groups=services.rows===rows?await groupedFor(ctx,matchIds.map(id=>({id})),services):[];
+  const members=id=>groups.find(g=>(g.vehicle_json?.parsed?.memberMatchIds||[g.id]).includes(id))?.vehicle_json?.parsed?.memberMatchIds||[id];
+  const ids=[...new Set(matchIds.flatMap(members))];
   let found;
-  try{found=await reader(ctx,'manheim_option_selections',{select:'match_id,status,final_cents,manual',environment:'eq.'+ctx.environment,match_id:'in.('+matchIds.join(',')+')',limit:String(matchIds.length)});}
+  try{found=await reader(ctx,'manheim_option_selections',{select:'match_id,status,final_cents,manual',environment:'eq.'+ctx.environment,match_id:'in.('+ids.join(',')+')',limit:String(ids.length)});}
   catch(error){if(error&&(error.status===404||error.status===400))return {error:'MANHEIM_SELECTION_PENDING'};throw error;}
-  const byId=new Map((found||[]).filter((row)=>row.status==='SELECTED').map((row)=>[row.match_id,row]));
+  const byId=new Map(matchIds.map(id=>[id,(found||[]).find(row=>row.status==='SELECTED'&&members(id).includes(row.match_id))]).filter(([,row])=>row));
   return matchIds.every((id)=>byId.has(id))?{byId}:{error:'MANHEIM_OPTION_NOT_SELECTED'};
 }
 // The customer sees one honest reference: the MMR plus the operator's markup. Never the MMR itself
@@ -97,7 +106,12 @@ async function create(ctx,body,services={rows,insert},now=Date.now()){
   if(block)return {error:'VITRINE_CONTACT_BLOCKED',reason:block};
   const active=await activeBatch(ctx,services);
   const [contact,...matches]=await Promise.all([services.rows(ctx,'contacts',{select:'display_name',environment:'eq.'+ctx.environment,id:'eq.'+journey.contact_id,limit:'1'}),...body.matchIds.map((id)=>isUuid(id)?services.rows(ctx,'manheim_matches',{select:'id,upload_id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+id,journey_id:'eq.'+journey.id,...active,limit:'1'}):Promise.resolve([]))]);
-  const selected=matches.flat(); if(selected.length!==body.matchIds.length)return null;
+  const original=matches.flat(); if(original.length!==body.matchIds.length)return null;
+  if(original.some(match=>!hasValidMmr(match.vehicle_json?.parsed)))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};
+  const vins=original.map(grouping.vinOf).filter(Boolean);
+  if(new Set(vins).size!==vins.length)return {error:'VITRINE_VIN_DUPLICATE'};
+  const selected=await groupedFor(ctx,original,services);
+  if(selected.length!==original.length)return {error:'MANHEIM_SALE_ENDED'};
   if(!(await batchesLive(ctx,selected.map((match)=>match.upload_id),services)))return null;
   // MMR is mandatory: a car without a valid MMR never goes into a V1.
   if(selected.some((match)=>!hasValidMmr(match.vehicle_json?.parsed)))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};
@@ -107,7 +121,7 @@ async function create(ctx,body,services={rows,insert},now=Date.now()){
   const stampGate=services.stampGate||(services.rows===rows?require('../../panel-option-stamp').gate:null);
   if(stampGate){const stale=await stampGate(ctx,selected.map((match)=>match.id));if(stale)return {error:stale.code,reason:stale.reason,text:stale.text};}
   const selection=await selectedFor(ctx,selected.map((match)=>match.id),services); if(selection.error)return {error:selection.error};
-  const cars=selected.map((match)=>({match,vehicle:priced(publicVehicle(match.vehicle_json?.parsed||{}),selection.byId.get(match.id))}));
+  const cars=selected.map((match)=>({match,vehicle:{...priced(publicVehicle(match.vehicle_json?.parsed||{}),selection.byId.get(match.id)),vin:grouping.vinOf(match)}}));
   const existing=await recentWithCars(ctx,{journey_id:'eq.'+journey.id,version:'eq.V1'},selected.map((match)=>'match:'+match.id),services,now);
   if(existing)return {token:existing.vitrine.token,link:'/v/'+existing.vitrine.token,referenceCode:journey.reference_code,cars:cars.map((item)=>vehicleName(item.vehicle)),reused:true};
   const token=randomToken(); const created=await services.insert(ctx,'vitrines',{environment:ctx.environment,token,journey_id:journey.id,contact_id:journey.contact_id,reference_code:journey.reference_code||'',customer_name:contact[0]?.display_name||null,version:'V1',expires_at:expiresAt(cars),created_by:ctx.panel.id});
@@ -140,6 +154,10 @@ async function createV2(ctx,body,services={rows,insert,patchRows},now=Date.now()
     const [source]=await services.rows(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'eq.'+car.source_match_id,limit:'1'});
     if(!source)return {error:'VITRINE_SOURCE_MISSING'};
     if(!hasValidMmr(source.vehicle_json?.parsed))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};
+    const [current]=await groupedFor(ctx,[source],services);
+    if(!current)return {error:'MANHEIM_SALE_ENDED'};
+    const sales=publicVehicle(current.vehicle_json?.parsed||{}).purchaseOptions;
+    if(car.vehicle_snapshot.purchaseOptions||sales.some(s=>s.lane||s.run||s.buyNowPrice||s.startsAt||s.endsAt))car.vehicle_snapshot={...car.vehicle_snapshot,purchaseOptions:sales};
     // A car shown under the selection rule keeps needing it: removed from the selection, no V2.
     // V1 made before the selection existed (no "selected" mark) keeps working as it was.
     if(car.vehicle_snapshot.selected===true){const selection=await selectedFor(ctx,[car.source_match_id],services);if(selection.error)return {error:selection.error};}}

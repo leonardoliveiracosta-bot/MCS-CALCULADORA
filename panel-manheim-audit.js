@@ -32,7 +32,7 @@ const { modelsMatch } = require('./vehicle-catalog');
 const { PRICES } = require('./panel-triage');
 const aiClaim = require('./panel-ai-claim');
 
-const RULE_VERSION = 'conferencia-v3.3';
+const RULE_VERSION = 'conferencia-v3.4';
 const DEFAULT_MODEL = 'gpt-6-luna';
 const APPROVED_MODELS = Object.freeze(['gpt-6-luna']);
 // No limit per import and no "waiting for authorization": the only limit is the OpenAI prepaid
@@ -155,7 +155,8 @@ function buildGroups(input) {
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key).push(match);
   });
-  return [...byKey.entries()].map(([key, matches]) => {
+  return [...byKey.entries()].map(([key, entries]) => {
+    const matches = require('./manheim-offer').groupVehicles(entries);
     const demand = demandsByKey.get(key) || null;
     const mode = demand ? demand.mode : matches[0] && matches[0].logical_mode || null;
     const journey = demand && demand.journeyId && base.journeyById ? base.journeyById.get(demand.journeyId) : null;
@@ -189,7 +190,7 @@ function buildGroups(input) {
       if (match.undone_at) add('BATCH_UNDONE', option);
       if (demand && demand.journeyId && match.journey_id !== demand.journeyId) add('PERSON_MISMATCH', option);
       if (demand && !demand.journeyId && demand.ref && upper(match.calc_ref) !== upper(demand.ref)) add('PERSON_MISMATCH', option);
-      const vin = upper(parsed.vin) ? [upper(parsed.vin),parsed.lane || '',parsed.run || ''].join('|') : '';
+      const vin = upper(parsed.vin);
       if (vin) { if (vins.has(vin)) add('VIN_DUPLICATE', option); vins.set(vin, option); }
       const signature = [parsed.year, upper(parsed.make), upper(parsed.model), parsed.miles, parsed.mmrCents, upper(parsed.location)].join('|');
       if (!vin) { if (rowsSeen.has(signature)) add('SPLIT_DUPLICATE', option); rowsSeen.set(signature, option); }
@@ -223,7 +224,7 @@ const INSTRUCTIONS = [
   'Marca e modelo já foram conferidos pelo servidor com o catálogo (o cliente não informa versão: o modelo pedido vale para a família inteira, como Escalade ESV para Escalade). Nunca aponte divergência de marca ou modelo.',
   'Modo VALOR: vale o lance da própria demanda. O MMR é obrigatório e numérico. Lance até US$ 60.000: MMR entre 70% e 115% do lance; acima de US$ 60.000: entre 75% e 110%. O teto total nunca é lance. Ano não restringe VALOR. Teto de milhas: lance até 10 mil, 135 mil mi; até 20 mil, 115 mil; até 30 mil, 105 mil; acima, 95 mil. Se informado um teto pelo cliente, vale o menor. MMR mínimo US$ 1.750.',
   'Modo CARRO (FIND): modelo e ano ou milhagem; limites de milhagem só se informados. Sem ano máximo, até ano do calendário + 1. MMR positivo obrigatório, sem piso. Havendo orçamento, só há teto de MMR: até 115% do valor informado quando o valor é até US$ 60.000; até 110% acima disso. Não existe limite inferior: carros mais baratos são válidos e nunca recebem o aviso acima do valor informado. Somente quando nenhum carro pelas características cabe nesse teto no lote completo, o servidor marca fallback de orçamento para os carros acima do teto. Esse fallback é válido e não é divergência. Não invalide milhagem ausente quando o pedido não a restringe.',
-  'Aponte critério de um modo usado no outro, opção de outra pessoa, VIN repetido, carro repetido e demanda incompleta.',
+  'Cada opção já agrupa um único VIN com todas as suas formas de compra. O mesmo VIN em vendas distintas (OVE/Buy Now e Lane/Run) não é divergência. VIN repetido só é erro quando são duas opções do mesmo carro dentro de um único envio. A V2 detalha normalmente o carro escolhido na V1. Aponte critério de um modo usado no outro, opção de outra pessoa e demanda incompleta.',
   'aprovado: true só quando todas as opções cumprem a regra do modo. Cada divergência traz a opção (id, ou vazio para a demanda inteira), o código e um motivo curto em português, sem ponto final.'
 ].join('\n');
 
@@ -407,6 +408,29 @@ async function viewState(ctx, input, options = {}) {
   return { state, uploadId: input.upload.id, limitUsd: null, estimateUsd: Math.round(estimate * 1e6) / 1e6, run: run ? { status: run.status, estimateUsd: Number(run.estimate_usd), spentUsd: Number(run.spent_usd), limitUsd: null } : null, byDemand };
 }
 const usable = (entry) => !entry || OK.includes(entry.status);
+// Release only obsolete duplicate-VIN findings, after rerunning today's deterministic checks.
+// No paid call, no manual approval, and the previous finding is retained in the audit log.
+async function releaseVinReviews(ctx,input,services={}) {
+  const read=services.auditRows||auditRows,write=services.insert||insert,patch=services.patchRows||patchRows;
+  if(!input.upload||input.upload.undone_at)return {released:0};
+  const stored=await read(ctx,input.upload.id);let released=0;
+  for(const group of buildGroups(input)) {
+    if(group.divergences.length||!group.matches.length)continue;
+    const latest=stored.filter(r=>r.demand_key===group.key).at(-1);
+    if(latest?.status==='REVISAR'&&latest.divergences?.some(d=>d.code!=='VIN_DUPLICATE'))continue;
+    const eligible=stored.filter(r=>r.demand_key===group.key&&r.status==='REVISAR'&&r.divergences?.length&&r.divergences.every(d=>d.code==='VIN_DUPLICATE'));
+    if(!eligible.length)continue;
+    const current=stored.find(r=>r.content_hash===group.hash);
+    if(current&&!eligible.includes(current)&&!OK.includes(current.status))continue;
+    const at=new Date().toISOString(),reason='v3.4: mesmo VIN em vendas agrupadas; não há duas opções no envio';
+    for(const old of eligible){
+      await write(ctx,'audit_log',{environment:ctx.environment,actor_user_id:ctx.panel?.id||null,entity_type:'manheim_match_audit',entity_id:old.id,action:'VIN_GROUP_V34_RELEASE',before_json:{status:old.status,divergences:old.divergences,contentHash:old.content_hash},after_json:{status:'CONFERIDO',contentHash:group.hash,reason}},false);
+      await patch(ctx,'manheim_match_audits',{environment:env(ctx),id:'eq.'+old.id,status:'eq.REVISAR'},{status:'CONFERIDO',divergences:[],reason,updated_at:at});released++;
+    }
+    if(!current)await write(ctx,'manheim_match_audits',{environment:ctx.environment,upload_id:group.uploadId,journey_id:group.journeyId,logical_mode:group.mode,demand_key:group.key,content_hash:group.hash,rule_version:RULE_VERSION,status:'CONFERIDO',divergences:[],reason,match_count:group.matches.length,attempts:1});
+  }
+  return {released};
+}
 // V1 and V2 gate for one car of the active batch. demandKey (sent by the BUSCAS card) checks that
 // demand only; without it every demand the car belongs to must be released. null: not in the batch.
 function heldFor(state, liveMatches, matchId, demandKey = null) {
@@ -424,6 +448,7 @@ async function runAudit(ctx, input, options = {}) {
   const state = status(envValues);
   if (state !== 'LIGADA') return { skipped: state, processed: 0 };
   if (!input.upload || input.upload.undone_at) return { skipped: 'SEM_LOTE_ATIVO', processed: 0 };
+  await releaseVinReviews(ctx,input);
   const groups = buildGroups(input).filter((group) => !options.onlyKey || group.key === options.onlyKey);
   const stored = await auditRows(ctx, input.upload.id);
   const byHash = new Map(stored.map((row) => [row.content_hash, row]));
@@ -549,5 +574,5 @@ async function approve(ctx, input, key, reason, actorId) {
 
 module.exports = {
   RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS, DEADLINE_ATTEMPTS, retryAllowed,
-  model, status, buildGroups, payloadOf, estimateGroup, validated, callOpenAI, viewState, usable, heldFor, runAudit, authorize, approve, auditRows
+  model, status, buildGroups, payloadOf, estimateGroup, validated, callOpenAI, viewState, usable, heldFor, runAudit, authorize, approve, auditRows, releaseVinReviews
 };

@@ -114,7 +114,7 @@ test('checagem local: ficha encerrada e contato não-lead vão para Revisar sem 
   } }));
   const codes = Object.fromEntries(broken.map((group) => [group.key, group.divergences.map((item) => item.code).sort()]));
   assert.ok(codes[`journey:${J.valor}:VALOR`].includes('BID_IS_CEILING'));
-  assert.ok(codes[`journey:${J.valor}:VALOR`].includes('VIN_DUPLICATE'));
+  assert.ok(!codes[`journey:${J.valor}:VALOR`].includes('VIN_DUPLICATE'), 'v3.4 agrupa o mesmo VIN antes da conferência');
   assert.deepEqual(codes[`journey:${J.carro}:CARRO`], ['CRITERIA_MISMATCH', 'MODE_MISSING', 'SPLIT_DUPLICATE', 'TEST_RECORD'].sort());
   assert.ok(codes[`journey:${J.nolead}:CARRO`].includes('DEMAND_INCOMPLETE'));
   const undone = audit.buildGroups(input({ mutate: (value) => ({ ...value, upload: { ...value.upload, undone_at: new Date().toISOString() } }) }));
@@ -300,9 +300,8 @@ test('match histórico sem modo vai para Revisar; fato mudou, demanda relida; du
   const duplicated = input({ mutate: (value) => { const own = value.matches.find((match) => match.journey_id === J.carro); value.matches.push({ ...own, id: id(1999), row_fingerprint: 'split-2' }); return value; } });
   await audit.runAudit(ctx, duplicated, { env: ENV, fetchImpl: fakeOpenAI(approveAll, []) });
   state = await audit.viewState(ctx, duplicated, { env: ENV });
-  assert.deepEqual([state.byDemand[carroKey].status, state.byDemand[carroKey].canApprove], ['REVISAR', true]);
-  await audit.approve(ctx, duplicated, carroKey, 'Mesmo carro repetido entre as divisões', ACTOR);
-  assert.equal((await audit.viewState(ctx, duplicated, { env: ENV })).byDemand[carroKey].status, 'APROVADO_MANUAL');
+  assert.deepEqual([state.byDemand[carroKey].status, state.byDemand[carroKey].canApprove], ['CONFERIDO', false]);
+  assert.equal(audit.buildGroups(duplicated).find(g=>g.key===carroKey).options.length,1);
 });
 
 test('V1 checa a demanda do cartão: carro que serve VALOR e CARRO não troca a demanda conferida', () => {

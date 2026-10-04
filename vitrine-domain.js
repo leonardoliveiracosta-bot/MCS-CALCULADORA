@@ -17,7 +17,8 @@ function publicVehicle(vehicle={}){
   return { year:Number(vehicle.year)||null, make:clean(vehicle.make,80), model:clean(vehicle.model,120), trim:clean(vehicle.trim,120), miles:Number(vehicle.miles)||null,
     exteriorColor:clean(vehicle.exteriorColor,80), interiorColor:clean(vehicle.interiorColor,80), drivetrain:clean(vehicle.drivetrain,80), transmission:clean(vehicle.transmission,80), engine:clean(vehicle.engine,120),
     state:locationState(vehicle.location)||clean(vehicle.state,80), startsAt:date||null, endsAt:clean(vehicle.endsAt,80)||null, averageAuctionValue:roundedMmr(vehicle.mmrCents),
-    cleanTitle:vehicle.cleanTitle===true, odometerOk:vehicle.odometerOk===true };
+    cleanTitle:vehicle.cleanTitle===true, odometerOk:vehicle.odometerOk===true,
+    purchaseOptions: require('./manheim-offer').purchaseOptions(vehicle).map(s => ({lane:clean(s.lane,20),run:clean(s.run,20),buyNowPrice:clean(s.buyNowPrice,40),saleType:clean(s.saleType,80),startsAt:clean(s.startsAt||s.saleDate,80)||null,endsAt:clean(s.endsAt,80)||null})) };
 }
 function vehicleName(vehicle={}){ return clean([vehicle.year,vehicle.make,vehicle.model,vehicle.trim].filter(Boolean).join(' '),220); }
 function roundedMmr(cents){ const amount=Number(cents)||0; return amount?Math.round(amount/5000)*50:null; }
@@ -30,6 +31,7 @@ function deposit(cents){ const amount=Math.max(0,Number(cents)||0)/100; return M
 // Auction date of one car in ms, or NaN when the car has no date (a missing date never means "year 2000").
 function auctionTime(car){
   const vehicle=car?.vehicle_snapshot||car?.vehicle||car||{};
+  if (Array.isArray(vehicle.purchaseOptions) && vehicle.purchaseOptions.length) { const times=vehicle.purchaseOptions.map(s=>Date.parse(s.endsAt||s.startsAt||s.saleDate)).filter(Number.isFinite);if(times.length)return Math.max(...times); }
   const raw=clean(vehicle.endsAt||vehicle.startsAt||vehicle.saleDate,80);
   return raw?Date.parse(raw):NaN;
 }
@@ -52,12 +54,15 @@ function publicFirstName(value){
 // V1 never carries the customer's limit or the operator note (the link is made to be forwarded).
 function publicResponse(vitrine,cars,urls=[],options={}){
   if(options.closed===true||isExpired(vitrine))return { expired:true, referenceCode:vitrine.reference_code };
+  const grouped=require('./manheim-offer').groupVehicles(cars||[]);
+  if(cars?.length&&!grouped.length)return {expired:true,referenceCode:vitrine.reference_code};
   const v2=vitrine.version==='V2';
   return { token:vitrine.token, version:vitrine.version, referenceCode:vitrine.reference_code, customerName:publicFirstName(vitrine.customer_name), expired:false,
-    cars:(cars||[]).map((car,index)=>{
+    cars:grouped.map((car,index)=>{
+      const originalIndex=(cars||[]).findIndex(c=>c.id?c.id===car.id:c.short_code===car.short_code);
       const reference=Number(car.vehicle_snapshot?.estimatedMarketReference)>0?Number(car.vehicle_snapshot.estimatedMarketReference):null;
       // A selected car shows only the estimated market reference (MMR + markup); older cars keep their value.
-      const output={code:car.short_code, vehicle:publicVehicle(car.vehicle_snapshot), averageAuctionValue:reference?null:car.vehicle_snapshot?.averageAuctionValue||roundedMmr(car.vehicle_snapshot?.mmrCents), estimatedMarketReference:reference, photos:[urls[index]||[]].flat(2).filter((url)=>typeof url==='string'&&url.length>0)};
+      const output={code:car.short_code, vehicle:publicVehicle(car.vehicle_snapshot), averageAuctionValue:reference?null:car.vehicle_snapshot?.averageAuctionValue||roundedMmr(car.vehicle_snapshot?.mmrCents), estimatedMarketReference:reference, photos:[urls[originalIndex<0?index:originalIndex]||[]].flat(2).filter((url)=>typeof url==='string'&&url.length>0)};
       if(v2){ output.customerLimitCents=car.customer_limit_cents||null; output.note=clean(car.note_text,800)||null; }
       return output;
     }) };

@@ -213,10 +213,12 @@ async function compareOne(ctx, uploadId, item, cache, services) {
   const targets = item.targets && item.targets.length ? item.targets : requests.targetsOf(item.criteria);
   const wishes = targets.flatMap((target) => target.wishes || []);
   const keys = wishes.some((wish) => !wish.make) ? [''] : [...new Set(wishes.flatMap(makeKeysOf))];
-  const cars = (await Promise.all(keys.map((key) => vehiclesForMake(ctx, uploadId, key, cache, services)))).flat();
+  const grouping = require('./manheim-offer');
+  const cars = (await Promise.all(keys.map((key) => vehiclesForMake(ctx, uploadId, key, cache, services)))).flat().filter(car => grouping.saleActive(car.vehicle_json));
   const selected = new Map();
   for (const target of targets) for (const match of require('./vehicle-match').matchLot(cars.map((car) => car.vehicle_json), target)) selected.set(cars[match.index].row_fingerprint, match.result);
-  return { result: selected.size ? 'HAS_OPTIONS' : 'NO_OPTIONS', count: selected.size, sample: [...selected.keys()].slice(0, 5) };
+  const grouped = grouping.groupVehicles(cars.filter(car => selected.has(car.row_fingerprint)));
+  return { result: grouped.length ? 'HAS_OPTIONS' : 'NO_OPTIONS', count: grouped.length, sample: grouped.slice(0,5).map(car => car.row_fingerprint) };
 }
 // Compares the given items (FALTA BUSCAR) with the active batch and records each result.
 async function compareItems(ctx, items, options = {}) {

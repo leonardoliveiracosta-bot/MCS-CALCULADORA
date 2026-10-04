@@ -23,6 +23,11 @@ function matchDetails(match) {
 // already presented (nothing is created).
 async function presentMatch(ctx, journey, match, at, services, { details: extraDetails = {}, status = 'PRESENTED' } = {}) {
   if (!match || match.presented_unit_id) return null;
+  const vin=require('./manheim-offer').vinOf(match);
+  if(vin&&services.rows){
+    const [shown]=await services.rows(ctx,'manheim_matches',{select:'presented_unit_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,vin:'eq.'+vin,presented_unit_id:'not.is.null',limit:'1'});
+    if(shown?.presented_unit_id){await services.patchRows(ctx,'manheim_matches',{environment:'eq.'+ctx.environment,id:'eq.'+match.id,presented_unit_id:'is.null'},{presented_unit_id:shown.presented_unit_id});return null;}
+  }
   const vehicle = vehicleTextOf(match.vehicle_json && match.vehicle_json.parsed || {});
   if (!vehicle) return null;
   const [unit] = await services.insert(ctx, 'units', { environment: ctx.environment, journey_id: journey.id, vehicle_text: vehicle, details_json: { ...matchDetails(match), ...extraDetails }, presented_at: at, status, created_at: at, updated_at: at, created_by: ctx.panel.id, updated_by: ctx.panel.id });
