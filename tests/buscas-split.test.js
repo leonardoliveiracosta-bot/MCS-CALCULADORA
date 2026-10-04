@@ -521,7 +521,12 @@ test('revisão 4 · apresentar um carro pela ficha marca como enviado só o modo
   const modes = (await stage.loadSearchStageIndex(ctx)).get(uuid(84)).modes;
   assert.deepEqual([modes.VALOR.stage, modes.CARRO.stage], ['SENT', 'MISSING']);
   assert.match(read('api/panel/lead.js'), /detail_json: \{ vehicle: unit\.vehicle_text, \.\.\.\(presentedMode \? \{ logical_mode: presentedMode \} : \{\}\) \}/);
-  assert.match(read('painel/lead.js'), /api\('present',\{fingerprint:car\.rowFingerprint,mode:car\.mode\|\|null\}\)/);
+  // ccb4bfc: a ficha não registra mais à mão ("Registrar que apresentei" saiu); o envio confirmado da V1
+  // registra sozinho e marca como enviado só o modo da oferta (origem da V1 ou modo dos carros).
+  assert.doesNotMatch(read('painel/lead.js'), /api\('present',/);
+  const presentation = read('panel-presentation.js');
+  assert.match(presentation, /const modes = origin \? \[origin\] : \[\.\.\.new Set\(matches\.map\(\(match\) => match\.logical_mode\)\.filter\(Boolean\)\)\]/);
+  assert.match(presentation, /kind: 'SENT', \.\.\.\(supported && mode \? \{ logical_mode: mode \} : \{\}\)/);
 });
 
 test('revisão 5 · o score da ficha usa as demandas da Ref ligada (QUALIFICAÇÃO e HOJE passam as entradas por modo)', () => {
