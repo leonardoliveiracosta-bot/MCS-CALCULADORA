@@ -87,19 +87,11 @@ function optionOut(match, key, demand, also, provenance = null) {
   };
 }
 
-// Ordering chosen by the operator: the server's CR order (default), or year / MMR, both ways. To sort
-// the whole group (not only the 10 on screen), the group is read in full, 50 at a time, and sorted here;
-// ties keep the CR order. A car without year or MMR goes last.
+// Ordering chosen by the operator: the server's CR order (default), or year / MMR, both ways. The database
+// sorts the whole group and returns one page per call (panel_manheim_offer_page_sorted), with no size limit;
+// ties keep the CR order and a car without year or MMR goes last.
 const SORTS = { cr: null, year_desc: ['year', -1], year_asc: ['year', 1], mmr_desc: ['mmr', -1], mmr_asc: ['mmr', 1] };
-async function wholeGroup(ctx, uploadId, key, group) {
-  const all = [];
-  for (let offset = 0; offset < 2000; offset += 50) {
-    const page = await rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: uploadId, p_demand_key: key, p_group: group, p_offset: offset, p_limit: 50 });
-    all.push(...(page || []));
-    if (!page || page.length < 50) break;
-  }
-  return all;
-}
+// Same order in memory (kept for the tests that check the rule against the database).
 function sortValue(row, field) {
   const parsed = row.vehicle_json && row.vehicle_json.parsed || {};
   const value = field === 'year' ? Number(parsed.year) : Number(row.mmr_cents);
@@ -123,7 +115,7 @@ async function groupPage(ctx, req, key, group, limit) {
   let stored;
   try {
     if (sort === 'cr') [stored] = await Promise.all([rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_offset: offset, p_limit: limit + 1 })]);
-    else stored = sortedGroup(await wholeGroup(ctx, latest.id, key, group), sort).slice(offset, offset + limit + 1);
+    else stored = await rpc(ctx, 'panel_manheim_offer_page_sorted', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_sort: sort, p_offset: offset, p_limit: limit + 1 });
   } catch (error) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
     throw error;
@@ -142,7 +134,9 @@ async function groupPage(ctx, req, key, group, limit) {
     }
   }));
   const total = page.length ? Number(page[0].total_in_group) || 0 : 0;
-  return send(ctx.res, 200, { key, group, uploadId: latest.id, uploadedAt: latest.uploaded_at || null, options: optionsOut, total, nextCursor: (stored || []).length > limit ? String(offset + limit) : null });
+  // Next page from the group total (the database caps a page at 50, so "one extra row" never shows on a page of 50).
+  const more = (stored || []).length > limit || (total > 0 && offset + page.length < total && page.length === limit);
+  return send(ctx.res, 200, { key, group, uploadId: latest.id, uploadedAt: latest.uploaded_at || null, options: optionsOut, total, nextCursor: more ? String(offset + limit) : null });
 }
 
 // Selection for the customer. The database enforces the rules (active batch, valid MMR, 10 per
