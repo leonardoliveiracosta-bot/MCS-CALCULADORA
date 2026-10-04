@@ -83,3 +83,15 @@ test('a rota não lê mais o grupo inteiro: uma chamada ao banco por página, se
   assert.doesNotMatch(source, /wholeGroup|offset < 2000/);
   assert.match(source, /panel_manheim_offer_page_sorted/);
 });
+
+test('preço para o cliente digitado em dólar: só dólares inteiros (centavos recusados)', async () => {
+  const [option] = await allPages('cr', 10);
+  const mmr = option.offer.mmrCents;
+  const price = (finalCents) => call('manheim-options', '/api/panel/manheim-options', 'POST', { action: 'price', matchId: option.id, finalCents });
+  const withCents = await price(mmr + 10050);
+  assert.equal(withCents.statusCode, 400);
+  assert.equal(withCents.payload.error, 'MANHEIM_SELECTION_FINAL_CENTS');
+  const whole = await price(mmr + 10000);
+  assert.equal(whole.statusCode, 200, JSON.stringify(whole.payload));
+  assert.equal(whole.payload.finalCents, mmr + 10000);
+});

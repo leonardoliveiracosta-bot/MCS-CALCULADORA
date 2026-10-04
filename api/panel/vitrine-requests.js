@@ -2,7 +2,7 @@
 
 const {allRows,isUuid,jsonBody,patchRows,requirePanel,send}=require('../../panel-server');
 const {deposit,vehicleName}=require('../../vitrine-domain');
-const {toggleEnabled}=require('../../panel-domain');
+const {normalizePayment,toggleEnabled}=require('../../panel-domain');
 const {loadClassification}=require('../../panel-classification');
 const groups=require('../../panel-groups');
 const {dispositionIndex}=require('../../panel-disposition');
@@ -26,7 +26,7 @@ async function payload(ctx){
     allRows(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current,retired_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'vitrine_events',{select:'vitrine_id,vitrine_car_id,event_type,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
-    allRows(ctx,'journeys',{select:'id,contact_id,reference_code,status,budget_cents',environment:'eq.'+ctx.environment}),
+    allRows(ctx,'journeys',{select:'id,contact_id,reference_code,status,budget_cents,payment_text',environment:'eq.'+ctx.environment}),
     allRows(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment}),
     allRows(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,updated_at',environment:'eq.'+ctx.environment,cleared_at:'is.null'}),
     allRows(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment})
@@ -37,6 +37,8 @@ async function payload(ctx){
   const resolveJourney=(journeyId,refCode)=>{if(journeyId)return journeyId;const owners=byRef.get(String(refCode||'').trim().toUpperCase());return owners&&owners.size===1?[...owners][0]:null;};
   const refStateFor=(journeyId)=>{if(!journeyId)return 'SEM_REF';const identity=classification.identityOf(journeyId);if(identity.state!=='OK')return null;return groups.refStateOf({hasCalcRef:identity.status==='REF_COMPROVADA',identity});};
   const budgetByJourney=new Map(journeys.map((row)=>[row.id,row.budget_cents||null]));
+  // Financed customer: the deposit is reviewed case by case (the cash table does not apply).
+  const financedJourney=new Set(journeys.filter((row)=>normalizePayment(row.payment_text)==='fin').map((row)=>row.id));
   const vitrinesById=new Map(vitrines.map((row)=>[row.id,row]));
   const carsById=new Map(cars.map((row)=>[row.id,row]));
   const contactsById=new Map(contacts.map((row)=>[row.id,row]));
@@ -60,7 +62,7 @@ async function payload(ctx){
     const refs=[journey.reference_code,...journeyRefs.filter((row)=>row.journey_id===journeyId).map((row)=>row.ref_code)].filter(Boolean);
     return personDisposition(journeyId,refs)?.status!=='DISCARDED';
   };
-  const openRequests=requests.filter(actionable).map((request)=>{const vitrine=vitrinesById.get(request.vitrine_id)||{};const car=carsById.get(request.vitrine_car_id)||{};const vehicle=car.vehicle_snapshot||{};const contact=contactsById.get(request.contact_id)||{};const limit=car.customer_limit_cents||null,journeyId=resolveJourney(request.journey_id||vitrine.journey_id||null,vitrine.reference_code);return {refState:refStateFor(journeyId),id:request.id,vitrineId:request.vitrine_id,vitrineCarId:request.vitrine_car_id,customerLimitCents:limit,budgetCents:journeyId?budgetByJourney.get(journeyId)||null:null,depositUsd:request.referred?null:limit?deposit(limit):null,kind:request.request_kind,createdAt:request.created_at,ago:since(request.created_at),referred:Boolean(request.referred),name:contact.display_name||phoneFor(request.contact_id)||'Cliente',phone:phoneFor(request.contact_id),referenceCode:vitrine.reference_code||'',journeyId,car:vehicleName(vehicle),startsAt:vehicle.startsAt||vehicle.saleDate||null,endsAt:vehicle.endsAt||null,ownerName:vitrine.customer_name||'cliente',ownerRef:vitrine.reference_code||''};});
+  const openRequests=requests.filter(actionable).map((request)=>{const vitrine=vitrinesById.get(request.vitrine_id)||{};const car=carsById.get(request.vitrine_car_id)||{};const vehicle=car.vehicle_snapshot||{};const contact=contactsById.get(request.contact_id)||{};const limit=car.customer_limit_cents||null,journeyId=resolveJourney(request.journey_id||vitrine.journey_id||null,vitrine.reference_code);return {refState:refStateFor(journeyId),id:request.id,vitrineId:request.vitrine_id,vitrineCarId:request.vitrine_car_id,customerLimitCents:limit,budgetCents:journeyId?budgetByJourney.get(journeyId)||null:null,depositUsd:request.referred||financedJourney.has(journeyId)?null:limit?deposit(limit):null,depositFinanced:!request.referred&&financedJourney.has(journeyId),kind:request.request_kind,createdAt:request.created_at,ago:since(request.created_at),referred:Boolean(request.referred),name:contact.display_name||phoneFor(request.contact_id)||'Cliente',phone:phoneFor(request.contact_id),referenceCode:vitrine.reference_code||'',journeyId,car:vehicleName(vehicle),startsAt:vehicle.startsAt||vehicle.saleDate||null,endsAt:vehicle.endsAt||null,ownerName:vitrine.customer_name||'cliente',ownerRef:vitrine.reference_code||''};});
   const requestsByCar=new Map();
   requests.forEach((request)=>requestsByCar.set(request.vitrine_car_id,true));
   const signals=[];

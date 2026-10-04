@@ -23,7 +23,7 @@ const Q = [
  ['pt','Preciso de licença?','license'],['pt','Como funciona?','how'],['pt','Quanto vocês cobram?','fees'],['pt','qual a taxa para 8 mil','fee'],['pt','O depósito é reembolsável?','deposit'],
  ['pt','Quanto custa o frete?','shipcost'],['pt','Vocês financiam?','finance'],['pt','Posso fazer test drive?','testdrive'],['pt','Quanto tempo demora?','time'],['pt','Vocês compram carro batido ou salvage?','title'],
  ['pt','É golpe?','trust'],['pt','Quero falar com uma pessoa','contact'],['pt','Onde vocês ficam?','where'],['pt','Tem garantia?','warranty'],['pt','Quanto custa um Porsche Macan?','price'],
- ['pt','Como eu recebo o carro?','receive'],['pt','Vocês tem estoque?','inventory'],['pt','Quais carros vocês têm?','inventory'],['pt','E se eu desistir depois do arremate?','backout'],
+ ['pt','Como eu recebo o carro?','receive'],['pt','Vocês tem estoque?','inventory'],['pt','Vocês vendem carro?','inventory'],['pt','tem algum civic ai?','inventory'],['es','¿Venden autos?','inventory'],['es','tienen un civic?','inventory'],['en','Do you sell cars?','inventory'],['en','how much is the deposit','depositAmount'],['pt','Tem garantia?','warranty'],['pt','Quais carros vocês têm?','inventory'],['pt','E se eu desistir depois do arremate?','backout'],
  ['es','¿Necesito licencia de dealer?','license'],['es','¿Cuánto cobran?','fees'],['es','¿El depósito es reembolsable?','deposit'],['es','¿Ofrecen financiamiento?','finance'],
  ['es','¿Cuánto cuesta el envío?','shipcost'],['es','¿Puedo hacer prueba de manejo?','testdrive'],['es','¿Cuánto tiempo tarda?','time'],['es','¿Hablan español?','language'],
  ['es','¿Es confiable?','trust'],['es','¿Y los impuestos y el registro?','taxes'],['es','¿Cómo funciona?','how'],['es','¿Qué pasa si no ganan el auto?','lose'],['es','¿Qué autos tienen en inventario?','inventory'],
@@ -98,4 +98,20 @@ test('no computador o Sold fica logo acima do WhatsApp, no mesmo eixo', async ({
   expect(box.gap).toBeGreaterThan(0);
   expect(box.gap).toBeLessThan(24);
   expect(box.axis).toBeLessThan(4);
+});
+
+test('depósito: o Sold calcula pela regra (10% / 15% / 20%, mínimo $500) e lembra do financiamento', async ({ page }) => {
+  await page.goto(base + '/index.html');
+  await page.waitForFunction(() => window.MCSSold);
+  await page.evaluate(() => window.MCSSold.open());
+  const ask = async (text) => { await page.fill('.sold-form input', text); await page.press('.sold-form input', 'Enter'); };
+  await ask('How much deposit for a $60,000 car?');
+  await expect(reply(page)).toContainText('the cash deposit is $9,000 (15%)');
+  await expect(reply(page)).toContainText('With financing, the deposit is reviewed case by case');
+  await ask('deposit for $4,000');
+  await expect(reply(page)).toContainText('$500');
+  await ask('120k');
+  await expect(reply(page)).toContainText('$24,000 (20%)');
+  await ask('how much is the deposit');
+  await expect(reply(page)).toContainText('10% of your maximum authorized bid up to $50,000');
 });

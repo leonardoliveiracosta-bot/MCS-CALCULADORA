@@ -24,7 +24,7 @@ const seed = [
 // The text the calculator builds (linkWhatsApp, English copy), ending with the Ref line.
 const calculatorText = (ref, name = 'Carla Dias') => ['EN · NOW · $6,000 · Dodge Challenger', '', 'Hello! I just ran a simulation on the My Car Scout calculator', '', `Name: ${name}`,
   'Vehicle: Dodge Challenger', 'ZIP code: 33101 — Miami, FL', 'Maximum bid: $6,000', 'Payment method: Cash', 'Planning to buy: Now', '',
-  'The figures shown in the calculator are an initial estimate based on the information,\nI provided and do not represent the final purchase amount', '',
+  'The figures shown in the calculator are an initial estimate based on the information I provided,\nand do not represent the final purchase amount', '',
   'Additional costs may apply depending on the conditions of the transaction\nThe applicable breakdown will be confirmed in writing before any purchase authorization', '',
   "I'd like to discuss this simulation", `Ref: ${ref}`].join('\n');
 
