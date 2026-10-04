@@ -4351,7 +4351,9 @@
     }
   }
 
-  async function importManheim(files) {
+  // append: acrescenta os arquivos ao lote ativo (os carros que ele ainda não tem), sem trocar o lote.
+  async function importManheim(files, options) {
+    const append = Boolean(options && options.append === true);
     const selected = files.filter((file) => /\.csv$/i.test(file.name));
     if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
     if (!window.MCSManheim || !window.MCSManheimUpload) throw manheimError('MANHEIM_READER_UNAVAILABLE');
@@ -4405,8 +4407,10 @@
       // in BUSCAS; the operator confirms before sending.
       const current = await request('/api/panel/manheim-batch').catch((failure) => { if (failure && failure.code === 'MANHEIM_MIGRATION_PENDING') throw failure; return { latest: null }; });
       const previousCount = Number(current.latest && current.latest.vehicleCount) || 0;
-      const smaller = uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
-      if (!uniqueCount || smaller) {
+      if (append && !current.latest) throw manheimError('MANHEIM_APPEND_NO_ACTIVE');
+      if (append && !uniqueCount) throw manheimError('MANHEIM_APPEND_EMPTY');
+      const smaller = !append && uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
+      if (!append && (!uniqueCount || smaller)) {
         status.textContent = 'Aguardando confirmação';
         const question = !uniqueCount ? 'Estes arquivos não têm nenhum carro · As combinações atuais de ENVIAR OPÇÕES serão substituídas' : `Este lote tem ${uniqueCount} carros e o anterior tinha ${previousCount}. As combinações atuais serão substituídas`;
         if (!(await askInline(status, question, 'Enviar mesmo assim'))) { status.textContent = 'Envio cancelado'; return; }
@@ -4415,15 +4419,16 @@
       // Manifest: per block, how many cars and the hash of its content. The same files chosen again
       // (after a failure or a reload) give the same key and the same manifest, and the batch continues.
       const manifest = await MCSManheimUpload.sealPlan(plan, sha256);
-      const clientKey = (await sha256(MCSManheimUpload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash])))).slice(0, 32);
+      // An append has its own key (and the active batch in it): the same files appended again later are a new append.
+      const clientKey = (await sha256((append ? 'append|' + current.latest.id + '|' : '') + MCSManheimUpload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash])))).slice(0, 32);
       const doneByFile = plan.map(() => 0);
-      status.textContent = `Enviando ${uniqueCount} carros de ${plan.length} arquivo${plan.length === 1 ? '' : 's'} como um lote…`;
+      status.textContent = append ? `Acrescentando ${uniqueCount} carros de ${plan.length} arquivo${plan.length === 1 ? '' : 's'} ao lote ativo…` : `Enviando ${uniqueCount} carros de ${plan.length} arquivo${plan.length === 1 ? '' : 's'} como um lote…`;
       const cancel = () => { manheimCancelRequested = true; };
       let uploadId = null;
       let result;
       try {
         result = await MCSManheimUpload.sendBatch({
-          plan, manifest, clientKey, vehicleCount: uniqueCount, headers: headerGroups, headerMap: { files: mappings }, request,
+          plan, manifest, clientKey, vehicleCount: uniqueCount, headers: headerGroups, headerMap: { files: mappings }, request, append,
           canceled: () => manheimCancelRequested,
           onProgress: (event) => {
             uploadId = event.uploadId;
@@ -4437,7 +4442,7 @@
           const id = failure.uploadId || uploadId;
           if (id) await request('/api/panel/manheim-batch', { method: 'POST', body: JSON.stringify({ action: 'cancel', uploadId: id }) }).catch(() => null);
           renderUploadProgress(null);
-          status.textContent = 'Importação cancelada · Nenhum carro deste lote entrou em ENVIAR OPÇÕES e o lote ativo não mudou';
+          status.textContent = append ? 'Acréscimo cancelado · Nenhum carro novo entrou e o lote ativo não mudou' : 'Importação cancelada · Nenhum carro deste lote entrou em ENVIAR OPÇÕES e o lote ativo não mudou';
           return;
         }
         throw failure;
@@ -4445,7 +4450,9 @@
       renderUploadProgress(null);
       const DISCARD_TEXT = result.discarded ? ` · ${result.discarded} descartada(s) porque a ficha mudou durante o envio` : '';
       const duplicatesText = deduped.duplicates ? ` · ${deduped.duplicates} repetido(s) entre arquivos` : '';
-      status.textContent = `Lote ativo · ${result.fileCount || plan.length} arquivo(s) · ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`;
+      status.textContent = result.appended
+        ? `Acrescentado ao lote ativo · ${result.added} carro(s) novo(s)${result.alreadyInBatch ? ` · ${result.alreadyInBatch} já estavam no lote` : ''} · lote agora com ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`
+        : `Lote ativo · ${result.fileCount || plan.length} arquivo(s) · ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`;
       renderImportSummary(ai, uniqueCount);
       if (ai.rowsSentToAi || ai.review.length) await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_summary', uploadId: result.uploadId, summary: aiSummary(ai) }) }).catch(() => null);
       if (requestPool) requestPool.invalidate();
@@ -4540,6 +4547,9 @@
   }
 
   const MANHEIM_FAILURE_MESSAGES = {
+    MANHEIM_APPEND_NO_ACTIVE: 'Não há lote ativo para acrescentar · Importe os arquivos pelo campo de cima, que cria o lote',
+    MANHEIM_APPEND_EMPTY: 'Estes arquivos não têm nenhum carro para acrescentar · O lote ativo não mudou',
+    MANHEIM_APPEND_TARGET_CHANGED: 'O lote ativo mudou enquanto os arquivos eram enviados (outro lote foi ativado ou ele foi desfeito) · Nada foi acrescentado · Selecione os arquivos de novo',
     MANHEIM_FILES_INVALID: 'Selecione de 1 a ' + MAX_FILES + ' arquivos .csv do Manheim (outros formatos não são aceitos)',
     MANHEIM_READER_UNAVAILABLE: 'O leitor de CSV não carregou · Atualize a página e tente novamente',
     MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido',
@@ -4674,7 +4684,8 @@
         throw manheimError('MANHEIM_COMPLEMENT_FILE_MISMATCH', { fileName: (latest.files[index] || latest.files[0]).name });
       }
       const manifestHash = variants[variant].manifestHash;
-      const clientKey = (await sha256(MCSManheimUpload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash])))).slice(0, 32);
+      // An append has its own key (and the active batch in it): the same files appended again later are a new append.
+      const clientKey = (await sha256((append ? 'append|' + current.latest.id + '|' : '') + MCSManheimUpload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash])))).slice(0, 32);
       const blocks = [];
       plan.forEach((file, fileIndex) => file.chunks.forEach((vehiclesOfChunk, chunkIndex) => blocks.push({ fileIndex, chunkIndex, vehicles: vehiclesOfChunk })));
       const keys = { uploadId: latest.id, clientKey, manifestHash };
@@ -5577,6 +5588,11 @@
     ['dragleave', 'drop'].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.remove('dragging'); }));
     zone.addEventListener('drop', (event) => importFiles([...event.dataTransfer.files]).catch(showImportFailure));
     $('manheim-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files).catch(showManheimFailure); });
+    // Acrescentar ao lote ativo: só os arquivos novos; o lote não troca.
+    if ($('manheim-append')) {
+      $('manheim-append').addEventListener('click', () => $('manheim-append-files').click());
+      $('manheim-append-files').addEventListener('change', (event) => { const files = [...event.target.files]; event.target.value = ''; importManheim(files, { append: true }).catch(showManheimFailure); });
+    }
     $('requests-compare').addEventListener('click', (event) => compareRequests(event.currentTarget).catch(() => {}));
     $('requests-history').addEventListener('click', (event) => openHistoryAudit(event.currentTarget).catch(() => {}));
     $('requests-history-pause').addEventListener('click', () => { historyPaused = true; $('requests-history-text').textContent = 'Pausando depois deste lote…'; });
