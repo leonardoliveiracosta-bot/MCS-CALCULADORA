@@ -84,7 +84,7 @@ for (const width of [1366, 390]) {
     // The options stay visible while the demand waits.
     await expect(carro.locator('.manheim-row')).toHaveCount(1);
     await expect(order.locator('.audit-block .badge')).toHaveText('Conferência pendente');
-    await expect(order).toContainText('A IA não respondeu · As opções continuam visíveis, sem aprovação automática');
+    await expect(order).toContainText('Tempo esgotado antes de terminar a conferência · Clique em "Conferir de novo" ou aprove com motivo');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(0);
     if (SHOTS) await carro.screenshot({ path: path.join(SHOTS, `buscas-conferencia-${width}.png`) });
@@ -99,7 +99,7 @@ test('tentar de novo, aprovação manual com motivo e autorização acima do lim
   await page.locator('#manheim-audit-note').getByRole('button', { name: 'Continuar conferência' }).click();
   await expect.poll(() => posts.filter((item) => item && item.action === 'authorize').length).toBe(1);
   const order = card(page, 'valor', 'Pedido Só Valor');
-  await order.getByRole('button', { name: 'Tentar de novo' }).click();
+  await order.getByRole('button', { name: 'Conferir de novo' }).click();
   await expect.poll(() => posts.filter((item) => item && item.action === 'retry' && item.key === 'ref:VAAA2:VALOR').length).toBe(1);
   const carro = card(page, 'carro', 'Cliente Dois Modos');
   await carro.getByRole('button', { name: 'Aprovar com motivo' }).click();
@@ -116,12 +116,12 @@ test('desligada: nenhum selo, nenhum bloqueio, V1 como antes', async ({ page }) 
   await expect(card(page, 'carro', 'Cliente Dois Modos').getByRole('button', { name: 'Gerar link V1' })).toBeEnabled();
 });
 
-test('Gerar link V1 numa demanda ainda não conferida: confere agora e tenta de novo; pendente sem nova tentativa fica bloqueada com o motivo', async ({ page }) => {
+test('Gerar link V1 numa demanda ainda não conferida: confere agora e tenta de novo; pendente fica bloqueada com o motivo e as saídas', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   const audit = { ...ON, byDemand: {
     ...ON.byDemand,
     [`journey:${JOURNEY}:CARRO`]: { status: 'SEM_SELECAO', label: 'Conferência começa ao selecionar carros', divergences: [], canApprove: false, canRetry: false },
-    [`journey:${JOURNEY}:VALOR`]: { status: 'PENDENTE', label: 'Conferência pendente', divergences: [], errorCode: 'AUDIT_DEADLINE', attempts: 4, canApprove: true, canRetry: false }
+    [`journey:${JOURNEY}:VALOR`]: { status: 'PENDENTE', label: 'Conferência pendente', divergences: [], errorCode: 'AUDIT_DEADLINE', attempts: 4, canApprove: true, canRetry: true }
   } };
   const posts = await open(page, 1366, audit);
   // The server answers "pending" until this demand's reading ran, then creates the link.
@@ -136,11 +136,39 @@ test('Gerar link V1 numa demanda ainda não conferida: confere agora e tenta de 
   await button.click();
   await expect(carro.locator('.manheim-card-status')).toContainText('Link V1 criado');
   expect(posts.filter((item) => item && item.action === 'check')).toEqual([{ action: 'check', key: `journey:${JOURNEY}:CARRO` }]);
-  // The pending one: reason on screen, no retry button, V1 disabled.
+  // The pending one: reason on screen, "Conferir de novo" and "Aprovar com motivo", V1 disabled.
   const valor = card(page, 'valor', 'Cliente Dois Modos');
-  await expect(valor).toContainText('Tempo esgotado antes de terminar a conferência (4 tentativas) · Sem nova tentativa: V1 bloqueada, aprove com motivo se conferir à mão');
-  await expect(valor.getByRole('button', { name: 'Tentar de novo' })).toHaveCount(0);
+  await expect(valor).toContainText('Tempo esgotado antes de terminar a conferência (4 tentativas) · Clique em "Conferir de novo" ou aprove com motivo');
+  await expect(valor.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
   await expect(valor.getByRole('button', { name: 'Aprovar com motivo' })).toBeVisible();
   await expect(valor.getByRole('button', { name: 'Gerar link V1' })).toBeDisabled();
+  expect(errors).toEqual([]);
+});
+
+test('V1 bloqueada pela conferência: o motivo e os botões aparecem no card na hora, sem atualizar a página', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  const audit = { ...ON, byDemand: { ...ON.byDemand, [`journey:${JOURNEY}:CARRO`]: { status: 'CONFERINDO', label: 'Conferindo', divergences: [], canApprove: false, canRetry: false } } };
+  await open(page, 1366, audit);
+  let loads = 0;
+  page.on('request', (request) => { if (request.url().includes('/api/panel/records')) loads += 1; });
+  const pending = { status: 'PENDENTE', label: 'Conferência pendente', divergences: [], errorCode: 'AUDIT_DEADLINE', attempts: 1, failures: 1, carCount: 2, canApprove: false, canRetry: true };
+  await page.route('**/api/panel/manheim-audit', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, pending: 1, entry: pending }) }));
+  await page.route('**/api/panel/vitrines', (route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'MANHEIM_AUDIT_PENDING' }) }));
+  const carro = card(page, 'carro', 'Cliente Dois Modos');
+  await carro.locator('.manheim-select').first().check();
+  await carro.getByRole('button', { name: 'Gerar link V1' }).click();
+  await expect(carro.locator('.manheim-card-status')).toContainText('V1 bloqueada: Tempo esgotado antes de terminar a conferência (1 tentativa) · Clique em "Conferir de novo"');
+  await expect(carro.locator('.manheim-card-status')).not.toContainText('Atualize a página');
+  await expect(carro.locator('.audit-block .badge')).toHaveText('Conferência pendente');
+  await expect(carro.locator('.audit-block')).toContainText('Conferência sobre 2 carros selecionados');
+  await expect(carro.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
+  await expect(carro.getByRole('button', { name: 'Aprovar com motivo' })).toHaveCount(0);
+  // Second failure: "Aprovar com motivo" appears, still without reloading the page.
+  await page.unroute('**/api/panel/manheim-audit');
+  await page.route('**/api/panel/manheim-audit', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, pending: 1, entry: { ...pending, attempts: 2, failures: 2, canApprove: true } }) }));
+  await carro.getByRole('button', { name: 'Conferir de novo' }).click();
+  await expect(carro.getByRole('button', { name: 'Aprovar com motivo' })).toBeVisible();
+  await expect(carro.locator('.audit-block')).toContainText('(2 tentativas) · Clique em "Conferir de novo" ou aprove com motivo');
+  expect(loads).toBe(0);
   expect(errors).toEqual([]);
 });

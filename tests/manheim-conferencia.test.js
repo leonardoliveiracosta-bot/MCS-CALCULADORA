@@ -158,11 +158,13 @@ test('fluxo: Conferindo, Conferido, Revisar; registro completo; mesma conferênc
   const again = await audit.runAudit(ctx, input(), { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls) });
   assert.equal(calls.length, 0);
   assert.equal(again.processed, 0);
-  // A new car for the CARRO demand: only that demand is read again, and the AI finds a divergence.
+  // A new car for the CARRO demand: only that demand is read again, only the new car is sent, and
+  // the AI finds a divergence.
   const withNew = input({ mutate: (value) => { value.matches.push({ ...car(6, J.carro, 'CARRO', 'BATE', { vin: 'VINCARRO000000006', year: 2021, make: 'Honda', model: 'CR-V', miles: 50000, mmrCents: 3000000 }), demandKey: carroKey }); return value; } });
-  const divergence = (payload) => ({ aprovado: false, divergencias: [{ opcao: payload.opcoes[1].id, codigo: 'MILES_OUT_OF_RANGE', motivo: 'Milhagem acima do limite.' }] });
+  const divergence = (payload) => ({ aprovado: false, divergencias: [{ opcao: payload.opcoes[0].id, codigo: 'MILES_OUT_OF_RANGE', motivo: 'Milhagem acima do limite.' }] });
   await audit.runAudit(ctx, withNew, { env: ENV, fetchImpl: fakeOpenAI(divergence, calls) });
   assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].payload.opcoes.map((option) => option.vin), ['VINCARRO000000006'], 'o carro já conferido não volta');
   const after = await audit.viewState(ctx, withNew, { env: ENV });
   assert.equal(after.byDemand[valorKey].status, 'CONFERIDO', 'as demais demandas aprovadas continuam utilizáveis');
   assert.equal(after.byDemand[carroKey].status, 'REVISAR');
@@ -183,9 +185,12 @@ test('falha da OpenAI: Conferência pendente, opções visíveis, novas tentativ
   const first = await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(timeout, calls) });
   assert.equal(first.pending, 1);
   let state = await audit.viewState(ctx, view, { env: ENV });
-  assert.deepEqual([state.byDemand[carroKey].status, state.byDemand[carroKey].label, state.byDemand[carroKey].canRetry, state.byDemand[carroKey].canApprove], ['PENDENTE', 'Conferência pendente', true, true]);
+  assert.deepEqual([state.byDemand[carroKey].status, state.byDemand[carroKey].label, state.byDemand[carroKey].canRetry, state.byDemand[carroKey].canApprove], ['PENDENTE', 'Conferência pendente', true, false], 'uma falha: só Conferir de novo');
   assert.equal(await audit.usable(state.byDemand[carroKey]), false, 'nada aprovado em silêncio');
+  await assert.rejects(audit.approve(ctx, view, carroKey, 'Conferi o carro no leilão', ACTOR), { code: 'AUDIT_RETRY_FIRST' });
   await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI({ status: 500 }, calls) });
+  state = await audit.viewState(ctx, view, { env: ENV });
+  assert.deepEqual([state.byDemand[carroKey].failures, state.byDemand[carroKey].canRetry, state.byDemand[carroKey].canApprove], [2, true, true], 'duas falhas: Aprovar com motivo aparece');
   await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI({ status: 503 }, calls) });
   await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls) });
   assert.equal(calls.length, 3, 'no máximo 3 tentativas automáticas');
@@ -194,13 +199,15 @@ test('falha da OpenAI: Conferência pendente, opções visíveis, novas tentativ
   await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), onlyKey: carroKey, manual: true });
   assert.equal(calls.length, 4);
   assert.equal((await statusOf(carroKey)).status, 'CONFERIDO');
-  // An invalid (paid) answer is final: no automatic retry, cost kept.
+  // An invalid (paid) answer is final: no automatic retry, cost kept; the button reads it again.
   const invalid = changed(8);
   await audit.runAudit(ctx, invalid, { env: ENV, fetchImpl: fakeOpenAI('não é json', calls) });
   await audit.runAudit(ctx, invalid, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls) });
   assert.equal(calls.length, 5);
+  await audit.runAudit(ctx, invalid, { env: ENV, fetchImpl: fakeOpenAI('não é json', calls), onlyKey: carroKey, manual: true });
+  assert.equal(calls.length, 6);
   const row = await statusOf(carroKey);
-  assert.deepEqual([row.status, row.error_code, Number(row.cost_usd) > 0], ['PENDENTE', 'OPENAI_RESPONSE_INVALID', true]);
+  assert.deepEqual([row.status, row.error_code, row.attempts, Number(row.cost_usd) > 0], ['PENDENTE', 'OPENAI_RESPONSE_INVALID', 2, true]);
   // Manual approval needs a reason and is recorded.
   await assert.rejects(audit.approve(ctx, invalid, carroKey, 'ok', ACTOR), { code: 'AUDIT_REASON_REQUIRED' });
   await audit.approve(ctx, invalid, carroKey, 'Conferi os dois carros no leilão', ACTOR);
@@ -267,24 +274,69 @@ test('nenhum dado real alterado: matches, fichas e contatos intactos; nenhuma re
 });
 
 // Correções da revisão independente.
-test('demanda ampla: conferida em blocos de até 100 opções e aprovada só se todos aprovarem', async () => {
+test('seleção grande: conferida em blocos de até 15 carros e aprovada só se todos aprovarem', async () => {
   const valorKey = `journey:${J.valor}:VALOR`;
   const wide = input({ mutate: (value) => {
-    for (let n = 0; n < 230; n += 1) value.matches.push({ ...car(3000 + n, J.valor, 'VALOR', 'POR_VALOR', { vin: 'VINWIDE' + String(n).padStart(6, '0'), year: 2021, make: 'Toyota', model: 'RAV4', miles: 30000 + n, mmrCents: 2800000 }), demandKey: valorKey });
+    value.demands[0].bidCents = 3050000;
+    for (let n = 0; n < 30; n += 1) value.matches.push({ ...car(3000 + n, J.valor, 'VALOR', 'POR_VALOR', { vin: 'VINWIDE' + String(n).padStart(6, '0'), year: 2021, make: 'Toyota', model: 'RAV4', miles: 30000 + n, mmrCents: 2800000 }), demandKey: valorKey });
     return value;
   } });
   const group = audit.buildGroups(wide).find((item) => item.key === valorKey);
-  assert.equal(group.options.length, 232);
+  assert.equal(group.options.length, 32);
   assert.deepEqual(group.divergences, [], 'muitas opções não viram divergência');
   const calls = [];
-  const second = (payload) => payload.opcoes[0].id === 'm101' ? { aprovado: false, divergencias: [{ opcao: 'm150', codigo: 'MMR_OUT_OF_RANGE', motivo: 'MMR fora da faixa' }] } : approveAll();
+  const second = (payload) => payload.opcoes[0].id === 'm16' ? { aprovado: false, divergencias: [{ opcao: 'm20', codigo: 'MMR_OUT_OF_RANGE', motivo: 'MMR fora da faixa' }] } : approveAll();
   await audit.runAudit(ctx, wide, { env: ENV, fetchImpl: fakeOpenAI(second, calls), onlyKey: valorKey });
-  assert.deepEqual(calls.map((entry) => entry.payload.opcoes.length), [100, 100, 32]);
+  assert.deepEqual(calls.map((entry) => entry.payload.opcoes.length), [15, 15, 2]);
   const state = await audit.viewState(ctx, wide, { env: ENV });
   assert.equal(state.byDemand[valorKey].status, 'REVISAR');
-  assert.deepEqual(state.byDemand[valorKey].divergences.map((item) => [item.code, item.matchId]), [['MMR_OUT_OF_RANGE', group.matches[149].id]]);
+  assert.deepEqual(state.byDemand[valorKey].divergences.map((item) => [item.code, item.matchId]), [['MMR_OUT_OF_RANGE', group.matches[19].id]]);
   const row = await statusOf(valorKey);
   assert.deepEqual([row.input_tokens, row.output_tokens], [1500, 240], 'tokens das três chamadas somados');
+});
+
+test('bloco com tempo esgotado: só ele é repetido; duas falhas mostram Aprovar com motivo', async () => {
+  const valorKey = `journey:${J.valor}:VALOR`;
+  const view = input({ mutate: (value) => {
+    value.demands[0].bidCents = 3060000;
+    for (let n = 0; n < 18; n += 1) value.matches.push({ ...car(4000 + n, J.valor, 'VALOR', 'POR_VALOR', { vin: 'VINBLOCK' + String(n).padStart(5, '0'), year: 2021, make: 'Toyota', model: 'RAV4', miles: 20000 + n, mmrCents: 2800000 }), demandKey: valorKey });
+    return value;
+  } });
+  const timeout = Object.assign(new Error('timeout'), { name: 'AbortError' });
+  const secondTimesOut = (payload) => payload.opcoes[0].id === 'm16' ? timeout : approveAll();
+  const calls = [];
+  await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(secondTimesOut, calls), onlyKey: valorKey });
+  assert.deepEqual(calls.map((entry) => entry.payload.opcoes.length), [15, 5]);
+  let state = await audit.viewState(ctx, view, { env: ENV });
+  assert.deepEqual([state.byDemand[valorKey].status, state.byDemand[valorKey].errorCode, state.byDemand[valorKey].canRetry, state.byDemand[valorKey].canApprove], ['PENDENTE', 'OPENAI_TIMEOUT', true, false]);
+  // The automatic retry sends only the block that timed out.
+  await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(timeout, calls), onlyKey: valorKey });
+  assert.deepEqual(calls.slice(2).map((entry) => entry.payload.opcoes.map((option) => option.id)), [['m16', 'm17', 'm18', 'm19', 'm20']]);
+  state = await audit.viewState(ctx, view, { env: ENV });
+  assert.deepEqual([state.byDemand[valorKey].status, state.byDemand[valorKey].failures, state.byDemand[valorKey].canRetry, state.byDemand[valorKey].canApprove], ['PENDENTE', 2, true, true]);
+  // "Conferir de novo" works and again sends only that block.
+  await audit.runAudit(ctx, view, { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), onlyKey: valorKey, manual: true });
+  assert.equal(calls.at(-1).payload.opcoes.length, 5);
+  assert.equal((await audit.viewState(ctx, view, { env: ENV })).byDemand[valorKey].status, 'CONFERIDO');
+});
+
+test('seleção alterada depois de conferida: só os carros novos são conferidos; carro tirado não pede chamada', async () => {
+  const carroKey = `journey:${J.carro}:CARRO`;
+  const extra = (n) => ({ ...car(5000 + n, J.carro, 'CARRO', 'BATE', { vin: 'VINSEL' + String(n).padStart(11, '0'), year: 2021, make: 'Honda', model: 'CR-V', miles: 20000 + n, mmrCents: 3000000 }), demandKey: carroKey });
+  const withCars = (list) => input({ mutate: (value) => { value.demands[1].activeWishes = [{ ...carroWish, maxMiles: 59000 }]; value.matches.push(...list.map(extra)); return value; } });
+  const calls = [];
+  await audit.runAudit(ctx, withCars([1, 2, 3]), { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), onlyKey: carroKey });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].payload.opcoes.length, 4);
+  // Two new cars, one removed: only the two new ones are sent.
+  await audit.runAudit(ctx, withCars([2, 3, 4, 5]), { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), onlyKey: carroKey });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].payload.opcoes.map((option) => option.vin).sort(), ['VINSEL00000000004', 'VINSEL00000000005']);
+  // Only removing cars: no call at all, and the demand is still conferida.
+  const result = await audit.runAudit(ctx, withCars([2, 5]), { env: ENV, fetchImpl: fakeOpenAI(approveAll, calls), onlyKey: carroKey });
+  assert.equal(calls.length, 2);
+  assert.equal(result.approved, 1);
+  assert.equal((await audit.viewState(ctx, withCars([2, 5]), { env: ENV })).byDemand[carroKey].status, 'CONFERIDO');
 });
 
 test('match histórico sem modo vai para Revisar; fato mudou, demanda relida; duplicata aprovável com motivo, fato duro não', async () => {

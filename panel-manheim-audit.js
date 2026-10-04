@@ -5,6 +5,10 @@
 // do CSV, a triagem da ENTRADA nem as funções da Anthropic.
 //
 // Regras fixas deste módulo:
+//  * Só os carros SELECIONADOS para o cliente (os que vão na V1/V2), um por VIN, nunca o pedido
+//    inteiro. Em blocos de até 15 carros por chamada; o resultado de cada carro fica guardado
+//    (car_results) e é reaproveitado: um bloco que estoura o tempo repete só ele, e uma seleção
+//    alterada confere só os carros novos ou alterados (mesmo hash do carro e mesma versão da regra).
 //  * Uma conferência por demanda (pessoa + modo) do lote ativo. Primeiro o servidor checa os fatos
 //    (ficha encerrada, contato não-lead, registro de teste, lote desfeito, match sem modo, VIN ou
 //    linha repetida, demanda incompleta e a própria regra VALOR ou CARRO). Com divergência local a
@@ -17,8 +21,9 @@
 //  * Até o saldo pré-pago da OpenAI (todas as funções juntas), reservado no banco
 //    antes de cada chamada (panel_manheim_audit_budget_hold). Acima dele nada é chamado. O mesmo
 //    lote, demanda, critérios, matches e versão da regra nunca são cobrados duas vezes (hash único no banco, com a linha reservada antes da chamada).
-//  * Falha, tempo esgotado ou resposta inválida: "Conferência pendente". Nada é aprovado em
-//    silêncio; dá para tentar de novo ou aprovar à mão com motivo registrado.
+//  * Falha, tempo esgotado ou resposta inválida: "Conferência pendente", com o motivo no card.
+//    Nada é aprovado em silêncio; "Conferir de novo" fica sempre disponível e, depois de 2 falhas
+//    técnicas, também "Aprovar com motivo".
 //  * Com a função desligada nada muda: V1 e V2 seguem como antes.
 
 const crypto = require('node:crypto');
@@ -32,14 +37,16 @@ const { modelsMatch } = require('./vehicle-catalog');
 const { PRICES } = require('./panel-triage');
 const aiClaim = require('./panel-ai-claim');
 
-const RULE_VERSION = 'conferencia-v3.4';
+const RULE_VERSION = 'conferencia-v3.5';
 const DEFAULT_MODEL = 'gpt-6-luna';
 const APPROVED_MODELS = Object.freeze(['gpt-6-luna']);
 // No limit per import and no "waiting for authorization": the only limit is the OpenAI prepaid
 // balance, checked per call by panel-openai-budget (reservation of the worst case).
 const MAX_ATTEMPTS = 3;
-// Options per call; a broad demand (hundreds of cars) is checked in several calls.
-const CHUNK_OPTIONS = 100;
+// Cars per call: the selection is small (up to 10), but a larger one is split into blocks.
+const CHUNK_OPTIONS = 15;
+// Technical failures after which the operator may approve a pending reading by hand.
+const APPROVE_AFTER_FAILURES = 2;
 const MAX_OPTIONS = 1000;
 const TIMEOUT_MS = 25000;
 const STALE_CLAIM_MS = 5 * 60 * 1000;
@@ -47,17 +54,20 @@ const OK = Object.freeze(['CONFERIDO', 'APROVADO_MANUAL']);
 const FINAL_ERRORS = new Set(['OPENAI_RESPONSE_INVALID']);
 // No room in the OpenAI prepaid balance: nothing was called, so it never uses up an attempt.
 const BUDGET_ERRORS = new Set(['OPENAI_BUDGET_LIMIT', 'OPENAI_BUDGET_UNAVAILABLE']);
-// At most one attempt beyond the 3 automatic ones, and then never again (manual retry included):
-// automatic for a reading cut by the function's deadline, by the button for the other failures. The
-// demand stays blocked with the reason shown; only a manual approval with a reason releases it.
+// Automatic: up to 3 attempts, one more for a reading cut by the function's deadline. The button
+// ("Conferir de novo") is never refused: a pending demand always has a way out.
 const DEADLINE_ATTEMPTS = MAX_ATTEMPTS + 1;
 function retryAllowed(row, manual = false) {
   if (!row || row.status !== 'PENDENTE') return false;
-  if (BUDGET_ERRORS.has(row.error_code)) return true;
+  if (BUDGET_ERRORS.has(row.error_code) || manual) return true;
   if (row.attempts >= DEADLINE_ATTEMPTS) return false;
   if (row.error_code === 'AUDIT_DEADLINE') return true;
-  return manual || (!FINAL_ERRORS.has(row.error_code) && row.attempts < MAX_ATTEMPTS);
+  return !FINAL_ERRORS.has(row.error_code) && row.attempts < MAX_ATTEMPTS;
 }
+// A pending reading may be approved by hand after 2 technical failures (or with no OpenAI balance,
+// when nothing can be read at all).
+const failuresOf = (row) => row && row.status === 'PENDENTE' && !BUDGET_ERRORS.has(row.error_code) ? Number(row.attempts) || 0 : 0;
+const pendingApprovable = (row) => Boolean(row && row.status === 'PENDENTE' && (BUDGET_ERRORS.has(row.error_code) || failuresOf(row) >= APPROVE_AFTER_FAILURES));
 // Facts found by the server that no manual approval can override. The others (a repeated VIN or row
 // from overlapping CSV splits, too many options) can be approved by hand with a reason.
 const HARD_CODES = new Set(['MAKE_MODEL', 'DEMAND_MISSING', 'DEMAND_INCOMPLETE', 'MODE_MISSING', 'OTHER_MODE_MATCH', 'PERSON_MISMATCH', 'JOURNEY_CLOSED', 'NOT_LEAD', 'TEST_RECORD', 'BATCH_UNDONE', 'CRITERIA_MISMATCH', 'BID_IS_CEILING', 'MMR_MISSING', 'ODOMETER_UNKNOWN']);
@@ -139,6 +149,13 @@ function contentHash(group) {
   // The server's own findings are part of the content: when a fact changes, the demand is read again.
   const facts = group.divergences.map((item) => item.code + ':' + item.option).sort();
   const body = [RULE_VERSION, group.uploadId, group.key, group.mode || '', JSON.stringify(group.criteria), JSON.stringify(group.options.map((option, index) => [group.matches[index].id, group.matches[index].row_fingerprint || '', option])), JSON.stringify(facts)].join('\u001f');
+  return crypto.createHash('sha256').update(body).digest('hex');
+}
+// One car of the demand: the same car, criteria and rule version are never read twice.
+function carHash(group, index) {
+  const { id: _option, ...option } = group.options[index];
+  const match = group.matches[index] || {};
+  const body = [RULE_VERSION, group.uploadId, group.key, group.mode || '', JSON.stringify(group.criteria), match.id || '', match.row_fingerprint || '', JSON.stringify(option)].join('\u001f');
   return crypto.createHash('sha256').update(body).digest('hex');
 }
 
@@ -228,17 +245,20 @@ const INSTRUCTIONS = [
   'aprovado: true só quando todas as opções cumprem a regra do modo. Cada divergência traz a opção (id, ou vazio para a demanda inteira), o código e um motivo curto em português, sem ponto final.'
 ].join('\n');
 
-const chunksOf = (group) => {
+const chunksOf = (group, options = group.options) => {
   const chunks = [];
-  for (let index = 0; index < group.options.length; index += CHUNK_OPTIONS) chunks.push(group.options.slice(index, index + CHUNK_OPTIONS));
+  for (let index = 0; index < options.length; index += CHUNK_OPTIONS) chunks.push(options.slice(index, index + CHUNK_OPTIONS));
   return chunks.length ? chunks : [[]];
 };
+// Cars of the group still without a stored verdict (known: carHash -> result).
+const unreadOptions = (group, known = {}) => group.options.filter((_, index) => !known[carHash(group, index)]);
 function payloadOf(group, options = group.options) {
   return { versao_regra: RULE_VERSION, demanda: group.demand && group.demand.ref ? 'Ref ' + group.demand.ref : 'ficha ' + String(group.journeyId || '').slice(0, 8), modo: group.mode, criterios: group.criteria, opcoes: options };
 }
-function estimateGroup(group, modelId = DEFAULT_MODEL) {
+function estimateGroup(group, modelId = DEFAULT_MODEL, options = group.options) {
   let input = 0, output = 0;
-  chunksOf(group).forEach((chunk) => {
+  if (!options.length) return { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  chunksOf(group, options).forEach((chunk) => {
     input += Math.ceil(INSTRUCTIONS.length / 4) + 150 + Math.ceil(JSON.stringify(payloadOf(group, chunk)).length / 3);
     output += 60 + chunk.length * 12;
   });
@@ -291,23 +311,46 @@ async function callChunk(group, chunk, options) {
   } });
 }
 
-// One demand, in calls of up to 100 options. Approved only when every call approves. A failure
-// keeps what was already paid on the record (failure.spent).
+// One demand, in blocks of up to 15 cars. Cars with a stored verdict (options.known) are not sent
+// again. Approved only when every car is approved. A failure keeps what was already paid and the
+// verdicts of the blocks already read on the record (failure.spent), so a retry sends only the rest.
 async function callOpenAI(group, options = {}) {
   const modelId = model(options.env || process.env);
-  const total = { model: modelId, inputTokens: 0, outputTokens: 0, costUsd: 0, divergences: [], status: 'CONFERIDO', errorCode: null };
-  for (const chunk of chunksOf(group)) {
+  const known = options.known || {};
+  const total = { model: modelId, inputTokens: 0, outputTokens: 0, costUsd: 0, divergences: [], status: 'CONFERIDO', errorCode: null, carResults: {}, sent: 0, reused: 0 };
+  const hashes = group.options.map((_, index) => carHash(group, index));
+  const indexOf = (option) => Number(option.slice(1)) - 1;
+  const todo = group.options.filter((_, index) => !known[hashes[index]]);
+  total.reused = group.options.length - todo.length;
+  const demandWide = [];
+  for (const chunk of todo.length ? chunksOf(group, todo) : []) {
     if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) {
       const failure = new Error('AUDIT_DEADLINE'); failure.code = 'AUDIT_DEADLINE'; failure.spent = total; throw failure;
     }
     let answer;
     try { answer = await callChunk(group, chunk, options); } catch (failure) { failure.spent = total; throw failure; }
-    total.inputTokens += answer.inputTokens; total.outputTokens += answer.outputTokens; total.costUsd += answer.costUsd;
+    total.inputTokens += answer.inputTokens; total.outputTokens += answer.outputTokens; total.costUsd += answer.costUsd; total.sent += chunk.length;
     if (answer.errorCode) { total.errorCode = answer.errorCode; total.status = null; break; }
-    total.divergences.push(...answer.divergences);
-    if (answer.status !== 'CONFERIDO') total.status = 'REVISAR';
+    const wide = answer.divergences.filter((item) => !item.option);
+    demandWide.push(...wide);
+    // A finding about the whole demand is not a verdict on each car: those cars are not kept.
+    if (!wide.length) chunk.forEach((option) => {
+      const own = answer.divergences.filter((item) => item.option === option.id).map(({ code, text, source }) => ({ code, text, source }));
+      total.carResults[hashes[indexOf(option.id)]] = { status: own.length ? 'REVISAR' : 'CONFERIDO', divergences: own };
+    });
+    else chunk.forEach((option) => { answer.divergences.filter((item) => item.option === option.id).forEach((item) => total.divergences.push(item)); });
   }
   total.costUsd = Math.round(total.costUsd * 1e6) / 1e6;
+  if (total.errorCode) return total;
+  // The verdict of the demand: every car, read now or before, in the order of the options.
+  const perCar = [];
+  group.options.forEach((option, index) => {
+    const result = total.carResults[hashes[index]] || known[hashes[index]];
+    if (!result) return;
+    (result.divergences || []).forEach((item) => perCar.push({ code: item.code, option: option.id, matchId: (group.matches[index] || {}).id || null, text: item.text, source: item.source || 'OPENAI' }));
+  });
+  total.divergences = [...perCar, ...total.divergences, ...demandWide];
+  total.status = total.divergences.length ? 'REVISAR' : 'CONFERIDO';
   return total;
 }
 
@@ -315,7 +358,13 @@ async function callOpenAI(group, options = {}) {
 const env = (ctx) => 'eq.' + ctx.environment;
 async function auditRows(ctx, uploadId, read = rows) {
   if (!uploadId) return [];
-  return read(ctx, 'manheim_match_audits', { select: 'id,upload_id,journey_id,logical_mode,demand_key,content_hash,status,divergences,reason,error_code,attempts,approved_reason,approved_at,provider,model,cost_usd,updated_at,created_at', environment: env(ctx), upload_id: 'eq.' + uploadId, order: 'created_at.asc' });
+  return read(ctx, 'manheim_match_audits', { select: 'id,upload_id,journey_id,logical_mode,demand_key,content_hash,status,divergences,reason,error_code,attempts,approved_reason,approved_at,provider,model,cost_usd,car_results,updated_at,created_at', environment: env(ctx), upload_id: 'eq.' + uploadId, order: 'created_at.asc' });
+}
+// Verdicts per car already paid for in this batch (any reading, finished or cut in the middle).
+function knownCars(stored) {
+  const known = {};
+  (stored || []).forEach((row) => { if (row && row.car_results && typeof row.car_results === 'object') Object.assign(known, row.car_results); });
+  return known;
 }
 // Real spending of the batch: the sum of what every reading of it cost (never a counter that
 // concurrent runs could overwrite). Read again before each paid call.
@@ -383,15 +432,17 @@ async function viewState(ctx, input, options = {}) {
   const byHash = new Map(stored.map((row) => [row.content_hash, row]));
   const byDemand = {};
   let estimate = 0;
+  const known = knownCars(stored);
   groups.forEach((group) => {
     // The hash carries the server's findings, so a stored row always matches today's facts.
     const row = byHash.get(group.hash);
-    if (!row && !group.divergences.length) estimate += estimateGroup(group).costUsd;
+    if (!row && !group.divergences.length) estimate += estimateGroup(group, DEFAULT_MODEL, unreadOptions(group, known)).costUsd;
     const statusCode = row ? row.status : group.divergences.length ? 'REVISAR' : run && run.status === 'AGUARDANDO_AUTORIZACAO' ? 'AGUARDANDO_AUTORIZACAO' : 'CONFERINDO';
     const divergences = row && row.status !== 'CONFERINDO' ? row.divergences || [] : group.divergences;
-    byDemand[group.key] = { status: statusCode, label: LABELS[statusCode], divergences, errorCode: row && row.error_code || null, approvedReason: row && row.approved_reason || null, auditId: row && row.id || null,
-      canApprove: ['PENDENTE', 'REVISAR', 'AGUARDANDO_AUTORIZACAO'].includes(statusCode) && !hardDivergence(group.divergences), canRetry: statusCode === 'PENDENTE' && retryAllowed(row, true),
-      attempts: row && row.attempts || 0 };
+    const approvable = statusCode === 'PENDENTE' ? pendingApprovable(row) : ['REVISAR', 'AGUARDANDO_AUTORIZACAO'].includes(statusCode);
+    byDemand[group.key] = { status: statusCode, label: LABELS[statusCode], divergences, errorCode: row && row.error_code || null, reason: row && row.reason || null, approvedReason: row && row.approved_reason || null, auditId: row && row.id || null,
+      canApprove: approvable && !hardDivergence(group.divergences), canRetry: statusCode === 'PENDENTE' && retryAllowed(row, true),
+      attempts: row && row.attempts || 0, failures: failuresOf(row), carCount: group.options.length };
   });
   // Demands outside the audit (no car selected for the customer yet): nothing is read for them; the
   // last reading, when there is one, is shown with its reason. A V1 needs selected cars anyway.
@@ -448,11 +499,11 @@ async function runAudit(ctx, input, options = {}) {
   const state = status(envValues);
   if (state !== 'LIGADA') return { skipped: state, processed: 0 };
   if (!input.upload || input.upload.undone_at) return { skipped: 'SEM_LOTE_ATIVO', processed: 0 };
-  await releaseVinReviews(ctx,input);
   const groups = buildGroups(input).filter((group) => !options.onlyKey || group.key === options.onlyKey);
   const stored = await auditRows(ctx, input.upload.id);
   const byHash = new Map(stored.map((row) => [row.content_hash, row]));
-  const result = { processed: 0, approved: 0, review: 0, pending: 0, costUsd: 0, deferred: 0, inProgress: 0 };
+  const known = knownCars(stored);
+  const result = { processed: 0, approved: 0, review: 0, pending: 0, costUsd: 0, deferred: 0, inProgress: 0, carsSent: 0, carsReused: 0 };
   const claims = options.claims || aiClaim;
   // Facts found here: REVISAR at once, no call.
   for (const group of groups.filter((item) => item.divergences.length && !byHash.has(item.hash))) {
@@ -470,7 +521,20 @@ async function runAudit(ctx, input, options = {}) {
   });
   if (!pending.length) return result;
   const modelId = model(envValues);
-  const estimate = Math.round(pending.reduce((sum, group) => sum + estimateGroup(group, modelId).costUsd, 0) * 1e6) / 1e6;
+  // Every car of the demand already read (selection reduced, or a retry after the blocks that were
+  // read): the verdict comes from the stored cars, with no call and no cost.
+  for (const group of pending.filter((item) => !unreadOptions(item, known).length)) {
+    const row = await claim(ctx, group, byHash.get(group.hash), options.manual).catch(() => null);
+    if (!row) { result.inProgress += 1; continue; }
+    const answer = await callOpenAI(group, { env: envValues, known });
+    await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + row.id, status: 'eq.CONFERINDO' }, { status: answer.status, divergences: answer.divergences, error_code: null, reason: answer.status === 'CONFERIDO' ? 'Conferido pela IA (carros já conferidos)' : 'Divergência apontada pela IA', updated_at: new Date().toISOString() }, true);
+    result.processed += 1; result.carsReused += answer.reused;
+    if (answer.status === 'CONFERIDO') result.approved += 1; else result.review += 1;
+  }
+  const toRead = pending.filter((group) => unreadOptions(group, known).length);
+  if (!toRead.length) return result;
+  const estimateOf = (group) => estimateGroup(group, modelId, unreadOptions(group, known));
+  const estimate = Math.round(toRead.reduce((sum, group) => sum + estimateOf(group).costUsd, 0) * 1e6) / 1e6;
   const run = await ensureRun(ctx, input.upload.id, estimate);
   // The OpenAI prepaid balance for all the panel's features together (panel-openai-budget).
   const budget = options.budget || openAiBudget;
@@ -478,15 +542,15 @@ async function runAudit(ctx, input, options = {}) {
   // The minimal model test (no customer data) must have passed before the first real reading.
   const check = await (options.modelCheck || modelCheck.ensureModelChecked)(ctx, modelId);
   if (!check.ok) return { ...result, stoppedReason: 'MODEL_NOT_CHECKED', error: check.error };
-  for (const group of pending) {
+  for (const group of toRead) {
     if (options.deadlineAt && Date.now() + TIMEOUT_MS + 5000 > options.deadlineAt) { result.deferred += 1; continue; }
-    if (!budget.fits(provider, Math.max(estimateGroup(group, modelId).costUsd * 2, budget.MAX_CALL_USD), result.costUsd)) { result.providerLimit = true; result.deferred += 1; continue; }
+    if (!budget.fits(provider, Math.max(estimateOf(group).costUsd * 2, budget.MAX_CALL_USD), result.costUsd)) { result.providerLimit = true; result.deferred += 1; continue; }
     // Atomic reservation first (upload trigger, cron and button at the same time): only the winner calls.
     const task = await claims.claimTask(ctx, { kind: 'MANHEIM_MATCH_AUDIT', subject: group.key, hash: group.hash, rule: RULE_VERSION });
     if (!task.claimed) { result.inProgress += 1; continue; }
     // Then the batch budget, atomically per upload: two demands at the same time never pass the
     // remaining limit together. Twice the estimate is held, so the real cost never crosses the cap.
-    const hold = await holdBudget(ctx, input.upload.id, group.key, Math.max(estimateGroup(group, modelId).costUsd * 2, 0.000001), null);
+    const hold = await holdBudget(ctx, input.upload.id, group.key, Math.max(estimateOf(group).costUsd * 2, 0.000001), null);
     if (!hold.held) {
       await claims.finishTask(ctx, task, false).catch(() => null);
       result.awaitingAuthorization = true;
@@ -498,13 +562,15 @@ async function runAudit(ctx, input, options = {}) {
     let patch, paid, budgetStop = false;
     const guard = budget.guard ? budget.guard(ctx, 'MANHEIM_AUDIT', group.key, options.budgetServices) : null;
     try {
-      const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl, deadlineAt: options.deadlineAt, guard });
+      const answer = await callOpenAI(group, { env: envValues, fetchImpl: options.fetchImpl, deadlineAt: options.deadlineAt, guard, known });
       paid = answer;
+      result.carsSent += answer.sent; result.carsReused += answer.reused;
       patch = answer.errorCode
         ? { status: 'PENDENTE', error_code: answer.errorCode, reason: 'Resposta da IA inválida' }
         : { status: answer.status, divergences: answer.divergences, error_code: null, reason: answer.status === 'CONFERIDO' ? 'Conferido pela IA' : 'Divergência apontada pela IA' };
     } catch (failure) {
       paid = failure && failure.spent || null;
+      if (paid) { result.carsSent += paid.sent; }
       const code = failure && failure.code || 'OPENAI_FAILED';
       // A budget refusal called nothing: the row goes back to what it was (same error, same
       // attempts), so a reading cut by the deadline keeps its count and its reason.
@@ -512,10 +578,12 @@ async function runAudit(ctx, input, options = {}) {
       patch = BUDGET_ERRORS.has(code) ? (before && before.status === 'PENDENTE'
         ? { status: 'PENDENTE', error_code: before.error_code, attempts: before.attempts, reason: 'Sem saldo pré-pago na OpenAI' }
         : { status: 'PENDENTE', error_code: code, attempts: Math.max(1, Number(before && before.attempts || 1)), reason: 'Sem saldo pré-pago na OpenAI' })
-        : { status: 'PENDENTE', error_code: code, reason: code === 'AUDIT_DEADLINE' ? 'Tempo esgotado antes de terminar a conferência' : 'IA indisponível' };
+        : { status: 'PENDENTE', error_code: code, reason: code === 'AUDIT_DEADLINE' || code === 'OPENAI_TIMEOUT' ? 'Tempo esgotado antes de terminar a conferência' : 'IA indisponível' };
       if (BUDGET_ERRORS.has(code)) { result.providerLimit = true; budgetStop = true; }
     }
-    const cost = paid ? { input_tokens: (Number(row.input_tokens) || 0) + paid.inputTokens, output_tokens: (Number(row.output_tokens) || 0) + paid.outputTokens, cost_usd: Math.round(((Number(row.cost_usd) || 0) + paid.costUsd) * 1e6) / 1e6 } : {};
+    // The cars of the blocks already read stay on the row (also when a later block failed).
+    const carResults = paid && paid.carResults && Object.keys(paid.carResults).length ? { car_results: { ...(row.car_results || {}), ...paid.carResults } } : {};
+    const cost = paid ? { input_tokens: (Number(row.input_tokens) || 0) + paid.inputTokens, output_tokens: (Number(row.output_tokens) || 0) + paid.outputTokens, cost_usd: Math.round(((Number(row.cost_usd) || 0) + paid.costUsd) * 1e6) / 1e6, ...carResults } : {};
     result.costUsd += paid ? paid.costUsd : 0;
     const at = new Date().toISOString();
     try {
@@ -565,6 +633,8 @@ async function approve(ctx, input, key, reason, actorId) {
   if (hardDivergence(group.divergences)) { const failure = new Error('AUDIT_LOCAL_DIVERGENCE'); failure.code = 'AUDIT_LOCAL_DIVERGENCE'; throw failure; }
   const existing = (await auditRows(ctx, group.uploadId)).find((row) => row.content_hash === group.hash);
   if (existing && existing.status === 'CONFERINDO' && Date.parse(existing.updated_at || 0) >= Date.now() - STALE_CLAIM_MS) { const failure = new Error('AUDIT_IN_PROGRESS'); failure.code = 'AUDIT_IN_PROGRESS'; throw failure; }
+  // A technical failure is retried first ("Conferir de novo"); after 2 the operator may approve.
+  if (existing && existing.status === 'PENDENTE' && !pendingApprovable(existing)) { const failure = new Error('AUDIT_RETRY_FIRST'); failure.code = 'AUDIT_RETRY_FIRST'; throw failure; }
   const at = new Date().toISOString();
   const patch = { status: 'APROVADO_MANUAL', approved_by: actorId, approved_reason: text, approved_at: at, updated_at: at };
   if (existing) await patchRows(ctx, 'manheim_match_audits', { environment: env(ctx), id: 'eq.' + existing.id }, patch);
@@ -573,6 +643,6 @@ async function approve(ctx, input, key, reason, actorId) {
 }
 
 module.exports = {
-  RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS, DEADLINE_ATTEMPTS, retryAllowed,
-  model, status, buildGroups, payloadOf, estimateGroup, validated, callOpenAI, viewState, usable, heldFor, runAudit, authorize, approve, auditRows, releaseVinReviews
+  RULE_VERSION, APPROVED_MODELS, DEFAULT_MODEL, CODES, LABELS, INSTRUCTIONS, MAX_ATTEMPTS, DEADLINE_ATTEMPTS, CHUNK_OPTIONS, APPROVE_AFTER_FAILURES, retryAllowed,
+  model, status, buildGroups, carHash, payloadOf, estimateGroup, validated, callOpenAI, viewState, usable, heldFor, runAudit, authorize, approve, auditRows, releaseVinReviews
 };

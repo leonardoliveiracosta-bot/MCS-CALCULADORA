@@ -2931,12 +2931,29 @@
   // to check this demand first; the server still decides.
   const AUDIT_CHECK_FIRST=['CONFERINDO','SEM_SELECAO'];
   const auditCanTry=(demand)=>auditAllows(demand)||AUDIT_CHECK_FIRST.includes(auditEntry(demand).status);
-  // Why a reading is pending, in words (never a bare code).
+  // Why a reading is pending, in words (never a bare code), and the way out.
   function auditPendingText(entry){
-    const code=entry?.errorCode;
-    if(code==='OPENAI_BUDGET_LIMIT'||code==='OPENAI_BUDGET_UNAVAILABLE')return 'Sem saldo pré-pago na OpenAI para esta leitura · Nada foi cobrado';
-    if(code==='AUDIT_DEADLINE')return `Tempo esgotado antes de terminar a conferência (${entry.attempts||0} ${entry.attempts===1?'tentativa':'tentativas'})`+(entry.canRetry?'':' · Sem nova tentativa: V1 bloqueada, aprove com motivo se conferir à mão');
-    return 'A IA não respondeu · As opções continuam visíveis, sem aprovação automática';
+    const code=entry?.errorCode,tries=entry?.attempts||0;
+    const way=entry?.canApprove?' · Clique em "Conferir de novo" ou aprove com motivo':' · Clique em "Conferir de novo"';
+    if(code==='OPENAI_BUDGET_LIMIT'||code==='OPENAI_BUDGET_UNAVAILABLE')return 'Sem saldo pré-pago na OpenAI para esta leitura · Nada foi cobrado'+way;
+    const count=tries?` (${tries} ${tries===1?'tentativa':'tentativas'})`:'';
+    if(code==='AUDIT_DEADLINE'||code==='OPENAI_TIMEOUT')return 'Tempo esgotado antes de terminar a conferência'+count+way;
+    if(code==='OPENAI_RESPONSE_INVALID')return 'A IA respondeu fora do formato'+count+way;
+    return 'A IA não respondeu'+count+way;
+  }
+  // Why the V1 is still held, for the card status (the block below carries the buttons).
+  function auditHeldText(entry){
+    if(entry?.status==='PENDENTE')return 'V1 bloqueada: '+auditPendingText(entry);
+    if(entry?.status==='REVISAR')return 'V1 bloqueada: a conferência apontou divergência nos carros selecionados · Veja abaixo';
+    if(entry?.status==='SEM_SELECAO')return 'V1 bloqueada: nenhum carro selecionado chegou à conferência · Recarregue as opções e selecione de novo';
+    return 'V1 bloqueada: a conferência ainda não terminou · Use "Conferir de novo" abaixo';
+  }
+  // The answer of check/retry/approve carries the new state of the demand: the card is redrawn now.
+  function applyAuditEntry(demand,result,from){
+    if(!demand||!result?.entry||!manheimData?.audit?.byDemand)return false;
+    manheimData.audit.byDemand[demand.key]=result.entry;
+    if(from)from.dispatchEvent(new CustomEvent('audit-changed',{bubbles:true}));
+    return true;
   }
   const AUDIT_TONES={CONFERIDO:'green',APROVADO_MANUAL:'green',REVISAR:'red'};
   function auditBlock(demand,matches){
@@ -2945,12 +2962,14 @@
     box.append(makeBadge(entry.label||entry.status,AUDIT_TONES[entry.status]||'yellow'));
     const carName=(matchId)=>{const parsed=(matches||[]).find((match)=>match.id===matchId)?.vehicle_json?.parsed;return parsed?[parsed.year,parsed.make,parsed.model].filter(Boolean).join(' ')+(parsed.vin?` · VIN final ${String(parsed.vin).slice(-6)}`:''):'';};
     (entry.divergences||[]).slice(0,8).forEach((item)=>{const car=carName(item.matchId);box.append(element('p','audit-divergence',car?`${car}: ${item.text}`:item.text));});
+    if(entry.carCount)box.append(element('p','muted',`Conferência sobre ${entry.carCount} ${entry.carCount===1?'carro selecionado':'carros selecionados'}`));
     if(entry.status==='PENDENTE')box.append(element('p','muted',auditPendingText(entry)));
     if(entry.status==='SEM_SELECAO'&&entry.lastStatus==='PENDENTE')box.append(element('p','muted','Última conferência: '+auditPendingText(entry)));
     if(entry.approvedReason)box.append(element('p','muted',`Aprovado à mão · ${entry.approvedReason}`));
     const actions=element('div','inline-actions');
-    if(entry.canRetry){const retry=element('button','quiet small','Tentar de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:box,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'retry',key:demand.key})}),refresh:()=>loadCurrent(),errorText:'Não consegui conferir de novo, tente mais tarde'}));actions.append(retry);}
-    if(entry.canApprove){const reason=element('input','audit-reason');reason.type='text';reason.maxLength=300;reason.placeholder='Motivo da aprovação';reason.setAttribute('aria-label','Motivo da aprovação manual');const approve=element('button','quiet small','Aprovar com motivo');approve.type='button';MCSAction.bind(approve,()=>({scope:box,commit:()=>{if(reason.value.trim().length<5)throw Object.assign(Error('AUDIT_REASON_REQUIRED'),{code:'AUDIT_REASON_REQUIRED'});return request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'approve',key:demand.key,reason:reason.value.trim()})});},refresh:()=>loadCurrent(),errorText:(error)=>error?.code==='AUDIT_REASON_REQUIRED'?'Escreva o motivo, com pelo menos 5 letras':'Não consegui aprovar, tente de novo'}));actions.append(reason,approve);}
+    const redraw=(result)=>{if(!applyAuditEntry(demand,result,box))return loadCurrent();};
+    if(entry.canRetry){const retry=element('button','quiet small','Conferir de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:box,optimistic:()=>{retry.textContent='Conferindo…';},commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'retry',key:demand.key}),timeoutMs:60000}),refresh:redraw,rollback:()=>{retry.textContent='Conferir de novo';},errorText:'Não consegui conferir de novo, tente mais tarde'}));actions.append(retry);}
+    if(entry.canApprove){const reason=element('input','audit-reason');reason.type='text';reason.maxLength=300;reason.placeholder='Motivo da aprovação';reason.setAttribute('aria-label','Motivo da aprovação manual');const approve=element('button','quiet small','Aprovar com motivo');approve.type='button';MCSAction.bind(approve,()=>({scope:box,commit:()=>{if(reason.value.trim().length<5)throw Object.assign(Error('AUDIT_REASON_REQUIRED'),{code:'AUDIT_REASON_REQUIRED'});return request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'approve',key:demand.key,reason:reason.value.trim()})});},refresh:redraw,errorText:(error)=>error?.code==='AUDIT_REASON_REQUIRED'?'Escreva o motivo, com pelo menos 5 letras':error?.code==='AUDIT_RETRY_FIRST'?'Confira de novo primeiro: a aprovação com motivo aparece depois de 2 falhas':'Não consegui aprovar, tente de novo'}));actions.append(reason,approve);}
     if(actions.childElementCount)box.append(actions);
     if(!AUDIT_OK.includes(entry.status))box.append(element('p','muted','V1 e V2 deste pedido ficam liberadas depois da conferência'));
     return box;
@@ -3459,7 +3478,7 @@
     const stale = staleNotice(card, demand); if (stale) card.append(stale);
     const seen=()=>loaded.concat(card.offerState?card.offerState.loaded:[]);
     let audited=auditBlock(demand,seen());if(audited)card.append(audited);
-    card.addEventListener('options-loaded',()=>{const next=auditBlock(demand,seen());if(audited&&next){audited.replaceWith(next);audited=next;}});
+    ['options-loaded','audit-changed'].forEach((name)=>card.addEventListener(name,()=>{const next=auditBlock(demand,seen());if(audited&&next){audited.replaceWith(next);audited=next;}}));
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
       reactivateButton.type = 'button';
@@ -3544,10 +3563,12 @@
           /* Not checked yet: one reading of this demand now (automatic rules and the OpenAI prepaid balance on the server), then one more try. Never an approval. */
           if(error?.code!=='MANHEIM_AUDIT_PENDING'||!demand?.key||!AUDIT_CHECK_FIRST.includes(auditEntry(demand)?.status))throw error;
           cardStatus.textContent='Conferindo este pedido antes do link…';
-          const checked=await request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'check',key:demand.key})}).catch(()=>null);
+          const checked=await request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'check',key:demand.key}),timeoutMs:60000}).catch(()=>null);
+          /* The reason and the buttons ("Conferir de novo", "Aprovar com motivo") show on the card now. */
+          applyAuditEntry(demand,checked,card);
           try{created=await create();}
           catch(again){
-            if(again?.code==='MANHEIM_AUDIT_PENDING'){cardStatus.textContent=checked?.providerLimit?'V1 bloqueada: sem saldo pré-pago na OpenAI para a conferência':checked?.inProgress?'V1 bloqueada: a conferência deste pedido já está em andamento, tente em instantes':'V1 bloqueada: a conferência não liberou este pedido · Atualize a página para ver o motivo';return;}
+            if(again?.code==='MANHEIM_AUDIT_PENDING'){cardStatus.textContent=checked?.inProgress&&!checked?.processed?'V1 bloqueada: a conferência deste pedido já está em andamento, tente em instantes':checked?.entry?auditHeldText(checked.entry):checked?.providerLimit?'V1 bloqueada: sem saldo pré-pago na OpenAI para a conferência':'V1 bloqueada: a conferência não respondeu · Tente "Gerar link V1" de novo';return;}
             throw again;
           }
         }
@@ -3556,6 +3577,7 @@
       /* The link only exists from here on; the message with it, the destination and the path appear in the send block below. */
       cardStatus.textContent='Link V1 criado · revise a mensagem abaixo e envie';v1Send.setVitrine(created.token);
     });vitrineButton.disabled=!auditCanTry(demand);
+    card.addEventListener('audit-changed',()=>{vitrineButton.disabled=!auditCanTry(demand);});
     // The PDF sits next to the V1 (it is used often); only the disposition stays under "⋯".
     const more=element('details','card-more');more.append(element('summary','','⋯ Mais ações'));const moreActions=element('div','inline-actions');more.append(moreActions);
     moreActions.append(element('span','muted','Descartar vale para a pessoa e tira o cliente de HOJE (mandar mensagem já conta como tratado):'),dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
@@ -3588,7 +3610,7 @@
     card.append(contextSlot({ ref: refOf(order) }, { focus: 'cars' }));
     const stale = staleNotice(card, demand); if (stale) card.append(stale);
     if (orderAudit) card.append(orderAudit);
-    card.addEventListener('options-loaded',()=>{const next=auditBlock(demand,seenOrder());if(orderAudit&&next){orderAudit.replaceWith(next);orderAudit=next;}});
+    ['options-loaded','audit-changed'].forEach((name)=>card.addEventListener(name,()=>{const next=auditBlock(demand,seenOrder());if(orderAudit&&next){orderAudit.replaceWith(next);orderAudit=next;}}));
     const contact=contactMeta(order);if(contact)card.append(contact);
     const smsMissing=smsPrintMissing(order); if(smsMissing)card.append(smsMissing);
 

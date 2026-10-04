@@ -148,7 +148,7 @@ test('código: sem limite por lote, 3 tentativas e uma a mais só para tempo esg
   const pending = (error, attempts) => ({ status: 'PENDENTE', error_code: error, attempts });
   assert.equal(auditModule.retryAllowed(pending('AUDIT_DEADLINE', 3)), true, 'uma tentativa a mais');
   assert.equal(auditModule.retryAllowed(pending('AUDIT_DEADLINE', 4)), false);
-  assert.equal(auditModule.retryAllowed(pending('AUDIT_DEADLINE', 4), true), false, 'nem pelo botão');
+  assert.equal(auditModule.retryAllowed(pending('AUDIT_DEADLINE', 4), true), true, 'pelo botão sempre: nunca travado sem saída');
   assert.equal(auditModule.retryAllowed(pending('OPENAI_TIMEOUT', 3)), false);
   assert.equal(auditModule.retryAllowed(pending('OPENAI_BUDGET_LIMIT', 1)), true, 'sem saldo não gasta tentativa');
 });

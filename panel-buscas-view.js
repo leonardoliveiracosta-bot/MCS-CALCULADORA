@@ -98,30 +98,40 @@ async function liveOptions(ctx, uploadId, context, perDemand) {
   });
 }
 
-// Options the audit reads: every option (up to AUDIT_OPTIONS) of the demands with cars selected for
-// the customer, the only ones a V1 or V2 can come from. One jsonb value per group of people, so the
-// PostgREST row limit (1000) never cuts a demand; before this the audit read the first 1000 rows of
-// the batch (6 of 349 demands) and every other demand stayed "Conferindo" forever. Without the
-// selection table (migration not applied) it keeps the old reading.
+// Options the audit reads: only the cars SELECTED for the customer (the ones a V1 or V2 can come
+// from), one per VIN as the database groups them (memberMatchIds), never the whole demand: a broad
+// demand (625 options) is read as its 6 selected cars. One jsonb value per group of people, so the
+// PostgREST row limit (1000) never cuts a demand. Without the selection table (migration not
+// applied) it keeps the old reading.
 const SCOPE_TARGETS_PER_CALL = 20;
+const SCOPE_OPTIONS = 2000;
+const DEMAND_KEY = /^(journey:[0-9a-f-]{36}|ref:[A-Z0-9]{5}):(VALOR|CARRO)$/;
 async function auditOptions(ctx, uploadId, context, services = { allRows, rpc }) {
   let selected;
-  try { selected = await services.allRows(ctx, 'manheim_option_selections', { select: 'demand_key', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId, status: 'eq.SELECTED' }); }
+  try { selected = await services.allRows(ctx, 'manheim_option_selections', { select: 'demand_key,match_id', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId, status: 'eq.SELECTED' }); }
   catch (_) { return { matches: await liveOptions(ctx, uploadId, context, AUDIT_OPTIONS), scope: null }; }
-  const scope = [...new Set(selected.map((row) => row.demand_key))].filter((key) => /^(journey:[0-9a-f-]{36}|ref:[A-Z0-9]{5}):(VALOR|CARRO)$/.test(key));
+  const scope = [...new Set(selected.map((row) => row.demand_key))].filter((key) => DEMAND_KEY.test(key));
+  const chosen = new Map();
+  selected.forEach((row) => { if (!chosen.has(row.demand_key)) chosen.set(row.demand_key, new Set()); chosen.get(row.demand_key).add(String(row.match_id)); });
   const targets = [...new Set(scope.map((key) => key.split(':').slice(0, 2).join(':')))];
   const matches = [];
   for (let index = 0; index < targets.length; index += SCOPE_TARGETS_PER_CALL) {
     const part = targets.slice(index, index + SCOPE_TARGETS_PER_CALL);
     const stored = await services.rpc(ctx, 'panel_manheim_batch_demand_options', { p_environment: ctx.environment, p_upload_id: uploadId,
-      p_journey_ids: part.filter((key) => key.startsWith('journey:')).map((key) => key.slice(8)), p_refs: part.filter((key) => key.startsWith('ref:')).map((key) => key.slice(4)), p_per_demand: AUDIT_OPTIONS });
+      p_journey_ids: part.filter((key) => key.startsWith('journey:')).map((key) => key.slice(8)), p_refs: part.filter((key) => key.startsWith('ref:')).map((key) => key.slice(4)), p_per_demand: SCOPE_OPTIONS });
     (Array.isArray(stored) ? stored : []).forEach((match) => {
       const demands = context.demandsByTarget.get(match.journey_id ? 'j:' + match.journey_id : 'r:' + upper(match.calc_ref));
       if (demands) matches.push(...liveMatchesFor(match, demands));
     });
   }
-  const wanted = new Set(scope);
-  return { matches: matches.filter((match) => wanted.has(match.demandKey)), scope };
+  // A car is in when any sale of its VIN group was selected for that demand.
+  const isSelected = (match) => {
+    const ids = chosen.get(match.demandKey);
+    if (!ids) return false;
+    const members = match.vehicle_json && match.vehicle_json.parsed && Array.isArray(match.vehicle_json.parsed.memberMatchIds) ? match.vehicle_json.parsed.memberMatchIds : [];
+    return [match.id, ...members].some((id) => ids.has(String(id)));
+  };
+  return { matches: matches.filter(isSelected), scope };
 }
 
 // Input of MANHEIM_MATCH_AUDIT: the options of the active batch grouped by demand. Server only.

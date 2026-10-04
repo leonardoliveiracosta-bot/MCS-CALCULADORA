@@ -73,15 +73,17 @@ test('lote antigo passa de US$ 2 sem limite por lote; a pendente por AUDIT_DEADL
   const state = await audit.viewState(ctx, input, { env: ENV });
   assert.equal(state.limitUsd, null, 'sem limite por lote');
   assert.equal(state.run.limitUsd, null);
-  assert.deepEqual([state.byDemand[key(J[0])].status, state.byDemand[key(J[0])].canRetry, state.byDemand[key(J[0])].attempts], ['PENDENTE', false, 4], 'bloqueada, sem novo botão de tentativa');
+  // Never stuck without a way out: "Conferir de novo" and "Aprovar com motivo" (after 2 failures).
+  assert.deepEqual([state.byDemand[key(J[0])].status, state.byDemand[key(J[0])].canRetry, state.byDemand[key(J[0])].canApprove, state.byDemand[key(J[0])].attempts], ['PENDENTE', true, true, 4]);
   assert.equal(audit.usable(state.byDemand[key(J[0])]), false);
-  // Nothing more: neither the next cycle nor the button calls again.
+  // The next cycle does not call again by itself; the button does (once per click).
   await audit.runAudit(ctx, input, { env: ENV, fetchImpl, budget: openBudget });
-  await audit.runAudit(ctx, input, { env: ENV, fetchImpl, budget: openBudget, manual: true, onlyKey: key(J[0]) });
   assert.equal(calls.length, 3);
-  // Ledger: the two answers are on their audit rows (REGISTRADA); the refused call released.
+  await audit.runAudit(ctx, input, { env: ENV, fetchImpl, budget: openBudget, manual: true, onlyKey: key(J[0]) });
+  assert.equal(calls.length, 4);
+  // Ledger: the two answers are on their audit rows (REGISTRADA); the refused calls released.
   const ledger = (await backend.db.query("select status, count(*)::int n from public.openai_budget_holds where environment='preview' and feature='MANHEIM_AUDIT' group by status order by status")).rows;
-  assert.deepEqual(ledger.map((row) => [row.status, row.n]), [['LIBERADA', 1], ['REGISTRADA', 2]]);
+  assert.deepEqual(ledger.map((row) => [row.status, row.n]), [['LIBERADA', 2], ['REGISTRADA', 2]]);
   const holds = (await backend.db.query("select count(*) filter (where status='ABERTA') open from public.manheim_audit_budget_holds where upload_id=$1", [UPLOAD])).rows[0];
   assert.equal(Number(holds.open), 0);
 });

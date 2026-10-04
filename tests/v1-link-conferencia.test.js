@@ -98,10 +98,10 @@ test('causa do bug: a leitura antiga corta em 1000 linhas e a demanda seguinte n
 test('Gerar link V1: carros selecionados, conferência na hora (uma chamada, com reserva), link criado; nada enviado', async () => {
   const selected = [await matchIdOf('SELV0000000000000'), await matchIdOf('SELV0000000000001')];
   for (const matchId of selected) assert.equal((await call('manheim-options', '/api/panel/manheim-options', 'POST', { action: 'select', matchId })).statusCode, 200);
-  // The demand is in the audit now, with all its options, even after the 1005 of BIG.
+  // The demand is in the audit now, even after the 1005 of BIG: only its 2 selected cars (of 4).
   const input = await auditInputFor(ctx);
   assert.deepEqual(input.scope, [keyOf(SEL)]);
-  assert.equal(input.matches.filter((match) => match.demandKey === keyOf(SEL)).length, 4);
+  assert.equal(input.matches.filter((match) => match.demandKey === keyOf(SEL)).length, 2);
   // First click: not checked yet.
   const body = { journeyId: SEL, matchIds: selected, demandKey: keyOf(SEL) };
   const first = await call('vitrines', '/api/panel/vitrines', 'POST', body);
@@ -109,8 +109,10 @@ test('Gerar link V1: carros selecionados, conferência na hora (uma chamada, com
   // The button asks for this demand's reading, then tries again (what painel.js does).
   const checked = await call('manheim-audit', '/api/panel/manheim-audit', 'POST', { action: 'check', key: keyOf(SEL) });
   assert.equal(checked.payload.approved, 1, JSON.stringify(checked.payload));
+  assert.equal(checked.payload.entry.status, 'CONFERIDO', 'o card recebe o estado novo na hora');
   assert.equal(openAiCalls.length, 1);
   assert.equal(openAiCalls[0].max_completion_tokens, 16000);
+  assert.deepEqual(JSON.parse(openAiCalls[0].messages[1].content).opcoes.map((option) => option.vin).sort(), ['SELV0000000000000', 'SELV0000000000001'], 'só os carros selecionados');
   const created = await call('vitrines', '/api/panel/vitrines', 'POST', body);
   assert.equal(created.statusCode, 201, JSON.stringify(created.payload));
   assert.match(created.payload.link, /^\/v\/[A-Za-z0-9_-]+$/);
@@ -122,7 +124,22 @@ test('Gerar link V1: carros selecionados, conferência na hora (uma chamada, com
   assert.deepEqual(backend.refused, []);
 });
 
-test('pendente continua bloqueada: uma única tentativa a mais, e o link não sai', async () => {
+test('pedido amplo (1005 opções) com 6 selecionadas: a conferência envia só as 6, um bloco, e libera a V1', async () => {
+  const vins = [0, 3, 7, 100, 500, 1004].map((n) => 'BIGV' + String(n).padStart(13, '0'));
+  const selected = [];
+  for (const vin of vins) { const matchId = await matchIdOf(vin); selected.push(matchId); assert.equal((await call('manheim-options', '/api/panel/manheim-options', 'POST', { action: 'select', matchId })).statusCode, 200); }
+  const input = await auditInputFor(ctx);
+  assert.equal(input.matches.filter((match) => match.demandKey === keyOf(BIG)).length, 6);
+  const before = openAiCalls.length;
+  const checked = await call('manheim-audit', '/api/panel/manheim-audit', 'POST', { action: 'check', key: keyOf(BIG) });
+  assert.equal(openAiCalls.length, before + 1, JSON.stringify(checked.payload));
+  assert.deepEqual(JSON.parse(openAiCalls[before].messages[1].content).opcoes.map((option) => option.vin).sort(), vins.sort());
+  assert.deepEqual([checked.payload.entry.status, checked.payload.entry.carCount], ['CONFERIDO', 6]);
+  const created = await call('vitrines', '/api/panel/vitrines', 'POST', { journeyId: BIG, matchIds: selected, demandKey: keyOf(BIG) });
+  assert.equal(created.statusCode, 201, JSON.stringify(created.payload));
+});
+
+test('pendente por tempo esgotado nunca fica sem saída: Conferir de novo sempre, Aprovar com motivo depois de 2 falhas', async () => {
   const selected = [await matchIdOf('PNDV0000000000000')];
   assert.equal((await call('manheim-options', '/api/panel/manheim-options', 'POST', { action: 'select', matchId: selected[0] })).statusCode, 200);
   const input = await auditInputFor(ctx);
@@ -133,20 +150,22 @@ test('pendente continua bloqueada: uma única tentativa a mais, e o link não sa
   const body = { journeyId: PEND, matchIds: selected, demandKey: keyOf(PEND) };
   assert.equal((await call('vitrines', '/api/panel/vitrines', 'POST', body)).payload.error, 'MANHEIM_AUDIT_PENDING');
   const before = openAiCalls.length;
-  // One new attempt (within the ceiling), still without confirmation.
-  await call('manheim-audit', '/api/panel/manheim-audit', 'POST', { action: 'check', key: keyOf(PEND) });
+  // One automatic attempt more (within the ceiling), still without confirmation; the reason comes back.
+  const checked = await call('manheim-audit', '/api/panel/manheim-audit', 'POST', { action: 'check', key: keyOf(PEND) });
   assert.equal(openAiCalls.length, before + 1);
-  const row = (await backend.db.query('select status,error_code,attempts from public.manheim_match_audits where demand_key=$1', [keyOf(PEND)])).rows[0];
-  assert.deepEqual([row.status, row.attempts], ['PENDENTE', 4]);
-  // No more: not by the check, not by the retry button, not by the cron.
+  assert.deepEqual([checked.payload.entry.status, checked.payload.entry.errorCode, checked.payload.entry.canRetry, checked.payload.entry.canApprove], ['PENDENTE', 'OPENAI_FAILED', true, true]);
+  // The cron and the automatic check stop here; the "Conferir de novo" button always works.
   await call('manheim-audit', '/api/panel/manheim-audit', 'POST', { action: 'check', key: keyOf(PEND) });
-  const retry = await call('manheim-audit', '/api/panel/manheim-audit', 'POST', { action: 'retry', key: keyOf(PEND) });
   await call('manheim-audit', '/api/panel/manheim-audit', 'POST', { action: 'run' });
-  assert.equal(openAiCalls.length, before + 1, JSON.stringify(retry.payload));
+  assert.equal(openAiCalls.length, before + 1);
+  const retry = await call('manheim-audit', '/api/panel/manheim-audit', 'POST', { action: 'retry', key: keyOf(PEND) });
+  assert.equal(openAiCalls.length, before + 2, JSON.stringify(retry.payload));
   const refused = await call('vitrines', '/api/panel/vitrines', 'POST', body);
   assert.deepEqual([refused.statusCode, refused.payload.error], [409, 'MANHEIM_AUDIT_PENDING']);
-  const state = (await call('manheim-audit', '/api/panel/manheim-audit')).payload;
-  assert.deepEqual([state.byDemand[keyOf(PEND)].status, state.byDemand[keyOf(PEND)].canRetry, state.byDemand[keyOf(PEND)].canApprove], ['PENDENTE', false, true], 'motivo na tela, só aprovação manual com motivo');
+  // Manual approval with a reason releases it.
+  const approved = await call('manheim-audit', '/api/panel/manheim-audit', 'POST', { action: 'approve', key: keyOf(PEND), reason: 'Conferi o carro no leilão' });
+  assert.equal(approved.payload.entry.status, 'APROVADO_MANUAL', JSON.stringify(approved.payload));
+  assert.equal((await call('vitrines', '/api/panel/vitrines', 'POST', body)).statusCode, 201);
   // The released demand still gives its link.
   assert.equal((await call('vitrines', '/api/panel/vitrines', 'POST', { journeyId: SEL, matchIds: [await matchIdOf('SELV0000000000000'), await matchIdOf('SELV0000000000001')], demandKey: keyOf(SEL) })).statusCode, 200);
 });

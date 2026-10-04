@@ -4,8 +4,11 @@
 //  run       confere o que falta (chamado logo depois do upload; o cron repete como segurança)
 //  check     confere agora uma demanda ainda não conferida (antes do link V1), com as regras
 //            automáticas: nunca repete além do limite de tentativas nem passa do teto da OpenAI
-//  retry     tenta de novo uma demanda com "Conferência pendente"
-//  approve   aprovação manual com motivo registrado (nunca sobre um fato achado pelo servidor)
+//  retry     "Conferir de novo" uma demanda com "Conferência pendente" (só os blocos que faltam)
+//  approve   aprovação manual com motivo registrado (nunca sobre um fato achado pelo servidor;
+//            numa conferência pendente, só depois de 2 falhas técnicas)
+// check, retry e approve devolvem também o estado novo da demanda (entry), para o card mostrar o
+// motivo e os botões na hora, sem atualizar a página.
 //  authorize libera um lote parado em "aguardando autorização" (só administrador; sem limite por lote)
 // Com MANHEIM_MATCH_AUDIT_ENABLED desligada nada é chamado e nada é bloqueado.
 const { jsonBody, requirePanel, send } = require('../../panel-server');
@@ -26,18 +29,19 @@ module.exports = async (req, res) => {
     const input = await manheimView(ctx, { auditInput: true });
     if (req.method === 'GET') return send(res, 200, await audit.viewState(ctx, input));
     const body = await jsonBody(req, 4096);
+    const withEntry = async (result) => ({ ...result, entry: (await audit.viewState(ctx, input).catch(() => ({ byDemand: {} }))).byDemand[body.key] || null });
     if (body.action === 'approve') {
       if (!KEY.test(String(body.key || ''))) return send(res, 400, { error: 'AUDIT_KEY_INVALID' });
-      return send(res, 200, await audit.approve(ctx, input, body.key, body.reason, ctx.panel.id));
+      return send(res, 200, await withEntry(await audit.approve(ctx, input, body.key, body.reason, ctx.panel.id)));
     }
     if (body.action === 'run') return send(res, 200, await audit.runAudit(ctx, input, { deadlineAt: startedAt + 55000 }));
     if (body.action === 'check') {
       if (!KEY.test(String(body.key || ''))) return send(res, 400, { error: 'AUDIT_KEY_INVALID' });
-      return send(res, 200, await audit.runAudit(ctx, input, { onlyKey: body.key, deadlineAt: startedAt + 55000 }));
+      return send(res, 200, await withEntry(await audit.runAudit(ctx, input, { onlyKey: body.key, deadlineAt: startedAt + 55000 })));
     }
     if (body.action === 'retry') {
       if (!KEY.test(String(body.key || ''))) return send(res, 400, { error: 'AUDIT_KEY_INVALID' });
-      return send(res, 200, await audit.runAudit(ctx, input, { onlyKey: body.key, manual: true, deadlineAt: startedAt + 55000 }));
+      return send(res, 200, await withEntry(await audit.runAudit(ctx, input, { onlyKey: body.key, manual: true, deadlineAt: startedAt + 55000 })));
     }
     if (body.action === 'authorize') {
       if (ctx.panel.role !== 'admin') return send(res, 403, { error: 'AUDIT_ADMIN_ONLY' });
