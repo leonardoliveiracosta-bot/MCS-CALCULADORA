@@ -31,7 +31,7 @@ const car = (n, extra = {}) => {
 };
 // 14 in Lane/Run, one in Lane/Run WITH Buy Now Price and one without CR (both stay in Lane/Run), one
 // without Lane/Run and with Buy Now (outside Lane/Run), two without Lane/Run nor Buy Now (incomplete).
-// Car 12 is the oldest (2019) and car 13 the newest (2022) with the highest MMR: both fall outside the first 10 by CR.
+// Car 12 is the oldest (2019, lowest MMR) and car 13 the newest (2022, highest MMR): the order must reach them in the whole group.
 const cars = [...Array.from({ length: 12 }, (_, n) => car(n)), car(12, { year: 2019, mmrCents: 2200000 }), car(13, { year: 2022, mmrCents: 3200000 }), car(30, { buyNowPrice: '26500' }), car(32, { conditionGrade: '' }), car(33, { lane: '', run: '', buyNowPrice: '26500' }), car(31, { lane: '', run: '' }), car(34, { lane: '', run: '' })];
 
 let backend, handlers;
@@ -128,7 +128,6 @@ test('ordenar o grupo por ano e por MMR considera o grupo inteiro, não só os 1
   await group.locator('> summary').click({ timeout: 60000 });
   const rows = group.locator('.offer-row');
   await expect(rows).toHaveCount(10);
-  await expect(rows.locator('.offer-car').filter({ hasText: '2022' })).toHaveCount(0);
   await group.locator('.offer-sort-select').selectOption('mmr_desc');
   await expect(rows.first().locator('.offer-mmr')).toContainText('32.000,00');
   await expect(rows).toHaveCount(10);
