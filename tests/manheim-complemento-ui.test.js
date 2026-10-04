@@ -30,7 +30,7 @@ async function screen({ legacy = true, confirm = true, changed = 1 } = {}) {
   let confirmations = 0;
   const context = vm.createContext({
     window: { MCSManheim: manheim, MCSManheimUpload: upload }, MCSManheim: manheim, MCSManheimUpload: upload,
-    MAX_FILES: 20, MAX_TEXT: 25 * 1024 * 1024, SALE_KEYS: csv.SALE_KEYS, sha256: csv.sha256,
+    MAX_FILES: 20, MANHEIM_MAX_FILES: 50, MAX_TEXT: 25 * 1024 * 1024, SALE_KEYS: csv.SALE_KEYS, sha256: csv.sha256,
     $: () => status, manheimError: (code, details) => Object.assign(new Error(code), { code }, details),
     requestPool: null, loadCurrent: async () => {},
     askInline: async () => { confirmations += 1; return confirm; },
@@ -103,7 +103,7 @@ for (const append of [false, true]) {
     } };
     const context = vm.createContext({
       window: { MCSManheim: manheim, MCSManheimUpload: helper }, MCSManheim: manheim, MCSManheimUpload: helper,
-      MAX_FILES: 20, MAX_TEXT: 25 * 1024 * 1024, sha256: csv.sha256,
+      MAX_FILES: 20, MANHEIM_MAX_FILES: 50, MAX_TEXT: 25 * 1024 * 1024, sha256: csv.sha256,
       $: () => ({ textContent: '', classList: { remove() {} } }),
       manheimError: (code, details) => Object.assign(new Error(code), { code }, details),
       newAiRun: () => ({ rowsTotal: 0, rowsDeterministic: 0, rowsSentToAi: 0, review: [] }),

@@ -18,7 +18,7 @@ const id = (n) => `6b100000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ACTOR = id(1), CONTACT = id(2), JOURNEY = id(3), CHAT = id(4), MESSAGE = id(5), UPLOAD = id(6), OLD_UPLOAD = id(7);
 const WITH = id(10), WITHOUT = id(11), OLD_WITHOUT = id(12), NA = id(13);
 const wish = { make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022, minMiles: 1000, maxMiles: 60000 };
-const carJson = (vin, mmrCents) => JSON.stringify({ parsed: { vin, year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents } }).replace(/'/g, "''");
+const carJson = (vin, mmrCents) => JSON.stringify({ parsed: { lane: '1', run: '1', vin, year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents } }).replace(/'/g, "''");
 
 function seed() {
   const match = (matchId, upload, vin, mmr) => `insert into public.manheim_matches(id,environment,upload_id,journey_id,match_kind,row_fingerprint,vehicle_json,logical_mode) values('${matchId}','preview','${upload}','${JOURNEY}','BATE','vin:${vin}','${carJson(vin, mmr)}','CARRO');`;
@@ -57,7 +57,7 @@ test.after(async () => { if (backend) await backend.db.close(); });
 test('regra: todo MMR inválido é recusado, nos dois modos', () => {
   for (const value of INVALID) assert.equal(vehicleMatch.validMmrCents(value), null, String(value));
   assert.equal(vehicleMatch.validMmrCents(3000000), 3000000);
-  const car = (mmrCents) => ({ year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents });
+  const car = (mmrCents) => ({ lane: '1', run: '1', year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents });
   const carro = { mode: 'CARRO', wishes: [wish] };
   const valor = { mode: 'VALOR', wishes: [{ make: 'Honda', model: 'CR-V' }], bidCents: 3000000 };
   for (const value of INVALID) {
@@ -123,7 +123,7 @@ test('"Apresentei ao cliente", V1 e V2 recusam carro sem MMR', async () => {
 test('conferência: carro sem MMR é divergência dura nos dois modos', () => {
   const demands = ['CARRO', 'VALOR'].map((mode) => ({ key: `journey:${JOURNEY}:${mode}`, mode, journeyId: JOURNEY, activeWishes: mode === 'CARRO' ? [wish] : [{ make: 'Honda', model: 'CR-V' }], bidCents: mode === 'VALOR' ? 3000000 : null, active: true, issues: [] }));
   for (const value of INVALID) {
-    const matches = demands.map((demand, index) => ({ id: id(100 + index), journey_id: JOURNEY, logical_mode: demand.mode, demandKey: demand.key, match_kind: demand.mode === 'CARRO' ? 'BATE' : 'POR_VALOR', vehicle_json: { parsed: { vin: 'V' + index, year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: value } } }));
+    const matches = demands.map((demand, index) => ({ id: id(100 + index), journey_id: JOURNEY, logical_mode: demand.mode, demandKey: demand.key, match_kind: demand.mode === 'CARRO' ? 'BATE' : 'POR_VALOR', vehicle_json: { parsed: { lane: '1', run: '1', vin: 'V' + index, year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: value } } }));
     const groups = audit.buildGroups({ upload: { id: UPLOAD }, demands, matches, base: { journeyById: new Map([[JOURNEY, { id: JOURNEY, status: 'ATIVO', contact: { is_lead: true } }]]), refsOf: () => [], calcRuns: [] } });
     groups.forEach((group) => assert.deepEqual(group.divergences.map((item) => item.code), ['MMR_MISSING'], group.mode + ' ' + String(value)));
   }

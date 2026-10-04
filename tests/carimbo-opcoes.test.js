@@ -6,7 +6,7 @@ const stamp = require('../panel-option-stamp');
 const wish = (make, model) => ({ make, model, yearMin: 2020, yearMax: 2026, minMiles: 10000, maxMiles: 90000, trim: '' });
 const JOURNEY = '77c63c19-0000-4000-8000-000000000001';
 const demand = (over = {}) => ({ key: `journey:${JOURNEY}:CARRO`, mode: 'CARRO', active: true, journeyId: JOURNEY, ref: '9BN8J', criteriaHash: 'hash-v2', activeWishes: [wish('Honda', 'HR-V')], wishes: [wish('Honda', 'HR-V')], ...over });
-const match = (over = {}) => ({ id: 'm1', upload_id: 'lot-1', journey_id: JOURNEY, calc_ref: '9BN8J', logical_mode: 'CARRO', vehicle_json: { parsed: { make: 'Honda', model: 'HR-V', year: 2022, miles: 30000, mmrCents: 2000000 } }, ...over });
+const match = (over = {}) => ({ id: 'm1', upload_id: 'lot-1', journey_id: JOURNEY, calc_ref: '9BN8J', logical_mode: 'CARRO', vehicle_json: { parsed: { lane: '1', run: '1', make: 'Honda', model: 'HR-V', year: 2022, miles: 30000, mmrCents: 2000000 } }, ...over });
 
 test('carimbo traz ficha, Ref, tipo, critérios, versão, lote e validade', () => {
   const result = stamp.stampOf({ match: match(), demand: demand(), key: demand().key, activeUploadId: 'lot-1', hashes: ['hash-v1', 'hash-v2'] });
@@ -36,7 +36,7 @@ test('troca de critério invalida: o carro não serve mais ao pedido atual', () 
 test('pedido inativo, tipo diferente e carro sem MMR também invalidam', () => {
   assert.equal(stamp.stampOf({ match: match(), demand: null, activeUploadId: 'lot-1' }).reason, 'SEM_PEDIDO');
   assert.equal(stamp.stampOf({ match: match({ logical_mode: 'VALOR' }), demand: demand(), activeUploadId: 'lot-1' }).reason, 'TIPO_DIFERENTE');
-  assert.equal(stamp.stampOf({ match: match({ vehicle_json: { parsed: { make: 'Honda', model: 'HR-V' } } }), demand: demand(), activeUploadId: 'lot-1' }).reason, 'SEM_MMR');
+  assert.equal(stamp.stampOf({ match: match({ vehicle_json: { parsed: { lane: '1', run: '1', make: 'Honda', model: 'HR-V' } } }), demand: demand(), activeUploadId: 'lot-1' }).reason, 'SEM_MMR');
 });
 
 test('o portão recusa carro inválido e deixa o válido passar (seleção e V1)', async () => {

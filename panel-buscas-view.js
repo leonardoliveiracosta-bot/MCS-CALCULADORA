@@ -235,7 +235,7 @@ async function manheimView(ctx, options = {}) {
     status: row.undone_at ? 'UNDONE' : 'ACTIVE', undoneAt: row.undone_at || null, undoSummary: row.undo_summary || null, ai: row.ai_summary_json || null, current: Boolean(latest && latest.id === row.id)
   }));
   return {
-    environment: ctx.environment,
+    environment: ctx.environment, modelDictionary: ctx.modelDictionary,
     items: items.map((item) => decorateWithSearchStage(item, stageIndex)),
     orders: orders.map((item) => decorateWithSearchStage(item, stageIndex)),
     upload, uploads: batches, hiddenBatchIds, undoAvailable: supported, batchAvailable: batchOn, demands, review, counts, historyIncomplete: false, meta, audit

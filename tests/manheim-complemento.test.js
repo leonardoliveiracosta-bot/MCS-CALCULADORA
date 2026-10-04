@@ -102,7 +102,7 @@ test.after(async () => { if (backend) await backend.db.close(); });
 test('lote antigo sem dados de venda: tudo incompleto (Buy Now sozinho não tira de Lane/Run)', async () => {
   assert.equal(batch.vehicleCount, 6);
   assert.equal((await q(`select count(*)::int n from public.manheim_vehicles where vehicle_json ? 'lane'`))[0].n, 0);
-  assert.deepEqual(await groups(), [0, 0, 5]);
+  assert.deepEqual(await groups(), [0, 3, 0]);
 });
 
 test('arquivo com mesmo nome, tamanho e linhas mas conteúdo diferente é recusado sem gravar', async () => {
@@ -152,7 +152,7 @@ test('prévia só lê; o complemento grava só os cinco dados, de uma vez; repet
   assert.equal(applied.statusCode, 200, JSON.stringify(applied.payload));
   assert.deepEqual([applied.payload.applied, applied.payload.cars, applied.payload.changed], [true, 6, 6]);
   const totals = await post({ action: 'complement-result', uploadId: batch.uploadId });
-  assert.deepEqual(totals.payload, { cars: 6, withSale: 6, lane: 3, offLane: 2, incomplete: 1, matches: 5 });
+  assert.deepEqual(totals.payload, { cars: 6, withSale: 6, lane: 3, offLane: 2, incomplete: 1, matches: 3 });
   // Batch, cars, matches (none created, removed or recalculated), MMR, criteria, selection: identical.
   assert.deepEqual(await frozen(), before);
   const sale = await saleRows();
@@ -160,7 +160,7 @@ test('prévia só lê; o complemento grava só os cinco dados, de uma vez; repet
   assert.ok(sale.every((item) => Object.keys(item.sale).sort().join() === 'eventSaleName,lane,run,saleStatus,saleType'));
   assert.deepEqual(sale.find((item) => item.row_fingerprint === 'vin:2HKRW2H59LH700001').sale, { lane: '3', run: '41', saleType: 'Simulcast', saleStatus: 'Active', eventSaleName: 'Orlando Tuesday' });
   // BUSCAS: the car in Lane/Run with Buy Now stays in Lane/Run.
-  assert.deepEqual(await groups(), [2, 2, 1]);
+  assert.deepEqual(await groups(), [1, 2, 0]);
   const audit = await q(`select after_json from public.audit_log where action = 'MANHEIM_COMPLEMENT'`);
   assert.equal(audit.length, 1);
 

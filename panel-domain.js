@@ -98,7 +98,12 @@ function normalizeWishlist(source) {
     // milhas_de is the minimum mileage the customer accepts (CARRO); it is never the limit.
     minMiles: finiteInteger(value.minMiles),
     maxMiles: finiteInteger(value.maxMiles),
-    trim: clean(value.trim)
+    trim: clean(value.trim),
+    ...(value.budgetExplicit === true ? { budgetExplicit: true } : {}),
+    ...(value.budgetUsd != null ? { budgetUsd: finiteInteger(value.budgetUsd) } : {}),
+    ...(value.acceptAnyTitleCondition === true ? { acceptAnyTitleCondition: true } : {}),
+    ...(clean(value.notes) ? { notes: clean(value.notes) } : {}),
+    ...(value.requestId ? { requestId: value.requestId } : {})
   };
 }
 
@@ -720,7 +725,7 @@ function modeWishText(mode, wishes) {
 }
 
 function valorWishes(wishes) {
-  return (wishes || []).map(normalizeWishlist).filter((wish) => wish.model).map((wish) => ({ make: wish.make, model: wish.model, trim: wish.trim, yearMin: null, yearMax: null, minMiles: null, maxMiles: null }));
+  return (wishes || []).map(normalizeWishlist).filter((wish) => wish.model);
 }
 
 function carroWishes(wishes) {
@@ -749,7 +754,7 @@ function orderDemand(item) {
   return finalizeDemand({
     key: `ref:${item.ref}:${mode}`, targetType: 'ORDER', ref: item.ref, journeyId: null, mode,
     wishes: mode === 'CARRO' ? carroWishes(item.wishlists) : valorWishes(item.wishlists),
-    bidCents: mode === 'VALOR' && Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null,
+    bidCents: Number(item.budgetCents) > 0 ? Number(item.budgetCents) : null,
     occurredAt: item.occurredAt || null, sids: item.sids || [], source: 'CALCULADORA'
   });
 }
@@ -771,9 +776,9 @@ function modeOverrides(journey) {
     const entry = source[mode];
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return;
     result[mode] = {
-      wishlists: (Array.isArray(entry.wishlists) ? entry.wishlists : []).slice(0, 5).map(normalizeWishlist).filter((wish) => wish.model),
+      wishlists: (Array.isArray(entry.wishlists) ? entry.wishlists : []).map(normalizeWishlist).filter((wish) => wish.model),
       override: entry.wishlistOverride === true || Array.isArray(entry.wishlists),
-      bidCents: mode === 'VALOR' && Number(entry.bidCents) > 0 ? Number(entry.bidCents) : null
+      bidCents: Number(entry.bidCents) > 0 ? Number(entry.bidCents) : null
     };
   });
   return result;
@@ -822,9 +827,9 @@ function journeyDemands(journey, linkedItems) {
   const manualRemoval = twoModes && genericOverride && !ownWishes.length;
   const demands = SEARCH_MODES.filter((mode) => modes.has(mode)).map((mode) => {
     const own = items.filter((item) => item.logicalMode === mode).sort((a, b) => (time(b.occurredAt) || 0) - (time(a.occurredAt) || 0));
-    const merged = own.length ? { wishlists: mergeWishlists([], own.flatMap((item) => item.wishlists || [])), budgetCents: mode === 'VALOR' ? own.map((item) => item.budgetCents).find((value) => Number(value) > 0) || null : null } : null;
+    const merged = own.length ? { wishlists: mergeWishlists([], own.flatMap((item) => item.wishlists || [])), budgetCents: own.map((item) => item.budgetCents).find((value) => Number(value) > 0) || null } : null;
     // The bid only exists in VALOR, so the ficha's bid never reaches CARRO.
-    const bid = mode === 'VALOR' ? (overrides.VALOR && overrides.VALOR.bidCents) || budget : null;
+    const bid = overrides[mode]?.bidCents || (mode === 'VALOR' || !twoModes ? budget : null);
     const ficha = overrides[mode]
       ? { ...journey, criteria_json: { wishlists: overrides[mode].wishlists, wishlistOverride: overrides[mode].override }, budget_cents: bid }
       : twoModes ? { ...journey, criteria_json: {}, budget_cents: bid } : { ...journey, budget_cents: bid };
@@ -833,7 +838,7 @@ function journeyDemands(journey, linkedItems) {
       ...base, key: `journey:${journey.id}:${mode}`, mode, linkedRefs: [...new Set(own.map((item) => item.ref))],
       wishes: mode === 'CARRO' ? carroWishes(criteria.wishes) : valorWishes(criteria.wishes),
       // R2: only the bid; the confirmed total ceiling is never a bid. CARRO never has a bid.
-      bidCents: mode === 'VALOR' ? criteria.bidCents : null
+      bidCents: criteria.bidCents
     });
   });
   if (manual.length || manualRemoval) demands.push(finalizeDemand({

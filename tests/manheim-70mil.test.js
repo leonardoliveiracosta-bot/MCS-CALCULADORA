@@ -159,7 +159,7 @@ test('19 CSVs, ~70 mil linhas: um lote, falha no meio e retomada, sem duplicar n
   assert.equal(counts.vehicles, deduped.vehicles.length, 'todos os carros, deduplicados entre arquivos');
   assert.equal(counts.fingerprints, counts.vehicles);
   assert.equal(counts.chunks, plan.reduce((sum, file) => sum + file.chunkCount, 0), 'todos os arquivos e blocos registrados');
-  assert.ok(counts.matches >= 20000, `matches: ${counts.matches}`);
+  assert.ok(counts.matches >= 3000, `matches após filtros v3.2: ${counts.matches}`);
   assert.equal(counts.duplicated, 0, 'nenhum match duplicado');
   assert.equal(counts.without_mmr, 0, 'carro sem MMR nunca vira opção');
   // Cars without a valid MMR were stored (cold inventory) but never matched.

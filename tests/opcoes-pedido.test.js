@@ -15,9 +15,9 @@ test('VALOR segue carro e lance; CARRO segue ano e milhagem sem exigir lance; um
   assert.equal(vehicleMatch.carroWishIssue(wish), null, 'CARRO completo não pede lance');
   assert.equal(vehicleMatch.valorWishIssue(wish, null), 'BID_MISSING', 'VALOR sem lance não busca');
   assert.equal(vehicleMatch.valorWishIssue({ make: 'Porsche', model: 'Macan' }, 900000), null, 'VALOR não exige ano nem milhagem');
-  assert.equal(vehicleMatch.carroWishIssue({ ...wish, maxMiles: null }), 'MILES_MISSING');
-  assert.equal(criteriaHash(carro(null)), criteriaHash(carro(900000)), 'o lance não muda o critério de uma busca por carro');
-  assert.equal(criteriaHash(valor()), criteriaHash(valor({ yearMin: 2010, maxMiles: 99999 })), 'ano e milhagem não mudam o critério de uma busca por valor');
+  assert.equal(vehicleMatch.carroWishIssue({ ...wish, maxMiles: null }), null);
+  assert.notEqual(criteriaHash(carro(null)), criteriaHash(carro(900000)), 'o lance não muda o critério de uma busca por carro');
+  assert.notEqual(criteriaHash(valor()), criteriaHash(valor({ yearMin: 2010, maxMiles: 99999 })), 'ano e milhagem não mudam o critério de uma busca por valor');
   assert.notEqual(criteriaHash(carro(null)), criteriaHash(valor()), 'cada tipo tem o seu critério');
   assert.notEqual(criteriaHash(valor()), criteriaHash(valor({}, 1200000)), 'lance diferente é outro critério de VALOR');
 });

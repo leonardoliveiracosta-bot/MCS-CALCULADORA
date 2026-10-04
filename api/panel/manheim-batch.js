@@ -34,7 +34,7 @@ function startInput(body) {
   const vehicleCount = Number(body.vehicleCount);
   const clientKey = String(body.clientKey || '');
   const manifestHash = String(body.manifestHash || '');
-  if (!files || !files.length || files.length > 20 || !/^[0-9a-f]{16,64}$/.test(clientKey) || !HASH.test(manifestHash) || !Number.isInteger(vehicleCount) || vehicleCount < 0 || vehicleCount > 100000) return null;
+  if (!files || !files.length || files.length > 50 || !/^[0-9a-f]{16,64}$/.test(clientKey) || !HASH.test(manifestHash) || !Number.isInteger(vehicleCount) || vehicleCount < 0 || vehicleCount > 250000) return null;
   if (batch.contentHash(files) !== manifestHash) return null;
   const cleanFiles = files.map((file) => ({
     name: text(file && file.name, 200), size: Math.max(0, Math.round(Number(file && file.size) || 0)),
@@ -47,7 +47,7 @@ function startInput(body) {
       || file.chunks.some((chunk) => !Number.isInteger(chunk.count) || chunk.count < 1 || chunk.count > batch.CHUNK_VEHICLES || !HASH.test(chunk.hash))
       || file.chunks.reduce((sum, chunk) => sum + chunk.count, 0) !== file.vehicleCount)) return null;
   if (cleanFiles.reduce((sum, file) => sum + file.vehicleCount, 0) !== vehicleCount) return null;
-  const headers = Array.isArray(body.headers) ? body.headers.map((group) => Array.isArray(group) ? group.map((entry) => text(entry, 160)).filter(Boolean).slice(0, 100) : []).filter((group) => group.length).slice(0, 20) : [];
+  const headers = Array.isArray(body.headers) ? body.headers.map((group) => Array.isArray(group) ? group.map((entry) => text(entry, 160)).filter(Boolean).slice(0, 100) : []).filter((group) => group.length).slice(0, 50) : [];
   const headerMap = body.headerMap && typeof body.headerMap === 'object' && !Array.isArray(body.headerMap) ? body.headerMap : {};
   if (!headers.length || Buffer.byteLength(JSON.stringify(headerMap), 'utf8') > 64 * 1024) return null;
   return { files: cleanFiles, vehicleCount, clientKey, manifestHash, headers, headerMap };
@@ -93,7 +93,7 @@ function targetIndex(upload) {
 async function actionChunk(ctx, body) {
   const fileIndex = Number(body.fileIndex), chunkIndex = Number(body.chunkIndex);
   const vehicles = Array.isArray(body.vehicles) ? body.vehicles : null;
-  if (!isUuid(body.uploadId) || !Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 19 || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 999
+  if (!isUuid(body.uploadId) || !Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 49 || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 999
       || !vehicles || vehicles.length > batch.CHUNK_VEHICLES) return send(ctx.res, 400, { error: 'MANHEIM_UPLOAD_INVALID' });
   const upload = await stagingUpload(ctx, body.uploadId);
   if (!upload) return send(ctx.res, 404, { error: 'MANHEIM_UPLOAD_NOT_FOUND' });
@@ -102,8 +102,9 @@ async function actionChunk(ctx, body) {
   const chunkHash = batch.contentHash(vehicles);
   const entries = vehicles.map(batch.sanitizeVehicle);
   const valid = entries.filter(Boolean);
+  await require('../../panel-model-aliases').load(ctx);
   const { targets, index } = targetIndex(upload);
-  const matches = batch.matchChunk(valid, targets, index);
+  const matches = batch.matchChunk(valid, targets, index, { staging: true });
   const result = await rpc(ctx, 'panel_manheim_batch_chunk', {
     p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: upload.id, p_file_index: fileIndex, p_chunk_index: chunkIndex,
     p_chunk_hash: chunkHash, p_received_count: vehicles.length,
@@ -169,7 +170,7 @@ const pendingComplement = (error) => error && (error.status === 404 || /PGRST202
 async function complementBlock(ctx, body) {
   const fileIndex = Number(body.fileIndex), chunkIndex = Number(body.chunkIndex);
   const vehicles = Array.isArray(body.vehicles) ? body.vehicles : null;
-  if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 19 || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 999 || !vehicles || !vehicles.length || vehicles.length > batch.CHUNK_VEHICLES) return { error: [400, 'MANHEIM_UPLOAD_INVALID'] };
+  if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex > 49 || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 999 || !vehicles || !vehicles.length || vehicles.length > batch.CHUNK_VEHICLES) return { error: [400, 'MANHEIM_UPLOAD_INVALID'] };
   const latest = await latestActiveUpload(ctx, 'id,files_json');
   if (!latest || latest.id !== body.uploadId) return { error: [409, 'MANHEIM_COMPLEMENT_NOT_ACTIVE'] };
   const expected = latest.files_json && latest.files_json[fileIndex] && latest.files_json[fileIndex].chunks && latest.files_json[fileIndex].chunks[chunkIndex];

@@ -95,60 +95,71 @@
     if (!folded) return null;
     return Object.keys(MODELS_BY_MAKE).find((key) => fold(key).replace(/ /g, '') === folded || (folded === 'mercedes' && key === 'Mercedes-Benz') || (folded === 'chevy' && key === 'Chevrolet')) || null;
   }
-  // Auction exports write engine versions as the model: 330i is a 3 Series, RX350 an RX, C300 a C-Class.
-  function aliasTokens(tokens, key) {
-    const [first = '', second = '', ...rest] = tokens;
-    if (key === 'BMW') { const match = /^([1-8])\d\d[a-z]*$/.exec(first); if (match) return [match[1], 'series', ...(second ? [second] : []), ...rest]; }
-    if (key === 'Lexus') {
-      const match = /^([a-z]{2})\d{3}[a-z]*$/.exec(first); if (match) return [match[1], ...(second ? [second] : []), ...rest];
-      if (/^[a-z]{2}$/.test(first) && /^\d{3}[a-z]*$/.test(second)) return [first, ...rest];
-    }
-    if (key === 'Mercedes-Benz') { const match = /^([a-z]{1,3})\d{2,3}[a-z]*$/.exec(first); if (match) return [match[1], ...(second ? [second] : []), ...rest]; }
-    // Older names of the same car: "Impreza WRX" is a WRX (2008-14)
-    if (key === 'Subaru' && first === 'impreza' && second === 'wrx') return tokens.slice(1);
-    return tokens;
+  // Operational aliases come from model_aliases. No prefix or symmetric base/trim matching.
+  let aliases = [], knownModels = [], revision = 'unloaded';
+  const matchCache = new Map();
+  const normalizeName = (value) => fold(value).replace(/\b([a-z]{4,})s\b/g, '$1').replace(/[^a-z0-9]/g, '');
+  const canonicalMake = (value) => {
+    const key = normalizeName(value);
+    const rule = aliases.find((row) => row.client_model === '*' && normalizeName(row.make) === key);
+    return normalizeName(rule ? rule.target_make : value);
+  };
+  const normalizedModel = (value, make) => {
+    const name = normalizeName(value), brand = normalizeName(make);
+    return brand && name.startsWith(brand) && name.length > brand.length ? name.slice(brand.length) : name;
+  };
+  function configureAliases(rows, known = [], version = '') {
+    matchCache.clear();
+    aliases = Array.isArray(rows) ? rows : [];
+    knownModels = Array.isArray(known) ? known : [];
+    revision = version || JSON.stringify(aliases);
   }
-  // Catalog entries that are the same car under an older or longer-body name. They match the base
-  // model, as they did before the catalog rule (a customer who wants a Yukon is shown a Yukon XL).
-  const SAME_CAR = Object.freeze({ 'Subaru|xv crosstrek': 'crosstrek', 'GMC|yukon xl': 'yukon', 'Cadillac|escalade esv': 'escalade', 'Jeep|grand cherokee l': 'grand cherokee', 'Hyundai|santa fe sport': 'santa fe' });
-  const sameCar = (model, key) => model && (SAME_CAR[key + '|' + model] || model);
-  // The longest catalog model of the make contained in the name ("Grand Cherokee Limited" is a
-  // Grand Cherokee, never a Cherokee; "Range Rover Sport" is not a "Range Rover").
-  function catalogModel(tokens, key) {
-    let best = null;
-    for (const model of MODELS_BY_MAKE[key] || []) {
-      const candidate = modelTokens(model, key);
-      if (candidate.length && containsWords(tokens, candidate) && (!best || candidate.length > best.length)) best = candidate;
-    }
-    return best ? best.join(' ') : null;
+  const aliasRevision = () => revision;
+  function modelsMatch(left,right,leftMake,rightMake) {
+    const key=JSON.stringify([left,right,leftMake,rightMake]);
+    if(matchCache.has(key)) return matchCache.get(key);
+    const value=compareModels(left,right,leftMake,rightMake);
+    if(matchCache.size>100000)matchCache.clear();matchCache.set(key,value);return value;
+  }
+  function compareModels(left, right, leftMake, rightMake) {
+    const carMake = canonicalMake(leftMake), wantedMake = canonicalMake(rightMake);
+    const a = normalizedModel(left, leftMake), b = normalizedModel(right, rightMake || leftMake);
+    if (!a || !b) return false;
+    const relevant = aliases.filter((row) => row.client_model !== '*' &&
+      (!wantedMake || canonicalMake(row.make) === wantedMake) &&
+      normalizedModel(row.client_model, row.make) === b);
+    const fits = (row) => (!carMake || !row.target_make || canonicalMake(row.target_make) === carMake) &&
+      (row.manheim_models || []).some((name) => normalizedModel(name, row.target_make || row.make) === a);
+    if (relevant.some((row) => row.kind === 'NEVER' && fits(row))) return false;
+    if (relevant.some((row) => row.kind !== 'NEVER' && fits(row))) return true;
+    return (!wantedMake || !carMake || wantedMake === carMake) && a === b;
   }
   function inferMake(model) {
-    const matches = Object.entries(MODELS_BY_MAKE).filter(([make, models]) => models.some((candidate) => looseMatch(model, candidate, '', make))).map(([make]) => make);
+    const candidates = new Set();
+    for (const [make, models] of Object.entries(MODELS_BY_MAKE)) {
+      if (models.some((name) => normalizedModel(name, make) === normalizedModel(model, make))) candidates.add(make);
+    }
+    for (const row of aliases) if (row.kind !== 'NEVER' && row.client_model !== '*' &&
+      (normalizedModel(row.client_model, row.make) === normalizedModel(model, row.make) ||
+       (row.manheim_models || []).some((name) => normalizedModel(name, row.target_make || row.make) === normalizedModel(model, row.target_make || row.make)))) candidates.add(row.target_make || row.make);
+    for (const row of knownModels) if (normalizedModel(row.model, row.make) === normalizedModel(model, row.make)) candidates.add(row.make);
+    const matches = [...candidates].filter(Boolean);
     return { make: matches.length === 1 ? matches[0] : '', ambiguous: matches.length > 1, candidates: matches };
   }
-  // M1 (audit A:P11): one model rule for every match.
-  function modelsMatch(left, right, leftMake, rightMake) {
-    const leftKey = makeKey(leftMake), rightKey = makeKey(rightMake);
-    let a = modelTokens(left, leftMake), b = modelTokens(right, rightMake);
-    if (!a.length || !b.length) return false;
-    if (leftKey && rightKey && leftKey !== rightKey) return false;
-    // A side without make only matches when its model points to the other make without doubt
-    // (a CSV row "Model S" is not an S-Class; "3" is not a Model 3).
-    const key = leftKey || rightKey;
-    if (key && (!leftKey || !rightKey)) {
-      const loose = leftKey ? right : left;
-      if (inferMake(loose).make !== key) {
-        // Still the same model when the name only repeats the make ("Ram 1500" and "1500").
-        const looseTokens = aliasTokens(modelTokens(loose, key), key), keyed = aliasTokens(leftKey ? a : b, key);
-        return looseTokens.join(' ') === keyed.join(' ');
-      }
+  function recognized(model, make) {
+    if (!clean(model)) return false;
+    return Object.entries(MODELS_BY_MAKE).some(([brand, models]) => (!clean(make) || canonicalMake(brand) === canonicalMake(make)) && models.some((name) => modelsMatch(name, model, brand, make))) ||
+      aliases.some((row) => row.kind !== 'NEVER' && row.client_model !== '*' && (!clean(make) || canonicalMake(row.make) === canonicalMake(make)) && normalizedModel(row.client_model, row.make) === normalizedModel(model, make || row.make)) ||
+      knownModels.some((row) => modelsMatch(row.model, model, row.make, make));
+  }
+  function inventoryMakes(make, model) {
+    if (!clean(make)) return []; // No brand supplied means compare by model, across brands.
+    const names = new Set([fold(make)]);
+    for (const [brand] of Object.entries(MODELS_BY_MAKE)) if (canonicalMake(brand) === canonicalMake(make)) names.add(fold(brand));
+    for (const row of aliases) if (canonicalMake(row.make) === canonicalMake(make) && (row.client_model === '*' || normalizedModel(row.client_model, row.make) === normalizedModel(model, make))) {
+      names.add(fold(row.make)); if (row.target_make) names.add(fold(row.target_make));
     }
-    if (key) {
-      a = aliasTokens(a, key); b = aliasTokens(b, key);
-      const canonicalA = sameCar(catalogModel(a, key), key), canonicalB = sameCar(catalogModel(b, key), key);
-      if (canonicalA && canonicalB) return canonicalA === canonicalB;
-    }
-    return containsWords(a, b) || containsWords(b, a);
+    return [...names].filter(Boolean);
   }
   function readableLocation(value) {
     const source = clean(value);
@@ -158,5 +169,5 @@
     return `${city}, ${match[1].toUpperCase()}`;
   }
 
-  return { MODELS_BY_MAKE, clean, fold, inferMake, makeKey, modelTokens, modelsMatch, readableLocation };
+  return { configureAliases, aliasRevision, normalizeName, normalizedModel, canonicalMake, recognized, inventoryMakes, MODELS_BY_MAKE, clean, fold, inferMake, makeKey, modelTokens, modelsMatch, readableLocation };
 }));

@@ -7,19 +7,8 @@
 }(typeof globalThis === 'object' ? globalThis : self, (catalog) => {
   'use strict';
 
-  // One rule per mode for every place that compares a car with what a customer wants (browser
-  // CSV import, server revalidation, ficha offers, score, saved searches). The two modes never
-  // share criteria:
-  //  MMR is mandatory in both modes: a car without a valid MMR (empty, zero, negative, "N/A",
-  //    "desconhecido" or any text that is not a number) is never an option, in any mode.
-  //  VALOR (Calculate My Cost): make, model and the bid of the VALOR flow only. The car is an
-  //    option when its MMR is inside the bid range: bid <= US$ 60.000: MMR between 70% and 115%;
-  //    above: 75% to 110% (POR_VALOR). Year and mileage are never used.
-  //  CARRO (Find One For Me): make, model, minimum and maximum year, minimum and maximum
-  //    mileage, all given and in order. Every limit is inclusive, there is no tolerance, the
-  //    odometer must be a number (BATE). The MMR must exist but its amount never includes or
-  //    excludes a car, and bid or budget are never read. Trim is kept as information only.
-
+  // Shared permanent rules for all request and option paths (v3.2).
+  const RULE_VERSION = 'manheim-v3.2';
   const VALUE_THRESHOLD_CENTS = 6000000;
   const MODES = Object.freeze(['VALOR', 'CARRO']);
   const NOTICE = {
@@ -91,30 +80,62 @@
 
   function searchableModel(wish) {
     const bad = /^(other brand|other model|outro modelo|outra marca|not sure|n[ãa]o tenho certeza|no estoy seguro)$/i;
-    return Boolean(clean(wish && wish.make) && clean(wish && wish.model) && !bad.test(clean(wish.make)) && !bad.test(clean(wish.model)));
+    return Boolean(clean(wish && wish.model) && !bad.test(clean(wish.model)));
   }
 
   function sameVehicle(vehicle, wish) {
     if (!clean(wish && wish.model) || !clean(vehicle && vehicle.model)) return false;
-    if (clean(vehicle.make) && clean(wish.make) && fold(vehicle.make) !== fold(wish.make)) return false;
     return catalog ? catalog.modelsMatch(vehicle.model, wish.model, vehicle.make, wish.make) : fold(vehicle.model) === fold(wish.model);
   }
 
-  // CARRO: the four limits are required and must be in order. Nothing is swapped or invented.
   function carroWishIssue(wish) {
     if (!searchableModel(wish)) return 'MODEL_MISSING';
     const yearMin = positive(wish.yearMin), yearMax = positive(wish.yearMax);
-    const minMiles = positive(wish.minMiles), maxMiles = positive(wish.maxMiles);
-    if (!yearMin || !yearMax) return 'YEAR_MISSING';
-    if (yearMin > yearMax) return 'YEAR_INVERTED';
-    if (!minMiles || !maxMiles) return 'MILES_MISSING';
-    if (minMiles > maxMiles) return 'MILES_INVERTED';
+    const minMiles = integer(wish.minMiles), maxMiles = integer(wish.maxMiles);
+    if (!yearMin && !yearMax && minMiles === null && maxMiles === null) return 'YEAR_MISSING';
+    if (yearMin && yearMax && yearMin > yearMax) return 'YEAR_INVERTED';
+    if (minMiles !== null && maxMiles !== null && minMiles > maxMiles) return 'MILES_INVERTED';
     return null;
   }
-
+  function mileageCap(bidCents) {
+    const bid = positive(bidCents);
+    return !bid ? null : bid <= 1000000 ? 135000 : bid <= 2000000 ? 115000 : bid <= 3000000 ? 105000 : 95000;
+  }
+  function conditionGrade(vehicle) {
+    const raw = clean(vehicle && vehicle.conditionGrade);
+    if (!/^\d(?:\.\d+)?$/.test(raw)) return null;
+    const n = Number(raw); return n >= 0 && n <= 5 ? n : null;
+  }
+  function buyNowCents(vehicle) {
+    const raw = clean(vehicle && vehicle.buyNowPrice).replace(/[$,\s]/g, '');
+    return /^\d+(?:\.\d+)?$/.test(raw) && Number(raw) > 0 ? Math.round(Number(raw) * 100) : 0;
+  }
+  function saleEligible(vehicle) {
+    return Boolean(clean(vehicle && vehicle.lane) && clean(vehicle && vehicle.run)) || buyNowCents(vehicle) > 0;
+  }
+  function qualityEligible(vehicle, criteria = {}) {
+    if (!saleEligible(vehicle)) return false;
+    if (criteria.acceptAnyTitleCondition === true) return true;
+    const grade = conditionGrade(vehicle);
+    if (grade !== null && grade < 1.9) return false;
+    if (vehicle.cleanTitle === false) return false;
+    return !/salvage|rebuilt|\btmu\b|lemon|not actual|junk|parts only/i.test([vehicle.title, vehicle.titleStatus, vehicle.titleBrand, vehicle.odometerStatus].filter(Boolean).join(' '));
+  }
+  function characteristicsFit(vehicle, wish, mode, bidCents) {
+    if (!sameVehicle(vehicle, wish)) return false;
+    const year = positive(vehicle.year), miles = integer(vehicle.miles);
+    if (mode === 'CARRO') {
+      if (!year || year < (positive(wish.yearMin) || 1) || year > (positive(wish.yearMax) || new Date().getUTCFullYear() + 1)) return false;
+    }
+    const min = integer(wish.minMiles);
+    const max = mode === 'VALOR' ? Math.min(mileageCap(bidCents), integer(wish.maxMiles) ?? Infinity) : integer(wish.maxMiles);
+    if ((min !== null || max !== null) && (miles === null || miles < 0)) return false;
+    return (min === null || miles >= min) && (max === null || miles <= max);
+  }
+  function wishBudgetCents(wish, bidCents) { return wish.budgetExplicit ? (positive(wish.budgetUsd) || 0) * 100 : positive(wish.budgetUsd) ? positive(wish.budgetUsd) * 100 : positive(bidCents); }
   function valorWishIssue(wish, bidCents) {
     if (!searchableModel(wish)) return 'MODEL_MISSING';
-    return valueBand(bidCents) ? null : 'BID_MISSING';
+    return valueBand(wishBudgetCents(wish,bidCents)) ? null : 'BID_MISSING';
   }
 
   function baseResult(vehicle, wish, index, mode) {
@@ -126,54 +147,52 @@
     };
   }
 
-  function matchCarroWish(vehicle, wish, index = 0) {
-    if (carroWishIssue(wish) || !sameVehicle(vehicle, wish)) return null;
-    // MMR is required in CARRO too (its amount never decides the match).
-    if (!hasValidMmr(vehicle)) return null;
-    const year = positive(vehicle && vehicle.year);
-    const miles = integer(vehicle && vehicle.miles);
-    // An unknown odometer is never 0 and never a match in CARRO.
-    if (!year || miles === null || miles < 0 || (vehicle.miles === '' || vehicle.miles === null || vehicle.miles === undefined)) return null;
-    if (year < positive(wish.yearMin) || year > positive(wish.yearMax)) return null;
-    if (miles < positive(wish.minMiles) || miles > positive(wish.maxMiles)) return null;
-    return { kind: 'BATE', reason: null, notice: null, gaps: [], dataGap: false, basis: 'CRITERIA', mmrStatus: null, ...baseResult(vehicle, wish, index, 'CARRO') };
+  function matchCarroWish(vehicle, wish, index = 0, demand = {}) {
+    if (carroWishIssue(wish) || !hasValidMmr(vehicle) || !qualityEligible(vehicle, { ...demand, ...wish }) || !characteristicsFit(vehicle, wish, 'CARRO')) return null;
+    const budget = wishBudgetCents(wish,demand.bidCents);
+    const outside = budget && !inBand(validMmrCents(vehicle.mmrCents), valueBand(budget));
+    if (outside && !demand.allowBudgetFallback) return null;
+    const notices = [];
+    if (outside) notices.push('acima do valor informado');
+    if (budget && /(?:includ|inclu|com).*(?:frete|tax|shipping|transport|fee)|(?:frete|tax|shipping|transport|fee).*(?:includ|inclu)/i.test(clean(wish.notes || demand.notes))) notices.push('valor informado inclui frete/taxas');
+    return { kind: 'BATE', reason: notices.join(' · ') || null, notice: notices.join(' · ') || null, gaps: [], dataGap: false, basis: outside ? 'CRITERIA_FALLBACK' : 'CRITERIA', budgetFallback: Boolean(outside), bidCents: budget, mmrStatus: null, ...baseResult(vehicle, wish, index, 'CARRO') };
   }
-
-  function matchValorWish(vehicle, wish, bidCents, index = 0) {
-    if (valorWishIssue(wish, bidCents) || !sameVehicle(vehicle, wish)) return null;
-    const band = valueBand(bidCents);
-    const mmrCents = validMmrCents(vehicle && vehicle.mmrCents);
-    const miles = integer(vehicle && vehicle.miles);
-    const notes = [];
-    // No valid MMR: never an option (it used to be QUASE "sem MMR").
-    if (!mmrCents) return null;
-    if (!inBand(mmrCents, band)) return null;
-    // A POR VALOR car with an unknown odometer is still an opportunity; the gap is said out loud.
-    if (miles === null || miles < 0) notes.push(NOTICE.NO_ODOMETER);
-    return {
-      kind: 'POR_VALOR', reason: `por valor: MMR ${usd(mmrCents)} na faixa do lance ${usd(band.bidCents)}`,
-      notice: notes.join(' · ') || null, gaps: [], dataGap: false, basis: 'VALUE',
-      mmrStatus: mmrCents > band.bidCents ? 'MMR acima do teto' : 'MMR dentro do teto',
-      ...baseResult(vehicle, wish, index, 'VALOR')
-    };
+  function matchValorWish(vehicle, wish, bidCents, index = 0, demand = {}) {
+    bidCents = wishBudgetCents(wish,bidCents);
+    if (valorWishIssue(wish, bidCents) || !qualityEligible(vehicle, { ...demand, ...wish }) || !characteristicsFit(vehicle, wish, 'VALOR', bidCents)) return null;
+    const band = valueBand(bidCents), mmrCents = validMmrCents(vehicle.mmrCents);
+    if (!mmrCents || mmrCents < 175000 || !inBand(mmrCents, band)) return null;
+    const notice = buyNowCents(vehicle) > band.bidCents ? 'Buy Now acima do lance' : null;
+    return { kind: 'POR_VALOR', reason: `por valor: MMR ${usd(mmrCents)} na faixa do lance ${usd(band.bidCents)}`, notice, gaps: [], dataGap: false, basis: 'VALUE',
+      budgetFallback: false, bidCents: band.bidCents, mmrStatus: mmrCents > band.bidCents ? 'MMR acima do teto' : 'MMR dentro do teto', ...baseResult(vehicle, wish, index, 'VALOR') };
   }
-
   function rank(result) {
     return result.kind === 'BATE' ? 0 : result.kind === 'POR_VALOR' ? 1 : result.dataGap ? 3 : 2;
   }
 
   function wishesOf(value) {
-    return Array.isArray(value) ? value.slice(0, 5) : value && Array.isArray(value.wishlists) ? value.wishlists.slice(0, 5) : value ? [value] : [];
+    return Array.isArray(value) ? value : value && Array.isArray(value.wishlists) ? value.wishlists : value ? [value] : [];
   }
 
-  // A demand is { mode: 'CARRO' | 'VALOR', wishes, bidCents }. CARRO ignores bidCents entirely.
+  // Each wish keeps its own budget; FIND may relax that budget only after a full-lot comparison.
   function matchDemand(vehicle, demand) {
     const mode = normalizedMode(demand && demand.mode);
     if (!mode || !vehicle) return null;
-    const results = wishesOf(demand.wishes).map((wish, index) => mode === 'CARRO' ? matchCarroWish(vehicle, wish || {}, index) : matchValorWish(vehicle, wish || {}, demand.bidCents, index)).filter(Boolean);
-    return results.sort((left, right) => rank(left) - rank(right) || left.matchedWishlistIndex - right.matchedWishlistIndex)[0] || null;
+    const results = wishesOf(demand.wishes).map((wish, index) => mode === 'CARRO' ? matchCarroWish(vehicle, wish || {}, index, demand) : matchValorWish(vehicle, wish || {}, demand.bidCents, index, demand)).filter(Boolean);
+    return results.sort((left, right) => Number(left.budgetFallback) - Number(right.budgetFallback) || rank(left) - rank(right) || left.matchedWishlistIndex - right.matchedWishlistIndex)[0] || null;
   }
 
+  // The fallback decision belongs to the complete lot, never to an individual block.
+  function matchLot(vehicles, demand) {
+    const selected = new Map();
+    wishesOf(demand.wishes).forEach((wish,wishIndex) => {
+      const single = { ...demand, wishes: [wish], allowBudgetFallback: false };
+      let matches = vehicles.map((vehicle,index) => ({index,result:matchDemand(vehicle,single)})).filter((item) => item.result);
+      if (!matches.length && demand.mode === 'CARRO') matches = vehicles.map((vehicle,index) => ({index,result:matchDemand(vehicle,{...single,allowBudgetFallback:true})})).filter((item) => item.result);
+      matches.forEach((item) => { item.result.matchedWishlistIndex=wishIndex; const old=selected.get(item.index); if (!old || old.result.budgetFallback && !item.result.budgetFallback) selected.set(item.index,item); });
+    });
+    return [...selected.values()];
+  }
   // Display label for the stored kind codes.
   function kindLabel(kind) {
     return kind === 'POR_VALOR' ? 'POR VALOR · ligar' : kind || '';
@@ -193,5 +212,5 @@
     return code === 'MMR acima do teto' ? 'MMR acima do lance' : code === 'MMR dentro do teto' ? 'MMR dentro do lance' : code || '';
   }
 
-  return { ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, validMmrCents, hasValidMmr, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
+  return { wishBudgetCents, RULE_VERSION, mileageCap, conditionGrade, buyNowCents, saleEligible, qualityEligible, characteristicsFit, matchLot, ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, validMmrCents, hasValidMmr, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
 }));

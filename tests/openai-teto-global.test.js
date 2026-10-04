@@ -73,7 +73,7 @@ const auditInput = (journey) => {
   return {
     upload: { id: UPLOAD, undone_at: null },
     demands: [{ key, mode: 'CARRO', journeyId: journey, activeWishes: [{ make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022, minMiles: 1000, maxMiles: 60000 }], active: true, issues: [] }],
-    matches: [{ id: id(900 + PEOPLE.indexOf(Number(journey.slice(-3)))), journey_id: journey, logical_mode: 'CARRO', demandKey: key, match_kind: 'BATE', row_fingerprint: 'f' + journey, vehicle_json: { parsed: { vin: 'VINTETO' + journey.slice(-3), year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } }],
+    matches: [{ id: id(900 + PEOPLE.indexOf(Number(journey.slice(-3)))), journey_id: journey, logical_mode: 'CARRO', demandKey: key, match_kind: 'BATE', row_fingerprint: 'f' + journey, vehicle_json: { parsed: { lane: '1', run: '1', vin: 'VINTETO' + journey.slice(-3), year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } }],
     base: { journeyById: new Map([[journey, { id: journey, status: 'ATIVO', contact: { is_lead: true } }]]), refsOf: () => [], calcRuns: [] }
   };
 };

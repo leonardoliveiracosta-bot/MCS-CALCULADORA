@@ -8,7 +8,7 @@ const vehicleMatch = require('./vehicle-match');
 const catalog = require('./vehicle-catalog');
 
 function searchableWish(wishes) {
-  return (wishes || []).find((wish) => wish && String(wish.make || '').trim() && String(wish.model || '').trim()
+  return (wishes || []).find((wish) => wish && String(wish.model || '').trim()
     && !/^(other brand|other model|outro modelo|outra marca)$/i.test(String(wish.make || '').trim())
     && !/^(other brand|other model|outro modelo|outra marca)$/i.test(String(wish.model || '').trim())) || null;
 }
@@ -16,7 +16,7 @@ function searchKey(wish) {
   if (!wish) return null;
   const make = catalog.fold(wish.make);
   const model = catalog.modelTokens(wish.model, wish.make).join(' ');
-  return make && model ? `${make}|${model}` : null;
+  return model ? `${make}|${model}` : null;
 }
 // The same identity as "Quais buscas salvar", per mode: CARRO (make|model, searched by year and
 // mileage) and VALOR (make|model|valor, searched by the MMR range of the bid). The two modes of

@@ -28,6 +28,8 @@
     ,transmission: ['transmission type', 'transmission']
     ,engine: ['engine type', 'engine']
     // Only carried to the selection for the customer (Lane/Run, sale type); never used to match.
+    ,titleStatus: ['title', 'title status', 'title brand', 'title branding']
+    ,odometerStatus: ['odometer status', 'odometer disclosure']
     ,lane: ['lane']
     ,run: ['run', 'run number']
     ,saleType: ['inventory', 'sale type', 'inventory type']
@@ -126,6 +128,8 @@
         ,drivetrain: fields.drivetrain ? clean(raw[fields.drivetrain]) : ''
         ,transmission: fields.transmission ? clean(raw[fields.transmission]) : ''
         ,engine: fields.engine ? clean(raw[fields.engine]) : ''
+        ,titleStatus: fields.titleStatus ? clean(raw[fields.titleStatus]) : ''
+        ,odometerStatus: fields.odometerStatus ? clean(raw[fields.odometerStatus]) : ''
         ,lane: fields.lane ? clean(raw[fields.lane]) : ''
         ,run: fields.run ? clean(raw[fields.run]) : ''
         ,saleType: fields.saleType ? clean(raw[fields.saleType]) : ''
@@ -229,7 +233,7 @@
 
   function fingerprint(vehicle) {
     const vin = clean(vehicle && vehicle.vin).toUpperCase().replace(/[^A-HJ-NPR-Z0-9]/g, '');
-    if (vin) return 'vin:' + vin;
+    if (vin) return 'vin:' + vin + (clean(vehicle.lane) || clean(vehicle.run) ? ':lane:' + clean(vehicle.lane) + ':run:' + clean(vehicle.run) : '');
     const value = [vehicle.year, fold(vehicle.make), fold(vehicle.model), fold(vehicle.trim), vehicle.miles, fold(vehicle.location), clean(vehicle.saleDate)].join('|');
     let hash = 2166136261;
     for (let index = 0; index < value.length; index += 1) {
@@ -263,7 +267,7 @@
     // "Buy now" of any row of the same VIN, looked up once (linear, even for 70.000 rows).
     const buyNowByVin=new Map();
     for (const row of rows||[]) { const vin=clean(row.vin); if (clean(row.buyNowPrice) && !buyNowByVin.has(vin)) buyNowByVin.set(vin,row.buyNowPrice); }
-    for (const row of rows||[]) { const key=clean(row.vin)||fingerprint(row); const prior=byVin.get(key); if (!prior || (/simulcast/i.test(row.raw?.Inventory||'') && !/simulcast/i.test(prior.raw?.Inventory||''))) byVin.set(key,row); }
+    for (const row of rows||[]) { const key=fingerprint(row); const prior=byVin.get(key); if (!prior || (/simulcast/i.test(row.raw?.Inventory||'') && !/simulcast/i.test(prior.raw?.Inventory||''))) byVin.set(key,row); }
     return [...byVin.values()].map((row)=>({ ...row, hasBuyNow:Boolean(buyNowByVin.get(clean(row.vin))) }));
   }
   return { AI_FIELDS, HEADER_ALIASES, applySuggestion, chooseAuctionRows, classifyRows, fingerprint, fold, mapHeaders, mapHeadersWith, matchDemand, normalizeRows, parseCsv, rowAmbiguity, supportedNumber, toCsv };

@@ -203,37 +203,20 @@ async function extractChat(ctx, chatId, options = {}) {
 // Cars of the active batch for one make, read once per comparison round (valid MMR only).
 async function vehiclesForMake(ctx, uploadId, key, cache, services) {
   if (cache.has(key)) return cache.get(key);
-  const found = await services.allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId, make_key: 'eq.' + key, undone_at: 'is.null', mmr_cents: 'not.is.null' });
-  cache.set(key, found);
-  return found;
+  const found = await services.allRows(ctx, 'manheim_vehicles', { select: 'row_fingerprint,vehicle_json', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId, ...(key ? { make_key: 'eq.' + key } : {}), undone_at: 'is.null' });
+  cache.set(key, found); return found;
 }
-// Makes whose cars can match: the one informed, or the make(s) the catalog gives for the model.
-function makeKeysOf(criteria) {
-  const c = criteria || {};
-  if (c.make) return [makeKey(c.make)].filter(Boolean);
-  if (!c.model) return [];
-  const found = catalog.inferMake(c.model);
-  return (found.candidates && found.candidates.length ? found.candidates : [found.make]).map(makeKey).filter(Boolean);
-}
+function makeKeysOf(criteria) { return catalog.inventoryMakes(criteria && criteria.make, criteria && criteria.model); }
 async function compareOne(ctx, uploadId, item, cache, services) {
   if (item.completeness === 'PRECISA_REVISAO') return { result: 'NEEDS_REVIEW', count: 0, sample: [] };
   if (!item.comparable) return { result: 'INSUFFICIENT', count: 0, sample: [] };
-  const sample = [];
-  let count = 0;
-  const take = (row) => { count += 1; if (sample.length < 5) sample.push(row.row_fingerprint); };
-  // A demand with the official calculation (Ref): the current matcher, as in OPÇÕES.
-  if (item.targets && item.targets.length) {
-    const keys = new Set();
-    item.targets.forEach((target) => target.wishes.forEach((wish) => { const key = makeKey(wish.make) || makeKey(catalog.inferMake(wish.model).make); if (key) keys.add(key); }));
-    for (const key of keys) for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) if (requests.optionFor(row.vehicle_json, item.targets)) take(row);
-    return { result: count ? 'HAS_OPTIONS' : 'NO_OPTIONS', count, sample };
-  }
-  // A ready request without the official matcher: model, year and mileage as informed, never the
-  // value as an MMR filter. CARRO: the vehicle, year and mileage decide, so a fit is an option.
-  // VALOR: without the official bid a fit is a candidate whose value is still to be checked.
-  const c = item.criteria || {};
-  for (const key of makeKeysOf(c)) for (const row of await vehiclesForMake(ctx, uploadId, key, cache, services)) if (requests.fitsReady(row.vehicle_json, c)) take(row);
-  return { result: !count ? 'NO_OPTIONS' : item.searchMode === 'CARRO' ? 'HAS_OPTIONS' : 'HAS_CANDIDATES', count, sample };
+  const targets = item.targets && item.targets.length ? item.targets : requests.targetsOf(item.criteria);
+  const wishes = targets.flatMap((target) => target.wishes || []);
+  const keys = wishes.some((wish) => !wish.make) ? [''] : [...new Set(wishes.flatMap(makeKeysOf))];
+  const cars = (await Promise.all(keys.map((key) => vehiclesForMake(ctx, uploadId, key, cache, services)))).flat();
+  const selected = new Map();
+  for (const target of targets) for (const match of require('./vehicle-match').matchLot(cars.map((car) => car.vehicle_json), target)) selected.set(cars[match.index].row_fingerprint, match.result);
+  return { result: selected.size ? 'HAS_OPTIONS' : 'NO_OPTIONS', count: selected.size, sample: [...selected.keys()].slice(0, 5) };
 }
 // Compares the given items (FALTA BUSCAR) with the active batch and records each result.
 async function compareItems(ctx, items, options = {}) {

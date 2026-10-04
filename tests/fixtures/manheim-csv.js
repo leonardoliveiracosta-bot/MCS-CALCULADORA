@@ -22,10 +22,10 @@ async function readFiles(files) {
       .forEach((vehicle) => vehicles.push({ ...upload.compactVehicle(vehicle), fileIndex, raw: { Inventory: vehicle.raw && vehicle.raw.Inventory || '' }, hasBuyNow: vehicle.hasBuyNow }));
     fileMeta.push({ name: file.name, size: Buffer.byteLength(file.text), rowCount: parsed.rows.length, contentHash: sha256(file.text), headers: parsed.headers });
   });
-  const deduped = upload.dedupeAcrossFiles(vehicles, manheim);
-  const plan = upload.planBatch(fileMeta, deduped.vehicles, manheim);
+  const variants = await upload.complementPlans(fileMeta, vehicles, manheim, sha256);
+  const { plan, manifest: legacy } = variants[2];
   const legacyPlan = plan.map((file) => ({ ...file, chunks: file.chunks.map((chunk) => chunk.map(strip)) }));
-  const legacy = await upload.sealPlan(legacyPlan, async (text) => sha256(text));
+  const deduped = { vehicles: plan.flatMap(file => file.chunks.flat()) };
   const clientKey = sha256(upload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash]))).slice(0, 32);
   return { plan, legacyPlan, legacy, clientKey, fileMeta, vehicleCount: deduped.vehicles.length };
 }

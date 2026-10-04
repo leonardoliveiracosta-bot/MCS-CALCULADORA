@@ -213,7 +213,7 @@ function requestKey(criteria) {
 }
 function criteriaHash(criteria) {
   const c = criteria || {};
-  const body = JSON.stringify([fold(c.make), fold(c.model), fold(c.trim), fold(c.bodyType), c.yearMin || null, c.yearMax || null, c.minMiles || null, c.maxMiles || null, c.budgetUsd || null]);
+  const body = JSON.stringify([fold(c.make), fold(c.model), fold(c.trim), fold(c.bodyType), c.yearMin || null, c.yearMax || null, c.minMiles || null, c.maxMiles || null, c.budgetUsd || null, c.acceptAnyTitleCondition === true, c.notes || '', vehicleMatch.RULE_VERSION, catalog.aliasRevision()]);
   return crypto.createHash('sha256').update(body).digest('hex').slice(0, 32);
 }
 // A criterion the batch can be compared with. Location and notes are shown, never compared.
@@ -224,7 +224,7 @@ const MODE_LABELS = Object.freeze({ CARRO: 'POR CARRO', VALOR: 'POR VALOR' });
 function searchLacks(criteria, modes = SEARCH_MODES) {
   const c = criteria || {};
   const lacks = {};
-  if (modes.includes('CARRO')) lacks.CARRO = [!clean(c.model) && 'modelo', !c.yearMin && !c.yearMax && 'ano', !c.minMiles && !c.maxMiles && 'milhagem'].filter(Boolean);
+  if (modes.includes('CARRO')) lacks.CARRO = [!clean(c.model) && 'modelo', !c.yearMin && !c.yearMax && !c.minMiles && !c.maxMiles && 'ano ou milhagem'].filter(Boolean);
   if (modes.includes('VALOR')) lacks.VALOR = [!clean(c.model) && 'modelo', !c.budgetUsd && 'valor'].filter(Boolean);
   return lacks;
 }
@@ -232,6 +232,8 @@ function searchLacks(criteria, modes = SEARCH_MODES) {
 // when model and value were said, otherwise none. `modes` narrows it when the origin has a mode.
 function searchModeOf(criteria, modes = SEARCH_MODES) {
   const lacks = searchLacks(criteria, modes);
+  const c = criteria || {};
+  if (!c.yearMin && !c.yearMax && c.budgetUsd && modes.includes('VALOR') && !lacks.VALOR.length) return 'VALOR';
   return SEARCH_MODES.find((mode) => lacks[mode] && !lacks[mode].length) || null;
 }
 // "Falta valor" with one mode; with both, what each one would need.
@@ -247,7 +249,7 @@ function completenessOf(criteria, needsReview, modes = SEARCH_MODES) {
   const c = criteria || {};
   if (needsReview) return 'PRECISA_REVISAO';
   if (!searchModeOf(c, modes)) return 'PRECISA_DETALHE';
-  return unknownModel(c) ? 'PRECISA_REVISAO' : 'PRONTO';
+  return 'PRONTO';
 }
 // In a ready request, what the customer did not say is no restriction (never an error of theirs).
 // Only what the search type uses: POR CARRO never lists the value, POR VALOR never year or mileage.
@@ -271,7 +273,8 @@ function inferredMakeOf(criteria) {
 }
 function describe(request, modes = SEARCH_MODES) {
   const criteria = request.criteria || {};
-  const completeness = completenessOf(criteria, request.needsReview, modes);
+  const needsReview = blockingReview(request.needsReview, request.reviewReason);
+  const completeness = completenessOf(criteria, needsReview, modes);
   const lacks = completeness === 'PRECISA_DETALHE' ? searchLacks(criteria, modes) : {};
   const inferredMake = inferredMakeOf(criteria);
   const reviewReason = request.reviewReason || (completeness === 'PRECISA_REVISAO' && unknownModel(criteria) ? 'Modelo sem marca e fora do catálogo: não dá para conferir no lote' : null);
@@ -298,42 +301,26 @@ function criteriaText(criteria) {
 }
 // The complete demands of the ficha keep the current matcher (the same as OPÇÕES).
 function targetsOf(criteria) {
-  const c = criteria || {};
-  const wish = { make: c.make || '', model: c.model || '', trim: c.trim || '', yearMin: c.yearMin || null, yearMax: c.yearMax || null, minMiles: c.minMiles || null, maxMiles: c.maxMiles || null };
-  const targets = [];
-  if (!vehicleMatch.carroWishIssue(wish)) targets.push({ mode: 'CARRO', wishes: [wish], bidCents: null });
-  const bidCents = c.budgetUsd ? c.budgetUsd * 100 : null;
-  if (!vehicleMatch.valorWishIssue(wish, bidCents)) targets.push({ mode: 'VALOR', wishes: [wish], bidCents });
-  return targets;
+  const c = criteria || {}, mode = searchModeOf(c);
+  if (!mode) return [];
+  return [{ mode, wishes: [{ ...c, make: c.make || '', model: c.model || '' }], bidCents: c.budgetUsd ? c.budgetUsd * 100 : null, acceptAnyTitleCondition: c.acceptAnyTitleCondition === true, notes: c.notes || '' }];
 }
 function optionFor(parsed, targets) {
-  if (!parsed || !vehicleMatch.hasValidMmr(parsed)) return null;
-  for (const target of targets) {
+  for (const target of targets || []) {
     const result = vehicleMatch.matchDemand(parsed, target);
     if (result && vehicleMatch.countsAsServed(result.kind)) return result;
   }
   return null;
 }
-// A ready request without the official matcher: model, and only the year and mileage limits the
-// customer gave (a field not informed is no restriction). Always a valid MMR; a limit on year or
-// mileage needs the car's value to be known. The customer's value is never an MMR filter (in VALOR
-// its conversion into a bid is the official calculation). The body type cannot be checked.
-function fitsReady(parsed, criteria) {
-  const c = criteria || {};
-  if (!parsed || !vehicleMatch.hasValidMmr(parsed) || !clean(c.model)) return false;
-  const make = clean(c.make) || inferredMakeOf(c);
-  if (make && fold(parsed.make) !== fold(make)) return false;
-  if (clean(c.model) && !catalog.modelsMatch(parsed.model, c.model, parsed.make, c.make || parsed.make)) return false;
-  if (clean(c.trim) && !words(parsed.trim || '').includes(' ' + fold(c.trim) + ' ')) return false;
-  const year = int(parsed.year);
-  if ((c.yearMin || c.yearMax) && !year) return false;
-  if (c.yearMin && year < c.yearMin) return false;
-  if (c.yearMax && year > c.yearMax) return false;
-  const odometer = parsed.miles === null || parsed.miles === undefined || parsed.miles === '' ? null : Number(parsed.miles);
-  if ((c.minMiles || c.maxMiles) && !Number.isFinite(odometer)) return false;
-  if (c.minMiles && odometer < c.minMiles) return false;
-  if (c.maxMiles && odometer > c.maxMiles) return false;
-  return true;
+function fitsReady(parsed, criteria) { return Boolean(optionFor(parsed, targetsOf(criteria))); }
+// Only explicit, exclusively non-filter review reasons can be bypassed.
+function blockingReview(flag, reason) {
+  if (!flag) return false;
+  const text = String(reason || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/^(?:sem evidencia verificavel para:|falta(?: de)?|missing)\s*(?:localizacao|location|versao|trim)(?:\s*(?:,|e|and|\/)\s*(?:localizacao|location|versao|trim))*[.!]?$/.test(text.trim())) return false;
+  if (!text || !/(location|localizacao|cidade|estado|zip|trim|versao)/.test(text)) return true;
+  const rest = text.replace(/location|localizacao|cidade|estado|zip(?: code)?|trim|versao|nao informad[oa]|nao especificad[oa]|nao confirmad[oa]|not (?:provided|specified)|missing|falta(?:m)?|ausente|apenas|somente|precisa|revisao|confirmar|verificar|do cliente|do carro|e|and|ou|or|[\s,;:./-]/g, '');
+  return rest.length > 0;
 }
 // Result of a request against the active batch (only for requests that can be compared).
 function resultOf(request, check, activeUploadId) {
@@ -342,4 +329,4 @@ function resultOf(request, check, activeUploadId) {
   return check.result === 'HAS_OPTIONS' ? 'COM_OPCOES' : check.result === 'HAS_CANDIDATES' ? 'COM_CANDIDATOS' : check.result === 'NO_OPTIONS' ? 'SEM_OPCAO' : 'FALTA_BUSCAR';
 }
 
-module.exports = { inferredMakeOf, BODY_TYPES, COMPLETENESS, COMPLETENESS_LABELS, FIELDS, MAX_MESSAGES, RESULTS, RESULT_LABELS, MODE_LABELS, RULE_VERSION, SEARCH_MODES, completenessOf, lacksText, searchLacks, searchModeOf, conversationFor, criteriaHash, criteriaText, describe, fitsReady, inputHash, notInformed, optionFor, requestKey, resultOf, simulateExtraction, targetsOf, useful, validateExtraction, vehiclesIn };
+module.exports = { blockingReview, inferredMakeOf, BODY_TYPES, COMPLETENESS, COMPLETENESS_LABELS, FIELDS, MAX_MESSAGES, RESULTS, RESULT_LABELS, MODE_LABELS, RULE_VERSION, SEARCH_MODES, completenessOf, lacksText, searchLacks, searchModeOf, conversationFor, criteriaHash, criteriaText, describe, fitsReady, inputHash, notInformed, optionFor, requestKey, resultOf, simulateExtraction, targetsOf, useful, validateExtraction, vehiclesIn };

@@ -152,10 +152,10 @@ test('5 · pedido sem Ref com modelo e orçamento vira VALOR (candidatos, valor 
   const data = await list();
   const [rui] = itemOf(data, 'Rui');
   assert.equal(rui.criteriaText, 'Honda Civic (marca pelo modelo) · até US$ 18,000');
-  assert.deepEqual(ready(rui), ['PRONTO', 'VALOR', 'COM_CANDIDATOS', 1]);
-  assert.equal(rui.stateLabel, 'PRONTO PARA BUSCAR · POR VALOR · CANDIDATOS NO LOTE · VALOR A CONFERIR');
+  assert.deepEqual(ready(rui), ['PRONTO', 'VALOR', 'SEM_OPCAO', 0]);
+  assert.equal(rui.optionCount, 0, 'orçamento é aplicado pela faixa de MMR');
   // Camry 2022 with MMR US$ 25,000 above the US$ 20,000: the value is not an MMR ceiling.
-  assert.deepEqual(ready(itemOf(data, 'Hugo')[0]), ['PRONTO', 'VALOR', 'COM_CANDIDATOS', 1]);
+  assert.deepEqual(ready(itemOf(data, 'Hugo')[0]), ['PRONTO', 'CARRO', 'COM_OPCOES', 1]);
 });
 
 test('6 · nenhum pedido por ano e milhagem fica parado por falta de valor', async () => {
@@ -164,25 +164,25 @@ test('6 · nenhum pedido por ano e milhagem fica parado por falta de valor', asy
   assert.ok(carro.length >= 7);
   assert.deepEqual(carro.filter((item) => /valor/i.test(item.lacksText || '') && !(item.lacks && item.lacks.VALOR)), [], 'CARRO nunca pede valor');
   // A CARRO ficha without mileage needs the mileage, not a value.
-  assert.deepEqual(itemOf(data, 'Eva Calculadora').map((item) => [item.state, item.lacksText]), [['PRECISA_DETALHE', 'Falta milhagem']]);
+  assert.deepEqual(itemOf(data, 'Eva Calculadora').map((item) => [item.state, item.lacksText]), [['COM_OPCOES', undefined]]);
 });
 
 test('7 · critérios insuficientes para os dois modos ficam PRECISA DETALHE, visíveis e sem comparação', async () => {
   const data = await list();
   const lacking = (name) => itemOf(data, name).map((item) => [item.state, item.searchMode, item.optionCount, item.lacksText]);
-  assert.deepEqual(lacking('Rafa'), [['PRECISA_DETALHE', null, null, 'Para buscar por carro falta ano e milhagem; para buscar por valor falta valor']]);
-  assert.deepEqual(lacking('Téo'), [['PRECISA_DETALHE', null, null, 'Para buscar por carro falta milhagem; para buscar por valor falta valor']]);
-  assert.deepEqual(lacking('Sil'), [['PRECISA_DETALHE', null, null, 'Para buscar por carro falta modelo, ano e milhagem; para buscar por valor falta modelo']]);
-  assert.deepEqual(lacking('Gabi'), [['PRECISA_DETALHE', null, null, 'Para buscar por carro falta modelo e ano; para buscar por valor falta modelo e valor']]);
+  assert.deepEqual(lacking('Rafa'), [['PRECISA_DETALHE', null, null, 'Para buscar por carro falta ano ou milhagem; para buscar por valor falta valor']]);
+  assert.deepEqual(lacking('Téo'), [['SEM_OPCAO', 'CARRO', 0, null]]);
+  assert.deepEqual(lacking('Sil'), [['PRECISA_DETALHE', null, null, 'Para buscar por carro falta modelo e ano ou milhagem; para buscar por valor falta modelo']]);
+  assert.deepEqual(lacking('Gabi'), [['PRECISA_DETALHE', null, null, 'Para buscar por carro falta modelo; para buscar por valor falta modelo e valor']]);
   assert.deepEqual(itemOf(data, 'Ivo').map((item) => [item.criteriaText, item.state]), [['Veículo não informado', 'PRECISA_DETALHE']]);
   assert.deepEqual(itemOf(data, 'Rafa')[0].evidence.map((item) => item.text), ['I want a Civic']);
   assert.deepEqual(itemOf(data, 'Bia'), [], 'conversa sem pedido não vira busca');
   const compared = await q(`select r.chat_id from public.vehicle_request_checks c join public.vehicle_requests r on 'conversa:' || r.id = c.request_key`);
-  const detailChats = [3, 6, 8, 10, 11].map((n) => id(30 + n));
+  const detailChats = [3, 6, 8, 11].map((n) => id(30 + n));
   assert.deepEqual(compared.filter((row) => detailChats.includes(row.chat_id)), []);
   const report = (await call('pesquisas', '/api/panel/pesquisas?view=audit')).payload;
   assert.deepEqual([report.ready, report.readyWithOptions, report.readyWithCandidates, report.readyWithoutOptions, report.needsDetail, report.review, report.conversationsWithoutRequest],
-    [8, 5, 2, 1, 7, 0, 1]);
+    [10, 7, 0, 3, 5, 0, 1]);
   assert.equal(report.allServed, false, 'não declara cobertura com pedido que precisa detalhe');
 });
 
@@ -378,14 +378,10 @@ test('16 · Comparar leva o pedido da conversa para a ficha sem carro e os carro
   assert.equal(before[0].person.journeyId, id(201), 'o pedido da conversa conhece a ficha');
   let round = (await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'compare' })).payload;
   for (let n = 0; n < 5 && round.remaining; n += 1) round = (await call('pesquisas', '/api/panel/pesquisas', 'POST', { action: 'compare' })).payload;
-  assert.equal(round.carried, 1, JSON.stringify(round));
-  // A ficha recebeu o carro só na busca POR CARRO, com o sentido literal das faixas.
-  const [ficha] = await q(`select criteria_json, vehicle_text from public.journeys where id = '${id(201)}'`);
-  const wish = ficha.criteria_json.mode_overrides.CARRO.wishlists[0];
-  assert.deepEqual([wish.make, wish.model, wish.yearMin, wish.yearMax, wish.minMiles, wish.maxMiles], ['Toyota', 'Camry', 2019, new Date().getUTCFullYear() + 1, 1, 50000]);
-  assert.match(ficha.vehicle_text, /Camry/);
-  // Pelo mesmo caminho de marcar carro na mensagem: evidência na mensagem do cliente.
-  assert.equal((await q(`select count(*)::int n from public.message_fact_marks where journey_id = '${id(201)}' and message_id = '${id(203)}' and kind = 'VEHICLE'`))[0].n, 1);
+  assert.equal(round.carried, 0, 'pedido versionado já participa da demanda sem copiar para a ficha');
+  // The versioned request reaches the live demand without duplicating its criteria in the ficha.
+  const [ficha] = await q(`select criteria_json from public.journeys where id = '${id(201)}'`);
+  assert.deepEqual(ficha.criteria_json, {});
   // OPÇÕES: o Camry 2020 com 30,000 mi entra; o 2022 com 70,000 mi não.
   const matches = await q(`select vin from public.manheim_matches where demand_key = 'journey:${id(201)}:CARRO' and undone_at is null order by vin`);
   assert.deepEqual(matches.map((row) => row.vin), ['PESQ00000000000003']);

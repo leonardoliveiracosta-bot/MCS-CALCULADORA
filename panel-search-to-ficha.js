@@ -16,13 +16,7 @@ const vehicleMatch = require('./vehicle-match');
 function wishFor(criteria, mode, now = new Date()) {
   const c = criteria || {};
   const wish = normalizeWishlist({ make: c.make || inferredMakeOf(c) || '', model: c.model || '', trim: c.trim || '', yearMin: c.yearMin || null, yearMax: c.yearMax || null, minMiles: c.minMiles || null, maxMiles: c.maxMiles || null });
-  if (mode === 'CARRO') {
-    if (wish.yearMin && !wish.yearMax) wish.yearMax = now.getUTCFullYear() + 1;
-    if (wish.maxMiles && !wish.minMiles) wish.minMiles = 1;
-  } else {
-    // POR VALOR: só o carro; ano e milhagem não fazem parte dessa busca (regra da mesa).
-    ['yearMin', 'yearMax', 'minMiles', 'maxMiles'].forEach((field) => { wish[field] = null; });
-  }
+  Object.assign(wish, { budgetUsd: c.budgetUsd || null, acceptAnyTitleCondition: c.acceptAnyTitleCondition === true, notes: c.notes || '', requestId: c.requestId || null });
   return wish;
 }
 
@@ -61,7 +55,7 @@ function carryPlan(items, base) {
     const [mode, entries] = [...byMode.entries()].sort((a, b) => b[1].length - a[1].length)[0];
     byMode.forEach((others, other) => { if (other !== mode) others.forEach(({ item }) => skipped.push({ key: item.key, reason: 'OUTRO_TIPO_DE_BUSCA', journeyId })); });
     const wishes = [];
-    entries.forEach(({ item }) => { const wish = wishFor(item.criteria, mode); if (wish.model && !wishes.some((known) => sameCar(known, wish))) wishes.push(wish); });
+    entries.forEach(({ item }) => { const wish = wishFor({ ...item.criteria, requestId: item.key.replace(/^conversa:/, '') }, mode); if (wish.model && !wishes.some((known) => sameCar(known, wish))) wishes.push(wish); });
     // The most recent customer message among the evidence (the mark is unique per message).
     const evidence = entries.map((entry) => entry.evidence).sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
     plan.push({ key: entries[0].item.key, keys: entries.map((entry) => entry.item.key), journeyId, mode, messageId: evidence.id, wishes: wishes.slice(0, 5), wish: wishes[0] });

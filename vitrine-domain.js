@@ -37,7 +37,7 @@ function auctionTime(car){
 // default window (48 h from now) applies, so a vitrine is never born expired.
 function expiresAt(cars, now=Date.now()){
   const times=(cars||[]).map(auctionTime).filter(Number.isFinite);
-  const latest=times.length?Math.max(...times):now;
+  const latest=times.length?(times.length<(cars||[]).length?Math.max(now,...times):Math.max(...times)):now;
   return new Date(latest+48*60*60*1000).toISOString();
 }
 function isExpired(vitrine, now=Date.now()){ return Date.parse(vitrine?.expires_at||'')<=now; }

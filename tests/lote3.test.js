@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const catalog = require('../vehicle-catalog');
+catalog.configureAliases([...JSON.parse(fs.readFileSync(require.resolve('../supabase/migrations/20261021010000_manheim_regras_v32.sql'),'utf8').split('$aliases$')[1]), {make:'BMW',client_model:'330i',target_make:'BMW',manheim_models:['3 Series'],kind:'EQUIVALENT'}, {make:'Lexus',client_model:'RX350',target_make:'Lexus',manheim_models:['RX'],kind:'EQUIVALENT'}],[], 'test-v32');
 const domain = require('../panel-domain');
 const vehicleMatch = require('../vehicle-match');
 const upload = require('../painel/manheim-upload');
@@ -26,10 +27,10 @@ test('Lote 3 · modelo: o nome mais longo do catálogo vence; versões numérica
   assert.equal(same('Grand Cherokee', 'Jeep', 'Cherokee', 'Jeep'), false);
   assert.equal(same('Range Rover Sport', 'Land Rover', 'Range Rover', 'Land Rover'), false);
   assert.equal(same('Transit Connect', 'Ford', 'Transit', 'Ford'), false);
-  assert.equal(same('Cherokee Latitude', 'Jeep', 'Cherokee', 'Jeep'), true);
-  assert.equal(same('330i', 'BMW', '3 Series', 'BMW'), true);
-  assert.equal(same('RX350', 'Lexus', 'RX', 'Lexus'), true);
-  assert.equal(same('C300', 'Mercedes-Benz', 'C-Class', 'Mercedes-Benz'), true);
+  assert.equal(same('Cherokee Latitude', 'Jeep', 'Cherokee', 'Jeep'), false);
+  assert.equal(same('3 Series', 'BMW', '330i', 'BMW'), true);
+  assert.equal(same('RX', 'Lexus', 'RX350', 'Lexus'), true);
+  assert.equal(same('C-Class', 'Mercedes-Benz', 'C300', 'Mercedes-Benz'), true);
   assert.equal(same('Mach-E', '', 'E-Class', 'Mercedes-Benz'), false);
   assert.equal(same('Model S', '', 'S-Class', 'Mercedes-Benz'), false);
   assert.equal(same('3', '', 'Model 3', 'Tesla'), false);
@@ -57,8 +58,7 @@ test('Lote 3 · CSV: odômetro desconhecido não aparece como "Odometer OK"; POR
   const marked = upload.markSearchFiltered([{ miles: 30000 }, { miles: null }, { miles: '' }]);
   assert.deepEqual(marked.map((row) => row.odometerOk), [true, false, false]);
   const result = vehicleMatch.matchValorWish({ year: 2021, make: 'BMW', model: 'X5', miles: null, mmrCents: 3000000 }, { make: 'BMW', model: 'X5' }, 3000000);
-  assert.equal(result.kind, 'POR_VALOR');
-  assert.match(result.notice, /milhagem não informada/);
+  assert.equal(result, null, 'milhagem desconhecida não comprova o teto da faixa');
 });
 
 test('Lote 3 · "Carro ou faixa" vira o desejo confirmado da ficha, mantendo os outros carros', async () => {
@@ -239,9 +239,9 @@ test('Lote 3 · nomes antigos e carrocerias longas continuam sendo o mesmo carro
   const same = (a, am, b, bm) => catalog.modelsMatch(a, b, am, bm);
   assert.equal(same('Crosstrek', 'Subaru', 'XV Crosstrek', 'Subaru'), true);
   assert.equal(same('WRX', 'Subaru', 'Impreza WRX', 'Subaru'), true);
-  assert.equal(same('Yukon', 'GMC', 'Yukon XL', 'GMC'), true);
-  assert.equal(same('Escalade', 'Cadillac', 'Escalade ESV', 'Cadillac'), true);
-  assert.equal(same('Grand Cherokee', 'Jeep', 'Grand Cherokee L', 'Jeep'), true);
-  assert.equal(same('Santa Fe', 'Hyundai', 'Santa Fe Sport', 'Hyundai'), true);
+  assert.equal(same('Yukon', 'GMC', 'Yukon XL', 'GMC'), false);
+  assert.equal(same('Escalade', 'Cadillac', 'Escalade ESV', 'Cadillac'), false);
+  assert.equal(same('Grand Cherokee', 'Jeep', 'Grand Cherokee L', 'Jeep'), false);
+  assert.equal(same('Santa Fe', 'Hyundai', 'Santa Fe Sport', 'Hyundai'), false);
   assert.equal(same('Grand Cherokee L', 'Jeep', 'Cherokee', 'Jeep'), false);
 });

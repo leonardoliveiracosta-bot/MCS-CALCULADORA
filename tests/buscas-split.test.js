@@ -26,9 +26,9 @@ function loadWith(relative, mocks) {
   return mod.exports;
 }
 const response = () => ({ code: 0, payload: null, setHeader() {}, status(code) { this.code = code; return this; }, json(value) { this.payload = value; return value; } });
-const ctx = { config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' };
+const ctx = { modelAliasesLoaded: true, config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' };
 const panelCtx = async () => ctx;
-const car = (overrides) => ({ year: 2022, make: 'BMW', model: 'X5', miles: 70000, mmrCents: 4500000, ...overrides });
+const car = (overrides) => ({ lane: '1', run: '1', year: 2022, make: 'BMW', model: 'X5', miles: 70000, mmrCents: 4500000, ...overrides });
 const now = Date.now();
 const iso = (hoursAgo) => new Date(now - hoursAgo * 3600000).toISOString();
 const valorRow = (ref, extra = {}) => ({ id: 'v' + ref, created_at: iso(5), dados: { sid: 's-' + ref, ref, evento: 'simulacao', logical_mode: 'VALOR', marca: 'BMW', modelo: 'X5', lance: 50000, ...extra } });
@@ -207,9 +207,9 @@ test('9 · critérios CARRO não entram em VALOR e 10 · lance e MMR não entram
   assert.deepEqual([valor.wishes[0].yearMin, valor.wishes[0].yearMax, valor.wishes[0].minMiles, valor.wishes[0].maxMiles], [null, null, null, null]);
   assert.equal(carro.bidCents, null);
   // A 1998 with 300k miles is still a VALOR option (year and mileage are not VALOR criteria).
-  assert.equal(domain.matchManheimDemand(car({ year: 1998, miles: 300000 }), valor).kind, 'POR_VALOR');
+  assert.equal(domain.matchManheimDemand(car({ year: 1998, miles: 300000 }), valor), null);
   // CARRO ignores money: MMR far outside any band, bid given anyway.
-  assert.equal(vehicleMatch.matchDemand(car({ mmrCents: 99900000 }), { ...carro, wishes: carro.activeWishes, bidCents: 100 }).kind, 'BATE');
+  assert.equal(vehicleMatch.matchDemand(car({ mmrCents: 99900000 }), { ...carro, wishes: carro.activeWishes, bidCents: 100 }), null);
   // MMR is mandatory in CARRO too: without it the car is never an option (its amount still decides nothing).
   assert.equal(vehicleMatch.matchDemand(car({ mmrCents: null }), { ...carro, wishes: carro.activeWishes }), null);
 });
@@ -249,7 +249,7 @@ test('12 · ano fora não entra, 13 · milhagem fora não entra, 14 · milhas_de
   assert.deepEqual([inverted.active, inverted.issues[0].code], [false, 'MILES_INVERTED']);
   assert.deepEqual(inverted.wishes[0].minMiles, 90000, 'os valores originais não são trocados');
   const incomplete = domain.orderDemand(domain.consolidateCalcRuns([carroRow('FEEE6', { ano_ate: null })])[0]);
-  assert.deepEqual([incomplete.active, incomplete.issues[0].code, incomplete.wishes[0].yearMax], [false, 'YEAR_MISSING', null]);
+  assert.deepEqual([incomplete.active, incomplete.issues.length, incomplete.wishes[0].yearMax], [true, 0, null]);
 });
 
 test('16 · a faixa agregada do grupo não decide o resultado individual e 17 · o mesmo carro gera um match por modo', () => {
@@ -472,8 +472,8 @@ test('44 · nenhum match é criado só pela decisão da IA', async () => {
   assert.deepEqual(upload.buildMatches([accepted], targetsOf({ byJourney: new Map(), orders: [demand] }), manheim), []);
   // And the server makes every match itself, with the same rule, from the parsed car (never from a
   // decision sent by the browser or by the AI).
-  assert.match(read('api/panel/manheim-batch.js'), /const matches = batch\.matchChunk\(valid, targets, index\)/);
-  assert.match(read('panel-manheim-batch.js'), /vehicleMatch\.matchDemand\(vehicle, \{ mode: target\.mode/);
+  assert.match(read('api/panel/manheim-batch.js'), /const matches = batch\.matchChunk\(valid, targets, index, \{ staging: true \}\)/);
+  assert.match(read('panel-manheim-batch.js'), /vehicleMatch\.matchDemand\(vehicle, \{ \.\.\.target/);
 });
 
 test('34 · D1 a D4 do Lote 4 e 45 · os testes anteriores continuam no pacote', () => {

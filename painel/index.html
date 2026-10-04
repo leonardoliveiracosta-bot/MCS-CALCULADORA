@@ -226,7 +226,7 @@
         <div class="entry-tools import-cards">
           <section id="import-card-manheim" class="card entry-tool import-card">
             <span class="entry-tool-icon" aria-hidden="true">🚗</span><h2>Arquivos do Manheim</h2>
-            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="manheim"><li>Aceita arquivos .csv do Manheim, até 20 por vez e 25 MB cada</li><li>Até 100 mil carros por lote</li><li>O lote só vira ativo quando todos os arquivos chegam inteiros</li><li>Carro repetido entre arquivos entra uma vez só</li><li>Se a conexão cair, escolha os mesmos arquivos e o envio continua de onde parou</li><li>Lote vazio ou bem menor que o anterior pede confirmação antes do envio</li><li>Os carros aparecem em ENVIAR OPÇÕES e o lote aparece na lista abaixo</li><li>Complementar dados usa os mesmos arquivos do lote ativo e mostra uma prévia antes de gravar</li></ul></details>
+            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="manheim"><li>Aceita arquivos .csv do Manheim, até 50 por vez e 25 MB cada</li><li>Até 250 mil carros por lote</li><li>O lote só vira ativo quando todos os arquivos chegam inteiros</li><li>Carro repetido entre arquivos entra uma vez só</li><li>Se a conexão cair, escolha os mesmos arquivos e o envio continua de onde parou</li><li>Lote vazio ou bem menor que o anterior pede confirmação antes do envio</li><li>Os carros aparecem em ENVIAR OPÇÕES e o lote aparece na lista abaixo</li><li>Complementar dados usa os mesmos arquivos do lote ativo e mostra uma prévia antes de gravar</li></ul></details>
             <label id="manheim-drop-zone" class="drop-zone" for="manheim-files">Arraste um ou mais CSVs do Manheim aqui ou selecione arquivos<input id="manheim-files" type="file" accept=".csv,text/csv" multiple></label>
             <p id="manheim-status" class="status" role="status"></p>
             <div class="inline-actions manheim-append"><button id="manheim-append" class="small" type="button">Acrescentar arquivos ao lote ativo</button><span class="muted">Só os CSVs novos · os carros que o lote ainda não tem entram nele; seleções e preços continuam</span><input id="manheim-append-files" type="file" accept=".csv,text/csv" multiple hidden></div>
@@ -361,12 +361,12 @@
   </main>
   <script src="/painel/vendor/zip.min.js" defer></script>
   <script src="/painel/parser.js" defer></script>
-  <script src="/vehicle-catalog.js?v=1" defer></script>
-  <script src="/vehicle-match.js?v=2" defer></script>
-  <script src="/painel/manheim.js?v=5" defer></script>
-  <script src="/painel/manheim-upload.js?v=20261020b" defer></script>
+  <script src="/vehicle-catalog.js?v=20261021v32" defer></script>
+  <script src="/vehicle-match.js?v=20261021v32" defer></script>
+  <script src="/painel/manheim.js?v=20261021v32" defer></script>
+  <script src="/painel/manheim-upload.js?v=20261021v32" defer></script>
   <script src="/painel/refresh-coordinator.js?v=20261003s" defer></script>
-  <script src="/manheim-offer.js?v=2" defer></script>
+  <script src="/manheim-offer.js?v=20261021v32" defer></script>
   <script src="/money-text.js?v=1" defer></script>
   <script src="/panel-origin.js?v=2" defer></script>
   <script src="/panel-groups.js?v=7" defer></script>
@@ -377,10 +377,10 @@
   <script src="/painel/vendor/qrcode.js?v=1" defer></script>
   <script src="/painel/whatsapp-envio.js?v=20261003s" defer></script>
   <script src="/painel/sugestoes.js?v=20261003s" defer></script>
-  <script src="/painel/grupos.js?v=20261004a" defer></script>
+  <script src="/painel/grupos.js?v=20261021v32" defer></script>
   <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js?v=20261004b" defer></script>
-  <script src="/painel/painel.js?v=20261004c" defer></script>
+  <script src="/painel/painel.js?v=20261021v32" defer></script>
   <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
   <script src="/painel/notifications.js" defer></script>
 </body>

@@ -25,8 +25,8 @@ function loadWith(relative, mocks) {
   return mod.exports;
 }
 const response = () => ({ code: 0, payload: null, setHeader() {}, status(code) { this.code = code; return this; }, json(value) { this.payload = value; return value; } });
-const panelCtx = async () => ({ config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' });
-const car = (overrides) => ({ year: 2020, make: 'BMW', model: 'X5', miles: 40000, mmrCents: 3000000, ...overrides });
+const panelCtx = async () => ({ modelAliasesLoaded: true, config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' });
+const car = (overrides) => ({ lane: '1', run: '1', year: 2020, make: 'BMW', model: 'X5', miles: 40000, mmrCents: 3000000, ...overrides });
 
 // ---------------------------------------------------------------- R3: faixa de MMR (modo VALOR)
 // buscas-split: VALOR (Calculate My Cost) usa só marca, modelo e lance; CARRO (Find One For Me)
@@ -76,8 +76,8 @@ test('R3a: CARRO usa só os critérios informados, sem tolerância; MMR obrigat�
   for (const mmrCents of [null, undefined, '', 0, -100, 'N/A', 'desconhecido', 'abc']) assert.equal(carro(car({ year: 2020, miles: 40000, mmrCents }), full), null, String(mmrCents));
   assert.equal(carro(car({ year: 2020, miles: 40000, mmrCents: 99000000 }), full).kind, 'BATE', 'MMR não inclui nem exclui em CARRO');
   // Incomplete criteria are never searched: no year range, no mileage range.
-  assert.equal(carro(car({ year: 2020, mmrCents: 3000000 }), { yearMin: 2019, yearMax: 2021 }), null);
-  assert.equal(vehicleMatch.carroWishIssue({ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2021 }), 'MILES_MISSING');
+  assert.equal(carro(car({ year: 2020, mmrCents: 3000000 }), { yearMin: 2019, yearMax: 2021 }).kind, 'BATE');
+  assert.equal(vehicleMatch.carroWishIssue({ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2021 }), null);
 });
 
 // ---------------------------------------------------------------- R3e: odômetro
@@ -88,7 +88,7 @@ test('R3e: odômetro vazio, "TMU" ou "Exempt" é desconhecido, nunca 0, e nunca 
   assert.deepEqual(rows.map((row) => row.miles), [null, null, null, 30000]);
   const demand = { mode: 'CARRO', wishes: [{ make: 'BMW', model: 'X5', yearMin: 2019, yearMax: 2021, minMiles: 1, maxMiles: 50000 }] };
   for (const row of rows.slice(0, 3)) assert.equal(manheim.matchDemand(row, demand), null);
-  assert.equal(manheim.matchDemand(rows[3], demand).kind, 'BATE');
+  assert.equal(manheim.matchDemand({ ...rows[3], lane: '1', run: '1' }, demand).kind, 'BATE');
 });
 
 // ---------------------------------------------------------------- A6: busca + simulação na mesma Ref
@@ -106,7 +106,7 @@ test('A6: Ref com busca e simulação vira duas demandas; nenhuma empresta crit�
   assert.deepEqual(byMode.CARRO.wishes[0], { make: 'BMW', model: 'X5', yearMin: 2021, yearMax: 2023, minMiles: 5000, maxMiles: 40000, trim: '' });
   const old = car({ year: 2008, miles: 240000, mmrCents: 2500000 });
   assert.equal(domain.matchManheimDemand(old, byMode.CARRO), null);
-  assert.equal(domain.matchManheimDemand(old, byMode.VALOR).kind, 'POR_VALOR', 'VALOR não usa ano nem milhagem');
+  assert.equal(domain.matchManheimDemand(old, byMode.VALOR), null, 'VALOR aplica o teto de milhagem da faixa');
   assert.equal(domain.matchManheimDemand(car({ year: 2022, miles: 30000, mmrCents: 9000000 }), byMode.CARRO).kind, 'BATE');
   // The newest value of each field wins and a range never mixes two sources.
   const newer = [...rows, { id: '3', created_at: '2026-09-22T10:00:00Z', dados: { sid: 's2-find-x', ref: 'ABC23', evento: 'busca', marca: 'BMW', modelo: 'X5', ano_de: 2017, ano_ate: 2019, milhas_de: 5000, milhas_ate: 80000 } }];
@@ -264,7 +264,7 @@ test('A19: combinação que deixou de valer é descartada e contada, sem derruba
   const batch = require('../panel-manheim-batch');
   const targets = batch.snapshotTargets(require('../panel-buscas-view').demandContext(base).targets);
   assert.deepEqual(targets.map((target) => target.key), [`journey:${uuid(1)}:CARRO`, `journey:${uuid(2)}:CARRO`]);
-  const entry = batch.sanitizeVehicle({ fingerprint: 'vin:VIN1', vehicle: { year: 2020, make: 'BMW', model: 'X5', miles: 30000, mmrCents: 3500000, vin: 'VIN1' } });
+  const entry = batch.sanitizeVehicle({ fingerprint: 'vin:VIN1', vehicle: { lane: '1', run: '1', year: 2020, make: 'BMW', model: 'X5', miles: 30000, mmrCents: 3500000, vin: 'VIN1' } });
   const matches = batch.matchChunk([entry], targets);
   assert.deepEqual(matches.map((match) => [match.journeyId, match.mode, match.kind]), [[uuid(1), 'CARRO', 'BATE']]);
   // A ficha closed or switched off while the blocks are being sent is discarded and counted by the
@@ -319,17 +319,17 @@ test('C2: "Quais buscas salvar" separa VALOR e CARRO, não inventa faixa e deixa
   const byKey = Object.fromEntries(groups.map((group) => [group.key, group]));
   const criteria = byKey['bmw|x5'];
   assert.equal(criteria.mode, 'CARRO');
-  assert.deepEqual(criteria.clients.map((client) => client.ref).sort(), ['AAAA2', 'CCCC4']);
+  assert.deepEqual(criteria.clients.map((client) => client.ref).sort(), ['AAAA2', 'CCCC4', 'DDDD5']);
   // The Manheim search covers every customer of the group; each car is checked again per customer.
-  assert.deepEqual([criteria.yearFrom, criteria.yearTo, criteria.milesFrom, criteria.milesTo], [2010, 2022, 1000, 90000]);
+  assert.deepEqual([criteria.yearFrom, criteria.yearTo, criteria.milesFrom, criteria.milesTo], [2010, new Date().getUTCFullYear()+1, 1000, 90000]);
   const value = byKey['bmw|x5|valor'];
   assert.deepEqual([value.mode, value.leads, value.mmrMinCents, value.mmrMaxCents], ['VALOR', 1, 2800000, 4600000]);
   assert.equal(byKey['bmw|x5|qualificar'], undefined);
-  assert.equal(res.payload.activeLeads, 4);
-  assert.deepEqual([res.payload.activeLeadsCriteria, res.payload.activeLeadsValue], [3, 1]);
+  assert.equal(res.payload.activeLeads, 5);
+  assert.deepEqual([res.payload.activeLeadsCriteria, res.payload.activeLeadsValue], [4, 1]);
   assert.equal(value.percent, 100, 'o % do grupo por valor usa só os clientes por valor');
-  assert.equal(res.payload.needsQualifyLeads, 2);
-  assert.deepEqual(res.payload.review.map((item) => [item.mode, item.issues[0].code]).sort(), [['CARRO', 'YEAR_MISSING'], ['REVIEW', 'MODE_UNKNOWN']]);
+  assert.equal(res.payload.needsQualifyLeads, 1);
+  assert.deepEqual(res.payload.review.map((item) => [item.mode, item.issues[0].code]).sort(), [['REVIEW', 'MODE_UNKNOWN']]);
   assert.equal(byKey['audi|q5'].leads, 1);
   assert.ok(!criteria.clients.some((client) => client.journeyId === uuid(2)), 'a ficha que trocou para Q5 não conta como X5');
   assert.deepEqual([...new Set(groups.map((group) => group.mode))], ['VALOR', 'CARRO']);

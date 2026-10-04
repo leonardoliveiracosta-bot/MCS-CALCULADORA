@@ -42,7 +42,7 @@ async function call(name, url, method = 'GET', body) {
 const batch = (body) => call('manheim-batch', '/api/panel/manheim-batch', 'POST', body);
 
 // Cars as the browser sends them (already read by the panel parser).
-const car = (vin, extra = {}) => ({ fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 30000, mmrCents: 2500000, location: 'FL - Orlando', lot: 'L' + vin.slice(-3), cleanTitle: true, odometerOk: true, ...extra } });
+const car = (vin, extra = {}) => ({ fingerprint: 'vin:' + vin, vehicle: { lane: '1', run: '1', vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 30000, mmrCents: 2500000, location: 'FL - Orlando', lot: 'L' + vin.slice(-3), cleanTitle: true, odometerOk: true, ...extra } });
 const camry = (vin, mmrCents) => car(vin, { make: 'Toyota', model: 'Camry', mmrCents });
 
 // files: [{ name, size, chunks: [[car, ...], ...] }] -> the manifest the browser builds.

@@ -112,7 +112,7 @@ test('conferência Manheim: disparo do upload e cron ao mesmo tempo fazem uma ch
   const input = {
     upload: { id: UPLOAD, undone_at: null },
     demands: [{ key, mode: 'CARRO', journeyId: id(10), activeWishes: [{ make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022, minMiles: 1000, maxMiles: 60000 }], active: true, issues: [] }],
-    matches: [{ id: id(500), journey_id: id(10), logical_mode: 'CARRO', demandKey: key, match_kind: 'BATE', row_fingerprint: 'f', vehicle_json: { parsed: { vin: 'VINX', year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } }],
+    matches: [{ id: id(500), journey_id: id(10), logical_mode: 'CARRO', demandKey: key, match_kind: 'BATE', row_fingerprint: 'f', vehicle_json: { parsed: { lane: '1', run: '1', vin: 'VINX', year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } }],
     base: { journeyById: new Map([[id(10), { id: id(10), status: 'ATIVO', contact: { is_lead: true } }]]), refsOf: () => [], calcRuns: [] }
   };
   const calls = [];
@@ -130,7 +130,7 @@ test('saldo pré-pago atômico: duas demandas ao mesmo tempo nunca passam juntas
   await backend.db.query(`insert into public.manheim_uploads(id,environment,source_file_count,vehicle_count,created_by) values('${UPLOAD2}','preview',1,10,'${ACTOR}')`);
   const wish = { make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022, minMiles: 1000, maxMiles: 60000 };
   const keyA = `journey:${id(10)}:CARRO`, keyB = `journey:${id(20)}:CARRO`;
-  const match = (n, journey, key) => ({ id: id(n), journey_id: journey, logical_mode: 'CARRO', demandKey: key, match_kind: 'BATE', row_fingerprint: 'f' + n, vehicle_json: { parsed: { vin: 'VIN' + n, year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } });
+  const match = (n, journey, key) => ({ id: id(n), journey_id: journey, logical_mode: 'CARRO', demandKey: key, match_kind: 'BATE', row_fingerprint: 'f' + n, vehicle_json: { parsed: { lane: '1', run: '1', vin: 'VIN' + n, year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } });
   const input = {
     upload: { id: UPLOAD2, undone_at: null },
     demands: [keyA, keyB].map((key, index) => ({ key, mode: 'CARRO', journeyId: [id(10), id(20)][index], activeWishes: [wish], active: true, issues: [] })),

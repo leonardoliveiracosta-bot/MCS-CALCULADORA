@@ -4,7 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { modelsMatch } = require('../vehicle-catalog');
+const catalog = require('../vehicle-catalog');
+const aliases=JSON.parse(fs.readFileSync(path.join(__dirname,'../supabase/migrations/20261021010000_manheim_regras_v32.sql'),'utf8').split('$aliases$')[1]);
+catalog.configureAliases(aliases);
+const { modelsMatch } = catalog;
 const source = fs.readFileSync(path.join(__dirname, '../panel-manheim-audit.js'), 'utf8');
 
 test('MAKE_MODEL fora dos códigos que a IA pode devolver', () => {
@@ -14,6 +17,8 @@ test('MAKE_MODEL fora dos códigos que a IA pode devolver', () => {
 });
 
 test('famílias do catálogo casam com o modelo pedido (sem versão na calculadora)', () => {
-  for (const [car, asked] of [['Escalade ESV', 'Escalade'], ['Yukon XL', 'Yukon'], ['Grand Cherokee L', 'Grand Cherokee'], ['Santa Fe Sport', 'Santa Fe'], ['XV Crosstrek', 'Crosstrek'], ['Escalade EXT', 'Escalade']]) assert.equal(modelsMatch(car, asked, '', ''), true, car);
+  for (const [car, asked] of [['Escalade ESV', 'Escalade'], ['Yukon XL', 'Yukon'], ['Grand Cherokee L', 'Grand Cherokee'], ['XV Crosstrek', 'Crosstrek']]) assert.equal(modelsMatch(car, asked, '', ''), true, car);
+  assert.equal(modelsMatch('Escalade EXT','Escalade','Cadillac','Cadillac'),false);
+  assert.equal(modelsMatch('Escalade','Escalade ESV','Cadillac','Cadillac'),false);
   assert.equal(modelsMatch('Tahoe', 'Escalade', 'Chevrolet', 'Cadillac'), false);
 });

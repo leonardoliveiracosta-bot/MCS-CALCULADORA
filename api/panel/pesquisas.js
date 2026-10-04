@@ -18,7 +18,7 @@
 // "Sem opção no lote" continua na lista para a próxima importação. Nada é enviado a ninguém.
 const crypto = require('node:crypto');
 const openAiBudget = require('../../panel-openai-budget');
-const { allRows, insert, isUuid, jsonBody, requirePanel, rows, send, supabase } = require('../../panel-server');
+const { allRows, insert, isUuid, jsonBody, requirePanel, rows, rpc, send, supabase } = require('../../panel-server');
 const { loadBuscasBase, demandPerson, matchTarget, upper } = require('../../panel-buscas');
 const { latestActiveUpload } = require('../../panel-manheim-state');
 const { criteriaHash: targetHash } = require('../../panel-manheim-batch');
@@ -112,7 +112,7 @@ async function buildList(ctx) {
     const described = requests.describe({ criteria: request.criteria, evidence: request.evidence, confidence: request.confidence, needsReview: request.needs_review, reviewReason: request.review_reason });
     const item = { key, source: 'CONVERSA', person: request.person, mode: null, criteria: request.criteria, criteriaText: requests.criteriaText(request.criteria), missing: described.missing, lacks: described.lacks, lacksText: described.lacksText, searchMode: described.searchMode,
       completeness: described.completeness, reviewReason: described.reviewReason, comparable: described.comparable, criteriaHash: described.criteriaHash, targets: [],
-      typeNotChecked: Boolean(request.criteria && request.criteria.bodyType), lastMessageAt: request.lastMessageAt, evidence: request.evidenceMessages, chatId: request.chat_id, versions: request.versionCount };
+      typeNotChecked: Boolean(request.criteria && request.criteria.bodyType), versionId: request.versionId, lastMessageAt: request.lastMessageAt, evidence: request.evidenceMessages, chatId: request.chat_id, versions: request.versionCount };
     items.push(finish(item, checkByKey.get(key + '|' + described.criteriaHash) || null, uploadId));
   }
   // Same criteria, one operational task; every person stays linked to it.
@@ -137,7 +137,9 @@ function withCounts(list, items) {
   return { ...list, items, counts, byCompleteness };
 }
 function finish(item, check, uploadId) {
-  const result = requests.resultOf(item, check, uploadId);
+  const unknown = item.comparable && (item.targets?.length ? item.targets.flatMap((t) => t.wishes || []) : [item.criteria || {}]).every((w) => !require('../../vehicle-catalog').recognized(w.model, w.make));
+  if (unknown) { check = { result: 'NO_OPTIONS', option_count: 0, upload_id: uploadId, criteria_hash: item.criteriaHash }; item.manualReason = 'modelo não reconhecido'; }
+  const result = unknown ? 'SEM_OPCAO' : requests.resultOf(item, check, uploadId);
   const state = result || item.completeness;
   const lackingOne = item.completeness === 'PRECISA_DETALHE' && Object.keys(item.lacks || {}).length === 1 ? item.lacksText.toUpperCase() : null;
   const label = [requests.COMPLETENESS_LABELS[item.completeness], item.searchMode ? requests.MODE_LABELS[item.searchMode] : null, lackingOne, result ? requests.RESULT_LABELS[result] : null].filter(Boolean).join(' · ');
@@ -157,7 +159,7 @@ async function loadConversationRequests(ctx) {
   const stored = await safe(allRows(ctx, 'vehicle_requests', { select: 'id,chat_id,contact_id,journey_id,request_key', environment: env }), null);
   if (stored === null) return { requests: [], pending: true };
   if (!stored.length) return { requests: [], pending: false };
-  const versions = await allRows(ctx, 'vehicle_request_versions', { select: 'id,request_id,criteria_json,missing_fields,evidence_json,confidence,needs_review,review_reason,criteria_hash,created_at', environment: env, order: 'created_at.asc' });
+  const versions = await allRows(ctx, 'vehicle_request_versions', { select: 'id,request_id,criteria_json,missing_fields,evidence_json,confidence,needs_review,review_reason,criteria_hash,created_at', environment: env, order: 'created_at.asc,id.asc' });
   const latest = new Map();
   const versionCount = new Map();
   versions.forEach((version) => { latest.set(version.request_id, version); versionCount.set(version.request_id, (versionCount.get(version.request_id) || 0) + 1); });
@@ -172,7 +174,7 @@ async function loadConversationRequests(ctx) {
     const evidenceIds = [...new Set(Object.values(version.evidence_json || {}).flat())];
     const evidenceMessages = evidenceIds.map((id) => messages.get(id)).filter(Boolean).map((row) => ({ kind: 'MENSAGEM', id: row.id, at: row.occurred_at_utc || row.created_at, text: String(row.body_text || '').slice(0, 300) }))
       .sort((left, right) => String(left.at).localeCompare(String(right.at)));
-    return { ...request, criteria: version.criteria_json || {}, evidence: version.evidence_json || {}, confidence: version.confidence, needs_review: version.needs_review, review_reason: version.review_reason,
+    return { ...request, versionId: version.id, criteria: version.criteria_json || {}, evidence: version.evidence_json || {}, confidence: version.confidence, needs_review: version.needs_review, review_reason: version.review_reason,
       versionCount: versionCount.get(request.id), evidenceMessages, lastMessageAt: evidenceMessages.at(-1)?.at || null,
       person: { name: contacts.get(request.contact_id)?.display_name || 'Contato sem nome', contactId: request.contact_id, journeyId: request.journey_id || null } };
   }) };
@@ -420,6 +422,41 @@ async function compare(ctx, startedAt = Date.now(), skipKeys = []) {
   return out;
 }
 
+
+async function editRequest(ctx, body) {
+  const list = await buildList(ctx);
+  const item = list.items.find((entry) => entry.key === body.key);
+  if (!item) return { status: 404, error: 'REQUEST_NOT_FOUND' };
+  if (body.criteriaHash !== item.criteriaHash) return { status: 409, error: 'REQUEST_VERSION_CHANGED' };
+  const index = Number(body.wishIndex) || 0;
+  const wishes = item.targets?.[0]?.wishes || [item.criteria || {}];
+  if (!wishes[index]) return { status: 400, error: 'REQUEST_EDIT_INVALID' };
+  const requestId = item.source === 'CONVERSA' ? item.key.slice(9) : wishes[index].requestId;
+  try {
+    let version;
+    if (requestId) {
+      const [latest] = await rows(ctx,'vehicle_request_versions',{select:'id',environment:'eq.'+ctx.environment,request_id:'eq.'+requestId,order:'created_at.desc,id.desc',limit:'1'});
+      version = await rpc(ctx,'panel_vehicle_request_edit',{p_environment:ctx.environment,p_actor_id:ctx.panel.id,p_request_id:requestId,p_expected_version: item.versionId || latest?.id,p_patch:body.patch});
+    } else {
+      const journey = list.base.journeyById.get(item.person?.journeyId);
+      if (!journey) return { status: 400, error: 'REQUEST_EDIT_INVALID' };
+      version = await rpc(ctx,'panel_journey_request_edit',{p_environment:ctx.environment,p_actor_id:ctx.panel.id,p_journey_id:journey.id,p_mode:item.searchMode,p_expected_updated_at:journey.updated_at,p_wishes:wishes,p_index:index,p_patch:body.patch});
+    }
+    if (ctx.readCache) ctx.readCache.clear();
+    const after = await buildList(ctx);
+    const updated = after.items.find((entry) => entry.key === item.key);
+    const comparison = updated ? await search.compareItems(ctx,[updated],{services:{upsertCheck}}) : null;
+    const journeyId = item.person?.journeyId;
+    const keys = journeyId ? (after.base.demands.byJourney.get(journeyId) || []).filter((d) => d.active).map((d) => d.key) : [];
+    const options = keys.length ? await rematch.rematchDemands(ctx,keys,{base:after.base}) : [];
+    return { status: 200, saved:true, version, comparison, options };
+  } catch (error) {
+    if (/REQUEST_VERSION_CHANGED/.test(String(error.code || error.message))) return {status:409,error:'REQUEST_VERSION_CHANGED'};
+    if (/REQUEST_(EDIT_INVALID|RANGE_INVERTED)/.test(String(error.code || error.message))) return {status:400,error:'REQUEST_EDIT_INVALID'};
+    throw error;
+  }
+}
+
 module.exports = async (req, res) => {
   const startedAt = Date.now();
   const ctx = await requirePanel(req, res);
@@ -437,12 +474,13 @@ module.exports = async (req, res) => {
         const years = wishes.flatMap((wish) => [Number(wish.yearMin) || null, Number(wish.yearMax) || null]).filter(Boolean);
         const bid = target && target.bidCents ? Math.round(target.bidCents / 100) : Number(item.criteria?.budgetUsd) || null;
         return { bidUsd: bid, yearMin: years.length ? Math.min(...years) : null, yearMax: years.length ? Math.max(...years) : null }; };
-      const items = shown.items.map(({ targets, ...item }) => ({ ...item, sort: sortOf({ targets, ...item }) }));
-      return send(res, 200, { ...list, items, counts: Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length])),
+      const items = shown.items.map(({ targets, ...item }) => ({ ...item, editWishes: targets?.[0]?.wishes || (item.criteria ? [item.criteria] : []), sort: sortOf({ targets, ...item }) }));
+      return send(res, 200, { ...list, modelDictionary: ctx.modelDictionary, items, counts: Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length])),
         totals: merge.counts(items, STATES), mergedReadings: shown.merged });
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await jsonBody(req, 16 * 1024);
+    if (body.action === 'edit') { const { status, ...out } = await editRequest(ctx, body); return send(res, status, out); }
     if (body.action === 'compare') { const { status, ...out } = await compare(ctx, startedAt, body.skip); return send(res, status, out); }
     // Adendo, item 2: the plain-language reason of every "sem carros" (read only, never compares again).
     if (body.action === 'empty_reasons') {
@@ -472,3 +510,5 @@ module.exports.buildList = buildList;
 module.exports.audit = audit;
 module.exports.extractHistory = extractHistory;
 module.exports.extractNow = extractNow;
+
+module.exports.editRequest = editRequest;

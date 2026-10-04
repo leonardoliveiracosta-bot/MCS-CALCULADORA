@@ -32,7 +32,7 @@ const { modelsMatch } = require('./vehicle-catalog');
 const { PRICES } = require('./panel-triage');
 const aiClaim = require('./panel-ai-claim');
 
-const RULE_VERSION = 'conferencia-v2';
+const RULE_VERSION = 'conferencia-v3.2';
 const DEFAULT_MODEL = 'gpt-6-luna';
 const APPROVED_MODELS = Object.freeze(['gpt-6-luna']);
 // No limit per import and no "waiting for authorization": the only limit is the OpenAI prepaid
@@ -120,10 +120,8 @@ function testRefs(calcRuns) {
 }
 function criteriaOf(demand) {
   if (!demand) return null;
-  const wishes = (demand.activeWishes || demand.wishes || []).map((wish) => demand.mode === 'CARRO'
-    ? { marca: wish.make || '', modelo: wish.model || '', ano_min: wish.yearMin ?? null, ano_max: wish.yearMax ?? null, milhagem_min: wish.minMiles ?? null, milhagem_max: wish.maxMiles ?? null }
-    : { marca: wish.make || '', modelo: wish.model || '' });
-  return demand.mode === 'VALOR' ? { desejos: wishes, lance_usd: dollars(demand.bidCents) } : { desejos: wishes };
+  const wishes = (demand.activeWishes || demand.wishes || []).map((wish) => ({ marca:wish.make||'', modelo:wish.model||'', ano_min:wish.yearMin??null, ano_max:wish.yearMax??null, milhagem_min:wish.minMiles??null, milhagem_max:wish.maxMiles??null, lance_usd:wish.budgetUsd || dollars(demand.bidCents), qualquer_titulo_condicao:wish.acceptAnyTitleCondition===true }));
+  return { desejos:wishes, lance_usd:dollars(demand.bidCents) };
 }
 function lotOf(match) {
   // Batches in blocks keep the lot inside the parsed car; older rows keep the raw CSV cells.
@@ -135,7 +133,7 @@ function lotOf(match) {
 }
 function optionOf(match, index) {
   const parsed = match && match.vehicle_json && match.vehicle_json.parsed || {};
-  return { id: 'm' + (index + 1), tipo: match.match_kind || '', marca: parsed.make || '', modelo: parsed.model || '', ano: parsed.year ?? null, milhagem: parsed.miles ?? null, mmr_usd: dollars(parsed.mmrCents), vin: parsed.vin || '', lote: lotOf(match) };
+  return { id: 'm' + (index + 1), tipo: match.match_kind || '', marca: parsed.make || '', modelo: parsed.model || '', ano: parsed.year ?? null, milhagem: parsed.miles ?? null, mmr_usd: dollars(parsed.mmrCents), fallback_valor: parsed.budgetFallback === true, valor_informado_usd: dollars(parsed.requestedBudgetCents), vin: parsed.vin || '', lote: lotOf(match) };
 }
 function contentHash(group) {
   // The server's own findings are part of the content: when a fact changes, the demand is read again.
@@ -191,7 +189,7 @@ function buildGroups(input) {
       if (match.undone_at) add('BATCH_UNDONE', option);
       if (demand && demand.journeyId && match.journey_id !== demand.journeyId) add('PERSON_MISMATCH', option);
       if (demand && !demand.journeyId && demand.ref && upper(match.calc_ref) !== upper(demand.ref)) add('PERSON_MISMATCH', option);
-      const vin = upper(parsed.vin);
+      const vin = upper(parsed.vin) ? [upper(parsed.vin),parsed.lane || '',parsed.run || ''].join('|') : '';
       if (vin) { if (vins.has(vin)) add('VIN_DUPLICATE', option); vins.set(vin, option); }
       const signature = [parsed.year, upper(parsed.make), upper(parsed.model), parsed.miles, parsed.mmrCents, upper(parsed.location)].join('|');
       if (!vin) { if (rowsSeen.has(signature)) add('SPLIT_DUPLICATE', option); rowsSeen.set(signature, option); }
@@ -202,10 +200,9 @@ function buildGroups(input) {
       const wishes = demand.activeWishes || demand.wishes || [];
       if (wishes.length && !wishes.some((wish) => modelsMatch(parsed.model, wish.model, parsed.make, wish.make))) { add('MAKE_MODEL', option); return; }
       // The same deterministic rule the import used, applied again to the stored car.
-      const result = matchManheimDemand(parsed, { ...demand, wishes: demand.activeWishes });
+      const result = require('./panel-buscas').liveMatchesFor(match,[demand])[0];
       if (!result) { add('CRITERIA_MISMATCH', option); return; }
-      if (demand.mode === 'CARRO' && (parsed.miles === null || parsed.miles === undefined || parsed.miles === '')) add('ODOMETER_UNKNOWN', option);
-      if (match.match_kind && result.kind !== match.match_kind) add('CRITERIA_MISMATCH', option);
+      if (match.match_kind && result.match_kind !== match.match_kind) add('CRITERIA_MISMATCH', option);
     });
     const group = { key, mode, uploadId: upload.id || null, demand, journeyId: demand && demand.journeyId || (matches[0] && matches[0].journey_id) || null, matches, options, criteria: criteriaOf(demand), divergences };
     group.hash = contentHash(group);
@@ -224,8 +221,8 @@ const SCHEMA = {
 const INSTRUCTIONS = [
   'Você confere as opções de carros de leilão (Manheim) que o sistema da My Car Scout separou para uma demanda de cliente. Responda só com o JSON pedido.',
   'Marca e modelo já foram conferidos pelo servidor com o catálogo (o cliente não informa versão: o modelo pedido vale para a família inteira, como Escalade ESV para Escalade). Nunca aponte divergência de marca ou modelo.',
-  'Modo VALOR: vale o lance da própria demanda. O MMR é obrigatório e numérico. Lance até US$ 60.000: MMR entre 70% e 115% do lance; acima de US$ 60.000: entre 75% e 110%. O teto total nunca é lance. Ano e milhagem não contam em VALOR.',
-  'Modo CARRO: vale ano dentro da faixa e milhagem dentro da faixa, com odômetro informado. Não existe tolerância. O MMR precisa existir e ser numérico, mas o valor dele não decide; o lance não conta em CARRO.',
+  'Modo VALOR: vale o lance da própria demanda. O MMR é obrigatório e numérico. Lance até US$ 60.000: MMR entre 70% e 115% do lance; acima de US$ 60.000: entre 75% e 110%. O teto total nunca é lance. Ano não restringe VALOR. Teto de milhas: lance até 10 mil, 135 mil mi; até 20 mil, 115 mil; até 30 mil, 105 mil; acima, 95 mil. Se informado um teto pelo cliente, vale o menor. MMR mínimo US$ 1.750.',
+  'Modo CARRO (FIND): modelo e ano ou milhagem; limites de milhagem só se informados. Sem ano máximo, até ano do calendário + 1. MMR positivo obrigatório, sem piso. Havendo orçamento, faixa de MMR igual a VALOR; somente quando não há opções nessa faixa no lote, o servidor marca fallback de orçamento. Esse fallback é válido e não é divergência. Não invalide milhagem ausente quando o pedido não a restringe.',
   'Aponte critério de um modo usado no outro, opção de outra pessoa, VIN repetido, carro repetido e demanda incompleta.',
   'aprovado: true só quando todas as opções cumprem a regra do modo. Cada divergência traz a opção (id, ou vazio para a demanda inteira), o código e um motivo curto em português, sem ponto final.'
 ].join('\n');

@@ -15,7 +15,7 @@ const KEY = `journey:${JOURNEY}:CARRO`;
 const seed = [
   `insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password) values('${ACTOR}','preview','68000000-0000-4000-8000-00000000a001','teste@example.test','admin',true,false);`,
   `insert into public.contacts(id,environment,display_name,source,created_at,updated_at) values('${CONTACT}','preview','Cliente Ordem','WHATSAPP_DIRECT',now(),now());`,
-  `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,budget_cents,reference_code,created_at,updated_at) values('${JOURNEY}','preview','${CONTACT}','WHATSAPP_DIRECT','RESPONDIDO','ATIVO','${JSON.stringify({ wishlists: [{ make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022, minMiles: 1000, maxMiles: 60000 }], logical_modes: ['CARRO'] })}',3000000,'WRDE2',now(),now());`,
+  `insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,budget_cents,reference_code,created_at,updated_at) values('${JOURNEY}','preview','${CONTACT}','WHATSAPP_DIRECT','RESPONDIDO','ATIVO','${JSON.stringify({ wishlists: [{ make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022, minMiles: 1000, maxMiles: 60000 }], logical_modes: ['CARRO'] })}',null,'WRDE2',now(),now());`,
   `insert into public.chats(id,environment,channel,contact_id,canonical_key,resolution_status,is_group,first_seen_at,last_seen_at,created_at,updated_at) values('${id(12)}','preview','WHATSAPP','${CONTACT}','ord-1','RESOLVED',false,now(),now(),now(),now());`,
   `insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at) values('${id(13)}','preview','${id(12)}','WHATSAPP','CUSTOMER','Quero um CR-V','x',now(),'s1',1,'WHATSAPP_WEBHOOK',now());`,
   `insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','${id(13)}','${JOURNEY}','IMPORT',now());`
@@ -31,7 +31,7 @@ async function call(name, url, method = 'GET', body) {
 // 73 carros em Lane/Run (mais de uma página de 50): anos, MMR e CR variados, com empates de ano e de MMR.
 const car = (n) => {
   const vin = 'ORDV' + String(n).padStart(13, '0');
-  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2019 + (n % 4), make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 1500000 + (n % 7) * 250000, location: 'FL - Orlando', startsAt: '2026-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (1.5 + (n % 9) * 0.4).toFixed(1), cleanTitle: true, odometerOk: true } };
+  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2019 + (n % 4), make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 1500000 + (n % 7) * 250000, location: 'FL - Orlando', startsAt: '2026-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (1.9 + (n % 8) * 0.4).toFixed(1), cleanTitle: true, odometerOk: true } };
 };
 const cars = Array.from({ length: 73 }, (_, n) => car(n));
 

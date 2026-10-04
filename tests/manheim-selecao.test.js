@@ -38,7 +38,7 @@ const choose = (body) => call('manheim-options', '/api/panel/manheim-options', '
 const STARTS_AT = new Date(Date.now() + 7 * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const car = (n, extra = {}) => {
   const vin = 'SELV' + String(n).padStart(13, '0');
-  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: STARTS_AT, lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (4.9 - n * 0.3).toFixed(1), cleanTitle: true, odometerOk: true, ...extra } };
+  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: STARTS_AT, lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: Math.max(1.9, 4.9 - n * 0.3).toFixed(1), cleanTitle: true, odometerOk: true, ...extra } };
 };
 const cars = [...Array.from({ length: 12 }, (_, n) => car(n)), car(20, { buyNowPrice: '26500' }), car(21, { lane: '', run: '', buyNowPrice: '26500' }), car(22, { lane: '', run: '' })];
 
@@ -65,12 +65,12 @@ test('classificação: Lane/Run verificável fica em Lane/Run mesmo com Buy Now;
     [{ lane: '12', run: '45', saleType: 'Buy Now', eventSaleName: 'Make Offer' }, 'LANE'],
     [{ lane: '12', run: '45' }, 'LANE'],
     [{ lane: '', run: '', buyNowPrice: '26500' }, 'OFFLANE'],
-    [{ lane: '12', run: '', eventSaleName: 'OVE Make Offer' }, 'OFFLANE'],
+    [{ lane: '12', run: '', eventSaleName: 'OVE Make Offer' }, 'INCOMPLETE'],
     [{ lane: '', run: '', buyNowPrice: '0' }, 'INCOMPLETE'],
     [{ lane: '', run: '' }, 'INCOMPLETE'],
     // Lote antigo, sem os dados de venda lidos: Buy Now Price sozinho não tira o carro de Lane/Run.
-    [{ buyNowPrice: '26500' }, 'INCOMPLETE'],
-    [{ buyNowPrice: '26500', saleType: 'Simulcast' }, 'INCOMPLETE']
+    [{ buyNowPrice: '26500' }, 'OFFLANE'],
+    [{ buyNowPrice: '26500', saleType: 'Simulcast' }, 'OFFLANE']
   ];
   for (const [parsed, expected] of cases) {
     assert.equal(offer.classify({ conditionGrade: '4.5', ...parsed }, 2500000).group, expected, JSON.stringify(parsed));
@@ -84,12 +84,12 @@ test('classificação: Lane/Run verificável fica em Lane/Run mesmo com Buy Now;
 test('grupos, ordem por CR e resumo sem carros', async () => {
   const view = (await call('records', '/api/panel/records?view=manheim')).payload;
   const demand = view.demands.find((item) => item.key === KEY);
-  assert.deepEqual([demand.offer.lane, demand.offer.offLane, demand.offer.incomplete, demand.offer.selected], [13, 1, 1, 0]);
+  assert.deepEqual([demand.offer.lane, demand.offer.offLane, demand.offer.incomplete, demand.offer.selected], [13, 1, 0, 0]);
   const page = (await call('manheim-options', `/api/panel/manheim-options?key=${KEY}&group=LANE&limit=10`)).payload;
   assert.equal(page.options.length, 10);
   assert.equal(page.total, 13);
   // Up to 5 at or above the recommended CR (2.5 for a US$ 25.000 MMR), then up to 5 below it.
-  assert.deepEqual(page.options.map((option) => option.offer.cr), [4.9, 4.6, 4.3, 4.0, 3.7, 2.2, 1.9, 1.6, 3.4, 3.1]);
+  assert.deepEqual(page.options.map((option) => option.offer.cr), [4.9, 4.6, 4.3, 4.0, 3.7, 2.2, 1.9, 1.9, 1.9, 3.4]);
   assert.deepEqual(page.options.slice(5, 8).map((option) => option.offer.belowMinimum), [true, true, true]);
   assert.ok(page.nextCursor);
 });

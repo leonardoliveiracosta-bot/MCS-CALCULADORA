@@ -30,10 +30,8 @@ const makeKey = (make) => vehicleMatch.fold(make);
 
 // Critério de uma demanda, reduzido ao que decide um match. Muda quando o critério muda.
 function criteriaHash(target) {
-  const wishes = (target && target.wishes || []).map((wish) => target.mode === 'CARRO'
-    ? [vehicleMatch.fold(wish.make), vehicleMatch.fold(wish.model), wish.yearMin ?? null, wish.yearMax ?? null, wish.minMiles ?? null, wish.maxMiles ?? null]
-    : [vehicleMatch.fold(wish.make), vehicleMatch.fold(wish.model)]);
-  const body = JSON.stringify([target && target.mode, wishes, target && target.mode === 'VALOR' ? Number(target.bidCents) || null : null, Boolean(target && target.reactivation)]);
+  const wishes = (target && target.wishes || []).map((wish) => [vehicleMatch.fold(wish.make), vehicleMatch.fold(wish.model), wish.yearMin ?? null, wish.yearMax ?? null, wish.minMiles ?? null, wish.maxMiles ?? null, wish.budgetUsd ?? null, wish.budgetExplicit === true, wish.acceptAnyTitleCondition === true, wish.notes || '']);
+  const body = JSON.stringify([vehicleMatch.RULE_VERSION, vehicleCatalog.aliasRevision(), target && target.mode, wishes, Number(target && target.bidCents) || null, Boolean(target && target.reactivation), target && target.acceptAnyTitleCondition === true]);
   return crypto.createHash('sha256').update(body).digest('hex').slice(0, 24);
 }
 
@@ -42,8 +40,8 @@ function snapshotTargets(targets) {
   return (targets || []).filter((target) => target && ['CARRO', 'VALOR'].includes(target.mode)).map((target) => ({
     key: target.key, mode: target.mode, targetType: target.targetType === 'ORDER' ? 'ORDER' : 'JOURNEY',
     journeyId: target.journeyId || null, ref: target.ref ? upper(target.ref) : null,
-    wishes: (target.wishes || []).slice(0, 5).map((wish) => ({ make: wish.make || '', model: wish.model || '', trim: wish.trim || '', yearMin: wish.yearMin ?? null, yearMax: wish.yearMax ?? null, minMiles: wish.minMiles ?? null, maxMiles: wish.maxMiles ?? null })),
-    bidCents: target.mode === 'VALOR' ? Number(target.bidCents) || null : null,
+    wishes: (target.wishes || []).map((wish) => ({ make: wish.make || '', model: wish.model || '', trim: wish.trim || '', yearMin: wish.yearMin ?? null, yearMax: wish.yearMax ?? null, minMiles: wish.minMiles ?? null, maxMiles: wish.maxMiles ?? null, budgetUsd: wish.budgetUsd ?? null, budgetExplicit: wish.budgetExplicit === true, acceptAnyTitleCondition: wish.acceptAnyTitleCondition === true, notes: wish.notes || '', requestId: wish.requestId || null })),
+    bidCents: Number(target.bidCents) || null, acceptAnyTitleCondition: target.acceptAnyTitleCondition === true,
     reactivation: target.reactivation === true, criteriaHash: criteriaHash(target)
   }));
 }
@@ -68,7 +66,7 @@ function sanitizeVehicle(source) {
     drivetrain: text(input.drivetrain, 80), transmission: text(input.transmission, 80), engine: text(input.engine, 120),
     buyNowPrice: text(input.buyNowPrice, 120), conditionGrade: text(input.conditionGrade, 120), lot: text(input.lot, 40),
     makeNotice: text(input.makeNotice, 160), makeInferred: input.makeInferred === true,
-    cleanTitle: input.cleanTitle === true, odometerOk: input.odometerOk === true
+    titleStatus: text(input.titleStatus, 120), odometerStatus: text(input.odometerStatus, 120), cleanTitle: typeof input.cleanTitle === 'boolean' ? input.cleanTitle : null, odometerOk: typeof input.odometerOk === 'boolean' ? input.odometerOk : null
   };
   // Dados de venda só quando o CSV foi lido com eles (um lote antigo não os tem; nada é inventado).
   [['lane', 20], ['run', 20], ['saleType', 80], ['saleStatus', 80], ['eventSaleName', 160]].forEach(([key, max]) => {
@@ -97,7 +95,8 @@ function indexTargets(targets) {
   const all = [];
   (targets || []).forEach((target) => {
     all.push(target);
-    const makes = new Set((target.wishes || []).map((wish) => makeKey(wish.make)).filter(Boolean));
+    const makes = new Set((target.wishes || []).flatMap((wish) => vehicleCatalog.inventoryMakes(wish.make, wish.model)));
+    if ((target.wishes || []).some((wish) => !wish.make)) { if (!byMake.has('*')) byMake.set('*', []); byMake.get('*').push(target); }
     makes.forEach((make) => { if (!byMake.has(make)) byMake.set(make, []); byMake.get(make).push(target); });
   });
   return { byMake, all };
@@ -105,15 +104,15 @@ function indexTargets(targets) {
 
 // Um carro contra uma demanda, pela mesma regra do navegador e da conferência.
 function matchOne(vehicle, target) {
-  const result = vehicleMatch.matchDemand(vehicle, { mode: target.mode, wishes: target.wishes || [], bidCents: target.mode === 'VALOR' ? target.bidCents : null });
+  const result = vehicleMatch.matchDemand(vehicle, { ...target, wishes: target.wishes || [] });
   // Uma ficha desligada ou parada só volta com um BATE.
   if (!result || (target.reactivation && result.kind !== 'BATE')) return null;
   return result;
 }
 
 function matchRow(entry, target, result) {
-  const parsed = { ...entry.vehicle, matchedWishlistIndex: result.matchedWishlistIndex, matchedWishlistLabel: result.matchedWishlistLabel,
-    makeNotice: result.makeNotice || entry.vehicle.makeNotice || '', matchNotice: result.notice || '', matchBasis: result.basis, dataGap: result.dataGap === true };
+  const parsed = { ...entry.vehicle, criteriaHash: target.criteriaHash || criteriaHash(target), matchedWishlistIndex: result.matchedWishlistIndex, matchedWishlistLabel: result.matchedWishlistLabel,
+    makeNotice: result.makeNotice || entry.vehicle.makeNotice || '', matchNotice: result.notice || '', matchBasis: result.basis, dataGap: result.dataGap === true, budgetFallback: result.budgetFallback === true, requestedBudgetCents: result.bidCents || null };
   return {
     targetType: target.targetType, journeyId: target.targetType === 'ORDER' ? null : target.journeyId, calcRef: target.targetType === 'ORDER' ? target.ref : null,
     mode: target.mode, kind: result.kind, reason: result.reason || result.notice || null, mmrStatus: result.mmrStatus || null,
@@ -123,17 +122,19 @@ function matchRow(entry, target, result) {
 }
 
 // Matches de um bloco. MMR obrigatório: carro sem MMR válido nunca é comparado.
-function matchChunk(entries, targets, index = indexTargets(targets)) {
+function matchChunk(entries, targets, index = indexTargets(targets), { staging = false } = {}) {
   const matches = [];
   for (const entry of entries) {
     if (!entry || !entry.mmrCents) continue;
-    const candidates = entry.makeKey ? (index.byMake.get(entry.makeKey) || []) : index.all;
+    const candidates = entry.makeKey ? [...new Set([...(index.byMake.get(entry.makeKey) || []), ...(index.byMake.get('*') || [])])] : index.all;
     for (const target of candidates) {
-      const result = matchOne(entry.vehicle, target);
+      const result = matchOne(entry.vehicle, { ...target, allowBudgetFallback: true });
       if (result) matches.push(matchRow(entry, target, result));
     }
   }
-  return matches;
+  if (staging) return matches;
+  const strict = new Set(matches.filter((row) => !row.vehicle.parsed.budgetFallback).map((row) => row.demandKey + ":" + row.wishIndex));
+  return matches.filter((row) => !row.vehicle.parsed.budgetFallback || !strict.has(row.demandKey + ":" + row.wishIndex));
 }
 
 module.exports = { CHUNK_VEHICLES, COMPLEMENT_ITEMS, MAX_MILES_SORT, canonicalJson, contentHash, criteriaHash, indexTargets, makeKey, matchChunk, matchOne, matchRow, sanitizeVehicle, snapshotTargets, sortMiles, sortRank, targetsHash };

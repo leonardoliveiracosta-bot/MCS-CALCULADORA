@@ -185,7 +185,7 @@ test('todo erro da importação do Manheim tem código ou vira "Erro inesperado:
   const messages = /const MANHEIM_FAILURE_MESSAGES = (\{[\s\S]*?\n {2}\});/.exec(client)[1];
   const refusals = /const CHUNK_REFUSALS = (\{[\s\S]*?\n {2}\});/.exec(client)[1];
   const reasons = /const RESUME_REASONS = (\{[\s\S]*?\n {2}\});/.exec(client)[1];
-  const failureText = new Function('MAX_FILES', 'MANHEIM_MAX_MATCHES', 'window', 'MCSManheimUpload',
+  const failureText = new Function('MANHEIM_MAX_FILES', 'MANHEIM_MAX_MATCHES', 'window', 'MCSManheimUpload',
     `const MANHEIM_FAILURE_MESSAGES = ${messages};\nconst CHUNK_REFUSALS = ${refusals};\nconst RESUME_REASONS = ${reasons};\nreturn (${panelSnippet(client, 'manheimFailureText')});`)(20, 100000, { MCSManheimUpload: upload }, upload);
   const coded = (code, extra) => Object.assign(new Error(code), { code }, extra || {});
   for (const code of ['MANHEIM_FILES_INVALID', 'MANHEIM_READER_UNAVAILABLE', 'MANHEIM_FILE_TOO_LARGE', 'MANHEIM_FILE_READ_FAILED', 'MANHEIM_UPLOAD_INVALID', 'MANHEIM_MATCH_INVALID', 'MANHEIM_MIGRATION_PENDING', 'MANHEIM_UPLOAD_RUNNING', 'MANHEIM_BATCH_CANCELED', 'PAYLOAD_TOO_LARGE']) {

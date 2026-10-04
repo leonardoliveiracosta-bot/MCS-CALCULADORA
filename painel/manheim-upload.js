@@ -31,7 +31,7 @@
       saleDate: vehicle.saleDate, startsAt: vehicle.startsAt, endsAt: vehicle.endsAt, mmrCents: vehicle.mmrCents, exteriorColor: vehicle.exteriorColor, interiorColor: vehicle.interiorColor,
       drivetrain: vehicle.drivetrain, transmission: vehicle.transmission, engine: vehicle.engine, buyNowPrice: vehicle.buyNowPrice, conditionGrade: vehicle.conditionGrade,
       lane: vehicle.lane, run: vehicle.run, saleType: vehicle.saleType, saleStatus: vehicle.saleStatus, eventSaleName: vehicle.eventSaleName,
-      cleanTitle: vehicle.cleanTitle, odometerOk: vehicle.odometerOk, ...(vehicle.ai ? { ai: vehicle.ai } : {})
+      titleStatus: vehicle.titleStatus, odometerStatus: vehicle.odometerStatus, cleanTitle: vehicle.cleanTitle, odometerOk: vehicle.odometerOk, ...(vehicle.ai ? { ai: vehicle.ai } : {})
     };
   }
 
@@ -204,6 +204,28 @@
     return { files, manifestHash: await hashText(canonicalJson(files)) };
   }
 
+  // Reproduce the original bytes only when checking an existing manifest. New imports always
+  // keep VIN + Lane/Run; older imports used VIN alone and did not carry title/odometer text.
+  async function complementPlans(files, vehicles, manheim, hashText) {
+    const legacy = { fingerprint: (vehicle) => manheim.fingerprint(vehicle).replace(/:lane:.*$/, '') };
+    const variants = [];
+    for (const identity of [manheim, legacy]) {
+      const plan = planBatch(files, dedupeAcrossFiles(vehicles, identity).vehicles, identity);
+      if (identity === legacy) for (const file of plan) for (const chunk of file.chunks) for (const entry of chunk) {
+        delete entry.vehicle.titleStatus; delete entry.vehicle.odometerStatus;
+      }
+      for (const omitSale of [true, false]) {
+        const sealed = plan.map((file) => ({ ...file, chunks: file.chunks.map((chunk) => chunk.map((entry) => {
+          const vehicle = { ...entry.vehicle };
+          if (omitSale) for (const key of ['lane', 'run', 'saleType', 'saleStatus', 'eventSaleName']) delete vehicle[key];
+          return { ...entry, vehicle };
+        })) }));
+        variants.push({ plan, manifest: await sealPlan(sealed, hashText) });
+      }
+    }
+    return variants;
+  }
+
   async function withRetry(run, options) {
     const wait = options.wait || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     const attempts = options.attempts || BATCH.attempts;
@@ -269,5 +291,5 @@
     return { ...result, uploadId, totals };
   }
 
-  return { BATCH, BATCH_FINAL_ERRORS, FINAL_ERRORS, LIMITS, buildMatches, byteLength, canonicalJson, codedError, compactVehicle, sealPlan, dedupeAcrossFiles, markSearchFiltered, parsedVehicle, planBatch, planParts, sendBatch, sendParts, sortForDisplay };
+  return { BATCH, BATCH_FINAL_ERRORS, FINAL_ERRORS, LIMITS, buildMatches, byteLength, canonicalJson, codedError, compactVehicle, complementPlans, sealPlan, dedupeAcrossFiles, markSearchFiltered, parsedVehicle, planBatch, planParts, sendBatch, sendParts, sortForDisplay };
 }));

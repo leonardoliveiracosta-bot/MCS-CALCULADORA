@@ -19,7 +19,7 @@ const key = (journey) => `journey:${journey}:CARRO`;
 const input = {
   upload: { id: UPLOAD, undone_at: null },
   demands: J.map((journey) => ({ key: key(journey), mode: 'CARRO', journeyId: journey, activeWishes: [wish], active: true, issues: [] })),
-  matches: J.map((journey, index) => ({ id: id(500 + index), journey_id: journey, logical_mode: 'CARRO', demandKey: key(journey), match_kind: 'BATE', row_fingerprint: 'f' + index, vehicle_json: { parsed: { vin: 'VINT' + index, year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } })),
+  matches: J.map((journey, index) => ({ id: id(500 + index), journey_id: journey, logical_mode: 'CARRO', demandKey: key(journey), match_kind: 'BATE', row_fingerprint: 'f' + index, vehicle_json: { parsed: { lane: '1', run: '1', vin: 'VINT' + index, year: 2020, make: 'Honda', model: 'CR-V', miles: 30000, mmrCents: 3000000 } } })),
   base: { journeyById: new Map(J.map((journey) => [journey, { id: journey, status: 'ATIVO', contact: { is_lead: true } }])), refsOf: () => [], calcRuns: [] }
 };
 const hashOf = (journey) => audit.buildGroups(input).find((group) => group.key === key(journey)).hash;

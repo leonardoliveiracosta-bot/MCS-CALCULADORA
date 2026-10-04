@@ -1,6 +1,7 @@
 (() => {
   'use strict';
   const MAX_FILES = 20;
+  const MANHEIM_MAX_FILES = 50;
   const MAX_ZIP = 100 * 1024 * 1024;
   const MAX_TEXT = 25 * 1024 * 1024;
   const MAX_ENTRIES = 10000;
@@ -286,6 +287,7 @@
         return request(path, { ...options, retryAuth: false });
       }
       result = await response.json().catch(() => (timedOut ? null : {}));
+      if (result?.modelDictionary && typeof MCSVehicleCatalog === 'object') { const d=result.modelDictionary; MCSVehicleCatalog.configureAliases(d.aliases,d.known,d.revision); }
       if (result === null) throw coded('REQUEST_TIMEOUT');
     } finally {
       clearTimeout(timer);
@@ -1953,6 +1955,9 @@
       const [data] = await Promise.all([request('/api/panel/pesquisas', viewFetch()), loadSearchStages().catch(() => { searchStages = new Map(); })]);
       if (!current()) return;
       renderRequests(data);
+      const pending = (data.items || []).filter((item)=>item.state==='FALTA_BUSCAR').map((item)=>item.key+':'+item.criteriaHash).sort().join('|');
+      const autoKey = data.uploadId + '|' + pending;
+      if (data.uploadId && pending && requestsAutoCompareKey !== autoKey && !$('requests-compare').disabled) { requestsAutoCompareKey=autoKey; setTimeout(()=>{if(current()&&!$('requests-compare').disabled)compareRequests($('requests-compare')).catch(()=>{});},0); }
       renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas'; });
       sharedGet('/api/panel/records?view=manheim', 60000).then((manheim) => { if (!current()) return; renderReview(manheim.review || []); renderRequestReview(requestColumnsOf(requestsData).review); }).catch(() => {});
       return;
@@ -3071,6 +3076,7 @@
     vehicle.append(element('strong', 'offer-car', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
       element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}`));
     const bidCents = state.demand && state.demand.mode === 'VALOR' ? Number(state.demand.bidCents) || 0 : 0;
+    if (parsed.budgetFallback && parsed.requestedBudgetCents) vehicle.append(element('span','offer-budget',`Valor informado ${formatMoney(parsed.requestedBudgetCents)}`));
     if (info.mmrCents) vehicle.append(element('span', 'offer-mmr', `MMR ${formatMoney(info.mmrCents)}${bidCents ? ` · ${Number(info.mmrCents) > bidCents ? 'acima' : 'dentro'} do lance de ${formatMoney(bidCents)}` : ''}`));
     const when = auctionWhen(parsed.startsAt || parsed.saleDate);
     const crText = info.cr !== null && info.cr !== undefined ? `CR ${info.cr}` : 'sem CR';
@@ -3760,7 +3766,7 @@
   // contado como opção ou marcado como atendido.
   const REQUEST_STATES = ['FALTA_BUSCAR', 'COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO', 'PRECISA_DETALHE', 'PRECISA_REVISAO'];
   // The result of a request in the active batch (never the work stage, which is "Andamento").
-  const REQUEST_STATE_LABELS = { FALTA_BUSCAR: 'AINDA NÃO COMPARADO COM O LOTE', COM_OPCOES: 'COM OPÇÕES NO LOTE', COM_CANDIDATOS: 'CANDIDATOS · VALOR A CONFERIR', SEM_OPCAO: 'SEM OPÇÃO NO LOTE', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' };
+  const REQUEST_STATE_LABELS = { FALTA_BUSCAR: 'AINDA NÃO COMPARADO COM O LOTE', COM_OPCOES: 'COM OPÇÕES NO LOTE', COM_CANDIDATOS: 'CANDIDATOS · VALOR A CONFERIR', SEM_OPCAO: 'ATENDIMENTO MANUAL', PRECISA_DETALHE: 'PRECISA DETALHE', PRECISA_REVISAO: 'PRECISA DE REVISÃO' };
   const REQUEST_STATE_TONES = { FALTA_BUSCAR: 'yellow', COM_OPCOES: 'green', COM_CANDIDATOS: 'yellow', SEM_OPCAO: '', PRECISA_DETALHE: 'yellow', PRECISA_REVISAO: 'red' };
   const COLUMN_STATES = ['COM_OPCOES', 'COM_CANDIDATOS', 'SEM_OPCAO', 'FALTA_BUSCAR'];
   const REQUEST_SOURCES = { FICHA: 'Ficha', CONVERSA: 'Conversa', CALCULADORA: 'Calculadora' };
@@ -3900,6 +3906,23 @@
     catch (_) { slots.forEach((slot) => { slot.textContent = 'Motivo: não consegui ler o lote agora · Atualize a página para tentar de novo'; }); return; }
     slots.forEach((slot) => { const reason = emptyReasonsCache[slot.dataset.requestKey]; slot.textContent = 'Motivo: ' + (reason ? reason.text : 'a busca rodou com estes critérios e nenhum carro do lote ativo serviu'); });
   }
+  function editRequestForm(item, root, reload) {
+    root.querySelector('.request-edit-form')?.remove();
+    const form=element('form','request-edit-form'), grid=element('div','form-grid');
+    const wishes=item.editWishes || [], fields={}; let index=0;
+    form.append(element('strong','','Editar pedido'));
+    if(wishes.length>1){ const select=element('select',''); select.setAttribute('aria-label','Carro do pedido'); wishes.forEach((w,i)=>{const o=element('option','',[w.make,w.model].filter(Boolean).join(' '));o.value=String(i);select.append(o);});select.addEventListener('change',()=>{index=Number(select.value);fill();});form.append(select); }
+    [['make','Marca'],['model','Modelo'],['yearMin','Ano inicial'],['yearMax','Ano final'],['minMiles','Milhagem mínima'],['maxMiles','Milhagem máxima'],['budgetUsd','Valor em US$']].forEach(([key,title])=>{
+      const label=element('label','',title),input=element('input','');input.name=key;input.type=['make','model'].includes(key)?'text':'number';if(input.type==='number'){input.min='0';input.step='1';} input.maxLength=key==='make'?80:120; label.append(input);grid.append(label);fields[key]=input;
+    });
+    const toggle=element('input','');toggle.type='checkbox';toggle.name='acceptAnyTitleCondition';const toggleLabel=element('label','');toggleLabel.append(toggle,document.createTextNode(' Aceita qualquer título/condição'));grid.append(toggleLabel);
+    const fill=()=>{const w=wishes[index]||{};Object.entries(fields).forEach(([k,input])=>{input.value=w[k]??(k==='budgetUsd'?item.sort?.bidUsd??'':'');});toggle.checked=w.acceptAnyTitleCondition===true;};fill();
+    const status=element('p','muted'),save=element('button','primary','Salvar e refazer busca'),cancel=element('button','quiet','Cancelar');cancel.type='button';cancel.addEventListener('click',()=>form.remove());form.append(grid,save,cancel,status);root.append(form);
+    form.addEventListener('submit',async(event)=>{event.preventDefault();save.disabled=true;status.textContent='Salvando e comparando com o lote…';const patch={acceptAnyTitleCondition:toggle.checked};Object.entries(fields).forEach(([key,input])=>{patch[key]=input.value.trim()===''?null:input.type==='number'?Number(input.value):input.value.trim();});
+      try{await request('/api/panel/pesquisas',{method:'POST',timeoutMs:60000,body:JSON.stringify({action:'edit',key:item.key,criteriaHash:item.criteriaHash,wishIndex:index,patch})});emptyReasonsCache=null;await reload();}
+      catch(err){status.textContent=err.code==='REQUEST_VERSION_CHANGED'?'Este pedido mudou. Atualize a lista antes de editar.':err.code==='REQUEST_EDIT_INVALID'?'Confira os valores e os intervalos.':'Não consegui concluir agora. Atualize a lista para conferir o pedido e tente novamente.';save.disabled=false;}
+    });
+  }
   function requestCard(members) {
     const first = members[0];
     const card = element('article', 'item-card request-card');
@@ -3938,6 +3961,7 @@
       const who = element('div', 'request-person-head');
       who.append(element('span', '', item.person?.name || 'Sem nome'), makeBadge(REQUEST_SOURCES[item.source] || item.source, ''),
         element('span', 'muted', item.lastMessageAt ? 'Última mensagem: ' + formatDate(item.lastMessageAt) : 'Sem mensagem registrada'));
+      if ((item.editWishes || []).length) { const edit=element('button','quiet small','Editar pedido'); edit.type='button'; edit.addEventListener('click',()=>editRequestForm(item,line,reload)); who.append(edit); }
       if (item.versions > 1) who.append(element('span', 'muted', `${item.versions} versões do pedido`));
       if (item.person?.journeyId) {
         const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button';
@@ -3990,6 +4014,7 @@
   // Compares every request in FALTA BUSCAR with the active batch, in rounds that each fit the
   // server's time limit, then reloads. A round that fails is tried once more before giving up
   // (what was already compared is saved and never compared again).
+  let requestsAutoCompareKey = '';
   async function compareRequests(button) {
     button.disabled = true;
     const status = $('requests-status');
@@ -4357,7 +4382,7 @@
   async function importManheim(files, options) {
     const append = Boolean(options && options.append === true);
     const selected = files.filter((file) => /\.csv$/i.test(file.name));
-    if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
+    if (!selected.length || selected.length !== files.length || selected.length > MANHEIM_MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
     if (!window.MCSManheim || !window.MCSManheimUpload) throw manheimError('MANHEIM_READER_UNAVAILABLE');
     if (manheimUploadRunning) throw manheimError('MANHEIM_UPLOAD_RUNNING');
     manheimUploadRunning = true;
@@ -4404,7 +4429,7 @@
       // The same car in two files is one car.
       const deduped = MCSManheimUpload.dedupeAcrossFiles(vehicles, MCSManheim);
       const uniqueCount = deduped.vehicles.length;
-      if (uniqueCount > 100000) throw manheimError('MANHEIM_TOO_MANY_VEHICLES', { vehicleCount: uniqueCount });
+      if (uniqueCount > 250000) throw manheimError('MANHEIM_TOO_MANY_VEHICLES', { vehicleCount: uniqueCount });
       // M19: an empty batch, or one much smaller than the active one, replaces the combinations shown
       // in BUSCAS; the operator confirms before sending.
       const current = await request('/api/panel/manheim-batch').catch((failure) => { if (failure && failure.code === 'MANHEIM_MIGRATION_PENDING') throw failure; return { latest: null }; });
@@ -4552,13 +4577,13 @@
     MANHEIM_APPEND_NO_ACTIVE: 'Não há lote ativo para acrescentar · Importe os arquivos pelo campo de cima, que cria o lote',
     MANHEIM_APPEND_EMPTY: 'Estes arquivos não têm nenhum carro para acrescentar · O lote ativo não mudou',
     MANHEIM_APPEND_TARGET_CHANGED: 'O lote ativo mudou enquanto os arquivos eram enviados (outro lote foi ativado ou ele foi desfeito) · Nada foi acrescentado · Selecione os arquivos de novo',
-    MANHEIM_FILES_INVALID: 'Selecione de 1 a ' + MAX_FILES + ' arquivos .csv do Manheim (outros formatos não são aceitos)',
+    MANHEIM_FILES_INVALID: 'Selecione de 1 a ' + MANHEIM_MAX_FILES + ' arquivos .csv do Manheim (outros formatos não são aceitos)',
     MANHEIM_READER_UNAVAILABLE: 'O leitor de CSV não carregou · Atualize a página e tente novamente',
     MANHEIM_FILE_TOO_LARGE: 'O CSV excede o limite permitido',
     MANHEIM_FILE_READ_FAILED: 'O navegador não conseguiu ler o CSV selecionado · Selecione o arquivo novamente',
     MANHEIM_MATCH_LIMIT: 'O CSV gerou mais de ' + MANHEIM_MAX_MATCHES.toLocaleString('pt-BR') + ' combinações; divida o arquivo',
     MANHEIM_MATCH_TOO_LARGE: 'Uma linha do CSV é grande demais para ser enviada',
-    MANHEIM_TOO_MANY_VEHICLES: 'Os CSVs somam mais de 100.000 carros · Envie menos arquivos de cada vez',
+    MANHEIM_TOO_MANY_VEHICLES: 'Os CSVs somam mais de 250.000 carros · Envie menos arquivos de cada vez',
     MANHEIM_UPLOAD_INVALID: 'O resumo do CSV não passou na validação',
     MANHEIM_MATCH_INVALID: 'Uma linha compatível não passou na validação',
     MANHEIM_JOURNEY_ID_INVALID: 'Uma combinação veio com identificador de cliente inválido · Atualize a página e envie de novo',
@@ -4639,7 +4664,7 @@
   }
   async function complementManheim(files) {
     const selected = files.filter((file) => /\.csv$/i.test(file.name));
-    if (!selected.length || selected.length !== files.length || selected.length > MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
+    if (!selected.length || selected.length !== files.length || selected.length > MANHEIM_MAX_FILES) throw manheimError('MANHEIM_FILES_INVALID');
     if (!window.MCSManheim || !window.MCSManheimUpload) throw manheimError('MANHEIM_READER_UNAVAILABLE');
     if (manheimUploadRunning) throw manheimError('MANHEIM_UPLOAD_RUNNING');
     manheimUploadRunning = true;
@@ -4674,11 +4699,8 @@
         fileMeta.push({ name: file.name, size: file.size, rowCount: parsed.rows.length, contentHash });
       }
       status.textContent = 'Conferindo cada arquivo com o manifesto do lote ativo…';
-      const deduped = MCSManheimUpload.dedupeAcrossFiles(vehicles, MCSManheim);
-      const plan = MCSManheimUpload.planBatch(fileMeta, deduped.vehicles, MCSManheim);
-      // The manifest as the batch was imported: without the sale data (older batch) or with it.
-      const stripped = plan.map((file) => ({ ...file, chunks: file.chunks.map((chunk) => chunk.map((entry) => { const vehicle = { ...entry.vehicle }; SALE_KEYS.forEach((key) => { delete vehicle[key]; }); return { ...entry, vehicle }; })) }));
-      const variants = [await MCSManheimUpload.sealPlan(stripped, sha256), await MCSManheimUpload.sealPlan(plan.map((file) => ({ ...file })), sha256)];
+      const candidates = await MCSManheimUpload.complementPlans(fileMeta, vehicles, MCSManheim, sha256);
+      const variants = candidates.map((candidate) => candidate.manifest);
       const fileHashes = await Promise.all(variants.map((variant) => Promise.all(variant.files.map((entry) => sha256(MCSManheimUpload.canonicalJson(entry))))));
       const variant = fileHashes.findIndex((hashes) => hashes.every((hash, index) => hash === latest.files[index].hash));
       if (variant < 0) {
@@ -4686,6 +4708,7 @@
         throw manheimError('MANHEIM_COMPLEMENT_FILE_MISMATCH', { fileName: (latest.files[index] || latest.files[0]).name });
       }
       const manifestHash = variants[variant].manifestHash;
+      const plan = candidates[variant].plan;
       // Complementing reuses the original import key, derived only from the same files.
       const clientKey = (await sha256(MCSManheimUpload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash])))).slice(0, 32);
       const blocks = [];

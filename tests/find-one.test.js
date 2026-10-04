@@ -91,13 +91,13 @@ test('banco: migração nova amplia calc_runs_insert_limits sem editar a antiga'
 });
 
 // ------------------------------------------------------------------ matching
-const car = (overrides) => ({ year: 2023, make: 'BMW', model: 'X5', miles: 8000, mmrCents: 4500000, ...overrides });
+const car = (overrides) => ({ lane: '1', run: '1', year: 2023, make: 'BMW', model: 'X5', miles: 8000, mmrCents: 4500000, ...overrides });
 const carroRow = (ref, extra = {}) => ({ id: 'c' + ref, created_at: new Date().toISOString(), dados: { sid: 's-' + ref + '-find-1', ref, evento: 'busca', logical_mode: 'CARRO', canal: 'whatsapp', marca: 'BMW', modelo: 'X5', trim: 'M Sport', ano_de: 2020, ano_ate: 2025, milhas_de: 1000, milhas_ate: 10000, ...extra } });
 const valorRow = (ref, extra = {}) => ({ id: 'v' + ref, created_at: new Date().toISOString(), dados: { sid: 's-' + ref, ref, evento: 'simulacao', logical_mode: 'VALOR', marca: 'BMW', modelo: 'X5', lance: 20000, total: 26000, ...extra } });
 
 test('CARRO: exemplo BMW X5 2020 a 2025 com 1.000 a 10.000 milhas', () => {
   const demand = domain.orderDemand(domain.consolidateCalcRuns([carroRow('HJKM2')])[0]);
-  const match = (vehicle) => vehicleMatch.matchDemand(vehicle, { ...demand, wishes: demand.activeWishes, bidCents: 2000000 });
+  const match = (vehicle) => vehicleMatch.matchDemand(vehicle, { ...demand, wishes: demand.activeWishes, bidCents: null });
   assert.equal(match(car()).kind, 'BATE');
   assert.equal(match(car({ year: 2019 })), null);
   assert.equal(match(car({ miles: 20000 })), null);
@@ -133,8 +133,8 @@ test('VALOR: marca, modelo e o lance da própria demanda; nunca ano, milhagem ou
   assert.equal(demand.bidCents, 2000000);
   const match = (vehicle) => vehicleMatch.matchDemand(vehicle, { ...demand, wishes: demand.activeWishes });
   // US$ 20.000: 70% to 115% = US$ 14.000 to US$ 23.000.
-  assert.equal(match(car({ mmrCents: 1400000, year: 1998, miles: 400000 })).kind, 'POR_VALOR');
-  assert.equal(match(car({ mmrCents: 2300000, miles: null })).kind, 'POR_VALOR');
+  assert.equal(match(car({ mmrCents: 1400000, year: 1998, miles: 400000 })), null);
+  assert.equal(match(car({ mmrCents: 2300000, miles: null })), null);
   assert.equal(match(car({ mmrCents: 2600000 })), null, 'o total de US$ 26.000 não vira lance');
   // No valid MMR: never an option in VALOR (it is no longer QUASE).
   for (const mmrCents of [null, undefined, '', 0, -100, 'N/A', 'desconhecido', 'abc']) assert.equal(match(car({ mmrCents })), null, 'VALOR sem MMR válido: ' + String(mmrCents));
@@ -160,5 +160,5 @@ test('histórico: busca é CARRO, Calculate My Cost é VALOR, ambíguo vai para 
   const inverted = domain.orderDemand(domain.consolidateCalcRuns([carroRow('HJKM5', { ano_de: 2025, ano_ate: 2020 })])[0]);
   assert.deepEqual([inverted.active, inverted.issues[0].code, inverted.wishes[0].yearMin], [false, 'YEAR_INVERTED', 2025]);
   const empty = domain.orderDemand(domain.consolidateCalcRuns([carroRow('HJKM6', { milhas_de: '' })])[0]);
-  assert.deepEqual([empty.active, empty.issues[0].code], [false, 'MILES_MISSING']);
+  assert.deepEqual([empty.active, empty.issues.length], [true, 0]);
 });

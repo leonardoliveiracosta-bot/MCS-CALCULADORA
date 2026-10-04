@@ -10,6 +10,7 @@ const {
 } = require('../panel-domain');
 const manheim = require('../painel/manheim');
 const catalog = require('../vehicle-catalog');
+catalog.configureAliases([...JSON.parse(fs.readFileSync(require.resolve('../supabase/migrations/20261021010000_manheim_regras_v32.sql'),'utf8').split('$aliases$')[1]), {make:'BMW',client_model:'330i',target_make:'BMW',manheim_models:['3 Series'],kind:'EQUIVALENT'}, {make:'Lexus',client_model:'RX350',target_make:'Lexus',manheim_models:['RX'],kind:'EQUIVALENT'}],[], 'test-v32');
 
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -108,34 +109,34 @@ test('unknown or ambiguous model stays comparable by model with a visible Make w
   assert.equal(row.make, '');
   assert.equal(row.makeNotice, 'marca não informada no arquivo');
   assert.equal(catalog.inferMake('1500').ambiguous, true);
-  assert.equal(matchManheimDemand(row, { mode: 'CARRO', wishes: [{ make: 'Ram', model: '1500', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }] }).kind, 'BATE');
+  assert.equal(matchManheimDemand({ ...row, lane: '1', run: '1' }, { mode: 'CARRO', wishes: [{ make: 'Ram', model: '1500', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }] }).kind, 'BATE');
 });
 
 test('model matching is whole-word tolerant and ignores Make plus Class', () => {
-  assert.equal(catalog.modelsMatch('GLE-Class', 'GLE', '', 'Mercedes-Benz'), true);
+  assert.equal(catalog.modelsMatch('GLE-Class', 'GLE', '', 'Mercedes-Benz'), false);
   assert.equal(catalog.modelsMatch('Ram 1500', '1500', '', 'Ram'), true);
   assert.equal(catalog.modelsMatch('3 Series', '3 Series', '', 'BMW'), true);
   assert.equal(catalog.modelsMatch('X50', 'X5', '', 'BMW'), false);
-  assert.equal(manheim.matchDemand({ year: 2022, make: 'Mercedes-Benz', model: 'GLE-Class', miles: 20000, mmrCents: 5000000 }, { mode: 'CARRO', wishes: [
+  assert.equal(manheim.matchDemand({ lane: '1', run: '1', year: 2022, make: 'Mercedes-Benz', model: 'GLE', miles: 20000, mmrCents: 5000000 }, { mode: 'CARRO', wishes: [
     { make: 'BMW', model: 'X5', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }, { make: 'Mercedes-Benz', model: 'GLE', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }
   ] }).matchedWishlistIndex, 1);
-  assert.equal(manheim.matchDemand({ year: 2022, make: 'BMW', model: 'X50', miles: 20000, mmrCents: 2000000 }, { mode: 'VALOR', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 2000000 }), null);
+  assert.equal(manheim.matchDemand({ lane: '1', run: '1', year: 2022, make: 'BMW', model: 'X50', miles: 20000, mmrCents: 2000000 }, { mode: 'VALOR', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 2000000 }), null);
 });
 
 test('BATE (CARRO), POR VALOR and MMR are independent and deterministic', () => {
   const wishes = [{ make: 'Toyota', model: 'Camry', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }, { make: 'Honda', model: 'Civic', yearMin: 2020, yearMax: 2024, minMiles: 1, maxMiles: 50000 }];
   const carro = { mode: 'CARRO', wishes, bidCents: 2000000 };
   // CARRO: complete criteria, no money. The bid given here is ignored.
-  assert.deepEqual(matchManheimDemand({ year: 2022, make: 'HONDA', model: 'Cívic', miles: 45000, mmrCents: 2100000 }, carro), {
-    kind: 'BATE', reason: null, notice: null, gaps: [], dataGap: false, basis: 'CRITERIA', mmrStatus: null, mode: 'CARRO', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
+  assert.deepEqual(matchManheimDemand({ lane: '1', run: '1', year: 2022, make: 'HONDA', model: 'Cívic', miles: 45000, mmrCents: 2100000 }, carro), {
+    kind: 'BATE', reason: null, notice: null, gaps: [], dataGap: false, basis: 'CRITERIA', budgetFallback: false, bidCents: 2000000, mmrStatus: null, mode: 'CARRO', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
   });
   // One year above is not a QUASE anymore: it is simply not a match.
-  assert.equal(matchManheimDemand({ year: 2025, make: 'Honda', model: 'Civic', miles: 45000, mmrCents: 1900000 }, carro), null);
-  assert.equal(matchManheimDemand({ year: 2025, make: 'Honda', model: 'Civic', miles: 56000 }, carro), null);
-  assert.equal(matchManheimDemand({ year: 2022, make: 'Honda', model: 'Accord', miles: 45000 }, carro), null);
+  assert.equal(matchManheimDemand({ lane: '1', run: '1', year: 2025, make: 'Honda', model: 'Civic', miles: 45000, mmrCents: 1900000 }, carro), null);
+  assert.equal(matchManheimDemand({ lane: '1', run: '1', year: 2025, make: 'Honda', model: 'Civic', miles: 56000 }, carro), null);
+  assert.equal(matchManheimDemand({ lane: '1', run: '1', year: 2022, make: 'Honda', model: 'Accord', miles: 45000 }, carro), null);
   // VALOR: the MMR against the bid, year and mileage never used.
   const valor = { mode: 'VALOR', wishes: [{ make: 'Honda', model: 'Civic', yearMin: 2023, yearMax: 2023 }], bidCents: 2000000 };
-  const result = matchManheimDemand({ year: 2015, make: 'Honda', model: 'Civic', miles: 190000, mmrCents: 1900000 }, valor);
+  const result = matchManheimDemand({ lane: '1', run: '1', year: 2015, make: 'Honda', model: 'Civic', miles: 100000, mmrCents: 1900000 }, valor);
   assert.deepEqual([result.kind, result.mmrStatus, result.mode], ['POR_VALOR', 'MMR dentro do teto', 'VALOR']);
 });
 

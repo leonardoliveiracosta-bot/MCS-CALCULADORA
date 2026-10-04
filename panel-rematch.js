@@ -37,7 +37,7 @@ async function rematchDemands(ctx, keys, options = {}) {
     const target = context.targetByKey.get(key);
     if (!target) { out.push({ key, status: 'NOT_ACTIVE' }); continue; }
     const [snapshot] = batch.snapshotTargets([target]);
-    const makes = [...new Set(snapshot.wishes.map((wish) => batch.makeKey(wish.make)).filter(Boolean))];
+    const makes = snapshot.wishes.some((wish) => !wish.make) ? [] : [...new Set(snapshot.wishes.flatMap((wish) => require('./vehicle-catalog').inventoryMakes(wish.make, wish.model)))];
     const entries = await carsForMakes(ctx, latest.id, makes, cache, read);
     const matches = batch.matchChunk(entries, [snapshot]);
     const result = await call(ctx, 'panel_manheim_rematch_demand', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: latest.id, p_demand_key: key, p_matches: matches });

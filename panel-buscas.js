@@ -15,6 +15,7 @@ const upper = (value) => String(value || '').trim().toUpperCase();
 // `services.allRows` lets the caller pass its own reader (the handler's module, in tests).
 async function loadBuscasBase(ctx, services = {}) {
   const read = services.allRows || allRows;
+  await require('./panel-model-aliases').load(ctx, { ...services, rpc: services.rpc || rpc });
   const env = 'eq.' + ctx.environment;
   const [journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages] = await Promise.all([
     read(ctx, 'journeys', { select: 'id,contact_id,reference_code,source,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,qualified_at,closed_at,vehicle_text,created_at,updated_at', environment: env, order: 'updated_at.desc' }),
@@ -30,7 +31,8 @@ async function loadBuscasBase(ctx, services = {}) {
   ]);
   const triage = await activeRows(ctx, read);
   const explicit = await refProof.loadExplicit(ctx, services.rpc || rpc).catch(() => null);
-  return buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage, explicit });
+  const base = buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage, explicit });
+  return require('./panel-request-demands').attach(ctx, base, read);
 }
 
 function buildBuscasBase(input) {
@@ -80,7 +82,7 @@ function demandPerson(base, demand) {
 
 // Only what the browser needs to match a car against a demand (never a person's data).
 function matchTarget(demand, extra = {}) {
-  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId || null, ref: demand.ref || null, wishes: demand.activeWishes, bidCents: demand.mode === 'VALOR' ? demand.bidCents : null, ...extra };
+  return { key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId || null, ref: demand.ref || null, wishes: demand.activeWishes, bidCents: demand.bidCents || null, acceptAnyTitleCondition: demand.acceptAnyTitleCondition === true, ...extra };
 }
 
 // One stored match against today's demands of its target. A match with a mode is checked
@@ -91,7 +93,7 @@ function liveMatchesFor(match, demandsOfTarget) {
   const parsed = match && match.vehicle_json && match.vehicle_json.parsed || {};
   const mode = vehicleMatch.normalizedMode(match && match.logical_mode);
   return (demandsOfTarget || []).filter((demand) => demand.active && (!mode || demand.mode === mode)).flatMap((demand) => {
-    const result = matchManheimDemand(parsed, { ...demand, wishes: demand.activeWishes });
+    const result = matchManheimDemand(parsed, { ...demand, wishes: demand.activeWishes, allowBudgetFallback: parsed.budgetFallback === true && parsed.criteriaHash === require('./panel-manheim-batch').criteriaHash({ ...demand, wishes: demand.activeWishes }) });
     return result ? [{ ...match, logical_mode: demand.mode, demandKey: demand.key, match_kind: result.kind, match_reason: result.reason || result.notice || null, mmr_status: result.mmrStatus || null, bidCents: demand.mode === 'VALOR' ? demand.bidCents || null : null, historicalMode: !mode }] : [];
   });
 }

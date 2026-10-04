@@ -23,7 +23,7 @@ function loadWith(relative, mocks) {
   return mod.exports;
 }
 const response = () => ({ code: 0, payload: null, setHeader() {}, status(code) { this.code = code; return this; }, json(value) { this.payload = value; return value; } });
-const ctx = { config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' };
+const ctx = { modelAliasesLoaded: true, config: { url: 'https://example.test', secretKey: 'test' }, panel: { id: ACTOR }, environment: 'preview' };
 
 // Honda Civic searched by year and mileage (CARRO) and BMW X5 simulated by value (VALOR).
 const civicCarro = { id: 'c1', created_at: '2026-09-28T10:00:00Z', dados: { sid: 's-find-1', ref: 'HCAR2', evento: 'busca', logical_mode: 'CARRO', marca: 'Honda', modelo: 'Civic', ano_de: 2020, ano_ate: 2025, milhas_de: 50000, milhas_ate: 90000 } };
@@ -68,7 +68,7 @@ test('4 · o lance de VALOR nunca entra em CARRO e 5 · ano e milhagem de CARRO 
   assert.equal(demands.VALOR.bidCents, 7000000, 'o lance salvo para VALOR vale só para VALOR');
   assert.ok(demands.VALOR.wishes.every((wish) => wish.yearMin === null && wish.yearMax === null && wish.minMiles === null && wish.maxMiles === null));
   // CARRO never compares money: the same car is BATE whatever the bid or the MMR.
-  const civic = { year: 2022, make: 'Honda', model: 'Civic', miles: 60000, mmrCents: 99900000 };
+  const civic = { lane: '1', run: '1', year: 2022, make: 'Honda', model: 'Civic', miles: 60000, mmrCents: 99900000 };
   assert.equal(vehicleMatch.matchDemand(civic, { ...demands.CARRO, wishes: demands.CARRO.activeWishes }).kind, 'BATE');
 });
 

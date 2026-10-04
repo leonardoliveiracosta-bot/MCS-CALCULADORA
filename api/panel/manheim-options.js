@@ -23,7 +23,7 @@ const { rematchDemands, syncStaleDemands } = require('../../panel-rematch');
 const optionStamp = require('../../panel-option-stamp');
 
 const KEY = /^(journey:[0-9a-f-]{36}|ref:[A-HJ-NP-Z2-9]{5}):(VALOR|CARRO)$/;
-const PARSED_FIELDS = ['vin', 'year', 'make', 'model', 'trim', 'miles', 'location', 'locationDisplay', 'saleDate', 'startsAt', 'endsAt', 'mmrCents', 'exteriorColor', 'interiorColor', 'buyNowPrice', 'conditionGrade', 'lot', 'drivetrain', 'transmission', 'engine', 'makeNotice', 'matchNotice', 'matchedWishlistLabel', 'matchedWishlistIndex', 'dataGap', 'cleanTitle', 'odometerOk', 'lane', 'run', 'saleType', 'saleStatus', 'eventSaleName'];
+const PARSED_FIELDS = ['budgetFallback', 'requestedBudgetCents', 'titleStatus', 'odometerStatus', 'vin', 'year', 'make', 'model', 'trim', 'miles', 'location', 'locationDisplay', 'saleDate', 'startsAt', 'endsAt', 'mmrCents', 'exteriorColor', 'interiorColor', 'buyNowPrice', 'conditionGrade', 'lot', 'drivetrain', 'transmission', 'engine', 'makeNotice', 'matchNotice', 'matchedWishlistLabel', 'matchedWishlistIndex', 'dataGap', 'cleanTitle', 'odometerOk', 'lane', 'run', 'saleType', 'saleStatus', 'eventSaleName'];
 
 const slimParsed = (parsed) => Object.fromEntries(PARSED_FIELDS.filter((field) => parsed && parsed[field] !== undefined && parsed[field] !== '' && parsed[field] !== null).map((field) => [field, parsed[field]]));
 
@@ -108,7 +108,7 @@ function sortedGroup(list, sort) {
 // below it, then the rest). The page carries the price and the selection state of each car.
 async function groupPage(ctx, req, key, group, limit) {
   const offset = req.query && req.query.cursor ? Number(req.query.cursor) : 0;
-  if (!Number.isInteger(offset) || offset < 0 || offset > 100000) return send(ctx.res, 400, { error: 'MANHEIM_CURSOR_INVALID' });
+  if (!Number.isInteger(offset) || offset < 0 || offset > 250000) return send(ctx.res, 400, { error: 'MANHEIM_CURSOR_INVALID' });
   const latest = await latestActiveUpload(ctx, 'id,uploaded_at');
   if (!latest) return send(ctx.res, 200, { key, group, uploadId: null, options: [], nextCursor: null, total: 0 });
   const sort = SORTS[req.query && req.query.sort] ? String(req.query.sort) : 'cr';

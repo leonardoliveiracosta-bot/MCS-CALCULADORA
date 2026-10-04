@@ -184,25 +184,14 @@ test('triagem v2: só um "não é sobre carro" com certeza tira do fluxo; na dú
   assert.equal(evidence.at(-1).id, 'm149');
 });
 
-test('sem carros: motivo em linguagem simples, do passo mais largo ao mais estreito', () => {
-  const cars = [car('Toyota', 'Corolla', 2019, 40000), car('Toyota', 'Camry', 2015, 90000), car('Toyota', 'Camry', 2016, 120000)];
-  assert.equal(wishReason({ make: 'Honda', model: 'Civic' }, cars).code, 'NO_MAKE');
-  assert.match(wishReason({ make: 'Honda', model: 'Civic' }, cars).text, /não tem nenhum Honda/);
-  assert.match(wishReason({ make: 'Toyota', model: 'RAV4' }, cars).text, /mas nenhum RAV4/);
-  const years = wishReason({ make: 'Toyota', model: 'Camry', yearMin: 2020, yearMax: 2022 }, cars);
-  assert.equal(years.code, 'YEARS');
-  assert.match(years.text, /nenhum de 2020 a 2022 \(no lote: 2015 a 2016\)/);
-  const miles = wishReason({ make: 'Toyota', model: 'Camry', yearMin: 2015, yearMax: 2016, maxMiles: 60000 }, cars);
-  assert.equal(miles.code, 'MILES');
-  assert.match(miles.text, /até 60,000 milhas/);
-  const value = reasonFor({ key: 'k', targets: [{ mode: 'VALOR', bidCents: 500000, wishes: [{ make: 'Toyota', model: 'Camry' }] }] }, new Map([['toyota', cars]]));
-  assert.equal(value.code, 'VALUE');
-  assert.match(value.text, /fora da faixa do lance de US\$ 5,000/);
-  // The closest wish wins.
-  const best = reasonFor({ key: 'k', targets: [{ mode: 'CARRO', wishes: [{ make: 'Honda', model: 'Civic' }, { make: 'Toyota', model: 'Camry', yearMin: 2020, yearMax: 2021 }] }] }, new Map([['toyota', cars], ['honda', []]]));
-  assert.equal(best.code, 'YEARS');
-  // A car without a valid MMR never counts as present.
-  assert.equal(wishReason({ make: 'Toyota', model: 'Camry' }, [car('Toyota', 'Camry', 2019, 1000, null)]).code, 'NO_MAKE');
+test('sem carros: quatro motivos permanentes de atendimento manual', () => {
+  const valid = { lane: '1', run: '1', make: 'Toyota', model: 'Camry', year: 2020, miles: 40000, mmrCents: 2000000 };
+  const wish = { make: 'Toyota', model: 'Camry', yearMin: 2019 };
+  assert.equal(wishReason(wish, []).code, 'NO_CAR');
+  assert.equal(wishReason(wish, [{ ...valid, mmrCents: null }]).code, 'NO_MMR');
+  assert.equal(wishReason({ ...wish, model: 'Unknownabc' }, [valid]).code, 'UNKNOWN_MODEL');
+  const value = reasonFor({ targets: [{ mode: 'VALOR', bidCents: 500000, wishes: [{ make: 'Toyota', model: 'Camry' }] }] }, new Map([['toyota', [valid]]]));
+  assert.deepEqual([value.code,value.text], ['VALUE','valor não alcança']);
 });
 
 // Mudança de regra do comando "painel com identificação e organização automáticas": as conversas sem Ref formam UM bloco

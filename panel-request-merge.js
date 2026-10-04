@@ -19,16 +19,16 @@ function modelKey(make, model) {
   return catalog.modelTokens(model, make).join(' ') || catalog.fold(model);
 }
 // The criteria of one wish, normalized for an equality check (never for the search itself).
-function signature({ make, model, yearMin, yearMax, minMiles, maxMiles, budgetUsd }) {
+function signature({ make, model, yearMin, yearMax, minMiles, maxMiles, budgetUsd, acceptAnyTitleCondition }) {
   const madeBy = text(make) || requests.inferredMakeOf({ model }) || '';
-  return JSON.stringify([catalog.fold(madeBy), modelKey(madeBy, model), num(yearMin), num(yearMax), num(minMiles), num(maxMiles), num(budgetUsd)]);
+  return JSON.stringify([catalog.fold(madeBy), modelKey(madeBy, model), num(yearMin), num(yearMax), num(minMiles), num(maxMiles), num(budgetUsd), acceptAnyTitleCondition === true]);
 }
 // Every wish a ficha/calculator request stands for, with its mode.
 function fichaSignatures(item) {
   if (item.official && item.targets && item.targets[0]) {
     const target = item.targets[0];
     const budgetUsd = target.mode === 'VALOR' && target.bidCents ? Math.round(target.bidCents / 100) : null;
-    return (target.wishes || []).map((wish) => signature({ ...wish, budgetUsd }));
+    return (target.wishes || []).map((wish) => signature({ ...wish, budgetUsd: wish.budgetUsd ?? budgetUsd }));
   }
   return item.criteria ? [signature(item.criteria)] : [];
 }

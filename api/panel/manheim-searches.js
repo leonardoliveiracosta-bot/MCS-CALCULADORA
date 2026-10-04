@@ -54,12 +54,19 @@ function buildSavedSearches(base, saved, now = Date.now()) {
     for (const wish of demand.activeWishes) {
       const identity = searchIdentity(wish, demand.mode);
       if (!identity) continue;
-      if (!groups.has(identity.key)) groups.set(identity.key, { key: identity.key, mode: demand.mode, basis: identity.basis, make: wish.make, model: wish.model, leads: new Map(), yearMins: [], yearMaxs: [], milesMins: [], milesMaxs: [], mmrMin: [], mmrMax: [], latestAt: 0 });
+      if (!groups.has(identity.key)) groups.set(identity.key, { key: identity.key, mode: demand.mode, basis: identity.basis, make: wish.make, model: wish.model, leads: new Map(), yearMins: [], yearMaxs: [], milesMins: [], milesMaxs: [], mmrMin: [], mmrMax: [], unboundedYearMin: false, unboundedMilesMin: false, unboundedMilesMax: false, latestAt: 0 });
       const group = groups.get(identity.key);
       group.leads.set(lead, client);
       group.latestAt = Math.max(group.latestAt, Date.parse(latestAt || 0) || 0);
-      if (demand.mode === 'CARRO') { bump(group.yearMins, wish.yearMin); bump(group.yearMaxs, wish.yearMax); bump(group.milesMins, wish.minMiles); bump(group.milesMaxs, wish.maxMiles); }
-      else { const band = vehicleMatch.valueBand(demand.bidCents); if (band) { group.mmrMin.push(band.minCents); group.mmrMax.push(band.maxCents); } }
+      if (demand.mode === 'CARRO') {
+        group.unboundedYearMin ||= !wish.yearMin; group.unboundedMilesMin ||= wish.minMiles == null; group.unboundedMilesMax ||= wish.maxMiles == null;
+        bump(group.yearMins,wish.yearMin); bump(group.yearMaxs,wish.yearMax || new Date(now).getUTCFullYear()+1); bump(group.milesMins,wish.minMiles); bump(group.milesMaxs,wish.maxMiles);
+      } else {
+        const bid=wish.budgetUsd ? wish.budgetUsd*100 : demand.bidCents, band=vehicleMatch.valueBand(bid);
+        if(band){group.mmrMin.push(Math.max(175000,band.minCents));group.mmrMax.push(band.maxCents);}
+        group.milesMaxs.push(Math.min(vehicleMatch.mileageCap(bid),wish.maxMiles ?? Infinity));
+        group.unboundedMilesMin ||= wish.minMiles == null; bump(group.milesMins,wish.minMiles);
+      }
     }
   }
   const marked = new Map(saved.map((row) => [row.search_key, row.created]));
@@ -71,11 +78,11 @@ function buildSavedSearches(base, saved, now = Date.now()) {
     return {
       key: group.key, mode: group.mode, basis: group.basis, make: group.make, model: group.model,
       // The Manheim search covers every customer of the group; each car is checked again per customer.
-      yearFrom: group.mode === 'CARRO' && group.yearMins.length ? Math.min(...group.yearMins) : null,
+      yearFrom: !group.unboundedYearMin && group.mode === 'CARRO' && group.yearMins.length ? Math.min(...group.yearMins) : null,
       yearTo: group.mode === 'CARRO' && group.yearMaxs.length ? Math.max(...group.yearMaxs) : null,
-      milesFrom: group.mode === 'CARRO' && group.milesMins.length ? Math.min(...group.milesMins) : null,
-      milesTo: group.mode === 'CARRO' && group.milesMaxs.length ? Math.max(...group.milesMaxs) : null,
-      milesMax: group.mode === 'CARRO' && group.milesMaxs.length ? Math.max(...group.milesMaxs) : null,
+      milesFrom: !group.unboundedMilesMin && group.milesMins.length ? Math.min(...group.milesMins) : null,
+      milesTo: !group.unboundedMilesMax && group.milesMaxs.length ? Math.max(...group.milesMaxs) : null,
+      milesMax: !group.unboundedMilesMax && group.milesMaxs.length ? Math.max(...group.milesMaxs) : null,
       yearsKnown: group.mode === 'CARRO',
       mmrMinCents: group.mmrMin.length ? Math.min(...group.mmrMin) : null, mmrMaxCents: group.mmrMax.length ? Math.max(...group.mmrMax) : null,
       leads: group.leads.size, clients: [...group.leads.values()], latestAt: group.latestAt ? new Date(group.latestAt).toISOString() : null,

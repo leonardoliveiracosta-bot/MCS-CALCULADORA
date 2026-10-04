@@ -54,10 +54,10 @@ test('PESQUISAS → ficha: só pedido completo, de uma ficha só, sem carro defi
   assert.deepEqual(plan.map((entry) => [entry.key, entry.journeyId, entry.mode, entry.messageId]), [['a', 'j1', 'CARRO', 'e1']]);
   assert.deepEqual(skipped.map((entry) => [entry.key, entry.reason]), [['b', 'FICHA_JA_TEM_CARRO'], ['c', 'SEM_FICHA_UNICA']]);
   const wish = plan[0].wish;
-  assert.deepEqual([wish.yearMin, wish.yearMax, wish.minMiles, wish.maxMiles], [2019, new Date().getUTCFullYear() + 1, 1, 50000]);
+  assert.deepEqual([wish.yearMin, wish.yearMax, wish.minMiles, wish.maxMiles], [2019, null, null, 50000]);
   // POR VALOR: só o carro (regra da mesa); a marca vem do modelo quando o cliente não disse.
   const valor = toFicha.wishFor({ model: 'Civic', yearMin: 2018, budgetUsd: 18000 }, 'VALOR');
-  assert.deepEqual([valor.make, valor.model, valor.yearMin, valor.maxMiles], ['Honda', 'Civic', null, null]);
+  assert.deepEqual([valor.make, valor.model, valor.yearMin, valor.maxMiles], ['Honda', 'Civic', 2018, null]);
 });
 
 test('painel: mudança na ficha e abrir OPÇÕES atualizam OPÇÕES sem esperar o próximo CSV', () => {

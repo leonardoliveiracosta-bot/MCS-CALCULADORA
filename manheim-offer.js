@@ -65,7 +65,7 @@
     const missing = [];
     if (!laneRun) missing.push('Lane/Run');
     if (cr === null) missing.push('CR');
-    const group = laneRun ? 'LANE' : saleRead(parsed) && saleMarked(parsed) ? 'OFFLANE' : 'INCOMPLETE';
+    const group = laneRun ? 'LANE' : buyNowCents(parsed) > 0 ? 'OFFLANE' : 'INCOMPLETE';
     return { group, cr, crMinimum: minimum, belowMinimum: cr !== null && minimum !== null ? cr < minimum : null, missing };
   }
   const priceFor = (mmrCents, manualPct) => {

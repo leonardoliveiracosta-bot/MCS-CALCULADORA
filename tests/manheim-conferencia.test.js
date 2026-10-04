@@ -26,7 +26,7 @@ function seed() {
 }
 
 // What the BUSCAS view hands to the audit (the same shape manheimView builds).
-const car = (n, journeyId, mode, kind, parsed) => ({ id: id(1000 + n), journey_id: journeyId, logical_mode: mode, match_kind: kind, row_fingerprint: 'f' + n, vehicle_json: { parsed, raw: { 'Lot #': 'L' + n } } });
+const car = (n, journeyId, mode, kind, parsed) => ({ id: id(1000 + n), journey_id: journeyId, logical_mode: mode, match_kind: kind, row_fingerprint: 'f' + n, vehicle_json: { parsed: {lane:'1',run:'1',...parsed}, raw: { 'Lot #': 'L' + n } } });
 const valorWish = { make: 'Toyota', model: 'RAV4' };
 const carroWish = { make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022, minMiles: 10000, maxMiles: 60000 };
 function input(extra = {}) {
@@ -135,14 +135,14 @@ test('privacidade e escopo: só Ref ou id interno, modo, critérios, lance e dad
     const text = JSON.stringify(entry.payload);
     assert.doesNotMatch(text, /Maria|display_name|phone|telefone|@|conversa/i);
     assert.deepEqual(Object.keys(entry.payload).sort(), ['criterios', 'demanda', 'modo', 'opcoes', 'versao_regra']);
-    entry.payload.opcoes.forEach((option) => assert.deepEqual(Object.keys(option).sort(), ['ano', 'id', 'lote', 'marca', 'milhagem', 'mmr_usd', 'modelo', 'tipo', 'vin']));
+    entry.payload.opcoes.forEach((option) => assert.deepEqual(Object.keys(option).sort(), ['ano', 'fallback_valor', 'id', 'lote', 'marca', 'milhagem', 'mmr_usd', 'modelo', 'tipo', 'valor_informado_usd', 'vin']));
   });
   const valor = calls.find((entry) => entry.payload.modo === 'VALOR').payload;
   assert.equal(valor.criterios.lance_usd, 30000, 'lance da demanda, nunca o teto total');
   assert.equal(valor.opcoes.length, 2);
   assert.deepEqual(valor.opcoes.map((option) => option.lote), ['L1', 'L2']);
   const carro = calls.find((entry) => entry.payload.modo === 'CARRO').payload;
-  assert.equal(carro.criterios.lance_usd, undefined, 'CARRO não leva lance');
+  assert.equal(carro.criterios.lance_usd, null, 'CARRO sem valor não inventa lance');
   assert.equal(carro.opcoes.length, 1, 'nunca o CSV inteiro: só os matches da demanda');
 });
 

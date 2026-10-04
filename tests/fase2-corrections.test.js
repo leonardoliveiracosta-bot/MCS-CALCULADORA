@@ -164,10 +164,10 @@ test('HOJE includes an old linked order when a disabled lead writes again',async
 
 test('CARRO needs both year and mileage limits and ZIP conversions honor local zone',()=>{
   // buscas-split: an open year bound is incomplete, so it is not searched (it goes to review).
-  assert.equal(offerKind({make:'BMW',model:'X5',year:2020,miles:65000},{make:'BMW',model:'X5',yearMin:2019,maxMiles:70000}),null);
-  assert.equal(offerKind({make:'BMW',model:'X5',year:2020,miles:65000,mmrCents:4000000},{make:'BMW',model:'X5',yearMin:2019,yearMax:2021,minMiles:1000,maxMiles:70000}),'BATE');
+  assert.equal(offerKind({lane:'1',run:'1',make:'BMW',model:'X5',year:2020,miles:65000},{make:'BMW',model:'X5',yearMin:2019,maxMiles:70000}),null);
+  assert.equal(offerKind({lane:'1',run:'1',make:'BMW',model:'X5',year:2020,miles:65000,mmrCents:4000000},{make:'BMW',model:'X5',yearMin:2019,yearMax:2021,minMiles:1000,maxMiles:70000}),'BATE');
   // Without a valid MMR the car is never an option, not even in CARRO.
-  assert.equal(offerKind({make:'BMW',model:'X5',year:2020,miles:65000},{make:'BMW',model:'X5',yearMin:2019,yearMax:2021,minMiles:1000,maxMiles:70000}),null);
+  assert.equal(offerKind({lane:'1',run:'1',make:'BMW',model:'X5',year:2020,miles:65000},{make:'BMW',model:'X5',yearMin:2019,yearMax:2021,minMiles:1000,maxMiles:70000}),null);
   assert.equal(timezoneForZip('79901'),'America/Denver');assert.equal(timezoneForZip('46311'),'America/Chicago');
   assert.equal(timezoneForZip('83814'),'America/Los_Angeles');assert.equal(timezoneForZip('97914'),'America/Denver');
   assert.equal(timezoneForZip('49801'),'America/Chicago');assert.equal(timezoneForZip('49913'),'America/New_York');
