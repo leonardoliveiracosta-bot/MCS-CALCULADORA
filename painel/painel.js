@@ -3145,16 +3145,25 @@
     const list = element('div', 'manheim-table');
     const more = element('button', 'quiet small manheim-options-toggle', count ? `Ver opções (${count})` : 'Nenhum carro neste grupo');
     more.type = 'button'; more.disabled = !count;
-    let cursor = null, loadedCount = 0, busy = false, invalidBox = null;
+    let cursor = null, loadedCount = 0, busy = false, invalidBox = null, sort = 'cr';
+    const loadedIds = new Set();
+    // Ordering of the whole group (done by the server): CR (default), year or MMR, both ways.
+    const sortBar = element('label', 'offer-sort', 'Ordenar ');
+    const sortSelect = element('select', 'offer-sort-select');
+    [['cr', 'Padrão (CR)'], ['year_desc', 'Ano: mais novo primeiro'], ['year_asc', 'Ano: mais antigo primeiro'], ['mmr_desc', 'MMR: maior primeiro'], ['mmr_asc', 'MMR: menor primeiro']]
+      .forEach(([value, label]) => { const option = element('option', '', label); option.value = value; sortSelect.append(option); });
+    sortSelect.setAttribute('aria-label', 'Ordenar carros deste grupo');
+    sortBar.append(sortSelect); sortBar.hidden = count < 2;
     const loadPage = async () => {
       if (busy) return; busy = true; more.disabled = true; more.textContent = 'Carregando…';
       try {
         const params = new URLSearchParams({ key: demand.key, group: groupKey, limit: String(MANHEIM_PAGE_ROWS) });
         if (cursor) params.set('cursor', cursor);
+        if (sort !== 'cr') params.set('sort', sort);
         const page = await request('/api/panel/manheim-options?' + params.toString());
         if (page.uploadedAt) state.uploadedAt = page.uploadedAt;
         (page.options || []).forEach((option) => {
-          loadedCount += 1; state.loaded.push(option);
+          loadedCount += 1; loadedIds.add(option.id); state.loaded.push(option);
           // Only valid cars are offered; the invalidated ones wait in a closed box with the reason, never mixed in.
           if (option.stamp && option.stamp.valid === false) {
             if (!invalidBox) { invalidBox = element('details', 'offer-invalidated'); invalidBox.append(element('summary', '', 'Carros invalidados (não oferecer)')); details.append(invalidBox); }
@@ -3172,7 +3181,18 @@
     };
     more.addEventListener('click', (event) => { event.stopPropagation(); loadPage(); });
     details.addEventListener('toggle', () => { if (details.open && !loadedCount && count && !busy && cursor === null) loadPage(); });
-    list.append(more); details.append(list);
+    // A new order starts the list again from the first car (what was typed and saved stays on the server).
+    sortSelect.addEventListener('change', () => {
+      if (busy) { sortSelect.value = sort; return; }
+      sort = sortSelect.value;
+      list.querySelectorAll('.offer-row').forEach((row) => row.remove());
+      if (invalidBox) { invalidBox.remove(); invalidBox = null; }
+      state.loaded = state.loaded.filter((option) => !loadedIds.has(option.id));
+      loadedIds.clear(); cursor = null; loadedCount = 0;
+      if (!more.isConnected) list.append(more);
+      loadPage();
+    });
+    list.append(more); details.append(sortBar, list);
     return details;
   }
   // Envio manual da V1 pelo WhatsApp (360dialog). Só depois de gerar a V1, sempre com confirmação:

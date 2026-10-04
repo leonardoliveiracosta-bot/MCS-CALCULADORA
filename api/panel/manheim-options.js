@@ -2,7 +2,8 @@
 
 // Opções de UMA demanda do lote ativo, página por página (BUSCAS abre a demanda ou "Ver mais").
 //  GET  ?key=journey:<id>:CARRO&cursor=<...>&limit=10   até 50 carros por página, cursor estável
-//  GET  ?key=...&group=LANE|OFFLANE|INCOMPLETE&cursor=<n>  um grupo da demanda, 10 por vez, na ordem por CR
+//  GET  ?key=...&group=LANE|OFFLANE|INCOMPLETE&cursor=<n>&sort=cr|year_desc|year_asc|mmr_desc|mmr_asc
+//       um grupo da demanda, 10 por vez, na ordem por CR (padrão), por ano ou por MMR
 //  POST { action: 'sync' }                             compara de novo os pedidos defasados (critério
 //                                                     novo ou alterado depois do lote)
 //  POST { action: 'rematch', key }                     critério mudou: o servidor compara de novo só
@@ -86,6 +87,31 @@ function optionOut(match, key, demand, also, provenance = null) {
   };
 }
 
+// Ordering chosen by the operator: the server's CR order (default), or year / MMR, both ways. To sort
+// the whole group (not only the 10 on screen), the group is read in full, 50 at a time, and sorted here;
+// ties keep the CR order. A car without year or MMR goes last.
+const SORTS = { cr: null, year_desc: ['year', -1], year_asc: ['year', 1], mmr_desc: ['mmr', -1], mmr_asc: ['mmr', 1] };
+async function wholeGroup(ctx, uploadId, key, group) {
+  const all = [];
+  for (let offset = 0; offset < 2000; offset += 50) {
+    const page = await rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: uploadId, p_demand_key: key, p_group: group, p_offset: offset, p_limit: 50 });
+    all.push(...(page || []));
+    if (!page || page.length < 50) break;
+  }
+  return all;
+}
+function sortValue(row, field) {
+  const parsed = row.vehicle_json && row.vehicle_json.parsed || {};
+  const value = field === 'year' ? Number(parsed.year) : Number(row.mmr_cents);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+function sortedGroup(list, sort) {
+  const [field, direction] = SORTS[sort];
+  return list.map((row, index) => ({ row, index, value: sortValue(row, field) }))
+    .sort((a, b) => (a.value === null) - (b.value === null) || (a.value !== null && b.value !== null ? (a.value - b.value) * direction : 0) || a.index - b.index)
+    .map((entry) => entry.row);
+}
+
 // One group of one demand, ordered by CR (up to 5 at or above the recommended minimum, then up to 5
 // below it, then the rest). The page carries the price and the selection state of each car.
 async function groupPage(ctx, req, key, group, limit) {
@@ -93,9 +119,11 @@ async function groupPage(ctx, req, key, group, limit) {
   if (!Number.isInteger(offset) || offset < 0 || offset > 100000) return send(ctx.res, 400, { error: 'MANHEIM_CURSOR_INVALID' });
   const latest = await latestActiveUpload(ctx, 'id,uploaded_at');
   if (!latest) return send(ctx.res, 200, { key, group, uploadId: null, options: [], nextCursor: null, total: 0 });
+  const sort = SORTS[req.query && req.query.sort] ? String(req.query.sort) : 'cr';
   let stored;
   try {
-    [stored] = await Promise.all([rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_offset: offset, p_limit: limit + 1 })]);
+    if (sort === 'cr') [stored] = await Promise.all([rpc(ctx, 'panel_manheim_offer_page', { p_environment: ctx.environment, p_upload_id: latest.id, p_demand_key: key, p_group: group, p_offset: offset, p_limit: limit + 1 })]);
+    else stored = sortedGroup(await wholeGroup(ctx, latest.id, key, group), sort).slice(offset, offset + limit + 1);
   } catch (error) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
     throw error;
@@ -203,3 +231,4 @@ module.exports = async (req, res) => {
 };
 module.exports.encodeCursor = encodeCursor;
 module.exports.decodeCursor = decodeCursor;
+module.exports.sortedGroup = sortedGroup;

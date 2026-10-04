@@ -1166,3 +1166,6 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .name-link-vs { align-self: center; font-weight: 700; color: #B3261E; }
 .case-name-conflict .case-field-value { color: #B3261E; font-weight: 600; }
 @media (max-width: 480px) { .name-link-sides { grid-template-columns: 1fr; } .name-link-vs { justify-self: center; } }
+/* Ordenar os carros de um grupo (ano, MMR) */
+.offer-sort { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; font-size: 13px; color: #5A5F66; }
+.offer-sort select { min-height: 36px; border: 1px solid #D9CFB9; border-radius: 10px; padding: 4px 10px; background: #FFFFFF; color: #1B1A18; font: inherit; font-weight: 600; }
