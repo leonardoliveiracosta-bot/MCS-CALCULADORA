@@ -180,12 +180,14 @@ async function manheimView(ctx, options = {}) {
   // The reads below do not depend on each other: they run together (they used to run one after the other).
   const activeIdsEarly = uploads.filter((row) => !row.undone_at).map((row) => row.id).concat(latest && !uploads.some((row) => row.id === latest.id) ? [latest.id] : []);
   const [summaryRead, offerRead, carsRead, hiddenRead] = await Promise.all([
-    latest && batchOn ? rpc(ctx, 'panel_manheim_batch_summary', { p_environment: ctx.environment, p_upload_id: latest.id }) : [],
+    // A slow or failed summary never takes the whole tab down: only its counts say "Resumo indisponível".
+    latest && batchOn ? rpc(ctx, 'panel_manheim_batch_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch((error) => { console.error('[buscas-summary]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : [],
     latest && batchOn ? rpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch(() => null) : [],
     batchOn && activeIdsEarly.length ? rpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIdsEarly }).catch(() => []) : [],
     rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' }).then((found) => found.map((row) => row.upload_id)).catch(() => null)
   ]);
   const summary = summaryRead;
+  const summaryUnavailable = summaryRead === null;
   // Selection for the customer (migration 20261006010000): counts per group and what is selected.
   // Before that migration the summary goes without it (null), never with a false zero.
   const offerRows = offerRead;
@@ -248,7 +250,7 @@ async function manheimView(ctx, options = {}) {
     environment: ctx.environment, modelDictionary: ctx.modelDictionary,
     items: items.map((item) => decorateWithSearchStage(item, stageIndex)),
     orders: orders.map((item) => decorateWithSearchStage(item, stageIndex)),
-    upload, uploads: batches, hiddenBatchIds, undoAvailable: supported, batchAvailable: batchOn, demands, review, counts, historyIncomplete: false, meta, audit
+    upload, uploads: batches, hiddenBatchIds, undoAvailable: supported, batchAvailable: batchOn, demands, review, counts, historyIncomplete: false, meta, audit, summaryUnavailable
   };
 }
 

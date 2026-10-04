@@ -3683,6 +3683,7 @@
     setCount('searches', optionsPeopleOf(data));
     $('manheim-summary').textContent = data.upload ? `${data.upload.vehicle_count} carro(s) analisado(s) · ${data.upload.matched_vehicle_count} carro(s) com combinação · ${formatDate(data.upload.uploaded_at)}` : 'Nenhuma importação ativa';
     // The comparison of the requests with this batch is run from PESQUISAS (one place): say so here.
+    if (data.summaryUnavailable) $('manheim-summary').append(document.createTextNode(' · '), element('strong', 'warning', 'Resumo indisponível agora · as contagens por pedido voltam na próxima atualização'));
     if (data.upload) { const link = element('button', 'quiet small options-compare-link', 'Comparar pedidos com este lote (BUSCAR CARROS)'); link.type = 'button'; link.addEventListener('click', () => switchPanel('requests').then(() => loadCurrent('requests', viewRequestVersion)).catch(() => {})); $('manheim-summary').append(document.createTextNode(' · '), link); }
     renderBuscasCounters(data.counts);
     renderBatches(data.uploads || [], data.undoAvailable !== false, data.hiddenBatchIds);
