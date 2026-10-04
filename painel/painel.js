@@ -4686,8 +4686,8 @@
         throw manheimError('MANHEIM_COMPLEMENT_FILE_MISMATCH', { fileName: (latest.files[index] || latest.files[0]).name });
       }
       const manifestHash = variants[variant].manifestHash;
-      // An append has its own key (and the active batch in it): the same files appended again later are a new append.
-      const clientKey = (await sha256((append ? 'append|' + current.latest.id + '|' : '') + MCSManheimUpload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash])))).slice(0, 32);
+      // Complementing reuses the original import key, derived only from the same files.
+      const clientKey = (await sha256(MCSManheimUpload.canonicalJson(fileMeta.map((file) => [file.name, file.size, file.contentHash])))).slice(0, 32);
       const blocks = [];
       plan.forEach((file, fileIndex) => file.chunks.forEach((vehiclesOfChunk, chunkIndex) => blocks.push({ fileIndex, chunkIndex, vehicles: vehiclesOfChunk })));
       const keys = { uploadId: latest.id, clientKey, manifestHash };
