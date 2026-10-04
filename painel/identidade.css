@@ -992,6 +992,10 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .wa-handoff-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .wa-handoff-actions .wa-handoff-push { background: #C9A227; color: #1B1A18; border: 1px solid #C9A227; min-height: 40px; padding: 8px 16px; border-radius: 8px; font-weight: 700; }
 .wa-handoff-status:empty { display: none; }
+/* Aviso único da aba "mcs-whatsapp" (wa-link.js), dispensável com "Entendi". */
+.wa-tab-notice { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 60; max-width: 560px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px; border-radius: 10px; background: #1B1A18; color: #FFFFFF; font: 600 14px/1.4 "Noto Sans", system-ui, sans-serif; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); }
+.wa-tab-notice span { flex: 1 1 260px; min-width: 0; }
+.wa-tab-notice button { background: #C9A227; color: #1B1A18; border: 1px solid #C9A227; border-radius: 8px; min-height: 36px; padding: 6px 14px; font-weight: 700; }
 
 /* Cartão 5 "REALIDADE · SÓ PARA VOCÊ": veredito, MMR típico (quando fora das linhas), rótulo e lista ano/modelo/coluna. */
 .reality-card .reality-verdict { margin: 4px 0 2px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 16px; font-weight: 700; color: #2F7D3B; }

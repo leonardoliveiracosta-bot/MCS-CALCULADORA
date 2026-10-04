@@ -1,9 +1,11 @@
 // Enviar com as duas opções: no computador, "No celular" (QR code do link wa.me, gerado com o texto do momento, e,
-// se os avisos do painel estiverem ativos, "Enviar para meu celular") e "No WhatsApp Web" (o link wa.me, como antes).
+// se os avisos do painel estiverem ativos, "Enviar para meu celular") e "No WhatsApp Web" (aberto pelo wa-link.js na
+// aba "mcs-whatsapp", direto no WhatsApp Web).
 // No celular, o link direto continua igual.
 (function attachWhatsAppHandoff(root) {
   'use strict';
-  const isPhone = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820);
+  // Phone or computer by the device's browser only (Chromebook is a computer), as in wa-link.js.
+  const isPhone = () => root.MCSWaLink ? root.MCSWaLink.isPhone(navigator) : /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
   const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };
   let pushState = null;
   async function pushAvailable(request) {

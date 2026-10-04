@@ -1,0 +1,12 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>WhatsApp</title><link rel="stylesheet" href="/painel/identidade.css"></head>
+<body><a id="server-link" target="_blank" rel="noopener" href="https://wa.me/13055550123?text=Ol%C3%A1%20Jo%C3%A3o%20%26%20%23%201%0A%F0%9F%9A%97">No WhatsApp Web</a>
+<button id="p1" type="button">WhatsApp: parte 1 de 3</button><button id="p2" type="button">WhatsApp: parte 2 de 3</button><button id="p3" type="button">WhatsApp: parte 3 de 3</button>
+<p id="status"></p>
+<script src="/painel/wa-link.js"></script>
+<script>const parts = ['Parte um', 'Parte dois & mais', 'Parte três 🚗'];
+[1, 2, 3].forEach((index) => document.getElementById('p' + index).addEventListener('click', async () => {
+  const text = parts[index - 1];
+  const result = await MCSWaLink.sendPart({ href: 'https://wa.me/13055550123?text=' + encodeURIComponent(text), text, index, total: 3 });
+  document.getElementById('status').textContent = result.message;
+}));
+document.body.dataset.ready = '1';</script></body></html>

@@ -1,6 +1,6 @@
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Enviar</title><link rel="stylesheet" href="/painel/identidade.css"></head>
 <body><div class="inline-actions v1-send-actions"><a class="small v1-send-fallback suggestion-open" href="https://wa.me/15513009180?text=Ol%C3%A1">Abrir no WhatsApp do celular</a></div>
-<script src="/painel/vendor/qrcode.js"></script><script src="/painel/whatsapp-envio.js"></script>
+<script src="/painel/wa-link.js"></script><script src="/painel/vendor/qrcode.js"></script><script src="/painel/whatsapp-envio.js"></script>
 <script>window.POSTS = []; const link = document.querySelector('a');
 MCSWaHandoff.attach(link, { request: async (path, options = {}) => { if (options.method === 'POST') { window.POSTS.push(JSON.parse(options.body)); return { accepted: 1 }; } return { available: true }; } });
 document.body.dataset.ready = '1';</script></body></html>
