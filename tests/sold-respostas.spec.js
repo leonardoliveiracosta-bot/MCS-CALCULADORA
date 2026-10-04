@@ -63,14 +63,14 @@ test('taxa de serviço pela tabela, resposta sem mandar tudo para a calculadora'
   await expect(page.locator('.sold-msg.sold-hook').last()).toContainText('What are you looking for?');
 });
 
-test('estoque: "me mostra qual antes", com gancho e os dois caminhos', async ({ page }) => {
+test('estoque: a mesma resposta da primeira mensagem do WhatsApp (sem estoque, a gente caça o carro), com gancho', async ({ page }) => {
   await page.goto(base + '/index.html');
   await page.waitForFunction(() => window.MCSSold);
   await page.evaluate(() => window.MCSSold.open());
   await page.fill('.sold-form input', 'Do you have a 2020 Camry?');
   await page.press('.sold-form input', 'Enter');
-  await expect(reply(page)).toContainText('Show me which car you want first');
-  await expect(page.locator('.sold-msg.sold-hook').last()).toContainText('Which one is it?');
+  await expect(reply(page)).toContainText("We don't sell from our own inventory");
+  await expect(page.locator('.sold-msg.sold-hook').last()).toContainText('Which car is it?');
   await expect(page.locator('.sold-cta').last()).toBeVisible();
   await expect(page.locator('.sold-log a.sold-link').last()).toHaveAttribute('href', /wa\.me\/13055400742\?text=.*Camry/);
 });
