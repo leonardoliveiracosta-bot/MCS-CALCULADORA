@@ -968,6 +968,13 @@
        script do bloco ainda posiciona a arte por conta própria (estilo em linha). */
     section.calc-block .calc-stage-art{inset:auto;left:0;width:100%;aspect-ratio:1320/1980;top:calc(50% + 56px);margin-top:-81.818%}
   }
+  /* Tela grande: a página inteira (texto, imagens, botões, calculadora) cresce por degraus, para a coluna
+     acompanhar a largura. A altura também conta, para não estourar em notebook baixo. Abaixo de 1280px nada muda. */
+  @media (min-width:1280px){html{zoom:1.1}}
+  @media (min-width:1440px) and (min-height:760px){html{zoom:1.2}}
+  @media (min-width:1680px) and (min-height:860px){html{zoom:1.3}}
+  @media (min-width:1900px) and (min-height:960px){html{zoom:1.4}}
+  @media (min-width:2400px) and (min-height:1200px){html{zoom:1.7}}
 </style>
 </head>
 <body>
@@ -2159,6 +2166,6 @@ else ligar();
 })();
 </script>
 <!-- Sold: o assistente (martelo do leiloeiro); responde com o FAQ e leva para a calculadora -->
-<script src="/sold-assistant.js?v=2" defer></script>
+<script src="/sold-assistant.js?v=3" defer></script>
 </body>
 </html>
