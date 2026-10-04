@@ -5634,6 +5634,16 @@
     }
     if (retry) retry.classList.toggle('hidden', !show);
   }
+  // The panel always starts at ATENDER AGORA, at the top: a reload (Ctrl+Shift+R), a page the browser
+  // restores (tab reopened, back/forward) or a new login after "Sair" never reopens the last ficha or
+  // tab. Only a link opened on purpose (a phone notification, a pasted #ficha/ link) opens its ficha.
+  function startFresh() {
+    try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (_) {}
+    history.replaceState(null, '', location.pathname + location.search);
+    window.scrollTo(0, 0);
+  }
+  const navigationType = (() => { try { const entry = performance.getEntriesByType('navigation')[0]; return entry ? entry.type : ''; } catch (_) { return ''; } })();
+  if (navigationType === 'reload' || navigationType === 'back_forward') startFresh();
   async function routeSession() {
     if (!accessToken) { sessionRetry(false); return show('login-view'); }
     let session;
@@ -5732,7 +5742,7 @@
     await restoreSession();
     $('login-form').addEventListener('submit', signIn);
     $('password-form').addEventListener('submit', changePassword);
-    $('logout').addEventListener('click', () => { stopAutoRefresh(); clearSession(); show('login-view'); });
+    $('logout').addEventListener('click', () => { stopAutoRefresh(); clearSession(); startFresh(); show('login-view'); });
     document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', async () => {
       if(button.dataset.view!=='clients')clientsOverdue24=false;
       history.replaceState({ panelOrigin: { view: button.dataset.view, scrollY: 0 } }, '', location.pathname + location.search);
