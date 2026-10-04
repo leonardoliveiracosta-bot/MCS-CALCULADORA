@@ -701,6 +701,10 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 .offer-price .offer-pct { width: 5.5em; min-height: 36px; }
 .offer-price .offer-note, .offer-actions .offer-reason { flex: 1 1 14em; min-width: 0; min-height: 36px; }
 .offer-final { color: var(--mcs-text); }
+.offer-price .offer-final-label, .offer-price .offer-pct-label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.offer-price input.offer-final { width: 8.5em; min-height: 36px; font-weight: 700; font-size: 15px; }
+.offer-price .offer-final-msg { flex-basis: 100%; font-size: 12.5px; }
+.offer-price .offer-final-msg:empty { display: none; }
 .offer-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .offer-row > div:first-child > span { display: block; }
 .offer-price > .muted { font-size: 13px; }

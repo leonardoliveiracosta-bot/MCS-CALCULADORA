@@ -3025,6 +3025,7 @@
     MANHEIM_SELECTION_LIMIT: 'Este pedido já tem 10 carros selecionados · Remova um antes de selecionar outro',
     MANHEIM_SELECTION_REASON_REQUIRED: 'Escreva o motivo da inclusão manual, com pelo menos 5 letras',
     MANHEIM_SELECTION_PCT_INVALID: 'Percentual inválido: use de 0 a 50',
+    MANHEIM_SELECTION_FINAL_INVALID: 'Valor inválido: use entre o MMR e o MMR + 50%',
     MANHEIM_MATCH_WITHOUT_MMR: 'Carro sem MMR válido não pode ser selecionado',
     MANHEIM_MATCH_NOT_FOUND: 'Este carro não está mais no lote ativo',
     MANHEIM_STAMP_INVALID: 'Este carro não serve mais ao pedido atual (lote ou critério mudou) · Recarregue as opções',
@@ -3088,25 +3089,51 @@
     const statusBadge = makeBadge(OFFER_STATUS[info.status] || '', info.status === 'SELECTED' ? 'green' : 'yellow');
     statusBadge.classList.add('offer-status'); statusBadge.hidden = !OFFER_STATUS[info.status];
     badges.append(statusBadge);
-    // Price: internal MMR, default markup, operator's markup and the value the customer sees.
+    // Price: internal MMR, default markup, operator's markup and the value the customer sees. The operator
+    // types the percentage OR the value in dollars (a round number); one follows the other on screen. A typed
+    // value is kept exact by the server; the percentage then is only its reference (two decimals).
     const price = element('div', 'offer-price');
-    const pctInput = element('input', 'offer-pct'); pctInput.type = 'number'; pctInput.min = '0'; pctInput.max = '50'; pctInput.step = '0.1';
-    pctInput.value = info.manualPct !== null && info.manualPct !== undefined ? String(info.manualPct) : String(info.defaultPct);
+    const pctInput = element('input', 'offer-pct'); pctInput.type = 'number'; pctInput.min = '0'; pctInput.max = '50'; pctInput.step = '0.01';
     pctInput.setAttribute('aria-label', 'Percentual ajustado');
-    const finalValue = element('strong', 'offer-final', formatMoney(info.finalCents));
-    const updateFinal = () => { const pct = OFFER ? OFFER.validPct(pctInput.value) : Number(pctInput.value); finalValue.textContent = OFFER && Number.isFinite(pct) ? formatMoney(OFFER.finalCents(info.mmrCents, pct)) : '—'; };
-    pctInput.addEventListener('input', updateFinal);
+    const valueInput = element('input', 'offer-final'); valueInput.type = 'text'; valueInput.inputMode = 'decimal'; valueInput.autocomplete = 'off';
+    valueInput.setAttribute('aria-label', 'Valor para o cliente em dólares');
+    const valueMessage = element('span', 'muted offer-final-msg');
+    const dollars = (cents) => Number.isFinite(cents) ? (cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+    // "59000", "59.000", "59,000", "59.000,50", "$59,000.50" -> cents
+    const parseDollars = (text) => {
+      let raw = String(text || '').replace(/[^\d.,]/g, '');
+      if (!raw) return null;
+      if (/,\d{1,2}$/.test(raw)) raw = raw.replace(/\./g, '').replace(',', '.');
+      else if (/\.\d{1,2}$/.test(raw) && (raw.match(/\./g) || []).length === 1) raw = raw.replace(/,/g, '');
+      else raw = raw.replace(/[.,]/g, '');
+      const cents = Math.round(Number(raw) * 100);
+      return Number.isFinite(cents) && cents > 0 ? cents : null;
+    };
+    const minCents = Number(info.mmrCents) || 0, maxCents = Math.round(minCents * 1.5);
+    info.manualFinal = info.manualFinal === true || (info.manualPct !== null && info.manualPct !== undefined && OFFER ? OFFER.finalCents(info.mmrCents, Number(info.manualPct)) !== Number(info.finalCents) : false);
+    const paintPrice = () => {
+      pctInput.value = info.manualPct !== null && info.manualPct !== undefined ? String(Number(info.manualPct)) : String(info.defaultPct);
+      valueInput.value = dollars(Number(info.finalCents)); valueMessage.textContent = '';
+    };
+    paintPrice();
+    const pctOf = (cents) => Math.round((cents / minCents - 1) * 10000) / 100;
+    pctInput.addEventListener('input', () => { const pct = OFFER ? OFFER.validPct(pctInput.value) : Number(pctInput.value); valueInput.value = OFFER && Number.isFinite(pct) ? dollars(OFFER.finalCents(info.mmrCents, pct)) : ''; valueMessage.textContent = ''; });
+    valueInput.addEventListener('input', () => { const cents = parseDollars(valueInput.value); if (cents && minCents) pctInput.value = String(pctOf(cents)); });
     const note = element('input', 'offer-note'); note.type = 'text'; note.maxLength = 500; note.placeholder = 'Observação interna (opcional)'; note.value = info.note || '';
+    const valueLabel = element('label', 'offer-final-label', 'Valor para o cliente (US$) ');
+    valueLabel.append(valueInput);
     price.append(element('span', 'muted', `Padrão ${pctText(info.defaultPct)}`),
-      element('label', 'offer-pct-label', 'Ajustado '), pctInput, element('span', 'muted', 'Referência estimada para o cliente'), finalValue, note);
+      element('label', 'offer-pct-label', 'Ajustado (%) '), pctInput, valueLabel, valueMessage, note);
     price.querySelector('.offer-pct-label').append(pctInput);
     const actions = element('div', 'inline-actions offer-actions');
     const reason = element('input', 'offer-reason'); reason.type = 'text'; reason.maxLength = 300; reason.placeholder = 'Motivo da inclusão manual'; reason.value = info.manualReason || '';
-    const send = (action) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action, matchId: option.id, pct: pctInput.value === String(info.defaultPct) && info.manualPct === null ? null : pctInput.value, reason: reason.value.trim() || null, note: note.value.trim() || null }) });
+    // A typed dollar value travels as it is; otherwise the percentage (or nothing, for the default).
+    const priceBody = () => info.manualFinal ? { finalCents: Number(info.finalCents) } : { pct: pctInput.value === String(info.defaultPct) && info.manualPct === null ? null : pctInput.value };
+    const send = (action) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action, matchId: option.id, ...priceBody(), reason: reason.value.trim() || null, note: note.value.trim() || null }) });
     const apply = (result) => {
-      Object.assign(info, { status: result.status, manual: result.manual, manualReason: result.manualReason, manualPct: result.manualPct, finalCents: result.finalCents, note: result.note });
+      Object.assign(info, { status: result.status, manual: result.manual, manualReason: result.manualReason, manualPct: result.manualPct, finalCents: result.finalCents, manualFinal: result.manualFinal === true, note: result.note });
       row.dataset.status = result.status; statusBadge.textContent = OFFER_STATUS[result.status] || ''; statusBadge.hidden = !OFFER_STATUS[result.status];
-      finalValue.textContent = formatMoney(result.finalCents);
+      paintPrice();
       state.setSelected(option.id, result.status === 'SELECTED', result.selectedCount);
       paintActions();
     };
@@ -3127,8 +3154,18 @@
     };
     paintActions();
     // A percentage typed is kept by the server even before the car is selected.
-    pctInput.addEventListener('change', () => { if (!OFFER || !Number.isFinite(OFFER.validPct(pctInput.value))) { finalValue.textContent = 'Percentual inválido'; return; }
-      request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, pct: pctInput.value, note: note.value.trim() || null }) }).then(apply).catch((error) => { finalValue.textContent = offerError(error); }); });
+    pctInput.addEventListener('change', () => { if (!OFFER || !Number.isFinite(OFFER.validPct(pctInput.value))) { valueMessage.textContent = 'Percentual inválido: use de 0 a 50, até duas casas'; return; }
+      request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, pct: pctInput.value, note: note.value.trim() || null }) }).then(apply).catch((error) => { valueMessage.textContent = offerError(error); }); });
+    // The value typed in dollars is saved when the operator leaves the field (or presses Enter).
+    const saveValue = () => {
+      const cents = parseDollars(valueInput.value);
+      if (cents === Number(info.finalCents)) { paintPrice(); return; }
+      if (!cents || cents < minCents || cents > maxCents) { valueMessage.textContent = `Valor inválido: use entre ${formatMoney(minCents)} (MMR) e ${formatMoney(maxCents)} (MMR + 50%)`; return; }
+      valueMessage.textContent = 'Salvando…';
+      request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, finalCents: cents, note: note.value.trim() || null }) }).then(apply).catch((error) => { valueMessage.textContent = offerError(error); });
+    };
+    valueInput.addEventListener('change', saveValue);
+    valueInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); valueInput.blur(); } });
     actions.append(reason, manualButton, selectButton, removeButton, excludeButton);
     // Empty pills are never drawn.
     badges.querySelectorAll('.badge:not(.offer-status)').forEach((pill) => { if (!pill.textContent.trim()) pill.remove(); });

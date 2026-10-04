@@ -151,6 +151,10 @@ async function selectOption(ctx, body) {
   const actions = { select: 'SELECT', remove: 'REMOVE', exclude: 'EXCLUDE', price: 'PRICE' };
   const pct = offer.validPct(body.pct);
   if (!/^[0-9a-f-]{36}$/.test(String(body.matchId || '')) || Number.isNaN(pct)) return send(ctx.res, 400, { error: pct !== pct ? 'MANHEIM_SELECTION_PCT_INVALID' : 'MANHEIM_SELECTION_INVALID' });
+  // The customer price typed in dollars (cents, whole number) instead of the percentage: never both.
+  const hasFinal = body.finalCents !== null && body.finalCents !== undefined && body.finalCents !== '';
+  const finalCents = hasFinal ? Number(body.finalCents) : null;
+  if (hasFinal && (!Number.isSafeInteger(finalCents) || finalCents <= 0 || pct !== null)) return send(ctx.res, 400, { error: 'MANHEIM_SELECTION_FINAL_INVALID' });
   const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 300) : null;
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : null;
   // A car that no longer fits (lot or criteria changed) is not selected: the stamp is recomputed now.
@@ -159,7 +163,7 @@ async function selectOption(ctx, body) {
     if (held) return send(ctx.res, 409, { error: held.code, reason: held.reason, text: held.text });
   }
   try {
-    const result = await rpc(ctx, 'panel_manheim_offer_select', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_action: actions[body.action], p_manual_pct: pct, p_reason: reason || null, p_note: note || null });
+    const result = await rpc(ctx, 'panel_manheim_offer_select_v2', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_action: actions[body.action], p_manual_pct: pct, p_reason: reason || null, p_note: note || null, p_final_cents: finalCents });
     return send(ctx.res, 200, result);
   } catch (error) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
