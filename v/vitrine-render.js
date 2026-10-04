@@ -34,6 +34,7 @@
     const tags = vehicle.cleanTitle || vehicle.odometerOk ? `<div class="tags">${vehicle.cleanTitle ? '<span>✓ Clean title</span>' : ''}${vehicle.odometerOk ? '<span>✓ Odometer OK</span>' : ''}</div>` : '';
     const limit = isV2 && car.customerLimitCents ? `<section class="limit"><div class="label">Your limit</div><div class="value">Up to ${money(car.customerLimitCents)}</div>${lines("You set the limit, we do the bidding\nYour limit is the most we'll bid, not what you pay\nIf we win it for less, you pay based on the winning bid")}</section>` : '';
     const note = isV2 && car.note ? `<p class="note">${escape(car.note)}</p>` : '';
+    const why = car.whyChosen ? `<p class="why"><strong>Why we picked it:</strong> ${escape(car.whyChosen)}</p>` : '';
     const when = date(vehicle.startsAt);
     const sales = (vehicle.purchaseOptions || []).filter(s => !Number.isFinite(Date.parse(s.endsAt)) || Date.parse(s.endsAt)>Date.now());
     const auction = sales.length ? `<section class="auction"><div class="label">Ways to buy</div>${sales.map(s=>`<div>${[s.lane&&s.run?`Auction Lane ${s.lane} / Run ${s.run}`:'',Number(String(s.buyNowPrice||'').replace(/[$,]/g,''))>0?`Buy Now ${money(Number(String(s.buyNowPrice).replace(/[$,]/g,''))*100)}`:'',s.saleType,date(s.startsAt),s.endsAt?`until ${date(s.endsAt)}`:''].filter(Boolean).map(escape).join(' · ')}</div>`).join('')}</section>` : when ? `<section class="auction"><div class="label">Auction day</div><div class="value">${escape(when)}</div>${dateOnly(vehicle.startsAt) === null ? `<b>${escape(countdown(vehicle.startsAt))}</b>` : ''}</section>` : '';
@@ -41,7 +42,7 @@
     const average = Number(car.estimatedMarketReference) > 0 ? `<section class="average"><div class="label">Estimated market reference</div><div class="value">~ ${money(car.estimatedMarketReference * 100)}</div>${lines('A reference, not a fixed price\nThe final price is set on auction day')}</section>` : Number(car.averageAuctionValue) > 0 ? `<section class="average"><div class="label">Average auction value</div><div class="value">~ ${money(car.averageAuctionValue * 100)}</div>${lines('A reference, not a fixed price\nThe final price is set on auction day')}</section>` : '';
     // V2: o nome do carro ja e o titulo da pagina; ordem aprovada: galeria, selos, especificacoes, leilao, valor, limite, nota
     const head = isV2 ? '' : `<h2>${escape(carName)}</h2><p class="muted">${[vehicle.miles && Number(vehicle.miles).toLocaleString('en-US') + ' mi', vehicle.exteriorColor, vehicle.state].filter(Boolean).map(escape).join(' · ')}</p>`;
-    return `<article class="car">${head}${gallery(car.photos, carName)}${tags}${isV2 ? specs(vehicle) + auction + average : auction + average}${limit}${note}${print ? '' : `<button data-code="${car.code}" data-bid="${isV2}">${isV2 ? 'I want to bid' : 'Show me this car'}</button><p class="muted">Opens WhatsApp with a ready message to our team</p>`}</article>`;
+    return `<article class="car">${head}${why}${gallery(car.photos, carName)}${tags}${isV2 ? specs(vehicle) + auction + average : auction + average}${limit}${note}${print ? '' : `<button data-code="${car.code}" data-bid="${isV2}">${isV2 ? 'I want to bid' : 'Show me this car'}</button><p class="muted">Opens WhatsApp with a ready message to our team</p>`}</article>`;
   }
   function page(data, print) {
     const version = data.version;

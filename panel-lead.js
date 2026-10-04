@@ -252,6 +252,27 @@ async function leadData(ctx, req, refInput, idInput) {
   const reference = [...unique.values()].filter((car) => matchesFor(car).some(({ result }) => !result.dataGap));
   const milesCap = wishes.some((wish) => Number(wish.maxMiles) > 0) || demands.some((demand) => (demand.activeWishes || []).some((wish) => Number(wish.maxMiles) > 0));
   const reality = require('./panel-reality').realityList({ options: servedOptions, reference, maxBidCents, milesCap, typicalCents: typical.map((wish) => wish.mmrCents) });
+  // "Separar para o cliente" on each line: the car's match in the active batch for this request (the
+  // same selection of ENVIAR OPÇÕES; any sale of the VIN counts) and whether it is already selected.
+  if (activeUpload && reality.rows.length) await optionalRead('reality_pick', async () => {
+    const keyOfMode = new Map(demands.map((demand) => [demand.mode, demand.key]));
+    const keys = [...new Set(reality.rows.map((row) => keyOfMode.get(row.mode)).filter(Boolean))];
+    const vins = [...new Set(reality.rows.map((row) => row.vin).filter((vin) => /^[A-Z0-9]{5,40}$/.test(vin || '')))];
+    const prints = [...new Set(reality.rows.filter((row) => !row.vin && row.rowFingerprint).map((row) => row.rowFingerprint))];
+    if (!keys.length || (!vins.length && !prints.length)) return [];
+    const quoted = (list) => list.map((value) => '"' + String(value).replace(/"/g, '') + '"').join(',');
+    const base = { select: 'id,vin,row_fingerprint,demand_key', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + activeUpload.id, undone_at: 'is.null', demand_key: 'in.(' + quoted(keys) + ')', limit: '2000' };
+    const found = [...(vins.length ? await rows(ctx, 'manheim_matches', { ...base, vin: 'in.(' + quoted(vins) + ')' }) : []), ...(prints.length ? await rows(ctx, 'manheim_matches', { ...base, row_fingerprint: 'in.(' + quoted(prints) + ')' }) : [])];
+    const ids = [...new Set(found.map((row) => row.id))];
+    const chosen = ids.length ? new Set((await rows(ctx, 'manheim_option_selections', { select: 'match_id', environment: 'eq.' + ctx.environment, status: 'eq.SELECTED', match_id: 'in.(' + ids.join(',') + ')', limit: String(ids.length) })).map((row) => row.match_id)) : new Set();
+    reality.rows.forEach((row) => {
+      const key = keyOfMode.get(row.mode);
+      const same = found.filter((match) => match.demand_key === key && (row.vin ? String(match.vin || '').toUpperCase() === row.vin : match.row_fingerprint === row.rowFingerprint));
+      if (!same.length) return;
+      row.pick = { matchId: same[0].id, demandKey: key, selected: same.some((match) => chosen.has(match.id)) };
+    });
+    return [];
+  });
   const lastCustomer = record && [...(record.conversation || [])].reverse().find((message) => message.direction === 'CUSTOMER');
   const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
   const goodHour = hour >= 9 && hour < 20;

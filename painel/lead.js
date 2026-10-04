@@ -154,12 +154,20 @@
       if(rl.typicalCents)append(reality,'p','reality-typical','MMR típico: '+usd(rl.typicalCents));
       if(rl.rows.length){
         if(rl.label)append(reality,'p','reality-label',rl.label);
-        const list=append(reality,'div','reality-list'+(rl.column==='MILHAS_MMR'||rl.column==='MMR'?' four':''));
-        rl.rows.forEach((row)=>{const line=append(list,'div','reality-row');append(line,'strong','reality-year',String(row.year||'—'));append(line,'span','reality-model',row.model||'—');
-          // Miles always shown with the MMR: two different cars of the same year can share an MMR.
-          if(rl.column==='MMR'){append(line,'span','reality-miles','· '+mi(row.miles));append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));}
-          else if(rl.column==='MILHAS_MMR'){append(line,'span','reality-miles','· '+mi(row.miles));append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));}
-          else append(line,'span','reality-miles','· '+mi(row.miles));});
+        const list=append(reality,'div','reality-list reality-lines');
+        // Each line: year, model and trim, miles and the car's own MMR, and "Separar para o cliente" (the same selection of ENVIAR OPÇÕES).
+        const pickErrors={MANHEIM_SELECTION_REASON_REQUIRED:'Fora de Lane/Run: inclua em ENVIAR OPÇÕES com o motivo',MANHEIM_SELECTION_LIMIT:'Já são 10 selecionados neste pedido',MANHEIM_MATCH_WITHOUT_MMR:'Carro sem MMR válido',MANHEIM_STAMP_INVALID:'Este carro não vale mais para o pedido'};
+        rl.rows.forEach((row)=>{const line=append(list,'div','reality-row');append(line,'strong','reality-year',String(row.year||'—'));
+          const car=append(line,'span','reality-model',row.model||'—');if(row.trim)append(car,'span','reality-trim',' '+row.trim);
+          append(line,'span','reality-miles','· '+mi(row.miles));
+          if(rl.column!=='MILHAS')append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));
+          if(!row.pick)return;
+          const pick=append(line,'button','quiet small reality-pick',row.pick.selected?'Separado ✓':'Separar para o cliente');pick.type='button';pick.disabled=row.pick.selected;
+          const status=append(line,'span','reality-pick-status','');
+          pick.addEventListener('click',async(event)=>{event.stopPropagation();pick.disabled=true;status.textContent='Separando…';
+            try{const result=await request('/api/panel/manheim-options',{method:'POST',body:JSON.stringify({action:'select',matchId:row.pick.matchId})});row.pick.selected=true;pick.textContent='Separado ✓';
+              status.textContent=`${result&&result.selectedCount?result.selectedCount+' separado(s) · ':''}escreva o motivo e gere a V1 em ENVIAR OPÇÕES`;}
+            catch(error){pick.disabled=false;status.textContent=pickErrors[error&&error.code]||'Não consegui separar, tente de novo';}});});
         limitList(reality,[...list.querySelectorAll('.reality-row')],list);
       }
     }else append(reality,'p','muted','Nenhuma opção no lote dentro dos filtros');

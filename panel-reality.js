@@ -24,7 +24,7 @@ function realityList({ options = [], reference = [], maxBidCents = null, milesCa
   reference.forEach((car) => { const key = keyOf(car); if (!byKey.has(key)) byKey.set(key, []); byKey.get(key).push(car.mmrCents); });
   const seen = new Set();
   const rows = options.filter((car) => { const id = carKey(car); if (seen.has(id)) return false; seen.add(id); return true; })
-    .map((car) => ({ year: Number(car.year) || null, model: String(car.model || '').trim(), miles: car.miles === null || car.miles === undefined || car.miles === '' ? null : Number(car.miles), mmrCents: Number(car.mmrCents) > 0 ? Number(car.mmrCents) : median(byKey.get(keyOf(car)) || []) }))
+    .map((car) => ({ year: Number(car.year) || null, model: String(car.model || '').trim(), trim: String(car.trim || '').trim(), carKey: carKey(car), vin: String(car.vin || '').trim().toUpperCase() || null, rowFingerprint: car.rowFingerprint || null, mode: car.mode || null, miles: car.miles === null || car.miles === undefined || car.miles === '' ? null : Number(car.miles), mmrCents: Number(car.mmrCents) > 0 ? Number(car.mmrCents) : median(byKey.get(keyOf(car)) || []) }))
     .sort((a, b) => (b.year || 0) - (a.year || 0) || (a.miles ?? Infinity) - (b.miles ?? Infinity));
   const hasBid = Number(maxBidCents) > 0;
   const allMmr = rows.length > 0 && rows.every((row) => row.mmrCents > 0);

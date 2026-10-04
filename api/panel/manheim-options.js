@@ -13,6 +13,8 @@
 //  POST { action: 'select'|'remove'|'exclude'|'price', matchId, pct, reason, note }
 //                                                     seleção para o cliente (no máximo 10 por demanda;
 //                                                     fora de Lane/Run só com motivo). Nada é enviado.
+//  POST { action: 'reason', matchId, reason }          "Por que este carro": frase para o cliente no carro
+//                                                     selecionado (vai na V1); texto vazio apaga
 // Nenhuma resposta traz o lote inteiro; nenhuma chamada paga; nenhuma mensagem.
 const crypto = require('node:crypto');
 const { allRows, jsonBody, requirePanel, rows, rpc, send } = require('../../panel-server');
@@ -153,6 +155,11 @@ async function groupPage(ctx, req, key, group, limit) {
       status: row.selection_status, manual: row.manual === true, manualReason: row.manual_reason || null, note: row.note || null
     }
   }));
+  // "Por que este carro" of the selected cars of this page (any sale of the same VIN).
+  const memberIds = [...new Set(page.flatMap((row) => (row.vehicle_json && row.vehicle_json.parsed && row.vehicle_json.parsed.memberMatchIds) || [row.id]).filter((id) => /^[0-9a-f-]{36}$/.test(String(id))))];
+  const reasons = memberIds.length ? await rows(ctx, 'manheim_option_selections', { select: 'match_id,client_reason', environment: 'eq.' + ctx.environment, status: 'eq.SELECTED', match_id: 'in.(' + memberIds.join(',') + ')', limit: String(memberIds.length) }).catch(() => []) : [];
+  const reasonOf = (row) => { const members = (row.vehicle_json && row.vehicle_json.parsed && row.vehicle_json.parsed.memberMatchIds) || [row.id]; const hit = reasons.find((item) => members.includes(item.match_id) && item.client_reason); return hit ? hit.client_reason : null; };
+  optionsOut.forEach((option, index) => { option.offer.clientReason = reasonOf(page[index]); });
   const total = page.length ? Number(page[0].total_in_group) || 0 : 0;
   // Next page from the group total (the database caps a page at 50, so "one extra row" never shows on a page of 50).
   const more = (stored || []).length > limit || (total > 0 && offset + page.length < total && page.length === limit);
@@ -182,6 +189,19 @@ async function selectOption(ctx, body) {
   try {
     const result = await rpc(ctx, 'panel_manheim_offer_select_v2', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_action: actions[body.action], p_manual_pct: pct, p_reason: reason || null, p_note: note || null, p_final_cents: finalCents });
     return send(ctx.res, 200, result);
+  } catch (error) {
+    if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
+    throw error;
+  }
+}
+
+// "Por que este carro": a short sentence for the customer on a selected car (the V1 shows it).
+async function saveReason(ctx, body) {
+  if (!/^[0-9a-f-]{36}$/.test(String(body.matchId || ''))) return send(ctx.res, 400, { error: 'MANHEIM_SELECTION_INVALID' });
+  const reason = typeof body.reason === 'string' ? body.reason.replace(/[\u0000-\u001f]+/g, ' ').trim() : '';
+  if (reason.length > 300) return send(ctx.res, 400, { error: 'MANHEIM_REASON_TOO_LONG' });
+  try {
+    return send(ctx.res, 200, await rpc(ctx, 'panel_manheim_offer_reason', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_match_id: body.matchId, p_reason: reason || null }));
   } catch (error) {
     if (selectionMissing(error)) return send(ctx.res, 503, { error: 'MANHEIM_SELECTION_PENDING' });
     throw error;
@@ -241,6 +261,7 @@ module.exports = async (req, res) => {
     // changed): compared now, within this function's 30 s.
     if (body.action === 'sync') return send(res, 200, await syncStaleDemands(ctx, { deadlineAt: Date.now() + 20000 }));
     if (['select', 'remove', 'exclude', 'price'].includes(body.action)) return await selectOption(ctx, body);
+    if (body.action === 'reason') return await saveReason(ctx, body);
     return send(res, 400, { error: 'MANHEIM_OPTIONS_ACTION_INVALID' });
   } catch (error) {
     const code = /^[A-Z][A-Z0-9_]{2,60}$/.test(String(error && error.code || '')) ? error.code : null;

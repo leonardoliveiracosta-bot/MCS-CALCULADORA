@@ -2901,7 +2901,7 @@
     await printVitrine(data, journey.reference_code);
   }
   async function printVitrine(data, referenceCode) {
-    if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
+    if (!window.MCSVitrineRender) await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/v/vitrine-render.js?v=20261025w'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
     const frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true'); frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
     document.body.append(frame);
@@ -3172,7 +3172,7 @@
       row.dataset.status = result.status; statusBadge.textContent = OFFER_STATUS[result.status] || ''; statusBadge.hidden = !OFFER_STATUS[result.status];
       paintPrice();
       state.setSelected(option.id, result.status === 'SELECTED', result.selectedCount);
-      paintActions();
+      paintActions(); paintWhy();
     };
     const button = (label, action, extra) => { const item = element('button', `small ${extra || ''}`.trim(), label); item.type = 'button'; item.dataset.offerAction = action;
       MCSAction.bind(item, () => ({ scope: row, commit: () => send(action), onSuccess: apply, errorText: offerError })); return item; };
@@ -3205,11 +3205,29 @@
     valueInput.addEventListener('change', saveValue);
     valueInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); valueInput.blur(); } });
     actions.append(reason, manualButton, selectButton, removeButton, excludeButton);
+    // "Por que este carro": one sentence the customer sees on the V1 page (never the internal note). Only on a selected car.
+    const why = element('label', 'offer-why');
+    const whyInput = element('input', 'offer-why-input'); whyInput.type = 'text'; whyInput.maxLength = 300; whyInput.value = info.clientReason || '';
+    whyInput.placeholder = 'Ex.: menor milhagem do lote, laudo limpo, um dono';
+    const whyStatus = element('span', 'muted offer-why-status');
+    why.append(element('span', '', 'Por que este carro (o cliente vê na V1)'), whyInput, whyStatus);
+    const paintWhy = () => { why.hidden = info.status !== 'SELECTED' || Boolean(stamp && !stamp.valid); };
+    const saveWhy = () => {
+      const text = whyInput.value.trim();
+      if (text === (info.clientReason || '')) return;
+      whyStatus.textContent = 'Salvando…';
+      request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'reason', matchId: option.id, reason: text }) })
+        .then((result) => { info.clientReason = result.clientReason || ''; whyInput.value = info.clientReason; whyStatus.textContent = text ? 'Salvo · vai na V1' : 'Apagado'; })
+        .catch((error) => { whyStatus.textContent = offerError(error); });
+    };
+    whyInput.addEventListener('change', saveWhy);
+    whyInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); whyInput.blur(); } });
+    paintWhy();
     // Empty pills are never drawn.
     badges.querySelectorAll('.badge:not(.offer-status)').forEach((pill) => { if (!pill.textContent.trim()) pill.remove(); });
     row.append(vehicle);
     if (badges.childElementCount) row.append(badges);
-    row.append(price, actions);
+    row.append(price, actions, why);
     return row;
   }
   // Trim filter of BUSCAS (view only), kept per request (demand key) in this browser.
@@ -3503,16 +3521,19 @@
   function offerPendingNote() {
     return element('p', 'warning offer-pending', 'Seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável · A lista abaixo mostra só as combinações internas e a V1 fica bloqueada');
   }
+  const OFFER_ADVISED_MAX = 5;
   function offerSection(card, demand) {
     const offerCounts = demand.offer;
     const state = { loaded: [], selectedIds: new Set(offerCounts.selectedIds || []), listeners: [], demand };
     const box = element('div', 'offer-section');
     const counter = element('p', 'offer-counter');
     // Scannable: only what exists (zeros hidden); the total is already in the card's highlight and the audit has its own badge.
-    const paint = () => { counter.textContent = [offerCounts.lane ? `${offerCounts.lane} em Lane/Run` : '', offerCounts.offLane ? `${offerCounts.offLane} em Buy Now / Make Offer` : '', offerCounts.incomplete ? `${offerCounts.incomplete} com informação incompleta` : '', `${state.selectedIds.size} de ${offerCounts.max || 10} selecionados`].filter(Boolean).join(' · '); };
+    // 3 to 5 cars per customer is the recommendation (curation, not a catalog): a warning, never a block.
+    const advice = element('p', 'offer-advice hidden');
+    const paint = () => { const many = state.selectedIds.size > OFFER_ADVISED_MAX; advice.classList.toggle('hidden', !many); advice.textContent = many ? `${state.selectedIds.size} selecionados · o recomendado é de 3 a ${OFFER_ADVISED_MAX} carros por cliente (os melhores, cada um com um motivo)` : ''; counter.textContent = [offerCounts.lane ? `${offerCounts.lane} em Lane/Run` : '', offerCounts.offLane ? `${offerCounts.offLane} em Buy Now / Make Offer` : '', offerCounts.incomplete ? `${offerCounts.incomplete} com informação incompleta` : '', `${state.selectedIds.size} de ${offerCounts.max || 10} selecionados`].filter(Boolean).join(' · '); };
     state.setSelected = (id, on, total) => { if (on) state.selectedIds.add(id); else state.selectedIds.delete(id); paint(); state.listeners.forEach((listener) => listener()); };
     paint();
-    box.append(counter, offerGroup(demand, 'LANE', offerCounts.lane, state), offerGroup(demand, 'OFFLANE', offerCounts.offLane, state), offerGroup(demand, 'INCOMPLETE', offerCounts.incomplete, state));
+    box.append(counter, advice, offerGroup(demand, 'LANE', offerCounts.lane, state), offerGroup(demand, 'OFFLANE', offerCounts.offLane, state), offerGroup(demand, 'INCOMPLETE', offerCounts.incomplete, state));
     card.offerState = state; state.card = card;
     return box;
   }
@@ -3654,7 +3675,7 @@
       }catch(error){cardStatus.textContent=v1Error(error);return;}
       finally{vitrineButton.disabled=!auditCanTry(demand);}
       /* The link only exists from here on; the message with it, the destination and the path appear in the send block below. */
-      cardStatus.textContent='Link V1 criado · revise a mensagem abaixo e envie';v1Send.setVitrine(created.token);
+      cardStatus.textContent='Link V1 criado · revise a mensagem abaixo e envie'+(selected.length>OFFER_ADVISED_MAX?` · Atenção: ${selected.length} carros; o recomendado é de 3 a ${OFFER_ADVISED_MAX}`:'');v1Send.setVitrine(created.token);
     });vitrineButton.disabled=!auditCanTry(demand);
     card.addEventListener('audit-changed',()=>{vitrineButton.disabled=!auditCanTry(demand);});
     // The PDF sits next to the V1 (it is used often); only the disposition stays under "⋯".

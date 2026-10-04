@@ -55,3 +55,8 @@ test('um carro por VIN: o mesmo VIN em Lane/Run e em Buy Now é uma linha; cada 
   assert.equal(big.rows.length, 80);
   assert.match(big.label, /95 \(mostrando 80\)/);
 });
+
+test('cada linha leva o trim e a chave do carro (para separar para o cliente)', () => {
+  const out = realityList({ options: [{ year: 2023, make: 'Mercedes-Benz', model: 'S-Class', trim: 'S 580 4MATIC', miles: 16539, mmrCents: 7680000, vin: 'wdd1', rowFingerprint: 'f1', mode: 'CARRO' }], reference: [], maxBidCents: null, milesCap: true, typicalCents: [] });
+  assert.deepEqual([out.rows[0].trim, out.rows[0].vin, out.rows[0].mode, out.rows[0].carKey], ['S 580 4MATIC', 'WDD1', 'CARRO', 'vin:WDD1']);
+});

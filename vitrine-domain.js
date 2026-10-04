@@ -64,6 +64,8 @@ function publicResponse(vitrine,cars,urls=[],options={}){
       // A selected car shows only the estimated market reference (MMR + markup); older cars keep their value.
       const output={code:car.short_code, vehicle:publicVehicle(car.vehicle_snapshot), averageAuctionValue:reference?null:car.vehicle_snapshot?.averageAuctionValue||roundedMmr(car.vehicle_snapshot?.mmrCents), estimatedMarketReference:reference, photos:[urls[originalIndex<0?index:originalIndex]||[]].flat(2).filter((url)=>typeof url==='string'&&url.length>0)};
       if(v2){ output.customerLimitCents=car.customer_limit_cents||null; output.note=clean(car.note_text,800)||null; }
+      // "Why we picked it": the operator's sentence for the customer (never the internal note).
+      const why=clean(car.vehicle_snapshot?.whyChosen,300); if(why)output.whyChosen=why;
       return output;
     }) };
 }

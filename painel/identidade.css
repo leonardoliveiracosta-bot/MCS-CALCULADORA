@@ -693,6 +693,16 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 /* Seleção de opções Manheim para o cliente: três grupos por demanda, preço e ações por carro. */
 .offer-section { display: grid; gap: 10px; margin-top: 10px; }
 .offer-counter { color: var(--mcs-muted); font-size: 13px; margin: 0; }
+.offer-advice { margin: 4px 0 0; font-size: 13px; font-weight: 600; color: #8A6D1E; }
+.offer-advice.hidden { display: none; }
+.offer-why { display: grid; gap: 4px; margin-top: 8px; font-size: 13px; font-weight: 600; color: #6E5414; }
+.offer-why[hidden] { display: none; }
+.offer-why-input { width: 100%; box-sizing: border-box; min-height: 38px; padding: 6px 10px; border: 1px solid #D9CFB9; border-radius: 8px; font: inherit; font-weight: 400; color: #1B1A18; background: #FFFFFF; }
+.offer-why-status { font-weight: 400; }
+.offer-why-status:empty { display: none; }
+.reality-row .reality-trim { color: #5A5F66; overflow-wrap: anywhere; }
+.reality-row .reality-pick { justify-self: start; }
+.reality-pick-status { font-size: 12px; color: #5A5F66; }
 .offer-group { border: 1px solid var(--mcs-line); border-radius: var(--mcs-radius-sm); background: var(--mcs-elevated); padding: 8px 12px; }
 .offer-group > summary { cursor: pointer; font-weight: 600; min-height: var(--mcs-touch); display: flex; align-items: center; }
 .offer-row { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--mcs-line); padding: 10px 0; }
@@ -1005,6 +1015,11 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .reality-card .reality-list { display: grid; grid-template-columns: max-content max-content 1fr; gap: 6px 12px; align-items: baseline; font-family: "Noto Sans", system-ui, sans-serif; font-size: 14px; }
 .reality-card .reality-list.four { grid-template-columns: max-content max-content max-content 1fr; }
 .reality-card .reality-row { display: contents; }
+.reality-card .reality-list.reality-lines { display: grid; grid-template-columns: 1fr; gap: 4px; }
+.reality-card .reality-lines .reality-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 4px 0; border-bottom: 1px solid #F0EBE1; min-width: 0; }
+.reality-card .reality-lines .reality-row .reality-pick { margin-left: auto; min-height: 30px; padding: 2px 10px; }
+.reality-card .reality-lines .reality-pick-status:empty { display: none; }
+.reality-card .reality-lines .reality-pick-status { flex-basis: 100%; }
 .reality-card .reality-year { font-weight: 700; color: #1B1A18; }
 .reality-card .reality-model { color: #1B1A18; }
 .reality-card .reality-miles { color: #8A837B; }
