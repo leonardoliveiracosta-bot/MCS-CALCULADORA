@@ -2390,7 +2390,7 @@
         card.append(element('strong','',request.name),element('span','muted',`${request.phone||'Sem telefone'} · Ref ${request.referenceCode||'—'} · pediu pelo WhatsApp ${request.ago||''}`),element('span','',request.car||'Carro não informado'));
         const auction=request.endsAt||request.startsAt;if(auction)card.append(element('span','auction-alert',`Leilão ${relativeAuction(auction)} · ${formatDate(auction)}`));
         if(request.referred)card.append(makeBadge(`Número novo pelo link de ${request.ownerName} (${request.ownerRef||'sem Ref'}) · provável indicação`,'yellow'));
-        if(request.kind==='BID'&&request.depositUsd)card.append(element('span','v2-deposit',`Próximo passo: pedir o depósito · US$ ${Number(request.depositUsd).toLocaleString('en-US')}`));else if(request.kind==='BID'&&request.referred)card.append(element('span','v2-deposit','Próximo passo: pedir o depósito · valor a definir com o cliente novo'));const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2');build.type='button';build.disabled=!request.vitrineCarId;build.addEventListener('click',()=>openV2Builder(request,card));
+        if(request.kind==='BID'&&request.depositFinanced)card.append(element('span','v2-deposit','Próximo passo: depósito avaliado caso a caso (financiado)'));else if(request.kind==='BID'&&request.depositUsd)card.append(element('span','v2-deposit',`Próximo passo: pedir o depósito · US$ ${Number(request.depositUsd).toLocaleString('en-US')}`));else if(request.kind==='BID'&&request.referred)card.append(element('span','v2-deposit','Próximo passo: pedir o depósito · valor a definir com o cliente novo'));const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2');build.type='button';build.disabled=!request.vitrineCarId;build.addEventListener('click',()=>openV2Builder(request,card));
         card.append(contextSlot({journeyId:uuidOnly(request.journeyId),ref:uuidOnly(request.journeyId)?null:refOf(request)}));
         const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>request.journeyId&&openDetail('ficha',request.journeyId));open.disabled=!request.journeyId;
         // "Pedido atendido" (not "Tratado"): this closes the customer's request, not the person's disposition.
@@ -3026,6 +3026,7 @@
     MANHEIM_SELECTION_REASON_REQUIRED: 'Escreva o motivo da inclusão manual, com pelo menos 5 letras',
     MANHEIM_SELECTION_PCT_INVALID: 'Percentual inválido: use de 0 a 50',
     MANHEIM_SELECTION_FINAL_INVALID: 'Valor inválido: use entre o MMR e o MMR + 50%',
+    MANHEIM_SELECTION_FINAL_CENTS: 'Valor inválido: use dólares inteiros, sem centavos',
     MANHEIM_MATCH_WITHOUT_MMR: 'Carro sem MMR válido não pode ser selecionado',
     MANHEIM_MATCH_NOT_FOUND: 'Este carro não está mais no lote ativo',
     MANHEIM_STAMP_INVALID: 'Este carro não serve mais ao pedido atual (lote ou critério mudou) · Recarregue as opções',
@@ -3160,6 +3161,7 @@
     const saveValue = () => {
       const cents = parseDollars(valueInput.value);
       if (cents === Number(info.finalCents)) { paintPrice(); return; }
+      if (cents && cents % 100 !== 0) { valueMessage.textContent = 'Valor inválido: use dólares inteiros, sem centavos'; return; }
       if (!cents || cents < minCents || cents > maxCents) { valueMessage.textContent = `Valor inválido: use entre ${formatMoney(minCents)} (MMR) e ${formatMoney(maxCents)} (MMR + 50%)`; return; }
       valueMessage.textContent = 'Salvando…';
       request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'price', matchId: option.id, finalCents: cents, note: note.value.trim() || null }) }).then(apply).catch((error) => { valueMessage.textContent = offerError(error); });

@@ -149,6 +149,8 @@ async function selectOption(ctx, body) {
   const hasFinal = body.finalCents !== null && body.finalCents !== undefined && body.finalCents !== '';
   const finalCents = hasFinal ? Number(body.finalCents) : null;
   if (hasFinal && (!Number.isSafeInteger(finalCents) || finalCents <= 0 || pct !== null)) return send(ctx.res, 400, { error: 'MANHEIM_SELECTION_FINAL_INVALID' });
+  // The price typed for the customer is whole dollars: no cents.
+  if (hasFinal && finalCents % 100 !== 0) return send(ctx.res, 400, { error: 'MANHEIM_SELECTION_FINAL_CENTS' });
   const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 300) : null;
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : null;
   // A car that no longer fits (lot or criteria changed) is not selected: the stamp is recomputed now.

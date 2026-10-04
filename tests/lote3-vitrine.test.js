@@ -303,6 +303,12 @@ test('B6: a referred request has no deposit ("a definir"), an owner request keep
   const out=await payload({environment:'production'});
   assert.equal(out.requests.find((item)=>item.id==='r1').depositUsd,null);
   assert.equal(out.requests.find((item)=>item.id==='r2').depositUsd,1800);
+  // Financed customer: no cash-table deposit, "avaliado caso a caso".
+  data.journeys=[{id:ids.journey,budget_cents:1800000,payment_text:'Financiado'}];
+  const financed=await payload({environment:'production'});
+  const owner=financed.requests.find((item)=>item.id==='r2');
+  assert.equal(owner.depositUsd,null);assert.equal(owner.depositFinanced,true);
+  assert.equal(financed.requests.find((item)=>item.id==='r1').depositFinanced,false);
 });
 
 /* ---------- headers de seguranca ---------- */

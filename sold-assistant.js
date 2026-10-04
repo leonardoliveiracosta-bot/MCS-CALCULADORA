@@ -37,7 +37,10 @@
       smsButton: 'Text message',
       prefill: "Hi! I came from the My Car Scout site and I want to buy a car at the dealer auctions.",
       prefillQ: 'My question: {q}',
-      feeHook: "That's the whole service fee, and you only pay it if we buy your car. See your full total in the calculator."
+      feeHook: "That's the whole service fee, and you only pay it if we buy your car. See your full total in the calculator.",
+      depIs: 'For a maximum authorized bid of {bid}, the cash deposit is {dep} ({pct}%).',
+      depMin: 'Up to $5,000 the deposit is the $500 minimum.',
+      depEnd: "With financing, the deposit is reviewed case by case. It\'s refundable if we don\'t buy a car for you, and it goes toward the car if we do."
     },
     es: {
       tagline: 'Tu guía de subastas',
@@ -63,7 +66,10 @@
       smsButton: 'Mensaje de texto',
       prefill: '¡Hola! Vengo del sitio de My Car Scout y quiero comprar un auto en las subastas de dealers.',
       prefillQ: 'Mi pregunta: {q}',
-      feeHook: 'Esa es toda la tarifa de servicio, y solo la pagas si compramos tu auto. Mira tu total completo en la calculadora.'
+      feeHook: 'Esa es toda la tarifa de servicio, y solo la pagas si compramos tu auto. Mira tu total completo en la calculadora.',
+      depIs: 'Para una oferta máxima autorizada de {bid}, el depósito en efectivo es {dep} ({pct}%).',
+      depMin: 'Hasta $5,000 el depósito es el mínimo de $500.',
+      depEnd: 'Con financiamiento, el depósito se evalúa caso por caso. Es reembolsable si no compramos un auto para ti, y se abona al auto si lo compramos.'
     },
     pt: {
       tagline: 'Seu guia de leilão',
@@ -89,16 +95,19 @@
       smsButton: 'Mensagem de texto (SMS)',
       prefill: 'Oi! Vim do site da My Car Scout e quero comprar um carro nos leilões de dealers.',
       prefillQ: 'Minha dúvida: {q}',
-      feeHook: 'Essa é a taxa de serviço inteira, e você só paga se a gente comprar o seu carro. Veja o seu total completo na calculadora.'
+      feeHook: 'Essa é a taxa de serviço inteira, e você só paga se a gente comprar o seu carro. Veja o seu total completo na calculadora.',
+      depIs: 'Para um lance máximo autorizado de {bid}, o depósito à vista é {dep} ({pct}%).',
+      depMin: 'Até $5.000 o depósito é o mínimo de $500.',
+      depEnd: 'No financiamento, o depósito é avaliado caso a caso. Ele é reembolsável se a gente não comprar um carro para você, e entra no valor do carro se a gente comprar.'
     }
   };
 
   /* Os passos do How it works: em inglês vêm da página; em espanhol e português, a mesma coisa traduzida. */
   var STEPS = {
     es: [['DINOS LO QUE QUIERES', ''], ['BUSCAMOS EN LAS SUBASTAS', 'Inventario mayorista nuevo cada día'], ['TÚ REVISAS PRIMERO', 'Fotos e información del estado antes de cualquier oferta. CARFAX a medida que avanza el negocio'],
-      ['HACES UN DEPÓSITO', 'Reembolsable. Fija tu máximo antes de que ofertemos por ti'], ['OFERTAMOS EN VIVO', 'Nunca por encima de tu máximo. Nunca sin tu autorización'], ['PAGAS EL RESTO, ES TUYO', 'Lo recoges, o te ayudamos a enviarlo con nuestros socios de transporte']],
+      ['HACES UN DEPÓSITO', 'Reembolsable si no compramos. Fija tu máximo antes de que ofertemos por ti'], ['OFERTAMOS EN VIVO', 'Nunca por encima de tu máximo. Nunca sin tu autorización'], ['PAGAS EL RESTO, ES TUYO', 'Lo recoges, o te ayudamos a enviarlo con nuestros socios de transporte']],
     pt: [['DIGA O QUE VOCÊ QUER', ''], ['VARREMOS OS LEILÕES', 'Estoque de atacado novo todo dia'], ['VOCÊ ANALISA PRIMEIRO', 'Fotos e informações da condição antes de qualquer lance. CARFAX conforme o negócio avança'],
-      ['VOCÊ FAZ UM DEPÓSITO', 'Reembolsável. Trava o seu máximo antes do nosso lance'], ['DAMOS O LANCE AO VIVO', 'Nunca acima do seu máximo. Nunca sem a sua autorização'], ['PAGUE O RESTANTE, É SEU', 'Você retira, ou ajudamos a enviar com nossos parceiros de transporte']]
+      ['VOCÊ FAZ UM DEPÓSITO', 'Reembolsável se a gente não comprar. Trava o seu máximo antes do nosso lance'], ['DAMOS O LANCE AO VIVO', 'Nunca acima do seu máximo. Nunca sem a sua autorização'], ['PAGUE O RESTANTE, É SEU', 'Você retira, ou ajudamos a enviar com nossos parceiros de transporte']]
   };
 
   /* ---------- o que o Sold sabe responder ----------
@@ -116,7 +125,9 @@
        serviço de compra em leilão, carros entram e saem todo dia, cada um tem data de leilão, e a gente caça o carro
        específico a partir do carro e do orçamento da pessoa. */
     { id: 'inventory', go: 'both', chip: { en: 'Do you have stock?', es: '¿Tienen inventario?', pt: 'Vocês têm estoque?' },
-      k: 'inventory|in stock|stock|do you have|which cars|what cars|cars are available|quais carros|que carros|que autos|what do you have|what cars do you have|cars do you have|cars available|available cars|whats available|show me cars|show me the cars|see the cars|list of cars|catalog|showroom|inventario|tienen autos|tienen carros|que tienen|que autos tienen|autos disponibles|carros disponibles|catalogo|lista de autos|estoque|tem carro|voces tem|vcs tem|o que voces tem|que carros voces tem|carros disponiveis|vitrine|fotos dos carros|lista de carros|ver os carros',
+      // "Do you sell cars?", "Vocês vendem carro?", "¿Venden autos?", "tienen un civic?", "tem algum civic aí?"
+      pair: ['have|got|sell|selling|tem|tiene|tienen|vende|vendem|venden|vendes', 'car|cars|auto|autos|carro|carros|vehicle|vehicles|vehiculo|vehiculos|veiculo|veiculos|suv|truck|camioneta|caminhonete|civic|corolla|camry|accord|crv|rav4|tesla|bmw|mercedes|audi|lexus|honda|toyota|ford|chevy|chevrolet|nissan|jeep|dodge|kia|hyundai|f150|silverado|tahoe|escalade|porsche|mustang|charger|explorer|highlander|pilot'],
+      k: 'do you sell|sell cars|you sell cars|vendem carro|vendem carros|voces vendem|venden autos|venden carros|ustedes venden|inventory|in stock|stock|do you have|which cars|what cars|cars are available|quais carros|que carros|que autos|what do you have|what cars do you have|cars do you have|cars available|available cars|whats available|show me cars|show me the cars|see the cars|list of cars|catalog|showroom|inventario|tienen autos|tienen carros|que tienen|que autos tienen|autos disponibles|carros disponibles|catalogo|lista de autos|estoque|tem carro|voces tem|vcs tem|o que voces tem|que carros voces tem|carros disponiveis|vitrine|fotos dos carros|lista de carros|ver os carros',
       en: 'We don\'t sell from our own inventory. We offer an auction buying service through dealer wholesale auctions: you choose the car and set your limit, we handle the purchase.\nDifferent cars come in and go out every day, and every car has an auction date: once it sells, it\'s gone. So we start with the car you want and your budget, and we hunt that specific car for you.',
       es: 'No vendemos de un inventario propio. Ofrecemos un servicio de compra en las subastas mayoristas de dealers: tú eliges el auto y fijas tu límite, nosotros hacemos la compra.\nCada día entran y salen autos distintos, y cada auto tiene su fecha de subasta: cuando se vende, ya no está. Por eso empezamos por el auto que quieres y tu presupuesto, y buscamos ese auto específico para ti.',
       pt: 'A gente não vende de um estoque próprio. A gente oferece um serviço de compra nos leilões de atacado de dealers: você escolhe o carro e define o seu limite, a gente cuida da compra.\nCarros diferentes entram e saem todo dia, e cada carro tem a sua data de leilão: depois que vende, acabou. Por isso a gente começa pelo carro que você quer e pelo seu orçamento, e caça esse carro específico para você.' },
@@ -132,9 +143,9 @@
       pt: 'A gente ajuda a enviar o carro com nossos parceiros de transporte, ou você pode retirar. O custo do transporte varia conforme onde o veículo está e o seu destino, por isso entra na estimativa: faça a sua conta e um especialista revisa com você.' },
     { id: 'depositAmount', go: 'wa', w: 1.5, sec: 'taxas',
       pair: ['deposit|deposito', 'how much|amount|cuanto|monto|quanto|valor'],
-      en: 'The deposit is refundable and locks your max before we bid for you. The page doesn\'t list a fixed amount: a specialist confirms it for your search on WhatsApp.',
-      es: 'El depósito es reembolsable y fija tu máximo antes de que ofertemos por ti. La página no indica un monto fijo: un especialista lo confirma para tu búsqueda por WhatsApp.',
-      pt: 'O depósito é reembolsável e trava o seu máximo antes do lance. A página não traz um valor fixo: um especialista confirma o valor para a sua busca no WhatsApp.' },
+      en: 'Cash purchase: the deposit is 10% of your maximum authorized bid up to $50,000, 15% from $50,001 to $99,999 and 20% from $100,000, with a $500 minimum. With financing, the deposit is reviewed case by case. Tell me your max, like "deposit for $20,000", and I\'ll show you the amount.\n{dep_2}\n{dep_3}',
+      es: 'Compra en efectivo: el depósito es el 10% de tu oferta máxima autorizada hasta $50,000, el 15% de $50,001 a $99,999 y el 20% desde $100,000, con un mínimo de $500. Con financiamiento, el depósito se evalúa caso por caso. Dime tu máximo, por ejemplo "depósito para $20,000", y te muestro el monto.\n{dep_2}\n{dep_3}',
+      pt: 'Compra à vista: o depósito é 10% do seu lance máximo autorizado até $50.000, 15% de $50.001 a $99.999 e 20% a partir de $100.000, com mínimo de $500. No financiamento, o depósito é avaliado caso a caso. Me diga o seu máximo, por exemplo "depósito para $20.000", e eu mostro o valor.\n{dep_2}\n{dep_3}' },
     { id: 'refund', sec: 'taxas', w: 1.2,
       k: 'refund|refunds|money back|get my money|reembolso|devolucion|devuelven|devolver|dinheiro de volta|devolvem|devolucao|devolver',
       en: '{dep_2}\n{dep_1}\n{dep_3}', es: '{dep_2}\n{dep_1}\n{dep_3}', pt: '{dep_2}\n{dep_1}\n{dep_3}' },
@@ -143,9 +154,9 @@
       en: '{dep_3}', es: '{dep_3}', pt: '{dep_3}' },
     { id: 'deposit', sec: 'taxas', chip: { en: 'Deposit', es: 'Depósito', pt: 'Depósito' },
       k: 'deposit|deposits|deposito|depositos|refundable|reembolsable|reembolsavel|lock my|locks',
-      en: 'The deposit is refundable and locks your max before we bid for you.\n{dep_1}\n{dep_2}\n{dep_3}',
-      es: 'El depósito es reembolsable y fija tu máximo antes de que ofertemos por ti.\n{dep_1}\n{dep_2}\n{dep_3}',
-      pt: 'O depósito é reembolsável e trava o seu máximo antes do lance.\n{dep_1}\n{dep_2}\n{dep_3}' },
+      en: 'The deposit locks your max before we bid for you, and it\'s refundable if we don\'t buy a car for you.\n{dep_1}\n{dep_2}\n{dep_3}',
+      es: 'El depósito fija tu máximo antes de que ofertemos por ti, y es reembolsable si no compramos un auto para ti.\n{dep_1}\n{dep_2}\n{dep_3}',
+      pt: 'O depósito trava o seu máximo antes do lance, e é reembolsável se a gente não comprar um carro para você.\n{dep_1}\n{dep_2}\n{dep_3}' },
     { id: 'lose', faq: 4, sec: 'faq',
       k: 'dont win|do not win|not win|dont get the car|lose|lost|outbid|dont buy|dont purchase|if you dont|no ganan|no ganamos|no gana|no ganar|perder|pierdo|no compran|no consiguen|nao ganh|nao arremat|nao conseguir|nao conseguem|nao compr|se voces nao' },
     { id: 'decide', faq: 3, sec: 'faq',
@@ -170,14 +181,14 @@
       pt: '{a7}\nVocê não precisa pagar à vista: financie o preço de atacado, não a margem do dealer. Na seção de Financiamento, diga a sua entrada e a parcela que você quer (seu desejo, não uma promessa).' },
     { id: 'pay', go: 'wa',
       k: 'pay|payment|payments|cash|wire|zelle|card|credit card|how do i pay|pagar|pago|efectivo|tarjeta|transferencia|pagamento|dinheiro|a vista|cartao|pix',
-      en: 'Before we bid, you put down a refundable deposit that locks your max. When the purchase is completed, the deposit is applied to the amount due and you pay the rest. You don\'t need to pay cash: financing may be available through third-party lenders, subject to their approval. A specialist confirms the payment details for your purchase.',
-      es: 'Antes de ofertar, haces un depósito reembolsable que fija tu máximo. Cuando se completa la compra, el depósito se aplica al monto a pagar y pagas el resto. No necesitas pagar en efectivo: el financiamiento puede estar disponible con prestamistas externos, sujeto a su aprobación. Un especialista confirma los detalles del pago de tu compra.',
-      pt: 'Antes do lance, você faz um depósito reembolsável que trava o seu máximo. Quando a compra é concluída, o depósito é abatido do valor devido e você paga o restante. Você não precisa pagar à vista: o financiamento pode estar disponível com credores terceiros, sujeito à aprovação deles. Um especialista confirma os detalhes do pagamento da sua compra.' },
+      en: 'Before we bid, you put down a deposit that locks your max (refundable if we don\'t buy a car for you). When the purchase is completed, the deposit is applied to the amount due and you pay the rest. You don\'t need to pay cash: financing may be available through third-party lenders, subject to their approval. A specialist confirms the payment details for your purchase.',
+      es: 'Antes de ofertar, haces un depósito que fija tu máximo (reembolsable si no compramos un auto para ti). Cuando se completa la compra, el depósito se aplica al monto a pagar y pagas el resto. No necesitas pagar en efectivo: el financiamiento puede estar disponible con prestamistas externos, sujeto a su aprobación. Un especialista confirma los detalles del pago de tu compra.',
+      pt: 'Antes do lance, você faz um depósito que trava o seu máximo (reembolsável se a gente não comprar um carro para você). Quando a compra é concluída, o depósito é abatido do valor devido e você paga o restante. Você não precisa pagar à vista: o financiamento pode estar disponível com credores terceiros, sujeito à aprovação deles. Um especialista confirma os detalhes do pagamento da sua compra.' },
     { id: 'bid',
       k: 'bid live|live|bidding|who bids|how do you bid|bid for me|place the bid|puja|pujan|en vivo|ofertan|ao vivo|dar lance|lance por mim|quem da o lance',
-      en: 'We bid live for you: never above your max, never without your go-ahead. Before that, you review photos and condition info, and you put down a refundable deposit that locks your max.',
-      es: 'Ofertamos en vivo por ti: nunca por encima de tu máximo, nunca sin tu autorización. Antes, revisas fotos e información del estado, y haces un depósito reembolsable que fija tu máximo.',
-      pt: 'A gente dá o lance ao vivo por você: nunca acima do seu máximo, nunca sem a sua autorização. Antes, você analisa fotos e informações da condição, e faz um depósito reembolsável que trava o seu máximo.' },
+      en: 'We bid live for you: never above your max, never without your go-ahead. Before that, you review photos and condition info, and you put down a deposit that locks your max (refundable if we don\'t buy a car for you).',
+      es: 'Ofertamos en vivo por ti: nunca por encima de tu máximo, nunca sin tu autorización. Antes, revisas fotos e información del estado, y haces un depósito que fija tu máximo (reembolsable si no compramos un auto para ti).',
+      pt: 'A gente dá o lance ao vivo por você: nunca acima do seu máximo, nunca sem a sua autorização. Antes, você analisa fotos e informações da condição, e faz um depósito que trava o seu máximo (reembolsável se a gente não comprar um carro para você).' },
     { id: 'save', go: 'calc', sec: 'real-purchase',
       k: 'save|savings|cheaper|discount|how much less|worth it|good deal|below retail|ahorr|barato|mas barato|descuento|vale la pena|economi|mais barato|desconto|vale a pena|compensa',
       en: 'A documented My Car Scout case: a 2021 BMW X3 with 57,347 miles cost $19,335 (purchase + fees), against $25,800 in the Black Book XClean retail reference. That\'s $6,465 less, 25.06% below the reference. Every car is different: run your numbers to see yours.',
@@ -707,6 +718,20 @@
     lines.push(t('feeEnd'));
     say(lines.join('\n'));
   }
+  /* O depósito à vista pela mesma tabela da calculadora (calc-core.js: 10% até $50.000, 15% até $99.999,
+     20% a partir de $100.000, mínimo de $500). Sem o calc-core na página, a mesma tabela aqui. */
+  function depositFor(bid) {
+    var core = window.MCSCalcCore;
+    if (core && core.depositoPctDe && core.depositoDe) return { pct: core.depositoPctDe(bid), value: core.depositoDe(bid) };
+    var pct = bid <= 50000 ? 10 : bid < 100000 ? 15 : 20;
+    return { pct: pct, value: Math.max(bid * pct / 100, 500) };
+  }
+  function answerDeposit(bid) {
+    var dep = depositFor(bid), lines = [fill(t('depIs'), { bid: money(bid), dep: money(dep.value), pct: dep.pct })];
+    if (bid * dep.pct / 100 <= 500) lines.push(t('depMin'));
+    lines.push(t('depEnd'));
+    say(lines.join('\n'));
+  }
   // "$12,000", "12.000", "12000", "12k", "12 mil" -> 12000 (anos como 2019 não contam)
   function amountIn(text) {
     var match = String(text).match(/(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(k\b|mil\b)?/i);
@@ -746,6 +771,7 @@
   var lastId = null;
   function answer(result) {
     var entry = result && result.entry;
+    if (result && result.deposit) { answerDeposit(result.deposit); say(hookFor('deposit'), 'bot sold-hook'); cta(); sectionLink('taxas'); lastId = 'depositAmount'; return; }
     if (result && result.fee) { answerFee(result.fee); say(t('feeHook'), 'bot sold-hook'); cta(); sectionLink('taxas'); lastId = 'fees'; return; }
     if (!entry) { say(t('fallback')); contactButtons(); lastId = null; return; }
     lastId = entry.id;
@@ -774,6 +800,8 @@
     var feeWord = /\b(fee|fees|charge|commission|tarifa|comision|cobr\w*|taxa|comissao)\b/.test(value);
     // depois da tabela de taxas, um valor sozinho ("12k", "e 25000?") já é a pergunta da taxa
     var justAmount = value.replace(/\b(\d+k?|k|mil|for|para|de|e|y|and|what|about|o|a|um|una|uno|bid|lance|oferta)\b/g, ' ').trim() === '';
+    var depWord = /\b(deposit|deposits|deposito|depositos)\b/.test(value);
+    if (bid && (depWord || (lastId === 'depositAmount' && justAmount))) return { id: 'depositCalc', deposit: bid };
     if (bid && (feeWord || (lastId === 'fees' && justAmount))) return { id: 'fee', fee: bid };
     var best = null, top = 0;
     KB.forEach(function (entry) {
