@@ -112,12 +112,14 @@
     { id: 'how', special: 'how', go: 'calc', sec: 'como-funciona',
       k: 'how it works|how does it work|how does this work|how do you work|how this works|process|steps|step by step|como funciona|proceso|processo|passo a passo|paso a paso|pasos|etapas|funciona',
       chip: { en: 'How it works', es: 'Cómo funciona', pt: 'Como funciona' } },
-    /* Estoque: não existe vitrine aberta. A resposta de sempre: "me mostra qual antes" e a gente traz as opções reais. */
-    { id: 'inventory', go: 'both', chip: { en: 'Inventory', es: 'Inventario', pt: 'Estoque' },
+    /* Estoque: a gente não tem estoque. A mesma resposta da primeira mensagem do WhatsApp (whatsapp-auto-reply.js):
+       serviço de compra em leilão, carros entram e saem todo dia, cada um tem data de leilão, e a gente caça o carro
+       específico a partir do carro e do orçamento da pessoa. */
+    { id: 'inventory', go: 'both', chip: { en: 'Do you have stock?', es: '¿Tienen inventario?', pt: 'Vocês têm estoque?' },
       k: 'inventory|in stock|stock|do you have|which cars|what cars|cars are available|quais carros|que carros|que autos|what do you have|what cars do you have|cars do you have|cars available|available cars|whats available|show me cars|show me the cars|see the cars|list of cars|catalog|showroom|inventario|tienen autos|tienen carros|que tienen|que autos tienen|autos disponibles|carros disponibles|catalogo|lista de autos|estoque|tem carro|voces tem|vcs tem|o que voces tem|que carros voces tem|carros disponiveis|vitrine|fotos dos carros|lista de carros|ver os carros',
-      en: 'We don\'t keep a lot of cars waiting for you: we search the dealer auctions, where new wholesale inventory comes in every day.\nShow me which car you want first (make, model, years and your max) and we bring you real auction options to review before any bid.',
-      es: 'No tenemos un lote de autos esperándote: buscamos en las subastas de dealers, donde cada día entra inventario mayorista nuevo.\nMuéstrame primero cuál auto quieres (marca, modelo, años y tu máximo) y te traemos opciones reales de subasta para revisar antes de cualquier oferta.',
-      pt: 'A gente não tem um pátio de carros parados esperando você: a gente busca nos leilões de dealers, onde todo dia entra estoque novo de atacado.\nMe mostra qual carro você quer antes (marca, modelo, anos e o seu máximo) e a gente traz opções reais do leilão para você analisar antes de qualquer lance.' },
+      en: 'We don\'t sell from our own inventory. We offer an auction buying service through dealer wholesale auctions: you choose the car and set your limit, we handle the purchase.\nDifferent cars come in and go out every day, and every car has an auction date: once it sells, it\'s gone. So we start with the car you want and your budget, and we hunt that specific car for you.',
+      es: 'No vendemos de un inventario propio. Ofrecemos un servicio de compra en las subastas mayoristas de dealers: tú eliges el auto y fijas tu límite, nosotros hacemos la compra.\nCada día entran y salen autos distintos, y cada auto tiene su fecha de subasta: cuando se vende, ya no está. Por eso empezamos por el auto que quieres y tu presupuesto, y buscamos ese auto específico para ti.',
+      pt: 'A gente não vende de um estoque próprio. A gente oferece um serviço de compra nos leilões de atacado de dealers: você escolhe o carro e define o seu limite, a gente cuida da compra.\nCarros diferentes entram e saem todo dia, e cada carro tem a sua data de leilão: depois que vende, acabou. Por isso a gente começa pelo carro que você quer e pelo seu orçamento, e caça esse carro específico para você.' },
     { id: 'fees', sec: 'taxas', chip: { en: 'Service fees', es: 'Tarifas de servicio', pt: 'Taxas de serviço' },
       k: 'fee|fees|service fee|your fee|commission|charge|charges|how much do you charge|what do you charge|tarifa|tarifas|comision|cuanto cobran|que cobran|cobran|cobra|comissao|taxa|taxas|quanto cobram|quanto voces cobram|cobram',
       en: 'Our service fee is based only on the winning bid:\n• Up to $3,000: $300\n• $3,001 – $5,000: $400\n• $5,001 – $7,500: $550\n• $7,501 – $10,000: $650\n• $10,001 – $15,000: $750\n• $15,001 – $20,000: $900\n• Above $20,000: $900 + $50 for each additional $2,500 (or portion)\nIf we don\'t buy a vehicle for you, you don\'t pay a service fee. Tell me an amount, like "fee for $12,000", and I\'ll show you the fee.',
@@ -203,9 +205,9 @@
       pt: 'Nos exemplos reais, "referência" é o guia de preços do próprio leilão para um carro naquela condição. Não é um preço: o lance vencedor pode ficar acima ou abaixo. No caso do BMW X3 a gente compara com a referência de varejo Black Book XClean ($25.800); o carro custou $20.094 no total.' },
     { id: 'examples', go: 'calc', sec: 'exemplos',
       k: 'example|examples|real cars|real examples|past purchases|cars you bought|ejemplo|ejemplos|autos reales|exemplo|exemplos|carros reais|ja compraram',
-      en: 'New wholesale inventory comes in every day. Real examples that crossed our desk (auction reference, not a price):\n' + EXAMPLES_EN + '\nTell us the car you want and your max, and we scan the auctions for you.',
-      es: 'Cada día entra inventario mayorista nuevo. Ejemplos reales que pasaron por nuestras manos (referencia de la subasta, no un precio):\n' + EXAMPLES_EN + '\nDinos el auto que quieres y tu máximo, y buscamos en las subastas por ti.',
-      pt: 'Todo dia entra estoque novo de atacado. Exemplos reais que passaram pela nossa mesa (referência do leilão, não um preço):\n' + EXAMPLES_PT + '\nDiga o carro que você quer e o seu máximo, e a gente varre os leilões por você.' },
+      en: 'Different cars come in and go out every day. Real examples that crossed our desk (auction reference, not a price):\n' + EXAMPLES_EN + '\nTell us the car you want and your max, and we scan the auctions for you.',
+      es: 'Cada día entran y salen autos distintos. Ejemplos reales que pasaron por nuestras manos (referencia de la subasta, no un precio):\n' + EXAMPLES_EN + '\nDinos el auto que quieres y tu máximo, y buscamos en las subastas por ti.',
+      pt: 'Carros diferentes entram e saem todo dia. Exemplos reais que passaram pela nossa mesa (referência do leilão, não um preço):\n' + EXAMPLES_PT + '\nDiga o carro que você quer e o seu máximo, e a gente varre os leilões por você.' },
     { id: 'title', sec: 'politica', chip: { en: 'Clean title', es: 'Título limpio', pt: 'Título limpo' },
       k: 'salvage|rebuilt|clean title|title|tmu|flood|odometer|branded|titulo limpio|titulo|salvamento|reconstruido|odometro|inundad|titulo limpo|batido|recuperado',
       en: '{pol_2}', es: '{pol_2}', pt: '{pol_2}' },
@@ -221,9 +223,9 @@
       pt: 'Veículos de leilão são comprados no estado em que se encontram, nas condições informadas pelo leilão.\n{pol_6}' },
     { id: 'time', go: 'wa', chip: { en: 'How long?', es: '¿Cuánto tarda?', pt: 'Quanto tempo?' },
       k: 'how long|how many days|how many weeks|when will|time|timing|fast|quick|wait|soon|cuanto tiempo|cuantos dias|tiempo|demora|tarda|rapido|quanto tempo|quantos dias|prazo|prazos|demorar|leva quanto',
-      en: 'New wholesale inventory comes in every day, so the search depends on the car and the max you set. After a purchase, timing varies with the auction, title release, location and destination, and title release and DMV processing can take time.',
-      es: 'Cada día entra inventario mayorista nuevo, así que la búsqueda depende del auto y del máximo que fijes. Después de la compra, los plazos varían según la subasta, la liberación del título, el lugar y el destino, y la liberación del título y el trámite en el DMV pueden tomar tiempo.',
-      pt: 'Todo dia entra estoque novo de atacado, então a busca depende do carro e do máximo que você definir. Depois da compra, os prazos variam conforme o leilão, a liberação do título, a localização e o destino, e a liberação do título e o processo no DMV podem levar tempo.' },
+      en: 'Different cars come in and go out of the auctions every day, so the search depends on the car and the max you set. After a purchase, timing varies with the auction, title release, location and destination, and title release and DMV processing can take time.',
+      es: 'Cada día entran y salen autos distintos de las subastas, así que la búsqueda depende del auto y del máximo que fijes. Después de la compra, los plazos varían según la subasta, la liberación del título, el lugar y el destino, y la liberación del título y el trámite en el DMV pueden tomar tiempo.',
+      pt: 'Carros diferentes entram e saem dos leilões todo dia, então a busca depende do carro e do máximo que você definir. Depois da compra, os prazos variam conforme o leilão, a liberação do título, a localização e o destino, e a liberação do título e o processo no DMV podem levar tempo.' },
     { id: 'taxes', go: 'wa', sec: 'politica',
       k: 'tax|taxes|sales tax|registration|register|plates|plate|tag|tags|dmv|impuesto|impuestos|registro|placa|placas|imposto|impostos|emplacamento|licenciamento|emplacar',
       en: '{pol_5}', es: '{pol_5}', pt: '{pol_5}' },
@@ -280,15 +282,15 @@
       en: 'You\'re welcome! Anything else, just ask.', es: '¡Con gusto! Si tienes otra pregunta, aquí estoy.', pt: 'Imagina! Se tiver outra dúvida, é só perguntar.' }
   ];
   /* O gancho: depois de esclarecer, uma linha que deixa a pessoa mais perto do carro que ela quer. Só com o que o
-     site garante (mesmos carros dos dealers, sem a margem deles, o máximo é dela, sem compra não há taxa, estoque
-     novo todo dia); nunca promete preço, prazo ou aprovação. [en, es, pt] */
+     site garante (mesmos carros dos dealers, sem a margem deles, o máximo é dela, sem compra não há taxa, carros
+     diferentes todo dia); nunca promete preço, prazo ou aprovação. [en, es, pt] */
   var HOOK = {
     how: ['You\'re one message away from step 1. Tell us the car and your max, and we start scanning the auctions for you.',
       'Estás a un mensaje del paso 1. Dinos el auto y tu máximo, y empezamos a buscar en las subastas por ti.',
       'Você está a uma mensagem do passo 1. Diga o carro e o seu máximo, e a gente começa a varrer os leilões por você.'],
-    inventory: ['The car you want may cross an auction this week. Which one is it?',
-      'El auto que quieres puede pasar por una subasta esta semana. ¿Cuál es?',
-      'O carro que você quer pode passar num leilão esta semana. Qual é?'],
+    inventory: ['Your budget sets the target. Which car is it?',
+      'Tu presupuesto define el objetivo. ¿Qué auto es?',
+      'O seu orçamento define o alvo. Qual é o carro?'],
     fees: ['No car bought, no service fee. Want the exact fee for your budget? Type an amount, like 15000.',
       'Sin compra, no hay tarifa de servicio. ¿Quieres la tarifa exacta para tu presupuesto? Escribe un monto, como 15000.',
       'Sem compra, sem taxa de serviço. Quer a taxa exata para o seu orçamento? Digite um valor, como 15000.'],
@@ -307,9 +309,9 @@
     deposit: ['It\'s the step that puts your max on the table for the car you chose. Want to see your total before it?',
       'Es el paso que pone tu máximo sobre la mesa por el auto que elegiste. ¿Quieres ver tu total antes?',
       'É o passo que coloca o seu máximo na mesa pelo carro que você escolheu. Quer ver o seu total antes?'],
-    lose: ['And with new inventory every day, there\'s always a next chance. What car should we go after?',
-      'Y con inventario nuevo cada día, siempre hay una próxima oportunidad. ¿Qué auto buscamos?',
-      'E com estoque novo todo dia, sempre tem uma próxima chance. Qual carro a gente vai buscar?'],
+    lose: ['Different cars come in every day, so there\'s always a next chance. What car should we go after?',
+      'Cada día entran autos distintos, siempre hay una próxima oportunidad. ¿Qué auto buscamos?',
+      'Todo dia entram carros diferentes, sempre tem uma próxima chance. Qual carro a gente vai buscar?'],
     decide: ['You set the ceiling, we fight for the car below it. What car and what max do you have in mind?',
       'Tú pones el techo, nosotros peleamos por el auto debajo de él. ¿Qué auto y qué máximo tienes en mente?',
       'Você define o teto, a gente briga pelo carro abaixo dele. Qual carro e qual máximo você tem em mente?'],
