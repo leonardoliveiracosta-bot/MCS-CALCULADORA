@@ -142,3 +142,40 @@ test('celular: Ordenar e Trim cabem na largura, sem rolagem lateral', async ({ p
   const box = await group.locator('.offer-trim > summary').boundingBox();
   expect(box.x + box.width).toBeLessThanOrEqual(390);
 });
+
+test('cartão: só abre a ficha com apertar e soltar no mesmo lugar livre (tela mudando no meio não abre)', async ({ page }) => {
+  await openPanel(page);
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const group = card.locator('.offer-group[data-group="LANE"]');
+  await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
+  await group.locator('> summary').click();
+  await expect(group.locator('.offer-row')).toHaveCount(10);
+  await group.locator('.offer-trim > summary').click();
+  // Press on a trim option, the list is redrawn, the release lands on the card itself: no ficha.
+  await page.evaluate(() => {
+    const lead = document.querySelector('#buscas-carro .manheim-lead');
+    const option = lead.querySelector('.offer-trim-option input');
+    option.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    option.closest('.offer-trim-list').replaceChildren();
+    lead.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await page.waitForTimeout(500);
+  await expect(page.locator('text=O que o cliente informou')).toHaveCount(0);
+  // Press inside the group and release on the card: no ficha either.
+  await page.evaluate(() => {
+    const lead = document.querySelector('#buscas-carro .manheim-lead');
+    lead.querySelector('.offer-group > summary').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    lead.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await page.waitForTimeout(500);
+  await expect(page.locator('text=O que o cliente informou')).toHaveCount(0);
+  // A plain press and release on the card still opens the ficha.
+  await page.evaluate(() => {
+    const lead = document.querySelector('#buscas-carro .manheim-lead');
+    lead.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    lead.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await expect(page.locator('text=O que o cliente informou').first()).toBeVisible({ timeout: 15000 });
+});
