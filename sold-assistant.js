@@ -282,67 +282,63 @@
   }
 
   /* ---------- o personagem ---------- */
-  /* Marrom vinho: madeira escura, marrom puxado para o vinho (marfim escuro). O boneco inteiro é o martelo: a cabeça é a
-     cabeça do martelo. No ciclo ele bate três vezes no ar (não há mesa: só o estalo da batida) e pula de alegria,
-     de olhos fechados de felicidade e boca aberta, como quem acabou de arrematar. */
+  /* O Sold é um martelo de leiloeiro de verdade, de pé: cabeça em barril de madeira escura laqueada (vinho), anéis e
+     detalhes em dourado como o site, rosto pequeno em marfim e ouro. No ciclo ele bate três vezes no ar (sem mesa:
+     só o estalo dourado) e pula de alegria, como quem acabou de arrematar. */
   function character(size, headOnly) {
     var id = 'sold' + Math.random().toString(36).slice(2, 8);
-    var ink = '#f3e2c4', mouth = '#220d0a';
+    var gold = '#e3c06a', ivory = '#f6ead2', dark = '#140705';
     var head =
       '<g class="sold-head">' +
-        '<rect x="10" y="12" width="100" height="60" rx="24" fill="url(#' + id + 'w)"/>' +
-        '<rect x="6" y="10" width="17" height="64" rx="8.5" fill="url(#' + id + 'c)"/>' +
-        '<rect x="97" y="10" width="17" height="64" rx="8.5" fill="url(#' + id + 'c)"/>' +
-        '<rect x="23" y="11" width="4.5" height="62" rx="2" fill="#c9a34e"/>' +
-        '<rect x="92.5" y="11" width="4.5" height="62" rx="2" fill="#c9a34e"/>' +
-        '<path d="M32 26 Q60 21 88 26 M30 62 Q60 67 90 62 M34 34 Q46 32 52 34" stroke="rgba(255,214,170,.16)" stroke-width="1.4" fill="none" stroke-linecap="round"/>' +
-        '<rect x="32" y="16" width="56" height="7" rx="3.5" fill="rgba(255,235,210,.16)"/>' +
-        '<path class="sold-brows" d="M40 31 Q47 27 54 30 M66 30 Q73 27 80 31" stroke="' + ink + '" stroke-width="2.6" fill="none" stroke-linecap="round"/>' +
+        '<rect x="8" y="14" width="104" height="48" rx="16" fill="url(#' + id + 'w)"/>' +
+        '<ellipse cx="11" cy="38" rx="5" ry="23.5" fill="url(#' + id + 'e)"/><ellipse cx="109" cy="38" rx="5" ry="23.5" fill="url(#' + id + 'e)"/>' +
+        '<rect x="19" y="14" width="5" height="48" fill="url(#' + id + 'g)"/><rect x="96" y="14" width="5" height="48" fill="url(#' + id + 'g)"/>' +
+        '<rect x="28" y="18.5" width="64" height="3.5" rx="1.75" fill="rgba(255,228,196,.2)"/>' +
+        '<path d="M30 55 Q60 58 90 55" stroke="rgba(0,0,0,.25)" stroke-width="1.2" fill="none" stroke-linecap="round"/>' +
+        '<path class="sold-brows" d="M42 28 Q48 25.5 54 28 M66 28 Q72 25.5 78 28" stroke="' + gold + '" stroke-width="2" fill="none" stroke-linecap="round"/>' +
         '<g class="sold-eyes">' +
-          '<ellipse cx="47" cy="41" rx="6" ry="7" fill="#fff"/><ellipse cx="73" cy="41" rx="6" ry="7" fill="#fff"/>' +
-          '<circle cx="48" cy="42" r="3.4" fill="#1a1d21"/><circle cx="74" cy="42" r="3.4" fill="#1a1d21"/>' +
-          '<circle cx="49.3" cy="40.4" r="1.2" fill="#fff"/><circle cx="75.3" cy="40.4" r="1.2" fill="#fff"/>' +
+          '<ellipse cx="48" cy="36" rx="4.6" ry="5.6" fill="' + ivory + '"/><ellipse cx="72" cy="36" rx="4.6" ry="5.6" fill="' + ivory + '"/>' +
+          '<circle cx="48.7" cy="36.8" r="2.6" fill="' + dark + '"/><circle cx="72.7" cy="36.8" r="2.6" fill="' + dark + '"/>' +
+          '<circle cx="49.7" cy="35.5" r=".9" fill="#fff"/><circle cx="73.7" cy="35.5" r=".9" fill="#fff"/>' +
         '</g>' +
-        '<path class="sold-joy" d="M41 43 Q47 35 53 43 M67 43 Q73 35 79 43" stroke="' + ink + '" stroke-width="3" fill="none" stroke-linecap="round" opacity="0"/>' +
-        '<ellipse cx="37" cy="53" rx="5.5" ry="3.2" fill="#e0705a" opacity=".38"/><ellipse cx="83" cy="53" rx="5.5" ry="3.2" fill="#e0705a" opacity=".38"/>' +
-        '<g class="sold-mouth"><path d="M49 52 Q60 63 71 52 Q60 57 49 52 Z" fill="' + mouth + '"/>' +
-        '<path d="M53 56.5 Q60 60 67 56.5" stroke="#d9655a" stroke-width="2" fill="none" stroke-linecap="round"/></g>' +
-        '<g class="sold-grin" opacity="0"><path d="M46 50 Q60 71 74 50 Z" fill="' + mouth + '"/><path d="M52 60 Q60 67 68 60 Q60 63 52 60 Z" fill="#d9655a"/></g>' +
+        '<path class="sold-joy" d="M43 38 Q48 31 53 38 M67 38 Q72 31 77 38" stroke="' + gold + '" stroke-width="2.6" fill="none" stroke-linecap="round" opacity="0"/>' +
+        '<path class="sold-mouth" d="M51 46 Q60 53 69 46" stroke="' + gold + '" stroke-width="2.4" fill="none" stroke-linecap="round"/>' +
+        '<path class="sold-grin" d="M49 44 Q60 58 71 44 Z" fill="' + dark + '" stroke="' + gold + '" stroke-width="1.8" stroke-linejoin="round" opacity="0"/>' +
       '</g>';
     var body =
-      '<ellipse class="sold-shadow" cx="60" cy="149" rx="26" ry="3.6" fill="rgba(0,0,0,.22)"/>' +
-      '<g class="sold-burst" stroke="#f3d77a" stroke-width="2.6" stroke-linecap="round" opacity="0">' +
-        '<path d="M4 96 L-2 92 M6 104 L-1 106 M12 110 L9 117 M20 111 L22 118 M2 100 L-4 99"/>' +
+      '<ellipse class="sold-shadow" cx="60" cy="146" rx="22" ry="3" fill="rgba(0,0,0,.35)"/>' +
+      '<g class="sold-burst" stroke="' + gold + '" stroke-width="2.4" stroke-linecap="round" opacity="0">' +
+        '<path d="M4 84 L-1 80 M2 90 L-5 89 M5 97 L-1 101 M12 99 L10 106 M19 99 L21 106"/>' +
       '</g>' +
       '<g class="sold-rig">' +
-      '<g class="sold-body">' +
-        '<rect x="50" y="74" width="9" height="64" rx="4.5" fill="#4a1f19"/><rect x="61" y="74" width="9" height="64" rx="4.5" fill="#4a1f19"/>' +
-        '<rect x="48" y="70" width="24" height="52" rx="12" fill="url(#' + id + 'h)"/>' +
-        '<ellipse cx="52" cy="142" rx="9.5" ry="5" fill="#1e0c09"/><ellipse cx="68" cy="142" rx="9.5" ry="5" fill="#1e0c09"/>' +
-        '<g class="sold-arm-wave"><path d="M50 84 Q38 78 31 64" stroke="#6e3428" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="30" cy="61" r="6" fill="#9a5a46"/></g>' +
-        '<g class="sold-arm-r"><path d="M70 86 Q80 94 85 104" stroke="#6e3428" stroke-width="6.5" fill="none" stroke-linecap="round"/><circle cx="86" cy="107" r="6" fill="#9a5a46"/></g>' +
-        '<path d="M60 77 L47 70 L47 84 Z M60 77 L73 70 L73 84 Z" fill="#c9a34e" stroke="#7d612f" stroke-width="1.4" stroke-linejoin="round"/>' +
-        '<circle cx="60" cy="77" r="3.6" fill="#a8873f" stroke="#7d612f" stroke-width="1.2"/>' +
-      '</g>';
+        '<rect x="53" y="106" width="6" height="34" rx="3" fill="#3a1512"/><rect x="61" y="106" width="6" height="34" rx="3" fill="#3a1512"/>' +
+        '<ellipse cx="54.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/><ellipse cx="65.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/>' +
+        '<rect x="52" y="64" width="16" height="50" rx="8" fill="url(#' + id + 'h)"/>' +
+        '<g class="sold-arm-wave"><path d="M53 76 Q42 72 35 60" stroke="#5a2620" stroke-width="4.5" fill="none" stroke-linecap="round"/><circle cx="34.5" cy="57.5" r="4.2" fill="' + gold + '"/></g>' +
+        '<g class="sold-arm-r"><path d="M67 78 Q78 86 82 98" stroke="#5a2620" stroke-width="4.5" fill="none" stroke-linecap="round"/><circle cx="82.8" cy="101" r="4.2" fill="' + gold + '"/></g>' +
+        '<rect x="49" y="61" width="22" height="7" rx="3" fill="url(#' + id + 'g2)"/>' +
+        '<rect x="52" y="108" width="16" height="4" rx="2" fill="url(#' + id + 'g2)"/>';
     var defs =
       '<defs>' +
-        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7e3a2e"/><stop offset=".55" stop-color="#5c2822"/><stop offset="1" stop-color="#3e1917"/></linearGradient>' +
-        '<linearGradient id="' + id + 'c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a1613"/><stop offset="1" stop-color="#200c0a"/></linearGradient>' +
-        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5a2620"/><stop offset=".5" stop-color="#8a4636"/><stop offset="1" stop-color="#55241e"/></linearGradient>' +
+        '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a1d18"/><stop offset=".28" stop-color="#8a4436"/><stop offset=".55" stop-color="#5e2822"/><stop offset="1" stop-color="#240c0a"/></linearGradient>' +
+        '<linearGradient id="' + id + 'e" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a1512"/><stop offset=".3" stop-color="#6a3128"/><stop offset="1" stop-color="#1a0806"/></linearGradient>' +
+        '<linearGradient id="' + id + 'g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b8923f"/><stop offset=".3" stop-color="#f6dd92"/><stop offset=".6" stop-color="#c9a34e"/><stop offset="1" stop-color="#7d612f"/></linearGradient>' +
+        '<linearGradient id="' + id + 'g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8a6a2a"/><stop offset=".45" stop-color="#f6dd92"/><stop offset="1" stop-color="#9a7834"/></linearGradient>' +
+        '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2e110e"/><stop offset=".45" stop-color="#7a3a2e"/><stop offset="1" stop-color="#2a0f0c"/></linearGradient>' +
       '</defs>';
-    var viewBox = headOnly ? '4 6 112 72' : '-6 4 126 150';
+    var viewBox = headOnly ? '2 10 116 56' : '-8 6 128 146';
     return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false" overflow="visible">' + defs + (headOnly ? head : body + head + '</g>') + '</svg>';
   }
 
   /* ---------- estilo ---------- */
   var css = [
-    '.sold-launcher{position:fixed;right:10px;bottom:calc(158px + env(safe-area-inset-bottom,0px));z-index:71;width:66px;height:84px;padding:0;border:0;background:none;cursor:pointer;filter:drop-shadow(0 8px 12px rgba(0,0,0,.38));-webkit-tap-highlight-color:transparent}',
+    '.sold-launcher{position:fixed;right:10px;bottom:calc(158px + env(safe-area-inset-bottom,0px));z-index:71;width:66px;height:84px;padding:0;border:0;background:none;cursor:pointer;filter:drop-shadow(0 6px 10px rgba(0,0,0,.45)) drop-shadow(0 0 1px rgba(227,192,106,.55));-webkit-tap-highlight-color:transparent}',
     '.sold-launcher .sold-figure{display:block;width:66px;height:auto}',
     '.sold-launcher:focus-visible{outline:2px solid #c9a34e;outline-offset:4px;border-radius:12px}',
     '.sold-launcher.hidden{display:none}',
     '.sold-figure *{transform-box:view-box}',
-    '.sold-head{transform-origin:60px 74px}.sold-rig{transform-origin:60px 146px}.sold-burst{transform-origin:8px 104px}',
-    '.sold-arm-wave{transform-origin:50px 84px}.sold-arm-r{transform-origin:70px 86px}.sold-eyes{transform-origin:60px 41px}',
+    '.sold-head{transform-origin:60px 64px}.sold-rig{transform-origin:60px 146px}.sold-burst{transform-origin:8px 92px}',
+    '.sold-arm-wave{transform-origin:53px 76px}.sold-arm-r{transform-origin:67px 78px}.sold-eyes{transform-origin:60px 36px}',
     '.sold-eyes{animation:sold-blink 5s infinite}',
     /* o ciclo do arremate (4,6 s): parado, prepara, bate três vezes no ar, pula de alegria duas vezes */
     '.sold-launcher .sold-head{animation:sold-strike 4.6s ease-in-out infinite}',
@@ -352,7 +348,7 @@
     '.sold-launcher .sold-joy,.sold-launcher .sold-grin{animation:sold-happy 4.6s step-end infinite}',
     '.sold-launcher .sold-arm-wave{animation:sold-cheer-l 4.6s ease-in-out infinite}',
     '.sold-launcher .sold-arm-r{animation:sold-cheer-r 4.6s ease-in-out infinite}',
-    '.sold-launcher .sold-shadow{transform-origin:60px 149px;animation:sold-shadow 4.6s ease-in-out infinite}',
+    '.sold-launcher .sold-shadow{transform-origin:60px 146px;animation:sold-shadow 4.6s ease-in-out infinite}',
     '.sold-launcher:hover .sold-arm-wave,.sold-launcher:focus-visible .sold-arm-wave{animation:sold-wave .9s ease-in-out 2}',
     '.sold-tap .sold-head{animation:sold-tap .5s ease-out!important}',
     '@keyframes sold-strike{0%,40%{transform:rotate(0)}46%{transform:rotate(14deg)}50%{transform:rotate(-30deg)}54%{transform:rotate(10deg)}58%{transform:rotate(-30deg)}62%{transform:rotate(10deg)}66%{transform:rotate(-30deg)}72%,100%{transform:rotate(0)}}',
@@ -366,31 +362,31 @@
     '@keyframes sold-wave{0%,100%{transform:rotate(0)}30%{transform:rotate(-16deg)}70%{transform:rotate(12deg)}}',
     '@keyframes sold-blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}',
     '@keyframes sold-tap{0%{transform:rotate(0)}35%{transform:rotate(-30deg)}60%{transform:rotate(8deg)}100%{transform:rotate(0)}}',
-    '.sold-teaser{position:fixed;right:82px;bottom:calc(196px + env(safe-area-inset-bottom,0px));z-index:71;max-width:230px;background:#fff;color:#0b0d10;border:1px solid rgba(201,163,78,.55);border-radius:14px 14px 4px 14px;padding:11px 30px 11px 13px;font:600 14px/1.35 "Barlow",system-ui,sans-serif;box-shadow:0 10px 26px rgba(0,0,0,.28);cursor:pointer;animation:sold-pop .35s ease-out}',
-    '.sold-teaser button{position:absolute;top:4px;right:4px;width:24px;height:24px;border:0;background:none;color:#5a5f66;font-size:16px;line-height:1;cursor:pointer}',
+    '.sold-teaser{position:fixed;right:82px;bottom:calc(196px + env(safe-area-inset-bottom,0px));z-index:71;max-width:230px;background:linear-gradient(176deg,#1d2025 0%,#0b0c0e 100%);color:#f2efe9;border:1px solid rgba(201,163,78,.6);border-radius:14px 14px 4px 14px;padding:11px 30px 11px 13px;font:600 14px/1.35 "Barlow",system-ui,sans-serif;box-shadow:0 12px 28px rgba(0,0,0,.45);cursor:pointer;animation:sold-pop .35s ease-out}',
+    '.sold-teaser button{position:absolute;top:4px;right:4px;width:24px;height:24px;border:0;background:none;color:rgba(242,239,233,.6);font-size:16px;line-height:1;cursor:pointer}',
     '@keyframes sold-pop{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}',
-    '.sold-panel{position:fixed;right:14px;bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:150;width:min(380px,calc(100vw - 28px));max-height:min(620px,calc(100vh - 40px));display:flex;flex-direction:column;background:#f6f3ec;border:1px solid rgba(201,163,78,.45);border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.42);overflow:hidden;font-family:"Barlow",system-ui,sans-serif;animation:sold-pop .25s ease-out}',
+    '.sold-panel{position:fixed;right:14px;bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:150;width:min(380px,calc(100vw - 28px));max-height:min(620px,calc(100vh - 40px));display:flex;flex-direction:column;background:#0d0e11;color:#f2efe9;border:1px solid rgba(201,163,78,.5);border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.6),0 0 0 1px rgba(0,0,0,.4);overflow:hidden;font-family:"Barlow",system-ui,sans-serif;animation:sold-pop .25s ease-out}',
     '.sold-panel[hidden]{display:none}',
-    '.sold-top{display:flex;align-items:center;gap:10px;padding:10px 12px;background:linear-gradient(176deg,#1d2025 0%,#0b0c0e 100%);color:#f2efe9;border-bottom:1px solid rgba(201,163,78,.4)}',
-    '.sold-top .sold-figure{width:46px;height:auto;flex:0 0 auto}',
-    '.sold-top strong{display:block;font-size:17px;letter-spacing:.06em;color:#c9a34e}',
-    '.sold-top span{display:block;font-size:12.5px;color:rgba(242,239,233,.75)}',
-    '.sold-x{margin-left:auto;width:34px;height:34px;border-radius:50%;border:1px solid rgba(242,239,233,.25);background:none;color:#f2efe9;font-size:18px;cursor:pointer}',
-    '.sold-log{flex:1 1 auto;overflow-y:auto;padding:14px 12px 6px;display:flex;flex-direction:column;gap:8px}',
+    '.sold-top{display:flex;align-items:center;gap:12px;padding:12px 14px;background:linear-gradient(176deg,#1d2025 0%,#0b0c0e 100%);color:#f2efe9;border-bottom:1px solid rgba(201,163,78,.45)}',
+    '.sold-top .sold-figure{width:50px;height:auto;flex:0 0 auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))}',
+    '.sold-top strong{display:block;font-size:17px;font-weight:800;letter-spacing:.18em;color:#c9a34e}',
+    '.sold-top span{display:block;font-size:12.5px;letter-spacing:.04em;color:rgba(242,239,233,.7)}',
+    '.sold-x{margin-left:auto;width:34px;height:34px;border-radius:50%;border:1px solid rgba(201,163,78,.45);background:none;color:#f2efe9;font-size:18px;cursor:pointer}',
+    '.sold-log{flex:1 1 auto;overflow-y:auto;padding:16px 12px 8px;display:flex;flex-direction:column;gap:9px;background:radial-gradient(120% 60% at 50% 0%,rgba(201,163,78,.07),transparent 70%)}',
     '.sold-msg{max-width:88%;padding:10px 12px;border-radius:14px;font-size:14.5px;line-height:1.45;white-space:pre-line;overflow-wrap:anywhere}',
-    '.sold-msg.bot{align-self:flex-start;background:#fff;color:#1a1d21;border:1px solid #e4dccb;border-bottom-left-radius:4px}',
-    '.sold-msg.me{align-self:flex-end;background:#1a1d21;color:#f2efe9;border-bottom-right-radius:4px}',
-    '.sold-steps{margin:6px 0 0;padding-left:18px}.sold-steps li{margin:4px 0}.sold-steps b{font-weight:700}.sold-steps small{display:block;color:#5a5f66;font-size:13px}',
-    '.sold-cta{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;margin:2px 0 4px;padding:11px 16px;border:0;border-radius:10px;background:linear-gradient(180deg,#d8b65f 0%,#c9a34e 55%,#a8873f 100%);color:#111;font:800 14.5px/1 "Barlow",system-ui,sans-serif;letter-spacing:.05em;text-transform:uppercase;cursor:pointer;box-shadow:0 4px 0 #7d612f,0 8px 16px rgba(0,0,0,.2)}',
-    '.sold-cta:active{transform:translateY(3px);box-shadow:0 1px 0 #7d612f}',
-    '.sold-link{align-self:flex-start;font-size:14px;font-weight:700;color:#1a7f4b;text-decoration:none;padding:4px 2px}',
-    '.sold-page{color:#7d612f;padding-top:0}',
-    '.sold-chips{flex:0 0 auto;display:flex;flex-wrap:nowrap;gap:6px;padding:6px 12px 10px;overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch;border-top:1px solid #e4dccb;mask-image:linear-gradient(90deg,#000 88%,transparent)}',
-    '.sold-chip{flex:0 0 auto;white-space:nowrap;border:1px solid #d9cfb9;background:#fff;color:#1a1d21;border-radius:999px;padding:7px 11px;font:600 13px/1.2 "Barlow",system-ui,sans-serif;cursor:pointer}',
-    '.sold-chip:hover{border-color:#c9a34e}',
-    '.sold-form{flex:0 0 auto;display:flex;gap:8px;padding:10px 12px;border-top:1px solid #e4dccb;background:#fbf9f4}',
-    '.sold-form input{flex:1 1 auto;min-width:0;border:1px solid #d9cfb9;border-radius:10px;padding:10px 11px;font:500 15px "Barlow",system-ui,sans-serif;background:#fff;color:#1a1d21}',
-    '.sold-form button{border:0;border-radius:10px;padding:0 14px;background:#1a1d21;color:#f2efe9;font:700 14px "Barlow",system-ui,sans-serif;cursor:pointer}',
+    '.sold-msg.bot{align-self:flex-start;background:#181a1f;color:#ece7de;border:1px solid rgba(201,163,78,.22);border-bottom-left-radius:4px}',
+    '.sold-msg.me{align-self:flex-end;background:linear-gradient(180deg,#d8b65f 0%,#c9a34e 60%,#b08e44 100%);color:#111;font-weight:600;border-bottom-right-radius:4px}',
+    '.sold-steps{margin:6px 0 0;padding-left:18px}.sold-steps li{margin:5px 0}.sold-steps li::marker{color:#c9a34e;font-weight:700}.sold-steps b{font-weight:700;color:#f2efe9}.sold-steps small{display:block;color:rgba(236,231,222,.65);font-size:13px}',
+    '.sold-cta{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;margin:2px 0 4px;padding:12px 16px;border:0;border-radius:10px;background:linear-gradient(180deg,#d8b65f 0%,#c9a34e 55%,#a8873f 100%);color:#111;font:800 14px/1 "Barlow",system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;box-shadow:0 4px 0 #6e5428,0 10px 18px rgba(0,0,0,.4)}',
+    '.sold-cta:active{transform:translateY(3px);box-shadow:0 1px 0 #6e5428}',
+    '.sold-link{align-self:flex-start;font-size:14px;font-weight:700;color:#3ede7c;text-decoration:none;padding:4px 2px}',
+    '.sold-page{color:#c9a34e;padding-top:0}',
+    '.sold-chips{flex:0 0 auto;display:flex;flex-wrap:nowrap;gap:6px;padding:8px 12px 10px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;border-top:1px solid rgba(201,163,78,.2);background:#0d0e11;mask-image:linear-gradient(90deg,#000 88%,transparent)}',
+    '.sold-chip{flex:0 0 auto;white-space:nowrap;border:1px solid rgba(201,163,78,.45);background:transparent;color:#e9dcc0;border-radius:999px;padding:7px 12px;font:600 13px/1.2 "Barlow",system-ui,sans-serif;cursor:pointer}',
+    '.sold-chip:hover{border-color:#c9a34e;background:rgba(201,163,78,.12)}',
+    '.sold-form{flex:0 0 auto;display:flex;gap:8px;padding:10px 12px;border-top:1px solid rgba(201,163,78,.2);background:#0b0c0e}',
+    '.sold-form input{flex:1 1 auto;min-width:0;border:1px solid rgba(201,163,78,.35);border-radius:10px;padding:10px 11px;font:500 15px "Barlow",system-ui,sans-serif;background:#16181c;color:#f2efe9;outline:none}.sold-form input::placeholder{color:rgba(242,239,233,.45)}.sold-form input:focus{border-color:#c9a34e;box-shadow:0 0 0 3px rgba(201,163,78,.18)}',
+    '.sold-form button{border:0;border-radius:10px;padding:0 15px;background:linear-gradient(180deg,#d8b65f 0%,#c9a34e 55%,#a8873f 100%);color:#111;font:800 14px "Barlow",system-ui,sans-serif;letter-spacing:.04em;cursor:pointer}',
     '.sold-stamp{position:fixed;left:50%;top:42%;z-index:160;transform:translate(-50%,-50%) rotate(-12deg);padding:10px 26px;border:5px solid #9b1b23;border-radius:12px;color:#9b1b23;font:900 44px/1 "Barlow",system-ui,sans-serif;letter-spacing:.08em;background:rgba(255,255,255,.85);pointer-events:none;animation:sold-stamp .9s ease-out forwards}',
     '@keyframes sold-stamp{0%{opacity:0;transform:translate(-50%,-50%) rotate(-12deg) scale(2.2)}25%{opacity:1;transform:translate(-50%,-50%) rotate(-12deg) scale(.95)}70%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) rotate(-12deg) scale(1)}}',
     '@media (max-width:820px){.sold-panel{right:0;left:0;bottom:0;width:100%;max-height:82vh;border-radius:18px 18px 0 0}}',
