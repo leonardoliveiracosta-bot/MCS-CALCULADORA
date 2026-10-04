@@ -102,9 +102,9 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
   await expect(card.locator('.offer-counter')).toContainText('Selecionados 3 de 10');
   // US$ 25.000 MMR: 5% by default (US$ 26.250); the operator types 8% and the value changes at once.
   const fourth = lane.nth(3);
-  await expect(fourth.locator('.offer-final')).toHaveText(/26\.250,00/);
+  await expect(fourth.locator('.offer-final')).toHaveValue('26.250,00');
   await fourth.locator('.offer-pct').fill('8');
-  await expect(fourth.locator('.offer-final')).toHaveText(/27\.000,00/);
+  await expect(fourth.locator('.offer-final')).toHaveValue('27.000,00');
   await fourth.locator('.offer-pct').dispatchEvent('change');
   await expect.poll(async () => (await backend.db.query(`select manual_pct::float from public.manheim_option_selections where final_cents = 2700000`)).rows.length).toBe(1);
   // Outside Lane/Run only with a reason.
@@ -145,6 +145,43 @@ test('ordenar o grupo por ano e por MMR considera o grupo inteiro, não só os 1
   expect(values).toEqual([...values].sort((a, b) => a - b));
   await group.locator('.offer-sort-select').selectOption('cr');
   await expect(rows).toHaveCount(10);
+  expect(errors).toEqual([]);
+});
+
+test('valor para o cliente digitado em dólar fica exato, também depois de selecionar', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  await openPanel(page);
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="searches"]').click();
+  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const group = card.locator('.offer-group[data-group="LANE"]');
+  await group.locator('> summary').click({ timeout: 60000 });
+  const matchId = await group.locator('.offer-row[data-status="AVAILABLE"]').last().getAttribute('data-match-id');
+  const row = group.locator(`.offer-row[data-match-id="${matchId}"]`);
+  // MMR US$ 25.000: US$ 26.137 is 4,548% (shown 4.55); by the percentage it would be US$ 26.137,50.
+  await row.locator('.offer-final').fill('26.137');
+  await expect(row.locator('.offer-pct')).toHaveValue('4.55');
+  await row.locator('.offer-final').press('Enter');
+  const stored = async () => (await backend.db.query(`select final_cents, manual_final, manual_pct::float pct, status from public.manheim_option_selections where match_id = $1`, [matchId])).rows[0];
+  await expect.poll(async () => (await stored() || {}).final_cents).toBe(2613700);
+  await expect(row.locator('.offer-final')).toHaveValue('26.137,00');
+  expect((await stored()).manual_final).toBe(true);
+  // Selecting keeps the typed value (it is not recalculated from 4.55%).
+  await row.locator('[data-offer-action="select"]:visible').click();
+  await expect.poll(async () => (await stored()).status).toBe('SELECTED');
+  expect((await stored()).final_cents).toBe(2613700);
+  // Out of range: below the MMR is refused on screen, nothing saved.
+  await row.locator('.offer-final').fill('24000');
+  await row.locator('.offer-final').press('Enter');
+  await expect(row.locator('.offer-final-msg')).toContainText('Valor inválido');
+  expect((await stored()).final_cents).toBe(2613700);
+  // Typing a percentage again goes back to the percentage rule.
+  await row.locator('.offer-pct').fill('6');
+  await row.locator('.offer-pct').dispatchEvent('change');
+  await expect.poll(async () => (await stored()).final_cents).toBe(2650000);
+  expect((await stored()).manual_final).toBe(false);
+  await row.locator('[data-offer-action="remove"]:visible').click();
+  await expect.poll(async () => (await stored()).status).toBe('AVAILABLE');
   expect(errors).toEqual([]);
 });
 
