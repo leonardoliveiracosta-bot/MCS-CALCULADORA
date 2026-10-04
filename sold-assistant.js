@@ -477,8 +477,9 @@
       '<ellipse class="sold-shadow" cx="60" cy="146" rx="22" ry="3" fill="rgba(0,0,0,.35)"/>' +
 
       '<g class="sold-rig">' +
-        '<rect x="53" y="106" width="6" height="34" rx="3" fill="#3a1512"/><rect x="61" y="106" width="6" height="34" rx="3" fill="#3a1512"/>' +
-        '<ellipse cx="54.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/><ellipse cx="65.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/>' +
+        // pernas separadas (perna + sapato) para dobrarem no ar no pulo do Pelé
+        '<g class="sold-leg-l"><rect x="53" y="106" width="6" height="34" rx="3" fill="#3a1512"/><ellipse cx="54.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/></g>' +
+        '<g class="sold-leg-r"><rect x="61" y="106" width="6" height="34" rx="3" fill="#3a1512"/><ellipse cx="65.5" cy="141.5" rx="7" ry="3.6" fill="#0b0b0c"/></g>' +
         '<rect x="52" y="64" width="16" height="50" rx="8" fill="url(#' + id + 'h)"/>' +
         '<g class="sold-arm-wave"><path d="M53 76 Q42 72 35 60" stroke="#5a2620" stroke-width="4.5" fill="none" stroke-linecap="round"/><circle cx="34.5" cy="57.5" r="4.2" fill="' + gold + '"/></g>' +
         '<g class="sold-arm-r"><path d="M67 78 Q78 86 82 98" stroke="#5a2620" stroke-width="4.5" fill="none" stroke-linecap="round"/><circle cx="82.8" cy="101" r="4.2" fill="' + gold + '"/></g>' +
@@ -498,7 +499,10 @@
     var dust = '<g class="sold-dust" opacity="0" stroke="' + gold + '" stroke-width="3.2" stroke-linecap="round">' +
         '<path d="M-29 134 L-29 121 M-41 138 L-51 129 M-17 138 L-7 129 M-47 147 L-59 147 M-11 147 L1 147"/></g>';
     var word = dust + '<text class="sold-word" x="60" y="-14" text-anchor="middle" opacity="0" font-family="Barlow,system-ui,sans-serif" font-weight="900" font-size="31" letter-spacing="2" fill="url(#' + id + 'g)" stroke="' + dark + '" stroke-width="1.4" paint-order="stroke">SOLD</text>';
-    return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false" overflow="visible">' + defs + (headOnly ? head : body + head + '</g>' + word) + '</svg>';
+    // o soco no ar do Pelé: braço dobrado que sai do ombro, passa por baixo da cabeça e sobe ao lado dela
+    var punch = '<g class="sold-punch" opacity="0"><path d="M67 79 Q100 84 117 72 Q125 52 124 30" stroke="#5a2620" stroke-width="4.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<circle cx="124" cy="25" r="5.4" fill="' + gold + '"/></g>';
+    return '<svg class="sold-figure" viewBox="' + viewBox + '" width="' + size + '" aria-hidden="true" focusable="false" overflow="visible">' + defs + (headOnly ? head : body + head + punch + '</g>' + word) + '</svg>';
   }
 
   /* ---------- estilo ---------- */
@@ -509,7 +513,7 @@
     '.sold-launcher.hidden{display:none}',
     '.sold-figure *{transform-box:view-box}',
     '.sold-head{transform-origin:60px 64px}.sold-rig{transform-origin:60px 146px}',
-    '.sold-arm-wave{transform-origin:53px 76px}.sold-arm-r{transform-origin:67px 78px}.sold-eyes{transform-origin:60px 36px}',
+    '.sold-arm-wave{transform-origin:53px 76px}.sold-arm-r{transform-origin:67px 78px}.sold-leg-l{transform-origin:56px 108px}.sold-leg-r{transform-origin:64px 108px}.sold-eyes{transform-origin:60px 36px}',
     '.sold-eyes{animation:sold-blink 5s infinite}',
     /* o ciclo do arremate (5,4 s): parado, toma impulso, bate o martelo até o chão, sobe pulando de alegria
        enquanto os fogos estouram ao fundo e a palavra SOLD explode no alto */
@@ -525,21 +529,28 @@
     '.sold-launcher .sold-joy,.sold-launcher .sold-grin{animation:sold-happy 5.4s step-end infinite}',
     '.sold-launcher .sold-arm-wave{animation:sold-cheer-l 5.4s ease-in-out infinite}',
     '.sold-launcher .sold-arm-r{animation:sold-cheer-r 5.4s ease-in-out infinite}',
+    '.sold-punch{transform-origin:67px 79px}.sold-launcher .sold-punch{animation:sold-punch 5.4s ease-out infinite}',
+    '.sold-launcher .sold-leg-l{animation:sold-kick-l 5.4s ease-in-out infinite}.sold-launcher .sold-leg-r{animation:sold-kick-r 5.4s ease-in-out infinite}',
     '.sold-launcher .sold-shadow{transform-origin:60px 146px;animation:sold-shadow 5.4s ease-in-out infinite}',
     '.sold-launcher:hover .sold-arm-wave,.sold-launcher:focus-visible .sold-arm-wave{animation:sold-wave .9s ease-in-out 2}',
     '.sold-tap .sold-head{animation:sold-tap .5s ease-out!important}',
     // corpo inclina 50° sobre os pés e a cabeça mais 40° no pescoço: a ponta do martelo encosta no chão (y=146).
-    // A descida leva 4% do ciclo (216 ms) e a comemoração tem pulos, braços, fogos e SOLD 20% maiores.
+    // A descida leva 4% do ciclo (216 ms). Na comemoração, o pulo do Pelé: agacha, salta alto com o corpo
+    // arqueado, soco no ar com o braço direito, pernas dobradas, fica no alto um instante e aterrissa.
     '@keyframes sold-strike{0%,30%{transform:rotate(0)}36%{transform:rotate(20deg)}40%,48%{transform:rotate(-40deg)}44%{transform:rotate(-36deg)}55%,100%{transform:rotate(0)}}',
-    '@keyframes sold-hop{0%,30%{transform:translateY(0) rotate(0)}36%{transform:translateY(0) rotate(8deg)}40%,48%{transform:translateY(0) rotate(-50deg)}44%{transform:translateY(0) rotate(-46deg)}55%{transform:translateY(0) rotate(0)}61%{transform:translateY(-22px) rotate(-4deg)}67%{transform:translateY(0) rotate(0)}72%{transform:translateY(-13px) rotate(4deg)}77%,100%{transform:translateY(0) rotate(0)}}',
+    '@keyframes sold-hop{0%,30%{transform:translateY(0) rotate(0)}36%{transform:translateY(0) rotate(8deg)}40%,48%{transform:translateY(0) rotate(-50deg)}44%{transform:translateY(0) rotate(-46deg)}55%{transform:translateY(0) rotate(0)}58%{transform:translateY(5px) rotate(0)}64%{transform:translateY(-38px) rotate(-7deg)}70%{transform:translateY(-34px) rotate(-5deg)}75%{transform:translateY(3px) rotate(0)}78%{transform:translateY(-6px) rotate(0)}81%,100%{transform:translateY(0) rotate(0)}}',
     '@keyframes sold-dust{0%,39.9%{opacity:0;transform:scale(.4)}40%{opacity:1;transform:scale(.7)}48%,100%{opacity:0;transform:scale(1.5)}}',
     '@keyframes sold-fw{0%,53.9%{opacity:0;transform:scale(.15)}54%{opacity:1;transform:scale(.15)}62%{opacity:1;transform:scale(1.32)}70%,100%{opacity:0;transform:scale(1.56)}}',
     '@keyframes sold-word{0%,53.9%{opacity:0;transform:scale(0)}57%{opacity:1;transform:scale(1.68)}60%{transform:scale(.9)}63%{transform:scale(1.08)}66%,84%{opacity:1;transform:scale(1)}91%,100%{opacity:0;transform:scale(1.12)}}',
     '@keyframes sold-calm{0%{opacity:1}40%{opacity:0}92%{opacity:1}}',
     '@keyframes sold-happy{0%{opacity:0}40%{opacity:1}92%{opacity:0}}',
-    '@keyframes sold-cheer-l{0%,55%{transform:rotate(0)}61%{transform:rotate(-41deg)}67%{transform:rotate(-10deg)}72%{transform:rotate(-41deg)}80%,100%{transform:rotate(0)}}',
-    '@keyframes sold-cheer-r{0%,55%{transform:rotate(0)}61%{transform:rotate(-79deg)}67%{transform:rotate(-42deg)}72%{transform:rotate(-79deg)}80%,100%{transform:rotate(0)}}',
-    '@keyframes sold-shadow{0%,30%,55%,67%,77%,100%{transform:scaleX(1);opacity:1}40%,48%{transform:scaleX(1.5);opacity:.8}61%{transform:scaleX(.55);opacity:.45}72%{transform:scaleX(.74);opacity:.65}}',
+    '@keyframes sold-cheer-l{0%,55%{transform:rotate(0)}58%{transform:rotate(-30deg)}64%,70%{transform:rotate(-80deg)}76%{transform:rotate(-30deg)}82%,100%{transform:rotate(0)}}',
+    '@keyframes sold-cheer-r{0%,55%{transform:rotate(0);opacity:1}59%{transform:rotate(-40deg);opacity:1}59.1%,73.9%{transform:rotate(-40deg);opacity:0}74%{transform:rotate(-30deg);opacity:1}82%,100%{transform:rotate(0);opacity:1}}',
+    '@keyframes sold-shadow{0%,30%,55%,75%,81%,100%{transform:scaleX(1);opacity:1}40%,48%{transform:scaleX(1.5);opacity:.8}58%{transform:scaleX(1.12);opacity:1}64%,70%{transform:scaleX(.45);opacity:.35}78%{transform:scaleX(.85);opacity:.75}}',
+    // o pulo do Pelé: no alto, uma perna dobra para trás e a outra sobe o joelho para a frente
+    '@keyframes sold-kick-l{0%,58%{transform:rotate(0)}64%,70%{transform:rotate(38deg)}75%,100%{transform:rotate(0)}}',
+    '@keyframes sold-kick-r{0%,58%{transform:rotate(0)}64%,70%{transform:rotate(-30deg)}75%,100%{transform:rotate(0)}}',
+    '@keyframes sold-punch{0%,58.9%{opacity:0;transform:scale(.6) rotate(25deg)}59%{opacity:1;transform:scale(.6) rotate(25deg)}63%{opacity:1;transform:scale(1.12) rotate(-4deg)}65%,72%{opacity:1;transform:scale(1) rotate(0)}73.9%{opacity:1;transform:scale(.7) rotate(20deg)}74%,100%{opacity:0;transform:scale(.6) rotate(25deg)}}',
     '@keyframes sold-wave{0%,100%{transform:rotate(0)}30%{transform:rotate(-16deg)}70%{transform:rotate(12deg)}}',
     '@keyframes sold-blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}',
     '@keyframes sold-tap{0%{transform:rotate(0)}35%{transform:rotate(-30deg)}60%{transform:rotate(8deg)}100%{transform:rotate(0)}}',
