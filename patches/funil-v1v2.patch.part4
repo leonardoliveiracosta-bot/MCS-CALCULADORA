@@ -1,0 +1,2043 @@
+"usedBy": [
+-    "painel/action.js",
+-    "painel/painel.js"
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "lead-context-link",
++   "name": "v1-send-preview",
+    "usedBy": [
+-    "painel/lead.js"
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "lead-detail",
++   "name": "v1-send-state",
+    "usedBy": [
+-    "painel/lead.js"
++    "tests/sugestoes.spec.js",
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "lead-head-name",
++   "name": "v1-send-text",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/sugestoes.spec.js",
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "lead-message",
++   "name": "v2-builder",
+    "usedBy": [
+-    "tests/marcacao-modo.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "login-screen",
++   "name": "visual-page-label",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/identidade-visual.spec.js"
+    ]
+   },
+   {
+-   "name": "login-view",
++   "name": "visually-hidden",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/identidade-visual.spec.js"
+    ]
+   },
+   {
+-   "name": "manheim-lead",
++   "name": "vitrine-request-card",
+    "usedBy": [
+-    "tests/buscas-split.spec.js",
+-    "tests/manheim-import.spec.js"
++    "tests/lote3.spec.js"
+    ]
+   },
+   {
+-   "name": "manheim-more",
++   "name": "weekly-metric",
+    "usedBy": [
+-    "tests/manheim-import.spec.js"
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+-   "name": "manheim-row",
++   "name": "wishlist-mode",
+    "usedBy": [
+-    "tests/manheim-import.spec.js"
++    "tests/marcacao-modo.spec.js"
+    ]
+   },
+   {
+-   "name": "manheim-select",
++   "name": "wishlist-row",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/marcacao-modo.spec.js"
+    ]
+-  },
++  }
++ ],
++ "data": [
+   {
+-   "name": "message",
++   "name": "action-key",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/action.js",
++    "tests/immediate-actions.test.js"
+    ]
+   },
+   {
+-   "name": "message-menu",
++   "name": "area",
+    "usedBy": [
+-    "tests/lote3.spec.js",
+-    "tests/marcacao-modo.spec.js"
++    "painel/painel.js",
++    "tests/comando2.spec.js",
++    "tests/protecoes.spec.js"
+    ]
+   },
+   {
+-   "name": "message-menu-panel",
++   "name": "attend-bucket",
+    "usedBy": [
+-    "tests/lote3.spec.js"
++    "painel/painel.js",
++    "tests/atendimento-ordenar.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/protecoes.spec.js",
++    "tests/triagem-entrada.spec.js",
++    "tests/vinculo-nome.spec.js"
+    ]
+   },
+   {
+-   "name": "muted",
++   "name": "audit-status",
+    "usedBy": [
+-    "tests/buscas-split.spec.js",
+-    "tests/panel-responsive.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "next-action-editor",
++   "name": "batch-id",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/buscas-split.spec.js"
+    ]
+   },
+   {
+-   "name": "no-ref-phone",
++   "name": "batch-visibility",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "over",
++   "name": "bound",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "panel-view",
++   "name": "bucket",
+    "usedBy": [
+-    "painel/action.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "production",
++   "name": "calc-message",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "queue-item",
++   "name": "case-key",
+    "usedBy": [
+-    "painel/action.js",
+-    "tests/lote3.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "quiet",
++   "name": "chat-id",
+    "usedBy": [
+-    "painel/lead.js",
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "record-block",
++   "name": "confirmed",
+    "usedBy": [
+-    "painel/action.js",
++    "painel/lead.js",
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "ref",
++   "name": "count",
+    "usedBy": [
+-    "painel/lead.js",
+     "painel/painel.js",
+-    "tests/find-one.test.js"
++    "tests/abas-login.spec.js",
++    "tests/buscas-split.spec.js",
++    "tests/lote1.spec.js",
++    "tests/lote2.spec.js",
++    "tests/lote3.spec.js",
++    "tests/lote4.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/triagem-entrada.spec.js"
+    ]
+   },
+   {
+-   "name": "reply-composer",
++   "name": "decision-key",
+    "usedBy": [
+-    "tests/lote1.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "report-period",
++   "name": "decision-source",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "review-line",
++   "name": "demand-key",
+    "usedBy": [
++    "painel/painel.js",
+     "tests/buscas-split.spec.js"
+    ]
+   },
+   {
+-   "name": "search-hit",
++   "name": "group",
+    "usedBy": [
+-    "tests/lote3.spec.js"
++    "painel/painel.js",
++    "tests/aud001-atualizacao.spec.js",
++    "tests/aud001-tela.spec.js",
++    "tests/aud001-venda.spec.js",
++    "tests/comando2.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/manheim-import.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/manheim-trim.spec.js",
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "search-stage",
++   "name": "import-facts",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/importacoes.spec.js"
+    ]
+   },
+   {
+-   "name": "small",
++   "name": "journey-id",
+    "usedBy": [
+-    "painel/lead.js"
++    "painel/painel.js",
++    "tests/protecoes.spec.js",
++    "tests/vinculo-nome.spec.js"
+    ]
+   },
+   {
+-   "name": "sms-print-missing",
++   "name": "link",
+    "usedBy": [
+-    "painel/action.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "status",
++   "name": "match-id",
+    "usedBy": [
+-    "painel/lead.js",
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/aud001-tela.spec.js",
++    "tests/manheim-selecao.spec.js"
+    ]
+   },
+   {
+-   "name": "tab",
++   "name": "mode",
+    "usedBy": [
+-    "tests/panel-responsive.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "today-card",
++   "name": "offer-action",
+    "usedBy": [
+-    "tests/lote2.spec.js"
++    "painel/painel.js",
++    "tests/aud001-venda.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/manheim-trim.spec.js",
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "today-heading",
++   "name": "page",
+    "usedBy": [
+-    "tests/panel-responsive.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "undo-toast",
++   "name": "pending-situation",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "v2-builder",
++   "name": "provider",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "vitrine-request-card",
++   "name": "read-id",
+    "usedBy": [
+-    "tests/lote3.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "wishlist-mode",
++   "name": "reading-key",
+    "usedBy": [
+-    "tests/marcacao-modo.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "wishlist-row",
++   "name": "reply-closed",
+    "usedBy": [
+-    "tests/marcacao-modo.spec.js"
++    "painel/painel.js"
+    ]
+-  }
+- ],
+- "data": [
++  },
+   {
+-   "name": "action-key",
++   "name": "request-key",
+    "usedBy": [
+-    "painel/action.js",
+-    "tests/immediate-actions.test.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "batch-id",
++   "name": "request-state",
+    "usedBy": [
+     "painel/painel.js",
+-    "tests/buscas-split.spec.js"
++    "tests/organizacao.spec.js"
+    ]
+   },
+   {
+-   "name": "confirmed",
++   "name": "restore-suggestion",
+    "usedBy": [
+-    "painel/lead.js",
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "count",
++   "name": "review-key",
+    "usedBy": [
+-    "painel/painel.js",
+-    "tests/lote1.spec.js",
+-    "tests/lote3.spec.js",
+-    "tests/lote4.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "counter",
++   "name": "search-group",
+    "usedBy": [
+-    "painel/painel.js",
+-    "tests/buscas-split.spec.js"
++    "painel/lead.js",
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "link",
++   "name": "section",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "match-id",
++   "name": "situation",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/comando2.spec.js"
+    ]
+   },
+   {
+-   "name": "mode",
++   "name": "state",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/pesquisas.spec.js"
+    ]
+   },
+   {
+-   "name": "pending-situation",
++   "name": "status",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/manheim-selecao.spec.js"
+    ]
+   },
+   {
+-   "name": "reply-closed",
++   "name": "subject",
+    "usedBy": [
+     "painel/painel.js",
+-    "tests/lote1.spec.js"
++    "tests/protecoes.spec.js"
+    ]
+   },
+   {
+-   "name": "report",
++   "name": "text",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "review-key",
++   "name": "today-ref",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "status",
++   "name": "today-stat",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+-   "name": "today-ref",
++   "name": "triage-id",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+@@ -1284,21 +2843,55 @@
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "unit",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
+   {
+    "name": "view",
+    "usedBy": [
+     "painel/painel.js",
++    "tests/abas-login.spec.js",
++    "tests/aud001-atualizacao.spec.js",
++    "tests/aud001-tela.spec.js",
++    "tests/aud001-venda.spec.js",
++    "tests/botoes-varredura.spec.js",
+     "tests/buscas-split.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/identidade-visual.spec.js",
++    "tests/importacoes.spec.js",
++    "tests/inicio-painel.spec.js",
+     "tests/lote3.spec.js",
+     "tests/lote4.spec.js",
++    "tests/manheim-acrescentar.spec.js",
++    "tests/manheim-complemento.spec.js",
++    "tests/manheim-conferencia.spec.js",
+     "tests/manheim-import.spec.js",
+-    "tests/marcacao-modo.spec.js"
++    "tests/manheim-integridade.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/manheim-trim.spec.js",
++    "tests/manheim-v32.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/pesquisas.spec.js",
++    "tests/protecoes.spec.js",
++    "tests/sugestoes.spec.js",
++    "tests/todos-removida.spec.js",
++    "tests/v1-envio.spec.js"
+    ]
+   }
+  ],
+  "definedAtBase": {
+   "ids": [
++   "ai-budget",
++   "ai-budget-features",
++   "ai-budget-spent",
++   "ai-budget-warning",
++   "app",
+    "app-view",
++   "attend-filters",
++   "attend-staging",
+    "auto-print-card",
+    "auto-print-file",
+    "auto-print-file-info",
+@@ -1311,17 +2904,13 @@
+    "automatic-message-text",
+    "automatic-messages-card",
+    "boot-warning",
+-   "buscas-carro",
+-   "buscas-carro-counters",
+-   "buscas-carro-results",
+    "buscas-carro-saved",
+    "buscas-review",
+    "buscas-review-count",
+    "buscas-review-list",
++   "buscas-saved-box",
++   "buscas-saved-list",
+    "buscas-total",
+-   "buscas-valor",
+-   "buscas-valor-counters",
+-   "buscas-valor-results",
+    "buscas-valor-saved",
+    "capture-warning",
+    "chat-label",
+@@ -1329,11 +2918,14 @@
+    "clients-activity",
+    "clients-checklist",
+    "clients-download",
++   "clients-followup",
++   "clients-followup-list",
+    "clients-general-card",
+    "clients-heat",
+    "clients-list",
+    "clients-origin",
+    "clients-panel",
++   "clients-period-note",
+    "clients-ref",
+    "clients-situation",
+    "clients-sort",
+@@ -1342,6 +2934,7 @@
+    "confirm-password",
+    "contact-label",
+    "contact-name-label",
++   "counters-note",
+    "data-updated",
+    "date-order",
+    "date-order-label",
+@@ -1358,39 +2951,59 @@
+    "history-import-send",
+    "history-import-status",
+    "history-import-title",
++   "import-card-history",
++   "import-card-manheim",
++   "import-card-sms",
++   "import-card-whatsapp",
+    "import-chat",
+    "import-contact",
+    "import-contact-name",
+    "import-journey",
++   "import-review-cancel",
+    "import-review-card",
+    "import-review-form",
+    "import-review-summary",
+    "import-review-title",
+    "import-status",
++   "imports-panel",
++   "imports-review",
++   "imports-review-empty",
++   "imports-review-queue",
++   "imports-review-title",
+    "journey-label",
+    "last-whatsapp-import",
+    "lead-conversation",
++   "lead-history",
+    "lead-manual-date-",
++   "lead-units",
+    "login-error",
+    "login-form",
++   "login-retry",
+    "login-title",
+    "login-view",
+    "logout",
++   "manheim-append",
++   "manheim-append-files",
++   "manheim-audit-note",
+    "manheim-batches",
++   "manheim-complement",
++   "manheim-complement-files",
++   "manheim-complement-status",
+    "manheim-drop-zone",
+    "manheim-files",
+    "manheim-import-summary",
+-   "manheim-panel",
++   "manheim-progress",
+    "manheim-results",
+    "manheim-saved-searches",
+    "manheim-status",
+    "manheim-summary",
+    "mcs-sender",
+    "mcs-sender-label",
++   "name-link-reviews",
+    "new-password",
+-   "notification-status",
+-   "notification-test",
+-   "notification-toggle",
++   "options-queue",
++   "options-queue-count",
++   "options-queue-search",
+    "page-title",
+    "password",
+    "password-error",
+@@ -1404,30 +3017,49 @@
+    "pending-sort",
+    "pending-stats",
+    "pending-with-ref",
+-   "qualification-list",
+-   "qualification-panel",
+-   "qualification-sort",
++   "purge-tests-card",
+    "record-detail",
+-   "records-list",
+-   "records-panel",
+-   "records-sort",
+    "ref-warning",
+    "refresh-note",
+    "remember-login",
+-   "report-copy",
+-   "report-custom",
+-   "report-dialog",
+-   "report-from",
+-   "report-generate",
+-   "report-period",
+-   "report-status",
+-   "report-text",
+-   "report-to",
++   "requests-audit",
++   "requests-audit-content",
++   "requests-carro",
++   "requests-compare",
++   "requests-filters",
++   "requests-history",
++   "requests-history-cancel",
++   "requests-history-confirm",
++   "requests-history-go",
++   "requests-history-pause",
++   "requests-history-progress",
++   "requests-history-remaining",
++   "requests-history-terms",
++   "requests-history-text",
++   "requests-incomplete-note",
++   "requests-list",
++   "requests-panel",
++   "requests-review",
++   "requests-sort-carro",
++   "requests-sort-valor",
++   "requests-status",
++   "requests-totals",
++   "requests-valor",
++   "search-col-carro",
++   "search-col-valor",
+    "search-results",
+    "search-sort",
+    "searches-panel",
++   "settings-panel",
+    "sms-contact",
+    "sms-date",
++   "sms-device-code",
++   "sms-device-copy",
++   "sms-device-generate",
++   "sms-device-list",
++   "sms-device-once",
++   "sms-device-status",
++   "sms-device-title",
+    "sms-direction",
+    "sms-form",
+    "sms-journey",
+@@ -1439,17 +3071,33 @@
+    "sms-text",
+    "today-florida-time",
+    "today-list",
++   "today-more",
++   "today-origin",
+    "today-panel",
++   "today-period",
+    "today-ref-filters",
+    "today-sort",
+    "today-stats",
+-   "vitrine-requests",
+-   "vitrine-signals",
++   "today-subject",
++   "topic-out",
++   "topic-out-count",
++   "topic-out-list",
++   "triage-out",
++   "triage-out-count",
++   "triage-out-list",
++   "triage-review",
++   "triage-run-pending",
++   "triage-state",
++   "v1-demo",
++   "v1-list",
++   "v1-panel",
++   "v2-list",
++   "v2-panel",
+    "weekly-period",
+    "weekly-summary",
+    "weekly-summary-content",
++   "whatsapp-auto-rejected",
+    "whatsapp-echo",
+-   "whatsapp-errors",
+    "whatsapp-files",
+    "whatsapp-received",
+    "whatsapp-signal",
+@@ -1457,20 +3105,57 @@
+    "whatsapp-title"
+   ],
+   "classes": [
++   "LIGADA",
++   "Pronto",
++   "Sem",
+    "action-feedback",
+    "action-optimistic-hidden",
+    "active",
++   "agora",
+    "ai-alternative-picker",
++   "ai-ambiguous",
++   "ai-budget",
++   "ai-budget-features",
++   "ai-budget-features-list",
++   "ai-budget-form",
++   "ai-budget-line",
++   "ai-budget-provider",
++   "ai-budget-warn",
++   "ai-confirm",
+    "ai-conversation-review",
+    "ai-link-suggestion",
++   "ai-new-summary",
++   "ai-note-line",
++   "ai-nothing-new",
++   "ai-orders",
++   "ai-outline",
++   "ai-review-note",
++   "ai-review-rule",
+    "ai-route-title",
+    "ai-summary",
+    "alert",
++   "ask-count",
++   "ask-row",
++   "ask-text",
+    "attachment-choice",
+-   "auction-alert",
++   "attend-bulk",
++   "attend-bulk-clear",
++   "attend-bulk-count",
++   "attend-bulk-delete",
++   "attend-filters",
++   "attend-more",
++   "attend-more-button",
++   "audit-block",
++   "audit-divergence",
++   "audit-divergences",
++   "audit-reason",
++   "auto-rejected",
++   "auto-rejected-item",
+    "avatar",
+    "badge",
+    "badges",
++   "batch-hidden",
++   "batch-history",
+    "batch-line",
+    "batch-text",
+    "batches",
+@@ -1478,26 +3163,99 @@
+    "buscas-column",
+    "buscas-column-head",
+    "buscas-columns",
+-   "buscas-counters",
+    "buscas-review",
+    "buscas-total",
++   "calc-candidate",
++   "calc-candidates",
++   "calc-queue",
++   "calc-reason",
+    "calculator-news",
+    "capture-warning",
+    "card",
+    "card-action-result",
++   "card-decision",
++   "card-decision-label",
++   "card-focus",
++   "card-more",
++   "card-primary",
++   "case-card",
++   "case-decisions",
++   "case-face",
++   "case-face-head",
++   "case-face-lacks",
++   "case-face-lacks-list",
++   "case-face-lacks-title",
++   "case-face-phone",
++   "case-face-ref",
++   "case-face-spec",
++   "case-face-title",
++   "case-field",
++   "case-field-label",
++   "case-field-soft",
++   "case-field-value",
++   "case-fields",
++   "case-identity",
++   "case-more",
++   "case-more-body",
++   "case-name",
++   "case-phone",
++   "case-pick",
++   "case-pick-box",
++   "case-picked",
++   "case-ref",
++   "case-request",
++   "case-shell",
+    "ceiling-action",
+    "check-point",
+    "chip",
++   "chip-count",
+    "clickable-card",
+    "client-card",
++   "client-context-full",
++   "client-grid",
+    "client-last-message",
++   "client-more",
++   "client-row",
+    "clients-filters",
++   "clients-more",
++   "clients-period-note",
++   "comprar",
++   "contact-area",
++   "contact-area-",
++   "contact-area-count",
++   "contact-area-head",
++   "contact-area-hint",
++   "contact-area-label",
++   "contact-group",
++   "contact-group-count",
++   "contact-group-flat",
++   "contact-group-hint",
++   "contact-group-label",
+    "contact-meta",
++   "contact-subject",
++   "contact-subject-",
++   "contact-subject-count",
++   "contact-subject-head",
++   "contact-subject-label",
++   "context-caption",
++   "context-evidence",
++   "context-last",
++   "context-last-label",
++   "context-older",
++   "context-presented",
+    "conversation-controls",
+    "conversation-timeline",
+    "count-positive",
++   "count-stale",
++   "counters-note",
+    "custom",
++   "danger",
++   "de",
++   "decision-red",
+    "definition-grid",
++   "demand-essential",
++   "demand-options-count",
++   "depende",
+    "detail-simulation",
+    "detail-simulations",
+    "detail-toolbar",
+@@ -1517,24 +3275,43 @@
+    "entry-tool-icon",
+    "entry-tool-title",
+    "entry-tools",
++   "enviadas",
+    "environment-badge",
+    "error",
+    "evidence",
++   "export-error",
+    "eyebrow",
++   "failed-print",
++   "ficha-demand",
++   "ficha-demand-head",
++   "ficha-options-mount",
++   "ficha-v1-foot",
++   "ficha-v1-status",
+    "filters",
++   "followup-queue",
++   "form-grid",
+    "freshness",
+    "global-search",
++   "h",
+    "heat-",
+    "hidden",
+    "history-import",
+    "identity",
++   "identity-fact",
++   "identity-facts",
+    "identity-name",
+    "identity-ref-phone",
++   "import-card",
++   "import-cards",
++   "import-facts",
++   "import-how",
+    "import-review",
+    "import-summary",
++   "imports-review",
+    "inline-actions",
+    "inline-confirm",
+    "inline-form",
++   "is-chosen",
+    "item-card",
+    "item-head",
+    "journey-switch",
+@@ -1554,6 +3331,7 @@
+    "lead-head-name",
+    "lead-head-right",
+    "lead-header",
++   "lead-help-message",
+    "lead-highlight",
+    "lead-label",
+    "lead-line",
+@@ -1561,24 +3339,35 @@
+    "lead-message",
+    "lead-note",
+    "lead-offer",
++   "lead-one",
+    "lead-phone",
++   "lead-question",
++   "lead-ref-note",
+    "lead-review",
+    "lead-route",
+    "lead-route-value",
+    "lead-score",
++   "lead-search-group",
+    "lead-steps",
+    "lead-thread",
+    "lead-three",
+    "lead-timeline",
++   "lead-top-anchor",
+    "lead-two",
+    "lead-unit",
++   "list-more",
++   "list-more-hidden",
+    "login-screen",
+    "login-view",
+-   "manheim-lead",
+-   "manheim-more",
++   "mais",
++   "manheim-append",
++   "manheim-audit-note",
++   "manheim-complement",
+    "manheim-notice",
++   "manheim-options-toggle",
++   "manheim-progress",
++   "manheim-progress-file",
+    "manheim-row",
+-   "manheim-select",
+    "manheim-table",
+    "manual-entry",
+    "menu-action",
+@@ -1589,16 +3378,83 @@
+    "message-meta",
+    "message-preview",
+    "message-receipt",
++   "message-translation",
+    "muted",
++   "name-link",
++   "name-link-name",
++   "name-link-side",
++   "name-link-sides",
++   "name-link-vs",
+    "next-action",
+    "next-action-editor",
+    "no-ref-phone",
++   "note-actions",
++   "note-extract",
+    "note-form",
++   "offer-actions",
++   "offer-advice",
++   "offer-budget",
++   "offer-car",
++   "offer-consulted",
++   "offer-count",
++   "offer-counter",
++   "offer-cr-when",
++   "offer-detail",
++   "offer-final",
++   "offer-final-label",
++   "offer-final-msg",
++   "offer-fit",
++   "offer-go",
++   "offer-group",
++   "offer-invalid",
++   "offer-invalid-reason",
++   "offer-invalidated",
++   "offer-item",
++   "offer-list",
++   "offer-meta",
++   "offer-mmr",
++   "offer-note",
++   "offer-pct",
++   "offer-pct-label",
++   "offer-pending",
++   "offer-picked",
++   "offer-picked-all",
++   "offer-picked-list",
++   "offer-picked-row",
++   "offer-price",
++   "offer-reason",
++   "offer-row",
++   "offer-section",
++   "offer-sort",
++   "offer-sort-select",
++   "offer-status",
++   "offer-tags",
++   "offer-title",
++   "offer-tools",
++   "offer-trim",
++   "offer-trim-asked",
++   "offer-trim-list",
++   "offer-trim-option",
++   "offer-trim-outside",
++   "offer-why",
++   "offer-why-input",
++   "offer-why-status",
++   "offmcs-item",
+    "one-line",
+-   "order-icon",
++   "options-compare-link",
++   "options-missing",
++   "options-queue-card",
++   "options-queue-foot",
++   "options-queue-groups",
++   "options-queue-next",
++   "options-queue-search",
++   "options-queue-tools",
++   "options-updated",
++   "origin-filter",
+    "over",
+    "panel-logo",
+    "panel-view",
++   "para",
+    "pending-ai",
+    "pending-bar",
+    "pending-card",
+@@ -1609,48 +3465,105 @@
+    "pending-stats",
+    "phone-link",
+    "phone-missing",
++   "primary",
++   "print-candidates",
+    "print-drop",
++   "print-owner-save",
++   "print-owner-sides",
++   "print-ref",
+    "production",
++   "purchase-window",
+    "queue",
+    "queue-item",
+    "quiet",
++   "readwrite",
++   "reality-card",
++   "reality-label",
++   "reality-lines",
++   "reality-list",
++   "reality-miles",
++   "reality-model",
++   "reality-pick",
++   "reality-pick-status",
++   "reality-row",
++   "reality-trim",
++   "reality-typical",
++   "reality-value",
++   "reality-year",
+    "record-block",
+-   "record-card-controls",
+    "record-conversation-column",
+    "record-data-column",
+    "record-detail",
+-   "record-list-card",
+    "record-split",
+    "ref",
+    "ref-filters",
++   "refresh-note",
+    "remember-login",
+    "reply-composer",
++   "reply-en",
++   "reply-send",
+    "reply-status",
+    "reply-window",
+-   "report-form",
+-   "report-period",
++   "request-ai-evidence",
++   "request-card",
++   "request-criteria",
++   "request-criteria-label",
++   "request-edit-form",
++   "request-essential",
++   "request-evidence",
+    "request-group",
++   "request-head",
++   "request-lacks",
++   "request-open-options",
++   "request-options",
++   "request-options-note",
++   "request-person",
++   "request-person-head",
++   "request-result",
++   "request-view-options",
++   "requests-audit",
++   "requests-audit-table",
++   "requests-filters",
++   "requests-history",
++   "requests-incomplete-note",
++   "requests-sort",
++   "resolved-print",
++   "resolved-prints",
++   "resposta",
++   "review-bid",
+    "review-line",
+    "saved-search-clients",
+    "saved-search-line",
+    "saved-searches",
++   "saved-searches-box",
+    "search-card",
++   "search-column-list",
++   "search-columns",
++   "search-empty-reason",
++   "search-group",
++   "search-group-andamento",
+    "search-hit",
++   "search-not-run",
+    "search-results",
+-   "search-stage",
+    "searches-subsection",
+    "section-head",
+    "sender-example",
++   "settings-link",
+    "shell",
+    "signal-dot",
+    "signal-live",
+    "signal-metric",
+    "small",
++   "sms-device-card",
++   "sms-device-once",
+    "sms-print-missing",
+    "sms-print-review",
+-   "sr-status",
+    "stack",
+    "status",
++   "subject-filter",
++   "suggestion-edit",
++   "suggestion-open",
++   "suggestion-text",
+    "switch",
+    "switch-reasons",
+    "tab",
+@@ -1660,26 +3573,68 @@
+    "timeline-event",
+    "today-card",
+    "today-heading",
++   "today-more",
+    "today-primary",
+    "today-stat",
++   "today-stat-clear",
+    "today-stats",
+    "topbar",
+    "topbar-actions",
++   "topic-item",
++   "topic-out",
++   "translate-one",
++   "triage-choice",
++   "triage-head",
++   "triage-item",
++   "triage-out",
++   "triage-reason",
++   "triage-review",
++   "triage-state",
+    "undo-toast",
++   "unlock-action",
++   "unlock-lang",
++   "unlock-message",
++   "unlock-message-pt",
++   "unlock-option",
++   "unlock-options",
++   "unlock-pick",
++   "unlock-retry",
++   "unlock-role",
++   "unlock-send",
++   "unlock-send-status",
++   "unlock-sms",
++   "unlock-title",
++   "unlock-wa",
++   "unlock-why",
++   "v1-demo",
++   "v1-demo-card",
++   "v1-send",
++   "v1-send-actions",
++   "v1-send-confirm",
++   "v1-send-copied",
++   "v1-send-copy",
++   "v1-send-fallback",
++   "v1-send-go",
++   "v1-send-history",
++   "v1-send-message",
++   "v1-send-preview",
++   "v1-send-state",
++   "v1-send-text",
++   "v1-send-window",
+    "v2-builder",
+    "v2-cover",
+-   "v2-deposit",
+    "v2-drop",
+-   "v2-result",
+    "v2-status",
+    "v2-thumb",
+    "v2-thumbs",
+    "visual-page-label",
+    "visually-hidden",
+    "vitrine-request-card",
+-   "vitrine-requests",
+-   "vitrine-signal",
+-   "vitrine-signals",
++   "wa-bubble",
++   "wa-day",
++   "wa-text",
++   "wa-thread",
++   "wa-time",
+    "wait-clock",
+    "warning",
+    "weekly-metric",
+@@ -1698,54 +3653,51 @@
+   ],
+   "data": [
+    "action-key",
++   "area",
++   "attend-bucket",
++   "audit-status",
+    "batch-id",
++   "batch-visibility",
++   "bound",
++   "bucket",
++   "calc-message",
++   "case-key",
++   "chat-id",
+    "confirmed",
+    "count",
+-   "counter",
++   "decision-key",
++   "decision-source",
++   "demand-key",
++   "group",
++   "import-facts",
++   "journey-id",
+    "link",
+    "match-id",
+    "mode",
++   "offer-action",
++   "page",
+    "pending-situation",
++   "provider",
++   "read-id",
++   "reading-key",
+    "reply-closed",
+-   "report",
++   "request-key",
++   "request-state",
++   "restore-suggestion",
+    "review-key",
++   "search-group",
++   "section",
++   "situation",
++   "state",
+    "status",
++   "subject",
++   "text",
+    "today-ref",
++   "today-stat",
++   "triage-id",
+    "undo-scope",
++   "unit",
+    "view"
+   ]
+- },
+- "retired": {
+-  "2026-10-reorganizacao": {
+-   "motivo": "ENTRADA virou parte de ATENDIMENTO e \"Buscas por cliente\" virou o andamento de cada pedido em BUSCAR CARROS (pedido do dono)",
+-   "ids": [
+-    "buscas-carro-clients",
+-    "buscas-carro-summary",
+-    "buscas-valor-clients",
+-    "buscas-valor-summary",
+-    "entry-add-title",
+-    "entry-needs-empty",
+-    "entry-needs-title",
+-    "entry-panel",
+-    "entry-sort"
+-   ],
+-   "classes": [
+-    "entry-add",
+-    "entry-group-title",
+-    "entry-heading",
+-    "entry-needs",
+-    "queue-card"
+-   ]
+-  },
+-  "2026-10-ordenar-excluir-prazo": {
+-   "motivo": "Removidos de propósito: #manheim-sort saiu com \"um Ordenar só no Enviar opções\" (bb8608a, #166); .discard-reasons saiu com \"Excluir no lugar de Descartar\" (e30a883); .heat-badge saiu com \"Calor da IA trocado por prazo de compra da calculadora\" (cbfb6eb, #176)",
+-   "ids": [
+-    "manheim-sort"
+-   ],
+-   "classes": [
+-    "discard-reasons",
+-    "heat-badge"
+-   ]
+-  }
+  }
+ }
+diff --git a/tests/importacoes.spec.js b/tests/importacoes.spec.js
+index ca14859..809521a 100644
+--- a/tests/importacoes.spec.js
++++ b/tests/importacoes.spec.js
+@@ -74,8 +74,8 @@ for (const width of [1366, 390]) {
+     // Opened directly: the manual imports still get the contacts to choose from.
+     await page.locator('[data-view="imports"]').click();
+     const panel = page.locator('#imports-panel');
+-    for (const card of ['#import-card-manheim', '#auto-print-card', '#import-card-sms', '#import-card-whatsapp', '#import-card-history', '#import-card-automatic', '#import-card-v2']) await expect(panel.locator(card)).toBeVisible();
+-    for (const key of ['manheim', 'print', 'sms', 'whatsapp', 'history', 'automatic', 'v2']) expect(await panel.locator(`[data-import-facts="${key}"] li`).count(), key).toBeGreaterThan(1);
++    for (const card of ['#import-card-manheim', '#auto-print-card', '#import-card-sms', '#import-card-whatsapp', '#import-card-history']) await expect(panel.locator(card)).toBeVisible();
++    for (const key of ['manheim', 'print', 'sms', 'whatsapp', 'history']) expect(await panel.locator(`[data-import-facts="${key}"] li`).count(), key).toBeGreaterThan(1);
+     await expect(panel.locator('#import-card-whatsapp #import-review-card')).toHaveCount(1);
+     await expect(panel.locator('#manheim-files')).toHaveCount(1);
+     await panel.locator('#import-card-sms > summary').click();
+@@ -226,56 +226,6 @@ test('prints não guardados de ponta a ponta: Tentar ler de novo e Guardar pelo
+   }
+ });
+ 
+-test('Fotos da V2: escolhe uma V2 existente, respeita 12 fotos e não cria nem publica nada', async ({ page }) => {
+-  const v2 = '7b000000-0000-4000-8000-000000000001', carId = '7b000000-0000-4000-8000-000000000002';
+-  const eleven = JSON.stringify(Array.from({ length: 11 }, (_, n) => `${v2}/f${n}.jpg`));
+-  await backend.db.exec(`insert into public.vitrines(id,environment,token,reference_code,customer_name,version,expires_at) values('${v2}','preview','tokv2fotos','ABCD2','Marta Ficha','V2',now() + interval '3 days');
+-    insert into public.vitrine_cars(id,environment,vitrine_id,short_code,vehicle_snapshot,photo_paths) values('${carId}','preview','${v2}','FOTO1','{"year":2020,"make":"Honda","model":"CR-V","trim":"EX"}','${eleven}');`);
+-  const before = (await backend.db.query(`select count(*)::int n, string_agg(version||token, ',' order by id) s from public.vitrines`)).rows[0];
+-  const stored = [];
+-  const simulated = globalThis.fetch;
+-  globalThis.fetch = async (input, options = {}) => { const url = new URL(String(input)); if (url.pathname.startsWith('/storage/v1/object/vitrine-photos/')) { stored.push(url.pathname); return { ok: true, status: 200, json: async () => ({}), text: async () => '' }; } return simulated(input, options); };
+-  try {
+-    const errors = [];
+-    page.on('pageerror', (error) => errors.push(error.message));
+-    await openPanel(page);
+-    await page.goto(base + '/painel/#importacoes');
+-    await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
+-    await page.locator('[data-view="imports"]').click();
+-    const select = page.locator('#import-v2-select');
+-    await expect(select.locator('option', { hasText: 'Marta Ficha · ABCD2 · 2020 Honda CR-V EX · 11/12 fotos' })).toHaveCount(1, { timeout: 30000 });
+-    await expect(page.locator('#import-v2-body')).toBeHidden();
+-    await select.selectOption(v2 + '|' + carId);
+-    await expect(page.locator('#import-v2-body')).toBeVisible();
+-    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==', 'base64');
+-    await page.locator('#import-v2-file').setInputFiles([{ name: 'a.png', mimeType: 'image/png', buffer: png }, { name: 'b.png', mimeType: 'image/png', buffer: png }]);
+-    await expect(page.locator('#import-v2-status')).toHaveText('Esta V2 aceita só mais 1 foto(s)');
+-    await expect(page.locator('#import-v2-thumbs .v2-thumb')).toHaveCount(1);
+-    // Confirmation first: the photos show up at once on the link the customer already has.
+-    const confirm = page.locator('#import-card-v2 .inline-confirm');
+-    await page.locator('#import-v2-send').click();
+-    await expect(confirm).toContainText('vão aparecer imediatamente no link da V2 que o cliente já recebeu');
+-    await confirm.locator('button', { hasText: 'Cancelar' }).click();
+-    await expect(confirm).toHaveCount(0);
+-    expect(stored).toHaveLength(0);
+-    expect((await backend.db.query(`select jsonb_array_length(photo_paths) n from public.vitrine_cars where id='${carId}'`)).rows[0].n).toBe(11);
+-    await page.locator('#import-v2-send').click();
+-    await confirm.locator('button', { hasText: 'Salvar fotos' }).click();
+-    await expect(page.locator('#import-v2-status')).toHaveText('1 foto(s) enviada(s) para esta V2', { timeout: 30000 });
+-    await expect(select.locator('option', { hasText: '12/12 fotos' })).toHaveCount(1);
+-    expect(stored).toHaveLength(1);
+-    const photos = (await backend.db.query(`select jsonb_array_length(photo_paths) n from public.vitrine_cars where id='${carId}'`)).rows[0].n;
+-    expect(photos).toBe(12);
+-    // Nothing new: same V2 list, same version and token, no message.
+-    const after = (await backend.db.query(`select count(*)::int n, string_agg(version||token, ',' order by id) s from public.vitrines`)).rows[0];
+-    expect(after).toEqual(before);
+-    expect(errors).toEqual([]);
+-  } finally {
+-    globalThis.fetch = simulated;
+-    await backend.db.exec(`delete from public.vitrines where id='${v2}'`);
+-  }
+-});
+-
+ async function openPanel(page, optionPages = []) {
+   await page.setViewportSize({ width: 1366, height: 900 });
+   await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-simulado', refreshToken: 'refresh', accessExpiresAt: Date.now() + 3600000 })));
+diff --git a/tests/lote2.spec.js b/tests/lote2.spec.js
+index 9400e68..66a4c6d 100644
+--- a/tests/lote2.spec.js
++++ b/tests/lote2.spec.js
+@@ -52,8 +52,8 @@ test('Lote 2: HOJE mostra retorno vencido e conta só quem aguarda resposta', as
+   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+   await expect(page.locator('#today-list .today-card')).toHaveCount(2, { timeout: 30000 });
+   await expect(page.locator('#today-list .today-card').first()).toContainText('Retorno vencido');
+-  await expect(page.locator('#today-stats')).toContainText('1Aguardando sua resposta');
+-  await expect(page.locator('#today-stats')).toContainText('2Casos neste filtro');
++  await expect(page.locator('#today-stats')).toContainText('0Sem resposta há mais de 24 h');
++  await expect(page.locator('#today-stats')).toContainText('0Opções enviadas');
+   // Both depend on you (overdue return, client waiting): the badge counts the same cases.
+   await expect(page.locator('[data-count="today"]')).toHaveText('2');
+   expect(errors).toEqual([]);
+diff --git a/tests/manheim-chunked-upload.test.js b/tests/manheim-chunked-upload.test.js
+index 42e9530..23eb002 100644
+--- a/tests/manheim-chunked-upload.test.js
++++ b/tests/manheim-chunked-upload.test.js
+@@ -158,8 +158,10 @@ test('BUSCAS: ordem de exibição e opções carregadas por página, 10 de cada
+   const client = read('painel/painel.js');
+   assert.match(client, /const MANHEIM_PAGE_ROWS = 10;/);
+   assert.match(client, /'\/api\/panel\/manheim-options\?' \+ params\.toString\(\)/);
+-  assert.match(client, /`Ver mais \(\$\{Math\.max\(demand\.matchCount - loaded\.length, 1\)\}\)`/);
+-  assert.equal((client.match(/const table = lazyOptions\(card, demand, loaded,/g) || []).length, 2);
++  assert.match(client, /`Ver mais \(\$\{Math\.max\(filteredTotal - loadedCount, 1\)\}\)`/);
++  // The paged option lists moved from the tab cards into the ficha (offerGroup): nothing loads inline any more.
++  assert.doesNotMatch(client, /const table = lazyOptions\(card, demand, loaded,/);
++  assert.match(client, /function offerGroup\(demand, groupKey, count, state\)/);
+   // The same order is kept by the database page (BATE, POR VALOR, lowest mileage, then id).
+   assert.match(read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql'), /order by coalesce\(m\.sort_rank::integer, case m\.match_kind when 'BATE' then 0 when 'POR_VALOR' then 1 else 2 end\), coalesce\(m\.sort_miles,/);
+ });
+diff --git a/tests/manheim.test.js b/tests/manheim.test.js
+index ec4bc51..55e2d39 100644
+--- a/tests/manheim.test.js
++++ b/tests/manheim.test.js
+@@ -156,20 +156,22 @@ test('returns are unified and HOJE colors overdue and next-two-hour deadlines',
+   assert.deepEqual(item.reasons.map((reason) => [reason.kind, reason.urgency]), [['NEXT_ACTION', 'yellow'], ['PROMISE', 'red']]);
+ });
+ 
+-test('UI and server wire structured wishlist, grouping, presenting, Reativar, and no start-search button', () => {
++test('UI and server wire structured wishlist, grouping, presenting, and no start-search button', () => {
+   assert.match(client, /const wishlists = wishlistRows/);
+-  assert.match(client, /journey\.wishlists \|\| journey\.wishlist/);
+-  assert.match(read('painel/index.html'), /Compatíveis/);
+-  assert.match(client, /Reativar/);
+-  assert.match(client, /Apresentei ao cliente/);
++  // The queue card shows the structured criteria; the selection UI lives in the ficha.
++  assert.match(client, /element\('p', 'demand-essential', demandSummary\(demand\)\)/);
++  assert.match(client, /O que o cliente pediu/);
++  assert.match(client, /function offerGroup\(demand, groupKey, count, state\)/);
++  assert.match(client, /Selecionados para o cliente/);
+   assert.match(client, /Baixar PDF/);
+   assert.match(client, /const vehicle = match\.vehicle_json\.parsed/);
+-  assert.match(client, /Cor externa:/);
+-  assert.match(client, /Nota de condição:/);
+   assert.match(client, /function showManheimFailure/);
+   assert.match(client, /MANHEIM_FILE_READ_FAILED/);
+   assert.match(client, /A comparação foi lida, mas não pôde ser gravada/);
+   assert.doesNotMatch(client, /INICIAR BUSCA/);
++  // The old inline cards are gone: one queue, the work happens in the ficha.
++  assert.doesNotMatch(client, /function renderManheimGroup/);
++  assert.doesNotMatch(client, /Apresentei ao cliente/);
+   assert.match(server, /manheimMatchId/);
+   assert.match(server, /JOURNEY_ALREADY_DISABLED/);
+   assert.match(server, /environment: 'eq\.' \+ ctx\.environment/);
+diff --git a/tests/notificacoes-sessao.spec.js b/tests/notificacoes-sessao.spec.js
+deleted file mode 100644
+index a0f7970..0000000
+--- a/tests/notificacoes-sessao.spec.js
++++ /dev/null
+@@ -1,65 +0,0 @@
+-'use strict';
+-
+-// Avisos de mensagens novas com sessão expirada: depois de um 401 o painel renova a sessão uma vez;
+-// se não der, para de consultar (nenhuma chamada com o token vencido) e avisa; volta sozinho no novo login.
+-// Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/notificacoes-sessao.spec.js
+-const { test, expect } = require('@playwright/test');
+-
+-const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
+-if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
+-
+-async function setup(page, { refreshWorks }) {
+-  const log = { notifications: [], refresh: 0 };
+-  await page.clock.install();
+-  await page.addInitScript(() => {
+-    Document.prototype.hasFocus = () => true;
+-    localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-vencido', refreshToken: 'refresh-1', accessExpiresAt: Date.now() + 3600000 }));
+-  });
+-  await page.route('**/*', async (route) => {
+-    const url = new URL(route.request().url());
+-    const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+-    if (!url.href.startsWith(base)) return route.abort();
+-    if (url.pathname === '/supabase-simulado/auth/v1/token') {
+-      log.refresh++;
+-      return refreshWorks ? json({ access_token: 'token-novo', refresh_token: 'refresh-2', expires_in: 3600 }) : json({ error: 'invalid_grant' }, 400);
+-    }
+-    if (!url.pathname.startsWith('/api/')) return route.continue();
+-    if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-simulada' });
+-    if (url.pathname === '/api/panel/notifications') {
+-      const token = (route.request().headers().authorization || '').replace('Bearer ', '');
+-      log.notifications.push(token);
+-      return token === 'token-novo' ? json({ items: [], cursor: new Date().toISOString() }) : json({ error: 'UNAUTHORIZED' }, 401);
+-    }
+-    return json({ items: [], orders: [], groups: [], chats: [], reviews: [], requests: [], review: [], meta: {} });
+-  });
+-  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+-  await page.waitForFunction(() => window.MCSPanelAuth && typeof window.MCSPanelAuth.refresh === 'function');
+-  return log;
+-}
+-
+-test('401 sem renovação: uma tentativa, para de consultar, avisa e volta no novo login', async ({ page }) => {
+-  const log = await setup(page, { refreshWorks: false });
+-  await page.clock.runFor(21000);
+-  await expect.poll(() => log.notifications.length).toBe(1);
+-  await expect(page.locator('#notification-status')).toContainText('Sessão expirada');
+-  expect(log.refresh).toBe(1);
+-  await page.clock.runFor(5 * 60 * 1000);
+-  expect(log.notifications.length, 'nenhuma consulta com sessão expirada em 5 minutos').toBe(1);
+-  expect(log.refresh).toBe(1);
+-  await page.evaluate(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-novo', refreshToken: 'refresh-3', accessExpiresAt: Date.now() + 3600000 })));
+-  await page.clock.runFor(21000);
+-  await expect.poll(() => log.notifications.filter((token) => token === 'token-novo').length).toBeGreaterThan(0);
+-  await expect(page.locator('#notification-status')).not.toContainText('Sessão expirada');
+-});
+-
+-test('401 com renovação: renova uma vez, repete a consulta e segue avisando', async ({ page }) => {
+-  const log = await setup(page, { refreshWorks: true });
+-  await page.clock.runFor(21000);
+-  await expect.poll(() => log.notifications.join(',')).toBe('token-vencido,token-novo');
+-  expect(log.refresh).toBe(1);
+-  await page.clock.runFor(60000);
+-  expect(log.notifications.slice(2).every((token) => token === 'token-novo')).toBe(true);
+-  expect(log.notifications.length).toBeGreaterThanOrEqual(4);
+-  expect(log.refresh).toBe(1);
+-  await expect(page.locator('#notification-status')).not.toContainText('Sessão expirada');
+-});
+diff --git a/tests/opcoes-pedido.test.js b/tests/opcoes-pedido.test.js
+index 6286661..149dfd3 100644
+--- a/tests/opcoes-pedido.test.js
++++ b/tests/opcoes-pedido.test.js
+@@ -26,9 +26,9 @@ test('o botão de opções conserva o pedido exato: critério e lote do clique s
+   const client = read('painel/painel.js');
+   assert.match(client, /async function openOptionsCard\(demandKey, context = \{\}\)/);
+   assert.match(client, /openOptionsCard\(`journey:\$\{item\.person\.journeyId\}:\$\{item\.searchMode\}`, \{ criteriaHash: item\.criteriaHash \|\| null, uploadId: requestsUploadId \}\)/);
+-  assert.match(client, /context\.criteriaHash !== live\.criteriaHash/);
++  assert.match(client, /context\.criteriaHash !== live\.demand\.criteriaHash/);
+   assert.match(client, /context\.uploadId !== manheimData\.upload\.id/);
+-  assert.match(client, /As opções abaixo foram recalculadas com o critério atual/);
++  assert.match(client, /As opções na ficha foram recalculadas com o critério atual/);
+   assert.match(client, /O lote ativo mudou desde o resultado que você abriu/);
+   // the options screen exposes each demand's criteria hash so the comparison is by criterion, not by total
+   assert.match(read('panel-buscas-view.js'), /reactivation, criteriaHash: target \? target\.criteriaHash : null/);
+diff --git a/tests/openai-teto-global.test.js b/tests/openai-teto-global.test.js
+index 7d10e91..b05f2cf 100644
+--- a/tests/openai-teto-global.test.js
++++ b/tests/openai-teto-global.test.js
+@@ -102,7 +102,7 @@ test('custo máximo por chamada: entrada pelos bytes enviados, saída limitada e
+   assert.ok(bound >= (10000 * 0.10 + 2000 * 0.50) / 1e6 && bound < 0.0025, String(bound));
+   assert.throws(() => budget.maxCostUsd('gpt-6-luna', { messages: [] }), { code: 'OPENAI_OUTPUT_CAP_MISSING' });
+   assert.throws(() => budget.maxCostUsd('modelo-sem-preco', body), { code: 'OPENAI_MODEL_PRICE_UNKNOWN' });
+-  assert.deepEqual(budget.OUTPUT_CAP, { PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 1500, TRADUCAO_CONVERSA: 8000 });
++  assert.deepEqual(budget.OUTPUT_CAP, { PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 1500, TRADUCAO_CONVERSA: 8000, V2_DRAFT: 2000 });
+ });
+ 
+ test('as quatro funções ao mesmo tempo, com saldo para todas: cada chamada reservada, paga e registrada', async () => {
+diff --git a/tests/organizacao-painel.test.js b/tests/organizacao-painel.test.js
+index 6264dcd..4fc8d61 100644
+--- a/tests/organizacao-painel.test.js
++++ b/tests/organizacao-painel.test.js
+@@ -82,7 +82,7 @@ test('resultado no lote separado do andamento: nada diz "Falta buscar" ao lado d
+   for (const file of ['painel/painel.js', 'painel/lead.js', 'panel-search-stage.js', 'panel-client-context.js', 'api/panel/lead-help.js']) assert.doesNotMatch(read(file), /Falta buscar/, file);
+   const client = read('painel/painel.js');
+   assert.match(client, /Resultado no lote: /);
+-  assert.match(client, /`Andamento: \$\{item\.stageLabel\}/);
++  assert.match(client, /Salvar busca no Manheim/);
+   // Candidates are never shown as valid options.
+   assert.match(client, /O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada/);
+ });
+@@ -132,7 +132,7 @@ test('ATENDIMENTO: o badge e a lista usam o mesmo modelo; conversas lidas não v
+   const client = read('painel/painel.js');
+   assert.match(client, /setCount\('today', model\.counts\.depende\)/);
+   // 7cdbf0d: o caso excluído sai das caixas de decisão no badge e na lista (withoutExcluded nos dois).
+-  assert.match(client, /const model = MCSAttend\.model\(\{ todayItems: today\.items \|\| \[\], decisions: withoutExcluded\(today\.items, attendDecisions\(\{ entry, triage: triageData, whatsapp: whatsappData, vitrine: vitrineData \}\), new Set\(today\.discardedJourneys \|\| \[\]\)\), incomplete: \[\] \}\);\n      setCount\('today', model\.counts\.depende\);/);
++  assert.match(client, /const model = MCSAttend\.model\(\{ todayItems: today\.items \|\| \[\], decisions: withoutExcluded\(today\.items, attendDecisions\(\{ entry, triage: triageData, whatsapp: whatsappData \}\), new Set\(today\.discardedJourneys \|\| \[\]\)\), incomplete: \[\] \}\);\n      setCount\('today', model\.counts\.depende\);/);
+   assert.match(client, /const attendModel = \(items\) => MCSAttend\.model\(\{ todayItems: items, decisions: withoutExcluded\(items, attendDecisions\(\), attendData\.discarded\),/);
+   assert.match(client, /chat\.resolution_status !== 'RESOLVED' \|\| chat\.hasTimeUncertain/);
+   const html = read('painel/index.html');
+@@ -154,17 +154,18 @@ test('cada número diz o que conta; filtros e posição voltam ao fechar a ficha
+ test('BUSCAR CARROS reúne pedidos e "Quais buscas salvar"; ENVIAR OPÇÕES fica com os carros e o envio', () => {
+   const html = read('painel/index.html');
+   const search = html.slice(html.indexOf('<section id="requests-panel"'), html.indexOf('<section id="imports-panel"'));
+-  const options = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="manheim-panel"'));
++  const options = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="detail-panel"'));
+   assert.match(search, /Por valor · Calculate My Cost[\s\S]*Por carro · Find One For Me/);
+   assert.match(search, /id="buscas-valor-saved"[\s\S]*id="buscas-carro-saved"/);
+   assert.doesNotMatch(options, /buscas-(valor|carro)-saved|buscas-review/);
+-  assert.match(options, /individual e confirmado/);
++  assert.match(options, /Fila de trabalho/);
+   // Equal columns on the computer; separate blocks on the phone, no horizontal scroll.
+   const css = read('painel/painel.css');
+   assert.match(css, /\.search-columns\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
+   assert.match(css, /@media \(max-width:820px\)\{\.buscas-columns,\.search-columns\{grid-template-columns:minmax\(0,1fr\)\}/);
+-  // The result button opens the options of that request directly.
+-  assert.match(read('painel/painel.js'), /if \(toggle && !toggle\.disabled && toggle\.textContent\.startsWith\('Ver opções'\)\) toggle\.click\(\);/);
++  // The result button goes to the queue card; the options live in the ficha, nothing expands inline.
++  assert.match(read('painel/painel.js'), /querySelector\(`#options-queue \[data-demand-key="/);
++  assert.doesNotMatch(read('painel/painel.js'), /startsWith\('Ver opções'\)\) toggle\.click\(\);/);
+ });
+ 
+ test('saldo do Claude: separado da OpenAI, uso anterior desconhecido nunca aparece como zero', () => {
+diff --git a/tests/organizacao.spec.js b/tests/organizacao.spec.js
+index b9ebfb8..cb40dee 100644
+--- a/tests/organizacao.spec.js
++++ b/tests/organizacao.spec.js
+@@ -151,7 +151,7 @@ for (const width of [1280, 390]) {
+     await expect(g63.locator('.request-ai-evidence > summary')).toContainText('Leitura da conversa pela IA (não confirmada) · mesmos critérios · 2 versões');
+     // Result in the batch apart from the work stage; never "Falta buscar" next to valid options.
+     await expect(g63).toContainText(/opç(ão|ões) no lote/);
+-    await expect(g63).toContainText('Andamento: 🔍 Busca não salva no Manheim');
++    await expect(g63).toContainText('Salvar busca no Manheim');
+     await expect(page.locator('#requests-panel')).not.toContainText('Falta buscar');
+     await expect(carro.locator('.request-card', { hasText: 'Davi Direto' })).toContainText('Resultado no lote: AINDA NÃO COMPARADO COM O LOTE');
+     // Direct incomplete stays in ATENDIMENTO; unknown type goes to review (never to "por valor").
+diff --git a/tests/panel-five-tabs.test.js b/tests/panel-five-tabs.test.js
+index 1c5714a..0917ed9 100644
+--- a/tests/panel-five-tabs.test.js
++++ b/tests/panel-five-tabs.test.js
+@@ -8,9 +8,9 @@ const html=fs.readFileSync(path.join(root,'painel/index.html'),'utf8');
+ const js=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
+ const css=fs.readFileSync(path.join(root,'painel/tema-mcs.css'),'utf8');
+ 
+-test('painel publica quatro abas (TODOS removida, conteúdo em "Mais" de ATENDER AGORA) e mantém os ids legados',()=>{
++test('painel publica seis abas (V1 e V2 do funil; TODOS removida, conteúdo em "Mais" de ATENDER AGORA) e mantém os ids legados',()=>{
+   const tabs=[...html.matchAll(/class="tab(?: active)?"[^>]+data-view="([^"]+)"/g)].map((match)=>match[1]);
+-  assert.deepEqual(tabs,['today','requests','searches','imports']);
++  assert.deepEqual(tabs,['today','v1','v2','requests','searches','imports']);
+   // 4bf9aec (#163): as abas ATENDIMENTO e CLIENTES viraram ATENDER AGORA e TODOS.
+   assert.match(html,/data-view="today"[^>]*>ATENDER AGORA/);
+   // TODOS deixou de ser aba: a lista, a planilha, retomar conversas e pendências gerais ficam no bloco "Mais" de ATENDER AGORA.
+@@ -25,7 +25,7 @@ test('painel publica quatro abas (TODOS removida, conteúdo em "Mais" de ATENDER
+   assert.match(js,/if \(view === 'orders' \|\| view === 'entry'\) view = 'today';/);
+   assert.match(js,/pedidos:'entry'/);
+   assert.match(js,/#pedido\//);
+-  for(const id of ['pending-panel','qualification-panel','records-panel','manheim-panel','pending-list','qualification-list','records-list','manheim-results'])assert.match(html,new RegExp(`id="${id}"`));
++  for(const id of ['pending-panel','pending-list','manheim-results'])assert.match(html,new RegExp(`id="${id}"`));
+   assert.match(js,/fichas:'today',qualificacao:'today',pendencias:'today',clientes:'today',todos:'today'/);
+   assert.match(js,/manheim:'imports'.*buscas:'searches'/);
+ });
+diff --git a/tests/phase3.test.js b/tests/phase3.test.js
+index 6cf4e5f..f6a557c 100644
+--- a/tests/phase3.test.js
++++ b/tests/phase3.test.js
+@@ -256,11 +256,9 @@ test('tab changes replace stale counts with loading and ignore older responses',
+   assert.match(source, /empty\(\$\(roots\[view\]\), 'Carregando…'\)/);
+ });
+ 
+-test('FICHAS occupies the list and opens a dedicated detail route', () => {
++test('FICHAS opens a dedicated detail route', () => {
+   const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
+-  assert.match(source, /function renderRecords\(items\)/);
+-  assert.match(source, /root\.replaceChildren\(\)/);
+-  assert.match(source, /openDetail\('ficha', item\.id\)/);
++  assert.match(source, /openDetail\('ficha', item\.journeyId\)/);
+   assert.match(source, /history\.pushState\(\{ detail: true, kind, key, origin: detailOrigin \}/);
+ });
+ 
+diff --git a/tests/post-whatsapp-fix.test.js b/tests/post-whatsapp-fix.test.js
+index faba4dd..b45c3ce 100644
+--- a/tests/post-whatsapp-fix.test.js
++++ b/tests/post-whatsapp-fix.test.js
+@@ -36,7 +36,7 @@ test('HOJE keeps contact metadata once for journeys and once for calculator orde
+   const panel=read('painel/painel.js');
+   const identity=panel.slice(panel.indexOf('function identityHeader'),panel.indexOf('function smsPrintMissing'));
+   // orderCard saiu em 7c9c86f: o trecho de HOJE/ATENDIMENTO vai até a função seguinte.
+-  const todayStart=panel.indexOf('function renderToday'),todayEnd=panel.indexOf('function renderQualification');
++  const todayStart=panel.indexOf('function renderToday'),todayEnd=panel.indexOf('function demandSummary');
+   assert.ok(todayStart>0&&todayEnd>todayStart,'renderToday delimitado');
+   const today=panel.slice(todayStart,todayEnd);
+   const face=panel.slice(panel.indexOf('function caseFace'),panel.indexOf('function',panel.indexOf('function caseFace')+10));
+@@ -51,11 +51,19 @@ test('HOJE keeps contact metadata once for journeys and once for calculator orde
+   assert.doesNotMatch(panel,/\$\{item\.contactChannel\} CLICADO/);
+ });
+ 
+-test('Manheim journey cards rely on identityHeader for one contact metadata block',()=>{
++test('options queue cards show one compact identity block and never expand inline',()=>{
+   const panel=read('painel/painel.js');
+-  const group=panel.slice(panel.indexOf('function renderManheimGroup'),panel.indexOf('function renderManheimOrderGroup'));
+-  assert.match(group,/identityHeader\(journey\)/);
+-  assert.doesNotMatch(group,/contactMeta\(journey\)/);
++  const start=panel.indexOf('function renderQueueCard'),end=panel.indexOf('function v1ErrorText');
++  assert.ok(start>0&&end>start,'renderQueueCard delimitado');
++  const queue=panel.slice(start,end);
++  assert.match(queue,/identity-name/);
++  assert.match(queue,/phone-link/);
++  assert.match(queue,/'Ref ' \+ person\.ref/);
++  assert.doesNotMatch(queue,/contactMeta\(/);
++  assert.doesNotMatch(queue,/<details/);
++  // The old inline cards are gone: the selection lives in the ficha.
++  assert.doesNotMatch(panel,/function renderManheimGroup/);
++  assert.doesNotMatch(panel,/function renderManheimOrderGroup/);
+ });
+ 
+ test('direct-origin status is based on calculator refs shared by journey and journey_refs',()=>{
+diff --git a/tests/protecoes.spec.js b/tests/protecoes.spec.js
+index 4ca5ddd..6320c99 100644
+--- a/tests/protecoes.spec.js
++++ b/tests/protecoes.spec.js
+@@ -206,48 +206,6 @@ const V2_LIST = (photoCountA) => ({ v2: [
+   { vitrineId: uid(202), customerName: 'Bia', referenceCode: 'CMYH6', link: 'https://example.test/v2b', cars: [{ carId: uid(212), vehicle: 'BMW X3', photoCount: 0 }] }
+ ] });
+ 
+-test('FOTOS V2: destino e arquivos ficam fixos durante o envio; resultado incerto confere o gravado antes de reenviar', async ({ page }) => {
+-  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+-  const state = { uploads: [], photoCountA: 0, mode: 'slow' };
+-  await open(page, {
+-    '/api/panel/vitrines': ({ json }) => json(V2_LIST(state.photoCountA)),
+-    '/api/panel/vitrine-photos': async ({ url, json, route }) => {
+-      state.uploads.push({ vitrineId: url.searchParams.get('vitrineId'), carId: url.searchParams.get('carId') });
+-      if (state.mode === 'slow') { await new Promise((resolve) => setTimeout(resolve, 900)); state.photoCountA += 1; return json({ ok: true }); }
+-      // uncertain: the photo IS saved but the answer never arrives
+-      state.photoCountA += 1;
+-      return route.abort('failed');
+-    }
+-  });
+-  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+-  await page.locator('[data-view="imports"]').click({ timeout: 30000 });
+-  const select = page.locator('#import-v2-select');
+-  await expect(select.locator('option')).toHaveCount(3, { timeout: 30000 });
+-  await select.selectOption(`${uid(201)}|${uid(211)}`);
+-  const file = (name) => ({ name, mimeType: 'image/png', buffer: PNG });
+-  await page.locator('#import-v2-file').setInputFiles([file('a.png'), file('b.png')]);
+-  await expect(page.locator('#import-v2-send')).toContainText('Enviar 2 foto(s)', { timeout: 30000 });
+-  await page.locator('#import-v2-send').click();
+-  await page.locator('.inline-confirm button', { hasText: 'Salvar fotos' }).click();
+-  // while it uploads the destination and the files cannot be changed
+-  await expect(select).toBeDisabled();
+-  await expect(page.locator('#import-v2-file')).toBeDisabled();
+-  await expect(page.locator('#import-v2-status')).toContainText('2 foto(s) enviada(s)', { timeout: 30000 });
+-  expect(state.uploads).toEqual([{ vitrineId: uid(201), carId: uid(211) }, { vitrineId: uid(201), carId: uid(211) }]);
+-  await expect(select).toBeEnabled();
+-  // uncertain answer: 2 photos queued, the first one is saved but the answer is lost
+-  state.mode = 'uncertain'; state.uploads.length = 0;
+-  await select.selectOption(`${uid(201)}|${uid(211)}`);
+-  await page.locator('#import-v2-file').setInputFiles([file('c.png'), file('d.png')]);
+-  await expect(page.locator('#import-v2-send')).toContainText('Enviar 2 foto(s)', { timeout: 30000 });
+-  await page.locator('#import-v2-send').click();
+-  await page.locator('.inline-confirm button', { hasText: 'Salvar fotos' }).click();
+-  await expect(page.locator('#import-v2-status')).toContainText('Conferido: 1 foto(s) já estavam gravadas', { timeout: 30000 });
+-  await expect(page.locator('#import-v2-send')).toContainText('Enviar 1 foto(s)');
+-  expect(state.uploads.length, 'só a primeira foi enviada antes da conferência').toBe(1);
+-  expect(errors).toEqual([]);
+-});
+-
+ test('ATENDIMENTO: recusa automática de sugestão tem "Desfazer recusa" visível (suggestion_restore)', async ({ page }) => {
+   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+   let restored = null, rejected = [{ id: uid(70), phone: '+13055550000', suggestedRef: 'FMLNA', writtenRefs: ['WSR3X'], at: hoursAgo(1), sourceName: 'Ivan' }];
+diff --git a/tests/todos-removida.spec.js b/tests/todos-removida.spec.js
+index f455492..e616e3b 100644
+--- a/tests/todos-removida.spec.js
++++ b/tests/todos-removida.spec.js
+@@ -81,11 +81,6 @@ test('quatro abas, sem TODOS; a lista de clientes só carrega ao abrir "Mais" e
+   expect(csv).toContain('Eva Cliente');
+   expect(csv).toContain('Fred Cliente');
+   // Report of the list keeps following the list period.
+-  await page.locator('#clients-panel [data-report="records"]').click();
+-  await expect(page.locator('#report-origin-note')).toHaveText('Período de CLIENTES: tudo, sem corte por data');
+-  await page.locator('#report-generate').click();
+-  await expect.poll(() => calls.filter((call) => call.path === '/api/panel/report' && call.params.origin === 'clients' && call.params.activity === 'all').length).toBe(1);
+-  await page.locator('#report-dialog button[value="cancel"]').click();
+   // A ficha opened from the list comes back to the open block.
+   await page.locator('#clients-list .client-card').first().click();
+   await expect(page).toHaveURL(/#ficha\//);
+diff --git a/tests/vitrine-funnel.test.js b/tests/vitrine-funnel.test.js
+new file mode 100644
+index 0000000..cf48bcf
+--- /dev/null
++++ b/tests/vitrine-funnel.test.js
+@@ -0,0 +1,212 @@
++'use strict';
++// COMANDO 1: the V1/V2 funnel API, the tap-to-request bridge and the V2 AI draft.
++// No network, no database: every dependency is mocked.
++process.env.VERCEL_ENV='preview';
++const test=require('node:test');
++const assert=require('node:assert/strict');
++const fs=require('node:fs');
++const path=require('node:path');
++const root=path.join(__dirname,'..');
++
++function loadWith(relative,mocks){
++  const file=path.join(root,relative);const mod={exports:{}};
++  const localRequire=(name)=>Object.prototype.hasOwnProperty.call(mocks,name)?mocks[name]:require(name.startsWith('.')?path.resolve(path.dirname(file),name):name);
++  new Function('require','module','exports',fs.readFileSync(file,'utf8'))(localRequire,mod,mod.exports);
++  return mod.exports;
++}
++const UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
++const isUuid=(value)=>new RegExp(UUID,'i').test(String(value||''));
++const safeText=(value,max)=>{const text=String(value==null?'':value).trim();return text?text.slice(0,max):'';};
++
++/* ---------- tiny in-memory PostgREST ---------- */
++function applyParams(list,params={}){
++  let out=list.filter((row)=>{for(const [key,value] of Object.entries(params)){
++    if(key==='select'||key==='order'||key==='limit'||value===undefined)continue;
++    const actual=row[key];
++    if(value==='is.null'){if(actual!==null&&actual!==undefined)return false;continue;}
++    if(value==='not.is.null'){if(actual===null||actual===undefined)return false;continue;}
++    if(value.startsWith('eq.')){if(String(actual)!==value.slice(3))return false;continue;}
++    if(value.startsWith('in.(')){if(!value.slice(4,-1).split(',').includes(String(actual)))return false;continue;}
++    if(value.startsWith('gte.')){if(Date.parse(actual)<Date.parse(value.slice(4)))return false;continue;}
++    if(value.startsWith('gt.')){if(Date.parse(actual)<=Date.parse(value.slice(3)))return false;continue;}
++    if(value.startsWith('lte.')){if(Date.parse(actual)>Date.parse(value.slice(4)))return false;continue;}
++  }return true;});
++  if(params.order){const [field,dir]=String(params.order).split('.');out=[...out].sort((a,b)=>{const delta=Date.parse(a[field]||0)-Date.parse(b[field]||0);return dir==='desc'?-delta:delta;});}
++  if(params.limit)out=out.slice(0,Number(params.limit));
++  return out;
++}
++function makeDb(tables){
++  const store={};Object.entries(tables).forEach(([name,list])=>{store[name]=list.map((row)=>({...row}));});
++  let seq=1;
++  const allRows=async(ctx,table,params)=>applyParams(store[table]||[],params);
++  const rows=async(ctx,table,params)=>applyParams(store[table]||[],params);
++  const insert=async(ctx,table,body)=>{const row={id:'10000000-0000-4000-8000-'+String(seq++).padStart(12,'0'),created_at:new Date().toISOString(),...body};(store[table]=store[table]||[]).push(row);return [row];};
++  return {store,allRows,rows,insert};
++}
++const panelServer=(db)=>({allRows:db.allRows,rows:db.rows,insert:db.insert,isUuid,safeText,
++  jsonBody:async()=>({}),requirePanel:async()=>null,send:(res,code,payload)=>{res.code=code;res.payload=payload;}});
++
++const ENV='test';
++const ids={v1:'11111111-1111-4111-8111-111111111111',v1b:'22222222-2222-4222-8222-222222222222',v1c:'33333333-3333-4333-8333-333333333333',v1d:'44444444-4444-4444-8444-444444444444',v2:'55555555-5555-4555-8555-555555555555',v2b:'66666666-6666-4666-8666-666666666666',car1:'a1111111-1111-4111-8111-111111111111',car2:'a2222222-2222-4222-8222-222222222222',car3:'a3333333-3333-4333-8333-333333333333',contact:'c1111111-1111-4111-8111-111111111111',journey:'d1111111-1111-4111-8111-111111111111',req1:'e1111111-1111-4111-8111-111111111111'};
++const agoMin=(min)=>new Date(Date.now()-min*60000).toISOString();
++const future=()=>new Date(Date.now()+7*86400000).toISOString();
++const past=()=>new Date(Date.now()-86400000).toISOString();
++
++function seedDb(){
++  return makeDb({
++    vitrines:[
++      {id:ids.v1,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V1',created_at:agoMin(120),expires_at:future(),parent_vitrine_id:null},
++      {id:ids.v1b,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V1',created_at:agoMin(300),expires_at:future(),parent_vitrine_id:null},
++      {id:ids.v1c,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V1',created_at:agoMin(60),expires_at:past(),parent_vitrine_id:null},
++      {id:ids.v1d,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V1',created_at:agoMin(500),expires_at:future(),parent_vitrine_id:null},
++      {id:ids.v2,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V2',created_at:agoMin(30),expires_at:future(),parent_vitrine_id:ids.v1d},
++      {id:ids.v2b,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V2',created_at:agoMin(90),expires_at:future(),parent_vitrine_id:ids.v1b}
++    ],
++    vitrine_cars:[
++      {id:ids.car1,vitrine_id:ids.v1,environment:ENV,vehicle_snapshot:{year:2021,make:'BMW',model:'X3'},customer_limit_cents:2000000},
++      {id:ids.car2,vitrine_id:ids.v1b,environment:ENV,vehicle_snapshot:{year:2020,make:'Audi',model:'Q5'},customer_limit_cents:1800000},
++      {id:ids.car3,vitrine_id:ids.v2,environment:ENV,vehicle_snapshot:{year:2021,make:'BMW',model:'X3'},customer_limit_cents:2000000}
++    ],
++    vitrine_events:[
++      // a 2-minute-old tap: the funnel shows it at once (no 15-minute delay)
++      {vitrine_id:ids.v1,vitrine_car_id:ids.car1,event_type:'TAP',created_at:agoMin(2),environment:ENV},
++      {vitrine_id:ids.v1b,vitrine_car_id:ids.car2,event_type:'TAP',created_at:agoMin(200),environment:ENV},
++      {vitrine_id:ids.v2,vitrine_car_id:ids.car3,event_type:'TAP',created_at:agoMin(10),environment:ENV}
++    ],
++    vitrine_requests:[
++      // treated VIEW request after the tap on v1b: its tap stays out of the action zone
++      {id:ids.req1,vitrine_id:ids.v1b,vitrine_car_id:ids.car2,request_kind:'VIEW',treated_at:agoMin(100),created_at:agoMin(210),environment:ENV}
++    ],
++    contacts:[{id:ids.contact,display_name:'Ana Souza',is_lead:true,environment:ENV}],
++    contact_phones:[{contact_id:ids.contact,phone_e164:'+13055551234',phone_raw:'+13055551234',is_primary:true,is_current:true,retired_at:null,environment:ENV}],
++    journeys:[{id:ids.journey,contact_id:ids.contact,reference_code:'3CG5P',status:'ATIVO',budget_cents:2000000,environment:ENV}],
++    journey_toggle_states:[],panel_item_dispositions:[],journey_refs:[],
++    message_journeys:[],messages:[]
++  });
++}
++const servicesFor=(db)=>({
++  allRows:db.allRows,rows:db.rows,insert:db.insert,
++  loadClassification:async()=>({identityOf:()=>({state:'OK',status:'REF_COMPROVADA'})})
++});
++const mocksFor=(db)=>({
++  '../../panel-server':panelServer(db),
++  '../../panel-classification':{loadClassification:async()=>({identityOf:()=>({state:'OK',status:'REF_COMPROVADA'})})},
++  '../../panel-domain':{toggleEnabled:()=>true},
++  '../../panel-groups':{refStateOf:()=>'OK'},
++  '../../panel-disposition':{dispositionIndex:()=>()=>null}
++});
++const ctx={environment:ENV};
++
++/* ---------- vitrine-funnel ---------- */
++test('funnel: a fresh tap lands in "Tocou · falta a V2" with no 15-minute wait',async()=>{
++  const db=seedDb();
++  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
++  const out=await funnel.payload(ctx,servicesFor(db));
++  assert.equal(out.v1.tapped.length,1);
++  assert.equal(out.v1.tapped[0].vitrineId,ids.v1);
++  assert.equal(out.v1.tapped[0].vitrineCarId,ids.car1);
++  assert.equal(out.v1.tapped[0].car,'2021 BMW X3');
++  assert.equal(out.v1.tapped[0].phone,'+13055551234');
++  assert.equal(out.v1.tapped[0].budgetCents,2000000);
++  assert.equal(out.counts.v1Action,1);
++});
++test('funnel: V1 without a tap waits, expired V1 goes to "Expiradas"',async()=>{
++  const db=seedDb();
++  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
++  const out=await funnel.payload(ctx,servicesFor(db));
++  // v1b has a tap but a V2 child (v2b) and a treated request: out of the action zone
++  assert.ok(!out.v1.tapped.some((item)=>item.vitrineId===ids.v1b));
++  assert.equal(out.v1.expired.length,1);
++  assert.equal(out.v1.expired[0].vitrineId,ids.v1c);
++});
++test('funnel: V2 with a bid tap is flagged, the others wait',async()=>{
++  const db=seedDb();
++  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
++  const out=await funnel.payload(ctx,servicesFor(db));
++  assert.equal(out.v2.bid.length,1);
++  assert.equal(out.v2.bid[0].vitrineId,ids.v2);
++  assert.equal(out.v2.bid[0].car,'2021 BMW X3');
++  assert.equal(out.v2.waiting.length,1);
++  assert.equal(out.v2.waiting[0].vitrineId,ids.v2b);
++  assert.equal(out.counts.v2Action,1);
++});
++test('funnel: a V2 child takes the V1 out of the action zone',async()=>{
++  const db=seedDb();
++  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
++  const out=await funnel.payload(ctx,servicesFor(db));
++  assert.ok(!out.v1.tapped.some((item)=>item.vitrineId===ids.v1d),'v1d has a V2 child');
++});
++test('ensure_request: reuses the open VIEW request, creates one when missing',async()=>{
++  const db=seedDb();
++  // an open VIEW request for v1/car1
++  db.store.vitrine_requests.push({id:ids.req1,vitrine_id:ids.v1,vitrine_car_id:ids.car1,request_kind:'VIEW',treated_at:null,created_at:agoMin(1),environment:ENV});
++  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
++  const reused=await funnel.ensureRequest(ctx,{vitrineId:ids.v1,vitrineCarId:ids.car1},{insert:db.insert,allRows:db.allRows});
++  assert.equal(reused.requestId,ids.req1);assert.equal(reused.reused,true);
++  db.store.vitrine_requests.pop();
++  const created=await funnel.ensureRequest(ctx,{vitrineId:ids.v1,vitrineCarId:ids.car1},{insert:db.insert,allRows:db.allRows});
++  assert.equal(created.created,true);assert.ok(isUuid(created.requestId));
++  const row=db.store.vitrine_requests.find((item)=>item.id===created.requestId);
++  assert.equal(row.request_kind,'VIEW');assert.equal(row.vitrine_id,ids.v1);assert.equal(row.vitrine_car_id,ids.car1);
++});
++test('ensure_request: refuses unknown, non-V1 and expired vitrines',async()=>{
++  const db=seedDb();
++  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
++  const services={insert:db.insert,allRows:db.allRows};
++  assert.equal((await funnel.ensureRequest(ctx,{vitrineId:'99999999-9999-4999-8999-999999999999',vitrineCarId:ids.car1},services)).error,'VITRINE_NOT_FOUND');
++  assert.equal((await funnel.ensureRequest(ctx,{vitrineId:ids.v2,vitrineCarId:ids.car3},services)).error,'VITRINE_FUNNEL_INVALID');
++  assert.equal((await funnel.ensureRequest(ctx,{vitrineId:ids.v1c,vitrineCarId:ids.car1},services)).error,'VITRINE_EXPIRED');
++});
++
++/* ---------- v2-draft ---------- */
++const draftMocks=(db,budget)=>({
++  '../../panel-server':panelServer(db),
++  '../../panel-openai-budget':budget
++});
++function draftDb(){
++  const db=seedDb();
++  db.store.vitrine_requests.push({id:ids.req1,vitrine_id:ids.v1,vitrine_car_id:ids.car1,journey_id:ids.journey,request_kind:'VIEW',treated_at:null,created_at:agoMin(1),environment:ENV});
++  db.store.message_journeys.push({message_id:'m1',journey_id:ids.journey,undone_at:null,environment:ENV});
++  db.store.messages.push({id:'m1',direction:'CUSTOMER',body_text:'I need a BMW X3 under 60k miles',is_automatic:null,undone_at:null,created_at:agoMin(50),environment:ENV});
++  return db;
++}
++const okBudget=()=>({guard:()=>({}),recorded:async()=>{},openAiFailure:async()=>Object.assign(new Error('OPENAI_FAILED'),{code:'OPENAI_FAILED'}),
++  paidCall:async()=>{throw Object.assign(new Error('OPENAI_FAILED'),{code:'OPENAI_FAILED'});}});
++test('v2-draft: returns the AI note and message',async()=>{
++  const db=draftDb();
++  const budget=okBudget();
++  budget.paidCall=async()=>({payload:{choices:[{message:{content:JSON.stringify({note:'Clean title, one owner',message:"Ana, here's the car you asked to see. Clean title and low miles for the year."})}}]},costUsd:0.001});
++  const mod=loadWith('api/panel/v2-draft.js',draftMocks(db,budget));
++  const out=await mod.draft(ctx,{requestId:ids.req1},{rows:db.rows,allRows:db.allRows,budget});
++  assert.equal(out.note,'Clean title, one owner');
++  assert.ok(out.message.startsWith("Ana, here's the car you asked to see"));
++});
++test('v2-draft: any AI failure returns empty, the screen opens with defaults',async()=>{
++  const db=draftDb();
++  const budget=okBudget();
++  budget.paidCall=async()=>{throw Object.assign(new Error('OPENAI_FAILED'),{code:'OPENAI_FAILED'});};
++  const mod=loadWith('api/panel/v2-draft.js',draftMocks(db,budget));
++  const out=await mod.draft(ctx,{requestId:ids.req1},{rows:db.rows,allRows:db.allRows,budget});
++  assert.deepEqual({note:out.note,message:out.message},{note:null,message:null});
++});
++test('v2-draft: invalid or unknown requestId is rejected',async()=>{
++  const db=draftDb();
++  const mod=loadWith('api/panel/v2-draft.js',draftMocks(db,okBudget()));
++  assert.equal((await mod.draft(ctx,{requestId:'nope'},{rows:db.rows,allRows:db.allRows,budget:okBudget()})).error,'V2_DRAFT_INVALID');
++  assert.equal((await mod.draft(ctx,{requestId:'99999999-9999-4999-8999-999999999999'},{rows:db.rows,allRows:db.allRows,budget:okBudget()})).error,'V2_DRAFT_REQUEST_NOT_FOUND');
++});
++test('summary: real V1s from the vitrines table, with today in Florida time',async()=>{
++  const db=seedDb();
++  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
++  const out=await funnel.summary(ctx,{allRows:db.allRows});
++  // distinct journey ids with a V1 (seed has 4 V1s on the same journey, one expired: still generated)
++  assert.deepEqual(out.v1JourneyIds,[ids.journey]);
++  // only the V1s created today (Florida time) count as today; expired ones still count as generated
++  const today=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
++  const key=(t)=>today.find((x)=>x.type===t).value;
++  const todayKey=`${key('year')}-${key('month')}-${key('day')}`;
++  const created=[120,300,60,500].map((min)=>{const d=new Date(Date.now()-min*60000);
++    const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);
++    const g=(t)=>parts.find((x)=>x.type===t).value;return `${g('year')}-${g('month')}-${g('day')}`;});
++  assert.equal(out.v1Today,created.filter((k)=>k===todayKey).length);
++});
+diff --git a/tests/vitrine.test.js b/tests/vitrine.test.js
+index f4ea4ec..62da70e 100644
+--- a/tests/vitrine.test.js
++++ b/tests/vitrine.test.js
+@@ -97,14 +97,15 @@ test('HOJE card deposit line: deposit() over the car limit',()=>{
+   assert.equal(deposit(1800000),1800);assert.equal(deposit(400000),500);assert.equal(deposit(500000),500);assert.equal(deposit(500100),500);
+   assert.match(read('api/panel/vitrine-requests.js'),/depositUsd:request\.referred\|\|financedJourney\.has\(journeyId\)\?null:limit\?deposit\(limit\):null/);
+   assert.match(read('api/panel/vitrine-requests.js'),/vitrineId:request\.vitrine_id,vitrineCarId:request\.vitrine_car_id/);
+-  assert.match(read('painel/painel.js'),/Próximo passo: pedir o depósito · US\$ /);
++  // The old ATENDER AGORA vitrine card is gone (V1/V2 funnel tabs); the deposit line went with it.
++  assert.doesNotMatch(read('painel/painel.js'),/Próximo passo: pedir o depósito/);
+ });
+ test('V2 page keeps the approved spec and customer copy has no em dash or trailing period',()=>{
+   const page=(read('v/vitrine-render.js')+read('v/vitrine.js'));
+   for(const text of ["here's the car you asked to see",'I want to bid','Opens WhatsApp with a ready message to our team','Hey, I want to bid on the','Your limit','You set the limit, we do the bidding','Your limit is the most we\'ll bid, not what you pay','If we win it for less, you pay based on the winning bid','Clean title','Odometer OK','Mileage','Location','Exterior','Interior','Drivetrain','Transmission','Engine','Auction day','Average auction value'])assert.ok(page.includes(text),text);
+   for(const banned of ['Carfax','Not for me','—'])assert.ok(!page.includes(banned),banned);
+   assert.ok(page.includes('Buy Now')&&page.includes('Ways to buy'),'v3.4 mostra todas as formas de compra');
+-  const builder=read('painel/painel.js');assert.match(builder,/\$\{request\.name\}, here's the car you asked to see\\n\$\{link\}`/);assert.doesNotMatch(builder,/here's the car you asked to see\.`/);
++  const builder=read('painel/painel.js');assert.match(builder,/here's the car you asked to see`/);assert.match(builder,/\$\{messageInput\.value\.trim\(\)\}\\n\$\{link\}`/);assert.doesNotMatch(builder,/here's the car you asked to see\.`/);
+ });
+ test('migration for V2 is additive and newer than the V1 migration',()=>{
+   const files=fs.readdirSync(path.join(root,'supabase','migrations')).filter((name)=>name.endsWith('.sql')).sort();
