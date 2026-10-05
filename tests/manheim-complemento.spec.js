@@ -97,7 +97,9 @@ test('prévia, cancelar, confirmar e repetir o complemento pelo navegador sem al
     await expect(status).not.toHaveClass(/error/);
   };
   expect(batch.vehicleCount).toBe(3);
-  expect((await q('select count(*)::int n from public.manheim_matches'))[0].n).toBe(3);
+  // v3.2: the car without Lane/Run and without Buy Now (…800003) never becomes a match, and the complement
+  // does not create matches, so it stays out of the combinations before and after.
+  expect((await q('select count(*)::int n from public.manheim_matches'))[0].n).toBe(2);
   const before = await frozen();
   const salesBefore = await saleState();
 
@@ -123,7 +125,7 @@ test('prévia, cancelar, confirmar e repetir o complemento pelo navegador sem al
     await assertPreview();
     expect(await saleState()).toEqual(salesBefore);
     await confirmation.getByRole('button', { name: 'Complementar agora', exact: true }).click();
-    await expect(status).toHaveText('Complemento concluído · 3 carros complementados · 1 com Lane/Run · 1 Buy Now / Make Offer · 1 ainda incompletos · 3 combinações', { timeout: 60000 });
+    await expect(status).toHaveText('Complemento concluído · 3 carros complementados · 1 com Lane/Run · 1 Buy Now / Make Offer · 1 ainda incompletos · 2 combinações', { timeout: 60000 });
     await page.waitForLoadState('networkidle');
     await expect(confirmation).toHaveCount(0);
     expect(actions.map((body) => body.action)).toEqual(['complement-check', 'complement-check', 'complement-start', 'complement-stage', 'complement-stage', 'complement-apply', 'complement-result']);

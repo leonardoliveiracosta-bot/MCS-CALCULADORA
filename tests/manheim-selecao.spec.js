@@ -212,7 +212,9 @@ test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await expect(card.locator('.offer-counter')).toContainText('0 passam em Lane/Run · 0 Buy Now / Make Offer / fora de Lane-Run · 6 incompletos', { timeout: 60000 });
+  // v3.2: only cars with Lane/Run or Buy Now become matches. The old batch kept only the Buy Now price,
+  // so before the complement the 3 CR-V with Buy Now (…001, …004, …005) are the only matches.
+  await expect(card.locator('.offer-counter')).toHaveText('3 em Buy Now / Make Offer · 0 de 10 selecionados', { timeout: 60000 });
   // The complement lives in IMPORTAÇÕES; the groups stay in OPÇÕES.
   await page.locator('[data-view="imports"]').click();
   const button = page.locator('#manheim-complement');
@@ -225,9 +227,12 @@ test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote
   expect((await q(`select count(*)::int n from public.manheim_sale_current`)).n, 'nada gravado antes da confirmação').toBe(0);
   if (SHOTS) await page.locator('#imports-panel > section.card').first().screenshot({ path: path.join(SHOTS, 'complemento-confirmacao.png') });
   await confirm.getByRole('button', { name: 'Complementar agora' }).click();
-  await expect(status).toHaveText('Complemento concluído · 7 carros complementados · 4 com Lane/Run · 2 Buy Now / Make Offer · 1 ainda incompletos · 6 combinações', { timeout: 30000 });
+  await expect(status).toHaveText('Complemento concluído · 7 carros complementados · 4 com Lane/Run · 2 Buy Now / Make Offer · 1 ainda incompletos · 3 combinações', { timeout: 30000 });
   await page.locator('[data-view="searches"]').click();
-  await expect(card.locator('.offer-counter')).toContainText('3 passam em Lane/Run · 2 Buy Now / Make Offer / fora de Lane-Run · 1 incompletos', { timeout: 30000 });
+  const reopened = await openOptionsFicha(page, { mode: 'CARRO' });
+  // The complement creates no matches: the same 3 are only regrouped (…001 now has Lane/Run). The CR-V that
+  // got Lane/Run only now (…002, …003) and the one still without sale data (…006) stay out of the combinations.
+  await expect(reopened.locator('.offer-counter')).toHaveText('1 em Lane/Run · 2 em Buy Now / Make Offer · 0 de 10 selecionados', { timeout: 30000 });
   if (SHOTS) await page.locator('#searches-panel').screenshot({ path: path.join(SHOTS, 'complemento-concluido.png') });
   const after = await q(`select (select count(*) from public.manheim_uploads)::int uploads, (select count(*) from public.manheim_matches)::int matches, (select count(*) from public.manheim_vehicles)::int vehicles`);
   expect(after).toEqual(before);
