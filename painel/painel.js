@@ -1946,7 +1946,7 @@
       loadWeekly().catch(()=>null);
       let freshArrived=false;pending.then(()=>{freshArrived=true;},()=>{});
       if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
-      const [data,,entryData,triageData,whatsappData]=await pending;
+      const [data,,,entryData,triageData,whatsappData]=await pending;
       if (!current()) return;
       applyAttend(data, entryData, triageData, whatsappData, null);
       // The tab counters' heavier lists (BUSCAR CARROS, CLIENTES, ENVIAR OPÇÕES) come in a second single call, then the counters.
