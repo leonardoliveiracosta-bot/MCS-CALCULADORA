@@ -112,6 +112,16 @@ test('funnel: a fresh tap lands in "Tocou · falta a V2" with no 15-minute wait'
   assert.equal(out.v1.tapped[0].budgetCents,2000000);
   assert.equal(out.counts.v1Action,1);
 });
+test('funnel: V1 gravada sem VIN no carro mostra o VIN do carro original do lote',async()=>{
+  // V1s created before the snapshot kept the VIN: the car still points to its source match, which has it.
+  const db=seedDb();
+  const car=db.store.vitrine_cars.find((row)=>row.id===ids.car1);
+  delete car.vehicle_snapshot.vin; car.source_match_id='77777777-7777-4777-8777-777777777777';
+  db.store.manheim_matches=[{id:car.source_match_id,environment:ENV,vehicle_json:{parsed:{vin:'4t1bf1fk5eu000001'}}}];
+  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
+  const out=await funnel.payload(ctx,servicesFor(db));
+  assert.equal(out.v1.tapped[0].vin,'4T1BF1FK5EU000001');
+});
 test('funnel: V1 without a tap waits, expired V1 goes to "Expiradas"',async()=>{
   const db=seedDb();
   const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));

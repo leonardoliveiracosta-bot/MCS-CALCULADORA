@@ -24,7 +24,7 @@ async function payload(ctx,services={}){
   const read=services.allRows||allRows;
   const [vitrines,cars,events,requests,contacts,phones,journeys,toggles,dispositions,journeyRefs]=await Promise.all([
     read(ctx,'vitrines',{select:'id,contact_id,journey_id,reference_code,customer_name,version,created_at,expires_at,parent_vitrine_id',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
-    read(ctx,'vitrine_cars',{select:'id,vitrine_id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment}),
+    read(ctx,'vitrine_cars',{select:'id,vitrine_id,source_match_id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment}),
     read(ctx,'vitrine_events',{select:'vitrine_id,vitrine_car_id,event_type,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
     read(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,request_kind,treated_at,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
     read(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment}),
@@ -68,7 +68,15 @@ async function payload(ctx,services={}){
   const contactName=(vitrine)=>contactsById.get(vitrine.contact_id)?.display_name||vitrine.customer_name||phoneFor(vitrine.contact_id)||'Cliente';
 
   // VIN of each car (two cars of the same year and model are told apart on the card).
-  const vinOf=(car)=>{const vin=String((car&&car.vehicle_snapshot&&car.vehicle_snapshot.vin)||'').trim().toUpperCase();return vin||null;};
+  // A V1 created before the snapshot kept the VIN: the VIN comes from the car's source match (the same
+  // car of the batch). Read only for those cars, by id.
+  const missing=[...new Set(cars.filter((car)=>!String(car&&car.vehicle_snapshot&&car.vehicle_snapshot.vin||'').trim()&&car&&car.source_match_id).map((car)=>car.source_match_id))];
+  const sourceVin=new Map();
+  for(let index=0;index<missing.length;index+=100){
+    const found=await read(ctx,'manheim_matches',{select:'id,vehicle_json',environment:'eq.'+ctx.environment,id:'in.('+missing.slice(index,index+100).join(',')+')'}).catch(()=>[]);
+    (found||[]).forEach((row)=>{const vin=String(row&&row.vehicle_json&&row.vehicle_json.parsed&&row.vehicle_json.parsed.vin||'').trim();if(vin)sourceVin.set(row.id,vin);});
+  }
+  const vinOf=(car)=>{const vin=String((car&&car.vehicle_snapshot&&car.vehicle_snapshot.vin)||(car&&sourceVin.get(car.source_match_id))||'').trim().toUpperCase();return vin||null;};
   const v1={tapped:[],waiting:[],expired:[]},v2={bid:[],waiting:[],expired:[]};
   vitrines.forEach((vitrine)=>{
     if(!actionable(vitrine))return;
