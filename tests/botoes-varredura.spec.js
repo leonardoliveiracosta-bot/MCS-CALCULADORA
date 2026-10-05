@@ -181,7 +181,7 @@ test('varredura de todos os botões do painel', async ({ page }) => {
         await expect(openFicha).toBeVisible({ timeout: 60000 });
         await openFicha.click({ timeout: 10000 });
       }
-      await expect(page.locator('#record-detail button').nth(3)).toBeVisible({ timeout: 60000 }); await page.waitForTimeout(1000); await openDetails();
+      await expect(page.locator('#record-detail button:visible').nth(3)).toBeVisible({ timeout: 60000 }); await page.waitForTimeout(1000); await openDetails();
       if (!fichaHash) fichaHash = await page.evaluate(() => location.hash);
     };
     await view('clients');

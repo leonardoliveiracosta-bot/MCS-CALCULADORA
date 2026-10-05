@@ -1393,7 +1393,7 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #clients-list .today-card > .inline-actions > .today-primary { flex: 0 0 auto; width: 100%; max-width: none; min-height: 48px; padding: 12px 16px; border: 0; border-radius: 8px; background: #C9A227; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0; box-shadow: none; }
 #clients-list .today-card > .inline-actions > .today-primary:hover { background: #BE9820; filter: none; }
 #clients-list .today-card > .inline-actions > .case-more { flex: 0 0 auto; text-align: center; }
-#clients-list .today-card > .inline-actions > .case-more > summary { font-size: 13px; color: #8A837B; }
+#clients-list .today-card > .inline-actions > .case-more > summary { font-size: 13px; color: #6B655E; }
 @media (max-width: 640px) {
   #clients-list .today-card .case-face-title { font-size: 24px; }
 }
