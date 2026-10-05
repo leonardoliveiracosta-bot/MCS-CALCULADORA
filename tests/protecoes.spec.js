@@ -7,6 +7,7 @@
 //  - FICHA: resposta atrasada de outra ficha não desenha por cima
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/protecoes.spec.js
 const { test, expect } = require('@playwright/test');
+const { openClientsList } = require('./abrir-clientes');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
@@ -126,7 +127,7 @@ test('CLIENTES: a exportação traz todas as páginas, é uma por vez e mostra a
   const inner = recordsHandler(state);
   await open(page, { '/api/panel/records': (context) => { if (state.fail && context.url.searchParams.get('export') === '1' && context.url.searchParams.get('page') === '2') return context.json({ error: 'EXPORT_TEST_FAIL' }, 400); return inner(context); } });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="clients"]').click({ timeout: 30000 });
+  await openClientsList(page, { timeout: 30000 });
   await expect(page.locator('#clients-list .client-card').first()).toBeVisible({ timeout: 30000 });
   const download = page.locator('#clients-download');
   const waiting = page.waitForEvent('download');
@@ -182,7 +183,7 @@ test('CLIENTES: ao voltar da ficha as páginas carregadas e a posição voltam, 
   await open(page, { '/api/panel/records': (context) => inner(context), '/api/panel/lead': ({ json }) => json(lead) });
   await page.setViewportSize({ width: 1000, height: 500 });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="clients"]').click({ timeout: 30000 });
+  await openClientsList(page, { timeout: 30000 });
   const cards = page.locator('#clients-list .client-card');
   await expect(cards).toHaveCount(3, { timeout: 30000 });
   while ((await cards.count()) < 7) { await page.locator('#clients-list .clients-more').click(); await page.waitForTimeout(300); }

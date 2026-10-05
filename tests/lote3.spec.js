@@ -3,6 +3,7 @@
 // Lote 3 da auditoria no navegador, com /api/** simulado (nenhuma chamada real, nada enviado).
 // Run: PANEL_VISUAL_LOCAL=1 npx playwright test tests/lote3.spec.js
 const { test, expect } = require('@playwright/test');
+const { openClientsList } = require('./abrir-clientes');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
@@ -125,7 +126,7 @@ test('Lote 3: busca global fecha no botão e some ao trocar de aba', async ({ pa
   await page.locator('#global-search-input').fill('Sem Ficha');
   await page.locator('#global-search button[type="submit"]').click();
   await expect(results).toBeVisible();
-  await page.locator('[data-view="clients"]').click();
+  await openClientsList(page);
   await expect(results).toBeHidden();
   expect(errors).toEqual([]);
 });

@@ -5,6 +5,7 @@
 // clicáveis com complemento, contagens que batem e cartões em lotes. Desktop e 390 px.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/comando2.spec.js
 const { test, expect } = require('@playwright/test');
+const { openClientsList } = require('./abrir-clientes');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
@@ -95,7 +96,7 @@ for (const width of [1280, 390]) {
     const errors = [];
     page.on('pageerror', (failure) => errors.push(failure.message));
     const state = await open(page, width);
-    await page.locator('[data-view="clients"]').click();
+    await openClientsList(page);
     const list = page.locator('#clients-list');
     await expect(list.locator('.client-card')).toHaveCount(2, { timeout: 30000 });
     // Origin chip: group · channel, plus the Financiamento tag inside "Veio por mensagem".

@@ -6,6 +6,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/sugestoes.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openClientsList } = require('./abrir-clientes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const fixture = require('./fixtures/conversas-sugestao');
 
@@ -53,7 +54,7 @@ for (const width of [1366, 390]) {
     const sendCalls = () => calls.filter((call) => (call.path === '/api/panel/v1-send' && /"action":"(send|demo_send)"/.test(call.body)) || (call.path === '/api/panel/reply' && /"action":"send"/.test(call.body)));
 
     // CLIENTES → Retomar conversas antigas: oldest first, excluded with the reason.
-    await page.locator('[data-view="clients"]').click();
+    await openClientsList(page);
     await page.locator('#clients-followup > summary').click();
     const list = page.locator('#clients-followup-list');
     const items = list.locator('.followup-item');

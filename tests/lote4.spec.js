@@ -4,6 +4,7 @@
 // calculadora sem mensagem não são listados: a seção "Pediram contato, sem conversa" saiu da ENTRADA.
 // Run: PANEL_VISUAL_LOCAL=1 npx playwright test tests/lote4.spec.js
 const { test, expect } = require('@playwright/test');
+const { openClientsList } = require('./abrir-clientes');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
@@ -78,7 +79,7 @@ test('Lote 4: CLIENTES filtra por Origem, Tipo e Período', async ({ page }) => 
     '/api/panel/pendencias': ({ json }) => json({ items: [], counts: {} })
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="clients"]').click();
+  await openClientsList(page);
   const list = page.locator('#clients-list');
   // CLIENTES opens in 30 days: Davi (60 days) waits for a longer period.
   await expect(list.locator('.client-card')).toHaveCount(2, { timeout: 30000 });

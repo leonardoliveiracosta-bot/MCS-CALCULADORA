@@ -9,6 +9,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openClientsList } = require('./abrir-clientes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -153,7 +154,7 @@ test('varredura de todos os botões do painel', async ({ page }) => {
     }
   }
   let reopenFicha = null, fichaHash = '';
-  const view = async (name) => { await page.locator(`[data-view="${name}"]`).click(); await page.waitForTimeout(1200); await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}); };
+  const view = async (name) => { if (name === 'clients') await openClientsList(page); else await page.locator(`[data-view="${name}"]`).click(); await page.waitForTimeout(1200); await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}); };
   // Open every collapsed section so the buttons inside are reachable.
   const openDetails = () => page.evaluate(() => document.querySelectorAll('#app-view details').forEach((d) => { d.open = true; }));
 

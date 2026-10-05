@@ -109,20 +109,20 @@ test('contadores: "—" durante o carregamento; falha em ENVIAR OPÇÕES não ze
   const gate = new Promise((resolve) => { recordsGate = resolve; });
   await preparePage(page, { api: {
     '/api/panel/records': async ({ url }) => {
-      if (url.searchParams.get('view') === 'manheim') return searchesFail ? { status: 500, body: { error: 'PANEL_RECORDS_ERROR' } } : { body: OPTIONS };
-      await gate; return { body: RECORDS };
+      // TODOS is no longer a tab: the loading badge is checked on ENVIAR OPÇÕES (manheim view).
+      if (url.searchParams.get('view') === 'manheim') { if (searchesFail) return { status: 500, body: { error: 'PANEL_RECORDS_ERROR' } }; await gate; return { body: OPTIONS }; }
+      return { body: RECORDS };
     }
   } });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#app-view')).toBeVisible();
-  // While CLIENTES is loading its badge shows "—", never 0.
-  await expect(page.locator('.tab[data-view="clients"] [data-count]')).toHaveText('—');
+  // While ENVIAR OPÇÕES is loading its badge shows "—", never 0.
+  await expect(page.locator('.tab[data-view="searches"] [data-count]')).toHaveText('—');
   if (SHOTS) await page.locator('nav').screenshot({ path: path.join(SHOTS, 'contadores-carregando.png') });
   recordsGate();
-  await expect(page.locator('.tab[data-view="clients"] [data-count]')).toHaveText('0');
   await expect(page.locator('.tab[data-view="searches"] [data-count]')).toHaveText('2');
   await expect(page.locator('.tab[data-view="today"] [data-count]')).toHaveText('1');
-  // ENVIAR OPÇÕES fails on the next update: it keeps 2 (marked), ATENDIMENTO and CLIENTES are not touched.
+  // ENVIAR OPÇÕES fails on the next update: it keeps 2 (marked), ATENDIMENTO is not touched.
   searchesFail = true;
   await page.waitForTimeout(60500); // the ENVIAR OPÇÕES counter reuses answers of the last 60 s
   // Next counters update (the same one an action triggers).

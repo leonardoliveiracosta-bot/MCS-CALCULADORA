@@ -8,6 +8,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/identidade-visual.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openClientsList } = require('./abrir-clientes');
 const { createPanel } = require('./fixtures/painel-visual');
 const { openAllOptions } = require('./fixtures/buscas-simulado');
 
@@ -31,7 +32,8 @@ async function open(page, width, height = 900) {
 }
 
 async function show(page, view) {
-  await page.locator(`[data-view="${view}"]`).click();
+  // TODOS is no longer a tab: 'clients' is the list in the "Mais" block of ATENDER AGORA.
+  if (view === 'clients') await openClientsList(page); else await page.locator(`[data-view="${view}"]`).click();
   if (view === 'settings') {
     // Configurações e conexão has finished loading once the WhatsApp signal answered.
     await expect(page.locator('#settings-panel')).toBeVisible({ timeout: 30000 });
