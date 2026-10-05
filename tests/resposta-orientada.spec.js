@@ -55,6 +55,7 @@ for (const width of [1366, 390]) {
     const sendCalls = () => calls.filter((call) => (call.path === '/api/panel/v1-send' && /"action":"(send|demo_send)"/.test(call.body)) || (call.path === '/api/panel/reply' && /"action":"send"/.test(call.body)));
 
     await page.goto(base + '/painel/#ficha/' + fixture.people.english.journey, { waitUntil: 'domcontentloaded' });
+    let opened = 0; const reopenFicha = async () => { opened += 1; await page.goto(base + '/painel/?abrir=' + opened + '#ficha/' + fixture.people.english.journey, { waitUntil: 'domcontentloaded' }); };
     const conversation = page.locator('#lead-conversation');
     const guided = conversation.locator('.guided-card');
     await expect(guided).toBeVisible({ timeout: 60000 });
@@ -95,42 +96,46 @@ for (const width of [1366, 390]) {
     await expect(auto.locator('.suggestion-body .suggestion-text')).toBeVisible({ timeout: 30000 });
     await expect(auto.locator('.suggestion-body')).toContainText('Mileage under 60k please');
 
-    // Translation: never on opening; one call for the visible messages; shown under the original.
+    // Translation: never on opening; each message has its own "traduzir" (shown on hover on the computer,
+    // f3b05ee removed the "Traduzir conversa" bar); a double tap translates once; shown under the original.
     expect(action('translate').length, 'abrir a conversa não traduz').toBe(0);
-    const translateButton = conversation.locator('button.translate-conversation');
-    await expect(translateButton).toContainText(/Traduzir conversa \(\d+\)/);
-    await translateButton.dblclick();
+    const firstToTranslate = conversation.locator('article.lead-message').filter({ has: page.locator('button.translate-one') }).first();
+    await firstToTranslate.hover();
+    await firstToTranslate.locator('button.translate-one').dblclick();
     await expect(conversation.locator('.message-translation').first()).toBeVisible({ timeout: 30000 });
     expect(action('translate').length, 'toque duplo traduz uma vez').toBe(1);
     await expect(conversation.locator('.lead-thread')).toContainText('Mileage under 60k please');
     await expect(conversation.locator('.message-translation').first()).toContainText('Tradução para português');
-    await expect(translateButton).toContainText('Conversa traduzida');
     await noOverflow();
     await shot(page, `ficha-traducao-${width}`);
     if (SHOTS) await conversation.locator('.lead-thread').screenshot({ path: path.join(SHOTS, `componente-traducao-${width}.png`), timeout: 15000 }).catch(() => {});
 
     // Reopening reuses the saved translations: no new translate call.
     const before = action('translate').length;
-    await page.reload({ waitUntil: 'domcontentloaded' });
+    await reopenFicha(); // a reload opens ATENDER AGORA (4d2e568); the ficha link reopens it
     await expect(page.locator('#lead-conversation .message-translation').first()).toBeVisible({ timeout: 60000 });
     expect(action('translate').length).toBe(before);
 
     // A message without a saved translation gets its own "traduzir" link, and the link translates it.
     await backend.db.query(`delete from public.message_translations where message_id = (select message_id from public.message_translations order by created_at limit 1)`);
-    await page.reload({ waitUntil: 'domcontentloaded' });
+    await reopenFicha(); // a reload opens ATENDER AGORA (4d2e568); the ficha link reopens it
     const one = page.locator('#lead-conversation button.translate-one');
-    await expect(one).toHaveCount(1, { timeout: 60000 });
+    await expect(one.first()).toBeAttached({ timeout: 60000 });
     const translations = await page.locator('#lead-conversation .message-translation').count();
-    await one.click();
+    const pendingBefore = await one.count();
+    await page.locator('#lead-conversation article.lead-message').filter({ has: page.locator('button.translate-one') }).first().hover();
+    await one.first().click();
     await expect(page.locator('#lead-conversation .message-translation')).toHaveCount(translations + 1, { timeout: 30000 });
-    await expect(page.locator('#lead-conversation button.translate-one')).toHaveCount(0);
+    // Per message: the one translated loses its "traduzir"; the others keep theirs.
+    await expect(page.locator('#lead-conversation button.translate-one')).toHaveCount(pendingBefore - 1);
     expect(action('translate').length).toBe(before + 1);
 
     // Portuguese conversation: nothing to translate.
     await page.goto(base + '/painel/#ficha/' + fixture.people.answered.journey, { waitUntil: 'domcontentloaded' });
-    const ptButton = page.locator('#lead-conversation button.translate-conversation');
-    await expect(ptButton).toBeVisible({ timeout: 60000 });
-    await expect(ptButton).toBeDisabled();
+    // (No "Traduzir conversa" bar since f3b05ee: a message in Portuguese simply has no "traduzir".)
+    await expect(page.locator('#lead-conversation .lead-message').first()).toBeAttached({ timeout: 60000 });
+    await page.waitForTimeout(1500);
+    await expect(page.locator('#lead-conversation button.translate-one')).toHaveCount(0);
     await expect(page.locator('#lead-conversation .message-translation')).toHaveCount(0);
 
     expect(sendCalls(), 'nenhuma chamada de envio').toEqual([]);

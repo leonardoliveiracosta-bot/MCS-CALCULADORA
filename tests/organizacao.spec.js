@@ -91,7 +91,8 @@ for (const width of [1280, 390]) {
     // Ana appears once (ficha + calculator order + link suggestion are one case), with every reason.
     const ana = list.locator('.case-card', { hasText: 'Ana Valor' });
     await expect(ana).toHaveCount(1);
-    await expect(ana.locator('.card-decision')).toContainText('Cliente sem resposta há 3 h');
+    // The waiting time only comes with its channel ("WhatsApp há 3 h · sem resposta"); without one, "Sem resposta".
+    await expect(ana.locator('.card-decision')).toContainText('Sem resposta');
     await expect(ana.locator('.card-decision')).toContainText('Confirmar vínculo');
     await expect(ana.locator('.case-decisions')).toContainText('Ligar pedido à ficha');
     await expect(ana.locator('.origin-chip')).toHaveCount(0);

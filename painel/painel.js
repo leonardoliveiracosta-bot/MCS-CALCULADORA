@@ -2775,6 +2775,8 @@
       const more=element('details','card-more case-more');more.append(element('summary','','⋯ Mais'));
       more.addEventListener('click',(event)=>event.stopPropagation());
       const body=element('div','case-more-body');const decisions=element('div','case-decisions');decisions.dataset.caseKey=entry.key;body.append(decisions);more.append(body);
+      // SMS click without the print: attach the print or "Não chegou SMS · descartar" (#218 had left it on no screen).
+      const smsMissing=smsPrintMissing(item); if(smsMissing)body.prepend(smsMissing);
       more.addEventListener('toggle',()=>{if(more.open)closeOtherMores(more);});
       actions.append(more);
       makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
@@ -2795,7 +2797,7 @@
       const holder = card.querySelector('.case-decisions');
       entry.decisions.forEach((decision) => { const row = decisionRow(decision.key); if (row && holder) holder.append(row); });
       // Without a pending decision the card is only the essentials: a click on it opens the full ficha.
-      if (holder && !holder.childElementCount) { holder.remove(); card.querySelector('.case-more')?.remove(); }
+      if (holder && !holder.childElementCount) { const body = holder.parentElement; holder.remove(); if (!body || !body.childElementCount) card.querySelector('.case-more')?.remove(); }
       return card;
     };
     // Cases with a HOJE item keep the old groups (não atendidos, atendidos) and areas by search type.

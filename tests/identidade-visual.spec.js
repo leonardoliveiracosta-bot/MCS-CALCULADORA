@@ -247,7 +247,7 @@ test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com moti
   // Temperature explanation on HOJE and discard reasons.
   // ATENDIMENTO cards are compact: the rarer actions (discard) are under "⋯" on the same card.
   // (The AI "calor" became the calculator's purchase window in #176: no explanation panel to open.)
-  const card = page.locator('#today-list .today-card').first();
+  const card = page.locator('#today-list .today-card').filter({ has: page.locator('.case-more') }).first();
   await card.locator('.case-more > summary').click();
   await card.getByRole('button', { name: 'Descartar' }).click();
   await inside(card.locator('.discard-reasons'), 'motivos de descarte');

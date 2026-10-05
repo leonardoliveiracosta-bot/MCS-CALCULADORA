@@ -88,21 +88,22 @@ test('Lote 3: "Não chegou SMS" pergunta antes de descartar e grava o motivo Out
   expect(errors).toEqual([]);
 });
 
-test('Lote 3: vitrine "Tratado" com falha volta o card e mostra o erro', async ({ page }) => {
+test('Lote 3: vitrine "Pedido atendido" com falha volta o card e mostra o erro (aba V1)', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await session(page);
+  // The client who tapped the V1 is in the V1 tab now (#218), no longer in ATENDIMENTO.
+  const tapped = { vitrineId: JOURNEY, vitrineCarId: READ, requestId: READ, name: 'Bia', phone: '+13055551111', referenceCode: 'ABC23', journeyId: JOURNEY, refState: 'COM_REF', car: '2021 BMW X5', vin: 'WBAJU0C50MCF00001', ago: 'há 1 h', sentAgo: 'há 2 h' };
   await mockApi(page, {
-    '/api/panel/vitrine-requests': ({ json, body }) => body ? json({ error: 'VITRINE_REQUEST_FAILED' }, 500) : json({ requests: [{ id: READ, kind: 'VIEW', name: 'Bia', phone: '+13055551111', referenceCode: 'ABC23', car: '2021 BMW X5', journeyId: JOURNEY }], signals: [] })
+    '/api/panel/vitrine-funnel': ({ json }) => json({ v1: { tapped: [tapped], waiting: [], expired: [] }, v2: { bid: [], waiting: [], expired: [] }, counts: { v1Action: 1, v2Action: 0 } }),
+    '/api/panel/vitrine-requests': ({ json, body }) => body ? json({ error: 'VITRINE_REQUEST_FAILED' }, 500) : json({ requests: [] })
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="v1"]').click();
   const card = page.locator('.vitrine-request-card', { hasText: 'Bia' });
-  // The decision controls are under "⋯ Mais" of the case card.
   await expect(card).toHaveCount(1, { timeout: 30000 });
-  await page.locator('#today-list .case-card', { has: card }).first().locator('.case-more > summary').click();
-  await expect(card).toBeVisible();
   await card.getByRole('button', { name: 'Pedido atendido' }).click();
-  await expect(card).toContainText('Não consegui marcar como atendido, tente de novo');
+  await expect(page.getByText('Não consegui marcar como atendido, tente de novo')).toBeVisible();
   await expect(card).toBeVisible();
   expect(errors).toEqual([]);
 });
