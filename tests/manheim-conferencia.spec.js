@@ -75,7 +75,10 @@ async function open(page, width, audit) {
 // Opens the ficha of the person (from the queue) and returns the section of one demand.
 async function ficha(page, name, mode) {
   const section = await openOptionsFicha(page, { name, mode });
-  await openAllOptions(page);
+  // Open the Lane/Run group of every demand of the ficha, as the operator would.
+  for (const group of await page.locator('#detail-panel .offer-group[data-group="LANE"]').all()) {
+    if (!(await group.evaluate((node) => node.open))) await group.locator('> summary').click();
+  }
   return section;
 }
 const footer = (page) => page.locator('#detail-panel .ficha-v1-foot');

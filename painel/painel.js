@@ -4407,9 +4407,12 @@
     savedSearchesData = data;
     const intro = $('manheim-saved-searches');
     intro.replaceChildren(element('p','muted','Cada linha é uma busca para você salvar no Manheim · As primeiras atendem mais clientes · Conta só quem entrou em contato · POR VALOR e POR ANO E MILHAGEM têm porcentagens separadas; o que está em revisão não entra no %'));
-    const root = $('buscas-saved-list');
-    if (root) root.replaceChildren();
-    if (!root) return;
+    // The ranking is drawn per mode in BUSCAR CARROS (each column) and, all together, in the box of
+    // ENVIAR OPÇÕES (#218 had moved it there only, which left the BUSCAR CARROS boxes empty).
+    const targets = [['buscas-valor-saved', 'VALOR'], ['buscas-carro-saved', 'CARRO'], ['buscas-saved-list', null]]
+      .map(([id, only]) => ({ root: $(id), only })).filter((target) => target.root);
+    targets.forEach(({ root, only }) => { root.replaceChildren(); if (only && !data.groups.some((group) => group.mode === only)) empty(root, 'Nenhuma busca ativa neste modo'); });
+    if (!targets.length) return;
     const mode='customers';
     const rankOf=(group)=>group.searches===null||group.searches===undefined?Infinity:group.searches;
     const groups=data.groups.slice().sort((a,b)=>(mode==='vehicle'?`${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`,'pt-BR'):mode==='recent'?(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)||rankOf(a)-rankOf(b)):rankOf(a)-rankOf(b)));
@@ -4419,8 +4422,7 @@
       else parts.push(`MMR ${formatMoney(group.mmrMinCents)} a ${formatMoney(group.mmrMaxCents)}`);
       return parts.join(' · ');
     };
-    groups.forEach((group) => {
-      if (!root) return;
+    targets.forEach(({ root, only }) => { groups.filter((group) => !only || group.mode === only).forEach((group) => {
       const line = element('article', 'saved-search-line');
       line.dataset.mode = group.mode;
       const text = element('span'); const title=searchTitle(group);
@@ -4434,7 +4436,7 @@
       const undo=element('button','quiet small','Desfazer');undo.type='button';undo.classList.toggle('hidden',!group.created);undo.addEventListener('click',()=>toggle.click());
       MCSAction.bind(toggle,()=>{const before=group.created;return{scope:line,optimistic:()=>{group.created=!before;toggle.textContent=group.created?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!group.created);return before;},commit:()=>request('/api/panel/manheim-searches',{method:'POST',body:JSON.stringify({key:group.key,created:group.created})}),rollback:()=>{group.created=before;toggle.textContent=before?'✓ Busca criada':'Já criei esta busca';undo.classList.toggle('hidden',!before);},onSuccess:()=>{if(savedSearchesData?.groups){const cached=savedSearchesData.groups.find((entry)=>entry.key===group.key);if(cached)cached.created=group.created;}},errorText:'Não consegui salvar, tente de novo'};});
       const controls=element('div','inline-actions');controls.append(toggle,undo);line.append(text,controls);root.append(line);
-    });
+    }); hydrateContexts(root); });
   }
 
   const manheimError = (code, details) => Object.assign(new Error(code), { code }, details || {});
