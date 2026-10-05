@@ -83,7 +83,9 @@ test('grupo aberto: a atualização automática não fecha o grupo e oferece "At
   page.on('request', (request) => { if (request.url().includes('/api/panel/records')) loads += 1; });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const group = page.locator('#buscas-carro .manheim-lead').first().locator('.offer-group[data-group="LANE"]');
+  // The options live in the ficha now: open it from the queue card.
+  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
+  const group = page.locator('#detail-panel .ficha-demand .offer-group[data-group="LANE"]').first();
   await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
   // Nothing open: the automatic refresh runs as before.
   const before = loads;

@@ -36,7 +36,7 @@ test('HOJE keeps contact metadata once for journeys and once for calculator orde
   const panel=read('painel/painel.js');
   const identity=panel.slice(panel.indexOf('function identityHeader'),panel.indexOf('function smsPrintMissing'));
   // orderCard saiu em 7c9c86f: o trecho de HOJE/ATENDIMENTO vai até a função seguinte.
-  const todayStart=panel.indexOf('function renderToday'),todayEnd=panel.indexOf('function renderQualification');
+  const todayStart=panel.indexOf('function renderToday'),todayEnd=panel.indexOf('function demandSummary');
   assert.ok(todayStart>0&&todayEnd>todayStart,'renderToday delimitado');
   const today=panel.slice(todayStart,todayEnd);
   const face=panel.slice(panel.indexOf('function caseFace'),panel.indexOf('function',panel.indexOf('function caseFace')+10));
@@ -51,11 +51,19 @@ test('HOJE keeps contact metadata once for journeys and once for calculator orde
   assert.doesNotMatch(panel,/\$\{item\.contactChannel\} CLICADO/);
 });
 
-test('Manheim journey cards rely on identityHeader for one contact metadata block',()=>{
+test('options queue cards show one compact identity block and never expand inline',()=>{
   const panel=read('painel/painel.js');
-  const group=panel.slice(panel.indexOf('function renderManheimGroup'),panel.indexOf('function renderManheimOrderGroup'));
-  assert.match(group,/identityHeader\(journey\)/);
-  assert.doesNotMatch(group,/contactMeta\(journey\)/);
+  const start=panel.indexOf('function renderQueueCard'),end=panel.indexOf('function v1ErrorText');
+  assert.ok(start>0&&end>start,'renderQueueCard delimitado');
+  const queue=panel.slice(start,end);
+  assert.match(queue,/identity-name/);
+  assert.match(queue,/phone-link/);
+  assert.match(queue,/'Ref ' \+ person\.ref/);
+  assert.doesNotMatch(queue,/contactMeta\(/);
+  assert.doesNotMatch(queue,/<details/);
+  // The old inline cards are gone: the selection lives in the ficha.
+  assert.doesNotMatch(panel,/function renderManheimGroup/);
+  assert.doesNotMatch(panel,/function renderManheimOrderGroup/);
 });
 
 test('direct-origin status is based on calculator refs shared by journey and journey_refs',()=>{

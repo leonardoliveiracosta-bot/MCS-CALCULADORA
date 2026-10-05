@@ -158,8 +158,10 @@ test('BUSCAS: ordem de exibição e opções carregadas por página, 10 de cada 
   const client = read('painel/painel.js');
   assert.match(client, /const MANHEIM_PAGE_ROWS = 10;/);
   assert.match(client, /'\/api\/panel\/manheim-options\?' \+ params\.toString\(\)/);
-  assert.match(client, /`Ver mais \(\$\{Math\.max\(demand\.matchCount - loaded\.length, 1\)\}\)`/);
-  assert.equal((client.match(/const table = lazyOptions\(card, demand, loaded,/g) || []).length, 2);
+  assert.match(client, /`Ver mais \(\$\{Math\.max\(filteredTotal - loadedCount, 1\)\}\)`/);
+  // The paged option lists moved from the tab cards into the ficha (offerGroup): nothing loads inline any more.
+  assert.doesNotMatch(client, /const table = lazyOptions\(card, demand, loaded,/);
+  assert.match(client, /function offerGroup\(demand, groupKey, count, state\)/);
   // The same order is kept by the database page (BATE, POR VALOR, lowest mileage, then id).
   assert.match(read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql'), /order by coalesce\(m\.sort_rank::integer, case m\.match_kind when 'BATE' then 0 when 'POR_VALOR' then 1 else 2 end\), coalesce\(m\.sort_miles,/);
 });

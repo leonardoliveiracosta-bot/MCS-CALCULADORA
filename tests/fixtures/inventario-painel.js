@@ -9,7 +9,7 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..', '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
-const SCRIPTS = ['painel/painel.js', 'painel/lead.js', 'painel/action.js', 'painel/manheim-upload.js', 'painel/notifications.js'];
+const SCRIPTS = ['painel/painel.js', 'painel/lead.js', 'painel/action.js', 'painel/manheim-upload.js'];
 const OUTPUT = path.join(__dirname, 'inventario-painel.json');
 
 function testFiles() {

@@ -8,9 +8,9 @@ const html=fs.readFileSync(path.join(root,'painel/index.html'),'utf8');
 const js=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
 const css=fs.readFileSync(path.join(root,'painel/tema-mcs.css'),'utf8');
 
-test('painel publica quatro abas (TODOS removida, conteúdo em "Mais" de ATENDER AGORA) e mantém os ids legados',()=>{
+test('painel publica seis abas (V1 e V2 do funil; TODOS removida, conteúdo em "Mais" de ATENDER AGORA) e mantém os ids legados',()=>{
   const tabs=[...html.matchAll(/class="tab(?: active)?"[^>]+data-view="([^"]+)"/g)].map((match)=>match[1]);
-  assert.deepEqual(tabs,['today','requests','searches','imports']);
+  assert.deepEqual(tabs,['today','v1','v2','requests','searches','imports']);
   // 4bf9aec (#163): as abas ATENDIMENTO e CLIENTES viraram ATENDER AGORA e TODOS.
   assert.match(html,/data-view="today"[^>]*>ATENDER AGORA/);
   // TODOS deixou de ser aba: a lista, a planilha, retomar conversas e pendências gerais ficam no bloco "Mais" de ATENDER AGORA.
@@ -25,7 +25,7 @@ test('painel publica quatro abas (TODOS removida, conteúdo em "Mais" de ATENDER
   assert.match(js,/if \(view === 'orders' \|\| view === 'entry'\) view = 'today';/);
   assert.match(js,/pedidos:'entry'/);
   assert.match(js,/#pedido\//);
-  for(const id of ['pending-panel','qualification-panel','records-panel','manheim-panel','pending-list','qualification-list','records-list','manheim-results'])assert.match(html,new RegExp(`id="${id}"`));
+  for(const id of ['pending-panel','pending-list','manheim-results'])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(js,/fichas:'today',qualificacao:'today',pendencias:'today',clientes:'today',todos:'today'/);
   assert.match(js,/manheim:'imports'.*buscas:'searches'/);
 });

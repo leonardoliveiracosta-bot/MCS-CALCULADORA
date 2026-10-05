@@ -358,21 +358,21 @@ test('27 · desfazer duas vezes é idempotente no servidor e sem migração resp
 });
 
 // ------------------------------------------------------------------ 33 Arquivo do Manheim primeiro
-test('33 · IMPORTAÇÕES tem o arquivo e os lotes; ENVIAR OPÇÕES e BUSCAR CARROS têm VALOR antes de CARRO, sem upload', () => {
+test('33 · IMPORTAÇÕES tem o arquivo e os lotes; ENVIAR OPÇÕES é fila única; BUSCAR CARROS tem VALOR antes de CARRO, sem upload', () => {
   const html = read('painel/index.html');
   const imports = html.slice(html.indexOf('<section id="imports-panel"'), html.indexOf('<section id="searches-panel"'));
-  const panel = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="manheim-panel"'));
+  const panel = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="detail-panel"'));
   const search = html.slice(html.indexOf('<section id="requests-panel"'), html.indexOf('<section id="imports-panel"'));
   assert.ok(imports.indexOf('id="manheim-files"') >= 0 && imports.indexOf('id="manheim-files"') < imports.indexOf('id="manheim-batches"'));
-  const order = ['id="buscas-valor"', 'id="buscas-carro"'].map((marker) => panel.indexOf(marker));
-  assert.ok(order.every((position) => position >= 0), JSON.stringify(order));
-  assert.deepEqual(order.slice().sort((a, b) => a - b), order);
+  // ENVIAR OPÇÕES virou fila única: sem colunas por modo, com busca na fila e lista única de buscas salvas.
+  assert.ok(panel.indexOf('id="options-queue"') >= 0);
+  assert.ok(panel.indexOf('id="options-queue-search"') >= 0);
+  assert.ok(panel.indexOf('id="buscas-saved-list"') >= 0);
+  assert.doesNotMatch(panel, /id="buscas-valor"|id="buscas-carro"/);
   const searchOrder = ['id="search-col-valor"', 'id="buscas-valor-saved"', 'id="search-col-carro"', 'id="buscas-carro-saved"', 'id="buscas-review"'].map((marker) => search.indexOf(marker));
   assert.ok(searchOrder.every((position) => position >= 0), JSON.stringify(searchOrder));
   assert.deepEqual(searchOrder.slice().sort((a, b) => a - b), searchOrder);
   assert.doesNotMatch(panel + search, /manheim-files|manheim-batches/);
-  assert.match(panel, /Calculate My Cost/);
-  assert.match(panel, /Find One For Me/);
   assert.match(search, /Calculate My Cost/);
   assert.match(search, /Find One For Me/);
 });

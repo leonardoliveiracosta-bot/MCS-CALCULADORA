@@ -206,48 +206,6 @@ const V2_LIST = (photoCountA) => ({ v2: [
   { vitrineId: uid(202), customerName: 'Bia', referenceCode: 'CMYH6', link: 'https://example.test/v2b', cars: [{ carId: uid(212), vehicle: 'BMW X3', photoCount: 0 }] }
 ] });
 
-test('FOTOS V2: destino e arquivos ficam fixos durante o envio; resultado incerto confere o gravado antes de reenviar', async ({ page }) => {
-  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
-  const state = { uploads: [], photoCountA: 0, mode: 'slow' };
-  await open(page, {
-    '/api/panel/vitrines': ({ json }) => json(V2_LIST(state.photoCountA)),
-    '/api/panel/vitrine-photos': async ({ url, json, route }) => {
-      state.uploads.push({ vitrineId: url.searchParams.get('vitrineId'), carId: url.searchParams.get('carId') });
-      if (state.mode === 'slow') { await new Promise((resolve) => setTimeout(resolve, 900)); state.photoCountA += 1; return json({ ok: true }); }
-      // uncertain: the photo IS saved but the answer never arrives
-      state.photoCountA += 1;
-      return route.abort('failed');
-    }
-  });
-  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="imports"]').click({ timeout: 30000 });
-  const select = page.locator('#import-v2-select');
-  await expect(select.locator('option')).toHaveCount(3, { timeout: 30000 });
-  await select.selectOption(`${uid(201)}|${uid(211)}`);
-  const file = (name) => ({ name, mimeType: 'image/png', buffer: PNG });
-  await page.locator('#import-v2-file').setInputFiles([file('a.png'), file('b.png')]);
-  await expect(page.locator('#import-v2-send')).toContainText('Enviar 2 foto(s)', { timeout: 30000 });
-  await page.locator('#import-v2-send').click();
-  await page.locator('.inline-confirm button', { hasText: 'Salvar fotos' }).click();
-  // while it uploads the destination and the files cannot be changed
-  await expect(select).toBeDisabled();
-  await expect(page.locator('#import-v2-file')).toBeDisabled();
-  await expect(page.locator('#import-v2-status')).toContainText('2 foto(s) enviada(s)', { timeout: 30000 });
-  expect(state.uploads).toEqual([{ vitrineId: uid(201), carId: uid(211) }, { vitrineId: uid(201), carId: uid(211) }]);
-  await expect(select).toBeEnabled();
-  // uncertain answer: 2 photos queued, the first one is saved but the answer is lost
-  state.mode = 'uncertain'; state.uploads.length = 0;
-  await select.selectOption(`${uid(201)}|${uid(211)}`);
-  await page.locator('#import-v2-file').setInputFiles([file('c.png'), file('d.png')]);
-  await expect(page.locator('#import-v2-send')).toContainText('Enviar 2 foto(s)', { timeout: 30000 });
-  await page.locator('#import-v2-send').click();
-  await page.locator('.inline-confirm button', { hasText: 'Salvar fotos' }).click();
-  await expect(page.locator('#import-v2-status')).toContainText('Conferido: 1 foto(s) já estavam gravadas', { timeout: 30000 });
-  await expect(page.locator('#import-v2-send')).toContainText('Enviar 1 foto(s)');
-  expect(state.uploads.length, 'só a primeira foi enviada antes da conferência').toBe(1);
-  expect(errors).toEqual([]);
-});
-
 test('ATENDIMENTO: recusa automática de sugestão tem "Desfazer recusa" visível (suggestion_restore)', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   let restored = null, rejected = [{ id: uid(70), phone: '+13055550000', suggestedRef: 'FMLNA', writtenRefs: ['WSR3X'], at: hoursAgo(1), sourceName: 'Ivan' }];

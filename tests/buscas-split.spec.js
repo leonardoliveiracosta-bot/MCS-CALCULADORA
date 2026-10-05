@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { asSummary, optionsPage, openAllOptions } = require('./fixtures/buscas-simulado');
+const { asSummary, optionsPage } = require('./fixtures/buscas-simulado');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
@@ -34,9 +34,9 @@ function manheimData(state) {
   const liveOld = [match('65000000-0000-4000-8000-000000000009', 'CARRO', 'BATE', 'VINOLD', { journey_id: JOURNEY })];
   const matches = state.undone ? liveOld : liveNew;
   const demands = [
-    { key: `journey:${JOURNEY}:VALOR`, mode: 'VALOR', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [], stage: 'SAVED', stageLabel: '💾 Busca salva no Manheim' },
-    { key: `journey:${JOURNEY}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5', trim: 'xDrive40i', yearMin: 2020, yearMax: 2025, minMiles: 50000, maxMiles: 90000 }], bidCents: null, issues: [], stage: 'MISSING', stageLabel: '🔍 Busca não salva no Manheim' },
-    { key: 'ref:VAAA2:VALOR', mode: 'VALOR', targetType: 'ORDER', journeyId: null, ref: 'VAAA2', name: 'Pedido Só Valor', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [] }
+    { key: `journey:${JOURNEY}:VALOR`, mode: 'VALOR', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', calcRef: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [], stage: 'SAVED', stageLabel: '💾 Busca salva no Manheim', matchCount: 2, offer: { lane: 1, offLane: 1, incomplete: 0, selected: 0, selectedIds: [], max: 10 } },
+    { key: `journey:${JOURNEY}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', calcRef: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5', trim: 'xDrive40i', yearMin: 2020, yearMax: 2025, minMiles: 50000, maxMiles: 90000 }], bidCents: null, issues: [], stage: 'MISSING', stageLabel: '🔍 Busca não salva no Manheim', matchCount: 1, offer: { lane: 1, offLane: 0, incomplete: 0, selected: 0, selectedIds: [], max: 10 } },
+    { key: 'ref:VAAA2:VALOR', mode: 'VALOR', targetType: 'ORDER', journeyId: null, ref: 'VAAA2', calcRef: 'VAAA2', name: 'Pedido Só Valor', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [], matchCount: 1, offer: { lane: 0, offLane: 1, incomplete: 0, selected: 0, selectedIds: [], max: 10 } }
   ];
   const count = (mode) => ({ demands: demands.filter((demand) => demand.mode === mode).length, served: new Set(matches.filter((item) => item.logical_mode === mode).map((item) => item.journey_id || item.calc_ref)).size, matches: matches.filter((item) => item.logical_mode === mode).length });
   return {
@@ -96,40 +96,46 @@ async function openBuscas(page, state, calls, extra = {}) {
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  await expect(page.locator('#buscas-valor .manheim-lead').first()).toBeVisible({ timeout: 30000 });
-  // The options of a demand are loaded when the operator opens it.
-  await openAllOptions(page);
+  // ENVIAR OPÇÕES is a queue now: one compact card per demand, nothing expands inline.
+  await expect(page.locator('#options-queue .options-queue-card').first()).toBeVisible({ timeout: 30000 });
 }
 
-test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à direita, mesma Ref separada', async ({ page }) => {
+test('19 · desktop: ENVIAR OPÇÕES é uma fila de cartões compactos, nada expande na lista', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 1000 });
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   const calls = [];
   await openBuscas(page, { undone: false }, calls);
-  // The import tools live in IMPORTAÇÕES now; OPÇÕES shows only the options.
+  // The import tools live in IMPORTAÇÕES now; OPÇÕES shows only the queue.
   await expect(page.locator('#manheim-drop-zone')).toBeHidden();
-  const [valor, carro] = await Promise.all(['#buscas-valor', '#buscas-carro'].map((selector) => page.locator(selector).boundingBox()));
-  expect(Math.abs(valor.y - carro.y)).toBeLessThan(2);
-  expect(valor.x).toBeLessThan(carro.x);
-  await expect(page.locator('#buscas-valor h2')).toContainText('Calculate My Cost');
-  await expect(page.locator('#buscas-carro h2')).toContainText('Find One For Me');
-  // The same person has one card per mode, each with its own criteria and stage.
-  const valorCard = page.locator('#buscas-valor .manheim-lead', { hasText: 'Cliente Dois Modos' });
-  const carroCard = page.locator('#buscas-carro .manheim-lead', { hasText: 'Cliente Dois Modos' });
-  const valorCriteria = valorCard.locator(':scope > p.demand-essential').first(), carroCriteria = carroCard.locator(':scope > p.demand-essential').first();
-  await expect(valorCriteria).toHaveText('BMW X5 · lance máximo US$ 50.000,00');
-  await expect(carroCriteria).toHaveText('BMW X5 xDrive40i · 2020 a 2025 · 50.000 a 90.000 milhas');
-  await expect(carroCard).not.toContainText('lance máximo');
-  await expect(carroCard).not.toContainText('cabe no lance');
-  await expect(valorCard).toContainText('Busca salva');
-  await expect(carroCard).toContainText('Busca não salva no Manheim');
-  // Ref only VALOR only on the VALOR side.
-  await expect(page.locator('#buscas-valor .manheim-lead', { hasText: 'Pedido Só Valor' })).toHaveCount(1);
-  await expect(page.locator('#buscas-carro .manheim-lead', { hasText: 'Pedido Só Valor' })).toHaveCount(0);
-  // Separate counters, one general total.
-  await expect(page.locator('#buscas-valor-counters [data-counter="demandas"] strong')).toHaveText('2');
-  await expect(page.locator('#buscas-carro-counters [data-counter="demandas"] strong')).toHaveText('1');
+  // Search at the top of the tab.
+  await expect(page.locator('#options-queue-search')).toBeVisible();
+  // One compact card per demand: the same person has one card per mode, each with its own criteria.
+  const cards = page.locator('#options-queue .options-queue-card');
+  await expect(cards).toHaveCount(3);
+  const valorCard = page.locator('#options-queue .options-queue-card', { hasText: 'lance máximo US$ 50.000,00' });
+  const carroCard = page.locator('#options-queue .options-queue-card', { hasText: 'xDrive40i' });
+  await expect(valorCard).toHaveCount(1);
+  await expect(carroCard).toHaveCount(1);
+  // The three blocks: who (name + Ref), what the client asked, the collapsed groups with counts.
+  await expect(cards.first()).toContainText('Cliente Dois Modos');
+  await expect(cards.first()).toContainText('Ref DCCC4');
+  await expect(cards.first()).toContainText('O que o cliente pediu');
+  await expect(cards.first()).toContainText(/em Lane\/Run|em Buy Now/);
+  // Footer: next step + one button; tapping the card opens the ficha (no inline expansion).
+  await expect(cards.first()).toContainText('Abrir ficha');
+  await expect(page.locator('#options-queue .manheim-table')).toHaveCount(0);
+  await expect(page.locator('#options-queue details')).toHaveCount(0);
+  // Ref-only VALOR order is in the queue too.
+  await expect(page.locator('#options-queue .options-queue-card', { hasText: 'Pedido Só Valor' })).toHaveCount(1);
+  // Queue counter and the general total.
+  await expect(page.locator('#options-queue-count')).toContainText('3 na fila');
   await expect(page.locator('#buscas-total')).toContainText('Total geral');
+  // The queue search filters by name, phone, Ref and car.
+  await page.locator('#options-queue-search').fill('xDrive40i');
+  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(1);
+  await page.locator('#options-queue-search').fill('DCCC4');
+  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(2);
+  await page.locator('#options-queue-search').fill('');
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'enviar-opcoes-desktop.png'), fullPage: true });
   // BUSCAR CARROS: one request per type in its column, the result apart from the work stage, and
   // "Quais buscas salvar no Manheim" under each column.
@@ -139,8 +145,8 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
   await expect(page.locator('#requests-valor .request-card')).toHaveCount(1);
   await expect(page.locator('#requests-carro .request-card')).toHaveCount(1);
   await expect(page.locator('#requests-carro .request-card')).toContainText(/opç(ão|ões) no lote/);
-  await expect(page.locator('#requests-carro .request-card')).toContainText('Andamento: 🔍 Busca não salva no Manheim');
-  await expect(page.locator('#requests-valor .request-card')).toContainText('Andamento: 💾 Busca salva no Manheim');
+  await expect(page.locator('#requests-carro .request-card')).toContainText('Salvar busca no Manheim');
+  await expect(page.locator('#requests-valor .request-card')).not.toContainText('Andamento:');
   await expect(page.locator('#requests-panel')).not.toContainText('Falta buscar');
   await expect(page.locator('#requests-totals')).toContainText('2 pedidos de 1 pessoa');
   await expect(page.locator('.tab[data-view="requests"] [data-count]')).toHaveText('2');
@@ -148,23 +154,26 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
   expect(Math.abs(colValor.width - colCarro.width)).toBeLessThan(2);
   expect(colValor.x).toBeLessThan(colCarro.x);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscar-carros-desktop.png'), fullPage: true });
-  // The result button opens the options of that request directly in ENVIAR OPÇÕES.
+  // The result button goes to the queue card in ENVIAR OPÇÕES; the options open in the ficha.
   await page.locator('#requests-carro .request-view-options').click();
   await expect(page.locator('#searches-panel')).toBeVisible();
-  await expect(page.locator(`#searches-panel [data-demand-key="journey:${JOURNEY}:CARRO"] .manheim-table`)).toBeVisible();
+  const target = page.locator(`#options-queue [data-demand-key="journey:${JOURNEY}:CARRO"]`);
+  await expect(target).toBeVisible();
+  await expect(target.locator('.manheim-table')).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscas-desktop.png'), fullPage: true });
   if (SHOTS) await page.locator('#manheim-results').screenshot({ path: path.join(SHOTS, 'buscas-mesma-pessoa.png') });
   expect(errors).toEqual([]);
 });
 
-test('20 · 390 px: VALOR em cima, CARRO embaixo, nada fora da tela e alvos de 44 px', async ({ page }) => {
+test('20 · 390 px: fila em coluna única, nada fora da tela e alvos de 44 px', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openBuscas(page, { undone: false }, []);
-  const [valor, carro] = await Promise.all(['#buscas-valor', '#buscas-carro'].map((selector) => page.locator(selector).boundingBox()));
-  expect(valor.y + valor.height).toBeLessThanOrEqual(carro.y + 1);
-  expect(valor.width).toBeGreaterThan(330);
-  expect(carro.width).toBeGreaterThan(330);
+  // One column: the cards stack vertically and fit the width.
+  const boxes = await page.locator('#options-queue .options-queue-card').evaluateAll((list) => list.map((card) => { const box = card.getBoundingClientRect(); return { y: box.y, height: box.height, width: box.width }; }));
+  expect(boxes.length).toBe(3);
+  expect(boxes[0].width).toBeGreaterThan(330);
+  expect(boxes[1].y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height - 1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   const small = await page.locator('#searches-panel button:visible').evaluateAll((list) => list.map((button) => ({ text: button.textContent.trim().slice(0, 30), height: button.getBoundingClientRect().height })).filter((item) => item.height < 44));
   expect(small).toEqual([]);
@@ -221,8 +230,9 @@ test('24-27 · lote com vários CSVs aparece como um lote; desfazer pede confirm
   // The previous batch is untouched and becomes the one in use.
   await expect(older).toContainText('Ativo · em uso');
   expect((await older.textContent()).replace('Ativo · em uso', 'Ativo')).toBe(olderBefore.replace('Ativo · em uso', 'Ativo'));
-  await expect(page.locator('#buscas-valor .manheim-lead')).toHaveCount(0);
-  await expect(page.locator('#buscas-carro .manheim-lead')).toHaveCount(1);
+  // The queue follows the active batch: only the CARRO demand still has cars.
+  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(1);
+  await expect(page.locator('#options-queue .options-queue-card', { hasText: 'xDrive40i' })).toHaveCount(1);
   expect(dialogs).toBe(0);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscas-desfeito.png'), fullPage: true });
 });

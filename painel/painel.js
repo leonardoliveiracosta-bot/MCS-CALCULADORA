@@ -21,10 +21,11 @@
   let senderAliases = [];
   let chatAliases = [];
   let todayItems = [];
-  let vitrineRequestCount = 0;
   let clientsData = { items: [], counts: {}, pending: {} };
   let todayRefFilter = localStorage.getItem('mcs_today_ref_filter') || 'all';
   let todayStatFilter = null;
+  // Real V1s sent (vitrines table): "Opções enviadas" counts these, never the manual mark.
+  let v1JourneySet = new Set(), v1TodayCount = 0;
   let pendingSituation = 'all';
   let pendingContinueTimer = null;
   let currentView = 'today';
@@ -32,7 +33,6 @@
   let manheimOrders = [];
   let manheimMatches = [];
   let savedSearchesData = null;
-  let reportView = 'today';
   let viewRequestVersion = 0;
   let detailRequestVersion = 0;
   let detailOrigin = null;
@@ -335,7 +335,7 @@
         if (!out.remaining || !out.synced) break;
       }
     } finally { optionsSyncRunning = false; }
-    if (synced && ['searches', 'manheim'].includes(currentView)) loadCurrent().catch(() => {});
+    if (synced && currentView === 'searches') loadCurrent().catch(() => {});
     return synced;
   }
   // Same GET already running: one request for everyone. A counter can reuse a fresh answer.
@@ -614,16 +614,16 @@
   }
 
   function renderLoading(view) {
-    const roots = { today: 'today-list', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches', manheim: 'manheim-summary', records: 'records-list' };
+    const roots = { today: 'today-list', v1: 'v1-list', v2: 'v2-list', clients: 'clients-list', pending: 'pending-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches' };
     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
   }
 
   // One function per area. ENTRADA (and the old PEDIDOS) is part of ATENDIMENTO now: an old link
   // or history entry opens ATENDIMENTO. Each area keeps its own position when you come back to it.
-  const VIEWS = ['today', 'requests', 'searches', 'imports', 'settings'];
+  const VIEWS = ['today', 'v1', 'v2', 'requests', 'searches', 'imports', 'settings'];
   // The old TODOS tab lives in the "Mais" block of ATENDER AGORA: it loads only while that block is open.
   const clientsOpen = () => currentView === 'today' && Boolean($('today-more')?.open);
-  const VIEW_LABELS = { today: 'ATENDER AGORA', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'TODOS', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
+  const VIEW_LABELS = { today: 'ATENDER AGORA', v1: 'V1', v2: 'V2', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'TODOS', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
   const viewScroll = new Map();
   async function switchPanel(view, options = {}) {
     if (view === 'orders' || view === 'entry') view = 'today';
@@ -636,7 +636,7 @@
     clearRecordDetail();
     currentDetail = null;
     if ($('detail-panel')) $('detail-panel').classList.add('hidden');
-    VIEWS.concat(['pending','qualification','manheim','records']).forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
+    VIEWS.concat(['pending']).forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
     $('page-title').textContent = VIEW_LABELS[view];
     // The active area is always evident (style and aria-current).
     document.querySelectorAll('[data-view]').forEach((button) => { const on = button.dataset.view === view; button.classList.toggle('active', on); if (on) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); });
@@ -833,15 +833,18 @@
     return item;
   }
   // Errors, files and prints are not contacts: they live in IMPORTAÇÕES, never in the contact groups.
-  function renderImportsReview(reviews) {
+  // One queue: the WhatsApp processing errors and the files/prints waiting for review share it.
+  let whatsappErrorRows = [], lastImportsReviews = null;
+  function paintImportsQueue() {
     const queue = $('imports-review-queue');
     if (!queue) return;
     queue.replaceChildren();
+    whatsappErrorRows.forEach((row) => queue.append(row));
     calcQueue.forEach((entry) => queue.append(calcQueueCard(entry)));
     printReviews.forEach((print) => queue.append(printReviewCard(print)));
     failedPrints.forEach((print) => queue.append(failedPrintCard(print)));
     if (printResolved.length) { const details = element('details', 'resolved-prints'); details.append(element('summary', '', `Prints já resolvidos nos últimos 14 dias (${printResolved.length})`)); const list = element('ul', ''); printResolved.forEach((print) => list.append(resolvedPrintRow(print))); details.append(list); queue.append(details); }
-    (reviews || []).forEach((review) => {
+    (lastImportsReviews || []).forEach((review) => {
       const item = document.createElement('article');
       item.className = 'queue-item';
       const title = document.createElement('strong');
@@ -854,12 +857,16 @@
     });
     paintImportsCount();
   }
+  function renderImportsReview(reviews) {
+    lastImportsReviews = reviews || [];
+    paintImportsQueue();
+  }
   function paintImportsCount() {
     // The tab badge counts files and prints waiting for review (the same number the counters compute);
-    // WhatsApp processing errors are listed here too, with their own retry, outside the badge.
-    const pending = $('imports-review-queue')?.childElementCount || 0;
-    $('imports-review-empty')?.classList.toggle('hidden', pending + ($('whatsapp-errors')?.childElementCount || 0) > 0);
-    setCount('imports', pending);
+    // WhatsApp processing errors share the queue, with their own retry, outside the badge.
+    const total = $('imports-review-queue')?.childElementCount || 0;
+    $('imports-review-empty')?.classList.toggle('hidden', total > 0);
+    setCount('imports', Math.max(0, total - whatsappErrorRows.length));
   }
   // Link / create / dismiss controls for a conversation or a file waiting for review (ENTRADA and IMPORTAÇÕES).
   function entryReviewControls(item,target,kind){
@@ -1098,17 +1105,19 @@
       ? 'Recebendo · último sinal há ' + ago(data.lastEventAt) : 'Sem sinal' + (data.lastEventAt ? ' há ' + ago(data.lastEventAt) : ' ainda');
     $('whatsapp-received').textContent = 'Última mensagem recebida há ' + ago(data.lastInboundAt);
     $('whatsapp-echo').textContent = 'Última mensagem enviada por você recebida há ' + ago(data.lastEchoAt);
-    const errors = $('whatsapp-errors'); errors.replaceChildren();
+    const errorRows = [];
     (data.errors || []).forEach((event) => {
       const row = element('div', 'queue-item');
       row.append(element('span', '', `Evento ${event.event_type} · ${event.status === 'ERROR' ? 'erro' : 'pendente'} · ${ago(event.received_at)}`));
       const retry = element('button', 'small', 'Reprocessar'); retry.type = 'button';
       MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent='Reprocessando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'reprocess',id:event.id})}),rollback:()=>{retry.textContent='Reprocessar';},refresh:()=>loadWhatsApp(),errorText:'Não consegui salvar, tente de novo'}));
-      row.append(retry); errors.append(row);
+      row.append(retry); errorRows.push(row);
     });
-    (data.ignored||[]).forEach((event)=>errors.append(element('div','queue-item',`ignorado: ${String(event.error_code||event.event_type||'campo desconhecido').replace(/^IGNORED:/,'')}`)));
+    (data.ignored||[]).forEach((event)=>errorRows.push(element('div','queue-item',`ignorado: ${String(event.error_code||event.event_type||'campo desconhecido').replace(/^IGNORED:/,'')}`)));
     const itemErrorLabel=(code)=>({HISTORY_DECLINED:'Histórico não compartilhado pelo WhatsApp',PHONE_INVALID:'Telefone inválido',PHONE_AMBIGUOUS:'Telefone ligado a mais de um contato',MESSAGE_CONTENT_INVALID:'Mensagem inválida',ITEM_PROCESSING_FAILED:'Falha ao gravar a mensagem',PROCESSING_INTERRUPTED:'Processamento interrompido'})[code]||'Falha ao processar este item';
-    (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const declined=event.error_code==='HISTORY_DECLINED';const retry=element('button','small',declined?'Dispensar':'Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent=declined?'Dispensando…':'Processando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:declined?'dismiss_item':'reprocess_item',id:event.id})}),rollback:()=>{retry.textContent=declined?'Dispensar':'Tentar de novo';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));row.append(retry);errors.append(row);});
+    (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const declined=event.error_code==='HISTORY_DECLINED';const retry=element('button','small',declined?'Dispensar':'Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent=declined?'Dispensar':'Reprocessando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:declined?'dismiss_item':'reprocess_item',id:event.id})}),rollback:()=>{retry.textContent=declined?'Dispensar':'Tentar de novo';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));row.append(retry);errorRows.push(row);});
+    whatsappErrorRows = errorRows;
+    paintImportsQueue();
     const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
     document.querySelectorAll('[data-decision-source="whatsapp"]').forEach((node) => node.remove());
     // Suggestions turned down on their own (the client wrote another Ref): each one can be brought back right here.
@@ -1817,7 +1826,7 @@
   }
 
   function renderFailure(view) {
-    const roots = { today: 'today-list', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches', manheim: 'manheim-summary', records: 'records-list' };
+    const roots = { today: 'today-list', v1: 'v1-list', v2: 'v2-list', clients: 'clients-list', pending: 'pending-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches' };
     const root = roots[view] && $(roots[view]);
     if (!root) return;
     // Nothing is shown as zero: the tab says it did not load and offers to try again.
@@ -1836,32 +1845,23 @@
     return data;
   }
   const searchButton = (label, handler, className = 'small') => { const control = element('button', className, label); control.type = 'button'; if (handler) control.addEventListener('click', (event) => { event.stopPropagation(); handler(); }); return control; };
-  // "Andamento" of one ficha and mode, with its actions (mark saved/sent, undo).
-  function searchStageLine(item, refresh) {
-    const box = element('div', 'search-stage-line');
-    box.dataset.mode = item.mode;
-    const label = element('span', 'search-stage ' + item.stage, `Andamento: ${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days === 1 ? '' : 's'}` : ''}`);
-    box.append(label);
-    if (item.alsoServes?.length) { const names = item.alsoServes.slice(0, 2).map((peer) => `${peer.name} (${peer.ref ? `Ref ${peer.ref}` : 'sem Ref'})`).join(' e '); box.append(element('span', 'muted', `A mesma busca no Manheim serve para: ${names}${item.alsoServes.length > 2 ? ` e mais ${item.alsoServes.length - 2}` : ''}`)); }
-    const actions = element('div', 'inline-actions');
-    const stageAction = (control, kind) => MCSAction.bind(control, () => { const previous = item.stage, next = kind === 'SAVED' ? 'SAVED' : 'SENT'; return { scope: box, optimistic: () => { item.stage = next; label.textContent = 'Andamento: ' + (next === 'SAVED' ? '💾 Busca salva no Manheim' : '📤 Opções enviadas'); return previous; }, commit: () => request('/api/panel/searches', { method: 'POST', body: JSON.stringify({ action: 'mark', journeyId: item.journeyId, kind, mode: item.mode }) }), rollback: (value) => { item.stage = value; label.textContent = 'Andamento: ' + item.stageLabel; }, refresh, errorText: 'Não consegui salvar, tente de novo' }; });
-    if (item.stage === 'MISSING') { const saved = searchButton('💾 Salvei a busca no Manheim', null); stageAction(saved, 'SAVED'); actions.append(saved); }
-    if (item.stage !== 'SENT') { const sent = searchButton('📤 Enviei opções ao cliente', null, 'quiet small'); stageAction(sent, 'SENT'); actions.append(sent); }
-    if (item.stage !== 'MISSING') {
-      const kind = item.stage === 'SENT' ? 'SENT' : 'SAVED', undo = searchButton('Desfazer', null, 'quiet small');
-      if (item.stageSource === 'MARK') MCSAction.bind(undo, () => ({ scope: box, optimistic: () => { undo.textContent = 'Desfazendo…'; }, commit: () => request('/api/panel/searches', { method: 'POST', body: JSON.stringify({ action: 'undo', journeyId: item.journeyId, kind, mode: item.mode }) }), rollback: () => { undo.textContent = 'Desfazer'; }, refresh, errorText: 'Não consegui desfazer, tente de novo' }));
-      else undo.addEventListener('click', (event) => { event.stopPropagation(); MCSAction.feedback(box, item.stageSource === 'MANHEIM' ? 'Esta busca foi marcada em “Quais buscas salvar”, desfaça lá' : 'As opções foram registradas pela ficha do cliente, desfaça na ficha', 'error', 'search-origin'); });
-      actions.append(undo);
-    }
-    box.append(actions);
-    return box;
+  // "Salvar busca no Manheim": the one manual action that stays, on the BUSCAR CARROS card
+  // where it resolves. The "Andamento" line and the "Enviei opções" mark are gone: the V1/V2
+  // tabs track the funnel now.
+  function saveSearchButton(item, refresh) {
+    const saved = searchButton('💾 Salvar busca no Manheim', null);
+    MCSAction.bind(saved, () => ({ scope: saved, optimistic: () => { saved.textContent = 'Salvando…'; },
+      commit: () => request('/api/panel/searches', { method: 'POST', body: JSON.stringify({ action: 'mark', journeyId: item.journeyId, kind: 'SAVED', mode: item.mode }) }),
+      rollback: () => { saved.textContent = '💾 Salvar busca no Manheim'; }, refresh, errorText: 'Não consegui salvar, tente de novo' }));
+    return saved;
   }
   // A ficha and mode with a work stage but no request on the list (kept visible, never lost).
   function searchStageCard(item, refresh) {
     const card = element('article', 'item-card search-card'); card.dataset.mode = item.mode;
     const head = element('div', 'item-head');
     head.append(element('strong', 'identity-name', item.name), phoneNode({ phones: item.phone ? [{ phone_e164: item.phone, is_primary: true }] : [] }), element('span', 'muted', item.ref ? `Ref ${item.ref}` : 'sem Ref'));
-    card.append(head, element('strong', '', item.exactSearch), searchStageLine(item, refresh));
+    card.append(head, element('strong', '', item.exactSearch));
+    if (item.stage === 'MISSING') card.append(saveSearchButton(item, refresh));
     const open = searchButton('Abrir ficha', () => openDetail('ficha', item.journeyId), 'quiet small'); card.append(open);
     return card;
   }
@@ -1877,20 +1877,18 @@
   async function openOptionsCard(demandKey, context = {}) {
     await switchPanel('searches');
     try { await loadCurrent('searches', viewRequestVersion); } catch (_) {}
-    const card = demandKey ? document.querySelector(`#searches-panel [data-demand-key="${CSS.escape(demandKey)}"]`) : null;
+    // The queue never expands inline: the card is the way to the ficha, where the options live now.
+    const card = demandKey ? document.querySelector(`#options-queue [data-demand-key="${CSS.escape(demandKey)}"]`) : null;
     if (card) {
-      const live = (manheimData && manheimData.demands || []).find((demand) => demand.key === demandKey);
+      const live = optionsQueueData.find(({ demand }) => demand.key === demandKey);
       const changed = [];
-      if (context.criteriaHash && live && !live.reactivation && live.criteriaHash && context.criteriaHash !== live.criteriaHash) changed.push('Os critérios deste pedido mudaram desde o resultado que você abriu · As opções abaixo foram recalculadas com o critério atual');
-      if (context.uploadId && manheimData && manheimData.upload && manheimData.upload.id && context.uploadId !== manheimData.upload.id) changed.push('O lote ativo mudou desde o resultado que você abriu · As opções abaixo são as do lote atual');
+      if (context.criteriaHash && live && live.demand.criteriaHash && context.criteriaHash !== live.demand.criteriaHash) changed.push('Os critérios deste pedido mudaram desde o resultado que você abriu · As opções na ficha foram recalculadas com o critério atual');
+      if (context.uploadId && manheimData && manheimData.upload && manheimData.upload.id && context.uploadId !== manheimData.upload.id) changed.push('O lote ativo mudou desde o resultado que você abriu · As opções na ficha são as do lote atual');
       changed.forEach((text) => { const note = element('p', 'warning options-updated', text); card.prepend(note); });
-      // The options of that request open right away (the same button as "Ver opções" on the card).
-      const toggle = card.querySelector('.manheim-options-toggle');
-      if (toggle && !toggle.disabled && toggle.textContent.startsWith('Ver opções')) toggle.click();
       card.scrollIntoView({ behavior: 'smooth', block: 'start' }); card.classList.add('card-focus'); setTimeout(() => card.classList.remove('card-focus'), 4000); return true;
     }
     const summary = $('manheim-summary');
-    if (summary) { const note = element('p', 'warning options-missing', 'Este pedido não tem carros do lote ativo neste tipo de busca · Veja o resultado dele em BUSCAR CARROS'); summary.after(note); setTimeout(() => note.remove(), 8000); }
+    if (summary) { const note = element('p', 'warning options-missing', 'Este pedido não está na fila · Ele pode já ter recebido a V1 (veja as abas V1 e V2) ou não ter carros no lote ativo'); summary.after(note); setTimeout(() => note.remove(), 8000); }
     return false;
   }
   async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
@@ -1940,30 +1938,33 @@
       // Abertura rápida: one call brings the five lists (one shared read in the database, message previews only, and
       // only what changed since the last load); if it fails, the five lists are read one by one as before.
       const viaBoot=bootLoad('main',{sort:$('today-sort')?.value||''}).then(async(parts)=>{if(!parts.today)throw new Error('BOOT_INCOMPLETE');
-        primeBoot({[todayPath()]:parts.today,'/api/panel/vitrine-requests':parts.vitrine,'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
+        primeBoot({[todayPath()]:parts.today,'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
         const entryData=parts.entry?await loadQueue(false,parts.entry).catch(()=>null):null;
-        return [parts.today,parts.vitrine||null,null,entryData,parts.triage||null,parts.whatsapp||null];});
-      const pending=viaBoot.catch(()=>Promise.all([fresh(todayPath()),fresh('/api/panel/vitrine-requests').catch(()=>null),null,
+        return [parts.today,null,null,entryData,parts.triage||null,parts.whatsapp||null];});
+      const pending=viaBoot.catch(()=>Promise.all([fresh(todayPath()),null,null,
         loadQueue(false).catch(()=>null),fresh('/api/panel/triage').catch(()=>null),fresh('/api/panel/whatsapp').catch(()=>null)]));
       loadWeekly().catch(()=>null);
       let freshArrived=false;pending.then(()=>{freshArrived=true;},()=>{});
-      if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.vitrine?.body || null, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
-      const [data,vitrineData,,entryData,triageData,whatsappData]=await pending;
+      if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
+      const [data,,entryData,triageData,whatsappData]=await pending;
       if (!current()) return;
-      applyAttend(data, vitrineData, entryData, triageData, whatsappData, null);
+      applyAttend(data, entryData, triageData, whatsappData, null);
       // The tab counters' heavier lists (BUSCAR CARROS, CLIENTES, ENVIAR OPÇÕES) come in a second single call, then the counters.
       countersBoot=bootLoad('counters',{}).then((parts)=>{primeBoot({'/api/panel/pesquisas':parts.pesquisas,'/api/panel/records?view=manheim':parts.manheim});}).catch(()=>{});
+      // The real V1s (vitrines table) arrive after the queue is on screen; the
+      // "Opções enviadas" stat counts these and redraws when they arrive.
+      sharedGet('/api/panel/vitrine-funnel?summary=1', 60000).then((summary)=>{if(!current())return;v1JourneySet=new Set(summary.v1JourneyIds||[]);v1TodayCount=Number(summary.v1Today)||0;renderToday(todayItems,true);}).catch(()=>{});
       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
       (countersBoot||Promise.resolve()).then(()=>sharedGet('/api/panel/pesquisas', 30000)).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;renderToday(todayItems,true);})
         // A failed source is said on screen and the last good list stays; "Completar pedido" never turns into an empty count.
         .catch(()=>{if(!current())return;attendData.incompleteFailed=true;const note=$('triage-state');if(note&&!note.textContent.includes('pedidos incompletos'))note.textContent=[note.textContent,'Não consegui carregar os pedidos incompletos agora · Completar pedido mostra o último valor conhecido'].filter(Boolean).join(' · ');renderToday(todayItems,true);});
       return;
     }
-    if (view === 'qualification') {
-      const data = await request('/api/panel/qualification?sort='+encodeURIComponent($('qualification-sort').value),viewFetch());
+    if (view === 'v1' || view === 'v2') {
+      const data = await request('/api/panel/vitrine-funnel', viewFetch());
       if (!current()) return;
-      updateMeta(data.meta);
-      return renderQualification(data.items || []);
+      updateMeta(data.meta);renderVitrineFunnel(data, view);
+      return;
     }
     if (view === 'searches') {
       const data=await request('/api/panel/records?view=manheim',viewFetch());
@@ -1980,7 +1981,6 @@
       loadQueue(false).catch(() => {});
       // WhatsApp processing errors are listed in IMPORTAÇÕES too.
       loadWhatsApp().catch(() => {});
-      loadV2Photos().catch(() => {});
       const data = await request('/api/panel/records?view=manheim', viewFetch());
       if (!current()) return;
       updateMeta(data.meta);renderManheim(data);return;
@@ -1997,18 +1997,6 @@
       renderSavedSearches().catch(() => { $('manheim-saved-searches').textContent = 'Não foi possível carregar as buscas sugeridas'; });
       sharedGet('/api/panel/records?view=manheim', 60000).then((manheim) => { if (!current()) return; renderReview(manheim.review || []); renderRequestReview(requestColumnsOf(requestsData).review); }).catch(() => {});
       return;
-    }
-    if (view === 'manheim') {
-      const data = await request('/api/panel/records?view=manheim',viewFetch());
-      if (!current()) return;
-      updateMeta(data.meta);
-      return renderManheim(data);
-    }
-    if (view === 'records') {
-      const data = await request('/api/panel/records?sort='+encodeURIComponent($('records-sort').value),viewFetch());
-      if (!current()) return;
-      updateMeta(data.meta);
-      return renderRecords(data.items || []);
     }
   }
 
@@ -2031,18 +2019,17 @@
       sharedGet('/api/panel/entry', 10000),
       Promise.resolve(null),
       Promise.resolve(null),
-      sharedGet('/api/panel/vitrine-requests', 10000),
       sharedGet('/api/panel/triage', 10000),
       sharedGet('/api/panel/whatsapp', 10000),
       sharedGet('/api/panel/pesquisas', 60000),
       sharedGet('/api/panel/records?view=manheim', 60000)
     ]);
-    const [today, entry, , , vitrineData, triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const [today, entry, , , triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     // One failing counter never touches the others; it keeps its last confirmed number.
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
     // ATENDIMENTO: the cases that depend on you, from the same model as its chips and list.
-    if (today && entry && vitrineData && triageData && whatsappData) {
-      const model = MCSAttend.model({ todayItems: today.items || [], decisions: withoutExcluded(today.items, attendDecisions({ entry, triage: triageData, whatsapp: whatsappData, vitrine: vitrineData }), new Set(today.discardedJourneys || [])), incomplete: [] });
+    if (today && entry && triageData && whatsappData) {
+      const model = MCSAttend.model({ todayItems: today.items || [], decisions: withoutExcluded(today.items, attendDecisions({ entry, triage: triageData, whatsapp: whatsappData }), new Set(today.discardedJourneys || [])), incomplete: [] });
       setCount('today', model.counts.depende);
     } else setCountUnknown('today');
     count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length + (data.calcQueue || []).length);
@@ -2259,7 +2246,7 @@
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest, isCurrent: () => requestVersion === detailRequestVersion,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
-        actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
+        actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOptions, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
       // Opened to reply: the conversation comes into view (HOJE "Responder").
@@ -2279,177 +2266,167 @@
 
 
 
-  /* ===== IMPORTAÇÕES · Fotos da V2: acrescenta fotos ao carro de uma V2 que já existe ===== */
-  // Only adds photos (same route and limits as Montar V2). It never creates, publishes or sends a V2.
-  // gen changes whenever the destination changes or the queue is cleared: an old resize, upload or list answer is dropped.
-  const v2Photos={list:[],photos:[],busy:false,gen:0,loadSeq:0};
-  const v2Target=()=>{const [vitrineId,carId]=($('import-v2-select')?.value||'').split('|');const v2=v2Photos.list.find((item)=>item.vitrineId===vitrineId);const car=v2?.cars.find((item)=>item.carId===carId);return v2&&car?{v2,car}:null;};
-  function paintV2Photos(){
-    const thumbs=$('import-v2-thumbs'),target=v2Target(),send=$('import-v2-send');if(!thumbs)return;
-    $('import-v2-body')?.classList.toggle('hidden',!target);
-    thumbs.replaceChildren();
-    v2Photos.photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.disabled=v2Photos.busy;remove.addEventListener('click',()=>{if(v2Photos.busy)return;URL.revokeObjectURL(photo.url);v2Photos.photos.splice(index,1);paintV2Photos();});item.append(img,remove);thumbs.append(item);});
-    if(send){send.disabled=v2Photos.busy||!target||!v2Photos.photos.length;send.textContent=v2Photos.photos.length?`Enviar ${v2Photos.photos.length} foto(s)`:'Enviar fotos';}
-    ['import-v2-select','import-v2-file'].forEach((id)=>{const control=$(id);if(control)control.disabled=v2Photos.busy;});
-    $('import-v2-drop')?.classList.toggle('disabled',v2Photos.busy);
-  }
-  async function loadV2Photos(){
-    const select=$('import-v2-select');if(!select)return;
-    const keep=select.value;
-    const seq=++v2Photos.loadSeq;
-    let data;try{data=await request('/api/panel/vitrines',{method:'GET'});}catch(_){if(seq!==v2Photos.loadSeq)return;select.replaceChildren(new Option('Não consegui carregar as V2',''));paintV2Photos();return;}
-    if(seq!==v2Photos.loadSeq)return;
-    v2Photos.list=data.v2||[];
-    const options=[new Option(v2Photos.list.length?'Escolha a V2':'Nenhuma V2 aberta','')];
-    for(const v2 of v2Photos.list)for(const car of v2.cars){const who=[v2.customerName,v2.referenceCode].filter(Boolean).join(' · ')||'Cliente sem nome';options.push(new Option(`${who} · ${car.vehicle} · ${car.photoCount}/${V2_MAX_PHOTOS} fotos`,v2.vitrineId+'|'+car.carId));}
-    select.replaceChildren(...options);
-    if([...select.options].some((option)=>option.value===keep))select.value=keep;
-    paintV2Photos();
-  }
-  async function addV2Photos(files){
-    // The destination and the queue generation are fixed when the files are chosen: a resize that finishes after the
-    // destination changed (or while sending) is dropped, never added to another car.
-    const target=v2Target(),status=$('import-v2-status'),gen=v2Photos.gen;if(!target||v2Photos.busy)return;
-    const room=V2_MAX_PHOTOS-target.car.photoCount-v2Photos.photos.length;
-    let taken=0;
-    for(const file of [...files]){
-      if(taken>=room){status.textContent=`Esta V2 aceita só mais ${Math.max(0,V2_MAX_PHOTOS-target.car.photoCount)} foto(s)`;break;}
-      try{
-        const blob=await resizePhoto(file);
-        const current=v2Target();
-        if(gen!==v2Photos.gen||v2Photos.busy||!current||current.car.carId!==target.car.carId||current.v2.vitrineId!==target.v2.vitrineId)return;
-        v2Photos.photos.push({blob,url:URL.createObjectURL(blob)});taken++;
-      }catch(error){if(gen!==v2Photos.gen)return;status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':error.message==='NOT_IMAGE'?'Um arquivo não é imagem':'Não consegui preparar uma foto';}
-    }
-    if(gen===v2Photos.gen)paintV2Photos();
-  }
-  function bindV2Photos(){
-    const select=$('import-v2-select'),input=$('import-v2-file'),drop=$('import-v2-drop'),send=$('import-v2-send'),status=$('import-v2-status');if(!select)return;
-    select.addEventListener('change',()=>{v2Photos.gen+=1;v2Photos.photos.forEach((photo)=>URL.revokeObjectURL(photo.url));v2Photos.photos=[];const target=v2Target();status.textContent=target&&target.car.photoCount>=V2_MAX_PHOTOS?'Esta V2 já tem 12 fotos':'';paintV2Photos();});
-    input.addEventListener('change',()=>{addV2Photos(input.files);input.value='';});
-    drop.addEventListener('dragover',(event)=>{event.preventDefault();drop.classList.add('over');});
-    drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
-    drop.addEventListener('drop',(event)=>{event.preventDefault();drop.classList.remove('over');addV2Photos(event.dataTransfer.files);});
-    $('import-v2-open').addEventListener('click',()=>{const target=v2Target();if(target)window.open(target.v2.link,'_blank','noopener');});
-    send.addEventListener('click',async()=>{
-      const target=v2Target();if(!target||v2Photos.busy||send.parentElement.parentElement.querySelector('.inline-confirm'))return;
-      // The V2 link already went to the customer: the photos show up there as soon as they are saved.
-      const count=v2Photos.photos.length;
-      if(!(await askInline(send.parentElement,`${count} foto(s) vão aparecer imediatamente no link da V2 que o cliente já recebeu · Salvar mesmo assim?`,'Salvar fotos')))return;
-      const chosen=v2Target();if(!chosen||chosen.car.carId!==target.car.carId||!v2Photos.photos.length||v2Photos.busy)return;
-      // Destination and files are fixed here, for the whole operation: nothing chosen later changes what is sent or where.
-      const dest={vitrineId:target.v2.vitrineId,carId:target.car.carId},before=target.car.photoCount,gen=v2Photos.gen,queue=v2Photos.photos.slice();
-      v2Photos.busy=true;paintV2Photos();let sent=0,uncertain=false;
-      const settle=(photo)=>{const at=v2Photos.photos.indexOf(photo);if(at>=0)v2Photos.photos.splice(at,1);URL.revokeObjectURL(photo.url);};
-      try{
-        for(const photo of queue){
-          if(gen!==v2Photos.gen)break;
-          if(!v2Photos.photos.includes(photo))continue;
-          status.textContent=`Enviando foto ${sent+1} de ${queue.length}…`;
-          await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(dest.vitrineId)+'&carId='+encodeURIComponent(dest.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photo.blob,timeoutMs:60000});
-          settle(photo);sent+=1;
-        }
-        status.textContent=`${sent} foto(s) enviada(s) para esta V2`;
-      }catch(error){
-        uncertain=error.code==='REQUEST_TIMEOUT'||error.code==='NETWORK_ERROR';
-        status.textContent=(error.code==='PHOTO_LIMIT_REACHED'?'Esta V2 chegou a 12 fotos':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':uncertain?'A resposta não chegou; conferindo o que foi gravado antes de reenviar':'Não consegui enviar a foto')+(sent?` · ${sent} já enviada(s), as outras continuam aqui`:'');
-      }
-      v2Photos.busy=false;
-      await loadV2Photos();
-      // An uncertain answer: the car's photo count says what was really saved. The photos that already got there leave the queue,
-      // so only the files that did not arrive are sent again.
-      if(uncertain&&gen===v2Photos.gen){
-        const car=(v2Photos.list.find((item)=>item.vitrineId===dest.vitrineId)?.cars||[]).find((item)=>item.carId===dest.carId);
-        const saved=car?Math.max(0,car.photoCount-before-sent):0;
-        for(let index=0;index<saved&&v2Photos.photos.length;index+=1)settle(v2Photos.photos[0]);
-        if(!car)status.textContent='Não consegui conferir o que foi gravado agora · Nada foi reenviado; atualize a página antes de tentar de novo';
-        else status.textContent=saved?`Conferido: ${saved} foto(s) já estavam gravadas e saíram da fila · faltam ${v2Photos.photos.length}`:`Conferido: nada além das ${sent} enviada(s) foi gravado · faltam ${v2Photos.photos.length}`;
-        paintV2Photos();
-      }
-    });
-  }
-  bindV2Photos();
 
-  /* ===== Montar V2: vitrine nova, so com o carro pedido, ligada a V1 ===== */
+  /* ===== V1/V2: o funil da vitrine em abas proprias ===== */
   const V2_MAX_PHOTOS=12,V2_MAX_SIDE=1600,V2_MAX_BYTES=5*1024*1024;
   function resizePhoto(file){return new Promise((resolve,reject)=>{if(!/^image\//.test(file.type||'')){reject(Error('NOT_IMAGE'));return;}const url=URL.createObjectURL(file),image=new Image();image.onload=()=>{const scale=Math.min(1,V2_MAX_SIDE/Math.max(image.naturalWidth,image.naturalHeight));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);canvas.toBlob((blob)=>{if(!blob){reject(Error('RESIZE_FAILED'));return;}if(blob.size>V2_MAX_BYTES){reject(Error('TOO_LARGE'));return;}resolve(blob);},'image/jpeg',0.85);};image.onerror=()=>{URL.revokeObjectURL(url);reject(Error('NOT_IMAGE'));};image.src=url;});}
   const dollarsText=(cents)=>cents?String(Math.round(Number(cents)/100)):'';
-  function openV2Builder(request,card){
+  // A tap alone never creates a vitrine_requests row, and the V2 needs one: the row is created
+  // when "Montar V2" is tapped, then the builder opens.
+  async function requestIdFor(item){
+    if(item.requestId)return item.requestId;
+    const out=await request('/api/panel/vitrine-funnel',{method:'POST',body:JSON.stringify({action:'ensure_request',vitrineId:item.vitrineId,vitrineCarId:item.vitrineCarId})});
+    item.requestId=out.requestId;return out.requestId;
+  }
+  function openV2Builder(item,card){
     const existing=card.querySelector('.v2-builder');if(existing){existing.remove();return;}
     const box=element('section','v2-builder'),photos=[];
-    box.append(element('h4','',request.car||'Carro'));
+    box.append(element('h4','',item.car||'Carro'));
     const status=element('p','muted v2-status','');
     const drop=element('label','v2-drop','Arraste as fotos aqui ou toque para escolher · até 12 · a primeira é a capa');
     const input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.className='visually-hidden';drop.append(input);
     const thumbs=element('div','v2-thumbs');
-    const paint=()=>{thumbs.replaceChildren();photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.addEventListener('click',()=>{URL.revokeObjectURL(photo.url);photos.splice(index,1);paint();});item.append(img,remove);if(index===0)item.append(element('span','v2-cover','Capa'));thumbs.append(item);});};
+    const paint=()=>{thumbs.replaceChildren();photos.forEach((photo,index)=>{const item2=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.addEventListener('click',()=>{URL.revokeObjectURL(photo.url);photos.splice(index,1);paint();});item2.append(img,remove);if(index===0)item2.append(element('span','v2-cover','Capa'));thumbs.append(item2);});};
     const add=async(files)=>{for(const file of [...files]){if(photos.length>=V2_MAX_PHOTOS){status.textContent='Máximo de 12 fotos';break;}try{const blob=await resizePhoto(file);photos.push({blob,url:URL.createObjectURL(blob)});}catch(error){status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':/\.hei[cf]$/i.test(file.name||'')||/hei[cf]/i.test(file.type||'')?'Foto HEIC não abriu neste navegador · Use JPEG ou PNG':'Um dos arquivos não é uma imagem';}}paint();};
     input.addEventListener('change',()=>{add(input.files);input.value='';});
     drop.addEventListener('dragover',(event)=>{event.preventDefault();drop.classList.add('over');});
     drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
     drop.addEventListener('drop',(event)=>{event.preventDefault();drop.classList.remove('over');add(event.dataTransfer.files);});
-    const limitLabel=element('label','','Limite do cliente (US$) · em branco esconde o bloco');const limit=element('input');limit.type='text';limit.inputMode='numeric';limit.value=dollarsText(request.budgetCents);limitLabel.append(limit);
+    const limitLabel=element('label','','Limite do cliente (US$) · em branco esconde o bloco');const limit=element('input');limit.type='text';limit.inputMode='numeric';limit.value=dollarsText(item.budgetCents);limitLabel.append(limit);
     const noteLabel=element('label','','Nota (opcional)');const note=element('textarea');note.rows=2;note.maxLength=1200;noteLabel.append(note);
-    const generate=element('button','small','Gerar link da V2');generate.type='button';
-    const result=element('div','inline-actions v2-result hidden');
+    const messageLabel=element('label','','Mensagem do WhatsApp · revise antes de enviar');const messageInput=element('textarea');messageInput.rows=3;messageInput.maxLength=600;messageInput.value=`${item.name||'Hi'}, here's the car you asked to see`;messageLabel.append(messageInput);
+    const send=element('button','small',item.phone?'Criar V2 e abrir no WhatsApp':'Criar V2 e copiar mensagem');send.type='button';
+    // The AI pre-fills the note and the message; any failure keeps the defaults above.
+    status.textContent='Preparando…';
+    request('/api/panel/v2-draft',{method:'POST',body:JSON.stringify({requestId:item.requestId})}).then((draft)=>{if(draft&&draft.note)note.value=draft.note;if(draft&&draft.message)messageInput.value=draft.message;status.textContent='';}).catch(()=>{status.textContent='';});
     // A22: a retry reuses the same V2 (server side) and only sends the photos that did not go yet
     const sent={vitrineId:null,blobs:new Set()};
-    generate.addEventListener('click',async()=>{
-      generate.disabled=true;status.textContent='Criando a V2…';
+    send.addEventListener('click',async()=>{
+      send.disabled=true;status.textContent='Criando a V2…';
       // B4: the typed amount goes as text; the server reads "20,000.50", "25k" and "US$ 25.000"
       const typedLimit=limit.value.trim();
       try{
-        const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({requestId:request.id,customerLimitCents:typedLimit||null,noteText:note.value.trim()||null})});
+        const created=await request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({requestId:item.requestId,customerLimitCents:typedLimit||null,noteText:note.value.trim()||null})});
         if(sent.vitrineId!==created.vitrineId){sent.vitrineId=created.vitrineId;sent.blobs=new Set();}
         for(let index=0;index<photos.length;index++){if(sent.blobs.has(photos[index].blob))continue;status.textContent=`Enviando foto ${index+1} de ${photos.length}…`;await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(created.vitrineId)+'&carId='+encodeURIComponent(created.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photos[index].blob});sent.blobs.add(photos[index].blob);}
-        const link=location.origin+created.link,message=`${request.name}, here's the car you asked to see\n${link}`;
-        status.textContent='V2 pronta';result.replaceChildren();
-        const view=element('button','quiet small','Ver como o cliente vê');view.type='button';view.addEventListener('click',()=>window.open(created.link,'_blank','noopener'));
-        const copyText=async(text,done)=>{try{await navigator.clipboard.writeText(text);status.textContent=done;}catch(_){status.textContent=`Não consegui copiar · Link: ${link}`;}};
-        const copyLink=element('button','quiet small','Copiar link');copyLink.type='button';copyLink.addEventListener('click',()=>copyText(link,'Link copiado'));
-        const copyMessage=element('button','small','Copiar mensagem com link');copyMessage.type='button';copyMessage.addEventListener('click',()=>copyText(message,'Mensagem copiada'));
-        result.append(view,copyLink,copyMessage);result.classList.remove('hidden');
-      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='MANHEIM_AUDIT_PENDING'?'A conferência deste pedido ainda não liberou a V2':error.code==='VITRINE_SOURCE_MISSING'||error.code==='MANHEIM_MATCH_WITHOUT_MMR'?'O carro original não tem MMR confirmado, a V2 não pode ser montada':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido · Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';generate.disabled=false;}
+        const link=location.origin+created.link,text=`${messageInput.value.trim()}\n${link}`;
+        if(item.phone){
+          const href='https://wa.me/'+String(item.phone).replace(/\D/g,'')+'?text='+encodeURIComponent(text);
+          if(window.MCSWaLink)window.MCSWaLink.open(href);else window.open(href,'_blank','noopener');
+          status.textContent='V2 pronta · conversa aberta no WhatsApp';
+        }else{
+          try{await navigator.clipboard.writeText(text);status.textContent='V2 pronta · mensagem copiada (sem telefone para abrir a conversa)';}
+          catch(_){status.textContent='V2 pronta · não consegui copiar · '+link;}
+        }
+        loadCurrent('v1',viewRequestVersion).catch(()=>{});refreshCounters().catch(()=>{});
+      }catch(error){status.textContent=error.code==='VITRINE_REQUEST_TREATED'?'Este pedido já foi tratado':error.code==='MANHEIM_AUDIT_PENDING'?'A conferência deste pedido ainda não liberou a V2':error.code==='VITRINE_SOURCE_MISSING'||error.code==='MANHEIM_MATCH_WITHOUT_MMR'?'O carro original não tem MMR confirmado, a V2 não pode ser montada':error.code==='VITRINE_LIMIT_INVALID'?'Limite inválido · Use um valor entre US$ 1,000 e US$ 10,000,000, ou deixe em branco':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':sent.blobs.size?`Parei na foto ${sent.blobs.size+1}. Tente de novo: a mesma V2 continua de onde parou`:'Não consegui gerar a V2 · tente de novo';send.disabled=false;}
     });
-    box.append(drop,thumbs,limitLabel,noteLabel,generate,status,result);
+    box.append(drop,thumbs,limitLabel,noteLabel,messageLabel,send,status);
     card.append(box);
   }
 
-  function renderVitrineRequests(data) {
-    const root=$('vitrine-requests'),signals=$('vitrine-signals');if(!root||!signals)return;
-    attendData.vitrine=data||null;
-    document.querySelectorAll('[data-decision-source="vitrine"]').forEach((node)=>node.remove());
-    root.replaceChildren();signals.replaceChildren();
-    const requests=Array.isArray(data?.requests)?data.requests:[];
-    vitrineRequestCount=requests.length;
-    const group=(kind,title)=>{
-      const list=requests.filter((request)=>request.kind===kind);const block=element('section','request-group');block.append(element('h3','',`${title} (${list.length})`));
-      list.forEach((request)=>{
-        const card=element('article','vitrine-request-card');card.dataset.decisionKey='vitrine:'+request.id;card.dataset.decisionSource='vitrine';
-        card.append(element('strong','',request.name),element('span','muted',`${request.phone||'Sem telefone'} · Ref ${request.referenceCode||'—'} · pediu pelo WhatsApp ${request.ago||''}`),element('span','',request.car||'Carro não informado'));
-        const auction=request.endsAt||request.startsAt;if(auction)card.append(element('span','auction-alert',`Leilão ${relativeAuction(auction)} · ${formatDate(auction)}`));
-        if(request.referred)card.append(makeBadge(`Número novo pelo link de ${request.ownerName} (${request.ownerRef||'sem Ref'}) · provável indicação`,'yellow'));
-        if(request.kind==='BID'&&request.depositFinanced)card.append(element('span','v2-deposit','Próximo passo: depósito avaliado caso a caso (financiado)'));else if(request.kind==='BID'&&request.depositUsd)card.append(element('span','v2-deposit',`Próximo passo: pedir o depósito · US$ ${Number(request.depositUsd).toLocaleString('en-US')}`));else if(request.kind==='BID'&&request.referred)card.append(element('span','v2-deposit','Próximo passo: pedir o depósito · valor a definir com o cliente novo'));const actions=element('div','inline-actions');const build=element('button','quiet small','Montar V2');build.type='button';build.disabled=!request.vitrineCarId;build.addEventListener('click',()=>openV2Builder(request,card));
-        card.append(contextSlot({journeyId:uuidOnly(request.journeyId),ref:uuidOnly(request.journeyId)?null:refOf(request)}));
-        const open=element('button','quiet small','Abrir ficha');open.type='button';open.addEventListener('click',()=>request.journeyId&&openDetail('ficha',request.journeyId));open.disabled=!request.journeyId;
-        // "Pedido atendido" (not "Tratado"): this closes the customer's request, not the person's disposition.
-        const treated=element('button','small','Pedido atendido');treated.type='button';
-        // M26/D18: the failure is shown on the card, Desfazer handles its own failure and the counters follow
-        MCSAction.bind(treated,()=>({scope:card,successScope:document.body,feedbackKey:`vitrine-request:${request.id}`,
-          optimistic:()=>{card.classList.add('action-optimistic-hidden');},
-          commit:()=>requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:request.id}),
-          rollback:()=>{card.classList.remove('action-optimistic-hidden');},
-          successText:'Pedido marcado como atendido',
-          undo:{commit:()=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:request.id}),successText:'Voltou para a lista',refresh:()=>{loadCurrent('today',viewRequestVersion);refreshCounters().catch(()=>{});}},
-          refresh:()=>Promise.all([loadCurrent('today',viewRequestVersion),refreshCounters().catch(()=>{})]),
-          errorText:'Não consegui marcar como atendido, tente de novo'}));actions.append(build,open,treated);card.append(actions);block.append(card);
-      });
-      root.append(block);
-    };
-    group('VIEW','V1 · Pediram para ver o carro');group('BID','V2 · Querem dar lance');scheduleAttendRender();
-    (data?.signals||[]).forEach((signal)=>{const target=uuidOnly(signal.journeyId)?['ficha',signal.journeyId]:signal.referenceCode?['order',signal.referenceCode]:null;const label=`Ref ${signal.referenceCode||'—'} · ${signal.text}${target?' · abrir':''}`;const node=target?element('button','vitrine-signal',label):element('span','vitrine-signal',label);if(target){node.type='button';node.addEventListener('click',()=>openDetail(target[0],target[1]));}signals.append(node);});
-    // The "abriu o link / tocou e não enviou" strip is not shown in ATENDIMENTO any more (too much noise); a real V1/V2 request still is.
-    signals.classList.add('hidden');
+  function funnelCard(item){
+    const card=element('article','vitrine-request-card');
+    const head=element('header','');head.append(element('strong','',item.name||'Cliente'));card.append(head);
+    card.append(element('span','muted',`${item.phone||'Sem telefone'} · Ref ${item.referenceCode||'—'}`));
+    return card;
+  }
+  function funnelZone(title,list,emptyText){
+    const block=element('section','request-group');
+    block.append(element('h3','',`${title} (${list.length})`));
+    if(!list.length)block.append(element('p','muted',emptyText));
+    return block;
+  }
+  function openFichaButton(item){
+    const open=element('button','quiet small','Abrir ficha');open.type='button';open.disabled=!item.journeyId;
+    open.addEventListener('click',()=>item.journeyId&&openDetail('ficha',item.journeyId));return open;
+  }
+  function mountV2Button(item,card){
+    const build=element('button','small','Montar V2');build.type='button';
+    build.addEventListener('click',async()=>{
+      build.disabled=true;
+      try{await requestIdFor(item);openV2Builder(item,card);}
+      catch(error){const note=element('p','status','Não consegui abrir a montagem da V2 · tente de novo');card.append(note);setTimeout(()=>note.remove(),6000);}
+      build.disabled=false;
+    });
+    return build;
+  }
+  function treatedButton(item,card){
+    // "Pedido atendido": closes the customer's request without a V2; the card leaves the action zone.
+    const treated=element('button','quiet small','Pedido atendido');treated.type='button';
+    MCSAction.bind(treated,()=>({scope:card,successScope:document.body,feedbackKey:`vitrine-funnel:${item.requestId||item.vitrineCarId}`,
+      optimistic:()=>{card.classList.add('action-optimistic-hidden');},
+      commit:()=>requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:item.requestId}),
+      rollback:()=>{card.classList.remove('action-optimistic-hidden');},
+      successText:'Pedido marcado como atendido',
+      undo:{commit:()=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:item.requestId}),successText:'Voltou para a lista',refresh:()=>{loadCurrent('v1',viewRequestVersion);refreshCounters().catch(()=>{});}},
+      refresh:()=>Promise.all([loadCurrent('v1',viewRequestVersion),refreshCounters().catch(()=>{})]),
+      errorText:'Não consegui marcar como atendido, tente de novo'}));
+    return treated;
+  }
+  function v1TappedCard(item){
+    const card=funnelCard(item);
+    card.querySelector('header').append(makeBadge('Tocou · falta a V2','yellow'));
+    card.append(element('span','',item.car||'Carro não informado'),element('span','muted',`Tocou ${item.ago||''} · V1 enviada ${item.sentAgo||''}`));
+    const actions=element('div','inline-actions');
+    actions.append(mountV2Button(item,card),openFichaButton(item));
+    if(item.requestId)actions.append(treatedButton(item,card));
+    card.append(actions);
+    return card;
+  }
+  function v1WaitingCard(item){
+    const card=funnelCard(item);
+    card.append(element('span','',item.cars.length?item.cars.join(' · '):'Carro não informado'),element('span','muted',`V1 enviada ${item.ago||''}`));
+    card.append(openFichaButton(item));
+    return card;
+  }
+  function v2BidCard(item){
+    const card=funnelCard(item);
+    card.querySelector('header').append(makeBadge('Quer dar lance','red'));
+    card.append(element('span','',item.car||'Carro não informado'),element('span','muted',`${item.bidAgo?'Tocou '+item.bidAgo+' · ':''}V2 enviada ${item.ago||''}`));
+    card.append(openFichaButton(item));
+    return card;
+  }
+  function v2WaitingCard(item){
+    const card=funnelCard(item);
+    card.append(element('span','',item.car||'Carro não informado'),element('span','muted',`V2 enviada ${item.ago||''}`));
+    card.append(openFichaButton(item));
+    return card;
+  }
+  function expiredDetails(title,list){
+    if(!list.length)return null;
+    const det=element('details','card');const summary=element('summary','');summary.append(element('strong','',`${title} (${list.length})`));det.append(summary);
+    const stack=element('div','stack');
+    list.forEach((item)=>{const card=funnelCard(item);card.append(element('span','',item.car||item.cars.join(' · ')||'Carro não informado'),element('span','muted',`Expirou ${item.expiredAgo||''}`));stack.append(card);});
+    det.append(stack);return det;
+  }
+  function renderVitrineFunnel(data,view){
+    const root=$(view+'-list');if(!root)return;
+    root.replaceChildren();
+    setCount('v1',Number(data&&data.counts&&data.counts.v1Action)||0);
+    setCount('v2',Number(data&&data.counts&&data.counts.v2Action)||0);
+    const agoOf=(value)=>{if(!value)return '';const ms=Math.max(0,Date.now()-Date.parse(value));const m=Math.floor(ms/60000);if(m<60)return `há ${m||1} min`;const h=Math.floor(m/60);if(h<24)return `há ${h} h`;return `há ${Math.floor(h/24)} dias`;};
+    if(view==='v1'){
+      const v1=(data&&data.v1)||{tapped:[],waiting:[],expired:[]};
+      const tappedZone=funnelZone('Tocou · falta a V2',v1.tapped,'Ninguém tocou ainda');
+      v1.tapped.forEach((item)=>tappedZone.append(v1TappedCard({...item,sentAgo:agoOf(item.sentAt)})));
+      root.append(tappedZone);
+      const waitingZone=funnelZone('Aguardando o toque',v1.waiting,'Nenhuma V1 aguardando');
+      v1.waiting.forEach((item)=>waitingZone.append(v1WaitingCard(item)));
+      root.append(waitingZone);
+      const expired=expiredDetails('Expiradas',v1.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})));
+      if(expired)root.append(expired);
+      return;
+    }
+    const v2=(data&&data.v2)||{bid:[],waiting:[],expired:[]};
+    const bidZone=funnelZone('Querem dar lance',v2.bid,'Ninguém quer dar lance ainda');
+    v2.bid.forEach((item)=>bidZone.append(v2BidCard(item)));
+    root.append(bidZone);
+    const waitingZone=funnelZone('Aguardando o lance',v2.waiting,'Nenhuma V2 aguardando');
+    v2.waiting.forEach((item)=>waitingZone.append(v2WaitingCard(item)));
+    root.append(waitingZone);
+    const expired=expiredDetails('Expiradas',v2.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})));
+    if(expired)root.append(expired);
   }
 
   function relativeAuction(value){const hours=Math.max(0,Math.ceil((Date.parse(value)-Date.now())/3600000));return hours>=24?`em ${Math.floor(hours/24)} dia${Math.floor(hours/24)===1?'':'s'} ${hours%24} h`:`em ${hours} h`;}
@@ -2470,7 +2447,7 @@
   function markExcluded(item, excluded) { const journeyId = MCSAttend.journeyOf(item); if (journeyId) excluded ? excludedHere.add(journeyId) : excludedHere.delete(journeyId); }
   // Conversations of the old ENTRADA that still wait for a decision (same rule as before for its badge).
   const entryReviewChats = (entry) => (entry && entry.chats || []).filter((chat) => !chat.triageOut && chat.group?.key !== 'FORA_DO_ASSUNTO' && (chat.resolution_status !== 'RESOLVED' || chat.hasTimeUncertain));
-  function attendDecisions({ entry, triage, whatsapp, vitrine } = attendData) {
+  function attendDecisions({ entry, triage, whatsapp } = attendData) {
     const out = [];
     (whatsapp?.suggestions || []).forEach((item) => out.push({ key: 'suggestion:' + item.id, kind: 'VINCULO', journeyId: uuidOnly(item.source_journey_id), name: item.sourceName || item.phone_e164 || null, phone: item.phone_e164 || null, label: item.target_ref ? `Confirmar vínculo: esta conversa ${item.refConfirmed ? 'é' : 'parece ser'} a Ref ${item.target_ref}` : 'Confirmar vínculo desta conversa com uma ficha' }));
     (whatsapp?.phoneReviews || []).forEach((item) => out.push({ key: 'phone:' + item.id, kind: 'TELEFONE', journeyId: null, name: item.phone_e164 || null, phone: item.phone_e164 || null, label: 'Escolher o contato certo deste telefone' }));
@@ -2478,7 +2455,6 @@
     (triage?.offMcs || []).forEach((item) => out.push({ key: 'offmcs:' + item.journeyId, kind: 'FORA_MCS', journeyId: uuidOnly(item.journeyId), name: item.name || null, label: 'Revisar: candidata a fora da MCS · ' + (item.label || '') }));
     entryReviewChats(entry).forEach((chat) => out.push({ key: 'chat:' + chat.id, kind: 'REVISAR_CONVERSA', journeyId: uuidOnly(chat.groupJourneyId), name: chat.contact?.display_name || chat.canonical_key || null, label: chat.resolution_status === 'RESOLVED' ? 'Conferir conversa com hora incerta' : 'Revisar conversa importada e ligar à ficha certa' }));
     nameLinks.forEach((link) => out.push({ key: link.key, kind: 'VINCULO', journeyId: uuidOnly(link.journeyId), name: link.simulation?.name || null, phone: link.phone || null, label: link.via === 'REF' ? 'Confirmar vínculo: Ref desta ficha com divergência' : 'Confirmar vínculo: telefone igual, nome diferente' }));
-    (vitrine?.requests || []).forEach((item) => out.push({ key: 'vitrine:' + item.id, kind: 'VITRINE', refState: item.refState || null, journeyId: uuidOnly(item.journeyId), name: item.name || null, label: item.kind === 'BID' ? 'V2 · quer dar lance' : 'V1 · pediu para ver o carro' }));
     return out;
   }
   // Incomplete requests (BUSCAR CARROS keeps only complete ones): they wait here with what is missing.
@@ -2501,13 +2477,12 @@
     attendRenderTimer = setTimeout(() => { if (currentView === 'today') renderToday(todayItems, true); }, 40);
   }
   // "Excluir selecionados": every selected card leaves the panel (the same "Excluir" as in the ficha), with one "Desfazer".
-  function applyAttend(data, vitrineData, entryData, triageData, whatsappData, savedAt) {
+  function applyAttend(data, entryData, triageData, whatsappData, savedAt) {
     updateMeta(data.meta);
-    renderVitrineRequests(vitrineData||{requests:[],signals:[]});
     if(entryData){if(Array.isArray(entryData.nameLinks))nameLinks=entryData.nameLinks;renderQueue(entryData.chats||[],entryData.reviews||[]);}
     renderTriage(triageData);
     if(whatsappData)renderWhatsApp(whatsappData);
-    const missing=[!vitrineData&&'pedidos de vitrine',!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos',...((data.degraded||[]).map((name)=>name+' (desatualizado)'))].filter(Boolean);
+    const missing=[!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos',...((data.degraded||[]).map((name)=>name+' (desatualizado)'))].filter(Boolean);
     $('triage-state').textContent=[missing.length?`Não consegui carregar agora: ${missing.join(', ')} · o resto da fila vale`:'',triageData&&triageData.state!=='LIGADA'?'Triagem automática desligada: as conversas novas seguem o fluxo normal':''].filter(Boolean).join(' · ');
     attendData.discarded=new Set(data.discardedJourneys||[]);
     renderToday(data.items || []);
@@ -2719,11 +2694,10 @@
     const refCounts={all:bucketNarrowed.length,with:countRef('COM_REF'),recover:countRef('A_RECUPERAR'),without:countRef('SEM_REF')};
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);const count=button.querySelector('span');if(count)count.textContent=String(refCounts[button.dataset.todayRef]||0);});
     const shown=passing.filter((entry)=>MCSAttend.inBucket(entry, attendBucket));
-    const inBucket=bucketAll;
     const base=shown.filter((entry)=>entry.item).map((entry)=>entry.item);
     // Every number is a button that shows its list, and says its complement (same cases as the list).
     // late24: same rule as the weekly "Sem resposta há mais de 24 h" (last real message is the client's, older than 24 h).
-    const STAT_FILTERS={late24:(item)=>{const latest=item.latestMessage;const at=Date.parse(latest&&latest.occurred_at_utc||'');return Boolean(latest&&!latest.is_automatic&&latest.direction==='CUSTOMER'&&Number.isFinite(at)&&Date.now()-at>86400000);},awaiting:(item)=>item.awaitingReply,hot:(item)=>item.purchaseWindow==='NOW',missing:(item)=>item.searchStage==='MISSING',sent:(item)=>item.searchStage==='SENT'};
+    const STAT_FILTERS={late24:(item)=>{const latest=item.latestMessage;const at=Date.parse(latest&&latest.occurred_at_utc||'');return Boolean(latest&&!latest.is_automatic&&latest.direction==='CUSTOMER'&&Number.isFinite(at)&&Date.now()-at>86400000);},hot:(item)=>item.purchaseWindow==='NOW',sent:(item)=>v1JourneySet.has(journeyIdOf(item))};
     if(todayStatFilter&&!STAT_FILTERS[todayStatFilter])todayStatFilter=null;
     const stat = (key, label, complement) => {
       const value=key?base.filter(STAT_FILTERS[key]).length:shown.length;
@@ -2732,18 +2706,14 @@
       block.addEventListener('click',()=>{todayStatFilter=key&&todayStatFilter!==key?key:null;renderToday(todayItems,true);});
       stats.append(block);
     };
-    stat('awaiting', 'Aguardando sua resposta', (rest)=>`${rest} casos com a última mensagem sua ou sem conversa`);
     stat('late24', 'Sem resposta há mais de 24 h', (rest)=>`${rest} respondidos ou com menos de 24 h`);
-    stat(null, 'Casos neste filtro', ()=>`${inBucket.length-shown.length} fora de Ref/Origem/Período`);
     // Purchase window (calculator deadline): how many in each range; the number filters the ones ready to buy now.
     const windowCount=(key)=>base.filter((item)=>String(item.purchaseWindow||'NONE')===key).length;
     stat('hot', 'Pronto para comprar agora', ()=>`${windowCount('30D')} em até 30 dias · ${windowCount('3M')} em até 3 meses · ${windowCount('NONE')} sem prazo informado`);
-    if (base.some((item) => item.searchStage)) {
-      stat('missing', 'Busca não salva no Manheim', (rest)=>`${rest} com busca salva ou sem busca`);
-      stat('sent', 'Opções enviadas', (rest)=>`${rest} sem opções enviadas`);
-    }
+    // "Opções enviadas" counts real V1s (vitrines table), never the manual mark.
+    stat('sent', 'Opções enviadas', (rest)=>`${v1TodayCount} hoje · ${rest} sem V1 enviada`);
     const visible=todayStatFilter?shown.filter((entry)=>entry.item&&STAT_FILTERS[todayStatFilter](entry.item)):shown;
-    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({late24:'Sem resposta há mais de 24 h',awaiting:'Aguardando sua resposta',hot:'Pronto para comprar agora',missing:'Busca não salva no Manheim',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
+    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({late24:'Sem resposta há mais de 24 h',hot:'Pronto para comprar agora',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
     const offCount=model.counts.fora;
     if (!visible.length) {
       root.append(element('p','empty-state', todayStatFilter||origin!=='all'||period!=='all'||subject!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));
@@ -2854,39 +2824,6 @@
     MCSContactGroups.hydrateTranslations(root, { request }).catch(() => {});
   }
 
-  function renderQualification(items) {
-    const root = $('qualification-list');
-    root.replaceChildren();
-    setCount('qualification', items.length);
-    if (!items.length) return empty(root, 'Nenhuma jornada para qualificar');
-    items.forEach((item) => {
-      const card = element('article', 'item-card');
-      const head = element('div', 'item-head');
-      const title = element('div');
-      title.append(identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' }));
-      const badges = element('div', 'badges');
-      if(item.searchStageLabel)badges.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
-      const qualificationStatus = item.enabled === false ? 'DESLIGADO' : item.status;
-      badges.append(makeBadge(item.checklistSummary.label, item.checklistSummary.completed === 6 ? 'green' : 'blue'), makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(qualificationStatus, qualificationStatus === 'ATIVO' ? 'green' : qualificationStatus === 'RESPONDIDO' ? 'blue' : ''));
-      if (item.shortDeadline) badges.append(makeBadge('prazo curto', 'yellow'));
-      head.append(title, badges);
-      card.append(head);
-      const smsMissing=smsPrintMissing(item); if(smsMissing)card.append(smsMissing);
-      item.checklist.forEach((point) => {
-        const block = element('div', 'check-point' + (point.status === 'COMPLETE' ? ' complete' : ''));
-        block.append(element('strong', '', `${point.point_number}. ${point.point_label}`), makeBadge(checklistStatusLabel(point.status), point.status === 'COMPLETE' ? 'green' : ''));
-        point.evidence.forEach((evidence) => block.append(element('p', 'evidence', evidence.excerpt_text)));
-        card.append(block);
-      });
-      const open = element('button', 'quiet small', 'Abrir ficha');
-      open.type = 'button';
-      open.addEventListener('click', () => openDetail('ficha', item.id));
-      makeCardClickable(card, () => openDetail('ficha', item.id));
-      card.append(open, journeySwitch(item, () => loadCurrent()));
-      root.append(card);
-    });
-  }
-
   // One demand = one person in one mode. VALOR shows make, model and bid; CARRO shows make,
   // model, trim, years and mileage. The two never borrow each other's criteria.
   function demandSummary(demand) {
@@ -2966,7 +2903,6 @@
   // Not read yet (no row, or no car selected when the page loaded): "Gerar link V1" asks the server
   // to check this demand first; the server still decides.
   const AUDIT_CHECK_FIRST=['CONFERINDO','SEM_SELECAO'];
-  const auditCanTry=(demand)=>auditAllows(demand)||AUDIT_CHECK_FIRST.includes(auditEntry(demand).status);
   // Why a reading is pending, in words (never a bare code), and the way out.
   function auditPendingText(entry){
     const code=entry?.errorCode,tries=entry?.attempts||0;
@@ -3000,18 +2936,25 @@
     const entry=auditEntry(demand);if(!entry)return null;
     const box=element('div','audit-block');box.dataset.auditStatus=entry.status;
     box.append(makeBadge(entry.label||entry.status,AUDIT_TONES[entry.status]||'yellow'));
-    const carName=(matchId)=>{const parsed=(matches||[]).find((match)=>match.id===matchId)?.vehicle_json?.parsed;return parsed?[parsed.year,parsed.make,parsed.model].filter(Boolean).join(' ')+(parsed.vin?` · VIN final ${String(parsed.vin).slice(-6)}`:''):'';};
-    (entry.divergences||[]).slice(0,8).forEach((item)=>{const car=carName(item.matchId);box.append(element('p','audit-divergence',car?`${car}: ${item.text}`:item.text));});
-    if(entry.carCount)box.append(element('p','muted',`Conferência sobre ${entry.carCount} ${entry.carCount===1?'carro selecionado':'carros selecionados'}`));
-    if(entry.status==='PENDENTE')box.append(element('p','muted',auditPendingText(entry)));
-    if(entry.status==='SEM_SELECAO'&&entry.lastStatus==='PENDENTE')box.append(element('p','muted','Última conferência: '+auditPendingText(entry)));
-    if(entry.approvedReason)box.append(element('p','muted',`Aprovado à mão · ${entry.approvedReason}`));
+    // Seal + action: one short reason line; the divergence list stays one click away.
+    const reason=entry.status==='PENDENTE'?auditPendingText(entry)
+      :entry.status==='SEM_SELECAO'?(entry.lastStatus==='PENDENTE'?'Última conferência: '+auditPendingText(entry):'Nenhum carro selecionado chegou à conferência')
+      :entry.status==='REVISAR'?'A conferência apontou divergência nos carros selecionados'
+      :entry.approvedReason?`Aprovado à mão · ${entry.approvedReason}`:'';
+    if(reason)box.append(element('span','muted',reason));
+    const divergences=entry.divergences||[];
+    if(divergences.length){
+      const carName=(matchId)=>{const parsed=(matches||[]).find((match)=>match.id===matchId)?.vehicle_json?.parsed;return parsed?[parsed.year,parsed.make,parsed.model].filter(Boolean).join(' ')+(parsed.vin?` · VIN final ${String(parsed.vin).slice(-6)}`:''):'';};
+      const details=element('details','audit-divergences');
+      details.append(element('summary','',`Ver divergências (${divergences.length})`));
+      divergences.slice(0,8).forEach((item)=>{const car=carName(item.matchId);details.append(element('p','audit-divergence',car?`${car}: ${item.text}`:item.text));});
+      box.append(details);
+    }
     const actions=element('div','inline-actions');
     const redraw=(result)=>{if(!applyAuditEntry(demand,result,box))return loadCurrent();};
     if(entry.canRetry){const retry=element('button','quiet small','Conferir de novo');retry.type='button';MCSAction.bind(retry,()=>({scope:box,optimistic:()=>{retry.textContent='Conferindo…';},commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'retry',key:demand.key}),timeoutMs:60000}),refresh:redraw,rollback:()=>{retry.textContent='Conferir de novo';},errorText:'Não consegui conferir de novo, tente mais tarde'}));actions.append(retry);}
     if(entry.canApprove){const reason=element('input','audit-reason');reason.type='text';reason.maxLength=300;reason.placeholder='Motivo da aprovação';reason.setAttribute('aria-label','Motivo da aprovação manual');const approve=element('button','quiet small','Aprovar com motivo');approve.type='button';MCSAction.bind(approve,()=>({scope:box,commit:()=>{if(reason.value.trim().length<5)throw Object.assign(Error('AUDIT_REASON_REQUIRED'),{code:'AUDIT_REASON_REQUIRED'});return request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'approve',key:demand.key,reason:reason.value.trim()})});},refresh:redraw,errorText:(error)=>error?.code==='AUDIT_REASON_REQUIRED'?'Escreva o motivo, com pelo menos 5 letras':error?.code==='AUDIT_RETRY_FIRST'?'Confira de novo primeiro: a aprovação com motivo aparece depois de 2 falhas':'Não consegui aprovar, tente de novo'}));actions.append(reason,approve);}
     if(actions.childElementCount)box.append(actions);
-    if(!AUDIT_OK.includes(entry.status))box.append(element('p','muted','V1 e V2 deste pedido ficam liberadas depois da conferência'));
     return box;
   }
   function renderAuditNote(audit){
@@ -3037,49 +2980,8 @@
     return badge;
   };
   // Demand card of ENVIAR OPÇÕES: the order line already says the car and the bid, so the header does not repeat them as "não informado".
-  const dropWishFacts = (node) => { node.querySelectorAll('.identity-fact').forEach((fact) => { const label = fact.querySelector('b')?.textContent || ''; if (label === 'Carro' || label === 'Lance máx.') fact.remove(); }); return node; };
   // The options of ONE demand arrive only when the operator opens it, 10 at a time, in the order of
   // the server (BATE, POR VALOR, lowest mileage) and with a stable cursor.
-  function lazyOptions(card, demand, loaded, renderRow, filter) {
-    const table = element('div', 'manheim-table');
-    const button = element('button', 'quiet small manheim-options-toggle', `Ver opções (${demand.matchCount})`);
-    button.type = 'button';
-    let cursor = null, busy = false, pages = 0;
-    const loadPage = async () => {
-      if (busy) return;
-      busy = true; button.disabled = true; button.textContent = 'Carregando…';
-      try {
-        const params = new URLSearchParams({ key: demand.key, limit: String(MANHEIM_PAGE_ROWS) });
-        if (cursor) params.set('cursor', cursor);
-        const page = await request('/api/panel/manheim-options?' + params.toString());
-        pages += 1;
-        (page.options || []).filter((option) => !filter || filter(option)).forEach((option) => { loaded.push(option); table.insertBefore(renderRow(option), button); });
-        cursor = page.nextCursor || null;
-        button.classList.toggle('manheim-more', Boolean(cursor));
-        if (cursor) { button.textContent = `Ver mais (${Math.max(demand.matchCount - loaded.length, 1)})`; button.disabled = false; }
-        else { button.remove(); if (!loaded.length) table.append(element('p', 'muted manheim-options-note', 'Nenhuma opção neste pedido agora')); }
-        card.dispatchEvent(new CustomEvent('options-loaded'));
-      } catch (failure) {
-        console.error(failure);
-        button.disabled = false;
-        button.textContent = pages ? 'Não consegui carregar mais, tentar de novo' : 'Não consegui carregar as opções, tentar de novo';
-      } finally { busy = false; }
-    };
-    button.addEventListener('click', (event) => { event.stopPropagation(); loadPage(); });
-    table.append(button);
-    return table;
-  }
-  // Criterion changed after the import: the options were compared with the old one.
-  function staleNotice(card, demand) {
-    if (!demand || !demand.stale) return null;
-    const box = element('div', 'warning inline-confirm');
-    box.append(element('p', '', 'O critério desta busca mudou depois da importação · As opções abaixo podem não servir mais'));
-    const again = element('button', 'small', 'Comparar de novo'); again.type = 'button';
-    MCSAction.bind(again, () => ({ scope: box, optimistic: () => { again.textContent = 'Conferindo…'; }, commit: () => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }), timeoutMs: 60000 }), rollback: () => { again.textContent = 'Comparar de novo'; }, onSuccess: (result) => { if (result && result.criteriaVersion) box.append(element('p', 'warning options-new-version', `Nova versão dos critérios (v${result.criteriaVersion}) · As opções antigas deste pedido foram invalidadas e as atuais valem só para esta versão`)); }, successText: 'Opções comparadas de novo com o critério atual', refresh: () => loadCurrent(), errorText: 'Não consegui conferir de novo, tente mais tarde' }));
-    box.append(again);
-    return box;
-  }
-
   // ---------------------------------------------------------------- seleção para o cliente
   // Match interno não é opção: cada demanda mostra três grupos (Lane/Run, Buy Now/Make Offer/fora de
   // Lane-Run, informação incompleta), 10 carros por vez, e o operador escolhe no máximo 10 para a
@@ -3413,27 +3315,6 @@
   // The latest V1 of each ficha (and its last send), read once for every card on screen: the cards
   // of one render share one GET (up to 100 fichas per request). A failure only leaves the card as
   // before ("Gere a V1…").
-  const v1LatestQueue = new Map();
-  let v1LatestTimer = null;
-  function latestV1For(journeyId) {
-    return new Promise((resolve) => {
-      if (!journeyId) { resolve({}); return; }
-      if (!v1LatestQueue.has(journeyId)) v1LatestQueue.set(journeyId, []);
-      v1LatestQueue.get(journeyId).push(resolve);
-      if (!v1LatestTimer) v1LatestTimer = setTimeout(flushLatestV1, 0);
-    });
-  }
-  async function flushLatestV1() {
-    v1LatestTimer = null;
-    const pending = [...v1LatestQueue.entries()];
-    v1LatestQueue.clear();
-    for (let index = 0; index < pending.length; index += 100) {
-      const part = pending.slice(index, index + 100);
-      let latest = {};
-      try { latest = (await request('/api/panel/v1-send?journeyIds=' + encodeURIComponent(part.map(([id]) => id).join(',')), { method: 'GET' })).latest || {}; } catch (_) { latest = {}; }
-      part.forEach(([, resolvers]) => resolvers.forEach((resolve) => resolve(latest)));
-    }
-  }
   function v1SendControls(demand, demo = null) {
     // One block, one path: after "Gerar link V1" the approved message (with the link) appears once,
     // editable; the line above it says to whom and whether the 24 h window is open; the one primary
@@ -3655,219 +3536,13 @@
     });
     panel.insertBefore(box, anchor);
   }
-  function renderManheimGroup(root, journey, reactivation, demand) {
-    const card = element('article', 'item-card manheim-lead');
-    card.dataset.mode = demand?.mode || '';
-    card.dataset.demandKey = demand?.key || '';
-    const loaded = [];
-    const head = element('div', 'item-head');
-    const stageLabel = demand ? demand.stageLabel : journey.searchStageLabel, stage = demand ? demand.stage : journey.searchStage;
-    head.append(demand ? dropWishFacts(identityHeader(journey)) : identityHeader(journey));if(stageLabel)head.append(makeBadge(stageLabel,stage==='SENT'?'green':stage==='SAVED'?'blue':'yellow'));
-    card.append(head);
-    if (demand) card.append(element('span', 'request-criteria-label', 'O que o cliente pediu'));
-    card.append(element('p', 'demand-essential', (demand ? demandSummary(demand) : wishlistSummary(journey.matchWishes || journey.wishlists || journey.wishlist, journey.matchBidCents !== undefined ? journey.matchBidCents : journey.budget_cents))));
-    if (demand) card.append(demandCountsBadge(demand));
-    // The client context stays one click away: the card is about the cars and the next step.
-    const contextMore = element('details', 'card-more context-details'); contextMore.append(element('summary', '', 'Contexto do cliente'), contextSlot({ journeyId: journeyIdOf(journey) }, { focus: 'cars' })); card.append(contextMore);
-    contextMore.addEventListener('toggle', () => { if (contextMore.open) hydrateContexts(contextMore); });
-    const stale = staleNotice(card, demand); if (stale) card.append(stale);
-    const seen=()=>loaded.concat(card.offerState?card.offerState.loaded:[]);
-    let audited=auditBlock(demand,seen());if(audited)card.append(audited);
-    if(demand?.key)auditCards.set(demand.key,card);
-    ['options-loaded','audit-changed'].forEach((name)=>card.addEventListener(name,()=>{const next=auditBlock(demand,seen());if(audited&&next){audited.replaceWith(next);audited=next;}}));
-    if (reactivation) {
-      const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
-      reactivateButton.type = 'button';
-      MCSAction.bind(reactivateButton,()=>{const payload=journey.status==='PARADO'?{action:'set_funnel',journeyId:journey.id,value:['DECIDINDO','QUALIFICADO'].includes(journey.stage)?journey.stage:'EM_BUSCA'}:{action:'toggle_journey',journeyId:journey.id,enabled:true,reason:null};return{scope:card,optimistic:()=>{reactivateButton.textContent='Retomando…';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify(payload)}),rollback:()=>{reactivateButton.textContent=journey.status==='PARADO'?'Retomar busca':'Religar busca';},refresh:()=>loadCurrent(),errorText:'Não consegui salvar, tente de novo'};});
-      card.append(makeBadge(journey.status === 'PARADO' ? 'Parado — reativar' : 'Desligado — reativar', 'yellow'), reactivateButton);
-    }
-    const table = lazyOptions(card, demand, loaded, (match) => {
-      const parsed = match.vehicle_json.parsed || {};
-      const row = element('div', `manheim-row ${kindClass(match.match_kind)}`);
-      const select = element('input'); select.type = 'checkbox'; select.className = 'manheim-select'; select.dataset.matchId = match.id;
-      const vehicle = element('div');
-      vehicle.append(
-        element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
-        element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}${parsed.saleDate ? ` · ${parsed.saleDate}` : ''}`)
-      );
-      if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
-      if (parsed.matchedWishlistLabel) vehicle.append(element('span', 'muted', `Lista: ${parsed.matchedWishlistLabel}`));
-      if (parsed.makeNotice) vehicle.append(element('span', 'muted', parsed.makeNotice));
-      if (parsed.exteriorColor) vehicle.append(element('span', 'muted', `Cor externa: ${parsed.exteriorColor}`));
-      if (parsed.buyNowPrice) vehicle.append(element('span', 'muted', `Buy Now: ${parsed.buyNowPrice}`));
-      if (parsed.conditionGrade) vehicle.append(element('span', 'muted', `Nota de condição: ${parsed.conditionGrade}`));
-      const badges = element('div', 'badges');
-      badges.append(makeBadge(kindLabel(match.match_kind), kindTone(match.match_kind)));
-      if (match.match_reason) badges.append(makeBadge(match.match_reason));
-      if (match.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
-      if (parsed.matchNotice) badges.append(makeBadge(parsed.matchNotice, 'yellow'));
-      if (match.mmr_status) badges.append(makeBadge(mmrLabel(match.mmr_status), match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
-      if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
-      else if (match.fitsBid === false) badges.append(match.match_kind === 'POR_VALOR' ? makeBadge('MMR acima do lance · dentro da faixa de valor, confirmar com o cliente', 'yellow') : makeBadge('passa do lance', 'red'));
-      if (Array.isArray(match.alsoFitsFor) && match.alsoFitsFor.length) badges.append(makeBadge(`também bate para ${match.alsoFitsFor.join(', ')}`, 'blue'));
-      const presented = element('button', 'quiet small', match.presented_unit_id ? 'Apresentado' : journey.enabled === false ? 'Religue antes de apresentar' : 'Apresentei ao cliente');
-      presented.type = 'button'; presented.disabled = Boolean(match.presented_unit_id) || journey.enabled === false;
-      MCSAction.bind(presented,()=>({scope:row,optimistic:()=>{presented.textContent='Apresentado';},commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'unit',journeyId:journey.id,manheimMatchId:match.id,status:'PRESENTED'})}),rollback:()=>{presented.textContent='Apresentei ao cliente';},refresh:()=>loadCurrent(),
-        successScope:document.body,successText:'Apresentação registrada',undo:(result)=>result&&result.undo?{commit:()=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action:'present_undo',journeyId:journey.id,...result.undo})}),successText:'Apresentação desfeita',refresh:()=>loadCurrent()}:null,errorText:'Não consegui salvar, tente de novo'}));
-      row.append(select, vehicle, badges, presented);
-      return row;
-    }, reactivation ? (match) => match.match_kind === 'BATE' : null);
-    // With the selection (migration 20261006010000) the demand shows the three groups; before it, the
-    // list as it was.
-    const selection = demand && demand.offer && OFFER ? offerSection(card, demand) : null;
-    if (!selection && demand && demand.offerPending) card.append(offerPendingNote());
-    card.append(selection || table);
-    // Feedback of this card's actions (PDF, V1, copy) right next to them: the batch status line lives in
-    // IMPORTAÇÕES and is hidden while OPÇÕES is open.
-    const cardStatus=element('p','status manheim-card-status','');cardStatus.setAttribute('role','status');
-    const exportButton = element('button', 'quiet small', 'Baixar PDF');
-    exportButton.type = 'button';
-    exportButton.addEventListener('click', (event) => {
-      event.stopPropagation();
-      // With the selection for the customer, the cars selected there (the old checkboxes are not
-      // shown); before it, the checked rows. Never a silent no-op.
-      const state = card.offerState;
-      const selected = state ? state.loaded.filter((option) => state.selectedIds.has(option.id))
-        : [...card.querySelectorAll('.manheim-select:checked')].map((checkbox) => loaded.find((match) => match.id === checkbox.dataset.matchId)).filter(Boolean);
-      if (!selected.length && !(state && state.selectedIds.size)) { cardStatus.textContent = 'Selecione pelo menos um carro para o PDF'; return; }
-      // Selected cars whose group is not open on this page are read from the server: the PDF always has every selected car.
-      const missing = state ? [...state.selectedIds].filter((id) => !selected.some((option) => option.id === id)) : [];
-      const finish = (cars) => { exportButton.disabled = true; cardStatus.textContent = 'Preparando o PDF…';
-        optionsPdf(cars, journey).then(() => { cardStatus.textContent = `PDF com ${cars.length} ${cars.length === 1 ? 'carro' : 'carros'} pronto · escolha Salvar como PDF`; })
-          .catch(() => { cardStatus.textContent = 'Não consegui preparar o PDF, tente de novo'; }).finally(() => { exportButton.disabled = false; }); };
-      if (!missing.length) { finish(selected); return; }
-      exportButton.disabled = true; cardStatus.textContent = 'Preparando o PDF…';
-      selectedOptions(demand.key, new Set(missing)).then((more) => { const cars = [...selected, ...more]; if (!cars.length) { cardStatus.textContent = 'Não encontrei os carros selecionados no lote ativo · Recarregue as opções'; return; } finish(cars); })
-        .catch(() => { cardStatus.textContent = 'Não consegui preparar o PDF, tente de novo'; })
-        .finally(() => { exportButton.disabled = false; });
-    });
-    const v1Send=v1SendControls(demand);
-    /* After a reload the card remembers its latest V1 (link and when it was sent) instead of "Gere a V1…". */
-    latestV1For(journey.id).then((latest)=>{const item=latest[demand?.key||('journey:'+journey.id)];if(!item||v1Send.hasVitrine())return;v1Send.restore(item);});
-    const vitrineButton=element('button','small','Gerar link V1');vitrineButton.type='button';
-    const v1Error=(error)=>error?.code==='MANHEIM_STAMP_INVALID'?'Algum carro não serve mais ao pedido atual (lote ou critério mudou) · Recarregue as opções e selecione de novo':error?.code==='MANHEIM_AUDIT_PENDING'?'A conferência desta demanda ainda não liberou a V1':error?.code==='MANHEIM_OPTION_NOT_SELECTED'?'Só carros selecionados para o cliente entram na V1':error?.code==='MANHEIM_MATCH_WITHOUT_MMR'?'Carro sem MMR válido não entra na V1':error?.code==='MANHEIM_SELECTION_PENDING'?'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável':'Não consegui gerar o link';
-    vitrineButton.addEventListener('click',async(event)=>{event.stopPropagation();
-      /* Only the cars selected for the customer go to the V1 (the server checks it again). */
-      const selected=card.offerState?[...card.offerState.selectedIds]:[...card.querySelectorAll('.manheim-select:checked')].map((box)=>box.dataset.matchId);
-      if(!selected.length){cardStatus.textContent=card.offerState?'Selecione pelo menos um carro para o cliente':'Selecione pelo menos um carro';return;}
-      vitrineButton.disabled=true;
-      const create=()=>request('/api/panel/vitrines',{method:'POST',body:JSON.stringify({journeyId:journey.id,matchIds:selected,...(demand?.key?{demandKey:demand.key}:{})})});
-      let created;
-      try{
-        try{created=await create();}
-        catch(error){
-          /* Not checked yet: one reading of this demand now (automatic rules and the OpenAI prepaid balance on the server), then one more try. Never an approval. */
-          /* Whatever the card shows (a check of an older selection may say "Conferido"), the server's word wins: the cars
-             selected now are checked here (only the new ones are read), then the V1 is tried once more. */
-          if(error?.code!=='MANHEIM_AUDIT_PENDING'||!demand?.key)throw error;
-          cardStatus.textContent='Conferindo este pedido antes do link…';
-          const checked=await request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'check',key:demand.key}),timeoutMs:60000}).catch(()=>null);
-          /* The reason and the buttons ("Conferir de novo", "Aprovar com motivo") show on the card now. */
-          applyAuditEntry(demand,checked,card);
-          try{created=await create();}
-          catch(again){
-            if(again?.code==='MANHEIM_AUDIT_PENDING'){cardStatus.textContent=checked?.inProgress&&!checked?.processed?'V1 bloqueada: a conferência deste pedido já está em andamento, tente em instantes':checked?.entry?auditHeldText(checked.entry):checked?.providerLimit?'V1 bloqueada: sem saldo pré-pago na OpenAI para a conferência':'V1 bloqueada: a conferência não respondeu · Tente "Gerar link V1" de novo';return;}
-            throw again;
-          }
-        }
-      }catch(error){cardStatus.textContent=v1Error(error);return;}
-      finally{vitrineButton.disabled=!auditCanTry(demand);}
-      /* The link only exists from here on; the message with it, the destination and the path appear in the send block below. */
-      cardStatus.textContent='Link V1 criado · revise a mensagem abaixo e envie'+(selected.length>OFFER_ADVISED_MAX?` · Atenção: ${selected.length} carros; o recomendado é de 3 a ${OFFER_ADVISED_MAX}`:'');v1Send.setVitrine(created.token);
-    });vitrineButton.disabled=!auditCanTry(demand);
-    card.addEventListener('audit-changed',()=>{vitrineButton.disabled=!auditCanTry(demand);});
-    // The PDF sits next to the V1 (it is used often); only the disposition stays under "⋯".
-    const more=element('details','card-more');more.append(element('summary','','⋯ Mais ações'));const moreActions=element('div','inline-actions');more.append(moreActions);
-    moreActions.append(element('span','muted','Descartar vale para a pessoa e tira o cliente de HOJE (mandar mensagem já conta como tratado):'),dispositionControls({kind:'JOURNEY',id:journey.id,journeyId:journey.id,disposition:journey.disposition}));
-    card.append(vitrineButton,exportButton,cardStatus,v1Send.node,more);
-    makeCardClickable(card, () => openDetail('ficha', journey.id));
-    root.append(card);
-  }
 
-  function renderManheimOrderGroup(root, order, demand) {
-    const card = element('article', 'item-card manheim-lead');
-    card.dataset.mode = demand?.mode || '';
-    card.dataset.demandKey = demand?.key || '';
-    const loaded = [];
-    const head = element('div', 'item-head');
-    const identity = element('div', 'identity');
-    identity.append(element('span', 'order-icon', orderIcon(order)));
-    const text = element('div');
-    text.append(element('strong', 'identity-name', order.contactName||`Pedido ${order.ref}`),phoneNode(order), demand ? dropWishFacts(identityFacts(order.ref, order.vehicleText || 'Pedido da calculadora', order.budgetCents)) : identityFacts(order.ref, order.vehicleText || 'Pedido da calculadora', order.budgetCents));
-    identity.append(text);
-    head.append(identity);
-    card.append(head);
-    const summary = element('div', 'badges');
-    const seenOrder=()=>loaded.concat(card.offerState?card.offerState.loaded:[]);
-    let orderAudit=auditBlock(demand,seenOrder());
-    summary.append(makeBadge(`Ref ${order.ref}`, 'blue'));
-    card.append(summary);
-    if (demand) card.append(element('span', 'request-criteria-label', 'O que o cliente pediu'));
-    card.append(element('p', 'demand-essential', demand ? demandSummary(demand) : order.simulationCount > 1 ? `${order.simulationCount} simulações agrupadas` : 'Pedido da calculadora'));
-    if (demand) card.append(demandCountsBadge(demand));
-    card.append(contextSlot({ ref: refOf(order) }, { focus: 'cars' }));
-    const stale = staleNotice(card, demand); if (stale) card.append(stale);
-    if (orderAudit) card.append(orderAudit);
-    if(demand?.key)auditCards.set(demand.key,card);
-    ['options-loaded','audit-changed'].forEach((name)=>card.addEventListener(name,()=>{const next=auditBlock(demand,seenOrder());if(orderAudit&&next){orderAudit.replaceWith(next);orderAudit=next;}}));
-    const contact=contactMeta(order);if(contact)card.append(contact);
-    const smsMissing=smsPrintMissing(order); if(smsMissing)card.append(smsMissing);
-
-    const table = lazyOptions(card, demand, loaded, (match) => {
-      const parsed = match.vehicle_json.parsed || {};
-      const row = element('div', `manheim-row ${kindClass(match.match_kind)}`);
-      const vehicle = element('div');
-      vehicle.append(
-        element('strong', '', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')),
-        element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}`)
-      );
-      if (parsed.vin) vehicle.append(element('span', 'muted', `VIN: ${parsed.vin}`));
-      vehicle.append(element('span', 'muted', `Ref do pedido: ${order.ref}`));
-      const badges = element('div', 'badges');
-      badges.append(makeBadge(kindLabel(match.match_kind), kindTone(match.match_kind)));
-      if (match.match_reason) badges.append(makeBadge(match.match_reason));
-      if (match.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
-      if (parsed.matchNotice) badges.append(makeBadge(parsed.matchNotice, 'yellow'));
-      if (match.mmr_status) badges.append(makeBadge(mmrLabel(match.mmr_status), match.mmr_status.includes('acima') ? 'yellow' : 'blue'));
-      if (match.fitsBid === true) badges.append(makeBadge('cabe no lance', 'green'));
-      else if (match.fitsBid === false) badges.append(match.match_kind === 'POR_VALOR' ? makeBadge('MMR acima do lance · dentro da faixa de valor, confirmar com o cliente', 'yellow') : makeBadge('passa do lance', 'red'));
-      if (Array.isArray(match.alsoFitsFor) && match.alsoFitsFor.length) badges.append(makeBadge(`também bate para ${match.alsoFitsFor.join(', ')}`, 'blue'));
-      row.append(vehicle, badges);
-      makeCardClickable(row, () => openDetail('order', order.ref));
-      return row;
-    });
-    const actions=element('div','inline-actions');
-    const open=element('button','small','Abrir pedido');open.type='button';open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('order',order.ref);});
-    const orderSelection = demand && demand.offer && OFFER ? offerSection(card, demand) : null;
-    if (!orderSelection && demand && demand.offerPending) card.append(offerPendingNote());
-    actions.append(open);card.append(orderSelection || table,actions,dispositionControls({...order,kind:'CALCULATOR'}));
-    makeCardClickable(card, () => openDetail('order', order.ref));
-    root.append(card);
-  }
-
-  const MODE_ROOTS = { VALOR: 'valor', CARRO: 'carro' };
   // People with cars of the active batch in ENVIAR OPÇÕES (a person with VALOR and CARRO cars is one).
   const optionsPeopleOf = (data) => new Set((data && data.demands || []).filter((demand) => demand.matchCount > 0).map((demand) => demand.journeyId ? 'ficha:' + demand.journeyId : 'ref:' + String(demand.ref || '').toUpperCase())).size;
-  const modeRoot = (mode, part) => $(`buscas-${MODE_ROOTS[mode]}-${part}`);
   let manheimData = null;
+  const queueSearchInput = document.getElementById('options-queue-search');
+  if (queueSearchInput) queueSearchInput.addEventListener('input', () => paintOptionsQueue());
 
-  // "Ordenar" of each column of ENVIAR OPÇÕES; default "Mensagem mais recente" keeps the order of before.
-  const optionsSort = { VALOR: 'recente', CARRO: 'recente' };
-  function optionsOrder(mode, a, b) {
-    const years = (demand, high) => { const list = (demand.wishes || []).flatMap((wish) => [Number(wish.yearMin) || null, Number(wish.yearMax) || null]).filter(Boolean); return list.length ? (high ? Math.max(...list) : Math.min(...list)) : null; };
-    const bid = (demand) => Number(demand.bidCents) || null;
-    const last = (value, fallback) => value === null ? fallback : value;
-    switch (optionsSort[mode]) {
-      case 'mais': return (Number(b.matchCount) || 0) - (Number(a.matchCount) || 0);
-      case 'menos': return (Number(a.matchCount) || 0) - (Number(b.matchCount) || 0);
-      case 'lance-maior': return last(bid(b), -Infinity) - last(bid(a), -Infinity);
-      case 'lance-menor': return last(bid(a), Infinity) - last(bid(b), Infinity);
-      case 'ano-maior': return last(years(b, true), -Infinity) - last(years(a, true), -Infinity);
-      case 'ano-menor': return last(years(a, false), Infinity) - last(years(b, false), Infinity);
-      default: return 0;
-    }
-  }
-  ['VALOR', 'CARRO'].forEach((mode) => { const select = document.getElementById('options-sort-' + mode.toLowerCase()); if (select) select.addEventListener('change', () => { optionsSort[mode] = select.value; if (manheimData) renderManheim(manheimData); }); });
   function renderManheim(data) {
     manheimData = data;
     // The cards follow the most recent message; each column's own "Ordenar" reorders from there.
@@ -3891,72 +3566,291 @@
 
     const byJourney = new Map(manheimJourneys.map((journey) => [journey.id, journey]));
     const byOrder = new Map(manheimOrders.map((order) => [order.ref, order]));
-    const withOptions = (data.demands || []).filter((demand) => demand.matchCount > 0);
+    renderOptionsQueue(data, byJourney, byOrder);
+  }
+
+  // ===== ENVIAR OPÇÕES · fila de trabalho =====
+  // The tab is a queue: only clients with cars in the active batch and no V1 sent yet.
+  // "Pronto para comprar agora" first, then most recent message. Nothing expands inline:
+  // tapping a card opens the client's ficha, where the selection and the V1 happen.
+  // Who the card is about: from the demand's journey or order (the queue shows one card per person).
+  function demandPerson(demand, byJourney, byOrder) {
+    const journey = demand.journeyId ? byJourney.get(demand.journeyId) : null;
+    const order = !journey ? byOrder.get(String(demand.ref || demand.calcRef || '').trim()) : null;
+    const item = journey || order;
+    const name = item && (item.name || item.contact && item.contact.display_name || item.contactName)
+      || (demand.ref ? `Pedido ${demand.ref}` : 'Cliente');
+    const phone = item ? primaryPhone(item) : null;
+    const raw = phone && (phone.phone_e164 || phone.phone_raw) || '';
+    return {
+      journeyId: journey && journey.id || null,
+      ref: journey ? calcRefOf(journey) : (demand.ref || demand.calcRef || null),
+      name, phoneRaw: raw, phoneDisplay: phoneDisplay(raw),
+      // When it arrived: the latest message (journey) or the order's own timestamp.
+      arrivedAt: journey ? (journey.latestMessage && (journey.latestMessage.occurred_at_utc || journey.latestMessage.created_at) || null)
+        : (order ? (order.lastMessageAt || order.createdAt || null) : null),
+      purchaseWindow: journey ? String(journey.purchaseWindow || 'NONE') : 'NONE',
+    };
+  }
+  let v1SentCache = null;
+  async function loadV1Sent() {
+    if (v1SentCache) return v1SentCache;
+    const data = await request('/api/panel/vitrine-funnel', viewFetch());
+    const journeys = new Set(), refs = new Set();
+    // V1 sent and still valid (waiting for the tap, or tapped without a V2 yet) hides the
+    // client from the queue; a V2 sent hides them too. Expired ones come back.
+    ['tapped', 'waiting'].forEach((zone) => ((data && data.v1 && data.v1[zone]) || []).forEach((item) => {
+      if (item.journeyId) journeys.add(item.journeyId);
+      if (item.referenceCode) refs.add(String(item.referenceCode).toUpperCase());
+    }));
+    ['bid', 'waiting'].forEach((zone) => ((data && data.v2 && data.v2[zone]) || []).forEach((item) => {
+      if (item.journeyId) journeys.add(item.journeyId);
+      if (item.referenceCode) refs.add(String(item.referenceCode).toUpperCase());
+    }));
+    v1SentCache = { journeys, refs };
+    return v1SentCache;
+  }
+  let optionsQueueData = [];
+  let optionsQueueHasUpload = false;
+  async function renderOptionsQueue(data, byJourney, byOrder) {
+    const root = $('options-queue');
+    if (root) root.replaceChildren(element('p', 'muted', 'Montando a fila…'));
+    optionsQueueHasUpload = Boolean(data.upload);
+    let sent = null;
+    try { sent = await loadV1Sent(); } catch (_) { sent = null; }
+    const isSent = (demand) => {
+      if (!sent) return false;
+      if (demand.journeyId && sent.journeys.has(demand.journeyId)) return true;
+      const ref = String(demand.calcRef || demand.ref || '').toUpperCase();
+      return Boolean(ref && sent.refs.has(ref));
+    };
+    const withOptions = (data.demands || []).filter((demand) => demand.matchCount > 0 && !isSent(demand));
     const position = (demand) => demand.journeyId ? manheimJourneys.findIndex((item) => item.id === demand.journeyId) : 10000 + manheimOrders.findIndex((item) => item.ref === demand.ref);
-    ['VALOR', 'CARRO'].forEach((mode) => {
-      const root = modeRoot(mode, 'results');
-      root.replaceChildren();
-      const standard = element('section', 'stack'), reactivate = element('section', 'stack');
-      reactivate.append(element('h4', '', 'Reativar'));
-      let standardCount = 0, reactivateCount = 0;
-      withOptions.filter((demand) => demand.mode === mode).sort((a, b) => optionsOrder(mode, a, b) || position(a) - position(b)).forEach((demand) => {
-        if (!demand.journeyId) {
-          const order = byOrder.get(String(demand.ref || '').trim());
-          if (!order) return;
-          renderManheimOrderGroup(standard, order, demand);
-          standardCount += 1;
+    const nowFirst = (demand) => {
+      const journey = demand.journeyId ? byJourney.get(demand.journeyId) : null;
+      return journey && journey.purchaseWindow === 'NOW' ? 0 : 1;
+    };
+    withOptions.sort((a, b) => nowFirst(a) - nowFirst(b) || position(a) - position(b));
+    optionsQueueData = withOptions.map((demand) => ({
+      demand,
+      person: demandPerson(demand, byJourney, byOrder),
+    }));
+    // The tab counter follows the queue: people still waiting for their V1.
+    setCount('searches', new Set(optionsQueueData.map(({ demand }) => demand.journeyId ? 'ficha:' + demand.journeyId : 'ref:' + String(demand.ref || '').toUpperCase())).size);
+    paintOptionsQueue();
+  }
+  function queueMatches(demand, person, query) {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    const digits = q.replace(/\D/g, '');
+    const hay = [
+      person.name, person.phoneRaw, person.phoneDisplay, person.ref,
+      demand.calcRef,
+      demandSummary(demand),
+      (demand.wishes || []).map((wish) => [wish.make, wish.model, wish.trim].filter(Boolean).join(' ')).join(' '),
+    ].filter(Boolean).join(' ').toLowerCase();
+    if (hay.includes(q)) return true;
+    return Boolean(digits && hay.replace(/\D/g, '').includes(digits));
+  }
+  function paintOptionsQueue() {
+    const root = $('options-queue');
+    const note = $('options-queue-count');
+    if (!root) return;
+    const query = $('options-queue-search') ? $('options-queue-search').value || '' : '';
+    const list = optionsQueueData.filter(({ demand, person }) => queueMatches(demand, person, query));
+    root.replaceChildren();
+    if (note) note.textContent = query.trim() ? `${list.length} de ${optionsQueueData.length} na fila` : `${optionsQueueData.length} na fila · toque no cartão para abrir a ficha`;
+    list.forEach(({ demand, person }) => renderQueueCard(root, demand, person));
+    if (!list.length) root.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia · todos com carro no lote já receberam a V1' : 'Nenhuma importação ativa'));
+  }
+  function openQueueDetail(demand, person) {
+    if (person && person.journeyId) return openDetail('ficha', person.journeyId);
+    if (person && person.ref) return openDetail('order', String(person.ref));
+    return null;
+  }
+  function renderQueueCard(root, demand, person) {
+    const card = element('article', 'item-card options-queue-card');
+    card.dataset.demandKey = demand.key || '';
+    card.dataset.mode = demand.mode || '';
+    // Bloco 1: quem é.
+    const head = element('div', 'item-head');
+    const identity = element('div', 'identity');
+    identity.append(element('span', 'avatar', initials(person.name)));
+    const text = element('div');
+    text.append(element('strong', 'identity-name', person.name));
+    if (person.phoneRaw) { const link = element('a', 'identity-ref-phone phone-link', '📞 ' + person.phoneDisplay); link.href = 'tel:' + String(person.phoneRaw).replace(/[^+\d]/g, ''); link.addEventListener('click', (event) => event.stopPropagation()); text.append(link); }
+    if (person.ref) text.append(makeBadge('Ref ' + person.ref, 'blue'));
+    identity.append(text);
+    head.append(identity);
+    const meta = element('div', 'badges');
+    const arrival = floridaArrival(person.arrivedAt);
+    if (arrival) meta.append(makeBadge(arrival));
+    meta.append(makeBadge(WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, person.purchaseWindow === 'NOW' ? 'red' : person.purchaseWindow === '30D' ? 'yellow' : person.purchaseWindow === '3M' ? 'blue' : ''));
+    if (demand.mode) meta.append(makeBadge(demand.mode === 'VALOR' ? 'Por valor' : 'Por carro', demand.mode === 'VALOR' ? 'blue' : 'green'));
+    card.append(head, meta);
+    // Bloco 2: o que o cliente pediu.
+    card.append(element('span', 'request-criteria-label', 'O que o cliente pediu'));
+    card.append(element('p', 'demand-essential', demandSummary(demand)));
+    card.append(demandCountsBadge(demand));
+    // Bloco 3: os três grupos recolhidos, só com contagens. Nada aqui expande.
+    const offer = demand.offer || {};
+    const groupParts = [];
+    if (offer.lane) groupParts.push(`${offer.lane} em Lane/Run`);
+    if (offer.offLane) groupParts.push(`${offer.offLane} em Buy Now / Make Offer`);
+    if (offer.incomplete) groupParts.push(`${offer.incomplete} com informação incompleta`);
+    card.append(element('p', 'muted options-queue-groups', groupParts.length ? groupParts.join(' · ') : 'Contando os grupos…'));
+    // Rodapé: próximo passo + um botão.
+    const foot = element('div', 'options-queue-foot');
+    const selected = Number(offer.selected) || 0;
+    foot.append(element('p', 'muted options-queue-next', selected ? `${selected} ${selected === 1 ? 'carro selecionado' : 'carros selecionados'} · abra a ficha e gere a V1` : 'Próximo passo: abrir a ficha, selecionar os carros e gerar a V1'));
+    const open = element('button', 'small', 'Abrir ficha');
+    open.type = 'button';
+    open.addEventListener('click', (event) => { event.stopPropagation(); openQueueDetail(demand, person); });
+    foot.append(open);
+    card.append(foot);
+    makeCardClickable(card, () => openQueueDetail(demand, person));
+    root.append(card);
+  }
+
+  // ===== Ficha · opções e envio da V1 =====
+  // The selection UI (the three groups, sort, trim, pagination, per-car selection) moved from
+  // the ENVIAR OPÇÕES cards into the ficha: offerSection/offerGroup/offerRow are reused unchanged.
+  function v1ErrorText(error) {
+    return error?.code === 'MANHEIM_STAMP_INVALID' ? 'Algum carro não serve mais ao pedido atual (lote ou critério mudou) · Recarregue as opções e selecione de novo'
+      : error?.code === 'MANHEIM_AUDIT_PENDING' ? 'A conferência desta demanda ainda não liberou a V1'
+      : error?.code === 'MANHEIM_OPTION_NOT_SELECTED' ? 'Só carros selecionados para o cliente entram na V1'
+      : error?.code === 'MANHEIM_MATCH_WITHOUT_MMR' ? 'Carro sem MMR válido não entra na V1'
+      : error?.code === 'MANHEIM_SELECTION_PENDING' ? 'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável'
+      : 'Não consegui gerar o link';
+  }
+  async function renderFichaOptions(container, { journeyId, ref }) {
+    container.replaceChildren(element('p', 'muted', 'Carregando as opções do lote ativo…'));
+    let data = manheimData;
+    if (!data) {
+      try { data = await request('/api/panel/records?view=manheim', viewFetch()); manheimData = data; }
+      catch (_) { if (container.isConnected) container.replaceChildren(element('p', 'warning', 'Não consegui carregar as opções agora · Tente de novo')); return; }
+    }
+    if (!container.isConnected) return;
+    const demands = (data.demands || []).filter((demand) => demand.matchCount > 0
+      && (!journeyId || demand.journeyId === journeyId)
+      && (journeyId || !ref || demand.ref === ref || demand.calcRef === ref));
+    container.replaceChildren();
+    if (!demands.length) {
+      container.append(element('p', 'muted', 'Nenhum carro do lote ativo para este pedido agora'));
+      return;
+    }
+    const mounted = [];
+    demands.forEach((demand) => {
+      const section = element('section', 'ficha-demand');
+      section.dataset.demandKey = demand.key || '';
+      const head = element('div', 'ficha-demand-head');
+      head.append(makeBadge(demand.mode === 'VALOR' ? 'Por valor' : 'Por carro', demand.mode === 'VALOR' ? 'blue' : 'green'));
+      head.append(element('span', 'request-criteria-label', 'Cliente pediu'));
+      section.append(head);
+      section.append(element('p', 'demand-essential', demandSummary(demand)));
+      // Without the selection summary the groups cannot be drawn yet: say so, never zero.
+      if (!demand.offer || !OFFER) {
+        if (demand.offerPending) section.append(offerPendingNote());
+        else section.append(element('p', 'muted', 'Opções ainda carregando · volte em instantes'));
+        container.append(section);
+        return;
+      }
+      const seen = () => (section.offerState ? section.offerState.loaded : []);
+      let audited = auditBlock(demand, seen());
+      if (audited) section.append(audited);
+      if (demand.key) auditCards.set(demand.key, section);
+      ['options-loaded', 'audit-changed'].forEach((name) => section.addEventListener(name, () => { const next = auditBlock(demand, seen()); if (audited && next) { audited.replaceWith(next); audited = next; } }));
+      section.append(offerSection(section, demand));
+      container.append(section);
+      mounted.push({ demand, section });
+      // The check starts by itself when the ficha opens with a car already selected.
+      const alreadySelected = Number(demand.offer.selected) || 0;
+      if (alreadySelected > 0 && demand.key) {
+        request('/api/panel/manheim-audit', { method: 'POST', body: JSON.stringify({ action: 'check', key: demand.key }), timeoutMs: 60000 })
+          .then((checked) => { applyAuditEntry(demand, checked, section); })
+          .catch(() => {});
+      }
+    });
+    container.append(fichaOptionsFooter(mounted));
+  }
+  function fichaOptionsFooter(mounted) {
+    const foot = element('div', 'ficha-v1-foot');
+    const status = element('p', 'status ficha-v1-status', '');
+    status.setAttribute('role', 'status');
+    const actions = element('div', 'inline-actions');
+    const pdf = element('button', 'quiet small', 'Baixar PDF');
+    pdf.type = 'button';
+    const go = element('button', 'small', 'Gerar V1 e abrir no WhatsApp');
+    go.type = 'button';
+    actions.append(pdf, go);
+    foot.append(status, actions);
+    const withSelection = () => mounted
+      .map(({ demand, section }) => ({ demand, state: section.offerState }))
+      .find((entry) => entry.state && entry.state.selectedIds.size > 0) || null;
+    pdf.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const found = withSelection();
+      if (!found) { status.textContent = 'Selecione pelo menos um carro para o PDF'; return; }
+      const { demand, state } = found;
+      const journey = ((manheimData && manheimData.items) || []).find((item) => item.id === demand.journeyId) || null;
+      if (!journey) { status.textContent = 'Não consegui preparar o PDF agora'; return; }
+      const selected = state.loaded.filter((option) => state.selectedIds.has(option.id));
+      const missing = [...state.selectedIds].filter((id) => !selected.some((option) => option.id === id));
+      pdf.disabled = true; status.textContent = 'Preparando o PDF…';
+      try {
+        const more = missing.length ? await selectedOptions(demand.key, new Set(missing)) : [];
+        const cars = [...selected, ...more];
+        if (!cars.length) { status.textContent = 'Não encontrei os carros selecionados no lote ativo · Recarregue as opções'; return; }
+        await optionsPdf(cars, journey);
+        status.textContent = `PDF com ${cars.length} ${cars.length === 1 ? 'carro' : 'carros'} pronto · escolha Salvar como PDF`;
+      } catch (_) { status.textContent = 'Não consegui preparar o PDF, tente de novo'; }
+      finally { pdf.disabled = false; }
+    });
+    go.addEventListener('click', (event) => { event.stopPropagation(); fichaGenerateV1(go, status, withSelection()); });
+    return foot;
+  }
+  async function fichaGenerateV1(button, status, found) {
+    if (!found) { status.textContent = 'Selecione pelo menos um carro para o cliente'; return; }
+    const { demand, state } = found;
+    if (!demand.journeyId) { status.textContent = 'Vincule o pedido a uma ficha para gerar a V1'; return; }
+    const selected = [...state.selectedIds];
+    button.disabled = true;
+    status.textContent = 'Gerando a V1…';
+    const create = () => request('/api/panel/vitrines', { method: 'POST', body: JSON.stringify({ journeyId: demand.journeyId, matchIds: selected, ...(demand.key ? { demandKey: demand.key } : {}) }) });
+    let created = null;
+    try { created = await create(); }
+    catch (error) {
+      if (error?.code === 'MANHEIM_AUDIT_PENDING' && demand.key) {
+        status.textContent = 'Conferindo este pedido antes do link…';
+        const checked = await request('/api/panel/manheim-audit', { method: 'POST', body: JSON.stringify({ action: 'check', key: demand.key }), timeoutMs: 60000 }).catch(() => null);
+        if (checked) applyAuditEntry(demand, checked, state.card);
+        try { created = await create(); }
+        catch (again) {
+          status.textContent = again?.code === 'MANHEIM_AUDIT_PENDING'
+            ? (checked?.entry ? auditHeldText(checked.entry) : 'V1 bloqueada: a conferência não liberou · Use "Conferir de novo" acima')
+            : v1ErrorText(again);
+          button.disabled = false;
           return;
         }
-        const journey = byJourney.get(demand.journeyId);
-        if (!journey) return;
-        if (journey.reactivationEligible || journey.status === 'PARADO') {
-          if (demand.bateCount) { renderManheimGroup(reactivate, journey, true, { ...demand, matchCount: demand.bateCount }); reactivateCount += 1; }
-        } else { renderManheimGroup(standard, journey, false, demand); standardCount += 1; }
-      });
-      // Adendo, item 2: three groups per search type, never mixed.
-      const withCars = element('section', 'search-group search-group-com-carros'); withCars.dataset.searchGroup = 'COM_CARROS';
-      const withHead = element('header', 'search-group-head'); withHead.append(element('strong', '', 'Com carros no lote'), element('span', 'badge', String(standardCount + reactivateCount)), element('span', 'muted search-group-hint', 'A busca rodou e achou carros no lote ativo'));
-      withCars.append(withHead);
-      if (standardCount) withCars.append(standard);
-      if (reactivateCount) withCars.append(reactivate);
-      if (!standardCount && !reactivateCount) withCars.append(element('p', 'empty-state', data.upload ? 'Nenhum carro compatível neste modo no lote ativo' : 'Nenhuma importação ativa'));
-      root.append(withCars);
-      const noCars = data.upload ? (data.demands || []).filter((demand) => demand.mode === mode && !(demand.matchCount > 0)) : [];
-      if (noCars.length) {
-        const section = element('section', 'search-group search-group-sem-carros'); section.dataset.searchGroup = 'SEM_CARROS';
-        const head = element('header', 'search-group-head'); head.append(element('strong', '', 'Sem carros'), element('span', 'badge', String(noCars.length)), element('span', 'muted search-group-hint', 'A busca rodou no lote ativo e não achou nenhum carro · O motivo aparece em cada pedido'));
-        section.append(head);
-        noCars.sort((a, b) => position(a) - position(b)).forEach((demand) => {
-          const line = element('article', 'item-card search-empty-card');
-          line.append(element('strong', 'identity-name', demand.name || demand.contactName || (shownRef(demand) ? `Ref ${shownRef(demand)}` : 'Cliente')));
-          const fields = MCSSearchGroups.fields({ searchMode: demand.mode, targets: [{ mode: demand.mode, wishes: demand.wishes || [], bidCents: demand.bidCents }] }); if (fields) line.append(fields);
-          const reason = element('p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = (demand.journeyId ? 'ficha:' : 'pedido:') + demand.key; line.append(reason);
-          if (demand.journeyId) { const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', () => openDetail('ficha', demand.journeyId)); line.append(open); }
-          section.append(line);
-        });
-        root.append(section);
-      }
-      const notRun = (data.review || []).filter((item) => item.mode === mode);
-      if (notRun.length || !data.upload) {
-        const section = element('section', 'search-group search-group-nao-rodada'); section.dataset.searchGroup = 'NAO_RODADA';
-        const count = data.upload ? notRun.length : (data.demands || []).filter((demand) => demand.mode === mode).length + notRun.length;
-        const head = element('header', 'search-group-head'); head.append(element('strong', '', 'Busca ainda não rodada'), element('span', 'badge', String(count)), element('span', 'muted search-group-hint', data.upload ? 'Faltam dados do cliente para buscar · Os pedidos estão em BUSCAR CARROS, Revisar tipo de busca, com o que falta' : 'Sem lote ativo: nenhuma busca rodou ainda'));
-        section.append(head);
-        if (notRun.length) { const go = element('button', 'quiet small', `Ver o que falta (${notRun.length})`); go.type = 'button'; go.addEventListener('click', () => { switchPanel('requests').then(() => { const box = $('buscas-review'); if (box) { box.open = true; box.scrollIntoView({ block: 'start', behavior: 'smooth' }); } }).catch(() => {}); }); section.append(go); }
-        root.append(section);
-      }
-      hydrateContexts(root);
-      loadOptionEmptyReasons(root);
-    });
-  }
-  // Reasons of the "sem carros" demands of OPÇÕES (read only, same rule as PESQUISAS).
-  async function loadOptionEmptyReasons(root) {
-    const slots = [...root.querySelectorAll('.search-empty-reason[data-request-key]')];
-    if (!slots.length) return;
-    let reasons = {};
-    try { reasons = (await request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'empty_reasons', keys: slots.map((slot) => slot.dataset.requestKey) }) })).reasons || {}; }
-    catch (_) { slots.forEach((slot) => { slot.textContent = 'Motivo: não consegui ler o lote agora · Atualize a página para tentar de novo'; }); return; }
-    slots.forEach((slot) => { const reason = reasons[slot.dataset.requestKey]; slot.textContent = 'Motivo: ' + (reason ? reason.text : 'nenhum carro do lote ativo serviu para estes critérios'); });
+      } else { status.textContent = v1ErrorText(error); button.disabled = false; return; }
+    }
+    status.textContent = 'Abrindo o WhatsApp com a mensagem…';
+    let info = null;
+    try { info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: 'prepare', token: created.token, baseUrl: location.origin, ...(demand.key ? { demandKey: demand.key } : {}) }) }); }
+    catch (_) { info = null; }
+    button.disabled = false;
+    // The V1 exists now: the queue drops this client on the next load.
+    v1SentCache = null;
+    const phone = info && info.phone ? String(info.phone).replace(/\D/g, '') : '';
+    const text = info && info.text ? info.text : (info && info.link ? info.link : '');
+    if (!phone) {
+      status.textContent = 'V1 criada · Sem telefone para abrir a conversa' + (info && info.link ? ' · Link: ' + info.link : '');
+      return;
+    }
+    const href = 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text);
+    if (window.MCSWaLink) window.MCSWaLink.open(href);
+    else window.open(href, '_blank', 'noopener');
+    status.textContent = 'WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp';
   }
 
   function renderBuscasCounters(counts) {
@@ -3966,18 +3860,6 @@
       const all = counts && counts.total || {};
       total.append(element('strong', '', 'Total geral'), element('span', 'muted', `${all.people || 0} pessoa(s) com busca ativa · ${all.served || 0} atendida(s) no lote ativo · ${all.matches || 0} combinação(ões) · ${all.review || 0} para revisar`));
     }
-    ['VALOR', 'CARRO'].forEach((mode) => {
-      const root = modeRoot(mode, 'counters');
-      if (!root) return;
-      const value = counts && counts[mode] || {};
-      root.replaceChildren();
-      [[value.demands, 'demandas'], [value.served, 'pessoas atendidas'], [value.matches, 'matches']].forEach(([number, label]) => {
-        const stat = element('div', 'pending-stat');
-        stat.dataset.counter = label;
-        stat.append(element('strong', '', String(number || 0)), element('span', 'muted', label));
-        root.append(stat);
-      });
-    });
   }
 
   // One row per import batch (a batch can have several CSV files). Undo is reversible and
@@ -4173,7 +4055,6 @@
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', 'request-lacks', 'Falta: o lance oficial do cliente · Abra a ficha e confirme o valor · Sem isso estes carros não viram opção válida nem vão para o envio'));
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'candidato' : 'candidatos'} no lote ativo por modelo, ano e milhagem. O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada`));
     if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo · Continua aqui para a próxima importação'));
-    if (first.comparedAt) card.append(element('p', 'muted', `${first.comparedAtImport ? 'Comparado na importação de' : 'Última comparação'}: ${formatDate(first.comparedAt)}`));
     if (first.missing && first.missing.length) card.append(element('p', 'muted', 'Não informado (sem restrição): ' + first.missing.join(', ')));
     if (first.typeNotChecked) card.append(element('p', 'muted', 'O tipo de carroceria não vem no arquivo do Manheim: as opções não filtram por tipo'));
     if (first.state === 'PRECISA_DETALHE') card.append(element('p', 'request-lacks', first.lacksText || ''),
@@ -4205,23 +4086,9 @@
         }
       }
       line.append(who);
-      // Work stage of this ficha and type (busca salva no Manheim, opções enviadas).
+      // The one manual action that stays, where it resolves: save the search in Manheim.
       const stage = item.person?.journeyId && item.searchMode ? searchStages.get(item.person.journeyId + ':' + item.searchMode) : null;
-      if (stage) line.append(searchStageLine(stage, reload));
-      // The client's case: the ficha when known; a conversation request only through its contact,
-      // and only when that contact has exactly one ficha.
-      const personJourney = UUID_RE.test(String(item.person?.journeyId || '')) ? item.person.journeyId : null;
-      const personRef = REF_CODE_RE.test(String(item.person?.ref || '').toUpperCase()) ? String(item.person.ref).toUpperCase() : null;
-      const personContact = UUID_RE.test(String(item.person?.contactId || '')) ? item.person.contactId : null;
-      const caseBox = element('details', 'request-case');
-      caseBox.append(element('summary', '', 'Resumo do caso'));
-      caseBox.append(contextSlot({ journeyId: personJourney, ref: personJourney ? null : personRef, contactId: personJourney || personRef ? null : personContact }, { focus: 'search', emptyText: 'Pedido sem cliente identificado: não é ligado a nenhuma ficha.' }));
-      caseBox.addEventListener('toggle', () => { if (caseBox.open) hydrateContexts(caseBox); });
-      line.append(caseBox);
-      const evidence = element('details', 'request-evidence');
-      evidence.append(element('summary', '', `Evidências (${(item.evidence || []).length})`));
-      (item.evidence || []).forEach((entry) => evidence.append(element('p', 'muted', (entry.at ? formatDate(entry.at) + ' · ' : '') + entry.text)));
-      line.append(evidence);
+      if (stage && stage.stage === 'MISSING') line.append(saveSearchButton(stage, reload));
       // The same request read by the AI from the conversation: evidence of this request, not a second one.
       (item.aiEvidence || []).forEach((reading) => {
         const box = element('details', 'request-evidence request-ai-evidence');
@@ -4527,8 +4394,9 @@
     savedSearchesData = data;
     const intro = $('manheim-saved-searches');
     intro.replaceChildren(element('p','muted','Cada linha é uma busca para você salvar no Manheim · As primeiras atendem mais clientes · Conta só quem entrou em contato · POR VALOR e POR ANO E MILHAGEM têm porcentagens separadas; o que está em revisão não entra no %'));
-    const roots = { VALOR: modeRoot('VALOR', 'saved'), CARRO: modeRoot('CARRO', 'saved') };
-    Object.entries(roots).forEach(([mode, root]) => { root.replaceChildren(); if (!data.groups.some((group) => group.mode === mode)) empty(root, 'Nenhuma busca ativa neste modo'); });
+    const root = $('buscas-saved-list');
+    if (root) root.replaceChildren();
+    if (!root) return;
     const mode='customers';
     const rankOf=(group)=>group.searches===null||group.searches===undefined?Infinity:group.searches;
     const groups=data.groups.slice().sort((a,b)=>(mode==='vehicle'?`${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`,'pt-BR'):mode==='recent'?(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)||rankOf(a)-rankOf(b)):rankOf(a)-rankOf(b)));
@@ -4539,7 +4407,6 @@
       return parts.join(' · ');
     };
     groups.forEach((group) => {
-      const root = roots[group.mode];
       if (!root) return;
       const line = element('article', 'saved-search-line');
       line.dataset.mode = group.mode;
@@ -4995,36 +4862,6 @@
     }
     $('manheim-status').classList.add('error');
     $('manheim-status').textContent = manheimFailureText(failure);
-  }
-
-  function renderRecords(items) {
-    const root = $('records-list');
-    root.replaceChildren();
-    setCount('records', items.length);
-    if (!items.length) {
-      clearRecordDetail('Nenhuma ficha selecionada');
-      return empty(root, 'Nenhuma ficha criada');
-    }
-    const sorted = items.slice();
-    sorted.forEach((item) => {
-      const card = element('article', 'search-hit record-list-card');
-      const text = identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' });
-      const controls = element('div', 'record-card-controls');
-      const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
-      controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
-      if(item.disposition)controls.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));
-      if(item.searchStageLabel)controls.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
-      const heat=heatBadge(item);if(heat)controls.append(heat);
-      if(item.pendingAiCount)controls.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
-      if(item.aiLinkSuggested)controls.append(makeBadge('🔗 ligação sugerida','yellow'));
-      const open = element('button', 'quiet small', 'Abrir ficha');
-      open.type = 'button';
-      open.addEventListener('click', () => openDetail('ficha', item.id));
-      controls.append(open, journeySwitch(item, () => loadCurrent()));
-      card.append(text, controls);
-      makeCardClickable(card, () => openDetail('ficha', item.id));
-      root.append(card);
-    });
   }
 
   function definition(list, term, value) {
@@ -5498,43 +5335,6 @@
     root.classList.remove('hidden');
   }
 
-  // From CLIENTES the report follows the CLIENTES period (last real activity), not a date range.
-  let reportClients = null;
-  function openReport(view) {
-    reportView = view;
-    reportClients = view === 'records' && clientsOpen() ? { activity: clientsPeriod(), since: MCSOrigin.periodCutoff(clientsPeriod()) } : null;
-    $('report-period-field').classList.toggle('hidden', Boolean(reportClients));
-    $('report-custom').classList.toggle('hidden', Boolean(reportClients) || $('report-period').value !== 'custom');
-    $('report-origin-note').classList.toggle('hidden', !reportClients);
-    $('report-origin-note').textContent = reportClients ? (reportClients.activity === 'all' ? 'Período de CLIENTES: tudo, sem corte por data' : `Período de CLIENTES: atividade real ${MCSOrigin.periodLabel(reportClients.activity)}`) : '';
-    $('report-text').value = '';
-    $('report-status').textContent = '';
-    $('report-dialog').showModal();
-  }
-
-  async function generateReport() {
-    const period = $('report-period').value;
-    const params = reportClients ? new URLSearchParams({ view: 'records', origin: 'clients', activity: reportClients.activity }) : new URLSearchParams({ period, view: reportView });
-    if (reportClients && reportClients.since !== null) params.set('since', new Date(reportClients.since).toISOString());
-    if (!reportClients && period === 'custom') {
-      params.set('from', $('report-from').value);
-      params.set('to', $('report-to').value);
-    }
-    try {
-      const report = await request('/api/panel/report?' + params.toString());
-      $('report-text').value = report.text;
-      $('report-status').textContent = 'Relatório gerado';
-    } catch (_) {
-      $('report-status').textContent = 'Não foi possível gerar o relatório para esse período';
-    }
-  }
-
-  async function copyReport() {
-    if (!$('report-text').value) return;
-    await navigator.clipboard.writeText($('report-text').value);
-    $('report-status').textContent = 'Texto copiado';
-  }
-
   const SESSION_KEY = 'mcs_panel_session';
   const storeSession = () => {
     const storage = persistentSession ? localStorage : sessionStorage;
@@ -5824,7 +5624,7 @@
       }
     });
     window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
-    ['today','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(clientsOpen())loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
+    ['today','clients','pending','searches'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(clientsOpen())loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
     $('today-more')?.addEventListener('toggle',()=>{if(clientsOpen()&&!clientsRestoring)loadClients().catch(()=>{});});
     $('clients-followup')?.addEventListener('toggle',()=>{if($('clients-followup').open)loadFollowup();});
     $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(clientsOpen())loadClients();refreshCounters().catch(()=>{});});
@@ -5843,11 +5643,7 @@
     MCSAction.bind($('triage-run-pending'),()=>({scope:$('triage-run-pending').parentElement,commit:async()=>{const result=await request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'run_pending'})});if(result.skipped)throw Object.assign(Error('TRIAGE_OFF'),{code:'TRIAGE_OFF'});if(result.inProgress&&!result.processed)throw Object.assign(Error('TRIAGE_BUSY'),{code:'TRIAGE_BUSY'});if(result.failed||result.deferred||result.inProgress)throw Object.assign(Error('TRIAGE_PARTIAL'),{code:'TRIAGE_PARTIAL'});return result;},successText:'Leitura concluída, confira Precisa de você',refresh:()=>loadTriage().then(()=>refreshCounters().catch(()=>{})),errorText:(error)=>error?.code==='TRIAGE_ADMIN_ONLY'?'Só o administrador pode iniciar':error?.code==='TRIAGE_OFF'?'Triagem desligada, nada foi lido':error?.code==='TRIAGE_BUSY'?'Já em processamento pela rotina automática, confira em instantes':error?.code==='TRIAGE_PARTIAL'?'Parte das conversas ficou pendente, tente de novo':'Não consegui classificar, tente de novo'}));
     // One export at a time: the button stays blocked until the file is done or failed, and a failure is said on screen.
     $('clients-download').addEventListener('click',async()=>{const button=$('clients-download');if(button.disabled)return;button.disabled=true;button.parentElement?.querySelectorAll('.export-error').forEach((node)=>node.remove());try{await downloadClientsCsv();}catch(failure){button.after(element('span','error export-error',failure&&failure.code==='EXPORT_INCOMPLETE'?'A planilha ficaria incompleta; tente de novo':'Não foi possível baixar a planilha'));}finally{button.disabled=false;}});
-    document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar')); $('search-results').classList.remove('hidden'); }));
-    $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
-    $('report-generate').addEventListener('click', generateReport);
-    $('report-copy').addEventListener('click', () => copyReport().catch(() => { $('report-status').textContent = 'Não foi possível copiar'; }));
     $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch(showImportFailure));
     $('history-import-file').addEventListener('change', (event) => {
       historyImportFile = event.target.files?.[0] || null;

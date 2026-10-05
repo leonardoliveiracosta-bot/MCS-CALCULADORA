@@ -1,12 +1,60 @@
 {
  "ids": [
   {
+   "name": "ai-budget",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "ai-budget-features",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "ai-budget-spent",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "ai-budget-warning",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
    "name": "app-view",
    "usedBy": [
     "painel/painel.js",
+    "tests/abas-login.spec.js",
+    "tests/botoes-varredura.spec.js",
+    "tests/importacoes.spec.js",
     "tests/lote1.spec.js",
-    "tests/manheim-import.spec.js",
-    "tests/panel-responsive.spec.js"
+    "tests/panel-responsive.spec.js",
+    "tests/protecoes.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "attend-filters",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "attend-staging",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "auto-print-card",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
    ]
   },
   {
@@ -18,7 +66,8 @@
   {
    "name": "auto-print-file-info",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
    ]
   },
   {
@@ -36,13 +85,15 @@
   {
    "name": "auto-print-send",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
    ]
   },
   {
    "name": "auto-print-status",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
    ]
   },
   {
@@ -64,22 +115,17 @@
    ]
   },
   {
+   "name": "automatic-messages-card",
+   "usedBy": [
+    "tests/importacoes.spec.js",
+    "tests/lote4.spec.js"
+   ]
+  },
+  {
    "name": "boot-warning",
    "usedBy": [
     "painel/painel.js",
     "tests/lote1.spec.js"
-   ]
-  },
-  {
-   "name": "buscas-carro",
-   "usedBy": [
-    "tests/buscas-split.spec.js"
-   ]
-  },
-  {
-   "name": "buscas-carro-counters",
-   "usedBy": [
-    "tests/buscas-split.spec.js"
    ]
   },
   {
@@ -91,7 +137,8 @@
   {
    "name": "buscas-review",
    "usedBy": [
-    "tests/buscas-split.spec.js"
+    "tests/buscas-split.spec.js",
+    "tests/organizacao.spec.js"
    ]
   },
   {
@@ -108,21 +155,15 @@
    ]
   },
   {
+   "name": "buscas-saved-list",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
    "name": "buscas-total",
    "usedBy": [
     "painel/painel.js",
-    "tests/buscas-split.spec.js"
-   ]
-  },
-  {
-   "name": "buscas-valor",
-   "usedBy": [
-    "tests/buscas-split.spec.js"
-   ]
-  },
-  {
-   "name": "buscas-valor-counters",
-   "usedBy": [
     "tests/buscas-split.spec.js"
    ]
   },
@@ -148,7 +189,9 @@
    "name": "clients-activity",
    "usedBy": [
     "painel/painel.js",
-    "tests/lote4.spec.js"
+    "tests/clientes-periodos.spec.js",
+    "tests/lote4.spec.js",
+    "tests/todos-removida.spec.js"
    ]
   },
   {
@@ -160,7 +203,31 @@
   {
    "name": "clients-download",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/clientes-periodos.spec.js",
+    "tests/protecoes.spec.js",
+    "tests/todos-removida.spec.js"
+   ]
+  },
+  {
+   "name": "clients-followup",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/sugestoes.spec.js",
+    "tests/todos-removida.spec.js"
+   ]
+  },
+  {
+   "name": "clients-followup-list",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/sugestoes.spec.js"
+   ]
+  },
+  {
+   "name": "clients-general-card",
+   "usedBy": [
+    "tests/todos-removida.spec.js"
    ]
   },
   {
@@ -173,8 +240,15 @@
    "name": "clients-list",
    "usedBy": [
     "painel/painel.js",
+    "tests/botoes-varredura.spec.js",
+    "tests/clientes-periodos.spec.js",
+    "tests/comando2.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/identidade-visual.spec.js",
     "tests/lote4.spec.js",
-    "tests/marcacao-modo.spec.js"
+    "tests/marcacao-modo.spec.js",
+    "tests/protecoes.spec.js",
+    "tests/todos-removida.spec.js"
    ]
   },
   {
@@ -182,6 +256,20 @@
    "usedBy": [
     "painel/painel.js",
     "tests/lote4.spec.js"
+   ]
+  },
+  {
+   "name": "clients-panel",
+   "usedBy": [
+    "tests/botoes-varredura.spec.js"
+   ]
+  },
+  {
+   "name": "clients-period-note",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/clientes-periodos.spec.js",
+    "tests/comando2.spec.js"
    ]
   },
   {
@@ -205,13 +293,17 @@
   {
    "name": "clients-stats",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/clientes-periodos.spec.js",
+    "tests/comando2.spec.js",
+    "tests/todos-removida.spec.js"
    ]
   },
   {
    "name": "clients-type",
    "usedBy": [
     "painel/painel.js",
+    "tests/clientes-periodos.spec.js",
     "tests/lote4.spec.js"
    ]
   },
@@ -225,6 +317,13 @@
    "name": "contact-name-label",
    "usedBy": [
     "painel/painel.js"
+   ]
+  },
+  {
+   "name": "counters-note",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/abas-login.spec.js"
    ]
   },
   {
@@ -248,14 +347,23 @@
   {
    "name": "detail-back",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/botoes-varredura.spec.js",
+    "tests/organizacao.spec.js"
    ]
   },
   {
    "name": "detail-panel",
    "usedBy": [
     "painel/painel.js",
-    "tests/lote4.spec.js"
+    "tests/aud001-atualizacao.spec.js",
+    "tests/aud001-tela.spec.js",
+    "tests/aud001-venda.spec.js",
+    "tests/botoes-varredura.spec.js",
+    "tests/inicio-painel.spec.js",
+    "tests/lote4.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/organizacao.spec.js"
    ]
   },
   {
@@ -267,14 +375,14 @@
   {
    "name": "email",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/abas-login.spec.js"
    ]
   },
   {
    "name": "entry-queue",
    "usedBy": [
-    "painel/painel.js",
-    "tests/lote3.spec.js"
+    "painel/painel.js"
    ]
   },
   {
@@ -306,7 +414,8 @@
   {
    "name": "history-import-file",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
    ]
   },
   {
@@ -319,6 +428,30 @@
    "name": "history-import-status",
    "usedBy": [
     "painel/painel.js"
+   ]
+  },
+  {
+   "name": "import-card-history",
+   "usedBy": [
+    "tests/importacoes.spec.js"
+   ]
+  },
+  {
+   "name": "import-card-manheim",
+   "usedBy": [
+    "tests/importacoes.spec.js"
+   ]
+  },
+  {
+   "name": "import-card-sms",
+   "usedBy": [
+    "tests/importacoes.spec.js"
+   ]
+  },
+  {
+   "name": "import-card-whatsapp",
+   "usedBy": [
+    "tests/importacoes.spec.js"
    ]
   },
   {
@@ -346,9 +479,16 @@
    ]
   },
   {
+   "name": "import-review-cancel",
+   "usedBy": [
+    "tests/importacoes.spec.js"
+   ]
+  },
+  {
    "name": "import-review-card",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
    ]
   },
   {
@@ -366,7 +506,34 @@
   {
    "name": "import-status",
    "usedBy": [
+    "painel/painel.js",
+    "tests/identidade-visual.spec.js",
+    "tests/importacoes.spec.js"
+   ]
+  },
+  {
+   "name": "imports-panel",
+   "usedBy": [
+    "tests/botoes-varredura.spec.js",
+    "tests/importacoes.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "imports-review-empty",
+   "usedBy": [
     "painel/painel.js"
+   ]
+  },
+  {
+   "name": "imports-review-queue",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/importacoes.spec.js",
+    "tests/lote3.spec.js",
+    "tests/protecoes.spec.js"
    ]
   },
   {
@@ -379,13 +546,37 @@
    "name": "lead-conversation",
    "usedBy": [
     "painel/lead.js",
-    "tests/lote1.spec.js"
+    "tests/identidade-visual.spec.js",
+    "tests/lote1.spec.js",
+    "tests/resposta-orientada.spec.js",
+    "tests/sugestoes.spec.js"
+   ]
+  },
+  {
+   "name": "lead-units",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "login-error",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/abas-login.spec.js"
    ]
   },
   {
    "name": "login-form",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/abas-login.spec.js"
+   ]
+  },
+  {
+   "name": "login-retry",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/abas-login.spec.js"
    ]
   },
   {
@@ -397,6 +588,9 @@
   {
    "name": "login-view",
    "usedBy": [
+    "tests/abas-login.spec.js",
+    "tests/identidade-visual.spec.js",
+    "tests/inicio-painel.spec.js",
     "tests/lote1.spec.js",
     "tests/panel-responsive.spec.js"
    ]
@@ -404,21 +598,71 @@
   {
    "name": "logout",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/inicio-painel.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-append",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-acrescentar.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-append-files",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-acrescentar.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-audit-note",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-conferencia.spec.js"
    ]
   },
   {
    "name": "manheim-batches",
    "usedBy": [
     "painel/painel.js",
-    "tests/buscas-split.spec.js"
+    "tests/buscas-split.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/importacoes.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/pesquisas.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-complement",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "manheim-complement-files",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "manheim-complement-status",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-complemento.spec.js",
+    "tests/manheim-selecao.spec.js"
    ]
   },
   {
    "name": "manheim-drop-zone",
    "usedBy": [
     "painel/painel.js",
-    "tests/buscas-split.spec.js"
+    "tests/buscas-split.spec.js",
+    "tests/pesquisas.spec.js"
    ]
   },
   {
@@ -426,7 +670,9 @@
    "usedBy": [
     "painel/painel.js",
     "tests/buscas-split.spec.js",
-    "tests/manheim-import.spec.js"
+    "tests/importacoes.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/manheim-integridade.spec.js"
    ]
   },
   {
@@ -437,10 +683,17 @@
    ]
   },
   {
+   "name": "manheim-progress",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-import.spec.js"
+   ]
+  },
+  {
    "name": "manheim-results",
    "usedBy": [
-    "tests/buscas-split.spec.js",
-    "tests/manheim-import.spec.js"
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
    ]
   },
   {
@@ -454,17 +707,27 @@
    "usedBy": [
     "painel/painel.js",
     "tests/buscas-split.spec.js",
-    "tests/manheim-import.spec.js"
+    "tests/manheim-acrescentar.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/manheim-integridade.spec.js"
    ]
   },
   {
    "name": "manheim-summary",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/manheim-import.spec.js",
+    "tests/manheim-integridade.spec.js"
    ]
   },
   {
    "name": "mcs-sender",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "name-link-reviews",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -476,16 +739,42 @@
    ]
   },
   {
+   "name": "options-queue",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/aud001-atualizacao.spec.js",
+    "tests/aud001-tela.spec.js",
+    "tests/aud001-venda.spec.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "options-queue-count",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "options-queue-search",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
    "name": "page-title",
    "usedBy": [
     "painel/painel.js",
-    "tests/lote4.spec.js"
+    "tests/lote4.spec.js",
+    "tests/todos-removida.spec.js"
    ]
   },
   {
    "name": "password",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/abas-login.spec.js"
    ]
   },
   {
@@ -531,13 +820,7 @@
    ]
   },
   {
-   "name": "qualification-list",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
-   "name": "qualification-sort",
+   "name": "purge-tests-card",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -546,19 +829,11 @@
    "name": "record-detail",
    "usedBy": [
     "painel/painel.js",
-    "tests/marcacao-modo.spec.js"
-   ]
-  },
-  {
-   "name": "records-list",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
-   "name": "records-sort",
-   "usedBy": [
-    "painel/painel.js"
+    "tests/botoes-varredura.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/identidade-visual.spec.js",
+    "tests/marcacao-modo.spec.js",
+    "tests/protecoes.spec.js"
    ]
   },
   {
@@ -570,7 +845,8 @@
   {
    "name": "refresh-note",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/aud001-atualizacao.spec.js"
    ]
   },
   {
@@ -580,57 +856,166 @@
    ]
   },
   {
-   "name": "report-copy",
+   "name": "requests-audit",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-audit-content",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-carro",
+   "usedBy": [
+    "tests/buscas-split.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-compare",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-v32.spec.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-filters",
    "usedBy": [
     "painel/painel.js"
    ]
   },
   {
-   "name": "report-custom",
+   "name": "requests-history",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-history-cancel",
    "usedBy": [
     "painel/painel.js"
    ]
   },
   {
-   "name": "report-dialog",
+   "name": "requests-history-confirm",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-history-go",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-history-pause",
    "usedBy": [
     "painel/painel.js"
    ]
   },
   {
-   "name": "report-from",
+   "name": "requests-history-progress",
    "usedBy": [
     "painel/painel.js"
    ]
   },
   {
-   "name": "report-generate",
+   "name": "requests-history-remaining",
    "usedBy": [
     "painel/painel.js"
    ]
   },
   {
-   "name": "report-period",
+   "name": "requests-history-terms",
    "usedBy": [
     "painel/painel.js"
    ]
   },
   {
-   "name": "report-status",
+   "name": "requests-history-text",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/pesquisas.spec.js"
    ]
   },
   {
-   "name": "report-text",
+   "name": "requests-incomplete-note",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/organizacao.spec.js"
    ]
   },
   {
-   "name": "report-to",
+   "name": "requests-list",
    "usedBy": [
-    "painel/painel.js"
+    "tests/contexto-cliente.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-panel",
+   "usedBy": [
+    "tests/botoes-varredura.spec.js",
+    "tests/buscas-split.spec.js",
+    "tests/identidade-visual.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-review",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/organizacao.spec.js"
+   ]
+  },
+  {
+   "name": "requests-status",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "requests-totals",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/buscas-split.spec.js",
+    "tests/organizacao.spec.js"
+   ]
+  },
+  {
+   "name": "requests-valor",
+   "usedBy": [
+    "tests/buscas-split.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "search-col-carro",
+   "usedBy": [
+    "tests/buscas-split.spec.js",
+    "tests/organizacao.spec.js"
+   ]
+  },
+  {
+   "name": "search-col-valor",
+   "usedBy": [
+    "tests/buscas-split.spec.js",
+    "tests/organizacao.spec.js"
    ]
   },
   {
@@ -643,13 +1028,27 @@
   {
    "name": "searches-panel",
    "usedBy": [
-    "tests/buscas-split.spec.js"
+    "painel/painel.js",
+    "tests/botoes-varredura.spec.js",
+    "tests/buscas-split.spec.js",
+    "tests/manheim-integridade.spec.js",
+    "tests/manheim-selecao.spec.js"
+   ]
+  },
+  {
+   "name": "settings-panel",
+   "usedBy": [
+    "tests/botoes-varredura.spec.js",
+    "tests/identidade-visual.spec.js",
+    "tests/importacoes.spec.js",
+    "tests/lote4.spec.js"
    ]
   },
   {
    "name": "sms-contact",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
    ]
   },
   {
@@ -667,7 +1066,8 @@
   {
    "name": "sms-form",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
    ]
   },
   {
@@ -722,14 +1122,55 @@
    "name": "today-list",
    "usedBy": [
     "painel/painel.js",
+    "tests/atendimento-ordenar.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/identidade-visual.spec.js",
     "tests/lote2.spec.js",
-    "tests/panel-responsive.spec.js"
+    "tests/lote3.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/panel-responsive.spec.js",
+    "tests/protecoes.spec.js",
+    "tests/todos-removida.spec.js",
+    "tests/triagem-entrada.spec.js",
+    "tests/vinculo-nome.spec.js"
+   ]
+  },
+  {
+   "name": "today-more",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/clientes-periodos.spec.js",
+    "tests/todos-removida.spec.js"
+   ]
+  },
+  {
+   "name": "today-origin",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "today-panel",
+   "usedBy": [
+    "tests/botoes-varredura.spec.js",
+    "tests/comando2.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/importacoes.spec.js",
+    "tests/lote4.spec.js",
+    "tests/organizacao.spec.js"
+   ]
+  },
+  {
+   "name": "today-period",
+   "usedBy": [
+    "painel/painel.js"
    ]
   },
   {
    "name": "today-sort",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/atendimento-ordenar.spec.js"
    ]
   },
   {
@@ -740,27 +1181,101 @@
    ]
   },
   {
-   "name": "vitrine-requests",
+   "name": "today-subject",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "topic-out",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/comando2.spec.js"
+   ]
+  },
+  {
+   "name": "topic-out-count",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/comando2.spec.js"
+   ]
+  },
+  {
+   "name": "topic-out-list",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/comando2.spec.js"
+   ]
+  },
+  {
+   "name": "triage-out",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/triagem-entrada.spec.js"
+   ]
+  },
+  {
+   "name": "triage-out-count",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/triagem-entrada.spec.js"
+   ]
+  },
+  {
+   "name": "triage-out-list",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/triagem-entrada.spec.js"
+   ]
+  },
+  {
+   "name": "triage-review",
    "usedBy": [
     "painel/painel.js"
    ]
   },
   {
-   "name": "vitrine-signals",
+   "name": "triage-run-pending",
    "usedBy": [
     "painel/painel.js"
+   ]
+  },
+  {
+   "name": "triage-state",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/protecoes.spec.js",
+    "tests/triagem-entrada.spec.js"
+   ]
+  },
+  {
+   "name": "v1-demo",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/sugestoes.spec.js",
+    "tests/v1-envio.spec.js"
    ]
   },
   {
    "name": "weekly-summary",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/todos-removida.spec.js"
    ]
   },
   {
    "name": "weekly-summary-content",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/todos-removida.spec.js"
+   ]
+  },
+  {
+   "name": "whatsapp-auto-rejected",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/protecoes.spec.js"
    ]
   },
   {
@@ -770,15 +1285,10 @@
    ]
   },
   {
-   "name": "whatsapp-errors",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
    "name": "whatsapp-files",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
    ]
   },
   {
@@ -790,7 +1300,9 @@
   {
    "name": "whatsapp-signal",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/identidade-visual.spec.js",
+    "tests/lote4.spec.js"
    ]
   },
   {
@@ -801,6 +1313,12 @@
   }
  ],
  "classes": [
+  {
+   "name": "LIGADA",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
   {
    "name": "action-feedback",
    "usedBy": [
@@ -817,7 +1335,8 @@
   {
    "name": "active",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/inicio-painel.spec.js"
    ]
   },
   {
@@ -827,9 +1346,188 @@
    ]
   },
   {
+   "name": "ai-budget-warn",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "ai-conversation-review",
+   "usedBy": [
+    "tests/lote2.spec.js"
+   ]
+  },
+  {
+   "name": "ask-row",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "attend-bulk",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "attend-bulk-count",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "audit-block",
+   "usedBy": [
+    "tests/manheim-conferencia.spec.js"
+   ]
+  },
+  {
+   "name": "audit-divergence",
+   "usedBy": [
+    "tests/manheim-conferencia.spec.js"
+   ]
+  },
+  {
+   "name": "badge",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-conferencia.spec.js"
+   ]
+  },
+  {
+   "name": "batch-hidden",
+   "usedBy": [
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "batch-history",
+   "usedBy": [
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "batch-line",
+   "usedBy": [
+    "tests/contexto-cliente.spec.js",
+    "tests/importacoes.spec.js",
+    "tests/pesquisas.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "calc-candidate",
+   "usedBy": [
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "calc-queue",
+   "usedBy": [
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
    "name": "card",
    "usedBy": [
-    "tests/find-one.spec.js"
+    "tests/find-one.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/manheim-integridade.spec.js",
+    "tests/manheim-selecao.spec.js"
+   ]
+  },
+  {
+   "name": "card-decision",
+   "usedBy": [
+    "tests/contexto-cliente.spec.js",
+    "tests/organizacao.spec.js"
+   ]
+  },
+  {
+   "name": "card-decision-label",
+   "usedBy": [
+    "tests/vinculo-nome.spec.js"
+   ]
+  },
+  {
+   "name": "card-focus",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "card-more",
+   "usedBy": [
+    "tests/identidade-visual.spec.js"
+   ]
+  },
+  {
+   "name": "case-card",
+   "usedBy": [
+    "tests/atendimento-ordenar.spec.js",
+    "tests/lote3.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/protecoes.spec.js",
+    "tests/todos-removida.spec.js",
+    "tests/triagem-entrada.spec.js",
+    "tests/vinculo-nome.spec.js"
+   ]
+  },
+  {
+   "name": "case-decisions",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/organizacao.spec.js"
+   ]
+  },
+  {
+   "name": "case-face-title",
+   "usedBy": [
+    "tests/clientes-periodos.spec.js"
+   ]
+  },
+  {
+   "name": "case-field-value",
+   "usedBy": [
+    "tests/clientes-periodos.spec.js"
+   ]
+  },
+  {
+   "name": "case-more",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/identidade-visual.spec.js",
+    "tests/lote3.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/protecoes.spec.js",
+    "tests/triagem-entrada.spec.js",
+    "tests/vinculo-nome.spec.js"
+   ]
+  },
+  {
+   "name": "case-pick-box",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "case-picked",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "case-ref",
+   "usedBy": [
+    "tests/contexto-cliente.spec.js"
+   ]
+  },
+  {
+   "name": "chip-count",
+   "usedBy": [
+    "tests/organizacao.spec.js",
+    "tests/triagem-entrada.spec.js"
    ]
   },
   {
@@ -841,7 +1539,100 @@
   {
    "name": "client-card",
    "usedBy": [
-    "tests/lote4.spec.js"
+    "painel/painel.js",
+    "tests/clientes-periodos.spec.js",
+    "tests/comando2.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/identidade-visual.spec.js",
+    "tests/lote4.spec.js",
+    "tests/protecoes.spec.js",
+    "tests/todos-removida.spec.js"
+   ]
+  },
+  {
+   "name": "client-context-full",
+   "usedBy": [
+    "tests/contexto-cliente.spec.js"
+   ]
+  },
+  {
+   "name": "client-grid",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "client-more",
+   "usedBy": [
+    "tests/contexto-cliente.spec.js"
+   ]
+  },
+  {
+   "name": "clients-more",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/comando2.spec.js",
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "contact-area",
+   "usedBy": [
+    "tests/comando2.spec.js"
+   ]
+  },
+  {
+   "name": "contact-area-head",
+   "usedBy": [
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "contact-area-label",
+   "usedBy": [
+    "tests/comando2.spec.js"
+   ]
+  },
+  {
+   "name": "contact-group-count",
+   "usedBy": [
+    "tests/comando2.spec.js"
+   ]
+  },
+  {
+   "name": "contact-group-flat",
+   "usedBy": [
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "contact-subject",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "contact-subject-count",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "contact-subject-head",
+   "usedBy": [
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "context-last",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "context-older",
+   "usedBy": [
+    "painel/lead.js"
    ]
   },
   {
@@ -851,7 +1642,31 @@
    ]
   },
   {
+   "name": "count-stale",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
    "name": "custom",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "decision-red",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "demand-options-count",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "depende",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -884,13 +1699,23 @@
    "name": "error",
    "usedBy": [
     "painel/painel.js",
+    "tests/identidade-visual.spec.js",
     "tests/sms-inbound.test.js"
    ]
   },
   {
    "name": "evidence",
    "usedBy": [
-    "painel/lead.js"
+    "painel/lead.js",
+    "painel/painel.js",
+    "tests/calculadora-destino.test.js"
+   ]
+  },
+  {
+   "name": "export-error",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/protecoes.spec.js"
    ]
   },
   {
@@ -900,21 +1725,40 @@
    ]
   },
   {
+   "name": "failed-print",
+   "usedBy": [
+    "tests/importacoes.spec.js",
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "ficha-demand",
+   "usedBy": [
+    "tests/aud001-atualizacao.spec.js",
+    "tests/aud001-tela.spec.js",
+    "tests/aud001-venda.spec.js"
+   ]
+  },
+  {
    "name": "freshness",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/abas-login.spec.js"
    ]
   },
   {
    "name": "hidden",
    "usedBy": [
     "painel/painel.js",
+    "tests/botoes-varredura.spec.js",
     "tests/panel-responsive.spec.js"
    ]
   },
   {
    "name": "inline-actions",
    "usedBy": [
+    "painel/painel.js",
+    "tests/identidade-visual.spec.js",
     "tests/panel-responsive.spec.js"
    ]
   },
@@ -922,7 +1766,16 @@
    "name": "inline-confirm",
    "usedBy": [
     "painel/painel.js",
-    "tests/buscas-split.spec.js"
+    "tests/buscas-split.spec.js",
+    "tests/manheim-acrescentar.spec.js",
+    "tests/manheim-complemento.spec.js",
+    "tests/manheim-selecao.spec.js"
+   ]
+  },
+  {
+   "name": "is-chosen",
+   "usedBy": [
+    "painel/lead.js"
    ]
   },
   {
@@ -930,7 +1783,7 @@
    "usedBy": [
     "painel/action.js",
     "painel/painel.js",
-    "tests/lote4.spec.js",
+    "tests/contexto-cliente.spec.js",
     "tests/marcacao-modo.spec.js"
    ]
   },
@@ -950,7 +1803,9 @@
   {
    "name": "lead-detail",
    "usedBy": [
-    "painel/lead.js"
+    "painel/lead.js",
+    "tests/identidade-visual.spec.js",
+    "tests/manheim-selecao.spec.js"
    ]
   },
   {
@@ -960,9 +1815,39 @@
    ]
   },
   {
+   "name": "lead-label",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
    "name": "lead-message",
    "usedBy": [
     "tests/marcacao-modo.spec.js"
+   ]
+  },
+  {
+   "name": "lead-one",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "lead-thread",
+   "usedBy": [
+    "tests/resposta-orientada.spec.js"
+   ]
+  },
+  {
+   "name": "list-more",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "list-more-hidden",
+   "usedBy": [
+    "painel/lead.js"
    ]
   },
   {
@@ -978,28 +1863,27 @@
    ]
   },
   {
-   "name": "manheim-lead",
+   "name": "manheim-options-toggle",
    "usedBy": [
-    "tests/buscas-split.spec.js",
-    "tests/manheim-import.spec.js"
-   ]
-  },
-  {
-   "name": "manheim-more",
-   "usedBy": [
-    "tests/manheim-import.spec.js"
+    "tests/aud001-tela.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/manheim-trim.spec.js"
    ]
   },
   {
    "name": "manheim-row",
    "usedBy": [
+    "tests/contexto-cliente.spec.js",
+    "tests/manheim-conferencia.spec.js",
     "tests/manheim-import.spec.js"
    ]
   },
   {
-   "name": "manheim-select",
+   "name": "manheim-table",
    "usedBy": [
-    "painel/painel.js"
+    "tests/buscas-split.spec.js"
    ]
   },
   {
@@ -1011,6 +1895,7 @@
   {
    "name": "message-menu",
    "usedBy": [
+    "tests/identidade-visual.spec.js",
     "tests/lote3.spec.js",
     "tests/marcacao-modo.spec.js"
    ]
@@ -1018,14 +1903,26 @@
   {
    "name": "message-menu-panel",
    "usedBy": [
+    "tests/identidade-visual.spec.js",
     "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "message-translation",
+   "usedBy": [
+    "tests/resposta-orientada.spec.js"
    ]
   },
   {
    "name": "muted",
    "usedBy": [
-    "tests/buscas-split.spec.js",
     "tests/panel-responsive.spec.js"
+   ]
+  },
+  {
+   "name": "name-link",
+   "usedBy": [
+    "tests/vinculo-nome.spec.js"
    ]
   },
   {
@@ -1041,6 +1938,179 @@
    ]
   },
   {
+   "name": "offer-car",
+   "usedBy": [
+    "tests/manheim-selecao.spec.js",
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-counter",
+   "usedBy": [
+    "tests/aud001-venda.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-final",
+   "usedBy": [
+    "tests/manheim-selecao.spec.js"
+   ]
+  },
+  {
+   "name": "offer-final-label",
+   "usedBy": [
+    "tests/aud001-venda.spec.js"
+   ]
+  },
+  {
+   "name": "offer-final-msg",
+   "usedBy": [
+    "tests/manheim-selecao.spec.js"
+   ]
+  },
+  {
+   "name": "offer-group",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/aud001-atualizacao.spec.js",
+    "tests/aud001-tela.spec.js",
+    "tests/aud001-venda.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/manheim-trim.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "offer-invalid",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "offer-item",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "offer-mmr",
+   "usedBy": [
+    "tests/manheim-selecao.spec.js"
+   ]
+  },
+  {
+   "name": "offer-pct",
+   "usedBy": [
+    "tests/manheim-selecao.spec.js"
+   ]
+  },
+  {
+   "name": "offer-pct-label",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "offer-picked",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-picked-all",
+   "usedBy": [
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-picked-row",
+   "usedBy": [
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-row",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/aud001-atualizacao.spec.js",
+    "tests/aud001-tela.spec.js",
+    "tests/aud001-venda.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/manheim-trim.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "offer-sort-select",
+   "usedBy": [
+    "tests/aud001-venda.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-status",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "offer-trim",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/aud001-atualizacao.spec.js",
+    "tests/aud001-tela.spec.js",
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-trim-asked",
+   "usedBy": [
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-trim-list",
+   "usedBy": [
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-trim-option",
+   "usedBy": [
+    "tests/aud001-tela.spec.js",
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offer-trim-outside",
+   "usedBy": [
+    "tests/aud001-tela.spec.js",
+    "tests/manheim-trim.spec.js"
+   ]
+  },
+  {
+   "name": "offmcs-item",
+   "usedBy": [
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "options-queue-card",
+   "usedBy": [
+    "tests/aud001-atualizacao.spec.js",
+    "tests/aud001-tela.spec.js",
+    "tests/aud001-venda.spec.js",
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
    "name": "over",
    "usedBy": [
     "painel/painel.js"
@@ -1053,7 +2123,58 @@
    ]
   },
   {
+   "name": "pending-bar",
+   "usedBy": [
+    "tests/identidade-tokens.test.js"
+   ]
+  },
+  {
+   "name": "pending-stat",
+   "usedBy": [
+    "tests/clientes-periodos.spec.js"
+   ]
+  },
+  {
+   "name": "primary",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "print-drop",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/importacoes.spec.js"
+   ]
+  },
+  {
+   "name": "print-owner-save",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "print-owner-sides",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
    "name": "production",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/resposta-orientada-traducao.test.js",
+    "tests/sms-device-tokens.test.js"
+   ]
+  },
+  {
+   "name": "purchase-window",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "queue",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -1073,6 +2194,18 @@
    ]
   },
   {
+   "name": "reality-card",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "reality-row",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
    "name": "record-block",
    "usedBy": [
     "painel/action.js",
@@ -1084,6 +2217,8 @@
    "usedBy": [
     "painel/lead.js",
     "painel/painel.js",
+    "tests/calculadora-destino.test.js",
+    "tests/correcoes-revisao.test.js",
     "tests/find-one.test.js"
    ]
   },
@@ -1094,9 +2229,44 @@
    ]
   },
   {
-   "name": "report-period",
+   "name": "request-ai-evidence",
    "usedBy": [
-    "painel/painel.js"
+    "tests/organizacao.spec.js"
+   ]
+  },
+  {
+   "name": "request-card",
+   "usedBy": [
+    "tests/buscas-split.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/manheim-v32.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "request-edit-form",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-v32.spec.js"
+   ]
+  },
+  {
+   "name": "request-evidence",
+   "usedBy": [
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
+   "name": "request-view-options",
+   "usedBy": [
+    "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "resolved-prints",
+   "usedBy": [
+    "tests/protecoes.spec.js"
    ]
   },
   {
@@ -1106,15 +2276,15 @@
    ]
   },
   {
-   "name": "search-hit",
+   "name": "search-empty-reason",
    "usedBy": [
-    "tests/lote3.spec.js"
+    "painel/painel.js"
    ]
   },
   {
-   "name": "search-stage",
+   "name": "search-hit",
    "usedBy": [
-    "painel/painel.js"
+    "tests/lote3.spec.js"
    ]
   },
   {
@@ -1133,19 +2303,63 @@
    "name": "status",
    "usedBy": [
     "painel/lead.js",
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/ia-confirmar-sem-ref.test.js",
+    "tests/manheim-teto-openai.test.js",
+    "tests/resposta-orientada.spec.js",
+    "tests/sugestoes.spec.js",
+    "tests/v1-apresentacao.test.js"
+   ]
+  },
+  {
+   "name": "suggestion-open",
+   "usedBy": [
+    "tests/lote1.spec.js",
+    "tests/sugestoes.spec.js"
+   ]
+  },
+  {
+   "name": "suggestion-text",
+   "usedBy": [
+    "tests/resposta-orientada.spec.js",
+    "tests/sugestoes.spec.js"
+   ]
+  },
+  {
+   "name": "switch-reasons",
+   "usedBy": [
+    "tests/identidade-visual.spec.js"
    ]
   },
   {
    "name": "tab",
    "usedBy": [
-    "tests/panel-responsive.spec.js"
+    "tests/abas-login.spec.js",
+    "tests/buscas-split.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/panel-responsive.spec.js",
+    "tests/todos-removida.spec.js"
+   ]
+  },
+  {
+   "name": "temperature-details",
+   "usedBy": [
+    "tests/identidade-visual.spec.js"
+   ]
+  },
+  {
+   "name": "temperature-explanation",
+   "usedBy": [
+    "tests/identidade-visual.spec.js"
    ]
   },
   {
    "name": "today-card",
    "usedBy": [
-    "tests/lote2.spec.js"
+    "painel/painel.js",
+    "tests/identidade-visual.spec.js",
+    "tests/lote2.spec.js",
+    "tests/protecoes.spec.js"
    ]
   },
   {
@@ -1155,9 +2369,126 @@
    ]
   },
   {
+   "name": "today-primary",
+   "usedBy": [
+    "tests/organizacao.spec.js"
+   ]
+  },
+  {
+   "name": "today-stat-clear",
+   "usedBy": [
+    "tests/todos-removida.spec.js"
+   ]
+  },
+  {
+   "name": "topbar",
+   "usedBy": [
+    "tests/botoes-varredura.spec.js"
+   ]
+  },
+  {
+   "name": "topic-item",
+   "usedBy": [
+    "tests/comando2.spec.js"
+   ]
+  },
+  {
+   "name": "translate-one",
+   "usedBy": [
+    "painel/lead.js",
+    "tests/resposta-orientada.spec.js"
+   ]
+  },
+  {
+   "name": "triage-item",
+   "usedBy": [
+    "tests/triagem-entrada.spec.js"
+   ]
+  },
+  {
+   "name": "triage-reason",
+   "usedBy": [
+    "tests/triagem-entrada.spec.js"
+   ]
+  },
+  {
    "name": "undo-toast",
    "usedBy": [
     "painel/painel.js"
+   ]
+  },
+  {
+   "name": "unlock-option",
+   "usedBy": [
+    "painel/lead.js"
+   ]
+  },
+  {
+   "name": "v1-demo-card",
+   "usedBy": [
+    "tests/sugestoes.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "v1-send-actions",
+   "usedBy": [
+    "tests/whatsapp-envio.spec.js"
+   ]
+  },
+  {
+   "name": "v1-send-confirm",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/sugestoes.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "v1-send-copy",
+   "usedBy": [
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "v1-send-fallback",
+   "usedBy": [
+    "tests/sugestoes.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "v1-send-go",
+   "usedBy": [
+    "tests/sugestoes.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "v1-send-history",
+   "usedBy": [
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "v1-send-preview",
+   "usedBy": [
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "v1-send-state",
+   "usedBy": [
+    "tests/sugestoes.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "v1-send-text",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/sugestoes.spec.js",
+    "tests/v1-envio.spec.js"
    ]
   },
   {
@@ -1167,9 +2498,27 @@
    ]
   },
   {
+   "name": "visual-page-label",
+   "usedBy": [
+    "tests/identidade-visual.spec.js"
+   ]
+  },
+  {
+   "name": "visually-hidden",
+   "usedBy": [
+    "tests/identidade-visual.spec.js"
+   ]
+  },
+  {
    "name": "vitrine-request-card",
    "usedBy": [
     "tests/lote3.spec.js"
+   ]
+  },
+  {
+   "name": "weekly-metric",
+   "usedBy": [
+    "tests/todos-removida.spec.js"
    ]
   },
   {
@@ -1194,10 +2543,72 @@
    ]
   },
   {
+   "name": "area",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/comando2.spec.js",
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "attend-bucket",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/atendimento-ordenar.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/protecoes.spec.js",
+    "tests/triagem-entrada.spec.js",
+    "tests/vinculo-nome.spec.js"
+   ]
+  },
+  {
+   "name": "audit-status",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
    "name": "batch-id",
    "usedBy": [
     "painel/painel.js",
     "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "batch-visibility",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "bound",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "bucket",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "calc-message",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "case-key",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "chat-id",
+   "usedBy": [
+    "painel/painel.js"
    ]
   },
   {
@@ -1211,16 +2622,62 @@
    "name": "count",
    "usedBy": [
     "painel/painel.js",
+    "tests/abas-login.spec.js",
+    "tests/buscas-split.spec.js",
     "tests/lote1.spec.js",
+    "tests/lote2.spec.js",
     "tests/lote3.spec.js",
-    "tests/lote4.spec.js"
+    "tests/lote4.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/triagem-entrada.spec.js"
    ]
   },
   {
-   "name": "counter",
+   "name": "decision-key",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "decision-source",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "demand-key",
    "usedBy": [
     "painel/painel.js",
     "tests/buscas-split.spec.js"
+   ]
+  },
+  {
+   "name": "group",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/aud001-atualizacao.spec.js",
+    "tests/aud001-tela.spec.js",
+    "tests/aud001-venda.spec.js",
+    "tests/comando2.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/manheim-import.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/manheim-trim.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "import-facts",
+   "usedBy": [
+    "tests/importacoes.spec.js"
+   ]
+  },
+  {
+   "name": "journey-id",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/protecoes.spec.js",
+    "tests/vinculo-nome.spec.js"
    ]
   },
   {
@@ -1232,11 +2689,29 @@
   {
    "name": "match-id",
    "usedBy": [
-    "painel/painel.js"
+    "painel/painel.js",
+    "tests/aud001-tela.spec.js",
+    "tests/manheim-selecao.spec.js"
    ]
   },
   {
    "name": "mode",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "offer-action",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/aud001-venda.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/manheim-trim.spec.js",
+    "tests/v1-envio.spec.js"
+   ]
+  },
+  {
+   "name": "page",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -1248,14 +2723,44 @@
    ]
   },
   {
-   "name": "reply-closed",
+   "name": "provider",
    "usedBy": [
-    "painel/painel.js",
-    "tests/lote1.spec.js"
+    "painel/painel.js"
    ]
   },
   {
-   "name": "report",
+   "name": "read-id",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "reading-key",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "reply-closed",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "request-key",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "request-state",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/organizacao.spec.js"
+   ]
+  },
+  {
+   "name": "restore-suggestion",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -1267,7 +2772,48 @@
    ]
   },
   {
+   "name": "search-group",
+   "usedBy": [
+    "painel/lead.js",
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "section",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "situation",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/comando2.spec.js"
+   ]
+  },
+  {
+   "name": "state",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/pesquisas.spec.js"
+   ]
+  },
+  {
    "name": "status",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/manheim-selecao.spec.js"
+   ]
+  },
+  {
+   "name": "subject",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/protecoes.spec.js"
+   ]
+  },
+  {
+   "name": "text",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -1279,7 +2825,26 @@
    ]
   },
   {
+   "name": "today-stat",
+   "usedBy": [
+    "painel/painel.js",
+    "tests/todos-removida.spec.js"
+   ]
+  },
+  {
+   "name": "triage-id",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
    "name": "undo-scope",
+   "usedBy": [
+    "painel/painel.js"
+   ]
+  },
+  {
+   "name": "unit",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -1288,17 +2853,45 @@
    "name": "view",
    "usedBy": [
     "painel/painel.js",
+    "tests/abas-login.spec.js",
+    "tests/aud001-atualizacao.spec.js",
+    "tests/aud001-tela.spec.js",
+    "tests/aud001-venda.spec.js",
+    "tests/botoes-varredura.spec.js",
     "tests/buscas-split.spec.js",
+    "tests/contexto-cliente.spec.js",
+    "tests/identidade-visual.spec.js",
+    "tests/importacoes.spec.js",
+    "tests/inicio-painel.spec.js",
     "tests/lote3.spec.js",
     "tests/lote4.spec.js",
+    "tests/manheim-acrescentar.spec.js",
+    "tests/manheim-complemento.spec.js",
+    "tests/manheim-conferencia.spec.js",
     "tests/manheim-import.spec.js",
-    "tests/marcacao-modo.spec.js"
+    "tests/manheim-integridade.spec.js",
+    "tests/manheim-selecao.spec.js",
+    "tests/manheim-trim.spec.js",
+    "tests/manheim-v32.spec.js",
+    "tests/organizacao.spec.js",
+    "tests/pesquisas.spec.js",
+    "tests/protecoes.spec.js",
+    "tests/sugestoes.spec.js",
+    "tests/todos-removida.spec.js",
+    "tests/v1-envio.spec.js"
    ]
   }
  ],
  "definedAtBase": {
   "ids": [
+   "ai-budget",
+   "ai-budget-features",
+   "ai-budget-spent",
+   "ai-budget-warning",
+   "app",
    "app-view",
+   "attend-filters",
+   "attend-staging",
    "auto-print-card",
    "auto-print-file",
    "auto-print-file-info",
@@ -1311,17 +2904,13 @@
    "automatic-message-text",
    "automatic-messages-card",
    "boot-warning",
-   "buscas-carro",
-   "buscas-carro-counters",
-   "buscas-carro-results",
    "buscas-carro-saved",
    "buscas-review",
    "buscas-review-count",
    "buscas-review-list",
+   "buscas-saved-box",
+   "buscas-saved-list",
    "buscas-total",
-   "buscas-valor",
-   "buscas-valor-counters",
-   "buscas-valor-results",
    "buscas-valor-saved",
    "capture-warning",
    "chat-label",
@@ -1329,11 +2918,14 @@
    "clients-activity",
    "clients-checklist",
    "clients-download",
+   "clients-followup",
+   "clients-followup-list",
    "clients-general-card",
    "clients-heat",
    "clients-list",
    "clients-origin",
    "clients-panel",
+   "clients-period-note",
    "clients-ref",
    "clients-situation",
    "clients-sort",
@@ -1342,6 +2934,7 @@
    "confirm-password",
    "contact-label",
    "contact-name-label",
+   "counters-note",
    "data-updated",
    "date-order",
    "date-order-label",
@@ -1358,39 +2951,59 @@
    "history-import-send",
    "history-import-status",
    "history-import-title",
+   "import-card-history",
+   "import-card-manheim",
+   "import-card-sms",
+   "import-card-whatsapp",
    "import-chat",
    "import-contact",
    "import-contact-name",
    "import-journey",
+   "import-review-cancel",
    "import-review-card",
    "import-review-form",
    "import-review-summary",
    "import-review-title",
    "import-status",
+   "imports-panel",
+   "imports-review",
+   "imports-review-empty",
+   "imports-review-queue",
+   "imports-review-title",
    "journey-label",
    "last-whatsapp-import",
    "lead-conversation",
+   "lead-history",
    "lead-manual-date-",
+   "lead-units",
    "login-error",
    "login-form",
+   "login-retry",
    "login-title",
    "login-view",
    "logout",
+   "manheim-append",
+   "manheim-append-files",
+   "manheim-audit-note",
    "manheim-batches",
+   "manheim-complement",
+   "manheim-complement-files",
+   "manheim-complement-status",
    "manheim-drop-zone",
    "manheim-files",
    "manheim-import-summary",
-   "manheim-panel",
+   "manheim-progress",
    "manheim-results",
    "manheim-saved-searches",
    "manheim-status",
    "manheim-summary",
    "mcs-sender",
    "mcs-sender-label",
+   "name-link-reviews",
    "new-password",
-   "notification-status",
-   "notification-test",
-   "notification-toggle",
+   "options-queue",
+   "options-queue-count",
+   "options-queue-search",
    "page-title",
    "password",
    "password-error",
@@ -1404,30 +3017,49 @@
    "pending-sort",
    "pending-stats",
    "pending-with-ref",
-   "qualification-list",
-   "qualification-panel",
-   "qualification-sort",
+   "purge-tests-card",
    "record-detail",
-   "records-list",
-   "records-panel",
-   "records-sort",
    "ref-warning",
    "refresh-note",
    "remember-login",
-   "report-copy",
-   "report-custom",
-   "report-dialog",
-   "report-from",
-   "report-generate",
-   "report-period",
-   "report-status",
-   "report-text",
-   "report-to",
+   "requests-audit",
+   "requests-audit-content",
+   "requests-carro",
+   "requests-compare",
+   "requests-filters",
+   "requests-history",
+   "requests-history-cancel",
+   "requests-history-confirm",
+   "requests-history-go",
+   "requests-history-pause",
+   "requests-history-progress",
+   "requests-history-remaining",
+   "requests-history-terms",
+   "requests-history-text",
+   "requests-incomplete-note",
+   "requests-list",
+   "requests-panel",
+   "requests-review",
+   "requests-sort-carro",
+   "requests-sort-valor",
+   "requests-status",
+   "requests-totals",
+   "requests-valor",
+   "search-col-carro",
+   "search-col-valor",
    "search-results",
    "search-sort",
    "searches-panel",
+   "settings-panel",
    "sms-contact",
    "sms-date",
+   "sms-device-code",
+   "sms-device-copy",
+   "sms-device-generate",
+   "sms-device-list",
+   "sms-device-once",
+   "sms-device-status",
+   "sms-device-title",
    "sms-direction",
    "sms-form",
    "sms-journey",
@@ -1439,17 +3071,33 @@
    "sms-text",
    "today-florida-time",
    "today-list",
+   "today-more",
+   "today-origin",
    "today-panel",
+   "today-period",
    "today-ref-filters",
    "today-sort",
    "today-stats",
-   "vitrine-requests",
-   "vitrine-signals",
+   "today-subject",
+   "topic-out",
+   "topic-out-count",
+   "topic-out-list",
+   "triage-out",
+   "triage-out-count",
+   "triage-out-list",
+   "triage-review",
+   "triage-run-pending",
+   "triage-state",
+   "v1-demo",
+   "v1-list",
+   "v1-panel",
+   "v2-list",
+   "v2-panel",
    "weekly-period",
    "weekly-summary",
    "weekly-summary-content",
+   "whatsapp-auto-rejected",
    "whatsapp-echo",
-   "whatsapp-errors",
    "whatsapp-files",
    "whatsapp-received",
    "whatsapp-signal",
@@ -1457,20 +3105,57 @@
    "whatsapp-title"
   ],
   "classes": [
+   "LIGADA",
+   "Pronto",
+   "Sem",
    "action-feedback",
    "action-optimistic-hidden",
    "active",
+   "agora",
    "ai-alternative-picker",
+   "ai-ambiguous",
+   "ai-budget",
+   "ai-budget-features",
+   "ai-budget-features-list",
+   "ai-budget-form",
+   "ai-budget-line",
+   "ai-budget-provider",
+   "ai-budget-warn",
+   "ai-confirm",
    "ai-conversation-review",
    "ai-link-suggestion",
+   "ai-new-summary",
+   "ai-note-line",
+   "ai-nothing-new",
+   "ai-orders",
+   "ai-outline",
+   "ai-review-note",
+   "ai-review-rule",
    "ai-route-title",
    "ai-summary",
    "alert",
+   "ask-count",
+   "ask-row",
+   "ask-text",
    "attachment-choice",
-   "auction-alert",
+   "attend-bulk",
+   "attend-bulk-clear",
+   "attend-bulk-count",
+   "attend-bulk-delete",
+   "attend-filters",
+   "attend-more",
+   "attend-more-button",
+   "audit-block",
+   "audit-divergence",
+   "audit-divergences",
+   "audit-reason",
+   "auto-rejected",
+   "auto-rejected-item",
    "avatar",
    "badge",
    "badges",
+   "batch-hidden",
+   "batch-history",
    "batch-line",
    "batch-text",
    "batches",
@@ -1478,26 +3163,99 @@
    "buscas-column",
    "buscas-column-head",
    "buscas-columns",
-   "buscas-counters",
    "buscas-review",
    "buscas-total",
+   "calc-candidate",
+   "calc-candidates",
+   "calc-queue",
+   "calc-reason",
    "calculator-news",
    "capture-warning",
    "card",
    "card-action-result",
+   "card-decision",
+   "card-decision-label",
+   "card-focus",
+   "card-more",
+   "card-primary",
+   "case-card",
+   "case-decisions",
+   "case-face",
+   "case-face-head",
+   "case-face-lacks",
+   "case-face-lacks-list",
+   "case-face-lacks-title",
+   "case-face-phone",
+   "case-face-ref",
+   "case-face-spec",
+   "case-face-title",
+   "case-field",
+   "case-field-label",
+   "case-field-soft",
+   "case-field-value",
+   "case-fields",
+   "case-identity",
+   "case-more",
+   "case-more-body",
+   "case-name",
+   "case-phone",
+   "case-pick",
+   "case-pick-box",
+   "case-picked",
+   "case-ref",
+   "case-request",
+   "case-shell",
    "ceiling-action",
    "check-point",
    "chip",
+   "chip-count",
    "clickable-card",
    "client-card",
+   "client-context-full",
+   "client-grid",
    "client-last-message",
+   "client-more",
+   "client-row",
    "clients-filters",
+   "clients-more",
+   "clients-period-note",
+   "comprar",
+   "contact-area",
+   "contact-area-",
+   "contact-area-count",
+   "contact-area-head",
+   "contact-area-hint",
+   "contact-area-label",
+   "contact-group",
+   "contact-group-count",
+   "contact-group-flat",
+   "contact-group-hint",
+   "contact-group-label",
    "contact-meta",
+   "contact-subject",
+   "contact-subject-",
+   "contact-subject-count",
+   "contact-subject-head",
+   "contact-subject-label",
+   "context-caption",
+   "context-evidence",
+   "context-last",
+   "context-last-label",
+   "context-older",
+   "context-presented",
    "conversation-controls",
    "conversation-timeline",
    "count-positive",
+   "count-stale",
+   "counters-note",
    "custom",
+   "danger",
+   "de",
+   "decision-red",
    "definition-grid",
+   "demand-essential",
+   "demand-options-count",
+   "depende",
    "detail-simulation",
    "detail-simulations",
    "detail-toolbar",
@@ -1517,24 +3275,43 @@
    "entry-tool-icon",
    "entry-tool-title",
    "entry-tools",
+   "enviadas",
    "environment-badge",
    "error",
    "evidence",
+   "export-error",
    "eyebrow",
+   "failed-print",
+   "ficha-demand",
+   "ficha-demand-head",
+   "ficha-options-mount",
+   "ficha-v1-foot",
+   "ficha-v1-status",
    "filters",
+   "followup-queue",
+   "form-grid",
    "freshness",
    "global-search",
+   "h",
    "heat-",
    "hidden",
    "history-import",
    "identity",
+   "identity-fact",
+   "identity-facts",
    "identity-name",
    "identity-ref-phone",
+   "import-card",
+   "import-cards",
+   "import-facts",
+   "import-how",
    "import-review",
    "import-summary",
+   "imports-review",
    "inline-actions",
    "inline-confirm",
    "inline-form",
+   "is-chosen",
    "item-card",
    "item-head",
    "journey-switch",
@@ -1554,6 +3331,7 @@
    "lead-head-name",
    "lead-head-right",
    "lead-header",
+   "lead-help-message",
    "lead-highlight",
    "lead-label",
    "lead-line",
@@ -1561,24 +3339,35 @@
    "lead-message",
    "lead-note",
    "lead-offer",
+   "lead-one",
    "lead-phone",
+   "lead-question",
+   "lead-ref-note",
    "lead-review",
    "lead-route",
    "lead-route-value",
    "lead-score",
+   "lead-search-group",
    "lead-steps",
    "lead-thread",
    "lead-three",
    "lead-timeline",
+   "lead-top-anchor",
    "lead-two",
    "lead-unit",
+   "list-more",
+   "list-more-hidden",
    "login-screen",
    "login-view",
-   "manheim-lead",
-   "manheim-more",
+   "mais",
+   "manheim-append",
+   "manheim-audit-note",
+   "manheim-complement",
    "manheim-notice",
+   "manheim-options-toggle",
+   "manheim-progress",
+   "manheim-progress-file",
    "manheim-row",
-   "manheim-select",
    "manheim-table",
    "manual-entry",
    "menu-action",
@@ -1589,16 +3378,83 @@
    "message-meta",
    "message-preview",
    "message-receipt",
+   "message-translation",
    "muted",
+   "name-link",
+   "name-link-name",
+   "name-link-side",
+   "name-link-sides",
+   "name-link-vs",
    "next-action",
    "next-action-editor",
    "no-ref-phone",
+   "note-actions",
+   "note-extract",
    "note-form",
+   "offer-actions",
+   "offer-advice",
+   "offer-budget",
+   "offer-car",
+   "offer-consulted",
+   "offer-count",
+   "offer-counter",
+   "offer-cr-when",
+   "offer-detail",
+   "offer-final",
+   "offer-final-label",
+   "offer-final-msg",
+   "offer-fit",
+   "offer-go",
+   "offer-group",
+   "offer-invalid",
+   "offer-invalid-reason",
+   "offer-invalidated",
+   "offer-item",
+   "offer-list",
+   "offer-meta",
+   "offer-mmr",
+   "offer-note",
+   "offer-pct",
+   "offer-pct-label",
+   "offer-pending",
+   "offer-picked",
+   "offer-picked-all",
+   "offer-picked-list",
+   "offer-picked-row",
+   "offer-price",
+   "offer-reason",
+   "offer-row",
+   "offer-section",
+   "offer-sort",
+   "offer-sort-select",
+   "offer-status",
+   "offer-tags",
+   "offer-title",
+   "offer-tools",
+   "offer-trim",
+   "offer-trim-asked",
+   "offer-trim-list",
+   "offer-trim-option",
+   "offer-trim-outside",
+   "offer-why",
+   "offer-why-input",
+   "offer-why-status",
+   "offmcs-item",
    "one-line",
-   "order-icon",
+   "options-compare-link",
+   "options-missing",
+   "options-queue-card",
+   "options-queue-foot",
+   "options-queue-groups",
+   "options-queue-next",
+   "options-queue-search",
+   "options-queue-tools",
+   "options-updated",
+   "origin-filter",
    "over",
    "panel-logo",
    "panel-view",
+   "para",
    "pending-ai",
    "pending-bar",
    "pending-card",
@@ -1609,48 +3465,105 @@
    "pending-stats",
    "phone-link",
    "phone-missing",
+   "primary",
+   "print-candidates",
    "print-drop",
+   "print-owner-save",
+   "print-owner-sides",
+   "print-ref",
    "production",
+   "purchase-window",
    "queue",
    "queue-item",
    "quiet",
+   "readwrite",
+   "reality-card",
+   "reality-label",
+   "reality-lines",
+   "reality-list",
+   "reality-miles",
+   "reality-model",
+   "reality-pick",
+   "reality-pick-status",
+   "reality-row",
+   "reality-trim",
+   "reality-typical",
+   "reality-value",
+   "reality-year",
    "record-block",
-   "record-card-controls",
    "record-conversation-column",
    "record-data-column",
    "record-detail",
-   "record-list-card",
    "record-split",
    "ref",
    "ref-filters",
+   "refresh-note",
    "remember-login",
    "reply-composer",
+   "reply-en",
+   "reply-send",
    "reply-status",
    "reply-window",
-   "report-form",
-   "report-period",
+   "request-ai-evidence",
+   "request-card",
+   "request-criteria",
+   "request-criteria-label",
+   "request-edit-form",
+   "request-essential",
+   "request-evidence",
    "request-group",
+   "request-head",
+   "request-lacks",
+   "request-open-options",
+   "request-options",
+   "request-options-note",
+   "request-person",
+   "request-person-head",
+   "request-result",
+   "request-view-options",
+   "requests-audit",
+   "requests-audit-table",
+   "requests-filters",
+   "requests-history",
+   "requests-incomplete-note",
+   "requests-sort",
+   "resolved-print",
+   "resolved-prints",
+   "resposta",
+   "review-bid",
    "review-line",
    "saved-search-clients",
    "saved-search-line",
    "saved-searches",
+   "saved-searches-box",
    "search-card",
+   "search-column-list",
+   "search-columns",
+   "search-empty-reason",
+   "search-group",
+   "search-group-andamento",
    "search-hit",
+   "search-not-run",
    "search-results",
-   "search-stage",
    "searches-subsection",
    "section-head",
    "sender-example",
+   "settings-link",
    "shell",
    "signal-dot",
    "signal-live",
    "signal-metric",
    "small",
+   "sms-device-card",
+   "sms-device-once",
    "sms-print-missing",
    "sms-print-review",
-   "sr-status",
    "stack",
    "status",
+   "subject-filter",
+   "suggestion-edit",
+   "suggestion-open",
+   "suggestion-text",
    "switch",
    "switch-reasons",
    "tab",
@@ -1660,26 +3573,68 @@
    "timeline-event",
    "today-card",
    "today-heading",
+   "today-more",
    "today-primary",
    "today-stat",
+   "today-stat-clear",
    "today-stats",
    "topbar",
    "topbar-actions",
+   "topic-item",
+   "topic-out",
+   "translate-one",
+   "triage-choice",
+   "triage-head",
+   "triage-item",
+   "triage-out",
+   "triage-reason",
+   "triage-review",
+   "triage-state",
    "undo-toast",
+   "unlock-action",
+   "unlock-lang",
+   "unlock-message",
+   "unlock-message-pt",
+   "unlock-option",
+   "unlock-options",
+   "unlock-pick",
+   "unlock-retry",
+   "unlock-role",
+   "unlock-send",
+   "unlock-send-status",
+   "unlock-sms",
+   "unlock-title",
+   "unlock-wa",
+   "unlock-why",
+   "v1-demo",
+   "v1-demo-card",
+   "v1-send",
+   "v1-send-actions",
+   "v1-send-confirm",
+   "v1-send-copied",
+   "v1-send-copy",
+   "v1-send-fallback",
+   "v1-send-go",
+   "v1-send-history",
+   "v1-send-message",
+   "v1-send-preview",
+   "v1-send-state",
+   "v1-send-text",
+   "v1-send-window",
    "v2-builder",
    "v2-cover",
-   "v2-deposit",
    "v2-drop",
-   "v2-result",
    "v2-status",
    "v2-thumb",
    "v2-thumbs",
    "visual-page-label",
    "visually-hidden",
    "vitrine-request-card",
-   "vitrine-requests",
-   "vitrine-signal",
-   "vitrine-signals",
+   "wa-bubble",
+   "wa-day",
+   "wa-text",
+   "wa-thread",
+   "wa-time",
    "wait-clock",
    "warning",
    "weekly-metric",
@@ -1698,54 +3653,51 @@
   ],
   "data": [
    "action-key",
+   "area",
+   "attend-bucket",
+   "audit-status",
    "batch-id",
+   "batch-visibility",
+   "bound",
+   "bucket",
+   "calc-message",
+   "case-key",
+   "chat-id",
    "confirmed",
    "count",
-   "counter",
+   "decision-key",
+   "decision-source",
+   "demand-key",
+   "group",
+   "import-facts",
+   "journey-id",
    "link",
    "match-id",
    "mode",
+   "offer-action",
+   "page",
    "pending-situation",
+   "provider",
+   "read-id",
+   "reading-key",
    "reply-closed",
-   "report",
+   "request-key",
+   "request-state",
+   "restore-suggestion",
    "review-key",
+   "search-group",
+   "section",
+   "situation",
+   "state",
    "status",
+   "subject",
+   "text",
    "today-ref",
+   "today-stat",
+   "triage-id",
    "undo-scope",
+   "unit",
    "view"
   ]
- },
- "retired": {
-  "2026-10-reorganizacao": {
-   "motivo": "ENTRADA virou parte de ATENDIMENTO e \"Buscas por cliente\" virou o andamento de cada pedido em BUSCAR CARROS (pedido do dono)",
-   "ids": [
-    "buscas-carro-clients",
-    "buscas-carro-summary",
-    "buscas-valor-clients",
-    "buscas-valor-summary",
-    "entry-add-title",
-    "entry-needs-empty",
-    "entry-needs-title",
-    "entry-panel",
-    "entry-sort"
-   ],
-   "classes": [
-    "entry-add",
-    "entry-group-title",
-    "entry-heading",
-    "entry-needs",
-    "queue-card"
-   ]
-  },
-  "2026-10-ordenar-excluir-prazo": {
-   "motivo": "Removidos de propósito: #manheim-sort saiu com \"um Ordenar só no Enviar opções\" (bb8608a, #166); .discard-reasons saiu com \"Excluir no lugar de Descartar\" (e30a883); .heat-badge saiu com \"Calor da IA trocado por prazo de compra da calculadora\" (cbfb6eb, #176)",
-   "ids": [
-    "manheim-sort"
-   ],
-   "classes": [
-    "discard-reasons",
-    "heat-badge"
-   ]
-  }
  }
 }

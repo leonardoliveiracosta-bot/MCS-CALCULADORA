@@ -26,9 +26,9 @@ test('o botão de opções conserva o pedido exato: critério e lote do clique s
   const client = read('painel/painel.js');
   assert.match(client, /async function openOptionsCard\(demandKey, context = \{\}\)/);
   assert.match(client, /openOptionsCard\(`journey:\$\{item\.person\.journeyId\}:\$\{item\.searchMode\}`, \{ criteriaHash: item\.criteriaHash \|\| null, uploadId: requestsUploadId \}\)/);
-  assert.match(client, /context\.criteriaHash !== live\.criteriaHash/);
+  assert.match(client, /context\.criteriaHash !== live\.demand\.criteriaHash/);
   assert.match(client, /context\.uploadId !== manheimData\.upload\.id/);
-  assert.match(client, /As opções abaixo foram recalculadas com o critério atual/);
+  assert.match(client, /As opções na ficha foram recalculadas com o critério atual/);
   assert.match(client, /O lote ativo mudou desde o resultado que você abriu/);
   // the options screen exposes each demand's criteria hash so the comparison is by criterion, not by total
   assert.match(read('panel-buscas-view.js'), /reactivation, criteriaHash: target \? target\.criteriaHash : null/);

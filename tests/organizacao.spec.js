@@ -151,7 +151,7 @@ for (const width of [1280, 390]) {
     await expect(g63.locator('.request-ai-evidence > summary')).toContainText('Leitura da conversa pela IA (não confirmada) · mesmos critérios · 2 versões');
     // Result in the batch apart from the work stage; never "Falta buscar" next to valid options.
     await expect(g63).toContainText(/opç(ão|ões) no lote/);
-    await expect(g63).toContainText('Andamento: 🔍 Busca não salva no Manheim');
+    await expect(g63).toContainText('Salvar busca no Manheim');
     await expect(page.locator('#requests-panel')).not.toContainText('Falta buscar');
     await expect(carro.locator('.request-card', { hasText: 'Davi Direto' })).toContainText('Resultado no lote: AINDA NÃO COMPARADO COM O LOTE');
     // Direct incomplete stays in ATENDIMENTO; unknown type goes to review (never to "por valor").

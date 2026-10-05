@@ -82,7 +82,7 @@ test('resultado no lote separado do andamento: nada diz "Falta buscar" ao lado d
   for (const file of ['painel/painel.js', 'painel/lead.js', 'panel-search-stage.js', 'panel-client-context.js', 'api/panel/lead-help.js']) assert.doesNotMatch(read(file), /Falta buscar/, file);
   const client = read('painel/painel.js');
   assert.match(client, /Resultado no lote: /);
-  assert.match(client, /`Andamento: \$\{item\.stageLabel\}/);
+  assert.match(client, /Salvar busca no Manheim/);
   // Candidates are never shown as valid options.
   assert.match(client, /O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada/);
 });
@@ -132,7 +132,7 @@ test('ATENDIMENTO: o badge e a lista usam o mesmo modelo; conversas lidas não v
   const client = read('painel/painel.js');
   assert.match(client, /setCount\('today', model\.counts\.depende\)/);
   // 7cdbf0d: o caso excluído sai das caixas de decisão no badge e na lista (withoutExcluded nos dois).
-  assert.match(client, /const model = MCSAttend\.model\(\{ todayItems: today\.items \|\| \[\], decisions: withoutExcluded\(today\.items, attendDecisions\(\{ entry, triage: triageData, whatsapp: whatsappData, vitrine: vitrineData \}\), new Set\(today\.discardedJourneys \|\| \[\]\)\), incomplete: \[\] \}\);\n      setCount\('today', model\.counts\.depende\);/);
+  assert.match(client, /const model = MCSAttend\.model\(\{ todayItems: today\.items \|\| \[\], decisions: withoutExcluded\(today\.items, attendDecisions\(\{ entry, triage: triageData, whatsapp: whatsappData \}\), new Set\(today\.discardedJourneys \|\| \[\]\)\), incomplete: \[\] \}\);\n      setCount\('today', model\.counts\.depende\);/);
   assert.match(client, /const attendModel = \(items\) => MCSAttend\.model\(\{ todayItems: items, decisions: withoutExcluded\(items, attendDecisions\(\), attendData\.discarded\),/);
   assert.match(client, /chat\.resolution_status !== 'RESOLVED' \|\| chat\.hasTimeUncertain/);
   const html = read('painel/index.html');
@@ -154,17 +154,18 @@ test('cada número diz o que conta; filtros e posição voltam ao fechar a ficha
 test('BUSCAR CARROS reúne pedidos e "Quais buscas salvar"; ENVIAR OPÇÕES fica com os carros e o envio', () => {
   const html = read('painel/index.html');
   const search = html.slice(html.indexOf('<section id="requests-panel"'), html.indexOf('<section id="imports-panel"'));
-  const options = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="manheim-panel"'));
+  const options = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="detail-panel"'));
   assert.match(search, /Por valor · Calculate My Cost[\s\S]*Por carro · Find One For Me/);
   assert.match(search, /id="buscas-valor-saved"[\s\S]*id="buscas-carro-saved"/);
   assert.doesNotMatch(options, /buscas-(valor|carro)-saved|buscas-review/);
-  assert.match(options, /individual e confirmado/);
+  assert.match(options, /Fila de trabalho/);
   // Equal columns on the computer; separate blocks on the phone, no horizontal scroll.
   const css = read('painel/painel.css');
   assert.match(css, /\.search-columns\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
   assert.match(css, /@media \(max-width:820px\)\{\.buscas-columns,\.search-columns\{grid-template-columns:minmax\(0,1fr\)\}/);
-  // The result button opens the options of that request directly.
-  assert.match(read('painel/painel.js'), /if \(toggle && !toggle\.disabled && toggle\.textContent\.startsWith\('Ver opções'\)\) toggle\.click\(\);/);
+  // The result button goes to the queue card; the options live in the ficha, nothing expands inline.
+  assert.match(read('painel/painel.js'), /querySelector\(`#options-queue \[data-demand-key="/);
+  assert.doesNotMatch(read('painel/painel.js'), /startsWith\('Ver opções'\)\) toggle\.click\(\);/);
 });
 
 test('saldo do Claude: separado da OpenAI, uso anterior desconhecido nunca aparece como zero', () => {

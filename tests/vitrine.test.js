@@ -97,14 +97,15 @@ test('HOJE card deposit line: deposit() over the car limit',()=>{
   assert.equal(deposit(1800000),1800);assert.equal(deposit(400000),500);assert.equal(deposit(500000),500);assert.equal(deposit(500100),500);
   assert.match(read('api/panel/vitrine-requests.js'),/depositUsd:request\.referred\|\|financedJourney\.has\(journeyId\)\?null:limit\?deposit\(limit\):null/);
   assert.match(read('api/panel/vitrine-requests.js'),/vitrineId:request\.vitrine_id,vitrineCarId:request\.vitrine_car_id/);
-  assert.match(read('painel/painel.js'),/Próximo passo: pedir o depósito · US\$ /);
+  // The old ATENDER AGORA vitrine card is gone (V1/V2 funnel tabs); the deposit line went with it.
+  assert.doesNotMatch(read('painel/painel.js'),/Próximo passo: pedir o depósito/);
 });
 test('V2 page keeps the approved spec and customer copy has no em dash or trailing period',()=>{
   const page=(read('v/vitrine-render.js')+read('v/vitrine.js'));
   for(const text of ["here's the car you asked to see",'I want to bid','Opens WhatsApp with a ready message to our team','Hey, I want to bid on the','Your limit','You set the limit, we do the bidding','Your limit is the most we\'ll bid, not what you pay','If we win it for less, you pay based on the winning bid','Clean title','Odometer OK','Mileage','Location','Exterior','Interior','Drivetrain','Transmission','Engine','Auction day','Average auction value'])assert.ok(page.includes(text),text);
   for(const banned of ['Carfax','Not for me','—'])assert.ok(!page.includes(banned),banned);
   assert.ok(page.includes('Buy Now')&&page.includes('Ways to buy'),'v3.4 mostra todas as formas de compra');
-  const builder=read('painel/painel.js');assert.match(builder,/\$\{request\.name\}, here's the car you asked to see\\n\$\{link\}`/);assert.doesNotMatch(builder,/here's the car you asked to see\.`/);
+  const builder=read('painel/painel.js');assert.match(builder,/here's the car you asked to see`/);assert.match(builder,/\$\{messageInput\.value\.trim\(\)\}\\n\$\{link\}`/);assert.doesNotMatch(builder,/here's the car you asked to see\.`/);
 });
 test('migration for V2 is additive and newer than the V1 migration',()=>{
   const files=fs.readdirSync(path.join(root,'supabase','migrations')).filter((name)=>name.endsWith('.sql')).sort();
