@@ -53,7 +53,10 @@ test('um carro por VIN: o mesmo VIN em Lane/Run e em Buy Now é uma linha; cada 
   const big = realityList({ options: many, reference: many, maxBidCents: null, milesCap: true, typicalCents: [] });
   assert.equal(big.verdict, '95 opções dentro das milhas', 'conta todos');
   assert.equal(big.rows.length, 80);
-  assert.match(big.label, /95 \(mostrando 80\)/);
+  // AUD-001 #90: the total is already in the verdict ("95 opções..."); the label does not repeat it.
+  assert.match(big.verdict, /^95 /);
+  assert.doesNotMatch(big.label, /95/);
+  assert.match(big.label, /mostrando 80/);
 });
 
 test('cada linha leva o trim e a chave do carro (para separar para o cliente)', () => {

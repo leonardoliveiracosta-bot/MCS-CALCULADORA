@@ -35,7 +35,7 @@ function realityList({ options = [], reference = [], maxBidCents = null, milesCa
   const count = rows.length;
   const verdict = count ? `${count} ${count === 1 ? 'opção' : 'opções'} ${filters.length ? filters.join(' e ').replace('dentro do teto e dentro das milhas', 'dentro do teto e das milhas') : 'no lote'}` : 'Nenhuma opção no lote dentro dos filtros';
   const label = column === 'MMR' ? 'Valor de mercado (MMR)' : column === 'MILHAS_MMR' ? 'Opções no lote' : hasBid ? 'Dentro do teto' : 'Dentro das milhas';
-  return { column, verdict, typicalCents: column === 'MMR' || column === 'MILHAS_MMR' ? null : typical, label: count ? label + ' · ' + count + (count > MAX_ROWS ? ` (mostrando ${MAX_ROWS})` : '') : null, rows: rows.slice(0, MAX_ROWS) };
+  return { column, verdict, typicalCents: column === 'MMR' || column === 'MILHAS_MMR' ? null : typical, label: count ? label + (count > MAX_ROWS ? ` · mostrando ${MAX_ROWS}` : '') : null, rows: rows.slice(0, MAX_ROWS) };
 }
 
 module.exports = { realityList, median, fold, carKey };

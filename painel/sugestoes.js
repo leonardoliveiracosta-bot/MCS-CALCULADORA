@@ -23,7 +23,7 @@
     const card = e('section', 'lead-card suggestion-card' + (compact ? ' suggestion-compact' : ''));
     card.dataset.journeyId = journeyId;
     add(card, 'span', 'lead-label', mode === 'RETOMADA' ? 'SUGESTÃO DE RETOMADA' : 'SUGESTÃO DE RESPOSTA');
-    add(card, 'p', 'muted', 'Nada sai sozinho · Você revisa e envia: pelo painel com sua confirmação (janela de 24 h aberta) ou pelo WhatsApp do celular (janela encerrada)');
+    add(card, 'p', 'muted', 'Nada sai sozinho · Você revisa e envia: pelo painel com sua confirmação (janela de 24 h aberta) ou pelo WhatsApp (janela encerrada)');
     const actions = add(card, 'div', 'lead-actions');
     const make = add(actions, 'button', 'small', mode === 'RETOMADA' ? 'Sugerir retomada' : 'Sugerir resposta'); make.type = 'button';
     const status = add(card, 'p', 'status', '');
@@ -86,7 +86,7 @@
   //  · closed: "Abrir no WhatsApp do celular" opens the conversation with the text filled in.
   // Used by the automatic suggestion, the guided reply and the old-conversation queue.
   const SEND_ERRORS = {
-    WINDOW_CLOSED: 'A janela de 24 h fechou enquanto você revisava · Abra no WhatsApp do celular e envie por lá',
+    WINDOW_CLOSED: 'A janela de 24 h fechou enquanto você revisava · Abra no WhatsApp e envie por lá',
     REPLY_NOT_ELIGIBLE: 'Sem número de WhatsApp confiável nesta ficha: envio pelo painel indisponível',
     SEND_IN_PROGRESS: 'Já existe um envio em andamento para esta conversa',
     SENT_NOT_RECORDED: 'Enviado ao cliente, mas não registrado no painel · Não reenvie',
@@ -116,16 +116,16 @@
       title.textContent = open ? 'Janela de 24 h aberta' + (data.path.until ? ' até ' + clock(data.path.until) + ' (Flórida)' : '') : 'Janela de 24 h encerrada';
       how.textContent = open
         ? 'Ao enviar, a mensagem sai pelo painel, só depois da sua confirmação'
-        : 'Ao enviar, abre a conversa no WhatsApp do celular com o texto preenchido e você envia por lá';
+        : 'Ao enviar, abre a conversa no WhatsApp com o texto preenchido e você envia por lá';
     };
     const showOpenLink = () => {
       if (openLink || !reachable) return;
-      openLink = e('a', 'small suggestion-open', 'Abrir no WhatsApp do celular'); openLink.target = '_blank'; openLink.rel = 'noopener';
+      openLink = e('a', 'small suggestion-open', 'Abrir no WhatsApp'); openLink.target = '_blank'; openLink.rel = 'noopener';
       const refresh = () => { openLink.href = waUrl(data.whatsappBase, textarea.value); };
       refresh(); textarea.addEventListener('input', refresh);
       openLink.addEventListener('click', (event) => {
         if (!ready()) { event.preventDefault(); done.textContent = SEND_ERRORS.NOT_READY; return; }
-        done.textContent = 'WhatsApp aberto com o texto · O envio é feito por você no aplicativo';
+        done.textContent = 'WhatsApp aberto com o texto · O envio é feito por você no WhatsApp';
       });
       if (discard) actions.insertBefore(openLink, discard); else actions.append(openLink);
       refresh();
@@ -202,7 +202,7 @@
       add(who, 'span', 'muted', ' ' + [item.ref ? 'Ref ' + item.ref : null, item.phone].filter(Boolean).join(' · '));
       add(head, 'span', 'lead-badge yellow', `${item.days} dias sem atividade`);
       add(card, 'p', 'muted', `Última mensagem (${item.lastFrom === 'CUSTOMER' ? 'cliente' : 'MCS'}, ${date(item.lastAt)}): ${item.lastMessage}`);
-      add(card, 'p', item.windowOpen ? 'muted' : 'muted followup-window', item.windowOpen ? 'Janela de 24 h aberta' : 'Janela de 24 h encerrada · API bloqueada: só pelo WhatsApp no celular');
+      add(card, 'p', item.windowOpen ? 'muted' : 'muted followup-window', item.windowOpen ? 'Janela de 24 h aberta' : 'Janela de 24 h encerrada · Envio só por você no WhatsApp');
       if (contextSlot) card.append(contextSlot({ journeyId: item.journeyId }));
       const actions = add(card, 'div', 'inline-actions');
       const openFicha = add(actions, 'button', 'quiet small', 'Abrir ficha'); openFicha.type = 'button';

@@ -3307,7 +3307,8 @@
     tools.append(sortBar, trimBox);
     const paintTrims = () => {
       trimSummary.textContent = trims.length ? `Trim (${trims.length})` : 'Trim: todos';
-      summary.textContent = trims.length ? `${groupLabel} (${filteredTotal} de ${count})` : `${groupLabel} (${count})`;
+      // Before the first page answers, the filtered total is not known yet: only the group's total, never "25 de 25".
+      summary.textContent = trims.length && facets ? `${groupLabel} (${filteredTotal} de ${count})` : `${groupLabel} (${count})`;
       const out = trims.length && facets ? facets.filter((item) => !trims.includes(item.key)).reduce((sum, item) => sum + item.selected, 0) : 0;
       outside.replaceChildren(); outside.classList.toggle('hidden', !out);
       if (out) {
@@ -3349,7 +3350,10 @@
         } else paintTrims();
         if (reload) return;
         (page.options || []).forEach((option) => {
-          loadedCount += 1; loadedIds.add(option.id); state.loaded.push(option);
+          // Pages come by position: a batch that changed between pages can repeat a car already on screen (never drawn twice).
+          const vin = String(option.vehicle_json?.parsed?.vin || '').toUpperCase();
+          if (loadedIds.has(option.id) || (vin && loadedIds.has('vin:' + vin))) return;
+          loadedCount += 1; loadedIds.add(option.id); if (vin) loadedIds.add('vin:' + vin); state.loaded.push(option);
           // Only valid cars are offered; the invalidated ones wait in a closed box with the reason, never mixed in.
           if (option.stamp && option.stamp.valid === false) {
             if (!invalidBox) { invalidBox = element('details', 'offer-invalidated'); invalidBox.append(element('summary', '', 'Carros invalidados (não oferecer)')); details.append(invalidBox); }
@@ -3402,10 +3406,12 @@
   const V1_SEND_REASONS = {
     NO_VALID_PHONE: 'Ficha sem telefone de WhatsApp válido: envio pelo painel indisponível',
     V1_SEND_PENDING: 'Envio pelo painel indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável',
-    OFF: 'Envio direto desligado em produção · abra no WhatsApp do celular ou copie a mensagem'
+    OFF: 'Envio direto desligado em produção · abra no WhatsApp ou copie a mensagem'
   };
-  const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
-  const sameDay = (iso) => new Date(iso || Date.now()).toDateString() === new Date().toDateString();
+  // Florida time, as every other date of the panel (formatDate): the same send never shows two different hours.
+  const clock = (iso) => { const date = new Date(iso || Date.now()); return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }); };
+  const floridaDay = (date) => date.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const sameDay = (iso) => floridaDay(new Date(iso || Date.now())) === floridaDay(new Date());
   // The latest V1 of each ficha (and its last send), read once for every card on screen: the cards
   // of one render share one GET (up to 100 fichas per request). A failure only leaves the card as
   // before ("Gere a V1…").
@@ -3460,7 +3466,7 @@
     const windowOpen = () => Boolean(info && info.windowOpen && (!info.windowUntil || Date.parse(info.windowUntil) > Date.now()));
     const windowText = () => windowOpen()
       ? 'Janela de 24 h aberta' + (info.windowUntil ? ' até ' + formatDate(info.windowUntil) : '') + ' · ao enviar, sai pelo painel depois da sua confirmação'
-      : 'Janela de 24 h encerrada · ao enviar, abre a conversa no WhatsApp do celular com a mensagem e você envia por lá';
+      : 'Janela de 24 h encerrada · ao enviar, abre a conversa no WhatsApp com a mensagem e você envia por lá';
     const showLast = (last) => {
       if (!last) return;
       const simulated = last.simulated ? ' · simulado' : '';
@@ -3524,7 +3530,7 @@
         } catch (failure) {
           box.remove();
           const code = failure && failure.code;
-          if (code === 'WINDOW_CLOSED') { state.textContent = `Para ${info.name} · ${info.phone} · a janela de 24 h fechou: não foi enviado · abra no WhatsApp do celular e envie por lá`; info.windowOpen = false; }
+          if (code === 'WINDOW_CLOSED') { state.textContent = `Para ${info.name} · ${info.phone} · a janela de 24 h fechou: não foi enviado · abra no WhatsApp e envie por lá`; info.windowOpen = false; }
           else if (code === 'V1_ALREADY_SENT') { state.textContent = 'Esta V1 já foi enviada'; button.textContent = 'Reenviar'; }
           else if (code === 'SEND_IN_PROGRESS') state.textContent = 'Já existe um envio desta V1 em andamento';
           else if (code === 'V1_SEND_TOO_FAST') state.textContent = 'Um envio por vez: aguarde alguns segundos antes de enviar outra V1 · Nada foi enviado agora';
@@ -3537,7 +3543,7 @@
       node.append(box);
     }
     button.addEventListener('click', (event) => { event.stopPropagation(); openConfirm(); });
-    fallback.addEventListener('click', () => { copied.textContent = 'WhatsApp aberto com a mensagem · O envio é feito por você no aplicativo'; });
+    fallback.addEventListener('click', () => { copied.textContent = 'WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp'; });
     node.addEventListener('click', (event) => event.stopPropagation());
     // The latest V1 of this demand, read from the server after a reload (never a new V1).
     function restore(item) {
@@ -4193,7 +4199,7 @@
         if (item.optionCount && item.searchMode && ['COM_OPCOES', 'COM_CANDIDATOS'].includes(first.state) && item.source === 'CONVERSA' && !item.official) {
           who.append(element('span', 'muted request-options-note', `Os ${item.optionCount} carros contados vêm da leitura da conversa · Confirme o pedido na ficha para abrir as opções dele`));
         } else if (item.optionCount && item.searchMode && ['COM_OPCOES', 'COM_CANDIDATOS'].includes(first.state)) {
-          const options = element('button', 'primary small request-open-options request-view-options', first.state === 'COM_CANDIDATOS' ? `Ver ${item.optionCount === 1 ? 'o candidato' : 'os ' + item.optionCount + ' candidatos'} (valor a conferir)` : `Ver as ${item.optionCount} ${item.optionCount === 1 ? 'opção' : 'opções'}`); options.type = 'button';
+          const options = element('button', 'primary small request-open-options request-view-options', first.state === 'COM_CANDIDATOS' ? `Ver ${item.optionCount === 1 ? 'o candidato' : 'os ' + item.optionCount + ' candidatos'} (valor a conferir)` : (item.optionCount === 1 ? 'Ver a opção' : `Ver as ${item.optionCount} opções`)); options.type = 'button';
           // A candidate is never presented as a valid option: say what is missing and where to fix it.
           if (first.state === 'COM_CANDIDATOS') { options.classList.remove('primary'); options.title = 'Candidato: carro do lote por modelo, ano e milhagem. Falta conferir o lance oficial do cliente (na ficha) para virar opção válida'; }
           options.addEventListener('click', (event) => { event.stopPropagation(); openOptionsCard(`journey:${item.person.journeyId}:${item.searchMode}`, { criteriaHash: item.criteriaHash || null, uploadId: requestsUploadId }); });

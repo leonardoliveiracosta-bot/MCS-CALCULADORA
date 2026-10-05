@@ -209,7 +209,7 @@ test('panel UI: composer at the end of CONVERSA, Florida window line, send only 
   const shared = fs.readFileSync('painel/sugestoes.js', 'utf8');
   assert.match(shared, /'Janela de 24 h aberta' \+ \(data\.path\.until \? ' até ' \+ clock\(data\.path\.until\) \+ ' \(Flórida\)' : ''\)/);
   assert.match(shared, /timeZone: 'America\/New_York'/);
-  assert.match(shared, /abre a conversa no WhatsApp do celular com o texto preenchido/);
+  assert.match(shared, /abre a conversa no WhatsApp com o texto preenchido/);
   assert.match(panel, /translatedFor !== pt\.value\.trim\(\)/);
   assert.match(shared, /Não enviado · nada foi registrado/);
   assert.match(panel, /IA indisponível/);
