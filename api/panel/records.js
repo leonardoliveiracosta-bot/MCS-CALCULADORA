@@ -274,11 +274,20 @@ module.exports = async (req, res) => {
     // A8: the most recent disposition of the person (ficha or any linked Ref) wins.
     const disposition=dispositionIndex(dispositions)(journey.id,[...refSet]);
     const refDisposition=disposition&&disposition.item_kind==='REF'?disposition:null;
+    // V1/V2 whose /v/ link went to the client in this conversation (manual send included): read only.
+    const sentByLink = await (async () => {
+      try {
+        const vitrines = await allRows(ctx, 'vitrines', { select: 'id,token,version', environment: 'eq.' + ctx.environment, journey_id: 'eq.' + id });
+        if (!vitrines.length) return [];
+        const cars = await allRows(ctx, 'vitrine_cars', { select: 'vitrine_id,source_match_id,vehicle_snapshot', environment: 'eq.' + ctx.environment, vitrine_id: 'in.(' + vitrines.map((item) => item.id).join(',') + ')' });
+        return require('../../panel-v1-sent').sentByLink({ messages: conversation, vitrines, cars });
+      } catch (error) { console.error('SENT_BY_LINK_FAILED', error && (error.code || error.status || error.message)); return []; }
+    })();
     return send(res, 200, {
       environment: ctx.environment,
       item: {
         ...withWhatsAppIdentity({...journey,contact:contacts[0]||null,phones},userIds), disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind:refDisposition?'REF':'JOURNEY', dispositionKey:refDisposition?String(refDisposition.item_key).trim().toUpperCase():journey.id, enabled, toggleManaged: Boolean(toggle), offReason: toggle && toggle.off_reason || null, wishlist: wishlistForJourney(journey), wishlists: wishlistsForJourney(journey), refs, checklist: points, checklistSummary: checklistSummary(points),
-        shortDeadline: shortDeadline(journey.customer_deadline_at), promises, units,
+        shortDeadline: shortDeadline(journey.customer_deadline_at), promises, units, sentByLink,
         returns: buildReturns(journey, promises), interactions: interactions.filter((item)=>!item.undone_at), divergences, declarations, attachments: attachments.filter((item)=>!item.undone_at), conversation, timeline,
         calculatorRequests, senderAliases: senderAliases.filter((alias) => conversation.some((message) => message.chat_id === alias.chat_id)),
         manheimMatchCount: manheim.byJourney.get(id) || 0, manheimUploadAt: manheim.upload && manheim.upload.uploaded_at || null, contactChannel: facts.channel, enteredContact: facts.entered,
