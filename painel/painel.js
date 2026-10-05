@@ -2987,10 +2987,14 @@
     return 'V1 bloqueada: a conferência ainda não terminou · Use "Conferir de novo" abaixo';
   }
   // The answer of check/retry/approve carries the new state of the demand: the card is redrawn now.
+  // The card of each demand on screen: an answer that arrives after its block was drawn again (options
+  // loaded meanwhile) still reaches the card, which redraws the block and the V1 button.
+  const auditCards=new Map();
   function applyAuditEntry(demand,result,from){
     if(!demand||!result?.entry||!manheimData?.audit?.byDemand)return false;
     manheimData.audit.byDemand[demand.key]=result.entry;
-    if(from)from.dispatchEvent(new CustomEvent('audit-changed',{bubbles:true}));
+    const target=from&&from.isConnected?from:auditCards.get(demand.key);
+    if(target)target.dispatchEvent(new CustomEvent('audit-changed',{bubbles:true}));
     return true;
   }
   const AUDIT_TONES={CONFERIDO:'green',APROVADO_MANUAL:'green',REVISAR:'red'};
@@ -3569,6 +3573,8 @@
     const paint = () => { const many = state.selectedIds.size > OFFER_ADVISED_MAX; advice.classList.toggle('hidden', !many); advice.textContent = many ? `${state.selectedIds.size} selecionados · o recomendado é de 3 a ${OFFER_ADVISED_MAX} carros por cliente (os melhores, cada um com um motivo)` : ''; counter.textContent = [offerCounts.lane ? `${offerCounts.lane} em Lane/Run` : '', offerCounts.offLane ? `${offerCounts.offLane} em Buy Now / Make Offer` : '', offerCounts.incomplete ? `${offerCounts.incomplete} com informação incompleta` : '', `${state.selectedIds.size} de ${offerCounts.max || 10} selecionados`].filter(Boolean).join(' · '); };
     state.setSelected = (id, on, total) => {
       if (on) state.selectedIds.add(id); else state.selectedIds.delete(id);
+      // The page's snapshot follows the selection: a card drawn again (column reordered) starts from it.
+      if (offerCounts) { offerCounts.selectedIds = [...state.selectedIds]; offerCounts.selected = state.selectedIds.size; }
       // A new selection is checked again before a V1: the card stops saying "Conferido" for the cars of before.
       if (auditOn() && manheimData?.audit?.byDemand && demand?.key) {
         manheimData.audit.byDemand[demand.key] = state.selectedIds.size ? { status: 'CONFERINDO', label: 'Conferindo', divergences: [], carCount: state.selectedIds.size } : { status: 'SEM_SELECAO', label: LABEL_NO_SELECTION, divergences: [] };
@@ -3663,6 +3669,7 @@
     const stale = staleNotice(card, demand); if (stale) card.append(stale);
     const seen=()=>loaded.concat(card.offerState?card.offerState.loaded:[]);
     let audited=auditBlock(demand,seen());if(audited)card.append(audited);
+    if(demand?.key)auditCards.set(demand.key,card);
     ['options-loaded','audit-changed'].forEach((name)=>card.addEventListener(name,()=>{const next=auditBlock(demand,seen());if(audited&&next){audited.replaceWith(next);audited=next;}}));
     if (reactivation) {
       const reactivateButton = element('button', 'small', journey.status === 'PARADO' ? 'Retomar busca' : 'Religar busca');
@@ -3797,6 +3804,7 @@
     card.append(contextSlot({ ref: refOf(order) }, { focus: 'cars' }));
     const stale = staleNotice(card, demand); if (stale) card.append(stale);
     if (orderAudit) card.append(orderAudit);
+    if(demand?.key)auditCards.set(demand.key,card);
     ['options-loaded','audit-changed'].forEach((name)=>card.addEventListener(name,()=>{const next=auditBlock(demand,seenOrder());if(orderAudit&&next){orderAudit.replaceWith(next);orderAudit=next;}}));
     const contact=contactMeta(order);if(contact)card.append(contact);
     const smsMissing=smsPrintMissing(order); if(smsMissing)card.append(smsMissing);

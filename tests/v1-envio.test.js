@@ -158,3 +158,23 @@ test('histórico de lotes: ocultar só lote desfeito, por operador, sem mudar na
   assert.deepEqual(view.hiddenBatchIds, [uploads[1]]);
   assert.deepEqual(await q(`select id, undone_at, activated_at, vehicle_count from public.manheim_uploads order by id`), before);
 });
+
+test('AUD-001 #14/#33: envio que ficou em SENDING há mais de 2 minutos não trava a V1 para sempre', async () => {
+  // A second V1 of Maria with a send stuck in SENDING (the function died between saving and finishing).
+  await q(`insert into public.vitrines(id,environment,token,journey_id,contact_id,reference_code,customer_name,version,expires_at,created_by) values('${id(49)}','preview','${token(9)}','${id(21)}','${id(11)}','VNVA2','Maria Silva','V1',now()+interval '7 days','${ACTOR}')`);
+  await q(`insert into public.v1_sends(environment,vitrine_id,journey_id,phone_e164,body_text,body_sha256,request_key,status,simulated,created_by,created_at,updated_at) values('preview','${id(49)}','${id(21)}','+13055550101','Hi','${'a'.repeat(64)}','${id(990)}','SENDING',true,'${ACTOR}',now()-interval '5 minutes',now()-interval '5 minutes')`);
+  const prepared = await v1({ action: 'prepare', token: token(9), baseUrl: BASE_URL, demandKey: `journey:${id(21)}:VALOR` });
+  assert.equal(prepared.statusCode, 200, JSON.stringify(prepared.payload));
+  // Shown as "not confirmed" (check WhatsApp), never as a send in progress forever.
+  assert.equal(prepared.payload.last.status, 'UNCONFIRMED');
+  const [{ status, error_code }] = await q(`select status,error_code from public.v1_sends where request_key='${id(990)}'`);
+  assert.deepEqual([status, error_code], ['UNCONFIRMED', 'SEND_STALE']);
+  // A conscious resend works again (the in-flight lock is free).
+  const again = await v1({ action: 'send', token: token(9), text: `Hi Maria, see ${LINK(9)}`, confirmed: true, requestKey: id(991), resend: true, demandKey: `journey:${id(21)}:VALOR` });
+  assert.equal(again.statusCode, 200, JSON.stringify(again.payload));
+  assert.equal(again.payload.sendStatus, 'SENT');
+  // A recent SENDING (still within the deadline) keeps the lock.
+  await q(`insert into public.v1_sends(environment,vitrine_id,journey_id,phone_e164,body_text,body_sha256,request_key,status,simulated,created_by) values('preview','${id(49)}','${id(21)}','+13055550101','Hi','${'b'.repeat(64)}','${id(992)}','SENDING',true,'${ACTOR}')`);
+  const busy = await v1({ action: 'send', token: token(9), text: `Hi Maria, see ${LINK(9)}`, confirmed: true, requestKey: id(993), resend: true, demandKey: `journey:${id(21)}:VALOR` });
+  assert.equal(busy.payload.error, 'SEND_IN_PROGRESS');
+});

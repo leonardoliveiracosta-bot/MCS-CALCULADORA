@@ -68,8 +68,18 @@ async function vitrineFor(ctx, token, services) {
   const [vitrine] = await services.rows(ctx, 'vitrines', { select: 'id,token,journey_id,version', environment: 'eq.' + ctx.environment, token: 'eq.' + token, limit: '1' });
   return vitrine && vitrine.version === 'V1' && isUuid(vitrine.journey_id) ? vitrine : null;
 }
+// A send still "SENDING" long after the provider's deadline means the function died between saving
+// and finishing: it may or may not have reached the customer. It becomes "not confirmed" (check
+// WhatsApp), which frees the one-send-at-a-time lock; it is never resent by itself.
+const STALE_SENDING_MS = 2 * 60 * 1000;
 async function lastSend(ctx, vitrineId, services) {
   const [row] = await services.rows(ctx, 'v1_sends', { select: 'id,status,simulated,resend,error_code,created_at,updated_at', environment: 'eq.' + ctx.environment, vitrine_id: 'eq.' + vitrineId, order: 'created_at.desc', limit: '1' });
+  if (row && row.status === 'SENDING' && Date.now() - Date.parse(row.updated_at || row.created_at || 0) > STALE_SENDING_MS) {
+    const patch = { status: 'UNCONFIRMED', error_code: 'SEND_STALE', updated_at: new Date().toISOString() };
+    // Only while it is still SENDING: a late finish of the original send wins.
+    await services.patchRows(ctx, 'v1_sends', { environment: 'eq.' + ctx.environment, id: 'eq.' + row.id, status: 'eq.SENDING' }, patch).catch(() => null);
+    return { ...row, ...patch };
+  }
   return row || null;
 }
 
