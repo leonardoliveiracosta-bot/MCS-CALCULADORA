@@ -63,7 +63,7 @@ function seedDb(){
       {id:ids.v2b,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V2',created_at:agoMin(90),expires_at:future(),parent_vitrine_id:ids.v1b}
     ],
     vitrine_cars:[
-      {id:ids.car1,vitrine_id:ids.v1,environment:ENV,vehicle_snapshot:{year:2021,make:'BMW',model:'X3'},customer_limit_cents:2000000},
+      {id:ids.car1,vitrine_id:ids.v1,environment:ENV,vehicle_snapshot:{year:2021,make:'BMW',model:'X3',vin:'5uxtr9c51mlc00001'},customer_limit_cents:2000000},
       {id:ids.car2,vitrine_id:ids.v1b,environment:ENV,vehicle_snapshot:{year:2020,make:'Audi',model:'Q5'},customer_limit_cents:1800000},
       {id:ids.car3,vitrine_id:ids.v2,environment:ENV,vehicle_snapshot:{year:2021,make:'BMW',model:'X3'},customer_limit_cents:2000000}
     ],
@@ -106,6 +106,8 @@ test('funnel: a fresh tap lands in "Tocou · falta a V2" with no 15-minute wait'
   assert.equal(out.v1.tapped[0].vitrineId,ids.v1);
   assert.equal(out.v1.tapped[0].vitrineCarId,ids.car1);
   assert.equal(out.v1.tapped[0].car,'2021 BMW X3');
+  // The VIN tells apart two cars of the same year and model (upper case; null when the car has none).
+  assert.equal(out.v1.tapped[0].vin,'5UXTR9C51MLC00001');
   assert.equal(out.v1.tapped[0].phone,'+13055551234');
   assert.equal(out.v1.tapped[0].budgetCents,2000000);
   assert.equal(out.counts.v1Action,1);
