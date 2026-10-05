@@ -50,9 +50,10 @@ test('v3.4 database pagination, counts, legacy selection, duplicate send and V1 
   await q("update manheim_matches set vehicle_json=jsonb_set(vehicle_json,'{parsed,endsAt}',to_jsonb($1::text)) where id=$2",[past,buy.id]);
   const [g]=await call('panel_manheim_grouped_options',{p_demand_key:key});assert.ok(g);assert.equal((await server.rpc(ctx,'panel_manheim_grouped_matches',{p_environment:'preview',p_match_ids:[buy.id]})).length,1);
   await q("update manheim_matches set vehicle_json=jsonb_set(vehicle_json,'{parsed,endsAt}',to_jsonb($1::text)) where id=$2",[past,lane.id]);
-  assert.equal((await call('panel_manheim_offer_summary',{}))[0].lane_count,1);
+  // Leilão passado (20261027010000): o carro selecionado (entrada OVE) continua, o resto sai.
+  assert.deepEqual([(await call('panel_manheim_offer_summary',{}))[0].lane_count,(await call('panel_manheim_offer_summary',{}))[0].offlane_count],[1,1]);
   assert.equal((await q('select count(*) n from manheim_matches'))[0].n,3);assert.equal((await q('select count(*) n from vitrines'))[0].n,2);assert.deepEqual(backend.refused,[]);
   await q("insert into manheim_matches(environment,upload_id,journey_id,logical_mode,demand_key,match_kind,row_fingerprint,vehicle_json,mmr_cents) select environment,upload_id,journey_id,logical_mode,demand_key,match_kind,'perf:'||n,jsonb_set(vehicle_json,'{parsed,vin}',to_jsonb('PERF'||n)),mmr_cents from manheim_matches cross join generate_series(1,2000) n where id=$1",[id(12)]);
-  const started=Date.now();assert.equal((await call('panel_manheim_batch_summary',{}))[0].match_count,2001);assert.ok(Date.now()-started<5000,'agrupamento de 2 mil opções deve continuar rápido');
+  const started=Date.now();assert.equal((await call('panel_manheim_batch_summary',{}))[0].match_count,2002);assert.ok(Date.now()-started<5000,'agrupamento de 2 mil opções deve continuar rápido');
  }finally{await db.close();}
 });

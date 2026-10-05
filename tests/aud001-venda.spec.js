@@ -28,7 +28,7 @@ const seed = [
 const TRIMS = ['EX', 'EX-L', 'ex l', 'Touring', ''];
 const car = (n) => {
   const vin = 'TRIM' + String(n).padStart(13, '0');
-  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2019 + (n % 4), make: 'Honda', model: 'CR-V', trim: TRIMS[n % TRIMS.length], miles: 20000 + n, mmrCents: 2500000 + n * 1000, location: 'FL - Orlando', startsAt: '2026-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: '4.0', cleanTitle: true, odometerOk: true } };
+  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2019 + (n % 4), make: 'Honda', model: 'CR-V', trim: TRIMS[n % TRIMS.length], miles: 20000 + n, mmrCents: 2500000 + n * 1000, location: 'FL - Orlando', startsAt: '2099-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: '4.0', cleanTitle: true, odometerOk: true } };
 };
 // 25 cars in Lane/Run: EX 5, EX-L 10 (two spellings), Touring 5, no trim 5.
 const cars = Array.from({ length: 25 }, (_, n) => car(n));

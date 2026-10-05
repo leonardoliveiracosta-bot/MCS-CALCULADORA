@@ -25,7 +25,7 @@ const seed = [
 ].join('\n');
 
 const HEADERS = 'Inventory,Vin,Year,Make,Model,Trim,Odometer Value,MMR,Condition Report Grade,Pickup Location,Starts At,Lane,Run,Buy Now Price,Event Sale Name,Status';
-const row = (inventory, vin, make, model, miles, cr, lane, run, buyNow, event) => [inventory, vin, '2020', make, model, 'EX', miles, '25000', cr, 'FL - Orlando', '2026-10-01T15:00:00Z', lane, run, buyNow, event, 'Active'].join(',');
+const row = (inventory, vin, make, model, miles, cr, lane, run, buyNow, event) => [inventory, vin, '2020', make, model, 'EX', miles, '25000', cr, 'FL - Orlando', '2099-10-01T15:00:00Z', lane, run, buyNow, event, 'Active'].join(',');
 // Two files. CR-V: in Lane/Run with Buy Now (stays Lane/Run), in Lane/Run, OVE with Buy Now / Make
 // Offer, OVE with Buy Now, OVE without anything (incomplete). A car repeated in both files. A Ford.
 const FILE_A = [HEADERS,

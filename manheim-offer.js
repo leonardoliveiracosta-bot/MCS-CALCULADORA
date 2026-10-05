@@ -79,6 +79,20 @@
   const saleActive = (sale, now = Date.now()) => !Number.isFinite(Date.parse(sale?.endsAt)) || Date.parse(sale.endsAt) > now;
   const SALE_FIELDS = ['lane','run','buyNowPrice','saleType','saleStatus','eventSaleName','startsAt','saleDate','endsAt','location'];
   const saleOption = (p) => Object.fromEntries(SALE_FIELDS.filter(k => p[k] !== undefined).map(k => [k,p[k]]));
+  // Leilão passado (migração 20261027010000, panel_manheim_offer_expired): endsAt passado, ou carro com
+  // Lane/Run cujo dia do leilão (startsAt, senão saleDate) é anterior a hoje na Flórida. Buy Now só pelo
+  // endsAt: a data de um Buy Now é o dia em que entrou na lista. Sem data ou ilegível: não expira.
+  const floridaDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms);
+  function offerExpired(sale, now = Date.now()) {
+    const ends = Date.parse(text(sale?.endsAt));
+    if (Number.isFinite(ends) && ends <= now) return true;
+    if (!text(sale?.lane) || !text(sale?.run)) return false;
+    const raw = text(sale.startsAt) || text(sale.saleDate);
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : Number.isFinite(Date.parse(raw)) ? floridaDay(Date.parse(raw)) : '';
+    return Boolean(day) && day < floridaDay(now);
+  }
+  // Carro agrupado (purchaseOptions): expirado só quando todas as vendas expiraram.
+  const carExpired = (p, now = Date.now()) => { const sales = Array.isArray(p?.purchaseOptions) && p.purchaseOptions.length ? p.purchaseOptions : [p || {}]; return sales.every((sale) => offerExpired(sale, now)); };
   const purchaseOptions = (p, now = Date.now()) => (Array.isArray(p?.purchaseOptions) ? p.purchaseOptions : [saleOption(p || {})]).filter(s => saleActive(s, now));
   // One physical car per demand. Never merge unknown VINs; retain every source ID, including
   // expired sales, so an earlier human selection still belongs to the surviving car.
@@ -102,5 +116,5 @@
       return [primary.vehicle_json?.parsed?{...primary,vehicle_json:{...primary.vehicle_json,parsed}}:primary.vehicle_json?{...primary,vehicle_json:parsed}:primary.vehicle_snapshot?{...primary,vehicle_snapshot:parsed}:parsed];
     });
   }
-  return { groupVehicles, parsedOf, vinOf, saleActive, purchaseOptions, GROUPS, GROUP_LABELS, MAX_SELECTED, buyNowCents, classify, crMinimum, crOf, defaultPct, finalCents, priceFor, saleMarked, saleRead, validPct };
+  return { groupVehicles, parsedOf, vinOf, saleActive, offerExpired, carExpired, purchaseOptions, GROUPS, GROUP_LABELS, MAX_SELECTED, buyNowCents, classify, crMinimum, crOf, defaultPct, finalCents, priceFor, saleMarked, saleRead, validPct };
 }));

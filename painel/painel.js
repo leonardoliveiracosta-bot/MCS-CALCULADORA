@@ -306,6 +306,7 @@
       // A batch the server refused to continue: its id lets the operator discard it.
       if (result.uploadId) failure.uploadId = result.uploadId;
       if (result.reason) failure.reason = result.reason;
+      if (Array.isArray(result.removed)) failure.removed = result.removed;
       if (Number.isInteger(result.fileIndex)) failure.fileIndex = result.fileIndex;
       if (typeof result.whatsappLink === 'string' && result.whatsappLink.startsWith('https://wa.me/')) failure.whatsappLink = result.whatsappLink;
       throw failure;
@@ -3071,6 +3072,7 @@
     if (info.belowMinimum) badges.append(makeBadge(`Abaixo do CR recomendado (mínimo ${info.crMinimum})`, 'yellow'));
     if (option.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
     if (info.manual) badges.append(makeBadge('Inclusão manual', 'blue'));
+    if (OFFER.carExpired && OFFER.carExpired(parsed)) badges.append(makeBadge('Leilão passado · não entra na V1', 'red'));
     const statusBadge = makeBadge(OFFER_STATUS[info.status] || '', info.status === 'SELECTED' ? 'green' : 'yellow');
     statusBadge.classList.add('offer-status'); statusBadge.hidden = !OFFER_STATUS[info.status];
     badges.append(statusBadge);
@@ -3767,6 +3769,7 @@
       : error?.code === 'MANHEIM_AUDIT_PENDING' ? 'A conferência desta demanda ainda não liberou a V1'
       : error?.code === 'MANHEIM_OPTION_NOT_SELECTED' ? 'Só carros selecionados para o cliente entram na V1'
       : error?.code === 'MANHEIM_MATCH_WITHOUT_MMR' ? 'Carro sem MMR válido não entra na V1'
+      : error?.code === 'MANHEIM_SALE_ENDED' ? (error.removed?.length ? `O leilão já passou: ${error.removed.join(', ')} · Nenhum carro entrou na V1` : 'O leilão de algum carro já passou · Recarregue as opções')
       : error?.code === 'MANHEIM_SELECTION_PENDING' ? 'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável'
       : 'Não consegui gerar o link';
   }
@@ -3881,7 +3884,9 @@
         }
       } else { status.textContent = v1ErrorText(error); button.disabled = false; return; }
     }
-    status.textContent = 'Abrindo o WhatsApp com a mensagem…';
+    // Leilão passado: o carro continua selecionado na lista, mas ficou fora desta V1.
+    const removedNote = created?.removed?.length ? ` · Fora da V1 (leilão passado): ${created.removed.join(', ')}` : '';
+    status.textContent = 'Abrindo o WhatsApp com a mensagem…' + removedNote;
     let info = null;
     try { info = await request('/api/panel/v1-send', { method: 'POST', body: JSON.stringify({ action: 'prepare', token: created.token, baseUrl: location.origin, ...(demand.key ? { demandKey: demand.key } : {}) }) }); }
     catch (_) { info = null; }
@@ -3891,13 +3896,13 @@
     const phone = info && info.phone ? String(info.phone).replace(/\D/g, '') : '';
     const text = info && info.text ? info.text : (info && info.link ? info.link : '');
     if (!phone) {
-      status.textContent = 'V1 criada · Sem telefone para abrir a conversa' + (info && info.link ? ' · Link: ' + info.link : '');
+      status.textContent = 'V1 criada · Sem telefone para abrir a conversa' + (info && info.link ? ' · Link: ' + info.link : '') + removedNote;
       return;
     }
     const href = 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text);
     if (window.MCSWaLink) window.MCSWaLink.open(href);
     else window.open(href, '_blank', 'noopener');
-    status.textContent = 'WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp';
+    status.textContent = 'WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp' + removedNote;
   }
 
   function renderBuscasCounters(counts) {

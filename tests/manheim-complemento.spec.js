@@ -23,7 +23,7 @@ const seed = [
 ].join('\n');
 
 const HEADERS = 'Inventory,Vin,Year,Make,Model,Trim,Odometer Value,MMR,Condition Report Grade,Pickup Location,Starts At,Lane,Run,Buy Now Price,Event Sale Name,Status';
-const row = (inventory, vin, lane, run, buyNow, event) => [inventory, vin, '2020', 'Honda', 'CR-V', 'EX', '21000', '25000', '4.1', 'FL - Orlando', '2026-10-01T15:00:00Z', lane, run, buyNow, event, 'Active'].join(',');
+const row = (inventory, vin, lane, run, buyNow, event) => [inventory, vin, '2020', 'Honda', 'CR-V', 'EX', '21000', '25000', '4.1', 'FL - Orlando', '2099-10-01T15:00:00Z', lane, run, buyNow, event, 'Active'].join(',');
 const FILES = [
   { name: 'A.csv', text: [HEADERS,
     row('Simulcast', '2HKRW2H59LH800001', '3', '41', '26500', 'Orlando Tuesday'),

@@ -111,8 +111,14 @@ async function create(ctx,body,services={rows,insert},now=Date.now()){
   if(original.some(match=>!hasValidMmr(match.vehicle_json?.parsed)))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};
   const vins=original.map(grouping.vinOf).filter(Boolean);
   if(new Set(vins).size!==vins.length)return {error:'VITRINE_VIN_DUPLICATE'};
-  const selected=await groupedFor(ctx,original,services);
-  if(selected.length!==original.length)return {error:'MANHEIM_SALE_ENDED'};
+  const grouped=await groupedFor(ctx,original,services);
+  if(grouped.length!==original.length)return {error:'MANHEIM_SALE_ENDED'};
+  // Leilão passado: o carro selecionado continua na lista, mas não entra na V1; a resposta diz quais saíram.
+  const ended=grouped.filter((match)=>grouping.carExpired(match.vehicle_json?.parsed||{}));
+  const removed=ended.map((match)=>vehicleName(match.vehicle_json?.parsed||{}));
+  const selected=grouped.filter((match)=>!ended.includes(match));
+  if(!selected.length)return {error:'MANHEIM_SALE_ENDED',removed};
+  const removedOut=removed.length?{removed}:{};
   if(!(await batchesLive(ctx,selected.map((match)=>match.upload_id),services)))return null;
   // MMR is mandatory: a car without a valid MMR never goes into a V1.
   if(selected.some((match)=>!hasValidMmr(match.vehicle_json?.parsed)))return {error:'MANHEIM_MATCH_WITHOUT_MMR'};
@@ -124,11 +130,11 @@ async function create(ctx,body,services={rows,insert},now=Date.now()){
   const selection=await selectedFor(ctx,selected.map((match)=>match.id),services); if(selection.error)return {error:selection.error};
   const cars=selected.map((match)=>({match,vehicle:{...priced(publicVehicle(match.vehicle_json?.parsed||{}),selection.byId.get(match.id)),vin:grouping.vinOf(match)}}));
   const existing=await recentWithCars(ctx,{journey_id:'eq.'+journey.id,version:'eq.V1'},selected.map((match)=>'match:'+match.id),services,now);
-  if(existing)return {token:existing.vitrine.token,link:'/v/'+existing.vitrine.token,referenceCode:journey.reference_code,cars:cars.map((item)=>vehicleName(item.vehicle)),reused:true};
+  if(existing)return {token:existing.vitrine.token,link:'/v/'+existing.vitrine.token,referenceCode:journey.reference_code,cars:cars.map((item)=>vehicleName(item.vehicle)),reused:true,...removedOut};
   const token=randomToken(); const created=await services.insert(ctx,'vitrines',{environment:ctx.environment,token,journey_id:journey.id,contact_id:journey.contact_id,reference_code:journey.reference_code||'',customer_name:contact[0]?.display_name||null,version:'V1',expires_at:expiresAt(cars),created_by:ctx.panel.id});
   const vitrine=created[0];
   for(const car of cars) await services.insert(ctx,'vitrine_cars',{environment:ctx.environment,vitrine_id:vitrine.id,source_match_id:car.match.id,short_code:await uniqueCode(ctx,services),vehicle_snapshot:car.vehicle,customer_limit_cents:journey.budget_cents||null,photo_paths:[]},false);
-  return {token,link:'/v/'+token,referenceCode:journey.reference_code,cars:cars.map((item)=>vehicleName(item.vehicle))};
+  return {token,link:'/v/'+token,referenceCode:journey.reference_code,cars:cars.map((item)=>vehicleName(item.vehicle)),...removedOut};
 }
 /* V2: vitrine NOVA (token novo) so com o carro pedido, ligada a V1 de origem.
    A V1 nunca e alterada: o link V1 do cliente continua sendo V1.
@@ -227,8 +233,8 @@ async function vehiclesPdf(ctx,body,services){
   if(!cars.length)return null;
   return publicResponse({version:'V1',reference_code:journey?.reference_code||safeText(body.referenceCode,40)||'',customer_name:name,expires_at:new Date(Date.now()+86400000).toISOString()},cars);
 }
-const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='MANHEIM_OPTION_NOT_SELECTED'||error==='MANHEIM_STAMP_INVALID'||error==='MANHEIM_SELECTION_PENDING'||error==='VITRINE_REQUEST_TREATED'||error==='VITRINE_SOURCE_UNDONE'||error==='MANHEIM_AUDIT_PENDING'||error==='MANHEIM_MATCH_WITHOUT_MMR'||error==='VITRINE_SOURCE_MISSING'||error==='VITRINE_CONTACT_BLOCKED'?409:400;
-module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,512*1024);if(body.action==='pdf'){const out=await pdfData(ctx,body);return out?send(res,200,out):send(res,400,{error:'VITRINE_PDF_INVALID'});}if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,statusFor(out.error),{error:out.error}):send(res,out.reused?200:201,out);}const out=await create(ctx,body);if(out&&out.error)return send(res,statusFor(out.error),{error:out.error,...(out.reason?{reason:out.reason}:{})});return out?send(res,out.reused?200:201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='GET')return send(res,200,await listV2(ctx));if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?.error?send(res,400,{error:out.error}):out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
+const statusFor=(error)=>error==='VITRINE_REQUEST_NOT_FOUND'||error==='VITRINE_NOT_FOUND'?404:error==='MANHEIM_OPTION_NOT_SELECTED'||error==='MANHEIM_STAMP_INVALID'||error==='MANHEIM_SELECTION_PENDING'||error==='VITRINE_REQUEST_TREATED'||error==='VITRINE_SOURCE_UNDONE'||error==='MANHEIM_AUDIT_PENDING'||error==='MANHEIM_MATCH_WITHOUT_MMR'||error==='VITRINE_SOURCE_MISSING'||error==='VITRINE_CONTACT_BLOCKED'||error==='MANHEIM_SALE_ENDED'?409:400;
+module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='POST'){const body=await jsonBody(req,512*1024);if(body.action==='pdf'){const out=await pdfData(ctx,body);return out?send(res,200,out):send(res,400,{error:'VITRINE_PDF_INVALID'});}if(body.action==='create_v2'||(body.requestId&&!body.journeyId)){const out=await createV2(ctx,body);return out.error?send(res,statusFor(out.error),{error:out.error}):send(res,out.reused?200:201,out);}const out=await create(ctx,body);if(out&&out.error)return send(res,statusFor(out.error),{error:out.error,...(out.reason?{reason:out.reason}:{}),...(out.removed?{removed:out.removed}:{})});return out?send(res,out.reused?200:201,out):send(res,400,{error:'VITRINE_CREATE_INVALID'});}if(req.method==='GET')return send(res,200,await listV2(ctx));if(req.method==='PATCH'){const out=await update(ctx,await jsonBody(req,65536));return out?.error?send(res,400,{error:out.error}):out?send(res,200,out):send(res,400,{error:'VITRINE_UPDATE_INVALID'});}return send(res,405,{error:'METHOD_NOT_ALLOWED'});}catch(error){return send(res,500,{error:'VITRINE_UNAVAILABLE'});}};
 module.exports.create=create;
 module.exports.pdfData=pdfData;
 module.exports.auditGate=auditGate;
