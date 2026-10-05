@@ -180,8 +180,10 @@ nav[aria-label="Seções do painel"]{
 @media (max-width:820px){.buscas-columns,.search-columns{grid-template-columns:minmax(0,1fr)}.buscas-column{overflow-wrap:anywhere}}
 /* ENVIAR OPÇÕES · fila + ficha: o pé da ficha com o botão da V1 fica fixo ao rolar */
 .ficha-v1-foot{position:sticky;bottom:0;z-index:15;display:grid;gap:8px;padding:12px;background:rgba(5,17,29,.96);border-top:1px solid #29465f;backdrop-filter:blur(10px)}
-.options-queue-tools{margin:0 0 8px}
-.options-queue-search{display:grid;gap:4px;max-width:420px}
+.options-queue-tools{margin:0 0 8px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:end}
+.options-queue-search{display:grid;gap:4px;flex:1 1 280px;max-width:420px;min-width:0}
+.options-queue-sort{display:grid;gap:4px;flex:0 1 300px;min-width:0}
+.options-queue-sort select{width:100%;max-width:100%}
 .options-queue-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
 .options-queue-next{margin:0}
 .ficha-demand{margin:0 0 14px}

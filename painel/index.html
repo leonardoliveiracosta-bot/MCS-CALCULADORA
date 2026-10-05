@@ -13,7 +13,7 @@
   <link rel="manifest" href="/painel/manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="/painel/icons/mcs-painel-180.png">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans:wght@400;600;700&family=Noto+Sans+Mono:wght@500&family=Noto+Serif:wght@600&display=swap">
-  <link rel="stylesheet" href="/painel/painel.css?v=20261003s">
+  <link rel="stylesheet" href="/painel/painel.css?v=20261026o1">
   <link rel="stylesheet" href="/painel/tema-mcs.css?v=20261003s">
   <link rel="stylesheet" href="/painel/identidade.css?v=20261025t7">
   <link rel="stylesheet" href="/painel/sms-device-tokens.css?v=20261020a">
@@ -305,6 +305,12 @@
         <div id="manheim-results" aria-live="polite">
           <div class="options-queue-tools">
             <label class="options-queue-search">Buscar na fila <input id="options-queue-search" type="search" maxlength="100" placeholder="Nome, telefone, Ref ou carro"></label>
+            <label class="options-queue-sort">Ordenar <select id="options-queue-sort">
+              <option value="recent">Mais recentes</option>
+              <option value="oldest">Mais antigos</option>
+              <option value="sms">Mensagem SMS recentes primeiro</option>
+              <option value="whatsapp">Mensagem WhatsApp recentes primeiro</option>
+            </select></label>
           </div>
           <p id="options-queue-count" class="muted" aria-live="polite"></p>
           <div id="options-queue" class="stack" aria-live="polite"></div>
@@ -344,7 +350,7 @@
   <script src="/painel/grupos.js?v=20261021v32" defer></script>
   <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js?v=20261025q" defer></script>
-  <script src="/painel/painel.js?v=20261026ac1" defer></script>
+  <script src="/painel/painel.js?v=20261026o1" defer></script>
   <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
 </body>
 </html>
