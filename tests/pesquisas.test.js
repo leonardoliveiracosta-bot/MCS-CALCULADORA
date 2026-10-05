@@ -402,3 +402,18 @@ test('17 · A10: a ficha oferece só carros do lote ativo, os mesmos de OPÇÕES
   assert.ok(vins.includes('PESQ00000000000010'), 'o carro do lote ativo aparece: ' + JSON.stringify(vins));
   assert.ok(!vins.includes('PESQ00000000000003'), 'o carro do lote anterior não aparece');
 });
+
+test('17b · AUD-001 #46: a ficha não oferece nem conta carro com a venda já encerrada', async () => {
+  const ended = new Date(Date.now() - 86400000).toISOString(), open = new Date(Date.now() + 3 * 86400000).toISOString();
+  await batch([
+    car('PESQ00000000000020', 'Toyota', 'Camry', { year: 2021, miles: 35000, endsAt: open }),
+    car('PESQ00000000000021', 'Toyota', 'Camry', { year: 2021, miles: 36000, endsAt: ended })
+  ], 'e');
+  const res = await call('lead', '/api/panel/lead?id=' + id(5));
+  assert.equal(res.statusCode, 200, JSON.stringify(res.payload).slice(0, 300));
+  const vins = (res.payload.offers || []).map((offer) => offer.vin);
+  assert.ok(vins.includes('PESQ00000000000020'), 'a venda ainda aberta aparece: ' + JSON.stringify(vins));
+  assert.ok(!vins.includes('PESQ00000000000021'), 'a venda encerrada não aparece: ' + JSON.stringify(vins));
+  const realityVins = JSON.stringify(res.payload.reality || {});
+  assert.ok(!realityVins.includes('PESQ00000000000021'), 'nem no cartão Realidade');
+});

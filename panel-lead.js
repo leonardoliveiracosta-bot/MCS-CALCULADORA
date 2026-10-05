@@ -241,7 +241,11 @@ async function leadData(ctx, req, refInput, idInput) {
   });
   // Offers use each demand's own rule (VALOR: the maximum bid, never the total ceiling, R2).
   // A QUASE caused by missing data keeps its notice so it is not read as a fit.
-  const allOffers = [...(activeUpload ? current : unique).values()].flatMap((vehicle) => matchesFor(vehicle).map(({ demand, result }) => ({ ...vehicle, mode: demand.mode, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap })))
+  // AUD-001 #46: an offer needs at least one sale still open (Lane/Run or Buy Now), the same rule as
+  // ENVIAR OPÇÕES; a car whose sales all ended is neither offered nor counted. "MMR típico" above keeps the
+  // whole history on purpose (a sold car is still a price reference).
+  const { purchaseOptions } = require('./manheim-offer');
+  const allOffers = [...(activeUpload ? current : unique).values()].filter((vehicle) => purchaseOptions(vehicle).length > 0).flatMap((vehicle) => matchesFor(vehicle).map(({ demand, result }) => ({ ...vehicle, mode: demand.mode, kind: result.kind, matchReason: result.reason, matchNotice: result.notice, dataGap: result.dataGap })))
     .sort((a, b) => offerRank(a) - offerRank(b));
   // One car per VIN (v3.4): the same VIN in Lane/Run and in Buy Now (or in two CSV rows) is one car
   // (in each search mode: a car that fits VALOR and CARRO is an offer in both).
