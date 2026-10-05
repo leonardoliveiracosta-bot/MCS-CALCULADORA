@@ -3557,6 +3557,7 @@
     return element('p', 'warning offer-pending', 'Seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável · A lista abaixo mostra só as combinações internas e a V1 fica bloqueada');
   }
   const OFFER_ADVISED_MAX = 5;
+  const LABEL_NO_SELECTION = 'Conferência começa ao selecionar carros';
   function offerSection(card, demand) {
     const offerCounts = demand.offer;
     const state = { loaded: [], selectedIds: new Set(offerCounts.selectedIds || []), listeners: [], demand };
@@ -3566,7 +3567,15 @@
     // 3 to 5 cars per customer is the recommendation (curation, not a catalog): a warning, never a block.
     const advice = element('p', 'offer-advice hidden');
     const paint = () => { const many = state.selectedIds.size > OFFER_ADVISED_MAX; advice.classList.toggle('hidden', !many); advice.textContent = many ? `${state.selectedIds.size} selecionados · o recomendado é de 3 a ${OFFER_ADVISED_MAX} carros por cliente (os melhores, cada um com um motivo)` : ''; counter.textContent = [offerCounts.lane ? `${offerCounts.lane} em Lane/Run` : '', offerCounts.offLane ? `${offerCounts.offLane} em Buy Now / Make Offer` : '', offerCounts.incomplete ? `${offerCounts.incomplete} com informação incompleta` : '', `${state.selectedIds.size} de ${offerCounts.max || 10} selecionados`].filter(Boolean).join(' · '); };
-    state.setSelected = (id, on, total) => { if (on) state.selectedIds.add(id); else state.selectedIds.delete(id); paint(); state.listeners.forEach((listener) => listener()); };
+    state.setSelected = (id, on, total) => {
+      if (on) state.selectedIds.add(id); else state.selectedIds.delete(id);
+      // A new selection is checked again before a V1: the card stops saying "Conferido" for the cars of before.
+      if (auditOn() && manheimData?.audit?.byDemand && demand?.key) {
+        manheimData.audit.byDemand[demand.key] = state.selectedIds.size ? { status: 'CONFERINDO', label: 'Conferindo', divergences: [], carCount: state.selectedIds.size } : { status: 'SEM_SELECAO', label: LABEL_NO_SELECTION, divergences: [] };
+        if (state.card) state.card.dispatchEvent(new CustomEvent('audit-changed'));
+      }
+      paint(); state.listeners.forEach((listener) => listener());
+    };
     paint();
     // The cars already selected for this customer, to review and remove (one by one or all), wherever they are in the groups.
     const picked = element('details', 'offer-picked');
@@ -3737,7 +3746,9 @@
         try{created=await create();}
         catch(error){
           /* Not checked yet: one reading of this demand now (automatic rules and the OpenAI prepaid balance on the server), then one more try. Never an approval. */
-          if(error?.code!=='MANHEIM_AUDIT_PENDING'||!demand?.key||!AUDIT_CHECK_FIRST.includes(auditEntry(demand)?.status))throw error;
+          /* Whatever the card shows (a check of an older selection may say "Conferido"), the server's word wins: the cars
+             selected now are checked here (only the new ones are read), then the V1 is tried once more. */
+          if(error?.code!=='MANHEIM_AUDIT_PENDING'||!demand?.key)throw error;
           cardStatus.textContent='Conferindo este pedido antes do link…';
           const checked=await request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'check',key:demand.key}),timeoutMs:60000}).catch(()=>null);
           /* The reason and the buttons ("Conferir de novo", "Aprovar com motivo") show on the card now. */

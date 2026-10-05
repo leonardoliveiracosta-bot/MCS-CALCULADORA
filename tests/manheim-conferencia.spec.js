@@ -172,3 +172,21 @@ test('V1 bloqueada pela conferência: o motivo e os botões aparecem no card na 
   expect(loads).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('seleção trocada depois de conferida: o selo volta a Conferindo e Gerar link V1 confere os carros novos e cria a V1', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  const posts = await open(page, 1366, ON);
+  let checked = false;
+  const created = [];
+  await page.route('**/api/panel/manheim-audit', (route) => { posts.push(JSON.parse(route.request().postData() || 'null')); checked = true; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, approved: 1, entry: { status: 'CONFERIDO', label: 'Conferido', divergences: [], carCount: 1 } }) }); });
+  await page.route('**/api/panel/vitrines', (route) => { const body = JSON.parse(route.request().postData() || '{}'); if (!checked) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'MANHEIM_AUDIT_PENDING' }) }); created.push(body.matchIds); return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ token: 'tok-novo', link: '/v/tok-novo' }) }); });
+  const valor = card(page, 'valor', 'Cliente Dois Modos');
+  await expect(valor.locator('.audit-block .badge')).toHaveText('Conferido');
+  // The operator changes the selection: the old check no longer counts.
+  await valor.locator('.manheim-select').first().check();
+  await valor.getByRole('button', { name: 'Gerar link V1' }).click();
+  await expect(valor.locator('.manheim-card-status')).toContainText('Link V1 criado');
+  expect(posts.filter((item) => item && item.action === 'check').length).toBe(1);
+  expect(created.length).toBe(1);
+  expect(errors).toEqual([]);
+});
