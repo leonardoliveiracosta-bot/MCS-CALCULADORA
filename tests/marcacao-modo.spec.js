@@ -6,6 +6,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/marcacao-modo.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openClientsList } = require('./abrir-clientes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
@@ -77,7 +78,7 @@ async function openPanel(page, width) {
 }
 
 async function openFicha(page, name) {
-  await page.locator('[data-view="clients"]').click();
+  await openClientsList(page);
   await page.locator('#clients-list').getByText(name, { exact: true }).first().click();
   await expect(page.locator('#record-detail')).toContainText(name, { timeout: 30000 });
   await expect(page.locator('#record-detail details.message-menu').first()).toBeAttached({ timeout: 30000 });
@@ -136,7 +137,7 @@ test('ficha com dois modos: CARRO só em CARRO, VALOR só em VALOR, resumo dos d
   if (SHOTS) await page.locator('#record-detail').screenshot({ path: path.join(SHOTS, `ficha-dois-modos-recusa-${page.viewportSize().width}.png`) });
 
   // O resumo aparece na lista de CLIENTES.
-  await page.locator('[data-view="clients"]').click();
+  await openClientsList(page);
   const card = page.locator('#clients-list').locator('article, .item-card').filter({ hasText: 'Cliente Dois Modos' }).first();
   await expect(card).toContainText('Por valor: Saab 9-3 · Por ano e milhagem: 2012–2014 Scion tC');
   if (SHOTS) await card.screenshot({ path: path.join(SHOTS, `clientes-resumo-${page.viewportSize().width}.png`) });

@@ -142,7 +142,7 @@ test('ATENDIMENTO: o badge e a lista usam o mesmo modelo; conversas lidas não v
 
 test('cada número diz o que conta; filtros e posição voltam ao fechar a ficha', () => {
   const html = read('painel/index.html'), client = read('painel/painel.js');
-  for (const [view, unit] of [['today', 'casos que dependem de você'], ['requests', 'pedidos de carro'], ['searches', 'pessoas com carros no lote'], ['clients', 'pessoas no período'], ['imports', 'arquivos e prints para revisar']]) assert.match(html, new RegExp(`data-count="${view}" data-unit="${unit}"`));
+  for (const [view, unit] of [['today', 'casos que dependem de você'], ['requests', 'pedidos de carro'], ['searches', 'pessoas com carros no lote'], ['imports', 'arquivos e prints para revisar']]) assert.match(html, new RegExp(`data-count="${view}" data-unit="${unit}"`));
   assert.match(client, /attendBucket, todayStatFilter, todayRefFilter, requestsFilter,/);
   assert.match(client, /await switchPanel\(target\.view \|\| 'today', \{ scrollY: Number\(target\.scrollY \|\| 0\) \}\);/);
   assert.match(client, /viewScroll\.set\(currentView, window\.scrollY\)/);

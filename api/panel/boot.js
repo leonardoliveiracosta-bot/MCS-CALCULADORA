@@ -19,7 +19,6 @@ const PARTS = {
   },
   counters: {
     pesquisas: () => ['/api/panel/pesquisas', require('./pesquisas'), {}],
-    records: (q) => ['/api/panel/records', require('./records'), { pageSize: '1', period: q.period || '' }],
     manheim: () => ['/api/panel/records', require('./records'), { view: 'manheim' }]
   }
 };

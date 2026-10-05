@@ -157,7 +157,7 @@ test('fix 6: weekly counts only fichas whose client wrote and never a triage out
   const silent = buildWeeklySummary({ journeys: [{ id: 'j', contact_id: 'c', source: 'WHATSAPP_DIRECT', status: 'ATIVO', created_at: new Date(now - HOUR).toISOString() }], messageLinks: [{ journey_id: 'j', message_id: 'm' }], messages: [{ id: 'm', direction: 'MCS', created_at: new Date(now - HOUR).toISOString() }], units: [], dispositions: [] }, now);
   assert.equal(silent.leads.whatsapp.current, 0, 'a ficha without a customer message is not a lead');
   const js = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
-  assert.match(js, /clientsOverdue24=true;\$\('clients-situation'\)\.value='all';if\(\$\('clients-activity'\)\)\$\('clients-activity'\)\.value='all'/, 'the weekly shortcut opens CLIENTES with period "Tudo"');
+  assert.match(js, /attendBucket='todos';todayStatFilter='late24';await switchPanel\('today'\)/, 'the weekly shortcut opens ATENDER AGORA filtered by more than 24 h without an answer (TODOS tab removed)');
 });
 
 test('fix 10: "Ligar a um lead" offers neither not-lead nor switched-off fichas', async () => {

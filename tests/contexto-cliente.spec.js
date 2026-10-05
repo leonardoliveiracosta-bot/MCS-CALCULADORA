@@ -7,6 +7,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/contexto-cliente.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openClientsList } = require('./abrir-clientes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const demo = require('./fixtures/caso-demonstracao');
 const { contentHash } = require('../panel-manheim-batch');
@@ -98,7 +99,7 @@ for (const width of [1366, 390]) {
     await expect(page.locator('#today-panel')).not.toContainText(demo.LOOSE_REF);
 
     // CLIENTES: same client, same context.
-    await page.locator('[data-view="clients"]').click();
+    await openClientsList(page);
     const clientCard = page.locator('#clients-list .client-card', { hasText: 'Marina Demonstração' }).first();
     await expect(clientCard).toBeVisible({ timeout: 60000 });
     // CLIENTES is a directory: the summary lives under "⋯ Mais" of the line.
@@ -159,7 +160,7 @@ for (const width of [1366, 390]) {
     await shot(page, `importacoes-${width}`);
 
     // FICHA: the full case summary.
-    await page.locator('[data-view="clients"]').click();
+    await openClientsList(page);
     await page.locator('#clients-list .client-card', { hasText: 'Marina Demonstração' }).first().locator('button', { hasText: 'Abrir ficha' }).click();
     const full = page.locator('.client-context-full .context-table');
     await expect(full).toBeVisible({ timeout: 60000 });
