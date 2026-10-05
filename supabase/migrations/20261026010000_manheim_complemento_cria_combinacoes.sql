@@ -1,9 +1,12 @@
 -- Complemento do lote Manheim, regra B: um carro que ganha Lane/Run ou Buy Now pelo complemento passa
 -- pela busca contra os pedidos ativos e, se servir, vira combinação na mesma troca "Complementar agora".
--- Aditiva. Depende de 20261006030000 e 20261021010000.
+-- Aditiva (nada é removido). Depende de 20261006030000 e 20261021010000.
 --  * A busca é a mesma do lote novo (vehicle-match, regra v3.x), feita no servidor em cada bloco conferido.
---    As combinações candidatas ficam na conferência (manheim_complement_matches) e só entram no lote na
---    troca, junto com os dados de venda: tudo ou nada.
+--    As combinações candidatas de cada carro ficam na conferência, junto dos dados de venda dele
+--    (manheim_complement_items.matches), e só entram no lote na troca: tudo ou nada. A limpeza dos envios
+--    velhos que o complemento já faz leva as candidatas junto.
+--  * A conferência passa a ser panel_manheim_complement_stage_v2 (com as candidatas); a antiga continua
+--    existindo até o código novo estar no ar.
 --  * Nada some: combinação que já existe (mesmo carro, mesmo cliente, mesmo modo) não é tocada, nem a
 --    seleção, a conferência ou a V1/V2 dela. Combinação desfeita continua desfeita.
 --  * Carro sem nenhum dado de venda continua fora (a busca exige Lane/Run ou Buy Now).
@@ -13,17 +16,7 @@
 --    os dados de venda em uso (manheim_vehicles_current). Antes lia sem eles e desfazia as combinações
 --    dos carros que só têm Lane/Run ou Buy Now pelo complemento.
 
-create table if not exists public.manheim_complement_matches (
-  run_id uuid not null references public.manheim_complement_runs(id),
-  file_index smallint not null,
-  chunk_index smallint not null,
-  item jsonb not null
-);
-create index if not exists manheim_complement_matches_run_idx on public.manheim_complement_matches(run_id);
-alter table public.manheim_complement_matches enable row level security;
-alter table public.manheim_complement_matches force row level security;
-revoke all on table public.manheim_complement_matches from public, anon, authenticated;
-grant select on table public.manheim_complement_matches to service_role;
+alter table public.manheim_complement_items add column if not exists matches jsonb;
 
 -- ---------------------------------------------------------------- carros do lote com os dados de venda em uso
 create or replace view public.manheim_vehicles_current with (security_invoker = true) as
@@ -35,38 +28,10 @@ select v.id, v.environment, v.upload_id, v.row_fingerprint, v.make_key, v.mmr_ce
 revoke all on table public.manheim_vehicles_current from public, anon, authenticated;
 grant select on table public.manheim_vehicles_current to service_role;
 
--- ---------------------------------------------------------------- começo: limpa também as combinações de envios velhos
-create or replace function public.panel_manheim_complement_start(
-  p_environment public.panel_environment, p_actor_id uuid, p_upload_id uuid, p_client_key text, p_manifest_hash text
-) returns jsonb language plpgsql security definer set search_path = '' as $$
-declare v_run uuid;
-begin
-  perform public.panel_manheim_complement_guard(p_environment, p_actor_id, p_upload_id, p_client_key, p_manifest_hash, null, null, null, null);
-  perform pg_advisory_xact_lock(hashtextextended('manheim_complement:' || p_environment::text || ':' || p_upload_id::text, 0));
-  -- Envio cancelado ou substituído não serve para mais nada (o complemento em uso nunca é apagado).
-  delete from public.manheim_complement_items i using public.manheim_complement_runs r
-   where r.id = i.run_id and r.environment = p_environment and r.upload_id = p_upload_id and r.status <> 'STAGING'
-     and r.id is distinct from (select c.run_id from public.manheim_sale_current c where c.environment = p_environment and c.upload_id = p_upload_id);
-  delete from public.manheim_complement_matches x using public.manheim_complement_runs r
-   where r.id = x.run_id and r.environment = p_environment and r.upload_id = p_upload_id and r.status <> 'STAGING';
-  select r.id into v_run from public.manheim_complement_runs r
-   where r.environment = p_environment and r.upload_id = p_upload_id and r.created_by = p_actor_id and r.status = 'STAGING'
-     and r.client_key = p_client_key and r.manifest_hash = p_manifest_hash
-   order by r.created_at desc limit 1;
-  if v_run is null then
-    insert into public.manheim_complement_runs(environment, upload_id, created_by, client_key, manifest_hash)
-    values (p_environment, p_upload_id, p_actor_id, p_client_key, p_manifest_hash) returning id into v_run;
-  end if;
-  return jsonb_build_object('runId', v_run, 'received',
-    coalesce((select jsonb_agg(jsonb_build_array(c.file_index, c.chunk_index) order by c.file_index, c.chunk_index) from public.manheim_complement_chunks c where c.run_id = v_run), '[]'::jsonb));
-end;
-$$;
-
 -- ---------------------------------------------------------------- conferência de um bloco: dados de venda + combinações candidatas
-drop function if exists public.panel_manheim_complement_stage(public.panel_environment, uuid, uuid, integer, integer, text, jsonb);
-create function public.panel_manheim_complement_stage(
+create or replace function public.panel_manheim_complement_stage_v2(
   p_environment public.panel_environment, p_actor_id uuid, p_run_id uuid,
-  p_file_index integer, p_chunk_index integer, p_chunk_hash text, p_items jsonb, p_matches jsonb default '[]'::jsonb
+  p_file_index integer, p_chunk_index integer, p_chunk_hash text, p_items jsonb, p_matches jsonb
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_run public.manheim_complement_runs%rowtype;
@@ -100,15 +65,16 @@ begin
     update public.manheim_complement_runs set status = 'CANCELED', cancel_reason = 'MISSING_VEHICLE', finished_at = now() where id = p_run_id;
     return jsonb_build_object('runId', p_run_id, 'error', 'MANHEIM_COMPLEMENT_MISMATCH');
   end if;
-  insert into public.manheim_complement_items(run_id, row_fingerprint, sale, offer_group)
-  select p_run_id, i.row_fingerprint, i.sale, public.panel_manheim_offer_group(v.vehicle_json || i.sale)
+  -- O grupo de cada carro e as combinações candidatas dele (ninguém as lê antes da troca).
+  with candidates as (
+    select m.value ->> 'fingerprint' as row_fingerprint, jsonb_agg(m.value) as matches
+      from jsonb_array_elements(coalesce(p_matches, '[]'::jsonb)) m group by 1
+  )
+  insert into public.manheim_complement_items(run_id, row_fingerprint, sale, offer_group, matches)
+  select p_run_id, i.row_fingerprint, i.sale, public.panel_manheim_offer_group(v.vehicle_json || i.sale), c.matches
     from public.panel_manheim_complement_items(p_items) i
-    join public.manheim_vehicles v on v.environment = p_environment and v.upload_id = v_run.upload_id and v.row_fingerprint = i.row_fingerprint and v.undone_at is null;
-  -- Só combinações de carros deste bloco; ninguém lê esta tabela antes da troca.
-  insert into public.manheim_complement_matches(run_id, file_index, chunk_index, item)
-  select p_run_id, p_file_index, p_chunk_index, m.value
-    from jsonb_array_elements(coalesce(p_matches, '[]'::jsonb)) m
-   where (m.value ->> 'fingerprint') in (select i.row_fingerprint from public.panel_manheim_complement_items(p_items) i);
+    join public.manheim_vehicles v on v.environment = p_environment and v.upload_id = v_run.upload_id and v.row_fingerprint = i.row_fingerprint and v.undone_at is null
+    left join candidates c on c.row_fingerprint = i.row_fingerprint;
   insert into public.manheim_complement_chunks(run_id, file_index, chunk_index, chunk_hash, item_count) values (p_run_id, p_file_index, p_chunk_index, p_chunk_hash, v_count);
   return jsonb_build_object('runId', p_run_id, 'stored', v_count, 'again', false);
 end;
@@ -158,7 +124,6 @@ begin
   -- Os mesmos dados de novo: nada muda.
   if v_changed = 0 then
     update public.manheim_complement_runs set status = 'CANCELED', cancel_reason = 'NO_CHANGE', finished_at = now() where id = p_run_id;
-    delete from public.manheim_complement_matches x where x.run_id = p_run_id;
     return jsonb_build_object('runId', p_run_id, 'uploadId', v_run.upload_id, 'applied', false, 'cars', v_found, 'changed', 0, 'newMatches', 0);
   end if;
 
@@ -169,8 +134,9 @@ begin
   -- Combinações novas, com as mesmas validações do lote novo (pedido ativo, Ref válida, MMR). Uma que
   -- já existe (mesmo carro, cliente e modo, ativa ou desfeita) não é tocada.
   with requested as (
-    select x.item, nullif(x.item ->> 'journeyId', '') as journey_text, upper(nullif(x.item ->> 'calcRef', '')) as ref_text
-      from public.manheim_complement_matches x where x.run_id = p_run_id
+    select x.value as item, nullif(x.value ->> 'journeyId', '') as journey_text, upper(nullif(x.value ->> 'calcRef', '')) as ref_text
+      from public.manheim_complement_items i cross join lateral jsonb_array_elements(i.matches) x
+     where i.run_id = p_run_id and jsonb_typeof(i.matches) = 'array'
   ), typed as (
     select r.item,
            case when coalesce(r.item ->> 'targetType', '') = 'ORDER' then null
@@ -224,7 +190,6 @@ begin
        and coalesce(strict.vehicle_json -> 'parsed' ->> 'budgetFallback', 'false') <> 'true');
   select count(*) into v_new_matches from public.manheim_matches m
    where m.environment = p_environment and m.upload_id = v_run.upload_id and m.created_at = v_now and m.undone_at is null;
-  delete from public.manheim_complement_matches x where x.run_id = p_run_id;
 
   select count(distinct m.row_fingerprint),
          count(distinct case when match_kind not in ('BATE','POR_VALOR') then null
@@ -249,15 +214,7 @@ begin
 end;
 $$;
 
-do $$
-declare v_signature text;
-begin
-  foreach v_signature in array array[
-    'public.panel_manheim_complement_start(public.panel_environment, uuid, uuid, text, text)',
-    'public.panel_manheim_complement_stage(public.panel_environment, uuid, uuid, integer, integer, text, jsonb, jsonb)',
-    'public.panel_manheim_complement_apply(public.panel_environment, uuid, uuid)'
-  ] loop
-    execute format('revoke all on function %s from public, anon, authenticated', v_signature);
-    execute format('grant execute on function %s to service_role', v_signature);
-  end loop;
-end $$;
+revoke all on function public.panel_manheim_complement_stage_v2(public.panel_environment, uuid, uuid, integer, integer, text, jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.panel_manheim_complement_stage_v2(public.panel_environment, uuid, uuid, integer, integer, text, jsonb, jsonb) to service_role;
+revoke all on function public.panel_manheim_complement_apply(public.panel_environment, uuid, uuid) from public, anon, authenticated;
+grant execute on function public.panel_manheim_complement_apply(public.panel_environment, uuid, uuid) to service_role;

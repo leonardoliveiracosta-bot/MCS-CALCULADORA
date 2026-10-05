@@ -226,7 +226,7 @@ async function actionComplementStage(ctx, body) {
     if (block.error[1] === 'MANHEIM_COMPLEMENT_MISMATCH') await rpc(ctx, 'panel_manheim_complement_cancel', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId, p_reason: 'BLOCK_MISMATCH' });
     return send(ctx.res, block.error[0], { error: block.error[1], fileIndex: block.fileIndex });
   }
-  const result = await rpc(ctx, 'panel_manheim_complement_stage', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId,
+  const result = await rpc(ctx, 'panel_manheim_complement_stage_v2', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId,
     p_file_index: block.fileIndex, p_chunk_index: block.chunkIndex, p_chunk_hash: block.chunkHash, p_items: block.items, p_matches: await complementMatches(ctx, body.runId, block.entries) });
   if (result && result.error) return send(ctx.res, 409, { error: result.error, fileIndex: block.fileIndex });
   return send(ctx.res, 200, result);
