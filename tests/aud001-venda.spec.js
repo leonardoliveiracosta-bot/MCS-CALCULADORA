@@ -75,11 +75,13 @@ async function openPanel(page, optionPages = []) {
 }
 
 
-test('AUD-001 #57: seleção continua depois de reordenar a coluna (não volta ao retrato antigo)', async ({ page }) => {
+test('AUD-001 #57: seleção continua depois de reordenar o grupo (não volta ao retrato antigo)', async ({ page }) => {
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = () => page.locator('#buscas-carro .manheim-lead').first();
+  // The options live in the ficha now: open it from the queue card.
+  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
+  const card = () => page.locator('#detail-panel .ficha-demand').first();
   const group = () => card().locator('.offer-group[data-group="LANE"]');
   await expect(group().locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
   await group().locator('> summary').click();
@@ -87,10 +89,10 @@ test('AUD-001 #57: seleção continua depois de reordenar a coluna (não volta a
   await row.locator('[data-offer-action="select"]:visible').click();
   await expect(row).toHaveAttribute('data-status', 'SELECTED');
   await expect(card().locator('.offer-counter')).toContainText('1 de 10');
-  // Reorder the column: the cards are drawn again from the snapshot of the page.
-  await page.locator('#options-sort-carro').selectOption({ index: 1 });
+  // Reorder the group: the list is drawn again from the snapshot of the page.
+  await group().locator('.offer-sort-select').selectOption({ index: 1 });
   await expect(card().locator('.offer-counter')).toContainText('1 de 10');
-  await page.locator('#options-sort-carro').selectOption({ index: 0 });
+  await group().locator('.offer-sort-select').selectOption({ index: 0 });
   await expect(card().locator('.offer-counter')).toContainText('1 de 10');
 });
 
@@ -98,7 +100,9 @@ test('AUD-001 #61: valor em dólar digitado e Selecionar logo em seguida grava o
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
+  // The options live in the ficha now: open it from the queue card.
+  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
+  const card = page.locator('#detail-panel .ficha-demand').first();
   const group = card.locator('.offer-group[data-group="LANE"]');
   await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
   await group.locator('> summary').click();

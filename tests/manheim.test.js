@@ -156,20 +156,22 @@ test('returns are unified and HOJE colors overdue and next-two-hour deadlines', 
   assert.deepEqual(item.reasons.map((reason) => [reason.kind, reason.urgency]), [['NEXT_ACTION', 'yellow'], ['PROMISE', 'red']]);
 });
 
-test('UI and server wire structured wishlist, grouping, presenting, Reativar, and no start-search button', () => {
+test('UI and server wire structured wishlist, grouping, presenting, and no start-search button', () => {
   assert.match(client, /const wishlists = wishlistRows/);
-  assert.match(client, /journey\.wishlists \|\| journey\.wishlist/);
-  assert.match(read('painel/index.html'), /Compatíveis/);
-  assert.match(client, /Reativar/);
-  assert.match(client, /Apresentei ao cliente/);
+  // The queue card shows the structured criteria; the selection UI lives in the ficha.
+  assert.match(client, /element\('p', 'demand-essential', demandSummary\(demand\)\)/);
+  assert.match(client, /O que o cliente pediu/);
+  assert.match(client, /function offerGroup\(demand, groupKey, count, state\)/);
+  assert.match(client, /Selecionados para o cliente/);
   assert.match(client, /Baixar PDF/);
   assert.match(client, /const vehicle = match\.vehicle_json\.parsed/);
-  assert.match(client, /Cor externa:/);
-  assert.match(client, /Nota de condição:/);
   assert.match(client, /function showManheimFailure/);
   assert.match(client, /MANHEIM_FILE_READ_FAILED/);
   assert.match(client, /A comparação foi lida, mas não pôde ser gravada/);
   assert.doesNotMatch(client, /INICIAR BUSCA/);
+  // The old inline cards are gone: one queue, the work happens in the ficha.
+  assert.doesNotMatch(client, /function renderManheimGroup/);
+  assert.doesNotMatch(client, /Apresentei ao cliente/);
   assert.match(server, /manheimMatchId/);
   assert.match(server, /JOURNEY_ALREADY_DISABLED/);
   assert.match(server, /environment: 'eq\.' \+ ctx\.environment/);

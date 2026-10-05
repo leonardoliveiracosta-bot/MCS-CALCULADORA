@@ -256,11 +256,9 @@ test('tab changes replace stale counts with loading and ignore older responses',
   assert.match(source, /empty\(\$\(roots\[view\]\), 'Carregando…'\)/);
 });
 
-test('FICHAS occupies the list and opens a dedicated detail route', () => {
+test('FICHAS opens a dedicated detail route', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
-  assert.match(source, /function renderRecords\(items\)/);
-  assert.match(source, /root\.replaceChildren\(\)/);
-  assert.match(source, /openDetail\('ficha', item\.id\)/);
+  assert.match(source, /openDetail\('ficha', item\.journeyId\)/);
   assert.match(source, /history\.pushState\(\{ detail: true, kind, key, origin: detailOrigin \}/);
 });
 

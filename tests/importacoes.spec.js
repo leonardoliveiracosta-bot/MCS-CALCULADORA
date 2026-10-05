@@ -74,8 +74,8 @@ for (const width of [1366, 390]) {
     // Opened directly: the manual imports still get the contacts to choose from.
     await page.locator('[data-view="imports"]').click();
     const panel = page.locator('#imports-panel');
-    for (const card of ['#import-card-manheim', '#auto-print-card', '#import-card-sms', '#import-card-whatsapp', '#import-card-history', '#import-card-automatic', '#import-card-v2']) await expect(panel.locator(card)).toBeVisible();
-    for (const key of ['manheim', 'print', 'sms', 'whatsapp', 'history', 'automatic', 'v2']) expect(await panel.locator(`[data-import-facts="${key}"] li`).count(), key).toBeGreaterThan(1);
+    for (const card of ['#import-card-manheim', '#auto-print-card', '#import-card-sms', '#import-card-whatsapp', '#import-card-history']) await expect(panel.locator(card)).toBeVisible();
+    for (const key of ['manheim', 'print', 'sms', 'whatsapp', 'history']) expect(await panel.locator(`[data-import-facts="${key}"] li`).count(), key).toBeGreaterThan(1);
     await expect(panel.locator('#import-card-whatsapp #import-review-card')).toHaveCount(1);
     await expect(panel.locator('#manheim-files')).toHaveCount(1);
     await panel.locator('#import-card-sms > summary').click();
@@ -223,56 +223,6 @@ test('prints não guardados de ponta a ponta: Tentar ler de novo e Guardar pelo 
     globalThis.fetch = simulated;
     if (saved.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved.key;
     if (saved.model === undefined) delete process.env.ANTHROPIC_MODEL; else process.env.ANTHROPIC_MODEL = saved.model;
-  }
-});
-
-test('Fotos da V2: escolhe uma V2 existente, respeita 12 fotos e não cria nem publica nada', async ({ page }) => {
-  const v2 = '7b000000-0000-4000-8000-000000000001', carId = '7b000000-0000-4000-8000-000000000002';
-  const eleven = JSON.stringify(Array.from({ length: 11 }, (_, n) => `${v2}/f${n}.jpg`));
-  await backend.db.exec(`insert into public.vitrines(id,environment,token,reference_code,customer_name,version,expires_at) values('${v2}','preview','tokv2fotos','ABCD2','Marta Ficha','V2',now() + interval '3 days');
-    insert into public.vitrine_cars(id,environment,vitrine_id,short_code,vehicle_snapshot,photo_paths) values('${carId}','preview','${v2}','FOTO1','{"year":2020,"make":"Honda","model":"CR-V","trim":"EX"}','${eleven}');`);
-  const before = (await backend.db.query(`select count(*)::int n, string_agg(version||token, ',' order by id) s from public.vitrines`)).rows[0];
-  const stored = [];
-  const simulated = globalThis.fetch;
-  globalThis.fetch = async (input, options = {}) => { const url = new URL(String(input)); if (url.pathname.startsWith('/storage/v1/object/vitrine-photos/')) { stored.push(url.pathname); return { ok: true, status: 200, json: async () => ({}), text: async () => '' }; } return simulated(input, options); };
-  try {
-    const errors = [];
-    page.on('pageerror', (error) => errors.push(error.message));
-    await openPanel(page);
-    await page.goto(base + '/painel/#importacoes');
-    await expect(page.locator('#app-view')).toBeVisible({ timeout: 60000 });
-    await page.locator('[data-view="imports"]').click();
-    const select = page.locator('#import-v2-select');
-    await expect(select.locator('option', { hasText: 'Marta Ficha · ABCD2 · 2020 Honda CR-V EX · 11/12 fotos' })).toHaveCount(1, { timeout: 30000 });
-    await expect(page.locator('#import-v2-body')).toBeHidden();
-    await select.selectOption(v2 + '|' + carId);
-    await expect(page.locator('#import-v2-body')).toBeVisible();
-    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==', 'base64');
-    await page.locator('#import-v2-file').setInputFiles([{ name: 'a.png', mimeType: 'image/png', buffer: png }, { name: 'b.png', mimeType: 'image/png', buffer: png }]);
-    await expect(page.locator('#import-v2-status')).toHaveText('Esta V2 aceita só mais 1 foto(s)');
-    await expect(page.locator('#import-v2-thumbs .v2-thumb')).toHaveCount(1);
-    // Confirmation first: the photos show up at once on the link the customer already has.
-    const confirm = page.locator('#import-card-v2 .inline-confirm');
-    await page.locator('#import-v2-send').click();
-    await expect(confirm).toContainText('vão aparecer imediatamente no link da V2 que o cliente já recebeu');
-    await confirm.locator('button', { hasText: 'Cancelar' }).click();
-    await expect(confirm).toHaveCount(0);
-    expect(stored).toHaveLength(0);
-    expect((await backend.db.query(`select jsonb_array_length(photo_paths) n from public.vitrine_cars where id='${carId}'`)).rows[0].n).toBe(11);
-    await page.locator('#import-v2-send').click();
-    await confirm.locator('button', { hasText: 'Salvar fotos' }).click();
-    await expect(page.locator('#import-v2-status')).toHaveText('1 foto(s) enviada(s) para esta V2', { timeout: 30000 });
-    await expect(select.locator('option', { hasText: '12/12 fotos' })).toHaveCount(1);
-    expect(stored).toHaveLength(1);
-    const photos = (await backend.db.query(`select jsonb_array_length(photo_paths) n from public.vitrine_cars where id='${carId}'`)).rows[0].n;
-    expect(photos).toBe(12);
-    // Nothing new: same V2 list, same version and token, no message.
-    const after = (await backend.db.query(`select count(*)::int n, string_agg(version||token, ',' order by id) s from public.vitrines`)).rows[0];
-    expect(after).toEqual(before);
-    expect(errors).toEqual([]);
-  } finally {
-    globalThis.fetch = simulated;
-    await backend.db.exec(`delete from public.vitrines where id='${v2}'`);
   }
 });
 

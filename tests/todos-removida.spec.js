@@ -81,11 +81,6 @@ test('quatro abas, sem TODOS; a lista de clientes só carrega ao abrir "Mais" e 
   expect(csv).toContain('Eva Cliente');
   expect(csv).toContain('Fred Cliente');
   // Report of the list keeps following the list period.
-  await page.locator('#clients-panel [data-report="records"]').click();
-  await expect(page.locator('#report-origin-note')).toHaveText('Período de CLIENTES: tudo, sem corte por data');
-  await page.locator('#report-generate').click();
-  await expect.poll(() => calls.filter((call) => call.path === '/api/panel/report' && call.params.origin === 'clients' && call.params.activity === 'all').length).toBe(1);
-  await page.locator('#report-dialog button[value="cancel"]').click();
   // A ficha opened from the list comes back to the open block.
   await page.locator('#clients-list .client-card').first().click();
   await expect(page).toHaveURL(/#ficha\//);

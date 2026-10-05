@@ -52,7 +52,7 @@
     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
   }
   async function open(options) {
-    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer,openOptions,openTab,isCurrent} = options;
+    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer,openOptions,renderFichaOptions,openTab,isCurrent} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     // A late answer of another person (or another opening of the same one) never draws over the ficha now on screen.
     if(typeof isCurrent==='function'&&!isCurrent())return;
@@ -184,12 +184,20 @@
     if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)){const line=append(questions,'div','ask-row');append(line,'span','ask-text',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);}
     if(!questions.querySelector('.ask-row'))append(questions,'p','muted','Checklist completo');
     const offers=section(second,8,'O QUE OFERECER','offer-card');
-    // OPÇÕES owns the selection for the client and the V1; this section shows what the batch has and leads there.
-    // A car becomes "apresentado" by itself when the send is confirmed in ENVIAR OPÇÕES (no manual registration here).
-    const offerModes=[...new Set((data.offers||[]).map((car)=>car.mode).filter(Boolean))];
+    // The selection for the customer and the V1 live here, in the ficha: the groups, the sort,
+    // the trim filter, the pages and the per-car selection, with the send at the foot.
+    // A car becomes "apresentado" by itself when the send is confirmed (no manual registration here).
     append(offers,'p','offer-count',`${data.offers.length} ${data.offers.length===1?'carro compatível':'carros compatíveis'} no lote ativo`);
-    append(offers,'p','offer-note','A seleção para o cliente e a V1 são feitas em ENVIAR OPÇÕES');
-    if(journeyId&&(openOptions||openTab)){const go=append(offers,'div','offer-go');if(offerModes.length&&openOptions)offerModes.forEach((mode)=>button(go,`Abrir em ENVIAR OPÇÕES · ${mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM'}`,()=>openOptions(`journey:${journeyId}:${mode}`),'offer-open'));else if(openTab)button(go,'Abrir ENVIAR OPÇÕES',()=>openTab('searches'),'offer-open');}
+    // The selection for the customer and the V1 live here now, in the ficha: the groups, the
+    // sort, the trim filter, the pages and the per-car selection, with the send at the foot.
+    const optionsMount = append(offers, 'div', 'ficha-options-mount');
+    if (renderFichaOptions) {
+      renderFichaOptions(optionsMount, { journeyId: journeyId || null, ref: ref || null })
+        .catch(() => { if (optionsMount.isConnected) append(optionsMount, 'p', 'warning', 'Não consegui carregar as opções agora'); });
+    } else if (openTab) {
+      const go = append(offers, 'div', 'offer-go');
+      button(go, 'Abrir ENVIAR OPÇÕES', () => openTab('searches'), 'offer-open');
+    }
     if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes');
     // A search type without cars still says why (ainda não rodada, or sem carros with the reason).
     (data.searchModes||[]).forEach((mode)=>{const count=data.offers.filter((car)=>car.mode===mode).length,label=mode==='VALOR'?'Por valor':'Por carro (ano e milhagem)';if(count)return;const line=append(offers,'p','lead-search-group');

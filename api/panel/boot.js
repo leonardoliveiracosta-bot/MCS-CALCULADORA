@@ -12,7 +12,6 @@ const { requirePanel, send, jsonBody } = require('../../panel-server');
 const PARTS = {
   main: {
     today: (q) => ['/api/panel/today', require('./today'), { sort: q.sort || 'ready' }],
-    vitrine: () => ['/api/panel/vitrine-requests', require('./vitrine-requests'), {}],
     entry: () => ['/api/panel/entry', require('./entry'), {}],
     triage: () => ['/api/panel/triage', require('./triage'), {}],
     whatsapp: () => ['/api/panel/whatsapp', require('./whatsapp'), {}]

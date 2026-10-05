@@ -43,10 +43,10 @@ test.before(async () => {
 });
 test.after(async () => { if (backend) await backend.db.close(); });
 
-test('boot: as 5 listas da abertura numa chamada, iguais às separadas, com menos leituras no banco', async () => {
+test('boot: as 4 listas da abertura numa chamada, iguais às separadas, com menos leituras no banco', async () => {
   reads = 0;
   const separate = {};
-  for (const [name, file, url] of [['today', 'today', '/api/panel/today?sort=ready'], ['vitrine', 'vitrine-requests', '/api/panel/vitrine-requests'], ['entry', 'entry', '/api/panel/entry'], ['triage', 'triage', '/api/panel/triage'], ['whatsapp', 'whatsapp', '/api/panel/whatsapp']]) {
+  for (const [name, file, url] of [['today', 'today', '/api/panel/today?sort=ready'], ['entry', 'entry', '/api/panel/entry'], ['triage', 'triage', '/api/panel/triage'], ['whatsapp', 'whatsapp', '/api/panel/whatsapp']]) {
     const res = await call(file, url); assert.equal(res.statusCode, 200, name); separate[name] = res.payload;
   }
   const separateReads = reads;
@@ -54,7 +54,7 @@ test('boot: as 5 listas da abertura numa chamada, iguais às separadas, com meno
   const boot = await call('boot', '/api/panel/boot', 'POST', { part: 'main', sort: 'ready', have: {} });
   assert.equal(boot.statusCode, 200);
   const parts = boot.payload.parts;
-  for (const name of ['today', 'vitrine', 'entry', 'triage', 'whatsapp']) assert.equal(parts[name].ok, true, name + ' ' + JSON.stringify(parts[name]));
+  for (const name of ['today', 'entry', 'triage', 'whatsapp']) assert.equal(parts[name].ok, true, name + ' ' + JSON.stringify(parts[name]));
   console.log('LEITURAS', { separadas: separateReads, boot: reads });
   assert.ok(reads < separateReads, `boot leu ${reads} vezes; separadas ${separateReads}`);
   const rebuilt = parts.today.order.map((key) => parts.today.items[key]);
@@ -65,7 +65,7 @@ test('boot: as 5 listas da abertura numa chamada, iguais às separadas, com meno
   Object.entries(parts).forEach(([name, got]) => { have[name] = got.hash; });
   const again = await call('boot', '/api/panel/boot', 'POST', { part: 'main', sort: 'ready', have });
   const diff = (a, b, at = '') => { if (JSON.stringify(a) === JSON.stringify(b)) return []; if (!a || !b || typeof a !== 'object') return [at]; return [...new Set([...Object.keys(a), ...Object.keys(b)])].flatMap((k) => diff(a[k], b[k], at + '.' + k)); };
-  for (const name of ['vitrine', 'entry', 'triage', 'whatsapp']) assert.equal(again.payload.parts[name].same, true, name);
+  for (const name of ['entry', 'triage', 'whatsapp']) assert.equal(again.payload.parts[name].same, true, name);
   const today = again.payload.parts.today;
   assert.ok(today.same || Object.keys(today.items || {}).length === 0, 'casos já conhecidos não voltam');
 });

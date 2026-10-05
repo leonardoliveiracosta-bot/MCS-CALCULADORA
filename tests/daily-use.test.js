@@ -69,7 +69,7 @@ test('all navigation counters are refreshed after login', () => {
   const client = read('painel/painel.js');
   assert.match(client, /async function refreshCounters\(\)/);
   assert.match(client, /await refreshCounters\(\)/);
-  for (const view of ['today', 'requests', 'searches', 'imports', 'qualification', 'records']) assert.match(client, new RegExp(`setCount\\('${view}'`));
+  for (const view of ['today', 'requests', 'searches', 'imports']) assert.match(client, new RegExp(`setCount\\('${view}'`));
 });
 
 test('operational cards share compact identity and open a ficha when linked', () => {

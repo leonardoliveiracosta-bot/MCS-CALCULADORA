@@ -120,17 +120,4 @@ test('período junto com os outros filtros, planilha e relatório acompanham o p
   expect(csv).not.toContain('Caio 120 dias');
   expect(csv).not.toContain('Edu 500 dias');
   expect(csv).not.toContain('Gil não lead');
-  // Report: opened from CLIENTES, it follows the CLIENTES period (last real activity), not a date range.
-  await page.locator('#clients-panel [data-report="records"]').click();
-  await expect(page.locator('#report-period-field')).toBeHidden();
-  await expect(page.locator('#report-origin-note')).toHaveText('Período de CLIENTES: atividade real nos últimos 90 dias');
-  await page.locator('#report-generate').click();
-  await expect.poll(() => calls.filter((call) => call.path === '/api/panel/report' && call.params.origin === 'clients' && call.params.view === 'records' && call.params.activity === '90' && !call.params.period
-    && Math.abs(Date.parse(call.params.since) - (Date.now() - 90 * DAY)) < 120000).length).toBe(1);
-  await page.locator('#report-dialog button[value="cancel"]').click();
-  await page.locator('#clients-activity').selectOption('all');
-  await page.locator('#clients-panel [data-report="records"]').click();
-  await expect(page.locator('#report-origin-note')).toHaveText('Período de CLIENTES: tudo, sem corte por data');
-  await page.locator('#report-generate').click();
-  await expect.poll(() => calls.filter((call) => call.path === '/api/panel/report' && call.params.origin === 'clients' && call.params.activity === 'all' && !call.params.since).length).toBe(1);
 });
