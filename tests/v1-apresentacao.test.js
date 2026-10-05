@@ -37,7 +37,7 @@ const seed = [
 ].join('\n');
 const car = (n) => {
   const vin = 'APRE' + String(n).padStart(13, '0');
-  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: '2026-10-01T15:00:00Z', lane: '1', run: String(10 + n), saleType: 'Simulcast', conditionGrade: '4.5', cleanTitle: true, odometerOk: true } };
+  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: '2099-10-01T15:00:00Z', lane: '1', run: String(10 + n), saleType: 'Simulcast', conditionGrade: '4.5', cleanTitle: true, odometerOk: true } };
 };
 
 let backend;

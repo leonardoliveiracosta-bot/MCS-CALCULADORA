@@ -10,6 +10,7 @@ const { loadBuscasBase } = require('./panel-buscas');
 const { demandContext } = require('./panel-buscas-view');
 const batch = require('./panel-manheim-batch');
 const vehicleMatch = require('./vehicle-match');
+const { offerExpired } = require('./manheim-offer');
 
 async function carsForMakes(ctx, uploadId, makes, cache, read) {
   const key = makes.slice().sort().join('|');
@@ -20,6 +21,13 @@ async function carsForMakes(ctx, uploadId, makes, cache, read) {
   const entries = cars.map((car) => ({ fingerprint: car.row_fingerprint, makeKey: car.make_key || '', mmrCents: vehicleMatch.validMmrCents(car.mmr_cents !== null && car.mmr_cents !== undefined ? car.mmr_cents : car.vehicle_json && car.vehicle_json.mmrCents), vehicle: car.vehicle_json || {} }));
   cache.set(key, entries);
   return entries;
+}
+
+// Os mesmos carros da lista de ENVIAR OPÇÕES: carro de leilão passado não vira combinação nova
+// (migração 20261027010000). A combinação que já existe para o pedido fica (keep), para não desfazer uma
+// seleção nem a origem de uma V1; a lista já a esconde quando não está selecionada.
+function comparableEntries(entries, keep = new Set(), now = Date.now()) {
+  return entries.filter((entry) => keep.has(entry.fingerprint) || !offerExpired(entry.vehicle || {}, now));
 }
 
 // keys: ['journey:<id>:CARRO', ...]. Returns one result per key: { key, status, matches, compared }.
@@ -39,7 +47,8 @@ async function rematchDemands(ctx, keys, options = {}) {
     if (!target) { out.push({ key, status: 'NOT_ACTIVE' }); continue; }
     const [snapshot] = batch.snapshotTargets([target]);
     const makes = snapshot.wishes.some((wish) => !wish.make) ? [] : [...new Set(snapshot.wishes.flatMap((wish) => require('./vehicle-catalog').inventoryMakes(wish.make, wish.model)))];
-    const entries = await carsForMakes(ctx, latest.id, makes, cache, read);
+    const current = await read(ctx, 'manheim_matches', { select: 'row_fingerprint', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id, demand_key: 'eq.' + key, undone_at: 'is.null' });
+    const entries = comparableEntries(await carsForMakes(ctx, latest.id, makes, cache, read), new Set(current.map((row) => row.row_fingerprint)));
     const matches = batch.matchChunk(entries, [snapshot]);
     const result = await call(ctx, 'panel_manheim_rematch_demand', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_upload_id: latest.id, p_demand_key: key, p_matches: matches });
     out.push({ key, status: 'DONE', matches: matches.length, compared: entries.length, result, criteriaHash: snapshot.criteriaHash, uploadId: latest.id });
@@ -80,4 +89,4 @@ async function syncStaleDemands(ctx, options = {}) {
   return { stale: found.keys.length, synced, remaining: found.keys.length - synced, keys: done.filter((item) => item.status === 'DONE').map((item) => item.key) };
 }
 
-module.exports = { rematchDemands, staleDemandKeys, syncStaleDemands };
+module.exports = { comparableEntries, rematchDemands, staleDemandKeys, syncStaleDemands };

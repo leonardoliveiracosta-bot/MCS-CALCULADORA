@@ -31,7 +31,7 @@ async function call(name, url, method = 'GET', body) {
 // 73 carros em Lane/Run (mais de uma página de 50): anos, MMR e CR variados, com empates de ano e de MMR.
 const car = (n) => {
   const vin = 'ORDV' + String(n).padStart(13, '0');
-  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2019 + (n % 4), make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 1500000 + (n % 7) * 250000, location: 'FL - Orlando', startsAt: '2026-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (1.9 + (n % 8) * 0.4).toFixed(1), cleanTitle: true, odometerOk: true } };
+  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2019 + (n % 4), make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 1500000 + (n % 7) * 250000, location: 'FL - Orlando', startsAt: '2099-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (1.9 + (n % 8) * 0.4).toFixed(1), cleanTitle: true, odometerOk: true } };
 };
 const cars = Array.from({ length: 73 }, (_, n) => car(n));
 
