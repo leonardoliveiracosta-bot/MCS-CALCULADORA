@@ -138,10 +138,10 @@ test('ficha com dois modos: CARRO só em CARRO, VALOR só em VALOR, resumo dos d
   expect((await backend.db.query('select count(*)::int n from public.message_fact_marks')).rows[0].n).toBe(before.marks);
   if (SHOTS) await page.locator('#record-detail').screenshot({ path: path.join(SHOTS, `ficha-dois-modos-recusa-${page.viewportSize().width}.png`) });
 
-  // O resumo aparece na lista de CLIENTES.
-  await openClientsList(page);
-  const card = page.locator('#clients-list').locator('article, .item-card').filter({ hasText: 'Cliente Dois Modos' }).first();
-  await expect(card).toContainText('Por valor: Saab 9-3 · Por ano e milhagem: 2012–2014 Scion tC');
+  // O resumo dos dois pedidos aparece na ficha (o cartão da lista é a ficha técnica; o resumo fica na ficha).
+  const card = page.locator('#record-detail');
+  await expect(card).toContainText('Saab 9-3', { timeout: 30000 });
+  await expect(card).toContainText('Scion tC');
   if (SHOTS) await card.screenshot({ path: path.join(SHOTS, `clientes-resumo-${page.viewportSize().width}.png`) });
   expect(backend.refused.filter((url) => /anthropic|openai|supabase\.co|graph\.facebook|360dialog/.test(url))).toEqual([]);
 });
