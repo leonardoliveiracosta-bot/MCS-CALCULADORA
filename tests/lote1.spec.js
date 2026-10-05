@@ -85,7 +85,7 @@ for (const scenario of [{ name: 'envia pelo painel com mensagem do cliente nas Ã
       await expect(composer.locator('a.suggestion-open')).toHaveCount(0);
     } else {
       await expect(composer).toContainText('Janela de 24 h encerrada');
-      await expect(composer).toContainText('abre a conversa no WhatsApp do celular');
+      await expect(composer).toContainText('abre a conversa no WhatsApp com');
       await expect(composer.locator('button.suggestion-send')).toHaveCount(0);
       await expect(composer.locator('a.suggestion-open')).toHaveAttribute('aria-disabled', 'true');
     }

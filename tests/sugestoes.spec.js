@@ -76,7 +76,7 @@ for (const width of [1366, 390]) {
     await expect(body).toContainText('Simulada · sem IA e sem custo');
     await expect(body).toContainText('Tradução da resposta para português');
     await expect(body).toContainText('Janela de 24 h encerrada');
-    await expect(body).toContainText('abre a conversa no WhatsApp do celular');
+    await expect(body).toContainText('abre a conversa no WhatsApp com');
     await expect(body.locator('button.suggestion-send'), 'janela encerrada: nenhum envio pelo painel').toHaveCount(0);
     // Only the suggestion counts: the cached translations of the cards ("cached") are free reads, never a suggestion.
     expect(calls.filter((call) => call.path === '/api/panel/suggestions' && call.method === 'POST' && /"action":"suggest"/.test(call.body || '')).length, 'clique duplo gera uma sugestão só').toBe(1);
@@ -153,7 +153,7 @@ test('V1 · confirmação mostra a janela e o caminho permitido (exemplo fictíc
   for (const text of ['Cliente Fictício (teste)', '+15550100100', 'Link V1:', 'Janela de 24 h aberta', 'uma mensagem para esta pessoa', 'I put together a first look']) await expect(confirmOpen).toContainText(text);
   await confirmOpen.getByRole('button', { name: 'Cancelar' }).click();
   await expect(closedCard.locator('.v1-send-state')).toContainText('Janela de 24 h encerrada');
-  await expect(closedCard.locator('.v1-send-state')).toContainText('abre a conversa no WhatsApp do celular');
+  await expect(closedCard.locator('.v1-send-state')).toContainText('abre a conversa no WhatsApp com');
   await expect(closedCard.locator('.v1-send-go')).toBeHidden();
   await expect(closedCard.locator('.v1-send-fallback')).toHaveAttribute('href', /^https:\/\/wa\.me\/15550100100\?text=Hi%20Cliente/);
   expect(calls.filter((call) => /"action":"(send|demo_send)"/.test(call.body))).toEqual([]);
