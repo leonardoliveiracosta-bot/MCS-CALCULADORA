@@ -81,7 +81,7 @@ for (const width of [1280, 390]) {
   test(`${width}px · ATENDIMENTO: um caso por pessoa, motivos reunidos, filtros e contagem iguais à lista`, async ({ page }) => {
     const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
     const posts = await open(page, width);
-    await expect(page.locator('nav [data-view]')).toHaveText([/ATENDER AGORA/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/]);
+    await expect(page.locator('nav [data-view]')).toHaveText([/ATENDER AGORA/, /^V1/, /^V2/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/]);
     await expect(page.locator('nav [data-view="today"]')).toHaveAttribute('aria-current', 'page');
     // Depende de você: Ana (sem resposta + confirmar vínculo), Davi (sem resposta) and the triage decision.
     const list = page.locator('#today-list');
@@ -91,7 +91,8 @@ for (const width of [1280, 390]) {
     // Ana appears once (ficha + calculator order + link suggestion are one case), with every reason.
     const ana = list.locator('.case-card', { hasText: 'Ana Valor' });
     await expect(ana).toHaveCount(1);
-    await expect(ana.locator('.card-decision')).toContainText('Cliente sem resposta há 3 h');
+    // The waiting time only comes with its channel ("WhatsApp há 3 h · sem resposta"); without one, "Sem resposta".
+    await expect(ana.locator('.card-decision')).toContainText('Sem resposta');
     await expect(ana.locator('.card-decision')).toContainText('Confirmar vínculo');
     await expect(ana.locator('.case-decisions')).toContainText('Ligar pedido à ficha');
     await expect(ana.locator('.origin-chip')).toHaveCount(0);
@@ -108,7 +109,10 @@ for (const width of [1280, 390]) {
     const carla = list.locator('.case-card', { hasText: 'Carla Direta' });
     await expect(carla).toHaveCount(1);
     // The incomplete direct request waits here with what is missing (after the requests load).
-    await expect(carla).toContainText('Falta:Toyota RAV4 · Falta ano e milhagem', { timeout: 30000 });
+    // The card is a spec sheet now: "Falta para buscar" with the missing fields (ano, milhagem).
+    await expect(carla).toContainText('Falta para buscar', { timeout: 30000 });
+    await expect(carla).toContainText('Ano');
+    await expect(carla).toContainText('Milhagem');
     await page.locator('[data-attend-bucket="todos"]').click();
     await expect(list.locator('.case-card')).toHaveCount(5);
     await expect(page.locator('[data-attend-bucket="todos"] .chip-count')).toHaveText('5');

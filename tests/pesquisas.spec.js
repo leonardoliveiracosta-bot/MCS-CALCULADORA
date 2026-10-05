@@ -80,13 +80,12 @@ for (const width of [1366, 390]) {
     await expect(lucas).toContainText('Honda CR-V · 2019 a 2021 · 20,000 a 60,000 milhas · até US$ 28,000');
     await expect(lucas).toContainText(/opç(ão|ões) no lote/);
     await expect(page.locator('#requests-carro .request-card', { hasText: 'Lucas Conversa' })).toHaveCount(1);
-    await lucas.locator('.request-evidence > summary').click();
-    await expect(lucas.locator('.request-evidence')).toContainText('I am looking for a Honda CR-V 2019-2021');
+    // (The quoted phrase of the conversation left the request card with "Evidências", comando 3; it is in the ficha.)
     // CARRO without a value is a search; model and value is VALOR.
-    await expect(page.locator('#requests-carro .request-card', { hasText: 'Caio Conversa' })).toContainText('Resultado no lote: SEM OPÇÃO NO LOTE');
-    await expect(page.locator('#requests-valor .request-card', { hasText: 'Rafa Conversa' })).toContainText('Resultado no lote: SEM OPÇÃO NO LOTE');
+    await expect(page.locator('#requests-carro .request-card', { hasText: 'Caio Conversa' })).toContainText('Resultado no lote: ATENDIMENTO MANUAL');
+    await expect(page.locator('#requests-valor .request-card', { hasText: 'Rafa Conversa' })).toContainText('Resultado no lote: ATENDIMENTO MANUAL');
     // Ficha by year and mileage without a bid: ready, with options.
-    await expect(list.locator('.request-card', { hasText: 'Critérios preenchidos na ficha' }).filter({ hasText: 'Marta Ficha' })).toContainText(/opç(ão|ões) no lote/);
+    await expect(list.locator('.request-card', { hasText: 'Marta Ficha' })).toContainText(/opç(ão|ões) no lote/);
     await expect(list).not.toContainText('Bia Conversa');
     await expect(page.locator('#requests-panel #manheim-drop-zone, #requests-panel .manheim-lead, #requests-panel #manheim-batches')).toHaveCount(0);
     await noOverflow();
@@ -108,7 +107,7 @@ for (const width of [1366, 390]) {
 
     // OPÇÕES: the cards per customer, no upload.
     await page.locator('[data-view="searches"]').click();
-    await expect(page.locator('#buscas-carro .manheim-lead').first()).toBeVisible({ timeout: 60000 });
+    await expect(page.locator('#options-queue .options-queue-card').first()).toBeVisible({ timeout: 60000 }); // fila (#218)
     await expect(page.locator('#manheim-drop-zone')).toBeHidden();
     await noOverflow();
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `opcoes-${width}.png`), fullPage: true });
@@ -118,7 +117,7 @@ for (const width of [1366, 390]) {
     await expect(page.locator('#manheim-drop-zone')).toBeVisible();
     await expect(page.locator('#manheim-complement')).toBeVisible();
     await expect(page.locator('#manheim-batches .batch-line').first()).toContainText('Ativo · em uso', { timeout: 60000 });
-    await expect(page.locator('#imports-panel .manheim-lead')).toHaveCount(0);
+    await expect(page.locator('#imports-panel .options-queue-card')).toHaveCount(0);
     await noOverflow();
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `importacoes-${width}.png`), fullPage: true });
     expect(errors).toEqual([]);

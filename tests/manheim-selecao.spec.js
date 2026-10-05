@@ -84,11 +84,12 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await expect(card.locator('.offer-counter')).toContainText('16 passam em Lane/Run · 1 Buy Now / Make Offer / fora de Lane-Run · 2 incompletos · Selecionados 0 de 10', { timeout: 60000 });
+  await expect(card.locator('.offer-counter')).toContainText('16 em Lane/Run · 1 em Buy Now / Make Offer · 0 de 10 selecionados', { timeout: 60000 });
   await expect(card.locator('.offer-group')).toHaveCount(3);
   await expect(card.locator('.offer-group[data-group="LANE"] > summary')).toHaveText('Passa em Lane/Run (16)');
   await expect(card.locator('.offer-group[data-group="OFFLANE"] > summary')).toHaveText('Buy Now / Make Offer / fora de Lane-Run (1)');
-  await expect(card.locator('.offer-group[data-group="INCOMPLETE"] > summary')).toHaveText('Informação incompleta (2)');
+  // v3.2 (04/10): a car without Lane/Run and without Buy Now never becomes a match (cars 31 and 34), so this group is empty.
+  await expect(card.locator('.offer-group[data-group="INCOMPLETE"] > summary')).toHaveText(/Informação incompleta \(0\)|Nenhum/);
   expect(optionPages, 'nenhum carro antes de abrir um grupo').toEqual([]);
   // Opening the group loads 10 of 16, never all of them.
   await card.locator('.offer-group[data-group="LANE"] > summary').click();
@@ -100,7 +101,7 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
     await lane.nth(index).locator('[data-offer-action="select"]:visible').click();
     await expect(lane.nth(index)).toHaveAttribute('data-status', 'SELECTED');
   }
-  await expect(card.locator('.offer-counter')).toContainText('Selecionados 3 de 10');
+  await expect(card.locator('.offer-counter')).toContainText('3 de 10 selecionados');
   // US$ 25.000 MMR: 5% by default (US$ 26.250); the operator types 8% and the value changes at once.
   const fourth = lane.nth(3);
   await expect(fourth.locator('.offer-final')).toHaveValue('26.250,00');
@@ -234,51 +235,55 @@ test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote
   expect(backend.refused).toEqual([]);
 });
 
-test('Baixar PDF: baixa os carros selecionados, também depois de recarregar a página sem abrir o grupo', async ({ page }) => {
+// "Baixar PDF" (since #176) opens the vitrine-styled page in a hidden frame and the print dialog
+// ("escolha Salvar como PDF"); it never downloads a file. The request carries the cars, the page shows them.
+async function printedPdf(page, click) {
+  const asked = page.waitForRequest((request) => request.url().includes('/api/panel/vitrines') && request.method() === 'POST' && (request.postData() || '').includes('"action":"pdf"'), { timeout: 30000 });
+  await click();
+  const body = JSON.parse((await asked).postData());
+  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('iframe')].map((frame) => (frame.contentDocument && frame.contentDocument.body && frame.contentDocument.body.innerText) || '').join(' ')), { timeout: 30000 }).toContain('CR-V');
+  return body;
+}
+
+test('Baixar PDF: imprime os carros selecionados, também depois de recarregar a página sem abrir o grupo', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   let card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await expect(card.locator('.offer-counter')).toContainText('Selecionados', { timeout: 60000 });
+  await expect(card.locator('.offer-counter')).toContainText('selecionados', { timeout: 60000 });
   await card.locator('.offer-group[data-group="LANE"] > summary').click();
   const lane = card.locator('.offer-group[data-group="LANE"] .offer-row');
   await lane.first().locator('[data-offer-action="select"]:visible').click();
   await expect(lane.first()).toHaveAttribute('data-status', 'SELECTED');
-  const pdfOf = async (target) => {
-    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), target.getByRole('button', { name: 'Baixar PDF' }).click()]);
-    expect(download.suggestedFilename()).toMatch(/^shortlist-.*\.pdf$/);
-    const bytes = require('node:fs').readFileSync(await download.path(), 'latin1');
-    expect(bytes.startsWith('%PDF-1.4')).toBe(true);
-    return bytes;
-  };
-  // the button is on the card (not hidden under "Mais ações") and downloads right away
-  expect(await pdfOf(card)).toContain('CR-V');
-  // fresh page: the selected cars are on the server and no group is open
+  const foot = page.locator('#detail-panel .ficha-v1-foot');
+  // The button is at the foot of the ficha and prints the selected car right away.
+  let body = await printedPdf(page, () => foot.getByRole('button', { name: 'Baixar PDF' }).click());
+  expect(body.matchIds.length).toBe(1);
+  await expect(foot.locator('.ficha-v1-status')).toContainText('PDF com 1 carro pronto');
+  // Fresh page: the selected car is on the server and no group is open.
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
   card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await expect(card.locator('.offer-counter')).toContainText('Selecionados 1 de 10', { timeout: 60000 });
-  expect(await pdfOf(card)).toContain('CR-V');
-  await expect(card.locator('.manheim-card-status')).toContainText('PDF com 1 carro baixado');
+  await expect(card.locator('.offer-counter')).toContainText('1 de 10 selecionados', { timeout: 60000 });
+  body = await printedPdf(page, () => foot.getByRole('button', { name: 'Baixar PDF' }).click());
+  expect(body.matchIds.length).toBe(1);
   expect(errors).toEqual([]);
 });
 
-test('Baixar PDF na ficha: baixa todos os compatíveis do lote', async ({ page }) => {
+test('Baixar PDF na ficha: imprime todos os compatíveis do lote', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await expect(card.locator('.offer-counter')).toContainText('Selecionados', { timeout: 60000 });
+  const card = await openOptionsFicha(page, { mode: 'CARRO', realLead: true });
+  await expect(card.locator('.offer-counter')).toContainText('selecionados', { timeout: 60000 });
   await card.locator('.offer-counter').click();
   const lead = page.locator('#detail-panel, .lead-detail, dialog').filter({ hasText: 'Baixar PDF' }).first();
   const button = page.getByRole('button', { name: 'Baixar PDF' }).last();
   await expect(button).toBeVisible({ timeout: 30000 });
-  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), button.click()]);
-  const bytes = require('node:fs').readFileSync(await download.path(), 'latin1');
-  expect(bytes.startsWith('%PDF-1.4')).toBe(true);
-  expect(bytes).toContain('CR-V');
+  const body = await printedPdf(page, () => button.click());
+  // Every compatible car of the batch goes in (the ficha's shortlist), not only the selected ones.
+  expect(body.vehicles.length).toBeGreaterThan(1);
   expect(errors).toEqual([]);
   void lead;
 });

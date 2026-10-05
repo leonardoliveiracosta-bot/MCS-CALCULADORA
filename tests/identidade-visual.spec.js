@@ -236,7 +236,7 @@ test('responsivo: nenhuma rolagem horizontal de 390 a 1920 px, em todas as abas,
   expect(wide).toEqual([]);
 });
 
-test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com motivo e motivos de descarte', async ({ page }) => {
+test('menus dentro da tela em 390 px: menu da mensagem e desligar com motivo', async ({ page }) => {
   await open(page, 390, 844);
   const inside = async (locator, label) => {
     const box = await locator.boundingBox();
@@ -244,15 +244,8 @@ test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com moti
     expect(box.x, label).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width, label).toBeLessThanOrEqual(390);
   };
-  // Temperature explanation on HOJE and discard reasons.
-  // ATENDIMENTO cards are compact: the rarer actions (discard) are under "⋯" on the same card.
-  const card = page.locator('#today-list .today-card').filter({ has: page.locator('.temperature-details') }).first();
-  await card.locator('.case-more > summary').click();
-  await card.locator('.temperature-details summary').click();
-  await inside(card.locator('.temperature-explanation'), 'calor');
-  await card.locator('.temperature-details summary').click();
-  await card.getByRole('button', { name: 'Descartar' }).click();
-  await inside(card.locator('.discard-reasons'), 'motivos de descarte');
+  // (The AI "calor" became the calculator's purchase window in #176, and the ATENDER AGORA card no longer
+  // has a menu of discard reasons: those two panels no longer exist.)
   // Journey switch reasons on CLIENTES.
   await show(page, 'clients');
   const client = page.locator('#clients-list .client-card').first();
@@ -263,6 +256,8 @@ test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com moti
   // Message menu in the record.
   await openRecord(page);
   const menu = page.locator('#record-detail details.message-menu').first();
+  // On the computer the message actions show on hover (#176); on the phone they are always visible.
+  await page.locator('#record-detail article.lead-message').first().hover();
   await menu.locator('summary').scrollIntoViewIfNeeded();
   await menu.locator('summary').click();
   await inside(menu.locator('.message-menu-panel'), 'menu da mensagem');

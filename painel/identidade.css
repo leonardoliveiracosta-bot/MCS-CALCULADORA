@@ -511,9 +511,11 @@ body.login-screen .error { color: var(--mcs-red); }
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 40;
+    /* Above an open "⋯ Mais" card (z-index 40): a tap on a tab never lands on the card behind. */
+    z-index: 50;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    /* Six tabs since V1 and V2 (#218): one row, IMPORTAÇÕES no longer alone on a second line. */
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0;
     width: 100%;
     max-width: none;
@@ -898,7 +900,12 @@ button.weekly-value:hover { background: transparent; text-decoration-color: var(
 #today-list .today-card > .inline-actions > .today-primary { flex: 0 0 auto; width: 100%; max-width: none; min-height: 48px; padding: 12px 16px; border: 0; border-radius: 8px; background: #C9A227; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0; box-shadow: none; }
 #today-list .today-card > .inline-actions > .today-primary:hover { background: #BE9820; filter: none; }
 #today-list .today-card > .inline-actions > .case-more { flex: 0 0 auto; text-align: center; }
-#today-list .today-card > .inline-actions > .case-more > summary { font-size: 13px; color: #8A837B; }
+#today-list .today-card > .inline-actions > .case-more > summary { font-size: 13px; color: #6B655E; }
+/* "⋯ Mais" of the cards (ATENDER AGORA and the client list in "Mais"): #8A837B on white was 3.7:1, below 4.5:1. */
+#today-panel .card-more > summary { color: #6B655E; }
+/* Foot of the ficha (#218): the light theme of the panel, so its buttons are readable ("Baixar PDF" was 1.1:1). */
+#detail-panel .ficha-v1-foot { background: rgba(255, 255, 255, .96); border-top: 1px solid #E7E1D7; color: #1B1A18; }
+#detail-panel .ficha-v1-foot .ficha-v1-status { color: #1B1A18; }
 @media (max-width: 640px) { #today-list .today-card .case-face-title { font-size: 24px; } }
 /* Faixa: vermelha quando depende de você; neutra quando agendado ou aguardando o cliente. */
 #today-list .today-card > .card-decision:not(.decision-red) { background: #F3EFE7; }
@@ -1386,7 +1393,7 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #clients-list .today-card > .inline-actions > .today-primary { flex: 0 0 auto; width: 100%; max-width: none; min-height: 48px; padding: 12px 16px; border: 0; border-radius: 8px; background: #C9A227; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0; box-shadow: none; }
 #clients-list .today-card > .inline-actions > .today-primary:hover { background: #BE9820; filter: none; }
 #clients-list .today-card > .inline-actions > .case-more { flex: 0 0 auto; text-align: center; }
-#clients-list .today-card > .inline-actions > .case-more > summary { font-size: 13px; color: #8A837B; }
+#clients-list .today-card > .inline-actions > .case-more > summary { font-size: 13px; color: #6B655E; }
 @media (max-width: 640px) {
   #clients-list .today-card .case-face-title { font-size: 24px; }
 }
