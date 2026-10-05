@@ -511,9 +511,11 @@ body.login-screen .error { color: var(--mcs-red); }
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 40;
+    /* Above an open "⋯ Mais" card (z-index 40): a tap on a tab never lands on the card behind. */
+    z-index: 50;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    /* Six tabs since V1 and V2 (#218): one row, IMPORTAÇÕES no longer alone on a second line. */
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0;
     width: 100%;
     max-width: none;
