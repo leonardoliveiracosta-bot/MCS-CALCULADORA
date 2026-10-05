@@ -1,7 +1,8 @@
 'use strict';
 
 // Complemento pelo botão real do painel, com CSVs sintéticos e os handlers reais em PGlite.
-// Prévia e cancelamento não gravam; confirmar acrescenta só dados de venda; repetir é inócuo.
+// Prévia e cancelamento não gravam; confirmar acrescenta os dados de venda (e, regra B, as combinações dos
+// carros que passam a ter Lane/Run ou Buy Now); repetir é inócuo.
 // Run: CHROMIUM_PATH=/usr/bin/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-complemento.spec.js
 const { test, expect } = require('@playwright/test');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
@@ -97,8 +98,9 @@ test('prévia, cancelar, confirmar e repetir o complemento pelo navegador sem al
     await expect(status).not.toHaveClass(/error/);
   };
   expect(batch.vehicleCount).toBe(3);
-  // v3.2: the car without Lane/Run and without Buy Now (…800003) never becomes a match, and the complement
-  // does not create matches, so it stays out of the combinations before and after.
+  // Imported without the sale data, only the cars with Buy Now (…800001, …800002) are combinations. Rule B: the
+  // complement runs the search for every car that then has Lane/Run or Buy Now; …800003 gets nothing in these
+  // files (no Lane/Run, no Buy Now), so it stays out and the combinations stay 2 (none duplicated).
   expect((await q('select count(*)::int n from public.manheim_matches'))[0].n).toBe(2);
   const before = await frozen();
   const salesBefore = await saleState();

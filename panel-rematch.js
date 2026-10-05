@@ -15,7 +15,8 @@ async function carsForMakes(ctx, uploadId, makes, cache, read) {
   const key = makes.slice().sort().join('|');
   if (cache.has(key)) return cache.get(key);
   const filter = makes.length ? { make_key: 'in.(' + makes.concat(['']).map((make) => '"' + make.replace(/"/g, '') + '"').join(',') + ')' } : {};
-  const cars = await read(ctx, 'manheim_vehicles', { select: 'id,row_fingerprint,vehicle_json,make_key,mmr_cents', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId, undone_at: 'is.null', ...filter });
+  // With the sale data in use (complement): a car that has Lane/Run or Buy Now only through it still matches.
+  const cars = await read(ctx, 'manheim_vehicles_current', { select: 'id,row_fingerprint,vehicle_json,make_key,mmr_cents', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId, undone_at: 'is.null', ...filter });
   const entries = cars.map((car) => ({ fingerprint: car.row_fingerprint, makeKey: car.make_key || '', mmrCents: vehicleMatch.validMmrCents(car.mmr_cents !== null && car.mmr_cents !== undefined ? car.mmr_cents : car.vehicle_json && car.vehicle_json.mmrCents), vehicle: car.vehicle_json || {} }));
   cache.set(key, entries);
   return entries;
