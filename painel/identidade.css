@@ -1226,3 +1226,180 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 @media (min-width: 900px) {
   #searches-panel .offer-group > summary { font-size: 15px; letter-spacing: .08em; color: #6E5414; }
 }
+
+/* TODOS: os mesmos cartões de ATENDER AGORA (cópia das regras de #today-list para #clients-list,
+   gerada a partir delas; a grade de cada seção é .client-grid.contact-group-flat). */
+@media (max-width: 899px) {
+  #clients-list {
+    grid-template-columns: 1fr;
+  }
+}
+#clients-list .contact-group-flat, #clients-list .contact-group-decisoes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: stretch; padding: 0; border: 0; background: none; }
+#clients-list .contact-group-decisoes > header { grid-column: 1 / -1; }
+@media (max-width: 1023px) {
+  #clients-list .contact-group-flat, #clients-list .contact-group-decisoes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  #clients-list .contact-group-flat, #clients-list .contact-group-decisoes { grid-template-columns: minmax(0, 1fr); }
+}
+#clients-list .today-card { position: relative; display: flex; flex-direction: column; padding: 12px 14px; gap: 8px; font-size: 14px; min-width: 0; }
+#clients-list .today-card .card-decision { margin: 0; padding: 6px 10px; font-size: 13px; }
+#clients-list .case-fields { display: grid; gap: 3px; margin: 0; }
+#clients-list .case-field { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 6px; align-items: baseline; }
+#clients-list .case-field-label { margin: 0; font-size: 13px; color: var(--mcs-muted); }
+#clients-list .case-field-value { margin: 0; font-size: 14px; color: var(--mcs-text); overflow-wrap: anywhere; }
+#clients-list .case-phone .case-field-value, #clients-list .case-name .case-field-value { font-weight: 600; }
+#clients-list .case-ref .case-field-value { font-weight: 600; }
+#clients-list .today-card > .inline-actions.card-primary { margin-top: auto; display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+#clients-list .today-card > .inline-actions > .today-primary { flex: 0 0 auto; max-width: 180px; min-height: 34px; padding: 6px 14px; font-size: 13px; }
+#clients-list .today-card .case-more { position: static; margin: 0; }
+#clients-list .today-card .case-more > summary { font-size: 12px; cursor: pointer; padding: 6px 4px; }
+#clients-list .today-card .case-more-body { position: absolute; left: 0; right: 0; top: 100%; z-index: 30; display: grid; gap: 8px; margin-top: 4px; padding: 12px 14px 14px; background: var(--mcs-elevated, var(--mcs-card)); border: 1px solid var(--mcs-line); border-radius: var(--mcs-radius); box-shadow: var(--mcs-shadow); max-height: 70vh; overflow: auto; }
+@media (max-width: 640px), (pointer: coarse) {
+  #clients-list .today-card > .inline-actions > .today-primary, #clients-list .today-card .case-more > summary { min-height: 44px; display: inline-flex; align-items: center; }
+}
+#clients-list .today-card:has(.case-more[open]) { z-index: 40; }
+@media (max-width: 640px) {
+  #clients-list .today-card .case-more-body { position: static; margin-top: 8px; box-shadow: none; max-height: none; }
+  #clients-list .today-card > .inline-actions.card-primary { flex-wrap: wrap; }
+  #clients-list .today-card .case-more[open] { flex: 1 1 100%; }
+}
+#clients-list .today-card { font-family: "Instrument Sans", system-ui, sans-serif; font-size: 16px; gap: 10px; padding: 14px 16px 16px; }
+#clients-list .today-card .card-decision { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; font-size: 15px; }
+#clients-list .today-card .card-decision-label { font-size: 15px; font-weight: 600; }
+#clients-list .case-fields { gap: 6px; }
+#clients-list .case-field { grid-template-columns: 118px minmax(0, 1fr); gap: 10px; }
+#clients-list .case-field-label { font-size: 14px; font-weight: 500; color: var(--mcs-muted); }
+#clients-list .case-field-value { font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--mcs-text); }
+#clients-list .case-phone .case-field-value { font-size: 17px; }
+#clients-list .today-card > .inline-actions.card-primary { justify-content: center; flex-wrap: wrap; gap: 8px; }
+#clients-list .today-card > .inline-actions > .today-primary { flex: 0 0 50%; max-width: none; min-height: 44px; padding: 10px 16px; font-size: 16px; font-weight: 600; background: var(--mcs-gold); color: var(--mcs-on-gold); border: 0; border-radius: var(--mcs-radius-sm); justify-content: center; text-align: center; }
+#clients-list .today-card > .inline-actions > .today-primary:hover { filter: brightness(1.05); }
+#clients-list .today-card > .inline-actions > .case-more { flex: 1 1 100%; text-align: center; }
+#clients-list .case-pick { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin: -4px -6px -4px 0; border-radius: 8px; cursor: pointer; flex: 0 0 auto; }
+#clients-list .case-pick:hover { background: var(--mcs-hover); }
+#clients-list .case-pick-box { width: 20px; height: 20px; margin: 0; accent-color: var(--mcs-gold); cursor: pointer; }
+#clients-list .today-card.case-picked { outline: 2px solid var(--mcs-gold); outline-offset: 0; }
+#clients-list .attend-bulk { position: sticky; top: 64px; z-index: 35; display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 12px; background: var(--mcs-elevated, var(--mcs-card)); border: 1px solid var(--mcs-line); border-radius: var(--mcs-radius); box-shadow: var(--mcs-shadow); font-size: 15px; }
+#clients-list .attend-bulk.hidden { display: none; }
+#clients-list .attend-bulk-count { font-weight: 600; margin-right: auto; }
+#clients-list .attend-bulk-delete { background: var(--mcs-red); color: #fff; border: 0; min-height: 40px; padding: 8px 16px; font-weight: 600; }
+@media (max-width: 640px) {
+  #clients-list .case-field { grid-template-columns: 104px minmax(0, 1fr); }
+  #clients-list .today-card > .inline-actions > .today-primary { flex-basis: 60%; }
+  #clients-list .case-pick { width: 44px; height: 44px; }
+}
+#clients-list .today-card .card-decision-label { font-size: 17px; }
+#clients-list .case-fields { gap: 8px; }
+#clients-list .case-field { grid-template-columns: 132px minmax(0, 1fr); gap: 12px; }
+#clients-list .case-field-label { font-size: 16px; white-space: nowrap; }
+#clients-list .case-field-value { font-size: 19px; font-weight: 600; letter-spacing: .005em; line-height: 1.35; }
+#clients-list .case-phone .case-field-value { font-size: 20px; }
+#clients-list .today-card > .inline-actions > .today-primary { font-size: 17px; min-height: 48px; }
+@media (max-width: 1279px) {
+  #clients-list .case-field { grid-template-columns: 116px minmax(0, 1fr); }
+  #clients-list .case-field-label { font-size: 15px; }
+  #clients-list .case-field-value { font-size: 17px; }
+}
+#clients-list .today-card > .inline-actions > .today-primary { flex: 0 0 calc(50% + 16px); }
+@media (max-width: 640px) {
+  #clients-list .today-card > .inline-actions > .today-primary { flex-basis: calc(50% + 16px); }
+}
+@media (max-width: 640px) {
+  #clients-list .attend-bulk { flex-wrap: wrap; gap: 8px 10px; }
+  #clients-list .attend-bulk-count { flex: 1 1 100%; }
+  #clients-list .attend-bulk > button { flex: 1 1 0; white-space: nowrap; min-height: 44px; }
+}
+#clients-list .today-card { font-family: "Inter", "Instrument Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #D8D8DB; border-radius: 12px; box-shadow: none; padding: 20px 24px 24px; gap: 16px; color: #010205; -webkit-font-smoothing: antialiased; }
+#clients-list .today-card:hover { border-color: #6B6D70; }
+#clients-list .today-card .card-decision { background: #EEEFF2; border: 0; border-radius: 4px; padding: 10px 12px; margin: 0; }
+#clients-list .today-card .card-decision.decision-red { background: #FADEE0; }
+#clients-list .today-card .card-decision::before { display: none; }
+#clients-list .today-card .card-decision-label { font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1.5; color: #010205; letter-spacing: 0; }
+#clients-list .case-fields { gap: 8px; }
+#clients-list .case-field { grid-template-columns: 128px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+#clients-list .case-field-label { font-family: inherit; font-size: 16px; font-weight: 400; line-height: 1.5; color: #6B6D70; white-space: nowrap; }
+#clients-list .case-field-value { font-family: inherit; font-size: 18px; font-weight: 600; line-height: 1.45; color: #010205; letter-spacing: -0.005em; }
+#clients-list .case-phone .case-field-value { font-size: 20px; }
+#clients-list .today-card > .inline-actions > .today-primary { font-family: inherit; flex: 0 0 calc(50% + 24px); min-height: 54px; padding: 13px 26px; border-radius: 4px; font-size: 16px; font-weight: 600; letter-spacing: 0; box-shadow: none; }
+#clients-list .today-card .case-more > summary { font-size: 14px; color: #6B6D70; }
+#clients-list .case-pick { width: 32px; height: 32px; margin: -4px -4px -4px 0; border-radius: 4px; }
+#clients-list .case-pick:hover { background: transparent; }
+#clients-list .case-pick-box { -webkit-appearance: none; appearance: none; width: 24px; height: 24px; margin: 0; border: 2px solid #6B6D70; border-radius: 4px; background: #FFFFFF center / 16px 16px no-repeat; cursor: pointer; transition: background-color .15s, border-color .15s; }
+#clients-list .case-pick-box:hover { border-color: #010205; }
+#clients-list .case-pick-box:checked { background-color: #010205; border-color: #010205; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round' d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E"); }
+#clients-list .case-pick-box:focus-visible { outline: 2px solid #1A44EA; outline-offset: 2px; }
+#clients-list .today-card.case-picked { outline: 0; border: 2px solid #010205; padding: 19px 23px 23px; }
+#clients-list .attend-bulk { font-family: "Inter", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #D8D8DB; border-radius: 12px; box-shadow: none; padding: 12px 16px; font-size: 16px; color: #010205; }
+#clients-list .attend-bulk > button { min-height: 54px; border-radius: 4px; padding: 13px 26px; font-size: 16px; font-weight: 600; }
+#clients-list .attend-bulk-delete { background: #010205; color: #FFFFFF; }
+#clients-list .attend-bulk-clear { background: transparent; color: #010205; border: 2px solid #010205; }
+@media (max-width: 1279px) {
+  #clients-list .case-field { grid-template-columns: 112px minmax(0, 1fr); }
+  #clients-list .case-field-value { font-size: 17px; }
+  #clients-list .case-field-label { font-size: 15px; }
+}
+@media (max-width: 640px) {
+  #clients-list .today-card { padding: 16px; }
+  #clients-list .today-card.case-picked { padding: 15px; }
+  #clients-list .case-pick { width: 44px; height: 44px; }
+}
+#clients-list .attend-more { display: flex; justify-content: center; margin: 24px 0 8px; }
+#clients-list .attend-more.hidden { display: none; }
+#clients-list .attend-more-button { font-family: "Inter", system-ui, sans-serif; min-height: 54px; padding: 13px 32px; border-radius: 4px; border: 2px solid #010205; background: #FFFFFF; color: #010205; font-size: 16px; font-weight: 600; cursor: pointer; }
+#clients-list .attend-more-button:hover { background: #010205; color: #FFFFFF; }
+#clients-list .contact-group-flat { gap: 24px; }
+#clients-list .today-card { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 14px; padding: 0 0 20px; gap: 0; box-shadow: none; color: #1B1A18; }
+#clients-list .today-card:hover { border-color: #D9D0C2; }
+#clients-list .today-card.case-picked { border: 1px solid #1B1A18; padding: 0 0 20px; box-shadow: 0 0 0 1px #1B1A18; }
+#clients-list .today-card > .card-decision { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; padding: 12px 20px; border: 0; border-radius: 13px 13px 0 0; background: #F9E9E6; }
+#clients-list .today-card > .card-decision.decision-red, #clients-list .today-card > .card-decision { background: #F9E9E6; }
+#clients-list .today-card > .card-decision::before { display: none; }
+#clients-list .today-card > .card-decision .card-decision-label { display: inline-flex; align-items: center; gap: 8px; font-family: "Noto Sans", system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #B4373A; line-height: 1.3; }
+#clients-list .today-card > .card-decision .card-decision-label::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #C0393B; flex: 0 0 7px; }
+#clients-list .today-card .case-pick { width: 24px; height: 24px; margin: 0; }
+#clients-list .today-card .case-pick-box { width: 18px; height: 18px; border: 1.5px solid #B9A7A3; border-radius: 4px; background-color: #FFFFFF; background-size: 13px 13px; }
+#clients-list .today-card .case-pick-box:checked { background-color: #1B1A18; border-color: #1B1A18; }
+#clients-list .today-card .case-face { display: block; padding: 0 20px; }
+#clients-list .today-card .case-face-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 20px; }
+#clients-list .today-card .case-face-title { margin: 0; font-family: "Noto Serif", Georgia, serif; font-size: 28px; font-weight: 600; line-height: 1.15; color: #1B1A18; letter-spacing: -.005em; min-width: 0; overflow-wrap: anywhere; }
+#clients-list .today-card .case-face-ref { flex: 0 0 auto; margin-top: 2px; padding: 4px 10px; border: 1px solid #E5D39A; border-radius: 6px; background: #FBF5E2; color: #8A6D1E; font-family: "Noto Sans Mono", ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
+#clients-list .today-card .case-face-phone { margin: 6px 0 0; font-size: 15px; color: #8A837B; font-weight: 400; }
+#clients-list .today-card .case-face-spec { display: block; margin: 14px -6px 0; padding: 2px 14px; background: #F6F2E9; border-radius: 10px; }
+#clients-list .today-card .case-face-spec .case-field { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0; grid-template-columns: none; }
+#clients-list .today-card .case-face-spec .case-field + .case-field { border-top: 1px solid #E8E1D3; }
+#clients-list .today-card .case-face-spec .case-field-label { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #9C9488; white-space: nowrap; }
+#clients-list .today-card .case-face-spec .case-field-value { margin: 0; font-size: 14px; font-weight: 700; color: #1B1A18; text-align: right; line-height: 1.35; letter-spacing: 0; }
+#clients-list .today-card .case-face-spec .case-field-value strong { font-weight: 700; }
+#clients-list .today-card .case-face-spec .case-field-soft { font-weight: 400; color: #8A837B; }
+#clients-list .today-card .case-face-lacks { margin: 12px -6px 0; padding: 10px 14px 12px; background: #FCF5DD; border: 1px solid #EAD68E; border-radius: 10px; }
+#clients-list .today-card .case-face-lacks-title { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8A6D1E; }
+#clients-list .today-card .case-face-lacks-list { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 8px 0 0; padding: 0; list-style: none; }
+#clients-list .today-card .case-face-lacks-list li { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; color: #3A352E; }
+#clients-list .today-card .case-face-lacks-list li::before { content: ""; width: 8px; height: 8px; border: 1.5px solid #B8961F; border-radius: 50%; flex: 0 0 auto; }
+#clients-list .today-card > .inline-actions.card-primary { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 14px 20px 0; padding: 0; }
+#clients-list .today-card > .inline-actions > .today-primary { flex: 0 0 auto; width: 100%; max-width: none; min-height: 48px; padding: 12px 16px; border: 0; border-radius: 8px; background: #C9A227; color: #1B1A18; font-family: "Noto Sans", system-ui, sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0; box-shadow: none; }
+#clients-list .today-card > .inline-actions > .today-primary:hover { background: #BE9820; filter: none; }
+#clients-list .today-card > .inline-actions > .case-more { flex: 0 0 auto; text-align: center; }
+#clients-list .today-card > .inline-actions > .case-more > summary { font-size: 13px; color: #8A837B; }
+@media (max-width: 640px) {
+  #clients-list .today-card .case-face-title { font-size: 24px; }
+}
+#clients-list .today-card > .card-decision:not(.decision-red) { background: #F3EFE7; }
+#clients-list .today-card > .card-decision:not(.decision-red) .card-decision-label { color: #6F675D; }
+#clients-list .today-card > .card-decision:not(.decision-red) .card-decision-label::before { background: #A99F92; }
+#clients-list .today-card .case-pick-box { background-color: transparent; }
+#clients-list .today-card .case-face-spec .case-calculator .case-field-value { white-space: nowrap; }
+#clients-list .today-card .case-face-spec .case-field { gap: 8px; }
+#clients-list .today-card .case-face-ref { color: #725915; }
+#clients-list .today-card .case-face-phone { color: #6F675D; }
+#clients-list .today-card .case-face-spec .case-field-label { color: #6A6258; }
+#clients-list .today-card .case-face-spec .case-field-soft { color: #6A6258; }
+#clients-list .today-card .case-pick { width: 44px; height: 44px; margin: -10px; }
+#clients-list .today-card .case-face-spec .case-field-value { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 1279px) {
+  #clients-list .today-card .case-face-spec .case-calculator .case-field-value { white-space: normal; }
+}
+#clients-list .client-grid { margin: 8px 0 18px; }
+#clients-list .client-card.client-row { display: block; }
+#clients-list .today-card .client-last-message { margin: 10px 0 0; font-size: 13px; }

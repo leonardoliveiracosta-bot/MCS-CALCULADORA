@@ -1492,21 +1492,48 @@
   let clientsVersion=0,clientsObserver=null,clientsPagesLoaded=1;
   // CLIENTES is a directory: one compact line per person to find them and open the full ficha. The
   // queue of what to do lives in ATENDIMENTO; every other field and action stays in "⋯ Mais" and in the ficha.
+  // TODOS uses the same card as ATENDER AGORA: a status strip, the car (or the name) as the title with the Ref tag, the
+  // phone, the request as a spec sheet and the gold button. Everything else of TODOS stays under "⋯ Mais".
+  function clientStatus(item){
+    if(item.disposition)return item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`;
+    const timeLabel=item.group&&item.group.unattended&&item.group.unattended.timeLabel;
+    if(timeLabel)return timeLabel;
+    if(item.situation)return String(pendingSituationLabel(item.situation)||'').replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u,'');
+    return MCSContactGroups.groupOf(item).label||'Cliente';
+  }
   function clientCard(item){
-    const card=element('article',`item-card client-card client-row heat-${String(item.heat||'COLD').toLowerCase()}`),head=element('div','item-head client-row-head');
-    head.append(identityHeader(item,{compact:true}));
-    const badges=element('div','badges');const chip=MCSContactGroups.originChip(item);if(chip)badges.append(chip);const subjectChip=MCSContactGroups.subjectChip(item);if(subjectChip)badges.append(subjectChip);
-    if(item.situation)badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)));
-    if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));
-    if(item.lastRealMessageAt)badges.append(element('span','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));
-    head.append(badges);card.append(head);
-    const open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('ficha',item.id);});
+    const heatClass=String(item.heat||'COLD').toLowerCase();
+    const card=element('article',`item-card client-card client-row today-card case-card heat-${heatClass}`);
+    const decision=MCSContactGroups.decisionNode(item);
+    const status=clientStatus(item);
+    decision.replaceChildren(element('strong','card-decision-label',status));
+    decision.classList.toggle('decision-red',!item.disposition&&(MCSContactGroups.groupOf(item).key==='NAO_ATENDIDO'||/sem resposta/i.test(status)));
+    card.append(decision);
+    const name=String(item.contactName||item.name||item.contact?.display_name||'').trim();
+    const phone=primaryPhone(item);
+    const phoneText=phone?phoneDisplay(phone.phone_e164||phone.phone_raw||''):'';
+    const ref=calcRefOf(item);
+    const fields=caseRequestFields(item);
+    const cars=[...new Set(fields.filter(([label])=>/^Carro/.test(label)).map(([,value])=>value).filter((value)=>value&&value!=='não informado'))];
+    const title=cars.join(' · ')||(realName(name)?name:'')||phoneText||'Sem nome';
+    const rows=fields.filter(([label])=>!/^Carro/.test(label)).map(([label,value])=>[label==='ZIP'?'Local':label,value,label==='ZIP'?'case-request-line case-zip':'case-request-line']);
+    rows.push(['Calculadora',calculatorLabel(item),'case-calculator']);
+    if(!ref&&item.internalCode)rows.push(['Código',`${item.internalCode} · interno, não é Ref da calculadora`,'case-request-line case-internal-code']);
+    if(cars.length&&realName(name))rows.unshift(['Cliente',name,'case-request-line case-client-name']);
+    const face=caseFace({title,ref:ref||(refStateOf(item)==='A_RECUPERAR'?'a recuperar':'sem Ref'),phone:title===phoneText?'':phoneText,rows,requests:[]});
+    if(item.lastRealMessageAt)face.append(element('p','muted client-last-message',`última mensagem: ${floridaDayMonth(item.lastRealMessageAt)}`));
+    card.append(face);
+    const open=element('button','today-primary small','Abrir ficha');open.type='button';open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('ficha',item.id);});
     const primary=element('div','inline-actions card-primary');primary.append(open);
     const topic=MCSContactGroups.topicButton(item,{request,refresh:()=>loadClients(),journeyId:item.id});
     // "É sobre carro" stays in view on an off-topic card; the other decisions are rarer (⋯).
     if(topic&&MCSContactGroups.groupOf(item).key==='FORA_DO_ASSUNTO')primary.append(topic);
     card.append(primary);
-    const more=element('details','card-more client-more');more.append(element('summary','','⋯ Mais'));more.addEventListener('click',(event)=>event.stopPropagation());
+    const more=element('details','card-more client-more case-more');more.append(element('summary','','⋯ Mais'));more.addEventListener('click',(event)=>event.stopPropagation());
+    const badges=element('div','badges');const chip=MCSContactGroups.originChip(item);if(chip)badges.append(chip);const subjectChip=MCSContactGroups.subjectChip(item);if(subjectChip)badges.append(subjectChip);
+    if(item.situation)badges.append(makeBadge(pendingSituationLabel(item.situation),pendingTone(item.situation)));
+    if(item.disposition)badges.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));
+    more.append(badges);
     more.append(MCSContactGroups.decisionNode(item));
     const extra=element('div','badges');extra.append(makeBadge(`Checklist ${checklistCompleted(item)}/6`,checklistCompleted(item)===6?'green':'blue'));
     const heat=heatBadge(item);if(heat)extra.append(heat);if(item.searchStageLabel)extra.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
@@ -1525,7 +1552,7 @@
     more.append(dispositionControls(item));
     if(item.lastCustomerMessage){const tools=MCSContactGroups.replyTools(item.id,{request,onSent:()=>loadClients()});if(tools)more.append(tools);}
     more.addEventListener('toggle',()=>{if(more.open){hydrateContexts(more);MCSContactGroups.hydrateTranslations(more,{request}).catch(()=>{});}});
-    card.append(more);
+    primary.append(more);
     makeCardClickable(card,()=>openDetail('ficha',item.id));
     return card;
   }
@@ -1561,7 +1588,9 @@
     const later=[...box.querySelectorAll(':scope > .contact-subject')].find((other)=>order.indexOf(other.dataset.subject)>order.indexOf(key));
     if(later)box.insertBefore(part,later);else box.append(part);return part;
   }
-  function refreshSubjectCounts(box){box.querySelectorAll(':scope > .contact-subject').forEach((part)=>{const count=part.querySelector('.contact-subject-count');if(count)count.textContent=String(part.querySelectorAll(':scope > .client-card').length);});}
+  function refreshSubjectCounts(box){box.querySelectorAll(':scope > .contact-subject').forEach((part)=>{const count=part.querySelector('.contact-subject-count');if(count)count.textContent=String(part.querySelectorAll('.client-card').length);});}
+  // The cards of a section, area or subject sit in the same 3-column grid as ATENDER AGORA.
+  function clientGrid(holder){let grid=holder.querySelector(':scope > .client-grid');if(!grid){grid=element('div','client-grid contact-group-flat');holder.append(grid);}return grid;}
   function appendClients(root,data){
     const sections=data.counts?.sections||{},areaCounts=data.counts?.areas||{};
     // A page loaded after something changed may repeat a card already shown: it is shown once.
@@ -1570,8 +1599,8 @@
       const section=clientSection(root,key,spec.label,spec.hint,sections[key]||0);const card=clientCard(item);card.dataset.group=key;
       const areaKey=MCSGroups.areaOf(item);card.dataset.area=areaKey;card.dataset.journeyId=String(item.id);
       // Off-topic and "não é lead" stay as one list (no search to separate).
-      if(key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD')section.append(card);
-      else{const box=clientArea(section,key,areaKey,(areaCounts[key]||{})[areaKey]||0);(areaKey==='SEM_REF'?clientSubject(box,item):box).append(card);if(areaKey==='SEM_REF')refreshSubjectCounts(box);}});
+      if(key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD')clientGrid(section).append(card);
+      else{const box=clientArea(section,key,areaKey,(areaCounts[key]||{})[areaKey]||0);clientGrid(areaKey==='SEM_REF'?clientSubject(box,item):box).append(card);if(areaKey==='SEM_REF')refreshSubjectCounts(box);}});
     root.querySelector('.clients-more')?.remove();clientsObserver?.disconnect();
     if(data.hasMore){const remaining=data.total-data.page*data.pageSize,more=element('button','quiet clients-more',`Mostrar mais (${remaining} restantes)`);more.type='button';more.dataset.page=String(data.page+1);
       const next=()=>{if(more.disabled||clientsRestoring)return;more.disabled=true;more.textContent='Carregando…';loadClientsPage(data.page+1).catch(()=>{more.disabled=false;more.textContent=`Mostrar mais (${remaining} restantes)`;});};

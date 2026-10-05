@@ -62,7 +62,8 @@ async function open(page, width) {
   return calls;
 }
 
-const names = (page) => page.locator('#clients-list .client-card .identity-name').allTextContents();
+// TODOS uses the ATENDER AGORA card: the person's name is the title (or the "Cliente" line when the card shows a car).
+const names = (page) => page.locator('#clients-list .client-card').evaluateAll((cards) => cards.map((card) => (card.querySelector('.case-client-name .case-field-value') || card.querySelector('.case-face-title') || {}).textContent || ''));
 const stat = (page, label) => page.locator('#clients-stats .pending-stat', { hasText: label }).locator('strong');
 
 for (const width of [1280, 390]) {
