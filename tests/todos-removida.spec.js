@@ -54,9 +54,9 @@ async function open(page) {
 }
 const directoryCalls = (calls) => calls.filter((call) => call.path === '/api/panel/records' && call.params.view !== 'manheim');
 
-test('quatro abas, sem TODOS; a lista de clientes só carrega ao abrir "Mais" e todas as funções funcionam lá', async ({ page }) => {
+test('seis abas (com V1 e V2), sem TODOS; a lista de clientes só carrega ao abrir "Mais" e todas as funções funcionam lá', async ({ page }) => {
   const { calls, errors } = await open(page);
-  await expect(page.locator('.tab[data-view]')).toHaveText([/ATENDER AGORA/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/]);
+  await expect(page.locator('.tab[data-view]')).toHaveText([/ATENDER AGORA/, /^V1/, /^V2/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/]);
   await expect(page.locator('[data-view="clients"]')).toHaveCount(0);
   // Closed: no directory request at all (the old tab badge and its boot priming are gone).
   const more = page.locator('#today-more');

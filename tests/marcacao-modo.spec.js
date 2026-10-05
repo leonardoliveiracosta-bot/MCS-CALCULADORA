@@ -87,6 +87,8 @@ async function openFicha(page, name) {
 async function mark(page, text, { make, model, yearMin, yearMax, minMiles, maxMiles, mode }) {
   const message = page.locator('#record-detail article.lead-message').filter({ hasText: text }).last();
   const menu = message.locator('details.message-menu');
+  // On the computer the message actions show on hover (#176); on the phone they are always visible.
+  await message.hover();
   await menu.locator('summary').click();
   const row = menu.locator('.wishlist-row').first();
   await row.locator('input[placeholder="Marca"]').fill(make);

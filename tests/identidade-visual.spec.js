@@ -246,11 +246,9 @@ test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com moti
   };
   // Temperature explanation on HOJE and discard reasons.
   // ATENDIMENTO cards are compact: the rarer actions (discard) are under "⋯" on the same card.
-  const card = page.locator('#today-list .today-card').filter({ has: page.locator('.temperature-details') }).first();
+  // (The AI "calor" became the calculator's purchase window in #176: no explanation panel to open.)
+  const card = page.locator('#today-list .today-card').first();
   await card.locator('.case-more > summary').click();
-  await card.locator('.temperature-details summary').click();
-  await inside(card.locator('.temperature-explanation'), 'calor');
-  await card.locator('.temperature-details summary').click();
   await card.getByRole('button', { name: 'Descartar' }).click();
   await inside(card.locator('.discard-reasons'), 'motivos de descarte');
   // Journey switch reasons on CLIENTES.
@@ -263,6 +261,8 @@ test('menus dentro da tela em 390 px: menu da mensagem, calor, desligar com moti
   // Message menu in the record.
   await openRecord(page);
   const menu = page.locator('#record-detail details.message-menu').first();
+  // On the computer the message actions show on hover (#176); on the phone they are always visible.
+  await page.locator('#record-detail article.lead-message').first().hover();
   await menu.locator('summary').scrollIntoViewIfNeeded();
   await menu.locator('summary').click();
   await inside(menu.locator('.message-menu-panel'), 'menu da mensagem');

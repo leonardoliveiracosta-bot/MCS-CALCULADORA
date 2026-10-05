@@ -139,6 +139,8 @@ test('Lote 3: no celular (360 px) o menu ⋯ da mensagem fica dentro da tela', a
   await mockApi(page, { '/api/panel/lead': ({ json }) => json(leadData({ conversation: [{ id: READ, chat_id: JOURNEY, channel: 'WHATSAPP', direction: 'CUSTOMER', body_text: 'Quero uma X5 2021', occurred_at_utc: new Date().toISOString() }] })) });
   await page.goto(base + '/painel/#ficha/' + JOURNEY, { waitUntil: 'domcontentloaded' });
   const summary = page.locator('.message-menu > summary').first();
+  // On the computer the message actions show on hover (#176); on the phone they are always visible.
+  await page.locator('#record-detail article.lead-message').first().hover({ timeout: 30000 });
   await expect(summary).toBeVisible({ timeout: 30000 });
   await summary.click();
   const panel = page.locator('.message-menu-panel').first();
