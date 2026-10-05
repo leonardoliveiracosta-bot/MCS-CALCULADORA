@@ -2281,7 +2281,7 @@
   function openV2Builder(item,card){
     const existing=card.querySelector('.v2-builder');if(existing){existing.remove();return;}
     const box=element('section','v2-builder'),photos=[];
-    box.append(element('h4','',item.car||'Carro'));
+    box.append(element('h4','',item.car||'Carro'),vinLine(item.vin));
     const status=element('p','muted v2-status','');
     const drop=element('label','v2-drop','Arraste as fotos aqui ou toque para escolher · até 12 · a primeira é a capa');
     const input=element('input');input.type='file';input.accept='image/*';input.multiple=true;input.className='visually-hidden';drop.append(input);
@@ -2364,10 +2364,23 @@
       errorText:'Não consegui marcar como atendido, tente de novo'}));
     return treated;
   }
+  // VIN on its own line (two cars of the same year and model look the same without it), with "Copiar".
+  function vinLine(vin){
+    const line=element('span','muted funnel-vin');if(!vin){line.textContent='VIN não informado';return line;}
+    line.append(document.createTextNode('VIN '+vin+' '));
+    const copy=element('button','quiet small','Copiar');copy.type='button';
+    copy.addEventListener('click',async(event)=>{event.stopPropagation();try{await navigator.clipboard.writeText(vin);copy.textContent='Copiado';}catch(_){copy.textContent='Não copiou';}setTimeout(()=>{copy.textContent='Copiar';},2000);});
+    line.append(copy);return line;
+  }
+  // One line per car with its VIN (V1 waiting and expired list every car of the V1).
+  function carsWithVin(card,item){
+    if(!item.cars||!item.cars.length){card.append(element('span','','Carro não informado'));return;}
+    item.cars.forEach((name,index)=>{card.append(element('span','',name||'Carro não informado'),vinLine((item.vins||[])[index]||null));});
+  }
   function v1TappedCard(item){
     const card=funnelCard(item);
     card.querySelector('header').append(makeBadge('Tocou · falta a V2','yellow'));
-    card.append(element('span','',item.car||'Carro não informado'),element('span','muted',`Tocou ${item.ago||''} · V1 enviada ${item.sentAgo||''}`));
+    card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin),element('span','muted',`Tocou ${item.ago||''} · V1 enviada ${item.sentAgo||''}`));
     const actions=element('div','inline-actions');
     actions.append(mountV2Button(item,card),openFichaButton(item));
     if(item.requestId)actions.append(treatedButton(item,card));
@@ -2376,20 +2389,20 @@
   }
   function v1WaitingCard(item){
     const card=funnelCard(item);
-    card.append(element('span','',item.cars.length?item.cars.join(' · '):'Carro não informado'),element('span','muted',`V1 enviada ${item.ago||''}`));
+    carsWithVin(card,item);card.append(element('span','muted',`V1 enviada ${item.ago||''}`));
     card.append(openFichaButton(item));
     return card;
   }
   function v2BidCard(item){
     const card=funnelCard(item);
     card.querySelector('header').append(makeBadge('Quer dar lance','red'));
-    card.append(element('span','',item.car||'Carro não informado'),element('span','muted',`${item.bidAgo?'Tocou '+item.bidAgo+' · ':''}V2 enviada ${item.ago||''}`));
+    card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin),element('span','muted',`${item.bidAgo?'Tocou '+item.bidAgo+' · ':''}V2 enviada ${item.ago||''}`));
     card.append(openFichaButton(item));
     return card;
   }
   function v2WaitingCard(item){
     const card=funnelCard(item);
-    card.append(element('span','',item.car||'Carro não informado'),element('span','muted',`V2 enviada ${item.ago||''}`));
+    card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin),element('span','muted',`V2 enviada ${item.ago||''}`));
     card.append(openFichaButton(item));
     return card;
   }
@@ -2397,7 +2410,7 @@
     if(!list.length)return null;
     const det=element('details','card');const summary=element('summary','');summary.append(element('strong','',`${title} (${list.length})`));det.append(summary);
     const stack=element('div','stack');
-    list.forEach((item)=>{const card=funnelCard(item);card.append(element('span','',item.car||item.cars.join(' · ')||'Carro não informado'),element('span','muted',`Expirou ${item.expiredAgo||''}`));stack.append(card);});
+    list.forEach((item)=>{const card=funnelCard(item);if(item.cars)carsWithVin(card,item);else card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin));card.append(element('span','muted',`Expirou ${item.expiredAgo||''}`));stack.append(card);});
     det.append(stack);return det;
   }
   function renderVitrineFunnel(data,view){

@@ -67,13 +67,15 @@ async function payload(ctx,services={}){
   const budgetByJourney=new Map(journeys.map((row)=>[row.id,row.budget_cents||null]));
   const contactName=(vitrine)=>contactsById.get(vitrine.contact_id)?.display_name||vitrine.customer_name||phoneFor(vitrine.contact_id)||'Cliente';
 
+  // VIN of each car (two cars of the same year and model are told apart on the card).
+  const vinOf=(car)=>{const vin=String((car&&car.vehicle_snapshot&&car.vehicle_snapshot.vin)||'').trim().toUpperCase();return vin||null;};
   const v1={tapped:[],waiting:[],expired:[]},v2={bid:[],waiting:[],expired:[]};
   vitrines.forEach((vitrine)=>{
     if(!actionable(vitrine))return;
     const carList=carsByVitrine.get(vitrine.id)||[];
     const contact={name:contactName(vitrine),phone:phoneFor(vitrine.contact_id)};
     if(vitrine.version==='V1'){
-      if(expired(vitrine)){v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now),expiredAt:vitrine.expires_at});return;}
+      if(expired(vitrine)){v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now),expiredAt:vitrine.expires_at});return;}
       const v2children=(childrenByParent.get(vitrine.id)||[]).filter((child)=>child.version==='V2');
       const tapsByCar=new Map();
       (eventsByVitrine.get(vitrine.id)||[]).filter((event)=>event.event_type==='TAP'&&event.vitrine_car_id).forEach((event)=>{
@@ -88,14 +90,14 @@ async function payload(ctx,services={}){
         if(reqs.some((req)=>req.request_kind==='VIEW'&&req.treated_at&&Date.parse(req.treated_at)>=Date.parse(tap.created_at)))return;
         const open=reqs.find((req)=>req.request_kind==='VIEW'&&!req.treated_at);
         tappedAny=true;
-        v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),sentAt:vitrine.created_at,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents:vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null});
+        v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),vin:vinOf(car),sentAt:vitrine.created_at,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents:vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null});
       });
-      if(!tappedAny&&!v2children.length)v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)});
+      if(!tappedAny&&!v2children.length)v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)});
       return;
     }
     if(vitrine.version==='V2'){
       const firstCar=carList[0]||{};
-      const item={vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),car:vehicleName(firstCar.vehicle_snapshot||{}),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)};
+      const item={vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),car:vehicleName(firstCar.vehicle_snapshot||{}),vin:vinOf(firstCar),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)};
       if(expired(vitrine)){v2.expired.push({...item,expiredAt:vitrine.expires_at});return;}
       const bidRequest=(requests||[]).find((req)=>req.vitrine_id===vitrine.id&&req.request_kind==='BID'&&!req.treated_at);
       const bidTap=(eventsByVitrine.get(vitrine.id)||[]).find((event)=>event.event_type==='TAP');
