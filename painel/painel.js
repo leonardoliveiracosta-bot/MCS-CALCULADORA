@@ -4853,7 +4853,7 @@
       status.textContent = 'Complemento gravado · somando os grupos…';
       const totals = await post({ action: 'complement-result', uploadId: latest.id }).catch(() => null);
       status.textContent = totals
-        ? `Complemento concluído · ${totals.withSale} carros complementados · ${totals.lane} com Lane/Run · ${totals.offLane} Buy Now / Make Offer · ${totals.incomplete} ainda incompletos · ${totals.matches} combinações`
+        ? `Complemento concluído · ${totals.withSale} carros complementados · ${totals.lane} com Lane/Run · ${totals.offLane} Buy Now / Make Offer · ${totals.incomplete} ainda incompletos · ${totals.matches} combinações${done.newMatches ? ` (${done.newMatches} novas)` : ''}`
         : `Complemento concluído · ${done.cars} carros complementados · Os totais aparecem em ENVIAR OPÇÕES`;
       if (requestPool) requestPool.invalidate();
       await loadCurrent().catch(() => {});

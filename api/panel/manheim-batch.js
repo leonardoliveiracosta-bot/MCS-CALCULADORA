@@ -14,8 +14,9 @@
 //  POST complement-*       os mesmos CSVs do lote ativo, lidos de novo, acrescentam só Lane, Run,
 //                          Inventory, Status e Event Sale Name aos carros que o lote já tem:
 //                          check (prévia, só leitura), start/stage (conferência depois da confirmação),
-//                          apply (uma troca, tudo ou nada), result (totais, só leitura), cancel. Não cria lote nem match e não
-//                          mexe em MMR, critérios, seleção, V1/V2 ou histórico
+//                          apply (uma troca, tudo ou nada), result (totais, só leitura), cancel. Não cria lote; o carro
+//                          que passa a ter Lane/Run ou Buy Now passa pela busca e, se servir, vira combinação na mesma
+//                          troca (regra B). Não mexe em MMR, critérios, seleção, V1/V2, histórico nem nas combinações que já existem
 // Nenhuma chamada paga e nenhuma mensagem saem daqui.
 const crypto = require('node:crypto');
 const { isUuid, jsonBody, requirePanel, rows, rpc, send, supabase } = require('../../panel-server');
@@ -179,9 +180,27 @@ async function complementBlock(ctx, body) {
   const chunkHash = expected && expected.hash === stripped ? stripped : batch.contentHash(vehicles);
   if (!expected || expected.hash !== chunkHash || Number(expected.count) !== vehicles.length) return { error: [409, 'MANHEIM_COMPLEMENT_MISMATCH'], fileIndex };
   // The same cars the import stored (the ones it ignored stay out), by the same stable identifier.
-  const items = vehicles.map((source) => ({ source, entry: batch.sanitizeVehicle(source) })).filter(({ entry }) => entry)
-    .map(({ source, entry }) => Object.fromEntries([['fingerprint', entry.fingerprint], ...SALE_FIELDS.map(([key, max]) => [key, text(source.vehicle[key], max)])]));
-  return { fileIndex, chunkIndex, chunkHash, items };
+  const read = vehicles.map((source) => ({ source, entry: batch.sanitizeVehicle(source) })).filter(({ entry }) => entry);
+  const items = read.map(({ source, entry }) => Object.fromEntries([['fingerprint', entry.fingerprint], ...SALE_FIELDS.map(([key, max]) => [key, text(source.vehicle[key], max)])]));
+  return { fileIndex, chunkIndex, chunkHash, items, entries: read.map(({ entry }) => entry) };
+}
+
+// Rule B: a car that has sale data (Lane/Run or Buy Now) after the complement goes through the same
+// search as a new batch, against today's demands. The database keeps the candidates in the conference
+// and only adds them on "Complementar agora", skipping any combination that already exists. A car
+// without sale data never matches (the rule itself requires it). One snapshot of the demands per
+// complement, kept for a few minutes per warm function (blocks come in sequence).
+const complementTargets = new Map();
+async function complementMatches(ctx, runId, entries) {
+  let cached = complementTargets.get(runId);
+  if (!cached) {
+    const targets = batch.snapshotTargets(await loadMatchTargets(ctx));
+    cached = { targets, index: batch.indexTargets(targets) };
+    complementTargets.set(runId, cached);
+    if (complementTargets.size > 20) complementTargets.delete(complementTargets.keys().next().value);
+  }
+  await require('../../panel-model-aliases').load(ctx);
+  return batch.matchChunk(entries, cached.targets, cached.index, { staging: true });
 }
 const complementKeys = (body) => /^[0-9a-f]{16,64}$/.test(String(body.clientKey || '')) && HASH.test(String(body.manifestHash || ''));
 
@@ -207,8 +226,8 @@ async function actionComplementStage(ctx, body) {
     if (block.error[1] === 'MANHEIM_COMPLEMENT_MISMATCH') await rpc(ctx, 'panel_manheim_complement_cancel', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId, p_reason: 'BLOCK_MISMATCH' });
     return send(ctx.res, block.error[0], { error: block.error[1], fileIndex: block.fileIndex });
   }
-  const result = await rpc(ctx, 'panel_manheim_complement_stage', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId,
-    p_file_index: block.fileIndex, p_chunk_index: block.chunkIndex, p_chunk_hash: block.chunkHash, p_items: block.items });
+  const result = await rpc(ctx, 'panel_manheim_complement_stage_v2', { p_environment: ctx.environment, p_actor_id: ctx.panel.id, p_run_id: body.runId,
+    p_file_index: block.fileIndex, p_chunk_index: block.chunkIndex, p_chunk_hash: block.chunkHash, p_items: block.items, p_matches: await complementMatches(ctx, body.runId, block.entries) });
   if (result && result.error) return send(ctx.res, 409, { error: result.error, fileIndex: block.fileIndex });
   return send(ctx.res, 200, result);
 }

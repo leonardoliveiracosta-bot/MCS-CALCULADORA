@@ -2,7 +2,8 @@
 
 // Complemento do lote Manheim ativo, com os handlers reais contra um banco PGlite com todas as
 // migrações. O lote é importado como o lote real (blocos sem Lane, Run, Inventory, Status e Event Sale
-// Name). Os mesmos CSVs, lidos de novo, acrescentam só esses dados; a prévia não grava; arquivo com o
+// Name). Os mesmos CSVs, lidos de novo, acrescentam esses dados e (regra B) o carro que passa a ter
+// Lane/Run ou Buy Now vira combinação do pedido certo; a prévia não grava; arquivo com o
 // mesmo nome, tamanho e número de linhas mas conteúdo diferente é recusado sem gravar; repetir não
 // muda nada; faltou bloco, nada é gravado.
 const test = require('node:test');
@@ -148,28 +149,49 @@ test('prévia só lê; o complemento grava só os cinco dados, de uma vez; repet
   assert.deepEqual(shown.payload, { found: 6, missing: 0, changed: 6, lane: 3, offLane: 2, incomplete: 1 });
   assert.deepEqual(await saleRows(), [], 'a prévia não grava');
 
+  // A car already chosen for the client before the complement: the choice must survive (nothing disappears).
+  const [chosen] = await q(`select id from public.manheim_matches where row_fingerprint = 'vin:2HKRW2H59LH700001'`);
+  const picked = await call('manheim-options', '/api/panel/manheim-options', 'POST', { matchId: chosen.id, action: 'select', reason: 'Escolhido antes do complemento' });
+  assert.equal(picked.statusCode, 200, JSON.stringify(picked.payload));
+  const chosenBefore = await frozen();
+
   const applied = await complement(read);
   assert.equal(applied.statusCode, 200, JSON.stringify(applied.payload));
-  assert.deepEqual([applied.payload.applied, applied.payload.cars, applied.payload.changed], [true, 6, 6]);
+  assert.deepEqual([applied.payload.applied, applied.payload.cars, applied.payload.changed, applied.payload.newMatches], [true, 6, 6, 1]);
   const totals = await post({ action: 'complement-result', uploadId: batch.uploadId });
-  assert.deepEqual(totals.payload, { cars: 6, withSale: 6, lane: 3, offLane: 2, incomplete: 1, matches: 3 });
-  // Batch, cars, matches (none created, removed or recalculated), MMR, criteria, selection: identical.
-  assert.deepEqual(await frozen(), before);
+  assert.deepEqual(totals.payload, { cars: 6, withSale: 6, lane: 3, offLane: 2, incomplete: 1, matches: 4 });
+  // Rule B: the CR-V that got Lane/Run only through the complement (…700002) became a combination of
+  // the right client, in the same write. The one without any sale data (…700005) and the Ford stay out.
+  const added = await q(`select journey_id::text, row_fingerprint, logical_mode::text, demand_key from public.manheim_matches where undone_at is null and row_fingerprint not in (select row_fingerprint from public.manheim_matches where created_at < (select applied_at from public.manheim_sale_current))`);
+  assert.deepEqual(added, [{ journey_id: JOURNEY, row_fingerprint: 'vin:2HKRW2H59LH700002', logical_mode: 'CARRO', demand_key: KEY }]);
+  // Nothing disappears: the batch, the cars, the matches that existed (with the choice made), MMR and criteria stay identical.
+  const after = await frozen();
+  assert.deepEqual({ ...after, matches: after.matches.filter((match) => chosenBefore.matches.some((old) => old.id === match.id)), uploads: chosenBefore.uploads }, chosenBefore);
+  assert.equal(after.uploads[0].matched_vehicle_count, 4, 'o lote passa a contar o carro novo');
+  assert.deepEqual(before.matches, chosenBefore.matches);
   const sale = await saleRows();
   assert.equal(sale.length, 6);
   assert.ok(sale.every((item) => Object.keys(item.sale).sort().join() === 'eventSaleName,lane,run,saleStatus,saleType'));
   assert.deepEqual(sale.find((item) => item.row_fingerprint === 'vin:2HKRW2H59LH700001').sale, { lane: '3', run: '41', saleType: 'Simulcast', saleStatus: 'Active', eventSaleName: 'Orlando Tuesday' });
-  // BUSCAS: the car in Lane/Run with Buy Now stays in Lane/Run.
-  assert.deepEqual(await groups(), [1, 2, 0]);
+  // BUSCAS: the car in Lane/Run with Buy Now stays in Lane/Run, now with the new one (…700002).
+  assert.deepEqual(await groups(), [2, 2, 0]);
+  // Comparing the request again (criteria edited, sync) reads the cars with the sale data in use: the
+  // new combination and the choice made stay.
+  const again1 = await call('manheim-options', '/api/panel/manheim-options', 'POST', { action: 'rematch', key: KEY });
+  assert.equal(again1.statusCode, 200, JSON.stringify(again1.payload));
+  assert.deepEqual(await groups(), [2, 2, 0]);
+  assert.equal((await q(`select count(*)::int n from public.manheim_matches where undone_at is null and row_fingerprint = 'vin:2HKRW2H59LH700002'`))[0].n, 1);
+  assert.equal((await q(`select status from public.manheim_option_selections where match_id = '${chosen.id}'`))[0].status, 'SELECTED');
   const audit = await q(`select after_json from public.audit_log where action = 'MANHEIM_COMPLEMENT'`);
   assert.equal(audit.length, 1);
 
   // The same files again: nothing to complement, and a second write changes nothing.
+  const settled = await frozen();
   const again = await preview(await csv.readFiles(FILES));
   assert.equal(again.payload.changed, 0);
   const second = await complement(await csv.readFiles(FILES));
-  assert.deepEqual([second.payload.applied, second.payload.changed], [false, 0]);
+  assert.deepEqual([second.payload.applied, second.payload.changed, second.payload.newMatches], [false, 0, 0]);
   assert.deepEqual(await saleRows(), sale);
-  assert.deepEqual(await frozen(), before);
+  assert.deepEqual(await frozen(), settled);
   assert.deepEqual(backend.refused, []);
 });
