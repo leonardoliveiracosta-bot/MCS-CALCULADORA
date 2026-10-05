@@ -4586,7 +4586,7 @@
       const DISCARD_TEXT = result.discarded ? ` · ${result.discarded} descartada(s) porque a ficha mudou durante o envio` : '';
       const duplicatesText = deduped.duplicates ? ` · ${deduped.duplicates} repetido(s) entre arquivos` : '';
       status.textContent = result.appended
-        ? `Acrescentado ao lote ativo · ${result.added} carro(s) novo(s)${result.alreadyInBatch ? ` · ${result.alreadyInBatch} já estavam no lote` : ''} · lote agora com ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`
+        ? `Acrescentado ao lote ativo · ${result.added} carro(s) novo(s)${result.alreadyInBatch ? ` · ${result.alreadyInBatch} já estavam no lote` : ''}${result.updated ? ` · ${result.updated} atualizado(s) com Lane/Run ou Buy Now novo${result.updatedMatches ? ` (${result.updatedMatches} combinação(ões) nova(s))` : ''}` : ''} · lote agora com ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`
         : `Lote ativo · ${result.fileCount || plan.length} arquivo(s) · ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`;
       renderImportSummary(ai, uniqueCount);
       if (ai.rowsSentToAi || ai.review.length) await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_summary', uploadId: result.uploadId, summary: aiSummary(ai) }) }).catch(() => null);
