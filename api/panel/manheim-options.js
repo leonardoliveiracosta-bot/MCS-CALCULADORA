@@ -209,6 +209,16 @@ async function saveReason(ctx, body) {
 }
 
 // The cars selected for the customer in one request (at most 10), to review or remove them.
+// Selected rows still in the grouped base stay; the others whose auction passed are "ended" (by name).
+// Without the grouped read (null) nothing is hidden.
+function splitSelected(picked, byId, grouped) {
+  if (!Array.isArray(grouped)) return { kept: picked, ended: [] };
+  const live = new Set(grouped.flatMap((row) => (row.vehicle_json && row.vehicle_json.parsed && row.vehicle_json.parsed.memberMatchIds) || [row.id]));
+  const gone = picked.filter((row) => !live.has(row.match_id) && offer.carExpired(byId.get(row.match_id) || {}));
+  const name = (parsed) => [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ');
+  return { kept: picked.filter((row) => !gone.includes(row)), ended: [...new Set(gone.map((row) => name(byId.get(row.match_id) || {})).filter(Boolean))] };
+}
+
 async function selectedList(ctx, key) {
   const latest = await latestActiveUpload(ctx, 'id');
   if (!latest) return send(ctx.res, 200, { key, selected: [] });
@@ -218,7 +228,10 @@ async function selectedList(ctx, key) {
   const ids = picked.map((row) => row.match_id);
   const matches = ids.length ? await rows(ctx, 'manheim_matches', { select: 'id,vehicle_json', environment: 'eq.' + ctx.environment, id: 'in.(' + ids.join(',') + ')', limit: String(ids.length) }) : [];
   const byId = new Map(matches.map((row) => [row.id, row.vehicle_json && row.vehicle_json.parsed || {}]));
-  return send(ctx.res, 200, { key, selected: picked.map((row) => { const parsed = byId.get(row.match_id) || {}; return { matchId: row.match_id, year: parsed.year || null, make: parsed.make || '', model: parsed.model || '', trim: parsed.trim || '', miles: parsed.miles ?? null, vin: parsed.vin || '', finalCents: Number(row.final_cents) || null, clientReason: row.client_reason || null }; }) });
+  // Same cars as the list: a selected car whose auction passed left the selection (it is named in "ended").
+  const grouped = ids.length ? await rpc(ctx, 'panel_manheim_grouped_matches', { p_environment: ctx.environment, p_match_ids: ids }).catch(() => null) : [];
+  const { kept, ended } = splitSelected(picked, byId, grouped);
+  return send(ctx.res, 200, { key, ended, selected: kept.map((row) => { const parsed = byId.get(row.match_id) || {}; return { matchId: row.match_id, year: parsed.year || null, make: parsed.make || '', model: parsed.model || '', trim: parsed.trim || '', miles: parsed.miles ?? null, vin: parsed.vin || '', finalCents: Number(row.final_cents) || null, clientReason: row.client_reason || null }; }) });
 }
 
 async function options(ctx, req) {
@@ -289,3 +302,4 @@ module.exports.encodeCursor = encodeCursor;
 module.exports.decodeCursor = decodeCursor;
 module.exports.sortedGroup = sortedGroup;
 module.exports.trimKey = trimKey;
+module.exports.splitSelected = splitSelected;

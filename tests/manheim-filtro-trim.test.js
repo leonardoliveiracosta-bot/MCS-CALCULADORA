@@ -33,7 +33,7 @@ async function call(name, url, method = 'GET', body) {
 const TRIMS = ['Laredo X', 'LAREDO-X', 'laredo  x.', '4xe', 'Summit Reserve', '', 'Summit', 'EX-L'];
 const car = (n) => {
   const vin = 'TRMV' + String(n).padStart(13, '0');
-  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2019 + (n % 4), make: 'Honda', model: 'CR-V', trim: TRIMS[n % TRIMS.length], miles: 20000 + n, mmrCents: 1500000 + (n % 7) * 250000, location: 'FL - Orlando', startsAt: '2026-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (1.9 + (n % 8) * 0.4).toFixed(1), cleanTitle: true, odometerOk: true } };
+  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2019 + (n % 4), make: 'Honda', model: 'CR-V', trim: TRIMS[n % TRIMS.length], miles: 20000 + n, mmrCents: 1500000 + (n % 7) * 250000, location: 'FL - Orlando', startsAt: '2099-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (1.9 + (n % 8) * 0.4).toFixed(1), cleanTitle: true, odometerOk: true } };
 };
 const cars = Array.from({ length: 160 }, (_, n) => car(n));
 const expectedCount = (keys) => cars.filter((item) => keys.includes(require('../api/panel/manheim-options').trimKey(item.vehicle.trim))).length;

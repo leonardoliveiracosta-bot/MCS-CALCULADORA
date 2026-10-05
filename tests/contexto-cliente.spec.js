@@ -20,7 +20,7 @@ test.setTimeout(180000);
 
 // Active batch: two Corollas inside the value band of the US$ 18,000 bid, one out of it, and a
 // CX-5 for the calculator order that has no ficha.
-const car = (vin, year, make, model, miles, mmr, extra = {}) => ({ fingerprint: 'vin:' + vin, vehicle: { vin, year, make, model, trim: 'LE', miles, mmrCents: mmr, location: 'FL - Orlando', lane: '3', run: '41', saleType: 'Simulcast', saleDate: '2026-10-02', conditionGrade: '4.1', cleanTitle: true, odometerOk: true, ...extra } });
+const car = (vin, year, make, model, miles, mmr, extra = {}) => ({ fingerprint: 'vin:' + vin, vehicle: { vin, year, make, model, trim: 'LE', miles, mmrCents: mmr, location: 'FL - Orlando', lane: '3', run: '41', saleType: 'Simulcast', saleDate: '2099-10-02', conditionGrade: '4.1', cleanTitle: true, odometerOk: true, ...extra } });
 const cars = [
   car('DEMOCOROLLA000001', 2020, 'Toyota', 'Corolla', 41000, 1750000),
   car('DEMOCOROLLA000002', 2019, 'Toyota', 'Corolla', 58000, 1950000, { run: '57' }),

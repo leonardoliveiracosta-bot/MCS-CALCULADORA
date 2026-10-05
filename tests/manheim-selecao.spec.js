@@ -28,7 +28,7 @@ const seed = [
 ].join('\n');
 const car = (n, extra = {}) => {
   const vin = 'TELA' + String(n).padStart(13, '0');
-  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: '2026-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (4.9 - n * 0.2).toFixed(1), cleanTitle: true, odometerOk: true, ...extra } };
+  return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: '2099-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (4.9 - n * 0.2).toFixed(1), cleanTitle: true, odometerOk: true, ...extra } };
 };
 // 14 in Lane/Run, one in Lane/Run WITH Buy Now Price and one without CR (both stay in Lane/Run), one
 // without Lane/Run and with Buy Now (outside Lane/Run), two without Lane/Run nor Buy Now (incomplete).
@@ -191,14 +191,14 @@ test('valor para o cliente digitado em dólar fica exato, também depois de sele
 // batch is built with the panel's own reader, so the browser reads the file exactly the same way.
 const CSV_HEADERS = ['Inventory', 'Vin', 'Year', 'Make', 'Model', 'Trim', 'Odometer Value', 'MMR', 'Condition Report Grade', 'Pickup Location', 'Starts At', 'Lane', 'Run', 'Buy Now Price', 'Event Sale Name', 'Status'];
 const CSV_ROWS = [
-  ['OVE', '2HKRW2H59LH600001', '2020', 'Honda', 'CR-V', 'EX', '21000', '25000', '4.1', 'FL - Orlando', '2026-10-01T15:00:00Z', '', '', '', '', 'Active'],
-  ['Simulcast', '2HKRW2H59LH600001', '2020', 'Honda', 'CR-V', 'EX', '21000', '25000', '4.1', 'FL - Orlando', '2026-10-01T15:00:00Z', '3', '41', '26500', 'Orlando Tuesday', 'Active'],
-  ['Simulcast', '2HKRW2H59LH600002', '2020', 'Honda', 'CR-V', 'EX', '22000', '25000', '4.0', 'FL - Orlando', '2026-10-01T15:00:00Z', '4', '12', '', 'Orlando Tuesday', 'Active'],
-  ['Simulcast', '2HKRW2H59LH600003', '2020', 'Honda', 'CR-V', 'EX', '23000', '25000', '3.9', 'FL - Orlando', '2026-10-01T15:00:00Z', '5', '7', '', 'Orlando Tuesday', 'Active'],
-  ['OVE', '2HKRW2H59LH600004', '2020', 'Honda', 'CR-V', 'EX', '24000', '25000', '3.8', 'FL - Orlando', '2026-10-01T15:00:00Z', '', '', '27000', 'Buy Now / Make Offer', 'Active'],
-  ['OVE', '2HKRW2H59LH600005', '2020', 'Honda', 'CR-V', 'EX', '25000', '25000', '3.7', 'FL - Orlando', '2026-10-01T15:00:00Z', '', '', '28000', '', 'Active'],
-  ['OVE', '2HKRW2H59LH600006', '2020', 'Honda', 'CR-V', 'EX', '26000', '25000', '3.6', 'FL - Orlando', '2026-10-01T15:00:00Z', '', '', '', '', 'Active'],
-  ['Simulcast', '1FTEW1EP5LK000007', '2020', 'Ford', 'F-150', 'XLT', '30000', '30000', '4.0', 'FL - Orlando', '2026-10-01T15:00:00Z', '1', '1', '', 'Orlando Tuesday', 'Active']
+  ['OVE', '2HKRW2H59LH600001', '2020', 'Honda', 'CR-V', 'EX', '21000', '25000', '4.1', 'FL - Orlando', '2099-10-01T15:00:00Z', '', '', '', '', 'Active'],
+  ['Simulcast', '2HKRW2H59LH600001', '2020', 'Honda', 'CR-V', 'EX', '21000', '25000', '4.1', 'FL - Orlando', '2099-10-01T15:00:00Z', '3', '41', '26500', 'Orlando Tuesday', 'Active'],
+  ['Simulcast', '2HKRW2H59LH600002', '2020', 'Honda', 'CR-V', 'EX', '22000', '25000', '4.0', 'FL - Orlando', '2099-10-01T15:00:00Z', '4', '12', '', 'Orlando Tuesday', 'Active'],
+  ['Simulcast', '2HKRW2H59LH600003', '2020', 'Honda', 'CR-V', 'EX', '23000', '25000', '3.9', 'FL - Orlando', '2099-10-01T15:00:00Z', '5', '7', '', 'Orlando Tuesday', 'Active'],
+  ['OVE', '2HKRW2H59LH600004', '2020', 'Honda', 'CR-V', 'EX', '24000', '25000', '3.8', 'FL - Orlando', '2099-10-01T15:00:00Z', '', '', '27000', 'Buy Now / Make Offer', 'Active'],
+  ['OVE', '2HKRW2H59LH600005', '2020', 'Honda', 'CR-V', 'EX', '25000', '25000', '3.7', 'FL - Orlando', '2099-10-01T15:00:00Z', '', '', '28000', '', 'Active'],
+  ['OVE', '2HKRW2H59LH600006', '2020', 'Honda', 'CR-V', 'EX', '26000', '25000', '3.6', 'FL - Orlando', '2099-10-01T15:00:00Z', '', '', '', '', 'Active'],
+  ['Simulcast', '1FTEW1EP5LK000007', '2020', 'Ford', 'F-150', 'XLT', '30000', '30000', '4.0', 'FL - Orlando', '2099-10-01T15:00:00Z', '1', '1', '', 'Orlando Tuesday', 'Active']
 ];
 const CSV_TEXT = [CSV_HEADERS, ...CSV_ROWS].map((row) => row.join(',')).join('\n') + '\n';
 
