@@ -37,7 +37,9 @@ function emptyCounts() {
 // People and demands of BUSCAS, from the operational base only (never a Manheim table): fichas and
 // Refs without ficha that entered in contact, and one match target per active demand.
 const offerCounts = (row) => ({ lane: row ? row.lane_count : 0, offLane: row ? row.offlane_count : 0, incomplete: row ? row.incomplete_count : 0,
-  selected: row ? row.selected_count : 0, selectedIds: row && Array.isArray(row.selected_ids) ? row.selected_ids : [], max: 10 });
+  selected: row ? row.selected_count : 0, selectedIds: row && Array.isArray(row.selected_ids) ? row.selected_ids : [], max: 10,
+  // Selecionados que saíram por leilão passado (migração 20261027010000; antes dela, nenhum).
+  endedSelected: row && Array.isArray(row.ended_selected) ? row.ended_selected : [] });
 
 function demandContext(base) {
   const excluded = new Set(base.journeys.filter((journey) => journey.contact?.is_lead === false || journey.triageOut).map((journey) => journey.id));

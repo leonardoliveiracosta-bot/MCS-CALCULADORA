@@ -1,6 +1,6 @@
 'use strict';
 // Carro com leilão passado sai sozinho: a regra em JS é a mesma da migração 20261027010000
-// (tests/sql/teste-manheim-leilao-passado.sql), a V1 deixa de fora o expirado e avisa, e o
+// (tests/sql/teste-manheim-leilao-passado.sql), a V1 deixa de fora o expirado (mesmo selecionado) e avisa, e o
 // "comparar de novo" não cria combinação para carro de leilão passado nem desfaz uma que já existe.
 const test=require('node:test'),assert=require('node:assert/strict');
 const offer=require('../manheim-offer');
@@ -37,7 +37,8 @@ function services(cars){
   return {inserted,svc:{
     rows:async(_,name,filter)=>name==='manheim_matches'?cars.filter(c=>filter.id==='eq.'+c.id):name==='manheim_option_selections'?cars.map(c=>({match_id:c.id,status:'SELECTED',final_cents:3300000})):table[name]||[],
     insert:async(_,name,body)=>{inserted.push({name,body});return [{id:id(80+inserted.length),...body}];},
-    groupedMatches:async(_,matches)=>cars.filter(c=>matches.some(m=>m.id===c.id)),
+    // Como o banco: carro de leilão passado não volta da base agrupada.
+    groupedMatches:async(_,matches)=>cars.filter(c=>matches.some(m=>m.id===c.id)&&!offer.carExpired(c.vehicle_json.parsed)),
     auditGate:async()=>null,stampGate:async()=>null,activeFilter:async()=>({}),liveUploadFilter:async()=>({})
   }};
 }
@@ -53,6 +54,18 @@ test('V1: carro de leilão passado não entra e a resposta diz quais saíram',as
   const none=services([old]);
   assert.deepEqual(await vit.create(ctx,{journeyId:id(1),matchIds:[old.id]},none.svc),{error:'MANHEIM_SALE_ENDED',removed:['2022 Jeep Wrangler Sahara']});
   assert.equal(none.inserted.length,0,'nenhuma V1 vazia é criada');
+  // Carro que sumiu da base sem ter expirado (lote desfeito, sem MMR): continua recusando a V1 inteira.
+  const gone=services([live]);gone.svc.groupedMatches=async()=>[];
+  assert.deepEqual(await vit.create(ctx,{journeyId:id(1),matchIds:[live.id]},gone.svc),{error:'MANHEIM_SALE_ENDED'});
+});
+
+test('lista "Selecionados para o cliente": o de leilão passado sai da lista e vem em "ended"',()=>{
+  const {splitSelected}=require('../api/panel/manheim-options');
+  const live=car(10,{startsAt:day(1)}),old=car(11,{startsAt:day(-1),trim:'Sahara'});
+  const grouped=[{id:live.id,vehicle_json:{parsed:{memberMatchIds:[live.id]}}}];
+  const out=splitSelected([{match_id:live.id},{match_id:old.id}],new Map([[live.id,live.vehicle_json.parsed],[old.id,old.vehicle_json.parsed]]),grouped);
+  assert.deepEqual(out.kept.map(r=>r.match_id),[live.id]);
+  assert.deepEqual(out.ended,['2022 Jeep Wrangler Sahara']);
 });
 
 test('comparar de novo: carro de leilão passado não vira combinação nova; a que já existe fica',()=>{

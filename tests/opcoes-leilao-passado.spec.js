@@ -1,8 +1,8 @@
 'use strict';
 
 // ENVIAR OPÇÕES no navegador real, handlers reais contra um banco PGlite (migração 20261027010000):
-// carro com leilão passado some das opções; o que a Leo já selecionou continua, com o selo "Leilão
-// passado", e fica fora da V1 com aviso de quais saíram. Nada é apagado. Nada sai da máquina.
+// carro com leilão passado sai das opções e da seleção (também o que a Leo já tinha selecionado), a
+// tela avisa quais saíram da seleção e a V1 sai sem ele. Nada é apagado. Nada sai da máquina.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/opcoes-leilao-passado.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
@@ -76,34 +76,40 @@ async function openPanel(page) {
   });
 }
 
-test('leilão passado: some das opções, o selecionado continua com selo e fica fora da V1 com aviso', async ({ page }) => {
+test('leilão passado: sai das opções e da seleção, a tela avisa quais saíram e a V1 sai sem ele', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => { window.__opened = []; window.open = (href) => { window.__opened.push(String(href)); return null; }; });
   const card = await openOptionsFicha(page, { mode: 'CARRO' });
   const group = card.locator('.offer-group[data-group="LANE"]');
-  // 3 com leilão futuro + o selecionado; o de leilão passado sem seleção não aparece nem é contado.
-  await expect(group.locator('> summary')).toHaveText(/\(4\)$/, { timeout: 60000 });
+  // Só os 3 com leilão futuro: o de leilão passado sai, também o que estava selecionado.
+  await expect(group.locator('> summary')).toHaveText(/\(3\)$/, { timeout: 60000 });
+  await expect(card.locator('.offer-counter')).toContainText('0 de 10 selecionados');
+  await expect(card.locator('.offer-ended')).toHaveText('Saíram da seleção (leilão passado): 2020 Honda CR-V Touring');
   await group.locator('> summary').click();
   const rows = group.locator('.offer-row');
-  await expect(rows).toHaveCount(4);
+  await expect(rows).toHaveCount(3);
+  await expect(rows.filter({ hasText: vin(3) })).toHaveCount(0);
   await expect(rows.filter({ hasText: vin(4) })).toHaveCount(0);
-  const kept = rows.filter({ hasText: vin(3) });
-  await expect(kept).toHaveAttribute('data-status', 'SELECTED');
-  await expect(kept.locator('.badge', { hasText: 'Leilão passado · não entra na V1' })).toBeVisible();
-  await expect(rows.locator('.badge', { hasText: 'Leilão passado' })).toHaveCount(1);
-  // V1 com um carro vivo + o selecionado de leilão passado: só o vivo entra; a tela diz qual saiu.
+  // V1 com um carro vivo: sai normal, só com ele.
   const live = rows.filter({ hasText: vin(0) });
   await live.locator('[data-offer-action="select"]:visible').click();
   await expect(live).toHaveAttribute('data-status', 'SELECTED');
+  await expect(card.locator('.offer-counter')).toContainText('1 de 10 selecionados');
+  // "Selecionados para o cliente": só o vivo.
+  const picked = card.locator('.offer-picked');
+  await picked.locator('> summary').click();
+  await expect(picked.locator('.offer-picked-row')).toHaveCount(1);
+  await expect(picked.locator('.offer-picked-row')).toContainText('VIN final ' + vin(0).slice(-6));
+  await expect(picked.locator('.warning')).toHaveText('Saíram da seleção (leilão passado): 2020 Honda CR-V Touring');
   const foot = page.locator('#detail-panel .ficha-v1-foot');
   await foot.getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp' }).click();
-  await expect(foot.locator('.ficha-v1-status')).toHaveText('WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp · Fora da V1 (leilão passado): 2020 Honda CR-V Touring', { timeout: 30000 });
+  await expect(foot.locator('.ficha-v1-status')).toHaveText('WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp', { timeout: 30000 });
   if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'leilao-passado.png') });
   const { rows: v1 } = await backend.db.query(`select c.vehicle_snapshot->>'vin' vin from public.vitrines v join public.vitrine_cars c on c.vitrine_id = v.id where v.journey_id = '${JOURNEY}' and v.version = 'V1'`);
   expect(v1.map((row) => row.vin)).toEqual([vin(0)]);
-  // Nada apagado: os cinco carros continuam no lote, a seleção do carro de leilão passado também.
+  // Nada apagado: os cinco carros continuam no lote e a linha da seleção antiga também.
   expect((await backend.db.query(`select count(*)::int n from public.manheim_matches where undone_at is null`)).rows[0].n).toBe(5);
   expect((await backend.db.query(`select count(*)::int n from public.manheim_option_selections where status = 'SELECTED'`)).rows[0].n).toBe(2);
   expect(errors).toEqual([]);

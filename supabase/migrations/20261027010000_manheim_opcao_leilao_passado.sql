@@ -1,13 +1,15 @@
--- ENVIAR OPÇÕES: carro com leilão passado sai sozinho das opções.
+-- ENVIAR OPÇÕES: carro com leilão passado sai sozinho das opções e da seleção.
 --  * panel_manheim_offer_expired: true quando o endsAt passou, ou quando o carro tem Lane/Run e o dia do
 --    leilão (startsAt, senão saleDate) é anterior a hoje na Flórida (America/New_York). Sem data, data
 --    ilegível, hoje ou futuro: false. Buy Now só expira pelo endsAt: no CSV a data de um Buy Now é o dia
 --    em que entrou na lista (no lote ativo, 1.405 Buy Now abertos têm essa data no passado).
 --  * panel_manheim_sale_active passa a ser "não expirado"; a base única (grouped_options) e a base leve
---    (grouped_light) tiram o expirado, exceto quando o carro tem seleção SELECTED: o que a Leo já
---    escolheu continua aparecendo e editável. Page, page_sorted, page_trim, trims, summary, contadores do
---    lote e seleção leem dessas duas bases.
--- Nada é gravado: nenhum match, lote, seleção ou V1 enviada muda.
+--    (grouped_light) tiram o expirado, também o selecionado: ele sai da seleção (não conta, não entra na
+--    V1, não é editável). Page, page_sorted, page_trim, trims, summary, contadores do lote, seleção e
+--    conferência leem dessas duas bases.
+--  * panel_manheim_offer_summary ganha ended_selected: os carros selecionados do pedido que saíram, para
+--    a tela avisar quais foram.
+-- Nada é gravado: nenhum match, lote, linha de seleção ou V1 enviada muda.
 
 create or replace function public.panel_manheim_offer_expired(p_parsed jsonb, p_at timestamptz default now())
 returns boolean language sql stable set search_path to '' as $$
@@ -26,20 +28,19 @@ returns boolean language sql stable security invoker set search_path = '' as $$
   select not public.panel_manheim_offer_expired(p, at_time);
 $$;
 
--- Base única (v3.4), com a exceção da seleção: um carro SELECTED nunca some por ter expirado.
+-- Base única (v3.4): só vendas não expiradas, com MMR.
 create or replace function public.panel_manheim_grouped_options(p_environment public.panel_environment,p_upload_id uuid,p_demand_key text default null)
 returns setof public.manheim_matches language sql stable security invoker set search_path='' set work_mem='32MB' as $$
  with source as (
   select m,coalesce(m.demand_key,case when m.journey_id is not null then 'journey:'||m.journey_id else 'ref:'||trim(m.calc_ref::text) end||':'||coalesce(m.logical_mode::text,'')) dk,
     coalesce(nullif(upper(trim(m.vehicle_json#>>'{parsed,vin}')),''),'row:'||m.id) vk,
-    coalesce(m.vehicle_json->'parsed','{}'::jsonb)||coalesce(si.sale,'{}'::jsonb) p,
-    exists(select 1 from public.manheim_option_selections ss where ss.environment=p_environment and ss.match_id=m.id and ss.status='SELECTED') chosen
+    coalesce(m.vehicle_json->'parsed','{}'::jsonb)||coalesce(si.sale,'{}'::jsonb) p
   from public.manheim_matches m
   left join public.manheim_complement_items si on si.run_id=(select c.run_id from public.manheim_sale_current c where c.environment=p_environment and c.upload_id=p_upload_id) and si.row_fingerprint=m.row_fingerprint
   where m.environment=p_environment and m.upload_id=p_upload_id and m.undone_at is null
     and (p_demand_key is null or coalesce(m.demand_key,case when m.journey_id is not null then 'journey:'||m.journey_id else 'ref:'||trim(m.calc_ref::text) end||':'||coalesce(m.logical_mode::text,''))=p_demand_key)
  ), eligible as materialized (
-  select s.*,(public.panel_manheim_sale_active(p) or chosen) and public.panel_manheim_offer_mmr((m).mmr_cents,p) is not null active,
+  select s.*,public.panel_manheim_sale_active(p) and public.panel_manheim_offer_mmr((m).mmr_cents,p) is not null active,
    case when public.panel_manheim_offer_group(p)='LANE' then 0 when public.panel_manheim_offer_group(p)='OFFLANE' then 1 else 2 end priority
   from source s
  ), grouped as (
@@ -70,8 +71,8 @@ language sql stable set search_path to '' set work_mem to '32MB' as $function$
            coalesce(nullif(upper(trim(m.vehicle_json #>> '{parsed,vin}')), ''), m.row_fingerprint) as car_key,
            m.id, m.logical_mode::text as logical_mode, m.journey_id, trim(m.calc_ref::text) as calc_ref, m.match_kind, m.criteria_hash,
            (m.presented_unit_id is not null) as presented, m.mmr_cents, m.wish_index,
-           -- panel_manheim_offer_expired (ou selecionado) e panel_manheim_offer_mmr, inline.
-           (s.match_id is not null or not (
+           -- panel_manheim_offer_expired e panel_manheim_offer_mmr, inline.
+           (not (
               coalesce(case when pg_input_is_valid(nullif(trim(x.p ->> 'endsAt'), ''), 'timestamptz') then (x.p ->> 'endsAt')::timestamptz <= now() end, false)
               or (coalesce(trim(x.p ->> 'lane'), '') <> '' and coalesce(trim(x.p ->> 'run'), '') <> ''
                   and coalesce(case when x.d ~ '^\d{4}-\d{2}-\d{2}$' and pg_input_is_valid(x.d, 'date') then x.d::date
@@ -101,3 +102,32 @@ language sql stable set search_path to '' set work_mem to '32MB' as $function$
 $function$;
 revoke all on function public.panel_manheim_grouped_light(public.panel_environment, uuid) from public, anon, authenticated;
 grant execute on function public.panel_manheim_grouped_light(public.panel_environment, uuid) to service_role;
+
+-- Resumo por pedido + os selecionados que saíram (leilão passado ou venda encerrada).
+drop function if exists public.panel_manheim_offer_summary(public.panel_environment, uuid);
+create function public.panel_manheim_offer_summary(p_environment public.panel_environment, p_upload_id uuid)
+returns table(demand_key text, lane_count integer, offlane_count integer, incomplete_count integer, selected_count integer, selected_ids uuid[], ended_selected text[])
+language sql stable security invoker set search_path = '' as $$
+ with g as materialized (
+   select * from public.panel_manheim_grouped_light(p_environment, p_upload_id)
+ ), live as (
+   select g.demand_key, count(*) filter (where g.offer_group = 'LANE')::int lane, count(*) filter (where g.offer_group = 'OFFLANE')::int offlane,
+          count(*) filter (where g.offer_group = 'INCOMPLETE')::int incomplete, count(g.selected_id)::int selected,
+          coalesce(array_agg(g.selected_id order by g.selected_id) filter (where g.selected_id is not null), '{}'::uuid[]) ids
+     from g group by g.demand_key
+ ), ended as (
+   select x.dk, array_agg(distinct x.name order by x.name) filter (where x.name <> '') names
+     from public.manheim_option_selections ss
+     join public.manheim_matches m on m.id = ss.match_id and m.environment = p_environment and m.upload_id = p_upload_id and m.undone_at is null
+    cross join lateral (select coalesce(m.demand_key, case when m.journey_id is not null then 'journey:' || m.journey_id::text else 'ref:' || trim(m.calc_ref::text) end || ':' || coalesce(m.logical_mode::text, '')) dk,
+                               coalesce(nullif(upper(trim(m.vehicle_json #>> '{parsed,vin}')), ''), m.row_fingerprint) car_key,
+                               concat_ws(' ', nullif(m.vehicle_json #>> '{parsed,year}', ''), nullif(m.vehicle_json #>> '{parsed,make}', ''), nullif(m.vehicle_json #>> '{parsed,model}', ''), nullif(m.vehicle_json #>> '{parsed,trim}', '')) name) x
+    where ss.environment = p_environment and ss.upload_id = p_upload_id and ss.status = 'SELECTED'
+      and not exists (select 1 from g where g.dk = x.dk and g.car_key = x.car_key)
+    group by x.dk
+ )
+ select coalesce(l.demand_key, e.dk), coalesce(l.lane, 0), coalesce(l.offlane, 0), coalesce(l.incomplete, 0), coalesce(l.selected, 0), coalesce(l.ids, '{}'::uuid[]), coalesce(e.names, '{}'::text[])
+   from live l full join ended e on e.dk = l.demand_key;
+$$;
+revoke all on function public.panel_manheim_offer_summary(public.panel_environment, uuid) from public, anon, authenticated;
+grant execute on function public.panel_manheim_offer_summary(public.panel_environment, uuid) to service_role;

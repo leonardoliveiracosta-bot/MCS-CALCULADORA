@@ -112,11 +112,14 @@ async function create(ctx,body,services={rows,insert},now=Date.now()){
   const vins=original.map(grouping.vinOf).filter(Boolean);
   if(new Set(vins).size!==vins.length)return {error:'VITRINE_VIN_DUPLICATE'};
   const grouped=await groupedFor(ctx,original,services);
-  if(grouped.length!==original.length)return {error:'MANHEIM_SALE_ENDED'};
-  // Leilão passado: o carro selecionado continua na lista, mas não entra na V1; a resposta diz quais saíram.
-  const ended=grouped.filter((match)=>grouping.carExpired(match.vehicle_json?.parsed||{}));
+  // Leilão passado (migração 20261027010000): o carro saiu das opções e da seleção e não entra na V1; a
+  // resposta diz quais saíram. Carro que sumiu por outro motivo continua recusando a V1 inteira.
+  const covers=(match,id)=>(match.vehicle_json?.parsed?.memberMatchIds||[match.id]).includes(id);
+  const missing=original.filter((match)=>!grouped.some((row)=>covers(row,match.id)));
+  if(missing.some((match)=>!grouping.carExpired(match.vehicle_json?.parsed||{})))return {error:'MANHEIM_SALE_ENDED'};
+  const ended=[...missing,...grouped.filter((match)=>grouping.carExpired(match.vehicle_json?.parsed||{}))];
   const removed=ended.map((match)=>vehicleName(match.vehicle_json?.parsed||{}));
-  const selected=grouped.filter((match)=>!ended.includes(match));
+  const selected=grouped.filter((match)=>!grouping.carExpired(match.vehicle_json?.parsed||{}));
   if(!selected.length)return {error:'MANHEIM_SALE_ENDED',removed};
   const removedOut=removed.length?{removed}:{};
   if(!(await batchesLive(ctx,selected.map((match)=>match.upload_id),services)))return null;

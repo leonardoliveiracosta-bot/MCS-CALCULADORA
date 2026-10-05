@@ -1,5 +1,5 @@
--- Carro com leilão passado sai sozinho das opções (migração 20261027010000): nada é apagado, a
--- seleção SELECTED continua aparecendo. Dia na Flórida (America/New_York). Buy Now só expira pelo
+-- Carro com leilão passado sai sozinho das opções e da seleção (migração 20261027010000): nada é
+-- apagado e o resumo diz quais selecionados saíram. Dia na Flórida (America/New_York). Buy Now só expira pelo
 -- endsAt (a data de um Buy Now é quando entrou na lista, não um dia de leilão).
 begin;
 do $$
@@ -25,7 +25,7 @@ begin
   if not public.panel_manheim_offer_expired('{"buyNowPrice":"25000","endsAt":"2026-10-05T10:00:00Z"}',t) then raise exception 'FALHA: Buy Now encerrado não expirou'; end if;
 end $$;
 
--- leituras de opções: expirado some, expirado selecionado continua
+-- leituras de opções: expirado some, também o selecionado
 insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password)
 values('6f100000-0000-4000-8000-000000000001','preview','6f100000-0000-4000-8000-000000000002','leilao@example.com','admin',true,false)
 on conflict do nothing;
@@ -51,29 +51,36 @@ begin
   insert into public.manheim_option_selections(environment,match_id,upload_id,demand_key,status,offer_group,mmr_cents,default_pct,final_cents)
     values('preview',kept,v_upload,dk,'SELECTED','LANE',3000000,10,3300000);
 
-  select count(*) into n from public.panel_manheim_offer_page('preview',v_upload,dk,'LANE',0,50) p where p.id=old;
-  if n<>0 then raise exception 'FALHA: page mostra o carro de leilão passado'; end if;
-  select count(*) into n from public.panel_manheim_offer_page('preview',v_upload,dk,'LANE',0,50) p where p.id in (live,kept);
-  if n<>2 then raise exception 'FALHA: page perdeu o vivo ou o selecionado (%)',n; end if;
+  -- o de leilão passado sai, selecionado ou não; o vivo e o Buy Now aberto ficam
+  select count(*) into n from public.panel_manheim_offer_page('preview',v_upload,dk,'LANE',0,50) p where p.id in (old,kept);
+  if n<>0 then raise exception 'FALHA: page mostra carro de leilão passado (%)',n; end if;
+  select count(*) into n from public.panel_manheim_offer_page('preview',v_upload,dk,'LANE',0,50) p where p.id=live;
+  if n<>1 then raise exception 'FALHA: page perdeu o vivo'; end if;
   select count(*) into n from public.panel_manheim_offer_page_sorted('preview',v_upload,dk,'LANE','year_desc',0,50);
-  if n<>2 then raise exception 'FALHA: page_sorted %',n; end if;
+  if n<>1 then raise exception 'FALHA: page_sorted %',n; end if;
   select count(*) into n from public.panel_manheim_offer_page_trim('preview',v_upload,dk,'LANE','year_desc','{}',0,50);
-  if n<>2 then raise exception 'FALHA: page_trim %',n; end if;
+  if n<>1 then raise exception 'FALHA: page_trim %',n; end if;
   select sum(car_count) into n from public.panel_manheim_offer_trims('preview',v_upload,dk,'LANE');
-  if n<>2 then raise exception 'FALHA: trims %',n; end if;
+  if n<>1 then raise exception 'FALHA: trims %',n; end if;
   select count(*) into n from public.panel_manheim_offer_page('preview',v_upload,dk,'OFFLANE',0,50);
   if n<>1 then raise exception 'FALHA: Buy Now aberto sumiu (%)',n; end if;
+  -- saiu da seleção: não conta, e o resumo diz qual saiu
   select * into s from public.panel_manheim_offer_summary('preview',v_upload) x where x.demand_key=dk;
-  if s.lane_count<>2 or s.offlane_count<>1 or s.selected_count<>1 then raise exception 'FALHA: summary % % %',s.lane_count,s.offlane_count,s.selected_count; end if;
+  if s.lane_count<>1 or s.offlane_count<>1 or s.selected_count<>0 or s.selected_ids<>'{}'::uuid[] then raise exception 'FALHA: summary % % % %',s.lane_count,s.offlane_count,s.selected_count,s.selected_ids; end if;
+  if s.ended_selected<>array['2022 Jeep Wrangler Rubicon'] then raise exception 'FALHA: aviso dos que saíram %',s.ended_selected; end if;
   select match_count into n from public.panel_manheim_batch_summary('preview',v_upload) x where x.demand_key=dk;
-  if n<>3 then raise exception 'FALHA: batch_summary %',n; end if;
-  -- nada foi apagado nem desfeito
+  if n<>2 then raise exception 'FALHA: batch_summary %',n; end if;
+  -- nada foi apagado nem desfeito: o match e a linha da seleção continuam no banco
   if (select count(*) from public.manheim_matches where upload_id=v_upload and undone_at is null)<>4 then raise exception 'FALHA: match apagado'; end if;
-  -- carro de leilão passado não pode ser selecionado de novo; o selecionado continua editável
+  if (select count(*) from public.manheim_option_selections where match_id=kept)<>1 then raise exception 'FALHA: seleção apagada'; end if;
+  -- carro de leilão passado não pode ser selecionado nem editado
   begin
     perform public.panel_manheim_offer_select_v2('preview',actor,old,'SELECT',null,null,null,null);
     raise exception 'FALHA: selecionou carro de leilão passado';
   exception when others then if sqlerrm<>'MANHEIM_SALE_ENDED' then raise; end if; end;
-  perform public.panel_manheim_offer_select_v2('preview',actor,kept,'PRICE',12,null,null,null);
+  begin
+    perform public.panel_manheim_offer_select_v2('preview',actor,kept,'PRICE',12,null,null,null);
+    raise exception 'FALHA: editou carro de leilão passado';
+  exception when others then if sqlerrm<>'MANHEIM_SALE_ENDED' then raise; end if; end;
 end $$;
 rollback;

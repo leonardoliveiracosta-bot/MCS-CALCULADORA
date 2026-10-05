@@ -3499,6 +3499,7 @@
         const answer = await request('/api/panel/manheim-options?' + new URLSearchParams({ key: demand.key, selected: '1' }).toString());
         const cars = answer.selected || [];
         pickedList.replaceChildren();
+        if (Array.isArray(answer.ended) && answer.ended.length) pickedList.append(element('p', 'warning', `Saíram da seleção (leilão passado): ${answer.ended.join(', ')}`));
         if (!cars.length) { pickedList.append(element('p', 'muted', 'Nenhum carro selecionado')); return; }
         const remove = (car) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'remove', matchId: car.matchId }) }).then(() => { state.setSelected(car.matchId, false); });
         cars.forEach((car) => {
@@ -3526,7 +3527,10 @@
     picked.addEventListener('toggle', () => { if (picked.open) loadPicked(); });
     state.listeners.push(() => { pickedSummary.textContent = `Selecionados para o cliente (${state.selectedIds.size})`; picked.hidden = !state.selectedIds.size; if (picked.open && !pickedBusy) loadPicked(); });
     paintPicked();
-    box.append(counter, advice, picked, offerGroup(demand, 'LANE', offerCounts.lane, state), offerGroup(demand, 'OFFLANE', offerCounts.offLane, state), offerGroup(demand, 'INCOMPLETE', offerCounts.incomplete, state));
+    // Leilão passado: os selecionados que saíram da seleção, pelo nome (migração 20261027010000).
+    const endedNames = Array.isArray(offerCounts.endedSelected) ? offerCounts.endedSelected : [];
+    const ended = endedNames.length ? element('p', 'warning offer-ended', `Saíram da seleção (leilão passado): ${endedNames.join(', ')}`) : null;
+    box.append(...[counter, ended, advice, picked].filter(Boolean), offerGroup(demand, 'LANE', offerCounts.lane, state), offerGroup(demand, 'OFFLANE', offerCounts.offLane, state), offerGroup(demand, 'INCOMPLETE', offerCounts.incomplete, state));
     card.offerState = state; state.card = card;
     return box;
   }
