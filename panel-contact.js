@@ -13,6 +13,11 @@ function messageChannel(message) {
   if (message?.source_kind === 'SMS_SHORTCUT') return 'SMS';
   return 'IMPORTED';
 }
+// SMS or WhatsApp of a message, by its channel (or its source when the channel is missing); null when unknown.
+function messageMedium(message) {
+  const channel = String(message?.channel || '').toUpperCase(), source = String(message?.source_kind || '').toUpperCase();
+  return channel === 'SMS' || /^SMS/.test(source) ? 'SMS' : channel === 'WHATSAPP' || /^WHATSAPP/.test(source) ? 'WHATSAPP' : null;
+}
 function clickChannel(event) {
   const values = data(event);
   const value = String(values.evento || '').trim().toLowerCase();
@@ -33,7 +38,7 @@ function contactIndex({ calcRuns = [], messages = [], messageLinks = [] } = {}) 
   const add = (map, key, entry) => { if (!key || !entry.at) return; if (!map.has(key)) map.set(key, []); map.get(key).push(entry); };
   for (const link of messageLinks) {
     const message = messagesById.get(link.message_id);
-    if (message && message.direction === 'CUSTOMER') add(byJourney, link.journey_id, { at: at(message), channel: messageChannel(message), source: 'MESSAGE' });
+    if (message && message.direction === 'CUSTOMER') add(byJourney, link.journey_id, { at: at(message), channel: messageChannel(message), medium: messageMedium(message), source: 'MESSAGE' });
   }
   // A click on the calculator's WhatsApp or SMS button is not contact: the calculator never asks for
   // a phone, so whoever clicked and did not send a message cannot be reached. Only a message that
@@ -46,7 +51,7 @@ function contactIndex({ calcRuns = [], messages = [], messageLinks = [] } = {}) 
     const entries = [...(byJourney.get(input.journeyId) || [])];
     entries.sort((left, right) => left.at - right.at || left.channel.localeCompare(right.channel));
     const latest = entries.at(-1) || null;
-    return { entered: Boolean(latest), firstAt: entries[0]?.at || null, latestAt: latest?.at || null, channel: latest?.channel || null, firstWebhookAt: Number.isFinite(firstWebhookAt) ? firstWebhookAt : null };
+    return { entered: Boolean(latest), firstAt: entries[0]?.at || null, latestAt: latest?.at || null, channel: latest?.channel || null, medium: latest?.medium || null, firstWebhookAt: Number.isFinite(firstWebhookAt) ? firstWebhookAt : null };
   };
   return { facts, firstWebhookAt: Number.isFinite(firstWebhookAt) ? firstWebhookAt : null };
 }
@@ -77,7 +82,7 @@ function purchaseWindowOf(item) {
   return value === 'now' ? 'NOW' : value === '30d' ? '30D' : value === '3m' ? '3M' : 'NONE';
 }
 function decorateContact(item, facts, insight, journey) {
-  const result = { ...item, contactAt: facts.latestAt ? new Date(facts.latestAt).toISOString() : null, contactFirstAt: facts.firstAt ? new Date(facts.firstAt).toISOString() : null, contactChannel: facts.channel || item.contactChannel || null, enteredContact: facts.entered };
+  const result = { ...item, contactAt: facts.latestAt ? new Date(facts.latestAt).toISOString() : null, contactFirstAt: facts.firstAt ? new Date(facts.firstAt).toISOString() : null, contactChannel: facts.channel || item.contactChannel || null, contactMedium: facts.medium || null, enteredContact: facts.entered };
   const owner = journey || (item && item.status ? item : null);
   const latestId = item?.latestMessage?.id || null;
   if (insightUsable(insight, owner, latestId)) { result.aiHeat = insight.heat; result.aiSummary = insight.summary_text || ''; result.aiNextStep = insight.next_step_text || ''; }
@@ -85,4 +90,4 @@ function decorateContact(item, facts, insight, journey) {
   return { ...result, heat: heat.key, heatSource: heat.source, purchaseWindow: purchaseWindowOf(journey ? { ...result, customer_deadline_text: journey.customer_deadline_text || result.customer_deadline_text } : result) };
 }
 
-module.exports = { purchaseWindowOf, contactIndex, decorateContact, heatFor, insightUsable, messageChannel, clickChannel, refOf, INSIGHT_SELECT: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at' };
+module.exports = { purchaseWindowOf, contactIndex, decorateContact, heatFor, insightUsable, messageChannel, messageMedium, clickChannel, refOf, INSIGHT_SELECT: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at' };

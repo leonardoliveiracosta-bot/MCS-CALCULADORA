@@ -128,3 +128,45 @@ test('sem lote ativo não há o que acrescentar', async () => {
   const res = await batch(startBody([{ name: 'X.csv', size: 1, chunks: [[car('ACVIN0000000010')]] }], 'f6'.repeat(16), true));
   assert.equal(res.statusCode, 409); assert.equal(res.payload.error, 'MANHEIM_APPEND_NO_ACTIVE');
 });
+
+test('acrescentar com Lane/Run ou Buy Now novo para carro que já está no lote: atualiza e aplica a regra B', async () => {
+  // Lot: …11 without any sale data (out of the combinations), …12 only with Buy Now (a combination, then selected).
+  const base = await importLot([{ name: 'MCS_B.csv', size: 80, chunks: [[
+    car('ACVIN0000000011', { lane: '', run: '' }),
+    car('ACVIN0000000012', { lane: '', run: '', buyNowPrice: '27000' })
+  ]] }], '1a'.repeat(16));
+  assert.equal((await batch({ action: 'finalize', uploadId: base.uploadId })).statusCode, 200);
+  const lot = base.uploadId;
+  assert.equal(await activeId(), lot);
+  const matchesOf = (vin) => q(`select id, journey_id::text, public.panel_manheim_offer_group(vehicle_json->'parsed') grp from public.manheim_matches where upload_id=$1 and row_fingerprint=$2 and undone_at is null`, [lot, 'vin:' + vin]);
+  assert.deepEqual(await matchesOf('ACVIN0000000011'), [], 'sem dado de venda não é combinação');
+  const [buyNow] = await matchesOf('ACVIN0000000012');
+  assert.equal(buyNow.grp, 'OFFLANE');
+  const picked = await q(`select public.panel_manheim_offer_select_v2('preview',$1,$2,'SELECT',null,'Escolhido em Buy Now',null,null) r`, [ACTOR, buyNow.id]);
+  assert.equal(picked[0].r.status, 'SELECTED');
+
+  // The appended file brings Lane/Run for both (…12 without the Buy Now price: an empty field never erases).
+  const extra = await importLot([{ name: 'MCS_LANE.csv', size: 60, chunks: [[
+    car('ACVIN0000000011', { lane: '7', run: '15' }),
+    car('ACVIN0000000012', { lane: '8', run: '22', buyNowPrice: '' })
+  ]] }], '2b'.repeat(16), true);
+  const merged = await batch({ action: 'finalize', uploadId: extra.uploadId });
+  assert.equal(merged.statusCode, 200, JSON.stringify(merged.payload));
+  assert.deepEqual([merged.payload.added, merged.payload.alreadyInBatch, merged.payload.updated, merged.payload.updatedMatches], [0, 2, 2, 1]);
+  // …11 is now a combination of the right client, in Lane/Run.
+  const fresh = await matchesOf('ACVIN0000000011');
+  assert.deepEqual(fresh.map((row) => [row.journey_id, row.grp]), [[JOURNEY, 'LANE']]);
+  // …12: same combination (same id), only the group changed; the choice stays; the Buy Now price stays.
+  const moved = await matchesOf('ACVIN0000000012');
+  assert.deepEqual(moved.map((row) => [row.id, row.grp]), [[buyNow.id, 'LANE']]);
+  assert.equal((await q(`select status from public.manheim_option_selections where match_id=$1`, [buyNow.id]))[0].status, 'SELECTED');
+  const [stored] = await q(`select vehicle_json from public.manheim_vehicles where upload_id=$1 and row_fingerprint='vin:ACVIN0000000012'`, [lot]);
+  assert.deepEqual([stored.vehicle_json.lane, stored.vehicle_json.run, stored.vehicle_json.buyNowPrice], ['8', '22', '27000']);
+  assert.equal((await q(`select matched_vehicle_count n from public.manheim_uploads where id=$1`, [lot]))[0].n, 2);
+
+  // The same file again: nothing new, nothing changes.
+  const again = await importLot([{ name: 'MCS_LANE2.csv', size: 60, chunks: [[car('ACVIN0000000011', { lane: '7', run: '15' })]] }], '3c'.repeat(16), true);
+  const second = await batch({ action: 'finalize', uploadId: again.uploadId });
+  assert.deepEqual([second.payload.updated, second.payload.updatedMatches], [0, 0]);
+  assert.deepEqual(backend.refused, []);
+});

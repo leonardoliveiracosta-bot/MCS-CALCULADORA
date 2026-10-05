@@ -27,7 +27,7 @@ async function loadBuscasBase(ctx, services = {}) {
     read(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: env }),
     read(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: env, cleared_at: 'is.null' }),
     read(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }),
-    read(ctx, 'messages', { select: 'id,direction,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: env })
+    read(ctx, 'messages', { select: 'id,direction,channel,occurred_at_utc,occurred_at_local,source_kind,created_at,undone_at', environment: env })
   ]);
   const triage = await activeRows(ctx, read);
   const explicit = await refProof.loadExplicit(ctx, services.rpc || rpc).catch(() => null);

@@ -3557,6 +3557,19 @@
   let manheimData = null;
   const queueSearchInput = document.getElementById('options-queue-search');
   if (queueSearchInput) queueSearchInput.addEventListener('input', () => paintOptionsQueue());
+  // "Ordenar" the queue: by the client's last message (never our reply). Kept in this browser only.
+  const QUEUE_SORT_KEY = 'mcs_options_queue_sort';
+  const QUEUE_SORTS = ['recent', 'oldest', 'sms', 'whatsapp'];
+  const queueSortSelect = document.getElementById('options-queue-sort');
+  if (queueSortSelect) {
+    let saved = null;
+    try { saved = localStorage.getItem(QUEUE_SORT_KEY); } catch (_) { saved = null; }
+    queueSortSelect.value = QUEUE_SORTS.includes(saved) ? saved : 'recent';
+    queueSortSelect.addEventListener('change', () => {
+      try { localStorage.setItem(QUEUE_SORT_KEY, queueSortSelect.value); } catch (_) { /* only this browser; the order still applies */ }
+      paintOptionsQueue();
+    });
+  }
 
   function renderManheim(data) {
     manheimData = data;
@@ -3605,6 +3618,9 @@
       arrivedAt: journey ? (journey.latestMessage && (journey.latestMessage.occurred_at_utc || journey.latestMessage.created_at) || null)
         : (order ? (order.lastMessageAt || order.createdAt || null) : null),
       purchaseWindow: journey ? String(journey.purchaseWindow || 'NONE') : 'NONE',
+      // The client's last message (not ours) and whether it came by SMS or WhatsApp, for "Ordenar".
+      customerAt: Date.parse((journey || order) && (journey || order).contactAt || '') || null,
+      medium: journey && journey.contactMedium || null,
     };
   }
   let v1SentCache = null;
@@ -3667,12 +3683,28 @@
     if (hay.includes(q)) return true;
     return Boolean(digits && hay.replace(/\D/g, '').includes(digits));
   }
+  // The whole queue (not only what is visible), after the search. Recent/old by the client's last
+  // message; with SMS or WhatsApp first, that channel goes first and each part from the most recent.
+  // Nobody disappears: without a message, at the end in any order; ties keep the queue's order.
+  function sortQueue(list) {
+    const mode = queueSortSelect && QUEUE_SORTS.includes(queueSortSelect.value) ? queueSortSelect.value : 'recent';
+    const medium = mode === 'sms' ? 'SMS' : mode === 'whatsapp' ? 'WHATSAPP' : null;
+    return list.map((entry, index) => ({ entry, index })).sort((a, b) => {
+      const at = a.entry.person.customerAt, bt = b.entry.person.customerAt;
+      if (!at || !bt) return (at ? 0 : 1) - (bt ? 0 : 1) || a.index - b.index;
+      if (medium) {
+        const first = (a.entry.person.medium === medium ? 0 : 1) - (b.entry.person.medium === medium ? 0 : 1);
+        if (first) return first;
+      }
+      return (mode === 'oldest' ? at - bt : bt - at) || a.index - b.index;
+    }).map(({ entry }) => entry);
+  }
   function paintOptionsQueue() {
     const root = $('options-queue');
     const note = $('options-queue-count');
     if (!root) return;
     const query = $('options-queue-search') ? $('options-queue-search').value || '' : '';
-    const list = optionsQueueData.filter(({ demand, person }) => queueMatches(demand, person, query));
+    const list = sortQueue(optionsQueueData.filter(({ demand, person }) => queueMatches(demand, person, query)));
     root.replaceChildren();
     if (note) note.textContent = query.trim() ? `${list.length} de ${optionsQueueData.length} na fila` : `${optionsQueueData.length} na fila · toque no cartão para abrir a ficha`;
     list.forEach(({ demand, person }) => renderQueueCard(root, demand, person));
@@ -4586,7 +4618,7 @@
       const DISCARD_TEXT = result.discarded ? ` · ${result.discarded} descartada(s) porque a ficha mudou durante o envio` : '';
       const duplicatesText = deduped.duplicates ? ` · ${deduped.duplicates} repetido(s) entre arquivos` : '';
       status.textContent = result.appended
-        ? `Acrescentado ao lote ativo · ${result.added} carro(s) novo(s)${result.alreadyInBatch ? ` · ${result.alreadyInBatch} já estavam no lote` : ''} · lote agora com ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`
+        ? `Acrescentado ao lote ativo · ${result.added} carro(s) novo(s)${result.alreadyInBatch ? ` · ${result.alreadyInBatch} já estavam no lote` : ''}${result.updated ? ` · ${result.updated} atualizado(s) com Lane/Run ou Buy Now novo${result.updatedMatches ? ` (${result.updatedMatches} combinação(ões) nova(s))` : ''}` : ''} · lote agora com ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`
         : `Lote ativo · ${result.fileCount || plan.length} arquivo(s) · ${result.vehicleCount} carros · ${result.matchedVehicleCount} carro(s) com combinação · ${ignoredRows} linha(s) ignorada(s)${duplicatesText}${DISCARD_TEXT}`;
       renderImportSummary(ai, uniqueCount);
       if (ai.rowsSentToAi || ai.review.length) await request('/api/panel/actions', { method: 'POST', body: JSON.stringify({ action: 'manheim_ai_summary', uploadId: result.uploadId, summary: aiSummary(ai) }) }).catch(() => null);
