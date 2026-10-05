@@ -109,8 +109,7 @@ for (const width of [1280, 390]) {
     await expect(first).toContainText('Mensagem do cliente sem resposta');
     await expect(first).toContainText('26 h');
     await expect(first).toContainText('Responder o cliente');
-    // The same numbers everywhere: badge, "N de N clientes" and the sections.
-    await expect(page.locator('[data-count="clients"]').first()).toHaveText('4');
+    // The same numbers everywhere: "N de N clientes" and the sections (the TODOS tab badge is gone with the tab).
     await expect(page.locator('#clients-period-note')).toContainText('3 de 4 clientes nesta lista · 1 fora dos filtros');
     await expect(list.locator('[data-group="NAO_ATENDIDO"] .contact-group-count')).toHaveText('1');
     await expect(list.locator('[data-group="ATENDIDO"] .contact-group-count')).toHaveText('2');
