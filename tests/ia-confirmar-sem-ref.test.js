@@ -69,6 +69,11 @@ test('ficha sem Ref: pagamento e lista de desejo confirmados pela jornada, com a
   const [journey] = await q(`select payment_text,criteria_json,confirmed_total_ceiling_cents,budget_cents from public.journeys where id=$1`, [id(21)]);
   assert.equal(journey.payment_text, 'fin');
   assert.deepEqual(journey.criteria_json.wishlists, [{ make: 'Honda', model: 'Civic' }]);
+  // Confirming the payment also ticks "Pagamento confirmado" (point 3), like the ceiling ticks point 2.
+  const [paid] = await q(`select status from public.journey_checklist where journey_id=$1 and point_number=3`, [id(21)]);
+  assert.equal(paid.status, 'COMPLETE');
+  const [deadlinePoint] = await q(`select status from public.journey_checklist where journey_id=$1 and point_number=4`, [id(21)]);
+  assert.equal(deadlinePoint.status, 'OPEN', 'only the confirmed item ticks its point');
   assert.equal(journey.criteria_json.wishlistOverride, true);
   const notes = await q(`select ref_code,body_text,created_by,jsonb_array_length(distributed_json) n from public.lead_notes where journey_id=$1`, [id(21)]);
   assert.deepEqual(notes, [{ ref_code: null, body_text: 'Leitura da IA', created_by: USER, n: 2 }]);
