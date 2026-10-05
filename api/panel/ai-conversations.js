@@ -38,6 +38,12 @@ module.exports=async(req,res)=>{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({p_environment:ctx.environment,p_actor:ctx.panel.id,p_journey:body.journeyId,
           p_reading:body.readingId,p_item_ids:body.itemIds,p_key:body.confirmationKey,p_initial:{vehicle:journey.vehicle_text,wishes:journey.criteria_json?.wishlists||[],maxBidCents:journey.budget_cents,payment:journey.payment_text,deadline:journey.customer_deadline_text}})
       });
+      // A confirmed payment or deadline also ticks its checklist point ("Pagamento confirmado" 3, "Prazo
+      // confirmado" 4), as the confirmed ceiling already ticks point 2 inside the confirmation itself.
+      const points=[...new Set(chosen.filter((row)=>body.itemIds.includes(row.id)).map((row)=>({payment:3,deadline:4})[row.item_json?.type]).filter(Boolean))];
+      if(points.length){const at=new Date().toISOString();
+        try{await patchRows(ctx,'journey_checklist',{environment:'eq.'+ctx.environment,journey_id:'eq.'+body.journeyId,point_number:'in.('+points.join(',')+')',status:'eq.OPEN'},{status:'COMPLETE',completed_at:at,updated_at:at});}
+        catch(error){console.error('AI_CHECKLIST_TICK_FAILED',error&&(error.code||error.status||error.message));}}
       return send(res,201,result);
     }
     if(body.action==='discard'){
