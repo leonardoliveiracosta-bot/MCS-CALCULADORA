@@ -166,7 +166,7 @@ test('varredura de todos os botões do painel', async ({ page }) => {
   if (want('PESQUISAS') || want('BUSCAR')) { await view('requests'); await openDetails(); await sweep('BUSCAR CARROS', '#requests-panel'); }
   // OPÇÕES before CLIENTES: the CLIENTES sweep clicks "Desligar"/"Tratado"/"Não é lead" on the only ficha,
   // which (correctly) takes it out of OPÇÕES.
-  if (want('OPÇÕES')) { await view('searches'); await expect(page.locator('#searches-panel .manheim-lead').first()).toBeVisible({ timeout: 60000 }); await page.waitForTimeout(1500);
+  if (want('OPÇÕES')) { await view('searches'); await expect(page.locator('#options-queue .options-queue-card').first()).toBeVisible({ timeout: 60000 }); /* fila (#218) */ await page.waitForTimeout(1500);
   await openDetails(); await sweep('OPÇÕES', '#searches-panel', 3); }
   if (want('CLIENTES')) { await view('clients'); await openDetails(); await sweep('CLIENTES', '#clients-panel'); }
   // A ficha: opened from CLIENTES (Abrir lead), then every button inside it (never "Voltar").
