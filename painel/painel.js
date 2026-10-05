@@ -5609,16 +5609,32 @@
   // operator is typing, and after an error the wait doubles (up to 15 minutes) instead of insisting.
   let refreshCoordinator = null, refreshScheduler = null;
   const REFRESH_MS = Number(window.MCS_REFRESH_MS) > 0 ? Number(window.MCS_REFRESH_MS) : 120000;
-  const refreshNote = (text, retry) => {
+  const refreshNote = (text, retry, label = 'Tentar novamente') => {
     let note = $('refresh-note');
     if (!note && text) { note = element('span', 'muted refresh-note'); note.id = 'refresh-note'; note.setAttribute('role', 'status'); document.querySelector('.freshness')?.append(note); }
     if (!note) return;
+    if (text && note.dataset.text === text) return;
+    note.dataset.text = text || '';
     note.replaceChildren(text ? element('span', '', text) : '');
     if (text && retry) {
-      const button = element('button', 'quiet small', 'Tentar novamente'); button.type = 'button';
+      const button = element('button', 'quiet small', label); button.type = 'button';
       button.addEventListener('click', () => { button.disabled = true; button.textContent = 'Atualizando…'; if (refreshScheduler) refreshScheduler.runNow(); else refreshCurrentPreservingState().catch(() => {}); });
       note.append(button);
     }
+  };
+  // ENVIAR OPÇÕES with work open (a group of cars, the trim box or the V1 text on screen): the
+  // automatic refresh waits, because redrawing would close it all; the operator refreshes when ready.
+  const PAUSED_TEXT = 'Atualização automática em pausa enquanto há grupo aberto em ENVIAR OPÇÕES';
+  const visibleNode = (node) => Boolean(node && node.isConnected && node.getClientRects().length);
+  const openWork = () => currentView === 'searches' && ([...document.querySelectorAll('details.offer-group[open], details.offer-trim[open], details.offer-picked[open]')].some(visibleNode)
+    || [...document.querySelectorAll('textarea.v1-send-text')].some((box) => visibleNode(box) && String(box.value || '').trim()));
+  const refreshBusy = () => {
+    if (operatorIsTyping()) return true;
+    const work = openWork();
+    const note = $('refresh-note');
+    if (work) refreshNote(PAUSED_TEXT, true, 'Atualizar');
+    else if (note && note.dataset.text === PAUSED_TEXT) refreshNote('');
+    return work;
   };
   function stopAutoRefresh() {
     if (refreshScheduler) refreshScheduler.stop();
@@ -5634,7 +5650,7 @@
     try { storage = window.localStorage; } catch (_) { storage = null; }
     refreshCoordinator = MCSRefresh.createCoordinator({ storage, document, window, channel }).start();
     refreshScheduler = MCSRefresh.createScheduler({
-      coordinator: refreshCoordinator, intervalMs: REFRESH_MS, maxBackoffMs: 15 * 60000, isBusy: operatorIsTyping,
+      coordinator: refreshCoordinator, intervalMs: REFRESH_MS, maxBackoffMs: 15 * 60000, isBusy: refreshBusy,
       run: async () => { await loadCurrent(); await loadCaptureWarning(); },
       onSuccess: () => refreshNote(''),
       onFailure: (failure, nextMs) => { console.error('Atualização automática falhou', failure); refreshNote(`Não foi possível atualizar · os dados mostrados são os últimos confirmados · nova tentativa em ${Math.round(nextMs / 60000) || 1} min`, true); }

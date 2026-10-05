@@ -345,7 +345,9 @@ test('C5/A24/A14/A20: sessão, atualização automática, await e responder pelo
   assert.match(routeSession, /\['AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED'\]\.includes/);
   assert.doesNotMatch(panel, /catch \(_\) \{ clearInterval\(refreshTimer\); \}/);
   // One refresh at a time (the scheduler), never while the operator is typing.
-  assert.match(panel, /isBusy: operatorIsTyping/);
+  // Typing still pauses the refresh; work open in ENVIAR OPÇÕES pauses it too (refreshBusy).
+  assert.match(panel, /isBusy: refreshBusy/);
+  assert.match(panel, /const refreshBusy = \(\) => \{\n\s+if \(operatorIsTyping\(\)\) return true;/);
   assert.match(panel, /MCSRefresh\.createScheduler\(/);
   const actions = read('api/panel/actions.js');
   assert.doesNotMatch(actions.slice(actions.indexOf('module.exports = async')), /return action[A-Za-z]+\(/);
