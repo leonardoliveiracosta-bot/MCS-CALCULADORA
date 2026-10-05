@@ -1,0 +1,2871 @@
+ o lance oficial do cliente · Abra a ficha e confirme o valor · Sem isso estes carros não viram opção válida nem vão para o envio'));
+     if (first.state === 'COM_CANDIDATOS') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'candidato' : 'candidatos'} no lote ativo por modelo, ano e milhagem. O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada`));
+     if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo · Continua aqui para a próxima importação'));
+-    if (first.comparedAt) card.append(element('p', 'muted', `${first.comparedAtImport ? 'Comparado na importação de' : 'Última comparação'}: ${formatDate(first.comparedAt)}`));
+     if (first.missing && first.missing.length) card.append(element('p', 'muted', 'Não informado (sem restrição): ' + first.missing.join(', ')));
+     if (first.typeNotChecked) card.append(element('p', 'muted', 'O tipo de carroceria não vem no arquivo do Manheim: as opções não filtram por tipo'));
+     if (first.state === 'PRECISA_DETALHE') card.append(element('p', 'request-lacks', first.lacksText || ''),
+@@ -4205,23 +4086,9 @@
+         }
+       }
+       line.append(who);
+-      // Work stage of this ficha and type (busca salva no Manheim, opções enviadas).
++      // The one manual action that stays, where it resolves: save the search in Manheim.
+       const stage = item.person?.journeyId && item.searchMode ? searchStages.get(item.person.journeyId + ':' + item.searchMode) : null;
+-      if (stage) line.append(searchStageLine(stage, reload));
+-      // The client's case: the ficha when known; a conversation request only through its contact,
+-      // and only when that contact has exactly one ficha.
+-      const personJourney = UUID_RE.test(String(item.person?.journeyId || '')) ? item.person.journeyId : null;
+-      const personRef = REF_CODE_RE.test(String(item.person?.ref || '').toUpperCase()) ? String(item.person.ref).toUpperCase() : null;
+-      const personContact = UUID_RE.test(String(item.person?.contactId || '')) ? item.person.contactId : null;
+-      const caseBox = element('details', 'request-case');
+-      caseBox.append(element('summary', '', 'Resumo do caso'));
+-      caseBox.append(contextSlot({ journeyId: personJourney, ref: personJourney ? null : personRef, contactId: personJourney || personRef ? null : personContact }, { focus: 'search', emptyText: 'Pedido sem cliente identificado: não é ligado a nenhuma ficha.' }));
+-      caseBox.addEventListener('toggle', () => { if (caseBox.open) hydrateContexts(caseBox); });
+-      line.append(caseBox);
+-      const evidence = element('details', 'request-evidence');
+-      evidence.append(element('summary', '', `Evidências (${(item.evidence || []).length})`));
+-      (item.evidence || []).forEach((entry) => evidence.append(element('p', 'muted', (entry.at ? formatDate(entry.at) + ' · ' : '') + entry.text)));
+-      line.append(evidence);
++      if (stage && stage.stage === 'MISSING') line.append(saveSearchButton(stage, reload));
+       // The same request read by the AI from the conversation: evidence of this request, not a second one.
+       (item.aiEvidence || []).forEach((reading) => {
+         const box = element('details', 'request-evidence request-ai-evidence');
+@@ -4527,8 +4394,9 @@
+     savedSearchesData = data;
+     const intro = $('manheim-saved-searches');
+     intro.replaceChildren(element('p','muted','Cada linha é uma busca para você salvar no Manheim · As primeiras atendem mais clientes · Conta só quem entrou em contato · POR VALOR e POR ANO E MILHAGEM têm porcentagens separadas; o que está em revisão não entra no %'));
+-    const roots = { VALOR: modeRoot('VALOR', 'saved'), CARRO: modeRoot('CARRO', 'saved') };
+-    Object.entries(roots).forEach(([mode, root]) => { root.replaceChildren(); if (!data.groups.some((group) => group.mode === mode)) empty(root, 'Nenhuma busca ativa neste modo'); });
++    const root = $('buscas-saved-list');
++    if (root) root.replaceChildren();
++    if (!root) return;
+     const mode='customers';
+     const rankOf=(group)=>group.searches===null||group.searches===undefined?Infinity:group.searches;
+     const groups=data.groups.slice().sort((a,b)=>(mode==='vehicle'?`${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`,'pt-BR'):mode==='recent'?(Date.parse(b.latestAt||0)-Date.parse(a.latestAt||0)||rankOf(a)-rankOf(b)):rankOf(a)-rankOf(b)));
+@@ -4539,7 +4407,6 @@
+       return parts.join(' · ');
+     };
+     groups.forEach((group) => {
+-      const root = roots[group.mode];
+       if (!root) return;
+       const line = element('article', 'saved-search-line');
+       line.dataset.mode = group.mode;
+@@ -4997,36 +4864,6 @@
+     $('manheim-status').textContent = manheimFailureText(failure);
+   }
+ 
+-  function renderRecords(items) {
+-    const root = $('records-list');
+-    root.replaceChildren();
+-    setCount('records', items.length);
+-    if (!items.length) {
+-      clearRecordDetail('Nenhuma ficha selecionada');
+-      return empty(root, 'Nenhuma ficha criada');
+-    }
+-    const sorted = items.slice();
+-    sorted.forEach((item) => {
+-      const card = element('article', 'search-hit record-list-card');
+-      const text = identityHeader(item, { preview: item.latestMessage && item.latestMessage.body_text || '' });
+-      const controls = element('div', 'record-card-controls');
+-      const recordStatus = item.enabled === false ? 'DESLIGADO' : item.status;
+-      controls.append(makeBadge(item.stage, item.stage === 'RESPONDIDO' ? 'blue' : ''), makeBadge(recordStatus, recordStatus === 'ATIVO' ? 'green' : recordStatus === 'RESPONDIDO' ? 'blue' : ''));
+-      if(item.disposition)controls.append(makeBadge(item.disposition==='TREATED'?'Tratado':`Descartado${item.discardReason?' · '+discardLabel(item.discardReason):''}`,item.disposition==='DISCARDED'?'red':'blue'));
+-      if(item.searchStageLabel)controls.append(makeBadge(item.searchStageLabel,item.searchStage==='SENT'?'green':item.searchStage==='SAVED'?'blue':'yellow'));
+-      const heat=heatBadge(item);if(heat)controls.append(heat);
+-      if(item.pendingAiCount)controls.append(makeBadge(`📝 ${item.pendingAiCount} itens para confirmar`,'yellow'));
+-      if(item.aiLinkSuggested)controls.append(makeBadge('🔗 ligação sugerida','yellow'));
+-      const open = element('button', 'quiet small', 'Abrir ficha');
+-      open.type = 'button';
+-      open.addEventListener('click', () => openDetail('ficha', item.id));
+-      controls.append(open, journeySwitch(item, () => loadCurrent()));
+-      card.append(text, controls);
+-      makeCardClickable(card, () => openDetail('ficha', item.id));
+-      root.append(card);
+-    });
+-  }
+-
+   function definition(list, term, value) {
+     const wrapper = element('div');
+     wrapper.append(element('dt', '', term), element('dd', '', value === null || value === undefined || value === '' ? '—' : value));
+@@ -5498,43 +5335,6 @@
+     root.classList.remove('hidden');
+   }
+ 
+-  // From CLIENTES the report follows the CLIENTES period (last real activity), not a date range.
+-  let reportClients = null;
+-  function openReport(view) {
+-    reportView = view;
+-    reportClients = view === 'records' && clientsOpen() ? { activity: clientsPeriod(), since: MCSOrigin.periodCutoff(clientsPeriod()) } : null;
+-    $('report-period-field').classList.toggle('hidden', Boolean(reportClients));
+-    $('report-custom').classList.toggle('hidden', Boolean(reportClients) || $('report-period').value !== 'custom');
+-    $('report-origin-note').classList.toggle('hidden', !reportClients);
+-    $('report-origin-note').textContent = reportClients ? (reportClients.activity === 'all' ? 'Período de CLIENTES: tudo, sem corte por data' : `Período de CLIENTES: atividade real ${MCSOrigin.periodLabel(reportClients.activity)}`) : '';
+-    $('report-text').value = '';
+-    $('report-status').textContent = '';
+-    $('report-dialog').showModal();
+-  }
+-
+-  async function generateReport() {
+-    const period = $('report-period').value;
+-    const params = reportClients ? new URLSearchParams({ view: 'records', origin: 'clients', activity: reportClients.activity }) : new URLSearchParams({ period, view: reportView });
+-    if (reportClients && reportClients.since !== null) params.set('since', new Date(reportClients.since).toISOString());
+-    if (!reportClients && period === 'custom') {
+-      params.set('from', $('report-from').value);
+-      params.set('to', $('report-to').value);
+-    }
+-    try {
+-      const report = await request('/api/panel/report?' + params.toString());
+-      $('report-text').value = report.text;
+-      $('report-status').textContent = 'Relatório gerado';
+-    } catch (_) {
+-      $('report-status').textContent = 'Não foi possível gerar o relatório para esse período';
+-    }
+-  }
+-
+-  async function copyReport() {
+-    if (!$('report-text').value) return;
+-    await navigator.clipboard.writeText($('report-text').value);
+-    $('report-status').textContent = 'Texto copiado';
+-  }
+-
+   const SESSION_KEY = 'mcs_panel_session';
+   const storeSession = () => {
+     const storage = persistentSession ? localStorage : sessionStorage;
+@@ -5824,7 +5624,7 @@
+       }
+     });
+     window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
+-    ['today','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(clientsOpen())loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
++    ['today','clients','pending','searches'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(clientsOpen())loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
+     $('today-more')?.addEventListener('toggle',()=>{if(clientsOpen()&&!clientsRestoring)loadClients().catch(()=>{});});
+     $('clients-followup')?.addEventListener('toggle',()=>{if($('clients-followup').open)loadFollowup();});
+     $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(clientsOpen())loadClients();refreshCounters().catch(()=>{});});
+@@ -5843,11 +5643,7 @@
+     MCSAction.bind($('triage-run-pending'),()=>({scope:$('triage-run-pending').parentElement,commit:async()=>{const result=await request('/api/panel/triage',{method:'POST',body:JSON.stringify({action:'run_pending'})});if(result.skipped)throw Object.assign(Error('TRIAGE_OFF'),{code:'TRIAGE_OFF'});if(result.inProgress&&!result.processed)throw Object.assign(Error('TRIAGE_BUSY'),{code:'TRIAGE_BUSY'});if(result.failed||result.deferred||result.inProgress)throw Object.assign(Error('TRIAGE_PARTIAL'),{code:'TRIAGE_PARTIAL'});return result;},successText:'Leitura concluída, confira Precisa de você',refresh:()=>loadTriage().then(()=>refreshCounters().catch(()=>{})),errorText:(error)=>error?.code==='TRIAGE_ADMIN_ONLY'?'Só o administrador pode iniciar':error?.code==='TRIAGE_OFF'?'Triagem desligada, nada foi lido':error?.code==='TRIAGE_BUSY'?'Já em processamento pela rotina automática, confira em instantes':error?.code==='TRIAGE_PARTIAL'?'Parte das conversas ficou pendente, tente de novo':'Não consegui classificar, tente de novo'}));
+     // One export at a time: the button stays blocked until the file is done or failed, and a failure is said on screen.
+     $('clients-download').addEventListener('click',async()=>{const button=$('clients-download');if(button.disabled)return;button.disabled=true;button.parentElement?.querySelectorAll('.export-error').forEach((node)=>node.remove());try{await downloadClientsCsv();}catch(failure){button.after(element('span','error export-error',failure&&failure.code==='EXPORT_INCOMPLETE'?'A planilha ficaria incompleta; tente de novo':'Não foi possível baixar a planilha'));}finally{button.disabled=false;}});
+-    document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => openReport(button.dataset.report)));
+     $('global-search').addEventListener('submit', (event) => globalSearch(event).catch(() => { $('search-results').replaceChildren(element('p', 'muted', 'Não foi possível buscar')); $('search-results').classList.remove('hidden'); }));
+-    $('report-period').addEventListener('change', () => $('report-custom').classList.toggle('hidden', $('report-period').value !== 'custom'));
+-    $('report-generate').addEventListener('click', generateReport);
+-    $('report-copy').addEventListener('click', () => copyReport().catch(() => { $('report-status').textContent = 'Não foi possível copiar'; }));
+     $('whatsapp-files').addEventListener('change', (event) => importFiles([...event.target.files]).catch(showImportFailure));
+     $('history-import-file').addEventListener('change', (event) => {
+       historyImportFile = event.target.files?.[0] || null;
+diff --git a/panel-openai-budget.js b/panel-openai-budget.js
+index 0bfee53..1fd2a93 100644
+--- a/panel-openai-budget.js
++++ b/panel-openai-budget.js
+@@ -85,7 +85,7 @@ async function openAiFailure(response) {
+ // the reservation holds the real cost until the feature writes it to its own table
+ // (recorded); a provider refusal releases it; a timeout or network failure keeps the worst case
+ // (it may have been billed).
+-const OUTPUT_CAP = Object.freeze({ PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 1500, TRADUCAO_CONVERSA: 8000 });
++const OUTPUT_CAP = Object.freeze({ PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 1500, TRADUCAO_CONVERSA: 8000, V2_DRAFT: 2000 });
+ const NOT_BILLED = new Set(['OPENAI_FAILED', 'OPENAI_RATE_LIMIT', 'OPENAI_QUOTA', 'OPENAI_MODEL_UNAVAILABLE', 'OPENAI_KEY_INVALID']);
+ const failure = (code) => Object.assign(new Error(code), { code });
+ const isProduction = () => process.env.VERCEL_ENV === 'production';
+diff --git a/tests/abertura-rapida.test.js b/tests/abertura-rapida.test.js
+index cebc56b..8e50ffa 100644
+--- a/tests/abertura-rapida.test.js
++++ b/tests/abertura-rapida.test.js
+@@ -43,10 +43,10 @@ test.before(async () => {
+ });
+ test.after(async () => { if (backend) await backend.db.close(); });
+ 
+-test('boot: as 5 listas da abertura numa chamada, iguais às separadas, com menos leituras no banco', async () => {
++test('boot: as 4 listas da abertura numa chamada, iguais às separadas, com menos leituras no banco', async () => {
+   reads = 0;
+   const separate = {};
+-  for (const [name, file, url] of [['today', 'today', '/api/panel/today?sort=ready'], ['vitrine', 'vitrine-requests', '/api/panel/vitrine-requests'], ['entry', 'entry', '/api/panel/entry'], ['triage', 'triage', '/api/panel/triage'], ['whatsapp', 'whatsapp', '/api/panel/whatsapp']]) {
++  for (const [name, file, url] of [['today', 'today', '/api/panel/today?sort=ready'], ['entry', 'entry', '/api/panel/entry'], ['triage', 'triage', '/api/panel/triage'], ['whatsapp', 'whatsapp', '/api/panel/whatsapp']]) {
+     const res = await call(file, url); assert.equal(res.statusCode, 200, name); separate[name] = res.payload;
+   }
+   const separateReads = reads;
+@@ -54,7 +54,7 @@ test('boot: as 5 listas da abertura numa chamada, iguais às separadas, com meno
+   const boot = await call('boot', '/api/panel/boot', 'POST', { part: 'main', sort: 'ready', have: {} });
+   assert.equal(boot.statusCode, 200);
+   const parts = boot.payload.parts;
+-  for (const name of ['today', 'vitrine', 'entry', 'triage', 'whatsapp']) assert.equal(parts[name].ok, true, name + ' ' + JSON.stringify(parts[name]));
++  for (const name of ['today', 'entry', 'triage', 'whatsapp']) assert.equal(parts[name].ok, true, name + ' ' + JSON.stringify(parts[name]));
+   console.log('LEITURAS', { separadas: separateReads, boot: reads });
+   assert.ok(reads < separateReads, `boot leu ${reads} vezes; separadas ${separateReads}`);
+   const rebuilt = parts.today.order.map((key) => parts.today.items[key]);
+@@ -65,7 +65,7 @@ test('boot: as 5 listas da abertura numa chamada, iguais às separadas, com meno
+   Object.entries(parts).forEach(([name, got]) => { have[name] = got.hash; });
+   const again = await call('boot', '/api/panel/boot', 'POST', { part: 'main', sort: 'ready', have });
+   const diff = (a, b, at = '') => { if (JSON.stringify(a) === JSON.stringify(b)) return []; if (!a || !b || typeof a !== 'object') return [at]; return [...new Set([...Object.keys(a), ...Object.keys(b)])].flatMap((k) => diff(a[k], b[k], at + '.' + k)); };
+-  for (const name of ['vitrine', 'entry', 'triage', 'whatsapp']) assert.equal(again.payload.parts[name].same, true, name);
++  for (const name of ['entry', 'triage', 'whatsapp']) assert.equal(again.payload.parts[name].same, true, name);
+   const today = again.payload.parts.today;
+   assert.ok(today.same || Object.keys(today.items || {}).length === 0, 'casos já conhecidos não voltam');
+ });
+diff --git a/tests/aud001-atualizacao.spec.js b/tests/aud001-atualizacao.spec.js
+index 4584c01..56b22bb 100644
+--- a/tests/aud001-atualizacao.spec.js
++++ b/tests/aud001-atualizacao.spec.js
+@@ -83,7 +83,9 @@ test('grupo aberto: a atualização automática não fecha o grupo e oferece "At
+   page.on('request', (request) => { if (request.url().includes('/api/panel/records')) loads += 1; });
+   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+   await page.locator('[data-view="searches"]').click();
+-  const group = page.locator('#buscas-carro .manheim-lead').first().locator('.offer-group[data-group="LANE"]');
++  // The options live in the ficha now: open it from the queue card.
++  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
++  const group = page.locator('#detail-panel .ficha-demand .offer-group[data-group="LANE"]').first();
+   await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
+   // Nothing open: the automatic refresh runs as before.
+   const before = loads;
+diff --git a/tests/aud001-tela.spec.js b/tests/aud001-tela.spec.js
+index 1474116..19ad11b 100644
+--- a/tests/aud001-tela.spec.js
++++ b/tests/aud001-tela.spec.js
+@@ -79,7 +79,9 @@ test('AUD-001 #5/#76: página seguinte com carro já na tela não desenha o carr
+   await openPanel(page);
+   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+   await page.locator('[data-view="searches"]').click();
+-  const group = page.locator('#buscas-carro .manheim-lead').first().locator('.offer-group[data-group="LANE"]');
++  // The options live in the ficha now: open it from the queue card.
++  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
++  const group = page.locator('#detail-panel .ficha-demand .offer-group[data-group="LANE"]').first();
+   await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
+   // The batch changed between pages (offset paging): the next page repeats a car already on screen.
+   await page.evaluate(() => {
+@@ -110,7 +112,9 @@ test('AUD-001 #88: grupo com filtro de trim salvo não mostra "25 de 25" antes d
+   await openPanel(page);
+   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+   await page.locator('[data-view="searches"]').click();
+-  const group = () => page.locator('#buscas-carro .manheim-lead').first().locator('.offer-group[data-group="LANE"]');
++  // The options live in the ficha now: open it from the queue card.
++  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
++  const group = () => page.locator('#detail-panel .ficha-demand .offer-group[data-group="LANE"]').first();
+   await expect(group().locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
+   await group().locator('> summary').click();
+   await group().locator('.offer-trim > summary').click();
+@@ -118,6 +122,7 @@ test('AUD-001 #88: grupo com filtro de trim salvo não mostra "25 de 25" antes d
+   await expect(group().locator('> summary')).toHaveText(/\(5 de 25\)$/);
+   await page.reload({ waitUntil: 'domcontentloaded' });
+   await page.locator('[data-view="searches"]').click();
++  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
+   await expect(group().locator('> summary')).toHaveText(/Lane/, { timeout: 60000 });
+   await expect(group().locator('> summary')).not.toHaveText(/25 de 25/);
+   await group().locator('> summary').click();
+diff --git a/tests/aud001-venda.spec.js b/tests/aud001-venda.spec.js
+index 27f9479..adc6391 100644
+--- a/tests/aud001-venda.spec.js
++++ b/tests/aud001-venda.spec.js
+@@ -75,11 +75,13 @@ async function openPanel(page, optionPages = []) {
+ }
+ 
+ 
+-test('AUD-001 #57: seleção continua depois de reordenar a coluna (não volta ao retrato antigo)', async ({ page }) => {
++test('AUD-001 #57: seleção continua depois de reordenar o grupo (não volta ao retrato antigo)', async ({ page }) => {
+   await openPanel(page);
+   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+   await page.locator('[data-view="searches"]').click();
+-  const card = () => page.locator('#buscas-carro .manheim-lead').first();
++  // The options live in the ficha now: open it from the queue card.
++  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
++  const card = () => page.locator('#detail-panel .ficha-demand').first();
+   const group = () => card().locator('.offer-group[data-group="LANE"]');
+   await expect(group().locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
+   await group().locator('> summary').click();
+@@ -87,10 +89,10 @@ test('AUD-001 #57: seleção continua depois de reordenar a coluna (não volta a
+   await row.locator('[data-offer-action="select"]:visible').click();
+   await expect(row).toHaveAttribute('data-status', 'SELECTED');
+   await expect(card().locator('.offer-counter')).toContainText('1 de 10');
+-  // Reorder the column: the cards are drawn again from the snapshot of the page.
+-  await page.locator('#options-sort-carro').selectOption({ index: 1 });
++  // Reorder the group: the list is drawn again from the snapshot of the page.
++  await group().locator('.offer-sort-select').selectOption({ index: 1 });
+   await expect(card().locator('.offer-counter')).toContainText('1 de 10');
+-  await page.locator('#options-sort-carro').selectOption({ index: 0 });
++  await group().locator('.offer-sort-select').selectOption({ index: 0 });
+   await expect(card().locator('.offer-counter')).toContainText('1 de 10');
+ });
+ 
+@@ -98,7 +100,9 @@ test('AUD-001 #61: valor em dólar digitado e Selecionar logo em seguida grava o
+   await openPanel(page);
+   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+   await page.locator('[data-view="searches"]').click();
+-  const card = page.locator('#buscas-carro .manheim-lead').first();
++  // The options live in the ficha now: open it from the queue card.
++  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
++  const card = page.locator('#detail-panel .ficha-demand').first();
+   const group = card.locator('.offer-group[data-group="LANE"]');
+   await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
+   await group.locator('> summary').click();
+diff --git a/tests/buscas-split.spec.js b/tests/buscas-split.spec.js
+index ca98304..cdb78e6 100644
+--- a/tests/buscas-split.spec.js
++++ b/tests/buscas-split.spec.js
+@@ -6,7 +6,7 @@ const fs = require('node:fs');
+ const os = require('node:os');
+ const path = require('node:path');
+ const { test, expect } = require('@playwright/test');
+-const { asSummary, optionsPage, openAllOptions } = require('./fixtures/buscas-simulado');
++const { asSummary, optionsPage } = require('./fixtures/buscas-simulado');
+ 
+ const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
+ if (process.env.CHROMIUM_PATH) test.use({ launchOptions: { executablePath: process.env.CHROMIUM_PATH } });
+@@ -34,9 +34,9 @@ function manheimData(state) {
+   const liveOld = [match('65000000-0000-4000-8000-000000000009', 'CARRO', 'BATE', 'VINOLD', { journey_id: JOURNEY })];
+   const matches = state.undone ? liveOld : liveNew;
+   const demands = [
+-    { key: `journey:${JOURNEY}:VALOR`, mode: 'VALOR', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [], stage: 'SAVED', stageLabel: '💾 Busca salva no Manheim' },
+-    { key: `journey:${JOURNEY}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5', trim: 'xDrive40i', yearMin: 2020, yearMax: 2025, minMiles: 50000, maxMiles: 90000 }], bidCents: null, issues: [], stage: 'MISSING', stageLabel: '🔍 Busca não salva no Manheim' },
+-    { key: 'ref:VAAA2:VALOR', mode: 'VALOR', targetType: 'ORDER', journeyId: null, ref: 'VAAA2', name: 'Pedido Só Valor', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [] }
++    { key: `journey:${JOURNEY}:VALOR`, mode: 'VALOR', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', calcRef: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [], stage: 'SAVED', stageLabel: '💾 Busca salva no Manheim', matchCount: 2, offer: { lane: 1, offLane: 1, incomplete: 0, selected: 0, selectedIds: [], max: 10 } },
++    { key: `journey:${JOURNEY}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: JOURNEY, ref: 'DCCC4', calcRef: 'DCCC4', name: 'Cliente Dois Modos', wishes: [{ make: 'BMW', model: 'X5', trim: 'xDrive40i', yearMin: 2020, yearMax: 2025, minMiles: 50000, maxMiles: 90000 }], bidCents: null, issues: [], stage: 'MISSING', stageLabel: '🔍 Busca não salva no Manheim', matchCount: 1, offer: { lane: 1, offLane: 0, incomplete: 0, selected: 0, selectedIds: [], max: 10 } },
++    { key: 'ref:VAAA2:VALOR', mode: 'VALOR', targetType: 'ORDER', journeyId: null, ref: 'VAAA2', calcRef: 'VAAA2', name: 'Pedido Só Valor', wishes: [{ make: 'BMW', model: 'X5' }], bidCents: 5000000, issues: [], matchCount: 1, offer: { lane: 0, offLane: 1, incomplete: 0, selected: 0, selectedIds: [], max: 10 } }
+   ];
+   const count = (mode) => ({ demands: demands.filter((demand) => demand.mode === mode).length, served: new Set(matches.filter((item) => item.logical_mode === mode).map((item) => item.journey_id || item.calc_ref)).size, matches: matches.filter((item) => item.logical_mode === mode).length });
+   return {
+@@ -96,40 +96,46 @@ async function openBuscas(page, state, calls, extra = {}) {
+   });
+   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+   await page.locator('[data-view="searches"]').click();
+-  await expect(page.locator('#buscas-valor .manheim-lead').first()).toBeVisible({ timeout: 30000 });
+-  // The options of a demand are loaded when the operator opens it.
+-  await openAllOptions(page);
++  // ENVIAR OPÇÕES is a queue now: one compact card per demand, nothing expands inline.
++  await expect(page.locator('#options-queue .options-queue-card').first()).toBeVisible({ timeout: 30000 });
+ }
+ 
+-test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à direita, mesma Ref separada', async ({ page }) => {
++test('19 · desktop: ENVIAR OPÇÕES é uma fila de cartões compactos, nada expande na lista', async ({ page }) => {
+   await page.setViewportSize({ width: 1366, height: 1000 });
+   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+   const calls = [];
+   await openBuscas(page, { undone: false }, calls);
+-  // The import tools live in IMPORTAÇÕES now; OPÇÕES shows only the options.
++  // The import tools live in IMPORTAÇÕES now; OPÇÕES shows only the queue.
+   await expect(page.locator('#manheim-drop-zone')).toBeHidden();
+-  const [valor, carro] = await Promise.all(['#buscas-valor', '#buscas-carro'].map((selector) => page.locator(selector).boundingBox()));
+-  expect(Math.abs(valor.y - carro.y)).toBeLessThan(2);
+-  expect(valor.x).toBeLessThan(carro.x);
+-  await expect(page.locator('#buscas-valor h2')).toContainText('Calculate My Cost');
+-  await expect(page.locator('#buscas-carro h2')).toContainText('Find One For Me');
+-  // The same person has one card per mode, each with its own criteria and stage.
+-  const valorCard = page.locator('#buscas-valor .manheim-lead', { hasText: 'Cliente Dois Modos' });
+-  const carroCard = page.locator('#buscas-carro .manheim-lead', { hasText: 'Cliente Dois Modos' });
+-  const valorCriteria = valorCard.locator(':scope > p.demand-essential').first(), carroCriteria = carroCard.locator(':scope > p.demand-essential').first();
+-  await expect(valorCriteria).toHaveText('BMW X5 · lance máximo US$ 50.000,00');
+-  await expect(carroCriteria).toHaveText('BMW X5 xDrive40i · 2020 a 2025 · 50.000 a 90.000 milhas');
+-  await expect(carroCard).not.toContainText('lance máximo');
+-  await expect(carroCard).not.toContainText('cabe no lance');
+-  await expect(valorCard).toContainText('Busca salva');
+-  await expect(carroCard).toContainText('Busca não salva no Manheim');
+-  // Ref only VALOR only on the VALOR side.
+-  await expect(page.locator('#buscas-valor .manheim-lead', { hasText: 'Pedido Só Valor' })).toHaveCount(1);
+-  await expect(page.locator('#buscas-carro .manheim-lead', { hasText: 'Pedido Só Valor' })).toHaveCount(0);
+-  // Separate counters, one general total.
+-  await expect(page.locator('#buscas-valor-counters [data-counter="demandas"] strong')).toHaveText('2');
+-  await expect(page.locator('#buscas-carro-counters [data-counter="demandas"] strong')).toHaveText('1');
++  // Search at the top of the tab.
++  await expect(page.locator('#options-queue-search')).toBeVisible();
++  // One compact card per demand: the same person has one card per mode, each with its own criteria.
++  const cards = page.locator('#options-queue .options-queue-card');
++  await expect(cards).toHaveCount(3);
++  const valorCard = page.locator('#options-queue .options-queue-card', { hasText: 'lance máximo US$ 50.000,00' });
++  const carroCard = page.locator('#options-queue .options-queue-card', { hasText: 'xDrive40i' });
++  await expect(valorCard).toHaveCount(1);
++  await expect(carroCard).toHaveCount(1);
++  // The three blocks: who (name + Ref), what the client asked, the collapsed groups with counts.
++  await expect(cards.first()).toContainText('Cliente Dois Modos');
++  await expect(cards.first()).toContainText('Ref DCCC4');
++  await expect(cards.first()).toContainText('O que o cliente pediu');
++  await expect(cards.first()).toContainText(/em Lane\/Run|em Buy Now/);
++  // Footer: next step + one button; tapping the card opens the ficha (no inline expansion).
++  await expect(cards.first()).toContainText('Abrir ficha');
++  await expect(page.locator('#options-queue .manheim-table')).toHaveCount(0);
++  await expect(page.locator('#options-queue details')).toHaveCount(0);
++  // Ref-only VALOR order is in the queue too.
++  await expect(page.locator('#options-queue .options-queue-card', { hasText: 'Pedido Só Valor' })).toHaveCount(1);
++  // Queue counter and the general total.
++  await expect(page.locator('#options-queue-count')).toContainText('3 na fila');
+   await expect(page.locator('#buscas-total')).toContainText('Total geral');
++  // The queue search filters by name, phone, Ref and car.
++  await page.locator('#options-queue-search').fill('xDrive40i');
++  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(1);
++  await page.locator('#options-queue-search').fill('DCCC4');
++  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(2);
++  await page.locator('#options-queue-search').fill('');
+   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'enviar-opcoes-desktop.png'), fullPage: true });
+   // BUSCAR CARROS: one request per type in its column, the result apart from the work stage, and
+   // "Quais buscas salvar no Manheim" under each column.
+@@ -139,8 +145,8 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
+   await expect(page.locator('#requests-valor .request-card')).toHaveCount(1);
+   await expect(page.locator('#requests-carro .request-card')).toHaveCount(1);
+   await expect(page.locator('#requests-carro .request-card')).toContainText(/opç(ão|ões) no lote/);
+-  await expect(page.locator('#requests-carro .request-card')).toContainText('Andamento: 🔍 Busca não salva no Manheim');
+-  await expect(page.locator('#requests-valor .request-card')).toContainText('Andamento: 💾 Busca salva no Manheim');
++  await expect(page.locator('#requests-carro .request-card')).toContainText('Salvar busca no Manheim');
++  await expect(page.locator('#requests-valor .request-card')).not.toContainText('Andamento:');
+   await expect(page.locator('#requests-panel')).not.toContainText('Falta buscar');
+   await expect(page.locator('#requests-totals')).toContainText('2 pedidos de 1 pessoa');
+   await expect(page.locator('.tab[data-view="requests"] [data-count]')).toHaveText('2');
+@@ -148,23 +154,26 @@ test('19 · desktop: Arquivo do Manheim primeiro, VALOR à esquerda e CARRO à d
+   expect(Math.abs(colValor.width - colCarro.width)).toBeLessThan(2);
+   expect(colValor.x).toBeLessThan(colCarro.x);
+   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscar-carros-desktop.png'), fullPage: true });
+-  // The result button opens the options of that request directly in ENVIAR OPÇÕES.
++  // The result button goes to the queue card in ENVIAR OPÇÕES; the options open in the ficha.
+   await page.locator('#requests-carro .request-view-options').click();
+   await expect(page.locator('#searches-panel')).toBeVisible();
+-  await expect(page.locator(`#searches-panel [data-demand-key="journey:${JOURNEY}:CARRO"] .manheim-table`)).toBeVisible();
++  const target = page.locator(`#options-queue [data-demand-key="journey:${JOURNEY}:CARRO"]`);
++  await expect(target).toBeVisible();
++  await expect(target.locator('.manheim-table')).toHaveCount(0);
+   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscas-desktop.png'), fullPage: true });
+   if (SHOTS) await page.locator('#manheim-results').screenshot({ path: path.join(SHOTS, 'buscas-mesma-pessoa.png') });
+   expect(errors).toEqual([]);
+ });
+ 
+-test('20 · 390 px: VALOR em cima, CARRO embaixo, nada fora da tela e alvos de 44 px', async ({ page }) => {
++test('20 · 390 px: fila em coluna única, nada fora da tela e alvos de 44 px', async ({ page }) => {
+   await page.setViewportSize({ width: 390, height: 844 });
+   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+   await openBuscas(page, { undone: false }, []);
+-  const [valor, carro] = await Promise.all(['#buscas-valor', '#buscas-carro'].map((selector) => page.locator(selector).boundingBox()));
+-  expect(valor.y + valor.height).toBeLessThanOrEqual(carro.y + 1);
+-  expect(valor.width).toBeGreaterThan(330);
+-  expect(carro.width).toBeGreaterThan(330);
++  // One column: the cards stack vertically and fit the width.
++  const boxes = await page.locator('#options-queue .options-queue-card').evaluateAll((list) => list.map((card) => { const box = card.getBoundingClientRect(); return { y: box.y, height: box.height, width: box.width }; }));
++  expect(boxes.length).toBe(3);
++  expect(boxes[0].width).toBeGreaterThan(330);
++  expect(boxes[1].y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height - 1);
+   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+   const small = await page.locator('#searches-panel button:visible').evaluateAll((list) => list.map((button) => ({ text: button.textContent.trim().slice(0, 30), height: button.getBoundingClientRect().height })).filter((item) => item.height < 44));
+   expect(small).toEqual([]);
+@@ -221,8 +230,9 @@ test('24-27 · lote com vários CSVs aparece como um lote; desfazer pede confirm
+   // The previous batch is untouched and becomes the one in use.
+   await expect(older).toContainText('Ativo · em uso');
+   expect((await older.textContent()).replace('Ativo · em uso', 'Ativo')).toBe(olderBefore.replace('Ativo · em uso', 'Ativo'));
+-  await expect(page.locator('#buscas-valor .manheim-lead')).toHaveCount(0);
+-  await expect(page.locator('#buscas-carro .manheim-lead')).toHaveCount(1);
++  // The queue follows the active batch: only the CARRO demand still has cars.
++  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(1);
++  await expect(page.locator('#options-queue .options-queue-card', { hasText: 'xDrive40i' })).toHaveCount(1);
+   expect(dialogs).toBe(0);
+   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscas-desfeito.png'), fullPage: true });
+ });
+diff --git a/tests/buscas-split.test.js b/tests/buscas-split.test.js
+index c45b24b..556293c 100644
+--- a/tests/buscas-split.test.js
++++ b/tests/buscas-split.test.js
+@@ -358,21 +358,21 @@ test('27 · desfazer duas vezes é idempotente no servidor e sem migração resp
+ });
+ 
+ // ------------------------------------------------------------------ 33 Arquivo do Manheim primeiro
+-test('33 · IMPORTAÇÕES tem o arquivo e os lotes; ENVIAR OPÇÕES e BUSCAR CARROS têm VALOR antes de CARRO, sem upload', () => {
++test('33 · IMPORTAÇÕES tem o arquivo e os lotes; ENVIAR OPÇÕES é fila única; BUSCAR CARROS tem VALOR antes de CARRO, sem upload', () => {
+   const html = read('painel/index.html');
+   const imports = html.slice(html.indexOf('<section id="imports-panel"'), html.indexOf('<section id="searches-panel"'));
+-  const panel = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="manheim-panel"'));
++  const panel = html.slice(html.indexOf('<section id="searches-panel"'), html.indexOf('<section id="detail-panel"'));
+   const search = html.slice(html.indexOf('<section id="requests-panel"'), html.indexOf('<section id="imports-panel"'));
+   assert.ok(imports.indexOf('id="manheim-files"') >= 0 && imports.indexOf('id="manheim-files"') < imports.indexOf('id="manheim-batches"'));
+-  const order = ['id="buscas-valor"', 'id="buscas-carro"'].map((marker) => panel.indexOf(marker));
+-  assert.ok(order.every((position) => position >= 0), JSON.stringify(order));
+-  assert.deepEqual(order.slice().sort((a, b) => a - b), order);
++  // ENVIAR OPÇÕES virou fila única: sem colunas por modo, com busca na fila e lista única de buscas salvas.
++  assert.ok(panel.indexOf('id="options-queue"') >= 0);
++  assert.ok(panel.indexOf('id="options-queue-search"') >= 0);
++  assert.ok(panel.indexOf('id="buscas-saved-list"') >= 0);
++  assert.doesNotMatch(panel, /id="buscas-valor"|id="buscas-carro"/);
+   const searchOrder = ['id="search-col-valor"', 'id="buscas-valor-saved"', 'id="search-col-carro"', 'id="buscas-carro-saved"', 'id="buscas-review"'].map((marker) => search.indexOf(marker));
+   assert.ok(searchOrder.every((position) => position >= 0), JSON.stringify(searchOrder));
+   assert.deepEqual(searchOrder.slice().sort((a, b) => a - b), searchOrder);
+   assert.doesNotMatch(panel + search, /manheim-files|manheim-batches/);
+-  assert.match(panel, /Calculate My Cost/);
+-  assert.match(panel, /Find One For Me/);
+   assert.match(search, /Calculate My Cost/);
+   assert.match(search, /Find One For Me/);
+ });
+diff --git a/tests/clientes-periodos.spec.js b/tests/clientes-periodos.spec.js
+index 90011b0..ecd9c8f 100644
+--- a/tests/clientes-periodos.spec.js
++++ b/tests/clientes-periodos.spec.js
+@@ -120,17 +120,4 @@ test('período junto com os outros filtros, planilha e relatório acompanham o p
+   expect(csv).not.toContain('Caio 120 dias');
+   expect(csv).not.toContain('Edu 500 dias');
+   expect(csv).not.toContain('Gil não lead');
+-  // Report: opened from CLIENTES, it follows the CLIENTES period (last real activity), not a date range.
+-  await page.locator('#clients-panel [data-report="records"]').click();
+-  await expect(page.locator('#report-period-field')).toBeHidden();
+-  await expect(page.locator('#report-origin-note')).toHaveText('Período de CLIENTES: atividade real nos últimos 90 dias');
+-  await page.locator('#report-generate').click();
+-  await expect.poll(() => calls.filter((call) => call.path === '/api/panel/report' && call.params.origin === 'clients' && call.params.view === 'records' && call.params.activity === '90' && !call.params.period
+-    && Math.abs(Date.parse(call.params.since) - (Date.now() - 90 * DAY)) < 120000).length).toBe(1);
+-  await page.locator('#report-dialog button[value="cancel"]').click();
+-  await page.locator('#clients-activity').selectOption('all');
+-  await page.locator('#clients-panel [data-report="records"]').click();
+-  await expect(page.locator('#report-origin-note')).toHaveText('Período de CLIENTES: tudo, sem corte por data');
+-  await page.locator('#report-generate').click();
+-  await expect.poll(() => calls.filter((call) => call.path === '/api/panel/report' && call.params.origin === 'clients' && call.params.activity === 'all' && !call.params.since).length).toBe(1);
+ });
+diff --git a/tests/daily-use.test.js b/tests/daily-use.test.js
+index 8ad61e6..8c4475c 100644
+--- a/tests/daily-use.test.js
++++ b/tests/daily-use.test.js
+@@ -69,7 +69,7 @@ test('all navigation counters are refreshed after login', () => {
+   const client = read('painel/painel.js');
+   assert.match(client, /async function refreshCounters\(\)/);
+   assert.match(client, /await refreshCounters\(\)/);
+-  for (const view of ['today', 'requests', 'searches', 'imports', 'qualification', 'records']) assert.match(client, new RegExp(`setCount\\('${view}'`));
++  for (const view of ['today', 'requests', 'searches', 'imports']) assert.match(client, new RegExp(`setCount\\('${view}'`));
+ });
+ 
+ test('operational cards share compact identity and open a ficha when linked', () => {
+diff --git a/tests/fixtures/inventario-painel.js b/tests/fixtures/inventario-painel.js
+index 33eab68..4a8670c 100644
+--- a/tests/fixtures/inventario-painel.js
++++ b/tests/fixtures/inventario-painel.js
+@@ -9,7 +9,7 @@ const path = require('node:path');
+ 
+ const root = path.join(__dirname, '..', '..');
+ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+-const SCRIPTS = ['painel/painel.js', 'painel/lead.js', 'painel/action.js', 'painel/manheim-upload.js', 'painel/notifications.js'];
++const SCRIPTS = ['painel/painel.js', 'painel/lead.js', 'painel/action.js', 'painel/manheim-upload.js'];
+ const OUTPUT = path.join(__dirname, 'inventario-painel.json');
+ 
+ function testFiles() {
+diff --git a/tests/fixtures/inventario-painel.json b/tests/fixtures/inventario-painel.json
+index 1f50e2b..fcac340 100644
+--- a/tests/fixtures/inventario-painel.json
++++ b/tests/fixtures/inventario-painel.json
+@@ -1,12 +1,60 @@
+ {
+  "ids": [
++  {
++   "name": "ai-budget",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "ai-budget-features",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "ai-budget-spent",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "ai-budget-warning",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
+   {
+    "name": "app-view",
+    "usedBy": [
+     "painel/painel.js",
++    "tests/abas-login.spec.js",
++    "tests/botoes-varredura.spec.js",
++    "tests/importacoes.spec.js",
+     "tests/lote1.spec.js",
+-    "tests/manheim-import.spec.js",
+-    "tests/panel-responsive.spec.js"
++    "tests/panel-responsive.spec.js",
++    "tests/protecoes.spec.js",
++    "tests/v1-envio.spec.js"
++   ]
++  },
++  {
++   "name": "attend-filters",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "attend-staging",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "auto-print-card",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
+    ]
+   },
+   {
+@@ -18,7 +66,8 @@
+   {
+    "name": "auto-print-file-info",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
+    ]
+   },
+   {
+@@ -36,13 +85,15 @@
+   {
+    "name": "auto-print-send",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
+    ]
+   },
+   {
+    "name": "auto-print-status",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
+    ]
+   },
+   {
+@@ -64,22 +115,17 @@
+    ]
+   },
+   {
+-   "name": "boot-warning",
+-   "usedBy": [
+-    "painel/painel.js",
+-    "tests/lote1.spec.js"
+-   ]
+-  },
+-  {
+-   "name": "buscas-carro",
++   "name": "automatic-messages-card",
+    "usedBy": [
+-    "tests/buscas-split.spec.js"
++    "tests/importacoes.spec.js",
++    "tests/lote4.spec.js"
+    ]
+   },
+   {
+-   "name": "buscas-carro-counters",
++   "name": "boot-warning",
+    "usedBy": [
+-    "tests/buscas-split.spec.js"
++    "painel/painel.js",
++    "tests/lote1.spec.js"
+    ]
+   },
+   {
+@@ -91,7 +137,8 @@
+   {
+    "name": "buscas-review",
+    "usedBy": [
+-    "tests/buscas-split.spec.js"
++    "tests/buscas-split.spec.js",
++    "tests/organizacao.spec.js"
+    ]
+   },
+   {
+@@ -108,21 +155,15 @@
+    ]
+   },
+   {
+-   "name": "buscas-total",
+-   "usedBy": [
+-    "painel/painel.js",
+-    "tests/buscas-split.spec.js"
+-   ]
+-  },
+-  {
+-   "name": "buscas-valor",
++   "name": "buscas-saved-list",
+    "usedBy": [
+-    "tests/buscas-split.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "buscas-valor-counters",
++   "name": "buscas-total",
+    "usedBy": [
++    "painel/painel.js",
+     "tests/buscas-split.spec.js"
+    ]
+   },
+@@ -148,7 +189,9 @@
+    "name": "clients-activity",
+    "usedBy": [
+     "painel/painel.js",
+-    "tests/lote4.spec.js"
++    "tests/clientes-periodos.spec.js",
++    "tests/lote4.spec.js",
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+@@ -160,7 +203,31 @@
+   {
+    "name": "clients-download",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/clientes-periodos.spec.js",
++    "tests/protecoes.spec.js",
++    "tests/todos-removida.spec.js"
++   ]
++  },
++  {
++   "name": "clients-followup",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/sugestoes.spec.js",
++    "tests/todos-removida.spec.js"
++   ]
++  },
++  {
++   "name": "clients-followup-list",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/sugestoes.spec.js"
++   ]
++  },
++  {
++   "name": "clients-general-card",
++   "usedBy": [
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+@@ -173,8 +240,15 @@
+    "name": "clients-list",
+    "usedBy": [
+     "painel/painel.js",
++    "tests/botoes-varredura.spec.js",
++    "tests/clientes-periodos.spec.js",
++    "tests/comando2.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/identidade-visual.spec.js",
+     "tests/lote4.spec.js",
+-    "tests/marcacao-modo.spec.js"
++    "tests/marcacao-modo.spec.js",
++    "tests/protecoes.spec.js",
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+@@ -184,6 +258,20 @@
+     "tests/lote4.spec.js"
+    ]
+   },
++  {
++   "name": "clients-panel",
++   "usedBy": [
++    "tests/botoes-varredura.spec.js"
++   ]
++  },
++  {
++   "name": "clients-period-note",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/clientes-periodos.spec.js",
++    "tests/comando2.spec.js"
++   ]
++  },
+   {
+    "name": "clients-ref",
+    "usedBy": [
+@@ -205,13 +293,17 @@
+   {
+    "name": "clients-stats",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/clientes-periodos.spec.js",
++    "tests/comando2.spec.js",
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+    "name": "clients-type",
+    "usedBy": [
+     "painel/painel.js",
++    "tests/clientes-periodos.spec.js",
+     "tests/lote4.spec.js"
+    ]
+   },
+@@ -227,6 +319,13 @@
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "counters-note",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/abas-login.spec.js"
++   ]
++  },
+   {
+    "name": "data-updated",
+    "usedBy": [
+@@ -248,14 +347,23 @@
+   {
+    "name": "detail-back",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/botoes-varredura.spec.js",
++    "tests/organizacao.spec.js"
+    ]
+   },
+   {
+    "name": "detail-panel",
+    "usedBy": [
+     "painel/painel.js",
+-    "tests/lote4.spec.js"
++    "tests/aud001-atualizacao.spec.js",
++    "tests/aud001-tela.spec.js",
++    "tests/aud001-venda.spec.js",
++    "tests/botoes-varredura.spec.js",
++    "tests/inicio-painel.spec.js",
++    "tests/lote4.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/organizacao.spec.js"
+    ]
+   },
+   {
+@@ -267,14 +375,14 @@
+   {
+    "name": "email",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/abas-login.spec.js"
+    ]
+   },
+   {
+    "name": "entry-queue",
+    "usedBy": [
+-    "painel/painel.js",
+-    "tests/lote3.spec.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+@@ -306,7 +414,8 @@
+   {
+    "name": "history-import-file",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
+    ]
+   },
+   {
+@@ -321,6 +430,30 @@
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "import-card-history",
++   "usedBy": [
++    "tests/importacoes.spec.js"
++   ]
++  },
++  {
++   "name": "import-card-manheim",
++   "usedBy": [
++    "tests/importacoes.spec.js"
++   ]
++  },
++  {
++   "name": "import-card-sms",
++   "usedBy": [
++    "tests/importacoes.spec.js"
++   ]
++  },
++  {
++   "name": "import-card-whatsapp",
++   "usedBy": [
++    "tests/importacoes.spec.js"
++   ]
++  },
+   {
+    "name": "import-chat",
+    "usedBy": [
+@@ -345,10 +478,17 @@
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "import-review-cancel",
++   "usedBy": [
++    "tests/importacoes.spec.js"
++   ]
++  },
+   {
+    "name": "import-review-card",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
+    ]
+   },
+   {
+@@ -365,10 +505,37 @@
+   },
+   {
+    "name": "import-status",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/identidade-visual.spec.js",
++    "tests/importacoes.spec.js"
++   ]
++  },
++  {
++   "name": "imports-panel",
++   "usedBy": [
++    "tests/botoes-varredura.spec.js",
++    "tests/importacoes.spec.js",
++    "tests/manheim-import.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/pesquisas.spec.js"
++   ]
++  },
++  {
++   "name": "imports-review-empty",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "imports-review-queue",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/importacoes.spec.js",
++    "tests/lote3.spec.js",
++    "tests/protecoes.spec.js"
++   ]
++  },
+   {
+    "name": "last-whatsapp-import",
+    "usedBy": [
+@@ -379,13 +546,37 @@
+    "name": "lead-conversation",
+    "usedBy": [
+     "painel/lead.js",
+-    "tests/lote1.spec.js"
++    "tests/identidade-visual.spec.js",
++    "tests/lote1.spec.js",
++    "tests/resposta-orientada.spec.js",
++    "tests/sugestoes.spec.js"
++   ]
++  },
++  {
++   "name": "lead-units",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "login-error",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/abas-login.spec.js"
+    ]
+   },
+   {
+    "name": "login-form",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/abas-login.spec.js"
++   ]
++  },
++  {
++   "name": "login-retry",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/abas-login.spec.js"
+    ]
+   },
+   {
+@@ -397,6 +588,9 @@
+   {
+    "name": "login-view",
+    "usedBy": [
++    "tests/abas-login.spec.js",
++    "tests/identidade-visual.spec.js",
++    "tests/inicio-painel.spec.js",
+     "tests/lote1.spec.js",
+     "tests/panel-responsive.spec.js"
+    ]
+@@ -404,21 +598,71 @@
+   {
+    "name": "logout",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/inicio-painel.spec.js"
++   ]
++  },
++  {
++   "name": "manheim-append",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/manheim-acrescentar.spec.js"
++   ]
++  },
++  {
++   "name": "manheim-append-files",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/manheim-acrescentar.spec.js"
++   ]
++  },
++  {
++   "name": "manheim-audit-note",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/manheim-conferencia.spec.js"
+    ]
+   },
+   {
+    "name": "manheim-batches",
+    "usedBy": [
+     "painel/painel.js",
+-    "tests/buscas-split.spec.js"
++    "tests/buscas-split.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/importacoes.spec.js",
++    "tests/manheim-import.spec.js",
++    "tests/pesquisas.spec.js",
++    "tests/v1-envio.spec.js"
++   ]
++  },
++  {
++   "name": "manheim-complement",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/pesquisas.spec.js"
++   ]
++  },
++  {
++   "name": "manheim-complement-files",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "manheim-complement-status",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/manheim-complemento.spec.js",
++    "tests/manheim-selecao.spec.js"
+    ]
+   },
+   {
+    "name": "manheim-drop-zone",
+    "usedBy": [
+     "painel/painel.js",
+-    "tests/buscas-split.spec.js"
++    "tests/buscas-split.spec.js",
++    "tests/pesquisas.spec.js"
+    ]
+   },
+   {
+@@ -426,7 +670,9 @@
+    "usedBy": [
+     "painel/painel.js",
+     "tests/buscas-split.spec.js",
+-    "tests/manheim-import.spec.js"
++    "tests/importacoes.spec.js",
++    "tests/manheim-import.spec.js",
++    "tests/manheim-integridade.spec.js"
+    ]
+   },
+   {
+@@ -437,12 +683,19 @@
+    ]
+   },
+   {
+-   "name": "manheim-results",
++   "name": "manheim-progress",
+    "usedBy": [
+-    "tests/buscas-split.spec.js",
++    "painel/painel.js",
+     "tests/manheim-import.spec.js"
+    ]
+   },
++  {
++   "name": "manheim-results",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/buscas-split.spec.js"
++   ]
++  },
+   {
+    "name": "manheim-saved-searches",
+    "usedBy": [
+@@ -454,13 +707,17 @@
+    "usedBy": [
+     "painel/painel.js",
+     "tests/buscas-split.spec.js",
+-    "tests/manheim-import.spec.js"
++    "tests/manheim-acrescentar.spec.js",
++    "tests/manheim-import.spec.js",
++    "tests/manheim-integridade.spec.js"
+    ]
+   },
+   {
+    "name": "manheim-summary",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/manheim-import.spec.js",
++    "tests/manheim-integridade.spec.js"
+    ]
+   },
+   {
+@@ -469,23 +726,55 @@
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "name-link-reviews",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
+   {
+    "name": "new-password",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "options-queue",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/aud001-atualizacao.spec.js",
++    "tests/aud001-tela.spec.js",
++    "tests/aud001-venda.spec.js",
++    "tests/buscas-split.spec.js"
++   ]
++  },
++  {
++   "name": "options-queue-count",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/buscas-split.spec.js"
++   ]
++  },
++  {
++   "name": "options-queue-search",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/buscas-split.spec.js"
++   ]
++  },
+   {
+    "name": "page-title",
+    "usedBy": [
+     "painel/painel.js",
+-    "tests/lote4.spec.js"
++    "tests/lote4.spec.js",
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+    "name": "password",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/abas-login.spec.js"
+    ]
+   },
+   {
+@@ -531,108 +820,204 @@
+    ]
+   },
+   {
+-   "name": "qualification-list",
++   "name": "purge-tests-card",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "qualification-sort",
++   "name": "record-detail",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/botoes-varredura.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/identidade-visual.spec.js",
++    "tests/marcacao-modo.spec.js",
++    "tests/protecoes.spec.js"
+    ]
+   },
+   {
+-   "name": "record-detail",
++   "name": "ref-warning",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "refresh-note",
+    "usedBy": [
+     "painel/painel.js",
+-    "tests/marcacao-modo.spec.js"
++    "tests/aud001-atualizacao.spec.js"
+    ]
+   },
+   {
+-   "name": "records-list",
++   "name": "remember-login",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "records-sort",
++   "name": "requests-audit",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/pesquisas.spec.js"
+    ]
+   },
+   {
+-   "name": "ref-warning",
++   "name": "requests-audit-content",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/pesquisas.spec.js"
+    ]
+   },
+   {
+-   "name": "refresh-note",
++   "name": "requests-carro",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/buscas-split.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/pesquisas.spec.js"
+    ]
+   },
+   {
+-   "name": "remember-login",
++   "name": "requests-compare",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/manheim-v32.spec.js",
++    "tests/pesquisas.spec.js"
+    ]
+   },
+   {
+-   "name": "report-copy",
++   "name": "requests-filters",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "report-custom",
++   "name": "requests-history",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/pesquisas.spec.js"
+    ]
+   },
+   {
+-   "name": "report-dialog",
++   "name": "requests-history-cancel",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "report-from",
++   "name": "requests-history-confirm",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/pesquisas.spec.js"
+    ]
+   },
+   {
+-   "name": "report-generate",
++   "name": "requests-history-go",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/pesquisas.spec.js"
+    ]
+   },
+   {
+-   "name": "report-period",
++   "name": "requests-history-pause",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "report-status",
++   "name": "requests-history-progress",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "report-text",
++   "name": "requests-history-remaining",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "report-to",
++   "name": "requests-history-terms",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "requests-history-text",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/pesquisas.spec.js"
++   ]
++  },
++  {
++   "name": "requests-incomplete-note",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/organizacao.spec.js"
++   ]
++  },
++  {
++   "name": "requests-list",
++   "usedBy": [
++    "tests/contexto-cliente.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/pesquisas.spec.js"
++   ]
++  },
++  {
++   "name": "requests-panel",
++   "usedBy": [
++    "tests/botoes-varredura.spec.js",
++    "tests/buscas-split.spec.js",
++    "tests/identidade-visual.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/pesquisas.spec.js"
++   ]
++  },
++  {
++   "name": "requests-review",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/organizacao.spec.js"
++   ]
++  },
++  {
++   "name": "requests-status",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/pesquisas.spec.js"
++   ]
++  },
++  {
++   "name": "requests-totals",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/buscas-split.spec.js",
++    "tests/organizacao.spec.js"
++   ]
++  },
++  {
++   "name": "requests-valor",
++   "usedBy": [
++    "tests/buscas-split.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/pesquisas.spec.js"
++   ]
++  },
++  {
++   "name": "search-col-carro",
++   "usedBy": [
++    "tests/buscas-split.spec.js",
++    "tests/organizacao.spec.js"
++   ]
++  },
++  {
++   "name": "search-col-valor",
++   "usedBy": [
++    "tests/buscas-split.spec.js",
++    "tests/organizacao.spec.js"
++   ]
++  },
+   {
+    "name": "search-results",
+    "usedBy": [
+@@ -643,13 +1028,27 @@
+   {
+    "name": "searches-panel",
+    "usedBy": [
+-    "tests/buscas-split.spec.js"
++    "painel/painel.js",
++    "tests/botoes-varredura.spec.js",
++    "tests/buscas-split.spec.js",
++    "tests/manheim-integridade.spec.js",
++    "tests/manheim-selecao.spec.js"
++   ]
++  },
++  {
++   "name": "settings-panel",
++   "usedBy": [
++    "tests/botoes-varredura.spec.js",
++    "tests/identidade-visual.spec.js",
++    "tests/importacoes.spec.js",
++    "tests/lote4.spec.js"
+    ]
+   },
+   {
+    "name": "sms-contact",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
+    ]
+   },
+   {
+@@ -667,7 +1066,8 @@
+   {
+    "name": "sms-form",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
+    ]
+   },
+   {
+@@ -722,16 +1122,57 @@
+    "name": "today-list",
+    "usedBy": [
+     "painel/painel.js",
++    "tests/atendimento-ordenar.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/identidade-visual.spec.js",
+     "tests/lote2.spec.js",
+-    "tests/panel-responsive.spec.js"
++    "tests/lote3.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/panel-responsive.spec.js",
++    "tests/protecoes.spec.js",
++    "tests/todos-removida.spec.js",
++    "tests/triagem-entrada.spec.js",
++    "tests/vinculo-nome.spec.js"
+    ]
+   },
+   {
+-   "name": "today-sort",
++   "name": "today-more",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/clientes-periodos.spec.js",
++    "tests/todos-removida.spec.js"
++   ]
++  },
++  {
++   "name": "today-origin",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "today-panel",
++   "usedBy": [
++    "tests/botoes-varredura.spec.js",
++    "tests/comando2.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/importacoes.spec.js",
++    "tests/lote4.spec.js",
++    "tests/organizacao.spec.js"
++   ]
++  },
++  {
++   "name": "today-period",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "today-sort",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/atendimento-ordenar.spec.js"
++   ]
++  },
+   {
+    "name": "today-stats",
+    "usedBy": [
+@@ -740,27 +1181,101 @@
+    ]
+   },
+   {
+-   "name": "vitrine-requests",
++   "name": "today-subject",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "topic-out",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/comando2.spec.js"
++   ]
++  },
++  {
++   "name": "topic-out-count",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/comando2.spec.js"
++   ]
++  },
++  {
++   "name": "topic-out-list",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/comando2.spec.js"
++   ]
++  },
++  {
++   "name": "triage-out",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/triagem-entrada.spec.js"
++   ]
++  },
++  {
++   "name": "triage-out-count",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/triagem-entrada.spec.js"
++   ]
++  },
++  {
++   "name": "triage-out-list",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/triagem-entrada.spec.js"
++   ]
++  },
++  {
++   "name": "triage-review",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "vitrine-signals",
++   "name": "triage-run-pending",
+    "usedBy": [
+     "painel/painel.js"
+    ]
+   },
++  {
++   "name": "triage-state",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/protecoes.spec.js",
++    "tests/triagem-entrada.spec.js"
++   ]
++  },
++  {
++   "name": "v1-demo",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/sugestoes.spec.js",
++    "tests/v1-envio.spec.js"
++   ]
++  },
+   {
+    "name": "weekly-summary",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+    "name": "weekly-summary-content",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/painel.js",
++    "tests/todos-removida.spec.js"
++   ]
++  },
++  {
++   "name": "whatsapp-auto-rejected",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/protecoes.spec.js"
+    ]
+   },
+   {
+@@ -770,510 +1285,1554 @@
+    ]
+   },
+   {
+-   "name": "whatsapp-errors",
++   "name": "whatsapp-files",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
++   ]
++  },
++  {
++   "name": "whatsapp-received",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "whatsapp-signal",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/identidade-visual.spec.js",
++    "tests/lote4.spec.js"
++   ]
++  },
++  {
++   "name": "whatsapp-suggestions",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  }
++ ],
++ "classes": [
++  {
++   "name": "LIGADA",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "action-feedback",
++   "usedBy": [
++    "painel/action.js",
++    "tests/panel-responsive.spec.js"
++   ]
++  },
++  {
++   "name": "action-optimistic-hidden",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "active",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/inicio-painel.spec.js"
++   ]
++  },
++  {
++   "name": "ai-alternative-picker",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "ai-budget-warn",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "ai-conversation-review",
++   "usedBy": [
++    "tests/lote2.spec.js"
++   ]
++  },
++  {
++   "name": "ask-row",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "attend-bulk",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "attend-bulk-count",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "audit-block",
++   "usedBy": [
++    "tests/manheim-conferencia.spec.js"
++   ]
++  },
++  {
++   "name": "audit-divergence",
++   "usedBy": [
++    "tests/manheim-conferencia.spec.js"
++   ]
++  },
++  {
++   "name": "badge",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/manheim-conferencia.spec.js"
++   ]
++  },
++  {
++   "name": "batch-hidden",
++   "usedBy": [
++    "tests/v1-envio.spec.js"
++   ]
++  },
++  {
++   "name": "batch-history",
++   "usedBy": [
++    "tests/v1-envio.spec.js"
++   ]
++  },
++  {
++   "name": "batch-line",
++   "usedBy": [
++    "tests/contexto-cliente.spec.js",
++    "tests/importacoes.spec.js",
++    "tests/pesquisas.spec.js",
++    "tests/v1-envio.spec.js"
++   ]
++  },
++  {
++   "name": "calc-candidate",
++   "usedBy": [
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "calc-queue",
++   "usedBy": [
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "card",
++   "usedBy": [
++    "tests/find-one.spec.js",
++    "tests/manheim-import.spec.js",
++    "tests/manheim-integridade.spec.js",
++    "tests/manheim-selecao.spec.js"
++   ]
++  },
++  {
++   "name": "card-decision",
++   "usedBy": [
++    "tests/contexto-cliente.spec.js",
++    "tests/organizacao.spec.js"
++   ]
++  },
++  {
++   "name": "card-decision-label",
++   "usedBy": [
++    "tests/vinculo-nome.spec.js"
++   ]
++  },
++  {
++   "name": "card-focus",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "card-more",
++   "usedBy": [
++    "tests/identidade-visual.spec.js"
++   ]
++  },
++  {
++   "name": "case-card",
++   "usedBy": [
++    "tests/atendimento-ordenar.spec.js",
++    "tests/lote3.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/protecoes.spec.js",
++    "tests/todos-removida.spec.js",
++    "tests/triagem-entrada.spec.js",
++    "tests/vinculo-nome.spec.js"
++   ]
++  },
++  {
++   "name": "case-decisions",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/organizacao.spec.js"
++   ]
++  },
++  {
++   "name": "case-face-title",
++   "usedBy": [
++    "tests/clientes-periodos.spec.js"
++   ]
++  },
++  {
++   "name": "case-field-value",
++   "usedBy": [
++    "tests/clientes-periodos.spec.js"
++   ]
++  },
++  {
++   "name": "case-more",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/identidade-visual.spec.js",
++    "tests/lote3.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/protecoes.spec.js",
++    "tests/triagem-entrada.spec.js",
++    "tests/vinculo-nome.spec.js"
++   ]
++  },
++  {
++   "name": "case-pick-box",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "case-picked",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "case-ref",
++   "usedBy": [
++    "tests/contexto-cliente.spec.js"
++   ]
++  },
++  {
++   "name": "chip-count",
++   "usedBy": [
++    "tests/organizacao.spec.js",
++    "tests/triagem-entrada.spec.js"
++   ]
++  },
++  {
++   "name": "clickable-card",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "client-card",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/clientes-periodos.spec.js",
++    "tests/comando2.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/identidade-visual.spec.js",
++    "tests/lote4.spec.js",
++    "tests/protecoes.spec.js",
++    "tests/todos-removida.spec.js"
++   ]
++  },
++  {
++   "name": "client-context-full",
++   "usedBy": [
++    "tests/contexto-cliente.spec.js"
++   ]
++  },
++  {
++   "name": "client-grid",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "client-more",
++   "usedBy": [
++    "tests/contexto-cliente.spec.js"
++   ]
++  },
++  {
++   "name": "clients-more",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/comando2.spec.js",
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "contact-area",
++   "usedBy": [
++    "tests/comando2.spec.js"
++   ]
++  },
++  {
++   "name": "contact-area-head",
++   "usedBy": [
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "contact-area-label",
++   "usedBy": [
++    "tests/comando2.spec.js"
++   ]
++  },
++  {
++   "name": "contact-group-count",
++   "usedBy": [
++    "tests/comando2.spec.js"
++   ]
++  },
++  {
++   "name": "contact-group-flat",
++   "usedBy": [
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "contact-subject",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "contact-subject-count",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "contact-subject-head",
++   "usedBy": [
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "context-last",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "context-older",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "count-positive",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "count-stale",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "custom",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "decision-red",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "demand-options-count",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "depende",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "disabled",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "disposition-controls",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "disposition-state",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "dragging",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "error",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/identidade-visual.spec.js",
++    "tests/sms-inbound.test.js"
++   ]
++  },
++  {
++   "name": "evidence",
++   "usedBy": [
++    "painel/lead.js",
++    "painel/painel.js",
++    "tests/calculadora-destino.test.js"
++   ]
++  },
++  {
++   "name": "export-error",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "eyebrow",
++   "usedBy": [
++    "tests/panel-responsive.spec.js"
++   ]
++  },
++  {
++   "name": "failed-print",
++   "usedBy": [
++    "tests/importacoes.spec.js",
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "ficha-demand",
++   "usedBy": [
++    "tests/aud001-atualizacao.spec.js",
++    "tests/aud001-tela.spec.js",
++    "tests/aud001-venda.spec.js"
++   ]
++  },
++  {
++   "name": "freshness",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/abas-login.spec.js"
++   ]
++  },
++  {
++   "name": "hidden",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/botoes-varredura.spec.js",
++    "tests/panel-responsive.spec.js"
++   ]
++  },
++  {
++   "name": "inline-actions",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/identidade-visual.spec.js",
++    "tests/panel-responsive.spec.js"
++   ]
++  },
++  {
++   "name": "inline-confirm",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/buscas-split.spec.js",
++    "tests/manheim-acrescentar.spec.js",
++    "tests/manheim-complemento.spec.js",
++    "tests/manheim-selecao.spec.js"
++   ]
++  },
++  {
++   "name": "is-chosen",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "item-card",
++   "usedBy": [
++    "painel/action.js",
++    "painel/painel.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/marcacao-modo.spec.js"
++   ]
++  },
++  {
++   "name": "lead-card",
++   "usedBy": [
++    "painel/action.js",
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "lead-context-link",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "lead-detail",
++   "usedBy": [
++    "painel/lead.js",
++    "tests/identidade-visual.spec.js",
++    "tests/manheim-selecao.spec.js"
++   ]
++  },
++  {
++   "name": "lead-head-name",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "lead-label",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "lead-message",
++   "usedBy": [
++    "tests/marcacao-modo.spec.js"
++   ]
++  },
++  {
++   "name": "lead-one",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "lead-thread",
++   "usedBy": [
++    "tests/resposta-orientada.spec.js"
++   ]
++  },
++  {
++   "name": "list-more",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "list-more-hidden",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "login-screen",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "login-view",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "manheim-options-toggle",
++   "usedBy": [
++    "tests/aud001-tela.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/manheim-import.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "manheim-row",
++   "usedBy": [
++    "tests/contexto-cliente.spec.js",
++    "tests/manheim-conferencia.spec.js",
++    "tests/manheim-import.spec.js"
++   ]
++  },
++  {
++   "name": "manheim-table",
++   "usedBy": [
++    "tests/buscas-split.spec.js"
++   ]
++  },
++  {
++   "name": "message",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "message-menu",
++   "usedBy": [
++    "tests/identidade-visual.spec.js",
++    "tests/lote3.spec.js",
++    "tests/marcacao-modo.spec.js"
++   ]
++  },
++  {
++   "name": "message-menu-panel",
++   "usedBy": [
++    "tests/identidade-visual.spec.js",
++    "tests/lote3.spec.js"
++   ]
++  },
++  {
++   "name": "message-translation",
++   "usedBy": [
++    "tests/resposta-orientada.spec.js"
++   ]
++  },
++  {
++   "name": "muted",
++   "usedBy": [
++    "tests/panel-responsive.spec.js"
++   ]
++  },
++  {
++   "name": "name-link",
++   "usedBy": [
++    "tests/vinculo-nome.spec.js"
++   ]
++  },
++  {
++   "name": "next-action-editor",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "no-ref-phone",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "offer-car",
++   "usedBy": [
++    "tests/manheim-selecao.spec.js",
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-counter",
++   "usedBy": [
++    "tests/aud001-venda.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-final",
++   "usedBy": [
++    "tests/manheim-selecao.spec.js"
++   ]
++  },
++  {
++   "name": "offer-final-label",
++   "usedBy": [
++    "tests/aud001-venda.spec.js"
++   ]
++  },
++  {
++   "name": "offer-final-msg",
++   "usedBy": [
++    "tests/manheim-selecao.spec.js"
++   ]
++  },
++  {
++   "name": "offer-group",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/aud001-atualizacao.spec.js",
++    "tests/aud001-tela.spec.js",
++    "tests/aud001-venda.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/manheim-import.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/manheim-trim.spec.js",
++    "tests/v1-envio.spec.js"
++   ]
++  },
++  {
++   "name": "offer-invalid",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "offer-item",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "offer-mmr",
++   "usedBy": [
++    "tests/manheim-selecao.spec.js"
++   ]
++  },
++  {
++   "name": "offer-pct",
++   "usedBy": [
++    "tests/manheim-selecao.spec.js"
++   ]
++  },
++  {
++   "name": "offer-pct-label",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "offer-picked",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-picked-all",
++   "usedBy": [
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-picked-row",
++   "usedBy": [
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-row",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/aud001-atualizacao.spec.js",
++    "tests/aud001-tela.spec.js",
++    "tests/aud001-venda.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/manheim-trim.spec.js",
++    "tests/v1-envio.spec.js"
++   ]
++  },
++  {
++   "name": "offer-sort-select",
++   "usedBy": [
++    "tests/aud001-venda.spec.js",
++    "tests/manheim-selecao.spec.js",
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-status",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "offer-trim",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/aud001-atualizacao.spec.js",
++    "tests/aud001-tela.spec.js",
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-trim-asked",
++   "usedBy": [
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-trim-list",
++   "usedBy": [
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-trim-option",
++   "usedBy": [
++    "tests/aud001-tela.spec.js",
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offer-trim-outside",
++   "usedBy": [
++    "tests/aud001-tela.spec.js",
++    "tests/manheim-trim.spec.js"
++   ]
++  },
++  {
++   "name": "offmcs-item",
++   "usedBy": [
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "options-queue-card",
++   "usedBy": [
++    "tests/aud001-atualizacao.spec.js",
++    "tests/aud001-tela.spec.js",
++    "tests/aud001-venda.spec.js",
++    "tests/buscas-split.spec.js"
++   ]
++  },
++  {
++   "name": "over",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "panel-view",
++   "usedBy": [
++    "painel/action.js"
++   ]
++  },
++  {
++   "name": "pending-bar",
++   "usedBy": [
++    "tests/identidade-tokens.test.js"
++   ]
++  },
++  {
++   "name": "pending-stat",
++   "usedBy": [
++    "tests/clientes-periodos.spec.js"
++   ]
++  },
++  {
++   "name": "primary",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "print-drop",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/importacoes.spec.js"
++   ]
++  },
++  {
++   "name": "print-owner-save",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "print-owner-sides",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "production",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/resposta-orientada-traducao.test.js",
++    "tests/sms-device-tokens.test.js"
++   ]
++  },
++  {
++   "name": "purchase-window",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "queue",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "queue-item",
++   "usedBy": [
++    "painel/action.js",
++    "tests/lote3.spec.js"
++   ]
++  },
++  {
++   "name": "quiet",
++   "usedBy": [
++    "painel/lead.js",
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "reality-card",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "reality-row",
++   "usedBy": [
++    "painel/lead.js"
++   ]
++  },
++  {
++   "name": "record-block",
++   "usedBy": [
++    "painel/action.js",
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "ref",
++   "usedBy": [
++    "painel/lead.js",
++    "painel/painel.js",
++    "tests/calculadora-destino.test.js",
++    "tests/correcoes-revisao.test.js",
++    "tests/find-one.test.js"
++   ]
++  },
++  {
++   "name": "reply-composer",
++   "usedBy": [
++    "tests/lote1.spec.js"
++   ]
++  },
++  {
++   "name": "request-ai-evidence",
++   "usedBy": [
++    "tests/organizacao.spec.js"
++   ]
++  },
++  {
++   "name": "request-card",
++   "usedBy": [
++    "tests/buscas-split.spec.js",
++    "tests/contexto-cliente.spec.js",
++    "tests/manheim-v32.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/pesquisas.spec.js"
++   ]
++  },
++  {
++   "name": "request-edit-form",
++   "usedBy": [
++    "painel/painel.js",
++    "tests/manheim-v32.spec.js"
++   ]
++  },
++  {
++   "name": "request-evidence",
++   "usedBy": [
++    "tests/pesquisas.spec.js"
++   ]
++  },
++  {
++   "name": "request-view-options",
++   "usedBy": [
++    "tests/buscas-split.spec.js"
++   ]
++  },
++  {
++   "name": "resolved-prints",
++   "usedBy": [
++    "tests/protecoes.spec.js"
++   ]
++  },
++  {
++   "name": "review-line",
++   "usedBy": [
++    "tests/buscas-split.spec.js"
++   ]
++  },
++  {
++   "name": "search-empty-reason",
++   "usedBy": [
++    "painel/painel.js"
++   ]
++  },
++  {
++   "name": "search-hit",
++   "usedBy": [
++    "tests/lote3.spec.js"
++   ]
++  },
++  {
++   "name": "small",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/lead.js"
+    ]
+   },
+   {
+-   "name": "whatsapp-files",
++   "name": "sms-print-missing",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/action.js"
+    ]
+   },
+   {
+-   "name": "whatsapp-received",
++   "name": "status",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/lead.js",
++    "painel/painel.js",
++    "tests/ia-confirmar-sem-ref.test.js",
++    "tests/manheim-teto-openai.test.js",
++    "tests/resposta-orientada.spec.js",
++    "tests/sugestoes.spec.js",
++    "tests/v1-apresentacao.test.js"
+    ]
+   },
+   {
+-   "name": "whatsapp-signal",
++   "name": "suggestion-open",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/lote1.spec.js",
++    "tests/sugestoes.spec.js"
+    ]
+   },
+   {
+-   "name": "whatsapp-suggestions",
++   "name": "suggestion-text",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/resposta-orientada.spec.js",
++    "tests/sugestoes.spec.js"
+    ]
+-  }
+- ],
+- "classes": [
++  },
+   {
+-   "name": "action-feedback",
++   "name": "switch-reasons",
+    "usedBy": [
+-    "painel/action.js",
+-    "tests/panel-responsive.spec.js"
++    "tests/identidade-visual.spec.js"
+    ]
+   },
+   {
+-   "name": "action-optimistic-hidden",
++   "name": "tab",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/abas-login.spec.js",
++    "tests/buscas-split.spec.js",
++    "tests/organizacao.spec.js",
++    "tests/panel-responsive.spec.js",
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+-   "name": "active",
++   "name": "temperature-details",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/identidade-visual.spec.js"
+    ]
+   },
+   {
+-   "name": "ai-alternative-picker",
++   "name": "temperature-explanation",
+    "usedBy": [
+-    "painel/lead.js"
++    "tests/identidade-visual.spec.js"
+    ]
+   },
+   {
+-   "name": "card",
++   "name": "today-card",
+    "usedBy": [
+-    "tests/find-one.spec.js"
++    "painel/painel.js",
++    "tests/identidade-visual.spec.js",
++    "tests/lote2.spec.js",
++    "tests/protecoes.spec.js"
+    ]
+   },
+   {
+-   "name": "clickable-card",
++   "name": "today-heading",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/panel-responsive.spec.js"
+    ]
+   },
+   {
+-   "name": "client-card",
++   "name": "today-primary",
+    "usedBy": [
+-    "tests/lote4.spec.js"
++    "tests/organizacao.spec.js"
+    ]
+   },
+   {
+-   "name": "count-positive",
++   "name": "today-stat-clear",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/todos-removida.spec.js"
+    ]
+   },
+   {
+-   "name": "custom",
++   "name": "topbar",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/botoes-varredura.spec.js"
+    ]
+   },
+   {
+-   "name": "disabled",
++   "name": "topic-item",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/comando2.spec.js"
+    ]
+   },
+   {
+-   "name": "disposition-controls",
++   "name": "translate-one",
+    "usedBy": [
+-    "painel/painel.js"
++    "painel/lead.js",
++    "tests/resposta-orientada.spec.js"
+    ]
+   },
+   {
+-   "name": "disposition-state",
++   "name": "triage-item",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/triagem-entrada.spec.js"
+    ]
+   },
+   {
+-   "name": "dragging",
++   "name": "triage-reason",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/triagem-entrada.spec.js"
+    ]
+   },
+   {
+-   "name": "error",
++   "name": "undo-toast",
+    "usedBy": [
+-    "painel/painel.js",
+-    "tests/sms-inbound.test.js"
++    "painel/painel.js"
+    ]
+   },
+   {
+-   "name": "evidence",
++   "name": "unlock-option",
+    "usedBy": [
+     "painel/lead.js"
+    ]
+   },
+   {
+-   "name": "eyebrow",
++   "name": "v1-demo-card",
+    "usedBy": [
+-    "tests/panel-responsive.spec.js"
++    "tests/sugestoes.spec.js",
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "freshness",
++   "name": "v1-send-actions",
+    "usedBy": [
+-    "painel/painel.js"
++    "tests/whatsapp-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "hidden",
++   "name": "v1-send-confirm",
+    "usedBy": [
+     "painel/painel.js",
+-    "tests/panel-responsive.spec.js"
++    "tests/sugestoes.spec.js",
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "inline-actions",
++   "name": "v1-send-copy",
+    "usedBy": [
+-    "tests/panel-responsive.spec.js"
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "inline-confirm",
++   "name": "v1-send-fallback",
+    "usedBy": [
+-    "painel/painel.js",
+-    "tests/buscas-split.spec.js"
++    "tests/sugestoes.spec.js",
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "item-card",
++   "name": "v1-send-go",
+    "usedBy": [
+-    "painel/action.js",
+-    "painel/painel.js",
+-    "tests/lote4.spec.js",
+-    "tests/marcacao-modo.spec.js"
++    "tests/sugestoes.spec.js",
++    "tests/v1-envio.spec.js"
+    ]
+   },
+   {
+-   "name": "lead-card",
++   "name": "v1-send-history",
+    
