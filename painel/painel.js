@@ -25,7 +25,6 @@
   let clientsData = { items: [], counts: {}, pending: {} };
   let todayRefFilter = localStorage.getItem('mcs_today_ref_filter') || 'all';
   let todayStatFilter = null;
-  let clientsOverdue24=false;
   let pendingSituation = 'all';
   let pendingContinueTimer = null;
   let currentView = 'today';
@@ -621,7 +620,9 @@
 
   // One function per area. ENTRADA (and the old PEDIDOS) is part of ATENDIMENTO now: an old link
   // or history entry opens ATENDIMENTO. Each area keeps its own position when you come back to it.
-  const VIEWS = ['today', 'requests', 'searches', 'clients', 'imports', 'settings'];
+  const VIEWS = ['today', 'requests', 'searches', 'imports', 'settings'];
+  // The old TODOS tab lives in the "Mais" block of ATENDER AGORA: it loads only while that block is open.
+  const clientsOpen = () => currentView === 'today' && Boolean($('today-more')?.open);
   const VIEW_LABELS = { today: 'ATENDER AGORA', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'TODOS', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
   const viewScroll = new Map();
   async function switchPanel(view, options = {}) {
@@ -1410,7 +1411,7 @@
     const bar=element('div','pending-bar'),fill=element('i');fill.style.width=`${total?Math.min(100,completed/total*100):100}%`;bar.append(fill);root.append(bar);
     root.append(element('p','muted',`${completed} de ${total} conversas lidas · gasto US$ ${spent.toFixed(2)} · sem teto próprio: usa o saldo pré-pago do Claude · conversas longas são lidas em partes, até o fim`));
     const actions=element('div','inline-actions');
-    if(active){const pause=element('button','quiet small','Pausar');pause.type='button';MCSAction.bind(pause,()=>({scope:root,optimistic:()=>{pause.textContent='Pausando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})}),rollback:()=>{pause.textContent='Pausar';},onSuccess:()=>currentView==='clients'?loadClients():loadPending(),errorText:'Não consegui salvar, tente de novo'}));actions.append(pause);}
+    if(active){const pause=element('button','quiet small','Pausar');pause.type='button';MCSAction.bind(pause,()=>({scope:root,optimistic:()=>{pause.textContent='Pausando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'pause_general'})}),rollback:()=>{pause.textContent='Pausar';},onSuccess:()=>clientsOpen()?loadClients():loadPending(),errorText:'Não consegui salvar, tente de novo'}));actions.append(pause);}
     if(paused){const resume=element('button','small','Continuar');resume.type='button';MCSAction.bind(resume,()=>({scope:root,optimistic:()=>{resume.textContent='Continuando…';},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resume_general'})}),rollback:()=>{resume.textContent='Continuar';},onSuccess:()=>continuePendingGeneral(),errorText:'Não consegui salvar, tente de novo'}));actions.append(resume);}
     root.append(actions);
   }
@@ -1423,12 +1424,12 @@
       const prefix=item.latestDirection==='MCS'?'Você: ':'';card.append(element('p','message-preview',prefix+item.latestMessage));if(item.translation)card.append(element('p','muted','Tradução: “'+item.translation+'”'));if(item.aiOrders||item.summary||item.nextStep){const ai=element('div','pending-ai');if(item.aiOrders){(item.aiOrders.items||[]).forEach((entry)=>{const line=element('p','');line.append(element('strong','',entry.scope==='conversa'?'IA · resumo da conversa: ':`IA · pedido ${entry.ref||'sem Ref'}: `),document.createTextNode(entry.summary));ai.append(line);});if(item.aiOrders.text)ai.append(element('p','ai-ambiguous',item.aiOrders.text));if(!(item.aiOrders.items||[]).length&&!item.aiOrders.text)ai.append(element('p','muted','Sem resumo ainda'));}else{ai.append(element('strong','', 'IA: '),document.createTextNode(item.summary||'Sem resumo ainda'));}if(item.nextStep)ai.append(element('strong','', ' Próximo passo: '),document.createTextNode(item.nextStep));card.append(ai);}
       const actions=element('div','inline-actions');const open=element('button','small','Abrir ficha');open.type='button';open.addEventListener('click',()=>openDetail('ficha',item.journeyId));const copy=element('button','quiet small','Copiar número');copy.type='button';copy.disabled=!item.phone;MCSAction.bind(copy,()=>({scope:card,commit:()=>navigator.clipboard.writeText(item.phone),successText:'Copiado',errorText:'Não consegui copiar, tente de novo'}));const resolved=element('button','quiet small','Já resolvi');resolved.type='button';MCSAction.bind(resolved,()=>({scope:card,successScope:document.body,feedbackKey:`pending:${item.journeyId}:${item.chatId}`,optimistic:()=>{card.classList.add('action-optimistic-hidden');const count=countValue('pending');setCount('pending',Math.max(0,count-1));return count;},commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'resolve',journeyId:item.journeyId,chatId:item.chatId})}),rollback:(count)=>{card.classList.remove('action-optimistic-hidden');setCount('pending',count);},successText:'Marcado como resolvido',undo:{commit:()=>request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'unresolve',journeyId:item.journeyId,chatId:item.chatId})}),successText:'Voltou para pendente',refresh:()=>loadPending()},errorText:'Não consegui salvar, tente de novo'}));const lead=element('button','quiet small',item.isLead?'Não é lead':'Restaurar lead');lead.type='button';MCSAction.bind(lead,()=>{const before=item.isLead;return{scope:card,optimistic:()=>{item.isLead=!before;lead.textContent=item.isLead?'Não é lead':'Restaurar lead';return before;},commit:()=>request('/api/panel/lead?id='+encodeURIComponent(item.journeyId),{method:'POST',body:JSON.stringify({action:'contact_lead',journeyId:item.journeyId,isLead:!before})}),rollback:(value)=>{item.isLead=value;lead.textContent=value?'Não é lead':'Restaurar lead';},refresh:()=>loadPending(),errorText:'Não consegui salvar, tente de novo'};});actions.append(open,copy,resolved,lead);card.append(actions);makeCardClickable(card,()=>openDetail('ficha',item.journeyId));root.append(card);
     });
-    if(['pending','clients'].includes(currentView)&&data.run?.status==='ACTIVE')pendingContinueTimer=setTimeout(()=>continuePendingGeneral().catch(()=>{}),500);
+    if((currentView==='pending'||clientsOpen())&&data.run?.status==='ACTIVE')pendingContinueTimer=setTimeout(()=>continuePendingGeneral().catch(()=>{}),500);
   }
   // An answer for an old filter never replaces the one for the current filter.
   let pendingSeq=0;
   async function loadPending() { const seq=++pendingSeq;const data=await request(pendingQuery());if(seq!==pendingSeq)return data;renderPending(data);return data; }
-  async function continuePendingGeneral() { if(!['pending','clients'].includes(currentView))return;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'continue_general'})});return currentView==='clients'?loadClients():loadPending(); }
+  async function continuePendingGeneral() { if(!(currentView==='pending'||clientsOpen()))return;await request('/api/panel/pendencias',{method:'POST',body:JSON.stringify({action:'continue_general'})});return clientsOpen()?loadClients():loadPending(); }
   async function downloadPendingCsv() {
     const response=await fetch(pendingQuery()+'&download=csv',{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});if(!response.ok)throw Error('DOWNLOAD_FAILED');const blob=await response.blob(),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='pendencias-mcs.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
@@ -1486,7 +1487,7 @@
   const clientsPeriod=()=>$('clients-activity')?.value||'30';
   const CLIENT_SITUATIONS=[['NO_RESPONSE','Sem resposta'],['MCS_PENDING','Parado com você'],['CUSTOMER_PENDING','Parado com o cliente'],['IN_PROGRESS','Em andamento'],['CLOSED','Concluída'],['NONE','Sem conversa de WhatsApp']];
   function clientsQuery(extra={}){
-    const params=new URLSearchParams({sort:$('clients-sort').value,period:clientsPeriod(),situation:$('clients-situation').value,checklist:$('clients-checklist').value,ref:$('clients-ref').value,heat:$('clients-heat').value,origin:$('clients-origin')?.value||'all',type:$('clients-type')?.value||'all',overdue24:String(clientsOverdue24),...extra});
+    const params=new URLSearchParams({sort:$('clients-sort').value,period:clientsPeriod(),situation:$('clients-situation').value,checklist:$('clients-checklist').value,ref:$('clients-ref').value,heat:$('clients-heat').value,origin:$('clients-origin')?.value||'all',type:$('clients-type')?.value||'all',...extra});
     return '/api/panel/records?'+params.toString();
   }
   let clientsVersion=0,clientsObserver=null,clientsPagesLoaded=1;
@@ -1611,16 +1612,14 @@
   function renderClients(data){
     clientsData=data;const counts=data.counts||{};
     renderPendingGeneral(data.pending||{},'clients-general-card');renderClientStats(counts);
-    setCount('clients',counts.periodLeads||0);
     const shown=counts.shownLeads||0,period=counts.periodLeads||0;
     $('clients-period-note').textContent=(clientsPeriod()==='all'?`Período: tudo, sem corte por data`:`Período: atividade real ${MCSOrigin.periodLabel(clientsPeriod())}`)+` · ${shown} de ${period} clientes nesta lista · ${Math.max(0,period-shown)} fora dos filtros`+(counts.nonLeads?` · ${counts.nonLeads} não é lead (fora da contagem)`:'');
     const root=$('clients-list');root.replaceChildren();
     // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
-    if(clientsOverdue24){const chip=element('button','chip active','Sem resposta há mais de 24 h ✕');chip.type='button';chip.addEventListener('click',()=>{clientsOverdue24=false;loadClients();});root.append(chip);}
     if(!data.items.length){root.append(element('p','empty-state','Nenhum cliente neste filtro'));return;}
     appendClients(root,data);
   }
-  async function loadClientsPage(page){const version=clientsVersion;const data=await request(clientsQuery({page:String(page)}));if(version!==clientsVersion||currentView!=='clients')return;clientsPagesLoaded=Math.max(clientsPagesLoaded,page);appendClients($('clients-list'),data);}
+  async function loadClientsPage(page){const version=clientsVersion;const data=await request(clientsQuery({page:String(page)}));if(version!==clientsVersion||!clientsOpen())return;clientsPagesLoaded=Math.max(clientsPagesLoaded,page);appendClients($('clients-list'),data);}
   // Old conversations to pick up, oldest first, loaded only when the section is opened.
   function loadFollowup(){const list=$('clients-followup-list');if(!list||!window.MCSSuggest)return;MCSSuggest.queue(list,{request,open:(kind,key)=>openDetail(kind,key),contextSlot:(spec)=>contextSlot(spec),hydrate:hydrateContexts}).catch(()=>{});}
   async function loadClients(){const version=++clientsVersion;const records=await request(clientsQuery({page:'1'}));if(version!==clientsVersion)return;clientsPagesLoaded=1;updateMeta(records.meta);renderClients(records);}
@@ -1639,11 +1638,11 @@
   }
   async function restoreClientsPages(saved,fallbackY,version){
     for(let page=clientsPagesLoaded+1;page<=saved.pages;page+=1){
-      if(version!==clientsVersion||currentView!=='clients')return;
+      if(version!==clientsVersion||!clientsOpen())return;
       if(clientCardOf(saved.anchorId))break;
       try{await loadClientsPage(page);}catch(_){break;}
     }
-    if(version!==clientsVersion||currentView!=='clients')return;
+    if(version!==clientsVersion||!clientsOpen())return;
     let card=clientCardOf(saved.anchorId);
     if(!card&&saved.anchorId){
       const at=saved.ids.indexOf(saved.anchorId);
@@ -1660,7 +1659,7 @@
     const row=(label,item,format=metricValue,action)=>{const block=element('div','weekly-metric'),name=element('span','',label),value=element(action?'button':'strong','weekly-value',`${format(item?.current)} ${trend(item)}`);if(action){value.type='button';value.classList.add('quiet');value.addEventListener('click',action);}block.append(name,value,element('small','muted',`anterior: ${format(item?.previous)}`));root.append(block);};
     row('Leads · WhatsApp',data.leads?.whatsapp);row('Leads · SMS',data.leads?.sms);row('Leads · Calculadora',data.leads?.calculator);
     row('Respondidos por mim',data.responded);row('Tempo médio até a 1ª resposta',data.averageResponseMinutes,responseTime);
-    row('Sem resposta há mais de 24 h',data.unanswered24h,metricValue,async()=>{clientsOverdue24=true;$('clients-situation').value='all';if($('clients-activity'))$('clients-activity').value='all';await switchPanel('clients');});
+    row('Sem resposta há mais de 24 h',data.unanswered24h,metricValue,async()=>{attendBucket='todos';todayStatFilter='late24';await switchPanel('today');window.scrollTo(0,0);});
     row('Opções enviadas',data.options);row('Descartados',data.discarded);row('Pedidos parados há mais de 3 dias',data.stalledOrders);
     const reasons=(data.discarded?.reasons||[]).map((item)=>`${discardLabel(item.reason)} (${item.count})`).join(' · ');root.append(element('p','weekly-reasons',`Motivos mais comuns: ${reasons||'—'}`));
   }
@@ -1933,7 +1932,6 @@
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp'; });
     }
     if (view === 'pending') return loadPending();
-    if (view === 'clients') return loadClients();
     if (view === 'today') {
       // ATENDIMENTO: HOJE and the decisions of the old ENTRADA, drawn once everything arrived. A
       // decision list that fails stays out (said on screen) and never empties the queue.
@@ -1954,7 +1952,7 @@
       if (!current()) return;
       applyAttend(data, vitrineData, entryData, triageData, whatsappData, null);
       // The tab counters' heavier lists (BUSCAR CARROS, CLIENTES, ENVIAR OPÇÕES) come in a second single call, then the counters.
-      countersBoot=bootLoad('counters',{period:clientsPeriod()}).then((parts)=>{primeBoot({'/api/panel/pesquisas':parts.pesquisas,['/api/panel/records?pageSize=1&period='+encodeURIComponent(clientsPeriod())]:parts.records,'/api/panel/records?view=manheim':parts.manheim});}).catch(()=>{});
+      countersBoot=bootLoad('counters',{}).then((parts)=>{primeBoot({'/api/panel/pesquisas':parts.pesquisas,'/api/panel/records?view=manheim':parts.manheim});}).catch(()=>{});
       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
       (countersBoot||Promise.resolve()).then(()=>sharedGet('/api/panel/pesquisas', 30000)).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;renderToday(todayItems,true);})
         // A failed source is said on screen and the last good list stays; "Completar pedido" never turns into an empty count.
@@ -2032,14 +2030,14 @@
       sharedGet(todayPath(), 10000),
       sharedGet('/api/panel/entry', 10000),
       Promise.resolve(null),
-      sharedGet('/api/panel/records?pageSize=1&period=' + encodeURIComponent(clientsPeriod()), 10000),
+      Promise.resolve(null),
       sharedGet('/api/panel/vitrine-requests', 10000),
       sharedGet('/api/panel/triage', 10000),
       sharedGet('/api/panel/whatsapp', 10000),
       sharedGet('/api/panel/pesquisas', 60000),
       sharedGet('/api/panel/records?view=manheim', 60000)
     ]);
-    const [today, entry, , records, vitrineData, triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const [today, entry, , , vitrineData, triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     // One failing counter never touches the others; it keeps its last confirmed number.
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
     // ATENDIMENTO: the cases that depend on you, from the same model as its chips and list.
@@ -2048,8 +2046,6 @@
       setCount('today', model.counts.depende);
     } else setCountUnknown('today');
     count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length + (data.calcQueue || []).length);
-    // Same rule as the list: leads only, inside the CLIENTES period (people).
-    count('clients', records, (data) => data.counts.periodLeads);
     // BUSCAR CARROS: complete requests, one per person and search type (a person with both types counts twice).
     count('requests', pesquisas, (data) => requestColumnsOf(data).total);
     // ENVIAR OPÇÕES: people with cars in the active batch (one person with VALOR and CARRO cars is one person).
@@ -2107,7 +2103,7 @@
       attendBucket, todayStatFilter, todayRefFilter, requestsFilter,
       // ATENDIMENTO: Origem, Assunto and Período come back with the rest; CLIENTES: loaded pages and the person at the top.
       todayFilters: { origin: $('today-origin')?.value || 'all', subject: $('today-subject')?.value || 'all', period: $('today-period')?.value || 'all' },
-      clients: currentView === 'clients' ? clientsSnapshot() : null,
+      clients: clientsOpen() ? clientsSnapshot() : null,
       pendingSituation,
       pendingRef: $('pending-with-ref')?.value || 'all',
       searchQuery: $('global-search-input')?.value || '',
@@ -2129,12 +2125,12 @@
     if (target.requestsFilter) requestsFilter = target.requestsFilter;
     Object.entries(target.todayFilters || {}).forEach(([name, value]) => { const select = $('today-' + name); if (select && [...select.options].some((option) => option.value === value)) select.value = value; });
     await switchPanel(target.view || 'today', { scrollY: Number(target.scrollY || 0) });
-    if (target.view === 'clients' && target.clients) await restoreClientsPosition(target.clients, target.scrollY);
+    if (target.clients) { clientsRestoring = true; try { $('today-more').open = true; await loadClients(); } finally { clientsRestoring = false; } await restoreClientsPosition(target.clients, target.scrollY); }
     if (target.searchVisible && target.searchQuery) {
       $('global-search-input').value=target.searchQuery;
       await globalSearch({preventDefault(){}});
     }
-    if (!(target.view === 'clients' && target.clients && target.clients.anchorId)) requestAnimationFrame(() => window.scrollTo(0, Number(target.scrollY || 0)));
+    if (!(target.clients && target.clients.anchorId)) requestAnimationFrame(() => window.scrollTo(0, Number(target.scrollY || 0)));
   }
 
   const DISCARD_REASONS=Object.freeze({PRICE:'Preço',DISAPPEARED:'Sumiu',BOUGHT_ELSEWHERE:'Comprou em outro lugar',NO_CREDIT:'Sem crédito',CURIOSITY:'Só curiosidade',OTHER:'Outro'});
@@ -2238,7 +2234,7 @@
   }
 
   function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', settings: 'settings-panel', clients:'clients-panel', pending: 'pending-panel', qualification: 'qualification-panel', requests: 'requests-panel', searches: 'searches-panel', imports: 'imports-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    const labels = { today: 'today-panel', settings: 'settings-panel', pending: 'pending-panel', qualification: 'qualification-panel', requests: 'requests-panel', searches: 'searches-panel', imports: 'imports-panel', manheim: 'manheim-panel', records: 'records-panel' };
     Object.values(labels).forEach((id) => $(id)?.classList.add('hidden'));
     $('detail-panel').classList.remove('hidden');
     $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
@@ -2726,7 +2722,8 @@
     const inBucket=bucketAll;
     const base=shown.filter((entry)=>entry.item).map((entry)=>entry.item);
     // Every number is a button that shows its list, and says its complement (same cases as the list).
-    const STAT_FILTERS={awaiting:(item)=>item.awaitingReply,hot:(item)=>item.purchaseWindow==='NOW',missing:(item)=>item.searchStage==='MISSING',sent:(item)=>item.searchStage==='SENT'};
+    // late24: same rule as the weekly "Sem resposta há mais de 24 h" (last real message is the client's, older than 24 h).
+    const STAT_FILTERS={late24:(item)=>{const latest=item.latestMessage;const at=Date.parse(latest&&latest.occurred_at_utc||'');return Boolean(latest&&!latest.is_automatic&&latest.direction==='CUSTOMER'&&Number.isFinite(at)&&Date.now()-at>86400000);},awaiting:(item)=>item.awaitingReply,hot:(item)=>item.purchaseWindow==='NOW',missing:(item)=>item.searchStage==='MISSING',sent:(item)=>item.searchStage==='SENT'};
     if(todayStatFilter&&!STAT_FILTERS[todayStatFilter])todayStatFilter=null;
     const stat = (key, label, complement) => {
       const value=key?base.filter(STAT_FILTERS[key]).length:shown.length;
@@ -2736,6 +2733,7 @@
       stats.append(block);
     };
     stat('awaiting', 'Aguardando sua resposta', (rest)=>`${rest} casos com a última mensagem sua ou sem conversa`);
+    stat('late24', 'Sem resposta há mais de 24 h', (rest)=>`${rest} respondidos ou com menos de 24 h`);
     stat(null, 'Casos neste filtro', ()=>`${inBucket.length-shown.length} fora de Ref/Origem/Período`);
     // Purchase window (calculator deadline): how many in each range; the number filters the ones ready to buy now.
     const windowCount=(key)=>base.filter((item)=>String(item.purchaseWindow||'NONE')===key).length;
@@ -2745,7 +2743,7 @@
       stat('sent', 'Opções enviadas', (rest)=>`${rest} sem opções enviadas`);
     }
     const visible=todayStatFilter?shown.filter((entry)=>entry.item&&STAT_FILTERS[todayStatFilter](entry.item)):shown;
-    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({awaiting:'Aguardando sua resposta',hot:'Pronto para comprar agora',missing:'Busca não salva no Manheim',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
+    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({late24:'Sem resposta há mais de 24 h',awaiting:'Aguardando sua resposta',hot:'Pronto para comprar agora',missing:'Busca não salva no Manheim',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
     const offCount=model.counts.fora;
     if (!visible.length) {
       root.append(element('p','empty-state', todayStatFilter||origin!=='all'||period!=='all'||subject!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));
@@ -5504,7 +5502,7 @@
   let reportClients = null;
   function openReport(view) {
     reportView = view;
-    reportClients = view === 'records' && currentView === 'clients' ? { activity: clientsPeriod(), since: MCSOrigin.periodCutoff(clientsPeriod()) } : null;
+    reportClients = view === 'records' && clientsOpen() ? { activity: clientsPeriod(), since: MCSOrigin.periodCutoff(clientsPeriod()) } : null;
     $('report-period-field').classList.toggle('hidden', Boolean(reportClients));
     $('report-custom').classList.toggle('hidden', Boolean(reportClients) || $('report-period').value !== 'custom');
     $('report-origin-note').classList.toggle('hidden', !reportClients);
@@ -5645,7 +5643,7 @@
   };
   async function routeFromHash(push = false) {
     const hash = String(location.hash || '');
-    const legacy={fichas:'clients',qualificacao:'clients',pendencias:'clients',clientes:'clients',manheim:'imports',buscas:'searches',opcoes:'searches',pesquisas:'requests',importacoes:'imports',pedidos:'entry',entrada:'entry'}[hash.replace(/^#/,'').toLowerCase()];
+    const legacy={fichas:'today',qualificacao:'today',pendencias:'today',clientes:'today',todos:'today',manheim:'imports',buscas:'searches',opcoes:'searches',pesquisas:'requests',importacoes:'imports',pedidos:'entry',entrada:'entry'}[hash.replace(/^#/,'').toLowerCase()];
     if(legacy){history.replaceState({panelOrigin:{view:legacy,scrollY:0}},'',location.pathname+location.search);await switchPanel(legacy);return true;}
     const order = hash.match(/^#pedido\/([A-HJ-NP-Z2-9]{5})$/i);
     if (order) {
@@ -5798,7 +5796,6 @@
     $('password-form').addEventListener('submit', changePassword);
     $('logout').addEventListener('click', () => { stopAutoRefresh(); clearSession(); startFresh(); show('login-view'); });
     document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', async () => {
-      if(button.dataset.view!=='clients')clientsOverdue24=false;
       history.replaceState({ panelOrigin: { view: button.dataset.view, scrollY: 0 } }, '', location.pathname + location.search);
       await switchPanel(button.dataset.view);
     }));
@@ -5811,15 +5808,16 @@
       }
     });
     window.addEventListener('popstate', (event) => { handlePopState(event).catch(() => {}); });
-    ['today','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(currentView==='clients')loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
+    ['today','clients','pending','qualification','searches','manheim','records'].forEach((name)=>{const select=$(name+'-sort');if(!select)return;const saved=localStorage.getItem('mcs_sort_'+name);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_sort_'+name,select.value);if(name==='clients'){if(clientsOpen())loadClients();return;}if(currentView!==name&&!(currentView==='searches'&&name==='manheim'))return;if(name==='manheim'){renderSavedSearches().catch(()=>{});renderManheim(manheimData||{items:manheimJourneys,orders:manheimOrders,matches:manheimMatches});return;}loadCurrent().catch(()=>{});});});
+    $('today-more')?.addEventListener('toggle',()=>{if(clientsOpen()&&!clientsRestoring)loadClients().catch(()=>{});});
     $('clients-followup')?.addEventListener('toggle',()=>{if($('clients-followup').open)loadFollowup();});
-    $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(currentView==='clients')loadClients();refreshCounters().catch(()=>{});});
+    $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(clientsOpen())loadClients();refreshCounters().catch(()=>{});});
     // Origem: the same options in HOJE, ENTRADA and CLIENTES (filled before the saved choice is restored).
     ['today-origin','clients-origin'].forEach((id)=>MCSContactGroups.fillOriginSelect($(id)));
     $('today-period')?.addEventListener('change',()=>{if(currentView==='today')renderToday(todayItems,true);});
     ['today-subject'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='today')renderToday(todayItems,true);});});
     ['today-origin'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='today')renderToday(todayItems,true);});});
-    ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='clients')loadClients();});});
+    ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(clientsOpen())loadClients();});});
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
     const weekly=$('weekly-summary');weekly.open=localStorage.getItem('mcs_weekly_open')==='true';weekly.addEventListener('toggle',()=>localStorage.setItem('mcs_weekly_open',String(weekly.open)));
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));

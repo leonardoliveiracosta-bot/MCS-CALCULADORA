@@ -57,7 +57,8 @@ async function open(page, width) {
     return json({ items: [], orders: [], matches: [], groups: [], chats: [], reviews: [], counts: {}, page: { total: 0 }, requests: [], meta: {} });
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="clients"]').click();
+  // TODOS deixou de ser aba: a lista fica no bloco "Mais" de ATENDER AGORA.
+  await page.locator('#today-more > summary').click();
   await expect(page.locator('#clients-list .client-card').first()).toBeVisible({ timeout: 30000 });
   return calls;
 }
@@ -67,7 +68,7 @@ const names = (page) => page.locator('#clients-list .client-card').evaluateAll((
 const stat = (page, label) => page.locator('#clients-stats .pending-stat', { hasText: label }).locator('strong');
 
 for (const width of [1280, 390]) {
-  test(`${width}px · abre em 30 dias, períodos cumulativos, contador da aba e contadores de situação`, async ({ page }) => {
+  test(`${width}px · abre em 30 dias, períodos cumulativos e contadores de situação`, async ({ page }) => {
     const errors = [];
     page.on('pageerror', (failure) => errors.push(failure.message));
     await open(page, width);
@@ -79,11 +80,10 @@ for (const width of [1280, 390]) {
       ['12m', ['Ana 10 dias', 'Bia 31 dias', 'Caio 120 dias', 'Duda 200 dias', 'Gil não lead'], 4, 'Período: atividade real no último ano · 4 de 4 clientes nesta lista · 0 fora dos filtros · 1 não é lead (fora da contagem)'],
       ['all', ['Ana 10 dias', 'Bia 31 dias', 'Caio 120 dias', 'Duda 200 dias', 'Edu 500 dias', 'Fábio sem atividade', 'Gil não lead'], 6, 'Período: tudo, sem corte por data · 6 de 6 clientes nesta lista · 0 fora dos filtros · 1 não é lead (fora da contagem)']
     ];
-    for (const [period, expected, badge, note] of expectations) {
+    for (const [period, expected, , note] of expectations) {
       await page.locator('#clients-activity').selectOption(period);
       await expect.poll(async () => (await names(page)).sort()).toEqual([...expected].sort());
-      // Badge = leads inside the period (the "não é lead" card stays reachable, outside the count).
-      await expect(page.locator('[data-count="clients"]')).toHaveText(String(badge));
+      // The tab badge is gone with the tab; the period note still counts the leads.
       await expect(page.locator('#clients-period-note')).toHaveText(note);
     }
     // Situation counters follow the period, not the server totals (99).

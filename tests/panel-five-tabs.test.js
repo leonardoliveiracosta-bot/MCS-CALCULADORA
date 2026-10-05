@@ -8,12 +8,15 @@ const html=fs.readFileSync(path.join(root,'painel/index.html'),'utf8');
 const js=fs.readFileSync(path.join(root,'painel/painel.js'),'utf8');
 const css=fs.readFileSync(path.join(root,'painel/tema-mcs.css'),'utf8');
 
-test('painel publica cinco áreas com uma função cada (ENTRADA fundida em ATENDIMENTO) e mantém os ids legados',()=>{
+test('painel publica quatro abas (TODOS removida, conteúdo em "Mais" de ATENDER AGORA) e mantém os ids legados',()=>{
   const tabs=[...html.matchAll(/class="tab(?: active)?"[^>]+data-view="([^"]+)"/g)].map((match)=>match[1]);
-  assert.deepEqual(tabs,['today','requests','searches','clients','imports']);
+  assert.deepEqual(tabs,['today','requests','searches','imports']);
   // 4bf9aec (#163): as abas ATENDIMENTO e CLIENTES viraram ATENDER AGORA e TODOS.
   assert.match(html,/data-view="today"[^>]*>ATENDER AGORA/);
-  assert.match(html,/data-view="clients">TODOS/);
+  // TODOS deixou de ser aba: a lista, a planilha, retomar conversas e pendências gerais ficam no bloco "Mais" de ATENDER AGORA.
+  assert.doesNotMatch(html,/data-view="clients"/);
+  assert.match(html,/<details id="today-more"[\s\S]*id="clients-download"[\s\S]*id="clients-general-card"[\s\S]*id="clients-followup"[\s\S]*id="clients-list"[\s\S]*<\/details>/);
+  assert.ok(html.indexOf('id="today-panel"')<html.indexOf('id="today-more"')&&html.indexOf('id="today-more"')<html.indexOf('id="settings-panel"'));
   assert.match(html,/data-view="requests">BUSCAR CARROS/);
   assert.match(html,/data-view="searches">ENVIAR OPÇÕES/);
   // Configurações e conexão: área secundária, fora das abas principais.
@@ -23,7 +26,7 @@ test('painel publica cinco áreas com uma função cada (ENTRADA fundida em ATEN
   assert.match(js,/pedidos:'entry'/);
   assert.match(js,/#pedido\//);
   for(const id of ['pending-panel','qualification-panel','records-panel','manheim-panel','pending-list','qualification-list','records-list','manheim-results'])assert.match(html,new RegExp(`id="${id}"`));
-  assert.match(js,/fichas:'clients'.*qualificacao:'clients'.*pendencias:'clients'/);
+  assert.match(js,/fichas:'today',qualificacao:'today',pendencias:'today',clientes:'today',todos:'today'/);
   assert.match(js,/manheim:'imports'.*buscas:'searches'/);
 });
 
