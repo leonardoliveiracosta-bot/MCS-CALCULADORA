@@ -187,7 +187,7 @@ test('V1 bloqueada pela conferência: o motivo e os botões aparecem no card na 
   await expect(v1Status(page)).toContainText('V1 bloqueada: Tempo esgotado antes de terminar a conferência (1 tentativa) · Clique em "Conferir de novo"');
   await expect(v1Status(page)).not.toContainText('Atualize a página');
   await expect(carro.locator('.audit-block .badge')).toHaveText('Conferência pendente');
-  await expect(carro.locator('.audit-block')).toContainText('Conferência sobre 2 carros selecionados');
+  // The verbose "Conferência sobre N carros" line became selo + ação (comando 3); the reason line stays.
   await expect(carro.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
   await expect(carro.getByRole('button', { name: 'Aprovar com motivo' })).toHaveCount(0);
   // Second failure: "Aprovar com motivo" appears, still without reloading the page.
