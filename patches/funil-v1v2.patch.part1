@@ -1,0 +1,933 @@
+diff --git a/api/panel/boot.js b/api/panel/boot.js
+index 4b19e88..4c52546 100644
+--- a/api/panel/boot.js
++++ b/api/panel/boot.js
+@@ -12,7 +12,6 @@ const { requirePanel, send, jsonBody } = require('../../panel-server');
+ const PARTS = {
+   main: {
+     today: (q) => ['/api/panel/today', require('./today'), { sort: q.sort || 'ready' }],
+-    vitrine: () => ['/api/panel/vitrine-requests', require('./vitrine-requests'), {}],
+     entry: () => ['/api/panel/entry', require('./entry'), {}],
+     triage: () => ['/api/panel/triage', require('./triage'), {}],
+     whatsapp: () => ['/api/panel/whatsapp', require('./whatsapp'), {}]
+diff --git a/api/panel/v2-draft.js b/api/panel/v2-draft.js
+new file mode 100644
+index 0000000..a2354c7
+--- /dev/null
++++ b/api/panel/v2-draft.js
+@@ -0,0 +1,73 @@
++'use strict';
++
++// V2 draft: one AI reading of the journey's conversation that pre-fills the V2 builder screen
++// (the note and the WhatsApp message). The operator reviews and edits everything before anything
++// is sent: nothing leaves this endpoint toward the client. On any AI failure the answer is empty
++// and the screen opens with the defaults.
++const {allRows,isUuid,jsonBody,requirePanel,rows,safeText,send}=require('../../panel-server');
++const {vehicleName}=require('../../vitrine-domain');
++const openAiBudget=require('../../panel-openai-budget');
++
++const MODEL='gpt-6-luna';
++const TIMEOUT_MS=25000;
++const MAX_MESSAGES=20;
++
++const SYSTEM='You help a car dealer write to a customer in simple, natural American English. Reply ONLY as JSON {"note","message"}. "note" is a short optional note about the car for the customer (max 220 characters, plain facts from the data given, never promises about price, timing or availability). "message" starts exactly with "<Name>, here\'s the car you asked to see" and may add at most one short warm sentence about this car. Never invent details that are not in the data.';
++
++async function draft(ctx,body,services={}){
++  const read=services.rows||rows,readAll=services.allRows||allRows;
++  if(!isUuid(body.requestId))return {error:'V2_DRAFT_INVALID'};
++  const [request]=await read(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,journey_id,request_kind',environment:'eq.'+ctx.environment,id:'eq.'+body.requestId,limit:'1'});
++  if(!request)return {error:'V2_DRAFT_REQUEST_NOT_FOUND'};
++  const [[vitrine],[car],[journey]]=await Promise.all([
++    read(ctx,'vitrines',{select:'id,contact_id,journey_id,reference_code,customer_name',environment:'eq.'+ctx.environment,id:'eq.'+request.vitrine_id,limit:'1'}),
++    read(ctx,'vitrine_cars',{select:'id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment,id:'eq.'+request.vitrine_car_id,vitrine_id:'eq.'+request.vitrine_id,limit:'1'}),
++    request.journey_id?read(ctx,'journeys',{select:'id,contact_id,budget_cents',environment:'eq.'+ctx.environment,id:'eq.'+request.journey_id,limit:'1'}):Promise.resolve([])
++  ]);
++  if(!vitrine||!car)return {error:'V2_DRAFT_REQUEST_NOT_FOUND'};
++  const [contact]=vitrine.contact_id?await read(ctx,'contacts',{select:'display_name',environment:'eq.'+ctx.environment,id:'eq.'+vitrine.contact_id,limit:'1'}):[];
++  const name=String(vitrine.customer_name||contact?.display_name||'').trim().split(/\s+/)[0]||'Hi';
++  const carName=vehicleName(car.vehicle_snapshot||{});
++  // The journey's own conversation (latest messages, operator's own automatic texts excluded).
++  let conversation=[];
++  const journeyId=request.journey_id||vitrine.journey_id;
++  if(journeyId){
++    const links=await readAll(ctx,'message_journeys',{select:'message_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journeyId,undone_at:'is.null'}).catch(()=>[]);
++    const ids=[...new Set(links.map((link)=>link.message_id).filter(Boolean))].slice(-200);
++    if(ids.length){
++      const messages=await readAll(ctx,'messages',{select:'direction,body_text,occurred_at_utc,created_at',environment:'eq.'+ctx.environment,id:'in.('+ids.join(',')+')',undone_at:'is.null',order:'created_at.desc',limit:String(MAX_MESSAGES)}).catch(()=>[]);
++      conversation=messages.filter((message)=>!message.is_automatic&&message.body_text).reverse().map((message)=>({from:message.direction==='CUSTOMER'?'client':'dealer',text:String(message.body_text).slice(0,500)}));
++    }
++  }
++  const limitCents=car.customer_limit_cents||journey?.budget_cents||null;
++  const user={car:carName,limitUsd:limitCents?Math.round(Number(limitCents)/100):null,conversation};
++  const budget=services.budget||openAiBudget;
++  const guard=budget.guard?budget.guard(ctx,'V2_DRAFT','request:'+request.id,services.budgetServices):null;
++  const body_={model:MODEL,messages:[{role:'system',content:SYSTEM},{role:'user',content:JSON.stringify({name,...user})}],
++    response_format:{type:'json_schema',json_schema:{name:'v2_draft',strict:true,schema:{type:'object',properties:{note:{type:'string'},message:{type:'string'}},required:['note','message'],additionalProperties:false}}}};
++  try{
++    const out=await budget.paidCall(guard,{modelId:MODEL,body:body_,send:async(capped)=>{
++      const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),TIMEOUT_MS);if(timer.unref)timer.unref();
++      try{
++        const response=await (services.fetchImpl||fetch)('https://api.openai.com/v1/chat/completions',{method:'POST',signal:controller.signal,headers:{'content-type':'application/json',authorization:'Bearer '+process.env.OPENAI_API_KEY},body:JSON.stringify(capped)});
++        if(!response.ok)throw await budget.openAiFailure(response);
++        const payload=await response.json();
++        const usage={input:Number(payload?.usage?.prompt_tokens)||0,output:Number(payload?.usage?.completion_tokens)||0};
++        return {payload,costUsd:Math.ceil((usage.input*0.10+usage.output*0.50)*1e6)/1e6};
++      }catch(failure){if(failure&&failure.name==='AbortError'){const timeout=new Error('OPENAI_TIMEOUT');timeout.code='OPENAI_TIMEOUT';throw timeout;}throw failure;}
++      finally{clearTimeout(timer);}
++    }});
++    let parsed=null;try{parsed=JSON.parse(out.payload?.choices?.[0]?.message?.content||'');}catch(_){parsed=null;}
++    if(!parsed||typeof parsed!=='object')return {note:null,message:null};
++    if(budget.recorded)await budget.recorded(guard);
++    return {note:safeText(parsed.note,300)||null,message:safeText(parsed.message,600)||null};
++  }catch(_){return {note:null,message:null};}
++}
++
++module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;
++  if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});
++  try{const out=await draft(ctx,await jsonBody(req,4096));
++    if(out.error)return send(res,out.error==='V2_DRAFT_REQUEST_NOT_FOUND'?404:400,{error:out.error});
++    return send(res,200,{note:out.note,message:out.message});
++  }catch(_){return send(res,500,{error:'V2_DRAFT_UNAVAILABLE'});}};
++module.exports.draft=draft;
+diff --git a/api/panel/vitrine-funnel.js b/api/panel/vitrine-funnel.js
+new file mode 100644
+index 0000000..a2cbca9
+--- /dev/null
++++ b/api/panel/vitrine-funnel.js
+@@ -0,0 +1,159 @@
++'use strict';
++
++// V1/V2 funnel for the panel: every V1 sent (waiting for the tap or tapped without a V2 yet)
++// and every V2 sent (waiting for the bid or bid placed). No migration, existing tables only.
++// The TAP is read straight from vitrine_events: the 15-minute delay of vitrine-requests.js does
++// not apply here, the card appears in "Tocou · falta a V2" as soon as the client taps.
++const {allRows,isUuid,insert,jsonBody,requirePanel,send}=require('../../panel-server');
++const {vehicleName}=require('../../vitrine-domain');
++const {toggleEnabled}=require('../../panel-domain');
++const {loadClassification}=require('../../panel-classification');
++const groups=require('../../panel-groups');
++const {dispositionIndex}=require('../../panel-disposition');
++
++const since=(value,now=Date.now())=>{
++  const elapsed=Math.max(0,now-Date.parse(value||now));
++  const minutes=Math.floor(elapsed/60000);
++  if(minutes<60)return `há ${minutes||1} min`;
++  const hours=Math.floor(minutes/60);
++  if(hours<24)return `há ${hours} h`;
++  return `há ${Math.floor(hours/24)} dias`;
++};
++
++async function payload(ctx,services={}){
++  const read=services.allRows||allRows;
++  const [vitrines,cars,events,requests,contacts,phones,journeys,toggles,dispositions,journeyRefs]=await Promise.all([
++    read(ctx,'vitrines',{select:'id,contact_id,journey_id,reference_code,customer_name,version,created_at,expires_at,parent_vitrine_id',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
++    read(ctx,'vitrine_cars',{select:'id,vitrine_id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment}),
++    read(ctx,'vitrine_events',{select:'vitrine_id,vitrine_car_id,event_type,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
++    read(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,request_kind,treated_at,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
++    read(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment}),
++    read(ctx,'contact_phones',{select:'contact_id,phone_e164,phone_raw,is_primary,is_current,retired_at',environment:'eq.'+ctx.environment}),
++    read(ctx,'journeys',{select:'id,contact_id,reference_code,status,budget_cents',environment:'eq.'+ctx.environment}),
++    read(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment}),
++    read(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,updated_at',environment:'eq.'+ctx.environment,cleared_at:'is.null'}),
++    read(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment})
++  ]);
++  const classification=services.loadClassification?await services.loadClassification(ctx):await loadClassification(ctx);
++  const refStateFor=(journeyId)=>{if(!journeyId)return 'SEM_REF';const identity=classification.identityOf(journeyId);if(identity.state!=='OK')return null;return groups.refStateOf({hasCalcRef:identity.status==='REF_COMPROVADA',identity});};
++  const vitrinesById=new Map(vitrines.map((row)=>[row.id,row]));
++  const contactsById=new Map(contacts.map((row)=>[row.id,row]));
++  const journeysById=new Map(journeys.map((row)=>[row.id,row])),toggleByJourney=new Map(toggles.map((row)=>[row.journey_id,row]));
++  const personDisposition=dispositionIndex(dispositions);
++  const phoneFor=(contactId)=>{const values=phones.filter((row)=>row.contact_id===contactId&&row.is_current!==false&&!row.retired_at);const row=values.find((row)=>row.is_primary)||values[0];return row&&(row.phone_e164||row.phone_raw)||null;};
++  // Same "actionable" rule as vitrine-requests.js: never "não é lead", never a closed or
++  // switched-off case, never a discarded person.
++  const actionable=(vitrine)=>{
++    if(contactsById.get(vitrine.contact_id)?.is_lead===false)return false;
++    const journeyId=vitrine.journey_id||null;
++    if(!journeyId)return true;
++    const journey=journeysById.get(journeyId);
++    if(!journey)return true;
++    if(contactsById.get(journey.contact_id)?.is_lead===false)return false;
++    if(!toggleEnabled(journey.status,toggleByJourney.get(journeyId)))return false;
++    const refs=[journey.reference_code,...journeyRefs.filter((row)=>row.journey_id===journeyId).map((row)=>row.ref_code)].filter(Boolean);
++    return personDisposition(journeyId,refs)?.status!=='DISCARDED';
++  };
++  const now=Date.now();
++  const expired=(vitrine)=>Date.parse(vitrine.expires_at||0)<=now;
++  const carsByVitrine=new Map();
++  cars.forEach((car)=>{if(!carsByVitrine.has(car.vitrine_id))carsByVitrine.set(car.vitrine_id,[]);carsByVitrine.get(car.vitrine_id).push(car);});
++  const childrenByParent=new Map();
++  vitrines.forEach((vitrine)=>{if(vitrine.parent_vitrine_id){if(!childrenByParent.has(vitrine.parent_vitrine_id))childrenByParent.set(vitrine.parent_vitrine_id,[]);childrenByParent.get(vitrine.parent_vitrine_id).push(vitrine);}});
++  const eventsByVitrine=new Map();
++  events.forEach((event)=>{if(!eventsByVitrine.has(event.vitrine_id))eventsByVitrine.set(event.vitrine_id,[]);eventsByVitrine.get(event.vitrine_id).push(event);});
++  const requestsByCar=new Map();
++  requests.forEach((request)=>{const key=request.vitrine_id+'|'+request.vitrine_car_id;if(!requestsByCar.has(key))requestsByCar.set(key,[]);requestsByCar.get(key).push(request);});
++  const budgetByJourney=new Map(journeys.map((row)=>[row.id,row.budget_cents||null]));
++  const contactName=(vitrine)=>contactsById.get(vitrine.contact_id)?.display_name||vitrine.customer_name||phoneFor(vitrine.contact_id)||'Cliente';
++
++  const v1={tapped:[],waiting:[],expired:[]},v2={bid:[],waiting:[],expired:[]};
++  vitrines.forEach((vitrine)=>{
++    if(!actionable(vitrine))return;
++    const carList=carsByVitrine.get(vitrine.id)||[];
++    const contact={name:contactName(vitrine),phone:phoneFor(vitrine.contact_id)};
++    if(vitrine.version==='V1'){
++      if(expired(vitrine)){v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now),expiredAt:vitrine.expires_at});return;}
++      const v2children=(childrenByParent.get(vitrine.id)||[]).filter((child)=>child.version==='V2');
++      const tapsByCar=new Map();
++      (eventsByVitrine.get(vitrine.id)||[]).filter((event)=>event.event_type==='TAP'&&event.vitrine_car_id).forEach((event)=>{
++        if(!tapsByCar.has(event.vitrine_car_id)||Date.parse(event.created_at)>Date.parse(tapsByCar.get(event.vitrine_car_id).created_at))tapsByCar.set(event.vitrine_car_id,event);
++      });
++      let tappedAny=false;
++      tapsByCar.forEach((tap,carId)=>{
++        if(v2children.length)return; // the V2 exists: the client moved to the V2 tab
++        const car=carList.find((item)=>item.id===carId);if(!car)return;
++        const reqs=requestsByCar.get(vitrine.id+'|'+carId)||[];
++        // "Pedido atendido" (treated) after the tap takes the card out of the action zone.
++        if(reqs.some((req)=>req.request_kind==='VIEW'&&req.treated_at&&Date.parse(req.treated_at)>=Date.parse(tap.created_at)))return;
++        const open=reqs.find((req)=>req.request_kind==='VIEW'&&!req.treated_at);
++        tappedAny=true;
++        v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),sentAt:vitrine.created_at,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents:vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null});
++      });
++      if(!tappedAny&&!v2children.length)v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)});
++      return;
++    }
++    if(vitrine.version==='V2'){
++      const firstCar=carList[0]||{};
++      const item={vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),car:vehicleName(firstCar.vehicle_snapshot||{}),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)};
++      if(expired(vitrine)){v2.expired.push({...item,expiredAt:vitrine.expires_at});return;}
++      const bidRequest=(requests||[]).find((req)=>req.vitrine_id===vitrine.id&&req.request_kind==='BID'&&!req.treated_at);
++      const bidTap=(eventsByVitrine.get(vitrine.id)||[]).find((event)=>event.event_type==='TAP');
++      if(bidRequest||bidTap){v2.bid.push({...item,bidAt:(bidRequest||bidTap).created_at,bidAgo:since((bidRequest||bidTap).created_at,now)});}
++      else v2.waiting.push(item);
++    }
++  });
++  const byRecent=(a,b)=>Date.parse(b.tapAt||b.bidAt||b.sentAt)-Date.parse(a.tapAt||a.bidAt||a.sentAt);
++  v1.tapped.sort(byRecent);v1.waiting.sort(byRecent);v1.expired.sort((a,b)=>Date.parse(b.expiredAt)-Date.parse(a.expiredAt));
++  v2.bid.sort(byRecent);v2.waiting.sort(byRecent);v2.expired.sort((a,b)=>Date.parse(b.expiredAt)-Date.parse(a.expiredAt));
++  return {v1,v2,counts:{v1Action:v1.tapped.length,v2Action:v2.bid.length}};
++}
++
++
++// Lightweight summary for the "Opções enviadas" stat: real V1s from the vitrines
++// table, never the manual mark. "Today" is Florida time, like every other panel date.
++async function summary(ctx,services={}){
++  const read=services.allRows||allRows;
++  const rows=await read(ctx,'vitrines',{select:'journey_id,created_at',environment:'eq.'+ctx.environment,version:'eq.V1'})||[];
++  const journeyIds=[...new Set(rows.map((row)=>row.journey_id).filter(Boolean))];
++  const dayKey=(value)=>{const date=new Date(value||0);if(!Number.isFinite(date.getTime()))return '';
++    const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
++    const get=(type)=>parts.find((part)=>part.type===type).value;return `${get('year')}-${get('month')}-${get('day')}`;};
++  const todayKey=dayKey(Date.now());
++  return {v1JourneyIds:journeyIds,v1Today:rows.filter((row)=>dayKey(row.created_at)===todayKey).length};
++}
++
++// A tap alone never creates a vitrine_requests row, and createV2 needs one: when the operator
++// opens the V2 builder for a tap without a request, the row is created here (VIEW kind, same
++// columns as vitrine-webhook.js). Idempotent on the open request for that car.
++async function ensureRequest(ctx,body,services={}){
++  const write=services.insert||insert,read=services.allRows||allRows;
++  if(!isUuid(body.vitrineId)||!isUuid(body.vitrineCarId))return {error:'VITRINE_FUNNEL_INVALID'};
++  const [existing]=await read(ctx,'vitrine_requests',{select:'id',environment:'eq.'+ctx.environment,vitrine_id:'eq.'+body.vitrineId,vitrine_car_id:'eq.'+body.vitrineCarId,request_kind:'eq.VIEW',treated_at:'is.null',order:'created_at.desc',limit:'1'});
++  if(existing)return {requestId:existing.id,reused:true};
++  const [vitrine]=await read(ctx,'vitrines',{select:'id,contact_id,journey_id,version,expires_at',environment:'eq.'+ctx.environment,id:'eq.'+body.vitrineId,limit:'1'});
++  if(!vitrine)return {error:'VITRINE_NOT_FOUND'};
++  if(vitrine.version!=='V1')return {error:'VITRINE_FUNNEL_INVALID'};
++  if(Date.parse(vitrine.expires_at||0)<=Date.now())return {error:'VITRINE_EXPIRED'};
++  const [car]=await read(ctx,'vitrine_cars',{select:'id',environment:'eq.'+ctx.environment,id:'eq.'+body.vitrineCarId,vitrine_id:'eq.'+body.vitrineId,limit:'1'});
++  if(!car)return {error:'VITRINE_CAR_MISSING'};
++  const [created]=await write(ctx,'vitrine_requests',{environment:ctx.environment,vitrine_id:vitrine.id,vitrine_car_id:car.id,contact_id:vitrine.contact_id,journey_id:vitrine.journey_id,request_kind:'VIEW',referred:false},false);
++  return {requestId:created.id,created:true};
++}
++
++module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{
++  if(req.method==='GET'){
++    const query=req.query||Object.fromEntries(new URL(req.url||'/','http://painel.local').searchParams);
++    if(query.summary)return send(res,200,await summary(ctx));
++    return send(res,200,await payload(ctx));
++  }
++  if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});
++  const body=await jsonBody(req,4096);
++  if(body.action!=='ensure_request')return send(res,400,{error:'VITRINE_FUNNEL_INVALID'});
++  const out=await ensureRequest(ctx,body);
++  if(out.error)return send(res,out.error==='VITRINE_NOT_FOUND'?404:out.error==='VITRINE_EXPIRED'?410:400,{error:out.error});
++  return send(res,out.reused?200:201,out);
++}catch(_){return send(res,500,{error:'VITRINE_FUNNEL_UNAVAILABLE'});}};
++module.exports.payload=payload;
++module.exports.ensureRequest=ensureRequest;
++module.exports.summary=summary;
+diff --git a/painel/index.html b/painel/index.html
+index 06762c9..2e3cbeb 100644
+--- a/painel/index.html
++++ b/painel/index.html
+@@ -53,6 +53,8 @@
+         <h1 id="page-title" class="visual-page-label" aria-live="polite">ATENDER AGORA</h1>
+         <nav aria-label="Seções do painel">
+           <button class="tab active" type="button" data-view="today" aria-current="page">ATENDER AGORA <span data-count="today" data-unit="casos que dependem de você" title="Carregando">—</span></button>
++          <button class="tab" type="button" data-view="v1">V1 <span data-count="v1" data-unit="tocaram e falta a V2" title="Carregando">—</span></button>
++          <button class="tab" type="button" data-view="v2">V2 <span data-count="v2" data-unit="querem dar lance" title="Carregando">—</span></button>
+           <button class="tab" type="button" data-view="requests">BUSCAR CARROS <span data-count="requests" data-unit="pedidos de carro" title="Carregando">—</span></button>
+           <button class="tab" type="button" data-view="searches">ENVIAR OPÇÕES <span data-count="searches" data-unit="pessoas com carros no lote" title="Carregando">—</span></button>
+           <button class="tab" type="button" data-view="imports">IMPORTAÇÕES <span data-count="imports" data-unit="arquivos e prints para revisar" title="Carregando">—</span></button>
+@@ -67,10 +69,9 @@
+       <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última mensagem do WhatsApp: <strong id="last-whatsapp-import">—</strong></span><details id="ai-budget" class="ai-budget hidden"><summary>Saldo da IA: <strong id="ai-budget-spent">—</strong></summary><p id="ai-budget-warning" class="warning hidden"></p><ul id="ai-budget-features" class="ai-budget-features"></ul></details></div>
+       <section id="capture-warning" class="capture-warning hidden" aria-live="polite"></section>
+       <section id="today-panel" class="panel-view" aria-label="Atendimento">
+-        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Atendimento</h2><p class="muted">Responder, completar pedido, confirmar vínculo e cumprir retornos · O que depende de você vem primeiro</p><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Assunto<select id="today-subject" class="subject-filter"><option value="all">Todos os assuntos</option><option value="FINANCIAMENTO">Financiamento</option><option value="PEDIDO_CARRO">Pedido de carro</option><option value="SO_CUMPRIMENTO">Só cumprimentou</option><option value="OUTROS">Outros assuntos</option><option value="NAO_IDENTIFICADO">Ainda não identificado</option></select></label><label>Período<select id="today-period"><option value="all">Todos</option><option value="1">Últimas 24 h</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="today">Gerar relatório desta aba</button></div></div>
++        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Atendimento</h2><p class="muted">Responder, completar pedido, confirmar vínculo e cumprir retornos · O que depende de você vem primeiro</p><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Assunto<select id="today-subject" class="subject-filter"><option value="all">Todos os assuntos</option><option value="FINANCIAMENTO">Financiamento</option><option value="PEDIDO_CARRO">Pedido de carro</option><option value="SO_CUMPRIMENTO">Só cumprimentou</option><option value="OUTROS">Outros assuntos</option><option value="NAO_IDENTIFICADO">Ainda não identificado</option></select></label><label>Período<select id="today-period"><option value="all">Todos</option><option value="1">Últimas 24 h</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
+         <div id="attend-filters" class="filters attend-filters" role="group" aria-label="Filtrar o atendimento"></div>
+         <div id="today-stats" class="today-stats" aria-live="polite"></div>
+-        <section id="vitrine-signals" class="vitrine-signals" aria-live="polite"></section>
+         <div id="today-ref-filters" class="filters ref-filters" aria-label="Filtrar Hoje por Ref">
+           <button type="button" class="chip active" data-today-ref="all">Todos <span>—</span></button>
+           <button type="button" class="chip" data-today-ref="with">Com Ref <span>—</span></button>
+@@ -92,7 +93,6 @@
+         </details>
+         <details id="whatsapp-auto-rejected" class="card auto-rejected hidden"><summary></summary><div class="queue"></div></details>
+         <div id="attend-staging" class="hidden" aria-hidden="true">
+-          <section id="vitrine-requests" class="vitrine-requests"></section>
+           <div id="whatsapp-suggestions" class="queue"></div>
+           <div id="triage-review" class="queue triage-review"></div>
+           <div id="entry-queue" class="queue"></div>
+@@ -106,7 +106,7 @@
+         <details id="today-more" class="card today-more">
+           <summary><strong>Mais</strong> <span class="muted">lista completa de clientes, planilha, retomar conversas antigas e pendências gerais</span></summary>
+           <div id="clients-panel" aria-label="Clientes">
+-            <div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório da lista</button><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div>
++            <div class="inline-actions"><button id="clients-download" class="quiet small" type="button">Baixar relatório (planilha)</button></div>
+             <section id="clients-general-card" class="card pending-general" aria-live="polite"></section>
+             <details id="clients-followup" class="card followup-queue">
+               <summary><strong>Retomar conversas antigas</strong> <span class="muted">revisão uma a uma, nada é enviado sozinho</span></summary>
+@@ -128,6 +128,14 @@
+           </div>
+         </details>
+       </section>
++      <section id="v1-panel" class="panel-view hidden" aria-label="V1">
++        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>V1</h2><p class="muted">Vitrine simples enviada · Quem tocou em "Show me this car" aparece primeiro, para montar a V2</p></div></div>
++        <div id="v1-list" class="stack" aria-live="polite"></div>
++      </section>
++      <section id="v2-panel" class="panel-view hidden" aria-label="V2">
++        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>V2</h2><p class="muted">Vitrine completa enviada · Quem tocou em "I want to bid" aparece primeiro</p></div></div>
++        <div id="v2-list" class="stack" aria-live="polite"></div>
++      </section>
+       <section id="settings-panel" class="panel-view hidden" aria-label="Configurações e conexão">
+         <div class="section-head"><div><h2>Configurações e conexão</h2><p class="muted">WhatsApp, conexão do iPhone, avisos e mensagens automáticas</p></div></div>
+         <section id="purge-tests-card" class="card hidden" aria-live="polite"></section>
+@@ -137,11 +145,6 @@
+           <div class="signal-metric"><span>Última mensagem recebida</span><p id="whatsapp-received" class="muted"></p></div>
+           <div class="signal-metric"><span>Última enviada por você</span><p id="whatsapp-echo" class="muted">Nenhuma ainda</p></div>
+         </section>
+-        <section class="card settings-notifications" aria-labelledby="settings-notifications-title">
+-          <h2 id="settings-notifications-title">Avisos neste aparelho</h2>
+-          <div class="inline-actions"><button id="notification-toggle" class="quiet small" type="button">Ativar avisos</button><button id="notification-test" class="quiet small" type="button">Enviar aviso de teste</button></div>
+-          <span id="notification-status" class="sr-status" aria-live="polite"></span>
+-        </section>
+         <section class="card sms-device-card" aria-labelledby="sms-device-title">
+           <h2 id="sms-device-title">Conectar este iPhone</h2>
+           <p class="muted">Gere um código para o Atalho que envia SMS ao painel. Um novo código revoga o anterior.</p>
+@@ -179,10 +182,6 @@
+         </div>
+         <div id="pending-list" class="stack" aria-live="polite"></div>
+       </section>
+-      <section id="qualification-panel" class="panel-view hidden" aria-label="Qualificação">
+-        <div class="section-head"><div><h2>Qualificação</h2><p class="muted">Seis de seis significa checklist completo</p></div><div class="inline-actions"><label>Ordenar<select id="qualification-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label><button class="quiet" type="button" data-report="qualification">Gerar relatório desta aba</button></div></div>
+-        <div id="qualification-list" class="stack" aria-live="polite"></div>
+-      </section>
+       <section id="requests-panel" class="panel-view hidden" aria-label="Buscar carros">
+         <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Buscar carros</h2><p class="muted">Cada pedido completo no seu tipo de busca, com os critérios, o resultado no lote ativo e as buscas para salvar no Manheim</p></div><div class="inline-actions"><button id="requests-history" class="small" type="button">Iniciar / continuar auditoria histórica</button><button id="requests-compare" class="small quiet" type="button">Comparar com o lote ativo</button></div></div>
+         <section id="requests-history-progress" class="card requests-history hidden" aria-live="polite">
+@@ -222,7 +221,6 @@
+           <h2 id="imports-review-title">Erros, arquivos e prints para revisar</h2>
+           <p id="imports-review-empty" class="entry-empty">Nada pendente ✓</p>
+           <p class="muted">Não são contatos: ficam aqui, fora dos casos do ATENDIMENTO</p>
+-          <div id="whatsapp-errors" class="queue" aria-live="polite"></div>
+           <div id="imports-review-queue" class="queue" aria-live="polite"></div>
+         </section>
+         <div class="entry-tools import-cards">
+@@ -238,7 +236,7 @@
+           </section>
+           <section id="auto-print-card" class="card entry-tool entry-tool-featured import-card">
+             <span class="entry-tool-icon" aria-hidden="true">📷</span><h2>Anexar print</h2>
+-            <p class="muted">Print de SMS, de WhatsApp ou foto · O painel lê a Ref e o número e coloca no cliente certo sozinho</p>
++            <p class="muted">Print de SMS, de WhatsApp ou foto · O painel lê a Ref e o número · Guarda sozinho quando apontam um único cliente, senão fica aqui para você decidir</p>
+             <label class="print-drop">Arraste o print aqui ou toque para escolher<input id="auto-print-file" type="file" accept="image/*" multiple></label>
+             <div id="auto-print-file-info" class="attachment-choice hidden"></div>
+             <div class="inline-actions"><button id="auto-print-remove" class="quiet small hidden" type="button">Remover</button><button id="auto-print-send" type="button" disabled>Enviar</button></div>
+@@ -265,7 +263,7 @@
+           </details>
+           <section id="import-card-whatsapp" class="card entry-tool import-card">
+             <span class="entry-tool-icon" aria-hidden="true">💬</span><h2>Importar conversa</h2>
+-            <p class="muted">ZIPs ou TXT do WhatsApp · O arquivo é lido neste navegador e só as conversas importadas são enviadas ao painel</p>
++            <p class="muted">ZIPs ou TXT do WhatsApp · O arquivo é lido neste navegador · Quando a conversa é reconhecida, grava sozinho e abre a ficha · Senão, você escolhe o contato aqui</p>
+             <label id="drop-zone" class="drop-zone" for="whatsapp-files">Arraste ZIPs/TXT aqui ou selecione arquivos<input id="whatsapp-files" type="file" accept=".zip,.txt,text/plain,application/zip" multiple></label>
+             <p id="import-status" class="status" role="status"></p>
+             <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="whatsapp"><li>Aceita arquivos .zip ou .txt exportados do WhatsApp, até 20 por vez</li><li>ZIP de até 100 MB e TXT de até 25 MB</li><li>Os arquivos são lidos neste navegador</li><li>Quando a conversa e a MCS são reconhecidas, grava sozinho e abre a ficha</li><li>Nos outros casos, Confirmar conversa aparece aqui para você escolher contato e busca</li><li>Cancelar este arquivo pula só esse arquivo, sem gravar nada</li><li>Grupo e horário incerto ficam em ATENDIMENTO, no caso da conversa</li><li>Mensagem que já está no painel não entra de novo</li><li>Formato não reconhecido fica aqui, em Erros, arquivos e prints para revisar, sem gravar mensagens</li></ul></details>
+@@ -294,71 +292,34 @@
+             <div id="history-import-errors" class="queue" aria-live="polite"></div>
+             <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="history"><li>Aceita um arquivo .json do 360dialog, de até 100 MB</li><li>Só aceita o histórico do número da MCS</li><li>Grava sem prévia, em partes, e mostra o resumo aqui</li><li>Mensagem que já existia não entra de novo</li><li>Dúvida de telefone ou de ligação vai para ATENDIMENTO, Depende de você</li><li>As mensagens aparecem nas fichas</li></ul></details>
+           </section>
+-          <section id="import-card-automatic" class="card entry-tool import-card import-info">
+-            <span class="entry-tool-icon" aria-hidden="true">🔄</span><h2>Entram sozinhos</h2>
+-            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="automatic"><li>Mensagens do WhatsApp chegam sozinhas pelo 360dialog</li><li>Fotos, áudios e documentos do cliente são baixados sozinhos em seguida</li><li>SMS enviados pelo atalho do iPhone entram sozinhos quando o remetente é conhecido</li><li>Nada disso precisa ser importado aqui</li><li>Problemas aparecem aqui, em Erros, arquivos e prints para revisar</li></ul></details>
+-          </section>
+-          <section id="import-card-v2" class="card entry-tool import-card">
+-            <span class="entry-tool-icon" aria-hidden="true">🖼️</span><h2>Fotos da V2 (vitrine completa)</h2>
+-            <details class="import-how"><summary>Como funciona</summary><ul class="import-facts" data-import-facts="v2"><li>Escolha uma V2 já criada e acrescente fotos ao carro dela</li><li>Até 12 fotos por carro, reduzidas no próprio navegador</li><li>As fotos aparecem no link que o cliente já tem</li><li>Nova V2 continua saindo do pedido do cliente, em ATENDIMENTO, com Montar V2</li></ul></details>
+-            <label>V2<select id="import-v2-select"><option value="">Carregando V2…</option></select></label>
+-            <div id="import-v2-body" class="hidden">
+-              <label id="import-v2-drop" class="v2-drop">Arraste as fotos aqui ou toque para escolher<input id="import-v2-file" class="visually-hidden" type="file" accept="image/*" multiple></label>
+-              <div id="import-v2-thumbs" class="v2-thumbs"></div>
+-              <div class="inline-actions"><button id="import-v2-send" type="button" disabled>Enviar fotos</button><button id="import-v2-open" class="quiet" type="button">Ver como o cliente vê</button></div>
+-            </div>
+-            <p id="import-v2-status" class="muted" aria-live="polite"></p>
+-          </section>
+         </div>
+         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
+       </section>
+       <section id="searches-panel" class="panel-view hidden" aria-label="Enviar opções">
+-        <div class="section-head today-heading searches-subsection"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Enviar opções</h2><p class="muted">Carros do lote ativo por pedido: revisão, seleção, preços, links V1 (vitrine simples) e V2, apresentação e envio · Cada envio é individual e confirmado</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="manheim">Gerar relatório desta aba</button></div></div>
++        <div class="section-head today-heading searches-subsection"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Enviar opções</h2><p class="muted">Fila de trabalho: quem tem carro no lote e ainda não recebeu a V1 · Toque no cartão para abrir a ficha, selecionar os carros e gerar a V1</p></div></div>
+         <section class="card">
+           <div id="manheim-summary" class="muted"></div>
+           <div id="manheim-audit-note" class="manheim-audit-note hidden" aria-live="polite"></div>
+           <div id="buscas-total" class="buscas-total" aria-live="polite"></div>
+         </section>
+-        <div id="manheim-results" class="buscas-columns" aria-live="polite">
+-          <section id="buscas-valor" class="buscas-column" data-mode="VALOR" aria-label="Por valor · Calculate My Cost">
+-            <header class="buscas-column-head"><h2>Por valor · Calculate My Cost</h2><p class="muted">Carros pela faixa de MMR do lance de cada cliente</p><label class="requests-sort">Ordenar <select id="options-sort-valor"><option value="mais">Mais opções primeiro</option><option value="menos">Menos opções primeiro</option><option value="recente" selected>Mensagem mais recente</option><option value="lance-maior">Lance maior primeiro</option><option value="lance-menor">Lance menor primeiro</option></select></label></header>
+-            <div id="buscas-valor-counters" class="pending-stats buscas-counters"></div>
+-            <h3>Compatíveis</h3>
+-            <div id="buscas-valor-results" class="stack"></div>
+-          </section>
+-          <section id="buscas-carro" class="buscas-column" data-mode="CARRO" aria-label="Por carro · Find One For Me">
+-            <header class="buscas-column-head"><h2>Por carro · Find One For Me</h2><p class="muted">Carros pela faixa de ano e de milhagem de cada cliente</p><label class="requests-sort">Ordenar <select id="options-sort-carro"><option value="mais">Mais opções primeiro</option><option value="menos">Menos opções primeiro</option><option value="recente" selected>Mensagem mais recente</option><option value="ano-maior">Ano maior primeiro</option><option value="ano-menor">Ano menor primeiro</option></select></label></header>
+-            <div id="buscas-carro-counters" class="pending-stats buscas-counters"></div>
+-            <h3>Compatíveis</h3>
+-            <div id="buscas-carro-results" class="stack"></div>
+-          </section>
++        <div id="manheim-results" aria-live="polite">
++          <div class="options-queue-tools">
++            <label class="options-queue-search">Buscar na fila <input id="options-queue-search" type="search" maxlength="100" placeholder="Nome, telefone, Ref ou carro"></label>
++          </div>
++          <p id="options-queue-count" class="muted" aria-live="polite"></p>
++          <div id="options-queue" class="stack" aria-live="polite"></div>
++          <details class="card saved-searches-box" id="buscas-saved-box">
++            <summary>Quais buscas salvar no Manheim</summary>
++            <div id="buscas-saved-list" class="stack saved-searches"></div>
++          </details>
+         </div>
+       </section>
+-      <section id="manheim-panel" class="panel-view hidden" aria-label="Manheim">
+-        <p class="visually-hidden">Conteúdo reunido nas áreas ENVIAR OPÇÕES e IMPORTAÇÕES</p>
+-      </section>
+-      <section id="records-panel" class="panel-view hidden" aria-label="Fichas">
+-        <div class="section-head"><div><h2>Fichas</h2><p class="muted">Dados, ações e conversa em uma única tela</p></div><div class="inline-actions"><button class="quiet" type="button" data-report="records">Gerar relatório desta aba</button><label>Ordenar<select id="records-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="name">Nome</option><option value="ref">Ref</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
+-        <div id="records-list" class="stack" aria-live="polite"></div>
+-      </section>
+       <section id="detail-panel" class="panel-view hidden" aria-label="Detalhe">
+         <div class="detail-toolbar">
+           <button id="detail-back" class="quiet" type="button">← Voltar</button>
+         </div>
+         <article id="record-detail" class="card record-detail"><p class="muted">Carregando…</p></article>
+       </section>
+-      <dialog id="report-dialog">
+-        <form method="dialog" class="report-form">
+-          <div class="section-head"><h2>Relatório da aba</h2><button class="quiet" value="cancel">Fechar</button></div>
+-          <p id="report-origin-note" class="muted hidden"></p>
+-          <label id="report-period-field">Período<select id="report-period"><option value="today">Hoje</option><option value="7">7 dias</option><option value="30">30 dias</option><option value="custom">Personalizado</option></select></label>
+-          <div id="report-custom" class="filters hidden"><label>De<input id="report-from" type="date"></label><label>Até<input id="report-to" type="date"></label></div>
+-          <button id="report-generate" type="button">Gerar</button>
+-          <textarea id="report-text" rows="6" readonly aria-label="Texto do relatório"></textarea>
+-          <button id="report-copy" type="button" class="quiet">Copiar texto</button>
+-          <p id="report-status" class="status" role="status"></p>
+-        </form>
+-      </dialog>
+     </section>
+   </main>
+   <script src="/painel/vendor/zip.min.js" defer></script>
+@@ -385,6 +346,5 @@
+   <script src="/painel/lead.js?v=20261025p" defer></script>
+   <script src="/painel/painel.js?v=20261025v1c3c4r1" defer></script>
+   <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
+-  <script src="/painel/notifications.js" defer></script>
+ </body>
+ </html>
+diff --git a/painel/lead.js b/painel/lead.js
+index 131c128..939a64c 100644
+--- a/painel/lead.js
++++ b/painel/lead.js
+@@ -52,7 +52,7 @@
+     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
+   }
+   async function open(options) {
+-    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer,openOptions,openTab,isCurrent} = options;
++    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer,openOptions,renderFichaOptions,openTab,isCurrent} = options;
+     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
+     // A late answer of another person (or another opening of the same one) never draws over the ficha now on screen.
+     if(typeof isCurrent==='function'&&!isCurrent())return;
+@@ -184,12 +184,20 @@
+     if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)){const line=append(questions,'div','ask-row');append(line,'span','ask-text',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);}
+     if(!questions.querySelector('.ask-row'))append(questions,'p','muted','Checklist completo');
+     const offers=section(second,8,'O QUE OFERECER','offer-card');
+-    // OPÇÕES owns the selection for the client and the V1; this section shows what the batch has and leads there.
+-    // A car becomes "apresentado" by itself when the send is confirmed in ENVIAR OPÇÕES (no manual registration here).
+-    const offerModes=[...new Set((data.offers||[]).map((car)=>car.mode).filter(Boolean))];
++    // The selection for the customer and the V1 live here, in the ficha: the groups, the sort,
++    // the trim filter, the pages and the per-car selection, with the send at the foot.
++    // A car becomes "apresentado" by itself when the send is confirmed (no manual registration here).
+     append(offers,'p','offer-count',`${data.offers.length} ${data.offers.length===1?'carro compatível':'carros compatíveis'} no lote ativo`);
+-    append(offers,'p','offer-note','A seleção para o cliente e a V1 são feitas em ENVIAR OPÇÕES');
+-    if(journeyId&&(openOptions||openTab)){const go=append(offers,'div','offer-go');if(offerModes.length&&openOptions)offerModes.forEach((mode)=>button(go,`Abrir em ENVIAR OPÇÕES · ${mode==='VALOR'?'POR VALOR':'POR ANO E MILHAGEM'}`,()=>openOptions(`journey:${journeyId}:${mode}`),'offer-open'));else if(openTab)button(go,'Abrir ENVIAR OPÇÕES',()=>openTab('searches'),'offer-open');}
++    // The selection for the customer and the V1 live here now, in the ficha: the groups, the
++    // sort, the trim filter, the pages and the per-car selection, with the send at the foot.
++    const optionsMount = append(offers, 'div', 'ficha-options-mount');
++    if (renderFichaOptions) {
++      renderFichaOptions(optionsMount, { journeyId: journeyId || null, ref: ref || null })
++        .catch(() => { if (optionsMount.isConnected) append(optionsMount, 'p', 'warning', 'Não consegui carregar as opções agora'); });
++    } else if (openTab) {
++      const go = append(offers, 'div', 'offer-go');
++      button(go, 'Abrir ENVIAR OPÇÕES', () => openTab('searches'), 'offer-open');
++    }
+     if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes');
+     // A search type without cars still says why (ainda não rodada, or sem carros with the reason).
+     (data.searchModes||[]).forEach((mode)=>{const count=data.offers.filter((car)=>car.mode===mode).length,label=mode==='VALOR'?'Por valor':'Por carro (ano e milhagem)';if(count)return;const line=append(offers,'p','lead-search-group');
+diff --git a/painel/painel.css b/painel/painel.css
+index fcedaf5..ac023ca 100644
+--- a/painel/painel.css
++++ b/painel/painel.css
+@@ -178,3 +178,11 @@ nav[aria-label="Seções do painel"]{
+ .requests-incomplete-note{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+ /* No celular, os dois tipos viram blocos separados, sem rolagem lateral */
+ @media (max-width:820px){.buscas-columns,.search-columns{grid-template-columns:minmax(0,1fr)}.buscas-column{overflow-wrap:anywhere}}
++/* ENVIAR OPÇÕES · fila + ficha: o pé da ficha com o botão da V1 fica fixo ao rolar */
++.ficha-v1-foot{position:sticky;bottom:0;z-index:15;display:grid;gap:8px;padding:12px;background:rgba(5,17,29,.96);border-top:1px solid #29465f;backdrop-filter:blur(10px)}
++.options-queue-tools{margin:0 0 8px}
++.options-queue-search{display:grid;gap:4px;max-width:420px}
++.options-queue-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
++.options-queue-next{margin:0}
++.ficha-demand{margin:0 0 14px}
++.ficha-demand-head{display:flex;gap:8px;align-items:center;margin:0 0 6px}
+diff --git a/painel/painel.js b/painel/painel.js
+index 4edef18..614132d 100644
+--- a/painel/painel.js
++++ b/painel/painel.js
+@@ -21,10 +21,11 @@
+   let senderAliases = [];
+   let chatAliases = [];
+   let todayItems = [];
+-  let vitrineRequestCount = 0;
+   let clientsData = { items: [], counts: {}, pending: {} };
+   let todayRefFilter = localStorage.getItem('mcs_today_ref_filter') || 'all';
+   let todayStatFilter = null;
++  // Real V1s sent (vitrines table): "Opções enviadas" counts these, never the manual mark.
++  let v1JourneySet = new Set(), v1TodayCount = 0;
+   let pendingSituation = 'all';
+   let pendingContinueTimer = null;
+   let currentView = 'today';
+@@ -32,7 +33,6 @@
+   let manheimOrders = [];
+   let manheimMatches = [];
+   let savedSearchesData = null;
+-  let reportView = 'today';
+   let viewRequestVersion = 0;
+   let detailRequestVersion = 0;
+   let detailOrigin = null;
+@@ -335,7 +335,7 @@
+         if (!out.remaining || !out.synced) break;
+       }
+     } finally { optionsSyncRunning = false; }
+-    if (synced && ['searches', 'manheim'].includes(currentView)) loadCurrent().catch(() => {});
++    if (synced && currentView === 'searches') loadCurrent().catch(() => {});
+     return synced;
+   }
+   // Same GET already running: one request for everyone. A counter can reuse a fresh answer.
+@@ -614,16 +614,16 @@
+   }
+ 
+   function renderLoading(view) {
+-    const roots = { today: 'today-list', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches', manheim: 'manheim-summary', records: 'records-list' };
++    const roots = { today: 'today-list', v1: 'v1-list', v2: 'v2-list', clients: 'clients-list', pending: 'pending-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches' };
+     if (roots[view] && $(roots[view])) empty($(roots[view]), 'Carregando…');
+   }
+ 
+   // One function per area. ENTRADA (and the old PEDIDOS) is part of ATENDIMENTO now: an old link
+   // or history entry opens ATENDIMENTO. Each area keeps its own position when you come back to it.
+-  const VIEWS = ['today', 'requests', 'searches', 'imports', 'settings'];
++  const VIEWS = ['today', 'v1', 'v2', 'requests', 'searches', 'imports', 'settings'];
+   // The old TODOS tab lives in the "Mais" block of ATENDER AGORA: it loads only while that block is open.
+   const clientsOpen = () => currentView === 'today' && Boolean($('today-more')?.open);
+-  const VIEW_LABELS = { today: 'ATENDER AGORA', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'TODOS', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
++  const VIEW_LABELS = { today: 'ATENDER AGORA', v1: 'V1', v2: 'V2', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'TODOS', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
+   const viewScroll = new Map();
+   async function switchPanel(view, options = {}) {
+     if (view === 'orders' || view === 'entry') view = 'today';
+@@ -636,7 +636,7 @@
+     clearRecordDetail();
+     currentDetail = null;
+     if ($('detail-panel')) $('detail-panel').classList.add('hidden');
+-    VIEWS.concat(['pending','qualification','manheim','records']).forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
++    VIEWS.concat(['pending']).forEach((name) => $(name + '-panel')?.classList.toggle('hidden', name !== view));
+     $('page-title').textContent = VIEW_LABELS[view];
+     // The active area is always evident (style and aria-current).
+     document.querySelectorAll('[data-view]').forEach((button) => { const on = button.dataset.view === view; button.classList.toggle('active', on); if (on) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); });
+@@ -833,15 +833,18 @@
+     return item;
+   }
+   // Errors, files and prints are not contacts: they live in IMPORTAÇÕES, never in the contact groups.
+-  function renderImportsReview(reviews) {
++  // One queue: the WhatsApp processing errors and the files/prints waiting for review share it.
++  let whatsappErrorRows = [], lastImportsReviews = null;
++  function paintImportsQueue() {
+     const queue = $('imports-review-queue');
+     if (!queue) return;
+     queue.replaceChildren();
++    whatsappErrorRows.forEach((row) => queue.append(row));
+     calcQueue.forEach((entry) => queue.append(calcQueueCard(entry)));
+     printReviews.forEach((print) => queue.append(printReviewCard(print)));
+     failedPrints.forEach((print) => queue.append(failedPrintCard(print)));
+     if (printResolved.length) { const details = element('details', 'resolved-prints'); details.append(element('summary', '', `Prints já resolvidos nos últimos 14 dias (${printResolved.length})`)); const list = element('ul', ''); printResolved.forEach((print) => list.append(resolvedPrintRow(print))); details.append(list); queue.append(details); }
+-    (reviews || []).forEach((review) => {
++    (lastImportsReviews || []).forEach((review) => {
+       const item = document.createElement('article');
+       item.className = 'queue-item';
+       const title = document.createElement('strong');
+@@ -854,12 +857,16 @@
+     });
+     paintImportsCount();
+   }
++  function renderImportsReview(reviews) {
++    lastImportsReviews = reviews || [];
++    paintImportsQueue();
++  }
+   function paintImportsCount() {
+     // The tab badge counts files and prints waiting for review (the same number the counters compute);
+-    // WhatsApp processing errors are listed here too, with their own retry, outside the badge.
+-    const pending = $('imports-review-queue')?.childElementCount || 0;
+-    $('imports-review-empty')?.classList.toggle('hidden', pending + ($('whatsapp-errors')?.childElementCount || 0) > 0);
+-    setCount('imports', pending);
++    // WhatsApp processing errors share the queue, with their own retry, outside the badge.
++    const total = $('imports-review-queue')?.childElementCount || 0;
++    $('imports-review-empty')?.classList.toggle('hidden', total > 0);
++    setCount('imports', Math.max(0, total - whatsappErrorRows.length));
+   }
+   // Link / create / dismiss controls for a conversation or a file waiting for review (ENTRADA and IMPORTAÇÕES).
+   function entryReviewControls(item,target,kind){
+@@ -1098,17 +1105,19 @@
+       ? 'Recebendo · último sinal há ' + ago(data.lastEventAt) : 'Sem sinal' + (data.lastEventAt ? ' há ' + ago(data.lastEventAt) : ' ainda');
+     $('whatsapp-received').textContent = 'Última mensagem recebida há ' + ago(data.lastInboundAt);
+     $('whatsapp-echo').textContent = 'Última mensagem enviada por você recebida há ' + ago(data.lastEchoAt);
+-    const errors = $('whatsapp-errors'); errors.replaceChildren();
++    const errorRows = [];
+     (data.errors || []).forEach((event) => {
+       const row = element('div', 'queue-item');
+       row.append(element('span', '', `Evento ${event.event_type} · ${event.status === 'ERROR' ? 'erro' : 'pendente'} · ${ago(event.received_at)}`));
+       const retry = element('button', 'small', 'Reprocessar'); retry.type = 'button';
+       MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent='Reprocessando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:'reprocess',id:event.id})}),rollback:()=>{retry.textContent='Reprocessar';},refresh:()=>loadWhatsApp(),errorText:'Não consegui salvar, tente de novo'}));
+-      row.append(retry); errors.append(row);
++      row.append(retry); errorRows.push(row);
+     });
+-    (data.ignored||[]).forEach((event)=>errors.append(element('div','queue-item',`ignorado: ${String(event.error_code||event.event_type||'campo desconhecido').replace(/^IGNORED:/,'')}`)));
++    (data.ignored||[]).forEach((event)=>errorRows.push(element('div','queue-item',`ignorado: ${String(event.error_code||event.event_type||'campo desconhecido').replace(/^IGNORED:/,'')}`)));
+     const itemErrorLabel=(code)=>({HISTORY_DECLINED:'Histórico não compartilhado pelo WhatsApp',PHONE_INVALID:'Telefone inválido',PHONE_AMBIGUOUS:'Telefone ligado a mais de um contato',MESSAGE_CONTENT_INVALID:'Mensagem inválida',ITEM_PROCESSING_FAILED:'Falha ao gravar a mensagem',PROCESSING_INTERRUPTED:'Processamento interrompido'})[code]||'Falha ao processar este item';
+-    (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const declined=event.error_code==='HISTORY_DECLINED';const retry=element('button','small',declined?'Dispensar':'Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent=declined?'Dispensando…':'Processando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:declined?'dismiss_item':'reprocess_item',id:event.id})}),rollback:()=>{retry.textContent=declined?'Dispensar':'Tentar de novo';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));row.append(retry);errors.append(row);});
++    (data.itemErrors||[]).forEach((event)=>{const row=element('div','queue-item');row.append(element('span','',`Item ${event.item_index+1}: ${itemErrorLabel(event.error_code)}`));const declined=event.error_code==='HISTORY_DECLINED';const retry=element('button','small',declined?'Dispensar':'Tentar de novo');retry.type='button';retry.disabled=event.status==='PROCESSING';MCSAction.bind(retry,()=>({scope:row,optimistic:()=>{retry.textContent=declined?'Dispensar':'Reprocessando…';},commit:()=>request('/api/panel/whatsapp',{method:'POST',body:JSON.stringify({action:declined?'dismiss_item':'reprocess_item',id:event.id})}),rollback:()=>{retry.textContent=declined?'Dispensar':'Tentar de novo';},refresh:()=>Promise.all([loadWhatsApp(),loadQueue()]),errorText:'Não consegui salvar, tente de novo'}));row.append(retry);errorRows.push(row);});
++    whatsappErrorRows = errorRows;
++    paintImportsQueue();
+     const suggestions = $('whatsapp-suggestions'); suggestions.replaceChildren();
+     document.querySelectorAll('[data-decision-source="whatsapp"]').forEach((node) => node.remove());
+     // Suggestions turned down on their own (the client wrote another Ref): each one can be brought back right here.
+@@ -1817,7 +1826,7 @@
+   }
+ 
+   function renderFailure(view) {
+-    const roots = { today: 'today-list', clients: 'clients-list', pending: 'pending-list', qualification: 'qualification-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches', manheim: 'manheim-summary', records: 'records-list' };
++    const roots = { today: 'today-list', v1: 'v1-list', v2: 'v2-list', clients: 'clients-list', pending: 'pending-list', requests: 'requests-valor', searches: 'manheim-summary', imports: 'manheim-batches' };
+     const root = roots[view] && $(roots[view]);
+     if (!root) return;
+     // Nothing is shown as zero: the tab says it did not load and offers to try again.
+@@ -1836,32 +1845,23 @@
+     return data;
+   }
+   const searchButton = (label, handler, className = 'small') => { const control = element('button', className, label); control.type = 'button'; if (handler) control.addEventListener('click', (event) => { event.stopPropagation(); handler(); }); return control; };
+-  // "Andamento" of one ficha and mode, with its actions (mark saved/sent, undo).
+-  function searchStageLine(item, refresh) {
+-    const box = element('div', 'search-stage-line');
+-    box.dataset.mode = item.mode;
+-    const label = element('span', 'search-stage ' + item.stage, `Andamento: ${item.stageLabel}${item.days ? ` há ${item.days} dia${item.days === 1 ? '' : 's'}` : ''}`);
+-    box.append(label);
+-    if (item.alsoServes?.length) { const names = item.alsoServes.slice(0, 2).map((peer) => `${peer.name} (${peer.ref ? `Ref ${peer.ref}` : 'sem Ref'})`).join(' e '); box.append(element('span', 'muted', `A mesma busca no Manheim serve para: ${names}${item.alsoServes.length > 2 ? ` e mais ${item.alsoServes.length - 2}` : ''}`)); }
+-    const actions = element('div', 'inline-actions');
+-    const stageAction = (control, kind) => MCSAction.bind(control, () => { const previous = item.stage, next = kind === 'SAVED' ? 'SAVED' : 'SENT'; return { scope: box, optimistic: () => { item.stage = next; label.textContent = 'Andamento: ' + (next === 'SAVED' ? '💾 Busca salva no Manheim' : '📤 Opções enviadas'); return previous; }, commit: () => request('/api/panel/searches', { method: 'POST', body: JSON.stringify({ action: 'mark', journeyId: item.journeyId, kind, mode: item.mode }) }), rollback: (value) => { item.stage = value; label.textContent = 'Andamento: ' + item.stageLabel; }, refresh, errorText: 'Não consegui salvar, tente de novo' }; });
+-    if (item.stage === 'MISSING') { const saved = searchButton('💾 Salvei a busca no Manheim', null); stageAction(saved, 'SAVED'); actions.append(saved); }
+-    if (item.stage !== 'SENT') { const sent = searchButton('📤 Enviei opções ao cliente', null, 'quiet small'); stageAction(sent, 'SENT'); actions.append(sent); }
+-    if (item.stage !== 'MISSING') {
+-      const kind = item.stage === 'SENT' ? 'SENT' : 'SAVED', undo = searchButton('Desfazer', null, 'quiet small');
+-      if (item.stageSource === 'MARK') MCSAction.bind(undo, () => ({ scope: box, optimistic: () => { undo.textContent = 'Desfazendo…'; }, commit: () => request('/api/panel/searches', { method: 'POST', body: JSON.stringify({ action: 'undo', journeyId: item.journeyId, kind, mode: item.mode }) }), rollback: () => { undo.textContent = 'Desfazer'; }, refresh, errorText: 'Não consegui desfazer, tente de novo' }));
+-      else undo.addEventListener('click', (event) => { event.stopPropagation(); MCSAction.feedback(box, item.stageSource === 'MANHEIM' ? 'Esta busca foi marcada em “Quais buscas salvar”, desfaça lá' : 'As opções foram registradas pela ficha do cliente, desfaça na ficha', 'error', 'search-origin'); });
+-      actions.append(undo);
+-    }
+-    box.append(actions);
+-    return box;
++  // "Salvar busca no Manheim": the one manual action that stays, on the BUSCAR CARROS card
++  // where it resolves. The "Andamento" line and the "Enviei opções" mark are gone: the V1/V2
++  // tabs track the funnel now.
++  function saveSearchButton(item, refresh) {
++    const saved = searchButton('💾 Salvar busca no Manheim', null);
++    MCSAction.bind(saved, () => ({ scope: saved, optimistic: () => { saved.textContent = 'Salvando…'; },
++      commit: () => request('/api/panel/searches', { method: 'POST', body: JSON.stringify({ action: 'mark', journeyId: item.journeyId, kind: 'SAVED', mode: item.mode }) }),
++      rollback: () => { saved.textContent = '💾 Salvar busca no Manheim'; }, refresh, errorText: 'Não consegui salvar, tente de novo' }));
++    return saved;
+   }
+   // A ficha and mode with a work stage but no request on the list (kept visible, never lost).
+   function searchStageCard(item, refresh) {
+     const card = element('article', 'item-card search-card'); card.dataset.mode = item.mode;
+     const head = element('div', 'item-head');
+     head.append(element('strong', 'identity-name', item.name), phoneNode({ phones: item.phone ? [{ phone_e164: item.phone, is_primary: true }] : [] }), element('span', 'muted', item.ref ? `Ref ${item.ref}` : 'sem Ref'));
+-    card.append(head, element('strong', '', item.exactSearch), searchStageLine(item, refresh));
++    card.append(head, element('strong', '', item.exactSearch));
++    if (item.stage === 'MISSING') card.append(saveSearchButton(item, refresh));
+     const open = searchButton('Abrir ficha', () => openDetail('ficha', item.journeyId), 'quiet small'); card.append(open);
+     return card;
+   }
+@@ -1877,20 +1877,18 @@
+   async function openOptionsCard(demandKey, context = {}) {
+     await switchPanel('searches');
+     try { await loadCurrent('searches', viewRequestVersion); } catch (_) {}
+-    const card = demandKey ? document.querySelector(`#searches-panel [data-demand-key="${CSS.escape(demandKey)}"]`) : null;
++    // The queue never expands inline: the card is the way to the ficha, where the options live now.
++    const card = demandKey ? document.querySelector(`#options-queue [data-demand-key="${CSS.escape(demandKey)}"]`) : null;
+     if (card) {
+-      const live = (manheimData && manheimData.demands || []).find((demand) => demand.key === demandKey);
++      const live = optionsQueueData.find(({ demand }) => demand.key === demandKey);
+       const changed = [];
+-      if (context.criteriaHash && live && !live.reactivation && live.criteriaHash && context.criteriaHash !== live.criteriaHash) changed.push('Os critérios deste pedido mudaram desde o resultado que você abriu · As opções abaixo foram recalculadas com o critério atual');
+-      if (context.uploadId && manheimData && manheimData.upload && manheimData.upload.id && context.uploadId !== manheimData.upload.id) changed.push('O lote ativo mudou desde o resultado que você abriu · As opções abaixo são as do lote atual');
++      if (context.criteriaHash && live && live.demand.criteriaHash && context.criteriaHash !== live.demand.criteriaHash) changed.push('Os critérios deste pedido mudaram desde o resultado que você abriu · As opções na ficha foram recalculadas com o critério atual');
++      if (context.uploadId && manheimData && manheimData.upload && manheimData.upload.id && context.uploadId !== manheimData.upload.id) changed.push('O lote ativo mudou desde o resultado que você abriu · As opções na ficha são as do lote atual');
+       changed.forEach((text) => { const note = element('p', 'warning options-updated', text); card.prepend(note); });
+-      // The options of that request open right away (the same button as "Ver opções" on the card).
+-      const toggle = card.querySelector('.manheim-options-toggle');
+-      if (toggle && !toggle.disabled && toggle.textContent.startsWith('Ver opções')) toggle.click();
+       card.scrollIntoView({ behavior: 'smooth', block: 'start' }); card.classList.add('card-focus'); setTimeout(() => card.classList.remove('card-focus'), 4000); return true;
+     }
+     const summary = $('manheim-summary');
+-    if (summary) { const note = element('p', 'warning options-missing', 'Este pedido não tem carros do lote ativo neste tipo de busca · Veja o resultado dele em BUSCAR CARROS'); summary.after(note); setTimeout(() => note.remove(), 8000); }
++    if (summary) { const note = element('p', 'warning options-missing', 'Este pedido não está na fila · Ele pode já ter recebido a V1 (veja as abas V1 e V2) ou não ter carros no lote ativo'); summary.after(note); setTimeout(() => note.remove(), 8000); }
+     return false;
+   }
+   async function loadCurrent(view = currentView, requestVersion = viewRequestVersion) {
+@@ -1940,30 +1938,33 @@
+       // Abertura rápida: one call brings the five lists (one shared read in the database, message previews only, and
+       // only what changed since the last load); if it fails, the five lists are read one by one as before.
+       const viaBoot=bootLoad('main',{sort:$('today-sort')?.value||''}).then(async(parts)=>{if(!parts.today)throw new Error('BOOT_INCOMPLETE');
+-        primeBoot({[todayPath()]:parts.today,'/api/panel/vitrine-requests':parts.vitrine,'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
++        primeBoot({[todayPath()]:parts.today,'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
+         const entryData=parts.entry?await loadQueue(false,parts.entry).catch(()=>null):null;
+-        return [parts.today,parts.vitrine||null,null,entryData,parts.triage||null,parts.whatsapp||null];});
+-      const pending=viaBoot.catch(()=>Promise.all([fresh(todayPath()),fresh('/api/panel/vitrine-requests').catch(()=>null),null,
++        return [parts.today,null,null,entryData,parts.triage||null,parts.whatsapp||null];});
++      const pending=viaBoot.catch(()=>Promise.all([fresh(todayPath()),null,null,
+         loadQueue(false).catch(()=>null),fresh('/api/panel/triage').catch(()=>null),fresh('/api/panel/whatsapp').catch(()=>null)]));
+       loadWeekly().catch(()=>null);
+       let freshArrived=false;pending.then(()=>{freshArrived=true;},()=>{});
+-      if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.vitrine?.body || null, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
+-      const [data,vitrineData,,entryData,triageData,whatsappData]=await pending;
++      if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
++      const [data,,entryData,triageData,whatsappData]=await pending;
+       if (!current()) return;
+-      applyAttend(data, vitrineData, entryData, triageData, whatsappData, null);
++      applyAttend(data, entryData, triageData, whatsappData, null);
+       // The tab counters' heavier lists (BUSCAR CARROS, CLIENTES, ENVIAR OPÇÕES) come in a second single call, then the counters.
+       countersBoot=bootLoad('counters',{}).then((parts)=>{primeBoot({'/api/panel/pesquisas':parts.pesquisas,'/api/panel/records?view=manheim':parts.manheim});}).catch(()=>{});
++      // The real V1s (vitrines table) arrive after the queue is on screen; the
++      // "Opções enviadas" stat counts these and redraws when they arrive.
++      sharedGet('/api/panel/vitrine-funnel?summary=1', 60000).then((summary)=>{if(!current())return;v1JourneySet=new Set(summary.v1JourneyIds||[]);v1TodayCount=Number(summary.v1Today)||0;renderToday(todayItems,true);}).catch(()=>{});
+       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
+       (countersBoot||Promise.resolve()).then(()=>sharedGet('/api/panel/pesquisas', 30000)).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;renderToday(todayItems,true);})
+         // A failed source is said on screen and the last good list stays; "Completar pedido" never turns into an empty count.
+         .catch(()=>{if(!current())return;attendData.incompleteFailed=true;const note=$('triage-state');if(note&&!note.textContent.includes('pedidos incompletos'))note.textContent=[note.textContent,'Não consegui carregar os pedidos incompletos agora · Completar pedido mostra o último valor conhecido'].filter(Boolean).join(' · ');renderToday(todayItems,true);});
+       return;
+     }
+-    if (view === 'qualification') {
+-      const data = await request('/api/panel/qualification?sort='+encodeURIComponent($('qualification-sort').value),viewFetch());
++    if (view === 'v1' || view === 'v2') {
++      const data = await request('/api/panel/vitrine-funnel', viewFetch());
+       if (!current()) return;
+-      updateMeta(data.meta);
+-      return renderQualification(data.items || []);
++      updateMeta(data.meta);renderVitrineFunnel(data, view);
++      return;
+     }
+     if (view === 'searches') {
+       const data=await request('/api/panel/records?view=manheim',viewFetch());
+@@ -1980,7 +1981,6 @@
+       loadQueue(false).catch(() => {});
+       // WhatsApp processing errors are listed in IMPORTAÇÕES too.
+       loadWhatsApp().catch(() => {});
+-      loadV2Photos().catch(() => {});
+       const data = await request('/api/panel/records?view=manheim', viewFetch());
+       if (!current()) return;
+       updateMeta(data.meta);renderManheim(data);return;
+@@ -1998,18 +1998,6 @@
+       sharedGet('/api/panel/records?view=manheim', 60000).then((manheim) => { if (!current()) return; renderReview(manheim.review || []); renderRequestReview(requestColumnsOf(requestsData).review); }).catch(() => {});
+       return;
+     }
+-    if (view === 'manheim') {
+-      const data = await request('/api/panel/records?view=manheim',viewFetch());
+-      if (!current()) return;
+-      updateMeta(data.meta);
+-      return renderManheim(data);
+-    }
+-    if (view === 'records') {
+-      const data = await request('/api/panel/records?sort='+encodeURIComponent($('records-sort').value),viewFetch());
+-      if (!current()) return;
+-      updateMeta(data.meta);
+-      return renderRecords(data.items || []);
+-    }
+   }
+ 
+   // C5: one failing counter never breaks the others nor the session; it shows "—".
+@@ -2031,18 +2019,17 @@
+       sharedGet('/api/panel/entry', 10000),
+       Promise.resolve(null),
+       Promise.resolve(null),
+-      sharedGet('/api/panel/vitrine-requests', 10000),
+       sharedGet('/api/panel/triage', 10000),
+       sharedGet('/api/panel/whatsapp', 10000),
+       sharedGet('/api/panel/pesquisas', 60000),
+       sharedGet('/api/panel/records?view=manheim', 60000)
+     ]);
+-    const [today, entry, , , vitrineData, triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
++    const [today, entry, , , triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
+     // One failing counter never touches the others; it keeps its last confirmed number.
+     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
+     // ATENDIMENTO: the cases that depend on you, from the same model as its chips and list.
+-    if (today && entry && vitrineData && triageData && whatsappData) {
+-      const model = MCSAttend.model({ todayItems: today.items || [], decisions: withoutExcluded(today.items, attendDecisions({ entry, triage: triageData, whatsapp: whatsappData, vitrine: vitrineData }), new Set(today.discardedJourneys || [])), incomplete: [] });
++    if (today && entry && triageData && whatsappData) {
++      const model = MCSAttend.model({ todayItems: today.items || [], decisions: withoutExcluded(today.items, attendDecisions({ entry, triage: triageData, whatsapp: whatsappData }), new Set(today.discardedJourneys || [])), incomplete: [] });
+       setCount('today', model.counts.depende);
+     } else setCountUnknown('today');
+     count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length + (data.calcQueue || []).length);
+@@ -2259,7 +2246,7 @@
+       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
+       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest, isCurrent: () => requestVersion === detailRequestVersion,
+         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
+-        actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
++        actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOptions, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
+         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
+       if(requestVersion!==detailRequestVersion)return;
+       // Opened to reply: the conversation comes into view (HOJE "Responder").
+@@ -2279,177 +2266,167 @@
+ 
+ 
+ 
+-  /* ===== IMPORTAÇÕES · Fotos da V2: acrescenta fotos ao carro de uma V2 que já existe ===== */
+-  // Only adds photos (same route and limits as Montar V2). It never creates, publishes or sends a V2.
+-  // gen changes whenever the destination changes or the queue is cleared: an old resize, upload or list answer is dropped.
+-  const v2Photos={list:[],photos:[],busy:false,gen:0,loadSeq:0};
+-  const v2Target=()=>{const [vitrineId,carId]=($('import-v2-select')?.value||'').split('|');const v2=v2Photos.list.find((item)=>item.vitrineId===vitrineId);const car=v2?.cars.find((item)=>item.carId===carId);return v2&&car?{v2,car}:null;};
+-  function paintV2Photos(){
+-    const thumbs=$('import-v2-thumbs'),target=v2Target(),send=$('import-v2-send');if(!thumbs)return;
+-    $('import-v2-body')?.classList.toggle('hidden',!target);
+-    thumbs.replaceChildren();
+-    v2Photos.photos.forEach((photo,index)=>{const item=element('div','v2-thumb');const img=element('img');img.src=photo.url;img.alt='';const remove=element('button','quiet small','×');remove.type='button';remove.setAttribute('aria-label','Remover foto');remove.disabled=v2Photos.busy;remove.addEventListener('click',()=>{if(v2Photos.busy)return;URL.revokeObjectURL(photo.url);v2Photos.photos.splice(index,1);paintV2Photos();});item.append(img,remove);thumbs.append(item);});
+-    if(send){send.disabled=v2Photos.busy||!target||!v2Photos.photos.length;send.textContent=v2Photos.photos.length?`Enviar ${v2Photos.photos.length} foto(s)`:'Enviar fotos';}
+-    ['import-v2-select','import-v2-file'].forEach((id)=>{const control=$(id);if(control)control.disabled=v2Photos.busy;});
+-    $('import-v2-drop')?.classList.toggle('disabled',v2Photos.busy);
+-  }
+-  async function loadV2Photos(){
+-    const select=$('import-v2-select');if(!select)return;
+-    const keep=select.value;
+-    const seq=++v2Photos.loadSeq;
+-    let data;try{data=await request('/api/panel/vitrines',{method:'GET'});}catch(_){if(seq!==v2Photos.loadSeq)return;select.replaceChildren(new Option('Não consegui carregar as V2',''));paintV2Photos();return;}
+-    if(seq!==v2Photos.loadSeq)return;
+-    v2Photos.list=data.v2||[];
+-    const options=[new Option(v2Photos.list.length?'Escolha a V2':'Nenhuma V2 aberta','')];
+-    for(const v2 of v2Photos.list)for(const car of v2.cars){const who=[v2.customerName,v2.referenceCode].filter(Boolean).join(' · ')||'Cliente sem nome';options.push(new Option(`${who} · ${car.vehicle} · ${car.photoCount}/${V2_MAX_PHOTOS} fotos`,v2.vitrineId+'|'+car.carId));}
+-    select.replaceChildren(...options);
+-    if([...select.options].some((option)=>option.value===keep))select.value=keep;
+-    paintV2Photos();
+-  }
+-  async function addV2Photos(files){
+-    // The destination and the queue generation are fixed when the files are chosen: a resize that finishes after the
+-    // destination changed (or while sending) is dropped, never added to another car.
+-    const target=v2Target(),status=$('import-v2-status'),gen=v2Photos.gen;if(!target||v2Photos.busy)return;
+-    const room=V2_MAX_PHOTOS-target.car.photoCount-v2Photos.photos.length;
+-    let taken=0;
+-    for(const file of [...files]){
+-      if(taken>=room){status.textContent=`Esta V2 aceita só mais ${Math.max(0,V2_MAX_PHOTOS-target.car.photoCount)} foto(s)`;break;}
+-      try{
+-        const blob=await resizePhoto(file);
+-        const current=v2Target();
+-        if(gen!==v2Photos.gen||v2Photos.busy||!current||current.car.carId!==target.car.carId||current.v2.vitrineId!==target.v2.vitrineId)return;
+-        v2Photos.photos.push({blob,url:URL.createObjectURL(blob)});taken++;
+-      }catch(error){if(gen!==v2Photos.gen)return;status.textContent=error.message==='TOO_LARGE'?'Uma foto passou de 5 MB mesmo reduzida':error.message==='NOT_IMAGE'?'Um arquivo não é imagem':'Não consegui preparar uma foto';}
+-    }
+-    if(gen===v2Photos.gen)paintV2Photos();
+-  }
+-  function bindV2Photos(){
+-    const select=$('import-v2-select'),input=$('import-v2-file'),drop=$('import-v2-drop'),send=$('import-v2-send'),status=$('import-v2-status');if(!select)return;
+-    select.addEventListener('change',()=>{v2Photos.gen+=1;v2Photos.photos.forEach((photo)=>URL.revokeObjectURL(photo.url));v2Photos.photos=[];const target=v2Target();status.textContent=target&&target.car.photoCount>=V2_MAX_PHOTOS?'Esta V2 já tem 12 fotos':'';paintV2Photos();});
+-    input.addEventListener('change',()=>{addV2Photos(input.files);input.value='';});
+-    drop.addEventListener('dragover',(event)=>{event.preventDefault();drop.classList.add('over');});
+-    drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+-    drop.addEventListener('drop',(event)=>{event.preventDefault();drop.classList.remove('over');addV2Photos(event.dataTransfer.files);});
+-    $('import-v2-open').addEventListener('click',()=>{const target=v2Target();if(target)window.open(target.v2.link,'_blank','noopener');});
+-    send.addEventListener('click',async()=>{
+-      const target=v2Target();if(!target||v2Photos.busy||send.parentElement.parentElement.querySelector('.inline-confirm'))return;
+-      // The V2 link already went to the customer: the photos show up there as soon as they are saved.
+-      const count=v2Photos.photos.length;
+-      if(!(await askInline(send.parentElement,`${count} foto(s) vão aparecer imediatamente no link da V2 que o cliente já recebeu · Salvar mesmo assim?`,'Salvar fotos')))return;
+-      const chosen=v2Target();if(!chosen||chosen.car.carId!==target.car.carId||!v2Photos.photos.length||v2Photos.busy)return;
+-      // Destination and files are fixed here, for the whole operation: nothing chosen later changes what is sent or where.
+-      const dest={vitrineId:target.v2.vitrineId,carId:target.car.carId},before=target.car.photoCount,gen=v2Photos.gen,queue=v2Photos.photos.slice();
+-      v2Photos.busy=true;paintV2Photos();let sent=0,uncertain=false;
+-      const settle=(photo)=>{const at=v2Photos.photos.indexOf(photo);if(at>=0)v2Photos.photos.splice(at,1);URL.revokeObjectURL(photo.url);};
+-      try{
+-        for(const photo of queue){
+-          if(gen!==v2Photos.gen)break;
+-          if(!v2Photos.photos.includes(photo))continue;
+-          status.textContent=`Enviando foto ${sent+1} de ${queue.length}…`;
+-          await request('/api/panel/vitrine-photos?vitrineId='+encodeURIComponent(dest.vitrineId)+'&carId='+encodeURIComponent(dest.carId),{method:'POST',headers:{'content-type':'application/octet-stream'},body:photo.blob,timeoutMs:60000});
+-          settle(photo);sent+=1;
+-        }
+-        status.textContent=`${sent} foto(s) enviada(s) para esta V2`;
+-      }catch(error){
+-        uncertain=error.code==='REQUEST_TIMEOUT'||error.code==='NETWORK_ERROR';
+-        status.textContent=(error.code==='PHOTO_LIMIT_REACHED'?'Esta V2 chegou a 12 fotos':error.code==='PHOTO_NOT_IMAGE'?'Uma foto foi recusada: não é imagem':error.code==='PHOTO_TOO_LARGE'?'Uma foto passou de 5 MB':uncertain?'A resposta não chegou; conferindo o que foi gravado antes de reenviar':'Não consegui enviar a foto')+(sent?` · ${sent} já enviada(s), as outras continuam aqui`:'');
+-      }
+-      v2Photos.busy=false;
+-      await loadV2Photos();
+-      // An uncertain answer: the car's photo count says what was really saved. The photos that already got there leave the queue,
+-      // so only the files that did not arrive are sent again.
+-      if(uncertain&&gen===v2Photos.gen){
+-        const car=(v2Photos.list.find((item)=>item.vitrineId===dest.vitrineId)?.cars||[]).find((item)=>item.carId===dest.carId);
+-        const saved=car?Math.max(0,car.photoCount-before-sent):0;
+-        for(let index=0;index<saved&&v2Photos.photos.length;index+=1)settle(v2Photos.photos[0]);
+-        if(!car)status.textContent='Não consegui conferir o que foi gravado agora · Nada foi reenviado; atualize a página antes de tentar de novo';
+-        else status.textContent=saved?`Conferido: ${saved} foto(s) já estavam gravadas e saíram da fila · faltam ${v2Photos.photos.length}`:`Conferido: nada além das ${sent} enviada(s) foi gravado · faltam ${v2Photos.photos.length}`;
+-        paintV2Photos();
+-      }
+-    });
+-  }
+-  bindV2Photos();
+ 
+-  /* ===== Montar V2: vitrine nova, so com o carro pedido, ligada a V1 ===== */
++  /* ===== V1/V2: o funil da vitrine em abas proprias ===== */
+   const V2_MAX_PHOTOS=12,V2_MAX_SIDE=1600,V2_MAX_BYTES=5*1024*1024;
+   function resizePhoto(file){return new Promise((resolve,reject)=>{if(!/^image\//.test(file.type||'')){reject(Error('NOT_IMAGE'));return;}const url=URL.createObjectURL(file),image=new Image();image.onload=()=>{const scale=Math.min(1,V2_MAX_SIDE/Math.max(image.naturalWidth,image.naturalHeight));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);canvas.toBlob((blob)=>{if(!blob){reject(Error('RESIZE_FAILED'));return;}if(blob.size>V2_MAX_BYTES){reject(Error('TOO_LARGE'));return;}resolve(blob);},'image/jpeg',0.85);};image.onerror=()=>{URL.revokeObjectURL(url);reject(Error('NOT_IMAGE'));};image.src=url;});}
+   const dollarsText=(cents)=>cents?String(Math.round(Number(cents)/100)):'';
+-  function openV2Builder(request,card){
++  // A tap alone never creates a vitrine_requests row, and the V2 needs one: the row is created
++  // when "Montar V2" is tapped, then the builder opens.
++  async function requestIdFor(item){
++    if(item.requestId)return item.requestId;
++    const out=await request('/api/panel/vitrine-funnel',{method:'POST',body:JSON.stringify({action:'ensure_request',vitrineId:item.vitrineId,vitrineCarId:item.vitrineCarId})});
++    item.requestId=out.requestId;return out.requestId;
++  }
++  function openV2Builder(item,card){
+     const existing=card.querySelector('.v2-builder');if(existing){existing.remove();return;}
+     const box=element('section','v2-builder'),photos=[];
+-    box.append(element('h4','',request.car||'Carro'));
++    box.append(element('h4','',item.car||'Carro'));
+     const status=element('p','muted v2-status','');
+     const drop=element('label','v2-drop','Arraste a
