@@ -221,7 +221,12 @@
     promises.forEach((promise)=>{const line=append(context,'p','',`Prometi: ${promise.promise_text}`);const due=clientDay(promise.due_at),today=clientDay(Date.now());if(due<=today)line.append(badge(due<today?'vencida':'vence hoje',due<today?'red':'yellow'));});
     // Filled by itself when a send is confirmed in ENVIAR OPÇÕES (each car with the date and time it was sent).
     const shortWhen=(value)=>{try{return new Intl.DateTimeFormat('pt-BR',{timeZone:data.timezone||'America/New_York',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value)).replace(' ',' ');}catch(_){return '';}};
-    const presented=append(context,'p','context-presented',`Já apresentados: ${record.units?.length?record.units.map((unit)=>unit.vehicle_text+(unit.presented_at?` (${shortWhen(unit.presented_at)})`:'')).join(' · '):'nenhum carro'}`);
+    // Also the cars of a V1/V2 whose /v/ link went in the conversation (sent by hand), once per car.
+    const unitMatches=new Set((record.units||[]).map((unit)=>unit.details_json&&unit.details_json.manheim_match_id).filter(Boolean));
+    const byLink=(record.sentByLink||[]).flatMap((sent)=>sent.cars.filter((car)=>!car.matchId||!unitMatches.has(car.matchId)).map((car)=>({text:car.vehicleText,at:sent.sentAt,key:car.matchId||car.vin||car.vehicleText})));
+    const linkSeen=new Set();const linkCars=byLink.filter((car)=>car.text&&!linkSeen.has(car.key)&&linkSeen.add(car.key));
+    const shownCars=[...(record.units||[]).map((unit)=>unit.vehicle_text+(unit.presented_at?` (${shortWhen(unit.presented_at)})`:'')),...linkCars.map((car)=>car.text+(car.at?` (link enviado ${shortWhen(car.at)})`:' (link enviado)'))];
+    const presented=append(context,'p','context-presented',`Já apresentados: ${shownCars.length?shownCars.join(' · '):'nenhum carro'}`);
     if(record.units?.length){const seeUnits=button(presented,'↓ detalhes em DADOS E HISTÓRICO',()=>document.getElementById('lead-units')?.scrollIntoView({behavior:'smooth'}));seeUnits.classList.add('lead-context-link');}
     const lastCustomers=[...(record.conversation||[])].filter((message)=>message.direction==='CUSTOMER').slice(-3).reverse();
     if(lastCustomers.length){append(context,'span','context-last-label','Última mensagem do cliente');
