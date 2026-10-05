@@ -85,7 +85,7 @@ async function openAiFailure(response) {
 // the reservation holds the real cost until the feature writes it to its own table
 // (recorded); a provider refusal releases it; a timeout or network failure keeps the worst case
 // (it may have been billed).
-const OUTPUT_CAP = Object.freeze({ PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 1500, TRADUCAO_CONVERSA: 8000 });
+const OUTPUT_CAP = Object.freeze({ PESQUISAS: 8000, MODELO_TESTE: 200, ENTRADA: 2000, MANHEIM_AUDIT: 16000, MANHEIM_CSV: 8000, RESPOSTA: 1500, RESPOSTA_ORIENTADA: 1500, TRADUCAO_CONVERSA: 8000, V2_DRAFT: 2000 });
 const NOT_BILLED = new Set(['OPENAI_FAILED', 'OPENAI_RATE_LIMIT', 'OPENAI_QUOTA', 'OPENAI_MODEL_UNAVAILABLE', 'OPENAI_KEY_INVALID']);
 const failure = (code) => Object.assign(new Error(code), { code });
 const isProduction = () => process.env.VERCEL_ENV === 'production';
