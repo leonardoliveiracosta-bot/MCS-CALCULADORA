@@ -2338,9 +2338,14 @@
     if(!list.length)block.append(element('p','muted',emptyText));
     return block;
   }
+  // Without a linked request the card says why (the server links by client + Ref when it can), never a dead button.
   function openFichaButton(item){
-    const open=element('button','quiet small','Abrir ficha');open.type='button';open.disabled=!item.journeyId;
-    open.addEventListener('click',()=>item.journeyId&&openDetail('ficha',item.journeyId));return open;
+    if(!item.journeyId){
+      const ref=item.referenceCode?` com a Ref ${item.referenceCode}`:'';
+      return element('span','muted funnel-no-ficha',item.journeyMissing==='VARIOS_PEDIDOS'?`Sem ficha ligada · mais de um pedido deste cliente${ref}`:item.journeyMissing==='SEM_PEDIDO'?`Sem ficha ligada · nenhum pedido deste cliente${ref}`:'Sem ficha ligada');
+    }
+    const open=element('button','quiet small','Abrir ficha');open.type='button';
+    open.addEventListener('click',()=>openDetail('ficha',item.journeyId));return open;
   }
   function mountV2Button(item,card){
     const build=element('button','small','Montar V2');build.type='button';
@@ -2411,7 +2416,7 @@
     if(!list.length)return null;
     const det=element('details','card');const summary=element('summary','');summary.append(element('strong','',`${title} (${list.length})`));det.append(summary);
     const stack=element('div','stack');
-    list.forEach((item)=>{const card=funnelCard(item);if(item.cars)carsWithVin(card,item);else card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin));card.append(element('span','muted',`Expirou ${item.expiredAgo||''}`));stack.append(card);});
+    list.forEach((item)=>{const card=funnelCard(item);if(item.cars)carsWithVin(card,item);else card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin));card.append(element('span','muted',`Expirou ${item.expiredAgo||''}`),openFichaButton(item));stack.append(card);});
     det.append(stack);return det;
   }
   function renderVitrineFunnel(data,view){
