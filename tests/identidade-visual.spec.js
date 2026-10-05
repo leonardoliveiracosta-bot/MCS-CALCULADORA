@@ -41,11 +41,8 @@ async function show(page, view) {
   }
   if (view === 'requests') await expect(page.locator('#requests-panel')).toBeVisible({ timeout: 30000 });
   if (view === 'clients') await expect(page.locator('#clients-list .client-card').first()).toBeVisible({ timeout: 30000 });
-  if (view === 'searches') {
-    await expect(page.locator('#buscas-valor .manheim-lead').first()).toBeVisible({ timeout: 30000 });
-    // The options of each demand are opened, as the operator would, so they are measured too.
-    await openAllOptions(page);
-  }
+  // ENVIAR OPÇÕES is a queue of compact cards (#218); the options moved into the ficha.
+  if (view === 'searches') await expect(page.locator('#options-queue .options-queue-card').first()).toBeVisible({ timeout: 30000 });
   await page.waitForTimeout(400);
 }
 

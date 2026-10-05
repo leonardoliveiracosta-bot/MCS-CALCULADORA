@@ -16,7 +16,7 @@ function asSummary(data) {
     ...rest,
     demands: (data.demands || []).map((demand) => {
       const own = matches.filter((match) => keyOf(match) === demand.key);
-      return { reactivation: false, stale: false, ...demand, matchCount: own.length, bateCount: own.filter((match) => match.match_kind === 'BATE').length, porValorCount: own.filter((match) => match.match_kind === 'POR_VALOR').length, presentedCount: own.filter((match) => match.presented_unit_id).length };
+      return { reactivation: false, stale: false, offer: { lane: own.length, offLane: 0, incomplete: 0, selected: 0, selectedIds: [] }, ...demand, matchCount: own.length, bateCount: own.filter((match) => match.match_kind === 'BATE').length, porValorCount: own.filter((match) => match.match_kind === 'POR_VALOR').length, presentedCount: own.filter((match) => match.presented_unit_id).length };
     })
   };
 }
@@ -26,7 +26,9 @@ function optionsPage(data, url) {
   const key = url.searchParams.get('key');
   const limit = Math.min(Number(url.searchParams.get('limit')) || 10, 50);
   const start = Number(url.searchParams.get('cursor') || 0) || 0;
-  const own = matches.filter((match) => keyOf(match) === key);
+  // The groups of the ficha: every simulated car is in Lane/Run; the other groups and "selected" are empty.
+  const group = url.searchParams.get('group');
+  const own = (group && group !== 'LANE') || url.searchParams.get('selected') ? [] : matches.filter((match) => keyOf(match) === key);
   const page = own.slice(start, start + limit).map((match) => ({ fitsBid: null, alsoFitsFor: [], criteriaChanged: false, ...match, demandKey: key }));
   return { key, uploadId: data.upload && data.upload.id || null, options: page, nextCursor: start + limit < own.length ? String(start + limit) : null };
 }
