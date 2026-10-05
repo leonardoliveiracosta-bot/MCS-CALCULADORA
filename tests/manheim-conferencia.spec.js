@@ -190,3 +190,21 @@ test('seleção trocada depois de conferida: o selo volta a Conferindo e Gerar l
   expect(created.length).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('AUD-001 #101: resposta de "Conferir de novo" que chega depois do bloco ser redesenhado ainda atualiza o cartão', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  const pending = { status: 'PENDENTE', label: 'Conferência pendente', divergences: [], errorCode: 'AUDIT_DEADLINE', attempts: 1, failures: 1, carCount: 2, canApprove: false, canRetry: true };
+  const audit = { ...ON, byDemand: { ...ON.byDemand, [`journey:${JOURNEY}:CARRO`]: pending } };
+  await open(page, 1366, audit);
+  let release;
+  const gate = new Promise((done) => { release = done; });
+  await page.route('**/api/panel/manheim-audit', async (route) => { await gate; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, approved: 1, entry: { status: 'CONFERIDO', label: 'Conferido', divergences: [], carCount: 2 } }) }); });
+  const carro = card(page, 'carro', 'Cliente Dois Modos');
+  await expect(carro.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
+  await carro.getByRole('button', { name: 'Conferir de novo' }).click();
+  // While the check is running, the options load and the audit block is drawn again.
+  await carro.evaluate((node) => node.dispatchEvent(new CustomEvent('options-loaded')));
+  release();
+  await expect(carro.locator('.audit-block .badge')).toHaveText('Conferido');
+  expect(errors).toEqual([]);
+});

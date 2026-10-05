@@ -12,6 +12,7 @@
     "api/panel/purge-tests.js": { "maxDuration": 60 },
     "api/panel/ai-conversations.js": { "maxDuration": 30 },
     "api/panel/reply.js": { "maxDuration": 30 },
+    "api/panel/v1-send.js": { "maxDuration": 30 },
     "api/panel/pesquisas.js": { "maxDuration": 60 },
     "api/panel/client-context.js": { "maxDuration": 30 },
     "api/panel/suggestions.js": { "maxDuration": 45 },
