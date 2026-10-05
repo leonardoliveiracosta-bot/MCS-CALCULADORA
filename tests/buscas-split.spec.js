@@ -112,7 +112,7 @@ test('19 · desktop: ENVIAR OPÇÕES é uma fila de cartões compactos, nada exp
   // One compact card per demand: the same person has one card per mode, each with its own criteria.
   const cards = page.locator('#options-queue .options-queue-card');
   await expect(cards).toHaveCount(3);
-  const valorCard = page.locator('#options-queue .options-queue-card', { hasText: 'lance máximo US$ 50.000,00' });
+  const valorCard = page.locator('#options-queue .options-queue-card', { hasText: 'Cliente Dois Modos' }).filter({ hasText: 'lance máximo US$ 50.000,00' });
   const carroCard = page.locator('#options-queue .options-queue-card', { hasText: 'xDrive40i' });
   await expect(valorCard).toHaveCount(1);
   await expect(carroCard).toHaveCount(1);

@@ -7,6 +7,7 @@
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
 const { asSummary, optionsPage, openAllOptions } = require('./fixtures/buscas-simulado');
+const { openOptionsFicha, fichaSection } = require('./abrir-ficha-opcoes');
 
 const base = process.env.PANEL_LOCAL_URL || 'http://127.0.0.1:4173';
 const SHOTS = process.env.VISUAL_SHOTS || '';
@@ -56,6 +57,10 @@ async function open(page, width, audit) {
     if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
     if (url.pathname === '/api/panel/records' && url.searchParams.get('view') === 'manheim') return json(asSummary(manheimData(audit)));
+    if (url.pathname === '/api/panel/manheim-options' && route.request().method() === 'POST') {
+      if (body && body.action === 'select') return json({ status: 'SELECTED', matchId: body.matchId, selectedCount: 1, finalCents: 4725000, manualPct: null, manual: false });
+      return json({ status: 'AVAILABLE', matchId: body && body.matchId, selectedCount: 0 });
+    }
     if (url.pathname === '/api/panel/manheim-options') return json(optionsPage(manheimData(audit), url));
     if (url.pathname === '/api/panel/manheim-audit') { posts.push(body); return json({ processed: 1 }); }
     if (url.pathname === '/api/panel/vitrines') { posts.push({ vitrine: body }); return json({ error: 'MANHEIM_AUDIT_PENDING' }, 409); }
@@ -63,31 +68,47 @@ async function open(page, width, audit) {
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  await expect(page.locator('#buscas-valor .manheim-lead').first()).toBeVisible({ timeout: 30000 });
-  // The options of a demand are loaded when the operator opens it.
-  await openAllOptions(page);
+  // ENVIAR OPÇÕES is a queue: the selo, the cars and the V1 live in the ficha of the person.
+  await expect(page.locator('#options-queue .options-queue-card').first()).toBeVisible({ timeout: 30000 });
   return posts;
 }
-const card = (page, side, text) => page.locator(`#buscas-${side} .manheim-lead`, { hasText: text });
+// Opens the ficha of the person (from the queue) and returns the section of one demand.
+async function ficha(page, name, mode) {
+  const section = await openOptionsFicha(page, { name, mode });
+  await openAllOptions(page);
+  return section;
+}
+const footer = (page) => page.locator('#detail-panel .ficha-v1-foot');
+const generate = (page) => footer(page).getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp' });
+const v1Status = (page) => footer(page).locator('.ficha-v1-status');
+async function selectFirst(section) {
+  const group = section.locator('.offer-group[data-group="LANE"]');
+  if (!(await group.evaluate((node) => node.open))) await group.locator('> summary').click();
+  const row = group.locator('.offer-row').first();
+  await row.locator('[data-offer-action="select"]:visible').click();
+  await expect(row).toHaveAttribute('data-status', 'SELECTED');
+}
 
 for (const width of [1366, 390]) {
   test(`${width}px · selo por demanda, divergência com o carro e V1 bloqueada só na demanda pendente`, async ({ page }) => {
     const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
     await open(page, width, ON);
-    const valor = card(page, 'valor', 'Cliente Dois Modos'), carro = card(page, 'carro', 'Cliente Dois Modos'), order = card(page, 'valor', 'Pedido Só Valor');
+    // One ficha per person: the VALOR and the CARRO demand of the same client, each with its own selo.
+    const valor = await ficha(page, 'Cliente Dois Modos', 'VALOR'), carro = fichaSection(page, 'CARRO');
     await expect(valor.locator('.audit-block .badge')).toHaveText('Conferido');
-    await expect(valor.getByRole('button', { name: 'Gerar link V1' })).toBeEnabled();
     await expect(carro.locator('.audit-block .badge')).toHaveText('Revisar');
     await expect(carro.locator('.audit-divergence')).toHaveText('2022 BMW X5 · VIN final 222222: Milhagem acima do limite');
-    await expect(carro.getByRole('button', { name: 'Gerar link V1' })).toBeDisabled();
-    await expect(carro).toContainText('V1 e V2 deste pedido ficam liberadas depois da conferência');
-    // The options stay visible while the demand waits.
+    // The options stay visible while the demand waits; one V1 button at the foot of the ficha.
     await expect(carro.locator('.manheim-row')).toHaveCount(1);
+    await expect(footer(page).getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp' })).toBeVisible();
+    if (SHOTS) await carro.screenshot({ path: path.join(SHOTS, `buscas-conferencia-${width}.png`) });
+    // The Ref-only order has its own ficha (PEDIDO) with its own selo.
+    await page.goBack();
+    const order = await ficha(page, 'Pedido Só Valor', 'VALOR');
     await expect(order.locator('.audit-block .badge')).toHaveText('Conferência pendente');
     await expect(order).toContainText('Tempo esgotado antes de terminar a conferência · Clique em "Conferir de novo" ou aprove com motivo');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(0);
-    if (SHOTS) await carro.screenshot({ path: path.join(SHOTS, `buscas-conferencia-${width}.png`) });
     expect(errors).toEqual([]);
   });
 }
@@ -98,10 +119,12 @@ test('tentar de novo, aprovação manual com motivo e autorização acima do lim
   await expect(page.locator('#manheim-audit-note')).toContainText('Conferência estimada em US$ 2.40, parada por um limite antigo deste lote (não existe mais limite por lote). Nada foi cobrado');
   await page.locator('#manheim-audit-note').getByRole('button', { name: 'Continuar conferência' }).click();
   await expect.poll(() => posts.filter((item) => item && item.action === 'authorize').length).toBe(1);
-  const order = card(page, 'valor', 'Pedido Só Valor');
+  const order = await ficha(page, 'Pedido Só Valor', 'VALOR');
   await order.getByRole('button', { name: 'Conferir de novo' }).click();
   await expect.poll(() => posts.filter((item) => item && item.action === 'retry' && item.key === 'ref:VAAA2:VALOR').length).toBe(1);
-  const carro = card(page, 'carro', 'Cliente Dois Modos');
+  await page.goBack();
+  await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  const carro = fichaSection(page, 'CARRO');
   await carro.getByRole('button', { name: 'Aprovar com motivo' }).click();
   await expect(carro).toContainText('Escreva o motivo, com pelo menos 5 letras');
   await carro.getByLabel('Motivo da aprovação manual').fill('Conferi a milhagem no leilão');
@@ -111,12 +134,13 @@ test('tentar de novo, aprovação manual com motivo e autorização acima do lim
 
 test('desligada: nenhum selo, nenhum bloqueio, V1 como antes', async ({ page }) => {
   await open(page, 1366, { state: 'DESLIGADA', byDemand: {} });
-  await expect(page.locator('.audit-block')).toHaveCount(0);
   await expect(page.locator('#manheim-audit-note')).toBeHidden();
-  await expect(card(page, 'carro', 'Cliente Dois Modos').getByRole('button', { name: 'Gerar link V1' })).toBeEnabled();
+  await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  await expect(page.locator('#detail-panel .audit-block')).toHaveCount(0);
+  await expect(generate(page)).toBeEnabled();
 });
 
-test('Gerar link V1 numa demanda ainda não conferida: confere agora e tenta de novo; pendente fica bloqueada com o motivo e as saídas', async ({ page }) => {
+test('Gerar V1 na ficha numa demanda ainda não conferida: confere agora e tenta de novo; pendente fica bloqueada com o motivo e as saídas', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   const audit = { ...ON, byDemand: {
     ...ON.byDemand,
@@ -128,20 +152,19 @@ test('Gerar link V1 numa demanda ainda não conferida: confere agora e tenta de 
   let checked = false;
   await page.route('**/api/panel/manheim-audit', (route) => { posts.push(JSON.parse(route.request().postData() || 'null')); checked = true; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, approved: 1 }) }); });
   await page.route('**/api/panel/vitrines', (route) => route.fulfill({ status: checked ? 201 : 409, contentType: 'application/json', body: JSON.stringify(checked ? { token: 'tok-ficticio', link: '/v/tok-ficticio' } : { error: 'MANHEIM_AUDIT_PENDING' }) }));
-  const carro = card(page, 'carro', 'Cliente Dois Modos');
+  await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  const carro = fichaSection(page, 'CARRO');
   await expect(carro.locator('.audit-block .badge')).toHaveText('Conferência começa ao selecionar carros');
-  await carro.locator('.manheim-select').first().check();
-  const button = carro.getByRole('button', { name: 'Gerar link V1' });
-  await expect(button).toBeEnabled();
-  await button.click();
-  await expect(carro.locator('.manheim-card-status')).toContainText('Link V1 criado');
+  await selectFirst(carro);
+  await generate(page).click();
+  // The V1 is created after the check of this demand (no phone in the test: the link is shown).
+  await expect(v1Status(page)).toContainText('V1 criada');
   expect(posts.filter((item) => item && item.action === 'check')).toEqual([{ action: 'check', key: `journey:${JOURNEY}:CARRO` }]);
-  // The pending one: reason on screen, "Conferir de novo" and "Aprovar com motivo", V1 disabled.
-  const valor = card(page, 'valor', 'Cliente Dois Modos');
+  // The pending one: reason on screen, "Conferir de novo" and "Aprovar com motivo".
+  const valor = fichaSection(page, 'VALOR');
   await expect(valor).toContainText('Tempo esgotado antes de terminar a conferência (4 tentativas) · Clique em "Conferir de novo" ou aprove com motivo');
   await expect(valor.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
   await expect(valor.getByRole('button', { name: 'Aprovar com motivo' })).toBeVisible();
-  await expect(valor.getByRole('button', { name: 'Gerar link V1' })).toBeDisabled();
   expect(errors).toEqual([]);
 });
 
@@ -154,11 +177,12 @@ test('V1 bloqueada pela conferência: o motivo e os botões aparecem no card na 
   const pending = { status: 'PENDENTE', label: 'Conferência pendente', divergences: [], errorCode: 'AUDIT_DEADLINE', attempts: 1, failures: 1, carCount: 2, canApprove: false, canRetry: true };
   await page.route('**/api/panel/manheim-audit', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, pending: 1, entry: pending }) }));
   await page.route('**/api/panel/vitrines', (route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'MANHEIM_AUDIT_PENDING' }) }));
-  const carro = card(page, 'carro', 'Cliente Dois Modos');
-  await carro.locator('.manheim-select').first().check();
-  await carro.getByRole('button', { name: 'Gerar link V1' }).click();
-  await expect(carro.locator('.manheim-card-status')).toContainText('V1 bloqueada: Tempo esgotado antes de terminar a conferência (1 tentativa) · Clique em "Conferir de novo"');
-  await expect(carro.locator('.manheim-card-status')).not.toContainText('Atualize a página');
+  await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  const carro = fichaSection(page, 'CARRO');
+  await selectFirst(carro);
+  await generate(page).click();
+  await expect(v1Status(page)).toContainText('V1 bloqueada: Tempo esgotado antes de terminar a conferência (1 tentativa) · Clique em "Conferir de novo"');
+  await expect(v1Status(page)).not.toContainText('Atualize a página');
   await expect(carro.locator('.audit-block .badge')).toHaveText('Conferência pendente');
   await expect(carro.locator('.audit-block')).toContainText('Conferência sobre 2 carros selecionados');
   await expect(carro.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
@@ -173,19 +197,20 @@ test('V1 bloqueada pela conferência: o motivo e os botões aparecem no card na 
   expect(errors).toEqual([]);
 });
 
-test('seleção trocada depois de conferida: o selo volta a Conferindo e Gerar link V1 confere os carros novos e cria a V1', async ({ page }) => {
+test('seleção trocada depois de conferida: o selo volta a Conferindo e Gerar V1 confere os carros novos e cria a V1', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   const posts = await open(page, 1366, ON);
   let checked = false;
   const created = [];
   await page.route('**/api/panel/manheim-audit', (route) => { posts.push(JSON.parse(route.request().postData() || 'null')); checked = true; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, approved: 1, entry: { status: 'CONFERIDO', label: 'Conferido', divergences: [], carCount: 1 } }) }); });
   await page.route('**/api/panel/vitrines', (route) => { const body = JSON.parse(route.request().postData() || '{}'); if (!checked) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'MANHEIM_AUDIT_PENDING' }) }); created.push(body.matchIds); return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ token: 'tok-novo', link: '/v/tok-novo' }) }); });
-  const valor = card(page, 'valor', 'Cliente Dois Modos');
+  const valor = await ficha(page, 'Cliente Dois Modos', 'VALOR');
   await expect(valor.locator('.audit-block .badge')).toHaveText('Conferido');
   // The operator changes the selection: the old check no longer counts.
-  await valor.locator('.manheim-select').first().check();
-  await valor.getByRole('button', { name: 'Gerar link V1' }).click();
-  await expect(valor.locator('.manheim-card-status')).toContainText('Link V1 criado');
+  await selectFirst(valor);
+  await expect(valor.locator('.audit-block .badge')).toHaveText('Conferindo');
+  await generate(page).click();
+  await expect(v1Status(page)).toContainText('V1 criada');
   expect(posts.filter((item) => item && item.action === 'check').length).toBe(1);
   expect(created.length).toBe(1);
   expect(errors).toEqual([]);
@@ -199,7 +224,8 @@ test('AUD-001 #101: resposta de "Conferir de novo" que chega depois do bloco ser
   let release;
   const gate = new Promise((done) => { release = done; });
   await page.route('**/api/panel/manheim-audit', async (route) => { await gate; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, approved: 1, entry: { status: 'CONFERIDO', label: 'Conferido', divergences: [], carCount: 2 } }) }); });
-  const carro = card(page, 'carro', 'Cliente Dois Modos');
+  await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  const carro = fichaSection(page, 'CARRO');
   await expect(carro.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
   await carro.getByRole('button', { name: 'Conferir de novo' }).click();
   // While the check is running, the options load and the audit block is drawn again.

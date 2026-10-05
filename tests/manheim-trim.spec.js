@@ -7,6 +7,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-trim.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openOptionsFicha, fichaSection } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -79,7 +80,7 @@ test('trim: marcar reduz lista e contagem, selecionado fora do filtro continua c
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const card = await openOptionsFicha(page, { mode: 'CARRO' });
   const group = card.locator('.offer-group[data-group="LANE"]');
   await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
   await group.locator('> summary').click();
@@ -113,8 +114,7 @@ test('trim: marcar reduz lista e contagem, selecionado fora do filtro continua c
   await expect(rows).toHaveCount(15);
   // The filter survives a reload; "Limpar filtro" shows everything again.
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  const again = page.locator('#buscas-carro .manheim-lead').first().locator('.offer-group[data-group="LANE"]');
+  const again = (await openOptionsFicha(page, { mode: 'CARRO' })).locator('.offer-group[data-group="LANE"]');
   await again.locator('> summary').click({ timeout: 60000 });
   await expect(again.locator('> summary')).toHaveText(/\(15 de 25\)$/);
   await expect(again.locator('.offer-trim > summary')).toHaveText('Trim (2)');
@@ -131,8 +131,7 @@ test('celular: Ordenar e Trim cabem na largura, sem rolagem lateral', async ({ p
   await openPanel(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  const group = page.locator('#buscas-carro .manheim-lead').first().locator('.offer-group[data-group="LANE"]');
+  const group = (await openOptionsFicha(page, { mode: 'CARRO' })).locator('.offer-group[data-group="LANE"]');
   await group.locator('> summary').click({ timeout: 60000 });
   await expect(group.locator('.offer-row').first()).toBeVisible();
   await group.locator('.offer-trim > summary').click();
@@ -143,41 +142,38 @@ test('celular: Ordenar e Trim cabem na largura, sem rolagem lateral', async ({ p
   expect(box.x + box.width).toBeLessThanOrEqual(390);
 });
 
-test('cartão: só abre a ficha com apertar e soltar no mesmo lugar livre (tela mudando no meio não abre)', async ({ page }) => {
+test('cartão da fila: só abre a ficha com apertar e soltar no mesmo lugar livre; dentro da ficha o trim não navega', async ({ page }) => {
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const queueCard = page.locator('#options-queue .options-queue-card[data-mode="CARRO"]').first();
+  await expect(queueCard).toBeVisible({ timeout: 60000 });
+  // Press on the card, the queue is redrawn, the release lands on the card: no ficha.
+  await queueCard.evaluate((card) => {
+    card.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    card.querySelector('.options-queue-groups').replaceChildren();
+    card.parentElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await page.waitForTimeout(500);
+  await expect(page.locator('#detail-panel .ficha-demand')).toHaveCount(0);
+  // A plain press and release on the card opens the ficha.
+  await queueCard.evaluate((card) => {
+    card.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  const card = fichaSection(page, 'CARRO');
+  await expect(card).toBeVisible({ timeout: 30000 });
+  // Inside the ficha the trim and the groups never navigate: the same ficha stays open.
+  const url = page.url();
   const group = card.locator('.offer-group[data-group="LANE"]');
   await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
   await group.locator('> summary').click();
   await expect(group.locator('.offer-row')).toHaveCount(10);
   await group.locator('.offer-trim > summary').click();
-  // Press on a trim option, the list is redrawn, the release lands on the card itself: no ficha.
-  await page.evaluate(() => {
-    const lead = document.querySelector('#buscas-carro .manheim-lead');
-    const option = lead.querySelector('.offer-trim-option input');
-    option.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    option.closest('.offer-trim-list').replaceChildren();
-    lead.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  });
+  await group.locator('.offer-trim-option input').first().check();
   await page.waitForTimeout(500);
-  await expect(page.locator('text=O que o cliente informou')).toHaveCount(0);
-  // Press inside the group and release on the card: no ficha either.
-  await page.evaluate(() => {
-    const lead = document.querySelector('#buscas-carro .manheim-lead');
-    lead.querySelector('.offer-group > summary').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    lead.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  });
-  await page.waitForTimeout(500);
-  await expect(page.locator('text=O que o cliente informou')).toHaveCount(0);
-  // A plain press and release on the card still opens the ficha.
-  await page.evaluate(() => {
-    const lead = document.querySelector('#buscas-carro .manheim-lead');
-    lead.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    lead.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  });
-  await expect(page.locator('text=O que o cliente informou').first()).toBeVisible({ timeout: 15000 });
+  expect(page.url()).toBe(url);
+  await expect(card).toBeVisible();
 });
 
 test('selecionados: lista no pedido, remover um e remover todos, e as linhas abertas acompanham', async ({ page }) => {
@@ -186,7 +182,7 @@ test('selecionados: lista no pedido, remover um e remover todos, e as linhas abe
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const card = await openOptionsFicha(page, { mode: 'CARRO' });
   const group = card.locator('.offer-group[data-group="LANE"]');
   await group.locator('> summary').click({ timeout: 60000 });
   const rows = group.locator('.offer-row');
@@ -194,7 +190,7 @@ test('selecionados: lista no pedido, remover um e remover todos, e as linhas abe
   // Clean start: whatever an earlier test selected is removed first.
   await backend.db.query(`update public.manheim_option_selections set status='AVAILABLE' where status='SELECTED'`);
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
+  await openOptionsFicha(page, { mode: 'CARRO' });
   await group.locator('> summary').click({ timeout: 60000 });
   for (const index of [0, 1, 2]) { await rows.nth(index).locator('[data-offer-action="select"]:visible').click(); await expect(rows.nth(index)).toHaveAttribute('data-status', 'SELECTED'); }
   const picked = card.locator('.offer-picked');

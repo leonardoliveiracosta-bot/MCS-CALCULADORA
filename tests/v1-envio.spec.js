@@ -6,6 +6,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/v1-envio.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openOptionsFicha, fichaSection } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -117,7 +118,7 @@ async function openPanel(page, optionPages = []) {
   });
 }
 
-test('V1 enviada no WhatsApp (simulado) com confirmação e histórico de lotes recolhido', async ({ page }) => {
+test('V1 pela ficha abre o WhatsApp com a mensagem e o link (nada enviado pelo painel) e histórico de lotes recolhido', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
@@ -136,55 +137,34 @@ test('V1 enviada no WhatsApp (simulado) com confirmação e histórico de lotes 
   await expect(batches.locator('.batch-hidden > summary')).toHaveText('Ver lotes ocultos (1)');
   if (SHOTS) await batches.screenshot({ path: path.join(SHOTS, 'historico-lotes-oculto.png') });
 
-  // V1 (OPÇÕES): select two cars, generate the link, then send it on WhatsApp.
-  await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
-  const send = card.locator('.v1-send-go');
-  await expect(send).toBeDisabled();
+  // V1 (#218): in the ficha, select two cars and "Gerar V1 e abrir no WhatsApp" creates the V1 and opens
+  // the conversation with the approved message and the link. Nothing is sent by the panel.
+  await page.evaluate(() => { window.__opened = []; window.open = (href) => { window.__opened.push(String(href)); return null; }; });
+  const card = await openOptionsFicha(page, { mode: 'CARRO' });
   await card.locator('.offer-group[data-group="LANE"] > summary').click();
   const lane = card.locator('.offer-group[data-group="LANE"] .offer-row');
   for (let index = 0; index < 2; index += 1) {
     await lane.nth(index).locator('[data-offer-action="select"]:visible').click();
     await expect(lane.nth(index)).toHaveAttribute('data-status', 'SELECTED');
   }
-  await card.getByRole('button', { name: 'Gerar link V1' }).click();
-  await expect(card.locator('.v1-send-state')).toHaveText(/^Para Maria Tela · \+13055550199 · envio simulado neste ambiente · Janela de 24 h aberta/);
-  // The approved message of the origin appears once, editable, with the link; "Copiar mensagem" copies it.
-  const textarea = card.locator('.v1-send-text');
-  await expect(textarea).toHaveValue(/^Hi Maria,\n\nI reviewed the current auction listings/);
-  await expect(card.locator('.v1-send-copy')).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Copiar mensagem com link' })).toHaveCount(0);
-  await expect(card.locator('.v1-send-fallback'), 'janela aberta: o caminho é o painel').toBeHidden();
-  // Editable before sending; nothing leaves before the confirmation.
-  await textarea.fill((await textarea.inputValue()).replace('Hi Maria,', 'Hi Maria, great talking today'));
-  await expect(send).toBeEnabled();
-  await send.click();
-  const confirm = card.locator('.v1-send-confirm');
-  await expect(confirm).toContainText('Enviar para Maria Tela · +13055550199');
-  await expect(confirm).toContainText('Link V1: ' + base + '/v/');
-  await expect(confirm.locator('.v1-send-preview')).toContainText('Hi Maria, great talking today');
+  const foot = page.locator('#detail-panel .ficha-v1-foot');
+  await foot.getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp' }).click();
+  await expect(foot.locator('.ficha-v1-status')).toHaveText('WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp', { timeout: 30000 });
+  if (SHOTS) await foot.screenshot({ path: path.join(SHOTS, 'v1-ficha-whatsapp.png') });
+  const opened = await page.evaluate(() => window.__opened);
+  expect(opened.length).toBe(1);
+  const url = new URL(opened[0]);
+  // On the computer the conversation opens in WhatsApp Web (wa.me on the phone); the number is the client's.
+  expect(url.origin + url.pathname).toBe('https://web.whatsapp.com/send');
+  expect(url.searchParams.get('phone')).toBe('13055550199');
+  const text = url.searchParams.get('text');
+  expect(text).toMatch(/^Hi Maria,\n\nI reviewed the current auction listings/);
+  expect(text).toContain(base + '/v/');
+  // One V1 with the two cars; nothing left the panel (no send row, no MCS message).
+  const { rows: [vitrine] } = await backend.db.query(`select v.id, count(c.id)::int cars from public.vitrines v join public.vitrine_cars c on c.vitrine_id = v.id where v.journey_id = '${JOURNEY}' and v.version = 'V1' group by v.id`);
+  expect(vitrine.cars).toBe(2);
   expect((await backend.db.query(`select count(*)::int n from public.v1_sends`)).rows[0].n).toBe(0);
-  if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'v1-envio-confirmacao.png') });
-  await confirm.getByRole('button', { name: 'Confirmar envio' }).dblclick();
-  await expect(card.locator('.v1-send-state')).toHaveText(/^Enviado às \d\d:\d\d · simulado$/);
-  await expect(send).toHaveText('Reenviar');
-  if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'v1-envio-enviado.png') });
-  const { rows } = await backend.db.query(`select status, simulated, phone_e164, body_text from public.v1_sends`);
-  expect(rows.length, 'um envio, mesmo com clique duplo').toBe(1);
-  expect([rows[0].status, rows[0].simulated, rows[0].phone_e164]).toEqual(['SENT', true, '+13055550199']);
-  expect(rows[0].body_text).toContain('Hi Maria, great talking today');
-  // Simulated: no message in the conversation and no request to the 360dialog.
   expect((await backend.db.query(`select count(*)::int n from public.messages where direction = 'MCS'`)).rows[0].n).toBe(0);
-  // The send counts as presenting the V1's cars and the search of the mode is "options sent".
-  expect((await backend.db.query(`select count(*)::int n from public.units where journey_id = '${JOURNEY}'`)).rows[0].n).toBe(2);
-  expect((await backend.db.query(`select kind, logical_mode from public.panel_search_marks where journey_id = '${JOURNEY}' and undone_at is null`)).rows).toEqual([{ kind: 'SENT', logical_mode: 'CARRO' }]);
-  // After a reload the card remembers the V1: when it was sent and its link, ready to resend.
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  const reloaded = page.locator('#buscas-carro .manheim-lead').first();
-  await expect(reloaded.locator('.v1-send-history')).toHaveText(/^V1 enviada em \d\d\/\d\d\/\d{4},? \d\d:\d\d · simulado$/, { timeout: 30000 });
-  await expect(reloaded.locator('.v1-send-go')).toHaveText('Reenviar');
-  await expect(reloaded.locator('.v1-send-text')).toHaveValue(new RegExp(base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/v/'));
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
 });

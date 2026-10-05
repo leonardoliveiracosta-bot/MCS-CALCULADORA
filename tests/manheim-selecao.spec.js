@@ -7,6 +7,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-selecao.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openOptionsFicha, fichaSection } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -82,7 +83,7 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
   await openPanel(page, optionPages);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const card = await openOptionsFicha(page, { mode: 'CARRO' });
   await expect(card.locator('.offer-counter')).toContainText('16 passam em Lane/Run · 1 Buy Now / Make Offer / fora de Lane-Run · 2 incompletos · Selecionados 0 de 10', { timeout: 60000 });
   await expect(card.locator('.offer-group')).toHaveCount(3);
   await expect(card.locator('.offer-group[data-group="LANE"] > summary')).toHaveText('Passa em Lane/Run (16)');
@@ -123,7 +124,7 @@ test('ordenar o grupo por ano e por MMR considera o grupo inteiro, não só os 1
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const card = await openOptionsFicha(page, { mode: 'CARRO' });
   const group = card.locator('.offer-group[data-group="LANE"]');
   await group.locator('> summary').click({ timeout: 60000 });
   const rows = group.locator('.offer-row');
@@ -153,7 +154,7 @@ test('valor para o cliente digitado em dólar fica exato, também depois de sele
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const card = await openOptionsFicha(page, { mode: 'CARRO' });
   const group = card.locator('.offer-group[data-group="LANE"]');
   await group.locator('> summary').click({ timeout: 60000 });
   const matchId = await group.locator('.offer-row[data-status="AVAILABLE"]').last().getAttribute('data-match-id');
@@ -209,7 +210,7 @@ test('complementar dados do lote ativo: conta, confirma e reagrupa sem novo lote
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const card = await openOptionsFicha(page, { mode: 'CARRO' });
   await expect(card.locator('.offer-counter')).toContainText('0 passam em Lane/Run · 0 Buy Now / Make Offer / fora de Lane-Run · 6 incompletos', { timeout: 60000 });
   // The complement lives in IMPORTAÇÕES; the groups stay in OPÇÕES.
   await page.locator('[data-view="imports"]').click();
@@ -238,7 +239,7 @@ test('Baixar PDF: baixa os carros selecionados, também depois de recarregar a p
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  let card = page.locator('#buscas-carro .manheim-lead').first();
+  let card = await openOptionsFicha(page, { mode: 'CARRO' });
   await expect(card.locator('.offer-counter')).toContainText('Selecionados', { timeout: 60000 });
   await card.locator('.offer-group[data-group="LANE"] > summary').click();
   const lane = card.locator('.offer-group[data-group="LANE"] .offer-row');
@@ -256,7 +257,7 @@ test('Baixar PDF: baixa os carros selecionados, também depois de recarregar a p
   // fresh page: the selected cars are on the server and no group is open
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  card = page.locator('#buscas-carro .manheim-lead').first();
+  card = await openOptionsFicha(page, { mode: 'CARRO' });
   await expect(card.locator('.offer-counter')).toContainText('Selecionados 1 de 10', { timeout: 60000 });
   expect(await pdfOf(card)).toContain('CR-V');
   await expect(card.locator('.manheim-card-status')).toContainText('PDF com 1 carro baixado');
@@ -268,7 +269,7 @@ test('Baixar PDF na ficha: baixa todos os compatíveis do lote', async ({ page }
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = page.locator('#buscas-carro .manheim-lead').first();
+  const card = await openOptionsFicha(page, { mode: 'CARRO' });
   await expect(card.locator('.offer-counter')).toContainText('Selecionados', { timeout: 60000 });
   await card.locator('.offer-counter').click();
   const lead = page.locator('#detail-panel, .lead-detail, dialog').filter({ hasText: 'Baixar PDF' }).first();
