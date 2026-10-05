@@ -122,6 +122,25 @@ test('funnel: V1 gravada sem VIN no carro mostra o VIN do carro original do lote
   const out=await funnel.payload(ctx,servicesFor(db));
   assert.equal(out.v1.tapped[0].vin,'4T1BF1FK5EU000001');
 });
+test('funnel: V1 sem pedido gravado é ligada pelo cliente e Ref; sem pedido possível diz por quê',async()=>{
+  const db=seedDb();
+  db.store.vitrines.forEach((row)=>{if(row.id===ids.v1||row.id===ids.v1c)row.journey_id=null;});
+  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
+  let out=await funnel.payload(ctx,servicesFor(db));
+  assert.equal(out.v1.tapped[0].journeyId,ids.journey,'ativa: ligada pelo cliente + Ref');
+  assert.equal(out.v1.expired[0].journeyId,ids.journey,'expirada: ligada pelo cliente + Ref');
+  // Ref de outro pedido do cliente: nenhum pedido para ligar, com o motivo.
+  db.store.vitrines.forEach((row)=>{if(row.id===ids.v1c)row.reference_code='ZZZZZ';});
+  out=await funnel.payload(ctx,servicesFor(db));
+  assert.equal(out.v1.expired[0].journeyId,null);
+  assert.equal(out.v1.expired[0].journeyMissing,'SEM_PEDIDO');
+  // Dois pedidos do cliente com a mesma Ref: não escolhe sozinho.
+  db.store.vitrines.forEach((row)=>{if(row.id===ids.v1c)row.reference_code='3CG5P';});
+  db.store.journeys.push({id:'d2222222-2222-4222-8222-222222222222',contact_id:ids.contact,reference_code:'3cg5p',status:'ATIVO',environment:ENV});
+  out=await funnel.payload(ctx,servicesFor(db));
+  assert.equal(out.v1.expired[0].journeyId,null);
+  assert.equal(out.v1.expired[0].journeyMissing,'VARIOS_PEDIDOS');
+});
 test('funnel: V1 without a tap waits, expired V1 goes to "Expiradas"',async()=>{
   const db=seedDb();
   const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));

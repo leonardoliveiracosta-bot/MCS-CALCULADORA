@@ -65,6 +65,18 @@ async function payload(ctx,services={}){
   const requestsByCar=new Map();
   requests.forEach((request)=>{const key=request.vitrine_id+'|'+request.vitrine_car_id;if(!requestsByCar.has(key))requestsByCar.set(key,[]);requestsByCar.get(key).push(request);});
   const budgetByJourney=new Map(journeys.map((row)=>[row.id,row.budget_cents||null]));
+  // "Abrir ficha": a V1/V2 sem pedido gravado é ligada ao pedido do mesmo cliente com a mesma Ref (só
+  // quando há exatamente um). Sem pedido possível, o cartão recebe o motivo em vez de um botão morto.
+  const refsByJourney=new Map();
+  journeyRefs.forEach((row)=>{if(!refsByJourney.has(row.journey_id))refsByJourney.set(row.journey_id,[]);refsByJourney.get(row.journey_id).push(row.ref_code);});
+  const refKey=(value)=>String(value||'').trim().toUpperCase();
+  const linkOf=(vitrine)=>{
+    if(vitrine.journey_id)return {journeyId:vitrine.journey_id};
+    const ref=refKey(vitrine.reference_code);
+    const owners=ref&&vitrine.contact_id?journeys.filter((row)=>row.contact_id===vitrine.contact_id&&[row.reference_code,...(refsByJourney.get(row.id)||[])].some((code)=>refKey(code)===ref)):[];
+    if(owners.length===1)return {journeyId:owners[0].id};
+    return {journeyId:null,journeyMissing:owners.length>1?'VARIOS_PEDIDOS':'SEM_PEDIDO'};
+  };
   const contactName=(vitrine)=>contactsById.get(vitrine.contact_id)?.display_name||vitrine.customer_name||phoneFor(vitrine.contact_id)||'Cliente';
 
   // VIN of each car (two cars of the same year and model are told apart on the card).
@@ -83,7 +95,7 @@ async function payload(ctx,services={}){
     const carList=carsByVitrine.get(vitrine.id)||[];
     const contact={name:contactName(vitrine),phone:phoneFor(vitrine.contact_id)};
     if(vitrine.version==='V1'){
-      if(expired(vitrine)){v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now),expiredAt:vitrine.expires_at});return;}
+      if(expired(vitrine)){v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now),expiredAt:vitrine.expires_at});return;}
       const v2children=(childrenByParent.get(vitrine.id)||[]).filter((child)=>child.version==='V2');
       const tapsByCar=new Map();
       (eventsByVitrine.get(vitrine.id)||[]).filter((event)=>event.event_type==='TAP'&&event.vitrine_car_id).forEach((event)=>{
@@ -98,14 +110,14 @@ async function payload(ctx,services={}){
         if(reqs.some((req)=>req.request_kind==='VIEW'&&req.treated_at&&Date.parse(req.treated_at)>=Date.parse(tap.created_at)))return;
         const open=reqs.find((req)=>req.request_kind==='VIEW'&&!req.treated_at);
         tappedAny=true;
-        v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),vin:vinOf(car),sentAt:vitrine.created_at,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents:vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null});
+        v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),vin:vinOf(car),sentAt:vitrine.created_at,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents:vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null});
       });
-      if(!tappedAny&&!v2children.length)v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)});
+      if(!tappedAny&&!v2children.length)v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)});
       return;
     }
     if(vitrine.version==='V2'){
       const firstCar=carList[0]||{};
-      const item={vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',journeyId:vitrine.journey_id||null,refState:refStateFor(vitrine.journey_id||null),car:vehicleName(firstCar.vehicle_snapshot||{}),vin:vinOf(firstCar),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)};
+      const item={vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(firstCar.vehicle_snapshot||{}),vin:vinOf(firstCar),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)};
       if(expired(vitrine)){v2.expired.push({...item,expiredAt:vitrine.expires_at});return;}
       const bidRequest=(requests||[]).find((req)=>req.vitrine_id===vitrine.id&&req.request_kind==='BID'&&!req.treated_at);
       const bidTap=(eventsByVitrine.get(vitrine.id)||[]).find((event)=>event.event_type==='TAP');
