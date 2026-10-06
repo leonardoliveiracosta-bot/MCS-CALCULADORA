@@ -65,13 +65,13 @@ async function openQueue(page, opened) {
 const order_ = (page) => page.locator('#options-queue .options-queue-card').evaluateAll((cards) => cards.map((card) => (card.innerText.match(/Ana Zap|Bia Sms|Caio Zap|Duda Sms|Eva Sem Mensagem/) || ['?'])[0]));
 const sortBox = (page) => page.locator('#options-queue-sort');
 
-test('Ordenar: 4 opções, pela última mensagem do cliente, sem mensagem no fim; junto com a busca; volta ao recarregar', async ({ page }) => {
+test('Ordenar: 5 opções, pela última mensagem do cliente, sem mensagem no fim; junto com a busca; volta ao recarregar', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 900 });
   const opened = [];
   const errors = await openQueue(page, opened);
   const box = sortBox(page);
   await expect(page.locator('label', { has: box })).toContainText('Ordenar');
-  await expect(box.locator('option')).toHaveText(['Mais recentes', 'Mais antigos', 'Mensagem SMS recentes primeiro', 'Mensagem WhatsApp recentes primeiro']);
+  await expect(box.locator('option')).toHaveText(['Mais recentes', 'Mais antigos', 'Ref mais recentes', 'Mensagem SMS recentes primeiro', 'Mensagem WhatsApp recentes primeiro']);
   // Default: most recent customer message first (Caio's newer reply from us does not count).
   await expect(box).toHaveValue('recent');
   expect(await order_(page)).toEqual(['Ana Zap', 'Bia Sms', 'Caio Zap', 'Duda Sms', 'Eva Sem Mensagem']);

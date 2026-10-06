@@ -18,7 +18,7 @@ const id = (n) => `6e200000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const NAMES = ['Ana Carro', 'Bia Sem Carro', 'Caio Atualizar', 'Duda Falta', 'Eva V1', 'Fabio Sem Pedido'];
 const journeys = NAMES.map((name, index) => ({
   id: id(index + 1), reference_code: 'REF' + (index + 1) + 'X', status: 'ATIVO', stage: 'RESPONDIDO', enabled: true, name, contact: { display_name: name }, phones: [],
-  created_at: ago(48), contactAt: ago(index + 1), contactMedium: 'WHATSAPP', contactChannel: 'WHATSAPP', latestMessage: { direction: 'CUSTOMER', occurred_at_utc: ago(index + 1) }
+  created_at: ago(48), simulations: [{ occurredAt: ago(200 - index * 10) }], contactAt: ago(index + 1), contactMedium: 'WHATSAPP', contactChannel: 'WHATSAPP', latestMessage: { direction: 'CUSTOMER', occurred_at_utc: ago(index + 1) }
 }));
 const wish = [{ make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022 }];
 const offer = { lane: 2, offLane: 0, incomplete: 0, selected: 0, selectedIds: [], max: 10 };
@@ -60,16 +60,26 @@ test('ENVIAR OPÇÕES: todos, com o motivo de quem não tem carro; Atualizar com
   const names = await cards.evaluateAll((list) => list.map((card) => (card.innerText.match(/Ana Carro|Bia Sem Carro|Caio Atualizar|Duda Falta|Eva V1|Fabio Sem Pedido/) || ['?'])[0]));
   expect(names).toEqual(NAMES);
   const card = (name) => cards.filter({ hasText: name });
-  await expect(card('Ana Carro')).toContainText('2 em Lane/Run');
-  await expect(card('Bia Sem Carro').locator('.options-queue-reason')).toHaveText('Busca feita no lote atual: nenhum carro encontrado');
-  await expect(card('Caio Atualizar').locator('.options-queue-reason')).toHaveText('Pedido ainda não comparado com o lote atual · toque em Atualizar');
-  await expect(card('Duda Falta').locator('.options-queue-reason')).toHaveText('Busca ainda não feita · Falta o modelo');
-  await expect(card('Eva V1').locator('.options-queue-reason')).toHaveText('V1 já enviada · acompanhe na aba V1');
-  await expect(card('Fabio Sem Pedido').locator('.options-queue-reason')).toHaveText('Busca ainda não feita · nenhum pedido de carro registrado');
+  const summary = (name) => card(name).locator('.options-queue-reason');
+  await expect(summary('Ana Carro')).toHaveText('1 pedido · 2 carros aguardando');
+  await expect(summary('Bia Sem Carro')).toHaveText('1 pedido · 1 sem resultado no lote atual');
+  await expect(summary('Caio Atualizar')).toHaveText('1 pedido · 1 não comparado com o lote atual');
+  await expect(summary('Duda Falta')).toHaveText('Busca ainda não feita · Falta o modelo');
+  // V1 sent and cars waiting: both states show, the cars are never hidden.
+  await expect(summary('Eva V1')).toHaveText('1 pedido · 1 carro aguardando · V1 já enviada');
+  await expect(summary('Fabio Sem Pedido')).toHaveText('Busca ainda não feita · nenhum pedido de carro registrado');
+  await expect(card('Ana Carro').locator('.options-queue-demand')).toContainText('Por carro · Honda CR-V · 2019 a 2022');
+  await expect(card('Ana Carro').locator('.options-queue-demand')).toContainText('2 carros aguardando');
+  await expect(page.locator('#options-queue-count')).toHaveText('6 na fila · toque na linha para abrir a ficha');
   // The tab still counts who has cars and is waiting for the V1.
   await expect(page.locator('.tab[data-view="searches"] [data-count]')).toHaveText('1');
-  // Atualizar: compares that request with the active lot again.
+  // "Ref mais recentes": the newest Ref first, whatever the last message.
+  await page.locator('#options-queue-sort').selectOption('ref_recent');
+  const byRef = await cards.evaluateAll((list) => list.map((card) => (card.innerText.match(/Ana Carro|Bia Sem Carro|Caio Atualizar|Duda Falta|Eva V1|Fabio Sem Pedido/) || ['?'])[0]));
+  expect(byRef).toEqual(NAMES.slice().reverse());
+  // Atualizar (one chip per request not compared): compares that request again, without opening the ficha.
   await card('Caio Atualizar').getByRole('button', { name: 'Atualizar' }).click();
   await expect.poll(() => posts.map((p) => p.action + ':' + p.key).join()).toBe(`rematch:journey:${id(3)}:CARRO`);
+  await expect(page.locator('#detail-panel')).toBeHidden();
   expect(errors).toEqual([]);
 });

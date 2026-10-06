@@ -25,10 +25,11 @@ async function openOptionsFicha(page, { name = null, mode = null, realLead = fal
   }
   if (!(await page.locator('#options-queue').isVisible().catch(() => false))) await page.locator('[data-view="searches"]').click();
   let cards = page.locator('#options-queue .options-queue-card');
-  if (mode) cards = cards.and(page.locator(`[data-mode="${mode}"]`));
+  if (mode) cards = cards.and(page.locator(`[data-mode~="${mode}"]`));
   if (name) cards = cards.filter({ hasText: name });
   await expect(cards.first()).toBeVisible({ timeout: 30000 });
-  await cards.first().getByRole('button', { name: 'Abrir ficha' }).click();
+  // One row per person (#231): tapping the row opens the ficha.
+  await cards.first().locator('.identity-name').click();
   await expect(page.locator('#detail-panel .ficha-demand').first()).toBeVisible({ timeout: 30000 });
   return fichaSection(page, mode);
 }

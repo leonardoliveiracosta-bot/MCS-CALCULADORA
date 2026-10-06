@@ -80,7 +80,7 @@ test('AUD-001 #5/#76: página seguinte com carro já na tela não desenha o carr
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   // The options live in the ficha now: open it from the queue card.
-  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
+  await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
   const group = page.locator('#detail-panel .ficha-demand .offer-group[data-group="LANE"]').first();
   await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
   // The batch changed between pages (offset paging): the next page repeats a car already on screen.
@@ -113,7 +113,7 @@ test('AUD-001 #88: grupo com filtro de trim salvo não mostra "25 de 25" antes d
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   // The options live in the ficha now: open it from the queue card.
-  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
+  await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
   const group = () => page.locator('#detail-panel .ficha-demand .offer-group[data-group="LANE"]').first();
   await expect(group().locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
   await group().locator('> summary').click();
@@ -122,7 +122,7 @@ test('AUD-001 #88: grupo com filtro de trim salvo não mostra "25 de 25" antes d
   await expect(group().locator('> summary')).toHaveText(/\(5 de 25\)$/);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  await page.locator('#options-queue .options-queue-card').first().getByRole('button', { name: 'Abrir ficha' }).click();
+  await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
   await expect(group().locator('> summary')).toHaveText(/Lane/, { timeout: 60000 });
   await expect(group().locator('> summary')).not.toHaveText(/25 de 25/);
   await group().locator('> summary').click();
