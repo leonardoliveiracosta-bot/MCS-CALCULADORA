@@ -56,7 +56,7 @@ const directoryCalls = (calls) => calls.filter((call) => call.path === '/api/pan
 
 test('seis abas (com V1 e V2), sem TODOS; a lista de clientes só carrega ao abrir "Mais" e todas as funções funcionam lá', async ({ page }) => {
   const { calls, errors } = await open(page);
-  await expect(page.locator('.tab[data-view]')).toHaveText([/ATENDER AGORA/, /^V1/, /^V2/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/]);
+  await expect(page.locator('.tab[data-view]')).toHaveText([/^TODOS/, /^V1/, /^V2/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/]);
   await expect(page.locator('[data-view="clients"]')).toHaveCount(0);
   // Closed: no directory request at all (the old tab badge and its boot priming are gone).
   const more = page.locator('#today-more');
@@ -89,7 +89,7 @@ test('seis abas (com V1 e V2), sem TODOS; a lista de clientes só carrega ao abr
   await expect(page.locator('#clients-list .client-card')).toHaveCount(2, { timeout: 30000 });
   // Old #todos / #clientes links open ATENDER AGORA.
   await page.goto(base + '/painel/#clientes', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#page-title')).toHaveText('ATENDER AGORA', { timeout: 30000 });
+  await expect(page.locator('#page-title')).toHaveText('TODOS', { timeout: 30000 });
   expect(errors).toEqual([]);
 });
 
@@ -98,7 +98,7 @@ test('"Sem resposta há mais de 24 h" do resumo semanal abre ATENDER AGORA com o
   const weekly = page.locator('#weekly-summary');
   await weekly.locator('> summary').click();
   await page.locator('#weekly-summary-content .weekly-metric', { hasText: 'Sem resposta há mais de 24 h' }).locator('button').click();
-  await expect(page.locator('#page-title')).toHaveText('ATENDER AGORA');
+  await expect(page.locator('#page-title')).toHaveText('TODOS');
   // Only the client whose last real message is theirs and older than 24 h (not the recent one, not one
   // answered by the MCS, not an automatic message).
   await expect(page.locator('#today-list .case-card')).toHaveCount(1, { timeout: 30000 });

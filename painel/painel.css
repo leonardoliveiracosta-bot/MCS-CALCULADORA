@@ -188,3 +188,6 @@ nav[aria-label="Seções do painel"]{
 .options-queue-next{margin:0}
 .ficha-demand{margin:0 0 14px}
 .ficha-demand-head{display:flex;gap:8px;align-items:center;margin:0 0 6px}
+
+.options-queue-reason { margin: 0; font-weight: 600; }
+.options-queue-nocar { opacity: .92; }

@@ -81,7 +81,7 @@ for (const width of [1280, 390]) {
   test(`${width}px · ATENDIMENTO: um caso por pessoa, motivos reunidos, filtros e contagem iguais à lista`, async ({ page }) => {
     const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
     const posts = await open(page, width);
-    await expect(page.locator('nav [data-view]')).toHaveText([/ATENDER AGORA/, /^V1/, /^V2/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/]);
+    await expect(page.locator('nav [data-view]')).toHaveText([/^TODOS/, /^V1/, /^V2/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/]);
     await expect(page.locator('nav [data-view="today"]')).toHaveAttribute('aria-current', 'page');
     // Depende de você: Ana (sem resposta + confirmar vínculo), Davi (sem resposta) and the triage decision.
     const list = page.locator('#today-list');

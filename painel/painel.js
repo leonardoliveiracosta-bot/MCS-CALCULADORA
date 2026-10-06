@@ -631,7 +631,7 @@
   const VIEWS = ['today', 'v1', 'v2', 'requests', 'searches', 'imports', 'settings'];
   // The old TODOS tab lives in the "Mais" block of ATENDER AGORA: it loads only while that block is open.
   const clientsOpen = () => currentView === 'today' && Boolean($('today-more')?.open);
-  const VIEW_LABELS = { today: 'ATENDER AGORA', v1: 'V1', v2: 'V2', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'TODOS', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
+  const VIEW_LABELS = { today: 'TODOS', v1: 'V1', v2: 'V2', requests: 'BUSCAR CARROS', searches: 'ENVIAR OPÇÕES', clients: 'TODOS', imports: 'IMPORTAÇÕES', settings: 'CONFIGURAÇÕES E CONEXÃO' };
   const viewScroll = new Map();
   async function switchPanel(view, options = {}) {
     if (view === 'orders' || view === 'entry') view = 'today';
@@ -3676,19 +3676,38 @@
       const ref = String(demand.calcRef || demand.ref || '').toUpperCase();
       return Boolean(ref && sent.refs.has(ref));
     };
-    const withOptions = (data.demands || []).filter((demand) => demand.matchCount > 0 && !isSent(demand));
-    const position = (demand) => demand.journeyId ? manheimJourneys.findIndex((item) => item.id === demand.journeyId) : 10000 + manheimOrders.findIndex((item) => item.ref === demand.ref);
-    const nowFirst = (demand) => {
-      const journey = demand.journeyId ? byJourney.get(demand.journeyId) : null;
-      return journey && journey.purchaseWindow === 'NOW' ? 0 : 1;
+    // Everyone of TODOS is listed: a person with cars of the active batch and no V1 gets the usual
+    // card; everyone else gets one card that says why there is no car (or that the V1 already went).
+    const demands = data.demands || [];
+    const review = data.review || [];
+    const refOf = (value) => String(value || '').trim().toUpperCase();
+    const entries = [];
+    const addPerson = (owner, ownDemands, ownReview) => {
+      const sent = ownDemands.some(isSent) || (owner.journeyId ? isSent({ journeyId: owner.journeyId }) : false) || isSent({ ref: owner.ref });
+      const withCars = ownDemands.filter((demand) => demand.matchCount > 0);
+      const pseudo = ownDemands[0] || { key: '', mode: null, journeyId: owner.journeyId || null, ref: owner.ref || null, calcRef: owner.ref || null, wishes: [] };
+      const personOf = (demand) => demandPerson(demand.journeyId || demand.ref ? demand : { ...demand, journeyId: owner.journeyId, ref: owner.ref }, byJourney, byOrder);
+      if (sent) { entries.push({ demand: withCars[0] || pseudo, person: personOf(withCars[0] || pseudo), reason: 'V1 já enviada · acompanhe na aba V1' }); return; }
+      if (withCars.length) { withCars.forEach((demand) => entries.push({ demand, person: personOf(demand), reason: null })); return; }
+      let reason, refresh = [];
+      if (!ownDemands.length) {
+        const issues = ownReview.flatMap((item) => (item.issues || []).map((issue) => issue.wish ? `${issue.wish}: ${issue.text}` : issue.text)).filter(Boolean);
+        reason = 'Busca ainda não feita · ' + (issues.length ? [...new Set(issues)].join(' · ') : 'nenhum pedido de carro registrado');
+      } else if (!data.upload) reason = 'Nenhuma importação ativa do Manheim';
+      else {
+        refresh = ownDemands.filter((demand) => demand.stale || demand.compared === false).map((demand) => demand.key);
+        reason = refresh.length ? 'Pedido ainda não comparado com o lote atual · toque em Atualizar' : 'Busca feita no lote atual: nenhum carro encontrado';
+      }
+      entries.push({ demand: pseudo, person: personOf(pseudo), reason, refresh });
     };
-    withOptions.sort((a, b) => nowFirst(a) - nowFirst(b) || position(a) - position(b));
-    optionsQueueData = withOptions.map((demand) => ({
-      demand,
-      person: demandPerson(demand, byJourney, byOrder),
-    }));
-    // The tab counter follows the queue: people still waiting for their V1.
-    setCount('searches', new Set(optionsQueueData.map(({ demand }) => demand.journeyId ? 'ficha:' + demand.journeyId : 'ref:' + String(demand.ref || '').toUpperCase())).size);
+    manheimJourneys.forEach((journey) => addPerson({ journeyId: journey.id, ref: calcRefOf(journey) }, demands.filter((demand) => demand.journeyId === journey.id), review.filter((item) => item.journeyId === journey.id)));
+    manheimOrders.forEach((order) => addPerson({ journeyId: null, ref: order.ref }, demands.filter((demand) => !demand.journeyId && refOf(demand.ref || demand.calcRef) === refOf(order.ref)), review.filter((item) => !item.journeyId && refOf(item.ref || item.calcRef) === refOf(order.ref))));
+    const position = (entry) => entry.person.journeyId ? manheimJourneys.findIndex((item) => item.id === entry.person.journeyId) : 10000 + manheimOrders.findIndex((item) => refOf(item.ref) === refOf(entry.person.ref));
+    const nowFirst = (entry) => entry.person.purchaseWindow === 'NOW' ? 0 : 1;
+    entries.sort((a, b) => nowFirst(a) - nowFirst(b) || position(a) - position(b));
+    optionsQueueData = entries;
+    // The tab counter: people with cars of the active batch still waiting for their V1.
+    setCount('searches', new Set(entries.filter((entry) => !entry.reason).map(({ demand }) => demand.journeyId ? 'ficha:' + demand.journeyId : 'ref:' + String(demand.ref || '').toUpperCase())).size);
     paintOptionsQueue();
   }
   function queueMatches(demand, person, query) {
@@ -3728,7 +3747,7 @@
     const list = sortQueue(optionsQueueData.filter(({ demand, person }) => queueMatches(demand, person, query)));
     root.replaceChildren();
     if (note) note.textContent = query.trim() ? `${list.length} de ${optionsQueueData.length} na fila` : `${optionsQueueData.length} na fila · toque no cartão para abrir a ficha`;
-    list.forEach(({ demand, person }) => renderQueueCard(root, demand, person));
+    list.forEach((entry) => renderQueueCard(root, entry.demand, entry.person, entry));
     if (!list.length) root.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia · todos com carro no lote já receberam a V1' : 'Nenhuma importação ativa'));
   }
   function openQueueDetail(demand, person) {
@@ -3736,8 +3755,9 @@
     if (person && person.ref) return openDetail('order', String(person.ref));
     return null;
   }
-  function renderQueueCard(root, demand, person) {
+  function renderQueueCard(root, demand, person, entry = {}) {
     const card = element('article', 'item-card options-queue-card');
+    if (entry.reason) card.classList.add('options-queue-nocar');
     card.dataset.demandKey = demand.key || '';
     card.dataset.mode = demand.mode || '';
     // Bloco 1: quem é.
@@ -3756,6 +3776,27 @@
     meta.append(makeBadge(WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, person.purchaseWindow === 'NOW' ? 'red' : person.purchaseWindow === '30D' ? 'yellow' : person.purchaseWindow === '3M' ? 'blue' : ''));
     if (demand.mode) meta.append(makeBadge(demand.mode === 'VALOR' ? 'Por valor' : 'Por carro', demand.mode === 'VALOR' ? 'blue' : 'green'));
     card.append(head, meta);
+    if (entry.reason) {
+      // Sem carro (ou V1 já enviada): o motivo, o que o cliente pediu quando há, e o próximo passo.
+      const asked = demandSummary(demand);
+      if (asked) card.append(element('span', 'request-criteria-label', 'O que o cliente pediu'), element('p', 'demand-essential', asked));
+      card.append(element('p', 'options-queue-reason', entry.reason));
+      const foot = element('div', 'options-queue-foot');
+      if (entry.refresh && entry.refresh.length) {
+        const update = element('button', 'small', 'Atualizar'); update.type = 'button';
+        update.addEventListener('click', async (event) => {
+          event.stopPropagation(); update.disabled = true; update.textContent = 'Comparando…';
+          try { for (const key of entry.refresh) await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key }) }); update.textContent = 'Comparado'; manheimData = null; loadCurrent('searches').catch(() => {}); }
+          catch (_) { update.disabled = false; update.textContent = 'Atualizar'; }
+        });
+        foot.append(update);
+      }
+      if (person.journeyId || person.ref) { const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button'; open.dataset.action = 'ficha-open'; open.addEventListener('click', (event) => { event.stopPropagation(); openQueueDetail(demand, person); }); foot.append(open); }
+      card.append(foot);
+      makeCardClickable(card, () => openQueueDetail(demand, person));
+      root.append(card);
+      return;
+    }
     // Bloco 2: o que o cliente pediu.
     card.append(element('span', 'request-criteria-label', 'O que o cliente pediu'));
     card.append(element('p', 'demand-essential', demandSummary(demand)));

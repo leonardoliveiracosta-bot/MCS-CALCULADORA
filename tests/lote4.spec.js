@@ -40,9 +40,9 @@ test('Organização: cinco áreas; ATENDIMENTO reúne a antiga ENTRADA, sem a se
   await session(page);
   const calls = await mockApi(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('nav [data-view]')).toHaveText([/ATENDER AGORA/, /^V1/, /^V2/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/], { timeout: 30000 });
+  await expect(page.locator('nav [data-view]')).toHaveText([/^TODOS/, /^V1/, /^V2/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/], { timeout: 30000 });
   await expect(page.locator('#today-panel')).toBeVisible();
-  await expect(page.locator('#page-title')).toHaveText('ATENDER AGORA');
+  await expect(page.locator('#page-title')).toHaveText('TODOS');
   await expect(page.locator('nav [data-view="today"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('[data-count="today"]')).toHaveText('0');
   // A calculator order with no message is never listed: the section and its hooks are gone.
@@ -112,7 +112,7 @@ test('Lote 4: links antigos #pedidos e #entrada abrem ATENDIMENTO e #pedido/REF 
   });
   await page.goto(base + '/painel/#pedidos', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#today-panel')).toBeVisible({ timeout: 30000 });
-  await expect(page.locator('#page-title')).toHaveText('ATENDER AGORA');
+  await expect(page.locator('#page-title')).toHaveText('TODOS');
   await page.goto(base + '/painel/#pedido/ABC23', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#detail-panel')).toBeVisible({ timeout: 30000 });
   await expect.poll(() => calls.some((call) => call.path === '/api/panel/lead' && call.params.ref === 'ABC23')).toBe(true);

@@ -12,7 +12,7 @@ test('painel publica seis abas (V1 e V2 do funil; TODOS removida, conteúdo em "
   const tabs=[...html.matchAll(/class="tab(?: active)?"[^>]+data-view="([^"]+)"/g)].map((match)=>match[1]);
   assert.deepEqual(tabs,['today','v1','v2','requests','searches','imports']);
   // 4bf9aec (#163): as abas ATENDIMENTO e CLIENTES viraram ATENDER AGORA e TODOS.
-  assert.match(html,/data-view="today"[^>]*>ATENDER AGORA/);
+  assert.match(html,/data-view="today"[^>]*>TODOS/);
   // TODOS deixou de ser aba: a lista, a planilha, retomar conversas e pendências gerais ficam no bloco "Mais" de ATENDER AGORA.
   assert.doesNotMatch(html,/data-view="clients"/);
   assert.match(html,/<details id="today-more"[\s\S]*id="clients-download"[\s\S]*id="clients-general-card"[\s\S]*id="clients-followup"[\s\S]*id="clients-list"[\s\S]*<\/details>/);
