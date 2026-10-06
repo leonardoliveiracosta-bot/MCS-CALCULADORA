@@ -5671,6 +5671,8 @@
     await step('o endereço aberto', () => routeFromHash(false));
     await step('os contadores', async () => { const result = await refreshCounters(); if (result && result.failed) bootWarning(); });
     await step('as mensagens automáticas', () => loadAutomaticMessages());
+    // The capture check is read at once too: a warning never appears only at the first automatic refresh.
+    await step('a checagem de captura', () => loadCaptureWarning());
     startSafeRefresh();
   }
   function bootWarning() {
