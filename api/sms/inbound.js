@@ -91,11 +91,21 @@ async function findChat(ctx, key, services) {
   return chat || null;
 }
 
+// The iPhone Shortcut may name the fields its own way: the usual names are accepted.
+const pick = (body, names) => { for (const name of names) { const value = body && body[name]; if (typeof value === 'string' && value.trim()) return value; if (typeof value === 'number') return String(value); } return ''; };
+const TEXT_FIELDS = ['text', 'message', 'body', 'content', 'texto', 'mensagem'];
+const SENDER_FIELDS = ['sender', 'from', 'phone', 'number', 'remetente', 'telefone'];
+const NAME_FIELDS = ['senderName', 'name', 'contact', 'nome', 'contato'];
+// Format problems only (never a privacy-gate discard): the field NAMES, never a value.
+const formatWarning = (what, body) => console.warn('[sms-inbound] formato ' + what, { campos: Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12) });
+
 async function receive(ctx, body, services, now = Date.now()) {
-  const text = String(body?.text || '').trim();
-  if (!text || text.length > MAX_TEXT) return { stored: false };
-  const phone = normalizePhone(body?.sender);
-  const senderName = String(body?.senderName || '').slice(0, 160);
+  const text = pick(body, TEXT_FIELDS).trim();
+  if (!text) { formatWarning('sem texto', body); return { stored: false }; }
+  if (text.length > MAX_TEXT) return { stored: false };
+  const phone = normalizePhone(pick(body, SENDER_FIELDS));
+  const senderName = pick(body, NAME_FIELDS).slice(0, 160);
+  if (!phone && !senderName.trim()) { formatWarning('sem remetente', body); return { stored: false }; }
 
   // 1. portão de privacidade, nesta ordem
   let contactId = null, journey = null;

@@ -203,8 +203,9 @@ test('endpoint source: timing-safe secret, never logs the body, no panel auth, n
   assert.match(source, /timingSafeEqual/);
   assert.match(source, /process\.env\.SMS_INBOUND_SECRET/);
   assert.doesNotMatch(source, /requirePanel/);
-  assert.doesNotMatch(source, /console\.(log|info|warn)\(/);
-  assert.deepEqual(source.match(/console\.\w+\([^;]*\);/g), ["console.error('[sms-inbound] falha ao processar');"]);
+  assert.doesNotMatch(source, /console\.(log|info)\(/);
+  // Only two log lines: the generic failure and the format warning, which carries the field NAMES only.
+  assert.deepEqual(source.match(/console\.\w+\([^;]*\);/g), ["console.warn('[sms-inbound] formato ' + what, { campos: Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12) });", "console.error('[sms-inbound] falha ao processar');"]);
   assert.doesNotMatch(fs.readFileSync('vercel.json', 'utf8'), /sms\/inbound/);
   assert.equal(handler.messageDate('2008-12-31T00:00:00Z', now), now);
   assert.equal(handler.messageDate(new Date(now + 2 * 86400000).toISOString(), now), now);
@@ -241,4 +242,30 @@ test('ref search uses word boundaries', async () => {
     const db = memoryDb();
     assert.equal((await handler.receive(ctx, { sender: '+17865550199', text }, db.services, now)).stored, true, text);
   }
+});
+
+test('Atalho com outros nomes de campo (message/from/name): a mensagem é aceita como text/sender/senderName', async () => {
+  const db = memoryDb();
+  const result = await handler.receive(ctx, { from: '+1 (305) 555-0100', message: 'Oi, ainda tem o Civic?', date: '2026-09-28T14:59:00Z' }, db.services, now);
+  assert.equal(result.stored, true);
+  assert.equal(db.tables.messages.length, 1);
+  assert.equal(db.tables.messages[0].body_text, 'Oi, ainda tem o Civic?');
+  const other = memoryDb();
+  assert.equal((await handler.receive(other.ctx || ctx, { phone: '+13055550100', body: 'Mensagem pelo campo body' }, other.services, now)).stored, true);
+});
+
+test('formato sem texto ou sem remetente: descarta e avisa no log só os NOMES dos campos, nunca valores', async () => {
+  const db = memoryDb();
+  const empty = await captureLogs(() => handler.receive(ctx, { remetente: '+13055550100', conteudo: 'texto privado' }, db.services, now));
+  assert.deepEqual(empty.result, { stored: false });
+  assert.equal(empty.lines.length, 1);
+  assert.match(empty.lines[0], /\[sms-inbound\] formato sem texto/);
+  assert.match(empty.lines[0], /remetente/);
+  assert.doesNotMatch(empty.lines[0], /3055550100|texto privado/);
+  const noSender = await captureLogs(() => handler.receive(ctx, { text: 'mensagem sem remetente' }, db.services, now));
+  assert.deepEqual(noSender.result, { stored: false });
+  assert.equal(noSender.lines.length, 1);
+  assert.match(noSender.lines[0], /\[sms-inbound\] formato sem remetente/);
+  assert.doesNotMatch(noSender.lines[0], /mensagem sem remetente/);
+  assert.deepEqual(db.calls.writes, []);
 });
