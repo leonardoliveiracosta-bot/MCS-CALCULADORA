@@ -349,3 +349,12 @@ test('summary: V1 só gerada (link nunca enviado) não conta como enviada',async
   const out=await funnel.summary(ctx,{allRows:db.allRows});
   assert.ok(!out.v1JourneyIds.includes(other));
 });
+test('V1: cada cartão traz todos os carros da V1 (VIN e se foi tocado depois do envio), para a tela da V1 e o VIN do Montar V2',async()=>{
+  const db=seedDb();
+  db.store.vitrine_cars.push({id:'a7777777-7777-4777-8777-777777777777',vitrine_id:ids.v1,environment:ENV,vehicle_snapshot:{year:2022,make:'BMW',model:'X5',vin:'wbx00000000000002'}});
+  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
+  const out=await funnel.payload(ctx,servicesFor(db));
+  const tapped=out.v1.tapped.find((item)=>item.vitrineId===ids.v1);
+  assert.deepEqual(tapped.vitrineCars.map((car)=>[car.vin,Boolean(car.tapAt)]),[['5UXTR9C51MLC00001',true],['WBX00000000000002',false]]);
+  assert.equal(tapped.budgetCents,2000000);
+});

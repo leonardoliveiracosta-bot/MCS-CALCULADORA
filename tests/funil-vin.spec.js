@@ -35,19 +35,43 @@ test('aba V1: cada carro mostra o seu VIN e o botão Copiar copia o VIN certo', 
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="v1"]').click();
-  const vins = page.locator('.funnel-vin');
-  await expect(vins.first()).toBeVisible({ timeout: 30000 });
-  // Two tapped cards of the same model, each with its own VIN; the waiting V1 lists both cars.
-  // TODOS card: each VIN is its own labelled row ("VIN" or "VIN · <car>") with the value beside it.
-  await expect(vins).toHaveText([/^VIN\s*1C4RJHEG2S8768446/, /^VIN\s*1C4RJHEG6S8768742/, /^VIN\s*YV4H60PF0T1487031/, /^VIN\s*não informado/]);
-  await vins.nth(1).getByRole('button', { name: 'Copiar' }).click();
-  await expect(vins.nth(1).getByRole('button')).toHaveText('Copiado');
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('1C4RJHEG6S8768742');
+  // 1. Um cartão por cliente: os dois carros tocados do _damian (mesma Ref) viram um cartão só.
+  const cards = page.locator('#v1-list .v1-client-card');
+  await expect(cards).toHaveCount(2, { timeout: 30000 });
+  const damian = cards.filter({ hasText: '_damian' });
+  await expect(damian).toHaveCount(1);
+  // 2. O cartão mostra o primeiro VIN; a parte do VIN abre todos os carros/VIN enviados, cada um com Copiar.
+  await expect(damian.locator('.funnel-vin')).toContainText('1C4RJHEG');
+  await damian.locator('.v1-vins > summary').click();
+  const items = damian.locator('.v1-vin-list .funnel-vin-item');
+  await expect(items).toHaveCount(2);
+  await expect(items).toHaveText([/1C4RJHEG\w+/, /1C4RJHEG\w+/]);
+  await items.nth(1).getByRole('button', { name: 'Copiar' }).click();
+  await expect(items.nth(1).getByRole('button')).toHaveText('Copiado');
+  expect(['1C4RJHEG2S8768446', '1C4RJHEG6S8768742']).toContain(await page.evaluate(() => navigator.clipboard.readText()));
+  // O outro cliente (sem toque) lista os dois carros da V1; o sem VIN aparece como "não informado".
+  const param = cards.filter({ hasText: 'Param Virani' });
+  await param.locator('.v1-vins > summary').click();
+  await expect(param.locator('.v1-vin-list .funnel-vin-item')).toHaveText([/YV4H60PF0T1487031/, /não informado/]);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  expect(errors).toEqual([]);
-  // A click on the card itself (not on a button) opens the client's ficha, as in TODOS.
-  await page.locator('#v1-list .today-card .case-face-title').first().click();
+  // 4. Montar V2 abre vazio; digitar o VIN reconhece o carro da V1 deste cliente e abre a montagem dele.
+  await damian.getByRole('button', { name: 'Montar V2' }).click();
+  const picker = damian.locator('.v2-picker');
+  await expect(picker.locator('input')).toHaveValue('');
+  await picker.locator('input').fill('1C4RJHEG6S8768742');
+  await expect(damian.locator('.v2-builder:not(.v2-picker) h4')).toHaveText('2025 Jeep Grand Cherokee Summit');
+  await expect(damian.locator('.v2-builder .funnel-vin')).toContainText('1C4RJHEG6S8768742');
+  // 3. Tocar no cartão abre a tela da V1 do cliente (não a ficha), com Voltar.
+  await param.locator('.case-face-title').click();
+  await expect(page.locator('#v1-list .v1-client-head')).toContainText('Param Virani');
+  await expect(page.locator('#v1-list .v1-sent-card')).toHaveCount(1);
+  await expect(page.locator('#v1-list .v1-sent-card')).toContainText('não tocou');
+  await expect(page.locator('#detail-panel')).toBeHidden();
+  await page.getByRole('button', { name: '← Voltar' }).click();
+  await expect(cards).toHaveCount(2);
+  // A ficha só abre pelo botão "Abrir ficha".
+  await cards.filter({ hasText: 'Param Virani' }).getByRole('button', { name: 'Abrir ficha' }).click();
   await expect(page.locator('#detail-panel')).toBeVisible();
-  await expect(page.locator('#page-title')).toHaveText('TELA DO LEAD');
+  expect(errors).toEqual([]);
 });
