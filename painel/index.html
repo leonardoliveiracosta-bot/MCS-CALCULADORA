@@ -90,29 +90,12 @@
         <div class="attend-head" aria-hidden="true"><span></span><span>Espera</span><span>Cliente</span><span>Carro · calculadora</span><span class="attend-right">Pedido</span><span>Local</span><span>Falta p/ buscar</span><span></span></div>
         <div id="today-list" class="stack" aria-live="polite"></div>
         <p id="triage-state" class="muted triage-state"></p>
-        <button id="triage-run-pending" class="quiet small hidden" type="button">Classificar só as conversas que dependem de você</button>
-        <details id="triage-out" class="card triage-out">
-          <summary><strong>Fora do funil comercial</strong> <span id="triage-out-count" class="badge">—</span></summary>
-          <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente · As conversas continuam guardadas e aparecem na busca global</p>
-          <div id="triage-out-list" class="queue" aria-live="polite"></div>
-        </details>
-        <details id="topic-out" class="card topic-out">
-          <summary><strong>Fora do assunto</strong> <span id="topic-out-count" class="badge">—</span></summary>
-          <p class="muted">Conversas que nunca falaram de carro, compra, financiamento, orçamento ou serviço da MCS · Nada foi apagado · Na dúvida a conversa fica no fluxo principal · 'É sobre carro' corrige e fica guardado</p>
-          <div id="topic-out-list" class="queue" aria-live="polite"></div>
-        </details>
-        <details id="whatsapp-auto-rejected" class="card auto-rejected hidden"><summary></summary><div class="queue"></div></details>
         <div id="attend-staging" class="hidden" aria-hidden="true">
           <div id="whatsapp-suggestions" class="queue"></div>
           <div id="triage-review" class="queue triage-review"></div>
           <div id="entry-queue" class="queue"></div>
           <div id="name-link-reviews" class="queue"></div>
         </div>
-        <details id="weekly-summary" class="card weekly-summary">
-          <summary>Esta semana</summary>
-          <p id="weekly-period" class="muted">Últimos 7 dias comparados com os 7 anteriores · horário da Flórida</p>
-          <div id="weekly-summary-content" aria-live="polite"></div>
-        </details>
         <details id="today-more" class="card today-more">
           <summary><strong>Mais</strong> <span class="muted">lista completa de clientes, planilha, retomar conversas antigas e pendências gerais</span></summary>
           <div id="clients-panel" aria-label="Clientes">
@@ -149,6 +132,22 @@
       <section id="settings-panel" class="panel-view hidden" aria-label="Configurações e conexão">
         <div class="section-head"><div><h2>Configurações e conexão</h2><p class="muted">WhatsApp, conexão do iPhone, avisos e mensagens automáticas</p></div></div>
         <details id="ai-budget" class="card ai-budget ai-budget-settings hidden"><summary>Saldo da IA: <strong id="ai-budget-spent">—</strong></summary><p id="ai-budget-warning" class="warning hidden"></p><ul id="ai-budget-features" class="ai-budget-features"></ul></details>
+        <section id="attend-recovery" class="card attend-recovery" aria-labelledby="attend-recovery-title">
+          <h2 id="attend-recovery-title">Conversas fora da lista do TODOS</h2>
+          <p class="muted">Para corrigir uma classificação · nada foi apagado e todas continuam na busca do topo (nome, telefone ou Ref)</p>
+          <button id="triage-run-pending" class="quiet small hidden" type="button">Classificar só as conversas que dependem de você</button>
+          <details id="triage-out" class="card triage-out">
+            <summary><strong>Fora do funil comercial</strong> <span id="triage-out-count" class="badge">—</span></summary>
+            <p class="muted">Pós-venda, pessoal, outro negócio ou não cliente · As conversas continuam guardadas e aparecem na busca global</p>
+            <div id="triage-out-list" class="queue" aria-live="polite"></div>
+          </details>
+          <details id="topic-out" class="card topic-out">
+            <summary><strong>Fora do assunto</strong> <span id="topic-out-count" class="badge">—</span></summary>
+            <p class="muted">Conversas que nunca falaram de carro, compra, financiamento, orçamento ou serviço da MCS · Nada foi apagado · Na dúvida a conversa fica no fluxo principal · 'É sobre carro' corrige e fica guardado</p>
+            <div id="topic-out-list" class="queue" aria-live="polite"></div>
+          </details>
+          <details id="whatsapp-auto-rejected" class="card auto-rejected hidden"><summary></summary><div class="queue"></div></details>
+        </section>
         <section id="purge-tests-card" class="card hidden" aria-live="polite"></section>
         <section id="assistant-incidents" class="card" aria-live="polite"></section>
         <section class="card whatsapp-card entry-signal" aria-labelledby="whatsapp-title">

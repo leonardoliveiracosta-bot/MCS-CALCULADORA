@@ -1669,19 +1669,7 @@
     if(card)card.scrollIntoView({block:'start'});else window.scrollTo(0,Number(fallbackY||0));
   }
 
-  const trend=(item)=>item?.trend==='up'?'↑':item?.trend==='down'?'↓':'→';
-  const metricValue=(value)=>value===null||value===undefined?'—':String(value);
-  const responseTime=(minutes)=>minutes===null||minutes===undefined?'—':minutes<60?`${minutes} min`:`${Math.floor(minutes/60)}h ${minutes%60}min`;
-  function renderWeekly(data){
-    const root=$('weekly-summary-content');if(!root)return;root.replaceChildren();
-    const row=(label,item,format=metricValue,action)=>{const block=element('div','weekly-metric'),name=element('span','',label),value=element(action?'button':'strong','weekly-value',`${format(item?.current)} ${trend(item)}`);if(action){value.type='button';value.classList.add('quiet');value.addEventListener('click',action);}block.append(name,value,element('small','muted',`anterior: ${format(item?.previous)}`));root.append(block);};
-    row('Leads · WhatsApp',data.leads?.whatsapp);row('Leads · SMS',data.leads?.sms);row('Leads · Calculadora',data.leads?.calculator);
-    row('Respondidos por mim',data.responded);row('Tempo médio até a 1ª resposta',data.averageResponseMinutes,responseTime);
-    row('Sem resposta há mais de 24 h',data.unanswered24h,metricValue,async()=>{attendBucket='todos';todayStatFilter='late24';await switchPanel('today');window.scrollTo(0,0);});
-    row('Opções enviadas',data.options);row('Descartados',data.discarded);row('Pedidos parados há mais de 3 dias',data.stalledOrders);
-    const reasons=(data.discarded?.reasons||[]).map((item)=>`${discardLabel(item.reason)} (${item.count})`).join(' · ');root.append(element('p','weekly-reasons',`Motivos mais comuns: ${reasons||'—'}`));
-  }
-  async function loadWeekly(){const data=await request('/api/panel/weekly');renderWeekly(data);}
+  // "Esta semana" saiu da aba TODOS (a tela mostra só a lista de leads); o resumo continua em /api/panel/weekly.
 
   async function downloadClientsCsv(){
     // Same universe as the badge, the counters and the report: leads only ("não é lead" stays out),
@@ -1954,7 +1942,6 @@
         return [parts.today,null,null,entryData,parts.triage||null,parts.whatsapp||null];});
       const pending=viaBoot.catch(()=>Promise.all([fresh(todayPath()),null,null,
         loadQueue(false).catch(()=>null),fresh('/api/panel/triage').catch(()=>null),fresh('/api/panel/whatsapp').catch(()=>null)]));
-      loadWeekly().catch(()=>null);
       let freshArrived=false;pending.then(()=>{freshArrived=true;},()=>{});
       if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
       const [data,,,entryData,triageData,whatsappData]=await pending;
@@ -5933,7 +5920,6 @@
     { let timer=null; $('attend-search')?.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{if(currentView==='today')renderToday(todayItems,true);},180);}); }
     { const watch=new MutationObserver(()=>syncAttendStamp()); ['data-updated','last-whatsapp-import'].forEach((id)=>{const node=$(id);if(node)watch.observe(node,{childList:true,characterData:true,subtree:true});}); syncAttendStamp(); }
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
-    const weekly=$('weekly-summary');weekly.open=localStorage.getItem('mcs_weekly_open')==='true';weekly.addEventListener('toggle',()=>localStorage.setItem('mcs_weekly_open',String(weekly.open)));
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));
     $('pending-with-ref').addEventListener('change',()=>{if(currentView==='pending')loadPending().catch(()=>{});});
     $('pending-download').addEventListener('click',async()=>{const button=$('pending-download');button.disabled=true;try{await downloadPendingCsv();}catch(_){button.after(element('span','error','Não foi possível baixar a planilha'));}finally{button.disabled=false;}});

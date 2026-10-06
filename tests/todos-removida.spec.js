@@ -93,12 +93,11 @@ test('seis abas (com V1 e V2), sem TODOS; a lista de clientes só carrega ao abr
   expect(errors).toEqual([]);
 });
 
-test('"Sem resposta há mais de 24 h" do resumo semanal abre ATENDER AGORA com o filtro de > 24 h', async ({ page }) => {
+test('"sem resposta há +24 h" da faixa dos números filtra a lista com o filtro de > 24 h ("Esta semana" saiu da aba)', async ({ page }) => {
   const { errors } = await open(page);
-  const weekly = page.locator('#weekly-summary');
-  await weekly.locator('> summary').click();
-  await page.locator('#weekly-summary-content .weekly-metric', { hasText: 'Sem resposta há mais de 24 h' }).locator('button').click();
+  await expect(page.locator('#weekly-summary')).toHaveCount(0);
   await expect(page.locator('#page-title')).toHaveText('TODOS');
+  await page.locator('[data-today-stat="late24"]').click();
   // Only the client whose last real message is theirs and older than 24 h (not the recent one, not one
   // answered by the MCS, not an automatic message).
   await expect(page.locator('#today-list .case-card')).toHaveCount(1, { timeout: 30000 });

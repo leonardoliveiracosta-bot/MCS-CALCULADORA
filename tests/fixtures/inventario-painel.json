@@ -1232,20 +1232,6 @@
    ]
   },
   {
-   "name": "weekly-summary",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/todos-removida.spec.js"
-   ]
-  },
-  {
-   "name": "weekly-summary-content",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/todos-removida.spec.js"
-   ]
-  },
-  {
    "name": "whatsapp-auto-rejected",
    "usedBy": [
     "painel/painel.js",
@@ -2471,12 +2457,6 @@
    ]
   },
   {
-   "name": "weekly-metric",
-   "usedBy": [
-    "tests/todos-removida.spec.js"
-   ]
-  },
-  {
    "name": "wishlist-mode",
    "usedBy": [
     "tests/marcacao-modo.spec.js"
@@ -3033,9 +3013,6 @@
    "v1-panel",
    "v2-list",
    "v2-panel",
-   "weekly-period",
-   "weekly-summary",
-   "weekly-summary-content",
    "whatsapp-auto-rejected",
    "whatsapp-echo",
    "whatsapp-files",
@@ -3564,9 +3541,6 @@
    "wa-time",
    "wait-clock",
    "warning",
-   "weekly-metric",
-   "weekly-reasons",
-   "weekly-summary",
    "whatsapp-card",
    "whatsapp-media",
    "whatsapp-media-image",

@@ -216,7 +216,10 @@ test('ATENDIMENTO: recusa automática de sugestão tem "Desfazer recusa" visíve
   } });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#app-view')).toBeVisible({ timeout: 30000 });
-  const box = page.locator('#whatsapp-auto-rejected');
+  // The list of automatic refusals left the TODOS tab: it is in Configurações e conexão.
+  await expect(page.locator('#today-panel #whatsapp-auto-rejected')).toHaveCount(0);
+  await page.locator('.settings-link').click();
+  const box = page.locator('#settings-panel #whatsapp-auto-rejected');
   await expect(box).toBeVisible({ timeout: 30000 });
   await box.locator('summary').click();
   await expect(box).toContainText('FMLNA');

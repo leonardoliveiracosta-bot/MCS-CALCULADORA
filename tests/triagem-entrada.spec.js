@@ -60,7 +60,10 @@ for (const width of [1280, 390]) {
     await expect(page.locator('#today-list .case-card')).toHaveCount(2);
     await expect(page.locator('#today-list .case-card').first()).toContainText('Classificar a conversa');
     await expect(page.locator('#triage-state')).toHaveText('Triagem automática desligada: as conversas novas seguem o fluxo normal');
+    // "Fora do funil comercial" left the TODOS tab: it is in Configurações e conexão.
+    await expect(page.locator('#today-panel #triage-out')).toHaveCount(0);
     await expect(page.locator('#triage-out-count')).toHaveText('2');
+    await page.locator('.settings-link').click();
     await expect(page.locator('#triage-out-list')).toBeHidden();
     await page.locator('#triage-out summary').click();
     const out = page.locator('#triage-out-list .triage-item');
@@ -86,6 +89,7 @@ test('é pré-compra, corrigir, manter pendente e desfazer mandam só a decisão
   await page.locator('#today-list .case-card', { has: page.locator('.triage-item') }).first().locator('.case-more > summary').click();
   await first.getByRole('button', { name: 'É pré-compra' }).click();
   await expect.poll(() => posts.length).toBe(1);
+  await page.locator('.settings-link').click();
   await page.locator('#triage-out summary').click();
   const post = page.locator('#triage-out-list .triage-item').first();
   await post.getByLabel('Corrigir a classificação').selectOption('REVISAR');
