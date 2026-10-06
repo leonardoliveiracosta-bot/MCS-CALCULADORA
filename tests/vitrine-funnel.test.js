@@ -40,7 +40,8 @@ function makeDb(tables){
   let seq=1;
   const allRows=async(ctx,table,params)=>applyParams(store[table]||[],params);
   const rows=async(ctx,table,params)=>applyParams(store[table]||[],params);
-  const insert=async(ctx,table,body)=>{const row={id:'10000000-0000-4000-8000-'+String(seq++).padStart(12,'0'),created_at:new Date().toISOString(),...body};(store[table]=store[table]||[]).push(row);return [row];};
+  // Like panel-server insert: without "representation" (return=minimal) Supabase answers with no body.
+  const insert=async(ctx,table,body,representation=true)=>{const row={id:'10000000-0000-4000-8000-'+String(seq++).padStart(12,'0'),created_at:new Date().toISOString(),...body};(store[table]=store[table]||[]).push(row);return representation?[row]:null;};
   return {store,allRows,rows,insert};
 }
 const panelServer=(db)=>({allRows:db.allRows,rows:db.rows,insert:db.insert,isUuid,safeText,
