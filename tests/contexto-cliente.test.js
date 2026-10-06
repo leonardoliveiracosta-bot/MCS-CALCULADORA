@@ -88,6 +88,9 @@ test('caso completo: dados do cliente com origem, conversa, etapa, de quem depen
   const item = res.payload.journeys[demo.IDS.JOURNEY];
   assert.equal(item.name, 'Marina Demonstração');
   assert.deepEqual(item.contact.phones, ['+13055550142']);
+  assert.equal(item.listMessage.direction, 'CUSTOMER');
+  assert.equal(item.listMessage.channel, 'WHATSAPP');
+  assert.equal(item.listMessage.at, item.conversation.lastAt);
   assert.equal(item.origin.label, 'Veio pela calculadora · Via WhatsApp');
   assert.equal(item.origin.calculator, true);
   assert.equal(item.ref, demo.REF);

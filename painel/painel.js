@@ -1966,7 +1966,10 @@
       // "Opções enviadas" stat counts these and redraws when they arrive.
       sharedGet('/api/panel/vitrine-funnel?summary=1', 60000).then((summary)=>{if(!current())return;v1JourneySet=new Set(summary.v1JourneyIds||[]);v1TodayCount=Number(summary.v1Today)||0;renderToday(todayItems,true);}).catch(()=>{});
       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
-      (countersBoot||Promise.resolve()).then(()=>sharedGet('/api/panel/pesquisas', 30000)).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;renderToday(todayItems,true);})
+      (countersBoot||Promise.resolve()).then(()=>sharedGet('/api/panel/pesquisas', 30000)).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;
+        // A refreshed incomplete list also rereads its last message (for example, after replying).
+        attendModel(todayItems).cases.filter((entry)=>entry.bucket==='completar').forEach((entry)=>{if(attendIdentity.get(entry.journeyId)!=='loading')attendIdentity.delete(entry.journeyId);});
+        renderToday(todayItems,true);})
         // A failed source is said on screen and the last good list stays; "Completar pedido" never turns into an empty count.
         .catch(()=>{if(!current())return;attendData.incompleteFailed=true;const note=$('triage-state');if(note&&!note.textContent.includes('pedidos incompletos'))note.textContent=[note.textContent,'Não consegui carregar os pedidos incompletos agora · Completar pedido mostra o último valor conhecido'].filter(Boolean).join(' · ');renderToday(todayItems,true);});
       return;
@@ -2757,6 +2760,7 @@
     Promise.all(chunks.map((journeyIds) => request('/api/panel/client-context', { method: 'POST', body: JSON.stringify({ journeyIds }) }).then((result) => {
       journeyIds.forEach((id) => { const context = result && result.journeys && result.journeys[id];
         attendIdentity.set(id, context ? { hasCalcRef: Boolean(context.hasCalcRef), refState: context.refState || null, calcRef: context.calcRef || null, internalCode: context.internalCode || null, name: context.name || null,
+          phones: context.contact?.phones || [], location: context.contact?.location || null, listMessage: context.listMessage || null, refAt: context.refAt || null,
           origin: context.origin && context.origin.code ? { group: String(context.origin.code).split(':')[0], key: context.origin.code, label: context.origin.label, financing: Boolean(context.origin.financing) } : null,
           at: context.conversation && context.conversation.lastAt || null } : null); });
     }).catch(() => journeyIds.forEach((id) => attendIdentity.delete(id))))).then(() => scheduleAttendRender());
@@ -2781,6 +2785,7 @@
   // vermelha acima. Caso sem tempo (aguardando, agendado, só decisão): o texto curto de hoje, sem bolinha.
   const ATTEND_DAY_MS = 86400000;
   function attendWait(entry, item) {
+    if (!item && entry.bucket === 'completar') return MCSCompleting.wait(attendIdentity.get(entry.journeyId));
     const status = shortStatus(entry, item);
     const unattended = item && item.group && item.group.unattended;
     const label = unattended && unattended.timeLabel;
@@ -2816,8 +2821,8 @@
     const rows = [...(entry.decisions || []), ...(entry.requests || [])];
     const identity = entry.journeyId && attendIdentity.get(entry.journeyId);
     const known = identity && identity !== 'loading' ? identity : null;
-    const phones = item ? (item.phones || []).map((phone) => phone.phone_e164 || phone.phone_raw || '') : rows.map((row) => row.phone || '');
-    const words = item ? [calcRefOf(item), item.internalCode, item.contactName, item.name, item.contact && item.contact.display_name, ...caseRequestFields(item).map(([, value]) => value)] : [known && known.calcRef, known && known.name, ...rows.map((row) => [row.name, row.sourceName].join(' '))];
+    const phones = item ? (item.phones || []).map((phone) => phone.phone_e164 || phone.phone_raw || '') : rows.map((row) => row.phone || '').concat(entry.bucket === 'completar' ? known?.phones || [] : []);
+    const words = item ? [calcRefOf(item), item.internalCode, item.contactName, item.name, item.contact && item.contact.display_name, ...caseRequestFields(item).map(([, value]) => value)] : [known && known.calcRef, entry.bucket === 'completar' && known?.internalCode, known && known.name, ...rows.map((row) => [row.name, row.sourceName].join(' '))];
     return { digits: phones.join(' ').replace(/\D/g, ''), text: words.filter(Boolean).join(' ').toLowerCase() };
   }
   function attendMatches(entry, query) {
@@ -2880,6 +2885,10 @@
       name = [first.name, first.sourceName, known?.name].find(realName) || '';
       phone = [...entry.decisions, ...entry.requests].map((one) => one.phone || '').find(Boolean) || '';
       ref = known ? (known.calcRef || 'sem Ref') : '';
+      if (entry.bucket === 'completar' && known) {
+        phone = known.phones[0] || phone;
+        if (!known.calcRef && known.internalCode) extras.push([`Código ${known.internalCode} · interno, não é Ref da calculadora`, 'case-internal-code']);
+      }
     }
     const client = element('div', 'attend-cell attend-client');
     const phoneLine = element('div', 'attend-l1'); phoneLine.append(attendPhone(phone)); client.append(phoneLine);
@@ -2997,10 +3006,10 @@
     const withItem = visible.filter((entry) => entry.item), without = visible.filter((entry) => !entry.item);
     const byItem = new Map(withItem.map((entry) => [entry.item, entry]));
     root.append(bulkBar());
-    // Every case in one grid (left, centre, right), the cases without a HOJE item first: no section
-    // headers, since each card already says why it is here. Only 30 cards are built at a time (the page
+    // Decisions without a HOJE item keep their place; incomplete leads join the selected order below.
+    // Only 30 rows are built at a time (the page
     // stays fast); "Mostrar mais" adds the next 30, or what is left.
-    const order = without.map((entry) => ({ entry, data: { group: attendBucket === 'completar' ? 'COMPLETAR' : 'DECISOES' } }));
+    let order = without.filter((entry) => entry.bucket !== 'completar').map((entry) => ({ entry, data: { group: 'DECISOES' } }));
     if (withItem.length) {
       const scratch = document.createElement('div');
       MCSContactGroups.render(scratch, withItem.map((entry) => entry.item), (item) => { const stub = document.createElement('i'); stub.attendEntry = byItem.get(item); return stub; }, { emptyText: '', flat: true });
@@ -3009,6 +3018,7 @@
       if (($('today-sort')?.value || 'ready') === 'ready') order.push(...placed);
       else { const dataOf = new Map(placed.map((one) => [one.entry, one.data])); withItem.forEach((entry) => order.push({ entry, data: dataOf.get(entry) || {} })); }
     }
+    order = MCSCompleting.insert(order, without.filter((entry) => entry.bucket === 'completar').map((entry) => ({ entry, data: { group: 'COMPLETAR' } })), attendIdentity, $('today-sort')?.value || 'ready');
     const filterKey = [attendBucket, origin, period, subject, todayRefFilter, todayStatFilter, query].join('|');
     if (filterKey !== attendPageKey) { attendPageKey = filterKey; attendLimit = ATTEND_PAGE; }
     const grid = element('section', 'attend-list contact-group contact-group-flat');
