@@ -2232,7 +2232,7 @@
   }
 
   function showDetailShell(kind, key) {
-    const labels = { today: 'today-panel', settings: 'settings-panel', pending: 'pending-panel', qualification: 'qualification-panel', requests: 'requests-panel', searches: 'searches-panel', imports: 'imports-panel', manheim: 'manheim-panel', records: 'records-panel' };
+    const labels = { today: 'today-panel', v1: 'v1-panel', v2: 'v2-panel', settings: 'settings-panel', pending: 'pending-panel', qualification: 'qualification-panel', requests: 'requests-panel', searches: 'searches-panel', imports: 'imports-panel', manheim: 'manheim-panel', records: 'records-panel' };
     Object.values(labels).forEach((id) => $(id)?.classList.add('hidden'));
     $('detail-panel').classList.remove('hidden');
     $('page-title').textContent = kind === 'order' ? 'PEDIDO' : 'FICHA';
