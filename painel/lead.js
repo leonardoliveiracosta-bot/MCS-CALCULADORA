@@ -374,11 +374,65 @@
     if(journeyId&&window.MCSSuggest)conversation.append(MCSSuggest.box(journeyId,{request,onSent:afterSend}));
     // Guided reply: the operator says what to convey, the AI writes it in the client's language (never sent).
     if(journeyId&&window.MCSSuggest&&MCSSuggest.guided)conversation.append(MCSSuggest.guided(journeyId,{request,onSent:afterSend}));
-    const uploadAttachment=async(files,status)=>{let ownerOffered=false;const ensured=journeyId?{journeyId,contactId:record.contact_id}:await api('ensure');for(const file of files){status.textContent='Enviando e lendo…';const head=new Uint8Array(await file.slice(0,64).arrayBuffer()),signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:file.name,mimeType:file.type,byteSize:file.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:ensured.journeyId,contactId:ensured.contactId})}),uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);const uploaded=await fetch(uploadUrl.toString(),{method:'PUT',headers:{'content-type':file.type,'x-upsert':'false'},body:file});if(!uploaded.ok)throw Error('UPLOAD_FAILED');const read=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});if(read.manual){status.textContent=(read.read?.error_code==='SMS_PRINT_DAILY_LIMIT'?'Limite de leituras de print do dia atingido':'Não consegui ler agora, tente mais tarde')+' · O print ficou guardado';continue;}const values=read.read.extracted_json||{},fields={phone:values.phone||'',name:values.name||'',ref:values.ref||'',message:values.message||'',translation:values.translation||''};let saved;try{saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:signed.readId,...fields})});}catch(failure){
-      // The phone of the print already belongs to another contact: the same "Guardar em [nome]" as the Importações queue.
-      const owner=failure&&failure.code==='SMS_PRINT_PHONE_OWNER'?failure.reason:null;if(!owner||!owner.journeyId)throw failure;
-      status.textContent=`Este telefone já é de ${owner.name||'outro contato'}`;
-      button(status.parentElement,`Guardar em ${owner.name||'outro contato'}${owner.ref?` · ${owner.ref}`:''}`,async()=>{const moved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',readId:signed.readId,targetJourneyId:owner.journeyId,keepSource:true,...fields})});status.textContent=`✓ Guardado em ${moved.name||owner.name} · Ref ${moved.ref||owner.ref||'—'}`;await reload();},'small');ownerOffered=true;continue;}status.textContent=saved.duplicate?'Este print já foi guardado.':`✓ Guardado no lead de ${saved.name||'Pedido'} · Ref ${saved.ref||values.ref||'—'}`;button(status.parentElement,'Desfazer',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:signed.readId})});await reload();},'quiet small');}if(!ownerOffered)await reload();};
+        // SMS prints are downscaled in the browser before upload (long side 1600px, JPEG 0.85): the
+    // full-size file never travels and the AI reads a much smaller image. Falls back to the original file.
+    const downscalePrint=(file)=>new Promise((resolve)=>{
+      const done=(blob,name,type,downscaled)=>resolve({blob,name,type,downscaled});
+      const url=URL.createObjectURL(file),img=new Image();
+      img.onload=()=>{URL.revokeObjectURL(url);const longer=Math.max(img.width,img.height),scale=Math.min(1,1600/longer);
+        if(scale>=1&&file.type==='image/jpeg')return done(file,file.name,file.type,false);
+        const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        canvas.toBlob((blob)=>{if(!blob)return done(file,file.name,file.type,false);
+          done(blob,(file.name.replace(/\.[a-z0-9]+$/i,'')||'print')+'.jpg','image/jpeg',true);},'image/jpeg',0.85);};
+      img.onerror=()=>{URL.revokeObjectURL(url);done(file,file.name,file.type,false);};
+      img.src=url;});
+    const putWithProgress=(url,shot,onProgress)=>new Promise((resolve,reject)=>{
+      const xhr=new XMLHttpRequest();xhr.open('PUT',url);
+      xhr.setRequestHeader('content-type',shot.type);xhr.setRequestHeader('x-upsert','false');
+      xhr.upload.addEventListener('progress',(event)=>{if(event.lengthComputable)onProgress(Math.round(event.loaded/event.total*100));});
+      xhr.addEventListener('load',()=>{xhr.status>=200&&xhr.status<300?resolve():reject(new Error('UPLOAD_FAILED'));});
+      xhr.addEventListener('error',()=>reject(new Error('UPLOAD_FAILED')));
+      xhr.addEventListener('abort',()=>reject(new Error('UPLOAD_FAILED')));
+      xhr.send(shot.blob);});
+    // One pipeline per file, all in parallel, each with its own status line: sign → PUT (with %) →
+    // AI read → confirm. The old serial loop made N prints cost N × (upload + up to 20s of AI + confirm).
+    const uploadAttachment=async(files,status)=>{
+      const host=status.parentElement;
+      const ensured=journeyId?{journeyId,contactId:record.contact_id}:await api('ensure');
+      const runOne=async(file)=>{
+        const line=document.createElement('div');line.className='status';host.append(line);
+        const set=(text)=>{line.textContent=text;};
+        try{
+          set(`Reduzindo ${file.name}…`);
+          const shot=await downscalePrint(file);
+          const head=new Uint8Array(await shot.blob.slice(0,64).arrayBuffer());
+          set(`Enviando ${shot.name}…`);
+          const signed=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'sign',filename:shot.name,mimeType:shot.type,byteSize:shot.blob.size,magicBase64:btoa(String.fromCharCode(...head)),journeyId:ensured.journeyId,contactId:ensured.contactId})});
+          const uploadUrl=new URL(signed.uploadUrl);uploadUrl.searchParams.set('token',signed.token);
+          await putWithProgress(uploadUrl.toString(),shot,(pct)=>set(`Enviando ${shot.name}… ${pct}%`));
+          set(`Lendo ${shot.name} com IA…`);
+          const read=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'read',readId:signed.readId})});
+          if(read.manual){set((read.read?.error_code==='SMS_PRINT_DAILY_LIMIT'?'Limite de leituras de print do dia atingido':'Não consegui ler agora, tente mais tarde')+' · O print ficou guardado');return 'kept';}
+          const values=read.read.extracted_json||{},fields={phone:values.phone||'',name:values.name||'',ref:values.ref||'',message:values.message||'',translation:values.translation||''};
+          let saved;
+          try{saved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',auto:true,readId:signed.readId,...fields})});}
+          catch(failure){
+            // The phone of the print already belongs to another contact: the same "Guardar em [nome]" as the Importações queue.
+            const owner=failure&&failure.code==='SMS_PRINT_PHONE_OWNER'?failure.reason:null;
+            if(!owner||!owner.journeyId)throw failure;
+            set(`Este telefone já é de ${owner.name||'outro contato'}`);
+            button(host,`Guardar em ${owner.name||'outro contato'}${owner.ref?` · ${owner.ref}`:''}`,async()=>{const moved=await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'confirm',readId:signed.readId,targetJourneyId:owner.journeyId,keepSource:true,...fields})});set(`✓ Guardado em ${moved.name||owner.name} · Ref ${moved.ref||owner.ref||'—'}`);await reload();},'small');
+            return 'owner';}
+          set(saved.duplicate?'Este print já foi guardado.':`✓ Guardado no lead de ${saved.name||'Pedido'} · Ref ${saved.ref||values.ref||'—'}`);
+          button(host,'Desfazer',async()=>{await request('/api/panel/sms-print',{method:'POST',body:JSON.stringify({action:'undo',readId:signed.readId})});await reload();},'quiet small');
+          return 'saved';
+        }catch(_){set(`Não consegui guardar ${file.name} · tente de novo`);return 'failed';}
+      };
+      const results=await Promise.all(files.map(runOne));
+      status.textContent='';
+      if(!results.includes('owner'))await reload();
+    };
     const attachmentButton=(parent)=>{const card=append(parent,'div','attachment-choice');append(card,'strong','','📷 Anexar print');append(card,'p','muted','Print de SMS, de WhatsApp ou foto · O painel lê a Ref e o número e coloca no cliente certo sozinho');const picker=append(card,'label','small','📷 Escolher prints'),input=append(picker,'input');input.type='file';input.accept='image/*';input.multiple=true;input.hidden=true;const info=append(card,'span','muted','');const actions=append(card,'div','inline-actions');const remove=button(actions,'✕ Remover',()=>{input.value='';info.textContent='';send.disabled=true;remove.hidden=true;},'quiet small');remove.hidden=true;const send=button(actions,'Guardar print',async()=>{await uploadAttachment([...input.files],status);},'small');send.disabled=true;const status=append(card,'span','status','');input.addEventListener('change',()=>{const files=[...input.files];info.textContent=files.map((file)=>`${file.name} · ${(file.size/1024/1024).toFixed(1)} MB`).join(' · ');send.disabled=!files.length;remove.hidden=!files.length;});};
     // No controls block above the conversation (Anexar print, ordem, filtro, inverter remetentes, traduzir): the thread is chronological and complete.
     // The conversation in WhatsApp Web bubbles inside "A IA LEU A CONVERSA" (client left in white, MCS right in green,
