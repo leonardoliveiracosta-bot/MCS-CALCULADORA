@@ -79,8 +79,9 @@ test('AUD-001 #57: seleção continua depois de reordenar o grupo (não volta ao
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  // The options live in the ficha now: open it from the queue card.
+  // The options live in the ficha now: open it from the queue card (the client's screen, then the full ficha).
   await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
+  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
   const card = () => page.locator('#detail-panel .ficha-demand').first();
   const group = () => card().locator('.offer-group[data-group="LANE"]');
   await expect(group().locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
@@ -100,8 +101,9 @@ test('AUD-001 #61: valor em dólar digitado e Selecionar logo em seguida grava o
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  // The options live in the ficha now: open it from the queue card.
+  // The options live in the ficha now: open it from the queue card (the client's screen, then the full ficha).
   await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
+  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
   const card = page.locator('#detail-panel .ficha-demand').first();
   const group = card.locator('.offer-group[data-group="LANE"]');
   await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });

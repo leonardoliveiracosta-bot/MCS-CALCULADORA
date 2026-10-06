@@ -202,7 +202,7 @@
     // The calculator writes "33101 — Miami, FL" (city, state) or only the number (or the state, or
     // "not recognized"): the place is looked up whenever the city is missing.
     const text = String(value || '').trim();
-    const found = /^(\d{5})(?:-\d{4})?\b\s*(?:·\s*)?(.*)$/.exec(text);
+    const found = /^(\d{5})(?:-\d{4})?\b\s*(?:[·—–-]\s*)?(.*)$/.exec(text);
     if (!node || !found) return;
     const zip = found[1];
     const rest = found[2].trim();
@@ -3836,7 +3836,7 @@
       if (item.journeyId) journeys.add(item.journeyId);
       if (item.referenceCode) refs.add(String(item.referenceCode).toUpperCase());
     }));
-    v1SentCache = { journeys, refs };
+    v1SentCache = { journeys, refs, data };
     return v1SentCache;
   }
   let optionsQueueData = [];
@@ -3869,7 +3869,9 @@
       const states = ownDemands.map((demand) => {
         if (!data.upload) return { demand, kind: 'nobatch' };
         if (demand.stale || demand.compared === false) return { demand, kind: 'pending' };
-        if (demand.matchCount > 0) return { demand, kind: 'cars', count: Number(demand.matchCount) || 0 };
+        // The number of the card is the one of the client's screen (the groups of the offer, the same list of the PDF and the V1).
+        const cars = demand.offer ? offerTotal(demand.offer) : Number(demand.matchCount) || 0;
+        if (cars > 0) return { demand, kind: 'cars', count: cars };
         if (demand.expired) return { demand, kind: 'expired' };
         return { demand, kind: 'none' };
       });
@@ -3923,7 +3925,7 @@
     const query = $('options-queue-search') ? $('options-queue-search').value || '' : '';
     const list = sortQueue(optionsQueueData.filter((row) => queueMatches(row, query)));
     root.replaceChildren();
-    if (note) note.textContent = query.trim() ? `${list.length} de ${optionsQueueData.length} na fila` : `${optionsQueueData.length} na fila · toque na linha para abrir a ficha`;
+    if (note) note.textContent = query.trim() ? `${list.length} de ${optionsQueueData.length} na fila` : `${optionsQueueData.length} na fila · toque na linha para ver as opções do cliente`;
     list.forEach((row) => renderQueueRow(root, row));
     if (!list.length) root.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia' : 'Nenhuma importação ativa'));
   }
@@ -3960,15 +3962,18 @@
     const rows = [...(arrival ? [['Chegou', arrival, 'case-request-line']] : []),
       ['Prazo', WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, 'case-request-line'],
       ...row.states.map((state) => ['Pedido', [state.demand.mode === 'VALOR' ? 'Por valor' : state.demand.mode === 'CARRO' ? 'Por carro' : '', demandSummary(state.demand), STATE_TEXT[state.kind](state)].filter(Boolean).join(' · '), 'case-request-line options-queue-demand'])];
+    // With cars of the batch the card opens the client's options screen; without them there is nothing to choose: the ficha.
+    const withCars = row.states.some((state) => state.kind === 'cars');
+    const openRow = () => withCars ? openOptionsClient(row) : openQueueDetail(row.demands[0] || null, person);
     const { card } = todosCard({ status: rowSummary(row), tone: waiting ? 'red' : '', title: person.name, ref: person.ref, phone: person.phoneRaw ? person.phoneDisplay : '', rows,
-      open: () => openQueueDetail(row.demands[0] || null, person), className: 'options-queue-card options-queue-row' + (waiting ? '' : ' options-queue-nocar') });
+      open: openRow, className: 'options-queue-card options-queue-row' + (waiting ? '' : ' options-queue-nocar') });
     card.querySelector('.card-decision-label').classList.add('options-queue-reason');
     card.querySelector('.case-face-title').classList.add('identity-name');
     // Every request key and mode of the person (read by openOptionsCard and the tests).
     card.dataset.demandKey = row.demands.map((demand) => demand.key).filter(Boolean).join(' ');
     card.dataset.mode = [...new Set(row.demands.map((demand) => demand.mode).filter(Boolean))].join(' ');
-    const open = element('button', 'today-primary small', person.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
-    open.addEventListener('click', (event) => { event.stopPropagation(); openQueueDetail(row.demands[0] || null, person); });
+    const open = element('button', 'today-primary small', withCars ? 'Ver opções' : person.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
+    open.addEventListener('click', (event) => { event.stopPropagation(); openRow(); });
     card.querySelector('.card-primary').append(open);
     card.querySelectorAll('.options-queue-demand').forEach((line, index) => {
       const state = row.states[index];
@@ -3983,6 +3988,249 @@
       line.querySelector('.case-field-value').append(document.createTextNode(' '), update);
     });
     root.append(card);
+  }
+
+  // ===== ENVIAR OPÇÕES · Opções do cliente =====
+  // Tapping a queue card with cars opens this screen (not the whole ficha): who the client is, what was
+  // asked, the cars of the active batch in one list (the same pages of manheim-options that feed the
+  // ficha's PDF and V1), and the PDF, Montar V2 and V1 of the ficha and of the V1/V2 tabs. No rule here:
+  // selecting, the PDF, the V1 and the V2 are the existing functions.
+  const offerTotal = (offer) => (Number(offer && offer.lane) || 0) + (Number(offer && offer.offLane) || 0) + (Number(offer && offer.incomplete) || 0);
+  const CLIENT_SORTS = [['year_desc', 'Ano maior primeiro'], ['year_asc', 'Ano menor primeiro'], ['miles_asc', 'Milhas menor primeiro'], ['miles_desc', 'Milhas maior primeiro'], ['mmr_desc', 'MMR maior primeiro'], ['mmr_asc', 'MMR menor primeiro']];
+  const CLIENT_SORT_KEY = 'mcs_options_client_sort';
+  const CLIENT_GROUPS = [['LANE', 'Lane/Run', 'lane'], ['OFFLANE', 'Buy Now / Make Offer', 'offLane'], ['INCOMPLETE', 'Informação incompleta', 'incomplete']];
+  const CLIENT_PAGE_ROWS = 25;
+  let clientScrollY = 0;
+  function closeOptionsClient() {
+    const screen = $('options-client');
+    if (!screen || screen.classList.contains('hidden')) return false;
+    screen.classList.add('hidden'); screen.replaceChildren();
+    $('searches-panel')?.classList.remove('client-open');
+    return true;
+  }
+  document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => closeOptionsClient()));
+  // The V1/V2 already sent to this person (funnel of the V1/V2 tabs) and the tapped V1 item that Montar V2 needs.
+  function clientFunnel(person) {
+    const data = v1SentCache && v1SentCache.data || null;
+    const mine = (item) => (person.journeyId && item.journeyId === person.journeyId) || (person.ref && String(item.referenceCode || '').toUpperCase() === String(person.ref).toUpperCase());
+    const pick = (zones, part) => zones.flatMap((zone) => ((data && data[part] && data[part][zone]) || []).filter(mine).map((item) => ({ ...item, zone })));
+    return { data, v1: pick(['tapped', 'waiting', 'expired'], 'v1'), v2: pick(['bid', 'waiting', 'expired'], 'v2') };
+  }
+  function sentText(list, label) {
+    if (!list.length) return `${label}: nenhuma`;
+    const latest = list.map((item) => item.sentAt || item.createdAt).filter(Boolean).sort().pop();
+    const extra = list.some((item) => item.zone === 'tapped') ? ' · tocou' : list.some((item) => item.zone === 'bid') ? ' · quer dar lance' : list.every((item) => item.zone === 'expired') ? ' · expirou' : '';
+    return `${label}: enviada${latest ? ' ' + funnelAgo(latest) : ''}${extra}`;
+  }
+  async function openOptionsClient(row) {
+    const screen = $('options-client'), panel = $('searches-panel');
+    if (!screen || !panel) return;
+    const person = row.person;
+    const demands = row.states.filter((state) => state.kind === 'cars').map((state) => state.demand);
+    if (!demands.length) return openQueueDetail(row.demands[0] || null, person);
+    clientScrollY = window.scrollY;
+    panel.classList.add('client-open');
+    screen.classList.remove('hidden');
+    screen.replaceChildren(element('p', 'muted', 'Carregando as opções do cliente…'));
+    window.scrollTo(0, 0);
+    try { await loadV1Sent(); } catch (_) { /* without the funnel: "Já enviado" unknown and Montar V2 stays off */ }
+    if (screen.classList.contains('hidden')) return;
+    paintOptionsClient(screen, row, demands, demands[0]);
+  }
+  function paintOptionsClient(screen, row, demands, demand) {
+    const person = row.person;
+    const journey = person.journeyId ? manheimJourneys.find((item) => item.id === person.journeyId) : null;
+    const order = !journey ? manheimOrders.find((item) => String(item.ref || '').toUpperCase() === String(person.ref || '').toUpperCase()) : null;
+    const funnel = clientFunnel(person);
+    screen.replaceChildren();
+    // 1. Who: name, Ref, phone (tap to call), city and state; Voltar and the full ficha.
+    const top = element('div', 'oc-top');
+    const back = element('button', 'quiet oc-back', '← Voltar'); back.type = 'button';
+    back.addEventListener('click', () => { const y = clientScrollY; closeOptionsClient(); window.scrollTo(0, y); requestAnimationFrame(() => window.scrollTo(0, y)); });
+    const who = element('div', 'oc-who');
+    const name = element('h2', 'oc-name identity-name', person.name || 'Cliente');
+    if (person.ref) name.append(element('span', 'oc-ref', 'REF ' + person.ref));
+    const line = element('p', 'oc-contact');
+    if (person.phoneRaw) { const tel = element('a', 'oc-phone', person.phoneDisplay); tel.href = 'tel:' + String(person.phoneRaw).replace(/[^\d+]/g, ''); line.append(tel); }
+    else line.append(element('span', 'muted', 'Sem telefone'));
+    const zip = journey ? ((journey.simulations || []).map((item) => item && item.zip).find(Boolean) || null) : order && order.zip || null;
+    if (zip) { const place = element('span', 'oc-place', String(zip)); line.append(document.createTextNode(' · '), place); fillZipPlace(place, String(zip)); }
+    who.append(name, line);
+    const full = element('button', 'quiet small oc-full', 'Abrir ficha completa'); full.type = 'button';
+    full.addEventListener('click', () => openQueueDetail(demand, person));
+    top.append(back, who, full);
+    // 2. What the client asked, with the V1/V2 already sent.
+    const ask = element('div', 'oc-ask');
+    const fact = (label, value) => { const box = element('div', 'oc-fact'); box.append(element('span', 'oc-label', label), element('strong', '', value)); return box; };
+    const bid = Number(demand.bidCents) || Number(journey && journey.budget_cents) || 0;
+    ask.append(fact('Cliente pediu', demandSummary(demand) || 'não informado'),
+      fact('Calculadora', demand.mode === 'VALOR' ? 'Calculate My Cost · por valor' : demand.mode === 'CARRO' ? 'Find One For Me · por carro' : 'não informada'),
+      fact('Lance máximo', bid ? formatMoney(bid) : 'não informado'),
+      fact('Já enviado', funnel.data ? `${sentText(funnel.v1, 'V1')} · ${sentText(funnel.v2, 'V2')}` : 'não consegui ler agora'));
+    screen.append(top, ask);
+    // A person with more than one request with cars (por valor and por carro): one list at a time.
+    if (demands.length > 1) {
+      const pick = element('div', 'oc-demands');
+      demands.forEach((item) => { const chip = element('button', 'oc-tab' + (item === demand ? ' on' : ''), item.mode === 'VALOR' ? 'Por valor' : 'Por carro'); chip.type = 'button';
+        chip.addEventListener('click', () => paintOptionsClient(screen, row, demands, item)); pick.append(chip); });
+      screen.append(pick);
+    }
+    if (!demand.offer || !OFFER) { screen.append(demand.offerPending ? offerPendingNote() : element('p', 'muted', 'Opções ainda carregando · volte em instantes')); return; }
+    // The selection of this request (the same state the ficha's PDF and V1 read).
+    const offer = demand.offer, max = Number(offer.max) || OFFER.MAX_SELECTED || 10;
+    const state = { loaded: [], selectedIds: new Set(offer.selectedIds || []), listeners: [], demand, card: screen };
+    // 3. Groups with their counts, and the order.
+    const bar = element('div', 'oc-bar');
+    let group = CLIENT_GROUPS.find(([key, , field]) => Number(offer[field]) > 0)?.[0] || 'LANE';
+    const tabs = CLIENT_GROUPS.map(([key, label, field]) => { const tab = element('button', 'oc-tab', `${label} (${Number(offer[field]) || 0})`); tab.type = 'button'; tab.dataset.group = key;
+      tab.addEventListener('click', () => { if (group === key) return; group = key; paintTabs(); restart(); }); return tab; });
+    const paintTabs = () => tabs.forEach((tab) => tab.classList.toggle('on', tab.dataset.group === group));
+    const sortSelect = element('select', 'oc-sort');
+    sortSelect.setAttribute('aria-label', 'Ordenar');
+    CLIENT_SORTS.forEach(([value, label]) => { const option = element('option', '', label); option.value = value; sortSelect.append(option); });
+    let sort = 'miles_asc';
+    try { const saved = localStorage.getItem(CLIENT_SORT_KEY); if (CLIENT_SORTS.some(([value]) => value === saved)) sort = saved; } catch (_) { /* default order */ }
+    sortSelect.value = sort;
+    sortSelect.addEventListener('change', () => { sort = sortSelect.value; try { localStorage.setItem(CLIENT_SORT_KEY, sort); } catch (_) { /* only this browser */ } restart(); });
+    const sortLabel = element('label', 'oc-sort-label', 'Ordenar '); sortLabel.append(sortSelect);
+    bar.append(...tabs, sortLabel);
+    paintTabs();
+    // 4. One line per car.
+    const head = element('div', 'oc-head');
+    ['', 'Carro', 'Milhas', 'Leilão', 'MMR', 'Encaixe'].forEach((label) => head.append(element('div', label === 'MMR' ? 'oc-right' : '', label)));
+    const list = element('div', 'oc-list');
+    const more = element('div', 'oc-more');
+    screen.append(bar, head, list, more);
+    // 5. The fixed bar: the counter and the three actions of the ficha (PDF, V1) and of the V1/V2 tabs (Montar V2).
+    const foot = fichaOptionsFooter([{ demand, section: { offerState: state } }]);
+    foot.classList.add('oc-act');
+    const [pdf, go] = [...foot.querySelectorAll('button')];
+    const count = element('p', 'oc-count');
+    const tapped = funnel.v1.find((item) => item.zone === 'tapped') || null;
+    const v2Box = element('div', 'oc-v2');
+    let v2Button;
+    if (tapped) { if (!v1FunnelData) v1FunnelData = funnel.data; v2Button = v2PickerButton(tapped, v2Box); v2Button.classList.add('quiet'); }
+    else { v2Button = element('button', 'small quiet', 'Montar V2'); v2Button.type = 'button'; v2Button.disabled = true; v2Button.title = 'Liberado depois que o cliente tocar em um carro da V1'; }
+    v2Button.classList.add('oc-v2-button');
+    go.before(v2Button);
+    foot.prepend(count);
+    if (!tapped) foot.append(element('p', 'muted oc-hint', 'O Montar V2 fica liberado quando o cliente tocar em um carro da V1.'));
+    screen.append(foot, v2Box);
+    const boxes = new Map();
+    const paintCount = () => {
+      count.replaceChildren(element('strong', '', String(state.selectedIds.size)), document.createTextNode(` de ${max} selecionados`));
+      const none = !state.selectedIds.size;
+      pdf.disabled = none; go.disabled = none;
+      boxes.forEach((box, id) => { if (!box.dataset.blocked) box.disabled = !state.selectedIds.has(id) && state.selectedIds.size >= max; });
+    };
+    state.setSelected = (id, on) => {
+      if (on) state.selectedIds.add(id); else state.selectedIds.delete(id);
+      offer.selectedIds = [...state.selectedIds]; offer.selected = state.selectedIds.size;
+      paintCount(); state.listeners.forEach((listener) => listener());
+    };
+    paintCount();
+    let cursor = null, loaded = 0, busy = false, total = 0, version = 0;
+    const loadPage = async () => {
+      if (busy) return; busy = true;
+      const mine = version;
+      more.replaceChildren(element('span', 'muted', 'Carregando…'));
+      try {
+        const params = new URLSearchParams({ key: demand.key, group, limit: String(CLIENT_PAGE_ROWS), sort });
+        if (cursor) params.set('cursor', cursor);
+        const page = await request('/api/panel/manheim-options?' + params.toString());
+        if (mine !== version) return;
+        if (page.uploadedAt) state.uploadedAt = page.uploadedAt;
+        if (!cursor) total = Number(page.total) || 0;
+        (page.options || []).forEach((option) => {
+          if (state.loaded.some((item) => item.id === option.id)) return;
+          state.loaded.push(option); loaded += 1;
+          list.append(clientCarRow(option, state, group, boxes, paintCount));
+        });
+        cursor = page.nextCursor || null;
+        more.replaceChildren();
+        if (!loaded) more.append(element('p', 'muted', 'Nenhum carro neste grupo'));
+        else if (cursor) {
+          const rest = Math.max(total - loaded, 1);
+          const button = element('button', 'quiet small oc-more-button', 'Ver mais'); button.type = 'button';
+          button.addEventListener('click', () => loadPage());
+          more.append(element('span', 'muted', `+ ${rest} ${rest === 1 ? 'carro' : 'carros'} · `), button);
+        }
+        paintCount();
+      } catch (failure) {
+        if (mine !== version) return;
+        more.replaceChildren(element('span', 'warning', failure && failure.code === 'MANHEIM_SELECTION_PENDING' ? OFFER_ERRORS.MANHEIM_SELECTION_PENDING : 'Não consegui carregar os carros'));
+        const again = element('button', 'quiet small', 'Tentar de novo'); again.type = 'button'; again.addEventListener('click', () => loadPage()); more.append(document.createTextNode(' '), again);
+      } finally { if (mine === version) busy = false; }
+    };
+    function restart() {
+      version += 1; busy = false; cursor = null; loaded = 0; total = 0;
+      // The selected cars stay in the state (the PDF reads the ones not on screen from the server).
+      state.loaded = []; boxes.clear(); list.replaceChildren();
+      return loadPage();
+    }
+    loadPage();
+  }
+  // Day and hour of the car's sale: a Lane/Run auction starts at startsAt; a Buy Now / Make Offer is open until endsAt.
+  function clientSaleText(parsed, group) {
+    if (group === 'OFFLANE') {
+      const until = parsed.endsAt ? auctionWhen(parsed.endsAt) : '';
+      return until ? `Buy Now até ${until}` : 'Buy Now · sem data de fim';
+    }
+    const when = auctionWhen(parsed.startsAt || parsed.saleDate);
+    return when || 'sem data';
+  }
+  function clientCarRow(option, state, group, boxes, paintCount) {
+    const parsed = option.vehicle_json && option.vehicle_json.parsed || {};
+    const info = option.offer || {};
+    const stamp = option.stamp || null, invalid = Boolean(stamp && !stamp.valid);
+    const row = element('div', 'oc-row');
+    row.dataset.matchId = option.id;
+    const box = element('input'); box.type = 'checkbox'; box.checked = state.selectedIds.has(option.id);
+    box.setAttribute('aria-label', 'Selecionar para o cliente');
+    if (invalid) { box.disabled = true; box.dataset.blocked = '1'; }
+    boxes.set(option.id, box);
+    const check = element('label', 'oc-check'); check.append(box);
+    const car = element('div', 'oc-car');
+    car.append(element('strong', 'oc-l1', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')));
+    if (invalid) car.append(element('span', 'warning oc-l2', `Não oferecer · ${stamp.reasonText || 'carro não vale mais para este pedido'}`));
+    const miles = element('div', 'oc-miles'); miles.append(element('strong', 'oc-l1', milesText(parsed.miles)));
+    const sale = element('div', 'oc-sale'); sale.append(element('strong', 'oc-l1', clientSaleText(parsed, group)), element('span', 'oc-l2', parsed.locationDisplay || parsed.location || ''));
+    const mmr = element('div', 'oc-mmr oc-right'); mmr.append(element('strong', 'oc-l1', info.mmrCents ? formatMoney(info.mmrCents) : '—'), element('span', 'oc-l2', 'MMR'));
+    const fit = element('div', 'oc-fit'); fit.append(offerFit(option));
+    row.append(check, car, miles, sale, mmr, fit);
+    const paintRow = () => { box.checked = state.selectedIds.has(option.id); row.classList.toggle('sel', box.checked); };
+    paintRow();
+    state.listeners.push(paintRow);
+    // Selecting: the same server actions of the ficha. Off Lane/Run a car only goes in as a manual inclusion, with its reason.
+    const send = (action, reason = null) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action, matchId: option.id, pct: null, reason, note: null }) });
+    const feedback = element('p', 'status oc-row-msg');
+    const apply = (result) => { state.setSelected(option.id, result.status === 'SELECTED'); feedback.textContent = ''; };
+    let reasonBox = null;
+    box.addEventListener('change', async () => {
+      const on = box.checked;
+      if (on && group !== 'LANE') {
+        box.checked = false;
+        if (reasonBox) { reasonBox.querySelector('input').focus(); return; }
+        reasonBox = element('div', 'oc-reason');
+        const input = element('input', 'offer-reason'); input.type = 'text'; input.maxLength = 300; input.placeholder = 'Motivo da inclusão manual';
+        const add = element('button', 'small', 'Incluir'); add.type = 'button';
+        const cancel = element('button', 'quiet small', 'Cancelar'); cancel.type = 'button';
+        cancel.addEventListener('click', () => { reasonBox.remove(); reasonBox = null; });
+        add.addEventListener('click', async () => {
+          add.disabled = true;
+          try { apply(await send('select', input.value.trim() || null)); reasonBox.remove(); reasonBox = null; }
+          catch (error) { feedback.textContent = offerError(error); add.disabled = false; }
+        });
+        reasonBox.append(input, add, cancel); row.append(reasonBox); input.focus();
+        return;
+      }
+      box.disabled = true;
+      try { apply(await send(on ? 'select' : 'remove')); }
+      catch (error) { box.checked = !on; feedback.textContent = offerError(error); }
+      finally { box.disabled = false; paintRow(); paintCount(); }
+    });
+    row.append(feedback);
+    return row;
   }
 
   // ===== Ficha · opções e envio da V1 =====

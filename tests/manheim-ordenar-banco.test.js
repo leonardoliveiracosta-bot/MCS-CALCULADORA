@@ -1,7 +1,7 @@
 'use strict';
 
-// Ordenar as opções de um grupo por ano ou por MMR no banco (panel_manheim_offer_page_sorted), página por página:
-// a sequência de todas as páginas é a mesma da regra em memória (sortedGroup sobre a ordem por CR), nas 4 ordens,
+// Ordenar as opções de um grupo por ano, milhas ou MMR no banco (panel_manheim_offer_page_sorted), página por página:
+// a sequência de todas as páginas é a mesma da regra em memória (sortedGroup sobre a ordem por CR), nas 6 ordens,
 // com empates mantendo a ordem por CR, e sem limite de tamanho (antes o servidor lia no máximo 2.000 carros).
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -62,12 +62,12 @@ async function allPages(sort, limit) {
   return out;
 }
 
-test('ano e MMR, nos dois sentidos: o banco dá a mesma ordem da regra, página por página', async () => {
+test('ano, milhas e MMR, nos dois sentidos: o banco dá a mesma ordem da regra, página por página', async () => {
   const { sortedGroup } = require('../api/panel/manheim-options');
   const byCr = await allPages('cr', 50);
   assert.equal(byCr.length, 73);
   const asRows = byCr.map((option) => ({ id: option.id, vehicle_json: option.vehicle_json, mmr_cents: option.offer.mmrCents }));
-  for (const sort of ['year_desc', 'year_asc', 'mmr_desc', 'mmr_asc']) {
+  for (const sort of ['year_desc', 'year_asc', 'miles_asc', 'miles_desc', 'mmr_desc', 'mmr_asc']) {
     const expected = sortedGroup(asRows, sort).map((row) => row.id);
     for (const limit of [10, 50]) {
       const got = (await allPages(sort, limit)).map((option) => option.id);
@@ -76,6 +76,8 @@ test('ano e MMR, nos dois sentidos: o banco dá a mesma ordem da regra, página 
   }
   const years = (await allPages('year_desc', 50)).map((option) => option.vehicle_json.parsed.year);
   assert.deepEqual(years, [...years].sort((a, b) => b - a));
+  const miles = (await allPages('miles_asc', 50)).map((option) => option.vehicle_json.parsed.miles);
+  assert.deepEqual(miles, [...miles].sort((a, b) => a - b));
 });
 
 test('a rota não lê mais o grupo inteiro: uma chamada ao banco por página, sem teto de 2.000', () => {

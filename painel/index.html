@@ -13,7 +13,7 @@
   <link rel="manifest" href="/painel/manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="/painel/icons/mcs-painel-180.png">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans:wght@400;600;700&family=Noto+Sans+Mono:wght@500&family=Noto+Serif:wght@600&display=swap">
-  <link rel="stylesheet" href="/painel/painel.css?v=20261029r">
+  <link rel="stylesheet" href="/painel/painel.css?v=20261031a">
   <link rel="stylesheet" href="/painel/tema-mcs.css?v=20261003s">
   <link rel="stylesheet" href="/painel/identidade.css?v=20261025t7">
   <link rel="stylesheet" href="/painel/sms-device-tokens.css?v=20261020a">
@@ -307,7 +307,7 @@
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
       </section>
       <section id="searches-panel" class="panel-view hidden" aria-label="Enviar opções">
-        <div class="section-head today-heading searches-subsection"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Enviar opções</h2><p class="muted">Fila de trabalho: todos os clientes, com os carros do lote ou o motivo de ainda não ter · Toque na linha para abrir a ficha</p></div></div>
+        <div class="section-head today-heading searches-subsection"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Enviar opções</h2><p class="muted">Fila de trabalho: todos os clientes, com os carros do lote ou o motivo de ainda não ter · Toque na linha para ver as opções do cliente</p></div></div>
         <section class="card">
           <div id="manheim-summary" class="muted"></div>
           <div id="manheim-audit-note" class="manheim-audit-note hidden" aria-live="polite"></div>
@@ -331,6 +331,7 @@
             <div id="buscas-saved-list" class="stack saved-searches"></div>
           </details>
         </div>
+        <section id="options-client" class="card options-client hidden" aria-label="Opções do cliente"></section>
       </section>
       <section id="detail-panel" class="panel-view hidden" aria-label="Detalhe">
         <div class="detail-toolbar">
@@ -365,7 +366,7 @@
   <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js?v=20261025q" defer></script>
   <script src="/painel/assistente.js?v=20261028a" defer></script>
-  <script src="/painel/painel.js?v=20261030listacompletar" defer></script>
+  <script src="/painel/painel.js?v=20261031opcoescliente" defer></script>
   <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
 </body>
 </html>

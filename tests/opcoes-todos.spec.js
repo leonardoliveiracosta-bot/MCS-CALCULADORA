@@ -25,7 +25,7 @@ const offer = { lane: 2, offLane: 0, incomplete: 0, selected: 0, selectedIds: []
 const demand = (n, extra) => ({ key: `journey:${id(n)}:CARRO`, mode: 'CARRO', targetType: 'JOURNEY', journeyId: id(n), ref: null, name: NAMES[n - 1], wishes: wish, issues: [], matchCount: 0, compared: true, offer: { ...offer, lane: 0 }, ...extra });
 const manheim = {
   items: journeys, orders: [], targets: [], uploads: [], undoAvailable: true,
-  demands: [demand(1, { matchCount: 2, offer }), demand(2), demand(3, { compared: false }), demand(5, { matchCount: 1, offer })],
+  demands: [demand(1, { matchCount: 2, offer }), demand(2), demand(3, { compared: false }), demand(5, { matchCount: 1, offer: { ...offer, lane: 1 } })],
   review: [{ key: `journey:${id(4)}:CARRO`, mode: 'CARRO', journeyId: id(4), name: NAMES[3], issues: [{ code: 'MODEL_MISSING', text: 'Falta o modelo' }] }],
   upload: { id: id(90), vehicle_count: 10, matched_vehicle_count: 5, uploaded_at: ago(2), current_lead_count: 2 },
   counts: { VALOR: { demands: 0, served: 0, matches: 0 }, CARRO: { demands: 4, served: 2, matches: 3 }, total: { people: 4, served: 2, matches: 3, review: 1 } }, meta: {}
@@ -70,7 +70,7 @@ test('ENVIAR OPÇÕES: todos, com o motivo de quem não tem carro; Atualizar com
   await expect(summary('Fabio Sem Pedido')).toHaveText('Busca ainda não feita · nenhum pedido de carro registrado');
   await expect(card('Ana Carro').locator('.options-queue-demand')).toContainText('Por carro · Honda CR-V · 2019 a 2022');
   await expect(card('Ana Carro').locator('.options-queue-demand')).toContainText('2 carros aguardando');
-  await expect(page.locator('#options-queue-count')).toHaveText('6 na fila · toque na linha para abrir a ficha');
+  await expect(page.locator('#options-queue-count')).toHaveText('6 na fila · toque na linha para ver as opções do cliente');
   // The tab still counts who has cars and is waiting for the V1.
   await expect(page.locator('.tab[data-view="searches"] [data-count]')).toHaveText('1');
   // "Ref mais recentes": the newest Ref first, whatever the last message.

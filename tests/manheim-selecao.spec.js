@@ -85,6 +85,8 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
   await page.locator('[data-view="searches"]').click();
   const card = await openOptionsFicha(page, { mode: 'CARRO' });
   await expect(card.locator('.offer-counter')).toContainText('16 em Lane/Run · 1 em Buy Now / Make Offer · 0 de 10 selecionados', { timeout: 60000 });
+  // The client's screen (the way into the ficha) already listed its first page; from here on, the ficha's own groups.
+  optionPages.length = 0;
   await expect(card.locator('.offer-group')).toHaveCount(3);
   await expect(card.locator('.offer-group[data-group="LANE"] > summary')).toHaveText('Passa em Lane/Run (16)');
   await expect(card.locator('.offer-group[data-group="OFFLANE"] > summary')).toHaveText('Buy Now / Make Offer / fora de Lane-Run (1)');

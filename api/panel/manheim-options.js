@@ -2,7 +2,7 @@
 
 // Opções de UMA demanda do lote ativo, página por página (BUSCAS abre a demanda ou "Ver mais").
 //  GET  ?key=journey:<id>:CARRO&cursor=<...>&limit=10   até 50 carros por página, cursor estável
-//  GET  ?key=...&group=LANE|OFFLANE|INCOMPLETE&cursor=<n>&sort=cr|year_desc|year_asc|mmr_desc|mmr_asc
+//  GET  ?key=...&group=LANE|OFFLANE|INCOMPLETE&cursor=<n>&sort=cr|year_desc|year_asc|miles_asc|miles_desc|mmr_desc|mmr_asc
 //       um grupo da demanda, 10 por vez, na ordem por CR (padrão), por ano ou por MMR
 //       &trims=<chave>,<chave>  só os trims marcados (só visualização; vazio = tudo). A primeira
 //       página traz os trims do grupo com a contagem (trims: [{ key, label, count, selected }])
@@ -91,13 +91,14 @@ function optionOut(match, key, demand, also, provenance = null) {
   };
 }
 
-// Ordering chosen by the operator: the server's CR order (default), or year / MMR, both ways. The database
-// sorts the whole group and returns one page per call (panel_manheim_offer_page_sorted), with no size limit;
-// ties keep the CR order and a car without year or MMR goes last.
-const SORTS = { cr: null, year_desc: ['year', -1], year_asc: ['year', 1], mmr_desc: ['mmr', -1], mmr_asc: ['mmr', 1] };
+// Ordering chosen by the operator: the server's CR order (default), or year / miles / MMR, both ways. The
+// database sorts the whole group and returns one page per call (panel_manheim_offer_page_sorted), with no size
+// limit; ties keep the CR order and a car without year, miles or MMR goes last.
+const SORTS = { cr: null, year_desc: ['year', -1], year_asc: ['year', 1], miles_asc: ['miles', 1], miles_desc: ['miles', -1], mmr_desc: ['mmr', -1], mmr_asc: ['mmr', 1] };
 // Same order in memory (kept for the tests that check the rule against the database).
 function sortValue(row, field) {
   const parsed = row.vehicle_json && row.vehicle_json.parsed || {};
+  if (field === 'miles') return /^\d{1,9}$/.test(String(parsed.miles ?? '')) ? Number(parsed.miles) : null;
   const value = field === 'year' ? Number(parsed.year) : Number(row.mmr_cents);
   return Number.isFinite(value) && value > 0 ? value : null;
 }

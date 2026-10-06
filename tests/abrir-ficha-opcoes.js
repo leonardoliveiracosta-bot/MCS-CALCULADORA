@@ -1,6 +1,7 @@
 'use strict';
 // ENVIAR OPÇÕES virou fila (#218): os grupos de carros, a seleção, o trim, a conferência e a V1 ficam
-// na ficha. Abre o cartão da fila (pelo nome e pelo modo) e devolve a seção do pedido na ficha.
+// na ficha. Abre o cartão da fila (pelo nome e pelo modo), entra na ficha por "Abrir ficha completa" e
+// devolve a seção do pedido na ficha.
 const { expect } = require('@playwright/test');
 
 // Minimal ficha for the specs with a simulated /api/**: the options part reads the queue data itself.
@@ -28,8 +29,12 @@ async function openOptionsFicha(page, { name = null, mode = null, realLead = fal
   if (mode) cards = cards.and(page.locator(`[data-mode~="${mode}"]`));
   if (name) cards = cards.filter({ hasText: name });
   await expect(cards.first()).toBeVisible({ timeout: 30000 });
-  // One row per person (#231): tapping the row opens the ficha.
+  // One row per person (#231): tapping a row with cars opens the client's options screen; the ficha opens from
+  // "Abrir ficha completa" (a row without cars opens the ficha directly).
   await cards.first().locator('.identity-name').click();
+  const screen = page.locator('#options-client');
+  await expect(screen.or(page.locator('#detail-panel .ficha-demand').first()).first()).toBeVisible({ timeout: 30000 });
+  if (await screen.isVisible()) await screen.getByRole('button', { name: 'Abrir ficha completa' }).click();
   await expect(page.locator('#detail-panel .ficha-demand').first()).toBeVisible({ timeout: 30000 });
   return fichaSection(page, mode);
 }
@@ -40,6 +45,9 @@ const fichaSection = (page, mode) => mode
 // Back to the queue (the ficha closes; the list behind stays as it was).
 async function backToQueue(page) {
   await page.goBack();
+  const screen = page.locator('#options-client');
+  await expect(screen.or(page.locator('#options-queue')).first()).toBeVisible({ timeout: 30000 });
+  if (await screen.isVisible()) await screen.getByRole('button', { name: '← Voltar' }).click();
   await expect(page.locator('#options-queue')).toBeVisible({ timeout: 30000 });
 }
 module.exports = { openOptionsFicha, fichaSection, backToQueue, fichaLead };
