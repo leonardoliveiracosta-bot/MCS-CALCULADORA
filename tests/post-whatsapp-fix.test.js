@@ -58,7 +58,8 @@ test('options queue cards show one compact identity block and never expand inlin
   const queue=panel.slice(start,end);
   assert.match(queue,/identity-name/);
   assert.match(queue,/phone-link/);
-  assert.match(queue,/'Ref ' \+ person\.ref/);
+  // Same line as the V1/V2 cards: "phone · Ref XXXXX".
+  assert.match(queue,/· Ref \$\{person\.ref/);
   assert.doesNotMatch(queue,/contactMeta\(/);
   assert.doesNotMatch(queue,/<details/);
   // The old inline cards are gone: the selection lives in the ficha.

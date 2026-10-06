@@ -241,3 +241,57 @@ test('summary: real V1s from the vitrines table, with today in Florida time',asy
     const g=(t)=>parts.find((x)=>x.type===t).value;return `${g('year')}-${g('month')}-${g('day')}`;});
   assert.equal(out.v1Today,created.filter((k)=>k===todayKey).length);
 });
+
+/* ---------- tirar da lista: todo cartão de V1 e V2, sem apagar nada, com Desfazer ---------- */
+const extra={v1w:'77777777-7777-4777-8777-77777777aaaa',carW:'a4444444-4444-4444-8444-444444444444',v2w:'88888888-8888-4888-8888-88888888aaaa',carV2w:'a5555555-5555-4555-8555-555555555555'};
+function seedWithWaiting(){
+  const db=seedDb();
+  db.store.vitrines.push({id:extra.v1w,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V1',created_at:agoMin(40),expires_at:future(),parent_vitrine_id:null},
+    {id:extra.v2w,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V2',created_at:agoMin(50),expires_at:future(),parent_vitrine_id:null});
+  db.store.vitrine_cars.push({id:'a6666666-6666-4666-8666-666666666666',vitrine_id:ids.v1c,environment:ENV,vehicle_snapshot:{year:2018,make:'Kia',model:'Soul'}},{id:extra.carW,vitrine_id:extra.v1w,environment:ENV,vehicle_snapshot:{year:2019,make:'Honda',model:'CR-V'}},{id:extra.carV2w,vitrine_id:extra.v2w,environment:ENV,vehicle_snapshot:{year:2020,make:'Toyota',model:'RAV4'}});
+  return db;
+}
+const listed=(out)=>({v1w:out.v1.waiting.map((i)=>i.vitrineId),v1e:out.v1.expired.map((i)=>i.vitrineId),v2w:out.v2.waiting.map((i)=>i.vitrineId),v2b:out.v2.bid.map((i)=>i.vitrineId)});
+
+test('tirar da lista: V1 aguardando, V1 expirada, V2 aguardando e V2 com lance saem; Desfazer volta; nada é apagado',async()=>{
+  const db=seedWithWaiting();
+  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
+  const requests=loadWith('api/panel/vitrine-requests.js',{...mocksFor(db),'../../panel-server':{...panelServer(db),patchRows:async(c,table,filter,patch)=>{db.store[table].filter((row)=>row.id===filter.id.slice(3)).forEach((row)=>Object.assign(row,patch));return [];}},'../../vitrine-domain':{deposit:()=>0,vehicleName:()=>''}});
+  let out=await funnel.payload(ctx,servicesFor(db));
+  assert.ok(listed(out).v1w.includes(extra.v1w));
+  assert.ok(listed(out).v1e.includes(ids.v1c));
+  assert.ok(listed(out).v2w.includes(extra.v2w));
+  assert.ok(listed(out).v2b.includes(ids.v2));
+  const done={};
+  for(const vitrineId of [extra.v1w,ids.v1c,extra.v2w,ids.v2]) done[vitrineId]=await requests.dismiss(ctx,{vitrineId},servicesFor(db));
+  out=await funnel.payload(ctx,servicesFor(db));
+  const after=listed(out);
+  for(const [list,vitrineId] of [['v1w',extra.v1w],['v1e',ids.v1c],['v2w',extra.v2w],['v2b',ids.v2]]) assert.ok(!after[list].includes(vitrineId),list);
+  // Só sai o cartão dispensado: a outra V2 aguardando continua.
+  assert.ok(after.v2w.includes(ids.v2b));
+  // Nada apagado: as linhas continuam, só marcadas; o tipo próprio nunca vira pedido aberto.
+  const rows=db.store.vitrine_requests.filter((row)=>row.request_kind==='DISMISS');
+  assert.equal(rows.length,4);
+  assert.ok(rows.every((row)=>row.treated_at));
+  // Dispensar de novo reaproveita a mesma linha.
+  assert.equal((await requests.dismiss(ctx,{vitrineId:extra.v1w},servicesFor(db))).requestId,done[extra.v1w].requestId);
+  assert.equal(db.store.vitrine_requests.filter((row)=>row.request_kind==='DISMISS').length,4);
+  // Desfazer: o cartão volta, a linha fica.
+  db.store.vitrine_requests.find((row)=>row.id===done[extra.v1w].requestId).treated_at=null;
+  out=await funnel.payload(ctx,servicesFor(db));
+  assert.deepEqual(listed(out).v1w,[extra.v1w]);
+  assert.equal(db.store.vitrine_requests.filter((row)=>row.request_kind==='DISMISS').length,4);
+});
+
+test('tirar da lista: lance novo depois de dispensar traz a V2 de volta; toque novo traz a V1',async()=>{
+  const db=seedWithWaiting();
+  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
+  const requests=loadWith('api/panel/vitrine-requests.js',{...mocksFor(db),'../../vitrine-domain':{deposit:()=>0,vehicleName:()=>''}});
+  await requests.dismiss(ctx,{vitrineId:extra.v2w},servicesFor(db));
+  await requests.dismiss(ctx,{vitrineId:extra.v1w},servicesFor(db));
+  db.store.vitrine_events.push({vitrine_id:extra.v2w,vitrine_car_id:extra.carV2w,event_type:'TAP',created_at:new Date(Date.now()+1000).toISOString(),environment:ENV},
+    {vitrine_id:extra.v1w,vitrine_car_id:extra.carW,event_type:'TAP',created_at:new Date(Date.now()+1000).toISOString(),environment:ENV});
+  const out=await funnel.payload(ctx,servicesFor(db));
+  assert.ok(out.v2.bid.some((item)=>item.vitrineId===extra.v2w));
+  assert.ok(out.v1.tapped.some((item)=>item.vitrineId===extra.v1w));
+});

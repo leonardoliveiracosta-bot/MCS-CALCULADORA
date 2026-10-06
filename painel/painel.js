@@ -2368,17 +2368,26 @@
     });
     return build;
   }
-  function treatedButton(item,card){
-    // "Pedido atendido": closes the customer's request without a V2; the card leaves the action zone.
-    const treated=element('button','quiet small','Pedido atendido');treated.type='button';
-    MCSAction.bind(treated,()=>({scope:card,successScope:document.body,feedbackKey:`vitrine-funnel:${item.requestId||item.vitrineCarId}`,
+  // "Pedido atendido" on every V1/V2 card: takes the card out of the list, never deletes anything,
+  // and has Desfazer. A tapped car marks its own request (as before; created on the spot when the tap
+  // has none yet); every other card gets the same mark on the vitrine (server: action "dismiss").
+  function treatedButton(item,card,view){
+    const treated=element('button','quiet small funnel-treated','Pedido atendido');treated.type='button';treated.dataset.action='funnel-treated';
+    let markId=null;
+    const tapped=Boolean(item.vitrineCarId);
+    const reload=()=>Promise.all([loadCurrent(view,viewRequestVersion),refreshCounters().catch(()=>{})]);
+    MCSAction.bind(treated,()=>({scope:card,successScope:document.body,feedbackKey:`vitrine-funnel:${item.vitrineId}:${item.vitrineCarId||''}`,
       optimistic:()=>{card.classList.add('action-optimistic-hidden');},
-      commit:()=>requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:item.requestId}),
+      commit:async()=>{
+        if(tapped){markId=await requestIdFor(item);return requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:markId});}
+        const out=await requestApi('/api/panel/vitrine-requests',{action:'dismiss',vitrineId:item.vitrineId});markId=out&&out.requestId||null;return out;
+      },
       rollback:()=>{card.classList.remove('action-optimistic-hidden');},
       successText:'Pedido marcado como atendido',
-      undo:{commit:()=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:item.requestId}),successText:'Voltou para a lista',refresh:()=>{loadCurrent('v1',viewRequestVersion);refreshCounters().catch(()=>{});}},
-      refresh:()=>Promise.all([loadCurrent('v1',viewRequestVersion),refreshCounters().catch(()=>{})]),
+      undo:{commit:()=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:markId}),successText:'Voltou para a lista',refresh:reload},
+      refresh:reload,
       errorText:'Não consegui marcar como atendido, tente de novo'}));
+    treated.addEventListener('click',(event)=>event.stopPropagation());
     return treated;
   }
   // VIN on its own line (two cars of the same year and model look the same without it), with "Copiar".
@@ -2399,35 +2408,40 @@
     card.querySelector('header').append(makeBadge('Tocou · falta a V2','yellow'));
     card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin),element('span','muted',`Tocou ${item.ago||''} · V1 enviada ${item.sentAgo||''}`));
     const actions=element('div','inline-actions');
-    actions.append(mountV2Button(item,card),openFichaButton(item));
-    if(item.requestId)actions.append(treatedButton(item,card));
+    actions.append(mountV2Button(item,card),openFichaButton(item),treatedButton(item,card,'v1'));
     card.append(actions);
     return card;
   }
   function v1WaitingCard(item){
     const card=funnelCard(item);
     carsWithVin(card,item);card.append(element('span','muted',`V1 enviada ${item.ago||''}`));
-    card.append(openFichaButton(item));
+    card.append(funnelActions(item,card,'v1'));
     return card;
   }
   function v2BidCard(item){
     const card=funnelCard(item);
     card.querySelector('header').append(makeBadge('Quer dar lance','red'));
     card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin),element('span','muted',`${item.bidAgo?'Tocou '+item.bidAgo+' · ':''}V2 enviada ${item.ago||''}`));
-    card.append(openFichaButton(item));
+    card.append(funnelActions(item,card,'v2'));
     return card;
   }
   function v2WaitingCard(item){
     const card=funnelCard(item);
     card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin),element('span','muted',`V2 enviada ${item.ago||''}`));
-    card.append(openFichaButton(item));
+    card.append(funnelActions(item,card,'v2'));
     return card;
   }
-  function expiredDetails(title,list){
+  // Abrir ficha and Pedido atendido, side by side (the same row as the tapped V1 card).
+  function funnelActions(item,card,view){
+    const actions=element('div','inline-actions');
+    actions.append(openFichaButton(item),treatedButton(item,card,view));
+    return actions;
+  }
+  function expiredDetails(title,list,view){
     if(!list.length)return null;
     const det=element('details','card');const summary=element('summary','');summary.append(element('strong','',`${title} (${list.length})`));det.append(summary);
     const stack=element('div','stack');
-    list.forEach((item)=>{const card=funnelCard(item);if(item.cars)carsWithVin(card,item);else card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin));card.append(element('span','muted',`Expirou ${item.expiredAgo||''}`),openFichaButton(item));stack.append(card);});
+    list.forEach((item)=>{const card=funnelCard(item);if(item.cars)carsWithVin(card,item);else card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin));card.append(element('span','muted',`Expirou ${item.expiredAgo||''}`),funnelActions(item,card,view));stack.append(card);});
     det.append(stack);return det;
   }
   function renderVitrineFunnel(data,view){
@@ -2444,7 +2458,7 @@
       const waitingZone=funnelZone('Aguardando o toque',v1.waiting,'Nenhuma V1 aguardando');
       v1.waiting.forEach((item)=>waitingZone.append(v1WaitingCard(item)));
       root.append(waitingZone);
-      const expired=expiredDetails('Expiradas',v1.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})));
+      const expired=expiredDetails('Expiradas',v1.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})),'v1');
       if(expired)root.append(expired);
       return;
     }
@@ -2455,7 +2469,7 @@
     const waitingZone=funnelZone('Aguardando o lance',v2.waiting,'Nenhuma V2 aguardando');
     v2.waiting.forEach((item)=>waitingZone.append(v2WaitingCard(item)));
     root.append(waitingZone);
-    const expired=expiredDetails('Expiradas',v2.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})));
+    const expired=expiredDetails('Expiradas',v2.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})),'v2');
     if(expired)root.append(expired);
   }
 
@@ -3781,25 +3795,22 @@
   function renderQueueRow(root, row) {
     const person = row.person;
     const waiting = !row.sent && row.states.some((state) => state.kind === 'cars');
-    const card = element('article', 'item-card options-queue-card options-queue-row');
+    // The same card as V1/V2 (funnelCard): name with its badges on top, then "phone · Ref", then the content.
+    const card = element('article', 'item-card vitrine-request-card options-queue-card options-queue-row');
     if (!waiting) card.classList.add('options-queue-nocar');
     // Every request key and mode of the person (read by openOptionsCard and the tests).
     card.dataset.demandKey = row.demands.map((demand) => demand.key).filter(Boolean).join(' ');
     card.dataset.mode = [...new Set(row.demands.map((demand) => demand.mode).filter(Boolean))].join(' ');
-    const head = element('div', 'item-head');
-    const identity = element('div', 'identity');
-    identity.append(element('span', 'avatar', initials(person.name)));
-    const text = element('div');
-    text.append(element('strong', 'identity-name', person.name));
-    if (person.phoneRaw) { const link = element('a', 'identity-ref-phone phone-link', '📞 ' + person.phoneDisplay); link.href = 'tel:' + String(person.phoneRaw).replace(/[^+\d]/g, ''); link.addEventListener('click', (event) => event.stopPropagation()); text.append(link); }
-    if (person.ref) text.append(makeBadge('Ref ' + person.ref, 'blue'));
-    identity.append(text);
-    head.append(identity);
-    const meta = element('div', 'badges');
+    const head = element('header', '');
+    head.append(element('strong', 'identity-name', person.name));
     const arrival = floridaArrival(person.arrivedAt);
-    if (arrival) meta.append(makeBadge(arrival));
-    meta.append(makeBadge(WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, person.purchaseWindow === 'NOW' ? 'red' : person.purchaseWindow === '30D' ? 'yellow' : person.purchaseWindow === '3M' ? 'blue' : ''));
-    card.append(head, meta);
+    if (arrival) head.append(makeBadge(arrival));
+    head.append(makeBadge(WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, person.purchaseWindow === 'NOW' ? 'red' : person.purchaseWindow === '30D' ? 'yellow' : person.purchaseWindow === '3M' ? 'blue' : ''));
+    const contactLine = element('span', 'muted');
+    if (person.phoneRaw) { const link = element('a', 'identity-ref-phone phone-link', person.phoneDisplay); link.href = 'tel:' + String(person.phoneRaw).replace(/[^+\d]/g, ''); link.addEventListener('click', (event) => event.stopPropagation()); contactLine.append(link); }
+    else contactLine.append(document.createTextNode('Sem telefone'));
+    contactLine.append(document.createTextNode(` · Ref ${person.ref || '—'}`));
+    card.append(head, contactLine);
     card.append(element('p', 'options-queue-reason', rowSummary(row)));
     // One line per request: the mode, what the client asked and that request's state.
     row.states.forEach((state) => {
