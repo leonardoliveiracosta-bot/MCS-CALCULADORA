@@ -2,8 +2,8 @@
 
 // Assistente do painel: uma conversa onde a Leo escreve do jeito dela e o assistente responde,
 // encontra, explica e propõe. Ele lê o painel livremente (funções de leitura que rodam aqui, com os
-// dados completos que a pergunta precisa). Qualquer ação volta só como PROPOSTA: nada é executado
-// neste servidor; a ação roda no navegador, pelo mesmo caminho do botão normal, depois do toque da
+// dados completos que a pergunta precisa; a IA pede cada leitura no mesmo formato JSON que o resto do
+// painel já usa com a OpenAI). Qualquer ação volta só como PROPOSTA: nada é executado neste servidor; a ação roda no navegador, pelo mesmo caminho do botão normal, depois do toque da
 // Leo em "Autorizar". "Não funcionou" aplica regras fixas, registra o chamado (panel_incidents) e
 // pede a explicação à IA. Se a OpenAI falhar, o painel segue e o chamado é registrado mesmo assim.
 //   POST { action: 'chat', message, history, context }    -> { reply, proposal, unavailable? }
@@ -28,19 +28,24 @@ const SYSTEM = [
   'Busca POR CARRO: carro + anos + milhas. POR VALOR: carro + lance máximo. Carro com leilão passado sai sozinho das opções e da seleção.',
   'Use as funções para ler o painel antes de responder; nunca invente dado. Se não achar, diga que não achou.',
   'Para fazer algo (abrir ficha, abrir aba, recarregar, selecionar ou remover carro, gerar V1), chame propor_acao: a Leo vê a proposta e autoriza com um toque. Uma ação por vez. Você nunca fala com cliente.',
-  'Quando algo não funcionou, use o contexto (últimos cliques e respostas do servidor). Na dúvida, é defeito do painel: diga em uma linha que é defeito e que virou chamado para o Claude.'
+  'Quando algo não funcionou, use o contexto (últimos cliques e respostas do servidor). Na dúvida, é defeito do painel: diga em uma linha que é defeito e que virou chamado para o Claude.',
+  'FORMATO: responda sempre só o JSON pedido. tipo "ler" para consultar o painel (funcao + argumentos); o resultado volta na mensagem seguinte. tipo "propor" para uma ação (acao + argumentos; texto = frase curta para a Leo). tipo "responder" para a resposta final em texto.',
+  'Funções de leitura: buscar_cliente (termo: nome, Ref de 5 letras ou telefone; devolve journey_id, nome, Ref, telefones, status); ficha (journey_id: dados, telefones, critérios, calculadora, últimas mensagens); opcoes (journey_id: carros do lote ativo com match_id, VIN, MMR, Lane/Run ou Buy Now, leilão e se está selecionado); vitrines (journey_id: V1/V2 criadas, carros, expirada, toques); lote (estado do lote ativo); chamados (chamados abertos).',
+  'Ações: abrir_ficha (journey_id), abrir_aba (aba: today|v1|v2|requests|searches|imports|settings), recarregar, selecionar_carro (match_id), remover_carro (match_id), gerar_v1 (journey_id + match_ids dos carros já selecionados).'
 ].join(' ');
 
-const TOOLS = [
-  { name: 'buscar_cliente', description: 'Procura clientes por nome, Ref (5 letras) ou telefone. Devolve journey_id, nome, Ref, telefone, status e etapa.', parameters: { type: 'object', properties: { termo: { type: 'string' } }, required: ['termo'], additionalProperties: false } },
-  { name: 'ficha', description: 'Tudo da ficha de um cliente: dados, telefones, pedidos e critérios, dados da calculadora e as últimas mensagens de WhatsApp/SMS.', parameters: { type: 'object', properties: { journey_id: { type: 'string' } }, required: ['journey_id'], additionalProperties: false } },
-  { name: 'opcoes', description: 'Carros do lote ativo que combinam com o pedido do cliente (POR CARRO e POR VALOR), com match_id, VIN, MMR, Lane/Run ou Buy Now, data do leilão e se está selecionado.', parameters: { type: 'object', properties: { journey_id: { type: 'string' } }, required: ['journey_id'], additionalProperties: false } },
-  { name: 'vitrines', description: 'V1 e V2 já criadas para o cliente: quando, carros, se expirou e toques do cliente.', parameters: { type: 'object', properties: { journey_id: { type: 'string' } }, required: ['journey_id'], additionalProperties: false } },
-  { name: 'lote', description: 'Estado do lote ativo do Manheim: quando subiu, quantos carros, quantos com combinação.', parameters: { type: 'object', properties: {}, additionalProperties: false } },
-  { name: 'chamados', description: 'Chamados abertos do painel ("Não funcionou").', parameters: { type: 'object', properties: {}, additionalProperties: false } },
-  { name: 'propor_acao', description: 'Propõe uma ação para a Leo autorizar. acao: abrir_ficha (journey_id), abrir_aba (aba: today|v1|v2|requests|searches|imports|settings), recarregar, selecionar_carro (match_id), remover_carro (match_id), gerar_v1 (journey_id + match_ids dos carros já selecionados). resposta: uma frase curta para a Leo.',
-    parameters: { type: 'object', properties: { acao: { type: 'string', enum: ['abrir_ficha', 'abrir_aba', 'recarregar', 'selecionar_carro', 'remover_carro', 'gerar_v1'] }, journey_id: { type: 'string' }, match_id: { type: 'string' }, match_ids: { type: 'array', items: { type: 'string' } }, aba: { type: 'string' }, resposta: { type: 'string' } }, required: ['acao'], additionalProperties: false } }
-].map((fn) => ({ type: 'function', function: fn }));
+// One step of the conversation, in the json_schema format every other panel feature already uses
+// (strict: every field present, null when unused). No native OpenAI tools.
+const STEP_SCHEMA = { name: 'assistente_passo', strict: true, schema: { type: 'object', additionalProperties: false,
+  required: ['tipo', 'texto', 'funcao', 'acao', 'journey_id', 'match_id', 'match_ids', 'aba', 'termo'],
+  properties: {
+    tipo: { type: 'string', enum: ['responder', 'ler', 'propor'] },
+    texto: { type: 'string' },
+    funcao: { type: ['string', 'null'], enum: ['buscar_cliente', 'ficha', 'opcoes', 'vitrines', 'lote', 'chamados', null] },
+    acao: { type: ['string', 'null'], enum: ['abrir_ficha', 'abrir_aba', 'recarregar', 'selecionar_carro', 'remover_carro', 'gerar_v1', null] },
+    journey_id: { type: ['string', 'null'] }, match_id: { type: ['string', 'null'] },
+    match_ids: { type: ['array', 'null'], items: { type: 'string' } }, aba: { type: ['string', 'null'] }, termo: { type: ['string', 'null'] }
+  } } };
 
 const svc = (services = {}) => ({ rows: services.rows || rows, allRows: services.allRows || allRows, rpc: services.rpc || ((ctx, name, args) => rpc(ctx, name, args)), insert: services.insert || insert, ...services });
 const env = (ctx) => 'eq.' + ctx.environment;
@@ -183,7 +188,11 @@ async function callOpenAi(ctx, s, guard, body) {
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), TIMEOUT_MS); if (timer.unref) timer.unref();
     try {
       const response = await (s.fetchImpl || fetch)('https://api.openai.com/v1/chat/completions', { method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + process.env.OPENAI_API_KEY }, body: JSON.stringify(capped) });
-      if (!response.ok) throw await budget.openAiFailure(response);
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        const failure = await (budget.openAiFailure || openAiBudget.openAiFailure)({ status: response.status, text: async () => detail });
+        throw Object.assign(failure, { status: response.status, detail: String(detail).slice(0, 500) });
+      }
       const payload = await response.json();
       const usage = { input: Number(payload?.usage?.prompt_tokens) || 0, output: Number(payload?.usage?.completion_tokens) || 0 };
       return { payload, costUsd: Math.ceil((usage.input * PRICE.input + usage.output * PRICE.output)) / 1e6 };
@@ -211,38 +220,36 @@ async function chat(ctx, body, services = {}) {
   let cost = 0;
   try {
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
-      const out = await callOpenAi(ctx, s, guard, { model: MODEL, messages, tools: TOOLS });
+      const out = await callOpenAi(ctx, s, guard, { model: MODEL, messages, response_format: { type: 'json_schema', json_schema: STEP_SCHEMA } });
       cost += Number(out.costUsd) || 0;
-      const reply = out.payload?.choices?.[0]?.message || {};
-      const calls = Array.isArray(reply.tool_calls) ? reply.tool_calls : [];
-      if (!calls.length) {
-        const text = safeText(reply.content, 4000) || 'Não consegui responder agora';
-        await event(ctx, s, 'PERGUNTA', { payload: { message, reply: text }, cost_usd: cost });
-        return { reply: text, proposal: null };
+      const content = out.payload?.choices?.[0]?.message?.content || '';
+      let stepOut = null;
+      try { stepOut = JSON.parse(content); } catch (_) { stepOut = null; }
+      if (!stepOut || typeof stepOut !== 'object') stepOut = { tipo: 'responder', texto: content };
+      messages.push({ role: 'assistant', content: String(content || JSON.stringify(stepOut)) });
+      if (stepOut.tipo === 'ler') {
+        const reader = READERS[stepOut.funcao];
+        const result = reader ? await reader(ctx, s, stepOut).catch(() => ({ erro: 'leitura falhou' })) : { erro: 'função desconhecida' };
+        messages.push({ role: 'user', content: 'RESULTADO de ' + stepOut.funcao + ': ' + JSON.stringify(result).slice(0, MAX_TOOL_CHARS) });
+        continue;
       }
-      messages.push({ role: 'assistant', content: reply.content || null, tool_calls: calls });
-      for (const callItem of calls) {
-        let args = {};
-        try { args = JSON.parse(callItem.function?.arguments || '{}'); } catch (_) { args = {}; }
-        const name = callItem.function?.name;
-        if (name === 'propor_acao') {
-          const proposal = await buildProposal(ctx, s, args).catch(() => null);
-          if (proposal) {
-            await event(ctx, s, 'PERGUNTA', { payload: { message }, cost_usd: cost });
-            await event(ctx, s, 'PROPOSTA', { action: proposal.acao, payload: proposal });
-            return { reply: proposal.resposta || safeText(reply.content, 2000) || proposal.linha, proposal };
-          }
-          messages.push({ role: 'tool', tool_call_id: callItem.id, content: JSON.stringify({ erro: 'ação não reconhecida ou dados não encontrados; não proponha de novo sem ler o painel' }) });
-          continue;
+      if (stepOut.tipo === 'propor') {
+        const proposal = await buildProposal(ctx, s, { ...stepOut, resposta: stepOut.texto }).catch(() => null);
+        if (proposal) {
+          await event(ctx, s, 'PERGUNTA', { payload: { message }, cost_usd: cost });
+          await event(ctx, s, 'PROPOSTA', { action: proposal.acao, payload: proposal });
+          return { reply: proposal.resposta || proposal.linha, proposal };
         }
-        const reader = READERS[name];
-        const result = reader ? await reader(ctx, s, args).catch(() => ({ erro: 'leitura falhou' })) : { erro: 'função desconhecida' };
-        messages.push({ role: 'tool', tool_call_id: callItem.id, content: JSON.stringify(result).slice(0, MAX_TOOL_CHARS) });
+        messages.push({ role: 'user', content: 'RESULTADO: ação não reconhecida ou dados não encontrados; leia o painel antes de propor de novo, ou responda.' });
+        continue;
       }
+      const text = safeText(stepOut.texto, 4000) || 'Não consegui responder agora';
+      await event(ctx, s, 'PERGUNTA', { payload: { message, reply: text }, cost_usd: cost });
+      return { reply: text, proposal: null };
     }
     return { reply: 'Não consegui concluir agora · tente perguntar de outro jeito', proposal: null };
   } catch (failure) {
-    await event(ctx, s, 'ERRO', { payload: { message, code: failure && failure.code || 'OPENAI_FAILED' }, cost_usd: cost || null });
+    await event(ctx, s, 'ERRO', { payload: { message, code: failure && failure.code || 'OPENAI_FAILED', status: failure && failure.status || null, detail: failure && failure.detail || null }, cost_usd: cost || null });
     return { reply: 'Assistente indisponível agora', proposal: null, unavailable: true };
   }
 }
@@ -326,4 +333,3 @@ module.exports.rulesDiagnosis = rulesDiagnosis;
 module.exports.severityOf = severityOf;
 module.exports.buildProposal = buildProposal;
 module.exports.recordEvent = recordEvent;
-module.exports.TOOLS = TOOLS;

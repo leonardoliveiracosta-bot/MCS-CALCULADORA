@@ -22,3 +22,7 @@
   .mcs-assistant-fab { bottom: 84px; right: 12px; }
   .mcs-assistant { top: auto; left: 0; right: 0; width: 100vw; height: 82vh; border-left: 0; border-top: 1px solid #2c4969; border-radius: 14px 14px 0 0; }
 }
+/* Botões discretos legíveis no fundo escuro do assistente. */
+.mcs-assistant button.quiet { color: #e8f4ff; background: transparent; border: 1px solid #5a7c9c; }
+.mcs-assistant button.quiet:hover { background: #15293d; }
+.mcs-assistant .assistant-report { justify-self: start; font-weight: 600; }

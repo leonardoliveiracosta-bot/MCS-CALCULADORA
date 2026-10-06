@@ -127,6 +127,10 @@ test('iPhone: abre de baixo para cima; "Não funcionou" em um toque leva o últi
   const box = await panel.boundingBox();
   expect(Math.round(box.width)).toBe(390);
   expect(Math.round(box.y + box.height)).toBe(844);
+  // Legível no fundo escuro: texto claro nos botões discretos (Fechar e Não funcionou).
+  const lightness = (locator) => locator.evaluate((node) => { const [r, g, b] = getComputedStyle(node).color.match(/\d+/g).map(Number); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; });
+  expect(await lightness(panel.getByRole('button', { name: 'Não funcionou' }))).toBeGreaterThan(0.7);
+  expect(await lightness(panel.getByRole('button', { name: 'Fechar' }))).toBeGreaterThan(0.7);
   await panel.getByRole('button', { name: 'Não funcionou' }).click();
   await expect(panel.locator('.assistant-msg.assistant').last()).toContainText('Chamado registrado (P1)');
   const report = calls.assistant.find((c) => c.action === 'report');

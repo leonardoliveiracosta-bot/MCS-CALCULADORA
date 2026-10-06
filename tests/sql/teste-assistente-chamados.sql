@@ -1,5 +1,6 @@
--- Assistente do painel (migração 20261028010000): chamados agrupados por fingerprint, CORRIGIDO
--- reabre quando o defeito volta, e o histórico de eventos do assistente.
+-- Assistente do painel (migrações 20261028010000 e 20261029010000): chamados agrupados por
+-- fingerprint, CORRIGIDO reabre quando o defeito volta, histórico de eventos e a reserva de gasto da
+-- OpenAI aceitando a função ASSISTENTE.
 begin;
 insert into public.panel_users(id,environment,auth_user_id,email,role,active,must_change_password)
 values('6f200000-0000-4000-8000-000000000001','preview','6f200000-0000-4000-8000-000000000002','assist@example.com','admin',true,false)
@@ -39,5 +40,15 @@ begin
     insert into public.panel_assistant_events(environment,event_type) values('preview','QUALQUER');
     raise exception 'FALHA: tipo de evento inválido aceito';
   exception when check_violation then null; end;
+end $$;
+-- a reserva de gasto da OpenAI aceita a função ASSISTENTE (migração 20261029010000)
+do $$
+declare answer jsonb;
+begin
+  begin
+    answer:=public.panel_openai_budget_hold('preview','ASSISTENTE','chat:teste','gpt-6-luna',0.001);
+  exception when check_violation then raise exception 'FALHA: reserva recusou a função ASSISTENTE';
+  end;
+  if (answer->>'held')::boolean is not true then raise exception 'FALHA: reserva não foi feita %',answer; end if;
 end $$;
 rollback;
