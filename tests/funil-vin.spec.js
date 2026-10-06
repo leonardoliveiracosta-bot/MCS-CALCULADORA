@@ -13,7 +13,7 @@ const id = (n) => `7d000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ago = (hours) => new Date(Date.now() - hours * 3600000).toISOString();
 const tapped = (n, vin) => ({ vitrineId: id(1), vitrineCarId: id(10 + n), requestId: id(20 + n), name: '_damian', phone: '+19143730498', referenceCode: '2STJQ', journeyId: id(2), refState: 'COM_REF', car: '2025 Jeep Grand Cherokee Summit', vin, sentAt: ago(14), tapAt: ago(13), ago: 'há 13 h', sentAgo: 'há 14 h', budgetCents: 6000000 });
 const FUNNEL = {
-  v1: { tapped: [tapped(1, '1C4RJHEG2S8768446'), tapped(2, '1C4RJHEG6S8768742')], waiting: [{ vitrineId: id(3), name: 'Param Virani', phone: '+12018562425', referenceCode: 'EXDPY', journeyId: id(4), cars: ['2026 Volvo XC90', '2025 Volvo XC90'], vins: ['YV4H60PF0T1487031', null], sentAt: ago(14), ago: 'há 14 h' }], expired: [] },
+  v1: { tapped: [tapped(1, '1C4RJHEG2S8768446'), tapped(2, '1C4RJHEG6S8768742')], waiting: [{ vitrineId: id(3), name: 'Param Virani', phone: '+12018562425', referenceCode: 'EXDPY', journeyId: id(4), cars: ['2026 Volvo XC90', '2025 Volvo XC90'], vins: ['YV4H60PF0T1487031', null], vitrineCars: [{ vitrineCarId: id(30), car: '2026 Volvo XC90', vin: 'YV4H60PF0T1487031', tapAt: null }, { vitrineCarId: id(31), car: '2025 Volvo XC90', vin: null, tapAt: null }], sentAt: ago(14), ago: 'há 14 h' }], expired: [] },
   v2: { bid: [], waiting: [], expired: [] },
   counts: { v1Action: 2, v2Action: 0 }
 };
@@ -68,6 +68,11 @@ test('aba V1: cada carro mostra o seu VIN e o botão Copiar copia o VIN certo', 
   await expect(page.locator('#v1-list .v1-sent-card')).toHaveCount(1);
   await expect(page.locator('#v1-list .v1-sent-card')).toContainText('não tocou');
   await expect(page.locator('#detail-panel')).toBeHidden();
+  // A tela da V1 do cliente também monta a V2 pelo VIN.
+  const sent = page.locator('#v1-list .v1-sent-card');
+  await sent.getByRole('button', { name: 'Montar V2' }).click();
+  await sent.locator('.v2-picker input').fill('YV4H60PF0T1487031');
+  await expect(sent.locator('.v2-builder:not(.v2-picker) h4')).toHaveText('2026 Volvo XC90');
   await page.getByRole('button', { name: '← Voltar' }).click();
   await expect(cards).toHaveCount(2);
   // A ficha só abre pelo botão "Abrir ficha".
