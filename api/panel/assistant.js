@@ -13,6 +13,9 @@
 //   GET  ?incidents=1                                      -> { incidents }
 const { allRows, isUuid, jsonBody, requirePanel, rows, rpc, insert, patchRows, safeText, send } = require('../../panel-server');
 const openAiBudget = require('../../panel-openai-budget');
+const vehicleMatch = () => require('../../vehicle-match');
+const manheimOffer = () => require('../../manheim-offer');
+const v1sent = () => require('../../panel-v1-sent');
 
 const MODEL = 'gpt-6-luna';
 const PRICE = { input: 0.10, output: 0.50 };
@@ -27,11 +30,11 @@ const SYSTEM = [
   'Abas: ATENDER AGORA (quem responder agora), V1 e V2 (vitrines enviadas: V1 é o link simples com "Show me this car", V2 é o detalhado com "I want to bid"), BUSCAR CARROS, ENVIAR OPÇÕES (fila de quem tem carros do lote para receber V1), IMPORTAÇÕES (CSV do Manheim) e Configurações.',
   'Busca POR CARRO: carro + anos + milhas. POR VALOR: carro + lance máximo. Carro com leilão passado sai sozinho das opções e da seleção.',
   'Use as funções para ler o painel antes de responder; nunca invente dado. Se não achar, diga que não achou.',
-  'Para fazer algo (abrir ficha, abrir aba, recarregar, selecionar ou remover carro, gerar V1), chame propor_acao: a Leo vê a proposta e autoriza com um toque. Uma ação por vez. Você nunca fala com cliente.',
+  'Para fazer algo (abrir ficha, abrir aba, recarregar, selecionar ou remover carro, gerar V1, comparar de novo, registrar chamado), chame propor_acao: a Leo vê a proposta e autoriza com um toque. Uma ação por vez. Você nunca fala com cliente.',
   'Quando algo não funcionou, use o contexto (últimos cliques e respostas do servidor). Na dúvida, é defeito do painel: diga em uma linha que é defeito e que virou chamado para o Claude.',
   'FORMATO: responda sempre só o JSON pedido. tipo "ler" para consultar o painel (funcao + argumentos); o resultado volta na mensagem seguinte. tipo "propor" para uma ação (acao + argumentos; texto = frase curta para a Leo). tipo "responder" para a resposta final em texto.',
-  'Funções de leitura: buscar_cliente (termo: nome, Ref de 5 letras ou telefone; devolve journey_id, nome, Ref, telefones, status); ficha (journey_id: dados, telefones, critérios, calculadora, últimas mensagens); opcoes (journey_id: carros do lote ativo com match_id, VIN, MMR, Lane/Run ou Buy Now, leilão e se está selecionado); vitrines (journey_id: V1/V2 criadas, carros, expirada, toques); lote (estado do lote ativo); chamados (chamados abertos).',
-  'Ações: abrir_ficha (journey_id), abrir_aba (aba: today|v1|v2|requests|searches|imports|settings), recarregar, selecionar_carro (match_id), remover_carro (match_id), gerar_v1 (journey_id + match_ids dos carros já selecionados).'
+  'Funções de leitura: buscar_cliente (termo: nome, Ref de 5 letras ou telefone; devolve journey_id, nome, Ref, telefones, status); ficha (journey_id: dados, telefones, critérios, calculadora, últimas mensagens); opcoes (journey_id: carros do lote ativo com match_id, VIN, MMR, Lane/Run ou Buy Now, leilão e se está selecionado); vitrines (journey_id: V1/V2 criadas, carros, expirada, toques); lote (estado do lote ativo); chamados (chamados abertos); diagnosticar_opcoes (journey_id + termo opcional: por que cada carro do lote não aparece para a pessoa, agrupado por motivo); diagnosticar_falha (aplica as regras do "Não funcionou" no contexto atual, só explica); eventos (tipo opcional: PERGUNTA, PROPOSTA, AUTORIZADA, RECUSADA, CHAMADO, ERRO; lê o histórico do assistente); conferir_harmonia (journey_id opcional: divergências entre abas, só leitura).',
+  'Ações: abrir_ficha (journey_id), abrir_aba (aba: today|v1|v2|requests|searches|imports|settings), recarregar, selecionar_carro (match_id), remover_carro (match_id), gerar_v1 (journey_id + match_ids dos carros já selecionados), retomar_busca (journey_id: compara de novo a pessoa com o lote), registrar_chamado (termo: resumo do defeito; registra o chamado).'
 ].join(' ');
 
 // One step of the conversation, in the json_schema format every other panel feature already uses
@@ -41,8 +44,8 @@ const STEP_SCHEMA = { name: 'assistente_passo', strict: true, schema: { type: 'o
   properties: {
     tipo: { type: 'string', enum: ['responder', 'ler', 'propor'] },
     texto: { type: 'string' },
-    funcao: { type: ['string', 'null'], enum: ['buscar_cliente', 'ficha', 'opcoes', 'vitrines', 'lote', 'chamados', null] },
-    acao: { type: ['string', 'null'], enum: ['abrir_ficha', 'abrir_aba', 'recarregar', 'selecionar_carro', 'remover_carro', 'gerar_v1', null] },
+    funcao: { type: ['string', 'null'], enum: ['buscar_cliente', 'ficha', 'opcoes', 'vitrines', 'lote', 'chamados', 'diagnosticar_opcoes', 'diagnosticar_falha', 'eventos', 'conferir_harmonia', null] },
+    acao: { type: ['string', 'null'], enum: ['abrir_ficha', 'abrir_aba', 'recarregar', 'selecionar_carro', 'remover_carro', 'gerar_v1', 'retomar_busca', 'registrar_chamado', null] },
     journey_id: { type: ['string', 'null'] }, match_id: { type: ['string', 'null'] },
     match_ids: { type: ['array', 'null'], items: { type: 'string' } }, aba: { type: ['string', 'null'] }, termo: { type: ['string', 'null'] }
   } } };
@@ -67,6 +70,40 @@ async function journeyWithContact(ctx, s, journeyId) {
   return { journey, contact: contact || null };
 }
 const phonesOf = async (ctx, s, contactIds) => contactIds.length ? s.allRows(ctx, 'contact_phones', { select: 'contact_id,phone_e164,phone_raw,is_current,retired_at', environment: env(ctx), contact_id: 'in.(' + contactIds.join(',') + ')' }) : [];
+
+// Primeiro portão que barra o carro, na ordem do painel. Devolve o motivo curto ou null se passa.
+function diagnoseExclusion(parsed, demands, acceptAny, vm, offer) {
+  const vehicle = parsed || {};
+  if (offer.carExpired(vehicle)) return 'leilão passado';
+  if (!vm.hasValidMmr(vehicle)) return 'sem MMR para comparar';
+  if (!vm.qualityEligible(vehicle, { acceptAnyTitleCondition: acceptAny })) {
+    if (!vm.saleEligible(vehicle)) return 'sem Lane/Run (não está à venda)';
+    const grade = vm.conditionGrade(vehicle);
+    if (grade !== null && grade < 1.9) return 'CR abaixo de 1.9';
+    return 'título bloqueia (salvage/rebuilt)';
+  }
+  const matchC = vm.matchDemand(vehicle, demands.CARRO);
+  const matchV = vm.matchDemand(vehicle, demands.VALOR);
+  if (matchC || matchV) return null;
+  return diagnoseCriteria(vehicle, demands.CARRO.wishes, vm);
+}
+function diagnoseCriteria(vehicle, wishes, vm) {
+  for (const wish of wishes || []) {
+    if (!vm.sameVehicle(vehicle, wish)) continue;
+    const year = vm.positive(vehicle.year);
+    const yearMin = vm.positive(wish.yearMin);
+    const yearMax = vm.positive(wish.yearMax);
+    if (year && yearMin && year < yearMin) return `ano ${year} abaixo do pedido (${yearMin}-${yearMax || '?'})`;
+    if (year && yearMax && year > yearMax) return `ano ${year} acima do pedido (${yearMin || '?'}-${yearMax})`;
+    const miles = vm.integer(vehicle.miles);
+    const minMiles = vm.integer(wish.minMiles);
+    const maxMiles = vm.integer(wish.maxMiles);
+    if (miles !== null && minMiles !== null && miles < minMiles) return `milhas ${miles} abaixo do pedido (mín ${minMiles})`;
+    if (miles !== null && maxMiles !== null && miles > maxMiles) return `milhas ${miles} acima do pedido (máx ${maxMiles})`;
+    return 'bate no modelo mas não nos critérios (ver ficha)';
+  }
+  return 'modelo não combina com o pedido';
+}
 
 const READERS = {
   async buscar_cliente(ctx, s, args) {
@@ -147,6 +184,133 @@ const READERS = {
   async chamados(ctx, s) {
     const list = await s.allRows(ctx, 'panel_incidents', { select: 'id,fingerprint,severity,status,count,last_seen_at,diagnosis', environment: env(ctx), status: 'in.(ABERTO,EM_CORRECAO)', order: 'last_seen_at.desc', limit: '30' }).catch(() => []);
     return { chamados: list };
+  },
+  async diagnosticar_opcoes(ctx, s, args) {
+    const journeyId = args.journey_id;
+    if (!isUuid(journeyId)) return { erro: 'journey_id inválido' };
+    const found = await journeyWithContact(ctx, s, journeyId);
+    if (!found) return { erro: 'ficha não encontrada' };
+    const upload = await latestUpload(ctx, s);
+    if (!upload) return { erro: 'sem lote ativo' };
+    const criteria = found.journey.criteria_json || {};
+    const wishlists = Array.isArray(criteria.wishlists) ? criteria.wishlists : [];
+    if (!wishlists.length) return { erro: 'sem critérios na ficha' };
+    const vm = vehicleMatch();
+    const offer = manheimOffer();
+    const bidCents = found.journey.budget_cents || null;
+    const acceptAny = criteria.acceptAnyTitleCondition === true;
+    const demands = { CARRO: { mode: 'CARRO', wishes: wishlists, bidCents }, VALOR: { mode: 'VALOR', wishes: wishlists, bidCents } };
+    const demandKeys = [`journey:${journeyId}:CARRO`, `journey:${journeyId}:VALOR`];
+    const syncs = await s.allRows(ctx, 'manheim_demand_syncs', { select: 'demand_key,synced_at', environment: env(ctx), upload_id: 'eq.' + upload.id, demand_key: 'in.(' + demandKeys.join(',') + ')' }).catch(() => []);
+    const syncByKey = new Map(syncs.map((r) => [r.demand_key, r.synced_at]));
+    const journeyUpdated = found.journey.updated_at || null;
+    const sincronia = demandKeys.map((key) => {
+      const syncedAt = syncByKey.get(key);
+      const modo = key.endsWith(':CARRO') ? 'CARRO' : 'VALOR';
+      if (!syncedAt) return { modo, estado: 'ainda não comparado · use "Comparar de novo"' };
+      const changed = journeyUpdated && Date.parse(journeyUpdated) > Date.parse(syncedAt);
+      return { modo, estado: 'comparado em ' + syncedAt + (changed ? ' · ficha alterada depois, compare de novo' : '') };
+    });
+    const termo = String(args.termo || '').trim().toLowerCase();
+    const matches = await s.allRows(ctx, 'manheim_matches', { select: 'id,mmr_cents,vehicle_json', environment: env(ctx), upload_id: 'eq.' + upload.id, undone_at: 'is.null', order: 'created_at.desc', limit: '500' }).catch(() => []);
+    let cars = matches.map((m) => {
+      const parsed = (m.vehicle_json && m.vehicle_json.parsed) || {};
+      return { parsed: { ...parsed, mmrCents: parsed.mmrCents ?? m.mmr_cents ?? null } };
+    });
+    if (termo) {
+      cars = cars.filter((c) => {
+        const p = c.parsed;
+        return [p.year, p.make, p.model, p.trim, p.vin].filter(Boolean).join(' ').toLowerCase().includes(termo);
+      });
+    }
+    const limited = cars.slice(0, 60);
+    const byReason = new Map();
+    for (const car of limited) {
+      const reason = diagnoseExclusion(car.parsed, demands, acceptAny, vm, offer);
+      if (!reason) continue;
+      if (!byReason.has(reason)) byReason.set(reason, { total: 0, exemplos: [] });
+      const entry = byReason.get(reason);
+      entry.total += 1;
+      if (entry.exemplos.length < 3) entry.exemplos.push({ carro: carName(car.parsed), vin: car.parsed.vin || null });
+    }
+    return {
+      pessoa: { nome: found.contact?.display_name || null, ref: found.journey.reference_code || null },
+      lote: upload.id, sincronia, carros_analisados: limited.length,
+      ...(termo && !limited.length ? { aviso: 'nenhum carro do lote bate com o termo' } : {}),
+      por_motivo: [...byReason.entries()].map(([motivo, v]) => ({ motivo, total: v.total, exemplos: v.exemplos }))
+    };
+  },
+  async diagnosticar_falha(ctx, s, args, context) {
+    const LERDO_MS = 8000;
+    const rules = rulesDiagnosis(context);
+    if (rules.categoria === 'TECNICO' || String(rules.categoria).startsWith('RECUSADO')) {
+      return { categoria: rules.categoria, texto: rules.texto, clique: rules.click ? { acao: rules.click.action, rotulo: rules.click.label || null } : null };
+    }
+    const actions = (context && context.actions) || [];
+    const slow = actions.filter((a) => a.kind === 'request' && Number(a.ms) > LERDO_MS).slice(-5);
+    if (slow.length) {
+      return { categoria: 'LERDO', texto: 'Resposta lenta do servidor (mais de 8 segundos)', requests_lentos: slow.map((r) => ({ path: r.path || null, method: r.method || null, ms: r.ms, status: r.status || r.code || null })), clique: rules.click ? { acao: rules.click.action, rotulo: rules.click.label || null } : null };
+    }
+    return { categoria: rules.categoria, texto: rules.texto, clique: rules.click ? { acao: rules.click.action, rotulo: rules.click.label || null } : null };
+  },
+  async eventos(ctx, s, args) {
+    const tipo = String(args.termo || '').trim().toUpperCase();
+    const valid = ['PERGUNTA', 'PROPOSTA', 'AUTORIZADA', 'RECUSADA', 'CHAMADO', 'ERRO'];
+    const list = await s.allRows(ctx, 'panel_assistant_events', { select: 'event_type,action,created_at,payload', environment: env(ctx), ...(valid.includes(tipo) ? { event_type: 'eq.' + tipo } : {}), order: 'created_at.desc', limit: '30' }).catch(() => []);
+    return { eventos: list.map((e) => ({ tipo: e.event_type, acao: e.action || null, quando: e.created_at, detalhe: e.payload || null })) };
+  },
+  async conferir_harmonia(ctx, s, args) {
+    const journeyId = args.journey_id;
+    const upload = await latestUpload(ctx, s);
+    if (!upload) return { erro: 'sem lote ativo' };
+    const offer = manheimOffer();
+    const divergencias = [];
+    if (journeyId && isUuid(journeyId)) {
+      const keys = [`journey:${journeyId}:CARRO`, `journey:${journeyId}:VALOR`];
+      const [selections, optionsLists] = await Promise.all([
+        s.allRows(ctx, 'manheim_option_selections', { select: 'match_id,demand_key', environment: env(ctx), upload_id: 'eq.' + upload.id, status: 'eq.SELECTED', demand_key: 'in.(' + keys.join(',') + ')' }).catch(() => []),
+        Promise.all(keys.map((key) => s.rpc(ctx, 'panel_manheim_demand_options', { p_environment: ctx.environment, p_upload_id: upload.id, p_demand_key: key, p_after_rank: null, p_after_miles: null, p_after_id: null, p_limit: 50 }).catch(() => [])))
+      ]);
+      const optionIds = new Set(optionsLists.flat().map((m) => String(m.id)));
+      for (const sel of selections) {
+        if (optionIds.has(String(sel.match_id))) continue;
+        const [m] = await s.rows(ctx, 'manheim_matches', { select: 'vehicle_json', environment: env(ctx), id: 'eq.' + sel.match_id, limit: '1' }).catch(() => []);
+        const parsed = (m && m.vehicle_json && m.vehicle_json.parsed) || {};
+        divergencias.push({ tipo: 'selecao_sem_opcao', carro: carName(parsed), vin: parsed.vin || null, motivo: offer.carExpired(parsed) ? 'leilão passado' : 'não é mais opção válida' });
+        if (divergencias.length >= 20) break;
+      }
+      const found = await journeyWithContact(ctx, s, journeyId);
+      if (found) {
+        const vitrines = await s.allRows(ctx, 'vitrines', { select: 'id,token,version,created_at,expires_at', environment: env(ctx), journey_id: 'eq.' + journeyId, order: 'created_at.desc', limit: '10' }).catch(() => []);
+        if (vitrines.length) {
+          const idsIn = 'in.(' + vitrines.map((v) => v.id).join(',') + ')';
+          const [cars, links] = await Promise.all([
+            s.allRows(ctx, 'vitrine_cars', { select: 'vitrine_id,vehicle_snapshot', environment: env(ctx), vitrine_id: idsIn }).catch(() => []),
+            s.allRows(ctx, 'message_journeys', { select: 'message_id', environment: env(ctx), journey_id: 'eq.' + journeyId, undone_at: 'is.null' }).catch(() => [])
+          ]);
+          const messageIds = [...new Set(links.map((l) => l.message_id).filter(Boolean))].slice(-200);
+          const messages = messageIds.length ? await s.allRows(ctx, 'messages', { select: 'id,direction,body_text,occurred_at_utc', environment: env(ctx), id: 'in.(' + messageIds.join(',') + ')' }).catch(() => []) : [];
+          const sent = v1sent().sentByLink({ messages, vitrines, cars });
+          const sentIds = new Set(sent.map((x) => x.vitrineId));
+          const now = Date.now();
+          for (const v of vitrines) {
+            if (Date.parse(v.expires_at || 0) <= now) divergencias.push({ tipo: 'vitrine_expirada', versao: v.version, criada: v.created_at });
+            else if (!sentIds.has(v.id)) divergencias.push({ tipo: 'vitrine_nao_enviada', versao: v.version, criada: v.created_at });
+            if (divergencias.length >= 20) break;
+          }
+        }
+        const syncs = await s.allRows(ctx, 'manheim_demand_syncs', { select: 'demand_key', environment: env(ctx), upload_id: 'eq.' + upload.id, demand_key: 'in.(' + keys.join(',') + ')' }).catch(() => []);
+        const synced = new Set(syncs.map((r) => r.demand_key));
+        for (const key of keys) {
+          if (!synced.has(key)) divergencias.push({ tipo: 'criterio_nao_comparado', modo: key.endsWith(':CARRO') ? 'CARRO' : 'VALOR' });
+        }
+      }
+    } else {
+      const { staleDemandKeys } = require('../../panel-rematch');
+      const stale = await staleDemandKeys(ctx).catch(() => null);
+      return { resumo: true, lote: upload.id, demandas_nao_comparadas: stale ? stale.keys.length : null, detalhe: 'informe a pessoa (journey_id) para as divergências dela' };
+    }
+    return { divergencias: divergencias.slice(0, 20) };
   }
 };
 
@@ -177,6 +341,21 @@ async function buildProposal(ctx, s, args) {
     const demandKey = matches[0].demand_key && /^journey:[0-9a-f-]{36}:(VALOR|CARRO)$/.test(matches[0].demand_key) ? matches[0].demand_key : null;
     const cars = matches.map((m) => `${carName(m.vehicle_json?.parsed || {})} (VIN final ${vinTail(m.vehicle_json?.parsed?.vin)})`);
     return answer({ linha: `Gerar V1 · ${who(found)} · ${cars.length} carro(s): ${cars.join(', ')}`, grava: true, params: { journeyId: found.journey.id, matchIds, ...(demandKey ? { demandKey } : {}) } });
+  }
+  if (args.acao === 'retomar_busca') {
+    const found = await journeyWithContact(ctx, s, args.journey_id);
+    if (!found) return null;
+    const upload = await latestUpload(ctx, s);
+    if (!upload) return null;
+    const keys = [`journey:${found.journey.id}:CARRO`, `journey:${found.journey.id}:VALOR`];
+    const existing = await s.allRows(ctx, 'manheim_matches', { select: 'demand_key', environment: env(ctx), upload_id: 'eq.' + upload.id, demand_key: 'in.(' + keys.join(',') + ')', limit: '2' }).catch(() => []);
+    const demandKeys = [...new Set(existing.map((r) => r.demand_key))];
+    if (!demandKeys.length) return null;
+    return answer({ linha: `Comparar de novo · ${who(found)}`, grava: true, params: { journeyId: found.journey.id, demandKeys } });
+  }
+  if (args.acao === 'registrar_chamado') {
+    const note = safeText(args.termo || args.texto, 300) || 'defeito diagnosticado no chat';
+    return answer({ linha: `Registrar chamado · ${note.slice(0, 80)}`, grava: true, params: { note } });
   }
   return null;
 }
@@ -229,7 +408,7 @@ async function chat(ctx, body, services = {}) {
       messages.push({ role: 'assistant', content: String(content || JSON.stringify(stepOut)) });
       if (stepOut.tipo === 'ler') {
         const reader = READERS[stepOut.funcao];
-        const result = reader ? await reader(ctx, s, stepOut).catch(() => ({ erro: 'leitura falhou' })) : { erro: 'função desconhecida' };
+        const result = reader ? await reader(ctx, s, stepOut, context).catch(() => ({ erro: 'leitura falhou' })) : { erro: 'função desconhecida' };
         messages.push({ role: 'user', content: 'RESULTADO de ' + stepOut.funcao + ': ' + JSON.stringify(result).slice(0, MAX_TOOL_CHARS) });
         continue;
       }
@@ -333,3 +512,4 @@ module.exports.rulesDiagnosis = rulesDiagnosis;
 module.exports.severityOf = severityOf;
 module.exports.buildProposal = buildProposal;
 module.exports.recordEvent = recordEvent;
+module.exports.READERS = READERS;
