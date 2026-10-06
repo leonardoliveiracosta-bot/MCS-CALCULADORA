@@ -234,9 +234,9 @@ test('critério alterado depois da importação: "Conferir novamente" e nova com
   assert.equal(after.stale, false);
   assert.ok(after.matchCount < before.matchCount, `${before.matchCount} → ${after.matchCount}`);
   assert.deepEqual(view.demands.filter((demand) => demand.key !== key).map((demand) => [demand.key, demand.matchCount]), otherBefore, 'as outras demandas não mudam');
-  // Every option left is inside the new criterion.
+  // Every option left is inside the new criterion, widened a little (years ±1, miles ×0,85 / ×1,15).
   const { rows } = await backend.db.query(`select vehicle_json from public.manheim_matches where upload_id=$1 and demand_key=$2 and undone_at is null`, [uploadId, key]);
-  assert.ok(rows.every(({ vehicle_json: { parsed } }) => parsed.year >= 2016 && parsed.year <= 2017 && parsed.miles >= 10000 && parsed.miles <= 40000));
+  assert.ok(rows.every(({ vehicle_json: { parsed } }) => parsed.year >= 2015 && parsed.year <= 2018 && parsed.miles >= 8500 && parsed.miles <= 46000));
 });
 
 test('consultas dirigidas usam os índices novos (EXPLAIN com o lote de ~60 mil carros)', async () => {

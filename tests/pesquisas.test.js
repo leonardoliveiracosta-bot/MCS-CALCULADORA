@@ -143,7 +143,8 @@ test('4 · pedido sem Ref com modelo, ano e milhagem vira CARRO (valor não filt
   assert.deepEqual(ready(nina), ['PRONTO', 'CARRO', 'COM_OPCOES', 1], 'só o Camry 2020 com 30,000 milhas');
   // Calculator text without Ref and a conversation with a value too: still CARRO, the value is
   // recorded but never filters the MMR (the CR-V without MMR never counts).
-  assert.deepEqual(ready(itemOf(data, 'Duda')[0]), ['PRONTO', 'CARRO', 'COM_OPCOES', 1]);
+  // Duda (2018-2021): the Camry 2020 and the Camry 2022 (one year out, widened search), one list.
+  assert.deepEqual(ready(itemOf(data, 'Duda')[0]), ['PRONTO', 'CARRO', 'COM_OPCOES', 2]);
   assert.deepEqual(ready(itemOf(data, 'Lucas')[0]), ['PRONTO', 'CARRO', 'COM_OPCOES', 1]);
   assert.deepEqual(ready(itemOf(data, 'Caio')[0]), ['PRONTO', 'CARRO', 'SEM_OPCAO', 0], 'o F-150 do lote cancelado não conta');
 });
@@ -155,7 +156,8 @@ test('5 · pedido sem Ref com modelo e orçamento vira VALOR (candidatos, valor 
   assert.deepEqual(ready(rui), ['PRONTO', 'VALOR', 'SEM_OPCAO', 0]);
   assert.equal(rui.optionCount, 0, 'orçamento é aplicado pela faixa de MMR');
   // Camry 2022 with MMR US$ 25,000 above the US$ 20,000: the value is not an MMR ceiling.
-  assert.deepEqual(ready(itemOf(data, 'Hugo')[0]), ['PRONTO', 'CARRO', 'COM_OPCOES', 1]);
+  // 2021 or newer, widened by one year: the Camry 2020 joins the same list.
+  assert.deepEqual(ready(itemOf(data, 'Hugo')[0]), ['PRONTO', 'CARRO', 'COM_OPCOES', 2]);
 });
 
 test('6 · nenhum pedido por ano e milhagem fica parado por falta de valor', async () => {

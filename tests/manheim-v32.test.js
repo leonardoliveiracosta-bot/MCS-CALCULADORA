@@ -22,7 +22,9 @@ test('v3.2 FIND year-only and model/mileage; no MMR floor and no guessed mileage
  assert.ok(match.matchDemand(car({miles:null}),find()));
  assert.ok(match.matchDemand(car({year:1990}),{mode:'CARRO',wishes:[{model:'Camry',maxMiles:50000}]}));
  assert.equal(match.matchDemand(car({year:new Date().getUTCFullYear()+2}),find()),null);
- assert.equal(match.matchDemand(car({miles:99}),find({minMiles:100})),null);
+ // 99 < 100 but >= floor(100×0,85): inside the widened search; below it: out.
+ assert.equal(match.matchDemand(car({miles:99}),find({minMiles:100})).kind,'BATE');
+ assert.equal(match.matchDemand(car({miles:84}),find({minMiles:100})),null);
 });
 test('v3.2 VALOR exact bands, floor, four mileage caps and tighter client cap',()=>{
  for(const [usd,min,max] of [[3000,2100,3450],[60000,42000,69000],[60001,45000.75,66001.1]]){
@@ -87,7 +89,7 @@ test('v3.3 FIND with budget keeps cheaper cars and only warns above the ceiling'
  assert.match(fees.notice,/valor informado inclui frete\/taxas/);
  assert.doesNotMatch(fees.notice,/acima do valor informado/);
  for(const mmrCents of [null,0,-1,'N/A'])assert.equal(match.matchLot([car({mmrCents})],demand).length,0);
- assert.equal(match.RULE_VERSION,'manheim-v3.3');
+ assert.equal(match.RULE_VERSION,'manheim-v3.4');
 });
 
 test('v3.3 FIND ceiling edges, VALOR lower bounds and batch-wide fallback stay independent',()=>{

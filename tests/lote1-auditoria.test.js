@@ -70,8 +70,9 @@ test('R3a: CARRO usa só os critérios informados, sem tolerância; MMR obrigat�
   const full = { yearMin: 2019, yearMax: 2021, minMiles: 1000, maxMiles: 50000 };
   assert.equal(carro(car({ year: 2020, miles: 40000 }), full).kind, 'BATE');
   assert.equal(carro(car({ year: 2015, miles: 40000 }), full), null);
-  assert.equal(carro(car({ year: 2022, miles: 40000 }), full), null, 'um ano acima não é tolerado');
-  assert.equal(carro(car({ year: 2020, miles: 51000 }), full), null, '2% acima da milhagem não é tolerado');
+  assert.equal(carro(car({ year: 2022, miles: 40000 }), full).kind, 'BATE', 'um ano acima entra na mesma lista');
+  assert.equal(carro(car({ year: 2020, miles: 51000 }), full).kind, 'BATE', '2% acima da milhagem entra na mesma lista');
+  assert.equal(carro(car({ year: 2023, miles: 40000 }), full), null, 'dois anos acima não entra');
   // MMR is mandatory in CARRO; its amount never decides.
   for (const mmrCents of [null, undefined, '', 0, -100, 'N/A', 'desconhecido', 'abc']) assert.equal(carro(car({ year: 2020, miles: 40000, mmrCents }), full), null, String(mmrCents));
   assert.equal(carro(car({ year: 2020, miles: 40000, mmrCents: 99000000 }), full).kind, 'BATE', 'MMR não inclui nem exclui em CARRO');

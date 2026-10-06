@@ -214,7 +214,8 @@ async function compareOne(ctx, uploadId, item, cache, services) {
   const wishes = targets.flatMap((target) => target.wishes || []);
   const keys = wishes.some((wish) => !wish.make) ? [''] : [...new Set(wishes.flatMap(makeKeysOf))];
   const grouping = require('./manheim-offer');
-  const cars = (await Promise.all(keys.map((key) => vehiclesForMake(ctx, uploadId, key, cache, services)))).flat().filter(car => grouping.saleActive(car.vehicle_json));
+  // Eligible now: an auction already started or ended is not an option (same rule as ENVIAR OPÇÕES).
+  const cars = (await Promise.all(keys.map((key) => vehiclesForMake(ctx, uploadId, key, cache, services)))).flat().filter(car => !grouping.offerExpired(car.vehicle_json || {}));
   const selected = new Map();
   for (const target of targets) for (const match of require('./vehicle-match').matchLot(cars.map((car) => car.vehicle_json), target)) selected.set(cars[match.index].row_fingerprint, match.result);
   const grouped = grouping.groupVehicles(cars.filter(car => selected.has(car.row_fingerprint)));

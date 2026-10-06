@@ -8,7 +8,7 @@
   'use strict';
 
   // Shared permanent rules for all request and option paths (v3.2).
-  const RULE_VERSION = 'manheim-v3.3';
+  const RULE_VERSION = 'manheim-v3.4';
   const VALUE_THRESHOLD_CENTS = 6000000;
   const MODES = Object.freeze(['VALOR', 'CARRO']);
   const NOTICE = {
@@ -130,16 +130,32 @@
     if (vehicle.cleanTitle === false) return false;
     return !/salvage|rebuilt|\btmu\b|lemon|not actual|junk|parts only/i.test([vehicle.title, vehicle.titleStatus, vehicle.titleBrand, vehicle.odometerStatus].filter(Boolean).join(' '));
   }
-  function characteristicsFit(vehicle, wish, mode, bidCents) {
-    if (!sameVehicle(vehicle, wish)) return false;
+  // Limits of a CARRO request. The search is a little wider than asked, so the person also sees
+  // cars close to the request: years one each side, miles floor(min×0.85) and ceil(max×1.15). Only
+  // a limit the person set is widened; none is created. strict: the limits exactly as asked.
+  function carroLimits(wish, strict = false) {
+    const yearMin = positive(wish.yearMin), yearMax = positive(wish.yearMax), minMiles = integer(wish.minMiles), maxMiles = integer(wish.maxMiles);
+    if (strict) return { yearMin, yearMax, minMiles, maxMiles };
+    return { yearMin: yearMin ? yearMin - 1 : null, yearMax: yearMax ? yearMax + 1 : null,
+      minMiles: minMiles === null ? null : Math.floor(minMiles * 85 / 100), maxMiles: maxMiles === null ? null : Math.ceil(maxMiles * 115 / 100) };
+  }
+  function rangesFit(vehicle, wish, mode, bidCents, strict = false) {
     const year = positive(vehicle.year), miles = integer(vehicle.miles);
+    const limits = mode === 'CARRO' ? carroLimits(wish, strict) : { minMiles: integer(wish.minMiles) };
     if (mode === 'CARRO') {
-      if (!year || year < (positive(wish.yearMin) || 1) || year > (positive(wish.yearMax) || new Date().getUTCFullYear() + 1)) return false;
+      if (!year || year < (limits.yearMin || 1) || year > (limits.yearMax || new Date().getUTCFullYear() + 1)) return false;
     }
-    const min = integer(wish.minMiles);
-    const max = mode === 'VALOR' ? Math.min(mileageCap(bidCents), integer(wish.maxMiles) ?? Infinity) : integer(wish.maxMiles);
+    const min = limits.minMiles;
+    const max = mode === 'VALOR' ? Math.min(mileageCap(bidCents), integer(wish.maxMiles) ?? Infinity) : limits.maxMiles;
     if ((min !== null || max !== null) && (miles === null || miles < 0)) return false;
     return (min === null || miles >= min) && (max === null || miles <= max);
+  }
+  function characteristicsFit(vehicle, wish, mode, bidCents) {
+    return sameVehicle(vehicle, wish) && rangesFit(vehicle, wish, mode, bidCents);
+  }
+  // Inside the limits exactly as asked (only orders the list: the closest cars come first).
+  function withinAsked(vehicle, wish) {
+    return rangesFit(vehicle, wish, 'CARRO', null, true);
   }
   function wishBudgetCents(wish, bidCents) { return wish.budgetExplicit ? (positive(wish.budgetUsd) || 0) * 100 : positive(wish.budgetUsd) ? positive(wish.budgetUsd) * 100 : positive(bidCents); }
   function valorWishIssue(wish, bidCents) {
@@ -156,8 +172,10 @@
     };
   }
 
+  // Fixed order: sale active, MMR, permanent exclusions with the title/CR exception, then the
+  // request's criteria. "Aceita qualquer título/condição" frees only title and CR.
   function matchCarroWish(vehicle, wish, index = 0, demand = {}) {
-    if (carroWishIssue(wish) || !hasValidMmr(vehicle) || !qualityEligible(vehicle, { ...demand, ...wish }) || !characteristicsFit(vehicle, wish, 'CARRO')) return null;
+    if (carroWishIssue(wish) || !saleEligible(vehicle) || !hasValidMmr(vehicle) || !qualityEligible(vehicle, { ...demand, ...wish }) || !characteristicsFit(vehicle, wish, 'CARRO')) return null;
     const budget = wishBudgetCents(wish,demand.bidCents);
     const outside = budget && !withinClientBudget(vehicle.mmrCents, budget);
     if (outside && !demand.allowBudgetFallback) return null;
@@ -221,5 +239,5 @@
     return code === 'MMR acima do teto' ? 'MMR acima do lance' : code === 'MMR dentro do teto' ? 'MMR dentro do lance' : code || '';
   }
 
-  return { withinClientBudget, wishBudgetCents, RULE_VERSION, mileageCap, conditionGrade, buyNowCents, saleEligible, qualityEligible, characteristicsFit, matchLot, ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, validMmrCents, hasValidMmr, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
+  return { carroLimits, withinAsked, withinClientBudget, wishBudgetCents, RULE_VERSION, mileageCap, conditionGrade, buyNowCents, saleEligible, qualityEligible, characteristicsFit, matchLot, ISSUE_TEXT, MODES, NOTICE, VALUE_THRESHOLD_CENTS, validMmrCents, hasValidMmr, carroWishIssue, countsAsServed, fold, integer, kindLabel, matchCarroWish, matchDemand, matchValorWish, mmrStatusLabel, modeLabel, normalizedMode, positive, sameVehicle, searchableModel, valorWishIssue, valueBand };
 }));

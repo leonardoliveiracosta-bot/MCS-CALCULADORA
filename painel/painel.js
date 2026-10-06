@@ -3000,10 +3000,13 @@
     note.append(authorize);
   }
   const MANHEIM_PAGE_ROWS = 10;
+  // Every option this request had in the batch already expired (never "sem carro no lote").
+  const EXPIRED_TEXT = 'As opções encontradas neste lote já expiraram';
   // Counts of a demand, answered by the server (no car is loaded for this).
   const demandCountsBadge = (demand) => {
     // Plain words, zeros hidden: "2 opções no lote · 2 pelo valor".
     const total = Number(demand.matchCount) || 0;
+    if (!total && demand.expired) { const gone = makeBadge(EXPIRED_TEXT, 'yellow'); gone.classList.add('demand-options-count'); return gone; }
     const parts = [`${total} ${total === 1 ? 'opção' : 'opções'} no lote`];
     if (demand.bateCount) parts.push(`${demand.bateCount} ${demand.bateCount === 1 ? 'bate' : 'batem'} com o pedido`);
     if (demand.porValorCount) parts.push(`${demand.porValorCount} pelo valor`);
@@ -3691,9 +3694,10 @@
       if (!person.ref && owner.ref) person.ref = owner.ref;
       person.refAt = owner.ref ? refBorn(item) : null;
       const states = ownDemands.map((demand) => {
-        if (demand.matchCount > 0) return { demand, kind: 'cars', count: Number(demand.matchCount) || 0 };
         if (!data.upload) return { demand, kind: 'nobatch' };
         if (demand.stale || demand.compared === false) return { demand, kind: 'pending' };
+        if (demand.matchCount > 0) return { demand, kind: 'cars', count: Number(demand.matchCount) || 0 };
+        if (demand.expired) return { demand, kind: 'expired' };
         return { demand, kind: 'none' };
       });
       const issues = ownReview.flatMap((entry) => (entry.issues || []).map((issue) => issue.wish ? `${issue.wish}: ${issue.text}` : issue.text)).filter(Boolean);
@@ -3764,6 +3768,7 @@
     if (cars) parts.push(plural(cars, 'carro aguardando', 'carros aguardando'));
     const none = row.states.filter((state) => state.kind === 'none').length;
     if (none) parts.push(plural(none, 'sem resultado no lote atual', 'sem resultado no lote atual'));
+    if (row.states.some((state) => state.kind === 'expired')) parts.push(EXPIRED_TEXT.charAt(0).toLowerCase() + EXPIRED_TEXT.slice(1));
     const pending = row.states.filter((state) => state.kind === 'pending').length;
     if (pending) parts.push(plural(pending, 'não comparado com o lote atual', 'não comparados com o lote atual'));
     if (row.states.some((state) => state.kind === 'nobatch')) parts.push('nenhuma importação ativa');
@@ -3772,7 +3777,7 @@
     const text = parts.join(' · ');
     return text.charAt(0).toUpperCase() + text.slice(1);
   }
-  const STATE_TEXT = { cars: (state) => plural(state.count, 'carro aguardando', 'carros aguardando'), none: () => 'sem resultado no lote atual', pending: () => 'não comparado com o lote atual', nobatch: () => 'nenhuma importação ativa' };
+  const STATE_TEXT = { cars: (state) => plural(state.count, 'carro aguardando', 'carros aguardando'), expired: () => EXPIRED_TEXT, none: () => 'sem resultado no lote atual', pending: () => 'não comparado com o lote atual', nobatch: () => 'nenhuma importação ativa' };
   function renderQueueRow(root, row) {
     const person = row.person;
     const waiting = !row.sent && row.states.some((state) => state.kind === 'cars');
@@ -4156,12 +4161,13 @@
     card.append(head);
     const fields = MCSSearchGroups.fields(first); if (fields) card.append(fields);
     // "Sem carros" always says why; "não rodada" says what is missing.
-    if (first.state === 'SEM_OPCAO') { const reason = element('p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = first.key; card.append(reason); }
+    if (first.state === 'SEM_OPCAO' && first.expired) card.append(element('p', 'search-empty-reason search-expired', EXPIRED_TEXT));
+    else if (first.state === 'SEM_OPCAO') { const reason = element('p', 'search-empty-reason', 'Motivo: lendo o lote…'); reason.dataset.requestKey = first.key; card.append(reason); }
     if (MCSSearchGroups.groupOf(first.state) === 'NAO_RODADA') card.append(element('p', 'muted search-not-run', MCSSearchGroups.notRunText(first)));
     if (members.length > 1) card.append(element('p', 'muted', `${members.length} pedidos com critérios exatamente iguais`));
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', 'request-lacks', 'Falta: o lance oficial do cliente · Abra a ficha e confirme o valor · Sem isso estes carros não viram opção válida nem vão para o envio'));
     if (first.state === 'COM_CANDIDATOS') card.append(element('p', '', `${first.optionCount} ${first.optionCount === 1 ? 'candidato' : 'candidatos'} no lote ativo por modelo, ano e milhagem. O valor do cliente ainda não foi conferido pelo cálculo oficial: não é opção confirmada`));
-    if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', 'Sem opção no lote ativo · Continua aqui para a próxima importação'));
+    if (first.state === 'SEM_OPCAO') card.append(element('p', 'muted', (first.expired ? 'Nenhuma opção válida agora' : 'Sem opção no lote ativo') + ' · Continua aqui para a próxima importação'));
     if (first.missing && first.missing.length) card.append(element('p', 'muted', 'Não informado (sem restrição): ' + first.missing.join(', ')));
     if (first.typeNotChecked) card.append(element('p', 'muted', 'O tipo de carroceria não vem no arquivo do Manheim: as opções não filtram por tipo'));
     if (first.state === 'PRECISA_DETALHE') card.append(element('p', 'request-lacks', first.lacksText || ''),

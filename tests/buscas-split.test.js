@@ -72,7 +72,7 @@ function summaryOf(tables, uploadId) {
 }
 async function buscasView(tables) {
   const server = { ...realServer, allRows: async (_ctx, table) => tables[table] || [], rows: async (_ctx, table, params = {}) => (tables[table] || []).filter((row) => params.undone_at !== 'is.null' || !row.undone_at),
-    panelMeta: async () => ({}), rpc: async (_ctx, name, args) => name === 'panel_manheim_batch_summary' ? summaryOf(tables, args.p_upload_id) : [] };
+    panelMeta: async () => ({}), rpc: async (_ctx, name, args) => (name === 'panel_manheim_batch_summary' || name === 'panel_manheim_batch_summary_v2') ? summaryOf(tables, args.p_upload_id) : [] };
   const view = loadWith('panel-buscas-view.js', {
     './panel-server': server,
     './panel-ready': { score: () => ({}), loadScoreIndex: async () => [] },
@@ -239,11 +239,13 @@ test('12 · ano fora não entra, 13 · milhagem fora não entra, 14 · milhas_de
   // The minimum mileage is a real limit (a 10.000 mile car is below 50.000).
   assert.equal(match(car({ year: 2022, miles: 10000 })), null);
   for (const miles of [null, undefined, '', 'TMU']) assert.equal(match(car({ miles })), null);
-  // Limits are inclusive; no tolerance of one year or 10% of mileage.
+  // Limits are inclusive; the search is a little wider than asked (one year, floor(min×0,85), ceil(max×1,15)), in the same list.
   assert.equal(match(car({ year: 2020, miles: 50000 })).kind, 'BATE');
   assert.equal(match(car({ year: 2025, miles: 90000 })).kind, 'BATE');
-  assert.equal(match(car({ year: 2026, miles: 90000 })), null);
-  assert.equal(match(car({ year: 2025, miles: 90001 })), null);
+  assert.equal(match(car({ year: 2026, miles: 90000 })).kind, 'BATE');
+  assert.equal(match(car({ year: 2025, miles: 90001 })).kind, 'BATE');
+  assert.equal(match(car({ year: 2027, miles: 90000 })), null);
+  assert.equal(match(car({ year: 2025, miles: 103501 })), null);
   // A historical CARRO with an inverted or incomplete range is never searched and goes to review.
   const inverted = domain.orderDemand(domain.consolidateCalcRuns([carroRow('EDDD5', { milhas_de: 90000, milhas_ate: 50000 })])[0]);
   assert.deepEqual([inverted.active, inverted.issues[0].code], [false, 'MILES_INVERTED']);

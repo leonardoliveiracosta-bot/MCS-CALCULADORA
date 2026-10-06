@@ -5,6 +5,17 @@ const requests = require('./vehicle-requests');
 const { finalizeDemand, normalizeWishlist } = require('./panel-domain');
 const { fichaOf } = require('./panel-search-to-ficha');
 const catalog = require('./vehicle-catalog');
+// The active criterion of each request is its latest version (max created_at, then id); the older
+// versions stay only as history. Never depends on the order the rows were read in.
+function latestVersions(versions) {
+  const latest = new Map();
+  (versions || []).forEach((version) => {
+    const old = latest.get(version.request_id);
+    const newer = !old || String(version.created_at || '') > String(old.created_at || '') || (String(version.created_at || '') === String(old.created_at || '') && String(version.id || '') > String(old.id || ''));
+    if (newer) latest.set(version.request_id, version);
+  });
+  return latest;
+}
 async function attach(ctx, base, read) {
   const env = 'eq.' + ctx.environment;
   const [stored, versions, marks] = await Promise.all([
@@ -12,7 +23,7 @@ async function attach(ctx, base, read) {
     read(ctx, 'vehicle_request_versions', { select: 'id,request_id,criteria_json,evidence_json,needs_review,review_reason,created_at', environment: env, order: 'created_at.asc,id.asc' }),
     read(ctx, 'journey_declarations', { select: 'journey_id,value_json', environment: env, field: 'eq.VEICULO', order: 'created_at.asc' })
   ]);
-  const latest = new Map(versions.map((v) => [v.request_id, v]));
+  const latest = latestVersions(versions);
   const carried = new Map(marks.filter((m) => m.value_json?.origin === 'PESQUISAS').map((m) => [m.value_json.requestKey, m]));
   for (const r of stored) {
     const v = latest.get(r.id); if (!v) continue;
@@ -53,11 +64,11 @@ async function forJourney(ctx, journey, demands, read) {
   const env = 'eq.' + ctx.environment;
   const [stored, versions, ownLinks] = await Promise.all([
     read(ctx, 'vehicle_requests', { select: 'id,journey_id', environment: env }),
-    read(ctx, 'vehicle_request_versions', { select: 'id,request_id,evidence_json', environment: env, order: 'created_at.asc,id.asc' }),
+    read(ctx, 'vehicle_request_versions', { select: 'id,request_id,evidence_json,created_at', environment: env, order: 'created_at.asc,id.asc' }),
     read(ctx, 'message_journeys', { select: 'message_id', environment: env, journey_id: 'eq.' + journey.id, undone_at: 'is.null' })
   ]);
   const own = new Set(ownLinks.map((link) => link.message_id));
-  const latest = new Map(versions.map((v) => [v.request_id, v]));
+  const latest = latestVersions(versions);
   const evidenceOf = (request) => Object.values((latest.get(request.id) || {}).evidence_json || {}).flat().map(String);
   const candidates = stored.filter((request) => request.journey_id === journey.id || (!request.journey_id && evidenceOf(request).some((id) => own.has(id))));
   if (!candidates.length) return demands;
@@ -70,4 +81,4 @@ async function forJourney(ctx, journey, demands, read) {
     : table === 'vehicle_request_versions' ? read(c, table, { ...query, request_id: 'in.(' + [...ids].join(',') + ')' }) : read(c, table, { ...query, journey_id: 'eq.' + journey.id }));
   return base.demands.byJourney.get(journey.id) || demands;
 }
-module.exports = { attach, forJourney };
+module.exports = { attach, forJourney, latestVersions };
