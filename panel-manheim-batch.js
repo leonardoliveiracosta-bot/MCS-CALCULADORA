@@ -86,13 +86,7 @@ function sanitizeVehicle(source) {
   return { fingerprint, makeKey: makeKey(parsed.make), mmrCents, vehicle: parsed };
 }
 
-// One list per demand, the closest cars first: a CARRO car inside the limits as asked (0) before one
-// only inside the widened limits (1). CARRO and VALOR never share a demand.
-const closenessOf = (vehicle, target, result) => {
-  const wish = (target.wishes || [])[result.matchedWishlistIndex];
-  return target.mode === 'CARRO' && wish && !vehicleMatch.withinAsked(vehicle, wish) ? 1 : 0;
-};
-const sortRank = (kind, closeness = 0) => kind === 'BATE' ? (closeness ? 1 : 0) : kind === 'POR_VALOR' ? 1 : 2;
+const sortRank = (kind) => kind === 'BATE' ? 0 : kind === 'POR_VALOR' ? 1 : 2;
 const sortMiles = (miles) => { const value = integer(miles); return value === null || value < 0 ? MAX_MILES_SORT : Math.min(value, MAX_MILES_SORT); };
 
 // Índice das demandas pela marca de cada desejo. Carro sem marca é comparado com todas.
@@ -122,7 +116,7 @@ function matchRow(entry, target, result) {
   return {
     targetType: target.targetType, journeyId: target.targetType === 'ORDER' ? null : target.journeyId, calcRef: target.targetType === 'ORDER' ? target.ref : null,
     mode: target.mode, kind: result.kind, reason: result.reason || result.notice || null, mmrStatus: result.mmrStatus || null,
-    fingerprint: entry.fingerprint, vehicle: { parsed }, demandKey: target.key, sortRank: sortRank(result.kind, closenessOf(entry.vehicle, target, result)), sortMiles: sortMiles(entry.vehicle.miles),
+    fingerprint: entry.fingerprint, vehicle: { parsed }, demandKey: target.key, sortRank: sortRank(result.kind), sortMiles: sortMiles(entry.vehicle.miles),
     vin: upper(entry.vehicle.vin) || null, wishIndex: result.matchedWishlistIndex, mmrCents: entry.mmrCents, criteriaHash: target.criteriaHash || criteriaHash(target)
   };
 }

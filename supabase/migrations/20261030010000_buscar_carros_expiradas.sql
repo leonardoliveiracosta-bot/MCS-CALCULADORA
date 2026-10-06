@@ -1,17 +1,6 @@
--- Matching A-E (regra manheim-v3.4). Só acrescenta: nenhum DELETE, nenhum carro, VIN ou lote muda,
--- nenhuma constraint, coluna ou tipo de alias novo.
---  E. Aliases no mecanismo que já existe (EQUIVALENT): M550i e 550i -> 5 Series, M340i e 340i ->
---     3 Series, ES 300h, ES300h e 300h -> ES. Só estes, explícitos: nada é deduzido de números.
---  A. Resumo por demanda com quantos carros a demanda já teve neste lote (stored_count), para dizer
---     "As opções encontradas neste lote já expiraram", nunca "sem carro no lote".
-
-insert into public.model_aliases(make, client_model, manheim_models, kind, target_make)
-select v.make, v.client_model, v.manheim_models, 'EQUIVALENT', v.make
-  from (values ('BMW', 'M550i', array['5 Series']), ('BMW', '550i', array['5 Series']),
-               ('BMW', 'M340i', array['3 Series']), ('BMW', '340i', array['3 Series']),
-               ('Lexus', 'ES 300h', array['ES']), ('Lexus', 'ES300h', array['ES']), ('Lexus', '300h', array['ES']))
-       as v(make, client_model, manheim_models)
- where not exists (select 1 from public.model_aliases a where a.make = v.make and a.client_model = v.client_model and a.kind = 'EQUIVALENT');
+-- BUSCAR CARROS e ENVIAR OPÇÕES: resumo por demanda com quantos carros a demanda já teve neste
+-- lote (stored_count), para dizer "As opções encontradas neste lote já expiraram", nunca "sem carro
+-- no lote". Só cria uma função de leitura: nenhum dado, regra, alias, constraint ou lote muda.
 
 -- A. Opções elegíveis agora (base leve: sem leilão passado e com MMR), como no resumo atual, mais
 -- stored_count = carros que a demanda tem neste lote, elegíveis ou não. stored_count > 0 com

@@ -1,101 +1,12 @@
 'use strict';
-// Matching A-E: opções elegíveis agora, prova de comparação, critério mais recente, BATE/QUASE e
-// versões no trim (TRIM_VERSION). Cada teste reproduz o problema antes da correção.
+// BUSCAR CARROS / ENVIAR OPÇÕES: opções elegíveis agora, prova de comparação e critério mais
+// recente. A regra de combinação (vehicle-match) não muda.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const catalog = require('../vehicle-catalog');
-const match = require('../vehicle-match');
-const batch = require('../panel-manheim-batch');
 
 const FUTURE = '2099-01-01';
 const car = (extra = {}) => ({ make: 'Toyota', model: 'Camry', trim: 'SE', year: 2020, miles: 40000, mmrCents: 2000000, lane: '12', run: '34', saleDate: FUTURE, ...extra });
-const carro = (wish, extra = {}) => ({ mode: 'CARRO', wishes: [{ make: 'Toyota', model: 'Camry', yearMin: 2019, yearMax: 2021, minMiles: 20000, maxMiles: 50000, ...wish }], ...extra });
-// E: aliases do mecanismo que já existe (EQUIVALENT), como a migração 20261030010000 grava.
-const ALIAS_ROWS = [['BMW', 'M550i', '5 Series'], ['BMW', '550i', '5 Series'], ['BMW', 'M340i', '3 Series'], ['BMW', '340i', '3 Series'],
-  ['Lexus', 'ES 300h', 'ES'], ['Lexus', 'ES300h', 'ES'], ['Lexus', '300h', 'ES']]
-  .map(([make, client, base]) => ({ make, client_model: client, manheim_models: [base], kind: 'EQUIVALENT', target_make: make }));
-const kindOf = (vehicle, demand) => { const found = match.matchDemand(vehicle, demand); return found ? found.kind : null; };
-
-test('D: dentro dos limites pedidos entra', () => {
-  catalog.configureAliases([]);
-  assert.equal(kindOf(car(), carro({})), 'BATE');
-});
-
-test('D: ano ±1 entra na mesma lista; dois anos fora não', () => {
-  catalog.configureAliases([]);
-  assert.equal(kindOf(car({ year: 2022 }), carro({})), 'BATE');
-  assert.equal(kindOf(car({ year: 2018 }), carro({})), 'BATE');
-  assert.equal(kindOf(car({ year: 2023 }), carro({})), null);
-  assert.equal(kindOf(car({ year: 2017 }), carro({})), null);
-});
-
-test('D: milhas floor(mín×0,85) e ceil(máx×1,15), extremos inclusive', () => {
-  catalog.configureAliases([]);
-  const wish = { minMiles: 20001, maxMiles: 50001 };
-  // floor(20001×0,85) = 17000; ceil(50001×1,15) = 57502
-  assert.equal(kindOf(car({ miles: 17000 }), carro(wish)), 'BATE');
-  assert.equal(kindOf(car({ miles: 16999 }), carro(wish)), null);
-  assert.equal(kindOf(car({ miles: 57502 }), carro(wish)), 'BATE');
-  assert.equal(kindOf(car({ miles: 57503 }), carro(wish)), null);
-});
-
-test('D: só alarga limite que a pessoa definiu (nenhum limite é criado)', () => {
-  catalog.configureAliases([]);
-  const open = { yearMin: 2019, yearMax: null, minMiles: null, maxMiles: 50000 };
-  assert.equal(kindOf(car({ year: 2026, miles: 0 }), carro(open)), 'BATE', 'sem mínimo de milhas e sem ano máximo: nada é inventado');
-  assert.equal(kindOf(car({ year: 2018, miles: 57500 }), carro(open)), 'BATE');
-  assert.equal(kindOf(car({ year: 2017 }), carro(open)), null);
-});
-
-test('D: uma lista só, os mais próximos primeiro; sem tipo novo nem contagem separada', () => {
-  catalog.configureAliases([]);
-  const target = { key: 'journey:x:CARRO', targetType: 'JOURNEY', journeyId: 'x', ...carro({}) };
-  const entries = [car({ year: 2022 }), car()].map((vehicle, index) => ({ fingerprint: 'f' + index, makeKey: 'toyota', mmrCents: vehicle.mmrCents, vehicle }));
-  const rows = batch.matchChunk(entries, [target]);
-  assert.deepEqual(rows.map((row) => row.kind), ['BATE', 'BATE']);
-  // Pedido exato antes do alargado (mesma lista, ordem do servidor por sort_rank e milhas).
-  assert.deepEqual(rows.map((row) => [row.fingerprint, row.sortRank]).sort((a, b) => a[1] - b[1]), [['f1', 0], ['f0', 1]]);
-  assert.equal(match.countsAsServed('BATE'), true);
-});
-
-test('D: reativação também vê o alargado (é a mesma busca)', () => {
-  catalog.configureAliases([]);
-  assert.equal(batch.matchOne(car({ year: 2022 }), { key: 'journey:x:CARRO', ...carro({}), reactivation: true }).kind, 'BATE');
-});
-
-test('Ordem: sem venda ativa, sem MMR ou título ruim nunca entra; aceita qualquer título libera só título/CR', () => {
-  catalog.configureAliases([]);
-  const near = { year: 2022 };
-  assert.equal(kindOf(car({ ...near, lane: '', run: '', buyNowPrice: '' }), carro({})), null);
-  assert.equal(kindOf(car({ ...near, mmrCents: null }), carro({})), null);
-  assert.equal(kindOf(car({ ...near, titleStatus: 'Salvage' }), carro({})), null);
-  assert.equal(kindOf(car({ ...near, titleStatus: 'Salvage' }), carro({ acceptAnyTitleCondition: true })), 'BATE');
-  assert.equal(kindOf(car({ ...near, titleStatus: 'Salvage', lane: '', run: '' }), carro({ acceptAnyTitleCondition: true })), null);
-});
-
-test('E: M550i/550i → 5 Series, M340i/340i → 3 Series, ES 300h/ES300h/300h → ES', () => {
-  const want = (make, model) => ({ mode: 'CARRO', wishes: [{ make, model, yearMin: 2019, yearMax: 2021, minMiles: 0, maxMiles: 50000 }] });
-  const cases = [['BMW', 'M550i', '5 Series', 'M550i xDrive'], ['BMW', '550i', '5 Series', '550i xDrive'], ['BMW', 'M340i', '3 Series', 'M340I XDR'],
-    ['BMW', '340i', '3 Series', '340i'], ['Lexus', 'ES 300h', 'ES', 'ES 300h'], ['Lexus', 'ES300h', 'ES', 'ES 300h'], ['Lexus', '300h', 'ES', 'ES 300h']];
-  catalog.configureAliases([]);
-  for (const [make, model, base, trim] of cases) assert.equal(kindOf(car({ make, model: base, trim }), want(make, model)), null, 'sem o alias não combina: ' + model);
-  catalog.configureAliases(ALIAS_ROWS);
-  for (const [make, model, base, trim] of cases) assert.equal(kindOf(car({ make, model: base, trim }), want(make, model)), 'BATE', model);
-  // Nada inferido: 540i não tem alias; outro modelo-base não combina.
-  assert.equal(kindOf(car({ make: 'BMW', model: '5 Series', trim: '540i' }), want('BMW', '540i')), null);
-  assert.equal(kindOf(car({ make: 'BMW', model: 'X5', trim: 'M50i' }), want('BMW', 'M550i')), null);
-  catalog.configureAliases([]);
-});
-
-test('E: o dicionário muda o criteriaHash (alias novo pede nova comparação)', () => {
-  const target = { key: 'journey:x:CARRO', ...carro({}) };
-  catalog.configureAliases([], [], 'r1');
-  const before = batch.criteriaHash(target);
-  catalog.configureAliases(ALIAS_ROWS, [], 'r2');
-  assert.notEqual(batch.criteriaHash(target), before);
-  catalog.configureAliases([]);
-});
-
 // ---------------------------------------------------------------- C: só o critério mais recente
 const requestDemands = require('../panel-request-demands');
 const domain = require('../panel-domain');

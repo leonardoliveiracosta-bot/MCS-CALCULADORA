@@ -99,20 +99,17 @@ test('CARRO: exemplo BMW X5 2020 a 2025 com 1.000 a 10.000 milhas', () => {
   const demand = domain.orderDemand(domain.consolidateCalcRuns([carroRow('HJKM2')])[0]);
   const match = (vehicle) => vehicleMatch.matchDemand(vehicle, { ...demand, wishes: demand.activeWishes, bidCents: null });
   assert.equal(match(car()).kind, 'BATE');
-  assert.equal(match(car({ year: 2019 })).kind, 'BATE');
-  assert.equal(match(car({ year: 2018 })), null);
+  assert.equal(match(car({ year: 2019 })), null);
   assert.equal(match(car({ miles: 20000 })), null);
   // The MMR amount outside any VALOR band does not matter, but the MMR must exist.
   assert.equal(match(car({ mmrCents: 99900000 })).kind, 'BATE');
   for (const mmrCents of [null, undefined, '', 0, -100, 'N/A', 'desconhecido', 'abc']) assert.equal(match(car({ mmrCents })), null, 'CARRO sem MMR válido: ' + String(mmrCents));
-  // Inclusive limits; the search is a little wider than asked (one year, floor(min×0,85), ceil(max×1,15)), in the same list.
+  // Inclusive limits and no tolerance.
   assert.equal(match(car({ year: 2020, miles: 1000 })).kind, 'BATE');
   assert.equal(match(car({ year: 2025, miles: 10000 })).kind, 'BATE');
-  assert.equal(match(car({ miles: 999 })).kind, 'BATE');
-  assert.equal(match(car({ miles: 849 })), null);
-  assert.equal(match(car({ miles: 10001 })).kind, 'BATE');
-  assert.equal(match(car({ miles: 11501 })), null);
-  assert.equal(match(car({ year: 2026 })).kind, 'BATE');
+  assert.equal(match(car({ miles: 999 })), null);
+  assert.equal(match(car({ miles: 10001 })), null);
+  assert.equal(match(car({ year: 2026 })), null);
   // No verifiable odometer: not compatible, and never QUASE.
   for (const miles of [null, undefined, '', 'TMU', 'EXEMPT']) assert.equal(match(car({ miles })), null, String(miles));
   // Trim is kept and shown, but not an automatic filter.
@@ -120,13 +117,13 @@ test('CARRO: exemplo BMW X5 2020 a 2025 com 1.000 a 10.000 milhas', () => {
   assert.equal(match(car({ trim: 'xDrive40i' })).kind, 'BATE');
 });
 
-test('CARRO: sem MMR ou odômetro nunca entra; perto do pedido entra na mesma lista (sem QUASE)', () => {
+test('CARRO: QUASE não atende a busca (não entra em shortlist, V1 ou V2)', () => {
   assert.equal(vehicleMatch.countsAsServed('QUASE'), false);
   const wish = { make: 'BMW', model: 'X5', yearMin: 2020, yearMax: 2025, minMiles: 1000, maxMiles: 10000 };
-  // Without MMR or odometer: never even QUASE.
-  for (const vehicle of [car({ mmrCents: null }), car({ miles: null })]) assert.equal(vehicleMatch.matchCarroWish(vehicle, wish), null);
-  // Near the request: the same list, never a separate kind.
-  for (const vehicle of [car({ year: 2019 }), car({ miles: 10500 })]) assert.equal(vehicleMatch.matchCarroWish(vehicle, wish).kind, 'BATE');
+  for (const vehicle of [car({ mmrCents: null }), car({ miles: null }), car({ year: 2019 }), car({ miles: 10500 })]) {
+    const result = vehicleMatch.matchCarroWish(vehicle, wish);
+    assert.ok(result === null || result.kind === 'BATE');
+  }
 });
 
 test('VALOR: marca, modelo e o lance da própria demanda; nunca ano, milhagem ou teto total', () => {

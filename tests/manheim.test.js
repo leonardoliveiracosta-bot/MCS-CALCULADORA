@@ -130,9 +130,8 @@ test('BATE (CARRO), POR VALOR and MMR are independent and deterministic', () => 
   assert.deepEqual(matchManheimDemand({ lane: '1', run: '1', year: 2022, make: 'HONDA', model: 'Cívic', miles: 45000, mmrCents: 2100000 }, carro), {
     kind: 'BATE', reason: null, notice: null, gaps: [], dataGap: false, basis: 'CRITERIA', budgetFallback: false, bidCents: 2000000, mmrStatus: null, mode: 'CARRO', matchedWishlistIndex: 1, matchedWishlistLabel: 'Honda Civic', makeNotice: ''
   });
-  // One year above is inside the widened search (same list); two years above is not a match.
-  assert.equal(matchManheimDemand({ lane: '1', run: '1', year: 2025, make: 'Honda', model: 'Civic', miles: 45000, mmrCents: 1900000 }, carro).kind, 'BATE');
-  assert.equal(matchManheimDemand({ lane: '1', run: '1', year: 2026, make: 'Honda', model: 'Civic', miles: 45000, mmrCents: 1900000 }, carro), null);
+  // One year above is not a QUASE anymore: it is simply not a match.
+  assert.equal(matchManheimDemand({ lane: '1', run: '1', year: 2025, make: 'Honda', model: 'Civic', miles: 45000, mmrCents: 1900000 }, carro), null);
   assert.equal(matchManheimDemand({ lane: '1', run: '1', year: 2025, make: 'Honda', model: 'Civic', miles: 56000 }, carro), null);
   assert.equal(matchManheimDemand({ lane: '1', run: '1', year: 2022, make: 'Honda', model: 'Accord', miles: 45000 }, carro), null);
   // VALOR: the MMR against the bid, year and mileage never used.

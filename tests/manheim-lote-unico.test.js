@@ -168,8 +168,8 @@ test('BUSCAS: resumo por demanda sem carro nenhum; opções em páginas estávei
 });
 
 test('critério mudou: "Conferir novamente" e nova comparação dirigida só da demanda', async () => {
-  // The customer now wants only 2022: the 2021 car stays (one year, widened search), the 2020 one leaves.
-  await backend.db.query(`update public.journeys set criteria_json=$2 where id=$1`, [J.carro, JSON.stringify({ wishlists: [{ ...CARRO_WISH, yearMin: 2022 }], logical_modes: ['CARRO'] })]);
+  // The customer now wants only 2021-2022.
+  await backend.db.query(`update public.journeys set criteria_json=$2 where id=$1`, [J.carro, JSON.stringify({ wishlists: [{ ...CARRO_WISH, yearMin: 2021 }], logical_modes: ['CARRO'] })]);
   let view = (await call('records', '/api/panel/records?view=manheim')).payload;
   let carro = view.demands.find((demand) => demand.key === `journey:${J.carro}:CARRO`);
   assert.equal(carro.stale, true);
