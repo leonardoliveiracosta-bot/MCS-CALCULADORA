@@ -272,6 +272,9 @@
     const forward = () => controller.abort();
     if (outer) { if (outer.aborted) controller.abort(); else outer.addEventListener('abort', forward, { once: true }); }
     const coded = (code, extra) => Object.assign(new Error(code), { code }, extra || {});
+    // Assistant context: every server call (path, status, time) goes to the in-browser memory of the last actions.
+    const started = Date.now();
+    const logRequest = (status, code) => { try { if (window.MCSAssistantLog) window.MCSAssistantLog.request({ path: String(path).split('?')[0], method: String(fetchOptions.method || 'GET').toUpperCase(), status, code, ms: Date.now() - started }); } catch (_) {} };
     let response, result;
     try {
       try {
@@ -280,7 +283,9 @@
           headers: { 'content-type': 'application/json', ...(fetchOptions.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) }
         });
       } catch (cause) {
-        throw coded(timedOut ? 'REQUEST_TIMEOUT' : outer && outer.aborted ? 'REQUEST_ABORTED' : 'NETWORK_ERROR', { cause });
+        const failedCode = timedOut ? 'REQUEST_TIMEOUT' : outer && outer.aborted ? 'REQUEST_ABORTED' : 'NETWORK_ERROR';
+        logRequest(null, failedCode);
+        throw coded(failedCode, { cause });
       }
       if (response.status === 401 && retryAuth && refreshToken && await refreshAccessToken()) {
         return request(path, { ...options, retryAuth: false });
@@ -309,11 +314,13 @@
       if (Array.isArray(result.removed)) failure.removed = result.removed;
       if (Number.isInteger(result.fileIndex)) failure.fileIndex = result.fileIndex;
       if (typeof result.whatsappLink === 'string' && result.whatsappLink.startsWith('https://wa.me/')) failure.whatsappLink = result.whatsappLink;
+      logRequest(response.status, failure.code);
       throw failure;
     }
     // A change on a ficha (car, search type, AI item confirmed, Ref or conversation linked) must
     // reach OPÇÕES without waiting for the next CSV.
     if (String(options.method || 'GET').toUpperCase() === 'POST' && CRITERIA_WRITES.test(path)) scheduleOptionsSync();
+    logRequest(response.status, null);
     return result;
   };
   const CRITERIA_WRITES = /^\/api\/panel\/(actions|ai-conversations|lead|whatsapp|entry|pesquisas)(\?|$)/;
@@ -632,6 +639,7 @@
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     if (currentView && $('detail-panel')?.classList.contains('hidden')) viewScroll.set(currentView, window.scrollY);
     currentView = view;
+    if (window.MCSAssistantLog) window.MCSAssistantLog.view(view);
     $('search-results')?.classList.add('hidden');
     const requestVersion = ++viewRequestVersion;
     clearRecordDetail();
@@ -1926,6 +1934,7 @@
     if (window.MCSContext) MCSContext.forget();
     const current = () => currentView === view && viewRequestVersion === requestVersion;
     if (view === 'settings') {
+      if (window.MCSAssistant) window.MCSAssistant.renderIncidents().catch(() => {});
       loadAutomaticMessages().catch(() => {});
       loadPurgeTests().catch(() => {});
       return loadWhatsApp().catch(() => { $('whatsapp-signal').textContent = 'Não foi possível verificar o WhatsApp'; });
@@ -2241,6 +2250,7 @@
       detailOrigin = options.origin;
     }
     showDetailShell(kind, key);
+    if (window.MCSAssistantLog) window.MCSAssistantLog.view('ficha');
     $('page-title').textContent = 'TELA DO LEAD';
     try {
       let leadDetailData=null;
@@ -2344,7 +2354,7 @@
       const ref=item.referenceCode?` com a Ref ${item.referenceCode}`:'';
       return element('span','muted funnel-no-ficha',item.journeyMissing==='VARIOS_PEDIDOS'?`Sem ficha ligada · mais de um pedido deste cliente${ref}`:item.journeyMissing==='SEM_PEDIDO'?`Sem ficha ligada · nenhum pedido deste cliente${ref}`:'Sem ficha ligada');
     }
-    const open=element('button','quiet small','Abrir ficha');open.type='button';
+    const open=element('button','quiet small','Abrir ficha');open.type='button';open.dataset.action='ficha-open';
     open.addEventListener('click',()=>openDetail('ficha',item.journeyId));return open;
   }
   function mountV2Button(item,card){
@@ -3839,7 +3849,7 @@
     const actions = element('div', 'inline-actions');
     const pdf = element('button', 'quiet small', 'Baixar PDF');
     pdf.type = 'button';
-    const go = element('button', 'small', 'Gerar V1 e abrir no WhatsApp');
+    const go = element('button', 'small', 'Gerar V1 e abrir no WhatsApp'); go.dataset.action = 'v1-generate';
     go.type = 'button';
     actions.append(pdf, go);
     foot.append(status, actions);
@@ -5753,5 +5763,14 @@
     $('sms-date').value = localInput();
     await routeSession();
   }
+  // The assistant (painel/assistente.js) acts only through what the panel already does.
+  window.MCSPanelBridge = {
+    request: (path, options) => request(path, options),
+    openDetail: (kind, key) => openDetail(kind, key),
+    switchPanel: (view) => switchPanel(view),
+    reload: () => loadCurrent(currentView),
+    currentView: () => currentView,
+    detail: () => (currentDetail ? String(currentDetail.kind || '') + ':' + String(currentDetail.key || '') : null)
+  };
   boot();
 })();

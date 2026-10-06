@@ -45,7 +45,7 @@ function services(cars){
 
 test('V1: carro de leilão passado não entra e a resposta diz quais saíram',async()=>{
   const vit=require('../api/panel/vitrines'),ctx={environment:'preview',panel:{id:id(3)}};
-  const live=car(10,{startsAt:day(1)}),old=car(11,{startsAt:day(-1),trim:'Sahara'});
+  const live=car(10,{startsAt:day(2)}),old=car(11,{startsAt:day(-2),trim:'Sahara'});
   const {inserted,svc}=services([live,old]);
   const out=await vit.create(ctx,{journeyId:id(1),matchIds:[live.id,old.id]},svc);
   assert.ok(out.token,JSON.stringify(out));
@@ -61,7 +61,7 @@ test('V1: carro de leilão passado não entra e a resposta diz quais saíram',as
 
 test('lista "Selecionados para o cliente": o de leilão passado sai da lista e vem em "ended"',()=>{
   const {splitSelected}=require('../api/panel/manheim-options');
-  const live=car(10,{startsAt:day(1)}),old=car(11,{startsAt:day(-1),trim:'Sahara'});
+  const live=car(10,{startsAt:day(2)}),old=car(11,{startsAt:day(-2),trim:'Sahara'});
   const grouped=[{id:live.id,vehicle_json:{parsed:{memberMatchIds:[live.id]}}}];
   const out=splitSelected([{match_id:live.id},{match_id:old.id}],new Map([[live.id,live.vehicle_json.parsed],[old.id,old.vehicle_json.parsed]]),grouped);
   assert.deepEqual(out.kept.map(r=>r.match_id),[live.id]);
@@ -70,6 +70,6 @@ test('lista "Selecionados para o cliente": o de leilão passado sai da lista e v
 
 test('comparar de novo: carro de leilão passado não vira combinação nova; a que já existe fica',()=>{
   const {comparableEntries}=require('../panel-rematch');
-  const entries=[{fingerprint:'a',vehicle:{...lane,startsAt:day(1)}},{fingerprint:'b',vehicle:{...lane,startsAt:day(-1)}},{fingerprint:'c',vehicle:{...lane,startsAt:day(-1)}},{fingerprint:'d',vehicle:{buyNowPrice:'9000',startsAt:day(-9),endsAt:day(4)}}];
+  const entries=[{fingerprint:'a',vehicle:{...lane,startsAt:day(2)}},{fingerprint:'b',vehicle:{...lane,startsAt:day(-2)}},{fingerprint:'c',vehicle:{...lane,startsAt:day(-2)}},{fingerprint:'d',vehicle:{buyNowPrice:'9000',startsAt:day(-9),endsAt:day(4)}}];
   assert.deepEqual(comparableEntries(entries,new Set(['c'])).map(e=>e.fingerprint),['a','c','d']);
 });
