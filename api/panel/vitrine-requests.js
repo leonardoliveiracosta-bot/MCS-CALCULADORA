@@ -90,7 +90,7 @@ async function dismiss(ctx,body,services={}){
   if(existing){await patch(ctx,'vitrine_requests',{id:'eq.'+existing.id,environment:'eq.'+ctx.environment},{treated_at:now});return {requestId:existing.id};}
   const [car]=await read(ctx,'vitrine_cars',{select:'id',environment:'eq.'+ctx.environment,vitrine_id:'eq.'+vitrine.id,limit:'1'});
   if(!car)return {error:'VITRINE_CAR_MISSING'};
-  const [created]=await write(ctx,'vitrine_requests',{environment:ctx.environment,vitrine_id:vitrine.id,vitrine_car_id:car.id,contact_id:vitrine.contact_id||null,journey_id:vitrine.journey_id||null,request_kind:'DISMISS',referred:false,treated_at:now},false);
+  const [created]=await write(ctx,'vitrine_requests',{environment:ctx.environment,vitrine_id:vitrine.id,vitrine_car_id:car.id,contact_id:vitrine.contact_id||null,journey_id:vitrine.journey_id||null,request_kind:'DISMISS',referred:false,treated_at:now});
   return {requestId:created.id};
 }
 

@@ -193,7 +193,7 @@ async function ensureRequest(ctx,body,services={}){
   if(Date.parse(vitrine.expires_at||0)<=Date.now())return {error:'VITRINE_EXPIRED'};
   const [car]=await read(ctx,'vitrine_cars',{select:'id',environment:'eq.'+ctx.environment,id:'eq.'+body.vitrineCarId,vitrine_id:'eq.'+body.vitrineId,limit:'1'});
   if(!car)return {error:'VITRINE_CAR_MISSING'};
-  const [created]=await write(ctx,'vitrine_requests',{environment:ctx.environment,vitrine_id:vitrine.id,vitrine_car_id:car.id,contact_id:vitrine.contact_id,journey_id:vitrine.journey_id,request_kind:'VIEW',referred:false},false);
+  const [created]=await write(ctx,'vitrine_requests',{environment:ctx.environment,vitrine_id:vitrine.id,vitrine_car_id:car.id,contact_id:vitrine.contact_id,journey_id:vitrine.journey_id,request_kind:'VIEW',referred:false});
   return {requestId:created.id,created:true};
 }
 
