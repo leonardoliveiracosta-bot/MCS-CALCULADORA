@@ -2355,8 +2355,8 @@
       const ref=item.referenceCode?` com a Ref ${item.referenceCode}`:'';
       return element('span','muted funnel-no-ficha',item.journeyMissing==='VARIOS_PEDIDOS'?`Sem ficha ligada · mais de um pedido deste cliente${ref}`:item.journeyMissing==='SEM_PEDIDO'?`Sem ficha ligada · nenhum pedido deste cliente${ref}`:'Sem ficha ligada');
     }
-    const open=element('button','quiet small','Abrir ficha');open.type='button';open.dataset.action='ficha-open';
-    open.addEventListener('click',()=>openDetail('ficha',item.journeyId));return open;
+    const open=element('button','today-primary small','Abrir ficha');open.type='button';open.dataset.action='ficha-open';
+    open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('ficha',item.journeyId);});return open;
   }
   function mountV2Button(item,card){
     const build=element('button','small','Montar V2');build.type='button';
