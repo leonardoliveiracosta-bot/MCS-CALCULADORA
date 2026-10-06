@@ -11,9 +11,13 @@ test.setTimeout(120000);
 
 const id = (n) => `7d000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ago = (hours) => new Date(Date.now() - hours * 3600000).toISOString();
-const tapped = (n, vin) => ({ vitrineId: id(1), vitrineCarId: id(10 + n), requestId: id(20 + n), name: '_damian', phone: '+19143730498', referenceCode: '2STJQ', journeyId: id(2), refState: 'COM_REF', car: '2025 Jeep Grand Cherokee Summit', vin, sentAt: ago(14), tapAt: ago(13), ago: 'há 13 h', sentAgo: 'há 14 h', budgetCents: 6000000 });
+// Como a API manda: cada carro tocado leva também a lista inteira da V1 (vitrineCars).
+const DAMIAN_CARS = [{ vitrineCarId: id(11), car: '2025 Jeep Grand Cherokee Summit', vin: '1C4RJHEG2S8768446', tapAt: ago(13) }, { vitrineCarId: id(12), car: '2025 Jeep Grand Cherokee Summit', vin: '1C4RJHEG6S8768742', tapAt: ago(13) }];
+const tapped = (n, vin) => ({ vitrineId: id(1), vitrineCarId: id(10 + n), requestId: id(20 + n), name: '_damian', phone: '+19143730498', referenceCode: '2STJQ', journeyId: id(2), refState: 'COM_REF', car: '2025 Jeep Grand Cherokee Summit', vin, vitrineCars: DAMIAN_CARS, sentAt: ago(14), tapAt: ago(13), ago: 'há 13 h', sentAgo: 'há 14 h', budgetCents: 6000000 });
+// O mesmo VIN reenviado numa V1 anterior do mesmo cliente.
+const tappedOld = { ...tapped(2, '1C4RJHEG6S8768742'), vitrineId: id(5), vitrineCarId: id(50), requestId: id(51), vitrineCars: [{ vitrineCarId: id(50), car: '2025 Jeep Grand Cherokee Summit', vin: '1C4RJHEG6S8768742', tapAt: ago(40) }], sentAt: ago(48), tapAt: ago(40) };
 const FUNNEL = {
-  v1: { tapped: [tapped(1, '1C4RJHEG2S8768446'), tapped(2, '1C4RJHEG6S8768742')], waiting: [{ vitrineId: id(3), name: 'Param Virani', phone: '+12018562425', referenceCode: 'EXDPY', journeyId: id(4), cars: ['2026 Volvo XC90', '2025 Volvo XC90'], vins: ['YV4H60PF0T1487031', null], vitrineCars: [{ vitrineCarId: id(30), car: '2026 Volvo XC90', vin: 'YV4H60PF0T1487031', tapAt: null }, { vitrineCarId: id(31), car: '2025 Volvo XC90', vin: null, tapAt: null }], sentAt: ago(14), ago: 'há 14 h' }], expired: [] },
+  v1: { tapped: [tapped(1, '1C4RJHEG2S8768446'), tapped(2, '1C4RJHEG6S8768742'), tappedOld], waiting: [{ vitrineId: id(3), name: 'Param Virani', phone: '+12018562425', referenceCode: 'EXDPY', journeyId: id(4), cars: ['2026 Volvo XC90', '2025 Volvo XC90'], vins: ['YV4H60PF0T1487031', null], vitrineCars: [{ vitrineCarId: id(30), car: '2026 Volvo XC90', vin: 'YV4H60PF0T1487031', tapAt: null }, { vitrineCarId: id(31), car: '2025 Volvo XC90', vin: null, tapAt: null }], sentAt: ago(14), ago: 'há 14 h' }], expired: [] },
   v2: { bid: [], waiting: [], expired: [] },
   counts: { v1Action: 2, v2Action: 0 }
 };
@@ -59,6 +63,7 @@ test('aba V1: cada carro mostra o seu VIN e o botão Copiar copia o VIN certo', 
   await damian.getByRole('button', { name: 'Montar V2' }).click();
   const picker = damian.locator('.v2-picker');
   await expect(picker.locator('input')).toHaveValue('');
+  // Colar o VIN completo abre a montagem mesmo com o carro repetido na lista e o VIN reenviado noutra V1.
   await picker.locator('input').fill('1C4RJHEG6S8768742');
   await expect(damian.locator('.v2-builder:not(.v2-picker) h4')).toHaveText('2025 Jeep Grand Cherokee Summit');
   await expect(damian.locator('.v2-builder .funnel-vin')).toContainText('1C4RJHEG6S8768742');

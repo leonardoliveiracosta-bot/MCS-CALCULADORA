@@ -2529,8 +2529,15 @@
   function openV2Picker(first,card){
     const existing=card.querySelector('.v2-builder');if(existing){existing.remove();return;}
     const key=v1ClientKey(first),v1=(v1FunnelData&&v1FunnelData.v1)||{};
-    const candidates=[...(v1.tapped||[]),...(v1.waiting||[])].filter((item)=>v1ClientKey(item)===key)
-      .flatMap((item)=>(item.vitrineCars||[{vitrineCarId:item.vitrineCarId,car:item.car,vin:item.vin}]).filter((car)=>car.vitrineCarId).map((car)=>({...item,vitrineCarId:car.vitrineCarId,car:car.car,vin:car.vin,requestId:item.vitrineCarId===car.vitrineCarId?item.requestId:null})));
+    // A tapped item carries the whole V1 (vitrineCars) too: one candidate per car, keeping the one
+    // that already has its request.
+    const byCar=new Map();
+    [...(v1.tapped||[]),...(v1.waiting||[])].filter((item)=>v1ClientKey(item)===key)
+      .forEach((item)=>(item.vitrineCars||[{vitrineCarId:item.vitrineCarId,car:item.car,vin:item.vin}]).filter((car)=>car.vitrineCarId).forEach((car)=>{
+        const one={...item,vitrineCarId:car.vitrineCarId,car:car.car,vin:car.vin,tapAt:car.tapAt||null,requestId:item.vitrineCarId===car.vitrineCarId?item.requestId:null};
+        const had=byCar.get(car.vitrineCarId);if(!had||(!had.requestId&&one.requestId))byCar.set(car.vitrineCarId,one);
+      }));
+    const candidates=[...byCar.values()];
     const box=element('section','v2-builder v2-picker');
     box.addEventListener('click',(event)=>event.stopPropagation());
     const label=element('label','','VIN do carro da V2');const input=element('input');input.type='text';input.autocomplete='off';input.spellcheck=false;input.placeholder='Digite o VIN';label.append(input);
@@ -2543,7 +2550,9 @@
       if(typed.length<6){status.textContent='';return;}
       const found=candidates.filter((car)=>car.vin&&(clean(car.vin)===typed||(typed.length<17&&clean(car.vin).endsWith(typed))));
       if(!found.length){status.textContent=typed.length>=17?'Este VIN não está na V1 deste cliente':'';return;}
-      if(found.length>1){status.textContent='Mais de um carro termina assim · digite o VIN completo';return;}
+      // The same VIN sent in more than one V1 of this client is the same car: the latest send wins.
+      if(new Set(found.map((car)=>clean(car.vin))).size>1){status.textContent='Mais de um carro termina assim · digite o VIN completo';return;}
+      found.sort((a,b)=>String(b.sentAt||'').localeCompare(String(a.sentAt||''))||Number(!!b.tapAt)-Number(!!a.tapAt));
       if(busy)return;busy=true;status.textContent=`${found[0].car} · abrindo…`;
       try{const item={...found[0]};await requestIdFor(item);box.remove();openV2Builder(item,card);}
       catch(_){status.textContent='Não consegui abrir a V2 deste carro · tente de novo';busy=false;}
