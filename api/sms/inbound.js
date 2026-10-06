@@ -91,13 +91,24 @@ async function findChat(ctx, key, services) {
   return chat || null;
 }
 
-// The iPhone Shortcut may name the fields its own way: the usual names are accepted.
-const pick = (body, names) => { for (const name of names) { const value = body && body[name]; if (typeof value === 'string' && value.trim()) return value; if (typeof value === 'number') return String(value); } return ''; };
+// The iPhone Shortcut may name the fields its own way, and send a value as a list ("Entrada do
+// Atalho") or a dictionary: the usual names and shapes are accepted.
 const TEXT_FIELDS = ['text', 'message', 'body', 'content', 'texto', 'mensagem'];
+const valueOf = (value, depth = 0) => {
+  if (typeof value === 'string') return value.trim() ? value : '';
+  if (typeof value === 'number') return String(value);
+  if (depth > 2 || !value || typeof value !== 'object') return '';
+  if (Array.isArray(value)) return value.map((item) => valueOf(item, depth + 1)).filter(Boolean).join('\n');
+  for (const key of [...TEXT_FIELDS, 'value', 'string']) { const found = valueOf(value[key], depth + 1); if (found) return found; }
+  return '';
+};
+const pick = (body, names) => { for (const name of names) { const value = valueOf(body && body[name]); if (value) return value; } return ''; };
+// What each field was, never its value: 'vazio', 'texto', 'lista(2)', 'objeto', 'numero'.
+const shapeOf = (value) => typeof value === 'string' ? (value.trim() ? 'texto' : 'vazio') : Array.isArray(value) ? `lista(${value.length})` : value === null ? 'nulo' : typeof value === 'object' ? 'objeto' : typeof value === 'number' ? 'numero' : typeof value;
 const SENDER_FIELDS = ['sender', 'from', 'phone', 'number', 'remetente', 'telefone'];
 const NAME_FIELDS = ['senderName', 'name', 'contact', 'nome', 'contato'];
 // Format problems only (never a privacy-gate discard): the field NAMES, never a value.
-const formatWarning = (what, body) => console.warn('[sms-inbound] formato ' + what, { campos: Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12) });
+const formatWarning = (what, body) => console.warn('[sms-inbound] formato ' + what, { campos: Object.fromEntries(Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12).map((key) => [key, shapeOf(body[key])])) });
 
 async function receive(ctx, body, services, now = Date.now()) {
   const text = pick(body, TEXT_FIELDS).trim();

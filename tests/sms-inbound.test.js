@@ -205,7 +205,7 @@ test('endpoint source: timing-safe secret, never logs the body, no panel auth, n
   assert.doesNotMatch(source, /requirePanel/);
   assert.doesNotMatch(source, /console\.(log|info)\(/);
   // Only two log lines: the generic failure and the format warning, which carries the field NAMES only.
-  assert.deepEqual(source.match(/console\.\w+\([^;]*\);/g), ["console.warn('[sms-inbound] formato ' + what, { campos: Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12) });", "console.error('[sms-inbound] falha ao processar');"]);
+  assert.deepEqual(source.match(/console\.\w+\([^;]*\);/g), ["console.warn('[sms-inbound] formato ' + what, { campos: Object.fromEntries(Object.keys(body && typeof body === 'object' ? body : {}).slice(0, 12).map((key) => [key, shapeOf(body[key])])) });", "console.error('[sms-inbound] falha ao processar');"]);
   assert.doesNotMatch(fs.readFileSync('vercel.json', 'utf8'), /sms\/inbound/);
   assert.equal(handler.messageDate('2008-12-31T00:00:00Z', now), now);
   assert.equal(handler.messageDate(new Date(now + 2 * 86400000).toISOString(), now), now);
@@ -268,4 +268,25 @@ test('formato sem texto ou sem remetente: descarta e avisa no log só os NOMES d
   assert.match(noSender.lines[0], /\[sms-inbound\] formato sem remetente/);
   assert.doesNotMatch(noSender.lines[0], /mensagem sem remetente/);
   assert.deepEqual(db.calls.writes, []);
+});
+
+test('Atalho do iPhone manda o texto como lista ou dicionário: a mensagem é aceita', async () => {
+  for (const text of [['Oi, ainda tem o Civic?'], { text: 'Oi, ainda tem o Civic?' }, { content: 'Oi, ainda tem o Civic?' }, [{ body: 'Oi, ainda tem o Civic?' }]]) {
+    const db = memoryDb();
+    const result = await handler.receive(ctx, { sender: '+13055550100', text, senderName: 'Ana' }, db.services, now);
+    assert.equal(result.stored, true, JSON.stringify(text));
+    assert.equal(db.tables.messages[0].body_text, 'Oi, ainda tem o Civic?');
+  }
+  // Remetente como lista também.
+  const db = memoryDb();
+  assert.equal((await handler.receive(ctx, { sender: ['+13055550100'], text: 'Oi' }, db.services, now)).stored, true);
+});
+
+test('texto vazio: o aviso diz o TIPO de cada campo (nunca o valor), para saber o que o Atalho mandou', async () => {
+  const db = memoryDb();
+  const out = await captureLogs(() => handler.receive(ctx, { sender: '+13055550100', text: '', senderName: 'Ana Privada' }, db.services, now));
+  assert.deepEqual(out.result, { stored: false });
+  assert.match(out.lines[0], /formato sem texto/);
+  assert.match(out.lines[0], /text: 'vazio'|text":"vazio"|text: "vazio"/);
+  assert.doesNotMatch(out.lines[0], /3055550100|Ana Privada/);
 });
