@@ -71,9 +71,8 @@ for (const width of [1280, 390]) {
     await expect(out.nth(1).getByRole('button', { name: 'Desfazer' })).toHaveCount(1);
     await expect(out.nth(1).locator('.triage-reason')).toHaveText('Decisão manual');
     await expect(out.first().getByLabel('Corrigir a classificação').locator('option', { hasText: 'Pré-compra MCS' })).toHaveCount(0);
-    // The ATENDIMENTO badge counts the cases that depend on you (the REVISAR ones here).
+    // The ATENDIMENTO badge counts the cases of the list (the REVISAR ones here).
     await expect(page.locator('[data-count="today"]')).toHaveText('2');
-    await expect(page.locator('[data-attend-bucket="depende"] .chip-count')).toHaveText('2');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(0);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `entrada-triagem-${width}.png`), fullPage: width !== 390 });

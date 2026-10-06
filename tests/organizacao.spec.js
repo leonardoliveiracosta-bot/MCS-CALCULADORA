@@ -83,53 +83,45 @@ for (const width of [1280, 390]) {
     const posts = await open(page, width);
     await expect(page.locator('nav [data-view]')).toHaveText([/^TODOS/, /^V1/, /^V2/, /BUSCAR CARROS/, /ENVIAR OPÇÕES/, /IMPORTAÇÕES/]);
     await expect(page.locator('nav [data-view="today"]')).toHaveAttribute('aria-current', 'page');
-    // Depende de você: Ana (sem resposta + confirmar vínculo), Davi (sem resposta) and the triage decision.
+    // ATENDIMENTO em lista: every case in one list (the bucket pills were removed), one row per case.
     const list = page.locator('#today-list');
-    await expect(page.locator('[data-attend-bucket="depende"] .chip-count')).toHaveText('3');
-    await expect(list.locator('.case-card')).toHaveCount(3);
-    await expect(page.locator('[data-count="today"]')).toHaveText('3');
+    await expect(page.locator('[data-attend-bucket]')).toHaveCount(0);
+    await expect(list.locator('.case-card')).toHaveCount(5, { timeout: 30000 });
+    await expect(page.locator('[data-count="today"]')).toHaveText('5');
     // Ana appears once (ficha + calculator order + link suggestion are one case), with every reason.
     const ana = list.locator('.case-card', { hasText: 'Ana Valor' });
     await expect(ana).toHaveCount(1);
     // The waiting time only comes with its channel ("WhatsApp há 3 h · sem resposta"); without one, "Sem resposta".
-    await expect(ana.locator('.card-decision')).toContainText('Sem resposta');
-    await expect(ana.locator('.card-decision')).toContainText('Confirmar vínculo');
+    await expect(ana.locator('.attend-wait')).toContainText('Sem resposta');
+    await expect(ana.locator('.attend-wait')).toContainText('Confirmar vínculo');
     await expect(ana.locator('.case-decisions')).toContainText('Ligar pedido à ficha');
     await expect(ana.locator('.origin-chip')).toHaveCount(0);
-    await expect(ana.locator('.case-calculator')).toHaveCount(1);
-    await expect(ana.locator('.today-primary')).toHaveText('Responder');
+    await expect(ana.locator('.attend-car .attend-l2')).toHaveCount(1);
+    // No gold button any more: the whole row opens what it opened.
+    await expect(ana.locator('.today-primary')).toHaveCount(0);
     // The rest of the card is one click away (never lost).
     await expect(ana.locator('.case-more')).toHaveCount(1);
-    // The other filters, each with its own list.
-    await page.locator('[data-attend-bucket="agendado"]').click();
-    await expect(list.locator('.case-card')).toHaveCount(1);
-    await expect(list.locator('.case-card')).toContainText('Bruno Ambos');
-    await expect(list.locator('.case-card .card-decision')).toContainText('Agendado');
-    await page.locator('[data-attend-bucket="aguardando"]').click();
+    // The same statuses as before, in the Espera column.
+    const bruno = list.locator('.case-card', { hasText: 'Bruno Ambos' });
+    await expect(bruno.locator('.attend-wait')).toContainText('Agendado');
     const carla = list.locator('.case-card', { hasText: 'Carla Direta' });
     await expect(carla).toHaveCount(1);
-    // The incomplete direct request waits here with what is missing (after the requests load).
-    // The card is a spec sheet now: "Falta para buscar" with the missing fields (ano, milhagem).
-    await expect(carla).toContainText('Falta para buscar', { timeout: 30000 });
-    await expect(carla).toContainText('Ano');
-    await expect(carla).toContainText('Milhagem');
-    await page.locator('[data-attend-bucket="todos"]').click();
-    await expect(list.locator('.case-card')).toHaveCount(5);
-    await expect(page.locator('[data-attend-bucket="todos"] .chip-count')).toHaveText('5');
+    // The incomplete direct request shows what is missing (after the requests load), in "Falta p/ buscar".
+    await expect(carla.locator('.attend-lacks')).toContainText('Ano', { timeout: 30000 });
+    await expect(carla.locator('.attend-lacks')).toContainText('Milhagem');
     await noOverflow(page);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `atendimento-${width}.png`), fullPage: width !== 390 });
-    // Open a ficha and come back: same filter, same place.
-    await page.locator('[data-attend-bucket="depende"]').click();
-    const reply = list.locator('.case-card', { hasText: 'Davi Direto' }).locator('.today-primary');
+    // Open a ficha by its row and come back: same list, same place.
+    const reply = list.locator('.case-card', { hasText: 'Davi Direto' }).locator('.attend-car');
     await reply.scrollIntoViewIfNeeded();
     const before = await page.evaluate(() => window.scrollY);
-    expect(before).toBeGreaterThan(0);
+    // The list is compact: at 1280px all five rows fit without scrolling; on the phone it scrolls.
+    if (width === 390) expect(before).toBeGreaterThan(0);
     await reply.click();
     await expect(page.locator('#detail-panel')).toBeVisible({ timeout: 30000 });
     await page.locator('#detail-back').click();
     await expect(page.locator('#today-panel')).toBeVisible();
-    await expect(page.locator('[data-attend-bucket="depende"]')).toHaveClass(/active/);
-    await expect(list.locator('.case-card')).toHaveCount(3);
+    await expect(list.locator('.case-card')).toHaveCount(5);
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(before);
     // Nothing was sent.
     // Nothing was sent (reading saved translations is a read, not a message).

@@ -33,7 +33,6 @@ test('Ordenar · Mais recentes muda a ordem dos cartões', async ({ page }) => {
     return json({ items: [], orders: [], demands: [], matches: [], groups: [], chats: [], reviews: [], review: [], counts: { periodLeads: 0, situations: {}, sections: {} }, requests: [], signals: [], meta: {} });
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-attend-bucket="todos"]').click();
   const cards = page.locator('#today-list .case-card');
   await expect(cards).toHaveCount(2, { timeout: 30000 });
   await expect(cards.nth(0)).toContainText('Antiga Espera');

@@ -17,6 +17,7 @@ const orderSummary = require('./panel-order-summary');
 const refProof = require('./panel-ref-proof');
 const { loadVitrineOrigins } = require('./panel-vitrine-origin');
 const { batchSupported, latestActiveUpload } = require('./panel-manheim-state');
+const completing = require('./painel/completar-pedido');
 
 const MAX_IDS = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -393,7 +394,7 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     ownersByRef.get(key).add(owner);
   });
   const messageIds = [...new Set(links.map((row) => row.message_id))];
-  const messages = messageIds.length ? await inChunks(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,occurred_at_utc,created_at,channel,source_kind,undone_at', environment: env }, 'id', messageIds) : [];
+  const messages = messageIds.length ? await inChunks(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,is_edit_marker,is_delete_marker,original_order,occurred_at_utc,created_at,channel,source_kind,undone_at', environment: env }, 'id', messageIds) : [];
   // The same origin and "não atendido" rule as HOJE, ENTRADA and CLIENTES (panel-groups).
   const vitrineOrigins = await loadVitrineOrigins(ctx).catch(() => null);
   const messageById = new Map(messages.filter((message) => !message.undone_at).map((message) => [message.id, message]));
@@ -471,6 +472,9 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
       ref: clean(journey.reference_code).toUpperCase() || own[0] || null, refs: own, sharedRefs,
       calcRef: proof.calcRef, calcRefs: proof.calcRefs, hasCalcRef: proof.hasCalcRef, refState: grouped.refState, calcRefsWithoutRun: proof.calcRefsWithoutRun, internalCode: proof.internalCode,
       name: clean(contact && contact.display_name) || null,
+      // Used only by the incomplete rows in TODOS; the existing context and group rules stay intact.
+      listMessage: completing.lastMessage(journeyMessages),
+      refAt: (() => { const at = Math.min(...ownOrders.flatMap((order) => order.simulations || [order]).map((simulation) => time(simulation.occurredAt) || Infinity)); return Number.isFinite(at) ? new Date(at).toISOString() : null; })(),
       contact: { phones: phoneList, whatsappUsername: (userIds.find((row) => row.contact_id === journey.contact_id) || {}).username || null, location: clean(contact && contact.location_text) || null, note: phoneList.length ? null : 'Nenhum telefone salvo neste contato.' },
       origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing, since: journey.created_at || null, calculator: ownOrders.length > 0 || proof.hasCalcRef || grouped.refState === 'A_RECUPERAR' },
       unattended: grouped.unattended,

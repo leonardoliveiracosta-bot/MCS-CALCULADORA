@@ -1,6 +1,9 @@
+(function (root, factory) {
+  const api = factory(typeof module === 'object' && module.exports ? require('./panel-attention') : root.MCSAttention);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) root.MCSSort = api;
+}(typeof self !== 'undefined' ? self : this, function (attention) {
 'use strict';
-
-const attention=require('./panel-attention');
 const MODES=new Set(['ready','hot','recent','oldest','ref_recent','name','ref','value_desc','value_asc','location','vehicle']);
 const text=(value)=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR');
 const number=(value)=>Number.isFinite(Number(value))&&Number(value)>0?Number(value):null;
@@ -36,4 +39,5 @@ function compare(mode,left,right){
   return 0;
 }
 function sortItems(items,mode,fallback='recent'){const selected=MODES.has(mode)?mode:fallback;return items.slice().sort((a,b)=>compare(selected,a,b)||text(a.key||a.id||a.ref).localeCompare(text(b.key||b.id||b.ref)));}
-module.exports={MODES,sortItems,lastRealMessageAt};
+return {MODES,sortItems,lastRealMessageAt,compare};
+}));

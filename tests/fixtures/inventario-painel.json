@@ -38,13 +38,6 @@
    ]
   },
   {
-   "name": "attend-filters",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/protecoes.spec.js"
-   ]
-  },
-  {
    "name": "attend-staging",
    "usedBy": [
     "painel/painel.js"
@@ -1144,12 +1137,6 @@
    ]
   },
   {
-   "name": "today-origin",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
    "name": "today-panel",
    "usedBy": [
     "tests/botoes-varredura.spec.js",
@@ -1158,12 +1145,6 @@
     "tests/importacoes.spec.js",
     "tests/lote4.spec.js",
     "tests/organizacao.spec.js"
-   ]
-  },
-  {
-   "name": "today-period",
-   "usedBy": [
-    "painel/painel.js"
    ]
   },
   {
@@ -1178,13 +1159,6 @@
    "usedBy": [
     "painel/painel.js",
     "tests/lote2.spec.js"
-   ]
-  },
-  {
-   "name": "today-subject",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/protecoes.spec.js"
    ]
   },
   {
@@ -1524,13 +1498,6 @@
    ]
   },
   {
-   "name": "chip-count",
-   "usedBy": [
-    "tests/organizacao.spec.js",
-    "tests/triagem-entrada.spec.js"
-   ]
-  },
-  {
    "name": "clickable-card",
    "usedBy": [
     "painel/painel.js"
@@ -1661,12 +1628,6 @@
   },
   {
    "name": "demand-options-count",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
-   "name": "depende",
    "usedBy": [
     "painel/painel.js"
    ]
@@ -2375,12 +2336,6 @@
    ]
   },
   {
-   "name": "today-stat-clear",
-   "usedBy": [
-    "tests/todos-removida.spec.js"
-   ]
-  },
-  {
    "name": "topbar",
    "usedBy": [
     "tests/botoes-varredura.spec.js"
@@ -2548,17 +2503,6 @@
     "painel/painel.js",
     "tests/comando2.spec.js",
     "tests/protecoes.spec.js"
-   ]
-  },
-  {
-   "name": "attend-bucket",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/atendimento-ordenar.spec.js",
-    "tests/organizacao.spec.js",
-    "tests/protecoes.spec.js",
-    "tests/triagem-entrada.spec.js",
-    "tests/vinculo-nome.spec.js"
    ]
   },
   {
@@ -2890,7 +2834,6 @@
    "ai-budget-warning",
    "app",
    "app-view",
-   "attend-filters",
    "attend-staging",
    "auto-print-card",
    "auto-print-file",
@@ -3072,13 +3015,10 @@
    "today-florida-time",
    "today-list",
    "today-more",
-   "today-origin",
    "today-panel",
-   "today-period",
    "today-ref-filters",
    "today-sort",
    "today-stats",
-   "today-subject",
    "topic-out",
    "topic-out-count",
    "topic-out-list",
@@ -3106,12 +3046,9 @@
   ],
   "classes": [
    "LIGADA",
-   "Pronto",
-   "Sem",
    "action-feedback",
    "action-optimistic-hidden",
    "active",
-   "agora",
    "ai-alternative-picker",
    "ai-ambiguous",
    "ai-budget",
@@ -3142,7 +3079,6 @@
    "attend-bulk-clear",
    "attend-bulk-count",
    "attend-bulk-delete",
-   "attend-filters",
    "attend-more",
    "attend-more-button",
    "audit-block",
@@ -3208,7 +3144,6 @@
    "ceiling-action",
    "check-point",
    "chip",
-   "chip-count",
    "clickable-card",
    "client-card",
    "client-context-full",
@@ -3250,12 +3185,10 @@
    "counters-note",
    "custom",
    "danger",
-   "de",
    "decision-red",
    "definition-grid",
    "demand-essential",
    "demand-options-count",
-   "depende",
    "detail-simulation",
    "detail-simulations",
    "detail-toolbar",
@@ -3359,7 +3292,6 @@
    "list-more-hidden",
    "login-screen",
    "login-view",
-   "mais",
    "manheim-append",
    "manheim-audit-note",
    "manheim-complement",
@@ -3557,7 +3489,6 @@
    "sms-print-review",
    "stack",
    "status",
-   "subject-filter",
    "suggestion-edit",
    "suggestion-open",
    "suggestion-text",
@@ -3573,7 +3504,6 @@
    "today-more",
    "today-primary",
    "today-stat",
-   "today-stat-clear",
    "today-stats",
    "topbar",
    "topbar-actions",
@@ -3651,7 +3581,6 @@
   "data": [
    "action-key",
    "area",
-   "attend-bucket",
    "audit-status",
    "batch-id",
    "batch-visibility",

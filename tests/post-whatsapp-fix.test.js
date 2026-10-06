@@ -45,8 +45,13 @@ test('HOJE keeps contact metadata once for journeys and once for calculator orde
   // calculator. 3a0886c ("⋯ Mais só com a decisão") removed the badges, so no channel badge at all.
   assert.match(face,/const face = element\('div', 'case-face case-identity'\)/);
   assert.match(face,/if \(phone\) face\.append\(element\('p', 'case-face-phone case-phone', phone\)\)/);
-  assert.match(today,/rows\.push\(\['Calculadora', calculatorLabel\(item\), 'case-calculator'\]\)/);
-  assert.match(today,/card\.append\(caseFace\(\{ title, ref: ref \|\| \(refStateOf\(item\) === 'A_RECUPERAR' \? 'a recuperar' : 'sem Ref'\), phone: title === phoneText \? '' : phoneText, rows, requests: entry\.requests \}\)\)/);
+  // ATENDIMENTO em lista: uma linha por caso com o telefone uma vez, a Ref, o pedido e qual calculadora.
+  const row=panel.slice(panel.indexOf('function attendRow'),panel.indexOf('function renderToday'));
+  assert.match(row,/phoneLine\.append\(attendPhone\(phone\)\)/);
+  assert.match(row,/ref = calcRefOf\(item\) \|\| \(refStateOf\(item\) === 'A_RECUPERAR' \? 'a recuperar' : 'sem Ref'\)/);
+  assert.match(row,/calculatorLabel\(item\)/);
+  assert.equal((row.match(/contactMeta\(/g)||[]).length,0);
+  assert.match(today,/const buildCard = \(entry\) => attendRow\(entry\);/);
   assert.equal((today.match(/contactMeta\(/g)||[]).length,0);
   assert.doesNotMatch(panel,/\$\{item\.contactChannel\} CLICADO/);
 });

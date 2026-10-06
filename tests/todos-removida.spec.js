@@ -105,9 +105,9 @@ test('"Sem resposta há mais de 24 h" do resumo semanal abre ATENDER AGORA com o
   await expect(page.locator('#today-list .case-card')).toContainText('Ana Atrasada');
   await expect(page.locator('[data-today-stat="late24"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-today-stat="late24"] strong')).toHaveText('1');
-  await expect(page.locator('.today-stat-clear')).toContainText('Sem resposta há mais de 24 h');
-  // Clearing the filter shows every case of the bucket again.
-  await page.locator('.today-stat-clear').click();
+  // Clicking the same number again shows every case of the list again.
+  await page.locator('[data-today-stat="late24"]').click();
+  await expect(page.locator('[data-today-stat="late24"]')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#today-list .case-card')).toHaveCount(4);
   expect(errors).toEqual([]);
 });
