@@ -1,7 +1,7 @@
 'use strict';
 
 const attention=require('./panel-attention');
-const MODES=new Set(['ready','hot','recent','oldest','name','ref','value_desc','value_asc','location','vehicle']);
+const MODES=new Set(['ready','hot','recent','oldest','ref_recent','name','ref','value_desc','value_asc','location','vehicle']);
 const text=(value)=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR');
 const number=(value)=>Number.isFinite(Number(value))&&Number(value)>0?Number(value):null;
 const legacyStamp=(item)=>Date.parse(item.lastCustomerAt||item.latestMessage?.occurred_at_utc||item.latestMessage?.created_at||item.occurredAt||item.updated_at||item.created_at||0)||0;
@@ -26,6 +26,8 @@ function compare(mode,left,right){
   if(mode==='hot')return windowRank(right)-windowRank(left)||compare('ready',left,right);
   if(mode==='ready'){const heat={HOT:3,WARM:2,COLD:1};return attention.compare(left,right)||Number(Boolean(right.wantsCar))-Number(Boolean(left.wantsCar))||Number(Boolean(right.returnedToTalk))-Number(Boolean(left.returnedToTalk))||Number(Boolean(right.promiseToday))-Number(Boolean(left.promiseToday))||windowRank(right)-windowRank(left)||Number(right.score||0)-Number(left.score||0)||(stamp(right)||0)-(stamp(left)||0);}
   if(mode==='recent'||mode==='oldest')return byActivity(left,right,mode);
+  /* Ref mais recentes: a Ref que nasceu por último (primeira simulação) primeiro; sem Ref no fim. */
+  if(mode==='ref_recent'){const at=(item)=>reference(item)?Date.parse(item.refAt||'')||null:null;return nullableCompare(at(left),at(right),-1);}
   if(mode==='name')return nullableCompare(text(name(left)),text(name(right)));
   if(mode==='ref')return nullableCompare(text(reference(left)),text(reference(right)));
   if(mode==='value_desc'||mode==='value_asc')return nullableCompare(value(left),value(right),mode==='value_desc'?-1:1);

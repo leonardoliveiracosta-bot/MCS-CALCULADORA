@@ -1887,9 +1887,10 @@
     await switchPanel('searches');
     try { await loadCurrent('searches', viewRequestVersion); } catch (_) {}
     // The queue never expands inline: the card is the way to the ficha, where the options live now.
-    const card = demandKey ? document.querySelector(`#options-queue [data-demand-key="${CSS.escape(demandKey)}"]`) : null;
+    const card = demandKey ? document.querySelector(`#options-queue .options-queue-row[data-demand-key~="${CSS.escape(demandKey)}"]`) : null;
     if (card) {
-      const live = optionsQueueData.find(({ demand }) => demand.key === demandKey);
+      const row = optionsQueueData.find((entry) => entry.demands.some((demand) => demand.key === demandKey));
+      const live = row ? { demand: row.demands.find((demand) => demand.key === demandKey) } : null;
       const changed = [];
       if (context.criteriaHash && live && live.demand.criteriaHash && context.criteriaHash !== live.demand.criteriaHash) changed.push('Os critérios deste pedido mudaram desde o resultado que você abriu · As opções na ficha foram recalculadas com o critério atual');
       if (context.uploadId && manheimData && manheimData.upload && manheimData.upload.id && context.uploadId !== manheimData.upload.id) changed.push('O lote ativo mudou desde o resultado que você abriu · As opções na ficha são as do lote atual');
@@ -3580,7 +3581,7 @@
   if (queueSearchInput) queueSearchInput.addEventListener('input', () => paintOptionsQueue());
   // "Ordenar" the queue: by the client's last message (never our reply). Kept in this browser only.
   const QUEUE_SORT_KEY = 'mcs_options_queue_sort';
-  const QUEUE_SORTS = ['recent', 'oldest', 'sms', 'whatsapp'];
+  const QUEUE_SORTS = ['recent', 'oldest', 'ref_recent', 'sms', 'whatsapp'];
   const queueSortSelect = document.getElementById('options-queue-sort');
   if (queueSortSelect) {
     let saved = null;
@@ -3670,97 +3671,116 @@
     optionsQueueHasUpload = Boolean(data.upload);
     let sent = null;
     try { sent = await loadV1Sent(); } catch (_) { sent = null; }
-    const isSent = (demand) => {
+    const isSent = (owner) => {
       if (!sent) return false;
-      if (demand.journeyId && sent.journeys.has(demand.journeyId)) return true;
-      const ref = String(demand.calcRef || demand.ref || '').toUpperCase();
+      if (owner.journeyId && sent.journeys.has(owner.journeyId)) return true;
+      const ref = String(owner.calcRef || owner.ref || '').toUpperCase();
       return Boolean(ref && sent.refs.has(ref));
     };
-    // Everyone of TODOS is listed: a person with cars of the active batch and no V1 gets the usual
-    // card; everyone else gets one card that says why there is no car (or that the V1 already went).
+    // One row per person (everyone of TODOS). Each request of the person keeps its own state; the row
+    // shows them all, so cars waiting are never hidden behind another state.
     const demands = data.demands || [];
     const review = data.review || [];
     const refOf = (value) => String(value || '').trim().toUpperCase();
-    const entries = [];
-    const addPerson = (owner, ownDemands, ownReview) => {
-      const sent = ownDemands.some(isSent) || (owner.journeyId ? isSent({ journeyId: owner.journeyId }) : false) || isSent({ ref: owner.ref });
-      const withCars = ownDemands.filter((demand) => demand.matchCount > 0);
-      const pseudo = ownDemands[0] || { key: '', mode: null, journeyId: owner.journeyId || null, ref: owner.ref || null, calcRef: owner.ref || null, wishes: [] };
-      const personOf = (demand) => demandPerson(demand.journeyId || demand.ref ? demand : { ...demand, journeyId: owner.journeyId, ref: owner.ref }, byJourney, byOrder);
-      if (sent) { entries.push({ demand: withCars[0] || pseudo, person: personOf(withCars[0] || pseudo), reason: 'V1 já enviada · acompanhe na aba V1' }); return; }
-      if (withCars.length) { withCars.forEach((demand) => entries.push({ demand, person: personOf(demand), reason: null })); return; }
-      let reason, refresh = [];
-      if (!ownDemands.length) {
-        const issues = ownReview.flatMap((item) => (item.issues || []).map((issue) => issue.wish ? `${issue.wish}: ${issue.text}` : issue.text)).filter(Boolean);
-        reason = 'Busca ainda não feita · ' + (issues.length ? [...new Set(issues)].join(' · ') : 'nenhum pedido de carro registrado');
-      } else if (!data.upload) reason = 'Nenhuma importação ativa do Manheim';
-      else {
-        refresh = ownDemands.filter((demand) => demand.stale || demand.compared === false).map((demand) => demand.key);
-        reason = refresh.length ? 'Pedido ainda não comparado com o lote atual · toque em Atualizar' : 'Busca feita no lote atual: nenhum carro encontrado';
-      }
-      entries.push({ demand: pseudo, person: personOf(pseudo), reason, refresh });
+    const refBorn = (item) => { const first = Math.min(...((item && item.simulations) || []).map((entry) => Date.parse(entry && (entry.occurredAt || entry.created_at) || '') || Infinity)); return Number.isFinite(first) ? first : (Date.parse(item && (item.createdAt || item.created_at) || '') || null); };
+    const rows = [];
+    const addPerson = (owner, item, ownDemands, ownReview) => {
+      const pseudo = { key: '', mode: null, journeyId: owner.journeyId || null, ref: owner.ref || null, calcRef: owner.ref || null, wishes: [] };
+      const person = demandPerson(ownDemands[0] || pseudo, byJourney, byOrder);
+      if (!person.journeyId && owner.journeyId) person.journeyId = owner.journeyId;
+      if (!person.ref && owner.ref) person.ref = owner.ref;
+      person.refAt = owner.ref ? refBorn(item) : null;
+      const states = ownDemands.map((demand) => {
+        if (demand.matchCount > 0) return { demand, kind: 'cars', count: Number(demand.matchCount) || 0 };
+        if (!data.upload) return { demand, kind: 'nobatch' };
+        if (demand.stale || demand.compared === false) return { demand, kind: 'pending' };
+        return { demand, kind: 'none' };
+      });
+      const issues = ownReview.flatMap((entry) => (entry.issues || []).map((issue) => issue.wish ? `${issue.wish}: ${issue.text}` : issue.text)).filter(Boolean);
+      rows.push({ person, demands: ownDemands, states, issues: [...new Set(issues)], sent: isSent({ journeyId: owner.journeyId, ref: owner.ref }) || ownDemands.some(isSent) });
     };
-    manheimJourneys.forEach((journey) => addPerson({ journeyId: journey.id, ref: calcRefOf(journey) }, demands.filter((demand) => demand.journeyId === journey.id), review.filter((item) => item.journeyId === journey.id)));
-    manheimOrders.forEach((order) => addPerson({ journeyId: null, ref: order.ref }, demands.filter((demand) => !demand.journeyId && refOf(demand.ref || demand.calcRef) === refOf(order.ref)), review.filter((item) => !item.journeyId && refOf(item.ref || item.calcRef) === refOf(order.ref))));
-    const position = (entry) => entry.person.journeyId ? manheimJourneys.findIndex((item) => item.id === entry.person.journeyId) : 10000 + manheimOrders.findIndex((item) => refOf(item.ref) === refOf(entry.person.ref));
-    const nowFirst = (entry) => entry.person.purchaseWindow === 'NOW' ? 0 : 1;
-    entries.sort((a, b) => nowFirst(a) - nowFirst(b) || position(a) - position(b));
-    optionsQueueData = entries;
+    manheimJourneys.forEach((journey) => addPerson({ journeyId: journey.id, ref: calcRefOf(journey) }, journey, demands.filter((demand) => demand.journeyId === journey.id), review.filter((entry) => entry.journeyId === journey.id)));
+    manheimOrders.forEach((order) => addPerson({ journeyId: null, ref: order.ref }, order, demands.filter((demand) => !demand.journeyId && refOf(demand.ref || demand.calcRef) === refOf(order.ref)), review.filter((entry) => !entry.journeyId && refOf(entry.ref || entry.calcRef) === refOf(order.ref))));
+    const position = (row) => row.person.journeyId ? manheimJourneys.findIndex((item) => item.id === row.person.journeyId) : 10000 + manheimOrders.findIndex((item) => refOf(item.ref) === refOf(row.person.ref));
+    const nowFirst = (row) => row.person.purchaseWindow === 'NOW' ? 0 : 1;
+    rows.sort((a, b) => nowFirst(a) - nowFirst(b) || position(a) - position(b));
+    optionsQueueData = rows;
     // The tab counter: people with cars of the active batch still waiting for their V1.
-    setCount('searches', new Set(entries.filter((entry) => !entry.reason).map(({ demand }) => demand.journeyId ? 'ficha:' + demand.journeyId : 'ref:' + String(demand.ref || '').toUpperCase())).size);
+    setCount('searches', rows.filter((row) => !row.sent && row.states.some((state) => state.kind === 'cars')).length);
     paintOptionsQueue();
   }
-  function queueMatches(demand, person, query) {
+  function queueMatches(row, query) {
     const q = query.trim().toLowerCase();
     if (!q) return true;
     const digits = q.replace(/\D/g, '');
+    const person = row.person;
     const hay = [
       person.name, person.phoneRaw, person.phoneDisplay, person.ref,
-      demand.calcRef,
-      demandSummary(demand),
-      (demand.wishes || []).map((wish) => [wish.make, wish.model, wish.trim].filter(Boolean).join(' ')).join(' '),
+      ...row.demands.flatMap((demand) => [demand.calcRef, demandSummary(demand), (demand.wishes || []).map((wish) => [wish.make, wish.model, wish.trim].filter(Boolean).join(' ')).join(' ')]),
     ].filter(Boolean).join(' ').toLowerCase();
     if (hay.includes(q)) return true;
     return Boolean(digits && hay.replace(/\D/g, '').includes(digits));
   }
   // The whole queue (not only what is visible), after the search. Recent/old by the client's last
-  // message; with SMS or WhatsApp first, that channel goes first and each part from the most recent.
-  // Nobody disappears: without a message, at the end in any order; ties keep the queue's order.
+  // message; with SMS or WhatsApp first, that channel goes first and each part from the most recent;
+  // "Ref mais recentes" by when the Ref was born (a new message does not move it).
+  // Nobody disappears: without the date, at the end; ties keep the queue's order.
   function sortQueue(list) {
     const mode = queueSortSelect && QUEUE_SORTS.includes(queueSortSelect.value) ? queueSortSelect.value : 'recent';
     const medium = mode === 'sms' ? 'SMS' : mode === 'whatsapp' ? 'WHATSAPP' : null;
-    return list.map((entry, index) => ({ entry, index })).sort((a, b) => {
-      const at = a.entry.person.customerAt, bt = b.entry.person.customerAt;
+    const stampOf = (row) => mode === 'ref_recent' ? row.person.refAt : row.person.customerAt;
+    return list.map((row, index) => ({ row, index })).sort((a, b) => {
+      const at = stampOf(a.row), bt = stampOf(b.row);
       if (!at || !bt) return (at ? 0 : 1) - (bt ? 0 : 1) || a.index - b.index;
       if (medium) {
-        const first = (a.entry.person.medium === medium ? 0 : 1) - (b.entry.person.medium === medium ? 0 : 1);
+        const first = (a.row.person.medium === medium ? 0 : 1) - (b.row.person.medium === medium ? 0 : 1);
         if (first) return first;
       }
       return (mode === 'oldest' ? at - bt : bt - at) || a.index - b.index;
-    }).map(({ entry }) => entry);
+    }).map(({ row }) => row);
   }
   function paintOptionsQueue() {
     const root = $('options-queue');
     const note = $('options-queue-count');
     if (!root) return;
     const query = $('options-queue-search') ? $('options-queue-search').value || '' : '';
-    const list = sortQueue(optionsQueueData.filter(({ demand, person }) => queueMatches(demand, person, query)));
+    const list = sortQueue(optionsQueueData.filter((row) => queueMatches(row, query)));
     root.replaceChildren();
-    if (note) note.textContent = query.trim() ? `${list.length} de ${optionsQueueData.length} na fila` : `${optionsQueueData.length} na fila · toque no cartão para abrir a ficha`;
-    list.forEach((entry) => renderQueueCard(root, entry.demand, entry.person, entry));
-    if (!list.length) root.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia · todos com carro no lote já receberam a V1' : 'Nenhuma importação ativa'));
+    if (note) note.textContent = query.trim() ? `${list.length} de ${optionsQueueData.length} na fila` : `${optionsQueueData.length} na fila · toque na linha para abrir a ficha`;
+    list.forEach((row) => renderQueueRow(root, row));
+    if (!list.length) root.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia' : 'Nenhuma importação ativa'));
   }
   function openQueueDetail(demand, person) {
     if (person && person.journeyId) return openDetail('ficha', person.journeyId);
     if (person && person.ref) return openDetail('order', String(person.ref));
     return null;
   }
-  function renderQueueCard(root, demand, person, entry = {}) {
-    const card = element('article', 'item-card options-queue-card');
-    if (entry.reason) card.classList.add('options-queue-nocar');
-    card.dataset.demandKey = demand.key || '';
-    card.dataset.mode = demand.mode || '';
-    // Bloco 1: quem é.
+  const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+  // The aggregated state of the person: every state shows (cars waiting are never hidden).
+  function rowSummary(row) {
+    const parts = [];
+    if (row.demands.length) parts.push(plural(row.demands.length, 'pedido', 'pedidos'));
+    const cars = row.states.filter((state) => state.kind === 'cars').reduce((sum, state) => sum + state.count, 0);
+    if (cars) parts.push(plural(cars, 'carro aguardando', 'carros aguardando'));
+    const none = row.states.filter((state) => state.kind === 'none').length;
+    if (none) parts.push(plural(none, 'sem resultado no lote atual', 'sem resultado no lote atual'));
+    const pending = row.states.filter((state) => state.kind === 'pending').length;
+    if (pending) parts.push(plural(pending, 'não comparado com o lote atual', 'não comparados com o lote atual'));
+    if (row.states.some((state) => state.kind === 'nobatch')) parts.push('nenhuma importação ativa');
+    if (!row.demands.length) parts.push('busca ainda não feita · ' + (row.issues.length ? row.issues.join(' · ') : 'nenhum pedido de carro registrado'));
+    if (row.sent) parts.push('V1 já enviada');
+    const text = parts.join(' · ');
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+  const STATE_TEXT = { cars: (state) => plural(state.count, 'carro aguardando', 'carros aguardando'), none: () => 'sem resultado no lote atual', pending: () => 'não comparado com o lote atual', nobatch: () => 'nenhuma importação ativa' };
+  function renderQueueRow(root, row) {
+    const person = row.person;
+    const waiting = !row.sent && row.states.some((state) => state.kind === 'cars');
+    const card = element('article', 'item-card options-queue-card options-queue-row');
+    if (!waiting) card.classList.add('options-queue-nocar');
+    // Every request key and mode of the person (read by openOptionsCard and the tests).
+    card.dataset.demandKey = row.demands.map((demand) => demand.key).filter(Boolean).join(' ');
+    card.dataset.mode = [...new Set(row.demands.map((demand) => demand.mode).filter(Boolean))].join(' ');
     const head = element('div', 'item-head');
     const identity = element('div', 'identity');
     identity.append(element('span', 'avatar', initials(person.name)));
@@ -3774,50 +3794,25 @@
     const arrival = floridaArrival(person.arrivedAt);
     if (arrival) meta.append(makeBadge(arrival));
     meta.append(makeBadge(WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, person.purchaseWindow === 'NOW' ? 'red' : person.purchaseWindow === '30D' ? 'yellow' : person.purchaseWindow === '3M' ? 'blue' : ''));
-    if (demand.mode) meta.append(makeBadge(demand.mode === 'VALOR' ? 'Por valor' : 'Por carro', demand.mode === 'VALOR' ? 'blue' : 'green'));
     card.append(head, meta);
-    if (entry.reason) {
-      // Sem carro (ou V1 já enviada): o motivo, o que o cliente pediu quando há, e o próximo passo.
-      const asked = demandSummary(demand);
-      if (asked) card.append(element('span', 'request-criteria-label', 'O que o cliente pediu'), element('p', 'demand-essential', asked));
-      card.append(element('p', 'options-queue-reason', entry.reason));
-      const foot = element('div', 'options-queue-foot');
-      if (entry.refresh && entry.refresh.length) {
-        const update = element('button', 'small', 'Atualizar'); update.type = 'button';
+    card.append(element('p', 'options-queue-reason', rowSummary(row)));
+    // One line per request: the mode, what the client asked and that request's state.
+    row.states.forEach((state) => {
+      const line = element('div', 'options-queue-demand');
+      line.dataset.demandKey = state.demand.key;
+      line.append(element('span', 'options-queue-demand-text', [state.demand.mode === 'VALOR' ? 'Por valor' : state.demand.mode === 'CARRO' ? 'Por carro' : '', demandSummary(state.demand), STATE_TEXT[state.kind](state)].filter(Boolean).join(' · ')));
+      if (state.kind === 'pending') {
+        const update = element('button', 'small chip options-queue-update', 'Atualizar'); update.type = 'button';
         update.addEventListener('click', async (event) => {
           event.stopPropagation(); update.disabled = true; update.textContent = 'Comparando…';
-          try { for (const key of entry.refresh) await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key }) }); update.textContent = 'Comparado'; manheimData = null; loadCurrent('searches').catch(() => {}); }
+          try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: state.demand.key }) }); update.textContent = 'Comparado'; manheimData = null; loadCurrent('searches').catch(() => {}); }
           catch (_) { update.disabled = false; update.textContent = 'Atualizar'; }
         });
-        foot.append(update);
+        line.append(update);
       }
-      if (person.journeyId || person.ref) { const open = element('button', 'quiet small', 'Abrir ficha'); open.type = 'button'; open.dataset.action = 'ficha-open'; open.addEventListener('click', (event) => { event.stopPropagation(); openQueueDetail(demand, person); }); foot.append(open); }
-      card.append(foot);
-      makeCardClickable(card, () => openQueueDetail(demand, person));
-      root.append(card);
-      return;
-    }
-    // Bloco 2: o que o cliente pediu.
-    card.append(element('span', 'request-criteria-label', 'O que o cliente pediu'));
-    card.append(element('p', 'demand-essential', demandSummary(demand)));
-    card.append(demandCountsBadge(demand));
-    // Bloco 3: os três grupos recolhidos, só com contagens. Nada aqui expande.
-    const offer = demand.offer || {};
-    const groupParts = [];
-    if (offer.lane) groupParts.push(`${offer.lane} em Lane/Run`);
-    if (offer.offLane) groupParts.push(`${offer.offLane} em Buy Now / Make Offer`);
-    if (offer.incomplete) groupParts.push(`${offer.incomplete} com informação incompleta`);
-    card.append(element('p', 'muted options-queue-groups', groupParts.length ? groupParts.join(' · ') : 'Contando os grupos…'));
-    // Rodapé: próximo passo + um botão.
-    const foot = element('div', 'options-queue-foot');
-    const selected = Number(offer.selected) || 0;
-    foot.append(element('p', 'muted options-queue-next', selected ? `${selected} ${selected === 1 ? 'carro selecionado' : 'carros selecionados'} · abra a ficha e gere a V1` : 'Próximo passo: abrir a ficha, selecionar os carros e gerar a V1'));
-    const open = element('button', 'small', 'Abrir ficha');
-    open.type = 'button';
-    open.addEventListener('click', (event) => { event.stopPropagation(); openQueueDetail(demand, person); });
-    foot.append(open);
-    card.append(foot);
-    makeCardClickable(card, () => openQueueDetail(demand, person));
+      card.append(line);
+    });
+    makeCardClickable(card, () => openQueueDetail(row.demands[0] || null, person));
     root.append(card);
   }
 

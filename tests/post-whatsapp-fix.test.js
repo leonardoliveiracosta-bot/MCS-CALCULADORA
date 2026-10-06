@@ -53,8 +53,8 @@ test('HOJE keeps contact metadata once for journeys and once for calculator orde
 
 test('options queue cards show one compact identity block and never expand inline',()=>{
   const panel=read('painel/painel.js');
-  const start=panel.indexOf('function renderQueueCard'),end=panel.indexOf('function v1ErrorText');
-  assert.ok(start>0&&end>start,'renderQueueCard delimitado');
+  const start=panel.indexOf('function renderQueueRow'),end=panel.indexOf('function v1ErrorText');
+  assert.ok(start>0&&end>start,'renderQueueRow delimitado');
   const queue=panel.slice(start,end);
   assert.match(queue,/identity-name/);
   assert.match(queue,/phone-link/);

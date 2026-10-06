@@ -146,12 +146,12 @@ test('cartão da fila: só abre a ficha com apertar e soltar no mesmo lugar livr
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const queueCard = page.locator('#options-queue .options-queue-card[data-mode="CARRO"]').first();
+  const queueCard = page.locator('#options-queue .options-queue-card[data-mode~="CARRO"]').first();
   await expect(queueCard).toBeVisible({ timeout: 60000 });
   // Press on the card, the queue is redrawn, the release lands on the card: no ficha.
   await queueCard.evaluate((card) => {
     card.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    card.querySelector('.options-queue-groups').replaceChildren();
+    card.querySelector('.options-queue-demand').replaceChildren();
     card.parentElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
   await page.waitForTimeout(500);

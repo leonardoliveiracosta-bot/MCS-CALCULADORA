@@ -9,14 +9,19 @@ declare
 begin
   -- regra pura
   if not public.panel_manheim_offer_expired(lane||'{"startsAt":"2026-10-04T14:00:00Z","endsAt":"2026-10-09T00:00:00Z"}',t) then raise exception 'FALHA: Lane de ontem não expirou'; end if;
-  if public.panel_manheim_offer_expired(lane||'{"startsAt":"2026-10-05T13:00:00Z","endsAt":"2026-10-09T00:00:00Z"}',t) then raise exception 'FALHA: Lane de hoje expirou'; end if;
+  -- Lane/Run sai no horário de início (20261029020000): 9h da Flórida já começou às 11h; 12h ainda não.
+  if not public.panel_manheim_offer_expired(lane||'{"startsAt":"2026-10-05T13:00:00Z","endsAt":"2026-10-09T00:00:00Z"}',t) then raise exception 'FALHA: Lane que já começou hoje não expirou'; end if;
+  if public.panel_manheim_offer_expired(lane||'{"startsAt":"2026-10-05T16:00:00Z","endsAt":"2026-10-09T00:00:00Z"}',t) then raise exception 'FALHA: Lane de mais tarde hoje expirou'; end if;
+  if not public.panel_manheim_offer_expired(lane||'{"startsAt":"2026-10-05T15:00:00Z"}',t) then raise exception 'FALHA: Lane no minuto do início não expirou'; end if;
   if public.panel_manheim_offer_expired(lane||'{"startsAt":"2026-10-06T13:00:00Z"}',t) then raise exception 'FALHA: Lane de amanhã expirou'; end if;
   if public.panel_manheim_offer_expired(lane,t) then raise exception 'FALHA: sem data expirou'; end if;
   if public.panel_manheim_offer_expired('{}',t) then raise exception 'FALHA: vazio expirou'; end if;
   -- 22h de 4/10 na Flórida = 02h UTC de 5/10: é ontem na Flórida
   if not public.panel_manheim_offer_expired(lane||'{"startsAt":"2026-10-05T02:00:00Z"}',t) then raise exception 'FALHA: dia não usou a Flórida'; end if;
   if not public.panel_manheim_offer_expired(lane||'{"saleDate":"2026-10-04"}',t) then raise exception 'FALHA: saleDate só data de ontem'; end if;
-  if public.panel_manheim_offer_expired(lane||'{"saleDate":"2026-10-05"}',t) then raise exception 'FALHA: saleDate só data de hoje'; end if;
+  -- só data, sem hora: o dia começa à 0h da Flórida
+  if not public.panel_manheim_offer_expired(lane||'{"saleDate":"2026-10-05"}',t) then raise exception 'FALHA: saleDate só data de hoje não expirou'; end if;
+  if public.panel_manheim_offer_expired(lane||'{"saleDate":"2026-10-06"}',t) then raise exception 'FALHA: saleDate só data de amanhã expirou'; end if;
   if public.panel_manheim_offer_expired(lane||'{"startsAt":"amanhã cedo"}',t) then raise exception 'FALHA: data ilegível expirou'; end if;
   if not public.panel_manheim_offer_expired(lane||'{"endsAt":"2026-10-05T14:00:00Z"}',t) then raise exception 'FALHA: endsAt passado não expirou'; end if;
   -- Buy Now: a data de entrada antiga não expira; só o endsAt

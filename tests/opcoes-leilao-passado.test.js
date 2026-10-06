@@ -10,13 +10,17 @@ const lane={lane:'A',run:'12'};
 
 test('regra: leilão de dia anterior na Flórida, endsAt passado, Buy Now só pelo endsAt',()=>{
   assert.equal(offer.offerExpired({...lane,startsAt:'2026-10-04T14:00:00Z',endsAt:'2026-10-09T00:00:00Z'},T),true);
-  assert.equal(offer.offerExpired({...lane,startsAt:'2026-10-05T13:00:00Z'},T),false);
+  // Lane/Run sai no horário de início: 9h da Flórida já começou às 11h; 12h ainda não.
+  assert.equal(offer.offerExpired({...lane,startsAt:'2026-10-05T13:00:00Z'},T),true);
+  assert.equal(offer.offerExpired({...lane,startsAt:'2026-10-05T16:00:00Z'},T),false);
+  assert.equal(offer.offerExpired({...lane,startsAt:'2026-10-05T15:00:00Z'},T),true,'no minuto do início');
   assert.equal(offer.offerExpired({...lane,startsAt:'2026-10-06T13:00:00Z'},T),false);
   assert.equal(offer.offerExpired(lane,T),false);
   assert.equal(offer.offerExpired({},T),false);
   assert.equal(offer.offerExpired({...lane,startsAt:'2026-10-05T02:00:00Z'},T),true,'22h de ontem na Flórida');
   assert.equal(offer.offerExpired({...lane,saleDate:'2026-10-04'},T),true);
-  assert.equal(offer.offerExpired({...lane,saleDate:'2026-10-05'},T),false);
+  assert.equal(offer.offerExpired({...lane,saleDate:'2026-10-05'},T),true,'só data: o dia começa à 0h da Flórida');
+  assert.equal(offer.offerExpired({...lane,saleDate:'2026-10-06'},T),false);
   assert.equal(offer.offerExpired({...lane,startsAt:'amanhã cedo'},T),false);
   assert.equal(offer.offerExpired({...lane,endsAt:'2026-10-05T14:00:00Z'},T),true);
   assert.equal(offer.offerExpired({buyNowPrice:'25000',startsAt:'2026-09-20T10:00:00Z',endsAt:'2026-10-20T00:00:00Z'},T),false);

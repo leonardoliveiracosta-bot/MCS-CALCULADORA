@@ -109,32 +109,30 @@ test('19 · desktop: ENVIAR OPÇÕES é uma fila de cartões compactos, nada exp
   await expect(page.locator('#manheim-drop-zone')).toBeHidden();
   // Search at the top of the tab.
   await expect(page.locator('#options-queue-search')).toBeVisible();
-  // One compact card per demand: the same person has one card per mode, each with its own criteria.
+  // One row per person (#231): the same person with VALOR and CARRO is one row, one line per request.
   const cards = page.locator('#options-queue .options-queue-card');
-  await expect(cards).toHaveCount(3);
-  const valorCard = page.locator('#options-queue .options-queue-card', { hasText: 'Cliente Dois Modos' }).filter({ hasText: 'lance máximo US$ 50.000,00' });
-  const carroCard = page.locator('#options-queue .options-queue-card', { hasText: 'xDrive40i' });
-  await expect(valorCard).toHaveCount(1);
-  await expect(carroCard).toHaveCount(1);
-  // The three blocks: who (name + Ref), what the client asked, the collapsed groups with counts.
-  await expect(cards.first()).toContainText('Cliente Dois Modos');
-  await expect(cards.first()).toContainText('Ref DCCC4');
-  await expect(cards.first()).toContainText('O que o cliente pediu');
-  await expect(cards.first()).toContainText(/em Lane\/Run|em Buy Now/);
-  // Footer: next step + one button; tapping the card opens the ficha (no inline expansion).
-  await expect(cards.first()).toContainText('Abrir ficha');
+  await expect(cards).toHaveCount(2);
+  const both = page.locator('#options-queue .options-queue-card', { hasText: 'Cliente Dois Modos' });
+  await expect(both).toHaveCount(1);
+  await expect(both.locator('.options-queue-demand')).toHaveCount(2);
+  await expect(both).toContainText('lance máximo US$ 50.000,00');
+  await expect(both).toContainText('xDrive40i');
+  await expect(both).toContainText('Ref DCCC4');
+  await expect(both).toContainText('2 pedidos');
+  await expect(both).toContainText(/carros? aguardando/);
+  // Tapping the row opens the ficha (no inline expansion, no button).
   await expect(page.locator('#options-queue .manheim-table')).toHaveCount(0);
   await expect(page.locator('#options-queue details')).toHaveCount(0);
   // Ref-only VALOR order is in the queue too.
   await expect(page.locator('#options-queue .options-queue-card', { hasText: 'Pedido Só Valor' })).toHaveCount(1);
   // Queue counter and the general total.
-  await expect(page.locator('#options-queue-count')).toContainText('3 na fila');
+  await expect(page.locator('#options-queue-count')).toContainText('2 na fila · toque na linha para abrir a ficha');
   await expect(page.locator('#buscas-total')).toContainText('Total geral');
-  // The queue search filters by name, phone, Ref and car.
+  // The queue search filters by name, phone, Ref and car of any request of the person.
   await page.locator('#options-queue-search').fill('xDrive40i');
   await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(1);
   await page.locator('#options-queue-search').fill('DCCC4');
-  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(2);
+  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(1);
   await page.locator('#options-queue-search').fill('');
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'enviar-opcoes-desktop.png'), fullPage: true });
   // BUSCAR CARROS: one request per type in its column, the result apart from the work stage, and
@@ -157,7 +155,7 @@ test('19 · desktop: ENVIAR OPÇÕES é uma fila de cartões compactos, nada exp
   // The result button goes to the queue card in ENVIAR OPÇÕES; the options open in the ficha.
   await page.locator('#requests-carro .request-view-options').click();
   await expect(page.locator('#searches-panel')).toBeVisible();
-  const target = page.locator(`#options-queue [data-demand-key="journey:${JOURNEY}:CARRO"]`);
+  const target = page.locator(`#options-queue .options-queue-row[data-demand-key~="journey:${JOURNEY}:CARRO"]`);
   await expect(target).toBeVisible();
   await expect(target.locator('.manheim-table')).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscas-desktop.png'), fullPage: true });
@@ -171,7 +169,7 @@ test('20 · 390 px: fila em coluna única, nada fora da tela e alvos de 44 px', 
   await openBuscas(page, { undone: false }, []);
   // One column: the cards stack vertically and fit the width.
   const boxes = await page.locator('#options-queue .options-queue-card').evaluateAll((list) => list.map((card) => { const box = card.getBoundingClientRect(); return { y: box.y, height: box.height, width: box.width }; }));
-  expect(boxes.length).toBe(3);
+  expect(boxes.length).toBe(2);
   expect(boxes[0].width).toBeGreaterThan(330);
   expect(boxes[1].y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height - 1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);

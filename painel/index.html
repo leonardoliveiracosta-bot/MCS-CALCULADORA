@@ -13,7 +13,7 @@
   <link rel="manifest" href="/painel/manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="/painel/icons/mcs-painel-180.png">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans:wght@400;600;700&family=Noto+Sans+Mono:wght@500&family=Noto+Serif:wght@600&display=swap">
-  <link rel="stylesheet" href="/painel/painel.css?v=20261029t">
+  <link rel="stylesheet" href="/painel/painel.css?v=20261029r">
   <link rel="stylesheet" href="/painel/tema-mcs.css?v=20261003s">
   <link rel="stylesheet" href="/painel/identidade.css?v=20261025t7">
   <link rel="stylesheet" href="/painel/sms-device-tokens.css?v=20261020a">
@@ -70,7 +70,7 @@
       <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última mensagem do WhatsApp: <strong id="last-whatsapp-import">—</strong></span><details id="ai-budget" class="ai-budget hidden"><summary>Saldo da IA: <strong id="ai-budget-spent">—</strong></summary><p id="ai-budget-warning" class="warning hidden"></p><ul id="ai-budget-features" class="ai-budget-features"></ul></details></div>
       <section id="capture-warning" class="capture-warning hidden" aria-live="polite"></section>
       <section id="today-panel" class="panel-view" aria-label="Atendimento">
-        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Atendimento</h2><p class="muted">Responder, completar pedido, confirmar vínculo e cumprir retornos · O que depende de você vem primeiro</p><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Assunto<select id="today-subject" class="subject-filter"><option value="all">Todos os assuntos</option><option value="FINANCIAMENTO">Financiamento</option><option value="PEDIDO_CARRO">Pedido de carro</option><option value="SO_CUMPRIMENTO">Só cumprimentou</option><option value="OUTROS">Outros assuntos</option><option value="NAO_IDENTIFICADO">Ainda não identificado</option></select></label><label>Período<select id="today-period"><option value="all">Todos</option><option value="1">Últimas 24 h</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
+        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Atendimento</h2><p class="muted">Responder, completar pedido, confirmar vínculo e cumprir retornos · O que depende de você vem primeiro</p><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Assunto<select id="today-subject" class="subject-filter"><option value="all">Todos os assuntos</option><option value="FINANCIAMENTO">Financiamento</option><option value="PEDIDO_CARRO">Pedido de carro</option><option value="SO_CUMPRIMENTO">Só cumprimentou</option><option value="OUTROS">Outros assuntos</option><option value="NAO_IDENTIFICADO">Ainda não identificado</option></select></label><label>Período<select id="today-period"><option value="all">Todos</option><option value="1">Últimas 24 h</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="ref_recent">Ref mais recentes</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
         <div id="attend-filters" class="filters attend-filters" role="group" aria-label="Filtrar o atendimento"></div>
         <div id="today-stats" class="today-stats" aria-live="polite"></div>
         <div id="today-ref-filters" class="filters ref-filters" aria-label="Filtrar Hoje por Ref">
@@ -298,7 +298,7 @@
         <section id="manheim-batches" class="card batches" aria-label="Lotes de importação"></section>
       </section>
       <section id="searches-panel" class="panel-view hidden" aria-label="Enviar opções">
-        <div class="section-head today-heading searches-subsection"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Enviar opções</h2><p class="muted">Fila de trabalho: quem tem carro no lote e ainda não recebeu a V1 · Toque no cartão para abrir a ficha, selecionar os carros e gerar a V1</p></div></div>
+        <div class="section-head today-heading searches-subsection"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Enviar opções</h2><p class="muted">Fila de trabalho: todos os clientes, com os carros do lote ou o motivo de ainda não ter · Toque na linha para abrir a ficha</p></div></div>
         <section class="card">
           <div id="manheim-summary" class="muted"></div>
           <div id="manheim-audit-note" class="manheim-audit-note hidden" aria-live="polite"></div>
@@ -310,6 +310,7 @@
             <label class="options-queue-sort">Ordenar <select id="options-queue-sort">
               <option value="recent">Mais recentes</option>
               <option value="oldest">Mais antigos</option>
+              <option value="ref_recent">Ref mais recentes</option>
               <option value="sms">Mensagem SMS recentes primeiro</option>
               <option value="whatsapp">Mensagem WhatsApp recentes primeiro</option>
             </select></label>
@@ -353,7 +354,7 @@
   <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js?v=20261025q" defer></script>
   <script src="/painel/assistente.js?v=20261028a" defer></script>
-  <script src="/painel/painel.js?v=20261029t" defer></script>
+  <script src="/painel/painel.js?v=20261029r" defer></script>
   <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
 </body>
 </html>
