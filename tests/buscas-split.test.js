@@ -72,7 +72,7 @@ function summaryOf(tables, uploadId) {
 }
 async function buscasView(tables) {
   const server = { ...realServer, allRows: async (_ctx, table) => tables[table] || [], rows: async (_ctx, table, params = {}) => (tables[table] || []).filter((row) => params.undone_at !== 'is.null' || !row.undone_at),
-    panelMeta: async () => ({}), rpc: async (_ctx, name, args) => name === 'panel_manheim_batch_summary' ? summaryOf(tables, args.p_upload_id) : [] };
+    panelMeta: async () => ({}), rpc: async (_ctx, name, args) => (name === 'panel_manheim_batch_summary' || name === 'panel_manheim_batch_summary_v2') ? summaryOf(tables, args.p_upload_id) : [] };
   const view = loadWith('panel-buscas-view.js', {
     './panel-server': server,
     './panel-ready': { score: () => ({}), loadScoreIndex: async () => [] },

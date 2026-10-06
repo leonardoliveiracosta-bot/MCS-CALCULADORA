@@ -2,19 +2,26 @@
 const match = require('./vehicle-match');
 const catalog = require('./vehicle-catalog');
 const requests = require('./vehicle-requests');
+const { offerExpired } = require('./manheim-offer');
+const EXPIRED_TEXT = 'As opções encontradas neste lote já expiraram';
 const reason = (code, text, step) => ({ code, text, step });
 function wishReason(wish, cars, { target = null } = {}) {
   if (!catalog.recognized(wish.model, wish.make)) return reason('UNKNOWN_MODEL','modelo não reconhecido',0);
   const mode = target?.mode || requests.searchModeOf(wish);
   const bid = wish.budgetUsd ? wish.budgetUsd * 100 : target?.bidCents;
-  const eligible = (cars || []).filter((car) => match.qualityEligible(car,wish) && match.characteristicsFit(car,wish,mode,bid));
-  if (!eligible.length) return reason('NO_CAR','sem carro no lote',1);
+  // An auction already started or ended is not eligible now.
+  const fits = (car) => match.qualityEligible(car,wish) && match.characteristicsFit(car,wish,mode,bid);
+  const found = (cars || []).filter(fits);
+  const eligible = found.filter((car) => !offerExpired(car));
+  if (!eligible.length) return found.some(match.hasValidMmr) ? reason('EXPIRED',EXPIRED_TEXT,4) : reason('NO_CAR','sem carro no lote',1);
   const withMmr = eligible.filter(match.hasValidMmr);
   if (!withMmr.length) return reason('NO_MMR','só carros sem MMR',2);
   if (mode === 'VALOR') return reason('VALUE','valor não alcança',3);
   return reason('NO_CAR','sem carro no lote',1);
 }
 function reasonFor(item, carsByMake) {
+  // The batch summary already proved that every option this request had in the batch expired.
+  if (item.expired) return reason('EXPIRED',EXPIRED_TEXT,4);
   const cars = [...carsByMake.values()].flat();
   const targets = item.targets?.length ? item.targets : requests.targetsOf(item.criteria);
   const reasons = targets.flatMap((target) => (target.wishes || []).map((wish) => wishReason(wish,cars,{target})));
@@ -28,4 +35,4 @@ async function emptyReasons(ctx, items, uploadId, read) {
   const cars = new Map([['all',rows.map((r) => r.vehicle_json).filter(Boolean)]]);
   return Object.fromEntries(items.map((item) => [item.key,reasonFor(item,cars)]));
 }
-module.exports = { wishReason, reasonFor, emptyReasons };
+module.exports = { EXPIRED_TEXT, wishReason, reasonFor, emptyReasons };

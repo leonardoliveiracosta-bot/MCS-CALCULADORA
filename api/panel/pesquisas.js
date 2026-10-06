@@ -28,6 +28,7 @@ const toFicha = require('../../panel-search-to-ficha');
 const rematch = require('../../panel-rematch');
 const { emptyReasons } = require('../../search-empty-reason');
 const merge = require('../../panel-request-merge');
+const buscasView = require('../../panel-buscas-view');
 
 const COMPARE_BATCH = 40;
 const safe = (promise, fallback) => promise.catch((error) => { if (search.tableMissing(error)) return fallback; throw error; });
@@ -43,15 +44,21 @@ const wishText = (demand) => (demand.wishes || []).map((wish) => {
 async function buildList(ctx) {
   const [base, upload] = await Promise.all([loadBuscasBase(ctx, { allRows }), latestActiveUpload(ctx, 'id,uploaded_at')]);
   const uploadId = upload ? upload.id : null;
-  const [summary, snapshot, checks, conversation] = await Promise.all([
-    uploadId ? supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/rpc/panel_manheim_batch_summary', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p_environment: ctx.environment, p_upload_id: uploadId }) }).catch(() => []) : [],
+  const [summary, snapshot, syncs, checks, conversation] = await Promise.all([
+    uploadId ? buscasView.batchSummary(ctx, uploadId).catch(() => null) : [],
     uploadId ? rows(ctx, 'manheim_uploads', { select: 'targets_json', environment: 'eq.' + ctx.environment, id: 'eq.' + uploadId, limit: '1' }).then((found) => found[0]?.targets_json || []).catch(() => []) : [],
+    uploadId ? allRows(ctx, 'manheim_demand_syncs', { select: 'demand_key,criteria_hash,synced_at', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId }).catch(() => []) : [],
     uploadId ? safe(allRows(ctx, 'vehicle_request_checks', { select: 'request_key,criteria_hash,upload_id,result,option_count,compared_at', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId }), null) : [],
     loadConversationRequests(ctx)
   ]);
   const checkByKey = new Map((checks || []).map((row) => [row.request_key + '|' + row.criteria_hash, row]));
   const summaryByKey = new Map((summary || []).map((row) => [row.demand_key, row]));
-  const importedHash = new Map((Array.isArray(snapshot) ? snapshot : []).map((target) => [target.key, target.criteriaHash]));
+  // Proof that a ficha/calculator demand was compared with the active batch with its current
+  // criterion: the import snapshot or manheim_demand_syncs (the same proof as ENVIAR OPÇÕES).
+  const proven = buscasView.comparedKeys(Array.isArray(snapshot) ? snapshot : [], syncs) || new Set();
+  const syncedAt = new Map((syncs || []).map((row) => [row.demand_key + '|' + row.criteria_hash, row.synced_at]));
+  // The same targets (and criteriaHash, reactivation included) that ENVIAR OPÇÕES and the rematch use.
+  const context = buscasView.demandContext(base);
   const lastCustomer = lastCustomerByJourney(base);
   const items = [];
   // Ficha requests: only a client who really wrote (panel-contact.js) and is still workable: not
@@ -68,14 +75,17 @@ async function buildList(ctx) {
     if (demand.active) {
       // Demand ready in its own mode (CARRO: vehicle, years and mileage; VALOR: model and the official
       // bid): the current matcher, and the import result when the criterion is the same.
-      const target = { ...matchTarget(demand), reactivation: false };
-      const hash = targetHash(target);
-      const item = { ...common, key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'PRONTO', searchMode: demand.mode, missing: [], lacks: {}, comparable: true, official: true, criteriaHash: hash, targets: [target] };
-      let check = checkByKey.get(key + '|' + hash) || null;
-      if (!check && uploadId && importedHash.has(demand.key) && importedHash.get(demand.key) === hash) {
-        const row = summaryByKey.get(demand.key);
-        const served = row ? (row.bate_count || 0) + (row.por_valor_count || 0) : 0;
-        check = { upload_id: uploadId, criteria_hash: hash, result: served ? 'HAS_OPTIONS' : 'NO_OPTIONS', option_count: served, compared_at: upload.uploaded_at, fromImport: true };
+      const live = context.targetByKey.get(demand.key);
+      const target = live ? { ...live } : { ...matchTarget(demand), reactivation: false };
+      const hash = live ? live.criteriaHash : targetHash(target);
+      const item = { ...common, key, demandKey: demand.key, criteriaText: wishText({ ...demand, wishes: demand.activeWishes }), completeness: 'PRONTO', searchMode: demand.mode, missing: [], lacks: {}, comparable: true, official: true, criteriaHash: hash, targets: [target] };
+      // Out of "Ainda não comparado" only with the proof of this criterion against the active batch;
+      // the counts are the options eligible NOW (same summary as ENVIAR OPÇÕES).
+      let check = null;
+      if (uploadId && proven.has(demand.key + '|' + hash) && summary !== null) {
+        const counts = buscasView.batchCounts(summaryByKey.get(demand.key), target.reactivation === true);
+        check = { upload_id: uploadId, criteria_hash: hash, result: counts.matchCount ? 'HAS_OPTIONS' : 'NO_OPTIONS', option_count: counts.matchCount,
+          expired: counts.expired, compared_at: syncedAt.get(demand.key + '|' + hash) || upload.uploaded_at, fromImport: !syncedAt.has(demand.key + '|' + hash) };
       }
       items.push(finish(item, check, uploadId));
       continue;
@@ -143,8 +153,11 @@ function finish(item, check, uploadId) {
   const state = result || item.completeness;
   const lackingOne = item.completeness === 'PRECISA_DETALHE' && Object.keys(item.lacks || {}).length === 1 ? item.lacksText.toUpperCase() : null;
   const label = [requests.COMPLETENESS_LABELS[item.completeness], item.searchMode ? requests.MODE_LABELS[item.searchMode] : null, lackingOne, result ? requests.RESULT_LABELS[result] : null].filter(Boolean).join(' · ');
+  const counted = result === 'COM_OPCOES' || result === 'COM_CANDIDATOS' || result === 'SEM_OPCAO';
   return { ...item, result, state, stateLabel: label, completenessLabel: requests.COMPLETENESS_LABELS[item.completeness],
-    optionCount: result === 'COM_OPCOES' || result === 'COM_CANDIDATOS' || result === 'SEM_OPCAO' ? check.option_count : null,
+    optionCount: counted ? check.option_count : null,
+    // Every option found in this batch already expired: never "sem carro no lote".
+    expired: result === 'SEM_OPCAO' && check.expired === true,
     comparedAt: result && result !== 'FALTA_BUSCAR' ? check.compared_at : null, comparedUploadId: check ? check.upload_id : null, comparedAtImport: Boolean(check && check.fromImport) };
 }
 function lastCustomerByJourney(base) {
@@ -160,9 +173,10 @@ async function loadConversationRequests(ctx) {
   if (stored === null) return { requests: [], pending: true };
   if (!stored.length) return { requests: [], pending: false };
   const versions = await allRows(ctx, 'vehicle_request_versions', { select: 'id,request_id,criteria_json,missing_fields,evidence_json,confidence,needs_review,review_reason,criteria_hash,created_at', environment: env, order: 'created_at.asc,id.asc' });
-  const latest = new Map();
+  // Only the latest version is the active request; the older ones are its history.
+  const latest = require('../../panel-request-demands').latestVersions(versions);
   const versionCount = new Map();
-  versions.forEach((version) => { latest.set(version.request_id, version); versionCount.set(version.request_id, (versionCount.get(version.request_id) || 0) + 1); });
+  versions.forEach((version) => { versionCount.set(version.request_id, (versionCount.get(version.request_id) || 0) + 1); });
   const ids = [...new Set([...latest.values()].flatMap((version) => Object.values(version.evidence_json || {}).flat()))].filter(isUuid);
   const messages = new Map();
   for (let index = 0; index < ids.length; index += 100) {
@@ -394,11 +408,25 @@ async function compare(ctx, startedAt = Date.now(), skipKeys = []) {
   // Requests that failed earlier in this click go last, so they never block the rest.
   const skip = new Set(Array.isArray(skipKeys) ? skipKeys.map(String) : []);
   const pending = list.items.filter((item) => item.state === 'FALTA_BUSCAR' && !skip.has(item.key));
-  const result = await search.compareItems(ctx, pending.slice(0, COMPARE_BATCH), { services: { upsertCheck }, deadlineAt: startedAt + COMPARE_BUDGET_MS });
-  const failed = result.failed || [];
-  const remaining = Math.max(0, pending.length - result.compared - failed.length);
-  const out = { status: 200, uploadId: result.uploadId, compared: result.compared, failed, remaining, carried: 0, carryLeft: 0, carrySkipped: {}, options: null };
-  if (remaining || !result.uploadId) return out;
+  // A ficha/calculator demand is compared by the one mechanism of ENVIAR OPÇÕES (rematchDemands:
+  // manheim_matches + manheim_demand_syncs), so BUSCAR CARROS and ENVIAR OPÇÕES change together.
+  // Only a request read from a conversation and not yet on a ficha keeps its own check.
+  const demandItems = pending.filter((item) => item.demandKey).slice(0, COMPARE_BATCH);
+  const otherItems = pending.filter((item) => !item.demandKey).slice(0, Math.max(0, COMPARE_BATCH - demandItems.length));
+  const failed = [];
+  let compared = 0, uploadId = list.uploadId;
+  if (demandItems.length && uploadId) {
+    const done = await rematch.rematchDemands(ctx, [...new Set(demandItems.map((item) => item.demandKey))], { base: list.base, deadlineAt: startedAt + COMPARE_BUDGET_MS });
+    const status = new Map(done.map((entry) => [entry.key, entry.status]));
+    demandItems.forEach((item) => { const state = status.get(item.demandKey); if (state === 'DONE') compared += 1; else if (state !== 'SKIPPED_TIME') failed.push(item.key); });
+  }
+  if (otherItems.length && Date.now() < startedAt + COMPARE_BUDGET_MS) {
+    const result = await search.compareItems(ctx, otherItems, { services: { upsertCheck }, deadlineAt: startedAt + COMPARE_BUDGET_MS });
+    compared += result.compared; failed.push(...(result.failed || [])); uploadId = result.uploadId || uploadId;
+  }
+  const remaining = Math.max(0, pending.length - compared - failed.length);
+  const out = { status: 200, uploadId, compared, failed, remaining, carried: 0, carryLeft: 0, carrySkipped: {}, options: null };
+  if (remaining || !uploadId) return out;
   // Then the conversation requests reach the ficha and OPÇÕES: each complete request whose ficha
   // has no car yet is written on the ficha (same path as marking a car on the customer's message),
   // and every request whose criterion was not compared with the active batch is compared now.
@@ -445,7 +473,8 @@ async function editRequest(ctx, body) {
     if (ctx.readCache) ctx.readCache.clear();
     const after = await buildList(ctx);
     const updated = after.items.find((entry) => entry.key === item.key);
-    const comparison = updated ? await search.compareItems(ctx,[updated],{services:{upsertCheck}}) : null;
+    // A conversation request keeps its own check; a ficha demand is compared by the rematch below.
+    const comparison = updated && !updated.demandKey ? await search.compareItems(ctx,[updated],{services:{upsertCheck}}) : null;
     const journeyId = item.person?.journeyId;
     const keys = journeyId ? (after.base.demands.byJourney.get(journeyId) || []).filter((d) => d.active).map((d) => d.key) : [];
     const options = keys.length ? await rematch.rematchDemands(ctx,keys,{base:after.base}) : [];

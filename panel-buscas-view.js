@@ -40,6 +40,29 @@ function comparedKeys(targets, syncs) {
   return known;
 }
 
+// Counts of the active batch per demand: options eligible NOW (no past auction, valid MMR) and
+// stored_count (cars the demand has in this batch, eligible or not). Before migration
+// 20261030010000 the old summary answers (no stored count).
+async function batchSummary(ctx, uploadId, call = rpc) {
+  const args = { p_environment: ctx.environment, p_upload_id: uploadId };
+  try { return await call(ctx, 'panel_manheim_batch_summary_v2', args); }
+  catch (error) {
+    if (!/PGRST202|42883|does not exist|Could not find the function/i.test(String(error && (error.code || error.message) || ''))) throw error;
+    return call(ctx, 'panel_manheim_batch_summary', args);
+  }
+}
+
+// What a demand has in the active batch, from the summary row: options eligible now, the served
+// count and whether every option found already expired. A ficha waiting to be switched on again
+// only shows BATE.
+function batchCounts(row, reactivation = false) {
+  const bate = row ? Number(row.bate_count) || 0 : 0;
+  const porValor = row && !reactivation ? Number(row.por_valor_count) || 0 : 0;
+  const total = row ? (reactivation ? bate : Number(row.match_count) || 0) : 0;
+  const stored = row && row.stored_count !== undefined && row.stored_count !== null ? Number(row.stored_count) || 0 : null;
+  return { matchCount: total, bateCount: bate, porValorCount: porValor, servedCount: bate + porValor, storedCount: stored, expired: total === 0 && stored !== null && stored > 0 };
+}
+
 function emptyCounts() {
   return { demands: 0, people: 0, served: 0, matches: 0, review: 0 };
 }
@@ -193,7 +216,7 @@ async function manheimView(ctx, options = {}) {
   const activeIdsEarly = uploads.filter((row) => !row.undone_at).map((row) => row.id).concat(latest && !uploads.some((row) => row.id === latest.id) ? [latest.id] : []);
   const [summaryRead, offerRead, carsRead, hiddenRead, targetsRead, syncsRead] = await Promise.all([
     // A slow or failed summary never takes the whole tab down: only its counts say "Resumo indisponível".
-    latest && batchOn ? rpc(ctx, 'panel_manheim_batch_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch((error) => { console.error('[buscas-summary]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : [],
+    latest && batchOn ? batchSummary(ctx, latest.id).catch((error) => { console.error('[buscas-summary]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : [],
     latest && batchOn ? rpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch(() => null) : [],
     batchOn && activeIdsEarly.length ? rpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIdsEarly }).catch(() => []) : [],
     rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' }).then((found) => found.map((row) => row.upload_id)).catch(() => null),
@@ -219,8 +242,8 @@ async function manheimView(ctx, options = {}) {
     const row = summaryByKey.get(demand.key);
     const reactivation = Boolean(target && target.reactivation);
     // A ficha waiting to be switched on again only shows exact fits (BATE).
-    const matchCount = row ? (reactivation ? row.bate_count : row.match_count) : 0;
-    const servedCount = row ? (reactivation ? row.bate_count : row.bate_count + row.por_valor_count) : 0;
+    const batchNow = batchCounts(row, reactivation);
+    const { matchCount, servedCount } = batchNow;
     const hashes = row && Array.isArray(row.criteria_hashes) ? row.criteria_hashes : [];
     const stale = Boolean(row && target && hashes.length && (hashes.length > 1 || hashes[0] !== target.criteriaHash));
     if (matchCount) { counts[demand.mode].matches += matchCount; counts.total.matches += matchCount; }
@@ -229,8 +252,10 @@ async function manheimView(ctx, options = {}) {
       key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId || null, ref: demand.ref || null, wishes: demand.activeWishes,
       bidCents: demand.mode === 'VALOR' ? demand.bidCents : null, issues: demand.issues, ...demandPerson(base, demand), stage: stage && stage.stage || null, stageLabel: stage && stage.label || null,
       reactivation, criteriaHash: target ? target.criteriaHash : null, matchCount,
-      // Already compared with the active batch with today's criterion (null when unknown).
-      compared: compared && target ? compared.has(demand.key + '|' + target.criteriaHash) || matchCount > 0 : null, bateCount: row ? row.bate_count : 0, porValorCount: reactivation ? 0 : row ? row.por_valor_count : 0, presentedCount: row ? row.presented_count : 0, stale,
+      // Compared with the active batch with today's criterion: only the proof (import snapshot or
+      // manheim_demand_syncs) says so, never the options it happens to have (null when unknown).
+      compared: compared && target ? compared.has(demand.key + '|' + target.criteriaHash) : null, bateCount: batchNow.bateCount, porValorCount: batchNow.porValorCount,
+      storedCount: batchNow.storedCount, expired: batchNow.expired, presentedCount: row ? row.presented_count : 0, stale,
       offer: offerByKey ? offerCounts(offerByKey.get(demand.key)) : null,
       // The selection could not be read (migration pending): say so, never zero.
       offerPending: Boolean(latest && batchOn && !offerByKey)
@@ -272,4 +297,4 @@ async function manheimView(ctx, options = {}) {
   };
 }
 
-module.exports = { comparedKeys, manheimView, loadUploads, loadMatchTargets, demandContext, auditInputFor, auditOptions, latestLiveUpload, liveOptions };
+module.exports = { batchCounts, batchSummary, comparedKeys, manheimView, loadUploads, loadMatchTargets, demandContext, auditInputFor, auditOptions, latestLiveUpload, liveOptions };
