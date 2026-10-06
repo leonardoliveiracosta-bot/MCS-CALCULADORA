@@ -122,6 +122,7 @@ a:focus-visible,
 /* Ação principal: dourado com texto preto, só onde decide o próximo passo */
 button[type="submit"],
 .today-card .today-primary,
+.vitrine-request-card .today-primary,
 .client-card > .inline-actions > button:first-child,
 .lead-call,
 #auto-print-send,
@@ -300,7 +301,6 @@ body > .action-feedback,
 .vitrine-requests h3,
 .vitrine-signal,
 .v2-deposit { color: var(--mcs-gold-text); }
-.vitrine-request-card { border-color: var(--mcs-line); border-radius: var(--mcs-radius-sm); background: var(--mcs-card); color: var(--mcs-text); }
 .vitrine-request-card .auction-alert { color: var(--mcs-red); }
 .vitrine-signal { border-color: rgb(198 150 50 / 45%); }
 .v2-builder { border-color: var(--mcs-line); background: var(--mcs-elevated); }
