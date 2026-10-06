@@ -62,6 +62,11 @@ async function payload(ctx,services={}){
   vitrines.forEach((vitrine)=>{if(vitrine.parent_vitrine_id){if(!childrenByParent.has(vitrine.parent_vitrine_id))childrenByParent.set(vitrine.parent_vitrine_id,[]);childrenByParent.get(vitrine.parent_vitrine_id).push(vitrine);}});
   const eventsByVitrine=new Map();
   events.forEach((event)=>{if(!eventsByVitrine.has(event.vitrine_id))eventsByVitrine.set(event.vitrine_id,[]);eventsByVitrine.get(event.vitrine_id).push(event);});
+  // "Tirar da lista": the latest DISMISS mark of each vitrine (treated_at set). A new tap or bid after
+  // it brings the card back; Desfazer (treated_at null) brings it back at once.
+  const dismissedAt=new Map();
+  requests.filter((request)=>request.request_kind==='DISMISS'&&request.treated_at).forEach((request)=>{const at=Date.parse(request.treated_at);if(!dismissedAt.has(request.vitrine_id)||at>dismissedAt.get(request.vitrine_id))dismissedAt.set(request.vitrine_id,at);});
+  const dismissedSince=(vitrine,at)=>dismissedAt.has(vitrine.id)&&dismissedAt.get(vitrine.id)>=Date.parse(at||0);
   const requestsByCar=new Map();
   requests.forEach((request)=>{const key=request.vitrine_id+'|'+request.vitrine_car_id;if(!requestsByCar.has(key))requestsByCar.set(key,[]);requestsByCar.get(key).push(request);});
   const budgetByJourney=new Map(journeys.map((row)=>[row.id,row.budget_cents||null]));
@@ -95,7 +100,7 @@ async function payload(ctx,services={}){
     const carList=carsByVitrine.get(vitrine.id)||[];
     const contact={name:contactName(vitrine),phone:phoneFor(vitrine.contact_id)};
     if(vitrine.version==='V1'){
-      if(expired(vitrine)){v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now),expiredAt:vitrine.expires_at});return;}
+      if(expired(vitrine)){if(dismissedAt.has(vitrine.id))return;v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now),expiredAt:vitrine.expires_at});return;}
       const v2children=(childrenByParent.get(vitrine.id)||[]).filter((child)=>child.version==='V2');
       const tapsByCar=new Map();
       (eventsByVitrine.get(vitrine.id)||[]).filter((event)=>event.event_type==='TAP'&&event.vitrine_car_id).forEach((event)=>{
@@ -104,6 +109,7 @@ async function payload(ctx,services={}){
       let tappedAny=false;
       tapsByCar.forEach((tap,carId)=>{
         if(v2children.length)return; // the V2 exists: the client moved to the V2 tab
+        if(dismissedSince(vitrine,tap.created_at))return;
         const car=carList.find((item)=>item.id===carId);if(!car)return;
         const reqs=requestsByCar.get(vitrine.id+'|'+carId)||[];
         // "Pedido atendido" (treated) after the tap takes the card out of the action zone.
@@ -112,15 +118,18 @@ async function payload(ctx,services={}){
         tappedAny=true;
         v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),vin:vinOf(car),sentAt:vitrine.created_at,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents:vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null});
       });
-      if(!tappedAny&&!v2children.length)v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)});
+      if(!tappedAny&&!v2children.length&&!dismissedAt.has(vitrine.id))v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)});
       return;
     }
     if(vitrine.version==='V2'){
       const firstCar=carList[0]||{};
       const item={vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(firstCar.vehicle_snapshot||{}),vin:vinOf(firstCar),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)};
-      if(expired(vitrine)){v2.expired.push({...item,expiredAt:vitrine.expires_at});return;}
+      if(expired(vitrine)){if(!dismissedAt.has(vitrine.id))v2.expired.push({...item,expiredAt:vitrine.expires_at});return;}
       const bidRequest=(requests||[]).find((req)=>req.vitrine_id===vitrine.id&&req.request_kind==='BID'&&!req.treated_at);
       const bidTap=(eventsByVitrine.get(vitrine.id)||[]).find((event)=>event.event_type==='TAP');
+      // The latest bid signal (request or tap); a dismissal older than it does not hide the card.
+      const bidAt=[bidRequest,bidTap].filter(Boolean).map((row)=>row.created_at).sort((a,b)=>Date.parse(b)-Date.parse(a))[0]||null;
+      if(dismissedSince(vitrine,bidAt||vitrine.created_at))return;
       if(bidRequest||bidTap){v2.bid.push({...item,bidAt:(bidRequest||bidTap).created_at,bidAgo:since((bidRequest||bidTap).created_at,now)});}
       else v2.waiting.push(item);
     }

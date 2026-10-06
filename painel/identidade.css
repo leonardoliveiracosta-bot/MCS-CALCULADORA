@@ -1117,7 +1117,7 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 
 /* ---------- Buscar carros, Enviar opções e Clientes com a identidade do Atendimento ---------- */
 #requests-panel, #searches-panel, #clients-panel { counter-reset: mcs-card; }
-:is(#requests-panel, #searches-panel, #clients-panel) :is(.card, .buscas-column, .item-card) { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 14px; box-shadow: none; color: #1B1A18; }
+:is(#requests-panel, #searches-panel, #clients-panel) :is(.card, .buscas-column, .item-card:not(.vitrine-request-card)) { font-family: "Noto Sans", system-ui, sans-serif; background: #FFFFFF; border: 1px solid #E7E1D7; border-radius: 14px; box-shadow: none; color: #1B1A18; }
 :is(#requests-panel, #searches-panel, #clients-panel) :is(.card, .buscas-column) { padding: 20px 20px 18px; }
 :is(#requests-panel, #searches-panel, #clients-panel) .item-card { padding: 16px 18px; }
 :is(#requests-panel, #searches-panel, #clients-panel) .item-card .item-card { border-color: #EEE8DE; }
@@ -1415,3 +1415,9 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #clients-list .client-grid { margin: 8px 0 18px; }
 #clients-list .client-card.client-row { display: block; }
 #clients-list .today-card .client-last-message { margin: 10px 0 0; font-size: 13px; }
+
+/* ENVIAR OPÇÕES: o cartão da fila usa o formato dos cartões de V1/V2 (mesma medida, nome e linha de contato). */
+#searches-panel .vitrine-request-card { padding: 16px; }
+#searches-panel .vitrine-request-card > header strong { font-size: 15px; font-weight: 700; line-height: inherit; }
+#searches-panel .vitrine-request-card > .muted { color: #52525B; }
+#searches-panel .vitrine-request-card > .options-queue-reason { font-weight: 400; }

@@ -1,6 +1,6 @@
 'use strict';
 
-const {allRows,isUuid,jsonBody,patchRows,requirePanel,send}=require('../../panel-server');
+const {allRows,insert,isUuid,jsonBody,patchRows,requirePanel,send}=require('../../panel-server');
 const {deposit,vehicleName}=require('../../vitrine-domain');
 const {normalizePayment,toggleEnabled}=require('../../panel-domain');
 const {loadClassification}=require('../../panel-classification');
@@ -20,7 +20,7 @@ const since=(value,now=Date.now())=>{
 // belongs to exactly one ficha. It falls into the three Ref states (never into a fourth "unknown" bucket).
 async function payload(ctx){
   const [requests,vitrines,cars,contacts,phones,events,journeys,toggles,dispositions,journeyRefs]=await Promise.all([
-    allRows(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,contact_id,journey_id,request_kind,referred,created_at,treated_at',environment:'eq.'+ctx.environment,treated_at:'is.null',order:'created_at.desc'}),
+    allRows(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,contact_id,journey_id,request_kind,referred,created_at,treated_at',environment:'eq.'+ctx.environment,treated_at:'is.null',request_kind:'in.(VIEW,BID)',order:'created_at.desc'}),
     allRows(ctx,'vitrines',{select:'id,contact_id,journey_id,reference_code,customer_name,version,created_at',environment:'eq.'+ctx.environment}),
     allRows(ctx,'vitrine_cars',{select:'id,vitrine_id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment}),
     allRows(ctx,'contacts',{select:'id,display_name,is_lead',environment:'eq.'+ctx.environment}),
@@ -77,5 +77,23 @@ async function payload(ctx){
   return {requests:openRequests,signals};
 }
 
-module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='GET')return send(res,200,await payload(ctx));if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});const body=await jsonBody(req,4096);if(!isUuid(body.requestId)||!['treat','undo'].includes(body.action))return send(res,400,{error:'VITRINE_REQUEST_INVALID'});await patchRows(ctx,'vitrine_requests',{id:'eq.'+body.requestId,environment:'eq.'+ctx.environment},{treated_at:body.action==='treat'?new Date().toISOString():null});return send(res,200,{ok:true});}catch(_){return send(res,500,{error:'VITRINE_REQUEST_UNAVAILABLE'});}};
+// "Tirar da lista" (V1/V2): the same mark as "Pedido atendido" (treated_at), on a row of its own
+// kind (DISMISS) per vitrine, so Desfazer (treated_at back to null) never turns into an open
+// customer request. Nothing is deleted; dismissing again reuses the same row.
+async function dismiss(ctx,body,services={}){
+  const read=services.allRows||allRows,write=services.insert||insert,patch=services.patchRows||patchRows;
+  if(!isUuid(body.vitrineId))return {error:'VITRINE_REQUEST_INVALID'};
+  const [vitrine]=await read(ctx,'vitrines',{select:'id,contact_id,journey_id',environment:'eq.'+ctx.environment,id:'eq.'+body.vitrineId,limit:'1'});
+  if(!vitrine)return {error:'VITRINE_NOT_FOUND'};
+  const now=new Date().toISOString();
+  const [existing]=await read(ctx,'vitrine_requests',{select:'id',environment:'eq.'+ctx.environment,vitrine_id:'eq.'+vitrine.id,request_kind:'eq.DISMISS',order:'created_at.desc',limit:'1'});
+  if(existing){await patch(ctx,'vitrine_requests',{id:'eq.'+existing.id,environment:'eq.'+ctx.environment},{treated_at:now});return {requestId:existing.id};}
+  const [car]=await read(ctx,'vitrine_cars',{select:'id',environment:'eq.'+ctx.environment,vitrine_id:'eq.'+vitrine.id,limit:'1'});
+  if(!car)return {error:'VITRINE_CAR_MISSING'};
+  const [created]=await write(ctx,'vitrine_requests',{environment:ctx.environment,vitrine_id:vitrine.id,vitrine_car_id:car.id,contact_id:vitrine.contact_id||null,journey_id:vitrine.journey_id||null,request_kind:'DISMISS',referred:false,treated_at:now},false);
+  return {requestId:created.id};
+}
+
+module.exports=async(req,res)=>{const ctx=await requirePanel(req,res);if(!ctx)return;try{if(req.method==='GET')return send(res,200,await payload(ctx));if(req.method!=='POST')return send(res,405,{error:'METHOD_NOT_ALLOWED'});const body=await jsonBody(req,4096);if(body.action==='dismiss'){const out=await dismiss(ctx,body);return send(res,out.error?(out.error==='VITRINE_NOT_FOUND'?404:400):200,out);}if(!isUuid(body.requestId)||!['treat','undo'].includes(body.action))return send(res,400,{error:'VITRINE_REQUEST_INVALID'});await patchRows(ctx,'vitrine_requests',{id:'eq.'+body.requestId,environment:'eq.'+ctx.environment},{treated_at:body.action==='treat'?new Date().toISOString():null});return send(res,200,{ok:true});}catch(_){return send(res,500,{error:'VITRINE_REQUEST_UNAVAILABLE'});}};
 module.exports.payload=payload;
+module.exports.dismiss=dismiss;
