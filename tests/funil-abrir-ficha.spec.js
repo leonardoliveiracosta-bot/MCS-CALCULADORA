@@ -1,6 +1,6 @@
 'use strict';
 
-// Abas V1 e V2: "Abrir ficha" abre a ficha em todo cartão: ativo, V1 expirada e V2 expirada.
+// Abas V1 e V2: "Abrir ficha" abre a ficha em todo cartão: V1 tocada e V2 expirada.
 // Cartão sem pedido ligado diz por quê, em vez de um botão morto.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/funil-abrir-ficha.spec.js
 const { test, expect } = require('@playwright/test');
@@ -15,12 +15,12 @@ const ago = (hours) => new Date(Date.now() - hours * 3600000).toISOString();
 const person = (n, extra = {}) => ({ vitrineId: id(100 + n), name: 'Cliente ' + n, phone: '+1305555010' + n, referenceCode: 'REF' + n + 'A', journeyId: id(n), ...extra });
 const FUNNEL = {
   v1: {
-    tapped: [],
-    waiting: [person(1, { cars: ['2022 Jeep Wrangler'], vins: ['VIN1'], sentAt: ago(5), ago: 'há 5 h' }), person(4, { journeyId: null, journeyMissing: 'SEM_PEDIDO', cars: ['2021 Ford F-150'], vins: ['VIN4'], sentAt: ago(5), ago: 'há 5 h' })],
+    tapped: [person(1, { vitrineCarId: id(201), car: '2022 Jeep Wrangler', vin: 'VIN1', sentAt: ago(5), tapAt: ago(4), ago: 'há 4 h' }), person(4, { journeyId: null, journeyMissing: 'SEM_PEDIDO', vitrineCarId: id(204), car: '2021 Ford F-150', vin: 'VIN4', sentAt: ago(5), tapAt: ago(4), ago: 'há 4 h' })],
+    waiting: [],
     expired: [person(2, { cars: ['2020 Honda CR-V'], vins: ['VIN2'], sentAt: ago(80), expiredAt: ago(8) })]
   },
   v2: { bid: [], waiting: [], expired: [person(3, { car: '2019 Toyota Camry', vin: 'VIN3', sentAt: ago(90), expiredAt: ago(10) })] },
-  counts: { v1Action: 0, v2Action: 0 }
+  counts: { v1Action: 2, v2Action: 0 }
 };
 
 async function openPanel(page, opened) {
@@ -46,7 +46,7 @@ async function openFrom(page, view, card, opened, journeyId) {
   await expect(page.locator(`#${view}-list`)).toBeVisible({ timeout: 30000 });
 }
 
-test('Abrir ficha abre a ficha no cartão ativo, na V1 expirada e na V2 expirada', async ({ page }) => {
+test('Abrir ficha abre a ficha no cartão da V1 tocada e na V2 expirada', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   const opened = [];
   await openPanel(page, opened);
@@ -56,9 +56,8 @@ test('Abrir ficha abre a ficha no cartão ativo, na V1 expirada e na V2 expirada
   const active = v1.locator('.vitrine-request-card', { hasText: 'Cliente 1' });
   await expect(active).toBeVisible({ timeout: 30000 });
   await openFrom(page, 'v1', active, opened, id(1));
-  // Expirada da V1: dentro de "Expiradas".
-  await v1.locator('details > summary', { hasText: 'Expiradas' }).click();
-  await openFrom(page, 'v1', v1.locator('.vitrine-request-card', { hasText: 'Cliente 2' }), opened, id(2));
+  // A aba V1 lista só "Tocou · falta a V2": a V1 expirada não aparece mais na lista.
+  await expect(v1.locator('details > summary', { hasText: 'Expiradas' })).toHaveCount(0);
   // V1 sem pedido para ligar: o cartão diz por quê, sem botão morto.
   const orphan = v1.locator('.vitrine-request-card', { hasText: 'Cliente 4' });
   await expect(orphan.getByRole('button', { name: 'Abrir ficha' })).toHaveCount(0);

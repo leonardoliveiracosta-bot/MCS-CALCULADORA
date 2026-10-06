@@ -2385,9 +2385,10 @@
   // and has Desfazer. A tapped car marks its own request (as before; created on the spot when the tap
   // has none yet); every other card gets the same mark on the vitrine (server: action "dismiss").
   // One card can stand for several V1s/cars of the same client: every one of them is marked (and undone) together.
-  function treatedButton(itemOrItems,card,view){
+  // On the V1 tab the same button reads "Excluir": one click takes the client out of "Tocou · falta a V2".
+  function treatedButton(itemOrItems,card,view,label='Pedido atendido'){
     const items=Array.isArray(itemOrItems)?itemOrItems:[itemOrItems],item=items[0];
-    const treated=element('button','quiet small funnel-treated','Pedido atendido');treated.type='button';treated.dataset.action='funnel-treated';
+    const treated=element('button','quiet small funnel-treated',label);treated.type='button';treated.dataset.action='funnel-treated';
     let marks=[];
     const reload=()=>Promise.all([loadCurrent(view,viewRequestVersion),refreshCounters().catch(()=>{})]);
     MCSAction.bind(treated,()=>({scope:card,successScope:document.body,feedbackKey:`vitrine-funnel:${items.map((one)=>one.vitrineId+':'+(one.vitrineCarId||'')).join(',')}`,
@@ -2402,10 +2403,10 @@
         return {ok:true};
       },
       rollback:()=>{card.classList.remove('action-optimistic-hidden');},
-      successText:'Pedido marcado como atendido',
+      successText:label==='Excluir'?'Cliente excluído da lista':'Pedido marcado como atendido',
       undo:{commit:()=>Promise.all(marks.map((id)=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:id}))),successText:'Voltou para a lista',refresh:reload},
       refresh:reload,
-      errorText:'Não consegui marcar como atendido, tente de novo'}));
+      errorText:label==='Excluir'?'Não consegui excluir, tente de novo':'Não consegui marcar como atendido, tente de novo'}));
     treated.addEventListener('click',(event)=>event.stopPropagation());
     return treated;
   }
@@ -2476,15 +2477,8 @@
     }
     actions.append(openFichaButton(first));
     if(tapped)actions.append(v2PickerButton(first,card));
-    actions.append(treatedButton(group,card,'v1'));
+    actions.append(treatedButton(group,card,'v1','Excluir'));
     return card;
-  }
-  function v1ClientDetails(title,groups,status,unsent){
-    if(!groups.length)return null;
-    const det=element('details','card funnel-details');const summary=element('summary','');summary.append(element('strong','',`${title} (${groups.length})`));det.append(summary);
-    const stack=element('div','stack funnel-grid');
-    groups.forEach((group)=>stack.append(v1ClientCard(group,{status:status(group),unsent})));
-    det.append(stack);return det;
   }
   // The client's V1 screen: everything the client received in V1 (cars, VIN, when it was sent, which
   // cars were tapped), with Voltar. The ficha opens only from "Abrir ficha".
@@ -2568,19 +2562,12 @@
     if(view==='v1'){
       v1FunnelData=data;
       const v1=(data&&data.v1)||{tapped:[],waiting:[],expired:[]};
-      // One card per client in every section (by Ref; without a Ref, by phone).
-      const tapped=v1ClientGroups(v1.tapped),waiting=v1ClientGroups(v1.waiting);
+      // The V1 tab lists only "Tocou · falta a V2", one card per client (by Ref; without a Ref, by phone).
+      // Waiting, expired and unsent V1s stay in the client's V1 screen and in Montar V2, off the list.
+      const tapped=v1ClientGroups(v1.tapped);
       const tappedZone=funnelZone('Tocou · falta a V2',tapped,'Ninguém tocou ainda');
       tapped.forEach((group)=>tappedZone.append(v1ClientCard(group,{status:'Tocou · falta a V2',tone:'red',tapped:true})));
       root.append(tappedZone);
-      const waitingZone=funnelZone('Aguardando o toque',waiting,'Nenhuma V1 aguardando');
-      waiting.forEach((group)=>waitingZone.append(v1ClientCard(group,{status:'Aguardando o toque'})));
-      root.append(waitingZone);
-      const expired=v1ClientDetails('Expiradas',v1ClientGroups(v1.expired),(group)=>`Expirou ${agoOf(group.map((one)=>one.expiredAt).sort().pop())} · V1 enviada ${agoOf(v1Latest(group))}`);
-      if(expired)root.append(expired);
-      // A link generated and never sent (no MCS message carries it) is never "V1 enviada".
-      const unsent=v1ClientDetails('Link gerado · envio não confirmado',v1ClientGroups(v1.unsent||[]),(group)=>`Link gerado ${group[0].ago||''} · envio não confirmado`,true);
-      if(unsent)root.append(unsent);
       return;
     }
     const v2=(data&&data.v2)||{bid:[],waiting:[],expired:[]};
