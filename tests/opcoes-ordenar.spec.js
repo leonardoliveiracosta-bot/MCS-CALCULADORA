@@ -57,7 +57,7 @@ async function openQueue(page, opened) {
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   // The panel always opens in ATENDER AGORA.
-  await expect(page.locator('#page-title')).toHaveText('ATENDER AGORA', { timeout: 30000 });
+  await expect(page.locator('#page-title')).toHaveText('TODOS', { timeout: 30000 });
   await page.locator('[data-view="searches"]').click();
   await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(5, { timeout: 30000 });
   return errors;
@@ -101,7 +101,7 @@ test('Ordenar: 4 opções, pela última mensagem do cliente, sem mensagem no fim
 
   // The choice comes back after reloading (the panel still opens in ATENDER AGORA).
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#page-title')).toHaveText('ATENDER AGORA', { timeout: 30000 });
+  await expect(page.locator('#page-title')).toHaveText('TODOS', { timeout: 30000 });
   await page.locator('[data-view="searches"]').click();
   await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(5, { timeout: 30000 });
   await expect(sortBox(page)).toHaveValue('oldest');

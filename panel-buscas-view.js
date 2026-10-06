@@ -30,6 +30,16 @@ function withWhatsAppIdentity(item, userIds) {
   return { ...item, whatsappUsername: identity?.username || null, whatsappWithoutPhone: Boolean(identity && !ownPhones.some((phone) => phone.is_current !== false)) };
 }
 
+// "key|criteriaHash" of every request compared with the active batch: at import (targets_json) and
+// later (manheim_demand_syncs). null when neither could be read.
+function comparedKeys(targets, syncs) {
+  if (!Array.isArray(targets) && !Array.isArray(syncs)) return null;
+  const known = new Set();
+  (Array.isArray(targets) ? targets : []).forEach((target) => { if (target && target.key) known.add(target.key + '|' + target.criteriaHash); });
+  (Array.isArray(syncs) ? syncs : []).forEach((row) => { if (row && row.demand_key) known.add(row.demand_key + '|' + row.criteria_hash); });
+  return known;
+}
+
 function emptyCounts() {
   return { demands: 0, people: 0, served: 0, matches: 0, review: 0 };
 }
@@ -181,13 +191,17 @@ async function manheimView(ctx, options = {}) {
   // still a target today; a batch compared with an older criterion asks to be checked again.
   // The reads below do not depend on each other: they run together (they used to run one after the other).
   const activeIdsEarly = uploads.filter((row) => !row.undone_at).map((row) => row.id).concat(latest && !uploads.some((row) => row.id === latest.id) ? [latest.id] : []);
-  const [summaryRead, offerRead, carsRead, hiddenRead] = await Promise.all([
+  const [summaryRead, offerRead, carsRead, hiddenRead, targetsRead, syncsRead] = await Promise.all([
     // A slow or failed summary never takes the whole tab down: only its counts say "Resumo indisponível".
     latest && batchOn ? rpc(ctx, 'panel_manheim_batch_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch((error) => { console.error('[buscas-summary]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : [],
     latest && batchOn ? rpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch(() => null) : [],
     batchOn && activeIdsEarly.length ? rpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIdsEarly }).catch(() => []) : [],
-    rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' }).then((found) => found.map((row) => row.upload_id)).catch(() => null)
+    rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' }).then((found) => found.map((row) => row.upload_id)).catch(() => null),
+    // What was already compared with the active batch: the requests of the import and the ones compared later.
+    latest && batchOn ? rows(ctx, 'manheim_uploads', { select: 'targets_json', environment: 'eq.' + ctx.environment, id: 'eq.' + latest.id, limit: '1' }).then((found) => found[0] && found[0].targets_json).catch(() => null) : null,
+    latest && batchOn ? allRows(ctx, 'manheim_demand_syncs', { select: 'demand_key,criteria_hash', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id }).catch(() => null) : null
   ]);
+  const compared = comparedKeys(targetsRead, syncsRead);
   const summary = summaryRead;
   const summaryUnavailable = summaryRead === null;
   // Selection for the customer (migration 20261006010000): counts per group and what is selected.
@@ -214,7 +228,9 @@ async function manheimView(ctx, options = {}) {
     return {
       key: demand.key, mode: demand.mode, targetType: demand.targetType, journeyId: demand.journeyId || null, ref: demand.ref || null, wishes: demand.activeWishes,
       bidCents: demand.mode === 'VALOR' ? demand.bidCents : null, issues: demand.issues, ...demandPerson(base, demand), stage: stage && stage.stage || null, stageLabel: stage && stage.label || null,
-      reactivation, criteriaHash: target ? target.criteriaHash : null, matchCount, bateCount: row ? row.bate_count : 0, porValorCount: reactivation ? 0 : row ? row.por_valor_count : 0, presentedCount: row ? row.presented_count : 0, stale,
+      reactivation, criteriaHash: target ? target.criteriaHash : null, matchCount,
+      // Already compared with the active batch with today's criterion (null when unknown).
+      compared: compared && target ? compared.has(demand.key + '|' + target.criteriaHash) || matchCount > 0 : null, bateCount: row ? row.bate_count : 0, porValorCount: reactivation ? 0 : row ? row.por_valor_count : 0, presentedCount: row ? row.presented_count : 0, stale,
       offer: offerByKey ? offerCounts(offerByKey.get(demand.key)) : null,
       // The selection could not be read (migration pending): say so, never zero.
       offerPending: Boolean(latest && batchOn && !offerByKey)
@@ -256,4 +272,4 @@ async function manheimView(ctx, options = {}) {
   };
 }
 
-module.exports = { manheimView, loadUploads, loadMatchTargets, demandContext, auditInputFor, auditOptions, latestLiveUpload, liveOptions };
+module.exports = { comparedKeys, manheimView, loadUploads, loadMatchTargets, demandContext, auditInputFor, auditOptions, latestLiveUpload, liveOptions };

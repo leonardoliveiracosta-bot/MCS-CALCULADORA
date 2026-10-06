@@ -230,8 +230,9 @@ test('24-27 · lote com vários CSVs aparece como um lote; desfazer pede confirm
   // The previous batch is untouched and becomes the one in use.
   await expect(older).toContainText('Ativo · em uso');
   expect((await older.textContent()).replace('Ativo · em uso', 'Ativo')).toBe(olderBefore.replace('Ativo · em uso', 'Ativo'));
-  // The queue follows the active batch: only the CARRO demand still has cars.
-  await expect(page.locator('#options-queue .options-queue-card')).toHaveCount(1);
+  // The queue follows the active batch: only the CARRO demand still has cars (everyone else is
+  // listed with the reason there is no car).
+  await expect(page.locator('#options-queue .options-queue-card:not(.options-queue-nocar)')).toHaveCount(1);
   await expect(page.locator('#options-queue .options-queue-card', { hasText: 'xDrive40i' })).toHaveCount(1);
   expect(dialogs).toBe(0);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'buscas-desfeito.png'), fullPage: true });
