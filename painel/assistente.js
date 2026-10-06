@@ -106,7 +106,7 @@
   function sendReport() { return ask({ action: 'report', context: context() }, 'Não funcionou'); }
 
   // ---------------------------------------------------------------- propostas
-  const STALE = new Set(['MANHEIM_SALE_ENDED', 'MANHEIM_MATCH_NOT_FOUND', 'MANHEIM_STAMP_INVALID', 'MANHEIM_OPTION_NOT_SELECTED', 'MANHEIM_SELECTION_LIMIT']);
+  const STALE = new Set(['MANHEIM_SALE_ENDED', 'MANHEIM_MATCH_NOT_FOUND', 'MANHEIM_STAMP_INVALID', 'MANHEIM_OPTION_NOT_SELECTED', 'MANHEIM_SELECTION_LIMIT', 'MANHEIM_DEMAND_NOT_ACTIVE', 'MANHEIM_NO_ACTIVE_BATCH']);
   async function execute(proposal) {
     const b = bridge(), p = proposal.params || {};
     if (proposal.acao === 'abrir_ficha') { b.openDetail('ficha', p.journeyId); return { text: 'Ficha aberta' }; }
@@ -125,6 +125,21 @@
       if (phone) { const href = 'https://wa.me/' + phone + '?text=' + encodeURIComponent(info.text || info.link || ''); if (window.MCSWaLink) window.MCSWaLink.open(href); else window.open(href, '_blank', 'noopener'); }
       const removed = created && created.removed && created.removed.length ? ' · Fora da V1 (leilão passado): ' + created.removed.join(', ') : '';
       return { text: (phone ? 'V1 criada · WhatsApp aberto com a mensagem · o envio é você quem faz' : 'V1 criada · Link: ' + (created.link || '')) + removed };
+    }
+    if (proposal.acao === 'retomar_busca') {
+      const keys = Array.isArray(p.demandKeys) ? p.demandKeys : [];
+      if (!keys.length) throw Object.assign(new Error('SEM_DEMANDA'), { code: 'SEM_DEMANDA' });
+      let compared = 0;
+      for (const key of keys) {
+        await b.request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key }) });
+        compared += 1;
+      }
+      await b.reload();
+      return { text: `Comparado de novo · ${compared} busca(s)` };
+    }
+    if (proposal.acao === 'registrar_chamado') {
+      const out = await api({ action: 'report', context: context(), note: p.note || '' });
+      return { text: (out && out.reply) || 'Chamado registrado' };
     }
     throw Object.assign(new Error('ACAO_DESCONHECIDA'), { code: 'ACAO_DESCONHECIDA' });
   }
