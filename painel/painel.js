@@ -4760,6 +4760,8 @@
       const previousCount = Number(current.latest && current.latest.vehicleCount) || 0;
       if (append && !current.latest) throw manheimError('MANHEIM_APPEND_NO_ACTIVE');
       if (append && !uniqueCount) throw manheimError('MANHEIM_APPEND_EMPTY');
+      // Same limit the database applies when it joins (panel_manheim_batch_append_finalize): refused here, before any block travels.
+      if (append && (Number(current.latest.fileCount) || 0) + fileMeta.length > MANHEIM_MAX_FILES) throw manheimError('MANHEIM_BATCH_LIMIT', { activeFiles: Number(current.latest.fileCount) || 0, newFiles: fileMeta.length });
       const smaller = !append && uniqueCount && previousCount >= 50 && uniqueCount < previousCount / 2;
       if (!append && (!uniqueCount || smaller)) {
         status.textContent = 'Aguardando confirmação';
@@ -4900,6 +4902,7 @@
   const MANHEIM_FAILURE_MESSAGES = {
     MANHEIM_APPEND_NO_ACTIVE: 'Não há lote ativo para acrescentar · Importe os arquivos pelo campo de cima, que cria o lote',
     MANHEIM_APPEND_EMPTY: 'Estes arquivos não têm nenhum carro para acrescentar · O lote ativo não mudou',
+    MANHEIM_BATCH_LIMIT: 'O lote ativo passaria do limite de ' + MANHEIM_MAX_FILES + ' arquivos ou 250.000 carros · Nada foi acrescentado e o lote ativo não mudou · Para usar estes arquivos, importe um lote novo pelo campo de cima',
     MANHEIM_APPEND_TARGET_CHANGED: 'O lote ativo mudou enquanto os arquivos eram enviados (outro lote foi ativado ou ele foi desfeito) · Nada foi acrescentado · Selecione os arquivos de novo',
     MANHEIM_FILES_INVALID: 'Selecione de 1 a ' + MANHEIM_MAX_FILES + ' arquivos .csv do Manheim (outros formatos não são aceitos)',
     MANHEIM_READER_UNAVAILABLE: 'O leitor de CSV não carregou · Atualize a página e tente novamente',
@@ -4942,6 +4945,7 @@
     if (code === 'MANHEIM_BATCH_RESUME_MISMATCH' && RESUME_REASONS[failure.reason]) return RESUME_REASONS[failure.reason];
     if (code === 'MANHEIM_UPLOAD_INCOMPLETE' && failure.fileName && CHUNK_REFUSALS[failure.cause && failure.cause.code]) return CHUNK_REFUSALS[failure.cause.code](`${Number(failure.chunkIndex) + 1} de ${failure.fileName}`);
     if (code === 'MANHEIM_CSV_COLUMNS_MISSING') return `CSV incompleto: faltam ${(failure.missing || []).join(', ')}.`;
+    if (code === 'MANHEIM_BATCH_LIMIT' && Number.isFinite(failure.activeFiles)) return `O lote ativo tem ${failure.activeFiles} de ${MANHEIM_MAX_FILES} arquivos e estes são ${failure.newFiles} · Nada foi acrescentado e o lote ativo não mudou · Acrescente no máximo ${Math.max(MANHEIM_MAX_FILES - failure.activeFiles, 0)} arquivo(s) ou importe um lote novo pelo campo de cima`;
     if (code === 'MANHEIM_UPLOAD_INCOMPLETE') {
       const cause = failure.cause;
       const detail = MANHEIM_FAILURE_MESSAGES[cause && cause.code] || `${cause && (cause.code || cause.message) || 'sem resposta'}`;

@@ -81,3 +81,35 @@ test('o botão acrescenta só os carros novos ao lote ativo, sem trocar o lote',
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
 });
+
+test('lote ativo já no limite de arquivos: o acréscimo é recusado antes de enviar, com mensagem clara', async ({ page }) => {
+  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
+  // Rare case (1 of 3 appends in production): the active batch already holds 50 files, the database limit.
+  await backend.db.query(`update public.manheim_uploads set source_file_count=50 where id='${lotId}'`);
+  await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-simulado', refreshToken: 'refresh', accessExpiresAt: Date.now() + 3600000 })));
+  const posts = [];
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (!url.href.startsWith(base)) return route.abort();
+    if (!url.pathname.startsWith('/api/')) return route.continue();
+    const json = (payload, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
+    if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-simulada' });
+    if (handlers[url.pathname]) {
+      if (url.pathname === '/api/panel/manheim-batch' && request.method() === 'POST') posts.push(JSON.parse(request.postData()).action);
+      const res = await run(handlers[url.pathname], request);
+      return json(res.payload, res.statusCode);
+    }
+    return json({ items: [], orders: [], groups: [], chats: [], reviews: [], requests: [], review: [], meta: {} });
+  });
+  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-view="imports"]').click();
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'acrescentar-')), 'MCS_NOITE.csv');
+  fs.writeFileSync(file, 'Vin,Year,Make,Model,Trim,Odometer Value,MMR\n2HKRW2H50LH000006,2020,Honda,CR-V,EX,30000,25000\n');
+  await page.locator('#manheim-append-files').setInputFiles(file);
+  await expect(page.locator('#manheim-status')).toContainText('O lote ativo tem 50 de 50 arquivos e estes são 1 · Nada foi acrescentado e o lote ativo não mudou', { timeout: 60000 });
+  expect(posts).toEqual([], 'nenhum bloco viaja');
+  const q = async (sql) => (await backend.db.query(sql)).rows;
+  expect((await q(`select count(*)::int n from public.manheim_vehicles where upload_id='${lotId}'`))[0].n).toBe(5);
+  expect(errors).toEqual([]);
+});

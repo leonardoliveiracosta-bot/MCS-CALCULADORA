@@ -151,6 +151,34 @@ test('cancelar pelo operador para o envio antes do próximo bloco', async () => 
   assert.deepEqual(server.state.calls, ['start', 'chunk 0:0', 'chunk 0:1']);
 });
 
+test('acréscimo ao lote ativo: dentro do limite segue direto; o limite do banco para na hora, sem repetir', async () => {
+  // Common path: an append that fits goes start, blocks, finalize once, with nothing added.
+  const server = fakeServer();
+  const result = await upload.sendBatch({ ...base, plan: plan(), request: server.request, append: true });
+  assert.equal(result.complete, true);
+  assert.deepEqual(server.state.calls, ['start', 'chunk 0:0', 'chunk 0:1', 'chunk 0:2', 'chunk 1:0', 'finalize']);
+  // The database refuses the join above 50 files (MANHEIM_BATCH_LIMIT): a definitive answer, asked once.
+  const full = fakeServer({ failures: { finalize: ['MANHEIM_BATCH_LIMIT'] } });
+  const waits = [];
+  await assert.rejects(() => upload.sendBatch({ ...base, plan: plan(), request: full.request, append: true, wait: async (ms) => { waits.push(ms); } }),
+    (failure) => failure.code === 'MANHEIM_BATCH_LIMIT' && failure.uploadId === '7a000000-0000-4000-8000-000000000001');
+  assert.equal(full.state.calls.filter((call) => call === 'finalize').length, 1, 'limite não repete');
+  assert.deepEqual(waits, []);
+  // The panel applies the same limit before any block travels (active files + new files > MANHEIM_MAX_FILES).
+  const importer = panelSnippet(read('painel/painel.js'), 'importManheim');
+  const guard = /\n\s*(if \(append && \(Number\(current\.latest\.fileCount\)[^\n]*)/.exec(importer);
+  assert.ok(guard, 'o painel confere o limite antes do envio');
+  assert.ok(importer.indexOf(guard[1]) < importer.indexOf('MCSManheimUpload.sendBatch('), 'a conferência vem antes do envio');
+  const refuses = (activeFiles, newFiles) => {
+    try { new Function('append', 'current', 'fileMeta', 'MANHEIM_MAX_FILES', 'manheimError', guard[1])(true, { latest: { fileCount: activeFiles } }, Array.from({ length: newFiles }), 50, (code, details) => Object.assign(new Error(code), { code }, details)); return null; }
+    catch (failure) { return failure; }
+  };
+  assert.equal(refuses(35, 13), null, '35 + 13 cabe');
+  assert.equal(refuses(48, 2), null, 'exatamente 50 cabe');
+  assert.deepEqual({ ...refuses(48, 13) }, { code: 'MANHEIM_BATCH_LIMIT', activeFiles: 48, newFiles: 13 });
+  assert.equal(new Function('append', 'current', 'fileMeta', 'MANHEIM_MAX_FILES', 'manheimError', guard[1])(false, { latest: { fileCount: 48 } }, Array.from({ length: 13 }), 50, () => { throw new Error('x'); }), undefined, 'lote novo não passa por esta conferência');
+});
+
 test('BUSCAS: ordem de exibição e opções carregadas por página, 10 de cada vez', () => {
   const row = (kind, miles) => ({ match_kind: kind, vehicle_json: { parsed: { miles } } });
   const sorted = upload.sortForDisplay([row('QUASE', 100), row('BATE', 5000), row('QUASE', 50), row('BATE', 10)]);
@@ -209,6 +237,11 @@ test('todo erro da importação do Manheim tem código ou vira "Erro inesperado:
   const conflict = failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'MCS_HOJE_12.csv', chunkIndex: 3, uploadId: 'x', cause: coded('MANHEIM_CHUNK_CONFLICT') }));
   assert.equal(conflict, 'O bloco 4 de MCS_HOJE_12.csv já tinha sido recebido com outro conteúdo: os arquivos mudaram desde o primeiro envio · Nada foi gravado neste bloco, nada foi ativado e o lote ativo não mudou · Descarte este envio e selecione os arquivos de novo para começar outro lote');
   assert.match(failureText(coded('MANHEIM_UPLOAD_INCOMPLETE', { fileName: 'A.csv', chunkIndex: 0, uploadId: 'x', cause: coded('MANHEIM_CHUNK_HASH_MISMATCH') })), /não confere com o que foi declarado/);
+  // Batch limit: with the counts (checked in the panel) or without them (refused by the database).
+  assert.equal(failureText(coded('MANHEIM_BATCH_LIMIT', { activeFiles: 18, newFiles: 5 })), 'O lote ativo tem 18 de 20 arquivos e estes são 5 · Nada foi acrescentado e o lote ativo não mudou · Acrescente no máximo 2 arquivo(s) ou importe um lote novo pelo campo de cima');
+  const limit = failureText(coded('MANHEIM_BATCH_LIMIT', { uploadId: 'x' }));
+  assert.match(limit, /^O lote ativo passaria do limite de 20 arquivos ou 250\.000 carros · Nada foi acrescentado/);
+  assert.doesNotMatch(limit, /Erro inesperado|\.$|—/);
   assert.equal(failureText(new TypeError('x is not a function')), 'Erro inesperado: x is not a function');
   assert.equal(failureText(coded('ALGO_NOVO')), 'Erro inesperado: ALGO_NOVO');
   const shower = panelSnippet(client, 'showManheimFailure');
