@@ -2293,6 +2293,7 @@
   function openV2Builder(item,card){
     const existing=card.querySelector('.v2-builder');if(existing){existing.remove();return;}
     const box=element('section','v2-builder'),photos=[];
+    box.addEventListener('click',(event)=>event.stopPropagation());
     box.append(element('h4','',item.car||'Carro'),vinLine(item.vin));
     const status=element('p','muted v2-status','');
     const drop=element('label','v2-drop','Arraste as fotos aqui ou toque para escolher · até 12 · a primeira é a capa');
@@ -2379,33 +2380,30 @@
     const open=element('button','today-primary small','Abrir ficha');open.type='button';open.dataset.action='ficha-open';
     open.addEventListener('click',(event)=>{event.stopPropagation();openDetail('ficha',item.journeyId);});return open;
   }
-  function mountV2Button(item,card){
-    const build=element('button','small','Montar V2');build.type='button';
-    build.addEventListener('click',async()=>{
-      build.disabled=true;
-      try{await requestIdFor(item);openV2Builder(item,card);}
-      catch(error){const note=element('p','status','Não consegui abrir a montagem da V2 · tente de novo');card.append(note);setTimeout(()=>note.remove(),6000);}
-      build.disabled=false;
-    });
-    return build;
-  }
+
   // "Pedido atendido" on every V1/V2 card: takes the card out of the list, never deletes anything,
   // and has Desfazer. A tapped car marks its own request (as before; created on the spot when the tap
   // has none yet); every other card gets the same mark on the vitrine (server: action "dismiss").
-  function treatedButton(item,card,view){
+  // One card can stand for several V1s/cars of the same client: every one of them is marked (and undone) together.
+  function treatedButton(itemOrItems,card,view){
+    const items=Array.isArray(itemOrItems)?itemOrItems:[itemOrItems],item=items[0];
     const treated=element('button','quiet small funnel-treated','Pedido atendido');treated.type='button';treated.dataset.action='funnel-treated';
-    let markId=null;
-    const tapped=Boolean(item.vitrineCarId);
+    let marks=[];
     const reload=()=>Promise.all([loadCurrent(view,viewRequestVersion),refreshCounters().catch(()=>{})]);
-    MCSAction.bind(treated,()=>({scope:card,successScope:document.body,feedbackKey:`vitrine-funnel:${item.vitrineId}:${item.vitrineCarId||''}`,
+    MCSAction.bind(treated,()=>({scope:card,successScope:document.body,feedbackKey:`vitrine-funnel:${items.map((one)=>one.vitrineId+':'+(one.vitrineCarId||'')).join(',')}`,
       optimistic:()=>{card.classList.add('action-optimistic-hidden');},
       commit:async()=>{
-        if(tapped){markId=await requestIdFor(item);return requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:markId});}
-        const out=await requestApi('/api/panel/vitrine-requests',{action:'dismiss',vitrineId:item.vitrineId});markId=out&&out.requestId||null;return out;
+        marks=[];const dismissed=new Set();
+        for(const one of items){
+          if(one.vitrineCarId){const id=await requestIdFor(one);await requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:id});marks.push(id);continue;}
+          if(dismissed.has(one.vitrineId))continue;dismissed.add(one.vitrineId);
+          const out=await requestApi('/api/panel/vitrine-requests',{action:'dismiss',vitrineId:one.vitrineId});if(out&&out.requestId)marks.push(out.requestId);
+        }
+        return {ok:true};
       },
       rollback:()=>{card.classList.remove('action-optimistic-hidden');},
       successText:'Pedido marcado como atendido',
-      undo:{commit:()=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:markId}),successText:'Voltou para a lista',refresh:reload},
+      undo:{commit:()=>Promise.all(marks.map((id)=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:id}))),successText:'Voltou para a lista',refresh:reload},
       refresh:reload,
       errorText:'Não consegui marcar como atendido, tente de novo'}));
     treated.addEventListener('click',(event)=>event.stopPropagation());
@@ -2421,16 +2419,6 @@
   }
   // One line per car with its VIN (V1 waiting and expired list every car of the V1).
 
-  function v1TappedCard(item){
-    const card=funnelCard(item,{status:'Tocou · falta a V2',tone:'red',rows:[['Tocou',item.ago||'—'],['V1 enviada',item.sentAgo||'—']]});
-    card.funnelActions.append(openFichaButton(item),mountV2Button(item,card),treatedButton(item,card,'v1'));
-    return card;
-  }
-  function v1WaitingCard(item){
-    const card=funnelCard(item,{status:'Aguardando o toque',rows:[['V1 enviada',item.ago||'—']]});
-    card.funnelActions.append(openFichaButton(item),treatedButton(item,card,'v1'));
-    return card;
-  }
   function v2BidCard(item){
     const card=funnelCard(item,{status:'Quer dar lance',tone:'red',rows:[...(item.bidAgo?[['Tocou',item.bidAgo]]:[]),['V2 enviada',item.ago||'—']]});
     card.funnelActions.append(openFichaButton(item),treatedButton(item,card,'v2'));
@@ -2449,6 +2437,117 @@
     list.forEach((item)=>{const card=funnelCard(item,{status:status(item)});card.funnelActions.append(openFichaButton(item),treatedButton(item,card,view));stack.append(card);});
     det.append(stack);return det;
   }
+  // ===== V1: um cartão por cliente =====
+  let v1FunnelData=null;
+  const funnelAgo=(value)=>{if(!value)return '';const ms=Math.max(0,Date.now()-Date.parse(value));const m=Math.floor(ms/60000);if(m<60)return `há ${m||1} min`;const h=Math.floor(m/60);if(h<24)return `há ${h} h`;return `há ${Math.floor(h/24)} dias`;};
+  const v1ClientKey=(item)=>{const ref=String(item.referenceCode||'').trim().toUpperCase();if(ref)return 'ref:'+ref;const digits=String(item.phone||'').replace(/\D/g,'');return digits?'tel:'+digits:'v1:'+item.vitrineId;};
+  function v1ClientGroups(list){const groups=new Map();(list||[]).forEach((item)=>{const key=v1ClientKey(item);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(item);});return [...groups.values()];}
+  const v1Latest=(group)=>group.map((one)=>one.sentAt||one.createdAt).filter(Boolean).sort().pop()||null;
+  // Every car the client received in these V1s (a tapped item is one car; the others list the whole V1).
+  function v1CarsOf(group){
+    const seen=new Set(),out=[];
+    group.forEach((item)=>{
+      const cars=item.vitrineCarId?[{car:item.car,vin:item.vin,tapAt:item.tapAt}]:(item.vitrineCars&&item.vitrineCars.length?item.vitrineCars:(item.cars||[]).map((car,index)=>({car,vin:(item.vins||[])[index]||null})));
+      cars.forEach((one)=>{const key=one.vin||(item.vitrineId+'|'+one.car);if(seen.has(key))return;seen.add(key);out.push(one);});
+    });
+    return out;
+  }
+  function copyButton(vin){const copy=element('button','quiet small','Copiar');copy.type='button';copy.addEventListener('click',async(event)=>{event.stopPropagation();try{await navigator.clipboard.writeText(vin);copy.textContent='Copiado';}catch(_){copy.textContent='Não copiou';}setTimeout(()=>{copy.textContent='Copiar';},2000);});return copy;}
+  function v1ClientCard(group,{status,tone,tapped,unsent}){
+    // Every car/VIN sent in these V1s, the tapped ones first; the card shows the first and opens the rest.
+    const first=group[0],cars=v1CarsOf(group.map((item)=>item.vitrineCars?{...item,vitrineCarId:null}:item)).sort((a,b)=>String(b.tapAt||'').localeCompare(String(a.tapAt||'')));
+    const firstCar=cars[0]||{car:'Carro não informado',vin:null};
+    const lastTap=group.map((one)=>one.tapAt).filter(Boolean).sort().pop();
+    const rows=[['Carro',firstCar.car||'Carro não informado','case-request-line'],['VIN',firstCar.vin||'não informado','case-request-line case-vin funnel-vin']];
+    if(tapped)rows.push(['Tocou',funnelAgo(lastTap)||'—','case-request-line']);
+    if(!unsent)rows.push(['V1 enviada',funnelAgo(v1Latest(group))||'—','case-request-line']);
+    const key=v1ClientKey(first);
+    const {card,actions}=todosCard({status,tone,title:first.name||'Cliente',ref:first.referenceCode,phone:first.phone?phoneDisplay(first.phone):'Sem telefone',rows,
+      open:()=>openV1Client(key),className:'vitrine-request-card v1-client-card'});
+    card.dataset.clientKey=key;
+    const vinCell=card.querySelector('.case-vin .case-field-value');
+    if(vinCell&&firstCar.vin)vinCell.append(document.createTextNode(' '),copyButton(firstCar.vin));
+    // More than one VIN sent: the VIN part opens the full list (each car with its VIN and Copiar).
+    if(cars.length>1&&vinCell){
+      const more=element('details','v1-vins');const summary=element('summary','',`Ver os ${cars.length} carros/VIN enviados`);more.append(summary);
+      const list=element('ul','v1-vin-list');
+      cars.forEach((one)=>{const li=element('li','funnel-vin-item');li.append(element('span','',`${one.car||'Carro'} · VIN ${one.vin||'não informado'}`));if(one.vin)li.append(document.createTextNode(' '),copyButton(one.vin));list.append(li);});
+      more.append(list);card.querySelector('.case-vin').after(more);
+    }
+    actions.append(openFichaButton(first));
+    if(tapped)actions.append(v2PickerButton(first,card));
+    actions.append(treatedButton(group,card,'v1'));
+    return card;
+  }
+  function v1ClientDetails(title,groups,status,unsent){
+    if(!groups.length)return null;
+    const det=element('details','card funnel-details');const summary=element('summary','');summary.append(element('strong','',`${title} (${groups.length})`));det.append(summary);
+    const stack=element('div','stack funnel-grid');
+    groups.forEach((group)=>stack.append(v1ClientCard(group,{status:status(group),unsent})));
+    det.append(stack);return det;
+  }
+  // The client's V1 screen: everything the client received in V1 (cars, VIN, when it was sent, which
+  // cars were tapped), with Voltar. The ficha opens only from "Abrir ficha".
+  function openV1Client(key){
+    const root=$('v1-list');if(!root||!v1FunnelData)return;
+    const v1=v1FunnelData.v1||{};
+    const sections=[['tapped',v1.tapped],['waiting',v1.waiting],['expired',v1.expired],['unsent',v1.unsent]];
+    const items=sections.flatMap(([kind,list])=>(list||[]).filter((item)=>v1ClientKey(item)===key).map((item)=>({...item,kind})));
+    if(!items.length)return;
+    const scrollY=window.scrollY,first=items[0];
+    root.replaceChildren();
+    const back=element('button','small v1-client-back','← Voltar');back.type='button';
+    back.addEventListener('click',()=>{renderVitrineFunnel(v1FunnelData,'v1');requestAnimationFrame(()=>window.scrollTo(0,scrollY));});
+    const head=element('section','v1-client-head');
+    head.append(back,element('h3','',first.name||'Cliente'),element('p','muted',[first.referenceCode?'Ref '+first.referenceCode:'sem Ref',first.phone?phoneDisplay(first.phone):'Sem telefone'].join(' · ')));
+    root.append(head);
+    const byVitrine=new Map();items.forEach((item)=>{if(!byVitrine.has(item.vitrineId))byVitrine.set(item.vitrineId,[]);byVitrine.get(item.vitrineId).push(item);});
+    const grid=element('div','stack funnel-grid');
+    [...byVitrine.values()].sort((a,b)=>String(v1Latest(b)).localeCompare(String(v1Latest(a)))).forEach((list)=>{
+      const one=list[0],cars=v1CarsOf(list.map((item)=>item.vitrineCars?{...item,vitrineCarId:null}:item));
+      const sentAt=one.sentAt||null;
+      const status=one.kind==='unsent'?`Link gerado ${funnelAgo(one.createdAt)} · envio não confirmado`:one.kind==='expired'?`V1 enviada ${funnelAgo(sentAt)} · expirou`:`V1 enviada ${funnelAgo(sentAt)}`;
+      const rows=[];
+      if(sentAt&&one.kind!=='unsent')rows.push(['Enviada em',formatDate(sentAt),'case-request-line']);
+      cars.forEach((car)=>{rows.push(['Carro',car.car||'Carro não informado','case-request-line']);rows.push(['VIN',car.vin||'não informado','case-request-line case-vin funnel-vin']);rows.push(['Tocou',car.tapAt?funnelAgo(car.tapAt):'não tocou','case-request-line']);});
+      const {card}=todosCard({status,tone:cars.some((car)=>car.tapAt)?'red':'',title:first.name||'Cliente',ref:first.referenceCode,phone:first.phone?phoneDisplay(first.phone):'',rows,className:'vitrine-request-card v1-sent-card'});
+      card.querySelectorAll('.case-vin .case-field-value').forEach((cell,index)=>{const vin=cars[index]&&cars[index].vin;if(vin)cell.append(document.createTextNode(' '),copyButton(vin));});
+      grid.append(card);
+    });
+    root.append(grid);
+    window.scrollTo(0,0);
+  }
+  // "Montar V2" opens an empty V2: the VIN typed is matched against the cars this client received in V1
+  // (a V2 always comes from one of them) and then the builder opens with that car's data.
+  function v2PickerButton(first,card){
+    const button=element('button','small','Montar V2');button.type='button';
+    button.addEventListener('click',(event)=>{event.stopPropagation();openV2Picker(first,card);});
+    return button;
+  }
+  function openV2Picker(first,card){
+    const existing=card.querySelector('.v2-builder');if(existing){existing.remove();return;}
+    const key=v1ClientKey(first),v1=(v1FunnelData&&v1FunnelData.v1)||{};
+    const candidates=[...(v1.tapped||[]),...(v1.waiting||[])].filter((item)=>v1ClientKey(item)===key)
+      .flatMap((item)=>(item.vitrineCars||[{vitrineCarId:item.vitrineCarId,car:item.car,vin:item.vin}]).filter((car)=>car.vitrineCarId).map((car)=>({...item,vitrineCarId:car.vitrineCarId,car:car.car,vin:car.vin,requestId:item.vitrineCarId===car.vitrineCarId?item.requestId:null})));
+    const box=element('section','v2-builder v2-picker');
+    box.addEventListener('click',(event)=>event.stopPropagation());
+    const label=element('label','','VIN do carro da V2');const input=element('input');input.type='text';input.autocomplete='off';input.spellcheck=false;input.placeholder='Digite o VIN';label.append(input);
+    const status=element('p','muted v2-status','');
+    box.append(element('h4','','Nova V2'),label,status);card.append(box);input.focus();
+    const clean=(value)=>String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+    let busy=false;
+    const tryMatch=async()=>{
+      const typed=clean(input.value);
+      if(typed.length<6){status.textContent='';return;}
+      const found=candidates.filter((car)=>car.vin&&(clean(car.vin)===typed||(typed.length<17&&clean(car.vin).endsWith(typed))));
+      if(!found.length){status.textContent=typed.length>=17?'Este VIN não está na V1 deste cliente':'';return;}
+      if(found.length>1){status.textContent='Mais de um carro termina assim · digite o VIN completo';return;}
+      if(busy)return;busy=true;status.textContent=`${found[0].car} · abrindo…`;
+      try{const item={...found[0]};await requestIdFor(item);box.remove();openV2Builder(item,card);}
+      catch(_){status.textContent='Não consegui abrir a V2 deste carro · tente de novo';busy=false;}
+    };
+    input.addEventListener('input',()=>{tryMatch().catch(()=>{});});
+  }
   function renderVitrineFunnel(data,view){
     const root=$(view+'-list');if(!root)return;
     root.replaceChildren();
@@ -2456,17 +2555,20 @@
     setCount('v2',Number(data&&data.counts&&data.counts.v2Action)||0);
     const agoOf=(value)=>{if(!value)return '';const ms=Math.max(0,Date.now()-Date.parse(value));const m=Math.floor(ms/60000);if(m<60)return `há ${m||1} min`;const h=Math.floor(m/60);if(h<24)return `há ${h} h`;return `há ${Math.floor(h/24)} dias`;};
     if(view==='v1'){
+      v1FunnelData=data;
       const v1=(data&&data.v1)||{tapped:[],waiting:[],expired:[]};
-      const tappedZone=funnelZone('Tocou · falta a V2',v1.tapped,'Ninguém tocou ainda');
-      v1.tapped.forEach((item)=>tappedZone.append(v1TappedCard({...item,sentAgo:agoOf(item.sentAt)})));
+      // One card per client in every section (by Ref; without a Ref, by phone).
+      const tapped=v1ClientGroups(v1.tapped),waiting=v1ClientGroups(v1.waiting);
+      const tappedZone=funnelZone('Tocou · falta a V2',tapped,'Ninguém tocou ainda');
+      tapped.forEach((group)=>tappedZone.append(v1ClientCard(group,{status:'Tocou · falta a V2',tone:'red',tapped:true})));
       root.append(tappedZone);
-      const waitingZone=funnelZone('Aguardando o toque',v1.waiting,'Nenhuma V1 aguardando');
-      v1.waiting.forEach((item)=>waitingZone.append(v1WaitingCard(item)));
+      const waitingZone=funnelZone('Aguardando o toque',waiting,'Nenhuma V1 aguardando');
+      waiting.forEach((group)=>waitingZone.append(v1ClientCard(group,{status:'Aguardando o toque'})));
       root.append(waitingZone);
-      const expired=expiredDetails('Expiradas',v1.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})),'v1',(item)=>`Expirou ${item.expiredAgo||''} · V1 enviada ${item.ago||''}`);
+      const expired=v1ClientDetails('Expiradas',v1ClientGroups(v1.expired),(group)=>`Expirou ${agoOf(group.map((one)=>one.expiredAt).sort().pop())} · V1 enviada ${agoOf(v1Latest(group))}`);
       if(expired)root.append(expired);
       // A link generated and never sent (no MCS message carries it) is never "V1 enviada".
-      const unsent=expiredDetails('Link gerado · envio não confirmado',v1.unsent||[],'v1',(item)=>`Link gerado ${item.ago||''} · envio não confirmado`);
+      const unsent=v1ClientDetails('Link gerado · envio não confirmado',v1ClientGroups(v1.unsent||[]),(group)=>`Link gerado ${group[0].ago||''} · envio não confirmado`,true);
       if(unsent)root.append(unsent);
       return;
     }

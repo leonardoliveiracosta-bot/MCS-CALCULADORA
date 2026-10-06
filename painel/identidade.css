@@ -1522,3 +1522,12 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #searches-panel #options-queue .today-card > .inline-actions > .today-primary { font-size: 15px; padding: 12px 16px; }
 :is(#v1-list, #v2-list, #options-queue) .today-card .card-decision { min-height: 48px; box-sizing: border-box; }
 #searches-panel #options-queue .today-card > .inline-actions > .today-primary { min-height: 48px; }
+/* V1: um cartão por cliente; a lista de VIN abre no próprio cartão; a tela da V1 do cliente. */
+:is(#v1-list) .v1-vins { margin: -4px 16px 0; font-size: 14px; }
+:is(#v1-list) .v1-vins > summary { cursor: pointer; color: #8A6D1E; font-weight: 600; padding: 4px 0; }
+:is(#v1-list) .v1-vin-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 6px; overflow-wrap: anywhere; }
+#v1-list .v1-client-head { display: grid; gap: 4px; margin-bottom: 14px; }
+#v1-list .v1-client-head h3 { margin: 8px 0 0; font-size: 24px; }
+#v1-list .v1-client-back { justify-self: start; }
+#v1-list .v2-picker label { display: grid; gap: 6px; margin: 0 16px; }
+#v1-list .v2-picker h4, #v1-list .v2-picker .v2-status { margin: 8px 16px; }

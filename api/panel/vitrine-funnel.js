@@ -113,12 +113,16 @@ async function payload(ctx,services={}){
     const sentAt=sentAtById.get(vitrine.id)||vitrine.created_at;
     const afterSend=(event)=>Date.parse(event.created_at)>=Date.parse(sentAt);
     if(vitrine.version==='V1'){
-      if(expired(vitrine)){if(dismissedAt.has(vitrine.id))return;v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt,ago:since(sentAt,now),expiredAt:vitrine.expires_at});return;}
-      const v2children=(childrenByParent.get(vitrine.id)||[]).filter((child)=>child.version==='V2');
       const tapsByCar=new Map();
       (eventsByVitrine.get(vitrine.id)||[]).filter((event)=>event.event_type==='TAP'&&event.vitrine_car_id&&afterSend(event)).forEach((event)=>{
         if(!tapsByCar.has(event.vitrine_car_id)||Date.parse(event.created_at)>Date.parse(tapsByCar.get(event.vitrine_car_id).created_at))tapsByCar.set(event.vitrine_car_id,event);
       });
+      // What the client received in this V1 (every car, its VIN and whether it was tapped after the send):
+      // the client's V1 screen and the VIN lookup of "Montar V2" read it.
+      const vitrineCars=carList.map((car)=>({vitrineCarId:car.id,car:vehicleName(car.vehicle_snapshot||{}),vin:vinOf(car),tapAt:tapsByCar.has(car.id)?tapsByCar.get(car.id).created_at:null}));
+      const budgetCents=vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null;
+      if(expired(vitrine)){if(dismissedAt.has(vitrine.id))return;v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),vitrineCars,budgetCents,sentAt,ago:since(sentAt,now),expiredAt:vitrine.expires_at});return;}
+      const v2children=(childrenByParent.get(vitrine.id)||[]).filter((child)=>child.version==='V2');
       let tappedAny=false;
       tapsByCar.forEach((tap,carId)=>{
         if(v2children.length)return; // the V2 exists: the client moved to the V2 tab
@@ -129,9 +133,9 @@ async function payload(ctx,services={}){
         if(reqs.some((req)=>req.request_kind==='VIEW'&&req.treated_at&&Date.parse(req.treated_at)>=Date.parse(tap.created_at)))return;
         const open=reqs.find((req)=>req.request_kind==='VIEW'&&!req.treated_at);
         tappedAny=true;
-        v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),vin:vinOf(car),sentAt,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents:vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null});
+        v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),vin:vinOf(car),vitrineCars,sentAt,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents});
       });
-      if(!tappedAny&&!v2children.length&&!dismissedAt.has(vitrine.id))v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt,ago:since(sentAt,now)});
+      if(!tappedAny&&!v2children.length&&!dismissedAt.has(vitrine.id))v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),vitrineCars,budgetCents,sentAt,ago:since(sentAt,now)});
       return;
     }
     if(vitrine.version==='V2'){
