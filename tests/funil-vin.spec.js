@@ -16,8 +16,10 @@ const DAMIAN_CARS = [{ vitrineCarId: id(11), car: '2025 Jeep Grand Cherokee Summ
 const tapped = (n, vin) => ({ vitrineId: id(1), vitrineCarId: id(10 + n), requestId: id(20 + n), name: '_damian', phone: '+19143730498', referenceCode: '2STJQ', journeyId: id(2), refState: 'COM_REF', car: '2025 Jeep Grand Cherokee Summit', vin, vitrineCars: DAMIAN_CARS, sentAt: ago(14), tapAt: ago(13), ago: 'há 13 h', sentAgo: 'há 14 h', budgetCents: 6000000 });
 // O mesmo VIN reenviado numa V1 anterior do mesmo cliente.
 const tappedOld = { ...tapped(2, '1C4RJHEG6S8768742'), vitrineId: id(5), vitrineCarId: id(50), requestId: id(51), vitrineCars: [{ vitrineCarId: id(50), car: '2025 Jeep Grand Cherokee Summit', vin: '1C4RJHEG6S8768742', tapAt: ago(40) }], sentAt: ago(48), tapAt: ago(40) };
+// Param tocou um dos dois Volvo; o outro (sem VIN) fica "não tocou" na tela da V1 dele.
+const PARAM = { vitrineId: id(3), vitrineCarId: id(30), requestId: id(32), name: 'Param Virani', phone: '+12018562425', referenceCode: 'EXDPY', journeyId: id(4), refState: 'COM_REF', car: '2026 Volvo XC90', vin: 'YV4H60PF0T1487031', vitrineCars: [{ vitrineCarId: id(30), car: '2026 Volvo XC90', vin: 'YV4H60PF0T1487031', tapAt: ago(12) }, { vitrineCarId: id(31), car: '2025 Volvo XC90', vin: null, tapAt: null }], sentAt: ago(14), tapAt: ago(12), ago: 'há 12 h' };
 const FUNNEL = {
-  v1: { tapped: [tapped(1, '1C4RJHEG2S8768446'), tapped(2, '1C4RJHEG6S8768742'), tappedOld], waiting: [{ vitrineId: id(3), name: 'Param Virani', phone: '+12018562425', referenceCode: 'EXDPY', journeyId: id(4), cars: ['2026 Volvo XC90', '2025 Volvo XC90'], vins: ['YV4H60PF0T1487031', null], vitrineCars: [{ vitrineCarId: id(30), car: '2026 Volvo XC90', vin: 'YV4H60PF0T1487031', tapAt: null }, { vitrineCarId: id(31), car: '2025 Volvo XC90', vin: null, tapAt: null }], sentAt: ago(14), ago: 'há 14 h' }], expired: [] },
+  v1: { tapped: [tapped(1, '1C4RJHEG2S8768446'), tapped(2, '1C4RJHEG6S8768742'), tappedOld, PARAM], waiting: [], expired: [] },
   v2: { bid: [], waiting: [], expired: [] },
   counts: { v1Action: 2, v2Action: 0 }
 };
@@ -53,7 +55,7 @@ test('aba V1: cada carro mostra o seu VIN e o botão Copiar copia o VIN certo', 
   await items.nth(1).getByRole('button', { name: 'Copiar' }).click();
   await expect(items.nth(1).getByRole('button')).toHaveText('Copiado');
   expect(['1C4RJHEG2S8768446', '1C4RJHEG6S8768742']).toContain(await page.evaluate(() => navigator.clipboard.readText()));
-  // O outro cliente (sem toque) lista os dois carros da V1; o sem VIN aparece como "não informado".
+  // O outro cliente lista os dois carros da V1; o sem VIN aparece como "não informado".
   const param = cards.filter({ hasText: 'Param Virani' });
   await param.locator('.v1-vins > summary').click();
   await expect(param.locator('.v1-vin-list .funnel-vin-item')).toHaveText([/YV4H60PF0T1487031/, /não informado/]);

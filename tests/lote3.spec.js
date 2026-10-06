@@ -88,7 +88,7 @@ test('Lote 3: "Não chegou SMS" pergunta antes de descartar e grava o motivo Out
   expect(errors).toEqual([]);
 });
 
-test('Lote 3: vitrine "Pedido atendido" com falha volta o card e mostra o erro (aba V1)', async ({ page }) => {
+test('Lote 3: vitrine "Excluir" com falha volta o card e mostra o erro (aba V1)', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await session(page);
@@ -102,8 +102,8 @@ test('Lote 3: vitrine "Pedido atendido" com falha volta o card e mostra o erro (
   await page.locator('[data-view="v1"]').click();
   const card = page.locator('.vitrine-request-card', { hasText: 'Bia' });
   await expect(card).toHaveCount(1, { timeout: 30000 });
-  await card.getByRole('button', { name: 'Pedido atendido' }).click();
-  await expect(page.getByText('Não consegui marcar como atendido, tente de novo')).toBeVisible();
+  await card.getByRole('button', { name: 'Excluir' }).click();
+  await expect(page.getByText('Não consegui excluir, tente de novo')).toBeVisible();
   await expect(card).toBeVisible();
   expect(errors).toEqual([]);
 });
