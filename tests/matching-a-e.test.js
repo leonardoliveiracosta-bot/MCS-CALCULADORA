@@ -72,3 +72,18 @@ test('A: motivo de pedido sem opção: carros que serviam e já expiraram', () =
   assert.equal(reasons.wishReason(wish, [past], { target: { mode: 'CARRO' } }).text, 'As opções encontradas neste lote já expiraram');
   assert.equal(reasons.wishReason(wish, [], { target: { mode: 'CARRO' } }).text, 'sem carro no lote');
 });
+
+test('BUSCAR CARROS: pedido da conversa que já está na busca da ficha não vira cartão separado com contagem velha', () => {
+  const merge = require('../panel-request-merge');
+  const ficha = { key: 'ficha:journey:j1:CARRO', source: 'FICHA', official: true, searchMode: 'CARRO', person: { journeyId: 'j1' }, state: 'COM_OPCOES', optionCount: 2,
+    targets: [{ mode: 'CARRO', wishes: [{ make: 'BMW', model: 'X5', yearMin: 2020, yearMax: 2022, minMiles: 0, maxMiles: 50000 }, { make: 'Honda', model: 'Civic', yearMin: 2019, yearMax: 2021, minMiles: 0, maxMiles: 60000, requestId: 'r1' }] }] };
+  // A conversa disse "Civic 2019 a 2021 até 60 mil" e a ficha já busca isso (requestId r1); o texto difere (sem marca).
+  const conversa = { key: 'conversa:r1', source: 'CONVERSA', searchMode: 'CARRO', person: { journeyId: 'j1' }, state: 'COM_OPCOES', optionCount: 40,
+    criteria: { model: 'Civic', yearMin: 2019, yearMax: 2021, maxMiles: 60000, minMiles: 1 } };
+  const shown = merge.present([ficha, conversa]);
+  assert.deepEqual(shown.items.map((item) => item.key), ['ficha:journey:j1:CARRO']);
+  assert.equal(shown.items[0].aiEvidence[0].key, 'conversa:r1');
+  // Pedido de conversa de outra pessoa ou que a ficha não busca continua separado.
+  const outro = { ...conversa, key: 'conversa:r2' };
+  assert.equal(merge.present([ficha, outro]).items.length, 2);
+});

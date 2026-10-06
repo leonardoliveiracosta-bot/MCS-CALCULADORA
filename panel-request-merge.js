@@ -5,8 +5,9 @@
 // IA fica como evidência do pedido, sempre identificada como não confirmada. Nada é apagado e
 // nenhum identificador ou hash muda: a lista completa continua sendo usada para comparar com o
 // lote; aqui só se decide o que aparece e como se conta.
-//  * Une só quando é certo: a leitura está ligada à mesma ficha, o tipo de busca não diverge e
-//    marca, modelo, anos, milhagens e valor são iguais a exatamente um pedido daquela ficha.
+//  * Une só quando é certo: a ficha já busca este pedido (o desejo traz o id do pedido), ou a
+//    leitura está ligada à mesma ficha, o tipo de busca não diverge e marca, modelo, anos,
+//    milhagens e valor são iguais a exatamente um pedido daquela ficha.
 //  * Caso ambíguo (mais de um pedido igual, critério diferente, ficha incerta) fica separado.
 const catalog = require('./vehicle-catalog');
 const requests = require('./vehicle-requests');
@@ -47,7 +48,13 @@ function present(items) {
   all.filter((item) => item.source === 'CONVERSA' && item.person && item.person.journeyId && item.criteria).forEach((item) => {
     const own = signature(item.criteria);
     const mode = modeOf(item);
-    const same = (fichaByJourney.get(item.person.journeyId) || []).filter((ficha) => {
+    const fichas = fichaByJourney.get(item.person.journeyId) || [];
+    // Certain too: the ficha already searches THIS request (its wish carries the request id), so
+    // the conversation card would only repeat it with an old count.
+    const requestId = item.key.startsWith('conversa:') ? item.key.slice(9) : null;
+    const carrying = requestId ? fichas.filter((ficha) => ficha.official && ficha.targets && ficha.targets[0] && (ficha.targets[0].wishes || []).some((wish) => wish.requestId === requestId)) : [];
+    if (carrying.length === 1) { into.set(item.key, carrying[0].key); return; }
+    const same = fichas.filter((ficha) => {
       const fichaMode = modeOf(ficha);
       if (mode && fichaMode && mode !== fichaMode) return false;
       return fichaSignatures(ficha).includes(own);
