@@ -2353,9 +2353,10 @@
   function funnelCard(item, { status, tone, rows = [] }){
     const cars = item.cars && item.cars.length ? item.cars : [item.car || 'Carro não informado'];
     const vins = item.cars && item.cars.length ? (item.vins || []) : [item.vin || null];
-    const vinRows = cars.map((name, index) => [cars.length > 1 ? `VIN · ${name || 'carro ' + (index + 1)}` : 'VIN', vins[index] || 'não informado', 'case-request-line case-vin funnel-vin']);
-    const { card, actions } = todosCard({ status, tone, title: cars.map((name) => name || 'Carro não informado').join(' · '), ref: item.referenceCode,
-      phone: item.phone ? phoneDisplay(item.phone) : 'Sem telefone', rows: [['Cliente', item.name || 'Cliente', 'case-request-line'], ...vinRows, ...rows],
+    // The same content and order as before (client, phone · Ref, each car with its VIN, the times), in the TODOS look.
+    const carRows = cars.flatMap((name, index) => [['Carro', name || 'Carro não informado', 'case-request-line'], ['VIN', vins[index] || 'não informado', 'case-request-line case-vin funnel-vin']]);
+    const { card, actions } = todosCard({ status, tone, title: item.name || 'Cliente', ref: item.referenceCode,
+      phone: item.phone ? phoneDisplay(item.phone) : 'Sem telefone', rows: [...carRows, ...rows],
       open: item.journeyId ? () => openDetail('ficha', item.journeyId) : null, className: 'vitrine-request-card' });
     card.querySelectorAll('.case-vin .case-field-value').forEach((cell, index) => { const vin = vins[index]; if (!vin) return; const copy = element('button', 'quiet small', 'Copiar'); copy.type = 'button';
       copy.addEventListener('click', async (event) => { event.stopPropagation(); try { await navigator.clipboard.writeText(vin); copy.textContent = 'Copiado'; } catch (_) { copy.textContent = 'Não copiou'; } setTimeout(() => { copy.textContent = 'Copiar'; }, 2000); });
@@ -3806,14 +3807,14 @@
     const waiting = !row.sent && row.states.some((state) => state.kind === 'cars');
     // The card of the TODOS tab: the summary in the status strip, the cars asked as the title, the Ref
     // tag, the phone and one labelled row per request (with its own state and "Atualizar").
-    const cars = [...new Set(row.demands.flatMap((demand) => (demand.wishes || []).map((wish) => [wish.make, wish.model].filter(Boolean).join(' '))).filter(Boolean))];
     const arrival = floridaArrival(person.arrivedAt);
-    const rows = [['Cliente', person.name, 'case-request-line identity-name'], ...(arrival ? [['Chegou', arrival, 'case-request-line']] : []),
+    const rows = [...(arrival ? [['Chegou', arrival, 'case-request-line']] : []),
       ['Prazo', WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, 'case-request-line'],
       ...row.states.map((state) => ['Pedido', [state.demand.mode === 'VALOR' ? 'Por valor' : state.demand.mode === 'CARRO' ? 'Por carro' : '', demandSummary(state.demand), STATE_TEXT[state.kind](state)].filter(Boolean).join(' · '), 'case-request-line options-queue-demand'])];
-    const { card } = todosCard({ status: rowSummary(row), tone: waiting ? 'red' : '', title: cars.join(' · ') || person.name, ref: person.ref, phone: person.phoneDisplay || 'Sem telefone', rows,
+    const { card } = todosCard({ status: rowSummary(row), tone: waiting ? 'red' : '', title: person.name, ref: person.ref, phone: person.phoneRaw ? person.phoneDisplay : '', rows,
       open: () => openQueueDetail(row.demands[0] || null, person), className: 'options-queue-card options-queue-row' + (waiting ? '' : ' options-queue-nocar') });
     card.querySelector('.card-decision-label').classList.add('options-queue-reason');
+    card.querySelector('.case-face-title').classList.add('identity-name');
     // Every request key and mode of the person (read by openOptionsCard and the tests).
     card.dataset.demandKey = row.demands.map((demand) => demand.key).filter(Boolean).join(' ');
     card.dataset.mode = [...new Set(row.demands.map((demand) => demand.mode).filter(Boolean))].join(' ');
