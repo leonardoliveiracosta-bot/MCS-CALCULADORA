@@ -59,7 +59,8 @@ async function openPanel(page, { width = 1366, calls }) {
       return json({ key: url.searchParams.get('key'), group, options, total: all.length, nextCursor: offset + limit < all.length ? String(offset + limit) : null, uploadedAt: ago(2) });
     }
     if (url.pathname === '/api/panel/manheim-options' && request.method() === 'POST') {
-      const body = JSON.parse(request.postData() || '{}'); calls.posts.push(body);
+      // The panel's own background sync goes to the same route: only the selection actions are recorded.
+      const body = JSON.parse(request.postData() || '{}'); if (['select', 'remove'].includes(body.action)) calls.posts.push(body);
       return json({ status: body.action === 'select' ? 'SELECTED' : 'AVAILABLE', manual: body.action === 'select' && Boolean(body.reason), manualReason: body.reason || null, manualPct: null, finalCents: 2788000, note: null, selectedCount: body.action === 'select' ? 1 : 0 });
     }
     if (url.pathname === '/api/panel/lead') return json({ ref: 'AMQV5', record: { id: JJ.id, stage: 'RESPONDIDO', contact: { display_name: 'JJ' }, phones: [], attachments: [], returns: [], conversation: [], units: [] }, order: null, notes: [], events: [], promises: [], checklist: [], wishes: [], typical: [], offers: [], fits: [], calculatorNews: [], ai: { reading: null, suggestion: null }, aiHelp: [] });
@@ -77,6 +78,7 @@ test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e 
   const card = page.locator('#options-queue .options-queue-card', { hasText: 'JJ' });
   // The card's number is the total of the screen's tabs (114 + 13).
   await expect(card.locator('.options-queue-reason')).toHaveText('1 pedido · 127 carros aguardando');
+  await card.scrollIntoViewIfNeeded();
   const scrolled = await page.evaluate(() => window.scrollY);
   // Common path: one tap opens the client's screen, never the ficha.
   await card.locator('.identity-name').click();
@@ -130,7 +132,8 @@ test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e 
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Buy Now até');
   await expect(rows.first()).toContainText('PA - Manheim Pennsylvania');
-  await rows.first().locator('input[type="checkbox"]').check();
+  // The box asks for the reason first and stays unchecked until the car goes in.
+  await rows.first().locator('input[type="checkbox"]').click();
   await expect(rows.first().locator('input[type="checkbox"]')).not.toBeChecked();
   await rows.first().locator('.oc-reason input').fill('Único com menos de 25 mil milhas');
   await rows.first().getByRole('button', { name: 'Incluir' }).click();

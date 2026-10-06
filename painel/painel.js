@@ -202,7 +202,7 @@
     // The calculator writes "33101 — Miami, FL" (city, state) or only the number (or the state, or
     // "not recognized"): the place is looked up whenever the city is missing.
     const text = String(value || '').trim();
-    const found = /^(\d{5})(?:-\d{4})?\b\s*(?:·\s*)?(.*)$/.exec(text);
+    const found = /^(\d{5})(?:-\d{4})?\b\s*(?:[·—–-]\s*)?(.*)$/.exec(text);
     if (!node || !found) return;
     const zip = found[1];
     const rest = found[2].trim();
@@ -4000,7 +4000,7 @@
     // 1. Who: name, Ref, phone (tap to call), city and state; Voltar and the full ficha.
     const top = element('div', 'oc-top');
     const back = element('button', 'quiet oc-back', '← Voltar'); back.type = 'button';
-    back.addEventListener('click', () => { closeOptionsClient(); requestAnimationFrame(() => window.scrollTo(0, clientScrollY)); });
+    back.addEventListener('click', () => { const y = clientScrollY; closeOptionsClient(); window.scrollTo(0, y); requestAnimationFrame(() => window.scrollTo(0, y)); });
     const who = element('div', 'oc-who');
     const name = element('h2', 'oc-name identity-name', person.name || 'Cliente');
     if (person.ref) name.append(element('span', 'oc-ref', 'REF ' + person.ref));
