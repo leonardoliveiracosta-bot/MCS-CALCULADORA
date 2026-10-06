@@ -52,7 +52,7 @@ const agoMin=(min)=>new Date(Date.now()-min*60000).toISOString();
 const future=()=>new Date(Date.now()+7*86400000).toISOString();
 const past=()=>new Date(Date.now()-86400000).toISOString();
 
-function seedDb(){
+let seedDb=function(){
   return makeDb({
     vitrines:[
       {id:ids.v1,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V1',created_at:agoMin(120),expires_at:future(),parent_vitrine_id:null},
@@ -83,6 +83,18 @@ function seedDb(){
     journey_toggle_states:[],panel_item_dispositions:[],journey_refs:[],
     message_journeys:[],messages:[]
   });
+}
+const seedDbRaw=seedDb;
+seedDb=()=>sendAll(seedDbRaw());
+// Every seeded vitrine was really sent: an MCS message with its /v/<token> link a minute after it was created.
+function sendAll(db){
+  db.store.messages=db.store.messages||[];
+  db.store.vitrines.forEach((vitrine,index)=>{
+    if(vitrine.token)return;
+    vitrine.token='tok'+vitrine.id.slice(0,8)+index;
+    db.store.messages.push({id:'m'+vitrine.id,environment:ENV,direction:'MCS',undone_at:null,body_text:'Your options: https://mycarscout.net/v/'+vitrine.token,occurred_at_utc:new Date(Date.parse(vitrine.created_at)+60000).toISOString(),created_at:vitrine.created_at});
+  });
+  return db;
 }
 const servicesFor=(db)=>({
   allRows:db.allRows,rows:db.rows,insert:db.insert,
@@ -248,6 +260,7 @@ function seedWithWaiting(){
   const db=seedDb();
   db.store.vitrines.push({id:extra.v1w,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V1',created_at:agoMin(40),expires_at:future(),parent_vitrine_id:null},
     {id:extra.v2w,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'3CG5P',customer_name:'Ana Souza',version:'V2',created_at:agoMin(50),expires_at:future(),parent_vitrine_id:null});
+  sendAll(db);
   db.store.vitrine_cars.push({id:'a6666666-6666-4666-8666-666666666666',vitrine_id:ids.v1c,environment:ENV,vehicle_snapshot:{year:2018,make:'Kia',model:'Soul'}},{id:extra.carW,vitrine_id:extra.v1w,environment:ENV,vehicle_snapshot:{year:2019,make:'Honda',model:'CR-V'}},{id:extra.carV2w,vitrine_id:extra.v2w,environment:ENV,vehicle_snapshot:{year:2020,make:'Toyota',model:'RAV4'}});
   return db;
 }
@@ -294,4 +307,45 @@ test('tirar da lista: lance novo depois de dispensar traz a V2 de volta; toque n
   const out=await funnel.payload(ctx,servicesFor(db));
   assert.ok(out.v2.bid.some((item)=>item.vitrineId===extra.v2w));
   assert.ok(out.v1.tapped.some((item)=>item.vitrineId===extra.v1w));
+});
+
+/* ---------- "V1 enviada" só com prova de envio (o link numa mensagem da MCS) ---------- */
+test('V1 só é "enviada" quando o link está numa mensagem da MCS; link só gerado vai para "envio não confirmado"',async()=>{
+  const db=seedDb();
+  const id='99999999-9999-4999-8999-999999999999',car='a9999999-9999-4999-8999-999999999999';
+  db.store.vitrines.push({id,environment:ENV,contact_id:ids.contact,journey_id:ids.journey,reference_code:'QPVK3',customer_name:'Anderson',version:'V1',created_at:agoMin(3000),expires_at:future(),parent_vitrine_id:null,token:'nuncaenviado1'});
+  db.store.vitrine_cars.push({id:car,vitrine_id:id,environment:ENV,vehicle_snapshot:{year:2020,make:'Ford',model:'Edge'}});
+  // A pré-visualização logo depois de gerar o link: abre e toca, mas nenhuma mensagem levou o link.
+  db.store.vitrine_events.push({vitrine_id:id,vitrine_car_id:car,event_type:'TAP',created_at:agoMin(2998),environment:ENV});
+  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
+  const out=await funnel.payload(ctx,servicesFor(db));
+  const all=[...out.v1.tapped,...out.v1.waiting,...out.v1.expired].map((item)=>item.vitrineId);
+  assert.ok(!all.includes(id),'nunca aparece como V1 enviada nem como "tocou"');
+  assert.deepEqual(out.v1.unsent.map((item)=>item.vitrineId),[id]);
+  assert.equal(out.counts.v1Action,1,'o toque da pré-visualização não conta');
+  // Depois que o link sai numa mensagem, vira V1 enviada; o tempo conta da mensagem, e o toque antigo (antes do envio) não vale.
+  db.store.messages.push({id:'mx',environment:ENV,direction:'MCS',undone_at:null,body_text:'https://mycarscout.net/v/nuncaenviado1',occurred_at_utc:agoMin(60),created_at:agoMin(60)});
+  const after=await funnel.payload(ctx,servicesFor(db));
+  const waiting=after.v1.waiting.find((item)=>item.vitrineId===id);
+  assert.ok(waiting,'agora é V1 enviada, aguardando o toque');
+  assert.equal(waiting.ago,'há 1 h');
+  assert.ok(!after.v1.unsent.some((item)=>item.vitrineId===id));
+});
+test('mensagem do cliente com o link não prova envio',async()=>{
+  const db=seedDb();
+  const v=db.store.vitrines.find((row)=>row.id===ids.v1);
+  db.store.messages=db.store.messages.filter((m)=>!m.body_text.includes(v.token));
+  db.store.messages.push({id:'mc',environment:ENV,direction:'CUSTOMER',undone_at:null,body_text:'https://mycarscout.net/v/'+v.token,occurred_at_utc:agoMin(5),created_at:agoMin(5)});
+  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
+  const out=await funnel.payload(ctx,servicesFor(db));
+  assert.ok(out.v1.unsent.some((item)=>item.vitrineId===ids.v1));
+  assert.ok(!out.v1.tapped.some((item)=>item.vitrineId===ids.v1));
+});
+test('summary: V1 só gerada (link nunca enviado) não conta como enviada',async()=>{
+  const db=seedDb();
+  const other='e2222222-2222-4222-8222-222222222222';
+  db.store.vitrines.push({id:'99999999-9999-4999-8999-99999999aaaa',environment:ENV,contact_id:ids.contact,journey_id:other,reference_code:'QPVK3',version:'V1',created_at:agoMin(5),expires_at:future(),token:'sopreview1'});
+  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
+  const out=await funnel.summary(ctx,{allRows:db.allRows});
+  assert.ok(!out.v1JourneyIds.includes(other));
 });
