@@ -32,6 +32,7 @@ Cada setor acionado aplica seus três papéis; o responsável principal consolid
 - Um provedor por solução; não combinar provedores para a mesma solução
 - Nunca expor segredos; não registrar senhas, chaves ou tokens no repositório, rascunhos, verificações ou relatórios
 - Usar exemplos fictícios e evidências sem dados pessoais
+- Exceção continua exceção: o caso raro é tratado à parte e nunca vira regra que atrapalha o caso comum; medir a frequência nos dados antes de criar regra e perguntar à Leo se a proteção mudar o caminho comum (detalhes em CLAUDE.md)
 - Esta estrutura não autoriza alterar código, migrar banco, publicar o painel ou enviar mensagens a clientes
 
 ## Papéis e funcionamento
