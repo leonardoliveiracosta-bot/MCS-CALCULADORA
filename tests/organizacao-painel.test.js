@@ -179,3 +179,11 @@ test('saldo do Claude: separado da OpenAI, uso anterior desconhecido nunca apare
   const api = read('api/panel/ai-budget.js');
   assert.match(api, /priorUnknown: Boolean\(state\.priorUnknown\)/);
 });
+
+test('BUSCAR CARROS: "Quais buscas salvar no Manheim" fica no alto de cada coluna, acima dos pedidos', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'painel', 'index.html'), 'utf8');
+  for (const mode of ['valor', 'carro']) {
+    const saved = html.indexOf(`id="buscas-${mode}-saved"`), list = html.indexOf(`id="requests-${mode}"`), head = html.indexOf(`id="requests-sort-${mode}"`);
+    assert.ok(head > 0 && saved > head && list > saved, mode + ': título, depois buscas, depois pedidos');
+  }
+});
