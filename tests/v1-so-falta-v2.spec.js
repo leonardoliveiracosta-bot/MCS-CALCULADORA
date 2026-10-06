@@ -1,8 +1,8 @@
 'use strict';
 
 // Aba V1: a lista mostra só "Tocou · falta a V2". Aguardando o toque, Expiradas e "Link gerado ·
-// envio não confirmado" não aparecem mais. Cada cartão tem "Excluir": um clique tira o cliente da
-// lista, sem confirmação, e Desfazer traz de volta.
+// envio não confirmado" não aparecem mais. Cada cartão tem "Excluir" (e não "Pedido atendido"): um clique
+// tira o cliente da lista, sem confirmação, sem marcar o pedido como atendido, e Desfazer traz de volta.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/v1-so-falta-v2.spec.js
 const { test, expect } = require('@playwright/test');
 
@@ -19,7 +19,7 @@ test('aba V1: só "Tocou · falta a V2", e Excluir tira o cliente com um clique'
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   const dialogs = []; page.on('dialog', (dialog) => { dialogs.push(dialog.message()); dialog.dismiss(); });
   const calls = [];
-  let treated = false;
+  let excluded = false;
   await page.setViewportSize({ width: 390, height: 900 });
   await page.addInitScript(() => localStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-teste', refreshToken: 'refresh-teste', accessExpiresAt: Date.now() + 3600000 })));
   await page.route('**/*', async (route) => {
@@ -30,14 +30,14 @@ test('aba V1: só "Tocou · falta a V2", e Excluir tira o cliente com um clique'
     if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
     if (url.pathname === '/api/panel/vitrine-funnel') return json({
-      v1: { tapped: treated ? [] : [tapped], waiting: [other(1)], expired: [other(2, { expiredAt: ago(5) })], unsent: [other(3, { createdAt: ago(3) })] },
+      v1: { tapped: excluded ? [] : [tapped], waiting: [other(1)], expired: [other(2, { expiredAt: ago(5) })], unsent: [other(3, { createdAt: ago(3) })] },
       v2: { bid: [], waiting: [], expired: [] },
-      counts: { v1Action: treated ? 0 : 1, v2Action: 0 }
+      counts: { v1Action: excluded ? 0 : 1, v2Action: 0 }
     });
     if (url.pathname === '/api/panel/vitrine-requests' && route.request().method() === 'POST') {
       const body = JSON.parse(route.request().postData() || '{}'); calls.push(body);
-      if (body.action === 'treat') treated = true;
-      if (body.action === 'undo') treated = false;
+      if (body.action === 'dismiss') { excluded = true; return json({ requestId: id(9) }); }
+      if (body.action === 'undo') excluded = false;
       return json({ ok: true });
     }
     return json({ items: [], orders: [], demands: [], matches: [], groups: [], chats: [], reviews: [], review: [], counts: { periodLeads: 0, situations: {}, sections: {} }, requests: [], signals: [], meta: {} });
@@ -58,15 +58,17 @@ test('aba V1: só "Tocou · falta a V2", e Excluir tira o cliente com um clique'
   // Caminho comum: o cartão continua com Abrir ficha e Montar V2, e Excluir é um clique só, sem confirmação.
   await expect(card.getByRole('button', { name: 'Abrir ficha' })).toBeVisible();
   await expect(card.getByRole('button', { name: 'Montar V2' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Pedido atendido' })).toHaveCount(0);
   await card.getByRole('button', { name: 'Excluir' }).click();
   await expect(card).toHaveCount(0);
   await expect(page.getByText('Cliente excluído da lista')).toBeVisible();
-  expect(calls).toEqual([{ action: 'treat', requestId: id(3) }]);
+  // Só tira da lista: o pedido do toque não é marcado como atendido (continua aberto para a V2).
+  expect(calls).toEqual([{ action: 'dismiss', vitrineId: id(1) }]);
   await expect(list.locator('.request-group > h3')).toHaveText(['Tocou · falta a V2 (0)']);
   // Desfazer traz o cliente de volta.
   await page.getByRole('button', { name: 'Desfazer' }).click();
   await expect(list.locator('.v1-client-card', { hasText: 'Bia' })).toHaveCount(1);
-  expect(calls).toEqual([{ action: 'treat', requestId: id(3) }, { action: 'undo', requestId: id(3) }]);
+  expect(calls).toEqual([{ action: 'dismiss', vitrineId: id(1) }, { action: 'undo', requestId: id(9) }]);
   expect(dialogs).toEqual([]);
   expect(errors).toEqual([]);
 });

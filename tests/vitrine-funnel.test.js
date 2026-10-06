@@ -309,6 +309,25 @@ test('tirar da lista: lance novo depois de dispensar traz a V2 de volta; toque n
   assert.ok(out.v1.tapped.some((item)=>item.vitrineId===extra.v1w));
 });
 
+test('Excluir na aba V1: o cliente que tocou sai de "Tocou · falta a V2" sem o pedido virar atendido',async()=>{
+  const db=seedDb();
+  const view='a7777777-7777-4777-8777-777777777777';
+  db.store.vitrine_requests.push({id:view,vitrine_id:ids.v1,vitrine_car_id:ids.car1,request_kind:'VIEW',treated_at:null,created_at:agoMin(1),environment:ENV});
+  const funnel=loadWith('api/panel/vitrine-funnel.js',mocksFor(db));
+  const requests=loadWith('api/panel/vitrine-requests.js',{...mocksFor(db),'../../vitrine-domain':{deposit:()=>0,vehicleName:()=>''}});
+  assert.ok((await funnel.payload(ctx,servicesFor(db))).v1.tapped.some((item)=>item.vitrineId===ids.v1));
+  await requests.dismiss(ctx,{vitrineId:ids.v1},servicesFor(db));
+  let out=await funnel.payload(ctx,servicesFor(db));
+  assert.ok(!out.v1.tapped.some((item)=>item.vitrineId===ids.v1));
+  assert.equal(out.counts.v1Action,0);
+  // O pedido do toque continua aberto: a V2 ainda pode ser montada se o cliente voltar.
+  assert.equal(db.store.vitrine_requests.find((row)=>row.id===view).treated_at,null);
+  // Toque novo traz o cliente de volta.
+  db.store.vitrine_events.push({vitrine_id:ids.v1,vitrine_car_id:ids.car1,event_type:'TAP',created_at:new Date(Date.now()+1000).toISOString(),environment:ENV});
+  out=await funnel.payload(ctx,servicesFor(db));
+  assert.ok(out.v1.tapped.some((item)=>item.vitrineId===ids.v1));
+});
+
 /* ---------- "V1 enviada" só com prova de envio (o link numa mensagem da MCS) ---------- */
 test('V1 só é "enviada" quando o link está numa mensagem da MCS; link só gerado vai para "envio não confirmado"',async()=>{
   const db=seedDb();

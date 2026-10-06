@@ -2385,8 +2385,11 @@
   // and has Desfazer. A tapped car marks its own request (as before; created on the spot when the tap
   // has none yet); every other card gets the same mark on the vitrine (server: action "dismiss").
   // One card can stand for several V1s/cars of the same client: every one of them is marked (and undone) together.
-  // On the V1 tab the same button reads "Excluir": one click takes the client out of "Tocou · falta a V2".
+  // V1 tab: "Excluir" instead. A client in V1 was already served, so nothing is marked "atendido": it only
+  // takes the client out of "Tocou · falta a V2" (the vitrine's own DISMISS mark, never "treat"), the tap's
+  // request stays open for a V2 later, and a new tap brings the card back.
   function treatedButton(itemOrItems,card,view,label='Pedido atendido'){
+    const exclude=label==='Excluir';
     const items=Array.isArray(itemOrItems)?itemOrItems:[itemOrItems],item=items[0];
     const treated=element('button','quiet small funnel-treated',label);treated.type='button';treated.dataset.action='funnel-treated';
     let marks=[];
@@ -2396,17 +2399,17 @@
       commit:async()=>{
         marks=[];const dismissed=new Set();
         for(const one of items){
-          if(one.vitrineCarId){const id=await requestIdFor(one);await requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:id});marks.push(id);continue;}
+          if(one.vitrineCarId&&!exclude){const id=await requestIdFor(one);await requestApi('/api/panel/vitrine-requests',{action:'treat',requestId:id});marks.push(id);continue;}
           if(dismissed.has(one.vitrineId))continue;dismissed.add(one.vitrineId);
           const out=await requestApi('/api/panel/vitrine-requests',{action:'dismiss',vitrineId:one.vitrineId});if(out&&out.requestId)marks.push(out.requestId);
         }
         return {ok:true};
       },
       rollback:()=>{card.classList.remove('action-optimistic-hidden');},
-      successText:label==='Excluir'?'Cliente excluído da lista':'Pedido marcado como atendido',
+      successText:exclude?'Cliente excluído da lista':'Pedido marcado como atendido',
       undo:{commit:()=>Promise.all(marks.map((id)=>requestApi('/api/panel/vitrine-requests',{action:'undo',requestId:id}))),successText:'Voltou para a lista',refresh:reload},
       refresh:reload,
-      errorText:label==='Excluir'?'Não consegui excluir, tente de novo':'Não consegui marcar como atendido, tente de novo'}));
+      errorText:exclude?'Não consegui excluir, tente de novo':'Não consegui marcar como atendido, tente de novo'}));
     treated.addEventListener('click',(event)=>event.stopPropagation());
     return treated;
   }
