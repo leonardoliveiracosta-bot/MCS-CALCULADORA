@@ -126,7 +126,7 @@ test('19 · desktop: ENVIAR OPÇÕES é uma fila de cartões compactos, nada exp
   // Ref-only VALOR order is in the queue too.
   await expect(page.locator('#options-queue .options-queue-card', { hasText: 'Pedido Só Valor' })).toHaveCount(1);
   // Queue counter and the general total.
-  await expect(page.locator('#options-queue-count')).toContainText('2 na fila · toque na linha para abrir a ficha');
+  await expect(page.locator('#options-queue-count')).toContainText('2 na fila · toque na linha para ver as opções do cliente');
   await expect(page.locator('#buscas-total')).toContainText('Total geral');
   // The queue search filters by name, phone, Ref and car of any request of the person.
   await page.locator('#options-queue-search').fill('xDrive40i');

@@ -142,7 +142,7 @@ test('celular: Ordenar e Trim cabem na largura, sem rolagem lateral', async ({ p
   expect(box.x + box.width).toBeLessThanOrEqual(390);
 });
 
-test('cartão da fila: só abre a ficha com apertar e soltar no mesmo lugar livre; dentro da ficha o trim não navega', async ({ page }) => {
+test('cartão da fila: só abre com apertar e soltar no mesmo lugar livre; dentro da ficha o trim não navega', async ({ page }) => {
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
@@ -156,11 +156,13 @@ test('cartão da fila: só abre a ficha com apertar e soltar no mesmo lugar livr
   });
   await page.waitForTimeout(500);
   await expect(page.locator('#detail-panel .ficha-demand')).toHaveCount(0);
-  // A plain press and release on the card opens the ficha.
+  await expect(page.locator('#options-client')).toBeHidden();
+  // A plain press and release on the card opens the client's options screen; the ficha opens from there.
   await queueCard.evaluate((card) => {
     card.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
+  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
   const card = fichaSection(page, 'CARRO');
   await expect(card).toBeVisible({ timeout: 30000 });
   // Inside the ficha the trim and the groups never navigate: the same ficha stays open.

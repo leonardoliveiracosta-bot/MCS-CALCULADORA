@@ -195,3 +195,58 @@ nav[aria-label="Seções do painel"]{
 .options-queue-demand { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .options-queue-demand-text { overflow-wrap: anywhere; }
 .options-queue-update { padding: 4px 10px; }
+
+/* ENVIAR OPÇÕES · Opções do cliente (a tela que abre ao tocar no cartão da fila) */
+#searches-panel.client-open > :not(#options-client) { display: none; }
+.options-client { padding: 0; overflow: visible; }
+.options-client .oc-top { display: flex; align-items: center; gap: 14px; padding: 14px 24px; border-bottom: 1px solid var(--mcs-line, #E4E4E7); flex-wrap: wrap; }
+.options-client .oc-who { flex: 1; min-width: 220px; }
+.options-client .oc-name { margin: 0; font-size: 20px; }
+.options-client .oc-ref { margin-left: 8px; font-size: 13px; font-weight: 600; letter-spacing: .08em; color: var(--mcs-gold-text, #8A6516); }
+.options-client .oc-contact { margin: 2px 0 0; }
+.options-client .oc-phone { color: inherit; }
+.options-client .oc-full { text-decoration: underline; }
+.options-client .oc-ask { display: flex; flex-wrap: wrap; gap: 12px 28px; padding: 14px 24px; background: var(--mcs-elevated, #F4F4F5); border-bottom: 1px solid var(--mcs-line, #E4E4E7); }
+.options-client .oc-fact { display: flex; flex-direction: column; min-width: 0; }
+.options-client .oc-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--mcs-muted, #52525B); margin-bottom: 3px; }
+.options-client .oc-fact strong { font-weight: 600; overflow-wrap: anywhere; }
+.options-client .oc-demands, .options-client .oc-bar { display: flex; align-items: center; gap: 8px; padding: 14px 24px 0; flex-wrap: wrap; }
+.options-client .oc-bar { padding-bottom: 14px; }
+.options-client .oc-tab { border-radius: 999px; padding: 8px 14px; min-height: 0; }
+.options-client .oc-tab.on { border-color: var(--mcs-gold, #C69632); background: var(--mcs-gold-tint, #FBF6EA); font-weight: 600; }
+.options-client .oc-sort-label { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.options-client .oc-head, .options-client .oc-row { display: grid; grid-template-columns: 40px minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 14px; align-items: center; padding: 0 24px; }
+.options-client .oc-head { min-height: 34px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--mcs-muted, #52525B); border-top: 1px solid var(--mcs-line, #E4E4E7); border-bottom: 1px solid var(--mcs-line, #E4E4E7); }
+.options-client .oc-row { padding-top: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--mcs-line, #E4E4E7); }
+.options-client .oc-row > * { min-width: 0; }
+.options-client .oc-row.sel { background: var(--mcs-gold-tint, #FBF6EA); }
+.options-client .oc-check input { width: 18px; height: 18px; accent-color: var(--mcs-gold, #C69632); }
+.options-client .oc-l1 { display: block; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.options-client .oc-l2 { display: block; font-size: 13px; color: var(--mcs-muted, #52525B); margin-top: 3px; overflow-wrap: anywhere; }
+.options-client .oc-right { text-align: right; }
+.options-client .oc-fit .offer-fit { font-size: 12px; }
+.options-client .oc-row-msg:empty { display: none; }
+.options-client .oc-row-msg, .options-client .oc-reason { grid-column: 2 / -1; }
+.options-client .oc-reason { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.options-client .oc-reason input { flex: 1; min-width: 180px; }
+.options-client .oc-more { padding: 14px 24px; }
+.options-client .oc-act { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 24px; background: var(--mcs-card, #FFFFFF); border-top: 1px solid var(--mcs-line, #E4E4E7); box-shadow: 0 -4px 12px rgb(0 0 0 / 4%); }
+.options-client .oc-act .oc-count { flex: 1; margin: 0; }
+.options-client .oc-act .oc-count strong { font-size: 17px; }
+.options-client .oc-act .ficha-v1-status:empty { display: none; }
+.options-client .oc-act .ficha-v1-status, .options-client .oc-act .oc-hint { flex-basis: 100%; margin: 0; font-size: 12px; }
+.options-client .oc-v2 { padding: 0 24px; }
+@media (max-width: 700px) {
+  .options-client .oc-head { display: none; }
+  .options-client .oc-row { grid-template-columns: 28px minmax(0, 1fr) auto; grid-template-areas: "ck car mmr" "ck km km" "ck loc loc" "ck tag tag"; row-gap: 4px; padding: 12px 16px; }
+  .options-client .oc-check { grid-area: ck; align-self: start; }
+  .options-client .oc-car { grid-area: car; }
+  .options-client .oc-miles { grid-area: km; }
+  .options-client .oc-sale { grid-area: loc; }
+  .options-client .oc-mmr { grid-area: mmr; }
+  .options-client .oc-fit { grid-area: tag; }
+  .options-client .oc-row-msg, .options-client .oc-reason { grid-column: 2 / -1; }
+  .options-client .oc-top, .options-client .oc-ask, .options-client .oc-demands, .options-client .oc-bar, .options-client .oc-act, .options-client .oc-more, .options-client .oc-v2 { padding-left: 16px; padding-right: 16px; }
+  .options-client .oc-sort-label { margin-left: 0; }
+  .options-client .oc-act .oc-count { flex-basis: 100%; }
+}

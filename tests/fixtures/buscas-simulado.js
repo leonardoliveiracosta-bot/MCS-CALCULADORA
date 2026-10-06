@@ -16,7 +16,9 @@ function asSummary(data) {
     ...rest,
     demands: (data.demands || []).map((demand) => {
       const own = matches.filter((match) => keyOf(match) === demand.key);
-      return { reactivation: false, stale: false, offer: { lane: own.length, offLane: 0, incomplete: 0, selected: 0, selectedIds: [] }, ...demand, matchCount: own.length, bateCount: own.filter((match) => match.match_kind === 'BATE').length, porValorCount: own.filter((match) => match.match_kind === 'POR_VALOR').length, presentedCount: own.filter((match) => match.presented_unit_id).length };
+      // Like the server, the offer groups and the match count come from the same batch: no car left, no offer.
+      const offer = own.length ? demand.offer || { lane: own.length, offLane: 0, incomplete: 0, selected: 0, selectedIds: [] } : { ...(demand.offer || { selected: 0, selectedIds: [] }), lane: 0, offLane: 0, incomplete: 0 };
+      return { reactivation: false, stale: false, ...demand, offer, matchCount: own.length, bateCount: own.filter((match) => match.match_kind === 'BATE').length, porValorCount: own.filter((match) => match.match_kind === 'POR_VALOR').length, presentedCount: own.filter((match) => match.presented_unit_id).length };
     })
   };
 }
