@@ -2338,7 +2338,7 @@
   }
 
   function funnelCard(item){
-    const card=element('article','vitrine-request-card');
+    const card=element('article','item-card vitrine-request-card');
     const head=element('header','');head.append(element('strong','',item.name||'Cliente'));card.append(head);
     card.append(element('span','muted',`${item.phone||'Sem telefone'} · Ref ${item.referenceCode||'—'}`));
     return card;
