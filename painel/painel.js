@@ -2439,7 +2439,7 @@
   }
   // ===== V1: um cartão por cliente =====
   let v1FunnelData=null;
-  const funnelAgo=(value)=>{if(!value)return '';const ms=Math.max(0,Date.now()-Date.parse(value));const m=Math.floor(ms/60000);if(m<60)return `há ${m||1} min`;const h=Math.floor(m/60);if(h<24)return `há ${h} h`;return `há ${Math.floor(h/24)} dias`;};
+  const funnelAgo=(value)=>{if(!value)return '';const ms=Math.max(0,Date.now()-Date.parse(value));const m=Math.floor(ms/60000);if(m<60)return `há ${m||1} min`;const h=Math.floor(m/60);if(h<24)return `há ${h} h`;const d=Math.floor(h/24);return `há ${d} ${d===1?'dia':'dias'}`;};
   const v1ClientKey=(item)=>{const ref=String(item.referenceCode||'').trim().toUpperCase();if(ref)return 'ref:'+ref;const digits=String(item.phone||'').replace(/\D/g,'');return digits?'tel:'+digits:'v1:'+item.vitrineId;};
   function v1ClientGroups(list){const groups=new Map();(list||[]).forEach((item)=>{const key=v1ClientKey(item);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(item);});return [...groups.values()];}
   const v1Latest=(group)=>group.map((one)=>one.sentAt||one.createdAt).filter(Boolean).sort().pop()||null;
@@ -2510,7 +2510,9 @@
       const rows=[];
       if(sentAt&&one.kind!=='unsent')rows.push(['Enviada em',formatDate(sentAt),'case-request-line']);
       cars.forEach((car)=>{rows.push(['Carro',car.car||'Carro não informado','case-request-line']);rows.push(['VIN',car.vin||'não informado','case-request-line case-vin funnel-vin']);rows.push(['Tocou',car.tapAt?funnelAgo(car.tapAt):'não tocou','case-request-line']);});
-      const {card}=todosCard({status,tone:cars.some((car)=>car.tapAt)?'red':'',title:first.name||'Cliente',ref:first.referenceCode,phone:first.phone?phoneDisplay(first.phone):'',rows,className:'vitrine-request-card v1-sent-card'});
+      const {card,actions}=todosCard({status,tone:cars.some((car)=>car.tapAt)?'red':'',title:first.name||'Cliente',ref:first.referenceCode,phone:first.phone?phoneDisplay(first.phone):'',rows,className:'vitrine-request-card v1-sent-card'});
+      // The V2 can be built from here too (only from a V1 still valid and really sent).
+      if(one.kind==='tapped'||one.kind==='waiting')actions.append(v2PickerButton(one,card));
       card.querySelectorAll('.case-vin .case-field-value').forEach((cell,index)=>{const vin=cars[index]&&cars[index].vin;if(vin)cell.append(document.createTextNode(' '),copyButton(vin));});
       grid.append(card);
     });
