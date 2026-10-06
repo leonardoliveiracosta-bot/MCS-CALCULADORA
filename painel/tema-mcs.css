@@ -1030,7 +1030,6 @@ nav[aria-label="Seções do painel"]::-webkit-scrollbar { display: none; }
 .vitrine-requests h3,
 .vitrine-signal,
 .v2-deposit { color: var(--mcs-gold-text); }
-.vitrine-request-card { border-color: var(--mcs-gold); background: var(--mcs-card); color: var(--mcs-text); }
 .vitrine-request-card .muted { color: var(--mcs-muted); }
 .vitrine-request-card .auction-alert { color: var(--mcs-red); }
 .vitrine-signal { border-color: var(--mcs-gold); }
