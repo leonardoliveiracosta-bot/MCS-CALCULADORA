@@ -50,10 +50,15 @@ function services(replies, extra = {}) {
     ...extra
   };
 }
-const toolCall = (name, args) => ({ role: 'assistant', content: null, tool_calls: [{ id: 'call_' + name, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+// The model answers in the same JSON format the rest of the panel already uses (no native tools).
+const step = (fields) => ({ role: 'assistant', content: JSON.stringify({ tipo: 'responder', texto: '', funcao: null, acao: null, journey_id: null, match_id: null, match_ids: null, aba: null, termo: null, ...fields }) });
+const toolCall = (name, args) => name === 'propor_acao'
+  ? step({ tipo: 'propor', texto: args.resposta || '', acao: args.acao, journey_id: args.journey_id || null, match_id: args.match_id || null, match_ids: args.match_ids || null, aba: args.aba || null })
+  : step({ tipo: 'ler', funcao: name, journey_id: args.journey_id || null, termo: args.termo || null });
+const answer = (text) => step({ texto: text });
 
 test('pergunta: lê o painel (inclusive dado da calculadora) e responde; nenhuma chave do sistema vai para a OpenAI', async () => {
-  const svc = services([toolCall('buscar_cliente', { termo: 'Maria' }), toolCall('ficha', { journey_id: ids.journey }), { role: 'assistant', content: 'Maria (Ref ABCDE), lance $30.000, ZIP 33101.' }]);
+  const svc = services([toolCall('buscar_cliente', { termo: 'Maria' }), toolCall('ficha', { journey_id: ids.journey }), answer('Maria (Ref ABCDE), lance $30.000, ZIP 33101.')]);
   const out = await assistant.chat(ctx, { message: 'qual o lance da Maria?', context: { view: 'today', actions: [] } }, svc);
   assert.equal(out.reply, 'Maria (Ref ABCDE), lance $30.000, ZIP 33101.');
   assert.equal(out.proposal, null);
@@ -76,17 +81,29 @@ test('ação vira só proposta, com linha montada dos dados reais; nada executa 
 });
 
 test('ação desconhecida ou com dado que não existe não vira proposta', async () => {
-  const svc = services([toolCall('propor_acao', { acao: 'apagar_tudo' }), { role: 'assistant', content: 'Não posso fazer isso.' }]);
+  const svc = services([toolCall('propor_acao', { acao: 'apagar_tudo' }), answer('Não posso fazer isso.')]);
   const out = await assistant.chat(ctx, { message: 'apaga tudo', context: {} }, svc);
   assert.equal(out.proposal, null);
-  const svc2 = services([toolCall('propor_acao', { acao: 'selecionar_carro', match_id: '99999999-9999-4999-8999-999999999999' }), { role: 'assistant', content: 'Não achei esse carro.' }]);
+  const svc2 = services([toolCall('propor_acao', { acao: 'selecionar_carro', match_id: '99999999-9999-4999-8999-999999999999' }), answer('Não achei esse carro.')]);
   assert.equal((await assistant.chat(ctx, { message: 'seleciona', context: {} }, svc2)).proposal, null);
 });
 
-test('OpenAI fora do ar: resposta "assistente indisponível agora", sem erro', async () => {
-  const out = await assistant.chat(ctx, { message: 'oi', context: {} }, services([{ fail: true }]));
+test('OpenAI fora do ar: resposta "assistente indisponível agora", sem erro, e o motivo fica gravado', async () => {
+  const svc = services([{ fail: true }]);
+  const out = await assistant.chat(ctx, { message: 'oi', context: {} }, svc);
   assert.equal(out.unavailable, true);
   assert.equal(out.reply, 'Assistente indisponível agora');
+  const erro = svc.writes.find((w) => w.table === 'panel_assistant_events' && w.body.event_type === 'ERRO');
+  assert.equal(erro.body.payload.status, 500);
+  assert.equal(erro.body.payload.detail, 'boom');
+});
+
+test('pede a resposta no formato JSON que o painel já usa, sem ferramentas nativas da OpenAI', async () => {
+  const svc = services([answer('oi')]);
+  await assistant.chat(ctx, { message: 'oi', context: {} }, svc);
+  assert.equal(svc.sent[0].tools, undefined);
+  assert.equal(svc.sent[0].response_format.type, 'json_schema');
+  assert.ok(svc.sent[0].messages.every((m) => ['system', 'user', 'assistant'].includes(m.role) && typeof m.content === 'string'));
 });
 
 test('regras fixas do "Não funcionou"', () => {
