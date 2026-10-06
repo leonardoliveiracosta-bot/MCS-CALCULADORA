@@ -120,7 +120,8 @@ test('Lote 4 · aba PEDIDOS saiu; CLIENTES assume as funções, a seção de ped
   assert.doesNotMatch(js, /loadEntryOrders|renderEntryOrders|refreshEntryOrders|entryOrders|function orderCard\(|entry-orders|entry-simulated/);
   // Origin options come from MCSGroups.ORIGIN_OPTIONS (calculadora / mensagem / vitrine × canal).
   assert.match(html, /id="clients-origin"/);
-  assert.match(js, /\['today-origin','clients-origin'\]\.forEach\(\(id\)=>MCSContactGroups\.fillOriginSelect/);
+  // ATENDIMENTO em lista: Origem saiu da tela do Atendimento; CLIENTES continua com ela.
+  assert.match(js, /\['clients-origin'\]\.forEach\(\(id\)=>MCSContactGroups\.fillOriginSelect/);
   // SIMULACAO is the calculator's mode VALOR (panel-origin.js): the label says so.
   assert.match(html, /id="clients-type"[\s\S]*value="SIMULACAO">Por valor \(calculadora\)[\s\S]*Busca[\s\S]*Sem calculadora/);
   assert.match(html, /id="clients-activity"[\s\S]*30 dias[\s\S]*90 dias[\s\S]*6 meses[\s\S]*1 ano[\s\S]*Tudo/);

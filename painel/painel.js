@@ -2038,10 +2038,10 @@
     const [today, entry, , , triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     // One failing counter never touches the others; it keeps its last confirmed number.
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
-    // ATENDIMENTO: the cases that depend on you, from the same model as its chips and list.
+    // ATENDIMENTO: the cases of the list, from the same model as the list.
     if (today && entry && triageData && whatsappData) {
-      const model = MCSAttend.model({ todayItems: today.items || [], decisions: withoutExcluded(today.items, attendDecisions({ entry, triage: triageData, whatsapp: whatsappData }), new Set(today.discardedJourneys || [])), incomplete: [] });
-      setCount('today', model.counts.depende);
+      const model = MCSAttend.model({ todayItems: today.items || [], decisions: withoutExcluded(today.items, attendDecisions({ entry, triage: triageData, whatsapp: whatsappData }), new Set(today.discardedJourneys || [])), incomplete: withoutExcluded(today.items, attendData.incomplete, new Set(today.discardedJourneys || [])) });
+      setCount('today', model.counts.todos);
     } else setCountUnknown('today');
     count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length + (data.calcQueue || []).length);
     // BUSCAR CARROS: complete requests, one per person and search type (a person with both types counts twice).
@@ -2100,7 +2100,6 @@
       // The filters of the area the ficha was opened from come back with it.
       attendBucket, todayStatFilter, todayRefFilter, requestsFilter,
       // ATENDIMENTO: Origem, Assunto and Período come back with the rest; CLIENTES: loaded pages and the person at the top.
-      todayFilters: { origin: $('today-origin')?.value || 'all', subject: $('today-subject')?.value || 'all', period: $('today-period')?.value || 'all' },
       clients: clientsOpen() ? clientsSnapshot() : null,
       pendingSituation,
       pendingRef: $('pending-with-ref')?.value || 'all',
@@ -2121,7 +2120,6 @@
     if (target.todayStatFilter !== undefined) todayStatFilter = target.todayStatFilter;
     if (target.todayRefFilter) todayRefFilter = target.todayRefFilter;
     if (target.requestsFilter) requestsFilter = target.requestsFilter;
-    Object.entries(target.todayFilters || {}).forEach(([name, value]) => { const select = $('today-' + name); if (select && [...select.options].some((option) => option.value === value)) select.value = value; });
     await switchPanel(target.view || 'today', { scrollY: Number(target.scrollY || 0) });
     if (target.clients) { clientsRestoring = true; try { $('today-more').open = true; await loadClients(); } finally { clientsRestoring = false; } await restoreClientsPosition(target.clients, target.scrollY); }
     if (target.searchVisible && target.searchQuery) {
@@ -2591,7 +2589,8 @@
 
   // ATENDIMENTO: HOJE + the decisions of the old ENTRADA in one queue (painel/atendimento.js decides
   // the case, its reasons and its filter; the badge, the chips and the list come from that one call).
-  let attendBucket = (() => { try { return localStorage.getItem('mcs_attend_bucket') || 'depende'; } catch (_) { return 'depende'; } })();
+  // The list is always every case (the old bucket pills were removed); a bucket saved by them is ignored.
+  let attendBucket = 'todos';
   const attendData = { entry: null, triage: null, whatsapp: null, vitrine: null, incomplete: [], incompleteFailed: false, discarded: new Set() };
   // "Excluir": the person leaves ATENDIMENTO whole. Its link/triage/vitrine rows and incomplete requests stay out too
   // (the server's list, plus the ones excluded here before the next answer), until the person is a HOJE item again.
@@ -2689,10 +2688,10 @@
     const bar = element('div', 'attend-bulk hidden');
     const count = element('span', 'attend-bulk-count', '');
     const clear = element('button', 'quiet small attend-bulk-clear', 'Limpar seleção'); clear.type = 'button';
-    clear.addEventListener('click', () => { document.querySelectorAll('#today-list .case-pick-box:checked').forEach((box) => { box.checked = false; box.closest('.today-card')?.classList.remove('case-picked'); }); updateBulkBar(); });
+    clear.addEventListener('click', () => { document.querySelectorAll('#today-list .case-pick-box:checked').forEach((box) => { box.checked = false; box.closest('.case-card')?.classList.remove('case-picked'); }); updateBulkBar(); });
     const remove = element('button', 'small attend-bulk-delete', 'Excluir selecionados'); remove.type = 'button';
     remove.addEventListener('click', () => {
-      const cards = [...document.querySelectorAll('#today-list .today-card.case-picked')].filter((card) => card.attendItem || card.attendShell);
+      const cards = [...document.querySelectorAll('#today-list .case-card.case-picked')].filter((card) => card.attendItem || card.attendShell);
       if (!cards.length) return;
       // A client card or a decision with a ficha: the person is excluded (the same "Excluir" as in the ficha). A conversation
       // without a ficha waiting for classification is marked out of the funnel (reversible in "Fora do funil comercial").
@@ -2741,37 +2740,12 @@
   }
   function updateBulkBar() {
     const bar = document.querySelector('#today-list .attend-bulk'); if (!bar) return;
-    const n = document.querySelectorAll('#today-list .today-card.case-picked').length;
+    const n = document.querySelectorAll('#today-list .case-card.case-picked').length;
     bar.classList.toggle('hidden', !n);
     const count = bar.querySelector('.attend-bulk-count'); if (count) count.textContent = `${n} selecionado(s)`;
   }
   // One "⋯ Mais" open at a time in ATENDIMENTO: the panel opens over the grid, never over another open one.
   function closeOtherMores(current) { document.querySelectorAll('#today-list .case-more[open]').forEach((node) => { if (node !== current) node.open = false; }); }
-  function caseShell(entry) {
-    // A case without a HOJE item (only a decision or an incomplete request): the same format as
-    // the other cards (status, labelled fields, buttons); the decision controls are under "⋯ Mais".
-    const first = entry.decisions[0] || entry.requests[0] || {};
-    const card = element('article', 'item-card today-card case-card case-shell');
-    card.attendShell = { journeyId: uuidOnly(entry.journeyId) || null, chats: entry.decisions.filter((decision) => decision.kind === 'TRIAGEM' && decision.chatId).map((decision) => decision.chatId) };
-    const identity = entry.journeyId && attendIdentity.get(entry.journeyId);
-    const known = identity && identity !== 'loading' ? identity : null;
-    const shellName = [first.name, first.sourceName, known?.name].find(realName);
-    const shellPhone = [...entry.decisions, ...entry.requests].map((row) => row.phone || '').find(Boolean);
-    const shellPhoneText = shellPhone ? phoneDisplay(shellPhone) : '';
-    card.append(caseFace({ title: shellName || shellPhoneText || 'Sem nome', ref: known ? (known.calcRef || 'sem Ref') : '', phone: shellName ? shellPhoneText : '', rows: nameConflictRows(entry.journeyId), requests: entry.requests }));
-    const actions = element('div', 'inline-actions card-primary');
-    if (entry.journeyId) { const open = element('button', 'today-primary small', 'Abrir ficha'); open.type = 'button'; open.addEventListener('click', (event) => { event.stopPropagation(); openDetail('ficha', entry.journeyId); }); actions.append(open); }
-    const more = element('details', 'card-more case-more'); more.append(element('summary', '', '⋯ Mais'));
-    more.addEventListener('click', (event) => event.stopPropagation());
-    // Only the decision controls (they exist nowhere else); the rest is in the ficha, one click away.
-    const body = element('div', 'case-more-body');
-    const decisions = element('div', 'case-decisions'); decisions.dataset.caseKey = entry.key; body.append(decisions);
-    more.append(body);
-    more.addEventListener('toggle', () => { if (more.open) closeOtherMores(more); });
-    actions.append(more); card.append(actions);
-    if (entry.journeyId) makeCardClickable(card, () => openDetail('ficha', entry.journeyId));
-    return card;
-  }
   // Identity of a case that has no HOJE item (only a decision or an incomplete request): the same
   // proven Ref and origin as the cards, read once from the case context (only reading).
   const attendIdentity = new Map();
@@ -2799,20 +2773,156 @@
     if (!identity) return { known: true, hasRef: false, refState: 'SEM_REF', item: null, at: 0 };
     return { known: true, hasRef: identity.hasCalcRef, refState: identity.refState || (identity.hasCalcRef ? 'COM_REF' : 'SEM_REF'), item: identity.origin ? { group: { origin: identity.origin } } : null, at: atMs(identity.at) || 0, identity };
   }
-  function attendChips(counts, total) {
-    const root = $('attend-filters');
-    if (!root) return;
-    root.replaceChildren();
-    MCSAttend.BUCKETS.forEach((bucket) => {
-      const value = counts[bucket.key] || 0;
-      const unknown = bucket.key === 'completar' && attendData.incompleteFailed && !attendData.incomplete.length;
-      const chip = element('button', 'chip' + (attendBucket === bucket.key ? ' active' : ''));
-      chip.type = 'button'; chip.dataset.attendBucket = bucket.key; chip.setAttribute('aria-pressed', String(attendBucket === bucket.key));
-      chip.append(document.createTextNode(bucket.label + ' '), element('span', 'chip-count', unknown ? '—' : String(value)), element('small', 'muted', ' ' + bucket.unit));
-      chip.title = unknown ? 'Não consegui carregar os pedidos incompletos agora' : bucket.key === 'todos' ? `${value} casos na fila (fora do assunto à parte)` : `${value} ${bucket.unit} · ${Math.max(0, total - value)} nos outros filtros`;
-      chip.addEventListener('click', () => { attendBucket = bucket.key; try { localStorage.setItem('mcs_attend_bucket', attendBucket); } catch (_) {} renderToday(todayItems, true); window.scrollTo(0, 0); });
-      root.append(chip);
-    });
+
+
+  // ---------- ATENDIMENTO em lista: uma linha por caso, as mesmas informações do cartão ----------
+  // Espera: o tempo do cartão ("WhatsApp há 8 dias · sem resposta") dividido em tempo e canal, com a
+  // decisão pendente quando houver. A bolinha é a única cor: dourada < 24 h, laranja até 7 dias,
+  // vermelha acima. Caso sem tempo (aguardando, agendado, só decisão): o texto curto de hoje, sem bolinha.
+  const ATTEND_DAY_MS = 86400000;
+  function attendWait(entry, item) {
+    const status = shortStatus(entry, item);
+    const unattended = item && item.group && item.group.unattended;
+    const label = unattended && unattended.timeLabel;
+    const parts = label && status.startsWith(label) ? /^(.+?) há (.+?) · (.+)$/.exec(label) : null;
+    if (!parts) return { tone: '', main: status, sub: '' };
+    // The waited time: waitedMs, else since, else the text itself ("30 min", "17 h", "8 dias").
+    const fromText = (text) => { const found = /^(\d+)\s*(min|h|dias?)\b/.exec(String(text || '').trim()); if (!found) return NaN; const n = Number(found[1]); return found[2] === 'min' ? n * 60000 : found[2] === 'h' ? n * 3600000 : n * ATTEND_DAY_MS; };
+    const since = Date.parse(unattended.since || '');
+    const ms = [Number(unattended.waitedMs), Number.isFinite(since) ? Date.now() - since : NaN, fromText(parts[2])].find((value) => Number.isFinite(value) && value >= 0);
+    if (ms === undefined) return { tone: '', main: parts[2], sub: [parts[1], parts[3], status.slice(label.length).replace(/^\s*·\s*/, '')].filter(Boolean).join(' · ') };
+    const tone = ms < ATTEND_DAY_MS ? 'new' : ms <= 7 * ATTEND_DAY_MS ? 'mid' : 'old';
+    const extra = status.slice(label.length).replace(/^\s*·\s*/, '');
+    return { tone, main: parts[2], sub: [parts[1], parts[3], extra].filter(Boolean).join(' · ') };
+  }
+  // "33101 · Miami · FL" (ou só o número, buscado uma vez como no cartão) em cidade · estado e CEP.
+  function fillAttendPlace(cityNode, zipNode, value) {
+    const text = String(value || '').trim();
+    const found = /^(\d{5})(?:-\d{4})?\b\s*(?:[·—-]\s*)?(.*)$/.exec(text);
+    if (!found) { cityNode.textContent = text || '—'; zipNode.textContent = ''; return; }
+    const zip = found[1], rest = found[2].trim();
+    zipNode.textContent = zip;
+    if (rest && !/^[A-Z]{2}$/.test(rest) && !/recogni|reconhec|reconoc|identif/i.test(rest)) { cityNode.textContent = rest.replace(/\s*,\s*/, ' · '); return; }
+    cityNode.textContent = rest || '—';
+    let cached = null; try { cached = localStorage.getItem('mcs_zip_' + zip); } catch {}
+    if (cached) { cityNode.textContent = cached; return; }
+    if (!zipPlaces.has(zip)) zipPlaces.set(zip, fetch('https://api.zippopotam.us/us/' + zip).then((response) => response.ok ? response.json() : null).then((data) => { const place = data && data.places && data.places[0]; const found = place ? `${place['place name']} · ${place['state abbreviation']}` : null; if (found) { try { localStorage.setItem('mcs_zip_' + zip, found); } catch {} } return found; }).catch(() => null));
+    zipPlaces.get(zip).then((found) => { if (found && cityNode.isConnected) cityNode.textContent = found; });
+  }
+  const attendCell = (cls, main, sub, mainCls) => { const cell = element('div', 'attend-cell ' + cls); const one = element('div', 'attend-l1' + (mainCls ? ' ' + mainCls : ''), main || ''); cell.append(one); if (sub !== undefined && sub !== null) cell.append(element('div', 'attend-l2', sub)); return cell; };
+  // What the row search reads of a case: phone digits, Ref, car and name.
+  function attendHaystack(entry) {
+    const item = entry.item;
+    const rows = [...(entry.decisions || []), ...(entry.requests || [])];
+    const identity = entry.journeyId && attendIdentity.get(entry.journeyId);
+    const known = identity && identity !== 'loading' ? identity : null;
+    const phones = item ? (item.phones || []).map((phone) => phone.phone_e164 || phone.phone_raw || '') : rows.map((row) => row.phone || '');
+    const words = item ? [calcRefOf(item), item.internalCode, item.contactName, item.name, item.contact && item.contact.display_name, ...caseRequestFields(item).map(([, value]) => value)] : [known && known.calcRef, known && known.name, ...rows.map((row) => [row.name, row.sourceName].join(' '))];
+    return { digits: phones.join(' ').replace(/\D/g, ''), text: words.filter(Boolean).join(' ').toLowerCase() };
+  }
+  function attendMatches(entry, query) {
+    const hay = attendHaystack(entry);
+    const digits = query.replace(/\D/g, '');
+    if (digits.length >= 3 && hay.digits.includes(digits)) return true;
+    return hay.text.includes(query.toLowerCase());
+  }
+  const attendQuery = () => String($('attend-search')?.value || '').trim();
+  // "Atualizado … · última msg WhatsApp …": the same values of the bar "Dados atualizados", small, in the numbers strip.
+  function syncAttendStamp() {
+    const node = $('attend-stamp-text'); if (!node) return;
+    const updated = ($('data-updated')?.textContent || '—').trim(), last = ($('last-whatsapp-import')?.textContent || '—').trim();
+    node.textContent = `Atualizado ${updated} · última msg WhatsApp ${last}`;
+  }
+  // The phone opens that number's WhatsApp (the panel's one function, same "mcs-whatsapp" tab); the row stays closed.
+  function attendPhone(phone) {
+    const text = phone ? phoneDisplay(phone) : '';
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return element('span', 'attend-phone attend-muted', 'sem número');
+    const link = element('a', 'attend-phone', text || phone);
+    link.href = 'https://wa.me/' + digits; link.target = '_blank'; link.rel = 'noopener'; link.title = 'Abrir no WhatsApp';
+    link.addEventListener('click', (event) => { event.stopPropagation(); if (window.MCSWaLink) { event.preventDefault(); window.MCSWaLink.open(link.href); } });
+    return link;
+  }
+  function attendRefNode(ref) {
+    const code = /^[A-Z0-9]{5}$/.test(String(ref || ''));
+    return element('span', code ? 'attend-ref' : 'attend-ref attend-ref-none', code ? 'REF ' + ref : ref === 'a recuperar' ? 'Ref a recuperar' : ref ? 'Sem Ref' : '');
+  }
+  // One row = one case: caixinha, espera, cliente, carro, pedido, local, falta para buscar, ⋯ Mais or ›.
+  // The whole row opens the same screen the card button opened (Responder → ficha on the conversation).
+  function attendRow(entry) {
+    const item = entry.item;
+    const row = element('article', 'attend-row case-card');
+    if (!item) row.classList.add('case-shell');
+    row.dataset.caseKey = entry.key; row.dataset.bucket = entry.bucket;
+    if (entry.journeyId) row.dataset.journeyId = entry.journeyId;
+    row.attendDecisions = entry.decisions || [];
+    if (item) row.attendItem = item;
+    else row.attendShell = { journeyId: uuidOnly(entry.journeyId) || null, chats: entry.decisions.filter((decision) => decision.kind === 'TRIAGEM' && decision.chatId).map((decision) => decision.chatId) };
+    const pick = element('div', 'attend-cell attend-pick'); pick.append(pickBox(row)); row.append(pick);
+    // Espera
+    const wait = attendWait(entry, item);
+    const waitCell = element('div', 'attend-cell attend-wait');
+    if (wait.tone) { const dot = element('span', 'attend-dot attend-dot-' + wait.tone); dot.setAttribute('aria-hidden', 'true'); waitCell.append(dot); }
+    const waitText = element('div', 'attend-wait-text'); waitText.append(element('div', 'attend-l1', wait.main)); if (wait.sub) waitText.append(element('div', 'attend-l2', wait.sub));
+    waitCell.append(waitText); row.append(waitCell);
+    // Cliente: telefone, REF (e o nome, quando há) e as linhas extras do cartão (nomes em conflito, código interno)
+    let phone = '', ref = '', name = '';
+    const extras = nameConflictRows(entry.journeyId).map(([label, value]) => [`${label}: ${value}`, 'case-name-conflict']);
+    if (item) {
+      const own = primaryPhone(item); phone = own ? (own.phone_e164 || own.phone_raw || '') : '';
+      ref = calcRefOf(item) || (refStateOf(item) === 'A_RECUPERAR' ? 'a recuperar' : 'sem Ref');
+      const raw = String(item.contactName || item.name || item.contact?.display_name || '').trim(); name = realName(raw) ? raw : '';
+      if (!calcRefOf(item) && item.internalCode) extras.push([`Código ${item.internalCode} · interno, não é Ref da calculadora`, 'case-internal-code']);
+    } else {
+      const first = entry.decisions[0] || entry.requests[0] || {};
+      const identity = entry.journeyId && attendIdentity.get(entry.journeyId);
+      const known = identity && identity !== 'loading' ? identity : null;
+      name = [first.name, first.sourceName, known?.name].find(realName) || '';
+      phone = [...entry.decisions, ...entry.requests].map((one) => one.phone || '').find(Boolean) || '';
+      ref = known ? (known.calcRef || 'sem Ref') : '';
+    }
+    const client = element('div', 'attend-cell attend-client');
+    const phoneLine = element('div', 'attend-l1'); phoneLine.append(attendPhone(phone)); client.append(phoneLine);
+    const refLine = element('div', 'attend-l2 attend-ref-line'); refLine.append(attendRefNode(ref)); if (name) refLine.append(element('span', 'attend-name', (ref ? ' · ' : '') + name)); client.append(refLine);
+    extras.forEach(([text, cls]) => client.append(element('div', 'attend-l2 attend-extra ' + cls, text)));
+    row.append(client);
+    // Carro · calculadora, Pedido, Local
+    const fields = item ? caseRequestFields(item) : [];
+    const value = (label) => (fields.find(([one]) => one === label) || [])[1];
+    const cars = [...new Set(fields.filter(([label]) => /^Carro/.test(label)).map(([, one]) => one).filter((one) => one && one !== 'não informado'))];
+    const calc = item ? calculatorLabel(item).replace(/\s\((por [^)]+)\)/g, ' · $1') : '';
+    row.append(attendCell('attend-car', cars.join(' · ') || (item ? 'Carro não informado' : '—'), calc || null, cars.length ? '' : 'attend-muted'));
+    const order = element('div', 'attend-cell attend-order attend-right');
+    const bid = value('Lance máximo'), years = value('Anos'), miles = value('Milhas');
+    if (bid !== undefined) { order.append(element('div', 'attend-l1', bid), element('div', 'attend-l2', 'lance máximo')); }
+    if (years !== undefined || miles !== undefined) { order.append(element('div', 'attend-l1' + (bid !== undefined ? ' attend-l1-next' : ''), years || 'não informado'), element('div', 'attend-l2', miles || 'não informado')); }
+    if (!order.childElementCount) order.append(element('div', 'attend-l1 attend-muted', '—'));
+    row.append(order);
+    const place = element('div', 'attend-cell attend-place'); const city = element('div', 'attend-l1'), zip = element('div', 'attend-l2');
+    place.append(city, zip); fillAttendPlace(city, zip, value('ZIP')); row.append(place);
+    // Falta para buscar
+    const lacks = element('div', 'attend-cell attend-lacks');
+    const labels = [...new Set((entry.requests || []).flatMap(lacksOf))];
+    if (labels.length) { const chips = element('div', 'attend-chips'); labels.forEach((label) => chips.append(element('span', 'attend-chip', label))); lacks.append(chips); }
+    else lacks.append(element('span', 'attend-muted', '—'));
+    row.append(lacks);
+    // ⋯ Mais: only the decision controls of the case (they exist nowhere else) and the missing SMS print.
+    const end = element('div', 'attend-cell attend-end');
+    const more = element('details', 'card-more case-more attend-more-menu'); more.append(element('summary', '', '⋯ Mais'));
+    more.addEventListener('click', (event) => event.stopPropagation());
+    const body = element('div', 'case-more-body'); const holder = element('div', 'case-decisions'); holder.dataset.caseKey = entry.key; body.append(holder); more.append(body);
+    const smsMissing = item ? smsPrintMissing(item) : null; if (smsMissing) body.prepend(smsMissing);
+    more.addEventListener('toggle', () => { if (more.open) closeOtherMores(more); });
+    entry.decisions.forEach((decision) => { const one = decisionRow(decision.key); if (one) holder.append(one); });
+    if (!holder.childElementCount) holder.remove();
+    if (body.childElementCount) end.append(more); else end.append(element('span', 'attend-chev', '›'));
+    row.append(end);
+    // The whole row opens what the card button opened.
+    if (item) {
+      const replying = item.awaitingReply && item.kind !== 'CALCULATOR_ORDER';
+      makeCardClickable(row, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id, replying ? { anchor: 'lead-conversation' } : {}));
+    } else if (entry.journeyId) makeCardClickable(row, () => openDetail('ficha', entry.journeyId));
+    return row;
   }
 
   function renderToday(items, preserveAll=false) {
@@ -2824,14 +2934,15 @@
     if(!preserveAll)todayItems = items.slice();
     const all=preserveAll?todayItems:items.slice();
     const model = attendModel(all);
-    // The badge counts what depends on you (all cases, whatever filter is on screen); when a decision
+    // The badge counts the cases of the list (all of them, whatever filter is on screen); when a decision
     // list did not load, the number would be too low, so it is marked as not updated.
-    if (attendData.entry && attendData.triage && attendData.whatsapp && attendData.vitrine) setCount('today', model.counts.depende);
+    if (attendData.entry && attendData.triage && attendData.whatsapp && attendData.vitrine) setCount('today', model.counts.todos);
     else setCountUnknown('today');
     loadAttendIdentities(model.cases);
     // Ref, Origem and Período narrow the cases first; chips, Ref buttons and the list then count the
     // same cases. No period by default: an open contact stays whatever its age.
-    const origin=$('today-origin')?.value||'all',period=$('today-period')?.value||'all',subject=$('today-subject')?.value||'all';
+    // Origem, Assunto e Período saíram da tela: a lista mostra sempre todos (um valor salvo antes não esconde ninguém).
+    const origin='all',period='all',subject='all';
     const since=period==='all'?0:Date.now()-Number(period)*86400000;
     const REF_FILTER_STATE={with:'COM_REF',recover:'A_RECUPERAR',without:'SEM_REF'};
     const refOk=(facts)=>todayRefFilter==='all'||(facts.known&&facts.refState===REF_FILTER_STATE[todayRefFilter]);
@@ -2843,8 +2954,7 @@
     const narrowed=model.cases.filter((entry)=>{const facts=factsOf.get(entry.key);return originOk(facts)&&periodOk(facts)&&subjectOk(facts);});
     const passing=narrowed.filter((entry)=>refOk(factsOf.get(entry.key)));
     const counts=MCSAttend.countsOf(passing);
-    attendChips(counts, counts.todos);
-    if (!MCSAttend.BUCKETS.some((bucket) => bucket.key === attendBucket)) attendBucket = 'depende';
+    attendBucket = 'todos';
     const bucketAll = model.cases.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
     const bucketNarrowed = narrowed.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
     const countRef=(state)=>bucketNarrowed.filter((entry)=>{const facts=factsOf.get(entry.key);return facts.known&&facts.refState===state;}).length;
@@ -2858,92 +2968,31 @@
     if(todayStatFilter&&!STAT_FILTERS[todayStatFilter])todayStatFilter=null;
     const stat = (key, label, complement) => {
       const value=key?base.filter(STAT_FILTERS[key]).length:shown.length;
-      const block = element('button', 'today-stat'+((todayStatFilter||null)===key?' active':''));block.type='button';block.dataset.todayStat=key||'all';block.setAttribute('aria-pressed',String((todayStatFilter||null)===key));
-      block.append(element('strong', '', value), element('span', '', label), element('small', 'muted', complement(shown.length-value)));
+      const block = element('button', 'today-stat attend-num'+(key==='hot'?' attend-num-hot':'')+((todayStatFilter||null)===key?' active':''));block.type='button';block.dataset.todayStat=key||'all';block.setAttribute('aria-pressed',String((todayStatFilter||null)===key));
+      block.title = complement(shown.length-value) + ((todayStatFilter||null)===key ? ' · clique de novo para ver todos' : '');
+      block.append(element('strong', '', value), element('span', '', label));
       block.addEventListener('click',()=>{todayStatFilter=key&&todayStatFilter!==key?key:null;renderToday(todayItems,true);});
       stats.append(block);
     };
-    stat('late24', 'Sem resposta há mais de 24 h', (rest)=>`${rest} respondidos ou com menos de 24 h`);
+    stat('late24', 'sem resposta há +24 h', (rest)=>`${rest} respondidos ou com menos de 24 h`);
     // Purchase window (calculator deadline): how many in each range; the number filters the ones ready to buy now.
     const windowCount=(key)=>base.filter((item)=>String(item.purchaseWindow||'NONE')===key).length;
-    stat('hot', 'Pronto para comprar agora', ()=>`${windowCount('30D')} em até 30 dias · ${windowCount('3M')} em até 3 meses · ${windowCount('NONE')} sem prazo informado`);
+    stat('hot', 'prontos para comprar', ()=>`${windowCount('30D')} em até 30 dias · ${windowCount('3M')} em até 3 meses · ${windowCount('NONE')} sem prazo informado`);
     // "Opções enviadas" counts real V1s (vitrines table), never the manual mark.
-    stat('sent', 'Opções enviadas', (rest)=>`${v1TodayCount} hoje · ${rest} sem V1 enviada`);
-    const visible=todayStatFilter?shown.filter((entry)=>entry.item&&STAT_FILTERS[todayStatFilter](entry.item)):shown;
-    if(todayStatFilter){const clear=element('button','chip active today-stat-clear',`Mostrando só: ${({late24:'Sem resposta há mais de 24 h',hot:'Pronto para comprar agora',sent:'Opções enviadas'})[todayStatFilter]} ✕`);clear.type='button';clear.addEventListener('click',()=>{todayStatFilter=null;renderToday(todayItems,true);});root.append(clear);}
+    stat('sent', 'opções enviadas', (rest)=>`${v1TodayCount} hoje · ${rest} sem V1 enviada`);
+    const byStat=todayStatFilter?shown.filter((entry)=>entry.item&&STAT_FILTERS[todayStatFilter](entry.item)):shown;
+    // Busca da barra: só filtra a lista já carregada (telefone, Ref, carro ou nome), nada vai ao servidor.
+    const query=attendQuery();
+    const visible=query?byStat.filter((entry)=>attendMatches(entry,query)):byStat;
+    syncAttendStamp();
     const offCount=model.counts.fora;
     if (!visible.length) {
-      root.append(element('p','empty-state', todayStatFilter||origin!=='all'||period!=='all'||subject!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));
+      root.append(element('p','empty-state', query||todayStatFilter||origin!=='all'||period!=='all'||subject!=='all'||todayRefFilter!=='all'?'Nenhum caso neste filtro':attendBucket==='depende'?'Nada depende de você agora':'Nenhum caso neste filtro'));
       if(offCount)root.append(element('p','muted',`${offCount} caso(s) fora do assunto estão na seção Fora do assunto, abaixo`));
       return;
     }
     const reload=()=>loadCurrent('today',viewRequestVersion);
-    const todayCard = (entry) => {
-      const item = entry.item;
-      const heat = String(item.heat || '').toUpperCase();
-      const card = element('article', `item-card today-card case-card${heat ? ` heat-${heat.toLowerCase()}` : ''}`);
-      // One short status line: why the case is here, in a few words (the full reasons are in the ficha).
-      const decision = MCSContactGroups.decisionNode(item);
-      decision.replaceChildren(element('strong', 'card-decision-label', shortStatus(entry, item)));
-      decision.classList.toggle('decision-red', entry.bucket === 'depende');
-      // Small selection box: select one or many cards, then "Excluir selecionados" at the top of the list.
-      card.attendItem = item;
-      decision.append(pickBox(card));
-      card.append(decision);
-      // Card face (same format as the model): the car in front with the Ref tag, the phone, the request as a spec sheet
-      // (bid or years/mileage, location, calculator) and, when a request is incomplete, what is missing to search.
-      const name = String(item.contactName || item.name || item.contact?.display_name || '').trim();
-      const phone = primaryPhone(item);
-      const phoneText = phone ? phoneDisplay(phone.phone_e164 || phone.phone_raw || '') : '';
-      // "Ref" only for the calculator Ref the server proved (hasCalcRef/calcRef); the ficha's own code is "Código".
-      const ref = calcRefOf(item);
-      const fields = caseRequestFields(item);
-      const cars = [...new Set(fields.filter(([label]) => /^Carro/.test(label)).map(([, value]) => value).filter((value) => value && value !== 'não informado'))];
-      const title = cars.join(' · ') || (realName(name) ? name : '') || phoneText || 'Sem nome';
-      const rows = fields.filter(([label]) => !/^Carro/.test(label)).map(([label, value]) => [label === 'ZIP' ? 'Local' : label, value, label === 'ZIP' ? 'case-request-line case-zip' : 'case-request-line']);
-      rows.push(['Calculadora', calculatorLabel(item), 'case-calculator']);
-      if (!ref && item.internalCode) rows.push(['Código', `${item.internalCode} · interno, não é Ref da calculadora`, 'case-request-line case-internal-code']);
-      // Telefone igual, nome diferente and not decided yet: both names stay on the card, none disappears.
-      nameConflictRows(entry.journeyId).forEach((row) => rows.unshift(row));
-      card.append(caseFace({ title, ref: ref || (refStateOf(item) === 'A_RECUPERAR' ? 'a recuperar' : 'sem Ref'), phone: title === phoneText ? '' : phoneText, rows, requests: entry.requests }));
-      const actions = element('div', 'inline-actions card-primary');
-      const replying = item.awaitingReply && item.kind !== 'CALCULATOR_ORDER';
-      const open = element('button', 'today-primary small', replying ? 'Responder' : item.kind === 'CALCULATOR_ORDER' ? 'Abrir pedido' : 'Abrir ficha');
-      open.type = 'button';
-      open.addEventListener('click', (event) => { event.stopPropagation(); openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id, replying ? { anchor: 'lead-conversation' } : {}); });
-      actions.append(open);
-      card.append(actions);
-      // "⋯ Mais" holds only the decision controls of this case (link, review, triage, vitrine): they exist
-      // nowhere else. Everything else (conversation, reply, discard, context) is in the ficha/pedido, opened
-      // by a click on the card, so nothing on the card is repeated when it opens.
-      const more=element('details','card-more case-more');more.append(element('summary','','⋯ Mais'));
-      more.addEventListener('click',(event)=>event.stopPropagation());
-      const body=element('div','case-more-body');const decisions=element('div','case-decisions');decisions.dataset.caseKey=entry.key;body.append(decisions);more.append(body);
-      // SMS click without the print: attach the print or "Não chegou SMS · descartar" (#218 had left it on no screen).
-      const smsMissing=smsPrintMissing(item); if(smsMissing)body.prepend(smsMissing);
-      more.addEventListener('toggle',()=>{if(more.open)closeOtherMores(more);});
-      actions.append(more);
-      makeCardClickable(card, () => openDetail(item.kind === 'CALCULATOR_ORDER' ? 'order' : 'ficha', item.kind === 'CALCULATOR_ORDER' ? item.ref : item.id));
-      return card;
-    };
-    const buildCard = (entry) => {
-      const card = entry.item ? todayCard(entry) : caseShell(entry);
-      card.attendDecisions = entry.decisions || [];
-      card.dataset.caseKey = entry.key; card.dataset.bucket = entry.bucket;
-      if (entry.journeyId) card.dataset.journeyId = entry.journeyId;
-      if (!entry.item) {
-        const decision = element('p', 'card-decision decision-red');
-        decision.append(element('strong', 'card-decision-label', entry.bucket === 'completar' && !entry.decisions.length ? 'Completar pedido' : shortStatus(entry, null)));
-        decision.append(pickBox(card));
-        card.prepend(decision);
-      }
-      // The decision rows of the case (rendered by their own lists) come inside its card.
-      const holder = card.querySelector('.case-decisions');
-      entry.decisions.forEach((decision) => { const row = decisionRow(decision.key); if (row && holder) holder.append(row); });
-      // Without a pending decision the card is only the essentials: a click on it opens the full ficha.
-      if (holder && !holder.childElementCount) { const body = holder.parentElement; holder.remove(); if (!body || !body.childElementCount) card.querySelector('.case-more')?.remove(); }
-      return card;
-    };
+    const buildCard = (entry) => attendRow(entry);
     // Cases with a HOJE item keep the old groups (não atendidos, atendidos) and areas by search type.
     const withItem = visible.filter((entry) => entry.item), without = visible.filter((entry) => !entry.item);
     const byItem = new Map(withItem.map((entry) => [entry.item, entry]));
@@ -2960,9 +3009,9 @@
       if (($('today-sort')?.value || 'ready') === 'ready') order.push(...placed);
       else { const dataOf = new Map(placed.map((one) => [one.entry, one.data])); withItem.forEach((entry) => order.push({ entry, data: dataOf.get(entry) || {} })); }
     }
-    const filterKey = [attendBucket, origin, period, subject, todayRefFilter, todayStatFilter].join('|');
+    const filterKey = [attendBucket, origin, period, subject, todayRefFilter, todayStatFilter, query].join('|');
     if (filterKey !== attendPageKey) { attendPageKey = filterKey; attendLimit = ATTEND_PAGE; }
-    const grid = element('section', 'contact-group contact-group-flat');
+    const grid = element('section', 'attend-list contact-group contact-group-flat');
     root.append(grid);
     const moreWrap = element('div', 'attend-more');
     const moreButton = element('button', 'attend-more-button', ''); moreButton.type = 'button'; moreWrap.append(moreButton); root.append(moreWrap);
@@ -5868,11 +5917,11 @@
     $('clients-followup')?.addEventListener('toggle',()=>{if($('clients-followup').open)loadFollowup();});
     $('clients-activity').value='30';localStorage.removeItem('mcs_clients-activity');$('clients-activity').addEventListener('change',()=>{if(clientsOpen())loadClients();refreshCounters().catch(()=>{});});
     // Origem: the same options in HOJE, ENTRADA and CLIENTES (filled before the saved choice is restored).
-    ['today-origin','clients-origin'].forEach((id)=>MCSContactGroups.fillOriginSelect($(id)));
-    $('today-period')?.addEventListener('change',()=>{if(currentView==='today')renderToday(todayItems,true);});
-    ['today-subject'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='today')renderToday(todayItems,true);});});
-    ['today-origin'].forEach((id)=>{const select=$(id);if(!select)return;const saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(currentView==='today')renderToday(todayItems,true);});});
+    ['clients-origin'].forEach((id)=>MCSContactGroups.fillOriginSelect($(id)));
     ['clients-situation','clients-checklist','clients-ref','clients-heat','clients-origin','clients-type'].forEach((id)=>{const select=$(id),saved=localStorage.getItem('mcs_'+id);if(saved&&[...select.options].some((option)=>option.value===saved))select.value=saved;select.addEventListener('change',()=>{localStorage.setItem('mcs_'+id,select.value);if(clientsOpen())loadClients();});});
+    // Busca da lista do Atendimento (só a lista carregada) e o carimbo "Atualizado …" da faixa dos números.
+    { let timer=null; $('attend-search')?.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{if(currentView==='today')renderToday(todayItems,true);},180);}); }
+    { const watch=new MutationObserver(()=>syncAttendStamp()); ['data-updated','last-whatsapp-import'].forEach((id)=>{const node=$(id);if(node)watch.observe(node,{childList:true,characterData:true,subtree:true});}); syncAttendStamp(); }
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);button.addEventListener('click',()=>{todayRefFilter=button.dataset.todayRef;localStorage.setItem('mcs_today_ref_filter',todayRefFilter);renderToday(todayItems,true);});});
     const weekly=$('weekly-summary');weekly.open=localStorage.getItem('mcs_weekly_open')==='true';weekly.addEventListener('toggle',()=>localStorage.setItem('mcs_weekly_open',String(weekly.open)));
     document.querySelectorAll('[data-pending-situation]').forEach((button)=>button.addEventListener('click',async()=>{pendingSituation=button.dataset.pendingSituation;document.querySelectorAll('[data-pending-situation]').forEach((item)=>item.classList.toggle('active',item===button));if(currentView==='pending')await loadPending();}));

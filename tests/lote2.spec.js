@@ -50,11 +50,11 @@ test('Lote 2: HOJE mostra retorno vencido e conta só quem aguarda resposta', as
     { kind: 'JOURNEY', id: uuidLike(2), journeyId: uuidLike(2), name: 'Bia', contact: { display_name: 'Bia' }, phones: [], todayReasons: [], awaitingReply: true }
   ], meta: {} }) });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#today-list .today-card')).toHaveCount(2, { timeout: 30000 });
-  await expect(page.locator('#today-list .today-card').first()).toContainText('Retorno vencido');
-  await expect(page.locator('#today-stats')).toContainText('0Sem resposta há mais de 24 h');
-  await expect(page.locator('#today-stats')).toContainText('0Opções enviadas');
-  // Both depend on you (overdue return, client waiting): the badge counts the same cases.
+  await expect(page.locator('#today-list .attend-row')).toHaveCount(2, { timeout: 30000 });
+  await expect(page.locator('#today-list .attend-row').first().locator('.attend-wait')).toContainText('Retorno vencido');
+  await expect(page.locator('#today-stats')).toContainText('0sem resposta há +24 h');
+  await expect(page.locator('#today-stats')).toContainText('0opções enviadas');
+  // The badge counts the cases of the list (overdue return, client waiting).
   await expect(page.locator('[data-count="today"]')).toHaveText('2');
   expect(errors).toEqual([]);
 });

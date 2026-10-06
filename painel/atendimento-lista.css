@@ -1,0 +1,118 @@
+/* ATENDIMENTO em lista (aba TODOS): uma linha por caso, cerca de 8 por tela no computador.
+   Só visual. A única cor de estado é a bolinha da espera; "prontos para comprar" é dourado. */
+#today-panel {
+  --al-ink: #171A20; --al-gray: #5C5E62; --al-muted: #8E8E93; --al-line: #ECECEC; --al-soft: #F7F7F5;
+  --al-gold: #C9A227; --al-gold-text: #8A6D10; --al-gold-soft: #FBF5E3;
+  --al-orange: #D9822B; --al-red: #C8312B; --al-chip-bg: #FFF1E0; --al-chip-text: #9A5A12;
+  font-family: "Inter", "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* "Dados atualizados" e "Última mensagem" saem da barra só nesta aba (o mesmo carimbo fica pequeno na
+   faixa dos números); os avisos que caem nessa barra (falha dos contadores, atualização) continuam. */
+#app-view:has(> #today-panel:not(.hidden)) > .freshness > span:not(.counters-note):not(.refresh-note) { display: none; }
+#app-view:has(> #today-panel:not(.hidden)) > .freshness:not(:has(> .counters-note, > .refresh-note)) { display: none; }
+
+/* O número da aba TODOS agora conta a lista inteira: dourado claro, não vermelho de alerta. */
+nav .tab[data-view="today"] [data-count].count-positive { background: #FBF5E3; color: #8A6D10; }
+
+/* Filtros numa linha só */
+#today-panel .attend-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 0 10px; }
+#today-panel .attend-search { flex: 1 1 260px; min-width: 200px; min-height: 42px; margin: 0; padding: 10px 12px; border: 1px solid var(--al-line); border-radius: 8px; background: var(--al-soft); font: inherit; font-size: 15px; color: var(--al-ink); }
+#today-panel .attend-sort { margin: 0; }
+#today-panel .attend-sort select { min-height: 42px; margin: 0; padding: 8px 10px; border: 1px solid var(--al-line); border-radius: 8px; background: #FFFFFF; font: inherit; font-size: 14px; color: var(--al-ink); }
+#today-panel .attend-ref-filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 0; padding: 0; border: 0; }
+#today-panel .attend-ref-filters .chip { min-height: 38px; margin: 0; padding: 7px 14px; border: 1px solid var(--al-line); border-radius: 999px; background: #FFFFFF; color: var(--al-ink); font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: none; }
+#today-panel .attend-ref-filters .chip span { font-weight: 400; color: var(--al-gray); margin-left: 2px; }
+#today-panel .attend-ref-filters .chip.active { border-color: var(--al-gold); background: var(--al-gold-soft); color: var(--al-ink); }
+
+/* Os 3 números numa faixa fina */
+#today-panel .attend-strip { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 12px; }
+#today-panel .attend-nums { display: flex; gap: 8px; flex-wrap: wrap; margin: 0; padding: 0; border: 0; }
+#today-panel .attend-nums .attend-num { display: inline-flex; align-items: baseline; gap: 6px; flex: 0 0 auto; min-height: 0; margin: 0; padding: 6px 12px; border: 1px solid transparent; border-radius: 8px; background: var(--al-soft); color: var(--al-gray); font: inherit; font-size: 14px; font-weight: 400; cursor: pointer; box-shadow: none; }
+#today-panel .attend-nums .attend-num strong { font-size: 17px; font-weight: 700; line-height: 1.2; letter-spacing: 0; color: var(--al-ink); }
+#today-panel .attend-nums .attend-num span { font-size: 14px; color: var(--al-gray); }
+#today-panel .attend-nums .attend-num.attend-num-hot strong { color: var(--al-gold); }
+#today-panel .attend-nums .attend-num.active { border-color: var(--al-gold); background: var(--al-gold-soft); }
+#today-panel .attend-nums .attend-num small { display: none; }
+#today-panel .attend-stamp { margin: 0 0 0 auto; font-size: 12px; color: var(--al-muted); }
+
+/* Cabeçalho e linhas */
+#today-panel .attend-head,
+#today-panel #today-list .attend-row { display: grid; grid-template-columns: 32px 196px 158px minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 64px; align-items: center; gap: 14px; padding: 0 16px; }
+#today-panel .attend-head { min-height: 36px; border-top: 1px solid var(--al-line); border-bottom: 1px solid var(--al-line); background: #FCFCFB; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--al-muted); }
+#today-panel .attend-right { text-align: right; }
+#today-panel #today-list { gap: 0; }
+#today-panel #today-list .attend-list { display: block; margin: 0; padding: 0; border: 0; background: none; }
+#today-panel #today-list .attend-row { position: relative; min-height: 72px; padding-top: 10px; padding-bottom: 10px; margin: 0; border: 0; border-bottom: 1px solid var(--al-line); border-radius: 0; background: #FFFFFF; box-shadow: none; color: var(--al-ink); font-size: 15px; cursor: pointer; }
+#today-panel #today-list .attend-row:hover { background: #FAFAF8; }
+#today-panel #today-list .attend-row.case-picked { background: var(--al-gold-soft); outline: 0; }
+#today-panel #today-list .attend-row:has(.case-more[open]) { z-index: 40; }
+#today-panel #today-list .attend-row > * { min-width: 0; }
+#today-panel .attend-l1 { font-size: 16px; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#today-panel .attend-l2 { margin-top: 3px; font-size: 13px; line-height: 1.3; color: var(--al-gray); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#today-panel .attend-l1-next { margin-top: 6px; }
+#today-panel .attend-muted { color: var(--al-muted); font-weight: 400; }
+#today-panel .attend-car .attend-l1 { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* Caixinha */
+#today-panel #today-list .attend-row .case-pick { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: 0; }
+#today-panel #today-list .attend-row .case-pick-box { width: 18px; min-width: 18px; height: 18px; border: 1.5px solid #B9B9BE; border-radius: 4px; background-size: 13px 13px; }
+#today-panel #today-list .attend-row .case-pick-box:checked { background-color: var(--al-ink); border-color: var(--al-ink); }
+
+/* Espera: a bolinha é a única cor */
+#today-panel .attend-wait { display: flex; align-items: center; gap: 8px; }
+#today-panel .attend-wait-text { min-width: 0; }
+#today-panel .attend-wait .attend-l2 { white-space: normal; }
+#today-panel .attend-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+#today-panel .attend-dot-new { background: var(--al-gold); }
+#today-panel .attend-dot-mid { background: var(--al-orange); }
+#today-panel .attend-dot-old { background: var(--al-red); }
+
+/* Cliente */
+#today-panel .attend-phone { color: var(--al-ink); text-decoration: none; }
+#today-panel a.attend-phone:hover { text-decoration: underline; }
+#today-panel .attend-ref { font-weight: 600; letter-spacing: .08em; color: var(--al-gold-text); }
+#today-panel .attend-ref-none { letter-spacing: 0; font-weight: 400; color: var(--al-muted); }
+#today-panel .attend-name { color: var(--al-gray); }
+#today-panel .attend-extra { white-space: normal; }
+
+/* Falta para buscar */
+#today-panel .attend-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+#today-panel .attend-chip { padding: 3px 8px; border-radius: 6px; background: var(--al-chip-bg); color: var(--al-chip-text); font-size: 12px; font-weight: 500; }
+
+/* Fim da linha: seta ou ⋯ Mais (controles de decisão) */
+#today-panel .attend-end { display: flex; justify-content: flex-end; }
+#today-panel .attend-chev { color: #BBBBBB; font-size: 20px; line-height: 1; }
+#today-panel #today-list .attend-row .case-more { position: static; margin: 0; }
+#today-panel #today-list .attend-row .case-more > summary { padding: 6px 4px; font-size: 13px; color: var(--al-gray); white-space: nowrap; cursor: pointer; list-style: none; }
+#today-panel #today-list .attend-row .case-more > summary::-webkit-details-marker { display: none; }
+#today-panel #today-list .attend-row .case-more-body { position: absolute; right: 16px; top: calc(100% - 6px); z-index: 30; width: min(460px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 12px 14px 14px; border: 1px solid var(--al-line); border-radius: 10px; background: #FFFFFF; box-shadow: 0 8px 24px rgb(0 0 0 / 12%); max-height: 70vh; overflow: auto; cursor: auto; }
+
+/* Celular: cada linha vira um cartão compacto, com as mesmas informações */
+@media (max-width: 760px) {
+  #today-panel .attend-head { display: none; }
+  #today-panel .attend-stamp { flex-basis: 100%; margin-left: 0; }
+  #today-panel .attend-search { flex-basis: 100%; }
+  /* Ref e números numa linha cada, rolando para o lado quando não cabem (a tela não rola). */
+  #today-panel .attend-ref-filters, #today-panel .attend-nums { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  #today-panel .attend-ref-filters::-webkit-scrollbar, #today-panel .attend-nums::-webkit-scrollbar { display: none; }
+  #today-panel .attend-ref-filters .chip, #today-panel .attend-nums .attend-num { flex: 0 0 auto; }
+  #today-panel #today-list .attend-row {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    grid-template-areas: "ck wait end" "ck cli cli" "ck car car" "ck ped loc" "ck falta falta";
+    row-gap: 8px; column-gap: 10px; padding: 14px 16px;
+  }
+  #today-panel #today-list .attend-row > .attend-pick { grid-area: ck; align-self: start; }
+  #today-panel #today-list .attend-row > .attend-wait { grid-area: wait; }
+  #today-panel #today-list .attend-row > .attend-client { grid-area: cli; }
+  #today-panel #today-list .attend-row > .attend-car { grid-area: car; }
+  #today-panel #today-list .attend-row > .attend-order { grid-area: ped; text-align: left; }
+  #today-panel #today-list .attend-row > .attend-place { grid-area: loc; text-align: right; }
+  #today-panel #today-list .attend-row > .attend-lacks { grid-area: falta; }
+  #today-panel #today-list .attend-row > .attend-lacks:has(> .attend-muted) { display: none; }
+  #today-panel #today-list .attend-row > .attend-end { grid-area: end; align-self: start; }
+  #today-panel .attend-l1, #today-panel .attend-l2 { white-space: normal; }
+  #today-panel #today-list .attend-row .case-pick { width: 44px; height: 44px; margin: -10px 0 0 -10px; }
+  #today-panel #today-list .attend-row .case-more > summary { min-height: 44px; display: inline-flex; align-items: center; }
+  #today-panel #today-list .attend-row .case-more-body { right: 8px; top: 48px; width: calc(100vw - 32px); max-height: 60vh; }
+}

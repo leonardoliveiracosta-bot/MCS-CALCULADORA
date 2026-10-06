@@ -84,23 +84,24 @@ test('ATENDIMENTO: conversas sem Ref num bloco só por assunto, filtro de assunt
   ];
   await open(page, { '/api/panel/today': ({ json }) => json({ items, degraded: ['assunto e identidade'], meta: {} }) });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('#attend-filters [data-attend-bucket="todos"]').click({ timeout: 30000 });
-  // One grid, no section headers: the order is kept (conversations without Ref by subject) and each card carries its area.
-  await expect(page.locator('#today-list .contact-group-flat')).toHaveCount(1, { timeout: 30000 });
+  // One list, no section headers: the order is kept (conversations without Ref by subject) and each row carries its area.
+  await expect(page.locator('#today-list .attend-list')).toHaveCount(1, { timeout: 30000 });
   await expect(page.locator('#today-list .contact-area-head, #today-list .contact-subject-head')).toHaveCount(0);
-  const semRef = page.locator('#today-list .today-card[data-area="SEM_REF"]');
+  const semRef = page.locator('#today-list .attend-row[data-area="SEM_REF"]');
   await expect(semRef).toHaveCount(5);
   expect(await semRef.evaluateAll((cards) => cards.map((card) => card.dataset.subject))).toEqual(['FINANCIAMENTO', 'PEDIDO_CARRO', 'SO_CUMPRIMENTO', 'OUTROS', 'NAO_IDENTIFICADO']);
-  // origin Calculadora with subject Financiamento stays in the calculator area; the lean card says which calculator, not the subject
-  const calc = page.locator('#today-list .today-card[data-area="CALC_SEM_TIPO"]');
+  // origin Calculadora with subject Financiamento stays in the calculator area; the row says which calculator, not the subject
+  const calc = page.locator('#today-list .attend-row[data-area="CALC_SEM_TIPO"]');
   await expect(calc).toContainText('Fábio Calc');
-  await expect(calc.locator('.case-calculator')).toHaveCount(1);
+  await expect(calc.locator('.attend-car .attend-l2')).toHaveCount(1);
   await expect(calc.locator('.subject-chip')).toHaveCount(0);
   await expect(page.locator('#triage-state')).toContainText('assunto e identidade (desatualizado)');
-  // the subject filter narrows the list and says so when empty
-  await page.locator('#today-subject').selectOption('SO_CUMPRIMENTO');
-  await expect(page.locator('#today-list .today-card')).toHaveCount(1);
+  // Assunto left the screen: the list search narrows the loaded list by name, phone, Ref or car
+  await page.locator('#attend-search').fill('Carla');
+  await expect(page.locator('#today-list .attend-row')).toHaveCount(1);
   await expect(page.locator('#today-list')).toContainText('Carla Oi');
+  await page.locator('#attend-search').fill('');
+  await expect(page.locator('#today-list .attend-row')).toHaveCount(6);
   expect(errors).toEqual([]);
 });
 

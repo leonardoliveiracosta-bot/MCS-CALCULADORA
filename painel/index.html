@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/painel/identidade.css?v=20261025t7">
   <link rel="stylesheet" href="/painel/sms-device-tokens.css?v=20261020a">
   <link rel="stylesheet" href="/painel/assistente.css?v=20261028b">
+  <link rel="stylesheet" href="/painel/atendimento-lista.css?v=20261006a">
 </head>
 <body class="login-screen">
   <main class="shell">
@@ -53,7 +54,7 @@
         </picture>
         <h1 id="page-title" class="visual-page-label" aria-live="polite">TODOS</h1>
         <nav aria-label="Seções do painel">
-          <button class="tab active" type="button" data-view="today" aria-current="page">TODOS <span data-count="today" data-unit="casos que dependem de você" title="Carregando">—</span></button>
+          <button class="tab active" type="button" data-view="today" aria-current="page">TODOS <span data-count="today" data-unit="casos na lista" title="Carregando">—</span></button>
           <button class="tab" type="button" data-view="v1">V1 <span data-count="v1" data-unit="tocaram e falta a V2" title="Carregando">—</span></button>
           <button class="tab" type="button" data-view="v2">V2 <span data-count="v2" data-unit="querem dar lance" title="Carregando">—</span></button>
           <button class="tab" type="button" data-view="requests">BUSCAR CARROS <span data-count="requests" data-unit="pedidos de carro" title="Carregando">—</span></button>
@@ -67,18 +68,26 @@
         <div class="topbar-actions"><strong id="environment-badge" class="environment-badge" aria-live="polite"></strong><button class="quiet small settings-link" type="button" data-view="settings">Configurações e conexão</button><button id="logout" class="quiet" type="button">Sair</button></div>
       </header>
       <div id="search-results" class="card search-results hidden" aria-live="polite"><label>Ordenar<select id="search-sort"><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div>
-      <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última mensagem do WhatsApp: <strong id="last-whatsapp-import">—</strong></span><details id="ai-budget" class="ai-budget hidden"><summary>Saldo da IA: <strong id="ai-budget-spent">—</strong></summary><p id="ai-budget-warning" class="warning hidden"></p><ul id="ai-budget-features" class="ai-budget-features"></ul></details></div>
+      <div class="freshness" aria-live="polite"><span>Dados atualizados: <strong id="data-updated">—</strong></span><span>Última mensagem do WhatsApp: <strong id="last-whatsapp-import">—</strong></span></div>
       <section id="capture-warning" class="capture-warning hidden" aria-live="polite"></section>
       <section id="today-panel" class="panel-view" aria-label="Atendimento">
-        <div class="section-head today-heading"><div><p class="eyebrow">MY CAR SCOUT · PAINEL</p><h2>Atendimento</h2><p class="muted">Responder, completar pedido, confirmar vínculo e cumprir retornos · O que depende de você vem primeiro</p><p id="today-florida-time" class="muted" aria-live="polite">Horário da Flórida</p></div><div class="inline-actions"><label>Origem<select id="today-origin" class="origin-filter"><option value="all">Todas as origens</option></select></label><label>Assunto<select id="today-subject" class="subject-filter"><option value="all">Todos os assuntos</option><option value="FINANCIAMENTO">Financiamento</option><option value="PEDIDO_CARRO">Pedido de carro</option><option value="SO_CUMPRIMENTO">Só cumprimentou</option><option value="OUTROS">Outros assuntos</option><option value="NAO_IDENTIFICADO">Ainda não identificado</option></select></label><label>Período<select id="today-period"><option value="all">Todos</option><option value="1">Últimas 24 h</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select></label><label>Ordenar<select id="today-sort"><option value="ready">Pronto para ligar</option><option value="recent">Mais recentes</option><option value="oldest">Mais antigas</option><option value="ref_recent">Ref mais recentes</option><option value="value_desc">Maior valor</option><option value="value_asc">Menor valor</option><option value="location">Localização</option><option value="vehicle">Marca do carro</option></select></label></div></div>
-        <div id="attend-filters" class="filters attend-filters" role="group" aria-label="Filtrar o atendimento"></div>
-        <div id="today-stats" class="today-stats" aria-live="polite"></div>
-        <div id="today-ref-filters" class="filters ref-filters" aria-label="Filtrar Hoje por Ref">
-          <button type="button" class="chip active" data-today-ref="all">Todos <span>—</span></button>
-          <button type="button" class="chip" data-today-ref="with">Com Ref <span>—</span></button>
-          <button type="button" class="chip" data-today-ref="recover">Calculadora, referência a recuperar <span>—</span></button>
-          <button type="button" class="chip" data-today-ref="without">Sem Ref <span>—</span></button>
+        <h2 class="visually-hidden">Atendimento</h2>
+        <div class="attend-bar" role="group" aria-label="Buscar, ordenar e filtrar o atendimento">
+          <label class="visually-hidden" for="attend-search">Buscar na lista</label>
+          <input id="attend-search" class="attend-search" type="search" maxlength="60" placeholder="Buscar por telefone, Ref ou carro" autocomplete="off">
+          <label class="attend-sort"><span class="visually-hidden">Ordenar</span><select id="today-sort" aria-label="Ordenar"><option value="ready">Ordenar: pronto para ligar</option><option value="recent">Ordenar: mais recentes</option><option value="oldest">Ordenar: mais antigas</option><option value="ref_recent">Ordenar: Ref mais recentes</option><option value="value_desc">Ordenar: maior valor</option><option value="value_asc">Ordenar: menor valor</option><option value="location">Ordenar: localização</option><option value="vehicle">Ordenar: marca do carro</option></select></label>
+          <div id="today-ref-filters" class="attend-ref-filters ref-filters" aria-label="Filtrar por Ref">
+            <button type="button" class="chip active" data-today-ref="all">Todos <span>—</span></button>
+            <button type="button" class="chip" data-today-ref="with">Com Ref <span>—</span></button>
+            <button type="button" class="chip" data-today-ref="recover">Ref a recuperar <span>—</span></button>
+            <button type="button" class="chip" data-today-ref="without">Sem Ref <span>—</span></button>
+          </div>
         </div>
+        <div class="attend-strip">
+          <div id="today-stats" class="today-stats attend-nums" aria-live="polite"></div>
+          <p class="attend-stamp"><span id="today-florida-time">Horário da Flórida</span> · <span id="attend-stamp-text">Atualizado —</span></p>
+        </div>
+        <div class="attend-head" aria-hidden="true"><span></span><span>Espera</span><span>Cliente</span><span>Carro · calculadora</span><span class="attend-right">Pedido</span><span>Local</span><span>Falta p/ buscar</span><span></span></div>
         <div id="today-list" class="stack" aria-live="polite"></div>
         <p id="triage-state" class="muted triage-state"></p>
         <button id="triage-run-pending" class="quiet small hidden" type="button">Classificar só as conversas que dependem de você</button>
@@ -139,6 +148,7 @@
       </section>
       <section id="settings-panel" class="panel-view hidden" aria-label="Configurações e conexão">
         <div class="section-head"><div><h2>Configurações e conexão</h2><p class="muted">WhatsApp, conexão do iPhone, avisos e mensagens automáticas</p></div></div>
+        <details id="ai-budget" class="card ai-budget ai-budget-settings hidden"><summary>Saldo da IA: <strong id="ai-budget-spent">—</strong></summary><p id="ai-budget-warning" class="warning hidden"></p><ul id="ai-budget-features" class="ai-budget-features"></ul></details>
         <section id="purge-tests-card" class="card hidden" aria-live="polite"></section>
         <section id="assistant-incidents" class="card" aria-live="polite"></section>
         <section class="card whatsapp-card entry-signal" aria-labelledby="whatsapp-title">
@@ -354,7 +364,7 @@
   <script src="/painel/atendimento.js?v=3" defer></script>
   <script src="/painel/lead.js?v=20261025q" defer></script>
   <script src="/painel/assistente.js?v=20261028a" defer></script>
-  <script src="/painel/painel.js?v=20261030lim" defer></script>
+  <script src="/painel/painel.js?v=20261030lista" defer></script>
   <script src="/painel/sms-device-tokens.js?v=20261020a" defer></script>
 </body>
 </html>

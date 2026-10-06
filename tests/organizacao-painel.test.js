@@ -130,9 +130,11 @@ test('ATENDIMENTO: um caso por ficha, motivos reunidos, filtros e contagem do me
 
 test('ATENDIMENTO: o badge e a lista usam o mesmo modelo; conversas lidas não voltam como pendência', () => {
   const client = read('painel/painel.js');
-  assert.match(client, /setCount\('today', model\.counts\.depende\)/);
+  // ATENDIMENTO em lista: o badge conta a lista inteira (todos os casos), nos dois lugares, com os pedidos incompletos.
+  assert.match(client, /setCount\('today', model\.counts\.todos\)/);
+  assert.doesNotMatch(client, /setCount\('today', model\.counts\.depende\)/);
   // 7cdbf0d: o caso excluído sai das caixas de decisão no badge e na lista (withoutExcluded nos dois).
-  assert.match(client, /const model = MCSAttend\.model\(\{ todayItems: today\.items \|\| \[\], decisions: withoutExcluded\(today\.items, attendDecisions\(\{ entry, triage: triageData, whatsapp: whatsappData \}\), new Set\(today\.discardedJourneys \|\| \[\]\)\), incomplete: \[\] \}\);\n      setCount\('today', model\.counts\.depende\);/);
+  assert.match(client, /const model = MCSAttend\.model\(\{ todayItems: today\.items \|\| \[\], decisions: withoutExcluded\(today\.items, attendDecisions\(\{ entry, triage: triageData, whatsapp: whatsappData \}\), new Set\(today\.discardedJourneys \|\| \[\]\)\), incomplete: withoutExcluded\(today\.items, attendData\.incomplete, new Set\(today\.discardedJourneys \|\| \[\]\)\) \}\);\n      setCount\('today', model\.counts\.todos\);/);
   assert.match(client, /const attendModel = \(items\) => MCSAttend\.model\(\{ todayItems: items, decisions: withoutExcluded\(items, attendDecisions\(\), attendData\.discarded\),/);
   assert.match(client, /chat\.resolution_status !== 'RESOLVED' \|\| chat\.hasTimeUncertain/);
   const html = read('painel/index.html');
@@ -142,7 +144,7 @@ test('ATENDIMENTO: o badge e a lista usam o mesmo modelo; conversas lidas não v
 
 test('cada número diz o que conta; filtros e posição voltam ao fechar a ficha', () => {
   const html = read('painel/index.html'), client = read('painel/painel.js');
-  for (const [view, unit] of [['today', 'casos que dependem de você'], ['requests', 'pedidos de carro'], ['searches', 'pessoas com carros no lote'], ['imports', 'arquivos e prints para revisar']]) assert.match(html, new RegExp(`data-count="${view}" data-unit="${unit}"`));
+  for (const [view, unit] of [['today', 'casos na lista'], ['requests', 'pedidos de carro'], ['searches', 'pessoas com carros no lote'], ['imports', 'arquivos e prints para revisar']]) assert.match(html, new RegExp(`data-count="${view}" data-unit="${unit}"`));
   assert.match(client, /attendBucket, todayStatFilter, todayRefFilter, requestsFilter,/);
   assert.match(client, /await switchPanel\(target\.view \|\| 'today', \{ scrollY: Number\(target\.scrollY \|\| 0\) \}\);/);
   assert.match(client, /viewScroll\.set\(currentView, window\.scrollY\)/);
