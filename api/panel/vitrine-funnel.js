@@ -10,6 +10,7 @@ const {toggleEnabled}=require('../../panel-domain');
 const {loadClassification}=require('../../panel-classification');
 const groups=require('../../panel-groups');
 const {dispositionIndex}=require('../../panel-disposition');
+const {sentByLink}=require('../../panel-v1-sent');
 
 const since=(value,now=Date.now())=>{
   const elapsed=Math.max(0,now-Date.parse(value||now));
@@ -22,8 +23,8 @@ const since=(value,now=Date.now())=>{
 
 async function payload(ctx,services={}){
   const read=services.allRows||allRows;
-  const [vitrines,cars,events,requests,contacts,phones,journeys,toggles,dispositions,journeyRefs]=await Promise.all([
-    read(ctx,'vitrines',{select:'id,contact_id,journey_id,reference_code,customer_name,version,created_at,expires_at,parent_vitrine_id',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
+  const [vitrines,cars,events,requests,contacts,phones,journeys,toggles,dispositions,journeyRefs,linkMessages]=await Promise.all([
+    read(ctx,'vitrines',{select:'id,token,contact_id,journey_id,reference_code,customer_name,version,created_at,expires_at,parent_vitrine_id',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
     read(ctx,'vitrine_cars',{select:'id,vitrine_id,source_match_id,vehicle_snapshot,customer_limit_cents',environment:'eq.'+ctx.environment}),
     read(ctx,'vitrine_events',{select:'vitrine_id,vitrine_car_id,event_type,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
     read(ctx,'vitrine_requests',{select:'id,vitrine_id,vitrine_car_id,request_kind,treated_at,created_at',environment:'eq.'+ctx.environment,order:'created_at.desc'}),
@@ -32,7 +33,9 @@ async function payload(ctx,services={}){
     read(ctx,'journeys',{select:'id,contact_id,reference_code,status,budget_cents',environment:'eq.'+ctx.environment}),
     read(ctx,'journey_toggle_states',{select:'journey_id,enabled',environment:'eq.'+ctx.environment}),
     read(ctx,'panel_item_dispositions',{select:'item_kind,item_key,status,updated_at',environment:'eq.'+ctx.environment,cleared_at:'is.null'}),
-    read(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment})
+    read(ctx,'journey_refs',{select:'journey_id,ref_code',environment:'eq.'+ctx.environment}),
+    // The proof that a V1/V2 was sent: an MCS message carrying its /v/<token> link (panel-v1-sent.js).
+    read(ctx,'messages',{select:'id,direction,body_text,occurred_at_utc,occurred_at_local,created_at,undone_at',environment:'eq.'+ctx.environment,direction:'eq.MCS',undone_at:'is.null',body_text:'like.*/v/*'})
   ]);
   const classification=services.loadClassification?await services.loadClassification(ctx):await loadClassification(ctx);
   const refStateFor=(journeyId)=>{if(!journeyId)return 'SEM_REF';const identity=classification.identityOf(journeyId);if(identity.state!=='OK')return null;return groups.refStateOf({hasCalcRef:identity.status==='REF_COMPROVADA',identity});};
@@ -54,6 +57,10 @@ async function payload(ctx,services={}){
     const refs=[journey.reference_code,...journeyRefs.filter((row)=>row.journey_id===journeyId).map((row)=>row.ref_code)].filter(Boolean);
     return personDisposition(journeyId,refs)?.status!=='DISCARDED';
   };
+  // "Enviada" only with that proof, counted from the message; a link only generated (and maybe previewed)
+  // is never shown as sent, and a tap before the send (the preview) is never the client's.
+  const sentAtById=new Map(sentByLink({messages:linkMessages||[],vitrines}).map((row)=>[row.vitrineId,row.sentAt]));
+  const unsent=[];
   const now=Date.now();
   const expired=(vitrine)=>Date.parse(vitrine.expires_at||0)<=now;
   const carsByVitrine=new Map();
@@ -99,11 +106,17 @@ async function payload(ctx,services={}){
     if(!actionable(vitrine))return;
     const carList=carsByVitrine.get(vitrine.id)||[];
     const contact={name:contactName(vitrine),phone:phoneFor(vitrine.contact_id)};
+    if(!sentAtById.has(vitrine.id)){
+      if(!dismissedAt.has(vitrine.id))unsent.push({vitrineId:vitrine.id,version:vitrine.version,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),createdAt:vitrine.created_at,ago:since(vitrine.created_at,now),expired:expired(vitrine)});
+      return;
+    }
+    const sentAt=sentAtById.get(vitrine.id)||vitrine.created_at;
+    const afterSend=(event)=>Date.parse(event.created_at)>=Date.parse(sentAt);
     if(vitrine.version==='V1'){
-      if(expired(vitrine)){if(dismissedAt.has(vitrine.id))return;v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now),expiredAt:vitrine.expires_at});return;}
+      if(expired(vitrine)){if(dismissedAt.has(vitrine.id))return;v1.expired.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt,ago:since(sentAt,now),expiredAt:vitrine.expires_at});return;}
       const v2children=(childrenByParent.get(vitrine.id)||[]).filter((child)=>child.version==='V2');
       const tapsByCar=new Map();
-      (eventsByVitrine.get(vitrine.id)||[]).filter((event)=>event.event_type==='TAP'&&event.vitrine_car_id).forEach((event)=>{
+      (eventsByVitrine.get(vitrine.id)||[]).filter((event)=>event.event_type==='TAP'&&event.vitrine_car_id&&afterSend(event)).forEach((event)=>{
         if(!tapsByCar.has(event.vitrine_car_id)||Date.parse(event.created_at)>Date.parse(tapsByCar.get(event.vitrine_car_id).created_at))tapsByCar.set(event.vitrine_car_id,event);
       });
       let tappedAny=false;
@@ -116,17 +129,17 @@ async function payload(ctx,services={}){
         if(reqs.some((req)=>req.request_kind==='VIEW'&&req.treated_at&&Date.parse(req.treated_at)>=Date.parse(tap.created_at)))return;
         const open=reqs.find((req)=>req.request_kind==='VIEW'&&!req.treated_at);
         tappedAny=true;
-        v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),vin:vinOf(car),sentAt:vitrine.created_at,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents:vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null});
+        v1.tapped.push({vitrineId:vitrine.id,vitrineCarId:carId,requestId:open?open.id:null,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(car.vehicle_snapshot||{}),vin:vinOf(car),sentAt,tapAt:tap.created_at,ago:since(tap.created_at,now),budgetCents:vitrine.journey_id?budgetByJourney.get(vitrine.journey_id)||null:null});
       });
-      if(!tappedAny&&!v2children.length&&!dismissedAt.has(vitrine.id))v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)});
+      if(!tappedAny&&!v2children.length&&!dismissedAt.has(vitrine.id))v1.waiting.push({vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),cars:carList.map((car)=>vehicleName(car.vehicle_snapshot||{})),vins:carList.map(vinOf),sentAt,ago:since(sentAt,now)});
       return;
     }
     if(vitrine.version==='V2'){
       const firstCar=carList[0]||{};
-      const item={vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(firstCar.vehicle_snapshot||{}),vin:vinOf(firstCar),sentAt:vitrine.created_at,ago:since(vitrine.created_at,now)};
+      const item={vitrineId:vitrine.id,name:contact.name,phone:contact.phone,referenceCode:vitrine.reference_code||'',...linkOf(vitrine),refState:refStateFor(vitrine.journey_id||null),car:vehicleName(firstCar.vehicle_snapshot||{}),vin:vinOf(firstCar),sentAt,ago:since(sentAt,now)};
       if(expired(vitrine)){if(!dismissedAt.has(vitrine.id))v2.expired.push({...item,expiredAt:vitrine.expires_at});return;}
       const bidRequest=(requests||[]).find((req)=>req.vitrine_id===vitrine.id&&req.request_kind==='BID'&&!req.treated_at);
-      const bidTap=(eventsByVitrine.get(vitrine.id)||[]).find((event)=>event.event_type==='TAP');
+      const bidTap=(eventsByVitrine.get(vitrine.id)||[]).find((event)=>event.event_type==='TAP'&&afterSend(event));
       // The latest bid signal (request or tap); a dismissal older than it does not hide the card.
       const bidAt=[bidRequest,bidTap].filter(Boolean).map((row)=>row.created_at).sort((a,b)=>Date.parse(b)-Date.parse(a))[0]||null;
       if(dismissedSince(vitrine,bidAt||vitrine.created_at))return;
@@ -137,6 +150,8 @@ async function payload(ctx,services={}){
   const byRecent=(a,b)=>Date.parse(b.tapAt||b.bidAt||b.sentAt)-Date.parse(a.tapAt||a.bidAt||a.sentAt);
   v1.tapped.sort(byRecent);v1.waiting.sort(byRecent);v1.expired.sort((a,b)=>Date.parse(b.expiredAt)-Date.parse(a.expiredAt));
   v2.bid.sort(byRecent);v2.waiting.sort(byRecent);v2.expired.sort((a,b)=>Date.parse(b.expiredAt)-Date.parse(a.expiredAt));
+  unsent.sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt));
+  v1.unsent=unsent.filter((item)=>item.version==='V1');v2.unsent=unsent.filter((item)=>item.version==='V2');
   return {v1,v2,counts:{v1Action:v1.tapped.length,v2Action:v2.bid.length}};
 }
 
@@ -145,7 +160,13 @@ async function payload(ctx,services={}){
 // table, never the manual mark. "Today" is Florida time, like every other panel date.
 async function summary(ctx,services={}){
   const read=services.allRows||allRows;
-  const rows=await read(ctx,'vitrines',{select:'journey_id,created_at',environment:'eq.'+ctx.environment,version:'eq.V1'})||[];
+  const [all,linkMessages]=await Promise.all([
+    read(ctx,'vitrines',{select:'id,token,journey_id,created_at',environment:'eq.'+ctx.environment,version:'eq.V1'}),
+    read(ctx,'messages',{select:'id,direction,body_text,occurred_at_utc,occurred_at_local,created_at,undone_at',environment:'eq.'+ctx.environment,direction:'eq.MCS',undone_at:'is.null',body_text:'like.*/v/*'})
+  ]);
+  // Only V1s really sent (the link in an MCS message), on the day of that message.
+  const sentAt=new Map(sentByLink({messages:linkMessages||[],vitrines:all||[]}).map((row)=>[row.vitrineId,row.sentAt]));
+  const rows=(all||[]).filter((row)=>sentAt.has(row.id)).map((row)=>({...row,created_at:sentAt.get(row.id)||row.created_at}));
   const journeyIds=[...new Set(rows.map((row)=>row.journey_id).filter(Boolean))];
   const dayKey=(value)=>{const date=new Date(value||0);if(!Number.isFinite(date.getTime()))return '';
     const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);

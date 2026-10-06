@@ -2337,10 +2337,30 @@
     card.append(box);
   }
 
-  function funnelCard(item){
-    const card=element('article','item-card vitrine-request-card');
-    const head=element('header','');head.append(element('strong','',item.name||'Cliente'));card.append(head);
-    card.append(element('span','muted',`${item.phone||'Sem telefone'} · Ref ${item.referenceCode||'—'}`));
+  // The card of the TODOS tab (status strip, the car with the Ref tag, phone, a sheet of labelled rows and
+  // the gold button), shared by V1, V2 and ENVIAR OPÇÕES. A click on the card opens the client's ficha.
+  function todosCard({ status, tone, title, ref, phone, rows, open, className }) {
+    const card = element('article', 'item-card today-card case-card' + (className ? ' ' + className : ''));
+    const decision = element('p', 'card-decision' + (tone ? ' decision-' + tone : ''));
+    decision.append(element('strong', 'card-decision-label', status));
+    card.append(decision, caseFace({ title, ref: ref || 'sem Ref', phone: phone || '', rows }));
+    const actions = element('div', 'inline-actions card-primary');
+    card.append(actions);
+    if (open) makeCardClickable(card, open);
+    return { card, decision, actions };
+  }
+  // V1/V2 card: the cars as the title, then the client, each car's VIN (with Copiar) and the times of this vitrine.
+  function funnelCard(item, { status, tone, rows = [] }){
+    const cars = item.cars && item.cars.length ? item.cars : [item.car || 'Carro não informado'];
+    const vins = item.cars && item.cars.length ? (item.vins || []) : [item.vin || null];
+    const vinRows = cars.map((name, index) => [cars.length > 1 ? `VIN · ${name || 'carro ' + (index + 1)}` : 'VIN', vins[index] || 'não informado', 'case-request-line case-vin funnel-vin']);
+    const { card, actions } = todosCard({ status, tone, title: cars.map((name) => name || 'Carro não informado').join(' · '), ref: item.referenceCode,
+      phone: item.phone ? phoneDisplay(item.phone) : 'Sem telefone', rows: [['Cliente', item.name || 'Cliente', 'case-request-line'], ...vinRows, ...rows],
+      open: item.journeyId ? () => openDetail('ficha', item.journeyId) : null, className: 'vitrine-request-card' });
+    card.querySelectorAll('.case-vin .case-field-value').forEach((cell, index) => { const vin = vins[index]; if (!vin) return; const copy = element('button', 'quiet small', 'Copiar'); copy.type = 'button';
+      copy.addEventListener('click', async (event) => { event.stopPropagation(); try { await navigator.clipboard.writeText(vin); copy.textContent = 'Copiado'; } catch (_) { copy.textContent = 'Não copiou'; } setTimeout(() => { copy.textContent = 'Copiar'; }, 2000); });
+      cell.append(document.createTextNode(' '), copy); });
+    card.funnelActions = actions;
     return card;
   }
   function funnelZone(title,list,emptyText){
@@ -2399,49 +2419,33 @@
     line.append(copy);return line;
   }
   // One line per car with its VIN (V1 waiting and expired list every car of the V1).
-  function carsWithVin(card,item){
-    if(!item.cars||!item.cars.length){card.append(element('span','','Carro não informado'));return;}
-    item.cars.forEach((name,index)=>{card.append(element('span','',name||'Carro não informado'),vinLine((item.vins||[])[index]||null));});
-  }
+
   function v1TappedCard(item){
-    const card=funnelCard(item);
-    card.querySelector('header').append(makeBadge('Tocou · falta a V2','yellow'));
-    card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin),element('span','muted',`Tocou ${item.ago||''} · V1 enviada ${item.sentAgo||''}`));
-    const actions=element('div','inline-actions');
-    actions.append(mountV2Button(item,card),openFichaButton(item),treatedButton(item,card,'v1'));
-    card.append(actions);
+    const card=funnelCard(item,{status:'Tocou · falta a V2',tone:'red',rows:[['Tocou',item.ago||'—'],['V1 enviada',item.sentAgo||'—']]});
+    card.funnelActions.append(openFichaButton(item),mountV2Button(item,card),treatedButton(item,card,'v1'));
     return card;
   }
   function v1WaitingCard(item){
-    const card=funnelCard(item);
-    carsWithVin(card,item);card.append(element('span','muted',`V1 enviada ${item.ago||''}`));
-    card.append(funnelActions(item,card,'v1'));
+    const card=funnelCard(item,{status:'Aguardando o toque',rows:[['V1 enviada',item.ago||'—']]});
+    card.funnelActions.append(openFichaButton(item),treatedButton(item,card,'v1'));
     return card;
   }
   function v2BidCard(item){
-    const card=funnelCard(item);
-    card.querySelector('header').append(makeBadge('Quer dar lance','red'));
-    card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin),element('span','muted',`${item.bidAgo?'Tocou '+item.bidAgo+' · ':''}V2 enviada ${item.ago||''}`));
-    card.append(funnelActions(item,card,'v2'));
+    const card=funnelCard(item,{status:'Quer dar lance',tone:'red',rows:[...(item.bidAgo?[['Tocou',item.bidAgo]]:[]),['V2 enviada',item.ago||'—']]});
+    card.funnelActions.append(openFichaButton(item),treatedButton(item,card,'v2'));
     return card;
   }
   function v2WaitingCard(item){
-    const card=funnelCard(item);
-    card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin),element('span','muted',`V2 enviada ${item.ago||''}`));
-    card.append(funnelActions(item,card,'v2'));
+    const card=funnelCard(item,{status:'Aguardando o lance',rows:[['V2 enviada',item.ago||'—']]});
+    card.funnelActions.append(openFichaButton(item),treatedButton(item,card,'v2'));
     return card;
   }
-  // Abrir ficha and Pedido atendido, side by side (the same row as the tapped V1 card).
-  function funnelActions(item,card,view){
-    const actions=element('div','inline-actions');
-    actions.append(openFichaButton(item),treatedButton(item,card,view));
-    return actions;
-  }
-  function expiredDetails(title,list,view){
+  // A collapsed list (Expiradas; Link gerado · envio não confirmado) with the same cards.
+  function expiredDetails(title,list,view,status){
     if(!list.length)return null;
-    const det=element('details','card');const summary=element('summary','');summary.append(element('strong','',`${title} (${list.length})`));det.append(summary);
-    const stack=element('div','stack');
-    list.forEach((item)=>{const card=funnelCard(item);if(item.cars)carsWithVin(card,item);else card.append(element('span','',item.car||'Carro não informado'),vinLine(item.vin));card.append(element('span','muted',`Expirou ${item.expiredAgo||''}`),funnelActions(item,card,view));stack.append(card);});
+    const det=element('details','card funnel-details');const summary=element('summary','');summary.append(element('strong','',`${title} (${list.length})`));det.append(summary);
+    const stack=element('div','stack funnel-grid');
+    list.forEach((item)=>{const card=funnelCard(item,{status:status(item)});card.funnelActions.append(openFichaButton(item),treatedButton(item,card,view));stack.append(card);});
     det.append(stack);return det;
   }
   function renderVitrineFunnel(data,view){
@@ -2458,8 +2462,11 @@
       const waitingZone=funnelZone('Aguardando o toque',v1.waiting,'Nenhuma V1 aguardando');
       v1.waiting.forEach((item)=>waitingZone.append(v1WaitingCard(item)));
       root.append(waitingZone);
-      const expired=expiredDetails('Expiradas',v1.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})),'v1');
+      const expired=expiredDetails('Expiradas',v1.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})),'v1',(item)=>`Expirou ${item.expiredAgo||''} · V1 enviada ${item.ago||''}`);
       if(expired)root.append(expired);
+      // A link generated and never sent (no MCS message carries it) is never "V1 enviada".
+      const unsent=expiredDetails('Link gerado · envio não confirmado',v1.unsent||[],'v1',(item)=>`Link gerado ${item.ago||''} · envio não confirmado`);
+      if(unsent)root.append(unsent);
       return;
     }
     const v2=(data&&data.v2)||{bid:[],waiting:[],expired:[]};
@@ -2469,8 +2476,10 @@
     const waitingZone=funnelZone('Aguardando o lance',v2.waiting,'Nenhuma V2 aguardando');
     v2.waiting.forEach((item)=>waitingZone.append(v2WaitingCard(item)));
     root.append(waitingZone);
-    const expired=expiredDetails('Expiradas',v2.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})),'v2');
+    const expired=expiredDetails('Expiradas',v2.expired.map((item)=>({...item,expiredAgo:agoOf(item.expiredAt)})),'v2',(item)=>`Expirou ${item.expiredAgo||''} · V2 enviada ${item.ago||''}`);
     if(expired)root.append(expired);
+    const unsent=expiredDetails('Link gerado · envio não confirmado',v2.unsent||[],'v2',(item)=>`Link gerado ${item.ago||''} · envio não confirmado`);
+    if(unsent)root.append(unsent);
   }
 
   function relativeAuction(value){const hours=Math.max(0,Math.ceil((Date.parse(value)-Date.now())/3600000));return hours>=24?`em ${Math.floor(hours/24)} dia${Math.floor(hours/24)===1?'':'s'} ${hours%24} h`:`em ${hours} h`;}
@@ -3795,40 +3804,34 @@
   function renderQueueRow(root, row) {
     const person = row.person;
     const waiting = !row.sent && row.states.some((state) => state.kind === 'cars');
-    // The same card as V1/V2 (funnelCard): name with its badges on top, then "phone · Ref", then the content.
-    const card = element('article', 'item-card vitrine-request-card options-queue-card options-queue-row');
-    if (!waiting) card.classList.add('options-queue-nocar');
+    // The card of the TODOS tab: the summary in the status strip, the cars asked as the title, the Ref
+    // tag, the phone and one labelled row per request (with its own state and "Atualizar").
+    const cars = [...new Set(row.demands.flatMap((demand) => (demand.wishes || []).map((wish) => [wish.make, wish.model].filter(Boolean).join(' '))).filter(Boolean))];
+    const arrival = floridaArrival(person.arrivedAt);
+    const rows = [['Cliente', person.name, 'case-request-line identity-name'], ...(arrival ? [['Chegou', arrival, 'case-request-line']] : []),
+      ['Prazo', WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, 'case-request-line'],
+      ...row.states.map((state) => ['Pedido', [state.demand.mode === 'VALOR' ? 'Por valor' : state.demand.mode === 'CARRO' ? 'Por carro' : '', demandSummary(state.demand), STATE_TEXT[state.kind](state)].filter(Boolean).join(' · '), 'case-request-line options-queue-demand'])];
+    const { card } = todosCard({ status: rowSummary(row), tone: waiting ? 'red' : '', title: cars.join(' · ') || person.name, ref: person.ref, phone: person.phoneDisplay || 'Sem telefone', rows,
+      open: () => openQueueDetail(row.demands[0] || null, person), className: 'options-queue-card options-queue-row' + (waiting ? '' : ' options-queue-nocar') });
+    card.querySelector('.card-decision-label').classList.add('options-queue-reason');
     // Every request key and mode of the person (read by openOptionsCard and the tests).
     card.dataset.demandKey = row.demands.map((demand) => demand.key).filter(Boolean).join(' ');
     card.dataset.mode = [...new Set(row.demands.map((demand) => demand.mode).filter(Boolean))].join(' ');
-    const head = element('header', '');
-    head.append(element('strong', 'identity-name', person.name));
-    const arrival = floridaArrival(person.arrivedAt);
-    if (arrival) head.append(makeBadge(arrival));
-    head.append(makeBadge(WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, person.purchaseWindow === 'NOW' ? 'red' : person.purchaseWindow === '30D' ? 'yellow' : person.purchaseWindow === '3M' ? 'blue' : ''));
-    const contactLine = element('span', 'muted');
-    if (person.phoneRaw) { const link = element('a', 'identity-ref-phone phone-link', person.phoneDisplay); link.href = 'tel:' + String(person.phoneRaw).replace(/[^+\d]/g, ''); link.addEventListener('click', (event) => event.stopPropagation()); contactLine.append(link); }
-    else contactLine.append(document.createTextNode('Sem telefone'));
-    contactLine.append(document.createTextNode(` · Ref ${person.ref || '—'}`));
-    card.append(head, contactLine);
-    card.append(element('p', 'options-queue-reason', rowSummary(row)));
-    // One line per request: the mode, what the client asked and that request's state.
-    row.states.forEach((state) => {
-      const line = element('div', 'options-queue-demand');
+    const open = element('button', 'today-primary small', person.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
+    open.addEventListener('click', (event) => { event.stopPropagation(); openQueueDetail(row.demands[0] || null, person); });
+    card.querySelector('.card-primary').append(open);
+    card.querySelectorAll('.options-queue-demand').forEach((line, index) => {
+      const state = row.states[index];
       line.dataset.demandKey = state.demand.key;
-      line.append(element('span', 'options-queue-demand-text', [state.demand.mode === 'VALOR' ? 'Por valor' : state.demand.mode === 'CARRO' ? 'Por carro' : '', demandSummary(state.demand), STATE_TEXT[state.kind](state)].filter(Boolean).join(' · ')));
-      if (state.kind === 'pending') {
-        const update = element('button', 'small chip options-queue-update', 'Atualizar'); update.type = 'button';
-        update.addEventListener('click', async (event) => {
-          event.stopPropagation(); update.disabled = true; update.textContent = 'Comparando…';
-          try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: state.demand.key }) }); update.textContent = 'Comparado'; manheimData = null; loadCurrent('searches').catch(() => {}); }
-          catch (_) { update.disabled = false; update.textContent = 'Atualizar'; }
-        });
-        line.append(update);
-      }
-      card.append(line);
+      if (state.kind !== 'pending') return;
+      const update = element('button', 'small chip options-queue-update', 'Atualizar'); update.type = 'button';
+      update.addEventListener('click', async (event) => {
+        event.stopPropagation(); update.disabled = true; update.textContent = 'Comparando…';
+        try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: state.demand.key }) }); update.textContent = 'Comparado'; manheimData = null; loadCurrent('searches').catch(() => {}); }
+        catch (_) { update.disabled = false; update.textContent = 'Atualizar'; }
+      });
+      line.querySelector('.case-field-value').append(document.createTextNode(' '), update);
     });
-    makeCardClickable(card, () => openQueueDetail(row.demands[0] || null, person));
     root.append(card);
   }
 

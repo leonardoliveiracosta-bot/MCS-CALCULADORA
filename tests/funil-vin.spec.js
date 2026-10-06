@@ -38,11 +38,16 @@ test('aba V1: cada carro mostra o seu VIN e o botão Copiar copia o VIN certo', 
   const vins = page.locator('.funnel-vin');
   await expect(vins.first()).toBeVisible({ timeout: 30000 });
   // Two tapped cards of the same model, each with its own VIN; the waiting V1 lists both cars.
-  await expect(vins).toHaveText([/VIN 1C4RJHEG2S8768446/, /VIN 1C4RJHEG6S8768742/, /VIN YV4H60PF0T1487031/, /VIN não informado/]);
+  // TODOS card: each VIN is its own labelled row ("VIN" or "VIN · <car>") with the value beside it.
+  await expect(vins).toHaveText([/^VIN\s*1C4RJHEG2S8768446/, /^VIN\s*1C4RJHEG6S8768742/, /^VIN · 2026 Volvo XC90\s*YV4H60PF0T1487031/, /^VIN · 2025 Volvo XC90\s*não informado/]);
   await vins.nth(1).getByRole('button', { name: 'Copiar' }).click();
   await expect(vins.nth(1).getByRole('button')).toHaveText('Copiado');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('1C4RJHEG6S8768742');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   expect(errors).toEqual([]);
+  // A click on the card itself (not on a button) opens the client's ficha, as in TODOS.
+  await page.locator('#v1-list .today-card .case-face-title').first().click();
+  await expect(page.locator('#detail-panel')).toBeVisible();
+  await expect(page.locator('#page-title')).toHaveText('TELA DO LEAD');
 });
