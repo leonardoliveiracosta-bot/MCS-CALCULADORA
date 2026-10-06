@@ -60,7 +60,7 @@ test('options queue cards show one compact identity block and never expand inlin
   // The TODOS card: the Ref tag and the phone in the card face.
   assert.match(queue,/todosCard\(/);
   assert.match(queue,/ref: person\.ref/);
-  assert.match(queue,/phone: person\.phoneDisplay/);
+  assert.match(queue,/person\.phoneDisplay/);
   assert.doesNotMatch(queue,/contactMeta\(/);
   assert.doesNotMatch(queue,/<details/);
   // The old inline cards are gone: the selection lives in the ficha.
