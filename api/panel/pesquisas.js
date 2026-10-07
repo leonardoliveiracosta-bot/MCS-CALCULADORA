@@ -42,10 +42,14 @@ const wishText = (demand) => (demand.wishes || []).map((wish) => {
 
 // Every request of the operation, from the ficha, the calculator and the read conversations.
 async function buildList(ctx) {
-  const [base, upload] = await Promise.all([loadBuscasBase(ctx, { allRows }), latestActiveUpload(ctx, 'id,uploaded_at')]);
+  // The batch summary only needs the active batch: it starts as soon as the batch is known, while the base loads.
+  const uploadRead = latestActiveUpload(ctx, 'id,uploaded_at');
+  const summaryRead = uploadRead.then((upload) => upload ? buscasView.batchSummary(ctx, upload.id).catch(() => null) : []);
+  summaryRead.catch(() => {});
+  const [base, upload] = await Promise.all([loadBuscasBase(ctx, { allRows }), uploadRead]);
   const uploadId = upload ? upload.id : null;
   const [summary, snapshot, syncs, checks, conversation] = await Promise.all([
-    uploadId ? buscasView.batchSummary(ctx, uploadId).catch(() => null) : [],
+    summaryRead,
     uploadId ? rows(ctx, 'manheim_uploads', { select: 'targets_json', environment: 'eq.' + ctx.environment, id: 'eq.' + uploadId, limit: '1' }).then((found) => found[0]?.targets_json || []).catch(() => []) : [],
     uploadId ? allRows(ctx, 'manheim_demand_syncs', { select: 'demand_key,criteria_hash,synced_at', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId }).catch(() => []) : [],
     uploadId ? safe(allRows(ctx, 'vehicle_request_checks', { select: 'request_key,criteria_hash,upload_id,result,option_count,compared_at', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId }), null) : [],

@@ -5,7 +5,9 @@ const manheimAudit = require('./panel-manheim-audit');
 // import batch: one line per demand (person and mode) with its counts, computed by the database.
 // No car travels here: the options of a demand are read page by page (manheim-options) only when
 // the operator opens it. VALOR and CARRO are counted separately; the total is people.
-const { allRows, panelMeta, rows, rpc } = require('./panel-server');
+const { allRows, panelMeta, rows, rpc, memoRead = (_ctx, _key, load) => load() } = require('./panel-server');
+// Read-only batch functions: one call per boot even when PESQUISAS and ENVIAR OPÇÕES both ask (panel-server memoRead).
+const readRpc = (ctx, name, args) => memoRead(ctx, 'rpc:' + name + ':' + JSON.stringify(args || {}), () => rpc(ctx, name, args));
 const { score, loadScoreIndex } = require('./panel-ready');
 const { decorateContact } = require('./panel-contact');
 const { decorateWithSearchStage, loadSearchStageIndex } = require('./panel-search-stage');
@@ -43,7 +45,7 @@ function comparedKeys(targets, syncs) {
 // Counts of the active batch per demand: options eligible NOW (no past auction, valid MMR) and
 // stored_count (cars the demand has in this batch, eligible or not). Before migration
 // 20261030010000 the old summary answers (no stored count).
-async function batchSummary(ctx, uploadId, call = rpc) {
+async function batchSummary(ctx, uploadId, call = readRpc) {
   const args = { p_environment: ctx.environment, p_upload_id: uploadId };
   try { return await call(ctx, 'panel_manheim_batch_summary_v2', args); }
   catch (error) {
@@ -179,12 +181,36 @@ async function auditInputFor(ctx) {
   return { upload: latest || null, base, demands: context.listed, matches: read.matches, scope: read.scope };
 }
 
+// Counts of the batch per demand, answered by the database. The reads do not depend on each other nor on the
+// base of BUSCAS: they run together, as soon as the active batch is known.
+async function batchReadsFor(ctx, uploads, latest, batchOn) {
+  const activeIdsEarly = uploads.filter((row) => !row.undone_at).map((row) => row.id).concat(latest && !uploads.some((row) => row.id === latest.id) ? [latest.id] : []);
+  const reads = await Promise.all([
+    // A slow or failed summary never takes the whole tab down: only its counts say "Resumo indisponível".
+    latest && batchOn ? batchSummary(ctx, latest.id).catch((error) => { console.error('[buscas-summary]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : [],
+    latest && batchOn ? readRpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch(() => null) : [],
+    batchOn && activeIdsEarly.length ? readRpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIdsEarly }).catch(() => []) : [],
+    rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' }).then((found) => found.map((row) => row.upload_id)).catch(() => null),
+    // What was already compared with the active batch: the requests of the import and the ones compared later.
+    latest && batchOn ? rows(ctx, 'manheim_uploads', { select: 'targets_json', environment: 'eq.' + ctx.environment, id: 'eq.' + latest.id, limit: '1' }).then((found) => found[0] && found[0].targets_json).catch(() => null) : null,
+    latest && batchOn ? allRows(ctx, 'manheim_demand_syncs', { select: 'demand_key,criteria_hash', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id }).catch(() => null) : null
+  ]);
+  return { activeIdsEarly, reads };
+}
+
 async function manheimView(ctx, options = {}) {
   if (options.auditInput) return auditInputFor(ctx);
+  const started = Date.now(), timing = {};
+  const timed = (name, work) => work.finally(() => { timing[name] = Date.now() - started; });
   const [supported, batchOn] = await Promise.all([undoSupported(ctx, { rows }), batchSupported(ctx, { rows }).catch(() => false)]);
+  // The batch reads only need the active batch: they start now and run while the base loads (they used to wait for it).
+  const uploadsRead = loadUploads(ctx, supported, 20, batchOn);
+  const latestRead = uploadsRead.then((uploads) => latestLiveUpload(ctx, uploads, supported, batchOn));
+  const batchReads = timed('batch', Promise.all([uploadsRead, latestRead]).then(([uploads, latest]) => batchReadsFor(ctx, uploads, latest, batchOn)));
+  batchReads.catch(() => {});
   const [base, uploads, meta, userIds, insights, checklist, stageIndex, scoreIndex] = await Promise.all([
-    loadBuscasBase(ctx, { allRows }),
-    loadUploads(ctx, supported, 20, batchOn),
+    timed('base', loadBuscasBase(ctx, { allRows })),
+    uploadsRead,
     panelMeta(ctx),
     allRows(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment }),
@@ -193,7 +219,7 @@ async function manheimView(ctx, options = {}) {
     loadScoreIndex(ctx).catch(() => null)
   ]);
   // "O último upload" is the most recent ACTIVE batch, even beyond the history shown.
-  const latest = await latestLiveUpload(ctx, uploads, supported, batchOn);
+  const latest = await latestRead;
   const context = demandContext(base);
   const messageById = new Map(base.messages.filter((message) => !message.undone_at).map((message) => [message.id, message]));
   const scoreMessages = base.messageLinks.map((link) => { const message = messageById.get(link.message_id); return message ? { ...message, journey_id: link.journey_id } : null; }).filter(Boolean);
@@ -213,17 +239,7 @@ async function manheimView(ctx, options = {}) {
   // Counts of the batch per demand, answered by the database. A demand counts only while it is
   // still a target today; a batch compared with an older criterion asks to be checked again.
   // The reads below do not depend on each other: they run together (they used to run one after the other).
-  const activeIdsEarly = uploads.filter((row) => !row.undone_at).map((row) => row.id).concat(latest && !uploads.some((row) => row.id === latest.id) ? [latest.id] : []);
-  const [summaryRead, offerRead, carsRead, hiddenRead, targetsRead, syncsRead] = await Promise.all([
-    // A slow or failed summary never takes the whole tab down: only its counts say "Resumo indisponível".
-    latest && batchOn ? batchSummary(ctx, latest.id).catch((error) => { console.error('[buscas-summary]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : [],
-    latest && batchOn ? rpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch(() => null) : [],
-    batchOn && activeIdsEarly.length ? rpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIdsEarly }).catch(() => []) : [],
-    rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' }).then((found) => found.map((row) => row.upload_id)).catch(() => null),
-    // What was already compared with the active batch: the requests of the import and the ones compared later.
-    latest && batchOn ? rows(ctx, 'manheim_uploads', { select: 'targets_json', environment: 'eq.' + ctx.environment, id: 'eq.' + latest.id, limit: '1' }).then((found) => found[0] && found[0].targets_json).catch(() => null) : null,
-    latest && batchOn ? allRows(ctx, 'manheim_demand_syncs', { select: 'demand_key,criteria_hash', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + latest.id }).catch(() => null) : null
-  ]);
+  const { activeIdsEarly, reads: [summaryRead, offerRead, carsRead, hiddenRead, targetsRead, syncsRead] } = await batchReads;
   const compared = comparedKeys(targetsRead, syncsRead);
   const summary = summaryRead;
   const summaryUnavailable = summaryRead === null;
@@ -289,6 +305,7 @@ async function manheimView(ctx, options = {}) {
     matchCount: operational.has(row.id) ? operational.get(row.id) : row.matched_vehicle_count, frozenMatchCount: row.matched_vehicle_count, leadCount: row.lead_count,
     status: row.undone_at ? 'UNDONE' : 'ACTIVE', undoneAt: row.undone_at || null, undoSummary: row.undo_summary || null, ai: row.ai_summary_json || null, current: Boolean(latest && latest.id === row.id)
   }));
+  console.log('[buscas-timing]', JSON.stringify({ ...timing, total: Date.now() - started }));
   return {
     environment: ctx.environment, modelDictionary: ctx.modelDictionary,
     items: items.map((item) => decorateWithSearchStage(item, stageIndex)),
