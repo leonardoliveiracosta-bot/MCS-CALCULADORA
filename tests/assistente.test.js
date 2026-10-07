@@ -133,3 +133,22 @@ test('"Não funcionou" só diagnostica; chamado nasce uma vez após autorizaçã
   assert.equal(calls[0].args.p_fingerprint, 'v1|ficha-open|DEFEITO_TELA');
   assert.match(saved.reply, /Chamado registrado/);
 });
+
+
+test('nova tarefa tem prioridade sobre histórico técnico anterior', () => {
+  const msg = 'O que precisa conferir:\n1. Todo botão funciona\n2. Toda tela tem voltar\n3. Nenhuma ação fica sem resposta\n4. Tudo que é criado tem destino';
+  assert.equal(assistant.currentIntent(msg).explicitNewTask, true);
+  assert.deepEqual(assistant.relevantHistory([{ role: 'assistant', content: '/boot está lento' }], msg), []);
+});
+
+test('follow-up técnico curto preserva contexto', () => {
+  const history = [{ role: 'assistant', content: '/boot está lento' }];
+  assert.equal(assistant.currentIntent('identifique').technicalFollowup, true);
+  assert.deepEqual(assistant.relevantHistory(history, 'identifique'), history);
+});
+
+test('guardrail rejeita resposta curta que ignora checklist', () => {
+  const msg = 'Confira:\n1. botões\n2. voltar\n3. excluir\n4. listas';
+  assert.equal(assistant.responseAnswersCurrent(msg, '/api/panel/boot levou 13 s'), false);
+  assert.equal(assistant.responseAnswersCurrent(msg, '1. Botões: conferir\n2. Voltar: conferir\n3. Excluir: conferir\n4. Listas: conferir'), true);
+});
