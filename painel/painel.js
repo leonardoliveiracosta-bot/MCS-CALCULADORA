@@ -646,6 +646,7 @@
   async function switchPanel(view, options = {}) {
     if (view === 'orders' || view === 'entry') view = 'today';
     if (!VIEWS.includes(view)) return;
+    ++detailRequestVersion;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     if (currentView && $('detail-panel')?.classList.contains('hidden')) viewScroll.set(currentView, window.scrollY);
     currentView = view;
@@ -666,7 +667,8 @@
     }
     if (options.keepScroll !== false && currentView === view && viewRequestVersion === requestVersion && options.scrollY === undefined) {
       const back = viewScroll.get(view) || 0;
-      requestAnimationFrame(() => window.scrollTo(0, back));
+      const detailVersion = detailRequestVersion;
+      requestAnimationFrame(() => { if (currentView === view && viewRequestVersion === requestVersion && detailRequestVersion === detailVersion && !currentDetail) window.scrollTo(0, back); });
     }
   }
 
@@ -2110,9 +2112,10 @@
 
 
   async function refreshCurrentPreservingState() {
-    const scrollY=window.scrollY,view=currentView,version=viewRequestVersion;
-    await loadCurrent(view,version);
-    requestAnimationFrame(()=>{if(currentView===view&&viewRequestVersion===version)window.scrollTo(0,scrollY);});
+    const scrollY=window.scrollY,view=currentView,version=viewRequestVersion,detailVersion=detailRequestVersion,detail=currentDetail;
+    if (detail) await MCSLead.refresh({ ...detail, root: $('record-detail') });
+    else await loadCurrent(view,version);
+    requestAnimationFrame(()=>{if(currentView===view&&viewRequestVersion===version&&detailRequestVersion===detailVersion)window.scrollTo(0,scrollY);});
   }
 
   function captureOrigin() {
@@ -2280,10 +2283,11 @@
       let leadDetailData=null;
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest, isCurrent: () => requestVersion === detailRequestVersion,
-        onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
+        onChanged: (reloadOptions = {}) => requestVersion === detailRequestVersion ? openDetail(kind, key, { ...reloadOptions, push: false, origin: detailOrigin }) : Promise.resolve(),
         actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOffersSummary, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
+      if(options.scrollY!==undefined)requestAnimationFrame(()=>{if(requestVersion===detailRequestVersion)window.scrollTo(0,options.scrollY);});
       // Opened to reply: the conversation comes into view (HOJE "Responder").
       if(options.anchor){const target=document.getElementById(options.anchor);if(target)requestAnimationFrame(()=>target.scrollIntoView({behavior:'smooth',block:'start'}));}
       if(leadDetailData?.record?.whatsappWithoutPhone){const identity=$('record-detail').querySelector('.lead-head-name');if(identity)identity.append(element('p','muted whatsapp-no-phone-note','Responda pela conversa no app WhatsApp Business'));}

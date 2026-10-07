@@ -71,7 +71,6 @@ test('nome diferente na calculadora (4NRJ5): ficha mostra "Nome na calculadora: 
   const identity = await openFicha(page, OTHER);
   await expect(identity.locator('h2')).toContainText('Mirzet — Ref 4NRJ5');
   await expect(identity.locator('.lead-calc-name')).toHaveText('Nome na calculadora: Alic');
-  await expect(identity.locator('.lead-ref-other')).toHaveCount(0);
   await expect(page.locator('body')).not.toContainText('Confirmar vínculo');
   expect(errors).toEqual([]);
 });
@@ -81,13 +80,5 @@ test('caminho comum: mesmo nome na calculadora e na ficha, nenhuma linha a mais'
   const identity = await openFicha(page, SAME);
   await expect(identity.locator('h2')).toContainText('Ana Souza — Ref QWRT7');
   await expect(identity.locator('.lead-calc-name')).toHaveCount(0);
-  await expect(identity.locator('.lead-ref-other')).toHaveCount(0);
   expect(errors).toEqual([]);
-});
-
-test('raro: mensagem ligada pela Ref vinda de outro número ganha só a nota discreta', async ({ page }) => {
-  await backend.db.query(`insert into public.panel_calc_message_route(environment,message_id,destination,reason,ref_state,ref,journey_id,evidence,rule_version) values('preview','${id(13)}','LIGADA_REF','REF_ENCONTRADA','REF','4NRJ5','${OTHER}','{"refOutroContato":true}'::jsonb,1)`);
-  const identity = await openFicha(page, OTHER);
-  await expect(identity.locator('.lead-ref-other')).toHaveText('Mensagem da calculadora com a Ref 4NRJ5 veio de outro número e foi ligada pela Ref');
-  await backend.db.query(`delete from public.panel_calc_message_route where message_id='${id(13)}'`);
 });

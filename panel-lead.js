@@ -175,16 +175,14 @@ async function leadData(ctx, req, refInput, idInput) {
     if (!unref.length) return own;
     return own.concat(unref).sort((a,b)=>((Date.parse(a[sortKey])||0)-(Date.parse(b[sortKey])||0))*(descending?-1:1));
   });
-  const [notes, events, promises, aiReadings, aiSuggestions, aiHelp, stageIndex, refOtherContact] = await Promise.all([
+  const [notes, events, promises, aiReadings, aiSuggestions, aiHelp, stageIndex] = await Promise.all([
     scoped('lead_notes',{},'created_at',true),
     scoped('lead_events',{undone_at:'is.null'},'occurred_at',true),
     scoped('lead_promises',{},'due_at',false),
     journey ? optionalRead('conversation_ai_readings',()=>rows(ctx,'conversation_ai_readings',{select:'id,summary_json,message_count,last_customer_at,created_at,chat_id',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,status:'eq.ACTIVE',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('whatsapp_link_suggestions',()=>rows(ctx,'whatsapp_link_suggestions',{select:'id,target_ref,motives,status,created_at',environment:'eq.'+ctx.environment,source_journey_id:'eq.'+journey.id,status:'eq.PENDING',suggestion_kind:'eq.AI',order:'created_at.desc',limit:'1'})) : Promise.resolve([]),
     journey ? optionalRead('lead_ai_help',()=>allRows(ctx,'lead_ai_help',{select:'id,question,answer_json,created_at',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,order:'created_at.desc'})) : Promise.resolve([]),
-    loadSearchStageIndex(ctx).catch(()=>new Map()),
-    // Rare: a calculator message joined by its Ref although it came from another contact's chat (only a note on the ficha).
-    journey ? rows(ctx,'panel_calc_message_route',{select:'ref',environment:'eq.'+ctx.environment,journey_id:'eq.'+journey.id,destination:'eq.LIGADA_REF','evidence->>refOutroContato':'eq.true',limit:'1'}).catch(()=>[]) : Promise.resolve([])
+    loadSearchStageIndex(ctx).catch(()=>new Map())
   ]);
   const aiReading=aiReadings[0]||null;
   const aiItems=aiReading?await allRows(ctx,'conversation_ai_items',{select:'id,item_json,evidence_text,manual_review,status,created_at',environment:'eq.'+ctx.environment,reading_id:'eq.'+aiReading.id,status:'eq.PENDING',order:'created_at.asc'}):[];
@@ -313,7 +311,7 @@ async function leadData(ctx, req, refInput, idInput) {
   // Adendo, item 2: which search types the person has and whether a batch is active (the ficha
   // splits "O QUE OFERECER" into com carros, sem carros and busca ainda não rodada).
   const batchActive = Boolean(activeUpload || (demands.length ? await latestActiveUpload(ctx, 'id').catch(() => null) : null));
-  return { reality, searchModes: [...new Set(demands.map((demand) => demand.mode))], batchActive, plateInformed: Boolean(order && order.plate), paymentKnown: paymentKnown || null, zipKnown: Boolean(state), deadlineKnown: normalizeDeadline(record?.customer_deadline_text) || normalizeDeadline(order?.deadlineText) || null, ref, hasCalculatorRef:hasRef||record?.hasCalcRef===true, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, calculatorNews: news, refFromOtherContact: refOtherContact[0] ? refOtherContact[0].ref || true : null, bidSource: criteria.bidSource, wishesSource: criteria.wishesSource, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
+  return { reality, searchModes: [...new Set(demands.map((demand) => demand.mode))], batchActive, plateInformed: Boolean(order && order.plate), paymentKnown: paymentKnown || null, zipKnown: Boolean(state), deadlineKnown: normalizeDeadline(record?.customer_deadline_text) || normalizeDeadline(order?.deadlineText) || null, ref, hasCalculatorRef:hasRef||record?.hasCalcRef===true, hasCalculatorOrder:searchStage?.hasCalculatorOrder??hasRef, directLeadSource:searchStage?.directLeadSource||null, disposition:disposition?.status||null, discardReason:disposition?.discard_reason||null, dispositionUpdatedAt:disposition?.updated_at||null, dispositionKind, dispositionKey, calculatorNews: news, bidSource: criteria.bidSource, wishesSource: criteria.wishesSource, order, record, track, notes, events, promises, checklist, wishes, zip, state, city, timezone, goodHour, payment, plate, florida, maxBidCents, totalCeilingCents, ceilingCents: totalCeilingCents, bid, costs, typical, offers, fits, score: ready.score, lastCustomerAt: lastCustomer && (lastCustomer.occurred_at_utc || lastCustomer.created_at) || null, ai, aiHelp, searchStage };
 }
 
 async function belongsToJourney(ctx, ref, journey) {

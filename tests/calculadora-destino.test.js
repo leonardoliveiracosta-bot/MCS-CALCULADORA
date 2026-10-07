@@ -60,14 +60,23 @@ test('(i) "Ref: XXXXX" liga à ficha da Ref', async () => {
   assert.deepEqual(links.map((link) => link.journey_id), [JA]);
 });
 
-test('(i-b) "Ref: XXXXX" de uma ficha com outro nome: liga pela Ref, sem Confirmar vínculo; o nome fica anotado', async () => {
-  const out = await receive('+13055558888', calculatorText('QWRT7', 'Carla Dias').replace('Dodge Challenger', 'Dodge Challenger '), '2026-10-02T12:01:00Z');
+test('(i-b) mesmo telefone da ficha da Ref, nome diferente (caso 4NRJ5): liga pela Ref, sem Confirmar vínculo; o nome fica anotado', async () => {
+  const out = await receive('+13055550101', calculatorText('QWRT7', 'Alic Mirzet'), '2026-10-02T12:01:00Z');
   assert.equal(out.stored, true);
-  const [row] = await q(`select r.destination, r.reason, r.journey_id, r.evidence from public.panel_calc_message_route r join public.messages m on m.id=r.message_id where m.body_text like '%Carla Dias%Ref: QWRT7'`);
+  const [row] = await q(`select r.destination, r.reason, r.journey_id, r.evidence from public.panel_calc_message_route r join public.messages m on m.id=r.message_id where m.body_text like '%Alic Mirzet%Ref: QWRT7'`);
   assert.deepEqual([row.destination, row.reason, row.journey_id, row.evidence.conflicts], ['LIGADA_REF', 'REF_ENCONTRADA', JA, ['nome']]);
+  const links = await q(`select mj.journey_id from public.message_journeys mj join public.messages m on m.id=mj.message_id where m.body_text like '%Alic Mirzet%Ref: QWRT7' and mj.undone_at is null`);
+  assert.deepEqual(links.map((link) => link.journey_id), [JA]);
+});
+
+test('(i-c) outro telefone com a Ref de outra pessoa e outro nome: não junta sozinho, fica na fila (outra identidade)', async () => {
+  const out = await receive('+13055558888', calculatorText('QWRT7', 'Carla Dias').replace('Dodge Challenger', 'Dodge Challenger '), '2026-10-02T12:01:30Z');
+  assert.equal(out.stored, true);
+  const [row] = await q(`select r.destination, r.reason, r.evidence from public.panel_calc_message_route r join public.messages m on m.id=r.message_id where m.body_text like '%Carla Dias%Ref: QWRT7'`);
+  assert.equal(row.destination, 'FILA', JSON.stringify(row.evidence));
+  assert.ok(['FILA_CONTRADICAO', 'REF_DE_OUTRO_CONTATO'].includes(row.reason), row.reason);
   const links = await q(`select mj.journey_id from public.message_journeys mj join public.messages m on m.id=mj.message_id where m.body_text like '%Carla Dias%Ref: QWRT7' and mj.undone_at is null`);
-  assert.ok(links.some((link) => link.journey_id === JA), JSON.stringify(links));
-  assert.deepEqual((await route.loadQueue(ctx)).filter((item) => item.reason === 'FILA_CONTRADICAO'), [], 'nada esperando Confirmar vínculo');
+  assert.ok(!links.some((link) => link.journey_id === JA), 'nunca na ficha da Ana');
 });
 
 test('(ii) "Ref: -----" de telefone novo cria ficha nova e nunca vira Ref', async () => {

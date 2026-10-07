@@ -155,6 +155,22 @@ test('print antigo pendente é resolvido quando outro print da mesma Ref é conf
   assert.ok(!calls.some((call) => call.rpc === 'panel_sms_print_confirm'));
 });
 
+test('print com a Ref, telefone novo e outro nome (outra identidade): não guarda sozinho, oferece Confirmar vínculo', async () => {
+  const { ctx, calls } = world();
+  const out = await confirm(ctx, printRecord(), { auto: true, phone: '+13055550999', name: 'Tremel Jones', ref: 'CG8LN', message: OTHER });
+  assert.equal(out.code, 202);
+  assert.equal(out.payload.queue, 'FILA_CONTRADICAO');
+  assert.equal(out.payload.confirm.journeyId, JOURNEY);
+  assert.ok(!calls.some((call) => call.rpc === 'panel_sms_print_confirm'), 'o telefone novo não vai para a ficha de outra pessoa');
+});
+
+test('print com a Ref e o telefone da própria ficha, nome diferente: guarda direto', async () => {
+  const { ctx, calls } = world();
+  const out = await confirm(ctx, printRecord(), { auto: true, phone: '+17183747832', name: 'Tremel Jones', ref: 'CG8LN', message: OTHER });
+  assert.equal(out.code, 201);
+  assert.equal(calls.find((item) => item.rpc === 'panel_sms_print_confirm').body.p_target_journey, JOURNEY);
+});
+
 test('print com a Ref de uma ficha de outro nome: guarda na ficha da Ref, sem Confirmar vínculo', async () => {
   const { ctx, calls } = world();
   const out = await confirm(ctx, printRecord(), { auto: true, phone: '', name: 'Tremel Jones', ref: 'CG8LN', message: OTHER });

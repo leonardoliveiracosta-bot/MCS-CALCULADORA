@@ -8,7 +8,7 @@
 const REASONS = {
   QUARENTENA_SEM_FICHA: 'O telefone do print não pertence a nenhuma ficha: o print fica em quarentena até haver ficha, Ref ou decisão manual.',
   FILA_VARIAS_FICHAS: 'O telefone pertence a mais de uma ficha: escolha a ficha certa (nenhuma foi escolhida automaticamente).',
-  FILA_CONTRADICAO: 'Telefone igual, mas o nome ou o carro não bate com a ficha (regra antiga: hoje liga).'
+  FILA_CONTRADICAO: 'Telefone novo para esta ficha e nome diferente: confirme se é a mesma pessoa antes de juntar.'
 };
 const MAKES = ['acura', 'audi', 'bmw', 'buick', 'cadillac', 'chevrolet', 'chevy', 'chrysler', 'dodge', 'ford', 'gmc', 'honda', 'hyundai', 'infiniti', 'jeep', 'kia', 'lexus', 'lincoln', 'mazda', 'mercedes', 'mini', 'mitsubishi', 'nissan', 'ram', 'subaru', 'tesla', 'toyota', 'volkswagen', 'volvo'];
 const fold = (text) => String(text || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();

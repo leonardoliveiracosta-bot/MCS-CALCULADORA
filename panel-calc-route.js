@@ -1,8 +1,8 @@
 'use strict';
 // Toda mensagem da calculadora termina em exatamente um destino (panel_calc_message_route), retomável e idempotente:
-//   1. Ref escrita ("Ref: XXXXX") -> a ficha dessa Ref, sempre. Nome ou carro diferente do que a ficha já sabe não segura a
-//      mensagem: fica só anotado na evidência (a ficha mostra "Nome na calculadora"). Ref de ficha de outro contato também
-//      liga, com a marca refOutroContato na evidência. Só a Ref em várias fichas (ambígua) vai para a fila.
+//   1. Ref escrita ("Ref: XXXXX") -> a ficha dessa Ref. Nome ou carro diferente do que a ficha já sabe não segura a
+//      mensagem: fica só anotado na evidência (a ficha mostra "Nome na calculadora"). Identidade diferente (Ref da ficha de
+//      outro contato, outro telefone) ou Ref em várias fichas vai para a fila.
 //   2. sem Ref legível (ou Ref ainda sem ficha) -> o telefone: uma ficha só liga
 //   3. telefone sem ficha -> ficha nova
 //   4. o resto -> fila dela, com motivo escrito e evidência (candidatas, Ref, telefone)
@@ -14,18 +14,18 @@ const phoneLink = require('./panel-phone-link');
 const RULE_VERSION = 1;
 const REASONS = {
   REF_ENCONTRADA: 'A Ref escrita na mensagem é desta ficha',
-  REF_DE_OUTRO_CONTATO: 'A Ref escrita na mensagem é da ficha de outro contato',
+  REF_DE_OUTRO_CONTATO: 'A Ref escrita na mensagem é da ficha de outro contato: confirme quem é',
   REF_EM_VARIAS_FICHAS: 'A Ref escrita na mensagem aparece em mais de uma ficha',
   TELEFONE_FICHA_UNICA: 'Sem Ref legível: o telefone tem uma ficha só',
   FICHA_NOVA_TELEFONE_NOVO: 'Telefone sem ficha: ficha nova criada',
   FILA_VARIAS_FICHAS: 'O telefone tem mais de uma ficha: escolha a ficha (nada foi escolhido sozinho)',
-  FILA_CONTRADICAO: 'Telefone igual, mas o nome ou o carro não bate com a única ficha do telefone (regra antiga: hoje liga)',
+  FILA_CONTRADICAO: 'Telefone ainda sem contato e nome diferente do da ficha da Ref: confirme se é a mesma pessoa',
   SEM_CONTATO: 'A conversa não tem contato nem telefone para seguir',
   REF_ILEGIVEL: 'Ref ilegível na origem ("Ref: -----"): seguiu pelo telefone'
 };
 
 // facts: { parsed, refOwners: [{id, contact_id}], contactId, fichas: [{id, contactName, vehicleText}], linked: [journeyId] }
-function decide({ parsed, refOwners = [], contactId = null, fichas = [], linked = [] }) {
+function decide({ parsed, refOwners = [], contactId = null, fichas = [], linked = [], senderPhoneOfOwner = null }) {
   const evidence = { refState: parsed.refState, ref: parsed.ref, refSource: parsed.refState === 'REF' ? parsed.refSource || 'TEXTO' : null, diagnosis: parsed.diagnosis, name: parsed.name || null, vehicle: parsed.vehicle || null,
     candidates: fichas.map((ficha) => ficha.id), linkedBefore: linked };
   const base = { refState: parsed.refState, ref: parsed.refState === 'REF' ? parsed.ref : null, evidence };
@@ -33,11 +33,18 @@ function decide({ parsed, refOwners = [], contactId = null, fichas = [], linked 
     const owners = [...new Map(refOwners.map((owner) => [owner.id, owner])).values()];
     if (owners.length > 1) return { ...base, destination: 'FILA', reason: 'REF_EM_VARIAS_FICHAS', journeyId: null, unlinkAuto: true, evidence: { ...evidence, candidates: owners.map((owner) => owner.id) } };
     const [owner] = owners;
-    // The Ref at the end of the message is the proof: it always joins the ficha that owns it. A different name or car, or a
-    // ficha of another contact, is only written down (the ficha shows the calculator's name as information).
+    // Another identity: the Ref belongs to the ficha of another contact (another phone). Joining would put this person's
+    // message (and the replies) in someone else's ficha, so it waits for the operator, as before (0 times in production).
+    if (contactId && owner.contact_id && owner.contact_id !== contactId) return { ...base, destination: 'FILA', reason: 'REF_DE_OUTRO_CONTATO', journeyId: null, unlinkAuto: true, evidence: { ...evidence, candidates: [owner.id, ...fichas.map((ficha) => ficha.id)] } };
+    // Same person (the message's contact owns the Ref's ficha): the Ref is the proof and always joins; a different name or car
+    // is only written down (the ficha shows the calculator's name as information). A phone with no contact yet and another
+    // name is another identity as far as anyone knows: it waits for the operator, as before.
     const conflicts = [phoneLink.nameConflict(parsed.name, { ...owner, sameChat: true }), phoneLink.carContradicts(parsed.vehicle, owner) && 'carro'].filter(Boolean);
-    const otherContact = Boolean(contactId && owner.contact_id && owner.contact_id !== contactId);
-    return { ...base, evidence: { ...evidence, ...(conflicts.length ? { conflicts } : {}), ...(otherContact ? { refOutroContato: true } : {}) }, destination: 'LIGADA_REF', reason: 'REF_ENCONTRADA', journeyId: owner.id, link: true };
+    // senderPhoneOfOwner: for an SMS chat, whether its phone is one of the Ref's contact's phones (the SMS intake files an
+    // unknown number with a Ref under the Ref's contact, so the chat's contact alone does not prove the person).
+    const samePerson = Boolean(contactId && owner.contact_id === contactId && senderPhoneOfOwner !== false);
+    if (!samePerson && conflicts.includes('nome')) return { ...base, destination: 'FILA', reason: 'FILA_CONTRADICAO', journeyId: null, unlinkAuto: true, evidence: { ...evidence, via: 'REF', conflicts, candidates: [owner.id] } };
+    return { ...base, evidence: { ...evidence, ...(conflicts.length ? { conflicts } : {}) }, destination: 'LIGADA_REF', reason: 'REF_ENCONTRADA', journeyId: owner.id, link: true };
   }
   // No readable Ref, or a Ref no ficha owns yet: the phone decides (one ficha joins).
   if (!contactId) return { ...base, destination: 'FILA', reason: 'SEM_CONTATO', journeyId: null };
@@ -106,7 +113,13 @@ async function factsFor(ctx, message, read = rows, names = journeyNames) {
     fichas = journeys.map((row) => { const own = known.get(row.id) || {}; return { id: row.id, contactName: contacts[0] && contacts[0].display_name || '', names: own.calc_names || [],
       sameChat: Boolean(message.chat_id && (own.chat_ids || []).includes(message.chat_id)), vehicleText: row.vehicle_text || '' }; });
   }
-  return { parsed, refOwners, contactId: message.contact_id || null, fichas, linked: message.linked_journeys || [] };
+  let senderPhoneOfOwner = null;
+  if (refOwners.length === 1 && refOwners[0].contact_id && message.chat_id) {
+    const [chat] = await read(ctx, 'chats', { select: 'canonical_key', environment: env, id: 'eq.' + message.chat_id, limit: '1' });
+    const phone = (/^sms:(\+\d{8,15})$/.exec(String(chat && chat.canonical_key || '')) || [])[1];
+    if (phone) senderPhoneOfOwner = (await read(ctx, 'contact_phones', { select: 'contact_id', environment: env, phone_e164: 'eq.' + phone, is_current: 'eq.true', retired_at: 'is.null', limit: '5' })).some((row) => row.contact_id === refOwners[0].contact_id);
+  }
+  return { parsed, refOwners, contactId: message.contact_id || null, fichas, linked: message.linked_journeys || [], senderPhoneOfOwner };
 }
 
 async function routeOne(ctx, message, deps = {}) {
