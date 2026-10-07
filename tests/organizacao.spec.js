@@ -89,30 +89,29 @@ for (const width of [1280, 390]) {
     await expect(list.locator('.case-card')).toHaveCount(5, { timeout: 30000 });
     await expect(page.locator('[data-count="today"]')).toHaveText('5');
     // Ana appears once (ficha + calculator order + link suggestion are one case), with every reason.
-    const ana = list.locator('.case-card', { hasText: 'Ana Valor' });
+    const ana = list.locator(`.case-card[data-journey-id="${id(1)}"]`);
     await expect(ana).toHaveCount(1);
     // The waiting time only comes with its channel ("WhatsApp há 3 h · sem resposta"); without one, "Sem resposta".
     await expect(ana.locator('.attend-wait')).toContainText('Sem resposta');
     await expect(ana.locator('.attend-wait')).toContainText('Confirmar vínculo');
     await expect(ana.locator('.case-decisions')).toContainText('Ligar pedido à ficha');
     await expect(ana.locator('.origin-chip')).toHaveCount(0);
-    await expect(ana.locator('.attend-car .attend-l2')).toHaveCount(1);
+    await expect(ana.locator('.attend-origin')).toHaveText('Calculate My Cost');
     // No gold button any more: the whole row opens what it opened.
     await expect(ana.locator('.today-primary')).toHaveCount(0);
     // The rest of the card is one click away (never lost).
     await expect(ana.locator('.case-more')).toHaveCount(1);
     // The same statuses as before, in the Espera column.
-    const bruno = list.locator('.case-card', { hasText: 'Bruno Ambos' });
+    const bruno = list.locator(`.case-card[data-journey-id="${id(2)}"]`);
     await expect(bruno.locator('.attend-wait')).toContainText('Agendado');
-    const carla = list.locator('.case-card', { hasText: 'Carla Direta' });
+    const carla = list.locator(`.case-card[data-journey-id="${id(3)}"]`);
     await expect(carla).toHaveCount(1);
-    // The incomplete direct request shows what is missing (after the requests load), in "Falta p/ buscar".
-    await expect(carla.locator('.attend-lacks')).toContainText('Ano', { timeout: 30000 });
-    await expect(carla.locator('.attend-lacks')).toContainText('Milhagem');
+    // A direct conversation (not from the site): Origem in blank, never "—".
+    await expect(carla.locator('.attend-origin')).toHaveText('');
     await noOverflow(page);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `atendimento-${width}.png`), fullPage: width !== 390 });
     // Open a ficha by its row and come back: same list, same place.
-    const reply = list.locator('.case-card', { hasText: 'Davi Direto' }).locator('.attend-car');
+    const reply = list.locator(`.case-card[data-journey-id="${id(4)}"]`).locator('.attend-channel');
     await reply.scrollIntoViewIfNeeded();
     const before = await page.evaluate(() => window.scrollY);
     // The list is compact: at 1280px all five rows fit without scrolling; on the phone it scrolls.

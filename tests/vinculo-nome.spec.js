@@ -38,11 +38,11 @@ test('cartão com dois nomes e Confirmar vínculo lado a lado', async ({ page })
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   const card = page.locator(`#today-list .case-card[data-journey-id="${JOURNEY}"]`);
   await expect(card).toHaveCount(1, { timeout: 30000 });
-  // Espera em lista: o tempo e, embaixo, o canal com o que ele mede (o mesmo "WhatsApp há 8 dias · sem resposta").
-  await expect(card.locator('.attend-wait .attend-l1')).toHaveText('8 dias');
-  await expect(card.locator('.attend-wait .attend-l2')).toContainText('WhatsApp · sem resposta');
-  await expect(card.locator('.attend-dot-old')).toHaveCount(1);
-  await expect(card.locator('.case-name-conflict')).toContainText('Dante (simulação por SMS há 18 min) ≠ Sem nome na ficha (WhatsApp, última mensagem 25/09 · Ref CWZWK)');
+  // Tabela: o tempo com o que ele mede na Espera e o canal na sua coluna (o mesmo "WhatsApp há 8 dias · sem resposta").
+  await expect(card.locator('.attend-wait')).toContainText('8 dias · sem resposta');
+  await expect(card.locator('.attend-channel')).toHaveText('WhatsApp');
+  // The name conflict is a pending decision: it is in "⋯", not written on the row.
+  await expect(card.locator('.case-name-conflict')).toHaveCount(0);
   await card.locator('.case-more summary').click();
   const row = card.locator('.name-link');
   await expect(row.locator('.name-link-simulation')).toContainText('Dante');

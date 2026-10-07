@@ -1,6 +1,7 @@
 'use strict';
 
-// ATENDIMENTO em lista (aba TODOS): uma linha por caso, ~8 por tela no computador, cartão compacto no celular.
+// ATENDIMENTO em tabela (aba TODOS): uma linha por caso com Espera · Canal · Ref · Telefone · Carro · Valor · Ano ·
+// Milha · Origem · Estado, no máximo 8 por tela no computador, cartão com os mesmos campos no celular.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/atendimento-lista.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
@@ -14,7 +15,7 @@ const HOUR = 3600000, DAY = 24 * HOUR;
 const id = (n) => `7c000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const waiting = (ms, channel = 'WhatsApp') => {
   const text = ms < 48 * HOUR ? `${Math.floor(ms / HOUR)} h` : `${Math.floor(ms / DAY)} dias`;
-  return { key: 'NAO_ATENDIDO', label: 'Não atendidos', origin: { key: 'CALCULADORA:WHATSAPP', label: 'Calculadora', financing: false },
+  return { key: 'NAO_ATENDIDO', label: 'Não atendidos', origin: { key: 'CALCULADORA:' + channel.toUpperCase(), group: 'CALCULADORA', sub: channel.toUpperCase(), label: 'Calculadora', financing: false },
     unattended: { reason: 'NO_RESPONSE', reasonText: 'Mensagem do cliente sem resposta', waitedMs: ms, waitedText: text, timeLabel: `${channel} há ${text} · sem resposta`, missing: 'Resposta', next: 'Responder o cliente' } };
 };
 const valor = (n, car, bid, zip, ms) => ({ kind: 'JOURNEY', id: id(n), journeyId: id(n), name: '', contact: { display_name: '' }, awaitingReply: true,
@@ -34,7 +35,12 @@ const ITEMS = [
   carro(8, '1995–1999 Mercedes-Benz S-Class · 1995–1999 Buick LeSabre', '1995–1999', '20.000–100.000 mi', '33647 · Tampa · FL', 16 * HOUR),
   carro(9, '2025–2027 Porsche 911', '2025–2027', '100–20.000 mi', '11553 · Uniondale · NY', 15 * HOUR),
   { kind: 'JOURNEY', id: id(10), journeyId: id(10), name: 'Maria Souza', contact: { display_name: 'Maria Souza' }, awaitingReply: false, phones: [{ phone_e164: '+13055550110', is_primary: true }],
-    group: { key: 'ATENDIDO', label: 'Atendidos', origin: { key: 'MENSAGEM:WHATSAPP', label: 'Mensagem', financing: false }, unattended: null } }
+    group: { key: 'ATENDIDO', label: 'Atendidos', origin: { key: 'MENSAGEM:WHATSAPP', group: 'MENSAGEM', sub: 'WHATSAPP', label: 'Mensagem', financing: false }, unattended: null } },
+  // Came by the site's financing form; came from the site with the calculator not known (Ref to recover).
+  { kind: 'JOURNEY', id: id(11), journeyId: id(11), name: 'Paulo Financia', contact: { display_name: 'Paulo Financia' }, awaitingReply: false, phones: [{ phone_e164: '+13055550111', is_primary: true }],
+    group: { key: 'ATENDIDO', label: 'Atendidos', origin: { key: 'MENSAGEM:SMS', group: 'MENSAGEM', sub: 'SMS', label: 'Mensagem', financing: true }, unattended: null } },
+  { kind: 'JOURNEY', id: id(12), journeyId: id(12), name: 'Rita Site', contact: { display_name: 'Rita Site' }, awaitingReply: false, phones: [], refState: 'A_RECUPERAR',
+    cardFacts: { zipText: '33101' }, group: { key: 'ATENDIDO', label: 'Atendidos', origin: { key: 'CALCULADORA:WHATSAPP', group: 'CALCULADORA', sub: 'WHATSAPP', label: 'Calculadora', financing: false }, unattended: null } }
 ];
 
 async function open(page, width, height) {
@@ -46,6 +52,7 @@ async function open(page, width, height) {
     // An old pill choice left in the browser never narrows the list again.
     localStorage.setItem('mcs_attend_bucket', 'aguardando');
     localStorage.setItem('mcs_today-subject', 'FINANCIAMENTO');
+    localStorage.setItem('mcs_zip_33101', 'Miami · FL');
     window.__opened = [];
     window.open = (url, target) => { window.__opened.push([String(url), target]); return null; };
   });
@@ -63,44 +70,54 @@ async function open(page, width, height) {
   return errors;
 }
 
-test('computador: uma linha por caso, cerca de 8 por tela, cor só na bolinha', async ({ page }) => {
+test('computador: tabela com as 10 colunas, uma linha de texto por célula, no máximo 8 linhas por tela', async ({ page }) => {
   const errors = await open(page, 1280, 900);
   const rows = page.locator('#today-list .attend-row');
   await expect(rows).toHaveCount(ITEMS.length, { timeout: 30000 });
   await expect(page.locator('[data-count="today"]')).toHaveText(String(ITEMS.length));
-  // Rows visible in the first screen (the list starts below the bar and the numbers).
+  await expect(page.locator('.attend-head > span')).toHaveText(['', 'Espera', 'Canal', 'Ref', 'Telefone', 'Carro', 'Valor', 'Ano', 'Milha', 'Origem', 'Estado', '']);
+  // At most 8 rows in the first screen, and at least 5 (the list starts below the bar and the numbers).
   const fit = await rows.evaluateAll((all) => all.filter((row) => row.getBoundingClientRect().bottom <= window.innerHeight).length);
-  expect(fit).toBeGreaterThanOrEqual(7);
-  const first = rows.first();
-  await expect(first.locator('.attend-wait .attend-l1')).toHaveText('17 dias');
-  await expect(first.locator('.attend-wait .attend-l2')).toHaveText('WhatsApp · sem resposta');
-  await expect(first.locator('.attend-ref')).toHaveText('REF RQQQ1');
-  await expect(first.locator('.attend-car .attend-l2')).toHaveText('Calculate My Cost · por valor');
-  await expect(first.locator('.attend-order .attend-l2')).toHaveText('lance máximo');
-  await expect(first.locator('.attend-place .attend-l1')).toHaveText('Paterson · NJ');
-  await expect(first.locator('.attend-place .attend-l2')).toHaveText('07501');
-  await expect(page.locator('#today-list .attend-dot-old')).toHaveCount(3);
-  await expect(page.locator('#today-list .attend-dot-mid')).toHaveCount(2);
-  await expect(page.locator('#today-list .attend-dot-new')).toHaveCount(4);
-  // No wait time (answered case): the short status, no dot.
-  const maria = rows.filter({ hasText: 'Maria Souza' });
-  await expect(maria.locator('.attend-dot')).toHaveCount(0);
-  await expect(maria.locator('.attend-wait')).toContainText('Aguardando o cliente');
-  // Find One: years and mileage in Pedido.
+  expect(fit).toBeLessThanOrEqual(8);
+  expect(fit).toBeGreaterThanOrEqual(5);
+  const cells = async (row) => (await row.locator(':scope > .attend-cell[data-label]').allTextContents()).map((text) => text.replace(/\u00a0/g, ' '));
+  // Calculate My Cost: value, no years or mileage; the state of the ZIP.
+  expect(await cells(rows.first())).toEqual(['17 dias · sem resposta', 'WhatsApp', 'RQQQ1', '(551) 300-9101', 'BMW M4', 'US$ 4.000,00', '', '', 'Calculate My Cost', 'NJ']);
+  // Find One For Me: years and mileage, no value; SMS.
   const lexus = rows.filter({ hasText: 'Lexus GS' });
-  await expect(lexus.locator('.attend-order')).toContainText('2023–2026');
-  await expect(lexus.locator('.attend-order')).toContainText('30.000–50.000 mi');
-  await expect(lexus.locator('.attend-wait .attend-l2')).toHaveText('SMS · sem resposta');
-  // "prontos para comprar" is gold, not red; the old filters are gone.
+  expect(await cells(lexus)).toEqual(['17 h · sem resposta', 'SMS', 'FZZZ7', '(424) 265-8707', '2023–2026 Lexus GS', '', '2023–2026', '30.000–50.000 mi', 'Find One For Me', 'TX']);
+  // Financing form of the site; site with the calculator not known; direct message (blank Origem); blank fields stay blank.
+  const paulo = rows.filter({ has: page.locator('[title="Financiamento"]') });
+  expect((await cells(paulo))[1]).toBe('SMS');
+  expect((await cells(paulo))[8]).toBe('Financiamento');
+  const rita = rows.filter({ has: page.locator('.attend-origin[title="Site"]') });
+  expect(await cells(rita)).toEqual([await rita.locator('.attend-wait').textContent(), 'WhatsApp', '', '', '', '', '', '', 'Site', 'FL']);
+  const maria = rows.filter({ hasText: '(305) 555-0110' });
+  expect((await cells(maria))[8]).toBe('');
+  // Nothing written as "—" or "não informado" in a row; no dot, chip, tag or gold in a row.
+  expect(await rows.evaluateAll((all) => all.map((row) => row.textContent).join(' '))).not.toMatch(/—|não informado|Sem Ref|sem número/);
+  await expect(page.locator('#today-list .attend-row .attend-dot, #today-list .attend-row .attend-chip, #today-list .attend-row .badge, #today-list .attend-row .attend-chev')).toHaveCount(0);
+  // One line of text per cell: a long text ends in "…" and is whole on hover.
+  const porsche = rows.filter({ hasText: 'Porsche Cayenne' }).locator('.attend-car');
+  expect(await porsche.evaluate((node) => [getComputedStyle(node).whiteSpace, getComputedStyle(node).textOverflow, node.scrollWidth > node.clientWidth])).toEqual(['nowrap', 'ellipsis', true]);
+  await expect(porsche).toHaveAttribute('title', '2016–2026 Porsche Cayenne · 2026 Tesla Model X');
+  const heights = await rows.evaluateAll((all) => all.map((row) => Math.round(row.getBoundingClientRect().height)));
+  expect(new Set(heights).size).toBe(1);
+  // Look of the photo: bold black titles with a line under them, rows alternating gray and white.
+  const head = await page.locator('.attend-head').evaluate((node) => [getComputedStyle(node).fontWeight, getComputedStyle(node).color, getComputedStyle(node).borderBottomStyle]);
+  expect(head).toEqual(['700', 'rgb(23, 26, 32)', 'solid']);
+  const backgrounds = await rows.evaluateAll((all) => all.slice(0, 2).map((row) => getComputedStyle(row).backgroundColor));
+  expect(backgrounds).toEqual(['rgb(255, 255, 255)', 'rgb(242, 243, 245)']);
+  // "prontos para comprar" (numbers on top) stays gold; the old filters are gone.
   const hot = page.locator('[data-today-stat="hot"] strong');
   expect(await hot.evaluate((node) => getComputedStyle(node).color)).toBe('rgb(201, 162, 39)');
   await expect(page.locator('[data-attend-bucket], #today-origin, #today-subject, #today-period, .today-primary')).toHaveCount(0);
   await expect(page.locator('#today-panel #ai-budget')).toHaveCount(0);
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'atendimento-lista-1280.png') });
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'atendimento-tabela-1280.png') });
   // The phone opens WhatsApp and the row stays closed; the checkbox selects without opening.
-  await first.locator('.attend-phone').click();
+  await rows.first().locator('.attend-phone').click();
   expect((await page.evaluate(() => window.__opened)).map(([url]) => url).join(' ')).toMatch(/whatsapp\.com\/send\?phone=15513009101|wa\.me\/15513009101/);
-  await first.locator('.case-pick').click();
+  await rows.first().locator('.case-pick').click();
   await expect(page.locator('.attend-bulk')).toContainText('1 selecionado');
   await expect(page.locator('#detail-panel')).toBeHidden();
   // The search narrows the loaded list.
@@ -114,14 +131,17 @@ test('computador: uma linha por caso, cerca de 8 por tela, cor só na bolinha', 
   expect(errors).toEqual([]);
 });
 
-test('celular: cada linha vira um cartão compacto com as mesmas informações, sem rolagem lateral', async ({ page }) => {
+test('celular: cada linha vira um cartão com os mesmos campos, sem rolagem lateral', async ({ page }) => {
   const errors = await open(page, 390, 844);
   const rows = page.locator('#today-list .attend-row');
   await expect(rows).toHaveCount(ITEMS.length, { timeout: 30000 });
   await expect(page.locator('.attend-head')).toBeHidden();
   const first = rows.first();
-  for (const text of ['17 dias', 'WhatsApp · sem resposta', 'REF RQQQ1', 'BMW M4', 'Calculate My Cost · por valor', 'lance máximo', 'Paterson · NJ', '07501']) await expect(first).toContainText(text);
+  for (const text of ['17 dias · sem resposta', 'WhatsApp', 'RQQQ1', 'BMW M4', 'US$ 4.000,00', 'Calculate My Cost', 'NJ']) await expect(first).toContainText(text);
+  // Same fields with their name; an empty field takes no space.
+  expect(await first.locator('.attend-value').evaluate((node) => getComputedStyle(node, '::before').content)).toBe('"Valor: "');
+  await expect(first.locator('.attend-year')).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'atendimento-lista-390.png') });
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'atendimento-tabela-390.png') });
   expect(errors).toEqual([]);
 });

@@ -1531,3 +1531,24 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 #v1-list .v1-client-back { justify-self: start; }
 #v1-list .v2-picker label { display: grid; gap: 6px; margin: 0 16px; }
 #v1-list .v2-picker h4, #v1-list .v2-picker .v2-status { margin: 8px 16px; }
+
+/* Ficha › CONVERSA: Sugestão de resposta, Resposta orientada e Responder pelo painel sem espaço vazio.
+   Vazios, cabem numa linha (título e botão); o que está vazio não aparece; tudo surge quando há conteúdo. */
+.suggestion-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.suggestion-top .lead-label { margin: 0; }
+.suggestion-top .lead-actions { margin: 0 0 0 auto; }
+.guided-top .guided-input { flex: 1 1 280px; min-height: 0; resize: none; overflow: hidden; }
+.suggestion-hint[hidden] { display: none; }
+.suggestion-card > .status:empty, .guided-card > .status:empty,
+.suggestion-card > .suggestion-body:empty, .guided-card > .suggestion-body:empty,
+.reply-composer > .reply-status:empty { display: none; }
+.reply-composer > [hidden], .reply-composer label[hidden] { display: none; }
+.reply-composer .reply-head { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; }
+.reply-composer .reply-head h4 { margin: 0; }
+.reply-composer .reply-write { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin: 0; }
+.reply-composer .reply-write > label { flex: 1 1 280px; }
+.reply-composer .reply-write textarea { min-height: 0; resize: none; overflow: hidden; }
+.reply-composer .reply-send .suggestion-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 6px 10px; }
+.reply-composer .reply-send .suggestion-path p { margin: 0; }
+.reply-composer label > textarea[readonly] { min-height: 0; overflow: hidden; }
+.reply-composer .reply-send > .suggestion-result:empty { display: none; }
