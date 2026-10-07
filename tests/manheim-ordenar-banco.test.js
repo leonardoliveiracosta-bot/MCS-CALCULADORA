@@ -78,6 +78,15 @@ test('ano, milhas e MMR, nos dois sentidos: o banco dá a mesma ordem da regra, 
   assert.deepEqual(years, [...years].sort((a, b) => b - a));
   const miles = (await allPages('miles_asc', 50)).map((option) => option.vehicle_json.parsed.miles);
   assert.deepEqual(miles, [...miles].sort((a, b) => a - b));
+  // With a trim filter (panel_manheim_offer_page_trim) the miles order is the same.
+  const trimmed = [];
+  let cursor = null, calls = 0;
+  do {
+    const res = await call('manheim-options', `/api/panel/manheim-options?key=${KEY}&group=LANE&limit=50&sort=miles_asc&trims=${encodeURIComponent(JSON.stringify(['ex']))}${cursor ? '&cursor=' + cursor : ''}`);
+    assert.equal(res.statusCode, 200, JSON.stringify(res.payload));
+    trimmed.push(...res.payload.options.map((option) => option.vehicle_json.parsed.miles)); cursor = res.payload.nextCursor; calls += 1;
+  } while (cursor && calls < 10);
+  assert.deepEqual(trimmed, miles);
 });
 
 test('a rota não lê mais o grupo inteiro: uma chamada ao banco por página, sem teto de 2.000', () => {

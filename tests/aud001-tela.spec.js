@@ -7,6 +7,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-trim.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openOptionsScreen } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -78,30 +79,33 @@ async function openPanel(page, optionPages = []) {
 test('AUD-001 #5/#76: página seguinte com carro já na tela não desenha o carro duas vezes', async ({ page }) => {
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  // The options live in the ficha now: open it from the queue card (the client's screen, then the full ficha).
-  await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
-  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
-  const group = page.locator('#detail-panel .ficha-demand .offer-group[data-group="LANE"]').first();
-  await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
-  // The batch changed between pages (offset paging): the next page repeats a car already on screen.
+  // The batch changed between pages (offset paging): the next page repeats a car already on screen. The client's
+  // screen loads its first page as it opens, so this is in place before. The 25 cars fit in one page of the
+  // screen (25): the pages travel with 10 cars here, so there is a next page.
   await page.evaluate(() => {
     const real = window.fetch; let first = null;
     window.fetch = async (url, init) => {
-      const response = await real(url, init);
-      if (!String(url).includes('/api/panel/manheim-options?')) return response;
+      const paged = String(url).includes('/api/panel/manheim-options?') && String(url).includes('group=');
+      const response = await real(paged ? String(url).replace(/([?&]limit=)\d+/, (_, name) => name + '10') : url, init);
+      if (!paged) return response;
       const body = await response.clone().json();
       if (!String(url).includes('cursor=')) first = (body.options || [])[0];
       else if (first) body.options = [first, ...(body.options || [])];
       return new Response(JSON.stringify(body), { status: response.status, headers: { 'content-type': 'application/json' } });
     };
   });
-  await group.locator('> summary').click();
-  await expect(group.locator('.offer-row')).toHaveCount(10);
-  await group.locator('.manheim-options-toggle').click();
-  await expect(group.locator('.offer-row')).toHaveCount(20);
-  const ids = await group.locator('.offer-row').evaluateAll((rows) => rows.map((row) => row.dataset.matchId));
+  // The cars live in the client's options screen now (opened from the queue card).
+  const screen = await openOptionsScreen(page, { realLead: true });
+  await expect(screen.locator('.oc-bar .oc-tab[data-group="LANE"]')).toHaveText(/\(25\)$/, { timeout: 60000 });
+  const rows = screen.locator('.oc-list .oc-row');
+  await expect(rows).toHaveCount(10);
+  await screen.locator('.oc-more .oc-more-button').click();
+  await expect(rows).toHaveCount(20);
+  const ids = await rows.evaluateAll((items) => items.map((row) => row.dataset.matchId));
   expect(new Set(ids).size, 'cada carro uma vez').toBe(ids.length);
+  // The car of the line and the car opened under it are the same one (never a second copy of the car).
+  const details = await screen.locator('.oc-list .oc-detail .offer-row').evaluateAll((items) => items.map((row) => row.dataset.matchId));
+  expect(details).toEqual(ids);
 });
 
 test('AUD-001 #85: botão de opções no singular diz "Ver a opção"', async () => {
@@ -112,23 +116,20 @@ test('AUD-001 #85: botão de opções no singular diz "Ver a opção"', async ()
 test('AUD-001 #88: grupo com filtro de trim salvo não mostra "25 de 25" antes de carregar', async ({ page }) => {
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  // The options live in the ficha now: open it from the queue card (the client's screen, then the full ficha).
-  await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
-  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
-  const group = () => page.locator('#detail-panel .ficha-demand .offer-group[data-group="LANE"]').first();
-  await expect(group().locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
-  await group().locator('> summary').click();
-  await group().locator('.offer-trim > summary').click();
-  await group().locator('.offer-trim-option').filter({ hasText: 'EX (5)' }).locator('input').check();
-  await expect(group().locator('> summary')).toHaveText(/\(5 de 25\)$/);
+  // The cars live in the client's options screen now (opened from the queue card); its first group loads by itself.
+  let screen = await openOptionsScreen(page, { realLead: true });
+  const tab = () => screen.locator('.oc-bar .oc-tab[data-group="LANE"]');
+  await expect(tab()).toHaveText(/\(25\)$/, { timeout: 60000 });
+  await screen.locator('.oc-trim > summary').click();
+  await screen.locator('.oc-trim .offer-trim-option').filter({ hasText: 'EX (5)' }).locator('input').check();
+  await expect(tab()).toHaveText(/\(5 de 25\)$/);
+  await expect(screen.locator('.oc-list .oc-row')).toHaveCount(5);
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
-  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
-  await expect(group().locator('> summary')).toHaveText(/Lane/, { timeout: 60000 });
-  await expect(group().locator('> summary')).not.toHaveText(/25 de 25/);
-  await group().locator('> summary').click();
-  await expect(group().locator('> summary')).toHaveText(/\(5 de 25\)$/);
-  await group().locator('.offer-trim-outside button, .offer-trim-option input:checked').first().evaluate(() => localStorage.removeItem('mcs-buscas-trims'));
+  screen = await openOptionsScreen(page, { realLead: true });
+  await expect(tab()).toHaveText(/Lane/, { timeout: 60000 });
+  await expect(tab()).not.toHaveText(/25 de 25/);
+  // The saved filter comes back with the group's first page.
+  await expect(tab()).toHaveText(/\(5 de 25\)$/);
+  await expect(screen.locator('.oc-list .oc-row')).toHaveCount(5);
+  await screen.locator('.oc-trim').evaluate(() => localStorage.removeItem('mcs-buscas-trims'));
 });

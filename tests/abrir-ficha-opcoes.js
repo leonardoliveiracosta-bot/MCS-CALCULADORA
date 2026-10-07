@@ -1,7 +1,7 @@
 'use strict';
-// ENVIAR OPÇÕES virou fila (#218): os grupos de carros, a seleção, o trim, a conferência e a V1 ficam
-// na ficha. Abre o cartão da fila (pelo nome e pelo modo), entra na ficha por "Abrir ficha completa" e
-// devolve a seção do pedido na ficha.
+// ENVIAR OPÇÕES virou fila (#218); os carros, a seleção, o trim, a conferência e a V1 de cada cliente ficam
+// na tela "Opções do cliente" (a ficha só mostra o resumo e "Ver opções"). Abre o cartão da fila (pelo nome e
+// pelo modo) e devolve essa tela, no pedido do modo pedido.
 const { expect } = require('@playwright/test');
 
 // Minimal ficha for the specs with a simulated /api/**: the options part reads the queue data itself.
@@ -14,7 +14,9 @@ function fichaLead(url) {
     record: id ? { id, stage: 'RESPONDIDO', contact: { display_name: 'Cliente' }, phones: [], attachments: [], returns: [], conversation: [], units: [] } : null
   };
 }
-async function openOptionsFicha(page, { name = null, mode = null, realLead = false } = {}) {
+// The client's options screen of ENVIAR OPÇÕES (where the cars, the selection, the PDF and the V1 live now; the
+// ficha only shows the summary and "Ver opções"). Opened from the queue card, on the request of that mode.
+async function openOptionsScreen(page, { name = null, mode = null, realLead = false } = {}) {
   // Registered last, so it answers before the spec's catch-all route (the real backend specs pass realLead).
   if (!realLead && !page.__fichaLeadRoute) {
     page.__fichaLeadRoute = true;
@@ -29,25 +31,20 @@ async function openOptionsFicha(page, { name = null, mode = null, realLead = fal
   if (mode) cards = cards.and(page.locator(`[data-mode~="${mode}"]`));
   if (name) cards = cards.filter({ hasText: name });
   await expect(cards.first()).toBeVisible({ timeout: 30000 });
-  // One row per person (#231): tapping a row with cars opens the client's options screen; the ficha opens from
-  // "Abrir ficha completa" (a row without cars opens the ficha directly).
   await cards.first().locator('.identity-name').click();
   const screen = page.locator('#options-client');
-  await expect(screen.or(page.locator('#detail-panel .ficha-demand').first()).first()).toBeVisible({ timeout: 30000 });
-  if (await screen.isVisible()) await screen.getByRole('button', { name: 'Abrir ficha completa' }).click();
-  await expect(page.locator('#detail-panel .ficha-demand').first()).toBeVisible({ timeout: 30000 });
-  return fichaSection(page, mode);
+  await expect(screen.locator('.oc-bar, .offer-pending').first()).toBeVisible({ timeout: 30000 });
+  // A person with both requests: the chip of the asked mode.
+  if (mode && (await screen.getAttribute('data-mode')) !== mode) {
+    await screen.locator('.oc-demands .oc-tab', { hasText: mode === 'VALOR' ? 'Por valor' : 'Por carro' }).click();
+    await expect(screen).toHaveAttribute('data-mode', mode);
+  }
+  return screen;
 }
-// The section of one demand in the open ficha (VALOR or CARRO).
-const fichaSection = (page, mode) => mode
-  ? page.locator(`#detail-panel .ficha-demand[data-demand-key$=":${mode}"]`).first()
-  : page.locator('#detail-panel .ficha-demand').first();
-// Back to the queue (the ficha closes; the list behind stays as it was).
+// Back to the queue (the screen closes; the list behind stays as it was).
 async function backToQueue(page) {
-  await page.goBack();
   const screen = page.locator('#options-client');
-  await expect(screen.or(page.locator('#options-queue')).first()).toBeVisible({ timeout: 30000 });
   if (await screen.isVisible()) await screen.getByRole('button', { name: '← Voltar' }).click();
   await expect(page.locator('#options-queue')).toBeVisible({ timeout: 30000 });
 }
-module.exports = { openOptionsFicha, fichaSection, backToQueue, fichaLead };
+module.exports = { openOptionsScreen, backToQueue, fichaLead };

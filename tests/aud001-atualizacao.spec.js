@@ -1,12 +1,13 @@
 'use strict';
 
-// ENVIAR OPÇÕES: a atualização automática não fecha o trabalho aberto (grupos, trim, texto da V1), com o mesmo cenário do teste do filtro por TRIM, no navegador real, com os handlers reais contra um banco PGlite.
+// ENVIAR OPÇÕES: a atualização automática não fecha o trabalho aberto (a tela "Opções do cliente" com a lista e o carro aberto, trim, texto da V1), com o mesmo cenário do teste do filtro por TRIM, no navegador real, com os handlers reais contra um banco PGlite.
 // Marcar um trim reduz a lista e a contagem do título; o selecionado fora do filtro continua no
 // contador de selecionados e aparece em "X selecionados fora do filtro"; o filtro volta depois de
 // recarregar; no celular o campo cabe na largura. Nada sai da máquina.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-trim.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openOptionsScreen } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -82,25 +83,32 @@ test('grupo aberto: a atualização automática não fecha o grupo e oferece "At
   let loads = 0;
   page.on('request', (request) => { if (request.url().includes('/api/panel/records')) loads += 1; });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  // The options live in the ficha now: open it from the queue card (the client's screen, then the full ficha).
-  await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
-  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
-  const group = page.locator('#detail-panel .ficha-demand .offer-group[data-group="LANE"]').first();
-  await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
-  // Nothing open: the automatic refresh runs as before.
+  // The cars live in the client's options screen now (opened from the queue card); its first group loads by itself.
+  const screen = await openOptionsScreen(page, { realLead: true });
+  const tab = screen.locator('.oc-bar .oc-tab[data-group="LANE"]');
+  await expect(tab).toHaveText(/\(25\)$/, { timeout: 60000 });
+  await expect(tab).toHaveClass(/\bon\b/);
+  const rows = screen.locator('.oc-list .oc-row');
+  await expect(rows).toHaveCount(25);
+  // A car opened (its detail with the price): the refresh redraws only the queue behind, never this screen.
+  const item = screen.locator('.oc-list .oc-item').nth(3);
+  await item.locator('.oc-car').click();
+  await expect(item.locator('.oc-detail')).toBeVisible();
+  // Nothing open (no trim box): the automatic refresh runs as before, and the screen, its list and the open car stay.
   const before = loads;
   await expect.poll(() => loads, { timeout: 15000 }).toBeGreaterThan(before);
-  await group.locator('> summary').click();
-  await expect(group.locator('.offer-row')).toHaveCount(10);
-  await group.locator('.offer-trim > summary').click();
-  // Several refresh intervals go by: the group, its pages and the trim box stay open.
+  await expect(screen).toBeVisible();
+  await expect(rows).toHaveCount(25);
+  await expect(item.locator('.oc-detail')).toBeVisible();
+  await screen.locator('.oc-trim > summary').click();
+  // Several refresh intervals go by: the list, the open car and the trim box stay open.
   const opened = loads;
   await page.waitForTimeout(6000);
-  expect(loads, 'nenhuma atualização com o grupo aberto').toBe(opened);
-  await expect(group).toHaveAttribute('open', '');
-  await expect(group.locator('.offer-row')).toHaveCount(10);
-  await expect(group.locator('.offer-trim')).toHaveAttribute('open', '');
+  expect(loads, 'nenhuma atualização com o trim aberto').toBe(opened);
+  await expect(screen).toBeVisible();
+  await expect(rows).toHaveCount(25);
+  await expect(item.locator('.oc-detail')).toBeVisible();
+  await expect(screen.locator('.oc-trim')).toHaveAttribute('open', '');
   // The operator is told and decides.
   const note = page.locator('#refresh-note');
   await expect(note).toContainText('Atualização automática em pausa');

@@ -10,7 +10,6 @@
   // M31: a button that cannot act yet says why instead of doing nothing
   const needs = (message) => Object.assign(new Error('INPUT_REQUIRED'), { userMessage: message });
   // Car lists (cards 5 and 8): at most 10 on screen, in the order already set; "Ver mais (N)" shows the rest.
-  const limitList=(parent,items,after,limit=10)=>{const extra=items.slice(limit);if(!extra.length)return;extra.forEach((node)=>node.classList.add('list-more-hidden'));const more=document.createElement('button');more.type='button';more.className='list-more';more.textContent=`Ver mais (${extra.length})`;more.addEventListener('click',(event)=>{event.stopPropagation();extra.forEach((node)=>node.classList.remove('list-more-hidden'));more.remove();});(after||parent).after?(after||parent).after(more):parent.append(more);};
   const section = (root,n,title,cls='') => { const card=append(root,'section','lead-card '+cls); append(card,'span','lead-label',`${n} — ${title}`); return card; };
   const row = (root,...values) => { const line=append(root,'div','lead-line'); values.forEach((value)=> append(line,'span','',value || '—')); return line; };
   const stageNames = ['Buscando','Carros apresentados','Lance agendado','Resultado'];
@@ -52,7 +51,7 @@
     return entries.sort((a,b)=>Date.parse(b.at||0)-Date.parse(a.at||0));
   }
   async function open(options) {
-    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer,openOptions,renderFichaOptions,openTab,isCurrent} = options;
+    const {kind,key,root,request,onChanged,actionMessage,downloadShortlist,dispositionControls,mediaObjectUrl,replyComposer,openOptions,renderFichaOffersSummary,openTab,isCurrent} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     // A late answer of another person (or another opening of the same one) never draws over the ficha now on screen.
     if(typeof isCurrent==='function'&&!isCurrent())return;
@@ -134,7 +133,7 @@
     if(aiReadingBlock)root.append(aiReadingBlock);
     // The conversation comes right after the summary (built below, moved here).
     const topAnchor=append(root,'div','lead-top-anchor');
-    const trio=append(root,'div','lead-grid lead-three');
+    const trio=append(root,'div','lead-grid lead-two');
     const wishes=section(trio,4,'O QUE ELE QUER');
     if(!data.wishes.length) append(wishes,'p','muted','Carro ainda não informado');
     data.wishes.forEach((wish,index)=>row(wishes,`${index+1}. ${model(wish)}`,`${wish.yearMin||'—'}–${wish.yearMax||'—'}`,wish.maxMiles?`até ${Number(wish.maxMiles).toLocaleString('en-US')} mi`:'milhas não informadas'));
@@ -145,38 +144,18 @@
     append(wishes,'p','muted',`${data.zipKnown===false?'ZIP não informado (estimativa como FL)':data.florida?'Registra na FL':'Registra fora da FL'} · placa: ${data.plate==='nova'?'nova':data.plateInformed===false?'não informada (custo calculado como transferir)':'transferir'}`);
     const ceilingForm=append(wishes,'div','lead-actions');const ceilingInput=append(ceilingForm,'input');ceilingInput.type='number';ceilingInput.min='1';ceilingInput.step='1';ceilingInput.placeholder='Teto total confirmado (US$)';ceilingInput.value=data.totalCeilingCents?data.totalCeilingCents/100:'';
     button(ceilingForm,'Confirmar teto total',async()=>{await api('total_ceiling',{amount:ceilingInput.value});await reload();});
-    const reality=section(trio,5,'REALIDADE · SÓ PARA VOCÊ');reality.classList.add('reality-card');
-    // Deterministic list (server): year + model as in the CSV + the column the rule chose; "Nenhuma opção..." when empty.
-    const rl=data.reality||null;
-    const usd=(value)=>'$'+Math.round(Number(value)/100).toLocaleString('pt-BR');
-    const mi=(value)=>value===null||value===undefined?'milhas não informadas':Number(value).toLocaleString('pt-BR')+' mi';
-    if(rl){
-      append(reality,'p',rl.rows.length?'reality-verdict':'reality-verdict is-empty',rl.verdict);
-      if(rl.typicalCents)append(reality,'p','reality-typical','MMR típico: '+usd(rl.typicalCents));
-      if(rl.rows.length){
-        if(rl.label)append(reality,'p','reality-label',rl.label);
-        const list=append(reality,'div','reality-list reality-lines');
-        // Each line: year, model and trim, miles and the car's own MMR, and "Separar para o cliente" (the same selection of ENVIAR OPÇÕES).
-        const pickErrors={MANHEIM_SELECTION_REASON_REQUIRED:'Fora de Lane/Run: inclua em ENVIAR OPÇÕES com o motivo',MANHEIM_SELECTION_LIMIT:'Já são 10 selecionados neste pedido',MANHEIM_MATCH_WITHOUT_MMR:'Carro sem MMR válido',MANHEIM_STAMP_INVALID:'Este carro não vale mais para o pedido'};
-        rl.rows.forEach((row)=>{const line=append(list,'div','reality-row');append(line,'strong','reality-year',String(row.year||'—'));
-          const car=append(line,'span','reality-model',row.model||'—');if(row.trim)append(car,'span','reality-trim',' '+row.trim);
-          append(line,'span','reality-miles','· '+mi(row.miles));
-          if(rl.column!=='MILHAS')append(line,'strong','reality-value','· '+(row.mmrCents?usd(row.mmrCents):'—'));
-          if(!row.pick)return;
-          const pick=append(line,'button','quiet small reality-pick',row.pick.selected?'Separado ✓':'Separar para o cliente');pick.type='button';pick.disabled=row.pick.selected;
-          const status=append(line,'span','reality-pick-status','');
-          pick.addEventListener('click',async(event)=>{event.stopPropagation();pick.disabled=true;status.textContent='Separando…';
-            try{const result=await request('/api/panel/manheim-options',{method:'POST',body:JSON.stringify({action:'select',matchId:row.pick.matchId})});row.pick.selected=true;pick.textContent='Separado ✓';
-              status.textContent=`${result&&result.selectedCount?result.selectedCount+' separado(s) · ':''}escreva o motivo e gere a V1 em ENVIAR OPÇÕES`;}
-            catch(error){pick.disabled=false;status.textContent=pickErrors[error&&error.code]||'Não consegui separar, tente de novo';}});});
-        limitList(reality,[...list.querySelectorAll('.reality-row')],list);
-      }
-    }else append(reality,'p','muted','Nenhuma opção no lote dentro dos filtros');
     const numbers=section(trio,6,'NÚMEROS PRONTOS');
     if(data.costs){const c=data.costs;row(numbers,'Depósito',data.paymentKnown==='fin'?'Avaliado caso a caso (financiado)':fmt(c.deposito));row(numbers,'Taxa de serviço',fmt(c.servico));row(numbers,'Taxa do leilão + fixas',fmt(c.gLeilao));row(numbers,'Tax, title & registration',fmt(c.gTaxReg));row(numbers,'Total estimado',fmt(c.totalProjetado));}
     else append(numbers,'p','muted',data.totalCeilingCents?'O teto não cobre o lance mínimo e os custos':'Lance máximo ainda não informado');
 
-    const second=append(root,'div','lead-grid lead-three');
+    // 5 · OPÇÕES NO LOTE: only the summary of the official comparison and "Ver opções" (the client's options
+    // screen of ENVIAR OPÇÕES, where the cars, the selection, the PDF and the V1 are). The market's typical MMR stays here.
+    const lot=section(root,5,'OPÇÕES NO LOTE','offers-summary');
+    if(data.reality&&data.reality.typicalCents)append(lot,'p','reality-typical','MMR típico: $'+Math.round(Number(data.reality.typicalCents)/100).toLocaleString('pt-BR'));
+    const lotMount=append(lot,'div','offers-summary-mount');
+    if(renderFichaOffersSummary)renderFichaOffersSummary(lotMount,{journeyId:journeyId||null,ref:ref||null,kind,key}).catch(()=>{if(lotMount.isConnected)append(lotMount,'p','warning','Não consegui carregar as opções agora');});
+    else append(lotMount,'p','muted','Opções do lote em ENVIAR OPÇÕES');
+    const second=append(root,'div','lead-grid lead-two');
     const questions=section(second,7,'PERGUNTAR NA LIGAÇÃO','ask-card');
     // The open points are marked here (the owner of the question); DADOS E HISTÓRICO lists the done ones.
     const doneCount=data.checklist.filter((point)=>point.status==='COMPLETE').length;
@@ -184,45 +163,6 @@
     data.checklist.filter((point)=>point.status!=='COMPLETE').forEach((point)=>{const line=append(questions,'div','ask-row lead-question');append(line,'span','ask-text',`${point.point_label}?`);button(line,'Marcar OK',async()=>{await api('checklist',{point:point.point_number,complete:true});await reload();},'ask-ok');});
     if(data.bid!==null&&data.typical.some((wish)=>wish.mmrCents&&wish.mmrCents>data.bid*100)){const line=append(questions,'div','ask-row');append(line,'span','ask-text',`O teto de ${cents(data.totalCeilingCents||data.maxBidCents)} é final ou tem margem?`);}
     if(!questions.querySelector('.ask-row'))append(questions,'p','muted','Checklist completo');
-    const offers=section(second,8,'O QUE OFERECER','offer-card');
-    // The selection for the customer and the V1 live here, in the ficha: the groups, the sort,
-    // the trim filter, the pages and the per-car selection, with the send at the foot.
-    // A car becomes "apresentado" by itself when the send is confirmed (no manual registration here).
-    append(offers,'p','offer-count',`${data.offers.length} ${data.offers.length===1?'carro compatível':'carros compatíveis'} no lote ativo`);
-    // The selection for the customer and the V1 live here now, in the ficha: the groups, the
-    // sort, the trim filter, the pages and the per-car selection, with the send at the foot.
-    const optionsMount = append(offers, 'div', 'ficha-options-mount');
-    if (renderFichaOptions) {
-      renderFichaOptions(optionsMount, { journeyId: journeyId || null, ref: ref || null })
-        .catch(() => { if (optionsMount.isConnected) append(optionsMount, 'p', 'warning', 'Não consegui carregar as opções agora'); });
-    } else if (openTab) {
-      const go = append(offers, 'div', 'offer-go');
-      button(go, 'Abrir ENVIAR OPÇÕES', () => openTab('searches'), 'offer-open');
-    }
-    if(!data.offers.length)append(offers,'p','muted','Nenhum carro compatível nos CSVs recentes');
-    // A search type without cars still says why (ainda não rodada, or sem carros with the reason).
-    (data.searchModes||[]).forEach((mode)=>{const count=data.offers.filter((car)=>car.mode===mode).length,label=mode==='VALOR'?'Por valor':'Por carro (ano e milhagem)';if(count)return;const line=append(offers,'p','lead-search-group');
-      if(!data.batchActive){line.dataset.searchGroup='NAO_RODADA';line.textContent=`Busca ainda não rodada · ${label}: nenhum lote ativo do Manheim`;return;}
-      line.dataset.searchGroup='SEM_CARROS';line.textContent=`Sem carros · ${label}: a busca rodou no lote ativo e nenhum carro serviu`;
-      if(journeyId){const reason=append(offers,'p','search-empty-reason','Motivo: lendo o lote…');request('/api/panel/pesquisas',{method:'POST',timeoutMs:60000,body:JSON.stringify({action:'empty_reasons',keys:[`ficha:journey:${journeyId}:${mode}`]})}).then((out)=>{const found=(out.reasons||{})[`ficha:journey:${journeyId}:${mode}`];reason.textContent='Motivo: '+(found?found.text:'nenhum carro do lote ativo serviu para estes critérios');}).catch(()=>{reason.textContent='Motivo: não consegui ler o lote agora';});}});
-    const usdBr=(centsValue)=>'$'+Math.round(Number(centsValue)/100).toLocaleString('pt-BR');
-    const auctionWhen=(value)=>{const at=Date.parse(value);if(!value)return 'data não informada';if(Number.isNaN(at))return String(value);const parts=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/New_York',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(at));const get=(type)=>parts.find((part)=>part.type===type)?.value||'';return `${get('day')}/${get('month')} · ${get('hour')}:${get('minute')} (Flórida)`;};
-    // Order chosen at the top (default: year, newest first); at most 6 cars on screen, "Ver mais (N)" shows the rest.
-    const OFFER_SORTS=[['year-desc','Ano maior primeiro'],['year-asc','Ano menor primeiro'],['miles-desc','Milhas maior primeiro'],['miles-asc','Milhas menor primeiro'],['mmr-desc','MMR maior primeiro'],['mmr-asc','MMR menor primeiro']];
-    const offerList=append(offers,'div','offer-list');
-    if(data.offers.length>1){const sortSelect=document.createElement('select');sortSelect.className='offer-sort';sortSelect.setAttribute('aria-label','Ordenar');OFFER_SORTS.forEach(([value,label])=>sortSelect.append(new Option(label,value)));sortSelect.value='year-desc';offers.querySelector('.lead-label').after(sortSelect);sortSelect.addEventListener('change',()=>drawOffers(sortSelect.value));}
-    const numberOr=(value,missing)=>value===null||value===undefined||value===''||Number.isNaN(Number(value))?missing:Number(value);
-    const drawOffers=(order)=>{offerList.replaceChildren();offers.querySelectorAll(':scope > .list-more').forEach((node)=>node.remove());
-      const [field,direction]=order.split('-'),sign=direction==='desc'?-1:1,key=(car)=>field==='year'?numberOr(car.year,null):field==='miles'?numberOr(car.miles,null):numberOr(car.mmrCents,null);
-      const sorted=data.offers.slice().sort((a,b)=>{const x=key(a),y=key(b);if(x===null&&y===null)return 0;if(x===null)return 1;if(y===null)return -1;return (x-y)*sign||numberOr(a.miles,Infinity)-numberOr(b.miles,Infinity);});
-      sorted.forEach((car)=>{const line=append(offerList,'div','lead-offer offer-item');
-      const tags=append(line,'div','offer-tags');tags.append(badge(car.mode==='CARRO'?'POR ANO E MILHAGEM':car.mode==='VALOR'||car.kind==='POR_VALOR'?'POR VALOR':car.kind,car.mode==='CARRO'?'green':'blue'));if(car.matchNotice)tags.append(badge(car.matchNotice,'yellow'));
-      append(line,'strong','offer-title',[car.year,car.make,car.model,car.trim].filter(Boolean).join(' '));
-      append(line,'span','offer-meta',[car.miles===null||car.miles===undefined||car.miles===''?'milhagem não informada':Number(car.miles).toLocaleString('pt-BR')+' mi',car.locationDisplay||car.location||''].filter(Boolean).join(' · '));
-      append(line,'span','offer-meta','Leilão '+auctionWhen(car.saleDate));
-      const value=[car.mmrCents?'MMR '+usdBr(car.mmrCents):'',car.matchNotice?'':car.matchReason||''].filter(Boolean).join(' · ');if(value)append(line,'span','offer-meta',value); });
-      limitList(offers,[...offerList.querySelectorAll('.offer-item')],offerList,6);};
-    drawOffers('year-desc');
     const context=section(second,9,'CONTEXTO RÁPIDO','context-card');
     const allPromises=[...(record.promises||[]),...(data.promises||[])];
     const promises=allPromises.filter((promise)=>promise.status==='OPEN');

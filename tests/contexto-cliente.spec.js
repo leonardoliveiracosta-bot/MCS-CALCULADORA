@@ -8,7 +8,7 @@
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
 const { openClientsList } = require('./abrir-clientes');
-const { openOptionsFicha } = require('./abrir-ficha-opcoes');
+const { openOptionsScreen, backToQueue } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const demo = require('./fixtures/caso-demonstracao');
 const { contentHash } = require('../panel-manheim-batch');
@@ -80,12 +80,12 @@ for (const width of [1366, 390]) {
     const summaryOf = (card) => card.locator('.client-context[data-context-state="done"]').first();
     const reach = async (card) => { await card.scrollIntoViewIfNeeded(); return summaryOf(card); };
 
-    // ATENDIMENTO: the client wrote last → depends on MCS. The card is a spec sheet (the car as title,
-    // the Ref, the phone); the case summary moved to the ficha (one click on the card).
-    const todayCard = page.locator('#today-list .item-card', { hasText: 'DMCRA' }).first();
+    // ATENDIMENTO: the client wrote last → depends on MCS. One row per case (the car, the Ref, the phone,
+    // and "sem resposta" in the Espera column); the case summary moved to the ficha (one click on the row).
+    const todayCard = page.locator('#today-list .attend-row', { hasText: 'DMCRA' }).first();
     await expect(todayCard).toBeVisible({ timeout: 60000 });
     await expect(todayCard).toContainText('Toyota Corolla');
-    await expect(todayCard.locator('.card-decision')).toContainText(/sem resposta/i);
+    await expect(todayCard.locator('.attend-wait')).toContainText(/sem resposta/i);
     await noOverflow();
     await shot(page, `hoje-${width}`);
 
@@ -94,22 +94,11 @@ for (const width of [1366, 390]) {
     await expect(page.locator('#entry-orders, #entry-simulated')).toHaveCount(0);
     await expect(page.locator('#today-panel')).not.toContainText(demo.LOOSE_REF);
 
-    // CLIENTES: same client, same context.
+    // CLIENTES ("Mais"): a client who already has a case in TODOS is not repeated there (#254); the same
+    // context is checked in the ficha below.
     await openClientsList(page);
-    const clientCard = page.locator('#clients-list .client-card', { hasText: 'DMCRA' }).first();
-    await expect(clientCard).toBeVisible({ timeout: 60000 });
-    // CLIENTES is a directory: the summary lives under "⋯ Mais" of the line.
-    await clientCard.locator('.client-more > summary').click();
-    // The list shows the stage, who it depends on and the criteria (the next action lives in ATENDER AGORA).
-    await expect(await reach(clientCard)).toContainText('Depende de', { timeout: 30000 });
-    await expect(summaryOf(clientCard)).toContainText('Critérios da busca');
-    // Field by field, with the source and the message it came from.
-    await summaryOf(clientCard).locator('.context-more > summary').click();
-    const table = summaryOf(clientCard).locator('.context-table');
-    await expect(table).toContainText('Lido pela IA · não confirmado');
-    // The value read from the conversation, without the quoted phrase ("Evidências" left the cards, comando 3).
-    await expect(table).toContainText('a partir de 2019');
-    await expect(table).toContainText('Não informado');
+    await expect(page.locator('#clients-list .client-card, #clients-list .empty-state').first()).toBeVisible({ timeout: 60000 });
+    await expect(page.locator('#clients-list .client-card', { hasText: 'DMCRA' })).toHaveCount(0);
     await noOverflow();
     await shot(page, `clientes-${width}`);
 
@@ -124,19 +113,19 @@ for (const width of [1366, 390]) {
     await noOverflow();
     await shot(page, `pesquisas-${width}`);
 
-    // OPÇÕES (#218): the client is in the queue; the cars of the active batch are in the ficha, with why they fit.
-    const optionsFicha = await openOptionsFicha(page, { name: 'Marina', realLead: true });
-    await expect(optionsFicha).toContainText('Cliente pediu');
-    const lane = optionsFicha.locator('details.offer-group[data-group="LANE"]');
-    if (await lane.count()) {
-      await lane.locator('> summary').click();
-      const row = lane.locator('.offer-row').first();
-      await expect(row).toBeVisible({ timeout: 30000 });
-      await expect(row).toContainText('Consultado no CSV do Manheim de');
-    }
+    // OPÇÕES (#218): the client is in the queue; the cars of the active batch are in the client's options
+    // screen (one line per car; tapping it opens the car, with why it fits and where it was read from).
+    const options = await openOptionsScreen(page, { name: 'Marina', realLead: true });
+    await expect(options.locator('.oc-ask')).toContainText('Cliente pediu');
+    const first = options.locator('.oc-list .oc-item').first();
+    await expect(first).toBeVisible({ timeout: 30000 });
+    await first.locator('.oc-car').click();
+    const row = first.locator('.oc-detail .offer-row');
+    await expect(row).toBeVisible({ timeout: 30000 });
+    await expect(row).toContainText('Consultado no CSV do Manheim de');
     await noOverflow();
     await shot(page, `opcoes-${width}`);
-    await page.goBack();
+    await backToQueue(page);
 
     // IMPORTAÇÕES: the batch the options came from.
     await page.locator('[data-view="imports"]').click();
@@ -145,13 +134,13 @@ for (const width of [1366, 390]) {
     await shot(page, `importacoes-${width}`);
 
     // FICHA: the full case summary.
-    await openClientsList(page);
-    await page.locator('#clients-list .client-card', { hasText: 'DMCRA' }).first().locator('button', { hasText: 'Abrir ficha' }).first().click();
+    await page.locator('[data-view="today"]').click();
+    await page.locator('#today-list .attend-row', { hasText: 'DMCRA' }).first().locator('.attend-car').click();
     const full = page.locator('#detail-panel .client-context-full .context-table').first();
     await expect(full).toBeVisible({ timeout: 60000 });
     const fullCard = page.locator('#detail-panel section.client-context-full').first();
     // The case summary of the ficha is field by field (campo-a-campo.spec.js): 9 fields, each with its situation.
-    for (const text of ['O que o cliente informou, campo a campo', 'Toyota Corolla', 'a partir de 2019', 'Lido pela IA · não confirmado', 'Transferir placa']) await expect(fullCard).toContainText(text);
+    for (const text of ['O que o cliente informou, campo a campo', 'Toyota Corolla', 'a partir de 2019', 'Lido pela IA · não confirmado', 'Não informado', 'Transferir placa']) await expect(fullCard).toContainText(text);
     await expect(page.locator('#record-detail')).toContainText('placa: transferir');
     await noOverflow();
     await shot(page, `ficha-${width}`);
