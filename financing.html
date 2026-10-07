@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Financing | My Car Scout</title>
+<meta name="robots" content="noindex">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="description" content="See what you can get approved for. We use it to find cars that fit your budget.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0b0d10;--ink:#f2efe9;--accent:#c9a34e;--muted:#626669}
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Barlow",-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+  [hidden]{display:none !important}
+  .wrap{max-width:820px;margin:0 auto;padding:0 20px}
+  .brand{text-decoration:none}
+  .brand .nome{display:none}
+  /* ===== BARRA SUPERIOR ===== */
+  header.top{position:sticky;top:0;z-index:60;background:#000;margin:0 -20px;
+    padding:0 20px;display:flex;align-items:center;justify-content:space-between;
+    gap:12px;height:76px}
+  header.top .brand{display:flex;align-items:center;gap:10px;min-width:0}
+  header.top .brand img{height:34px;width:auto;display:block}
+  header.top .brand .nome{display:none}
+
+  .navbtns{display:flex;align-items:center;gap:9px;flex:0 0 auto}
+  .navbtn{width:46px;height:46px;border-radius:50%;border:0;cursor:pointer;
+    background:#fff;color:#000;display:flex;align-items:center;justify-content:center;
+    padding:0;transition:transform .14s,filter .14s}
+  .navbtn:active{transform:scale(.94)}
+  .navbtn svg{width:21px;height:21px;display:block}
+  .navbtn.gold{background:linear-gradient(150deg,#e8c976,#c9a34e)}
+  .navbtn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .navbtn .flagmini{width:26px;height:18px;border-radius:2px;display:block;
+    box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+
+  /* painel que desce */
+  .sheet{position:fixed;inset:0;z-index:200;display:none}
+  .sheet.open{display:block}
+  .sheet-veil{position:absolute;inset:0;background:rgba(0,0,0,.55);
+    -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+  .sheet-box{position:absolute;top:0;left:0;right:0;background:#0b0d10;color:#f2efe9;
+    border-bottom:1px solid #22262c;padding:18px 20px 22px;
+    transform:translateY(-12px);opacity:0;transition:transform .22s ease,opacity .22s ease;
+    max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .sheet.open .sheet-box{transform:translateY(0);opacity:1}
+  .sheet-head{display:flex;align-items:center;justify-content:space-between;
+    gap:12px;margin:0 0 14px}
+  .sheet-head h3{font-family:"Anton",sans-serif;font-weight:400;font-size:17px;
+    letter-spacing:.06em;text-transform:uppercase;margin:0;color:#f2efe9}
+  .sheet-x{width:34px;height:34px;border-radius:50%;border:0;background:#1a1f25;
+    color:#f2efe9;font-size:20px;line-height:1;cursor:pointer;flex:0 0 auto}
+
+  .sheet a.item, .sheet button.item{
+    display:flex;align-items:center;gap:13px;width:100%;text-align:left;
+    background:transparent;border:0;border-top:1px solid #1e232a;
+    padding:15px 2px;color:#f2efe9;font:inherit;font-size:16px;cursor:pointer;
+    text-decoration:none}
+  .sheet a.item:first-of-type, .sheet button.item:first-of-type{border-top:0}
+  .sheet .item .ic{width:24px;height:24px;flex:0 0 auto;display:flex;
+    align-items:center;justify-content:center}
+  .sheet .item .ic svg{width:21px;height:21px}
+  .sheet .item .ic .flagmini{width:26px;height:18px;border-radius:2px;
+    box-shadow:0 0 0 1px rgba(255,255,255,.2)}
+  .sheet .item .tx{min-width:0}
+  .sheet .item .t1{display:block;font-weight:600}
+  .sheet .item .t2{display:block;font-size:13px;color:#9aa1aa;margin-top:2px}
+  .sheet .item[aria-pressed="true"]{color:var(--accent)}
+  .sheet .item[aria-pressed="true"] .flagmini{box-shadow:0 0 0 2px var(--accent)}
+  .sheet .item:active{background:#12161b}
+
+  body.travado{overflow:hidden}
+
+  @media (max-width:380px){
+    header.top{height:68px}
+    header.top .brand img{height:29px}
+    .navbtn{width:42px;height:42px}
+    .navbtns{gap:7px}
+  }
+
+  a.navbtn{text-decoration:none}
+  @media (max-width:430px) and (min-width:381px){
+    .navbtn{width:43px;height:43px}
+    .navbtns{gap:7px}
+  }
+  @media (max-width:340px){
+    header.top .brand img{height:25px}
+    .navbtn{width:38px;height:38px}
+    .navbtns{gap:5px}
+  }
+
+
+  .back{display:inline-flex;align-items:center;gap:8px;min-height:44px;margin-top:12px;color:var(--ink);font-size:14px;text-decoration:none}
+  .back svg{width:16px;height:16px}
+  .intro{padding:26px 0 26px}
+  .eyebrow{margin:0 0 12px;font-size:12px;font-weight:700;letter-spacing:.16em;color:var(--accent)}
+  h1{margin:0 0 14px;font-size:36px;line-height:1.08;font-weight:700;letter-spacing:-.025em;max-width:18ch;text-wrap:balance}
+  .support{margin:0;max-width:42ch;color:var(--ink);opacity:.8;font-size:17px;line-height:1.5}
+  .credit-card{background:#fffdf9;border:1px solid var(--muted);border-top:3px solid var(--accent);border-radius:14px;overflow:hidden;margin-bottom:40px}
+  .credit-frame{display:block;border:0;background:#fffdf9}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .sheet .langs-note{display:flex;align-items:center;gap:11px;padding:0 2px 15px;font-size:14px;color:var(--accent);font-weight:500}
+  .sheet .langs-note .ic{flex:0 0 auto;width:17px;height:17px}
+  .sheet .langs-note .ic svg{width:17px;height:17px;display:block}
+  .sheet .item[aria-current="page"]{color:var(--accent)}
+  @media(max-width:600px){.credit-frame{height:1250px !important}}
+  @media(min-width:601px){.intro{padding:40px 0 32px}h1{font-size:48px}.credit-card{margin-bottom:64px}}
+  @media(prefers-reduced-motion:reduce){.sheet-box,.navbtn{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/" aria-label="My Car Scout home">
+      <img src="mcs-logo.svg" alt="My Car Scout">
+      <span class="nome">My Car Scout</span>
+    </a>
+    <div class="navbtns">
+      <a class="navbtn" href="https://www.instagram.com/mycarscout/" target="_blank" rel="noopener" aria-label="Instagram"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.2" cy="6.8" r="1.1" fill="currentColor" stroke="none"/></svg></a>
+      <button type="button" class="navbtn" id="btn-lang" aria-haspopup="dialog" aria-label="Language">
+        <span id="bandeira-atual"><svg class="flagmini" viewBox="0 0 38 26" aria-hidden="true"><rect width="38" height="26" fill="#b22234"/><rect y="2" width="38" height="2" fill="#fff"/><rect y="6" width="38" height="2" fill="#fff"/><rect y="10" width="38" height="2" fill="#fff"/><rect y="14" width="38" height="2" fill="#fff"/><rect y="18" width="38" height="2" fill="#fff"/><rect y="22" width="38" height="2" fill="#fff"/><rect width="16" height="14" fill="#3c3b6e"/><circle cx="2.0" cy="2" r=".7" fill="#fff"/><circle cx="4.6" cy="2" r=".7" fill="#fff"/><circle cx="7.2" cy="2" r=".7" fill="#fff"/><circle cx="9.8" cy="2" r=".7" fill="#fff"/><circle cx="12.4" cy="2" r=".7" fill="#fff"/><circle cx="2.0" cy="5" r=".7" fill="#fff"/><circle cx="4.6" cy="5" r=".7" fill="#fff"/><circle cx="7.2" cy="5" r=".7" fill="#fff"/><circle cx="9.8" cy="5" r=".7" fill="#fff"/><circle cx="12.4" cy="5" r=".7" fill="#fff"/><circle cx="2.0" cy="8" r=".7" fill="#fff"/><circle cx="4.6" cy="8" r=".7" fill="#fff"/><circle cx="7.2" cy="8" r=".7" fill="#fff"/><circle cx="9.8" cy="8" r=".7" fill="#fff"/><circle cx="12.4" cy="8" r=".7" fill="#fff"/><circle cx="2.0" cy="11" r=".7" fill="#fff"/><circle cx="4.6" cy="11" r=".7" fill="#fff"/><circle cx="7.2" cy="11" r=".7" fill="#fff"/><circle cx="9.8" cy="11" r=".7" fill="#fff"/><circle cx="12.4" cy="11" r=".7" fill="#fff"/></svg></span>
+      </button>
+      <button type="button" class="navbtn" id="btn-fone" aria-haspopup="dialog" aria-label="Contact"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.4.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.4 0 .8-.2 1l-2.3 2.2z"/></svg></button>
+      <button type="button" class="navbtn gold" id="btn-menu" aria-haspopup="dialog" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    </div>
+  </header>
+
+  <!-- painel de idiomas -->
+  <div class="sheet" id="sheet-lang" role="dialog" aria-modal="true" aria-labelledby="t-lang" hidden>
+    <div class="sheet-veil" data-fechar></div>
+    <div class="sheet-box">
+      <div class="sheet-head">
+        <h3 id="t-lang" data-i18n="nav_lang">Language</h3>
+        <button type="button" class="sheet-x" data-fechar aria-label="Close">&times;</button>
+      </div>
+      <button type="button" class="item" data-set-lang="en" aria-pressed="true">
+        <span class="ic"><svg class="flagmini" viewBox="0 0 38 26" aria-hidden="true"><rect width="38" height="26" fill="#b22234"/><rect y="2" width="38" height="2" fill="#fff"/><rect y="6" width="38" height="2" fill="#fff"/><rect y="10" width="38" height="2" fill="#fff"/><rect y="14" width="38" height="2" fill="#fff"/><rect y="18" width="38" height="2" fill="#fff"/><rect y="22" width="38" height="2" fill="#fff"/><rect width="16" height="14" fill="#3c3b6e"/><circle cx="2.0" cy="2" r=".7" fill="#fff"/><circle cx="4.6" cy="2" r=".7" fill="#fff"/><circle cx="7.2" cy="2" r=".7" fill="#fff"/><circle cx="9.8" cy="2" r=".7" fill="#fff"/><circle cx="12.4" cy="2" r=".7" fill="#fff"/><circle cx="2.0" cy="5" r=".7" fill="#fff"/><circle cx="4.6" cy="5" r=".7" fill="#fff"/><circle cx="7.2" cy="5" r=".7" fill="#fff"/><circle cx="9.8" cy="5" r=".7" fill="#fff"/><circle cx="12.4" cy="5" r=".7" fill="#fff"/><circle cx="2.0" cy="8" r=".7" fill="#fff"/><circle cx="4.6" cy="8" r=".7" fill="#fff"/><circle cx="7.2" cy="8" r=".7" fill="#fff"/><circle cx="9.8" cy="8" r=".7" fill="#fff"/><circle cx="12.4" cy="8" r=".7" fill="#fff"/><circle cx="2.0" cy="11" r=".7" fill="#fff"/><circle cx="4.6" cy="11" r=".7" fill="#fff"/><circle cx="7.2" cy="11" r=".7" fill="#fff"/><circle cx="9.8" cy="11" r=".7" fill="#fff"/><circle cx="12.4" cy="11" r=".7" fill="#fff"/></svg></span><span class="tx"><span class="t1">English</span></span></button>
+      <button type="button" class="item" data-set-lang="es" aria-pressed="false">
+        <span class="ic"><svg class="flagmini" viewBox="0 0 38 26" aria-hidden="true"><rect width="38" height="26" fill="#aa151b"/><rect y="6.5" width="38" height="13" fill="#f1bf00"/></svg></span><span class="tx"><span class="t1">Espa&ntilde;ol</span></span></button>
+      <button type="button" class="item" data-set-lang="pt" aria-pressed="false">
+        <span class="ic"><svg class="flagmini" viewBox="0 0 38 26" aria-hidden="true"><rect width="38" height="26" fill="#009b3a"/><polygon points="19,3 35,13 19,23 3,13" fill="#fedf00"/><circle cx="19" cy="13" r="6" fill="#002776"/><path d="M13.6 11.2a11 11 0 0 1 10.8 2.2" stroke="#fff" stroke-width="1.8" fill="none"/></svg></span><span class="tx"><span class="t1">Portugu&ecirc;s</span></span></button>
+    </div>
+  </div>
+
+  <!-- painel de contato -->
+  <div class="sheet" id="sheet-fone" role="dialog" aria-modal="true" aria-labelledby="t-fone" hidden>
+    <div class="sheet-veil" data-fechar></div>
+    <div class="sheet-box">
+      <div class="sheet-head">
+        <h3 id="t-fone" data-i18n="nav_contact">Talk to us</h3>
+        <button type="button" class="sheet-x" data-fechar aria-label="Close">&times;</button>
+      </div>
+      <p class="langs-note"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg></span><span data-i18n="lang_short">Write in English, Spanish or Portuguese</span></p>
+      <a class="item" href="https://wa.me/13055400742" target="_blank" rel="noopener">
+        <span class="ic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 5-1.3A10 10 0 1 0 12 2zm5.6 14.2c-.2.7-1.2 1.3-1.9 1.4-.5.1-1.2.2-3.5-.8-2.9-1.2-4.8-4.2-5-4.4-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.4.7-.4h.5c.2 0 .4 0 .6.5l.8 2c.1.2 0 .4-.1.5l-.3.4c-.1.2-.3.3-.1.6.1.3.6 1.1 1.4 1.8 1 .9 1.8 1.2 2.1 1.3.2.1.4.1.6-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.2.1.4.2.5.3.1.2.1.6-.1 1.2z"/></svg></span>
+        <span class="tx"><span class="t1" data-i18n="c_wa">WhatsApp</span>
+        <span class="t2" data-i18n="c_wa_s">Message us, we reply there</span></span></a>
+      <a class="item" href="sms:+13055400742">
+        <span class="ic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4l4 4 4-4h4a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM8 11H6V9h2v2zm5 0h-2V9h2v2zm5 0h-2V9h2v2z"/></svg></span>
+        <span class="tx"><span class="t1" data-i18n="c_sms">Text message</span>
+        <span class="t2" data-i18n="c_sms_s">Send an SMS to (305) 540-0742</span></span></a>
+    </div>
+  </div>
+
+  <!-- painel de menu -->
+  <div class="sheet" id="sheet-menu" role="dialog" aria-modal="true" aria-labelledby="t-menu" hidden>
+    <div class="sheet-veil" data-fechar></div>
+    <div class="sheet-box">
+      <div class="sheet-head">
+        <h3 id="t-menu" data-i18n="nav_menu">Menu</h3>
+        <button type="button" class="sheet-x" data-fechar aria-label="Close">&times;</button>
+      </div>
+      <a class="item" href="/#why"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_why">Why My Car Scout</span></span></a>
+      <a class="item" href="/#calculadora-widget"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_calc">Cost calculator</span></span></a>
+      <a class="item" href="/#como-funciona"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_how">How it works</span></span></a>
+      <a class="item" href="/#exemplos"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_ex">Real examples</span></span></a>
+      <a class="item" href="/financing" aria-current="page"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_fin">Financing</span></span></a>
+      <a class="item" href="/#politica"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_pol">Before you authorize</span></span></a>
+      <a class="item" href="/#taxas"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_fee">Service fees</span></span></a>
+      <a class="item" href="/#faq"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_faq">Questions</span></span></a>
+      <a class="item" href="/#comecar"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="tx"><span class="t1" data-i18n="m_start">Start my search</span></span></a>
+    </div>
+  </div>
+
+
+  <main>
+    <a class="back" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg>Back to home</a>
+    <section class="intro" aria-labelledby="financing-title">
+      <p class="eyebrow">FINANCING</p>
+      <h1 id="financing-title">See what you can get approved for</h1>
+      <p class="support">Takes 2 minutes. We use it to find cars that fit your budget.</p>
+    </section>
+    <div class="credit-card">
+      <iframe class="credit-frame" title="Credit application" src="https://dwssecuredforms.dealercenter.net/CreditApplication/index/16883052?themecolor=c9a34e&formtype=s&frameId=dws_frame_0&standalone=true&ls=My Car Scout" referrerpolicy="strict-origin-when-cross-origin" scrolling="auto" style="height:715px; width: 100%" frameborder="0" border="0"></iframe>
+    </div>
+  </main>
+</div>
+<script>
+
+(function(){
+  "use strict";
+  var labels = {"en": {"c_sms": "Text message", "c_sms_s": "Send an SMS to (305) 540-0742", "c_wa": "WhatsApp", "c_wa_s": "Message us, we reply there", "lang_short": "Write in English, Spanish or Portuguese", "m_calc": "Cost calculator", "m_ex": "Real examples", "m_faq": "Questions", "m_fee": "Service fees", "m_fin": "Financing", "m_how": "How it works", "m_pol": "Before you authorize", "m_start": "Start my search", "m_why": "Why My Car Scout", "nav_contact": "Talk to us", "nav_lang": "Language", "nav_menu": "Menu"}, "es": {"c_sms": "Mensaje de texto", "c_sms_s": "Envía un SMS al (305) 540-0742", "c_wa": "WhatsApp", "c_wa_s": "Escríbenos, respondemos ahí", "lang_short": "Escribe en inglés, español o portugués", "m_calc": "Calculadora de costos", "m_ex": "Ejemplos reales", "m_faq": "Preguntas", "m_fee": "Tarifas de servicio", "m_fin": "Financiamiento", "m_how": "Cómo funciona", "m_pol": "Antes de autorizar", "m_start": "Iniciar mi búsqueda", "m_why": "Por qué My Car Scout", "nav_contact": "Habla con nosotros", "nav_lang": "Idioma", "nav_menu": "Menú"}, "pt": {"c_sms": "Mensagem de texto", "c_sms_s": "Envie um SMS para (305) 540-0742", "c_wa": "WhatsApp", "c_wa_s": "Escreve pra gente, a gente responde por lá", "lang_short": "Escreva em inglês, espanhol ou português", "m_calc": "Calculadora de custos", "m_ex": "Exemplos reais", "m_faq": "Perguntas", "m_fee": "Taxas de serviço", "m_fin": "Financiamento", "m_how": "Como funciona", "m_pol": "Antes de autorizar", "m_start": "Começar minha busca", "m_why": "Por que My Car Scout", "nav_contact": "Fale com a gente", "nav_lang": "Idioma", "nav_menu": "Menu"}};
+  var language = "en";
+  try { var saved = localStorage.getItem("mcs_lang"); if (labels[saved]) language = saved; } catch(e){}
+  var activePanel = null, opener = null;
+  function closePanel(){
+    if (!activePanel) return;
+    activePanel.classList.remove("open");
+    activePanel.hidden = true;
+    document.body.classList.remove("travado");
+    if (opener) { opener.setAttribute("aria-expanded", "false"); opener.focus(); }
+    activePanel = null;
+  }
+  function applyLanguage(){
+    document.querySelectorAll("[data-i18n]").forEach(function(el){
+      var text = labels[language][el.getAttribute("data-i18n")];
+      if (text !== undefined) el.innerHTML = text;
+    });
+    document.querySelectorAll("[data-set-lang]").forEach(function(button){
+      var selected = button.getAttribute("data-set-lang") === language;
+      button.setAttribute("aria-pressed", selected ? "true" : "false");
+      if (selected) document.getElementById("bandeira-atual").innerHTML = button.querySelector(".flagmini").outerHTML;
+    });
+  }
+  [["btn-lang", "sheet-lang"], ["btn-fone", "sheet-fone"], ["btn-menu", "sheet-menu"]].forEach(function(pair){
+    var button = document.getElementById(pair[0]);
+    button.setAttribute("aria-controls", pair[1]);
+    button.setAttribute("aria-expanded", "false");
+    button.addEventListener("click", function(){
+      closePanel();
+      opener = button;
+      activePanel = document.getElementById(pair[1]);
+      activePanel.hidden = false;
+      activePanel.classList.add("open");
+      document.body.classList.add("travado");
+      button.setAttribute("aria-expanded", "true");
+      activePanel.querySelector(".sheet-x").focus();
+    });
+  });
+  document.querySelectorAll("[data-fechar], .sheet a.item").forEach(function(el){ el.addEventListener("click", closePanel); });
+  document.querySelectorAll("[data-set-lang]").forEach(function(button){
+    button.addEventListener("click", function(){
+      language = button.getAttribute("data-set-lang");
+      try { localStorage.setItem("mcs_lang", language); } catch(e){}
+      applyLanguage();
+      closePanel();
+    });
+  });
+  document.addEventListener("keydown", function(event){
+    if (!activePanel) return;
+    if (event.key === "Escape") closePanel();
+    if (event.key === "Tab") {
+      var items = activePanel.querySelectorAll("button, a[href]");
+      var first = items[0], last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  });
+  applyLanguage();
+})();
+
+</script>
+</body>
+</html>

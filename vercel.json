@@ -28,6 +28,14 @@
     { "path": "/api/panel/media-cron", "schedule": "* * * * *" }
   ],
   "headers": [
+    { "source": "/financing", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex" },
+      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+    ] },
+    { "source": "/financing.html", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex" },
+      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+    ] },
     { "source": "/painel", "headers": [
       { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
       { "key": "Cache-Control", "value": "no-store, max-age=0" }
@@ -71,6 +79,8 @@
     { "source": "/v/:token([A-Za-z0-9_-]{32,80})", "destination": "/v/index.html" },
     { "source": "/painel", "destination": "/painel/index.html" },
     { "source": "/painel/(.*)", "destination": "/painel/$1" },
+    { "source": "/financing", "destination": "/financing.html" },
+    { "source": "/financing/", "destination": "/financing.html" },
     { "source": "/(.*)", "destination": "/msc-calculadora.html" }
   ]
 }
