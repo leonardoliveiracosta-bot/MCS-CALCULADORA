@@ -168,7 +168,7 @@ test('fonte única: calculadora, site e painel usam o calc-core e não há outra
 test('cache: site e calculadora carregam a mesma versão do calc-core', () => {
   const siteSrc = site.match(/<script src="\/?(calc-core\.js[^"]*)"><\/script>/)[1];
   const calcSrc = calculator.match(/<script src="\/?(calc-core\.js[^"]*)"><\/script>/)[1];
-  assert.equal(siteSrc, 'calc-core.js?v=envio-titulo-20261007');
+  assert.equal(siteSrc, 'calc-core.js?v=onde-vai-20261007');
   assert.equal(calcSrc, siteSrc);
   assert.equal((site.match(/calc-core\.js/g) || []).length - (site.match(/\(calc-core\.js\)/g) || []).length, 1, 'uma única tag no site');
 });
