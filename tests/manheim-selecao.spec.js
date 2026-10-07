@@ -4,7 +4,7 @@
 // handlers reais contra um banco PGlite: três abas (grupos) por demanda, 25 carros por vez (nunca todos),
 // selecionar três, contador "3 de 10 selecionados" e percentual ajustado mudando o valor na hora. Depois,
 // o complemento do lote ativo pelo botão: conta, pede confirmação e reagrupa. O PDF dos selecionados fica
-// na barra da tela; o PDF de todos os compatíveis fica na ficha (DADOS E HISTÓRICO). Nada sai da máquina.
+// na barra da tela. Nada sai da máquina.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-selecao.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
@@ -311,21 +311,3 @@ test('Baixar PDF: imprime os carros selecionados, também depois de recarregar a
   expect(errors).toEqual([]);
 });
 
-test('Baixar PDF na ficha: imprime todos os compatíveis do lote', async ({ page }) => {
-  const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
-  await openPanel(page);
-  await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  const screen = await openOptionsScreen(page, { mode: 'CARRO', realLead: true });
-  await expect(screen.locator('.oc-act .oc-count')).toContainText('selecionados', { timeout: 60000 });
-  // The PDF of every compatible car stays in the ficha (DADOS E HISTÓRICO), opened from the screen.
-  await screen.getByRole('button', { name: 'Abrir ficha completa' }).click();
-  const lead = page.locator('#detail-panel #lead-history');
-  const button = lead.getByRole('button', { name: 'Baixar PDF' });
-  await expect(button).toBeVisible({ timeout: 30000 });
-  await expect(lead).toContainText('PDF com todos os compatíveis do lote');
-  const body = await printedPdf(page, () => button.click());
-  // Every compatible car of the batch goes in (the ficha's shortlist), not only the selected ones.
-  expect(body.vehicles.length).toBeGreaterThan(1);
-  expect(errors).toEqual([]);
-});

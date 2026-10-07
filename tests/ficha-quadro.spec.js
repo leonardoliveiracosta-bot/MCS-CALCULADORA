@@ -90,7 +90,7 @@ for (const width of [1280, 390]) {
     expect(boxes.quick.top).toBeGreaterThanOrEqual(boxes.meta.bottom);
     expect(boxes.quick.bottom).toBeLessThanOrEqual(boxes.head.bottom);
     expect(boxes.quick.top - boxes.meta.bottom).toBeLessThan(40);
-    if (SHOTS) { await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: path.join(SHOTS, `ficha-quadro-${width}.png`) }); }
+    if (SHOTS) { await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: path.join(SHOTS, `ficha-quadro-${width}.png`), fullPage: true }); }
     // Anotações: write, Inserir, and the note shows right there (saved; nothing else is touched).
     await card.getByRole('button', { name: 'Anotações' }).click();
     await card.locator('.lead-quick-note-text').fill(`Ligou pedindo SUV até 30 mil (${width})`);
