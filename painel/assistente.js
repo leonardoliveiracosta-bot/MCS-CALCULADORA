@@ -156,7 +156,7 @@
     actions.append(yes, no);
     card.append(actions, status);
     log.append(card); log.scrollTop = log.scrollHeight;
-    const done = () => { yes.disabled = true; no.disabled = true; card.classList.add('assistant-proposal-done'); };
+    const done = () => { yes.hidden = true; no.hidden = true; card.classList.add('assistant-proposal-done'); };
     yes.addEventListener('click', async () => {
       done(); status.textContent = 'Executando…';
       try {

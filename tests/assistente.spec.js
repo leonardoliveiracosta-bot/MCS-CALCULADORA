@@ -104,6 +104,8 @@ test('ação que grava: botão laranja, executa pelo caminho normal, Desfazer vo
   await go.click();
   await expect.poll(() => calls.options.map((o) => o.action).join()).toBe('select');
   expect(calls.options[0].matchId).toBe(MATCH);
+  await expect(card.getByRole('button', { name: 'Desfazer' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Autorizar e gravar' })).toBeHidden();
   await card.getByRole('button', { name: 'Desfazer' }).click();
   await expect.poll(() => calls.options.map((o) => o.action).join()).toBe('select,remove');
   // Stale data: nothing runs and the assistant is asked for a new proposal.
