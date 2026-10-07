@@ -205,7 +205,7 @@ nav[aria-label="Seções do painel"]{
 .options-client .oc-ref { margin-left: 8px; font-size: 13px; font-weight: 600; letter-spacing: .08em; color: var(--mcs-gold-text, #8A6516); }
 .options-client .oc-contact { margin: 2px 0 0; }
 .options-client .oc-phone { color: inherit; }
-.options-client .oc-full { text-decoration: underline; }
+.options-client .oc-full, .options-client .oc-share { text-decoration: underline; }
 .options-client .oc-ask { display: flex; flex-wrap: wrap; gap: 12px 28px; padding: 14px 24px; background: var(--mcs-elevated, #F4F4F5); border-bottom: 1px solid var(--mcs-line, #E4E4E7); }
 .options-client .oc-fact { display: flex; flex-direction: column; min-width: 0; }
 .options-client .oc-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--mcs-muted, #52525B); margin-bottom: 3px; }
