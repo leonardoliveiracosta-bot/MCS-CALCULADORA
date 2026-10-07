@@ -546,12 +546,6 @@
    ]
   },
   {
-   "name": "lead-units",
-   "usedBy": [
-    "painel/lead.js"
-   ]
-  },
-  {
    "name": "login-error",
    "usedBy": [
     "painel/painel.js",
@@ -1318,12 +1312,6 @@
    ]
   },
   {
-   "name": "ask-row",
-   "usedBy": [
-    "painel/lead.js"
-   ]
-  },
-  {
    "name": "attend-bulk",
    "usedBy": [
     "painel/painel.js"
@@ -1577,18 +1565,6 @@
    ]
   },
   {
-   "name": "context-last",
-   "usedBy": [
-    "painel/lead.js"
-   ]
-  },
-  {
-   "name": "context-older",
-   "usedBy": [
-    "painel/lead.js"
-   ]
-  },
-  {
    "name": "count-positive",
    "usedBy": [
     "painel/painel.js"
@@ -1734,12 +1710,6 @@
    ]
   },
   {
-   "name": "lead-context-link",
-   "usedBy": [
-    "painel/lead.js"
-   ]
-  },
-  {
    "name": "lead-detail",
    "usedBy": [
     "painel/lead.js",
@@ -1763,12 +1733,6 @@
    "name": "lead-message",
    "usedBy": [
     "tests/marcacao-modo.spec.js"
-   ]
-  },
-  {
-   "name": "lead-one",
-   "usedBy": [
-    "painel/lead.js"
    ]
   },
   {
@@ -2812,9 +2776,7 @@
    "journey-label",
    "last-whatsapp-import",
    "lead-conversation",
-   "lead-history",
    "lead-manual-date-",
-   "lead-units",
    "login-error",
    "login-form",
    "login-retry",
@@ -2964,9 +2926,6 @@
    "ai-route-title",
    "ai-summary",
    "alert",
-   "ask-count",
-   "ask-row",
-   "ask-text",
    "attachment-choice",
    "attend-bulk",
    "attend-bulk-clear",
@@ -2998,7 +2957,6 @@
    "calc-candidates",
    "calc-queue",
    "calc-reason",
-   "calculator-news",
    "capture-warning",
    "card",
    "card-action-result",
@@ -3067,10 +3025,6 @@
    "contact-subject-label",
    "context-caption",
    "context-evidence",
-   "context-last",
-   "context-last-label",
-   "context-older",
-   "context-presented",
    "conversation-controls",
    "conversation-timeline",
    "count-positive",
@@ -3145,11 +3099,8 @@
    "lead-badges",
    "lead-call",
    "lead-card",
-   "lead-check",
    "lead-clock",
-   "lead-context-link",
    "lead-detail",
-   "lead-grid",
    "lead-head-name",
    "lead-head-right",
    "lead-header",
@@ -3160,20 +3111,14 @@
    "lead-manual-date",
    "lead-message",
    "lead-note",
-   "lead-one",
    "lead-phone",
-   "lead-question",
    "lead-ref-note",
    "lead-review",
    "lead-route",
    "lead-route-value",
    "lead-score",
-   "lead-steps",
    "lead-thread",
-   "lead-timeline",
    "lead-top-anchor",
-   "lead-two",
-   "lead-unit",
    "login-screen",
    "login-view",
    "manheim-append",
