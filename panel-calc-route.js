@@ -1,9 +1,9 @@
 'use strict';
 // Toda mensagem da calculadora termina em exatamente um destino (panel_calc_message_route), retomável e idempotente:
-//   1. Ref escrita ("Ref: XXXXX") -> a ficha dessa Ref (se a Ref é de outro contato, ou de várias fichas: fila). A Ref também
-//      passa pela checagem de contradição: o nome ou o carro da mensagem contra o que a ficha já sabe por outras fontes
-//      (contato, outras simulações, outras mensagens da calculadora); qualquer divergência vai para "Confirmar vínculo".
-//   2. sem Ref legível (ou Ref ainda sem ficha) -> o telefone: uma ficha e zero contradição de nome/carro liga
+//   1. Ref escrita ("Ref: XXXXX") -> a ficha dessa Ref, sempre. Nome ou carro diferente do que a ficha já sabe não segura a
+//      mensagem: fica só anotado na evidência (a ficha mostra "Nome na calculadora"). Ref de ficha de outro contato também
+//      liga, com a marca refOutroContato na evidência. Só a Ref em várias fichas (ambígua) vai para a fila.
+//   2. sem Ref legível (ou Ref ainda sem ficha) -> o telefone: uma ficha só liga
 //   3. telefone sem ficha -> ficha nova
 //   4. o resto -> fila dela, com motivo escrito e evidência (candidatas, Ref, telefone)
 // Similaridade (carro, valor, horário) nunca liga nada sozinha. "Ref: -----" nunca vira Ref.
@@ -14,12 +14,12 @@ const phoneLink = require('./panel-phone-link');
 const RULE_VERSION = 1;
 const REASONS = {
   REF_ENCONTRADA: 'A Ref escrita na mensagem é desta ficha',
-  REF_DE_OUTRO_CONTATO: 'A Ref escrita na mensagem é da ficha de outro contato: confirme quem é',
+  REF_DE_OUTRO_CONTATO: 'A Ref escrita na mensagem é da ficha de outro contato',
   REF_EM_VARIAS_FICHAS: 'A Ref escrita na mensagem aparece em mais de uma ficha',
-  TELEFONE_FICHA_UNICA: 'Sem Ref legível: o telefone tem uma ficha só e nada contradiz',
+  TELEFONE_FICHA_UNICA: 'Sem Ref legível: o telefone tem uma ficha só',
   FICHA_NOVA_TELEFONE_NOVO: 'Telefone sem ficha: ficha nova criada',
   FILA_VARIAS_FICHAS: 'O telefone tem mais de uma ficha: escolha a ficha (nada foi escolhido sozinho)',
-  FILA_CONTRADICAO: 'Telefone igual, mas o nome (diferente ou sem como conferir) ou o carro não bate com a única ficha do telefone: confirme o vínculo',
+  FILA_CONTRADICAO: 'Telefone igual, mas o nome ou o carro não bate com a única ficha do telefone (regra antiga: hoje liga)',
   SEM_CONTATO: 'A conversa não tem contato nem telefone para seguir',
   REF_ILEGIVEL: 'Ref ilegível na origem ("Ref: -----"): seguiu pelo telefone'
 };
@@ -33,18 +33,17 @@ function decide({ parsed, refOwners = [], contactId = null, fichas = [], linked 
     const owners = [...new Map(refOwners.map((owner) => [owner.id, owner])).values()];
     if (owners.length > 1) return { ...base, destination: 'FILA', reason: 'REF_EM_VARIAS_FICHAS', journeyId: null, unlinkAuto: true, evidence: { ...evidence, candidates: owners.map((owner) => owner.id) } };
     const [owner] = owners;
-    if (contactId && owner.contact_id && owner.contact_id !== contactId) return { ...base, destination: 'FILA', reason: 'REF_DE_OUTRO_CONTATO', journeyId: null, unlinkAuto: true, evidence: { ...evidence, candidates: [owner.id, ...fichas.map((ficha) => ficha.id)] } };
-    // Second way: the Ref proves the simulation, the name and the car must agree with the ficha that owns it. A ficha that
-    // knows no name has nothing to contradict here (the Ref is the proof); a different name or car never joins by itself.
+    // The Ref at the end of the message is the proof: it always joins the ficha that owns it. A different name or car, or a
+    // ficha of another contact, is only written down (the ficha shows the calculator's name as information).
     const conflicts = [phoneLink.nameConflict(parsed.name, { ...owner, sameChat: true }), phoneLink.carContradicts(parsed.vehicle, owner) && 'carro'].filter(Boolean);
-    if (conflicts.length) return { ...base, destination: 'FILA', reason: 'FILA_CONTRADICAO', journeyId: null, unlinkAuto: true, evidence: { ...evidence, via: 'REF', conflicts, candidates: [owner.id] } };
-    return { ...base, destination: 'LIGADA_REF', reason: 'REF_ENCONTRADA', journeyId: owner.id, link: true };
+    const otherContact = Boolean(contactId && owner.contact_id && owner.contact_id !== contactId);
+    return { ...base, evidence: { ...evidence, ...(conflicts.length ? { conflicts } : {}), ...(otherContact ? { refOutroContato: true } : {}) }, destination: 'LIGADA_REF', reason: 'REF_ENCONTRADA', journeyId: owner.id, link: true };
   }
-  // No readable Ref, or a Ref no ficha owns yet: the phone decides (one ficha, zero contradiction).
+  // No readable Ref, or a Ref no ficha owns yet: the phone decides (one ficha joins).
   if (!contactId) return { ...base, destination: 'FILA', reason: 'SEM_CONTATO', journeyId: null };
   const verdict = phoneLink.decide({ fichas, values: { name: parsed.name, message: parsed.vehicle } });
   const ilegivel = parsed.refState === 'REF_ILEGIVEL' ? { refIlegivel: true } : {};
-  if (verdict.action === 'LINK') return { ...base, evidence: { ...evidence, ...ilegivel }, destination: 'LIGADA_TELEFONE', reason: 'TELEFONE_FICHA_UNICA', journeyId: verdict.journeyId, link: true };
+  if (verdict.action === 'LINK') return { ...base, evidence: { ...evidence, ...ilegivel, ...(verdict.conflicts && verdict.conflicts.length ? { conflicts: verdict.conflicts } : {}) }, destination: 'LIGADA_TELEFONE', reason: 'TELEFONE_FICHA_UNICA', journeyId: verdict.journeyId, link: true };
   if (verdict.action === 'QUARANTINE') return { ...base, evidence: { ...evidence, ...ilegivel }, destination: 'NOVA_FICHA', reason: 'FICHA_NOVA_TELEFONE_NOVO', journeyId: null, create: true };
   return { ...base, evidence: { ...evidence, ...ilegivel, conflicts: verdict.conflicts || [] }, destination: 'FILA', reason: verdict.reason, journeyId: null, unlinkAuto: true };
 }

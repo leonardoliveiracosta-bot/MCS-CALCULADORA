@@ -155,12 +155,11 @@ test('print antigo pendente é resolvido quando outro print da mesma Ref é conf
   assert.ok(!calls.some((call) => call.rpc === 'panel_sms_print_confirm'));
 });
 
-test('print com a Ref de uma ficha de outro nome: não guarda sozinho, oferece Confirmar vínculo com os dois lados', async () => {
+test('print com a Ref de uma ficha de outro nome: guarda na ficha da Ref, sem Confirmar vínculo', async () => {
   const { ctx, calls } = world();
   const out = await confirm(ctx, printRecord(), { auto: true, phone: '', name: 'Tremel Jones', ref: 'CG8LN', message: OTHER });
-  assert.equal(out.code, 202);
-  assert.equal(out.payload.queue, 'FILA_CONTRADICAO');
-  assert.equal(out.payload.confirm.journeyId, JOURNEY);
-  assert.equal(out.payload.confirm.printName, 'Tremel Jones');
-  assert.ok(!calls.some((call) => call.rpc === 'panel_sms_print_confirm'));
+  assert.equal(out.code, 201);
+  assert.equal(out.payload.review, undefined);
+  const call = calls.find((item) => item.rpc === 'panel_sms_print_confirm');
+  assert.equal(call.body.p_target_journey, JOURNEY);
 });

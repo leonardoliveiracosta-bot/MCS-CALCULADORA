@@ -25,13 +25,14 @@ test('duas ou mais fichas: fila com as candidatas, nada escolhido sozinho', () =
   assert.equal(decision.journeyId, undefined);
 });
 
-test('contradição de nome ou de carro vai para a fila com o motivo', () => {
+test('nome ou carro diferente com uma ficha só: liga e devolve a diferença só como informação', () => {
   const name = link.decide({ fichas: [ficha('a', 'Ivan Silva', '')], values: { name: 'Maria Souza' } });
-  assert.deepEqual([name.action, name.reason, name.conflicts], ['QUEUE', 'FILA_CONTRADICAO', ['nome']]);
+  assert.deepEqual([name.action, name.journeyId, name.conflicts], ['LINK', 'a', ['nome']]);
   const car = link.decide({ fichas: [ficha('a', 'Ivan', 'Toyota Camry')], values: { name: 'Ivan', message: 'I want a Dodge Charger' } });
-  assert.deepEqual(car.conflicts, ['carro']);
+  assert.deepEqual([car.action, car.conflicts], ['LINK', ['carro']]);
   const unknown = link.decide({ fichas: [ficha('a', 'Ivan', '')], values: { name: '', message: 'Dodge' } });
   assert.equal(unknown.action, 'LINK');
+  assert.equal(unknown.conflicts, undefined);
 });
 
 test('o motivo guarda os candidatos e volta igual', () => {
@@ -40,17 +41,13 @@ test('o motivo guarda os candidatos e volta igual', () => {
   assert.deepEqual(link.parse(null), { code: null, candidates: [] });
 });
 
-test('telefone igual, nome diferente: nunca junta sozinho, nem quando a ficha não tem nome para conferir', () => {
+test('telefone igual, nome diferente ou sem como conferir: liga mesmo assim (nada de Confirmar vínculo)', () => {
   // The Dante case: an SMS simulation, a WhatsApp ficha whose contact name is the phone itself.
   const unknown = link.decide({ fichas: [{ id: 'a', contactName: '+18723640049', vehicleText: '' }], values: { name: 'Dante' } });
-  assert.deepEqual([unknown.action, unknown.reason, unknown.conflicts], ['QUEUE', 'FILA_CONTRADICAO', ['nome-desconhecido']]);
-  // A Ref code saved as the name is no name either.
-  assert.equal(link.decide({ fichas: [{ id: 'a', contactName: 'V5XVS', vehicleText: '' }], values: { name: 'Filiberto' } }).action, 'QUEUE');
-  // "Philly" is not "Phillip Fleming": a different name.
+  assert.deepEqual([unknown.action, unknown.journeyId, unknown.conflicts], ['LINK', 'a', ['nome-desconhecido']]);
+  assert.equal(link.decide({ fichas: [{ id: 'a', contactName: 'V5XVS', vehicleText: '' }], values: { name: 'Filiberto' } }).action, 'LINK');
   assert.deepEqual(link.decide({ fichas: [ficha('a', 'Philly', '')], values: { name: 'Phillip Fleming' } }).conflicts, ['nome']);
-  // A name the ficha already knows from its calculator messages joins.
-  assert.equal(link.decide({ fichas: [{ id: 'a', contactName: 'V5XVS', names: ['Filiberto Velazquez'], vehicleText: '' }], values: { name: 'Filiberto Velazquez' } }).action, 'LINK');
-  assert.equal(link.decide({ fichas: [ficha('a', 'Tyreek Eazy Thompson', '')], values: { name: 'Tyreek Thompson' } }).action, 'LINK');
-  // The same chat as the ficha (its own WhatsApp conversation) with no name on the ficha: nothing to contradict.
-  assert.equal(link.decide({ fichas: [{ id: 'a', contactName: '+18723640049', sameChat: true, vehicleText: '' }], values: { name: 'Dante' } }).action, 'LINK');
+  // The name check itself is unchanged (still used as information).
+  assert.equal(link.nameConflict('Tyreek Thompson', ficha('a', 'Tyreek Eazy Thompson', '')), null);
+  assert.equal(link.nameConflict('Dante', { id: 'a', contactName: '+18723640049', sameChat: true }), null);
 });
