@@ -3967,7 +3967,27 @@
     who.append(name, line);
     const full = element('button', 'quiet small oc-full', 'Abrir ficha completa'); full.type = 'button';
     full.addEventListener('click', () => openQueueDetail(demand, person));
-    top.append(back, who, full);
+    // Link for the client: every car of this request in the active batch, no price, no auction name, VIN without the
+    // last 6 (/o/<código>, always the same link for the same request).
+    const share = element('button', 'quiet small oc-share', 'Copiar link das opções'); share.type = 'button'; share.dataset.action = 'options-link';
+    share.addEventListener('click', async () => {
+      share.disabled = true; share.textContent = 'Gerando link…';
+      try {
+        const out = await request('/api/panel/option-link', { method: 'POST', body: JSON.stringify({ key: demand.key }) });
+        const url = location.origin + out.path;
+        try { await navigator.clipboard.writeText(url); share.textContent = 'Link copiado'; }
+        catch (_) {
+          // The browser refused the clipboard: the link shows next to the button, selected, to copy by hand.
+          const field = top.querySelector('.oc-share-url') || element('input', 'oc-share-url');
+          field.readOnly = true; field.value = url; field.setAttribute('aria-label', 'Link das opções para o cliente');
+          if (!field.isConnected) share.after(field);
+          field.focus(); field.select(); share.textContent = 'Copie o link ao lado';
+        }
+      } catch (_) { share.textContent = 'Não consegui gerar o link'; }
+      share.disabled = false;
+      setTimeout(() => { if (share.isConnected) share.textContent = 'Copiar link das opções'; }, 2500);
+    });
+    top.append(back, who, share, full);
     // 2. What the client asked, with the V1/V2 already sent.
     const ask = element('div', 'oc-ask');
     const fact = (label, value) => { const box = element('div', 'oc-fact'); box.append(element('span', 'oc-label', label), element('strong', '', value)); return box; };

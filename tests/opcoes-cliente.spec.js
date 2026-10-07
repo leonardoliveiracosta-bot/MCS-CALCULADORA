@@ -63,6 +63,7 @@ async function openPanel(page, { width = 1366, calls }) {
       const body = JSON.parse(request.postData() || '{}'); if (['select', 'remove'].includes(body.action)) calls.posts.push(body);
       return json({ status: body.action === 'select' ? 'SELECTED' : 'AVAILABLE', manual: body.action === 'select' && Boolean(body.reason), manualReason: body.reason || null, manualPct: null, finalCents: 2788000, note: null, selectedCount: body.action === 'select' ? 1 : 0 });
     }
+    if (url.pathname === '/api/panel/option-link' && request.method() === 'POST') { calls.links = (calls.links || []).concat(JSON.parse(request.postData() || '{}')); return json({ code: 'c'.repeat(43), path: '/o/' + 'c'.repeat(43) }); }
     if (url.pathname === '/api/panel/lead') return json({ ref: 'AMQV5', record: { id: JJ.id, stage: 'RESPONDIDO', contact: { display_name: 'JJ' }, phones: [], attachments: [], returns: [], conversation: [], units: [] }, order: null, notes: [], events: [], promises: [], checklist: [], wishes: [], typical: [], offers: [], fits: [], calculatorNews: [], ai: { reading: null, suggestion: null }, aiHelp: [] });
     return json({ items: [], orders: [], matches: [], groups: [], chats: [], reviews: [], requests: [], demands: [], v1: {}, v2: {}, meta: {} });
   });
@@ -184,4 +185,22 @@ test('Opções do cliente: Montar V2 liberado depois do toque na V1; no celular 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   expect(errors).toEqual([]);
+});
+
+test('Copiar link das opções: um toque copia o link do pedido para mandar ao cliente', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+  const calls = { pages: [], posts: [] };
+  await openPanel(page, { calls });
+  await page.locator('#options-queue .options-queue-card', { hasText: 'JJ' }).click();
+  const screen = page.locator('#options-client');
+  await expect(screen.locator('.oc-row').first()).toBeVisible({ timeout: 30000 });
+  const share = screen.locator('.oc-share');
+  await expect(share).toHaveText('Copiar link das opções');
+  await share.click();
+  await expect(share).toHaveText('Link copiado');
+  expect(calls.links).toEqual([{ key: `journey:${JJ.id}:CARRO` }]);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(base + '/o/' + 'c'.repeat(43));
+  // Nothing else changes on the screen (no new step on the common path).
+  await expect(screen.locator('.oc-share-url')).toHaveCount(0);
+  await expect(share).toHaveText('Copiar link das opções', { timeout: 5000 });
 });
