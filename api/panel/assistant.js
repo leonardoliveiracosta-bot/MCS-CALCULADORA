@@ -28,7 +28,11 @@ const SYSTEM = [
   'Quem fala com você é a Leo, dona da empresa e única operadora. Responda em português, curto e direto, sem enrolação.',
   'Abas: ATENDER AGORA (quem responder agora), V1 e V2 (vitrines enviadas: V1 é o link simples com "Show me this car", V2 é o detalhado com "I want to bid"), BUSCAR CARROS, ENVIAR OPÇÕES (fila de quem tem carros do lote para receber V1), IMPORTAÇÕES (CSV do Manheim) e Configurações.',
   'Busca POR CARRO: carro + anos + milhas. POR VALOR: carro + lance máximo. Carro com leilão passado sai sozinho das opções e da seleção.',
-  'Use as funções para ler o painel antes de responder; nunca invente dado. Se não achar, diga que não achou.',
+  'REGRA PRINCIPAL: a ÚLTIMA mensagem da Leo é a tarefa atual e tem prioridade absoluta. Identifique primeiro o pedido atual. Histórico e telemetria servem apenas para cumprir esse pedido; nunca continue a tarefa anterior quando a última mensagem iniciou outra.',
+  'Se a Leo enviar lista, checklist, auditoria ou instrução com vários itens, trate como nova tarefa completa. Não responda usando só o erro técnico anterior.',
+  'Use as funções para ler o painel antes de responder quando a pergunta depender de dados; nunca invente dado. Se não achar, diga que não achou.',
+  'Não confunda sintoma com causa. Request lento prova lentidão, não prova a causa. Só diga identifiquei a causa quando houver evidência da causa específica.',
+  'Antes de responder, confira se a resposta atende diretamente a última mensagem da Leo. Se não atender, corrija antes de entregar.'
   'Para fazer algo (abrir ficha, abrir aba, voltar, recarregar, selecionar ou remover carro, gerar V1, comparar de novo, registrar chamado), chame propor_acao: a Leo vê a proposta e autoriza com um toque. Uma ação por vez. Você nunca fala com cliente.',
   'Quando algo não funcionou, use o contexto. Nunca diga que virou chamado antes da Leo autorizar. Se precisar, proponha registrar_chamado uma única vez.',
   'FORMATO: responda sempre só o JSON pedido. tipo "ler" para consultar o painel (funcao + argumentos); o resultado volta na mensagem seguinte. tipo "propor" para uma ação (acao + argumentos; texto = frase curta para a Leo). tipo "responder" para a resposta final em texto.',
@@ -385,6 +389,26 @@ function cleanContext(context) {
   const actions = Array.isArray(c.actions) ? c.actions.slice(-20).map((a) => Object.fromEntries(Object.entries(a || {}).filter(([k, v]) => ['kind', 'action', 'label', 'view', 'path', 'method', 'status', 'code', 'ms', 'at', 'message', 'disabled'].includes(k) && ['string', 'number', 'boolean'].includes(typeof v)).map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 300) : v]))) : [];
   return { view: safeText(c.view, 40) || null, version: safeText(c.version, 80) || null, detail: safeText(c.detail, 120) || null, actions };
 }
+const TECHNICAL_FOLLOWUP = /^(identifique|investigue|continue|aprofund|qual .*causa|por que|porque|o que aconteceu|isso quebrou|esta quebrado|está quebrado)/i;
+const NEW_TASK_HINT = /(?:verifique|confira|audite|analise|faça|faca|crie|corrija|procure|liste|compare|execute|preciso|quero|o que precisa conferir|todo botão|toda tela|listas grandes)/i;
+function currentIntent(message) {
+  const text = String(message || '').trim();
+  const numbered = /(?:^|\n)\s*\d+[.)]\s+/m.test(text);
+  const multiLine = text.split(/\n/).filter((line) => line.trim()).length >= 4;
+  const explicitNewTask = NEW_TASK_HINT.test(text) || numbered || multiLine || text.length > 450;
+  return { explicitNewTask, technicalFollowup: !explicitNewTask && TECHNICAL_FOLLOWUP.test(text), numbered, multiLine };
+}
+function relevantHistory(history, message) { return currentIntent(message).explicitNewTask ? [] : history; }
+function responseAnswersCurrent(message, reply) {
+  const intent = currentIntent(message), text = String(reply || '').trim();
+  if (!text) return false;
+  if (intent.numbered) {
+    const requested = (String(message).match(/(?:^|\n)\s*\d+[.)]\s+/gm) || []).length;
+    const covered = (text.match(/(?:^|\n)\s*\d+[.)]\s+/gm) || []).length;
+    if (requested >= 3 && covered === 0 && text.length < 300) return false;
+  }
+  return true;
+}
 const event = (ctx, s, type, extra = {}) => s.insert(ctx, 'panel_assistant_events', { environment: ctx.environment, created_by: ctx.panel?.id || null, event_type: type, ...extra }, false).catch(() => null);
 
 async function chat(ctx, body, services = {}) {
@@ -392,8 +416,11 @@ async function chat(ctx, body, services = {}) {
   const message = safeText(body && body.message, 2000);
   if (!message) return { error: 'ASSISTANT_MESSAGE_REQUIRED' };
   const context = cleanContext(body.context);
-  const history = Array.isArray(body.history) ? body.history.slice(-12).filter((h) => h && (h.role === 'user' || h.role === 'assistant') && typeof h.content === 'string').map((h) => ({ role: h.role, content: h.content.slice(0, 2000) })) : [];
-  const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: JSON.stringify({ tela_atual: context.view ? VIEWS[context.view] || context.view : null, ficha_aberta: context.detail, ultimas_acoes: context.actions, mensagem: message }) }];
+  const rawHistory = Array.isArray(body.history) ? body.history.slice(-12).filter((h) => h && (h.role === 'user' || h.role === 'assistant') && typeof h.content === 'string').map((h) => ({ role: h.role, content: h.content.slice(0, 2000) })) : [];
+  const intent = currentIntent(message);
+  const history = relevantHistory(rawHistory, message);
+  const telemetry = intent.explicitNewTask ? [] : context.actions;
+  const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: JSON.stringify({ tarefa_atual: message, nova_tarefa: intent.explicitNewTask, tela_atual: context.view ? VIEWS[context.view] || context.view : null, ficha_aberta: context.detail, telemetria_relevante: telemetry, regra: 'Responda a tarefa_atual. Não continue assunto anterior salvo se tarefa_atual pedir isso.' }) }];
   const budget = s.budget || openAiBudget;
   const guard = budget.guard ? budget.guard(ctx, 'ASSISTENTE', 'chat:' + (ctx.panel?.id || '-'), s.budgetServices) : null;
   let cost = 0;
@@ -423,7 +450,11 @@ async function chat(ctx, body, services = {}) {
         continue;
       }
       const text = safeText(stepOut.texto, 4000) || 'Não consegui responder agora';
-      await event(ctx, s, 'PERGUNTA', { payload: { message, reply: text }, cost_usd: cost });
+      if (!responseAnswersCurrent(message, text) && round + 1 < MAX_ROUNDS) {
+        messages.push({ role: 'user', content: 'CORREÇÃO OBRIGATÓRIA: a resposta anterior não respondeu à tarefa atual. Ignore o assunto anterior e responda exatamente ao pedido: ' + message.slice(0, 1800) });
+        continue;
+      }
+      await event(ctx, s, 'PERGUNTA', { payload: { message, reply: text, intent }, cost_usd: cost });
       return { reply: text, proposal: null };
     }
     return { reply: 'Não consegui concluir agora · tente perguntar de outro jeito', proposal: null };
@@ -528,3 +559,6 @@ module.exports.severityOf = severityOf;
 module.exports.buildProposal = buildProposal;
 module.exports.recordEvent = recordEvent;
 module.exports.READERS = READERS;
+module.exports.currentIntent = currentIntent;
+module.exports.relevantHistory = relevantHistory;
+module.exports.responseAnswersCurrent = responseAnswersCurrent;

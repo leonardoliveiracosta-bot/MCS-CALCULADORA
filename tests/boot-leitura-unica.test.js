@@ -44,7 +44,9 @@ test('caminho comum fora do boot: cada chamada vai ao banco, como antes (nada gu
 
 test('ENVIAR OPÇÕES e PESQUISAS: as leituras do lote usam a leitura única e começam junto com a base', () => {
   const view = read('panel-buscas-view.js');
-  assert.match(view, /async function batchSummary\(ctx, uploadId, call = readRpc\)/);
+  assert.match(view, /async function batchSummary\(ctx, uploadId, call = readRpc, overviewRead = null\)/);
+  assert.match(view, /readRpc\(ctx, 'panel_manheim_batch_overview'/);
+  // Before the migration, the three functions answer as before.
   assert.match(view, /readRpc\(ctx, 'panel_manheim_offer_summary'/);
   assert.match(view, /readRpc\(ctx, 'panel_manheim_batch_cars'/);
   // The batch reads start before the base is awaited.
@@ -60,4 +62,35 @@ test('ficha: o resumo do lote usa a visão que o painel já tem (60 s) e só rel
   const summary = js.slice(js.indexOf('async function renderFichaOffersSummary'), js.indexOf('// ===== Opções do cliente · PDF e V1 ====='));
   assert.match(summary, /fresh \? request\('\/api\/panel\/records\?view=manheim'\) : sharedGet\('\/api\/panel\/records\?view=manheim', 60000\)/);
   assert.match(summary, /renderFichaOffersSummary\(container, \{ journeyId, ref, kind, key \}, true\)/);
+});
+
+// panel-buscas-view loaded with a simulated database function call (nothing reaches a database).
+function viewWith(rpc) {
+  const root = path.join(__dirname, '..'), file = path.join(root, 'panel-buscas-view.js'), mod = { exports: {} };
+  const mocks = { './panel-server': { ...server, rpc } };
+  const req = (name) => Object.hasOwn(mocks, name) ? mocks[name] : require(name.startsWith('.') ? path.resolve(root, name) : name);
+  new Function('require', 'module', 'exports', fs.readFileSync(file, 'utf8'))(req, mod, mod.exports);
+  return mod.exports;
+}
+
+test('visão única do lote: o resumo sai da chamada única; PESQUISAS e ENVIAR OPÇÕES dividem a mesma chamada no boot', async () => {
+  const calls = [];
+  const overview = { summary: [{ demand_key: 'journey:a:VALOR', match_count: 3 }], offer: [], cars: [] };
+  const view = viewWith(async (_ctx, name) => { calls.push(name); return overview; });
+  const boot = { ...ctx, readCache: new Map() };
+  const [first, second] = await Promise.all([view.batchSummary(boot, 'u1'), view.batchSummary(boot, 'u1')]);
+  assert.deepEqual(first, overview.summary);
+  assert.deepEqual(second, overview.summary);
+  assert.deepEqual(calls, ['panel_manheim_batch_overview']);
+});
+
+test('visão única ainda não aplicada no banco: o resumo vem da função de antes, como sempre', async () => {
+  const calls = [];
+  const view = viewWith(async (_ctx, name) => {
+    calls.push(name);
+    if (name === 'panel_manheim_batch_overview') throw Object.assign(new Error('Could not find the function'), { code: 'PGRST202' });
+    return [{ demand_key: 'journey:a:VALOR', match_count: 2 }];
+  });
+  assert.deepEqual(await view.batchSummary(ctx, 'u1'), [{ demand_key: 'journey:a:VALOR', match_count: 2 }]);
+  assert.deepEqual(calls, ['panel_manheim_batch_overview', 'panel_manheim_batch_summary_v2']);
 });

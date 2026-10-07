@@ -88,4 +88,23 @@ begin
     raise exception 'FALHA: editou carro de leilão passado';
   exception when others then if sqlerrm<>'MANHEIM_SALE_ENDED' then raise; end if; end;
 end $$;
+-- Visão única do lote (20261031030000): as mesmas respostas das três funções, para cada lote deste cenário.
+do $$
+declare u record; o jsonb; sorted text := 'select coalesce(jsonb_agg(x order by x::text), ''[]'') from jsonb_array_elements($1) x'; a jsonb; b jsonb; n int := 0;
+begin
+  for u in select distinct environment, upload_id from public.manheim_matches loop
+    o := public.panel_manheim_batch_overview(u.environment, u.upload_id);
+    execute sorted into a using o->'summary';
+    execute sorted into b using (select coalesce(jsonb_agg(to_jsonb(s)), '[]') from public.panel_manheim_batch_summary_v2(u.environment, u.upload_id) s);
+    if a is distinct from b then raise exception 'FALHA: resumo da visão única difere: % vs %', a, b; end if;
+    execute sorted into a using o->'offer';
+    execute sorted into b using (select coalesce(jsonb_agg(to_jsonb(s)), '[]') from public.panel_manheim_offer_summary(u.environment, u.upload_id) s);
+    if a is distinct from b then raise exception 'FALHA: seleção da visão única difere: % vs %', a, b; end if;
+    execute sorted into a using o->'cars';
+    execute sorted into b using (select coalesce(jsonb_agg(to_jsonb(s)), '[]') from public.panel_manheim_batch_cars(u.environment, array[u.upload_id]) s);
+    if a is distinct from b then raise exception 'FALHA: carros da visão única diferem: % vs %', a, b; end if;
+    n := n + 1;
+  end loop;
+  if n = 0 then raise exception 'FALHA: cenário sem lote para comparar a visão única'; end if;
+end $$;
 rollback;
