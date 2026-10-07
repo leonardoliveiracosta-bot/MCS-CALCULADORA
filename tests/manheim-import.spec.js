@@ -3,14 +3,14 @@
 // Importação do Manheim em lote único no navegador real, com os handlers reais do painel
 // (api/panel/*.js) contra um banco PGlite com todas as migrações. 19 CSVs sintéticos (~70 mil
 // linhas) escolhidos juntos; a rede cai num bloco do arquivo 13; o operador escolhe os mesmos
-// arquivos de novo e o envio continua de onde parou; o lote ativa inteiro de uma vez; BUSCAS abre
-// sem carros e mostra as opções 10 por vez. Nada sai da máquina.
+// arquivos de novo e o envio continua de onde parou; o lote ativa inteiro de uma vez; ENVIAR OPÇÕES abre
+// sem carros e a tela "Opções do cliente" mostra as opções 25 por vez. Nada sai da máquina.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-import.spec.js
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { openOptionsFicha } = require('./abrir-ficha-opcoes');
+const { openOptionsScreen } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { volumeFiles, volumeSeed } = require('./fixtures/manheim-volume');
 
@@ -93,20 +93,30 @@ test('19 arquivos viram um lote; a rede cai no arquivo 13 e o envio continua dos
   // The interrupted round never reached the activation: one activation, at the end.
   expect(log.filter((entry) => entry.key === 'finalize').length).toBe(1);
   await expect(page.locator('#manheim-batches')).toContainText('19 arquivos');
-  // OPÇÕES: the active batch, no car in the first answer, 10 options when a demand is opened.
+  // OPÇÕES: the active batch, no car in the first answer, 25 options when a client's screen is opened.
+  const pages = [];
+  page.on('request', (request) => { const url = new URL(request.url()); if (url.pathname === '/api/panel/manheim-options' && request.method() === 'GET') pages.push(Object.fromEntries(url.searchParams)); });
   await page.locator('[data-view="searches"]').click();
   await expect(page.locator('#manheim-summary')).toContainText('carro(s) analisado(s)', { timeout: 60000 });
   const { rows: [db] } = await backend.db.query(`select count(*)::int uploads, count(*) filter (where activated_at is not null)::int live, max(source_file_count)::int files from public.manheim_uploads`);
   expect(db).toEqual({ uploads: 1, live: 1, files: 19 });
+  // The queue reads only the batch summary: no page of cars before a client's screen opens.
+  await expect(page.locator('#options-queue .options-queue-card').first()).toBeVisible({ timeout: 60000 });
+  expect(pages, 'nenhum carro antes de abrir o cliente').toEqual([]);
   // v3.2: only a car with Lane/Run or Buy Now becomes a match. The synthetic CSVs have no Lane/Run, so the
-  // matches are the Buy Now ones (OFFLANE); in the ficha (#218) they load 10 at a time, never all.
-  const card = await openOptionsFicha(page, { mode: 'VALOR' });
-  await expect(card.locator('.manheim-row')).toHaveCount(0);
-  const offlane = card.locator('.offer-group[data-group="OFFLANE"]');
-  await offlane.locator('> summary').click();
-  await expect(offlane.locator('.manheim-row')).toHaveCount(10);
-  await offlane.locator('.manheim-options-toggle').click();
-  await expect(offlane.locator('.manheim-row')).toHaveCount(20);
+  // matches are the Buy Now ones (OFFLANE); in the client's screen they load 25 at a time, never all.
+  const screen = await openOptionsScreen(page, { mode: 'VALOR', realLead: true });
+  await expect(screen.locator('.oc-bar .oc-tab[data-group="LANE"]')).toHaveText('Lane/Run (0)');
+  const offlane = screen.locator('.oc-bar .oc-tab[data-group="OFFLANE"]');
+  await offlane.click();
+  await expect(offlane).toHaveClass(/\bon\b/);
+  const rows = screen.locator('.oc-list .oc-row');
+  await expect(rows).toHaveCount(25, { timeout: 60000 });
+  const total = Number((await offlane.textContent()).match(/\((\d+)\)/)[1]);
+  expect(total, 'mais carros do que uma página').toBeGreaterThan(50);
+  expect(pages.filter((item) => item.group).every((item) => item.group === 'OFFLANE' && item.limit === '25')).toBe(true);
+  await screen.locator('.oc-more .oc-more-button').click();
+  await expect(rows).toHaveCount(50);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'lote-ativo-1366.png'), fullPage: false });
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
@@ -116,13 +126,13 @@ test('390 px: BUSCAS do lote ativo cabe na tela, opções por página e alvos gr
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page, 390, []);
   await expect(page.locator('#manheim-summary')).toContainText('carro(s) analisado(s)', { timeout: 60000 });
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await card.locator('.offer-group[data-group="OFFLANE"] > summary').click();
-  await expect(card.locator('.manheim-row')).toHaveCount(10);
+  const screen = await openOptionsScreen(page, { mode: 'CARRO', realLead: true });
+  await screen.locator('.oc-bar .oc-tab[data-group="OFFLANE"]').click();
+  await expect(screen.locator('.oc-list .oc-row')).toHaveCount(25, { timeout: 60000 });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  const toggle = await card.locator('.offer-group[data-group="OFFLANE"] .manheim-options-toggle').boundingBox();
+  const toggle = await screen.locator('.oc-more .oc-more-button').boundingBox();
   expect(toggle.height).toBeGreaterThanOrEqual(32);
-  if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'lote-opcoes-390.png') });
+  if (SHOTS) await screen.screenshot({ path: path.join(SHOTS, 'lote-opcoes-390.png') });
   expect(errors).toEqual([]);
 });

@@ -7,6 +7,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-trim.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
+const { openOptionsScreen } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -78,37 +79,39 @@ async function openPanel(page, optionPages = []) {
 test('AUD-001 #57: seleção continua depois de reordenar o grupo (não volta ao retrato antigo)', async ({ page }) => {
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  // The options live in the ficha now: open it from the queue card (the client's screen, then the full ficha).
-  await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
-  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
-  const card = () => page.locator('#detail-panel .ficha-demand').first();
-  const group = () => card().locator('.offer-group[data-group="LANE"]');
-  await expect(group().locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
-  await group().locator('> summary').click();
-  const row = group().locator('.offer-row').first();
+  // The cars live in the client's options screen now (opened from the queue card); its first group loads by itself.
+  const screen = await openOptionsScreen(page, { realLead: true });
+  await expect(screen.locator('.oc-bar .oc-tab[data-group="LANE"]')).toHaveText(/\(25\)$/, { timeout: 60000 });
+  const item = screen.locator('.oc-list .oc-item').first();
+  const matchId = await item.locator('.oc-row').getAttribute('data-match-id');
+  // The car's own button, in the car opened under its line.
+  await item.locator('.oc-car').click();
+  const row = item.locator('.oc-detail .offer-row');
   await row.locator('[data-offer-action="select"]:visible').click();
   await expect(row).toHaveAttribute('data-status', 'SELECTED');
-  await expect(card().locator('.offer-counter')).toContainText('1 de 10');
-  // Reorder the group: the list is drawn again from the snapshot of the page.
-  await group().locator('.offer-sort-select').selectOption({ index: 1 });
-  await expect(card().locator('.offer-counter')).toContainText('1 de 10');
-  await group().locator('.offer-sort-select').selectOption({ index: 0 });
-  await expect(card().locator('.offer-counter')).toContainText('1 de 10');
+  const counter = screen.locator('.oc-act .oc-count');
+  await expect(counter).toContainText('1 de 10');
+  // The same car, wherever the new order puts it.
+  const box = screen.locator(`.oc-list .oc-row[data-match-id="${matchId}"] input[type="checkbox"]`);
+  // Reorder the group: the list is drawn again from the server.
+  await screen.locator('.oc-sort').selectOption({ index: 1 });
+  await expect(counter).toContainText('1 de 10');
+  await expect(box).toBeChecked();
+  await screen.locator('.oc-sort').selectOption({ index: 0 });
+  await expect(counter).toContainText('1 de 10');
+  await expect(box).toBeChecked();
 });
 
 test('AUD-001 #61: valor em dólar digitado e Selecionar logo em seguida grava o valor digitado', async ({ page }) => {
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-view="searches"]').click();
-  // The options live in the ficha now: open it from the queue card (the client's screen, then the full ficha).
-  await page.locator('#options-queue .options-queue-card').first().locator('.identity-name').click();
-  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
-  const card = page.locator('#detail-panel .ficha-demand').first();
-  const group = card.locator('.offer-group[data-group="LANE"]');
-  await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
-  await group.locator('> summary').click();
-  const row = group.locator('.offer-row').nth(2);
+  // The cars live in the client's options screen now (opened from the queue card); its first group loads by itself.
+  const screen = await openOptionsScreen(page, { realLead: true });
+  await expect(screen.locator('.oc-bar .oc-tab[data-group="LANE"]')).toHaveText(/\(25\)$/, { timeout: 60000 });
+  // The price and the select button are in the car opened under its line.
+  const item = screen.locator('.oc-list .oc-item').nth(2);
+  await item.locator('.oc-car').click();
+  const row = item.locator('.oc-detail .offer-row');
   const input = row.locator('.offer-final-label input');
   const current = Number((await input.inputValue()).replace(/\D/g, ''));
   const typed = current + 100; // one dollar more: not reachable by a percentage with two decimals

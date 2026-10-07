@@ -96,7 +96,7 @@ test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e 
   await expect(screen.locator('.oc-ask')).toContainText('V1: nenhuma · V2: nenhuma');
   await expect(screen.locator('.oc-bar .oc-tab')).toHaveText(['Lane/Run (114)', 'Buy Now / Make Offer (13)', 'Informação incompleta (0)']);
   // The 6 orders; default: fewer miles first.
-  await expect(screen.locator('.oc-sort option')).toHaveText(['Ano maior primeiro', 'Ano menor primeiro', 'Milhas menor primeiro', 'Milhas maior primeiro', 'MMR maior primeiro', 'MMR menor primeiro']);
+  await expect(screen.locator('.oc-sort option')).toHaveText(['Ano maior primeiro', 'Ano menor primeiro', 'Milhas menor primeiro', 'Milhas maior primeiro', 'MMR maior primeiro', 'MMR menor primeiro', 'Padrão (CR)']);
   await expect(screen.locator('.oc-sort')).toHaveValue('miles_asc');
   const rows = screen.locator('.oc-list .oc-row');
   await expect(rows).toHaveCount(25);
@@ -123,6 +123,16 @@ test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e 
   // JJ never tapped a V1 car: Montar V2 stays off, with the reason.
   await expect(act.getByRole('button', { name: 'Montar V2' })).toBeDisabled();
   await expect(act).toContainText('O Montar V2 fica liberado quando o cliente tocar em um carro da V1.');
+  // Tapping the line opens the car with everything the ficha had: price (% and US$), note, "Por que este carro", Manter fora.
+  await rows.first().locator('.oc-car').click();
+  const opened = screen.locator('.oc-list .oc-item').first().locator('.oc-detail');
+  await expect(opened).toBeVisible();
+  for (const text of ['Ajustado (%)', 'Valor para o cliente (US$)', 'Por que este carro (o cliente vê na V1)']) await expect(opened).toContainText(text);
+  await expect(opened.getByRole('button', { name: 'Manter fora' })).toBeVisible();
+  await expect(opened.locator('.offer-note')).toBeVisible();
+  await expect(rows.first().locator('.oc-client-price')).toContainText('Cliente');
+  await rows.first().locator('.oc-car').click();
+  await expect(opened).toBeHidden();
   // A new order starts the list again from the server.
   await screen.locator('.oc-sort').selectOption('year_desc');
   await expect.poll(() => calls.pages.at(-1).sort).toBe('year_desc');
@@ -132,13 +142,18 @@ test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e 
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Buy Now até');
   await expect(rows.first()).toContainText('PA - Manheim Pennsylvania');
-  // The box asks for the reason first and stays unchecked until the car goes in.
+  // The box opens the car with the reason field (manual inclusion) and stays unchecked until the car goes in.
+  const items = screen.locator('.oc-list .oc-item');
   await rows.first().locator('input[type="checkbox"]').click();
   await expect(rows.first().locator('input[type="checkbox"]')).not.toBeChecked();
-  await rows.first().locator('.oc-reason input').fill('Único com menos de 25 mil milhas');
-  await rows.first().getByRole('button', { name: 'Incluir' }).click();
+  await expect(items.first().locator('.oc-detail')).toBeVisible();
+  await items.first().locator('.oc-detail .offer-reason').fill('Único com menos de 25 mil milhas');
+  await items.first().getByRole('button', { name: 'Incluir manualmente' }).click();
   await expect(rows.first().locator('input[type="checkbox"]')).toBeChecked();
   expect(calls.posts.at(-1)).toMatchObject({ action: 'select', matchId: id(2001), reason: 'Único com menos de 25 mil milhas' });
+  // The selected cars open from the counter, with Remover todos.
+  await act.locator('.oc-count').click();
+  await expect(act.locator('.offer-picked')).toBeVisible();
   // Voltar: the queue, at the same point.
   await screen.getByRole('button', { name: '← Voltar' }).click();
   await expect(page.locator('#options-queue')).toBeVisible();

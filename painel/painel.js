@@ -2246,7 +2246,7 @@
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest, isCurrent: () => requestVersion === detailRequestVersion,
         onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
-        actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOptions, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
+        actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOffersSummary, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
       // Opened to reply: the conversation comes into view (HOJE "Responder").
@@ -3172,7 +3172,6 @@
     MCSAction.bind(authorize,()=>({scope:note,commit:()=>request('/api/panel/manheim-audit',{method:'POST',body:JSON.stringify({action:'authorize'})}),refresh:()=>loadCurrent(),errorText:(error)=>error?.code==='AUDIT_ADMIN_ONLY'?'Só o administrador autoriza':'Não consegui autorizar, tente de novo'}));
     note.append(authorize);
   }
-  const MANHEIM_PAGE_ROWS = 10;
   // Every option this request had in the batch already expired (never "sem carro no lote").
   const EXPIRED_TEXT = 'As opções encontradas neste lote já expiraram';
   // Counts of a demand, answered by the server (no car is loaded for this).
@@ -3317,7 +3316,7 @@
       paintActions(); paintWhy();
     };
     const button = (label, action, extra) => { const item = element('button', `small ${extra || ''}`.trim(), label); item.type = 'button'; item.dataset.offerAction = action;
-      MCSAction.bind(item, () => ({ scope: row, commit: () => send(action), onSuccess: apply, errorText: offerError })); return item; };
+      MCSAction.bind(item, () => ({ scope: row, commit: () => send(action), onSuccess: apply, onError: () => row.dispatchEvent(new CustomEvent('offer-error')), errorText: offerError })); return item; };
     const selectButton = button('Selecionar para cliente', 'select');
     const manualButton = button('Incluir manualmente', 'select', 'quiet');
     const removeButton = button('Remover da seleção', 'remove', 'quiet');
@@ -3376,138 +3375,14 @@
     row.append(vehicle);
     if (badges.childElementCount) row.append(badges);
     row.append(price, actions, why);
+    // The client's options screen drives these same buttons from the line's box.
+    row.offerControls = { select: selectButton, manual: manualButton, remove: removeButton, exclude: excludeButton, reason };
     return row;
   }
   // Trim filter of BUSCAS (view only), kept per request (demand key) in this browser.
   const TRIM_STORE = 'mcs-buscas-trims';
   const trimFilters = (key) => { try { const all = JSON.parse(localStorage.getItem(TRIM_STORE) || '{}'); return all && typeof all === 'object' && all[key] && typeof all[key] === 'object' ? all[key] : {}; } catch (_) { return {}; } };
   const saveTrimFilter = (key, group, list) => { try { const all = JSON.parse(localStorage.getItem(TRIM_STORE) || '{}') || {}; const own = { ...(all[key] || {}) }; if (list.length) own[group] = list; else delete own[group]; if (Object.keys(own).length) all[key] = own; else delete all[key]; localStorage.setItem(TRIM_STORE, JSON.stringify(all)); } catch (_) { /* no storage: the filter lives until the page reloads */ } };
-  // One group of a demand: opened by the operator, 10 cars at a time, in the server's CR order.
-  function offerGroup(demand, groupKey, count, state) {
-    const details = element('details', 'offer-group');
-    details.dataset.group = groupKey;
-    const groupLabel = OFFER ? OFFER.GROUP_LABELS[groupKey] : groupKey;
-    const summary = element('summary', '', `${groupLabel} (${count})`);
-    details.append(summary);
-    const list = element('div', 'manheim-table');
-    const more = element('button', 'quiet small manheim-options-toggle', count ? `Ver opções (${count})` : 'Nenhum carro neste grupo');
-    more.type = 'button'; more.disabled = !count;
-    let cursor = null, loadedCount = 0, busy = false, invalidBox = null, sort = 'cr';
-    const loadedIds = new Set();
-    // Ordering of the whole group (done by the server): CR (default), year or MMR, both ways.
-    const sortBar = element('label', 'offer-sort', 'Ordenar ');
-    const sortSelect = element('select', 'offer-sort-select');
-    [['cr', 'Padrão (CR)'], ['year_desc', 'Ano: mais novo primeiro'], ['year_asc', 'Ano: mais antigo primeiro'], ['mmr_desc', 'MMR: maior primeiro'], ['mmr_asc', 'MMR: menor primeiro']]
-      .forEach(([value, label]) => { const option = element('option', '', label); option.value = value; sortSelect.append(option); });
-    sortSelect.setAttribute('aria-label', 'Ordenar carros deste grupo');
-    sortBar.append(sortSelect); sortBar.hidden = count < 2;
-    // Trim (multiple choice): only the trims of this group, with counts; nothing is checked by itself.
-    const saved = trimFilters(demand.key)[groupKey];
-    let trims = Array.isArray(saved) ? saved.filter((item) => typeof item === 'string').slice(0, 40) : [];
-    let facets = null, filteredTotal = count;
-    const tools = element('div', 'offer-tools');
-    const asked = [...new Set((demand.wishes || []).map((wish) => String(wish && wish.trim || '').trim()).filter(Boolean))];
-    const askedLine = asked.length ? element('p', 'offer-trim-asked', 'Cliente pediu: ' + asked.join(' · ')) : null;
-    const trimBox = element('details', 'offer-trim');
-    const trimSummary = element('summary', '', 'Trim');
-    const trimList = element('div', 'offer-trim-list');
-    trimBox.append(trimSummary, trimList); trimBox.hidden = true;
-    const outside = element('p', 'offer-trim-outside hidden');
-    tools.append(sortBar, trimBox);
-    const paintTrims = () => {
-      trimSummary.textContent = trims.length ? `Trim (${trims.length})` : 'Trim: todos';
-      // Before the first page answers, the filtered total is not known yet: only the group's total, never "25 de 25".
-      summary.textContent = trims.length && facets ? `${groupLabel} (${filteredTotal} de ${count})` : `${groupLabel} (${count})`;
-      const out = trims.length && facets ? facets.filter((item) => !trims.includes(item.key)).reduce((sum, item) => sum + item.selected, 0) : 0;
-      outside.replaceChildren(); outside.classList.toggle('hidden', !out);
-      if (out) {
-        outside.append(element('span', '', `${out} ${out === 1 ? 'selecionado fora do filtro' : 'selecionados fora do filtro'}`));
-        const clear = element('button', 'quiet small', 'Limpar filtro'); clear.type = 'button';
-        clear.addEventListener('click', (event) => { event.stopPropagation(); setTrims([]); });
-        outside.append(clear);
-      }
-      trimList.querySelectorAll('input').forEach((box) => { box.checked = trims.includes(box.value); });
-    };
-    const renderFacets = (list) => {
-      facets = list;
-      trimList.replaceChildren();
-      list.forEach((item) => {
-        const line = element('label', 'offer-trim-option');
-        const box = element('input'); box.type = 'checkbox'; box.value = item.key; box.checked = trims.includes(item.key);
-        box.addEventListener('change', () => setTrims(box.checked ? [...trims, item.key] : trims.filter((value) => value !== item.key)));
-        line.append(box, element('span', '', `${item.label} (${item.count})`));
-        trimList.append(line);
-      });
-      trimBox.hidden = list.length < 2 && !trims.length;
-      paintTrims();
-    };
-    const loadPage = async () => {
-      if (busy) return; busy = true; let reload = false; more.disabled = true; more.textContent = 'Carregando…';
-      try {
-        const params = new URLSearchParams({ key: demand.key, group: groupKey, limit: String(MANHEIM_PAGE_ROWS) });
-        if (cursor) params.set('cursor', cursor);
-        if (sort !== 'cr') params.set('sort', sort);
-        if (trims.length) params.set('trims', JSON.stringify(trims));
-        const page = await request('/api/panel/manheim-options?' + params.toString());
-        if (page.uploadedAt) state.uploadedAt = page.uploadedAt;
-        if (!cursor) filteredTotal = trims.length ? Number(page.total) || 0 : count;
-        if (Array.isArray(page.trims)) {
-          // A saved trim that is no longer in the group (the car left the batch) is dropped quietly.
-          const known = new Set(page.trims.map((item) => item.key)), kept = trims.filter((item) => known.has(item));
-          if (kept.length !== trims.length) { trims = kept; saveTrimFilter(demand.key, groupKey, trims); reload = !trims.length; }
-          renderFacets(page.trims);
-        } else paintTrims();
-        if (reload) return;
-        (page.options || []).forEach((option) => {
-          // Pages come by position: a batch that changed between pages can repeat a car already on screen (never drawn twice).
-          const vin = String(option.vehicle_json?.parsed?.vin || '').toUpperCase();
-          if (loadedIds.has(option.id) || (vin && loadedIds.has('vin:' + vin))) return;
-          loadedCount += 1; loadedIds.add(option.id); if (vin) loadedIds.add('vin:' + vin); state.loaded.push(option);
-          // Only valid cars are offered; the invalidated ones wait in a closed box with the reason, never mixed in.
-          if (option.stamp && option.stamp.valid === false) {
-            if (!invalidBox) { invalidBox = element('details', 'offer-invalidated'); invalidBox.append(element('summary', '', 'Carros invalidados (não oferecer)')); details.append(invalidBox); }
-            invalidBox.append(offerRow(option, state, groupKey)); invalidBox.querySelector('summary').textContent = `Carros invalidados (não oferecer) · ${invalidBox.querySelectorAll('.offer-row').length}`;
-          } else list.insertBefore(offerRow(option, state, groupKey), more);
-        });
-        cursor = page.nextCursor || null;
-        // The divergences of the check name their car once the car is on screen.
-        if (state.card) state.card.dispatchEvent(new CustomEvent('options-loaded'));
-        if (cursor) { more.textContent = `Ver mais (${Math.max(filteredTotal - loadedCount, 1)})`; more.disabled = false; } else more.remove();
-      } catch (failure) {
-        console.error(failure); more.disabled = false;
-        more.textContent = failure && failure.code === 'MANHEIM_SELECTION_PENDING' ? OFFER_ERRORS.MANHEIM_SELECTION_PENDING : 'Não consegui carregar, tentar de novo';
-      } finally { busy = false; }
-      // Every saved trim left the group: the whole group again, without a filter.
-      if (reload) restart();
-    };
-    more.addEventListener('click', (event) => { event.stopPropagation(); loadPage(); });
-    details.addEventListener('toggle', () => { if (details.open && !loadedCount && count && !busy && cursor === null) loadPage(); });
-    // A new order or trim filter starts the list again from the first car (what was typed and saved
-    // stays on the server; the selection for the customer never changes here).
-    function restart() {
-      list.querySelectorAll('.offer-row').forEach((row) => row.remove());
-      if (invalidBox) { invalidBox.remove(); invalidBox = null; }
-      state.loaded = state.loaded.filter((option) => !loadedIds.has(option.id));
-      loadedIds.clear(); cursor = null; loadedCount = 0;
-      if (!more.isConnected) list.append(more);
-      return loadPage();
-    }
-    function setTrims(next) {
-      if (busy) { paintTrims(); return; }
-      trims = [...new Set(next)];
-      saveTrimFilter(demand.key, groupKey, trims);
-      paintTrims();
-      restart();
-    }
-    sortSelect.addEventListener('change', () => {
-      if (busy) { sortSelect.value = sort; return; }
-      sort = sortSelect.value;
-      restart();
-    });
-    if (trims.length) paintTrims();
-    list.append(more); details.append(...(askedLine ? [askedLine] : []), tools, outside, list);
-    return details;
-  }
   // Envio manual da V1 pelo WhatsApp (360dialog). Só depois de gerar a V1, sempre com confirmação:
   // o operador vê nome, telefone, texto e link, pode editar o texto e confirma com um segundo clique.
   // O destino é o telefone da ficha, decidido pelo servidor. Sem confirmação do WhatsApp o envio fica
@@ -3656,76 +3531,6 @@
   }
   const OFFER_ADVISED_MAX = 5;
   const LABEL_NO_SELECTION = 'Conferência começa ao selecionar carros';
-  function offerSection(card, demand) {
-    const offerCounts = demand.offer;
-    const state = { loaded: [], selectedIds: new Set(offerCounts.selectedIds || []), listeners: [], demand };
-    const box = element('div', 'offer-section');
-    const counter = element('p', 'offer-counter');
-    // Scannable: only what exists (zeros hidden); the total is already in the card's highlight and the audit has its own badge.
-    // 3 to 5 cars per customer is the recommendation (curation, not a catalog): a warning, never a block.
-    const advice = element('p', 'offer-advice hidden');
-    const paint = () => { const many = state.selectedIds.size > OFFER_ADVISED_MAX; advice.classList.toggle('hidden', !many); advice.textContent = many ? `${state.selectedIds.size} selecionados · o recomendado é de 3 a ${OFFER_ADVISED_MAX} carros por cliente (os melhores, cada um com um motivo)` : ''; counter.textContent = [offerCounts.lane ? `${offerCounts.lane} em Lane/Run` : '', offerCounts.offLane ? `${offerCounts.offLane} em Buy Now / Make Offer` : '', offerCounts.incomplete ? `${offerCounts.incomplete} com informação incompleta` : '', `${state.selectedIds.size} de ${offerCounts.max || 10} selecionados`].filter(Boolean).join(' · '); };
-    state.setSelected = (id, on, total) => {
-      if (on) state.selectedIds.add(id); else state.selectedIds.delete(id);
-      // The page's snapshot follows the selection: a card drawn again (column reordered) starts from it.
-      if (offerCounts) { offerCounts.selectedIds = [...state.selectedIds]; offerCounts.selected = state.selectedIds.size; }
-      // A new selection is checked again before a V1: the card stops saying "Conferido" for the cars of before.
-      if (auditOn() && manheimData?.audit?.byDemand && demand?.key) {
-        manheimData.audit.byDemand[demand.key] = state.selectedIds.size ? { status: 'CONFERINDO', label: 'Conferindo', divergences: [], carCount: state.selectedIds.size } : { status: 'SEM_SELECAO', label: LABEL_NO_SELECTION, divergences: [] };
-        if (state.card) state.card.dispatchEvent(new CustomEvent('audit-changed'));
-      }
-      paint(); state.listeners.forEach((listener) => listener());
-    };
-    paint();
-    // The cars already selected for this customer, to review and remove (one by one or all), wherever they are in the groups.
-    const picked = element('details', 'offer-picked');
-    const pickedSummary = element('summary', '', '');
-    const pickedList = element('div', 'offer-picked-list');
-    picked.append(pickedSummary, pickedList);
-    const paintPicked = () => { pickedSummary.textContent = `Selecionados para o cliente (${state.selectedIds.size})`; picked.hidden = !state.selectedIds.size; if (picked.open) loadPicked(); };
-    let pickedBusy = false;
-    async function loadPicked() {
-      if (pickedBusy) return; pickedBusy = true;
-      pickedList.replaceChildren(element('p', 'muted', 'Carregando…'));
-      try {
-        const answer = await request('/api/panel/manheim-options?' + new URLSearchParams({ key: demand.key, selected: '1' }).toString());
-        const cars = answer.selected || [];
-        pickedList.replaceChildren();
-        if (Array.isArray(answer.ended) && answer.ended.length) pickedList.append(element('p', 'warning', `Saíram da seleção (leilão passado): ${answer.ended.join(', ')}`));
-        if (!cars.length) { pickedList.append(element('p', 'muted', 'Nenhum carro selecionado')); return; }
-        const remove = (car) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'remove', matchId: car.matchId }) }).then(() => { state.setSelected(car.matchId, false); });
-        cars.forEach((car) => {
-          const line = element('div', 'offer-picked-row');
-          line.append(element('span', '', [car.year, car.make, car.model, car.trim].filter(Boolean).join(' ') + (car.miles !== null && car.miles !== undefined ? ` · ${milesText(car.miles)}` : '') + (car.vin ? ` · VIN final ${String(car.vin).slice(-6)}` : '') + (car.finalCents ? ` · ${formatMoney(car.finalCents)}` : '')));
-          const out = element('button', 'quiet small', 'Remover'); out.type = 'button';
-          MCSAction.bind(out, () => ({ scope: line, commit: () => remove(car), onSuccess: () => { line.remove(); paintPicked(); }, errorText: offerError }));
-          line.append(out); pickedList.append(line);
-        });
-        const all = element('button', 'quiet small offer-picked-all', `Remover todos (${cars.length})`); all.type = 'button';
-        let armed = false;
-        all.addEventListener('click', async (event) => {
-          event.stopPropagation();
-          if (!armed) { armed = true; all.textContent = `Confirmar: remover os ${cars.length} selecionados`; setTimeout(() => { if (armed) { armed = false; all.textContent = `Remover todos (${cars.length})`; } }, 8000); return; }
-          armed = false; all.disabled = true; all.textContent = 'Removendo…';
-          let failed = 0;
-          for (const car of cars) { try { await remove(car); } catch (_) { failed += 1; } }
-          pickedBusy = false; await loadPicked();
-          if (failed) pickedList.prepend(element('p', 'warning', `${failed} não saiu(ram) da seleção · tente de novo`));
-        });
-        pickedList.append(all);
-      } catch (error) { pickedList.replaceChildren(element('p', 'warning', offerError(error))); }
-      finally { pickedBusy = false; }
-    }
-    picked.addEventListener('toggle', () => { if (picked.open) loadPicked(); });
-    state.listeners.push(() => { pickedSummary.textContent = `Selecionados para o cliente (${state.selectedIds.size})`; picked.hidden = !state.selectedIds.size; if (picked.open && !pickedBusy) loadPicked(); });
-    paintPicked();
-    // Leilão passado: os selecionados que saíram da seleção, pelo nome (migração 20261027010000).
-    const endedNames = Array.isArray(offerCounts.endedSelected) ? offerCounts.endedSelected : [];
-    const ended = endedNames.length ? element('p', 'warning offer-ended', `Saíram da seleção (leilão passado): ${endedNames.join(', ')}`) : null;
-    box.append(...[counter, ended, advice, picked].filter(Boolean), offerGroup(demand, 'LANE', offerCounts.lane, state), offerGroup(demand, 'OFFLANE', offerCounts.offLane, state), offerGroup(demand, 'INCOMPLETE', offerCounts.incomplete, state));
-    card.offerState = state; state.card = card;
-    return box;
-  }
 
   // Exemplo fictício do Preview para conferir o envio da V1: dados inventados, nada é lido nem
   // gravado no banco e o 360dialog nunca é chamado. Só aparece quando o servidor aceita o exemplo
@@ -3991,18 +3796,21 @@
   }
 
   // ===== ENVIAR OPÇÕES · Opções do cliente =====
-  // Tapping a queue card with cars opens this screen (not the whole ficha): who the client is, what was
-  // asked, the cars of the active batch in one list (the same pages of manheim-options that feed the
-  // ficha's PDF and V1), and the PDF, Montar V2 and V1 of the ficha and of the V1/V2 tabs. No rule here:
-  // selecting, the PDF, the V1 and the V2 are the existing functions.
+  // The one place of a client's cars: from the queue card or from the ficha's "Ver opções". Who the client
+  // is, what was asked, the cars of the active batch (the pages of manheim-options, the same official
+  // comparison of the queue, the PDF and the V1) one line each, and everything the ficha's options had:
+  // tapping a line opens the car (CR, VIN, price % or US$, internal note, "Por que este carro", Manter fora,
+  // manual inclusion with the reason); trim and order on top; at the bottom the selected cars (Remover
+  // todos), the check before the V1, Baixar PDF, Montar V2 and Gerar V1. Every action is the existing one.
   const offerTotal = (offer) => (Number(offer && offer.lane) || 0) + (Number(offer && offer.offLane) || 0) + (Number(offer && offer.incomplete) || 0);
-  const CLIENT_SORTS = [['year_desc', 'Ano maior primeiro'], ['year_asc', 'Ano menor primeiro'], ['miles_asc', 'Milhas menor primeiro'], ['miles_desc', 'Milhas maior primeiro'], ['mmr_desc', 'MMR maior primeiro'], ['mmr_asc', 'MMR menor primeiro']];
+  const CLIENT_SORTS = [['year_desc', 'Ano maior primeiro'], ['year_asc', 'Ano menor primeiro'], ['miles_asc', 'Milhas menor primeiro'], ['miles_desc', 'Milhas maior primeiro'], ['mmr_desc', 'MMR maior primeiro'], ['mmr_asc', 'MMR menor primeiro'], ['cr', 'Padrão (CR)']];
   const CLIENT_SORT_KEY = 'mcs_options_client_sort';
   const CLIENT_GROUPS = [['LANE', 'Lane/Run', 'lane'], ['OFFLANE', 'Buy Now / Make Offer', 'offLane'], ['INCOMPLETE', 'Informação incompleta', 'incomplete']];
   const CLIENT_PAGE_ROWS = 25;
-  let clientScrollY = 0;
+  let clientScrollY = 0, clientOrigin = null;
   function closeOptionsClient() {
     const screen = $('options-client');
+    clientOrigin = null;
     if (!screen || screen.classList.contains('hidden')) return false;
     screen.classList.add('hidden'); screen.replaceChildren();
     $('searches-panel')?.classList.remove('client-open');
@@ -4022,7 +3830,8 @@
     const extra = list.some((item) => item.zone === 'tapped') ? ' · tocou' : list.some((item) => item.zone === 'bid') ? ' · quer dar lance' : list.every((item) => item.zone === 'expired') ? ' · expirou' : '';
     return `${label}: enviada${latest ? ' ' + funnelAgo(latest) : ''}${extra}`;
   }
-  async function openOptionsClient(row) {
+  // origin: the ficha it was opened from ({ kind, key }); Voltar goes back there. Without it, back to the queue.
+  async function openOptionsClient(row, origin = null) {
     const screen = $('options-client'), panel = $('searches-panel');
     if (!screen || !panel) return;
     const person = row.person;
@@ -4035,7 +3844,30 @@
     window.scrollTo(0, 0);
     try { await loadV1Sent(); } catch (_) { /* without the funnel: "Já enviado" unknown and Montar V2 stays off */ }
     if (screen.classList.contains('hidden')) return;
+    clientOrigin = origin;
     paintOptionsClient(screen, row, demands, demands[0]);
+  }
+  // The row of one person for this screen: the queue's, or built from the batch summary (a ficha not in the queue).
+  function clientRowFor({ journeyId, ref }) {
+    const refOf = (value) => String(value || '').trim().toUpperCase();
+    const found = optionsQueueData.find((row) => journeyId ? row.person.journeyId === journeyId : Boolean(ref) && refOf(row.person.ref) === refOf(ref));
+    if (found) return found;
+    const demands = ((manheimData && manheimData.demands) || []).filter((demand) => journeyId ? demand.journeyId === journeyId : Boolean(ref) && !demand.journeyId && refOf(demand.ref || demand.calcRef) === refOf(ref));
+    if (!demands.length) return null;
+    const person = demandPerson(demands[0], new Map(manheimJourneys.map((item) => [item.id, item])), new Map(manheimOrders.map((item) => [item.ref, item])));
+    if (!person.journeyId && journeyId) person.journeyId = journeyId;
+    if (!person.ref && ref) person.ref = ref;
+    const states = demands.map((demand) => { const cars = demand.offer ? offerTotal(demand.offer) : Number(demand.matchCount) || 0; return { demand, kind: cars > 0 ? 'cars' : 'none', count: cars }; });
+    return { person, demands, states, issues: [], sent: false };
+  }
+  // The ficha's "Ver opções": ENVIAR OPÇÕES with this client's screen open; Voltar goes back to the ficha.
+  async function openClientOptionsFrom(origin, { journeyId, ref }) {
+    await switchPanel('searches');
+    if (!manheimData) { try { manheimData = await request('/api/panel/records?view=manheim', viewFetch()); } catch (_) { return false; } }
+    const row = clientRowFor({ journeyId, ref });
+    if (!row) return false;
+    await openOptionsClient(row, origin);
+    return true;
   }
   function paintOptionsClient(screen, row, demands, demand) {
     const person = row.person;
@@ -4043,10 +3875,16 @@
     const order = !journey ? manheimOrders.find((item) => String(item.ref || '').toUpperCase() === String(person.ref || '').toUpperCase()) : null;
     const funnel = clientFunnel(person);
     screen.replaceChildren();
+    screen.dataset.demandKey = demand.key || ''; screen.dataset.mode = demand.mode || '';
     // 1. Who: name, Ref, phone (tap to call), city and state; Voltar and the full ficha.
     const top = element('div', 'oc-top');
     const back = element('button', 'quiet oc-back', '← Voltar'); back.type = 'button';
-    back.addEventListener('click', () => { const y = clientScrollY; closeOptionsClient(); window.scrollTo(0, y); requestAnimationFrame(() => window.scrollTo(0, y)); });
+    back.addEventListener('click', () => {
+      const origin = clientOrigin, y = clientScrollY;
+      closeOptionsClient();
+      if (origin) { openDetail(origin.kind, origin.key); return; }
+      window.scrollTo(0, y); requestAnimationFrame(() => window.scrollTo(0, y));
+    });
     const who = element('div', 'oc-who');
     const name = element('h2', 'oc-name identity-name', person.name || 'Cliente');
     if (person.ref) name.append(element('span', 'oc-ref', 'REF ' + person.ref));
@@ -4076,15 +3914,55 @@
       screen.append(pick);
     }
     if (!demand.offer || !OFFER) { screen.append(demand.offerPending ? offerPendingNote() : element('p', 'muted', 'Opções ainda carregando · volte em instantes')); return; }
-    // The selection of this request (the same state the ficha's PDF and V1 read).
+    // The selection of this request (the same state the PDF, the V1 and the check read).
     const offer = demand.offer, max = Number(offer.max) || OFFER.MAX_SELECTED || 10;
     const state = { loaded: [], selectedIds: new Set(offer.selectedIds || []), listeners: [], demand, card: screen };
-    // 3. Groups with their counts, and the order.
+    if (demand.key) auditCards.set(demand.key, screen);
+    // 3. Groups with their counts, trim and order.
     const bar = element('div', 'oc-bar');
-    let group = CLIENT_GROUPS.find(([key, , field]) => Number(offer[field]) > 0)?.[0] || 'LANE';
-    const tabs = CLIENT_GROUPS.map(([key, label, field]) => { const tab = element('button', 'oc-tab', `${label} (${Number(offer[field]) || 0})`); tab.type = 'button'; tab.dataset.group = key;
-      tab.addEventListener('click', () => { if (group === key) return; group = key; paintTabs(); restart(); }); return tab; });
-    const paintTabs = () => tabs.forEach((tab) => tab.classList.toggle('on', tab.dataset.group === group));
+    let group = CLIENT_GROUPS.find(([, , field]) => Number(offer[field]) > 0)?.[0] || 'LANE';
+    const tabs = CLIENT_GROUPS.map(([key, label, field]) => { const tab = element('button', 'oc-tab', `${label} (${Number(offer[field]) || 0})`); tab.type = 'button'; tab.dataset.group = key; tab.dataset.label = label; tab.dataset.count = String(Number(offer[field]) || 0);
+      tab.addEventListener('click', () => { if (group === key) return; group = key; trims = savedTrims(); facets = null; paintTabs(); restart(); }); return tab; });
+    let filteredTotal = null;
+    const paintTabs = () => tabs.forEach((tab) => { const on = tab.dataset.group === group; tab.classList.toggle('on', on);
+      tab.textContent = on && trims.length && filteredTotal !== null ? `${tab.dataset.label} (${filteredTotal} de ${tab.dataset.count})` : `${tab.dataset.label} (${tab.dataset.count})`; });
+    // Trim (multiple choice): only the trims of this group, with counts, kept per request and group in this browser.
+    const savedTrims = () => { const saved = trimFilters(demand.key)[group]; return Array.isArray(saved) ? saved.filter((item) => typeof item === 'string').slice(0, 40) : []; };
+    let trims = savedTrims(), facets = null;
+    const trimBox = element('details', 'offer-trim oc-trim');
+    const trimSummary = element('summary', '', 'Trim: todos');
+    const trimList = element('div', 'offer-trim-list');
+    trimBox.append(trimSummary, trimList); trimBox.hidden = true;
+    const outside = element('p', 'offer-trim-outside oc-trim-outside hidden');
+    const paintTrims = () => {
+      trimSummary.textContent = trims.length ? `Trim (${trims.length})` : 'Trim: todos';
+      trimBox.hidden = (!facets || facets.length < 2) && !trims.length;
+      const out = trims.length && facets ? facets.filter((item) => !trims.includes(item.key)).reduce((sum, item) => sum + (Number(item.selected) || 0), 0) : 0;
+      outside.replaceChildren(); outside.classList.toggle('hidden', !out);
+      if (out) {
+        outside.append(element('span', '', `${out} ${out === 1 ? 'selecionado fora do filtro' : 'selecionados fora do filtro'}`));
+        const clear = element('button', 'quiet small', 'Limpar filtro'); clear.type = 'button';
+        clear.addEventListener('click', () => setTrims([]));
+        outside.append(clear);
+      }
+      trimList.querySelectorAll('input').forEach((box) => { box.checked = trims.includes(box.value); });
+      paintTabs();
+    };
+    // The trims the client asked for, next to the filter (as the ficha's group showed them).
+    const asked = [...new Set((demand.wishes || []).map((wish) => String(wish && wish.trim || '').trim()).filter(Boolean))];
+    const renderFacets = (list) => {
+      facets = list; trimList.replaceChildren();
+      if (asked.length) trimList.append(element('p', 'offer-trim-asked', 'Cliente pediu: ' + asked.join(' · ')));
+      list.forEach((item) => {
+        const option = element('label', 'offer-trim-option');
+        const box = element('input'); box.type = 'checkbox'; box.value = item.key; box.checked = trims.includes(item.key);
+        box.addEventListener('change', () => setTrims(box.checked ? [...trims, item.key] : trims.filter((value) => value !== item.key)));
+        option.append(box, element('span', '', `${item.label} (${item.count})`));
+        trimList.append(option);
+      });
+      paintTrims();
+    };
+    const setTrims = (next) => { trims = [...new Set(next)]; saveTrimFilter(demand.key, group, trims); filteredTotal = null; paintTrims(); restart(); };
     const sortSelect = element('select', 'oc-sort');
     sortSelect.setAttribute('aria-label', 'Ordenar');
     CLIENT_SORTS.forEach(([value, label]) => { const option = element('option', '', label); option.value = value; sortSelect.append(option); });
@@ -4093,19 +3971,23 @@
     sortSelect.value = sort;
     sortSelect.addEventListener('change', () => { sort = sortSelect.value; try { localStorage.setItem(CLIENT_SORT_KEY, sort); } catch (_) { /* only this browser */ } restart(); });
     const sortLabel = element('label', 'oc-sort-label', 'Ordenar '); sortLabel.append(sortSelect);
-    bar.append(...tabs, sortLabel);
+    bar.append(...tabs, trimBox, sortLabel);
     paintTabs();
-    // 4. One line per car.
+    // 4. One line per car; tapping it opens the car.
     const head = element('div', 'oc-head');
     ['', 'Carro', 'Milhas', 'Leilão', 'MMR', 'Encaixe'].forEach((label) => head.append(element('div', label === 'MMR' ? 'oc-right' : '', label)));
     const list = element('div', 'oc-list');
     const more = element('div', 'oc-more');
-    screen.append(bar, head, list, more);
-    // 5. The fixed bar: the counter and the three actions of the ficha (PDF, V1) and of the V1/V2 tabs (Montar V2).
+    screen.append(bar, outside, head, list, more);
+    // 5. The fixed bar: the selected cars (Remover todos), the check, and the actions of the ficha (PDF, V1) and of the V1/V2 tabs (Montar V2).
     const foot = fichaOptionsFooter([{ demand, section: { offerState: state } }]);
     foot.classList.add('oc-act');
     const [pdf, go] = [...foot.querySelectorAll('button')];
-    const count = element('p', 'oc-count');
+    const count = element('button', 'quiet small oc-count'); count.type = 'button';
+    count.setAttribute('aria-label', 'Ver os selecionados para o cliente');
+    const picked = offerPicked(state, demand);
+    picked.box.classList.add('oc-picked');
+    count.addEventListener('click', () => { picked.box.hidden = !picked.box.hidden || !state.selectedIds.size; if (!picked.box.hidden) picked.load(); });
     const tapped = funnel.v1.find((item) => item.zone === 'tapped') || null;
     const v2Box = element('div', 'oc-v2');
     let v2Button;
@@ -4113,12 +3995,19 @@
     else { v2Button = element('button', 'small quiet', 'Montar V2'); v2Button.type = 'button'; v2Button.disabled = true; v2Button.title = 'Liberado depois que o cliente tocar em um carro da V1'; }
     v2Button.classList.add('oc-v2-button');
     go.before(v2Button);
-    foot.prepend(count);
+    // The check before the V1 (MANHEIM_MATCH_AUDIT): its short line, redrawn when it answers or the cars load.
+    const auditSlot = element('div', 'oc-audit');
+    const paintAudit = () => { const block = auditBlock(demand, state.loaded); auditSlot.replaceChildren(...(block ? [block] : [])); auditSlot.hidden = !block; };
+    ['options-loaded', 'audit-changed'].forEach((name) => screen.addEventListener(name, paintAudit));
+    paintAudit();
+    foot.prepend(picked.box, ...picked.notes, auditSlot, count);
     if (!tapped) foot.append(element('p', 'muted oc-hint', 'O Montar V2 fica liberado quando o cliente tocar em um carro da V1.'));
     screen.append(foot, v2Box);
     const boxes = new Map();
     const paintCount = () => {
       count.replaceChildren(element('strong', '', String(state.selectedIds.size)), document.createTextNode(` de ${max} selecionados`));
+      count.disabled = !state.selectedIds.size;
+      if (!state.selectedIds.size) picked.box.hidden = true;
       const none = !state.selectedIds.size;
       pdf.disabled = none; go.disabled = none;
       boxes.forEach((box, id) => { if (!box.dataset.blocked) box.disabled = !state.selectedIds.has(id) && state.selectedIds.size >= max; });
@@ -4126,31 +4015,55 @@
     state.setSelected = (id, on) => {
       if (on) state.selectedIds.add(id); else state.selectedIds.delete(id);
       offer.selectedIds = [...state.selectedIds]; offer.selected = state.selectedIds.size;
+      // A new selection is checked again before a V1: the line stops saying "Conferido" for the cars of before.
+      if (auditOn() && manheimData?.audit?.byDemand && demand.key) {
+        manheimData.audit.byDemand[demand.key] = state.selectedIds.size ? { status: 'CONFERINDO', label: 'Conferindo', divergences: [], carCount: state.selectedIds.size } : { status: 'SEM_SELECAO', label: LABEL_NO_SELECTION, divergences: [] };
+        screen.dispatchEvent(new CustomEvent('audit-changed'));
+      }
       paintCount(); state.listeners.forEach((listener) => listener());
     };
+    state.listeners.push(() => picked.paint());
     paintCount();
-    let cursor = null, loaded = 0, busy = false, total = 0, version = 0;
+    // The check starts by itself when the screen opens with a car already selected.
+    if (Number(offer.selected) > 0 && demand.key) {
+      request('/api/panel/manheim-audit', { method: 'POST', body: JSON.stringify({ action: 'check', key: demand.key }), timeoutMs: 60000 })
+        .then((checked) => { applyAuditEntry(demand, checked, screen); }).catch(() => {});
+    }
+    let cursor = null, loaded = 0, busy = false, version = 0;
     const loadPage = async () => {
       if (busy) return; busy = true;
       const mine = version;
       more.replaceChildren(element('span', 'muted', 'Carregando…'));
+      let reload = false;
       try {
-        const params = new URLSearchParams({ key: demand.key, group, limit: String(CLIENT_PAGE_ROWS), sort });
+        const params = new URLSearchParams({ key: demand.key, group, limit: String(CLIENT_PAGE_ROWS) });
+        if (sort !== 'cr') params.set('sort', sort);
+        if (trims.length) params.set('trims', JSON.stringify(trims));
         if (cursor) params.set('cursor', cursor);
         const page = await request('/api/panel/manheim-options?' + params.toString());
         if (mine !== version) return;
         if (page.uploadedAt) state.uploadedAt = page.uploadedAt;
-        if (!cursor) total = Number(page.total) || 0;
+        if (!cursor) filteredTotal = Number(page.total) || 0;
+        if (Array.isArray(page.trims)) {
+          // A saved trim that is no longer in the group (the car left the batch) is dropped quietly.
+          const known = new Set(page.trims.map((item) => item.key)), kept = trims.filter((item) => known.has(item));
+          if (kept.length !== trims.length) { trims = kept; saveTrimFilter(demand.key, group, trims); reload = !trims.length; }
+          renderFacets(page.trims);
+        } else paintTrims();
+        if (reload) return;
         (page.options || []).forEach((option) => {
-          if (state.loaded.some((item) => item.id === option.id)) return;
+          // Pages come by position: a batch that changed between pages can repeat a car already on screen (never drawn twice).
+          const vin = String(option.vehicle_json?.parsed?.vin || '').toUpperCase();
+          if (state.loaded.some((item) => item.id === option.id || (vin && String(item.vehicle_json?.parsed?.vin || '').toUpperCase() === vin))) return;
           state.loaded.push(option); loaded += 1;
           list.append(clientCarRow(option, state, group, boxes, paintCount));
         });
         cursor = page.nextCursor || null;
+        screen.dispatchEvent(new CustomEvent('options-loaded'));
         more.replaceChildren();
         if (!loaded) more.append(element('p', 'muted', 'Nenhum carro neste grupo'));
         else if (cursor) {
-          const rest = Math.max(total - loaded, 1);
+          const rest = Math.max((filteredTotal || 0) - loaded, 1);
           const button = element('button', 'quiet small oc-more-button', 'Ver mais'); button.type = 'button';
           button.addEventListener('click', () => loadPage());
           more.append(element('span', 'muted', `+ ${rest} ${rest === 1 ? 'carro' : 'carros'} · `), button);
@@ -4161,14 +4074,71 @@
         more.replaceChildren(element('span', 'warning', failure && failure.code === 'MANHEIM_SELECTION_PENDING' ? OFFER_ERRORS.MANHEIM_SELECTION_PENDING : 'Não consegui carregar os carros'));
         const again = element('button', 'quiet small', 'Tentar de novo'); again.type = 'button'; again.addEventListener('click', () => loadPage()); more.append(document.createTextNode(' '), again);
       } finally { if (mine === version) busy = false; }
+      // Every saved trim left the group: the whole group again, without a filter.
+      if (reload) restart();
     };
     function restart() {
-      version += 1; busy = false; cursor = null; loaded = 0; total = 0;
+      version += 1; busy = false; cursor = null; loaded = 0;
       // The selected cars stay in the state (the PDF reads the ones not on screen from the server).
-      state.loaded = []; boxes.clear(); list.replaceChildren();
+      state.loaded = []; state.listeners.length = 0; state.listeners.push(() => picked.paint()); boxes.clear(); list.replaceChildren();
       return loadPage();
     }
     loadPage();
+  }
+  // The cars selected for this request (any group), to review and remove one by one or all, and the ones that
+  // left the selection because the auction passed. The same block the ficha's options had.
+  function offerPicked(state, demand) {
+    const offer = demand.offer || {};
+    // Closed until asked for (the counter opens it): nothing is read before that.
+    const box = element('details', 'offer-picked'); box.open = true; box.hidden = true;
+    const summary = element('summary', '', '');
+    const list = element('div', 'offer-picked-list');
+    box.append(summary, list);
+    const advice = element('p', 'offer-advice hidden');
+    const endedNames = Array.isArray(offer.endedSelected) ? offer.endedSelected : [];
+    const ended = endedNames.length ? element('p', 'warning offer-ended', `Saíram da seleção (leilão passado): ${endedNames.join(', ')}`) : null;
+    let busy = false;
+    const paint = () => {
+      summary.textContent = `Selecionados para o cliente (${state.selectedIds.size})`;
+      const many = state.selectedIds.size > OFFER_ADVISED_MAX;
+      advice.classList.toggle('hidden', !many);
+      advice.textContent = many ? `${state.selectedIds.size} selecionados · o recomendado é de 3 a ${OFFER_ADVISED_MAX} carros por cliente (os melhores, cada um com um motivo)` : '';
+      if (!box.hidden && !busy) load();
+    };
+    async function load() {
+      if (busy) return; busy = true;
+      list.replaceChildren(element('p', 'muted', 'Carregando…'));
+      try {
+        const answer = await request('/api/panel/manheim-options?' + new URLSearchParams({ key: demand.key, selected: '1' }).toString());
+        const cars = answer.selected || [];
+        list.replaceChildren();
+        if (Array.isArray(answer.ended) && answer.ended.length) list.append(element('p', 'warning', `Saíram da seleção (leilão passado): ${answer.ended.join(', ')}`));
+        if (!cars.length) { list.append(element('p', 'muted', 'Nenhum carro selecionado')); return; }
+        const remove = (car) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'remove', matchId: car.matchId }) }).then(() => { state.setSelected(car.matchId, false); });
+        cars.forEach((car) => {
+          const line = element('div', 'offer-picked-row');
+          line.append(element('span', '', [car.year, car.make, car.model, car.trim].filter(Boolean).join(' ') + (car.miles !== null && car.miles !== undefined ? ` · ${milesText(car.miles)}` : '') + (car.vin ? ` · VIN final ${String(car.vin).slice(-6)}` : '') + (car.finalCents ? ` · ${formatMoney(car.finalCents)}` : '')));
+          const out = element('button', 'quiet small', 'Remover'); out.type = 'button';
+          MCSAction.bind(out, () => ({ scope: line, commit: () => remove(car), onSuccess: () => { line.remove(); }, errorText: offerError }));
+          line.append(out); list.append(line);
+        });
+        const all = element('button', 'quiet small offer-picked-all', `Remover todos (${cars.length})`); all.type = 'button';
+        let armed = false;
+        all.addEventListener('click', async (event) => {
+          event.stopPropagation();
+          if (!armed) { armed = true; all.textContent = `Confirmar: remover os ${cars.length} selecionados`; setTimeout(() => { if (armed) { armed = false; all.textContent = `Remover todos (${cars.length})`; } }, 8000); return; }
+          armed = false; all.disabled = true; all.textContent = 'Removendo…';
+          let failed = 0;
+          for (const car of cars) { try { await remove(car); } catch (_) { failed += 1; } }
+          busy = false; await load();
+          if (failed) list.prepend(element('p', 'warning', `${failed} não saiu(ram) da seleção · tente de novo`));
+        });
+        list.append(all);
+      } catch (error) { list.replaceChildren(element('p', 'warning', offerError(error))); }
+      finally { busy = false; }
+    }
+    paint();
+    return { box, notes: [ended, advice].filter(Boolean), paint, load };
   }
   // Day and hour of the car's sale: a Lane/Run auction starts at startsAt; a Buy Now / Make Offer is open until endsAt.
   function clientSaleText(parsed, group) {
@@ -4179,10 +4149,14 @@
     const when = auctionWhen(parsed.startsAt || parsed.saleDate);
     return when || 'sem data';
   }
+  // One car: the line (box, car, miles, sale, MMR, fit) and, under it, the car itself (offerRow: CR, VIN, price,
+  // note, "Por que este carro", Manter fora, manual inclusion), opened by tapping the line. The box uses the
+  // car's own buttons, so selecting is the same action wherever it is done.
   function clientCarRow(option, state, group, boxes, paintCount) {
     const parsed = option.vehicle_json && option.vehicle_json.parsed || {};
     const info = option.offer || {};
     const stamp = option.stamp || null, invalid = Boolean(stamp && !stamp.valid);
+    const item = element('div', 'oc-item');
     const row = element('div', 'oc-row');
     row.dataset.matchId = option.id;
     const box = element('input'); box.type = 'checkbox'; box.checked = state.selectedIds.has(option.id);
@@ -4193,49 +4167,110 @@
     const car = element('div', 'oc-car');
     car.append(element('strong', 'oc-l1', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')));
     if (invalid) car.append(element('span', 'warning oc-l2', `Não oferecer · ${stamp.reasonText || 'carro não vale mais para este pedido'}`));
+    const tags = element('span', 'oc-l2 oc-tags');
+    car.append(tags);
     const miles = element('div', 'oc-miles'); miles.append(element('strong', 'oc-l1', milesText(parsed.miles)));
     const sale = element('div', 'oc-sale'); sale.append(element('strong', 'oc-l1', clientSaleText(parsed, group)), element('span', 'oc-l2', parsed.locationDisplay || parsed.location || ''));
-    const mmr = element('div', 'oc-mmr oc-right'); mmr.append(element('strong', 'oc-l1', info.mmrCents ? formatMoney(info.mmrCents) : '—'), element('span', 'oc-l2', 'MMR'));
+    const mmr = element('div', 'oc-mmr oc-right'); const clientPrice = element('span', 'oc-l2 oc-client-price');
+    mmr.append(element('strong', 'oc-l1', info.mmrCents ? formatMoney(info.mmrCents) : '—'), element('span', 'oc-l2', 'MMR'), clientPrice);
     const fit = element('div', 'oc-fit'); fit.append(offerFit(option));
     row.append(check, car, miles, sale, mmr, fit);
-    const paintRow = () => { box.checked = state.selectedIds.has(option.id); row.classList.toggle('sel', box.checked); };
+    const detail = element('div', 'oc-detail'); detail.hidden = true;
+    const full = offerRow(option, state, group);
+    detail.append(full);
+    item.append(row, detail);
+    const controls = full.offerControls || {};
+    const openDetail = (on = true) => { detail.hidden = !on; row.classList.toggle('open', on); };
+    row.addEventListener('click', (event) => { if (event.target.closest('.oc-check, a, button, input, select')) return; openDetail(detail.hidden); });
+    // An action of the car that failed (limit, missing reason…) shows its message: the car opens, the box goes back.
+    full.addEventListener('offer-error', () => { openDetail(true); paintRow(); });
+    const paintRow = () => {
+      const selected = state.selectedIds.has(option.id);
+      box.checked = selected; row.classList.toggle('sel', selected);
+      clientPrice.textContent = selected && info.finalCents ? `Cliente ${formatMoney(info.finalCents)}` : '';
+      tags.textContent = [info.status === 'EXCLUDED' ? 'Mantido fora' : '', info.manual && selected ? 'Inclusão manual' : ''].filter(Boolean).join(' · ');
+    };
     paintRow();
     state.listeners.push(paintRow);
-    // Selecting: the same server actions of the ficha. Off Lane/Run a car only goes in as a manual inclusion, with its reason.
-    const send = (action, reason = null) => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action, matchId: option.id, pct: null, reason, note: null }) });
-    const feedback = element('p', 'status oc-row-msg');
-    const apply = (result) => { state.setSelected(option.id, result.status === 'SELECTED'); feedback.textContent = ''; };
-    let reasonBox = null;
-    box.addEventListener('change', async () => {
+    box.addEventListener('click', (event) => event.stopPropagation());
+    // The box shows the click at once and runs the car's own action; a failure puts it back (offer-error).
+    box.addEventListener('change', () => {
       const on = box.checked;
-      if (on && group !== 'LANE') {
-        box.checked = false;
-        if (reasonBox) { reasonBox.querySelector('input').focus(); return; }
-        reasonBox = element('div', 'oc-reason');
-        const input = element('input', 'offer-reason'); input.type = 'text'; input.maxLength = 300; input.placeholder = 'Motivo da inclusão manual';
-        const add = element('button', 'small', 'Incluir'); add.type = 'button';
-        const cancel = element('button', 'quiet small', 'Cancelar'); cancel.type = 'button';
-        cancel.addEventListener('click', () => { reasonBox.remove(); reasonBox = null; });
-        add.addEventListener('click', async () => {
-          add.disabled = true;
-          try { apply(await send('select', input.value.trim() || null)); reasonBox.remove(); reasonBox = null; }
-          catch (error) { feedback.textContent = offerError(error); add.disabled = false; }
-        });
-        reasonBox.append(input, add, cancel); row.append(reasonBox); input.focus();
-        return;
-      }
-      box.disabled = true;
-      try { apply(await send(on ? 'select' : 'remove')); }
-      catch (error) { box.checked = !on; feedback.textContent = offerError(error); }
-      finally { box.disabled = false; paintRow(); paintCount(); }
+      if (!on) { if (controls.remove) controls.remove.click(); return; }
+      // Lane/Run goes in with one click; off Lane/Run only as a manual inclusion, with its reason.
+      if (group === 'LANE' && controls.select && !controls.select.hidden) { controls.select.click(); return; }
+      box.checked = false;
+      openDetail(true);
+      if (controls.reason) controls.reason.focus();
     });
-    row.append(feedback);
-    return row;
+    return item;
   }
 
-  // ===== Ficha · opções e envio da V1 =====
-  // The selection UI (the three groups, sort, trim, pagination, per-car selection) moved from
-  // the ENVIAR OPÇÕES cards into the ficha: offerSection/offerGroup/offerRow are reused unchanged.
+  // ===== Ficha · Opções no lote =====
+  // The ficha shows only the summary of the official comparison (the count of the queue card and of the
+  // client's options screen, read now: a car whose auction started is already out) and "Ver opções", which
+  // opens that screen. Without a car, it says why. The PDF and the V1 below are the ones that screen uses.
+  async function renderFichaOffersSummary(container, { journeyId, ref, kind, key }) {
+    container.replaceChildren(element('p', 'muted', 'Carregando as opções do lote ativo…'));
+    let data;
+    // Always read again: a list kept from an earlier load can still say 0 for a request compared since.
+    try { data = await request('/api/panel/records?view=manheim'); manheimData = data; }
+    catch (_) { if (container.isConnected) container.replaceChildren(element('p', 'warning', 'Não consegui carregar as opções agora · Tente de novo')); return; }
+    if (!container.isConnected) return;
+    const refOf = (value) => String(value || '').trim().toUpperCase();
+    const demands = (data.demands || []).filter((demand) => journeyId ? demand.journeyId === journeyId : Boolean(ref) && !demand.journeyId && refOf(demand.ref || demand.calcRef) === refOf(ref));
+    container.replaceChildren();
+    if (!data.upload) { container.append(element('p', 'muted', 'Nenhum lote ativo do Manheim · a busca ainda não rodou')); return; }
+    if (!demands.length) { container.append(element('p', 'muted', 'Nenhum pedido de carro deste cliente para comparar com o lote')); return; }
+    let withCars = false;
+    demands.forEach((demand) => {
+      const calc = demand.mode === 'VALOR' ? 'Calculate My Cost' : demand.mode === 'CARRO' ? 'Find One For Me' : '';
+      const offer = demand.offer;
+      const total = offer ? offerTotal(offer) : Number(demand.matchCount) || 0;
+      const line = element('div', 'offers-summary-line');
+      line.dataset.demandKey = demand.key || '';
+      if (demand.stale || demand.compared === false) {
+        line.append(element('strong', '', 'Ainda não comparado com o lote atual'), element('span', 'muted', calc));
+        const update = element('button', 'small quiet', 'Atualizar'); update.type = 'button';
+        update.addEventListener('click', async () => {
+          update.disabled = true; update.textContent = 'Comparando…';
+          try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }) }); renderFichaOffersSummary(container, { journeyId, ref, kind, key }); }
+          catch (_) { update.disabled = false; update.textContent = 'Atualizar'; }
+        });
+        line.append(update);
+      } else if (total > 0) {
+        withCars = true;
+        line.append(element('strong', 'offers-summary-total', `${total} ${total === 1 ? 'opção' : 'opções'} dentro dos critérios`), element('span', 'muted', calc));
+        const groups = offer ? [`Lane/Run (${Number(offer.lane) || 0})`, `Buy Now / Make Offer fora de Lane/Run (${Number(offer.offLane) || 0})`, ...(Number(offer.incomplete) ? [`Informação incompleta (${offer.incomplete})`] : [])] : [];
+        if (groups.length) line.append(element('span', 'offers-summary-groups', groups.join(' · ')));
+      } else {
+        line.append(element('strong', '', demand.expired ? EXPIRED_TEXT : 'Nenhuma opção no lote atual'), element('span', 'muted', calc));
+        // Why there is no car, read from the batch (the same reason BUSCAR CARROS gives).
+        if (journeyId && !demand.expired && demand.mode) {
+          const reason = element('span', 'muted search-empty-reason', 'Motivo: lendo o lote…'); line.append(reason);
+          const reasonKey = `ficha:journey:${journeyId}:${demand.mode}`;
+          request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'empty_reasons', keys: [reasonKey] }) })
+            .then((out) => { const found = (out.reasons || {})[reasonKey]; reason.textContent = 'Motivo: ' + (found ? found.text : 'nenhum carro do lote ativo serviu para estes critérios'); })
+            .catch(() => { reason.textContent = 'Motivo: não consegui ler o lote agora'; });
+        }
+      }
+      container.append(line);
+    });
+    if (withCars) {
+      const actions = element('div', 'lead-actions');
+      const go = element('button', 'small', 'Ver opções'); go.type = 'button'; go.dataset.action = 'ficha-options';
+      const status = element('span', 'muted', '');
+      go.addEventListener('click', async () => {
+        go.disabled = true;
+        const opened = await openClientOptionsFrom({ kind, key }, { journeyId, ref }).catch(() => false);
+        go.disabled = false;
+        if (!opened && go.isConnected) status.textContent = 'Não consegui abrir as opções agora · Tente de novo';
+      });
+      actions.append(go, status);
+      container.append(actions);
+    }
+  }
+  // ===== Opções do cliente · PDF e V1 =====
   function v1ErrorText(error) {
     return error?.code === 'MANHEIM_STAMP_INVALID' ? 'Algum carro não serve mais ao pedido atual (lote ou critério mudou) · Recarregue as opções e selecione de novo'
       : error?.code === 'MANHEIM_AUDIT_PENDING' ? 'A conferência desta demanda ainda não liberou a V1'
@@ -4244,56 +4279,6 @@
       : error?.code === 'MANHEIM_SALE_ENDED' ? (error.removed?.length ? `O leilão já passou: ${error.removed.join(', ')} · Nenhum carro entrou na V1` : 'O leilão de algum carro já passou · Recarregue as opções')
       : error?.code === 'MANHEIM_SELECTION_PENDING' ? 'V1 bloqueada: seleção para o cliente indisponível · O painel precisa de uma atualização para liberar este recurso · Avise o responsável'
       : 'Não consegui gerar o link';
-  }
-  async function renderFichaOptions(container, { journeyId, ref }) {
-    container.replaceChildren(element('p', 'muted', 'Carregando as opções do lote ativo…'));
-    let data = manheimData;
-    if (!data) {
-      try { data = await request('/api/panel/records?view=manheim', viewFetch()); manheimData = data; }
-      catch (_) { if (container.isConnected) container.replaceChildren(element('p', 'warning', 'Não consegui carregar as opções agora · Tente de novo')); return; }
-    }
-    if (!container.isConnected) return;
-    const demands = (data.demands || []).filter((demand) => demand.matchCount > 0
-      && (!journeyId || demand.journeyId === journeyId)
-      && (journeyId || !ref || demand.ref === ref || demand.calcRef === ref));
-    container.replaceChildren();
-    if (!demands.length) {
-      container.append(element('p', 'muted', 'Nenhum carro do lote ativo para este pedido agora'));
-      return;
-    }
-    const mounted = [];
-    demands.forEach((demand) => {
-      const section = element('section', 'ficha-demand');
-      section.dataset.demandKey = demand.key || '';
-      const head = element('div', 'ficha-demand-head');
-      head.append(makeBadge(demand.mode === 'VALOR' ? 'Por valor' : 'Por carro', demand.mode === 'VALOR' ? 'blue' : 'green'));
-      head.append(element('span', 'request-criteria-label', 'Cliente pediu'));
-      section.append(head);
-      section.append(element('p', 'demand-essential', demandSummary(demand)));
-      // Without the selection summary the groups cannot be drawn yet: say so, never zero.
-      if (!demand.offer || !OFFER) {
-        if (demand.offerPending) section.append(offerPendingNote());
-        else section.append(element('p', 'muted', 'Opções ainda carregando · volte em instantes'));
-        container.append(section);
-        return;
-      }
-      const seen = () => (section.offerState ? section.offerState.loaded : []);
-      let audited = auditBlock(demand, seen());
-      if (audited) section.append(audited);
-      if (demand.key) auditCards.set(demand.key, section);
-      ['options-loaded', 'audit-changed'].forEach((name) => section.addEventListener(name, () => { const next = auditBlock(demand, seen()); if (audited && next) { audited.replaceWith(next); audited = next; } }));
-      section.append(offerSection(section, demand));
-      container.append(section);
-      mounted.push({ demand, section });
-      // The check starts by itself when the ficha opens with a car already selected.
-      const alreadySelected = Number(demand.offer.selected) || 0;
-      if (alreadySelected > 0 && demand.key) {
-        request('/api/panel/manheim-audit', { method: 'POST', body: JSON.stringify({ action: 'check', key: demand.key }), timeoutMs: 60000 })
-          .then((checked) => { applyAuditEntry(demand, checked, section); })
-          .catch(() => {});
-      }
-    });
-    container.append(fichaOptionsFooter(mounted));
   }
   function fichaOptionsFooter(mounted) {
     const foot = element('div', 'ficha-v1-foot');

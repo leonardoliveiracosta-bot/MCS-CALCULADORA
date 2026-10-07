@@ -1552,3 +1552,10 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .reply-composer .reply-send .suggestion-path p { margin: 0; }
 .reply-composer label > textarea[readonly] { min-height: 0; overflow: hidden; }
 .reply-composer .reply-send > .suggestion-result:empty { display: none; }
+/* Opções do cliente: o carro aberto sob a linha (a linha já diz o carro, as milhas e o local) */
+#searches-panel #options-client .oc-detail .offer-row { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+#searches-panel #options-client .oc-detail .offer-row .offer-car { display: none; }
+#searches-panel #options-client .oc-detail .offer-row > div:first-child > .offer-car + .muted,
+#searches-panel #options-client .oc-detail .offer-row .offer-fit,
+#searches-panel #options-client .oc-detail .badge[hidden] { display: none; }
+#searches-panel #options-client .oc-detail .offer-row, #searches-panel #options-client .oc-detail .offer-row * { min-width: 0; overflow-wrap: anywhere; }

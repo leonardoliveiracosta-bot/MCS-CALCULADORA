@@ -6,7 +6,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/opcoes-leilao-passado.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { openOptionsFicha, fichaSection } = require('./abrir-ficha-opcoes');
+const { openOptionsScreen } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -81,29 +81,31 @@ test('leilão passado: sai das opções e da seleção, a tela avisa quais saír
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => { window.__opened = []; window.open = (href) => { window.__opened.push(String(href)); return null; }; });
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  const group = card.locator('.offer-group[data-group="LANE"]');
+  const card = await openOptionsScreen(page, { mode: 'CARRO' });
+  const tab = card.locator('.oc-bar .oc-tab[data-group="LANE"]');
   // Só os 3 com leilão futuro: o de leilão passado sai, também o que estava selecionado.
-  await expect(group.locator('> summary')).toHaveText(/\(3\)$/, { timeout: 60000 });
-  await expect(card.locator('.offer-counter')).toContainText('0 de 10 selecionados');
+  await expect(tab).toHaveText(/\(3\)$/, { timeout: 60000 });
+  const foot = card.locator('.oc-act');
+  await expect(foot.locator('.oc-count')).toContainText('0 de 10 selecionados');
   await expect(card.locator('.offer-ended')).toHaveText('Saíram da seleção (leilão passado): 2020 Honda CR-V Touring');
-  await group.locator('> summary').click();
-  const rows = group.locator('.offer-row');
+  // The Lane/Run tab (the first with cars) loads by itself: one line per car, the car itself under it.
+  const rows = card.locator('.oc-list .oc-item');
   await expect(rows).toHaveCount(3);
   await expect(rows.filter({ hasText: vin(3) })).toHaveCount(0);
   await expect(rows.filter({ hasText: vin(4) })).toHaveCount(0);
   // V1 com um carro vivo: sai normal, só com ele.
   const live = rows.filter({ hasText: vin(0) });
-  await live.locator('[data-offer-action="select"]:visible').click();
-  await expect(live).toHaveAttribute('data-status', 'SELECTED');
-  await expect(card.locator('.offer-counter')).toContainText('1 de 10 selecionados');
-  // "Selecionados para o cliente": só o vivo.
-  const picked = card.locator('.offer-picked');
-  await picked.locator('> summary').click();
+  await live.locator('.oc-car').click();
+  await live.locator('.oc-detail [data-offer-action="select"]:visible').click();
+  await expect(live.locator('.offer-row')).toHaveAttribute('data-status', 'SELECTED');
+  await expect(foot.locator('.oc-count')).toContainText('1 de 10 selecionados');
+  // "Selecionados para o cliente" (opened from the counter): só o vivo.
+  await foot.locator('.oc-count').click();
+  const picked = foot.locator('.offer-picked');
+  await expect(picked).toBeVisible();
   await expect(picked.locator('.offer-picked-row')).toHaveCount(1);
   await expect(picked.locator('.offer-picked-row')).toContainText('VIN final ' + vin(0).slice(-6));
   await expect(picked.locator('.warning')).toHaveText('Saíram da seleção (leilão passado): 2020 Honda CR-V Touring');
-  const foot = page.locator('#detail-panel .ficha-v1-foot');
   await foot.getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp' }).click();
   await expect(foot.locator('.ficha-v1-status')).toHaveText('WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp', { timeout: 30000 });
   if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'leilao-passado.png') });

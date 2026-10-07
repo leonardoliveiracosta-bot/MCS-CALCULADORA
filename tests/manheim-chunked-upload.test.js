@@ -179,17 +179,18 @@ test('acréscimo ao lote ativo: dentro do limite segue direto; o limite do banco
   assert.equal(new Function('append', 'current', 'fileMeta', 'MANHEIM_MAX_FILES', 'manheimError', guard[1])(false, { latest: { fileCount: 48 } }, Array.from({ length: 13 }), 50, () => { throw new Error('x'); }), undefined, 'lote novo não passa por esta conferência');
 });
 
-test('BUSCAS: ordem de exibição e opções carregadas por página, 10 de cada vez', () => {
+test('BUSCAS: ordem de exibição e opções carregadas por página, 25 de cada vez', () => {
   const row = (kind, miles) => ({ match_kind: kind, vehicle_json: { parsed: { miles } } });
   const sorted = upload.sortForDisplay([row('QUASE', 100), row('BATE', 5000), row('QUASE', 50), row('BATE', 10)]);
   assert.deepEqual(sorted.map((item) => `${item.match_kind}:${item.vehicle_json.parsed.miles}`), ['BATE:10', 'BATE:5000', 'QUASE:50', 'QUASE:100']);
   const client = read('painel/painel.js');
-  assert.match(client, /const MANHEIM_PAGE_ROWS = 10;/);
+  // The client's options screen (ENVIAR OPÇÕES) reads one page of 25 cars at a time and "Ver mais" brings the next.
+  assert.match(client, /const CLIENT_PAGE_ROWS = 25;/);
   assert.match(client, /'\/api\/panel\/manheim-options\?' \+ params\.toString\(\)/);
-  assert.match(client, /`Ver mais \(\$\{Math\.max\(filteredTotal - loadedCount, 1\)\}\)`/);
-  // The paged option lists moved from the tab cards into the ficha (offerGroup): nothing loads inline any more.
+  assert.match(client, /element\('button', 'quiet small oc-more-button', 'Ver mais'\)/);
+  // Nothing loads inline in the queue cards: the cars live in the client's options screen.
   assert.doesNotMatch(client, /const table = lazyOptions\(card, demand, loaded,/);
-  assert.match(client, /function offerGroup\(demand, groupKey, count, state\)/);
+  assert.match(client, /function paintOptionsClient\(screen, row, demands, demand\)/);
   // The same order is kept by the database page (BATE, POR VALOR, lowest mileage, then id).
   assert.match(read('supabase/migrations/20261005010000_panel_manheim_lote_unico.sql'), /order by coalesce\(m\.sort_rank::integer, case m\.match_kind when 'BATE' then 0 when 'POR_VALOR' then 1 else 2 end\), coalesce\(m\.sort_miles,/);
 });

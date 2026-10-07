@@ -158,10 +158,10 @@ test('returns are unified and HOJE colors overdue and next-two-hour deadlines', 
 
 test('UI and server wire structured wishlist, grouping, presenting, and no start-search button', () => {
   assert.match(client, /const wishlists = wishlistRows/);
-  // The queue card shows the structured criteria; the selection UI lives in the ficha.
-  assert.match(client, /element\('p', 'demand-essential', demandSummary\(demand\)\)/);
+  // The client's options screen shows the structured criteria; the selection UI lives there.
+  assert.match(client, /fact\('Cliente pediu', demandSummary\(demand\) \|\| 'não informado'\)/);
   assert.match(client, /O que o cliente pediu/);
-  assert.match(client, /function offerGroup\(demand, groupKey, count, state\)/);
+  assert.match(client, /function paintOptionsClient\(screen, row, demands, demand\)/);
   assert.match(client, /Selecionados para o cliente/);
   assert.match(client, /Baixar PDF/);
   assert.match(client, /const vehicle = match\.vehicle_json\.parsed/);

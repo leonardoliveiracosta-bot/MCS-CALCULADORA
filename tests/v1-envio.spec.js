@@ -6,7 +6,7 @@
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/v1-envio.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { openOptionsFicha, fichaSection } = require('./abrir-ficha-opcoes');
+const { openOptionsScreen } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -118,7 +118,7 @@ async function openPanel(page, optionPages = []) {
   });
 }
 
-test('V1 pela ficha abre o WhatsApp com a mensagem e o link (nada enviado pelo painel) e histórico de lotes recolhido', async ({ page }) => {
+test('V1 pelas Opções do cliente abre o WhatsApp com a mensagem e o link (nada enviado pelo painel) e histórico de lotes recolhido', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
@@ -137,17 +137,18 @@ test('V1 pela ficha abre o WhatsApp com a mensagem e o link (nada enviado pelo p
   await expect(batches.locator('.batch-hidden > summary')).toHaveText('Ver lotes ocultos (1)');
   if (SHOTS) await batches.screenshot({ path: path.join(SHOTS, 'historico-lotes-oculto.png') });
 
-  // V1 (#218): in the ficha, select two cars and "Gerar V1 e abrir no WhatsApp" creates the V1 and opens
-  // the conversation with the approved message and the link. Nothing is sent by the panel.
+  // V1 (#218): in the client's options screen, select two cars (the box of the line) and "Gerar V1 e abrir
+  // no WhatsApp" creates the V1 and opens the conversation with the approved message and the link. Nothing
+  // is sent by the panel.
   await page.evaluate(() => { window.__opened = []; window.open = (href) => { window.__opened.push(String(href)); return null; }; });
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await card.locator('.offer-group[data-group="LANE"] > summary').click();
-  const lane = card.locator('.offer-group[data-group="LANE"] .offer-row');
+  const card = await openOptionsScreen(page, { mode: 'CARRO' });
+  await expect(card.locator('.oc-bar .oc-tab.on')).toHaveAttribute('data-group', 'LANE');
+  const lane = card.locator('.oc-list .oc-item');
   for (let index = 0; index < 2; index += 1) {
-    await lane.nth(index).locator('[data-offer-action="select"]:visible').click();
-    await expect(lane.nth(index)).toHaveAttribute('data-status', 'SELECTED');
+    await lane.nth(index).locator('.oc-row input[type="checkbox"]').check();
+    await expect(lane.nth(index).locator('.offer-row')).toHaveAttribute('data-status', 'SELECTED');
   }
-  const foot = page.locator('#detail-panel .ficha-v1-foot');
+  const foot = card.locator('.oc-act');
   await foot.getByRole('button', { name: 'Gerar V1 e abrir no WhatsApp' }).click();
   await expect(foot.locator('.ficha-v1-status')).toHaveText('WhatsApp aberto com a mensagem · O envio é feito por você no WhatsApp', { timeout: 30000 });
   if (SHOTS) await foot.screenshot({ path: path.join(SHOTS, 'v1-ficha-whatsapp.png') });
