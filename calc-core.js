@@ -304,18 +304,16 @@ function calcular(d, P = defaultParams()){
   r.acimaLance = A + G + S + I;
   r.totalProjetado = L + r.acimaLance;
 
-  /* Caso 3: o envio do titulo sai do leilao e vai para "Purchase & title".
+  /* Nos 4 casos o envio do titulo (Title Mailing Fee) sai da casa de leilao e vai para o bloco de baixo, junto da
+     documentacao de 599 ("Tax, title & registration" ou "Purchase & title"), como no bloco de compras do site.
      So muda a exibicao; base, acima do lance e total ficam iguais.      */
-  r.fixasLeilao = fixas;
-  if (caso === 3){
-    var tm = fixas.filter(function(f){ return f.nome === "Title Mailing Fee"; })
-                  .reduce(function(a, f){ return a + Math.round(f.valor); }, 0);
-    r.fixasLeilao = fixas.filter(function(f){ return f.nome !== "Title Mailing Fee"; });
-    r.dLeilao = A - tm;
-    r.gLeilao = A - tm;
-    r.gGrupo  = G + tm;
-    r.gTaxReg = G + tm;
-  }
+  var tm = fixas.filter(function(f){ return f.nome === "Title Mailing Fee"; })
+                .reduce(function(a, f){ return a + Math.round(f.valor); }, 0);
+  r.fixasLeilao = fixas.filter(function(f){ return f.nome !== "Title Mailing Fee"; });
+  r.dLeilao = A - tm;
+  r.gLeilao = A - tm;
+  r.gGrupo  = G + tm;
+  r.gTaxReg = G + tm;
 
   if (d.pgto === "cash"){
     r.total = r.totalProjetado;
