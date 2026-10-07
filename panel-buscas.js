@@ -31,11 +31,22 @@ async function loadBuscasBase(ctx, services = {}) {
   ]);
   const triage = await activeRows(ctx, read);
   const explicit = await refProof.loadExplicit(ctx, services.rpc || rpc).catch(() => null);
+  const built = Date.now();
   const base = buildBuscasBase({ journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages, triage, explicit });
-  return require('./panel-request-demands').attach(ctx, base, read);
+  base.profile.build = Date.now() - built;
+  const attached = Date.now();
+  const done = await require('./panel-request-demands').attach(ctx, base, read);
+  (done.profile || base.profile).attach = Date.now() - attached;
+  return done;
+}
+// Medição: tempo acumulado e chamadas de uma função da base (lido nos logs de tempo das listas).
+function profiled(profile, name, fn) {
+  return (...args) => { const at = Date.now(); try { return fn(...args); } finally { const entry = profile[name] || (profile[name] = { ms: 0, calls: 0 }); entry.ms += Date.now() - at; entry.calls += 1; } };
 }
 
 function buildBuscasBase(input) {
+  const profile = {}, step = (name, at) => { profile[name] = Date.now() - at; };
+  let at = Date.now();
   const stateByJourney = new Map((input.toggleStates || []).map((state) => [state.journey_id, state]));
   const contactsById = new Map((input.contacts || []).map((row) => [row.id, row]));
   // Triagem: a ficha cuja conversa ficou fora do funil não entra em BUSCAS; demandas e matches não mudam.
@@ -46,27 +57,34 @@ function buildBuscasBase(input) {
     return { ...item, reactivationEligible: reactivationEligible(item) };
   });
   const refs = input.refs || [];
+  step('journeys', at); at = Date.now();
   const modeItems = consolidateCalcRuns(input.calcRuns || [], input.calcLinks || []);
+  step('modeItems', at); at = Date.now();
   const grouped = groupCalculatorByRef(modeItems, input.dispositions || []);
+  step('grouped', at); at = Date.now();
   const demands = buildSearchDemands({ journeys, refs, modeItems });
+  step('demands', at); at = Date.now();
   const contact = contactIndex({ calcRuns: input.calcRuns || [], messages: (input.messages || []).filter((message) => !message.undone_at), messageLinks: input.messageLinks || [] });
+  step('contactIndex', at); at = Date.now();
+  contact.facts = profiled(profile, 'facts', contact.facts);
   const personDisposition = dispositionIndex(input.dispositions || []);
-  const refsOf = (journey) => refs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code);
+  const refsOf = profiled(profile, 'refsOf', (journey) => refs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code));
   const journeyById = new Map(journeys.map((journey) => [journey.id, journey]));
   const groupedByRef = new Map(grouped.map((order) => [upper(order.ref), order]));
-  const phonesFor = (contactId) => (input.phones || []).filter((row) => row.contact_id === contactId);
+  const phonesFor = profiled(profile, 'phonesFor', (contactId) => (input.phones || []).filter((row) => row.contact_id === contactId));
   const primaryPhone = (contactId) => {
     const values = phonesFor(contactId).filter((row) => row.is_current !== false);
     const phone = values.find((row) => row.is_primary) || values[0];
     return phone ? phone.phone_e164 || phone.phone_raw || null : null;
   };
-  const journeyDisposition = (journey) => personDisposition(journey.id, [journey.reference_code, ...refsOf(journey)].filter(Boolean));
-  const journeyEntered = (journey) => contact.facts({ journeyId: journey.id, ref: journey.reference_code, refs: refsOf(journey) }).entered;
+  const journeyDisposition = profiled(profile, 'journeyDisposition', (journey) => personDisposition(journey.id, [journey.reference_code, ...refsOf(journey)].filter(Boolean)));
+  const journeyEntered = profiled(profile, 'journeyEntered', (journey) => contact.facts({ journeyId: journey.id, ref: journey.reference_code, refs: refsOf(journey) }).entered);
   const orderEntered = (ref) => contact.facts({ ref }).entered;
   // The calculator Ref shown on screen: the same proof as the ficha detail (a code without it is the ficha's internal code).
   const runRefs = refProof.runRefsOf(input.calcRuns || []);
-  const calcRefOf = (journey) => refProof.proofFor({ journey, linkedRefs: refsOf(journey), runRefs, explicit: input.explicit && input.explicit.get(journey.id) || [] }).calcRef;
-  return { ...input, journeys, journeyById, refs, refsOf, modeItems, grouped, groupedByRef, demands, contact, personDisposition, journeyDisposition, journeyEntered, orderEntered, contactsById, phonesFor, primaryPhone, calcRefOf };
+  step('rest', at);
+  const calcRefOf = profiled(profile, 'calcRefOf', (journey) => refProof.proofFor({ journey, linkedRefs: refsOf(journey), runRefs, explicit: input.explicit && input.explicit.get(journey.id) || [] }).calcRef);
+  return { ...input, journeys, journeyById, refs, refsOf, modeItems, grouped, groupedByRef, demands, contact, personDisposition, journeyDisposition, journeyEntered, orderEntered, contactsById, phonesFor, primaryPhone, calcRefOf, profile };
 }
 
 // The person behind a demand, as BUSCAS shows it.
