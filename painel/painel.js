@@ -3855,14 +3855,26 @@
     row.states.forEach((state) => {
       if (state.kind !== 'pending') return;
       const update = element('button', 'quiet small options-queue-update', 'Atualizar'); update.type = 'button'; update.dataset.demandKey = state.demand.key;
-      update.addEventListener('click', async (event) => { event.stopPropagation(); update.disabled = true; update.textContent = 'Comparando…'; try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: state.demand.key }) }); update.textContent = 'Comparado'; manheimData = null; loadCurrent('searches').catch(() => {}); } catch (_) { update.disabled = false; update.textContent = 'Atualizar'; } });
+      MCSAction.bind(update, () => {
+        const version = viewRequestVersion;
+        return {
+          scope: line, feedbackKey: `rematch:${state.demand.key}`,
+          optimistic: () => { const label = update.textContent; update.textContent = 'Comparando…'; return label; },
+          commit: () => request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: state.demand.key }) }),
+          rollback: (label) => { update.textContent = label; },
+          errorText: 'Não consegui comparar este pedido. Clique em Atualizar para tentar novamente.',
+          successText: 'Pedido comparado',
+          onSuccess: () => { update.textContent = 'Comparado'; manheimData = null; },
+          refresh: () => currentView === 'searches' && viewRequestVersion === version ? loadCurrent('searches', version) : Promise.resolve()
+        };
+      });
       actions.append(update);
     });
     const open = element('button', 'small', withCars ? 'Ver opções' : person.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
     open.addEventListener('click', (event) => { event.stopPropagation(); openRow(); });
     actions.append(open); line.append(actions);
     line.addEventListener('click', openRow);
-    line.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openRow(); } });
+    line.addEventListener('keydown', (event) => { if (event.target === line && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openRow(); } });
     root.append(line);
   }
 
