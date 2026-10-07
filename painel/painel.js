@@ -9,7 +9,6 @@
   let accessToken;
   let refreshToken;
   let accessExpiresAt = 0;
-  let persistentSession = false;
   let contacts = [];
   let chats = [];
   let journeys = [];
@@ -5927,17 +5926,15 @@
   }
 
   const SESSION_KEY = 'mcs_panel_session';
+  // The panel has one user: the session is always kept on this device (it never depends on the tab staying open).
   const storeSession = () => {
-    const storage = persistentSession ? localStorage : sessionStorage;
-    const otherStorage = persistentSession ? sessionStorage : localStorage;
-    otherStorage.removeItem(SESSION_KEY);
-    storage.setItem(SESSION_KEY, JSON.stringify({ accessToken, refreshToken, accessExpiresAt }));
+    sessionStorage.removeItem(SESSION_KEY);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ accessToken, refreshToken, accessExpiresAt }));
   };
-  const acceptAuthSession = (data, remember = persistentSession) => {
+  const acceptAuthSession = (data) => {
     accessToken = data.access_token;
     refreshToken = data.refresh_token || refreshToken;
     accessExpiresAt = Date.now() + Math.max(0, Number(data.expires_in || 3600) - 60) * 1000;
-    persistentSession = remember;
     storeSession();
   };
   const clearSession = () => {
@@ -5946,7 +5943,6 @@
     accessToken = null;
     refreshToken = null;
     accessExpiresAt = 0;
-    persistentSession = false;
   };
   // One refresh at a time: the panel requests and the notification poll can hit a 401 together.
   let refreshing = null;
@@ -5966,7 +5962,14 @@
     if (event.key !== SESSION_KEY || !event.newValue || !refreshToken) return;
     try { const stored = JSON.parse(event.newValue); if (stored && stored.refreshToken) adoptStored(stored); } catch (_) {}
   });
-  async function refreshAccessTokenNow() {
+  // One renewal at a time across the tabs of this browser: two tabs renewing with the same refresh token end the
+  // session. Inside the lock the saved tokens are read again, so the second tab uses what the first one just saved.
+  const withRefreshLock = (work) => {
+    try { if (navigator.locks && navigator.locks.request) return navigator.locks.request('mcs-panel-refresh', work); } catch (_) {}
+    return work();
+  };
+  function refreshAccessTokenNow() { return withRefreshLock(refreshInsideLock); }
+  async function refreshInsideLock() {
     // A tab that was hidden may hold a refresh token another tab already used: take the saved one first.
     const stored = storedSession();
     if (stored && stored.refreshToken !== refreshToken) {
@@ -5974,15 +5977,26 @@
       if (accessToken && accessExpiresAt > Date.now()) return true;
     }
     if (!refreshToken || !config) return false;
+    const used = refreshToken;
     const response = await fetch(config.url + '/auth/v1/token?grant_type=refresh_token', {
       method: 'POST',
       headers: { apikey: config.publishableKey, 'content-type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken })
+      body: JSON.stringify({ refresh_token: used })
     });
     const data = await response.json().catch(() => ({}));
     // Only a refused session ends it; a server or network failure keeps the session for the next try.
     if (!response.ok && (response.status >= 500 || response.status === 429)) throw Object.assign(new Error('NETWORK_ERROR'), { code: 'NETWORK_ERROR', status: response.status });
     if (!response.ok || !data.access_token) {
+      // Refused because another tab renewed first (its saved tokens reach this tab a moment later): use them.
+      for (const wait of [150, 500, 1200]) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        const renewed = storedSession();
+        if (renewed && renewed.refreshToken && renewed.refreshToken !== used) {
+          adoptStored(renewed);
+          if (accessToken && accessExpiresAt > Date.now()) return true;
+          break;
+        }
+      }
       clearSession();
       return false;
     }
@@ -5991,12 +6005,14 @@
   }
   async function restoreSession() {
     let raw = localStorage.getItem(SESSION_KEY);
-    persistentSession = Boolean(raw);
+    const onlyInTab = !raw;
     if (!raw) raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) return;
     let stored;
     try { stored = JSON.parse(raw); } catch (_) { clearSession(); return; }
     adoptStored(stored);
+    // A session saved only in this tab by an older version moves to the device.
+    if (onlyInTab) storeSession();
     // Coming back to the tab with the network still waking up: the renewal fails, the session stays (the next
     // request renews it).
     if (!accessToken || accessExpiresAt <= Date.now()) await refreshAccessToken().catch(() => {});
@@ -6191,7 +6207,7 @@
         return error('login-error', controller.signal.aborted ? 'O login demorou para responder · Tente de novo' : 'Não consegui falar com o servidor de login · Confira a conexão e tente de novo');
       } finally { clearTimeout(timer); }
       if (!response.ok || !data.access_token) return error('login-error', 'E-mail ou senha inválidos');
-      acceptAuthSession(data, $('remember-login').checked);
+      acceptAuthSession(data);
       $('password').value = '';
       busy('Entrando…');
       await routeSession();
