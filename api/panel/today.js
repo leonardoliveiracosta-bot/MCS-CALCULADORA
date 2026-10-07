@@ -64,6 +64,11 @@ module.exports = async (req, res) => {
       allRows(ctx, 'whatsapp_link_suggestions', { select: 'source_journey_id', environment: 'eq.' + ctx.environment, status: 'eq.PENDING', suggestion_kind: 'eq.AI' })
       ,allRows(ctx, 'conversation_pending_insights', { select: 'journey_id,heat,summary_text,next_step_text,last_ai_message_id,updated_at', environment: 'eq.' + ctx.environment })
     ]);
+    // TODOS · Espera: the last result marked by hand in the ficha ("Resultado rápido"); without one, "sem resposta".
+    // Read apart and never blocking: when it cannot be read, Espera stays as it was.
+    const contactResults = await allRows(ctx, 'lead_events', { select: 'journey_id,event_type,detail_json,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'like.QUICK_*', undone_at: 'is.null', order: 'occurred_at.asc' })
+      .then((rows) => { const latest = {}; rows.forEach((row) => { if (row.journey_id) latest[row.journey_id] = { type: String(row.event_type).replace(/^QUICK_/, ''), label: String(row.detail_json && row.detail_json.label || ''), at: row.occurred_at }; }); return latest; })
+      .catch(soft('resultado marcado na ficha', null));
     // Adendo: fora do assunto (leitura da triagem ou correção sua); sem tabela, ninguém fica fora.
     mark('phase1', t0);
     const t1 = Date.now();
@@ -293,6 +298,7 @@ module.exports = async (req, res) => {
       generatedAt: new Date(now).toISOString(),
       items:items.map((item)=>decorateWithSearchStage(item,stageIndex)),
       discardedJourneys,
+      contactResults,
       degraded: [...new Set(degraded)],
       meta
     });

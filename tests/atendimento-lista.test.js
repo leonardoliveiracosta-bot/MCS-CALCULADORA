@@ -63,7 +63,7 @@ test('números numa faixa fina, mesmo cálculo; "prontos para comprar" em dourad
 test('linha: as 10 colunas na ordem pedida e abre o que o botão abria', () => {
   const row = js.slice(js.indexOf('function attendRow'), js.indexOf('function renderToday'));
   const order = ['attend-wait', 'attend-channel', 'attend-ref', 'attend-tel', 'attend-car', 'attend-value', 'attend-year', 'attend-miles', 'attend-origin', 'attend-state'];
-  const at = order.map((cls) => row.search(new RegExp(`[' ]${cls}'`)));
+  const at = order.map((cls) => cls === 'attend-wait' ? row.indexOf('attendWaitCell(') : row.search(new RegExp(`[' ]${cls}'`)));
   assert.ok(at.every((index) => index > 0), 'todas as colunas existem');
   assert.deepEqual([...at].sort((a, b) => a - b), at, 'na ordem pedida');
   assert.match(html, /<div class="attend-head"[^>]*><span><\/span><span>Espera<\/span><span>Canal<\/span><span>Ref<\/span><span>Telefone<\/span><span>Carro<\/span><span>Valor<\/span><span>Ano<\/span><span>Milha<\/span><span>Origem<\/span><span>Estado<\/span><span><\/span><\/div>/);
@@ -93,6 +93,18 @@ test('Origem: calculadora conhecida, Financiamento, Site ou em branco', () => {
   assert.equal(origin({ group: { calcMode: 'VALOR' } }, { key: 'CALCULADORA:WHATSAPP' }), 'Calculate My Cost');
   assert.equal(origin({ logicalModes: ['CARRO'] }, { key: 'CALCULADORA:SMS' }), 'Find One For Me');
   assert.equal(origin({}, { key: 'MENSAGEM:WHATSAPP' }), '');
+});
+
+test('Espera: tempo, depois o que foi marcado à mão na ficha (negrito) ou "sem resposta"; mensagens não mudam isso', () => {
+  const cell = js.slice(js.indexOf('function attendWaitCell'), js.indexOf('// Origem: the calculator'));
+  assert.match(cell, /element\('strong', 'attend-mark', segment\.text\)/);
+  assert.match(cell, /'sem resposta' : 'Sem resposta'/);
+  // Without the marks loaded (an old answer or a failed read), Espera stays as it was.
+  assert.match(cell, /const marks = attendData\.contactResults;/);
+  assert.match(js, /attendData\.contactResults=data\.contactResults&&typeof data\.contactResults==='object'\?data\.contactResults:null;/);
+  const server = read('api/panel/today.js');
+  assert.match(server, /event_type: 'like\.QUICK_\*', undone_at: 'is\.null'/);
+  assert.match(server, /\n      contactResults,\n/);
 });
 
 test('visual da foto: títulos em negrito com linha embaixo, linhas cinza e branco, sem cor na linha', () => {

@@ -2593,7 +2593,7 @@
   // the case, its reasons and its filter; the badge, the chips and the list come from that one call).
   // The list is always every case (the old bucket pills were removed); a bucket saved by them is ignored.
   let attendBucket = 'todos';
-  const attendData = { entry: null, triage: null, whatsapp: null, vitrine: null, incomplete: [], incompleteFailed: false, discarded: new Set() };
+  const attendData = { entry: null, triage: null, whatsapp: null, vitrine: null, incomplete: [], incompleteFailed: false, discarded: new Set(), contactResults: null };
   // "Excluir": the person leaves ATENDIMENTO whole. Its link/triage/vitrine rows and incomplete requests stay out too
   // (the server's list, plus the ones excluded here before the next answer), until the person is a HOJE item again.
   const excludedHere = new Set();
@@ -2643,6 +2643,7 @@
     const missing=[!entryData&&'conversas para revisar',!triageData&&'triagem',!whatsappData&&'vínculos sugeridos',...((data.degraded||[]).map((name)=>name+' (desatualizado)'))].filter(Boolean);
     $('triage-state').textContent=[missing.length?`Não consegui carregar agora: ${missing.join(', ')} · o resto da fila vale`:'',triageData&&triageData.state!=='LIGADA'?'Triagem automática desligada: as conversas novas seguem o fluxo normal':''].filter(Boolean).join(' · ');
     attendData.discarded=new Set(data.discardedJourneys||[]);
+    attendData.contactResults=data.contactResults&&typeof data.contactResults==='object'?data.contactResults:null;
     renderToday(data.items || []);
     if (savedAt) { const note = $('triage-state'); if (note) note.textContent = [`Mostrando os dados de ${formatDate(savedAt)} · atualizando…`, note.textContent].filter(Boolean).join(' · '); }
   }
@@ -2838,9 +2839,29 @@
   const attendChannelOf = (value) => { const text = String(value || '').toUpperCase(); return /SMS/.test(text) ? 'SMS' : /WHATSAPP/.test(text) ? 'WhatsApp' : ''; };
   // Espera without the channel (it has its own column): "8 dias · sem resposta · Confirmar vínculo".
   function attendWaitParts(wait) {
-    const parts = [wait.main, ...String(wait.sub || '').split(' · ')].map((one) => String(one || '').trim()).filter(Boolean);
+    const parts = [wait.main, wait.sub].flatMap((one) => String(one || '').split(' · ')).map((one) => one.trim()).filter(Boolean);
     const channel = parts.map(attendChannelOf).find((one, index) => one && Object.values(ATTEND_CHANNELS).includes(parts[index])) || '';
-    return { text: parts.filter((one) => !Object.values(ATTEND_CHANNELS).includes(one)).join(' · '), channel };
+    return { parts: parts.filter((one) => !Object.values(ATTEND_CHANNELS).includes(one)), channel };
+  }
+  // Espera: the time as before, then the contact state marked by hand in the ficha ("Resultado rápido", in bold), or
+  // "sem resposta" while nothing was marked. Messages never change this state. Without the marks loaded, Espera stays as before.
+  const ATTEND_CONTACT_WORDS = /^(sem resposta|aguardando o cliente|sem ação|nossa última mensagem, sem ação depois|primeira mensagem, sem ação depois)$/i;
+  const ATTEND_TIME_WORDS = /^(\d+\s*(min|h|dias?)|há \d+.*)$/i;
+  function attendWaitCell(parts, journeyId) {
+    const cell = element('div', 'attend-cell attend-wait'); cell.dataset.label = 'Espera';
+    const marks = attendData.contactResults;
+    let segments = parts.map((text) => ({ text, bold: false }));
+    if (marks) {
+      const rest = parts.filter((text) => !ATTEND_CONTACT_WORDS.test(text));
+      const mark = journeyId && marks[journeyId] && marks[journeyId].label;
+      const at = rest.findIndex((text) => !ATTEND_TIME_WORDS.test(text));
+      const where = at === -1 ? rest.length : at;
+      segments = rest.map((text) => ({ text, bold: false }));
+      segments.splice(where, 0, mark ? { text: mark, bold: true } : { text: where ? 'sem resposta' : 'Sem resposta', bold: false });
+    }
+    segments.forEach((segment, index) => { if (index) cell.append(' · '); cell.append(segment.bold ? element('strong', 'attend-mark', segment.text) : document.createTextNode(segment.text)); });
+    cell.title = segments.map((segment) => segment.text).join(' · ');
+    return cell;
   }
   // Origem: the calculator when it is known; Financiamento (the site's financing form); Site (came from the site,
   // calculator not known); blank when it did not come from the site.
@@ -2897,7 +2918,7 @@
     const fields = item ? caseRequestFields(item) : [];
     const value = (label) => { const found = (fields.find(([one]) => one === label) || [])[1]; return found && found !== 'não informado' ? found : ''; };
     const cars = [...new Set(fields.filter(([label]) => /^Carro/.test(label)).map(([, one]) => one).filter((one) => one && one !== 'não informado'))];
-    row.append(attendText('attend-wait', 'Espera', wait.text));
+    row.append(attendWaitCell(wait.parts, uuidOnly(entry.journeyId) || null));
     row.append(attendText('attend-channel', 'Canal', channel));
     row.append(attendText('attend-ref', 'Ref', /^[A-Z0-9]{5}$/.test(ref) ? ref : ''));
     const phoneCell = element('div', 'attend-cell attend-tel'); phoneCell.dataset.label = 'Telefone';
