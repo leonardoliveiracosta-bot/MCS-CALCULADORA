@@ -27,4 +27,4 @@
 .mcs-assistant button.quiet:hover { background: #15293d; }
 .mcs-assistant .assistant-report { justify-self: start; font-weight: 600; }
 
-.assistant-head-actions{display:flex;gap:8px;align-items:center}.assistant-proposal-done{opacity:.78}.assistant-proposal-done .assistant-proposal-actions{display:none}
+.assistant-head-actions{display:flex;gap:8px;align-items:center}.assistant-proposal-done{opacity:.78}
