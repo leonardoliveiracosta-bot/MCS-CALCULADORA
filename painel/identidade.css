@@ -1600,3 +1600,38 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 
 /* ---------- ficha: "Já apresentados" dentro de OPÇÕES NO LOTE ---------- */
 .offers-summary .context-presented { margin: 0 0 8px; font-size: 14px; line-height: 1.4; color: var(--mcs-text); overflow-wrap: anywhere; }
+
+/* ---------- ficha · 5 OPÇÕES NO LOTE em tabela (linha reta, como a lista do TODOS) ---------- */
+.offers-table { display: grid; margin-top: 4px; }
+.offers-table .offers-table-row { display: grid; margin: 0; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, .8fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(120px, auto); gap: 0 16px; align-items: center; min-height: 52px; padding: 6px 12px; }
+.offers-table-head { min-height: 40px; border-bottom: 2px solid #2B7BD6; font-size: 13px; font-weight: 700; color: #171A20; }
+.offers-table-head > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.offers-table .offers-summary-line:nth-child(odd) { background: #F2F3F5; }
+.offers-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: #1B1A18; }
+.offers-cell-wide { grid-column: 2 / 6; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; white-space: normal; }
+.offers-cell-action { justify-self: end; display: flex; align-items: center; gap: 8px; overflow: visible; }
+.offers-cell-action .offers-status:empty { display: none; }
+.offers-table .offers-summary-total { font-size: 15px; }
+@media (max-width: 640px) {
+  .offers-table-head { display: none; }
+  .offers-table .offers-table-row { grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 10px 12px; }
+  .offers-cell { white-space: normal; }
+  .offers-cell:not([data-label=""])::before { content: attr(data-label) ": "; color: #6F675D; font-weight: 500; }
+  .offers-cell-wide { grid-column: auto; }
+  .offers-cell-action { justify-self: start; }
+}
+
+/* ---------- Opções do cliente · VIN na lista e o carro aberto em linha reta ---------- */
+.options-client .oc-vin { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.offer-facts { margin: 6px 0 12px; }
+.offer-facts-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .5fr) minmax(0, 1.5fr) minmax(0, 1.6fr) minmax(0, 1.5fr) minmax(0, 1.7fr); gap: 0 14px; align-items: start; padding: 8px 0; }
+.offer-facts-head { padding: 6px 0; border-bottom: 2px solid #2B7BD6; font-size: 12px; font-weight: 700; color: #171A20; }
+.offer-facts-head > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#searches-panel .offer-row .offer-facts .offer-fact { display: grid; gap: 2px; min-width: 0; margin: 0; font-size: 13.5px; font-weight: 400; color: #1B1A18; overflow-wrap: anywhere; }
+.offer-fact strong { font-weight: 700; }
+.offer-fact small { font-size: 12px; }
+@media (max-width: 640px) {
+  .offer-facts-head { display: none; }
+  .offer-facts-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; }
+  .offer-fact::before { content: attr(data-label); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #6F675D; }
+}

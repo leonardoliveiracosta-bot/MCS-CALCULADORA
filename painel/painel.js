@@ -3284,20 +3284,31 @@
       element('span', 'muted', `${milesText(parsed.miles)}${parsed.locationDisplay || parsed.location ? ` · ${parsed.locationDisplay || parsed.location}` : ''}`));
     const bidCents = state.demand && state.demand.mode === 'VALOR' ? Number(state.demand.bidCents) || 0 : 0;
     if (parsed.budgetFallback && parsed.requestedBudgetCents) vehicle.append(element('span','offer-budget',`Valor informado ${formatMoney(parsed.requestedBudgetCents)}`));
-    if (info.mmrCents) vehicle.append(element('span', 'offer-mmr', `MMR ${formatMoney(info.mmrCents)}${bidCents ? ` · ${Number(info.mmrCents) > bidCents ? 'acima' : 'dentro'} do lance de ${formatMoney(bidCents)}` : ''}`));
+    // The car's facts in a straight line (a header and one row of values), the same shape as the list above it.
+    const facts = element('div', 'offer-facts');
+    const factsHead = element('div', 'offer-facts-row offer-facts-head');
+    const factsRow = element('div', 'offer-facts-row');
+    const fact = (label, node, ...lines) => {
+      factsHead.append(element('span', '', label));
+      node.dataset.label = label;
+      lines.filter(Boolean).forEach((text, index) => node.append(element(index ? 'small' : 'strong', index ? 'muted' : '', text)));
+      if (!node.childNodes.length) node.append(element('span', 'muted', '—'));
+      factsRow.append(node);
+    };
     const when = auctionWhen(parsed.startsAt || parsed.saleDate);
-    const crText = info.cr !== null && info.cr !== undefined ? `CR ${info.cr}` : 'sem CR';
-    vehicle.append(element('span', 'offer-cr-when', [crText, when ? `Leilão ${when}` : ''].filter(Boolean).join(' · ')));
+    fact('MMR', element('span', 'offer-fact offer-mmr'), info.mmrCents ? formatMoney(info.mmrCents) : '', info.mmrCents && bidCents ? `${Number(info.mmrCents) > bidCents ? 'acima' : 'dentro'} do lance de ${formatMoney(bidCents)}` : '');
+    fact('CR', element('span', 'offer-fact offer-cr-when'), info.cr !== null && info.cr !== undefined ? String(info.cr) : 'sem CR');
+    fact('Leilão', element('span', 'offer-fact offer-when'), when || '');
+    const sales = OFFER.purchaseOptions(parsed).map((sale) => [sale.lane && sale.run ? `Lane ${sale.lane} / Run ${sale.run}` : '', OFFER.buyNowCents(sale) ? `Buy Now ${formatMoney(OFFER.buyNowCents(sale))}` : '', sale.saleType || '', sale.endsAt ? `até ${formatDate(sale.endsAt)}` : ''].filter(Boolean).join(' · ')).filter(Boolean);
+    fact('Venda', element('span', 'offer-fact offer-detail'), ...sales);
+    fact('VIN', element('span', 'offer-fact offer-vin'), parsed.vin || '');
+    fact('Fonte', element('span', 'offer-fact offer-consulted'), state.uploadedAt ? `Consultado no CSV do Manheim de ${formatDate(state.uploadedAt)}` : 'Consultado no lote ativo do Manheim', 'Disponibilidade no leilão não confirmada');
+    facts.append(factsHead, factsRow);
+    vehicle.append(facts);
     vehicle.append(offerFit(option));
     // Provenance: a car that no longer counts is listed but never offered (the technical stamp line is not shown).
     const stamp = option.stamp || null;
     if (stamp && !stamp.valid) { row.classList.add('offer-invalid'); vehicle.append(element('span', 'warning offer-invalid-reason', `Não oferecer · ${stamp.reasonText || 'carro não vale mais para este pedido'}`)); }
-    for (const sale of OFFER.purchaseOptions(parsed)) {
-      const saleFacts = [sale.lane && sale.run ? `Leilão Lane ${sale.lane} / Run ${sale.run}` : '', OFFER.buyNowCents(sale) ? `Buy Now ${formatMoney(OFFER.buyNowCents(sale))}` : '', sale.saleType || '', sale.startsAt || sale.saleDate ? auctionWhen(sale.startsAt || sale.saleDate) : '', sale.endsAt ? `até ${formatDate(sale.endsAt)}` : ''].filter(Boolean);
-      if (saleFacts.length) vehicle.append(element('span', 'muted offer-detail', saleFacts.join(' · ')));
-    }
-    if (parsed.vin) vehicle.append(element('span', 'muted offer-detail', `VIN: ${parsed.vin}`));
-    vehicle.append(element('span', 'muted offer-consulted offer-detail', `${state.uploadedAt ? 'Consultado no CSV do Manheim de ' + formatDate(state.uploadedAt) : 'Consultado no lote ativo do Manheim'} · Disponibilidade no leilão não confirmada`));
     const badges = element('div', 'badges');
     if (info.belowMinimum) badges.append(makeBadge(`Abaixo do CR recomendado (mínimo ${info.crMinimum})`, 'yellow'));
     if (option.criteriaChanged) badges.append(makeBadge('critério mudou desde o envio do CSV', 'yellow'));
@@ -4205,6 +4216,8 @@
     const check = element('label', 'oc-check'); check.append(box);
     const car = element('div', 'oc-car');
     car.append(element('strong', 'oc-l1', [parsed.year, parsed.make, parsed.model, parsed.trim].filter(Boolean).join(' ')));
+    // The VIN right under the car, on the list itself (no need to open the car to see it).
+    car.append(element('span', 'oc-l2 oc-vin', parsed.vin ? `VIN ${parsed.vin}` : 'VIN não informado'));
     if (invalid) car.append(element('span', 'warning oc-l2', `Não oferecer · ${stamp.reasonText || 'carro não vale mais para este pedido'}`));
     const tags = element('span', 'oc-l2 oc-tags');
     car.append(tags);
@@ -4262,53 +4275,62 @@
     container.replaceChildren();
     if (!data.upload) { container.append(element('p', 'muted', 'Nenhum lote ativo do Manheim · a busca ainda não rodou')); return; }
     if (!demands.length) { container.append(element('p', 'muted', 'Nenhum pedido de carro deste cliente para comparar com o lote')); return; }
-    let withCars = false;
+    // A table in a straight line (one row per search, the counts in columns, the action at the right), the same
+    // shape as the client's options list. Phone: each row is a card with the column name before each value.
+    const table = element('div', 'offers-table');
+    const head = element('div', 'offers-table-row offers-table-head');
+    ['Busca', 'Dentro dos critérios', 'Lane/Run', 'Buy Now / Make Offer', 'Info. incompleta', ''].forEach((label) => head.append(element('span', '', label)));
+    table.append(head);
+    const openOptions = (button, status) => async () => {
+      button.disabled = true;
+      const opened = await openClientOptionsFrom({ kind, key }, { journeyId, ref }).catch(() => false);
+      button.disabled = false;
+      if (!opened && button.isConnected) status.textContent = 'Não consegui abrir as opções agora · Tente de novo';
+    };
+    const cell = (cls, label, text) => { const node = element('span', 'offers-cell ' + cls, text === undefined ? '' : text); node.dataset.label = label; return node; };
     demands.forEach((demand) => {
       const calc = demand.mode === 'VALOR' ? 'Calculate My Cost' : demand.mode === 'CARRO' ? 'Find One For Me' : '';
       const offer = demand.offer;
       const total = offer ? offerTotal(offer) : Number(demand.matchCount) || 0;
-      const line = element('div', 'offers-summary-line');
+      const line = element('div', 'offers-table-row offers-summary-line');
       line.dataset.demandKey = demand.key || '';
+      line.append(cell('offers-cell-search', 'Busca', calc || '—'));
+      const action = cell('offers-cell-action', '');
       if (demand.stale || demand.compared === false) {
-        line.append(element('strong', '', 'Ainda não comparado com o lote atual'), element('span', 'muted', calc));
+        line.append(cell('offers-cell-wide', 'Opções', 'Ainda não comparado com o lote atual'));
         const update = element('button', 'small quiet', 'Atualizar'); update.type = 'button';
         update.addEventListener('click', async () => {
           update.disabled = true; update.textContent = 'Comparando…';
           try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }) }); renderFichaOffersSummary(container, { journeyId, ref, kind, key }, true); }
           catch (_) { update.disabled = false; update.textContent = 'Atualizar'; }
         });
-        line.append(update);
+        action.append(update);
       } else if (total > 0) {
-        withCars = true;
-        line.append(element('strong', 'offers-summary-total', `${total} ${total === 1 ? 'opção' : 'opções'} dentro dos critérios`), element('span', 'muted', calc));
-        const groups = offer ? [`Lane/Run (${Number(offer.lane) || 0})`, `Buy Now / Make Offer fora de Lane/Run (${Number(offer.offLane) || 0})`, ...(Number(offer.incomplete) ? [`Informação incompleta (${offer.incomplete})`] : [])] : [];
-        if (groups.length) line.append(element('span', 'offers-summary-groups', groups.join(' · ')));
+        line.append(cell('offers-cell-count', 'Dentro dos critérios', ''), cell('offers-cell-num', 'Lane/Run', offer ? String(Number(offer.lane) || 0) : '—'),
+          cell('offers-cell-num', 'Buy Now / Make Offer', offer ? String(Number(offer.offLane) || 0) : '—'), cell('offers-cell-num', 'Info. incompleta', offer ? String(Number(offer.incomplete) || 0) : '—'));
+        line.querySelector('.offers-cell-count').append(element('strong', 'offers-summary-total', String(total)));
+        line.querySelector('.offers-cell-count').title = `${total} ${total === 1 ? 'opção' : 'opções'} dentro dos critérios`;
+        const go = element('button', 'small', 'Ver opções'); go.type = 'button'; go.dataset.action = 'ficha-options';
+        const status = element('span', 'muted offers-status', '');
+        go.addEventListener('click', openOptions(go, status));
+        action.append(go, status);
       } else {
-        line.append(element('strong', '', demand.expired ? EXPIRED_TEXT : 'Nenhuma opção no lote atual'), element('span', 'muted', calc));
+        const wide = cell('offers-cell-wide', 'Opções', '');
+        wide.append(element('strong', '', demand.expired ? EXPIRED_TEXT : 'Nenhuma opção no lote atual'));
+        line.append(wide);
         // Why there is no car, read from the batch (the same reason BUSCAR CARROS gives).
         if (journeyId && !demand.expired && demand.mode) {
-          const reason = element('span', 'muted search-empty-reason', 'Motivo: lendo o lote…'); line.append(reason);
+          const reason = element('span', 'muted search-empty-reason', 'Motivo: lendo o lote…'); wide.append(reason);
           const reasonKey = `ficha:journey:${journeyId}:${demand.mode}`;
           request('/api/panel/pesquisas', { method: 'POST', timeoutMs: 60000, body: JSON.stringify({ action: 'empty_reasons', keys: [reasonKey] }) })
             .then((out) => { const found = (out.reasons || {})[reasonKey]; reason.textContent = 'Motivo: ' + (found ? found.text : 'nenhum carro do lote ativo serviu para estes critérios'); })
             .catch(() => { reason.textContent = 'Motivo: não consegui ler o lote agora'; });
         }
       }
-      container.append(line);
+      line.append(action);
+      table.append(line);
     });
-    if (withCars) {
-      const actions = element('div', 'lead-actions');
-      const go = element('button', 'small', 'Ver opções'); go.type = 'button'; go.dataset.action = 'ficha-options';
-      const status = element('span', 'muted', '');
-      go.addEventListener('click', async () => {
-        go.disabled = true;
-        const opened = await openClientOptionsFrom({ kind, key }, { journeyId, ref }).catch(() => false);
-        go.disabled = false;
-        if (!opened && go.isConnected) status.textContent = 'Não consegui abrir as opções agora · Tente de novo';
-      });
-      actions.append(go, status);
-      container.append(actions);
-    }
+    container.append(table);
   }
   // ===== Opções do cliente · PDF e V1 =====
   function v1ErrorText(error) {
