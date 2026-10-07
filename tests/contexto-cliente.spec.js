@@ -94,22 +94,11 @@ for (const width of [1366, 390]) {
     await expect(page.locator('#entry-orders, #entry-simulated')).toHaveCount(0);
     await expect(page.locator('#today-panel')).not.toContainText(demo.LOOSE_REF);
 
-    // CLIENTES: same client, same context.
+    // CLIENTES ("Mais"): a client who already has a case in TODOS is not repeated there (#254); the same
+    // context is checked in the ficha below.
     await openClientsList(page);
-    const clientCard = page.locator('#clients-list .client-card', { hasText: 'DMCRA' }).first();
-    await expect(clientCard).toBeVisible({ timeout: 60000 });
-    // CLIENTES is a directory: the summary lives under "⋯ Mais" of the line.
-    await clientCard.locator('.client-more > summary').click();
-    // The list shows the stage, who it depends on and the criteria (the next action lives in ATENDER AGORA).
-    await expect(await reach(clientCard)).toContainText('Depende de', { timeout: 30000 });
-    await expect(summaryOf(clientCard)).toContainText('Critérios da busca');
-    // Field by field, with the source and the message it came from.
-    await summaryOf(clientCard).locator('.context-more > summary').click();
-    const table = summaryOf(clientCard).locator('.context-table');
-    await expect(table).toContainText('Lido pela IA · não confirmado');
-    // The value read from the conversation, without the quoted phrase ("Evidências" left the cards, comando 3).
-    await expect(table).toContainText('a partir de 2019');
-    await expect(table).toContainText('Não informado');
+    await expect(page.locator('#clients-list .client-card, #clients-list .empty-state').first()).toBeVisible({ timeout: 60000 });
+    await expect(page.locator('#clients-list .client-card', { hasText: 'DMCRA' })).toHaveCount(0);
     await noOverflow();
     await shot(page, `clientes-${width}`);
 
@@ -145,13 +134,13 @@ for (const width of [1366, 390]) {
     await shot(page, `importacoes-${width}`);
 
     // FICHA: the full case summary.
-    await openClientsList(page);
-    await page.locator('#clients-list .client-card', { hasText: 'DMCRA' }).first().locator('button', { hasText: 'Abrir ficha' }).first().click();
+    await page.locator('[data-view="today"]').click();
+    await page.locator('#today-list .attend-row', { hasText: 'DMCRA' }).first().locator('.attend-car').click();
     const full = page.locator('#detail-panel .client-context-full .context-table').first();
     await expect(full).toBeVisible({ timeout: 60000 });
     const fullCard = page.locator('#detail-panel section.client-context-full').first();
     // The case summary of the ficha is field by field (campo-a-campo.spec.js): 9 fields, each with its situation.
-    for (const text of ['O que o cliente informou, campo a campo', 'Toyota Corolla', 'a partir de 2019', 'Lido pela IA · não confirmado', 'Transferir placa']) await expect(fullCard).toContainText(text);
+    for (const text of ['O que o cliente informou, campo a campo', 'Toyota Corolla', 'a partir de 2019', 'Lido pela IA · não confirmado', 'Não informado', 'Transferir placa']) await expect(fullCard).toContainText(text);
     await expect(page.locator('#record-detail')).toContainText('placa: transferir');
     await noOverflow();
     await shot(page, `ficha-${width}`);
