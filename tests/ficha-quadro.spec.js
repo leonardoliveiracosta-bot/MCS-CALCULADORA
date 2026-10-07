@@ -59,6 +59,16 @@ for (const width of [1280, 390]) {
     await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
     const row = page.locator(`#today-list .attend-row[data-journey-id="${JOURNEY}"]`);
     await expect(row.locator('.attend-wait')).toBeVisible({ timeout: 30000 });
+    // Top bar: what each AI used and its balance, between the logo and the search (computer: same line).
+    const saldo = page.locator('#ai-saldo');
+    await expect(saldo.locator('.ai-saldo-line')).toHaveCount(2);
+    await expect(saldo.locator('.ai-saldo-line').first()).toContainText(/OpenAI\s+usado US\$ \d+\.\d{2}.*saldo/);
+    await expect(saldo.locator('.ai-saldo-line').last()).toContainText(/Claude\s+usado US\$ \d+\.\d{2}.*saldo/);
+    const [logoBox, saldoBox, searchBox] = await Promise.all([page.locator('.panel-logo').boundingBox(), saldo.boundingBox(), page.locator('#global-search').boundingBox()]);
+    expect(saldoBox.x).toBeGreaterThanOrEqual(logoBox.x + logoBox.width);
+    if (width === 1280) { expect(saldoBox.x + saldoBox.width).toBeLessThanOrEqual(searchBox.x); expect(Math.abs((saldoBox.y + saldoBox.height / 2) - (searchBox.y + searchBox.height / 2))).toBeLessThan(16); }
+    else expect(saldoBox.y + saldoBox.height).toBeLessThanOrEqual(searchBox.y);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `topo-saldo-${width}.png`), clip: { x: 0, y: 0, width, height: 140 } });
     await row.locator('.attend-channel').click();
     const card = page.locator('#record-detail .lead-quick').locator('xpath=..');
     await expect(page.locator('#record-detail .lead-quick')).toBeVisible({ timeout: 30000 });
@@ -89,6 +99,16 @@ for (const width of [1280, 390]) {
     const saved = (await backend.db.query(`select body_text from public.lead_notes where journey_id='${JOURNEY}' order by created_at`).catch(() => ({ rows: null }))).rows;
     if (saved) expect(saved.map((one) => one.body_text)).toContain(`Ligou pedindo SUV até 30 mil (${width})`);
     if (SHOTS) { await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: path.join(SHOTS, `ficha-quadro-nota-${width}.png`) }); }
+    // Desfazer on the note: it leaves the ficha and the database; the notice brings it back (same text).
+    const noteText = `Ligou pedindo SUV até 30 mil (${width})`;
+    const quickBox = page.locator('#record-detail .lead-quick');
+    await quickBox.locator('.lead-quick-notes li', { hasText: noteText }).getByRole('button', { name: 'Desfazer' }).click();
+    await expect(quickBox).not.toContainText(noteText, { timeout: 30000 });
+    const countNotes = async () => Number((await backend.db.query(`select count(*)::int as n from public.lead_notes where journey_id='${JOURNEY}' and body_text='${noteText}'`)).rows[0].n);
+    expect(await countNotes()).toBe(0);
+    await page.locator('body > .action-feedback', { hasText: 'Anotação desfeita' }).getByRole('button', { name: 'Desfazer' }).click();
+    await expect(quickBox).toContainText(noteText, { timeout: 30000 });
+    expect(await countNotes()).toBe(1);
     // "Pediu para ligar depois" opens the date; Atendeu marks the case and TODOS shows it in bold.
     await page.locator('#record-detail .lead-quick-actions').getByRole('button', { name: 'Pediu para ligar depois' }).click();
     await expect(page.locator('#record-detail .lead-quick input[type="datetime-local"]')).toBeVisible();
