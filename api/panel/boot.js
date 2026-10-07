@@ -64,6 +64,7 @@ module.exports = async (req, res) => {
   const names = Object.keys(PARTS[group]);
   const results = await Promise.all(names.map((name) => { const [path, handler, query] = PARTS[group][name](input); return runList(base, path, handler, query); }));
   const parts = {};
+  const hashAt = Date.now();
   results.forEach((result, index) => {
     const name = names[index];
     if (result.status !== 200) { parts[name] = { ok: false, status: result.status, error: result.body && result.body.error || 'FAILED' }; return; }
@@ -80,6 +81,6 @@ module.exports = async (req, res) => {
     }
     parts[name] = { ok: true, hash, body };
   });
-  console.log('[boot-timing]', JSON.stringify({ part: group, ms: Date.now() - started, reads: base.readCache.size }));
+  console.log('[boot-timing]', JSON.stringify({ part: group, ms: Date.now() - started, reads: base.readCache.size, hash: Date.now() - hashAt }));
   return send(res, 200, { part: group, generatedAt: new Date().toISOString(), parts });
 };

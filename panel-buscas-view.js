@@ -239,7 +239,11 @@ async function manheimView(ctx, options = {}) {
   ]);
   // "O último upload" is the most recent ACTIVE batch, even beyond the history shown.
   const latest = await latestRead;
+  // Medição fina: cada trecho síncrono com o seu tempo (sem esperas no meio, então não mistura com a outra lista).
+  let cpuAt = Date.now();
+  const cpu = (name) => { timing['cpu_' + name] = Date.now() - cpuAt; cpuAt = Date.now(); };
   const context = demandContext(base);
+  cpu('context');
   const messageById = new Map(base.messages.filter((message) => !message.undone_at).map((message) => [message.id, message]));
   const scoreMessages = base.messageLinks.map((link) => { const message = messageById.get(link.message_id); return message ? { ...message, journey_id: link.journey_id } : null; }).filter(Boolean);
   const insightByJourney = new Map(insights.map((item) => [item.journey_id, item]));
@@ -254,11 +258,13 @@ async function manheimView(ctx, options = {}) {
     return withContactHeat(item, facts, item);
   });
   const orders = context.orders.map(({ order, facts }) => withContactHeat({ ...order, matchTarget: true }, facts, null));
+  cpu('items');
 
   // Counts of the batch per demand, answered by the database. A demand counts only while it is
   // still a target today; a batch compared with an older criterion asks to be checked again.
   // The reads below do not depend on each other: they run together (they used to run one after the other).
   const { activeIdsEarly, reads: [summaryRead, offerRead, carsRead, hiddenRead, targetsRead, syncsRead] } = await batchReads;
+  cpuAt = Date.now();
   const compared = comparedKeys(targetsRead, syncsRead);
   const summary = summaryRead;
   const summaryUnavailable = summaryRead === null;
@@ -297,7 +303,9 @@ async function manheimView(ctx, options = {}) {
     };
   });
   ['VALOR', 'CARRO'].forEach((mode) => { counts[mode].people = people[mode].size; counts[mode].served = served[mode].size; });
+  cpu('demands');
   const review = context.listed.filter((demand) => !demand.active).map((demand) => reviewItem(base, demand));
+  cpu('review');
   counts.total.people = allPeople.size; counts.total.served = allServed.size; counts.total.review = review.length;
   review.forEach((item) => { if (counts[item.mode]) counts[item.mode].review += 1; });
 
@@ -324,11 +332,15 @@ async function manheimView(ctx, options = {}) {
     matchCount: operational.has(row.id) ? operational.get(row.id) : row.matched_vehicle_count, frozenMatchCount: row.matched_vehicle_count, leadCount: row.lead_count,
     status: row.undone_at ? 'UNDONE' : 'ACTIVE', undoneAt: row.undone_at || null, undoSummary: row.undo_summary || null, ai: row.ai_summary_json || null, current: Boolean(latest && latest.id === row.id)
   }));
-  console.log('[buscas-timing]', JSON.stringify({ ...timing, total: Date.now() - started }));
+  cpuAt = Date.now();
+  const decoratedItems = items.map((item) => decorateWithSearchStage(item, stageIndex));
+  const decoratedOrders = orders.map((item) => decorateWithSearchStage(item, stageIndex));
+  cpu('decorate');
+  console.log('[buscas-timing]', JSON.stringify({ ...timing, total: Date.now() - started, items: items.length, demands: demands.length, review: review.length, profile: base.profile || null }));
   return {
     environment: ctx.environment, modelDictionary: ctx.modelDictionary,
-    items: items.map((item) => decorateWithSearchStage(item, stageIndex)),
-    orders: orders.map((item) => decorateWithSearchStage(item, stageIndex)),
+    items: decoratedItems,
+    orders: decoratedOrders,
     upload, uploads: batches, hiddenBatchIds, undoAvailable: supported, batchAvailable: batchOn, demands, review, counts, historyIncomplete: false, meta, audit, summaryUnavailable
   };
 }

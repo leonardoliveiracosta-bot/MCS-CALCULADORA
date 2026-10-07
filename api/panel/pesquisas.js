@@ -61,6 +61,9 @@ async function buildList(ctx) {
     conversationRead
   ]);
   timing.reads = Date.now() - started;
+  // Medição fina: cada trecho síncrono com o seu tempo.
+  let cpuAt = Date.now();
+  const cpu = (name) => { timing['cpu_' + name] = Date.now() - cpuAt; cpuAt = Date.now(); };
   const checkByKey = new Map((checks || []).map((row) => [row.request_key + '|' + row.criteria_hash, row]));
   const summaryByKey = new Map((summary || []).map((row) => [row.demand_key, row]));
   // Proof that a ficha/calculator demand was compared with the active batch with its current
@@ -70,6 +73,7 @@ async function buildList(ctx) {
   // The same targets (and criteriaHash, reactivation included) that ENVIAR OPÇÕES and the rematch use.
   const context = buscasView.demandContext(base);
   const lastCustomer = lastCustomerByJourney(base);
+  cpu('context');
   const items = [];
   // Ficha requests: only a client who really wrote (panel-contact.js) and is still workable: not
   // closed, switched off, discarded, out of the funnel or "não é lead". A calculator order with no
@@ -118,6 +122,7 @@ async function buildList(ctx) {
       items.push(finish(item, checkByKey.get(itemKey + '|' + described.criteriaHash) || null, uploadId));
     });
   }
+  cpu('fichas');
   for (const request of conversation.requests) {
     // Read from a real conversation, so the person wrote; the same exclusions as the fichas apply.
     if (base.contactsById.get(request.contact_id)?.is_lead === false) continue;
@@ -135,6 +140,7 @@ async function buildList(ctx) {
       typeNotChecked: Boolean(request.criteria && request.criteria.bodyType), versionId: request.versionId, lastMessageAt: request.lastMessageAt, evidence: request.evidenceMessages, chatId: request.chat_id, versions: request.versionCount };
     items.push(finish(item, checkByKey.get(key + '|' + described.criteriaHash) || null, uploadId));
   }
+  cpu('conversas');
   // Same criteria, one operational task; every person stays linked to it.
   const groups = new Map();
   items.forEach((item) => { const groupKey = (item.comparable ? 'c:' + (item.searchMode || '') + ':' : 'x:' + item.key + ':') + item.criteriaHash; item.groupKey = groupKey; if (!groups.has(groupKey)) groups.set(groupKey, []); groups.get(groupKey).push(item.key); });
@@ -144,7 +150,8 @@ async function buildList(ctx) {
     extraction: search.extractionStatus(), requestsPending: conversation.pending, checksPending: checks === null };
   // The base goes along for the compare step, never in the JSON answer.
   Object.defineProperty(list, 'base', { value: base, enumerable: false });
-  console.log('[pesquisas-timing]', JSON.stringify({ ...timing, total: Date.now() - started, items: items.length }));
+  cpu('groups');
+  console.log('[pesquisas-timing]', JSON.stringify({ ...timing, total: Date.now() - started, items: items.length, profile: base.profile || null }));
   return list;
 }
 // State shown and filtered: the readiness when the request is not compared (PRECISA DETALHE,
@@ -516,17 +523,21 @@ module.exports = async (req, res) => {
       const url = new URL(req.url, 'http://painel.local');
       if (url.searchParams.get('view') === 'audit') return send(res, 200, await audit(ctx));
       const list = await buildList(ctx);
+      const presentAt = Date.now();
       // The ficha request and the same request read by the AI from its conversation are one
       // request on screen (the reading stays as its unconfirmed evidence); the counts follow the list.
       const shown = merge.present(list.items);
+      const presentMs = Date.now() - presentAt;
       // Only the numbers the "Ordenar" of each column needs (bid, years) leave with the item; the targets stay on the server.
       const sortOf = (item) => { const target = (item.targets || [])[0] || null; const wishes = target ? target.wishes || [] : [item.criteria || {}];
         const years = wishes.flatMap((wish) => [Number(wish.yearMin) || null, Number(wish.yearMax) || null]).filter(Boolean);
         const bid = target && target.bidCents ? Math.round(target.bidCents / 100) : Number(item.criteria?.budgetUsd) || null;
         return { bidUsd: bid, yearMin: years.length ? Math.min(...years) : null, yearMax: years.length ? Math.max(...years) : null }; };
       const items = shown.items.map(({ targets, ...item }) => ({ ...item, editWishes: targets?.[0]?.wishes || (item.criteria ? [item.criteria] : []), sort: sortOf({ targets, ...item }) }));
+      const totals = merge.counts(items, STATES);
+      console.log('[pesquisas-get-timing]', JSON.stringify({ present: presentMs, rest: Date.now() - presentAt - presentMs }));
       return send(res, 200, { ...list, modelDictionary: ctx.modelDictionary, items, counts: Object.fromEntries(STATES.map((state) => [state, items.filter((item) => item.state === state).length])),
-        totals: merge.counts(items, STATES), mergedReadings: shown.merged });
+        totals, mergedReadings: shown.merged });
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
     const body = await jsonBody(req, 16 * 1024);
