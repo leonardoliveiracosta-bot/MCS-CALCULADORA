@@ -43,7 +43,7 @@ const ITEMS = [
     cardFacts: { zipText: '33101' }, group: { key: 'ATENDIDO', label: 'Atendidos', origin: { key: 'CALCULADORA:WHATSAPP', group: 'CALCULADORA', sub: 'WHATSAPP', label: 'Calculadora', financing: false }, unattended: null } }
 ];
 
-async function open(page, width, height) {
+async function open(page, width, height, contactResults = {}) {
   const errors = [];
   page.on('pageerror', (failure) => errors.push(failure.message));
   await page.setViewportSize({ width, height });
@@ -63,7 +63,7 @@ async function open(page, width, height) {
     const json = (payload) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
     if (url.pathname === '/api/panel/config') return json({ url: base + '/supabase-simulado', publishableKey: 'publica-teste' });
     if (url.pathname === '/api/panel/session') return json({ email: 'teste@example.test', role: 'admin', mustChangePassword: false });
-    if (url.pathname === '/api/panel/today') return json({ meta: { dataUpdatedAt: new Date().toISOString() }, items: ITEMS });
+    if (url.pathname === '/api/panel/today') return json({ meta: { dataUpdatedAt: new Date().toISOString() }, items: ITEMS, contactResults });
     return json({ items: [], orders: [], demands: [], matches: [], groups: [], chats: [], reviews: [], review: [], counts: { periodLeads: 0, situations: {}, sections: {} }, requests: [], signals: [], suggestions: [], meta: {} });
   });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
@@ -143,5 +143,27 @@ test('celular: cada linha vira um cartão com os mesmos campos, sem rolagem late
   await expect(first.locator('.attend-year')).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'atendimento-tabela-390.png') });
+  expect(errors).toEqual([]);
+});
+
+test('Espera: o resultado marcado na ficha aparece em negrito no lugar de "sem resposta"; sem marca, "sem resposta"', async ({ page }) => {
+  const errors = await open(page, 1280, 900, { [id(1)]: { type: 'ANSWERED', label: 'Atendeu', at: new Date().toISOString() }, [id(7)]: { type: 'NO_ANSWER', label: 'Não atendeu', at: new Date().toISOString() } });
+  const rows = page.locator('#today-list .attend-row');
+  await expect(rows).toHaveCount(ITEMS.length, { timeout: 30000 });
+  // The time stays as it was; the mark replaces "sem resposta", in bold.
+  const ana = page.locator(`#today-list .attend-row[data-journey-id="${id(1)}"] .attend-wait`);
+  await expect(ana).toHaveText('17 dias · Atendeu');
+  await expect(ana.locator('strong')).toHaveText('Atendeu');
+  expect(await ana.locator('strong').evaluate((node) => Number(getComputedStyle(node).fontWeight))).toBeGreaterThanOrEqual(700);
+  await expect(ana).toHaveAttribute('title', '17 dias · Atendeu');
+  await expect(page.locator(`#today-list .attend-row[data-journey-id="${id(7)}"] .attend-wait`)).toHaveText('17 h · Não atendeu');
+  // Nothing marked: "sem resposta", not bold (the common path stays as it was).
+  const bia = page.locator(`#today-list .attend-row[data-journey-id="${id(2)}"] .attend-wait`);
+  await expect(bia).toHaveText('17 dias · sem resposta');
+  await expect(bia.locator('strong')).toHaveCount(0);
+  // Messages never set the state: a case "aguardando o cliente" with nothing marked is "sem resposta".
+  await expect(page.locator(`#today-list .attend-row[data-journey-id="${id(10)}"] .attend-wait`)).toHaveText('Sem resposta');
+  // The other columns do not change.
+  await expect(page.locator(`#today-list .attend-row[data-journey-id="${id(1)}"] .attend-channel`)).toHaveText('WhatsApp');
   expect(errors).toEqual([]);
 });
