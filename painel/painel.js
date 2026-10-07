@@ -5950,11 +5950,11 @@
       note.append(button);
     }
   };
-  // ENVIAR OPÇÕES with work open (a group of cars, the trim box or the V1 text on screen): the
+  // ENVIAR OPÇÕES with work open (the trim box, the selected list or the V1 text on screen): the
   // automatic refresh waits, because redrawing would close it all; the operator refreshes when ready.
-  const PAUSED_TEXT = 'Atualização automática em pausa enquanto há grupo aberto em ENVIAR OPÇÕES';
+  const PAUSED_TEXT = 'Atualização automática em pausa enquanto há filtro ou seleção aberta em ENVIAR OPÇÕES';
   const visibleNode = (node) => Boolean(node && node.isConnected && node.getClientRects().length);
-  const openWork = () => currentView === 'searches' && ([...document.querySelectorAll('details.offer-group[open], details.offer-trim[open], details.offer-picked[open]')].some(visibleNode)
+  const openWork = () => currentView === 'searches' && ([...document.querySelectorAll('details.offer-trim[open], details.offer-picked[open]')].some(visibleNode)
     || [...document.querySelectorAll('textarea.v1-send-text')].some((box) => visibleNode(box) && String(box.value || '').trim()));
   const refreshBusy = () => {
     if (operatorIsTyping()) return true;
