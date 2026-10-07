@@ -74,9 +74,9 @@ async function open(page, width, audit) {
 }
 // Opens the client's options screen (from the queue) on the request of one mode; its Lane/Run tab (the
 // first with cars) loads by itself.
-const ficha = (page, name, mode) => openOptionsScreen(page, { name, mode });
+const optionsOf = (page, name, mode) => openOptionsScreen(page, { name, mode });
 // The other request of the same person: one request at a time on the screen, chosen by its chip.
-async function fichaSection(page, mode) {
+async function requestOf(page, mode) {
   const screen = page.locator('#options-client');
   if ((await screen.getAttribute('data-mode')) !== mode) await screen.locator('.oc-demands .oc-tab', { hasText: mode === 'VALOR' ? 'Por valor' : 'Por carro' }).click();
   await expect(screen).toHaveAttribute('data-mode', mode);
@@ -101,9 +101,9 @@ for (const width of [1366, 390]) {
     const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
     await open(page, width, ON);
     // One screen per person: the VALOR and the CARRO demand of the same client (one chip each), each with its own selo.
-    const valor = await ficha(page, 'Cliente Dois Modos', 'VALOR');
+    const valor = await optionsOf(page, 'Cliente Dois Modos', 'VALOR');
     await expect(seal(valor).locator('.badge')).toHaveText('Conferido');
-    const carro = await fichaSection(page, 'CARRO');
+    const carro = await requestOf(page, 'CARRO');
     await expect(seal(carro).locator('.badge')).toHaveText('Revisar');
     await expect(seal(carro).locator('.audit-divergence')).toHaveText('2022 BMW X5 · VIN final 222222: Milhagem acima do limite');
     // The options stay visible while the demand waits; one V1 button at the foot of the screen.
@@ -112,7 +112,7 @@ for (const width of [1366, 390]) {
     if (SHOTS) await carro.screenshot({ path: path.join(SHOTS, `buscas-conferencia-${width}.png`) });
     // The Ref-only order has its own screen (PEDIDO) with its own selo.
     await backToQueue(page);
-    const order = await ficha(page, 'Pedido Só Valor', 'VALOR');
+    const order = await optionsOf(page, 'Pedido Só Valor', 'VALOR');
     await expect(seal(order).locator('.badge')).toHaveText('Conferência pendente');
     await expect(order).toContainText('Tempo esgotado antes de terminar a conferência · Clique em "Conferir de novo" ou aprove com motivo');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -127,11 +127,11 @@ test('tentar de novo, aprovação manual com motivo e autorização acima do lim
   await expect(page.locator('#manheim-audit-note')).toContainText('Conferência estimada em US$ 2.40, parada por um limite antigo deste lote (não existe mais limite por lote). Nada foi cobrado');
   await page.locator('#manheim-audit-note').getByRole('button', { name: 'Continuar conferência' }).click();
   await expect.poll(() => posts.filter((item) => item && item.action === 'authorize').length).toBe(1);
-  const order = await ficha(page, 'Pedido Só Valor', 'VALOR');
+  const order = await optionsOf(page, 'Pedido Só Valor', 'VALOR');
   await order.getByRole('button', { name: 'Conferir de novo' }).click();
   await expect.poll(() => posts.filter((item) => item && item.action === 'retry' && item.key === 'ref:VAAA2:VALOR').length).toBe(1);
   await backToQueue(page);
-  const carro = await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  const carro = await optionsOf(page, 'Cliente Dois Modos', 'CARRO');
   await carro.getByRole('button', { name: 'Aprovar com motivo' }).click();
   await expect(carro).toContainText('Escreva o motivo, com pelo menos 5 letras');
   await carro.getByLabel('Motivo da aprovação manual').fill('Conferi a milhagem no leilão');
@@ -142,7 +142,7 @@ test('tentar de novo, aprovação manual com motivo e autorização acima do lim
 test('desligada: nenhum selo, nenhum bloqueio, V1 como antes', async ({ page }) => {
   await open(page, 1366, { state: 'DESLIGADA', byDemand: {} });
   await expect(page.locator('#manheim-audit-note')).toBeHidden();
-  const carro = await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  const carro = await optionsOf(page, 'Cliente Dois Modos', 'CARRO');
   await expect(page.locator('#options-client .audit-block')).toHaveCount(0);
   // The V1 button waits only for a selected car (as in every screen); the check never holds it.
   await selectFirst(carro);
@@ -161,7 +161,7 @@ test('Gerar V1 nas Opções do cliente numa demanda ainda não conferida: confer
   let checked = false;
   await page.route('**/api/panel/manheim-audit', (route) => { posts.push(JSON.parse(route.request().postData() || 'null')); checked = true; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, approved: 1 }) }); });
   await page.route('**/api/panel/vitrines', (route) => route.fulfill({ status: checked ? 201 : 409, contentType: 'application/json', body: JSON.stringify(checked ? { token: 'tok-ficticio', link: '/v/tok-ficticio' } : { error: 'MANHEIM_AUDIT_PENDING' }) }));
-  const carro = await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  const carro = await optionsOf(page, 'Cliente Dois Modos', 'CARRO');
   await expect(seal(carro).locator('.badge')).toHaveText('Conferência começa ao selecionar carros');
   await selectFirst(carro);
   await generate(page).click();
@@ -169,7 +169,7 @@ test('Gerar V1 nas Opções do cliente numa demanda ainda não conferida: confer
   await expect(v1Status(page)).toContainText('V1 criada');
   expect(posts.filter((item) => item && item.action === 'check')).toEqual([{ action: 'check', key: `journey:${JOURNEY}:CARRO` }]);
   // The pending one (the other chip of the same person): reason on screen, "Conferir de novo" and "Aprovar com motivo".
-  const valor = await fichaSection(page, 'VALOR');
+  const valor = await requestOf(page, 'VALOR');
   await expect(seal(valor)).toContainText('Tempo esgotado antes de terminar a conferência (4 tentativas) · Clique em "Conferir de novo" ou aprove com motivo');
   await expect(valor.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
   await expect(valor.getByRole('button', { name: 'Aprovar com motivo' })).toBeVisible();
@@ -185,7 +185,7 @@ test('V1 bloqueada pela conferência: o motivo e os botões aparecem no card na 
   const pending = { status: 'PENDENTE', label: 'Conferência pendente', divergences: [], errorCode: 'AUDIT_DEADLINE', attempts: 1, failures: 1, carCount: 2, canApprove: false, canRetry: true };
   await page.route('**/api/panel/manheim-audit', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, pending: 1, entry: pending }) }));
   await page.route('**/api/panel/vitrines', (route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'MANHEIM_AUDIT_PENDING' }) }));
-  const carro = await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  const carro = await optionsOf(page, 'Cliente Dois Modos', 'CARRO');
   await selectFirst(carro);
   await generate(page).click();
   await expect(v1Status(page)).toContainText('V1 bloqueada: Tempo esgotado antes de terminar a conferência (1 tentativa) · Clique em "Conferir de novo"');
@@ -211,7 +211,7 @@ test('seleção trocada depois de conferida: o selo volta a Conferindo e Gerar V
   const created = [];
   await page.route('**/api/panel/manheim-audit', (route) => { posts.push(JSON.parse(route.request().postData() || 'null')); checked = true; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, approved: 1, entry: { status: 'CONFERIDO', label: 'Conferido', divergences: [], carCount: 1 } }) }); });
   await page.route('**/api/panel/vitrines', (route) => { const body = JSON.parse(route.request().postData() || '{}'); if (!checked) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'MANHEIM_AUDIT_PENDING' }) }); created.push(body.matchIds); return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ token: 'tok-novo', link: '/v/tok-novo' }) }); });
-  const valor = await ficha(page, 'Cliente Dois Modos', 'VALOR');
+  const valor = await optionsOf(page, 'Cliente Dois Modos', 'VALOR');
   await expect(seal(valor).locator('.badge')).toHaveText('Conferido');
   // The operator changes the selection: the old check no longer counts.
   await selectFirst(valor);
@@ -231,7 +231,7 @@ test('AUD-001 #101: resposta de "Conferir de novo" que chega depois do bloco ser
   let release;
   const gate = new Promise((done) => { release = done; });
   await page.route('**/api/panel/manheim-audit', async (route) => { await gate; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ processed: 1, approved: 1, entry: { status: 'CONFERIDO', label: 'Conferido', divergences: [], carCount: 2 } }) }); });
-  const carro = await ficha(page, 'Cliente Dois Modos', 'CARRO');
+  const carro = await optionsOf(page, 'Cliente Dois Modos', 'CARRO');
   await expect(carro.getByRole('button', { name: 'Conferir de novo' })).toBeVisible();
   await carro.getByRole('button', { name: 'Conferir de novo' }).click();
   // While the check is running, the options load and the audit block is drawn again.

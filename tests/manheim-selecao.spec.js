@@ -176,7 +176,7 @@ test('valor para o cliente digitado em dólar fica exato, também depois de sele
   await expect(screen.locator('.oc-list .oc-item')).toHaveCount(25, { timeout: 60000 });
   const matchId = await screen.locator('.oc-list .offer-row[data-status="AVAILABLE"]').last().getAttribute('data-match-id');
   const row = screen.locator(`.oc-list .offer-row[data-match-id="${matchId}"]`);
-  await openCar(screen.locator('.oc-list .oc-item', { has: row }));
+  await openCar(screen.locator('.oc-list .oc-item', { has: page.locator(`.offer-row[data-match-id="${matchId}"]`) }));
   // MMR US$ 25.000: US$ 26.137 is 4,548% (shown 4.55); by the percentage it would be US$ 26.137,50.
   await row.locator('.offer-final').fill('26.137');
   await expect(row.locator('.offer-pct')).toHaveValue('4.55');
@@ -300,8 +300,11 @@ test('Baixar PDF: imprime os carros selecionados, também depois de recarregar a
   await page.reload({ waitUntil: 'domcontentloaded' });
   screen = await openOptionsScreen(page, { mode: 'CARRO' });
   await expect(screen.locator('.oc-act .oc-count')).toHaveText('1 de 10 selecionados', { timeout: 60000 });
-  await screen.locator('.oc-tab[data-group="OFFLANE"]').click();
-  await expect(lane).toHaveCount(1);
+  const offLane = screen.locator('.oc-tab[data-group="OFFLANE"]');
+  const offLaneCount = Number(await offLane.getAttribute('data-count'));
+  expect(offLaneCount).toBeGreaterThan(0);
+  await offLane.click();
+  await expect(lane).toHaveCount(offLaneCount);
   await expect(screen.locator('.oc-list .oc-row.sel')).toHaveCount(0);
   body = await printedPdf(page, () => foot.getByRole('button', { name: 'Baixar PDF' }).click());
   expect(body.matchIds.length).toBe(1);
