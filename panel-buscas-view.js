@@ -45,8 +45,23 @@ function comparedKeys(targets, syncs) {
 // Counts of the active batch per demand: options eligible NOW (no past auction, valid MMR) and
 // stored_count (cars the demand has in this batch, eligible or not). Before migration
 // 20261030010000 the old summary answers (no stored count).
-async function batchSummary(ctx, uploadId, call = readRpc) {
+const MISSING_FUNCTION = /PGRST202|42883|does not exist|Could not find the function/i;
+// The batch grouped once: summary, selection and cars in one call (migration 20261031030000; before it, null and the
+// three functions answer as before).
+async function batchOverview(ctx, uploadId) {
+  try {
+    const overview = await readRpc(ctx, 'panel_manheim_batch_overview', { p_environment: ctx.environment, p_upload_id: uploadId });
+    // Only a complete answer counts; anything else and the three functions answer as before.
+    return overview && !Array.isArray(overview) && Array.isArray(overview.summary) && Array.isArray(overview.offer) && Array.isArray(overview.cars) ? overview : null;
+  }
+  catch (error) {
+    if (MISSING_FUNCTION.test(String(error && (error.code || error.message) || ''))) return null;
+    throw error;
+  }
+}
+async function batchSummary(ctx, uploadId, call = readRpc, overviewRead = null) {
   const args = { p_environment: ctx.environment, p_upload_id: uploadId };
+  if (call === readRpc) { const overview = await (overviewRead || batchOverview(ctx, uploadId)); if (overview) return overview.summary || []; }
   try { return await call(ctx, 'panel_manheim_batch_summary_v2', args); }
   catch (error) {
     if (!/PGRST202|42883|does not exist|Could not find the function/i.test(String(error && (error.code || error.message) || ''))) throw error;
@@ -185,11 +200,15 @@ async function auditInputFor(ctx) {
 // base of BUSCAS: they run together, as soon as the active batch is known.
 async function batchReadsFor(ctx, uploads, latest, batchOn) {
   const activeIdsEarly = uploads.filter((row) => !row.undone_at).map((row) => row.id).concat(latest && !uploads.some((row) => row.id === latest.id) ? [latest.id] : []);
+  // One grouping of the active batch serves the summary, the selection and the cars (one call, not three at once).
+  const overviewRead = latest && batchOn ? batchOverview(ctx, latest.id) : Promise.resolve(null);
+  overviewRead.catch(() => {});
+  const onlyLatest = Boolean(latest) && activeIdsEarly.length === 1 && activeIdsEarly[0] === latest.id;
   const reads = await Promise.all([
     // A slow or failed summary never takes the whole tab down: only its counts say "Resumo indisponível".
-    latest && batchOn ? batchSummary(ctx, latest.id).catch((error) => { console.error('[buscas-summary]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : [],
-    latest && batchOn ? readRpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id }).catch(() => null) : [],
-    batchOn && activeIdsEarly.length ? readRpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIdsEarly }).catch(() => []) : [],
+    latest && batchOn ? batchSummary(ctx, latest.id, readRpc, overviewRead).catch((error) => { console.error('[buscas-summary]', { message: String(error && (error.code || error.message) || 'UNKNOWN') }); return null; }) : [],
+    latest && batchOn ? overviewRead.then((overview) => overview ? overview.offer || [] : readRpc(ctx, 'panel_manheim_offer_summary', { p_environment: ctx.environment, p_upload_id: latest.id })).catch(() => null) : [],
+    batchOn && activeIdsEarly.length ? (onlyLatest ? overviewRead : Promise.resolve(null)).then((overview) => overview ? overview.cars || [] : readRpc(ctx, 'panel_manheim_batch_cars', { p_environment: ctx.environment, p_upload_ids: activeIdsEarly })).catch(() => []) : [],
     rows(ctx, 'panel_batch_hidden', { select: 'upload_id', environment: 'eq.' + ctx.environment, user_id: 'eq.' + ctx.panel.id, limit: '500' }).then((found) => found.map((row) => row.upload_id)).catch(() => null),
     // What was already compared with the active batch: the requests of the import and the ones compared later.
     latest && batchOn ? rows(ctx, 'manheim_uploads', { select: 'targets_json', environment: 'eq.' + ctx.environment, id: 'eq.' + latest.id, limit: '1' }).then((found) => found[0] && found[0].targets_json).catch(() => null) : null,
