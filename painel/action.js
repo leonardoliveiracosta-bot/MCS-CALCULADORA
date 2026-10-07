@@ -63,7 +63,27 @@
           refresh: undoSpec.refresh || options.refresh
         }));
       }
-      if (options.refresh) Promise.resolve().then(() => options.refresh(result, snapshot)).catch(() => {});
+      if (options.refresh) {
+        let warning = null, warningNotice = null;
+        const refresh = async () => {
+          try {
+            await options.refresh(result, snapshot);
+            warning?.remove();
+            if (warningNotice && warningNotice !== notice) warningNotice.remove();
+            return true;
+          } catch (_) {
+            warning?.remove();
+            warningNotice = notice?.isConnected ? notice : feedback(document.body, 'Ação salva', '', `${options.feedbackKey || 'action'}:refresh`);
+            warning = document.createElement('span'); warning.className = 'action-refresh-error error'; warning.setAttribute('role', 'alert');
+            warning.append(' · Não consegui atualizar a lista. ');
+            const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'quiet small'; retry.textContent = 'Atualizar lista';
+            retry.addEventListener('click', async () => { if (retry.disabled) return; retry.disabled = true; retry.textContent = 'Atualizando…'; await refresh(); });
+            warning.append(retry); warningNotice.append(warning);
+            return false;
+          }
+        };
+        Promise.resolve().then(refresh);
+      }
       if (options.onSuccess) options.onSuccess(result, snapshot, notice);
       return { ok: true, result };
     } catch (error) {

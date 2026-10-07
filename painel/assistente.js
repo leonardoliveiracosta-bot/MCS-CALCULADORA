@@ -197,13 +197,21 @@
       req ? `${req.method || 'GET'} ${req.path} ${req.status || req.code || ''}${req.ms ? ' ' + req.ms + ' ms' : ''}`.trim() : '—', err ? err.message : '—',
       item.last_version || '—', `${item.count || 1} vezes`, item.severity, diag.categoria || '—'].join(' · ');
   }
+  let incidentsFilter = 'open', incidentsLimit = 50, incidentsVersion = 0;
   async function renderIncidents() {
     const box = document.getElementById('assistant-incidents');
     if (!box || !bridge()) return;
+    const version = ++incidentsVersion;
     box.replaceChildren(el('h2', '', 'Seus chamados'), el('p', 'muted', 'Carregando…'));
     let list = [];
-    try { list = (await bridge().request('/api/panel/assistant')).incidents || []; }
-    catch (_) { box.replaceChildren(el('h2', '', 'Seus chamados'), el('p', 'warning', 'Não consegui carregar os chamados agora')); return; }
+    try { list = (await bridge().request('/api/panel/assistant')).incidents; }
+    catch (_) {
+      if(version!==incidentsVersion)return;
+      const retry=el('button','quiet small','Tentar novamente');retry.type='button';retry.addEventListener('click',()=>renderIncidents());
+      box.replaceChildren(el('h2', '', 'Seus chamados'), el('p', 'warning', 'Não consegui carregar os chamados agora'),retry);return;
+    }
+    if(version!==incidentsVersion)return;
+    if(!Array.isArray(list)){const retry=el('button','quiet small','Tentar novamente');retry.type='button';retry.addEventListener('click',()=>renderIncidents());box.replaceChildren(el('h2','','Seus chamados'),el('p','warning','Resposta de chamados inválida'),retry);return;}
     const order = { P0: 0, P1: 1, P2: 2 };
     list.sort((a, b) => (a.status === 'ABERTO' || a.status === 'EM_CORRECAO' ? 0 : 1) - (b.status === 'ABERTO' || b.status === 'EM_CORRECAO' ? 0 : 1) || order[a.severity] - order[b.severity]);
     const open = list.filter((item) => item.status === 'ABERTO' || item.status === 'EM_CORRECAO');
@@ -212,12 +220,28 @@
     copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(open.map(incidentLine).join('\n')); copy.textContent = 'Copiado'; } catch (_) { copy.textContent = 'Não copiou'; } setTimeout(() => { copy.textContent = 'Copiar chamados abertos'; }, 2000); });
     box.append(copy);
     const STATUS = { ABERTO: 'Aberto', EM_CORRECAO: 'Em correção', CORRIGIDO: 'Corrigido', NAO_ERA_DEFEITO: 'Não era defeito' };
-    list.slice(0, 50).forEach((item) => {
+    const filters=el('div','inline-actions');
+    [['open','Abertos'],['closed','Encerrados'],['all','Todos']].forEach(([key,label])=>{const button=el('button','quiet small'+(incidentsFilter===key?' active':''),label);button.type='button';button.setAttribute('aria-pressed',String(incidentsFilter===key));button.addEventListener('click',()=>{incidentsFilter=key;incidentsLimit=50;renderIncidents();});filters.append(button);});
+    box.append(filters);
+    const visible=list.filter((item)=>incidentsFilter==='all'||(incidentsFilter==='open')===(item.status==='ABERTO'||item.status==='EM_CORRECAO'));
+    if(!visible.length)box.append(el('p','muted','Nenhum chamado neste filtro'));
+    visible.slice(0, incidentsLimit).forEach((item) => {
       const row = el('div', 'assistant-incident');
       row.append(el('strong', '', `${item.severity} · ${STATUS[item.status] || item.status}`), el('span', '', incidentLine(item)), el('span', 'muted', `Último: ${fmtDate(item.last_seen_at)}`));
       if (item.pr_url) { const link = el('a', '', 'PR da correção'); link.href = item.pr_url; link.target = '_blank'; link.rel = 'noopener'; row.append(link); }
+      const actions=el('div','inline-actions');
+      const change=(label,status)=>{
+        const previousStatus=item.status;
+        const button=el('button','quiet small',label);button.type='button';
+        MCSAction.bind(button,()=>({scope:row,successScope:document.body,feedbackKey:'incident:'+item.id,commit:()=>api({action:'incident_status',id:item.id,status}),successText:status==='ABERTO'?'Chamado reaberto':'Chamado encerrado',refresh:()=>renderIncidents(),undo:{commit:()=>api({action:'incident_status',id:item.id,status:previousStatus}),successText:'Status anterior restaurado',refresh:()=>renderIncidents()}}));
+        actions.append(button);
+      };
+      if(item.status==='ABERTO'||item.status==='EM_CORRECAO'){change('Marcar como corrigido','CORRIGIDO');change('Encerrar sem defeito','NAO_ERA_DEFEITO');}
+      else change('Reabrir','ABERTO');
+      row.append(actions);
       box.append(row);
     });
+    if(visible.length>incidentsLimit){const more=el('button','quiet small',`Mostrar mais (${visible.length-incidentsLimit} restantes)`);more.type='button';more.addEventListener('click',()=>{incidentsLimit+=50;renderIncidents();});box.append(more);}
   }
 
   window.MCSAssistant = { open: () => toggle(true), close: () => toggle(false), renderIncidents };

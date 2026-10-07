@@ -289,7 +289,18 @@
       if (response.status === 401 && retryAuth && refreshToken && await refreshAccessToken()) {
         return request(path, { ...options, retryAuth: false });
       }
-      result = await response.json().catch(() => (timedOut ? null : {}));
+      try { result = await response.json(); }
+      catch (cause) {
+        if (timedOut) throw coded('REQUEST_TIMEOUT', { cause });
+        if (outer?.aborted) throw coded('REQUEST_ABORTED', { cause });
+        if (!response.ok) result = {};
+        else { logRequest(response.status, 'RESPONSE_INVALID'); throw coded('RESPONSE_INVALID', { cause, status: response.status }); }
+      }
+      if (response.ok && (!result || typeof result !== 'object' || Array.isArray(result))) {
+        logRequest(response.status, 'RESPONSE_INVALID');
+        throw coded('RESPONSE_INVALID', { status: response.status });
+      }
+      if (!response.ok && (!result || typeof result !== 'object' || Array.isArray(result))) result = {};
       if (result?.modelDictionary && typeof MCSVehicleCatalog === 'object') { const d=result.modelDictionary; MCSVehicleCatalog.configureAliases(d.aliases,d.known,d.revision); }
       if (result === null) throw coded('REQUEST_TIMEOUT');
     } finally {
@@ -1644,10 +1655,11 @@
     refreshClientCounts(root);
     root.querySelector('.clients-more')?.remove();clientsObserver?.disconnect();
     if(data.hasMore){const remaining=data.total-data.page*data.pageSize,more=element('button','quiet clients-more',`Mostrar mais (${remaining} restantes)`);more.type='button';more.dataset.page=String(data.page+1);
-      const next=()=>{if(more.disabled||clientsRestoring)return;more.disabled=true;more.textContent='Carregando…';loadClientsPage(data.page+1).catch(()=>{more.disabled=false;more.textContent=`Mostrar mais (${remaining} restantes)`;});};
+      let failed=false;
+      const next=()=>{if(more.disabled||clientsRestoring)return;const version=clientsVersion;more.disabled=true;more.textContent='Carregando…';loadClientsPage(data.page+1).catch(()=>{if(version!==clientsVersion||!clientsOpen())return;failed=true;clientsObserver?.disconnect();more.disabled=false;more.textContent='Tentar novamente';MCSAction.feedback(root,'Não consegui carregar mais clientes · a lista já carregada foi mantida','error','clients-page');});};
       more.addEventListener('click',next);root.append(more);
       // Cards arrive in batches: the next one loads when the end of the list comes into view.
-      if(typeof IntersectionObserver==='function'){clientsObserver=new IntersectionObserver((entries)=>{if(entries.some((entry)=>entry.isIntersecting))next();},{rootMargin:'600px'});clientsObserver.observe(more);}}
+      if(typeof IntersectionObserver==='function'){clientsObserver=new IntersectionObserver((entries)=>{if(!failed&&entries.some((entry)=>entry.isIntersecting))next();},{rootMargin:'600px'});clientsObserver.observe(more);}}
   }
   function renderClients(data){
     clientsData=data;const counts=data.counts||{};
@@ -1660,7 +1672,7 @@
     appendClients(root,data);
     if(!root.querySelector('.client-card')&&!data.hasMore)root.prepend(element('p','empty-state','Todos os clientes deste filtro já estão no TODOS acima'));
   }
-  async function loadClientsPage(page){const version=clientsVersion;const data=await request(clientsQuery({page:String(page)}));if(version!==clientsVersion||!clientsOpen())return;clientsPagesLoaded=Math.max(clientsPagesLoaded,page);appendClients($('clients-list'),data);}
+  async function loadClientsPage(page){const version=clientsVersion;const data=await request(clientsQuery({page:String(page)}));if(version!==clientsVersion||!clientsOpen())return;clientsPagesLoaded=Math.max(clientsPagesLoaded,page);$('clients-list').querySelectorAll('.action-feedback[data-action-key="clients-page"]').forEach((node)=>node.remove());appendClients($('clients-list'),data);}
   // Old conversations to pick up, oldest first, loaded only when the section is opened.
   function loadFollowup(){const list=$('clients-followup-list');if(!list||!window.MCSSuggest)return;MCSSuggest.queue(list,{request,open:(kind,key)=>openDetail(kind,key),contextSlot:(spec)=>contextSlot(spec),hydrate:hydrateContexts}).catch(()=>{});}
   async function loadClients(){const version=++clientsVersion;const records=await request(clientsQuery({page:'1'}));if(version!==clientsVersion)return;clientsPagesLoaded=1;updateMeta(records.meta);renderClients(records);}
@@ -2100,7 +2112,7 @@
   async function refreshCurrentPreservingState() {
     const scrollY=window.scrollY,view=currentView,version=viewRequestVersion;
     await loadCurrent(view,version);
-    requestAnimationFrame(()=>window.scrollTo(0,scrollY));
+    requestAnimationFrame(()=>{if(currentView===view&&viewRequestVersion===version)window.scrollTo(0,scrollY);});
   }
 
   function captureOrigin() {
@@ -2569,6 +2581,9 @@
   }
   function renderVitrineFunnel(data,view){
     const root=$(view+'-list');if(!root)return;
+    const validCount=(key)=>typeof data?.counts?.[key]==='number'&&Number.isInteger(data.counts[key])&&data.counts[key]>=0;
+    const lists=view==='v1'?[data?.v1?.tapped]:[data?.v2?.bid,data?.v2?.waiting,data?.v2?.expired];
+    if(!validCount('v1Action')||!validCount('v2Action')||!lists.every(Array.isArray))throw Object.assign(new Error('RESPONSE_INVALID'),{code:'RESPONSE_INVALID'});
     root.replaceChildren();
     setCount('v1',Number(data&&data.counts&&data.counts.v1Action)||0);
     setCount('v2',Number(data&&data.counts&&data.counts.v2Action)||0);
@@ -2604,7 +2619,7 @@
   // the case, its reasons and its filter; the badge, the chips and the list come from that one call).
   // The list is always every case (the old bucket pills were removed); a bucket saved by them is ignored.
   let attendBucket = 'todos';
-  const attendData = { entry: null, triage: null, whatsapp: null, vitrine: null, incomplete: [], incompleteFailed: false, discarded: new Set(), contactResults: null };
+  const attendData = { entry: null, triage: null, whatsapp: null, incomplete: [], incompleteFailed: false, discarded: new Set(), contactResults: null };
   // "Excluir": the person leaves ATENDIMENTO whole. Its link/triage/vitrine rows and incomplete requests stay out too
   // (the server's list, plus the ones excluded here before the next answer), until the person is a HOJE item again.
   const excludedHere = new Set();
@@ -2698,11 +2713,12 @@
   function primeBoot(map) { if (!requestPool || !requestPool.prime) return; Object.entries(map).forEach(([path, value]) => { if (value) requestPool.prime(path, value); }); }
   const ATTEND_PAGE = 30;
   let attendLimit = ATTEND_PAGE, attendPageKey = '';
+  const attendPicked = new Set();
   function bulkBar() {
     const bar = element('div', 'attend-bulk hidden');
     const count = element('span', 'attend-bulk-count', '');
     const clear = element('button', 'quiet small attend-bulk-clear', 'Limpar seleção'); clear.type = 'button';
-    clear.addEventListener('click', () => { document.querySelectorAll('#today-list .case-pick-box:checked').forEach((box) => { box.checked = false; box.closest('.case-card')?.classList.remove('case-picked'); }); updateBulkBar(); });
+    clear.addEventListener('click', () => { attendPicked.clear(); document.querySelectorAll('#today-list .case-pick-box:checked').forEach((box) => { box.checked = false; box.closest('.case-card')?.classList.remove('case-picked'); }); updateBulkBar(); });
     const remove = element('button', 'small attend-bulk-delete', 'Excluir selecionados'); remove.type = 'button';
     remove.addEventListener('click', () => {
       const cards = [...document.querySelectorAll('#today-list .case-card.case-picked')].filter((card) => card.attendItem || card.attendShell);
@@ -2739,6 +2755,7 @@
         // Some may have been saved before one failed: the list is read again, so it shows what the server kept.
         rollback: (snapshot) => { mark(false); (snapshot || []).forEach((card) => card.classList.remove('action-optimistic-hidden')); updateBulkBar(); loadCurrent('today', viewRequestVersion).catch(() => {}); },
         successText: `${cards.length} excluído(s) do painel`, errorText: 'Não consegui excluir, tente de novo',
+        onSuccess: () => { cards.forEach((card) => attendPicked.delete(card.dataset.caseKey)); },
         undo: { optimistic: () => mark(false), rollback: () => mark(true), commit: () => post(null), successText: 'Voltaram para o painel', refresh: async () => { await loadCurrent('today', viewRequestVersion); await refreshCounters(); } },
         refresh: async () => { await loadCurrent('today', viewRequestVersion); await refreshCounters(); } });
     });
@@ -2748,8 +2765,10 @@
   function pickBox(card) {
     const pick = element('label', 'case-pick'); pick.title = 'Selecionar';
     const box = element('input'); box.type = 'checkbox'; box.className = 'case-pick-box'; box.setAttribute('aria-label', 'Selecionar');
+    box.checked = attendPicked.has(card.dataset.caseKey);
+    card.classList.toggle('case-picked', box.checked);
     pick.append(box); pick.addEventListener('click', (event) => event.stopPropagation());
-    box.addEventListener('change', () => { card.classList.toggle('case-picked', box.checked); updateBulkBar(); });
+    box.addEventListener('change', () => { if(card.dataset.caseKey){if(box.checked)attendPicked.add(card.dataset.caseKey);else attendPicked.delete(card.dataset.caseKey);}card.classList.toggle('case-picked', box.checked); updateBulkBar(); });
     return pick;
   }
   function updateBulkBar() {
@@ -2969,9 +2988,11 @@
     if(!preserveAll)todayItems = items.slice();
     const all=preserveAll?todayItems:items.slice();
     const model = attendModel(all);
+    const sourcesReady = attendData.entry && attendData.triage && attendData.whatsapp && !attendData.incompleteFailed;
+    if(sourcesReady){const liveKeys=new Set(model.cases.map((entry)=>entry.key));attendPicked.forEach((key)=>{if(!liveKeys.has(key))attendPicked.delete(key);});}
     // The badge counts the cases of the list (all of them, whatever filter is on screen); when a decision
     // list did not load, the number would be too low, so it is marked as not updated.
-    if (attendData.entry && attendData.triage && attendData.whatsapp && attendData.vitrine) setCount('today', model.counts.todos);
+    if (sourcesReady) setCount('today', model.counts.todos);
     else setCountUnknown('today');
     loadAttendIdentities(model.cases);
     // Ref, Origem and Período narrow the cases first; chips, Ref buttons and the list then count the
@@ -3056,6 +3077,7 @@
       const slice = order.slice(built, limit);
       slice.forEach(({ entry, data }) => { const card = buildCard(entry); Object.assign(card.dataset, data); grid.append(card); });
       built += slice.length;
+      updateBulkBar();
       const rest = order.length - built;
       moreWrap.classList.toggle('hidden', rest <= 0);
       moreButton.textContent = `Mostrar mais ${Math.min(ATTEND_PAGE, rest)}${rest > ATTEND_PAGE ? ` · ${rest} restantes` : ''}`;
@@ -5957,6 +5979,7 @@
     storeSession();
   };
   const clearSession = () => {
+    attendPicked.clear();
     sessionStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(SESSION_KEY);
     accessToken = null;
@@ -6095,7 +6118,7 @@
     refreshCoordinator = MCSRefresh.createCoordinator({ storage, document, window, channel }).start();
     refreshScheduler = MCSRefresh.createScheduler({
       coordinator: refreshCoordinator, intervalMs: REFRESH_MS, maxBackoffMs: 15 * 60000, isBusy: refreshBusy,
-      run: async () => { await loadCurrent(); await loadCaptureWarning(); },
+      run: async () => { await refreshCurrentPreservingState(); await loadCaptureWarning(); },
       onSuccess: () => refreshNote(''),
       onFailure: (failure, nextMs) => { console.error('Atualização automática falhou', failure); refreshNote(`Não foi possível atualizar · os dados mostrados são os últimos confirmados · nova tentativa em ${Math.round(nextMs / 60000) || 1} min`, true); }
     }).start();
