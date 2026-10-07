@@ -5793,15 +5793,24 @@
     // A20: you write in Portuguese, the AI translates, you check the back-translation. The send is
     // the same one path as the suggestions (MCSSuggest.sendControls), decided by the 24 h window:
     // open, by the panel after your confirmation; closed, by the WhatsApp on the phone.
+    // Empty: the title with to whom, your message (2 lines that grow) and Traduzir. The English, the
+    // back-translation and the send (with the 24 h window) show once there is a translation.
     const box = element('div', 'reply-composer');
-    box.append(element('h4', '', 'Responder pelo painel'));
+    const head = element('div', 'reply-head');
+    head.append(element('h4', '', 'Responder pelo painel'));
+    if (state && state.whatsappBase) head.append(element('span', 'muted reply-to', 'Para ' + (state.name || '') + ' · ' + (state.phone || '')));
+    box.append(head);
     const ptLabel = element('label', '', 'Sua mensagem (português)');
-    const pt = element('textarea'); pt.maxLength = 4000; pt.rows = 4; ptLabel.append(pt);
+    const pt = element('textarea'); pt.maxLength = 4000; pt.rows = 2; ptLabel.append(pt);
+    const fitPt = window.MCSSuggest && MCSSuggest.autoGrow ? MCSSuggest.autoGrow(pt) : () => {};
     const translateButton = element('button', 'small', 'Traduzir'); translateButton.type = 'button';
     const enLabel = element('label', '', 'Vai para o cliente (inglês)');
-    const en = element('textarea', 'reply-en'); en.readOnly = true; en.rows = 4; enLabel.append(en);
+    const en = element('textarea', 'reply-en'); en.readOnly = true; en.rows = 1; enLabel.append(en);
     const backLabel = element('label', '', 'Conferência (volta para o português)');
-    const back = element('textarea'); back.readOnly = true; back.rows = 4; backLabel.append(back);
+    const back = element('textarea'); back.readOnly = true; back.rows = 1; backLabel.append(back);
+    // The English and the back-translation are as tall as their text: always whole, never an empty box.
+    const fitEn = window.MCSSuggest && MCSSuggest.autoGrow ? MCSSuggest.autoGrow(en) : () => {};
+    const fitBack = window.MCSSuggest && MCSSuggest.autoGrow ? MCSSuggest.autoGrow(back) : () => {};
     const status = element('p', 'reply-status', '');
     let translatedFor = null, busy = false;
     // The window state and the one path (sendControls) live here; data-reply-closed says which path.
@@ -5811,9 +5820,12 @@
       journeyId, reachable: Boolean(state && state.whatsappBase), whatsappBase: state && state.whatsappBase || null,
       contact: { name: state && state.name || '', phone: state && state.phone || '' },
       path: { open: Boolean(state && state.allowed), until: state && state.openUntil || null }
-    }, en, { request, discard: false, canSend: () => Boolean(en.value) && translatedFor === pt.value.trim(), onSent: (result) => { pt.value = ''; if (!(result && result.simulated)) setTimeout(() => reload(), 1500); } }) : null;
+    }, en, { request, discard: false, showTo: false, canSend: () => Boolean(en.value) && translatedFor === pt.value.trim(), onSent: (result) => { pt.value = ''; fitPt(); if (!(result && result.simulated)) setTimeout(() => reload(), 1500); } }) : null;
     const refresh = () => {
       translateButton.disabled = busy || !pt.value.trim();
+      // Nothing translated yet: the empty English and back-translation and the send stay out of sight.
+      const translated = Boolean(en.value);
+      enLabel.hidden = !translated; backLabel.hidden = !translated; sendBox.hidden = !translated;
       if (sender) sender.refresh();
     };
     pt.addEventListener('input', () => { if (translatedFor !== pt.value.trim()) status.textContent = en.value ? 'Texto mudou · traduza de novo antes de enviar' : ''; refresh(); });
@@ -5825,10 +5837,10 @@
         en.value = out.en; back.value = out.pt_back; translatedFor = text; status.textContent = '';
         en.dispatchEvent(new Event('input'));
       } catch (_) { status.textContent = 'IA indisponível'; }
-      busy = false; refresh();
+      busy = false; refresh(); fitEn(); fitBack();
     });
-    const translateRow = element('div', 'inline-actions'); translateRow.append(translateButton);
-    box.append(ptLabel, translateRow, enLabel, backLabel, status, sendBox);
+    const translateRow = element('div', 'inline-actions reply-write'); translateRow.append(ptLabel, translateButton);
+    box.append(translateRow, enLabel, backLabel, status, sendBox);
     refresh();
     block.append(box);
   }
