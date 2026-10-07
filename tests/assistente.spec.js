@@ -119,7 +119,7 @@ test('ação que grava: botão laranja, executa pelo caminho normal, Desfazer vo
 
 test('iPhone: abre de baixo para cima; "Não funcionou" em um toque leva o último clique; OpenAI fora do ar não trava', async ({ page }) => {
   const calls = await openPanel(page, { width: 390, height: 844, assistant: (body) => body.action === 'report'
-    ? { incident: { id: 'i1', status: 'ABERTO', count: 1, severity: 'P1' }, reply: 'Chamado registrado (P1) · Clique sem nenhuma resposta depois: provável defeito de tela · Assistente indisponível agora', proposal: null }
+    ? { diagnosis: { categoria: 'DEFEITO_TELA' }, reply: 'Clique sem nenhuma resposta depois: provável defeito de tela', proposal: { acao: 'registrar_chamado', linha: 'Registrar chamado · clique sem resposta', grava: true, params: { note: 'clique sem resposta', context: body.context } } }
     : body.action === 'chat' ? { reply: 'Assistente indisponível agora', proposal: null, unavailable: true } : { ok: true } });
   await page.locator('[data-view="v1"]').first().click();
   await page.locator('#mcs-assistant-fab').click();
@@ -132,7 +132,8 @@ test('iPhone: abre de baixo para cima; "Não funcionou" em um toque leva o últi
   expect(await lightness(panel.getByRole('button', { name: 'Não funcionou' }))).toBeGreaterThan(0.7);
   expect(await lightness(panel.getByRole('button', { name: 'Fechar' }))).toBeGreaterThan(0.7);
   await panel.getByRole('button', { name: 'Não funcionou' }).click();
-  await expect(panel.locator('.assistant-msg.assistant').last()).toContainText('Chamado registrado (P1)');
+  await expect(panel.locator('.assistant-msg.assistant').last()).toContainText('provável defeito de tela');
+  await expect(panel.locator('.assistant-proposal').last()).toContainText('Registrar chamado');
   const report = calls.assistant.find((c) => c.action === 'report');
   const lastClick = report.context.actions.filter((a) => a.kind === 'click').pop();
   expect(lastClick.action).toBe('v1');

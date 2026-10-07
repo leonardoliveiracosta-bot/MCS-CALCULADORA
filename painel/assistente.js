@@ -52,8 +52,10 @@
     root = el('aside', 'mcs-assistant hidden'); root.id = 'mcs-assistant'; root.setAttribute('aria-label', 'Assistente'); root.setAttribute('role', 'dialog');
     const head = el('header', 'assistant-head');
     head.append(el('strong', '', 'Assistente'));
+    const headActions = el('div', 'assistant-head-actions');
+    const fresh = el('button', 'quiet small', 'Nova conversa'); fresh.type='button'; fresh.addEventListener('click',()=>{history.splice(0);saveHistory();log.replaceChildren();});
     const close = el('button', 'quiet small', 'Fechar'); close.type = 'button'; close.addEventListener('click', () => toggle(false));
-    head.append(close);
+    headActions.append(fresh,close); head.append(headActions);
     log = el('div', 'assistant-log'); log.setAttribute('aria-live', 'polite');
     const foot = el('div', 'assistant-foot');
     const report = el('button', 'quiet small assistant-report', 'Não funcionou'); report.type = 'button';
@@ -111,6 +113,7 @@
     const b = bridge(), p = proposal.params || {};
     if (proposal.acao === 'abrir_ficha') { b.openDetail('ficha', p.journeyId); return { text: 'Ficha aberta' }; }
     if (proposal.acao === 'abrir_aba') { await b.switchPanel(p.view); return { text: 'Aba aberta' }; }
+    if (proposal.acao === 'voltar') { if (b.back) await b.back(); else history.back(); return { text: 'Voltei para a tela anterior' }; }
     if (proposal.acao === 'recarregar') { await b.reload(); return { text: 'Recarregado' }; }
     if (proposal.acao === 'selecionar_carro' || proposal.acao === 'remover_carro') {
       const action = proposal.acao === 'selecionar_carro' ? 'select' : 'remove';
@@ -138,7 +141,7 @@
       return { text: `Comparado de novo · ${compared} busca(s)` };
     }
     if (proposal.acao === 'registrar_chamado') {
-      const out = await api({ action: 'report', context: context(), note: p.note || '' });
+      const out = await api({ action: 'create_incident', context: p.context || context(), note: p.note || '' });
       return { text: (out && out.reply) || 'Chamado registrado' };
     }
     throw Object.assign(new Error('ACAO_DESCONHECIDA'), { code: 'ACAO_DESCONHECIDA' });
@@ -153,7 +156,7 @@
     actions.append(yes, no);
     card.append(actions, status);
     log.append(card); log.scrollTop = log.scrollHeight;
-    const done = () => { yes.disabled = true; no.disabled = true; };
+    const done = () => { yes.disabled = true; no.disabled = true; card.classList.add('assistant-proposal-done'); };
     yes.addEventListener('click', async () => {
       done(); status.textContent = 'Executando…';
       try {

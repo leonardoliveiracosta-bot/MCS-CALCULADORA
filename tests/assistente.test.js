@@ -114,17 +114,22 @@ test('regras fixas do "Não funcionou"', () => {
   assert.equal(assistant.rulesDiagnosis({ actions: [click, { kind: 'request', path: '/api/panel/lead', code: 'REQUEST_TIMEOUT', at: t + 50 }] }).categoria, 'TECNICO');
   assert.equal(assistant.rulesDiagnosis({ actions: [click, { kind: 'request', path: '/api/panel/vitrines', status: 409, code: 'MANHEIM_SALE_ENDED', at: t + 50 }] }).categoria, 'RECUSADO:MANHEIM_SALE_ENDED');
   assert.equal(assistant.rulesDiagnosis({ actions: [click, { kind: 'request', path: '/api/panel/lead', status: 200, at: t + 50 }] }).categoria, 'NAO_SABEMOS');
+  assert.equal(assistant.rulesDiagnosis({ actions: [click, { kind: 'request', path: '/api/panel/boot', method: 'POST', status: 200, ms: 13000, at: t + 50 }] }).categoria, 'LENTIDAO');
   assert.equal(assistant.severityOf('v1-generate'), 'P0');
   assert.equal(assistant.severityOf('ficha-open'), 'P1');
   assert.equal(assistant.severityOf('outra-coisa'), 'P2');
 });
 
-test('"Não funcionou" registra o chamado mesmo com a OpenAI fora do ar', async () => {
-  const svc = services([{ fail: true }]);
-  const out = await assistant.report(ctx, { context: { view: 'v1', version: 'v9', actions: [{ kind: 'click', action: 'ficha-open', label: 'Abrir ficha', view: 'v1', at: Date.now() }] } }, svc);
-  const call = svc.rpcs.find((r) => r.name === 'panel_incident_report');
-  assert.equal(call.args.p_fingerprint, 'v1|ficha-open|DEFEITO_TELA');
-  assert.equal(call.args.p_severity, 'P1');
-  assert.equal(out.incident.id, 'inc-1');
-  assert.match(out.reply, /Chamado registrado/);
+test('"Não funcionou" só diagnostica; chamado nasce uma vez após autorização', async () => {
+  const svc = services([]);
+  const context = { view: 'v1', version: 'v9', actions: [{ kind: 'click', action: 'ficha-open', label: 'Abrir ficha', view: 'v1', at: Date.now() }] };
+  const out = await assistant.report(ctx, { context }, svc);
+  assert.equal(svc.rpcs.some((r) => r.name === 'panel_incident_report'), false);
+  assert.equal(out.diagnosis.categoria, 'DEFEITO_TELA');
+  assert.equal(out.proposal.acao, 'registrar_chamado');
+  const saved = await assistant.createIncident(ctx, { context, note: out.proposal.params.note }, svc);
+  const calls = svc.rpcs.filter((r) => r.name === 'panel_incident_report');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].args.p_fingerprint, 'v1|ficha-open|DEFEITO_TELA');
+  assert.match(saved.reply, /Chamado registrado/);
 });

@@ -4,8 +4,7 @@
 // encontra, explica e propõe. Ele lê o painel livremente (funções de leitura que rodam aqui, com os
 // dados completos que a pergunta precisa; a IA pede cada leitura no mesmo formato JSON que o resto do
 // painel já usa com a OpenAI). Qualquer ação volta só como PROPOSTA: nada é executado neste servidor; a ação roda no navegador, pelo mesmo caminho do botão normal, depois do toque da
-// Leo em "Autorizar". "Não funcionou" aplica regras fixas, registra o chamado (panel_incidents) e
-// pede a explicação à IA. Se a OpenAI falhar, o painel segue e o chamado é registrado mesmo assim.
+// Leo em "Autorizar". "Não funcionou" só diagnostica e propõe. O chamado nasce apenas após autorização.
 //   POST { action: 'chat', message, history, context }    -> { reply, proposal, unavailable? }
 //   POST { action: 'report', context, note }               -> { incident, diagnosis, reply, proposal }
 //   POST { action: 'event', type, acao, payload, reason }  -> { ok }
@@ -30,11 +29,11 @@ const SYSTEM = [
   'Abas: ATENDER AGORA (quem responder agora), V1 e V2 (vitrines enviadas: V1 é o link simples com "Show me this car", V2 é o detalhado com "I want to bid"), BUSCAR CARROS, ENVIAR OPÇÕES (fila de quem tem carros do lote para receber V1), IMPORTAÇÕES (CSV do Manheim) e Configurações.',
   'Busca POR CARRO: carro + anos + milhas. POR VALOR: carro + lance máximo. Carro com leilão passado sai sozinho das opções e da seleção.',
   'Use as funções para ler o painel antes de responder; nunca invente dado. Se não achar, diga que não achou.',
-  'Para fazer algo (abrir ficha, abrir aba, recarregar, selecionar ou remover carro, gerar V1, comparar de novo, registrar chamado), chame propor_acao: a Leo vê a proposta e autoriza com um toque. Uma ação por vez. Você nunca fala com cliente.',
-  'Quando algo não funcionou, use o contexto (últimos cliques e respostas do servidor). Na dúvida, é defeito do painel: diga em uma linha que é defeito e que virou chamado para o Claude.',
+  'Para fazer algo (abrir ficha, abrir aba, voltar, recarregar, selecionar ou remover carro, gerar V1, comparar de novo, registrar chamado), chame propor_acao: a Leo vê a proposta e autoriza com um toque. Uma ação por vez. Você nunca fala com cliente.',
+  'Quando algo não funcionou, use o contexto. Nunca diga que virou chamado antes da Leo autorizar. Se precisar, proponha registrar_chamado uma única vez.',
   'FORMATO: responda sempre só o JSON pedido. tipo "ler" para consultar o painel (funcao + argumentos); o resultado volta na mensagem seguinte. tipo "propor" para uma ação (acao + argumentos; texto = frase curta para a Leo). tipo "responder" para a resposta final em texto.',
   'Funções de leitura: buscar_cliente (termo: nome, Ref de 5 letras ou telefone; devolve journey_id, nome, Ref, telefones, status); ficha (journey_id: dados, telefones, critérios, calculadora, últimas mensagens); opcoes (journey_id: carros do lote ativo com match_id, VIN, MMR, Lane/Run ou Buy Now, leilão e se está selecionado); vitrines (journey_id: V1/V2 criadas, carros, expirada, toques); lote (estado do lote ativo); chamados (chamados abertos); diagnosticar_opcoes (journey_id + termo opcional: por que cada carro do lote não aparece para a pessoa, agrupado por motivo); diagnosticar_falha (aplica as regras do "Não funcionou" no contexto atual, só explica); eventos (tipo opcional: PERGUNTA, PROPOSTA, AUTORIZADA, RECUSADA, CHAMADO, ERRO; lê o histórico do assistente); conferir_harmonia (journey_id opcional: divergências entre abas, só leitura).',
-  'Ações: abrir_ficha (journey_id), abrir_aba (aba: today|v1|v2|requests|searches|imports|settings), recarregar, selecionar_carro (match_id), remover_carro (match_id), gerar_v1 (journey_id + match_ids dos carros já selecionados), retomar_busca (journey_id: compara de novo a pessoa com o lote), registrar_chamado (termo: resumo do defeito; registra o chamado).'
+  'Ações: abrir_ficha (journey_id), abrir_aba (aba: today|v1|v2|requests|searches|imports|settings), voltar, recarregar, selecionar_carro (match_id), remover_carro (match_id), gerar_v1 (journey_id + match_ids dos carros já selecionados), retomar_busca (journey_id: compara de novo a pessoa com o lote), registrar_chamado (termo: resumo do defeito; registra o chamado).'
 ].join(' ');
 
 // One step of the conversation, in the json_schema format every other panel feature already uses
@@ -45,7 +44,7 @@ const STEP_SCHEMA = { name: 'assistente_passo', strict: true, schema: { type: 'o
     tipo: { type: 'string', enum: ['responder', 'ler', 'propor'] },
     texto: { type: 'string' },
     funcao: { type: ['string', 'null'], enum: ['buscar_cliente', 'ficha', 'opcoes', 'vitrines', 'lote', 'chamados', 'diagnosticar_opcoes', 'diagnosticar_falha', 'eventos', 'conferir_harmonia', null] },
-    acao: { type: ['string', 'null'], enum: ['abrir_ficha', 'abrir_aba', 'recarregar', 'selecionar_carro', 'remover_carro', 'gerar_v1', 'retomar_busca', 'registrar_chamado', null] },
+    acao: { type: ['string', 'null'], enum: ['abrir_ficha', 'abrir_aba', 'voltar', 'recarregar', 'selecionar_carro', 'remover_carro', 'gerar_v1', 'retomar_busca', 'registrar_chamado', null] },
     journey_id: { type: ['string', 'null'] }, match_id: { type: ['string', 'null'] },
     match_ids: { type: ['array', 'null'], items: { type: 'string' } }, aba: { type: ['string', 'null'] }, termo: { type: ['string', 'null'] }
   } } };
@@ -319,6 +318,7 @@ async function buildProposal(ctx, s, args) {
   const answer = (proposal) => ({ ...proposal, acao: args.acao, resposta: safeText(args.resposta, 300) || null });
   const who = (found) => `${found.contact?.display_name || 'Cliente'} (Ref ${found.journey.reference_code || '—'})`;
   if (args.acao === 'recarregar') return answer({ linha: 'Recarregar a aba atual', grava: false, params: {} });
+  if (args.acao === 'voltar') return answer({ linha: 'Voltar para a tela anterior', grava: false, params: {} });
   if (args.acao === 'abrir_aba') return VIEWS[args.aba] ? answer({ linha: 'Abrir a aba ' + VIEWS[args.aba], grava: false, params: { view: args.aba } }) : null;
   if (args.acao === 'abrir_ficha') {
     const found = await journeyWithContact(ctx, s, args.journey_id);
@@ -438,7 +438,8 @@ const P0 = new Set(['v1-generate', 'v1-send', 'v2-build', 'v2-send', 'deposit'])
 const P1 = new Set(['ficha-open', 'search', 'import-csv', 'refresh', 'select', 'remove', 'offer-select', 'offer-remove', 'today', 'v1', 'v2', 'requests', 'searches', 'imports']);
 const severityOf = (action) => P0.has(action) ? 'P0' : P1.has(action) || /^offer-/.test(String(action || '')) ? 'P1' : 'P2';
 const TECH_CODES = new Set(['REQUEST_TIMEOUT', 'NETWORK_ERROR', 'SERVER_ERROR']);
-const RULE_TEXT = { TECNICO: 'O servidor falhou ou demorou demais (falha técnica)', DEFEITO_TELA: 'Clique sem nenhuma resposta depois: provável defeito de tela', ERRO_JS: 'A tela deu erro depois do clique', NAO_SABEMOS: 'O servidor respondeu normalmente; causa ainda não identificada' };
+const SLOW_MS = 8000;
+const RULE_TEXT = { TECNICO: 'O servidor falhou ou a conexão caiu', LENTIDAO: 'O servidor respondeu, mas demorou mais de 8 segundos', DEFEITO_TELA: 'Clique sem nenhuma resposta depois: provável defeito de tela', ERRO_JS: 'A tela deu erro depois do clique', NAO_SABEMOS: 'O servidor respondeu normalmente; causa ainda não identificada' };
 function rulesDiagnosis(context) {
   const actions = (context && context.actions) || [];
   let index = -1;
@@ -449,6 +450,8 @@ function rulesDiagnosis(context) {
   if (requests.some((r) => Number(r.status) >= 500 || TECH_CODES.has(r.code))) return { categoria: 'TECNICO', texto: RULE_TEXT.TECNICO, click };
   const refused = requests.find((r) => Number(r.status) >= 400 && Number(r.status) !== 401 && r.code);
   if (refused) return { categoria: 'RECUSADO:' + String(refused.code).slice(0, 60), texto: 'O servidor recusou: ' + refused.code, click };
+  const slow = requests.filter((r) => Number(r.ms) > SLOW_MS);
+  if (slow.length) return { categoria: 'LENTIDAO', texto: RULE_TEXT.LENTIDAO, click, slow };
   if (after.some((a) => a.kind === 'error')) return { categoria: 'ERRO_JS', texto: RULE_TEXT.ERRO_JS, click };
   if (click && !requests.length && !after.some((a) => a.kind === 'view')) return { categoria: 'DEFEITO_TELA', texto: RULE_TEXT.DEFEITO_TELA, click };
   return { categoria: 'NAO_SABEMOS', texto: RULE_TEXT.NAO_SABEMOS, click };
@@ -457,17 +460,27 @@ async function report(ctx, body, services = {}) {
   const s = svc(services);
   const context = cleanContext(body && body.context);
   const rules = rulesDiagnosis(context);
-  const action = rules.click?.action || 'sem-clique';
+  const slow = rules.slow && rules.slow[0];
+  const detail = slow ? ' · ' + (slow.method || 'GET') + ' ' + (slow.path || '') + ' levou ' + (Number(slow.ms) / 1000).toFixed(1).replace('.0','') + ' s' : '';
+  const note = slow ? 'Resposta lenta: ' + (slow.method || 'GET') + ' ' + (slow.path || '') + ' levou ' + slow.ms + ' ms (HTTP ' + (slow.status || '—') + ')' : rules.texto;
+  const proposal = await buildProposal(ctx, s, { acao: 'registrar_chamado', termo: note, texto: '' });
+  if (proposal) proposal.params = { ...(proposal.params || {}), context };
+  await event(ctx, s, 'PERGUNTA', { payload: { message: 'Não funcionou', diagnosis: { categoria: rules.categoria, texto: rules.texto } } });
+  if (proposal) await event(ctx, s, 'PROPOSTA', { action: proposal.acao, payload: proposal });
+  return { diagnosis: { categoria: rules.categoria, texto: rules.texto }, reply: rules.texto + detail, proposal };
+}
+async function createIncident(ctx, body, services = {}) {
+  const s = svc(services);
+  const context = cleanContext(body && body.context);
+  const rules = rulesDiagnosis(context);
+  const action = rules.click?.action || (rules.slow?.[0]?.path ? String(rules.slow[0].path).replace(/^\/api\/panel\//, '') : 'sem-clique');
   const view = context.view || rules.click?.view || 'painel';
   const severity = severityOf(action);
-  const fingerprint = `${view}|${action}|${rules.categoria}`.slice(0, 300);
-  const diagnosis = { categoria: rules.categoria, texto: rules.texto, nota: safeText(body && body.note, 500) || null };
-  const incident = await s.rpc(ctx, 'panel_incident_report', { p_environment: ctx.environment, p_actor_id: ctx.panel?.id || null, p_fingerprint: fingerprint, p_severity: severity, p_version: context.version, p_context: context, p_diagnosis: diagnosis });
-  await event(ctx, s, 'CHAMADO', { incident_id: incident?.id || null, action, payload: { fingerprint, severity, categoria: rules.categoria } });
-  const head = `Chamado registrado (${severity}${incident?.reopened ? ', reaberto' : incident?.count > 1 ? ', ' + incident.count + 'ª vez' : ''}) · ${rules.texto}`;
-  const label = rules.click ? `cliquei em "${rules.click.label || rules.click.action}" na aba ${VIEWS[view] || view}` : 'algo não funcionou';
-  const ai = await chat(ctx, { message: `Não funcionou: ${label}. ${diagnosis.nota || ''} Diagnóstico das regras: ${rules.texto}. Explique em até 2 frases e, se der para resolver agora, proponha a ação.`, context: body.context }, services);
-  return { incident, diagnosis, reply: ai.unavailable ? head + ' · Assistente indisponível agora' : head + '\n' + ai.reply, proposal: ai.proposal || null };
+  const fingerprint = (view + '|' + action + '|' + rules.categoria).slice(0,300);
+  const diagnosis = { categoria: rules.categoria, texto: rules.texto, nota: safeText(body && body.note,500) || null };
+  const incident = await s.rpc(ctx,'panel_incident_report',{p_environment:ctx.environment,p_actor_id:ctx.panel?.id||null,p_fingerprint:fingerprint,p_severity:severity,p_version:context.version,p_context:context,p_diagnosis:diagnosis});
+  await event(ctx,s,'CHAMADO',{incident_id:incident?.id||null,action,payload:{fingerprint,severity,categoria:rules.categoria}});
+  return { incident, reply: 'Chamado registrado (' + severity + (incident?.count > 1 ? ', ' + incident.count + 'ª ocorrência' : '') + ') · ' + rules.texto };
 }
 
 // ------------------------------------------------------------------ eventos e chamados
@@ -498,6 +511,7 @@ module.exports = async (req, res) => {
     const body = await jsonBody(req, 256 * 1024);
     const out = body.action === 'chat' ? await chat(ctx, body)
       : body.action === 'report' ? await report(ctx, body)
+        : body.action === 'create_incident' ? await createIncident(ctx, body)
         : body.action === 'event' ? await recordEvent(ctx, body)
           : body.action === 'incident_status' ? await incidentStatus(ctx, body)
             : { error: 'ASSISTANT_ACTION_INVALID' };
@@ -508,6 +522,7 @@ module.exports = async (req, res) => {
 };
 module.exports.chat = chat;
 module.exports.report = report;
+module.exports.createIncident = createIncident;
 module.exports.rulesDiagnosis = rulesDiagnosis;
 module.exports.severityOf = severityOf;
 module.exports.buildProposal = buildProposal;
