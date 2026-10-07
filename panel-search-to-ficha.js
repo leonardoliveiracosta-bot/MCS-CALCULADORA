@@ -21,9 +21,19 @@ function wishFor(criteria, mode, now = new Date()) {
 }
 
 // Ficha de cada mensagem de evidência; o pedido só vai para uma ficha quando todas apontam para a mesma.
+// Message -> fichas index, built once per list of links (it used to be rebuilt for every request: 592 requests x 3.400
+// links on each PESQUISAS opening). Rebuilt if the list changes size.
+const linkIndexes = new WeakMap();
+function linksByMessage(links) {
+  const known = linkIndexes.get(links);
+  if (known && known.size === links.length) return known.index;
+  const index = new Map();
+  links.forEach((link) => { if (!link.undone_at) { if (!index.has(link.message_id)) index.set(link.message_id, new Set()); index.get(link.message_id).add(link.journey_id); } });
+  linkIndexes.set(links, { size: links.length, index });
+  return index;
+}
 function fichaOf(item, base) {
-  const byMessage = new Map();
-  (base.messageLinks || []).forEach((link) => { if (!link.undone_at) { if (!byMessage.has(link.message_id)) byMessage.set(link.message_id, new Set()); byMessage.get(link.message_id).add(link.journey_id); } });
+  const byMessage = Array.isArray(base.messageLinks) ? linksByMessage(base.messageLinks) : new Map();
   const owners = new Set((item.evidence || []).flatMap((message) => [...(byMessage.get(message.id) || [])]));
   return owners.size === 1 ? [...owners][0] : null;
 }

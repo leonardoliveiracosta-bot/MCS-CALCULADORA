@@ -96,9 +96,20 @@
     return Object.keys(MODELS_BY_MAKE).find((key) => fold(key).replace(/ /g, '') === folded || (folded === 'mercedes' && key === 'Mercedes-Benz') || (folded === 'chevy' && key === 'Chevrolet')) || null;
   }
   // Operational aliases come from model_aliases. No prefix or symmetric base/trim matching.
-  let aliases = [], knownModels = [], revision = 'unloaded';
+  let aliases = [], knownModels = [], revision = 'unloaded', dictionaryKey = '';
   const matchCache = new Map();
-  const normalizeName = (value) => fold(value).replace(/\b([a-z]{4,})s\b/g, '$1').replace(/[^a-z0-9]/g, '');
+  // Results that only depend on the text and on the dictionary (aliases + known models): computed once per text and
+  // cleared whenever the dictionary changes. PESQUISAS asks the same models for every request (1.000+ per opening).
+  const nameCache = new Map(), recognizedCache = new Map(), inferCache = new Map();
+  const textKey = (value) => value === null || value === undefined ? '\u0000' : typeof value + ':' + String(value);
+  const remember = (cache, key, compute) => {
+    if (cache.has(key)) return cache.get(key);
+    const value = compute();
+    if (cache.size > 50000) cache.clear();
+    cache.set(key, value);
+    return value;
+  };
+  const normalizeName = (value) => remember(nameCache, textKey(value), () => fold(value).replace(/\b([a-z]{4,})s\b/g, '$1').replace(/[^a-z0-9]/g, ''));
   const canonicalMake = (value) => {
     const key = normalizeName(value);
     const rule = aliases.find((row) => row.client_model === '*' && normalizeName(row.make) === key);
@@ -109,10 +120,16 @@
     return brand && name.startsWith(brand) && name.length > brand.length ? name.slice(brand.length) : name;
   };
   function configureAliases(rows, known = [], version = '') {
-    matchCache.clear();
-    aliases = Array.isArray(rows) ? rows : [];
-    knownModels = Array.isArray(known) ? known : [];
+    const nextAliases = Array.isArray(rows) ? rows : [];
+    const nextKnown = Array.isArray(known) ? known : [];
+    // The same dictionary read again (every request reads it): the remembered results stay valid.
+    const key = (version || JSON.stringify(nextAliases)) + '|' + JSON.stringify(nextKnown);
+    aliases = nextAliases;
+    knownModels = nextKnown;
     revision = version || JSON.stringify(aliases);
+    if (key === dictionaryKey) return;
+    dictionaryKey = key;
+    matchCache.clear(); recognizedCache.clear(); inferCache.clear();
   }
   const aliasRevision = () => revision;
   function modelsMatch(left,right,leftMake,rightMake) {
@@ -135,6 +152,10 @@
     return (!wantedMake || !carMake || wantedMake === carMake) && a === b;
   }
   function inferMake(model) {
+    const found = remember(inferCache, textKey(model), () => inferMakeNow(model));
+    return { ...found, candidates: [...found.candidates] };
+  }
+  function inferMakeNow(model) {
     const candidates = new Set();
     for (const [make, models] of Object.entries(MODELS_BY_MAKE)) {
       if (models.some((name) => normalizedModel(name, make) === normalizedModel(model, make))) candidates.add(make);
@@ -148,6 +169,9 @@
   }
   function recognized(model, make) {
     if (!clean(model)) return false;
+    return remember(recognizedCache, JSON.stringify([model, make ?? null]), () => recognizedNow(model, make));
+  }
+  function recognizedNow(model, make) {
     return Object.entries(MODELS_BY_MAKE).some(([brand, models]) => (!clean(make) || canonicalMake(brand) === canonicalMake(make)) && models.some((name) => modelsMatch(name, model, brand, make))) ||
       aliases.some((row) => row.kind !== 'NEVER' && row.client_model !== '*' && (!clean(make) || canonicalMake(row.make) === canonicalMake(make)) && normalizedModel(row.client_model, row.make) === normalizedModel(model, make || row.make)) ||
       knownModels.some((row) => modelsMatch(row.model, model, row.make, make));
