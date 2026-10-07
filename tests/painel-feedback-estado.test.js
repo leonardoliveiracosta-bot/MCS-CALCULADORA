@@ -113,7 +113,7 @@ test('an incomplete source cannot erase a selection until a complete refresh con
   a.ctx.attendData.triage={};a.ctx.renderToday([],true);assert.equal(a.ctx.picked.size,0);
 });
 test('automatic refresh restores scroll only if the operator stayed in the same view',async()=>{
-  let release;const moves=[];const ctx={window:{scrollY:350,scrollTo:(x,y)=>moves.push([x,y])},currentView:'today',viewRequestVersion:1,loadCurrent:()=>new Promise(r=>release=r),requestAnimationFrame:f=>f()};
+  let release;const moves=[];const ctx={window:{scrollY:350,scrollTo:(x,y)=>moves.push([x,y])},currentView:'today',currentDetail:null,detailRequestVersion:0,viewRequestVersion:1,loadCurrent:()=>new Promise(r=>release=r),requestAnimationFrame:f=>f()};
   vm.createContext(ctx);vm.runInContext(part(panel,'  async function refreshCurrentPreservingState() {','  function captureOrigin()'),ctx);
   let pending=ctx.refreshCurrentPreservingState();release();await pending;assert.deepEqual(moves,[[0,350]]);
   pending=ctx.refreshCurrentPreservingState();ctx.currentView='v1';ctx.viewRequestVersion++;release();await pending;assert.equal(moves.length,1);

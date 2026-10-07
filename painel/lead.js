@@ -1,6 +1,11 @@
 (() => {
   'use strict';
   const e = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined && text !== null) node.textContent = String(text); return node; };
+  const liveViews = new WeakMap();
+  async function refresh({root,kind,key}) {
+    const view = liveViews.get(root);
+    if (view && view.kind === kind && view.key === key) return view.refresh();
+  }
   const append = (parent, tag, cls, text) => { const node = e(tag,cls,text); parent.append(node); return node; };
   const fmt = (value) => Number.isFinite(Number(value)) ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(value)) : '—';
   const cents = (value) => value ? fmt(Number(value)/100) : '—';
@@ -52,11 +57,12 @@
       if(action!=='undo'&&action!=='quick'&&activeUndo){activeUndo.remove();activeUndo=null;}
       return result;
     };
-    const reload=async()=>{const position=window.scrollY; await onChanged(); requestAnimationFrame(()=>window.scrollTo(0,position));};
+    const reload=async()=>{if(typeof isCurrent==='function'&&!isCurrent())return;await onChanged({scrollY:window.scrollY});};
     // "Desfazer" right after a reversible action: a notice pinned to the page (it survives the ficha
-    // being redrawn) with one button that puts the previous state back.
+    // being redrawn) with one button that puts the previous state back. It outlives this render, so it reloads through
+    // onChanged, which redraws only while this same ficha is the one open (never after a tab switch or another ficha).
     const undoNotice=(text,undoFn)=>{const notice=window.MCSAction&&MCSAction.feedback(document.body,text,'','lead-undo');if(!notice)return;const back=e('button','quiet small','Desfazer');back.type='button';notice.append(' ',back);
-      back.addEventListener('click',async()=>{back.disabled=true;try{await undoFn();notice.replaceChildren(document.createTextNode('Desfeito'));await reload();}catch(failure){back.disabled=false;notice.append(' · '+(failure&&failure.code==='UNDO_EXPIRED'?'Passou o tempo para desfazer':'Não consegui desfazer'));}});};
+      back.addEventListener('click',async()=>{back.disabled=true;try{await undoFn();notice.replaceChildren(document.createTextNode('Desfeito'));await onChanged({scrollY:window.scrollY});}catch(failure){back.disabled=false;notice.append(' · '+(failure&&failure.code==='UNDO_EXPIRED'?'Passou o tempo para desfazer':'Não consegui desfazer'));}});};
     const actionsApi=(action,fields)=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action,journeyId,...fields})});
     const failed=(card,text)=>append(card,'p','status error',text);
     const title=record.contact?.display_name||order.contactName||'Contato sem nome';
@@ -64,7 +70,7 @@
     const heading=section(root,1,'CABEÇALHO DA LIGAÇÃO');
     const header=append(heading,'div','lead-header');
     append(header,'div','lead-score',data.score===null?'—':data.score);
-    const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — ${calcRef?'Ref '+calcRef:'sem Ref da calculadora'}`);if(calcRef&&(record.calcRefsWithoutRun||[]).includes(calcRef))append(identity,'span','muted lead-ref-note',`Ref ${calcRef} comprovada pela mensagem da calculadora · simulação não registrada`);if(record.internalCode)append(identity,'span','muted lead-ref-note',`Código da ficha ${record.internalCode} · interno, não é Ref da calculadora`);const directOrigin=directLeadLabel(data.directLeadSource);if(directOrigin)append(identity,'span','lead-badge blue',directOrigin);
+    const identity=append(header,'div','lead-head-name'); append(identity,'h2','',`${title} — ${calcRef?'Ref '+calcRef:'sem Ref da calculadora'}`);if(calcRef&&(record.calcRefsWithoutRun||[]).includes(calcRef))append(identity,'span','muted lead-ref-note',`Ref ${calcRef} comprovada pela mensagem da calculadora · simulação não registrada`);if(record.internalCode)append(identity,'span','muted lead-ref-note',`Código da ficha ${record.internalCode} · interno, não é Ref da calculadora`);const calcName=(data.calculatorNews||[]).find((item)=>item.field==='NOME');if(calcName&&calcName.calculator)append(identity,'span','muted lead-ref-note lead-calc-name',`Nome na calculadora: ${calcName.calculator}`);const directOrigin=directLeadLabel(data.directLeadSource);if(directOrigin)append(identity,'span','lead-badge blue',directOrigin);
     const locationLine=append(identity,'p','muted',`${data.city?data.city+', ':''}${data.state?.uf||'Local não identificado'}${data.zip?` · ZIP ${data.zip}`:''}`);
     if(data.zip&&!data.city)request('/api/panel/lead?cityZip='+encodeURIComponent(data.zip)).then((place)=>{
       if(locationLine.isConnected&&place.city)locationLine.textContent=`${place.city}, ${data.state?.uf||''} · ZIP ${data.zip}`;
@@ -345,8 +351,8 @@
     // No controls block above the conversation (Anexar print, ordem, filtro, inverter remetentes, traduzir): the thread is chronological and complete.
     // The conversation in WhatsApp Web bubbles inside "A IA LEU A CONVERSA" (client left in white, MCS right in green,
     // centred date dividers, time inside the bubble); the list "Vai para:" comes right below it.
-    const thread=append(conversation,'div','lead-thread wa-thread');aiStatus.after(thread);const messages=record.conversation||[];
-    const tzOf=data.timezone||'America/New_York';
+    const thread=append(conversation,'div','lead-thread wa-thread');aiStatus.after(thread);let messages=record.conversation||[];
+    let tzOf=data.timezone||'America/New_York';
     // No date (null, 0 or empty: a print without its original date) gives no day and no time, never 31/12/1969 or 19:00.
     const dayOf=(value)=>{if(!value)return '';try{return new Intl.DateTimeFormat('pt-BR',{timeZone:tzOf,day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(value));}catch(_){return '';}};
     const timeOf=(value)=>{if(!value)return '';try{return new Intl.DateTimeFormat('pt-BR',{timeZone:tzOf,hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value));}catch(_){return '';}};
@@ -367,6 +373,15 @@
         if(journeyId&&actionMessage)bubble.append(actionMessage(message,journeyId,reload,ref,data.timezone));});
       if(!list.length)append(thread,'p','muted','Nenhuma mensagem neste filtro');if(tr)paintTranslate();};
     draw();
+    liveViews.set(root,{kind,key,refresh:async()=>{
+      if(typeof isCurrent==='function'&&!isCurrent())return;
+      const fresh=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
+      if(typeof isCurrent==='function'&&!isCurrent())return;
+      const next=fresh.record?.conversation,timezone=fresh.timezone||'America/New_York';
+      if(!Array.isArray(next)){if(!record.id&&fresh.record===null)return;throw Error('LEAD_RESPONSE_INVALID');}
+      if(JSON.stringify(next)===JSON.stringify(messages)&&timezone===tzOf)return;
+      messages=next;tzOf=timezone;draw();if(tr)tr.load();
+    }});
     if(tr)tr.load();
     // A20: reply from the panel (review in Portuguese, translation, 24 h window checked by the server).
     if(journeyId&&replyComposer)replyComposer(conversation,journeyId,reload);
@@ -391,5 +406,5 @@
       const off=button(powerActions,'Desligar',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:reason.value}});undoNotice('Ficha desligada',()=>api('manual',{panelAction:'toggle_journey',payload:{enabled:true}}));await reload();});
       off.disabled=true;off.title='Escolha o motivo';reason.addEventListener('change',()=>{off.disabled=!reason.value;});}
   }
-  window.MCSLead={open};
+  window.MCSLead={open,refresh};
 })();

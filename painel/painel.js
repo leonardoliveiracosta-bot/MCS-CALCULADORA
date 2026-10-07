@@ -646,6 +646,7 @@
   async function switchPanel(view, options = {}) {
     if (view === 'orders' || view === 'entry') view = 'today';
     if (!VIEWS.includes(view)) return;
+    ++detailRequestVersion;
     if (view !== 'pending') clearTimeout(pendingContinueTimer);
     if (currentView && $('detail-panel')?.classList.contains('hidden')) viewScroll.set(currentView, window.scrollY);
     currentView = view;
@@ -666,7 +667,8 @@
     }
     if (options.keepScroll !== false && currentView === view && viewRequestVersion === requestVersion && options.scrollY === undefined) {
       const back = viewScroll.get(view) || 0;
-      requestAnimationFrame(() => window.scrollTo(0, back));
+      const detailVersion = detailRequestVersion;
+      requestAnimationFrame(() => { if (currentView === view && viewRequestVersion === requestVersion && detailRequestVersion === detailVersion && !currentDetail) window.scrollTo(0, back); });
     }
   }
 
@@ -2110,9 +2112,10 @@
 
 
   async function refreshCurrentPreservingState() {
-    const scrollY=window.scrollY,view=currentView,version=viewRequestVersion;
-    await loadCurrent(view,version);
-    requestAnimationFrame(()=>{if(currentView===view&&viewRequestVersion===version)window.scrollTo(0,scrollY);});
+    const scrollY=window.scrollY,view=currentView,version=viewRequestVersion,detailVersion=detailRequestVersion,detail=currentDetail;
+    if (detail) await MCSLead.refresh({ ...detail, root: $('record-detail') });
+    else await loadCurrent(view,version);
+    requestAnimationFrame(()=>{if(currentView===view&&viewRequestVersion===version&&detailRequestVersion===detailVersion)window.scrollTo(0,scrollY);});
   }
 
   function captureOrigin() {
@@ -2280,10 +2283,13 @@
       let leadDetailData=null;
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest, isCurrent: () => requestVersion === detailRequestVersion,
-        onChanged: () => openDetail(kind, key, { push: false, origin: detailOrigin }),
+        // Reload only while this same ficha is still the one open: a notice pinned to the page ("Desfazer") outlives the render
+        // that made it, but a tab switch or another ficha (currentDetail changed) never brings this one back.
+        onChanged: (reloadOptions = {}) => requestVersion === detailRequestVersion || (currentDetail && currentDetail.kind === kind && currentDetail.key === key) ? openDetail(kind, key, { ...reloadOptions, push: false, origin: detailOrigin }) : Promise.resolve(),
         actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOffersSummary, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
+      if(options.scrollY!==undefined)requestAnimationFrame(()=>{if(requestVersion===detailRequestVersion)window.scrollTo(0,options.scrollY);});
       // Opened to reply: the conversation comes into view (HOJE "Responder").
       if(options.anchor){const target=document.getElementById(options.anchor);if(target)requestAnimationFrame(()=>target.scrollIntoView({behavior:'smooth',block:'start'}));}
       if(leadDetailData?.record?.whatsappWithoutPhone){const identity=$('record-detail').querySelector('.lead-head-name');if(identity)identity.append(element('p','muted whatsapp-no-phone-note','Responda pela conversa no app WhatsApp Business'));}
@@ -2680,21 +2686,41 @@
   // once on the next opening and tells the server what not to send again (hash of each list and of each case).
   let attendSnapshotTried = false, bootStore = null;
   function attendDb() { return new Promise((resolve, reject) => { if (!window.indexedDB) return reject(new Error('NO_IDB')); const open = indexedDB.open('mcs-painel', 1); open.onupgradeneeded = () => open.result.createObjectStore('snap'); open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error); }); }
+  // v: the shape of what is kept. A copy saved by an older panel (which could miss cases, see bootLoad) is dropped once.
+  const BOOT_STORE_VERSION = 2;
+  const emptyBootStore = () => ({ v: BOOT_STORE_VERSION, at: null, parts: {}, items: {} });
   async function bootState() {
     if (bootStore) return bootStore;
     const saved = await attendDb().then((db) => new Promise((resolve) => { const req = db.transaction('snap').objectStore('snap').get('boot'); req.onsuccess = () => resolve(req.result || null); req.onerror = () => resolve(null); })).catch(() => null);
-    bootStore = saved && saved.parts && saved.items ? saved : { at: null, parts: {}, items: {} };
+    bootStore = saved && saved.v === BOOT_STORE_VERSION && saved.parts && saved.items ? saved : emptyBootStore();
     return bootStore;
   }
   function saveBootState(store) { attendDb().then((db) => { db.transaction('snap', 'readwrite').objectStore('snap').put(store, 'boot'); }).catch(() => {}); }
-  async function bootLoad(part, extra = {}) {
+  // One load per part at a time. Two loads running together (the opening, a click on TODOS, a new message) used to answer
+  // out of order: the older answer was applied last and built the list with cases the newer one had already removed from
+  // this browser, so a case vanished with no warning (and the next opening drew the list without it).
+  const bootQueue = {};
+  function bootLoad(part, extra = {}) {
+    const run = (bootQueue[part] || Promise.resolve()).catch(() => {}).then(() => bootLoadNow(part, extra));
+    bootQueue[part] = run;
+    return run;
+  }
+  async function bootLoadNow(part, extra, full = false) {
     const store = await bootState();
     const have = {};
-    Object.entries(store.parts).forEach(([name, saved]) => { if (saved && saved.hash && saved.body) have[name] = saved.hash; });
-    if (part === 'main') have.todayItems = Object.keys(store.items);
+    if (!full) {
+      Object.entries(store.parts).forEach(([name, saved]) => { if (saved && saved.hash && saved.body) have[name] = saved.hash; });
+      if (part === 'main') have.todayItems = Object.keys(store.items);
+    }
     const answer = await request('/api/panel/boot', { method: 'POST', body: JSON.stringify({ part, have, ...extra }) });
+    const parts = (answer && answer.parts) || {};
+    // Nothing is drawn from a partial copy: an answer that relies on something this browser does not have (a "same" part
+    // it never kept, a case it no longer has) is asked again in full.
+    const incomplete = Object.entries(parts).some(([name, got]) => got && got.ok && (got.same ? !(store.parts[name] && store.parts[name].body)
+      : name === 'today' && Array.isArray(got.order) && got.order.some((key) => !(got.items && got.items[key]) && !store.items[key])));
+    if (incomplete && !full) return bootLoadNow(part, extra, true);
     const out = {};
-    Object.entries((answer && answer.parts) || {}).forEach(([name, got]) => {
+    Object.entries(parts).forEach(([name, got]) => {
       if (!got || !got.ok) { out[name] = null; return; }
       if (got.same) { out[name] = store.parts[name] ? store.parts[name].body : null; return; }
       let body = got.body;
@@ -2979,7 +3005,24 @@
     return row;
   }
 
+  // The list is drawn again several times while it loads (the server answer, the counters, the incomplete requests, the
+  // conversations of those requests). Drawing it never moves the screen: at the top it stays at the top; scrolled down,
+  // the case at the top of the screen stays at the same place (or the same position, when that case left the list).
   function renderToday(items, preserveAll=false) {
+    const onList = typeof window !== 'undefined' && typeof currentView !== 'undefined' && currentView === 'today' && Boolean($('detail-panel')?.classList.contains('hidden'));
+    const y = onList ? window.scrollY : 0;
+    const anchor = onList && y >= 8 ? [...document.querySelectorAll('#today-list .attend-row')].find((row) => row.getBoundingClientRect().bottom > 0) : null;
+    const anchorKey = anchor && anchor.dataset.caseKey, anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
+    try { return renderTodayNow(items, preserveAll); }
+    finally {
+      if (onList) {
+        const again = anchorKey ? [...document.querySelectorAll('#today-list .attend-row')].find((row) => row.dataset.caseKey === anchorKey) : null;
+        const target = y < 8 ? 0 : again ? window.scrollY + again.getBoundingClientRect().top - anchorTop : y;
+        if (Math.abs(window.scrollY - target) > 1) window.scrollTo(0, target);
+      }
+    }
+  }
+  function renderTodayNow(items, preserveAll=false) {
     const root = $('today-list');
     const stats = $('today-stats');
     stageDecisionRows();
