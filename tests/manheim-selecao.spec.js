@@ -114,6 +114,11 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
   // US$ 25.000 MMR: 5% by default (US$ 26.250); the operator types 8% and the value changes at once.
   const fourth = lane.nth(3);
   await openCar(fourth);
+  // The VIN is on the list itself (under each car); the opened car shows its facts in one straight line.
+  await expect(lane.first().locator('.oc-vin')).toHaveText(/^VIN [A-Z0-9]{6,}$/);
+  await expect(fourth.locator('.offer-facts-head')).toHaveText(/MMR.*CR.*Leilão.*Venda.*VIN.*Fonte/);
+  await expect(fourth.locator('.offer-facts .offer-vin')).toHaveText(/^[A-Z0-9]{6,}$/);
+  if (SHOTS) await screen.screenshot({ path: path.join(SHOTS, 'opcoes-linha-1366.png') });
   await expect(fourth.locator('.offer-final')).toHaveValue('26.250,00');
   await fourth.locator('.offer-pct').fill('8');
   await expect(fourth.locator('.offer-final')).toHaveValue('27.000,00');
@@ -157,7 +162,7 @@ test('ordenar o grupo por ano e por MMR considera o grupo inteiro, não só os 2
   await screen.locator('.oc-more-button').click();
   await expect(rows).toHaveCount(32);
   const mmrs = await rows.locator('.offer-mmr').allTextContents();
-  const values = mmrs.map((text) => Number(text.match(/MMR US\$\s?([\d.]+)/)[1].replace(/\./g, '')));
+  const values = mmrs.map((text) => Number(text.match(/US\$\s?([\d.]+)/)[1].replace(/\./g, '')));
   expect(values).toEqual([...values].sort((a, b) => a - b));
   const matchIds = await rows.locator('.oc-row').evaluateAll((list) => list.map((row) => row.dataset.matchId));
   expect(new Set(matchIds).size, 'nenhum carro repetido').toBe(32);
