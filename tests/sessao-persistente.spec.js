@@ -16,16 +16,19 @@ test.setTimeout(120000);
 
 const TODAY = { items: [], meta: { dataUpdatedAt: new Date().toISOString() } };
 
-// auth: the simulated Supabase. Each refresh token works once (as in production: reuse is refused).
+// auth: the simulated Supabase. A refresh token works once; as in production, the token just replaced is still
+// accepted for 10 s (two tabs renewing at the same moment), and an older one is refused (that ends the session).
 function simulatedAuth() {
-  const state = { current: 'r1', serial: 1, refreshes: [], passwords: 0, failNext: 0 };
+  const state = { current: 'r1', serial: 1, refreshes: [], refused: [], passwords: 0, failNext: 0, previous: null, previousAt: 0 };
   state.handle = async (route, url) => {
     const json = (payload, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
     if (url.searchParams.get('grant_type') === 'password') { state.passwords += 1; state.serial += 1; state.current = 'r' + state.serial; return json({ access_token: 'token-' + state.serial, refresh_token: state.current, expires_in: 3600 }); }
     const body = JSON.parse(route.request().postData() || '{}');
     state.refreshes.push(body.refresh_token);
     if (state.failNext > 0) { state.failNext -= 1; return json({ message: 'unavailable' }, 503); }
-    if (body.refresh_token !== state.current) return json({ error: 'invalid_grant', error_code: 'refresh_token_already_used' }, 400);
+    if (body.refresh_token === state.previous && Date.now() - state.previousAt < 10000) return json({ access_token: 'token-' + state.serial, refresh_token: state.current, expires_in: 3600 });
+    if (body.refresh_token !== state.current) { state.refused.push(body.refresh_token); return json({ error: 'invalid_grant', error_code: 'refresh_token_already_used' }, 400); }
+    state.previous = state.current; state.previousAt = Date.now();
     state.serial += 1; state.current = 'r' + state.serial;
     return json({ access_token: 'token-' + state.serial, refresh_token: state.current, expires_in: 3600 });
   };
@@ -59,11 +62,26 @@ test('caminho comum: token válido abre direto, sem renovar e sem senha; formul�
   await expect(page.locator('#app-view')).toBeVisible({ timeout: 30000 });
   expect(auth.refreshes).toEqual([]);
   expect(auth.passwords).toBe(0);
-  // The login form keeps its three fields and one button; only the box comes checked.
+  // The login form is e-mail, password and Entrar (the session is always kept on the device: no option).
   const form = page.locator('#login-form');
-  await expect(form.locator('input')).toHaveCount(3);
+  await expect(form.locator('input')).toHaveCount(2);
   await expect(form.locator('button')).toHaveCount(1);
-  await expect(page.locator('#remember-login')).toBeChecked();
+  await expect(page.locator('#remember-login')).toHaveCount(0);
+});
+
+test('sessão antiga guardada só na aba (versão anterior): passa para o aparelho e a próxima aba abre logada', async ({ context }) => {
+  const auth = simulatedAuth();
+  const first = await context.newPage();
+  await preparePage(first, auth);
+  await first.addInitScript(() => { if (!sessionStorage.getItem('mcs_panel_session') && !localStorage.getItem('mcs_panel_session')) sessionStorage.setItem('mcs_panel_session', JSON.stringify({ accessToken: 'token-1', refreshToken: 'r1', accessExpiresAt: Date.now() + 3600000 })); });
+  await first.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await expect(first.locator('#app-view')).toBeVisible({ timeout: 30000 });
+  expect((await saved(first)).refreshToken).toBe('r1');
+  const second = await context.newPage();
+  await preparePage(second, auth);
+  await second.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
+  await expect(second.locator('#app-view')).toBeVisible({ timeout: 30000 });
+  expect(auth.passwords).toBe(0);
 });
 
 test('entrar sem mexer em nada: outra aba e o app reaberto continuam logados', async ({ context }) => {
@@ -102,16 +120,13 @@ test('duas abas: a oculta usa o token que a outra renovou; nenhum refresh token 
   // The active tab renews (r1 → r2); token-1 stops working.
   expect(await active.evaluate(() => window.MCSPanelAuth.refresh())).toBe(true);
   revoked.add('token-1');
-  // Back to the hidden tab: its next request must not reuse r1.
-  const answer = await hidden.evaluate(async () => {
-    const session = JSON.parse(localStorage.getItem('mcs_panel_session'));
-    const response = await fetch('/api/panel/today', { headers: { Authorization: 'Bearer ' + session.accessToken } });
-    return { status: response.status, ok: await window.MCSPanelAuth.refresh() };
-  });
-  expect(answer.status).toBe(200);
-  expect(answer.ok).toBe(true);
-  // Each refresh token reached the server once; the session is still saved and both tabs stay in.
-  expect(auth.refreshes.length).toBe(new Set(auth.refreshes).size);
+  // Back to the hidden tab: its next renewal must not reuse r1 (the panel's own path, as on a 401).
+  expect(await hidden.evaluate(() => window.MCSPanelAuth.refresh())).toBe(true);
+  // Both tabs renewing at the same moment (the lock lets one renew; the other uses what it saved).
+  const both = await Promise.all([hidden.evaluate(() => window.MCSPanelAuth.refresh()), active.evaluate(() => window.MCSPanelAuth.refresh())]);
+  expect(both).toEqual([true, true]);
+  // No renewal was refused (an old token never went back to the server); the session is still saved and both tabs stay in.
+  expect(auth.refused).toEqual([]);
   expect(auth.refreshes).not.toContain(undefined);
   expect(await saved(hidden)).not.toBeNull();
   await expect(hidden.locator('#app-view')).toBeVisible();

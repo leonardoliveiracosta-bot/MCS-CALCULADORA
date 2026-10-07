@@ -353,7 +353,6 @@ body > .action-feedback,
 .sms-print-review { border: 1px solid rgb(198 150 50 / 45%); background: var(--mcs-elevated); color: var(--mcs-text); }
 .sms-print-missing { border: 1px dashed rgb(234 179 8 / 45%); background: var(--mcs-amber-tint); color: var(--mcs-amber); }
 .sms-print-missing label.small { min-height: var(--mcs-touch); border-color: var(--mcs-gold); background: var(--mcs-gold); color: var(--mcs-on-gold); border-radius: var(--mcs-radius-sm); }
-.remember-login,
 .pending-ref-filter,
 .find-check { min-height: var(--mcs-touch); }
 
