@@ -75,11 +75,11 @@ test('Ficha enxuta: sem os blocos 4, 7, 9, 11 e 12; anexos abaixo da Conversa; l
   // The removed blocks are gone (and their controls).
   const labels = await detail.locator('.lead-label').allTextContents();
   for (const gone of ['4 — O QUE ELE QUER', '7 — PERGUNTAR NA LIGAÇÃO', '9 — CONTEXTO RÁPIDO', '11 — PÁGINA DO CLIENTE', '12 — DADOS E HISTÓRICO']) expect(labels).not.toContain(gone);
-  for (const control of ['Confirmar teto total', 'Marcar OK', 'Ganhou', 'Salvar etapa', 'Adicionar retorno', 'Desligar', 'Baixar PDF']) await expect(detail.getByRole('button', { name: control, exact: true })).toHaveCount(0);
+  for (const control of ['Confirmar teto total', 'Marcar OK', 'Ganhou', 'Salvar etapa', 'Adicionar retorno', 'Baixar PDF']) await expect(detail.getByRole('button', { name: control, exact: true })).toHaveCount(0);
   await expect(detail).not.toContainText('Linha do tempo');
   // What stays: 1, 2, 6, 5, 10, and ANEXOS right after the conversation.
   for (const kept of ['1 — CABEÇALHO DA LIGAÇÃO', '2 — CONVERSA', '6 — NÚMEROS PRONTOS', '5 — OPÇÕES NO LOTE', '10 — O QUE A IA NÃO VIU', 'ANEXOS']) expect(labels).toContain(kept);
-  const order = await detail.evaluate((root) => [...root.querySelectorAll(':scope .lead-card > .lead-label')].map((label) => label.textContent));
+  const order = await detail.evaluate((root) => [...root.querySelectorAll('.lead-card > .lead-label')].map((label) => label.textContent));
   expect(order.indexOf('ANEXOS')).toBe(order.indexOf('2 — CONVERSA') + 1);
   await expect(detail.locator('#lead-attachments .lead-attachment')).toContainText('print-sms.png');
   await expect(detail.locator('#lead-attachments')).toContainText('Anexar print');
@@ -90,6 +90,32 @@ test('Ficha enxuta: sem os blocos 4, 7, 9, 11 e 12; anexos abaixo da Conversa; l
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(base + '/t/abc123xyz');
   expect(errors).toEqual([]);
 });
+
+// Fim da página: desligar com motivo e, no mesmo lugar, religar (desligada) ou reabrir (encerrada).
+for (const scenario of [{ name: 'encerrada mostra "Reabrir ficha"', record: { status: 'ENCERRADO', enabled: false }, label: 'Reabrir ficha' }, { name: 'desligada mostra "Ligar lead" e o motivo', record: { status: 'ATIVO', enabled: false, offReason: 'GAVE_UP' }, label: 'Ligar lead' }, { name: 'ativa só desliga com motivo', record: { status: 'ATIVO', enabled: true }, label: 'Desligar' }]) {
+  test(`Lote 2: ficha ${scenario.name}, no fim da página`, async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', (failure) => errors.push(failure.message));
+    await session(page);
+    const calls = await mockApi(page, { '/api/panel/lead': ({ json, body }) => json(body ? { saved: true } : leadData(scenario.record)) });
+    await page.goto(base + '/painel/#ficha/' + JOURNEY, { waitUntil: 'domcontentloaded' });
+    const action = page.locator('#record-detail .lead-power').getByRole('button', { name: scenario.label, exact: true });
+    await expect(action).toBeVisible({ timeout: 30000 });
+    // The last card of the ficha.
+    expect(await page.locator('#record-detail').evaluate((root) => { const cards = root.querySelectorAll('.lead-card'); return cards[cards.length - 1].classList.contains('lead-power'); })).toBe(true);
+    await expect(page.getByText('Pagamento não informado')).toBeVisible();
+    if (scenario.label === 'Desligar') {
+      await expect(action).toBeDisabled();
+      await page.locator('.lead-power select').selectOption('GAVE_UP');
+      await expect(action).toBeEnabled();
+    } else {
+      if (scenario.record.offReason) await expect(page.locator('.lead-power')).toContainText('Motivo: Desistiu');
+      await action.click();
+      await expect.poll(() => calls.filter((call) => call.path === '/api/panel/lead' && call.body && call.body.action === 'manual').map((call) => call.body.payload.enabled)).toEqual([true]);
+    }
+    expect(errors).toEqual([]);
+  });
+}
 
 test('Ficha sem página do cliente: nenhum botão de link no cabeçalho', async ({ page }) => {
   const errors = [];

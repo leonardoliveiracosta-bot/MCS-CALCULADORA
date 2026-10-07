@@ -373,6 +373,16 @@
     attachmentButton(attachmentsCard);
     // Order on screen: header (with the quick result inside) → case summary → conversation → anexos → the rest.
     topAnchor.replaceWith(conversation,attachmentsCard);
+    // End of the page: switch the ficha off (with the reason) and, in the same place, on again. A7: a closed ficha is
+    // reopened explicitly; one merged into another conversation stays closed.
+    const power=append(root,'section','lead-card lead-power');append(power,'span','lead-label',record.enabled===false?'FICHA DESLIGADA':'DESLIGAR FICHA');
+    const powerActions=append(power,'div','lead-actions');
+    if(record.status==='ENCERRADO'&&record.closed_reason==='WHATSAPP_LINKED')append(powerActions,'p','muted','Ficha juntada a outra conversa');
+    else if(record.enabled===false){if(record.offReason)append(power,'p','muted','Motivo: '+(({MCS_PURCHASE:'Comprou com a MCS',OTHER_PURCHASE:'Comprou em outro lugar',GAVE_UP:'Desistiu',NO_RESPONSE:'Sem resposta'})[record.offReason]||record.offReason));
+      button(powerActions,record.status==='ENCERRADO'?'Reabrir ficha':'Ligar lead',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:true}});undoNotice('Ficha religada',()=>api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:record.offReason||null}}));await reload();});}
+    else {const reason=append(powerActions,'select');[['','Desligar com motivo'],['MCS_PURCHASE','Comprou com a MCS'],['OTHER_PURCHASE','Comprou em outro lugar'],['GAVE_UP','Desistiu'],['NO_RESPONSE','Sem resposta']].forEach(([v,label])=>reason.append(new Option(label,v)));
+      const off=button(powerActions,'Desligar',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:reason.value}});undoNotice('Ficha desligada',()=>api('manual',{panelAction:'toggle_journey',payload:{enabled:true}}));await reload();});
+      off.disabled=true;off.title='Escolha o motivo';reason.addEventListener('change',()=>{off.disabled=!reason.value;});}
   }
   window.MCSLead={open};
 })();

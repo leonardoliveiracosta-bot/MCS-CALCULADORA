@@ -1,7 +1,7 @@
 'use strict';
 
-// "Já apresentados" da ficha: uma V1 mandada à mão (link /v/ copiado e enviado pelo WhatsApp) conta
-// como apresentada, pela própria conversa. Antes a ficha dizia "nenhum carro" porque só o envio
+// Uma V1 mandada à mão (link /v/ copiado e enviado pelo WhatsApp) conta como apresentada, pela própria
+// conversa. Antes a ficha dizia "nenhum carro" porque só o envio
 // direto e "Apresentei ao cliente" registravam a apresentação. Só leitura: nada é gravado.
 // Banco PGlite local.
 const test = require('node:test');
@@ -76,9 +76,12 @@ test('ficha: a V1 mandada à mão aparece como enviada, com os carros; a não en
   assert.deepEqual(record.units, []);
 });
 
-test('tela: "Já apresentados" junta os carros do link aos já registrados, sem repetir', () => {
+// The ficha's "Já apresentados" (block 9) left the ficha; the V1 sent by hand keeps showing as sent in ENVIAR OPÇÕES
+// ("V1 enviada em …"), which reads the same link rule.
+test('tela: a V1 mandada à mão continua contando como enviada em ENVIAR OPÇÕES', () => {
+  const funnel = fs.readFileSync(path.join(__dirname, '..', 'api', 'panel', 'vitrine-funnel.js'), 'utf8');
+  assert.match(funnel, /require\('\.\.\/\.\.\/panel-v1-sent'\)/);
+  assert.match(funnel, /sentByLink\(\{messages:linkMessages/);
   const lead = fs.readFileSync(path.join(__dirname, '..', 'painel', 'lead.js'), 'utf8');
-  assert.match(lead, /record\.sentByLink/);
-  assert.match(lead, /link enviado/);
-  assert.match(lead, /unitMatches\.has\(car\.matchId\)/);
+  assert.doesNotMatch(lead, /Já apresentados/);
 });
