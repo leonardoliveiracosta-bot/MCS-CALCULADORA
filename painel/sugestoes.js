@@ -17,15 +17,32 @@
     AI_RESPONSE_INVALID: 'A IA respondeu fora do formato · Tente de novo ou escreva manualmente'
   };
   const waUrl = (base, text) => base ? base + '?text=' + encodeURIComponent(text) : null;
+  // A field that starts small and grows with what is typed (no empty space while nothing is written).
+  // Empty, it is as tall as its example (placeholder), never cut; it fits again when its width changes.
+  const autoGrow = (field) => {
+    const fit = () => {
+      if (!field.isConnected || !field.clientWidth) return;
+      const empty = !field.value && field.placeholder;
+      if (empty) field.value = field.placeholder;
+      field.style.height = 'auto'; field.style.height = field.scrollHeight + 2 + 'px';
+      if (empty) field.value = '';
+    };
+    field.addEventListener('input', fit);
+    let width = 0;
+    if (window.ResizeObserver) new ResizeObserver(() => { if (field.clientWidth !== width) { width = field.clientWidth; fit(); } }).observe(field);
+    return fit;
+  };
 
   // The suggestion box. options.mode: 'RESPOSTA' | 'RETOMADA' (default: decided by the last message).
   function box(journeyId, { request, mode = null, compact = false, onSent = null } = {}) {
     const card = e('section', 'lead-card suggestion-card' + (compact ? ' suggestion-compact' : ''));
     card.dataset.journeyId = journeyId;
-    add(card, 'span', 'lead-label', mode === 'RETOMADA' ? 'SUGESTÃO DE RETOMADA' : 'SUGESTÃO DE RESPOSTA');
-    add(card, 'p', 'muted', 'Nada sai sozinho · Você revisa e envia: pelo painel com sua confirmação (janela de 24 h aberta) ou pelo WhatsApp (janela encerrada)');
-    const actions = add(card, 'div', 'lead-actions');
+    // Empty: one line (title and button). The explanation shows with the suggestion, next to the send.
+    const top = add(card, 'div', 'suggestion-top');
+    add(top, 'span', 'lead-label', mode === 'RETOMADA' ? 'SUGESTÃO DE RETOMADA' : 'SUGESTÃO DE RESPOSTA');
+    const actions = add(top, 'div', 'lead-actions');
     const make = add(actions, 'button', 'small', mode === 'RETOMADA' ? 'Sugerir retomada' : 'Sugerir resposta'); make.type = 'button';
+    const hint = add(card, 'p', 'muted suggestion-hint', 'Nada sai sozinho · Você revisa e envia: pelo painel com sua confirmação (janela de 24 h aberta) ou pelo WhatsApp (janela encerrada)'); hint.hidden = true;
     const status = add(card, 'p', 'status', '');
     const body = add(card, 'div', 'suggestion-body');
     let busy = false;
@@ -37,6 +54,7 @@
         const result = await request('/api/panel/suggestions', { method: 'POST', timeoutMs: 45000, body: JSON.stringify({ action: 'suggest', journeyId, ...(mode ? { mode } : {}) }) });
         status.textContent = '';
         render(body, result, { request, onSent });
+        hint.hidden = false;
         make.textContent = 'Gerar outra sugestão';
       } catch (failure) {
         const code = failure && failure.code;
@@ -98,7 +116,8 @@
   const clock = (value) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
   // options: request; onSent(result); canSend() gates the send/open until the text is ready (the
   // composer: translated); discard=false hides "Descartar" (the composer keeps its own fields).
-  function sendControls(root, data, textarea, { request, onSent, canSend = null, discard: withDiscard = true } = {}) {
+  // showTo=false: the caller already says to whom (the composer, in its title line).
+  function sendControls(root, data, textarea, { request, onSent, canSend = null, discard: withDiscard = true, showTo = true } = {}) {
     const reachable = Boolean(data.reachable && data.whatsappBase);
     const ready = () => !canSend || canSend();
     let open = reachable && windowOpen(data.path);
@@ -180,7 +199,7 @@
     }
     if (!open) showOpenLink();
     paintPath(); refresh();
-    if (reachable) add(root, 'p', 'muted', 'Para ' + data.contact.name + ' · ' + data.contact.phone);
+    if (reachable && showTo) add(root, 'p', 'muted', 'Para ' + data.contact.name + ' · ' + data.contact.phone);
     return { refresh, closeWindow, sent: () => sent };
   }
 
@@ -232,13 +251,17 @@
   function guided(journeyId, { request, onSent = null } = {}) {
     const card = e('section', 'lead-card guided-card');
     card.dataset.journeyId = journeyId;
-    add(card, 'span', 'lead-label', 'RESPOSTA ORIENTADA');
-    add(card, 'p', 'muted', 'Escreva em português os pontos que quer passar · A IA redige no idioma do cliente · Você revisa e envia pelo mesmo caminho da sugestão');
-    const label = add(card, 'label', 'guided-label', 'O que você quer transmitir');
-    const input = add(label, 'textarea', 'guided-input'); input.rows = 3; input.maxLength = 1500;
+    // Empty: one line (title, field and button). The field grows while you write; the explanation
+    // shows with the answer.
+    const top = add(card, 'div', 'suggestion-top guided-top');
+    add(top, 'span', 'lead-label', 'RESPOSTA ORIENTADA');
+    const input = add(top, 'textarea', 'guided-input'); input.rows = 1; input.maxLength = 1500;
+    input.setAttribute('aria-label', 'O que você quer transmitir');
     input.placeholder = 'Ex.: o Camry 2020 que ele gostou já passou no leilão; temos outros parecidos esta semana; pedir confirmação do lance';
-    const actions = add(card, 'div', 'lead-actions');
+    autoGrow(input);
+    const actions = add(top, 'div', 'lead-actions');
     const make = add(actions, 'button', 'small', 'Gerar resposta'); make.type = 'button';
+    const hint = add(card, 'p', 'muted suggestion-hint', 'Escreva em português os pontos que quer passar · A IA redige no idioma do cliente · Você revisa e envia pelo mesmo caminho da sugestão'); hint.hidden = true;
     const status = add(card, 'p', 'status', '');
     const body = add(card, 'div', 'suggestion-body');
     let busy = false;
@@ -254,6 +277,7 @@
         const result = await request('/api/panel/suggestions', { method: 'POST', timeoutMs: 45000, body: JSON.stringify({ action: 'guided', journeyId, guidance }) });
         status.textContent = '';
         render(body, result, { request, onSent });
+        hint.hidden = false;
         const head = body.querySelector('.suggestion-head');
         if (head) add(head, 'span', 'lead-badge', 'Orientada por você');
         // What the guidance contradicts in the ficha or the conversation: shown, never chosen silently.
@@ -312,5 +336,5 @@
     };
   }
 
-  window.MCSSuggest = { box, render, queue, guided, translator, sendControls };
+  window.MCSSuggest = { box, render, queue, guided, translator, sendControls, autoGrow };
 })();

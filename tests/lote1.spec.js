@@ -78,6 +78,11 @@ for (const scenario of [{ name: 'envia pelo painel com mensagem do cliente nas �
     await expect(composer).toBeVisible();
     await expect(composer.locator('h4')).toHaveText('Responder pelo painel');
     await expect(composer).toContainText('Para Cliente Teste · +13055550100');
+    // Empty (nothing translated): only your message and Traduzir show; the rest waits for the translation.
+    await expect(composer.locator('textarea').first()).toBeVisible();
+    await expect(composer.getByRole('button', { name: 'Traduzir' })).toBeVisible();
+    await expect(composer.locator('.reply-en')).toBeHidden();
+    await expect(composer.locator('.reply-send')).toBeHidden();
     if (scenario.open) {
       await expect(composer).toContainText('Janela de 24 h aberta');
       await expect(composer).toContainText('sai pelo painel, só depois da sua confirmação');

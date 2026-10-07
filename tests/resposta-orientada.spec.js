@@ -62,6 +62,9 @@ for (const width of [1366, 390]) {
     // The automatic suggestion stays where it was, with its own button.
     await expect(conversation.locator('.suggestion-card')).toHaveCount(1);
     await expect(conversation.locator('.suggestion-card')).toContainText('SUGESTÃO DE RESPOSTA');
+    // Empty: title, field and button only; the explanation shows with the answer.
+    await expect(guided.locator('.suggestion-hint')).toBeHidden();
+    await expect(conversation.locator('.suggestion-card .suggestion-hint')).toBeHidden();
 
     // Empty guidance: a warning, no call.
     await guided.getByRole('button', { name: 'Gerar resposta' }).click();
@@ -73,6 +76,7 @@ for (const width of [1366, 390]) {
     await guided.getByRole('button', { name: 'Gerar resposta' }).dblclick();
     const body = guided.locator('.suggestion-body');
     await expect(body.locator('.suggestion-text')).toBeVisible({ timeout: 30000 });
+    await expect(guided.locator('.suggestion-hint')).toBeVisible();
     expect(action('guided').length, 'toque duplo gera uma resposta só').toBe(1);
     for (const text of ['Orientada por você', 'Idioma do cliente: Inglês', 'Tradução da resposta para português', 'Simulada · sem IA e sem custo', 'Para Ethan Example · +13055550111']) await expect(body).toContainText(text);
     // Same review as the suggestion: edit, copy, open WhatsApp (only prepares), discard.
