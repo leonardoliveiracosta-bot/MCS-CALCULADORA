@@ -202,6 +202,15 @@ async function rpc(ctx, name, args) {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args || {})
   });
 }
+// A read that is the same for every list: inside one /api/panel/boot call it runs once and serves every list (each
+// caller gets its own copy), like readRows. Outside a boot it simply runs.
+function memoRead(ctx, key, load) {
+  if (!ctx.readCache) return load();
+  if (!ctx.readCache.has(key)) ctx.readCache.set(key, load().catch((error) => { ctx.readCache.delete(key); throw error; }));
+  return ctx.readCache.get(key).then((value) => structuredClone(value));
+}
+// A read-only database function, shared inside one boot (same name and arguments = one call).
+const readRpc = (ctx, name, args) => memoRead(ctx, 'rpc:' + name + ':' + JSON.stringify(args || {}), () => rpc(ctx, name, args));
 
 async function jsonBody(req, maximum = 128 * 1024) {
   if (typeof req.body === 'object' && req.body !== null) {
@@ -337,6 +346,6 @@ async function requirePanel(req, res, options = {}) {
 
 module.exports = {
   SERVER_ENVIRONMENT, allRows, orderComparator, bearer, configuration, insert, isUuid, jsonBody,
-  panelMeta, patchRows, query, recordMutation, requirePanel, rows, rpc, safeText, send,
+  memoRead, panelMeta, patchRows, query, readRpc, recordMutation, requirePanel, rows, rpc, safeText, send,
   supabase
 };

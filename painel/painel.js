@@ -4238,11 +4238,12 @@
   // The ficha shows only the summary of the official comparison (the count of the queue card and of the
   // client's options screen, read now: a car whose auction started is already out) and "Ver opções", which
   // opens that screen. Without a car, it says why. The PDF and the V1 below are the ones that screen uses.
-  async function renderFichaOffersSummary(container, { journeyId, ref, kind, key }) {
+  async function renderFichaOffersSummary(container, { journeyId, ref, kind, key }, fresh = false) {
     container.replaceChildren(element('p', 'muted', 'Carregando as opções do lote ativo…'));
     let data;
-    // Always read again: a list kept from an earlier load can still say 0 for a request compared since.
-    try { data = await request('/api/panel/records?view=manheim'); manheimData = data; }
+    // The batch view the panel already has (at most 60 s old, shared with the tab counters): opening a ficha never
+    // rebuilds the whole batch view. Right after "Atualizar" (a new comparison) it is read again.
+    try { data = await (fresh ? request('/api/panel/records?view=manheim') : sharedGet('/api/panel/records?view=manheim', 60000)); manheimData = data; }
     catch (_) { if (container.isConnected) container.replaceChildren(element('p', 'warning', 'Não consegui carregar as opções agora · Tente de novo')); return; }
     if (!container.isConnected) return;
     const refOf = (value) => String(value || '').trim().toUpperCase();
@@ -4262,7 +4263,7 @@
         const update = element('button', 'small quiet', 'Atualizar'); update.type = 'button';
         update.addEventListener('click', async () => {
           update.disabled = true; update.textContent = 'Comparando…';
-          try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }) }); renderFichaOffersSummary(container, { journeyId, ref, kind, key }); }
+          try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: demand.key }) }); renderFichaOffersSummary(container, { journeyId, ref, kind, key }, true); }
           catch (_) { update.disabled = false; update.textContent = 'Atualizar'; }
         });
         line.append(update);
@@ -5918,7 +5919,26 @@
   const refreshAccessToken = () => refreshing || (refreshing = refreshAccessTokenNow().finally(() => { refreshing = null; }));
   // notifications.js asks for a new token on a 401 instead of polling with an expired one.
   window.MCSPanelAuth = { refresh: () => refreshAccessToken() };
+  // The tokens saved in this browser right now (another tab may have renewed them since this one read them).
+  const storedSession = () => {
+    for (const storage of [localStorage, sessionStorage]) {
+      try { const value = JSON.parse(storage.getItem(SESSION_KEY) || 'null'); if (value && value.refreshToken) return value; } catch (_) {}
+    }
+    return null;
+  };
+  const adoptStored = (stored) => { accessToken = stored.accessToken || null; refreshToken = stored.refreshToken || null; accessExpiresAt = Number(stored.accessExpiresAt || 0); };
+  // Another tab renewed the session: this one uses the new tokens (an old refresh token used again ends the session).
+  window.addEventListener('storage', (event) => {
+    if (event.key !== SESSION_KEY || !event.newValue || !refreshToken) return;
+    try { const stored = JSON.parse(event.newValue); if (stored && stored.refreshToken) adoptStored(stored); } catch (_) {}
+  });
   async function refreshAccessTokenNow() {
+    // A tab that was hidden may hold a refresh token another tab already used: take the saved one first.
+    const stored = storedSession();
+    if (stored && stored.refreshToken !== refreshToken) {
+      adoptStored(stored);
+      if (accessToken && accessExpiresAt > Date.now()) return true;
+    }
     if (!refreshToken || !config) return false;
     const response = await fetch(config.url + '/auth/v1/token?grant_type=refresh_token', {
       method: 'POST',
@@ -5926,6 +5946,8 @@
       body: JSON.stringify({ refresh_token: refreshToken })
     });
     const data = await response.json().catch(() => ({}));
+    // Only a refused session ends it; a server or network failure keeps the session for the next try.
+    if (!response.ok && (response.status >= 500 || response.status === 429)) throw Object.assign(new Error('NETWORK_ERROR'), { code: 'NETWORK_ERROR', status: response.status });
     if (!response.ok || !data.access_token) {
       clearSession();
       return false;
@@ -5938,15 +5960,12 @@
     persistentSession = Boolean(raw);
     if (!raw) raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) return;
-    try {
-      const stored = JSON.parse(raw);
-      accessToken = stored.accessToken || null;
-      refreshToken = stored.refreshToken || null;
-      accessExpiresAt = Number(stored.accessExpiresAt || 0);
-      if (!accessToken || accessExpiresAt <= Date.now()) await refreshAccessToken();
-    } catch (_) {
-      clearSession();
-    }
+    let stored;
+    try { stored = JSON.parse(raw); } catch (_) { clearSession(); return; }
+    adoptStored(stored);
+    // Coming back to the tab with the network still waking up: the renewal fails, the session stays (the next
+    // request renews it).
+    if (!accessToken || accessExpiresAt <= Date.now()) await refreshAccessToken().catch(() => {});
   }
   // A24: the automatic refresh keeps running after an error and never redraws the screen
   // while the operator is typing (it would erase the text being written).
