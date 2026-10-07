@@ -67,7 +67,9 @@ test('Ficha enxuta: sem os blocos 4, 7, 9, 11 e 12; anexos abaixo da Conversa; l
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
   await session(page);
   const attachments = [{ id: uuidLike(9), kind: 'IMAGE', original_filename: 'print-sms.png', created_at: new Date().toISOString() }];
-  const lead = { ...leadData({ attachments }), track: { step: 1, public_code: 'abc123xyz' } };
+  const units = [{ id: uuidLike(10), vehicle_text: '2021 Toyota Corolla LE', presented_at: '2026-10-05T15:00:00Z', status: 'PRESENTED', details_json: { manheim_match_id: 'm1' } }];
+  const sentByLink = [{ vitrineId: uuidLike(11), sentAt: '2026-10-06T16:00:00Z', cars: [{ matchId: 'm1', vehicleText: '2021 Toyota Corolla LE' }, { matchId: 'm2', vehicleText: '2022 Honda Civic EX' }] }];
+  const lead = { ...leadData({ attachments, units, sentByLink }), track: { step: 1, public_code: 'abc123xyz' } };
   await mockApi(page, { '/api/panel/lead': ({ json }) => json(lead), '/api/panel/attachments': ({ json }) => json({ url: base + '/painel/mcs-logo-claro.svg' }) });
   await page.goto(base + '/painel/#ficha/' + JOURNEY, { waitUntil: 'domcontentloaded' });
   const detail = page.locator('#record-detail');
@@ -80,6 +82,11 @@ test('Ficha enxuta: sem os blocos 4, 7, 9, 11 e 12; anexos abaixo da Conversa; l
   // What stays: 1, 2, 6, 5, 10, and ANEXOS right after the conversation.
   for (const kept of ['1 — CABEÇALHO DA LIGAÇÃO', '2 — CONVERSA', '6 — NÚMEROS PRONTOS', '5 — OPÇÕES NO LOTE', '10 — O QUE A IA NÃO VIU', 'ANEXOS']) expect(labels).toContain(kept);
   expect(await detail.evaluate(() => document.getElementById('lead-conversation').nextElementSibling.id)).toBe('lead-attachments');
+  // "Já apresentados" stays in the ficha, inside OPÇÕES NO LOTE: registered cars and the link's cars, once per car.
+  const shown = detail.locator('.offers-summary .context-presented');
+  await expect(shown).toContainText('Já apresentados: 2021 Toyota Corolla LE (05/10');
+  await expect(shown).toContainText('2022 Honda Civic EX (link enviado 06/10');
+  expect((await shown.textContent()).match(/Corolla/g)).toHaveLength(1);
   await expect(detail.locator('#lead-attachments .lead-attachment')).toContainText('print-sms.png');
   await expect(detail.locator('#lead-attachments')).toContainText('Anexar print');
   // The client's page link: a small button in the header, next to Excluir / Não é lead.
@@ -125,6 +132,7 @@ test('Ficha sem página do cliente: nenhum botão de link no cabeçalho', async 
   await page.goto(base + '/painel/#ficha/' + JOURNEY, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#record-detail .lead-quick')).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole('button', { name: 'Copiar link do cliente' })).toHaveCount(0);
+  await expect(page.locator('.offers-summary .context-presented')).toHaveText('Já apresentados: nenhum carro');
   await expect(page.getByText('Pagamento não informado')).toBeVisible();
   expect(errors).toEqual([]);
 });
