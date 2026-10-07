@@ -837,12 +837,6 @@
    ]
   },
   {
-   "name": "remember-login",
-   "usedBy": [
-    "painel/painel.js"
-   ]
-  },
-  {
    "name": "requests-audit",
    "usedBy": [
     "painel/painel.js",
@@ -2822,7 +2816,6 @@
    "record-detail",
    "ref-warning",
    "refresh-note",
-   "remember-login",
    "requests-audit",
    "requests-audit-content",
    "requests-carro",
@@ -3228,7 +3221,6 @@
    "ref",
    "ref-filters",
    "refresh-note",
-   "remember-login",
    "reply-composer",
    "reply-en",
    "reply-send",
