@@ -57,6 +57,23 @@ const toolCall = (name, args) => name === 'propor_acao'
   : step({ tipo: 'ler', funcao: name, journey_id: args.journey_id || null, termo: args.termo || null });
 const answer = (text) => step({ texto: text });
 
+test('chat ticket retains the diagnostic context from before its own request', async () => {
+  const context = {view:'today',actions:[{kind:'request',path:'/api/panel/boot',status:200,ms:4000}]};
+  const svc = services([step({tipo:'propor',acao:'registrar_chamado',termo:'SMS não atualiza'})]);
+  const out = await assistant.chat(ctx,{message:'registre o defeito de SMS',context},svc);
+  assert.equal(out.proposal.acao,'registrar_chamado');
+  assert.equal(out.proposal.params.context.view,'today');
+  assert.equal(out.proposal.params.context.actions[0].path,'/api/panel/boot');
+});
+
+test('assistant latency and errors do not diagnose the reported panel failure', async () => {
+  const context = {actions:[{kind:'request',path:'/api/panel/boot',status:200,ms:4000},{kind:'request',path:'/api/panel/assistant',status:200,ms:16941}]};
+  assert.equal(assistant.rulesDiagnosis(context).categoria,'NAO_SABEMOS');
+  assert.equal((await assistant.READERS.diagnosticar_falha(ctx,services([]),{},context)).categoria,'NAO_SABEMOS');
+  context.actions[1].status=500;
+  assert.equal(assistant.rulesDiagnosis(context).categoria,'NAO_SABEMOS');
+});
+
 test('pergunta: lê o painel (inclusive dado da calculadora) e responde; nenhuma chave do sistema vai para a OpenAI', async () => {
   const svc = services([toolCall('buscar_cliente', { termo: 'Maria' }), toolCall('ficha', { journey_id: ids.journey }), answer('Maria (Ref ABCDE), lance $30.000, ZIP 33101.')]);
   const out = await assistant.chat(ctx, { message: 'qual o lance da Maria?', context: { view: 'today', actions: [] } }, svc);

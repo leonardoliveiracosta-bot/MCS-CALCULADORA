@@ -244,13 +244,11 @@ const READERS = {
     };
   },
   async diagnosticar_falha(ctx, s, args, context) {
-    const LERDO_MS = 8000;
     const rules = rulesDiagnosis(context);
     if (rules.categoria === 'TECNICO' || String(rules.categoria).startsWith('RECUSADO')) {
       return { categoria: rules.categoria, texto: rules.texto, clique: rules.click ? { acao: rules.click.action, rotulo: rules.click.label || null } : null };
     }
-    const actions = (context && context.actions) || [];
-    const slow = actions.filter((a) => a.kind === 'request' && Number(a.ms) > LERDO_MS).slice(-5);
+    const slow = (rules.slow || []).slice(-5);
     if (slow.length) {
       return { categoria: 'LERDO', texto: 'Resposta lenta do servidor (mais de 8 segundos)', requests_lentos: slow.map((r) => ({ path: r.path || null, method: r.method || null, ms: r.ms, status: r.status || r.code || null })), clique: rules.click ? { acao: rules.click.action, rotulo: rules.click.label || null } : null };
     }
@@ -442,6 +440,7 @@ async function chat(ctx, body, services = {}) {
       if (stepOut.tipo === 'propor') {
         const proposal = await buildProposal(ctx, s, { ...stepOut, resposta: stepOut.texto }).catch(() => null);
         if (proposal) {
+          if (proposal.acao === 'registrar_chamado') proposal.params = { ...proposal.params, context };
           await event(ctx, s, 'PERGUNTA', { payload: { message }, cost_usd: cost });
           await event(ctx, s, 'PROPOSTA', { action: proposal.acao, payload: proposal });
           return { reply: proposal.resposta || proposal.linha, proposal };
@@ -472,7 +471,8 @@ const TECH_CODES = new Set(['REQUEST_TIMEOUT', 'NETWORK_ERROR', 'SERVER_ERROR'])
 const SLOW_MS = 8000;
 const RULE_TEXT = { TECNICO: 'O servidor falhou ou a conexão caiu', LENTIDAO: 'O servidor respondeu, mas demorou mais de 8 segundos', DEFEITO_TELA: 'Clique sem nenhuma resposta depois: provável defeito de tela', ERRO_JS: 'A tela deu erro depois do clique', NAO_SABEMOS: 'O servidor respondeu normalmente; causa ainda não identificada' };
 function rulesDiagnosis(context) {
-  const actions = (context && context.actions) || [];
+  // A consulta ao assistente não é evidência da falha que motivou a consulta.
+  const actions = ((context && context.actions) || []).filter((a) => !(a.kind === 'request' && /^\/api\/panel\/assistant(?:\?|$)/.test(String(a.path || ''))));
   let index = -1;
   for (let i = actions.length - 1; i >= 0; i -= 1) if (actions[i].kind === 'click') { index = i; break; }
   const click = index >= 0 ? actions[index] : null;
