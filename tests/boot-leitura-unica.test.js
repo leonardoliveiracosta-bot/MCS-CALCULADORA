@@ -94,3 +94,14 @@ test('visão única ainda não aplicada no banco: o resumo vem da função de an
   assert.deepEqual(await view.batchSummary(ctx, 'u1'), [{ demand_key: 'journey:a:VALOR', match_count: 2 }]);
   assert.deepEqual(calls, ['panel_manheim_batch_overview', 'panel_manheim_batch_summary_v2']);
 });
+
+test('PESQUISAS: os pedidos lidos das conversas carregam junto com a base, e as mensagens de prova em páginas paralelas', () => {
+  const pesquisas = read('api/panel/pesquisas.js');
+  const build = pesquisas.slice(pesquisas.indexOf('async function buildList'));
+  assert.ok(build.indexOf("const conversationRead = timed('conversation', loadConversationRequests(ctx))") < build.indexOf('loadBuscasBase(ctx, { allRows })'));
+  const load = pesquisas.slice(pesquisas.indexOf('async function loadConversationRequests'));
+  assert.match(load, /const \[stored, versionRows, contactRows\] = await Promise\.all\(\[/);
+  assert.match(load, /pages\.slice\(index, index \+ MESSAGE_PAGES_AT_ONCE\)\.map/);
+  // Same pages of 100 ids as before (the URL size of each read does not change).
+  assert.match(load, /pages\.push\(ids\.slice\(index, index \+ 100\)\)/);
+});

@@ -42,19 +42,25 @@ const wishText = (demand) => (demand.wishes || []).map((wish) => {
 
 // Every request of the operation, from the ficha, the calculator and the read conversations.
 async function buildList(ctx) {
+  const started = Date.now(), timing = {};
+  const timed = (name, work) => { work.then(() => { timing[name] = Date.now() - started; }, () => {}); return work; };
   // The batch summary only needs the active batch: it starts as soon as the batch is known, while the base loads.
   const uploadRead = latestActiveUpload(ctx, 'id,uploaded_at');
-  const summaryRead = uploadRead.then((upload) => upload ? buscasView.batchSummary(ctx, upload.id).catch(() => null) : []);
+  const summaryRead = timed('summary', uploadRead.then((upload) => upload ? buscasView.batchSummary(ctx, upload.id).catch(() => null) : []));
   summaryRead.catch(() => {});
-  const [base, upload] = await Promise.all([loadBuscasBase(ctx, { allRows }), uploadRead]);
+  // The requests read from conversations do not depend on the base either: they load at the same time.
+  const conversationRead = timed('conversation', loadConversationRequests(ctx));
+  conversationRead.catch(() => {});
+  const [base, upload] = await Promise.all([timed('base', loadBuscasBase(ctx, { allRows })), uploadRead]);
   const uploadId = upload ? upload.id : null;
   const [summary, snapshot, syncs, checks, conversation] = await Promise.all([
     summaryRead,
     uploadId ? rows(ctx, 'manheim_uploads', { select: 'targets_json', environment: 'eq.' + ctx.environment, id: 'eq.' + uploadId, limit: '1' }).then((found) => found[0]?.targets_json || []).catch(() => []) : [],
     uploadId ? allRows(ctx, 'manheim_demand_syncs', { select: 'demand_key,criteria_hash,synced_at', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId }).catch(() => []) : [],
     uploadId ? safe(allRows(ctx, 'vehicle_request_checks', { select: 'request_key,criteria_hash,upload_id,result,option_count,compared_at', environment: 'eq.' + ctx.environment, upload_id: 'eq.' + uploadId }), null) : [],
-    loadConversationRequests(ctx)
+    conversationRead
   ]);
+  timing.reads = Date.now() - started;
   const checkByKey = new Map((checks || []).map((row) => [row.request_key + '|' + row.criteria_hash, row]));
   const summaryByKey = new Map((summary || []).map((row) => [row.demand_key, row]));
   // Proof that a ficha/calculator demand was compared with the active batch with its current
@@ -138,6 +144,7 @@ async function buildList(ctx) {
     extraction: search.extractionStatus(), requestsPending: conversation.pending, checksPending: checks === null };
   // The base goes along for the compare step, never in the JSON answer.
   Object.defineProperty(list, 'base', { value: base, enumerable: false });
+  console.log('[pesquisas-timing]', JSON.stringify({ ...timing, total: Date.now() - started, items: items.length }));
   return list;
 }
 // State shown and filtered: the readiness when the request is not compared (PRECISA DETALHE,
@@ -171,22 +178,32 @@ function lastCustomerByJourney(base) {
   return last;
 }
 // Requests read from conversations (latest version of each) with their evidence messages.
+const MESSAGE_PAGES_AT_ONCE = 6;
 async function loadConversationRequests(ctx) {
   const env = 'eq.' + ctx.environment;
-  const stored = await safe(allRows(ctx, 'vehicle_requests', { select: 'id,chat_id,contact_id,journey_id,request_key', environment: env }), null);
+  // The requests, their versions and the contact names are read together (they used to be read one after the other).
+  const [stored, versionRows, contactRows] = await Promise.all([
+    safe(allRows(ctx, 'vehicle_requests', { select: 'id,chat_id,contact_id,journey_id,request_key', environment: env }), null),
+    safe(allRows(ctx, 'vehicle_request_versions', { select: 'id,request_id,criteria_json,missing_fields,evidence_json,confidence,needs_review,review_reason,criteria_hash,created_at', environment: env, order: 'created_at.asc,id.asc' }), null),
+    allRows(ctx, 'contacts', { select: 'id,display_name', environment: env })
+  ]);
   if (stored === null) return { requests: [], pending: true };
   if (!stored.length) return { requests: [], pending: false };
-  const versions = await allRows(ctx, 'vehicle_request_versions', { select: 'id,request_id,criteria_json,missing_fields,evidence_json,confidence,needs_review,review_reason,criteria_hash,created_at', environment: env, order: 'created_at.asc,id.asc' });
+  const versions = versionRows || [];
   // Only the latest version is the active request; the older ones are its history.
   const latest = require('../../panel-request-demands').latestVersions(versions);
   const versionCount = new Map();
   versions.forEach((version) => { versionCount.set(version.request_id, (versionCount.get(version.request_id) || 0) + 1); });
   const ids = [...new Set([...latest.values()].flatMap((version) => Object.values(version.evidence_json || {}).flat()))].filter(isUuid);
   const messages = new Map();
-  for (let index = 0; index < ids.length; index += 100) {
-    (await rows(ctx, 'messages', { select: 'id,body_text,occurred_at_utc,created_at', environment: env, id: 'in.(' + ids.slice(index, index + 100).join(',') + ')' })).forEach((row) => messages.set(row.id, row));
+  // The evidence messages in pages of 100 ids, a few pages at a time (they used to go one page after the other).
+  const pages = [];
+  for (let index = 0; index < ids.length; index += 100) pages.push(ids.slice(index, index + 100));
+  for (let index = 0; index < pages.length; index += MESSAGE_PAGES_AT_ONCE) {
+    const found = await Promise.all(pages.slice(index, index + MESSAGE_PAGES_AT_ONCE).map((page) => rows(ctx, 'messages', { select: 'id,body_text,occurred_at_utc,created_at', environment: env, id: 'in.(' + page.join(',') + ')' })));
+    found.flat().forEach((row) => messages.set(row.id, row));
   }
-  const contacts = new Map((await allRows(ctx, 'contacts', { select: 'id,display_name', environment: env })).map((row) => [row.id, row]));
+  const contacts = new Map(contactRows.map((row) => [row.id, row]));
   return { pending: false, requests: stored.filter((request) => latest.has(request.id)).map((request) => {
     const version = latest.get(request.id);
     const evidenceIds = [...new Set(Object.values(version.evidence_json || {}).flat())];
