@@ -141,7 +141,8 @@ for (const width of [1366, 390]) {
     const fullCard = page.locator('#detail-panel section.client-context-full').first();
     // The case summary of the ficha is field by field (campo-a-campo.spec.js): 9 fields, each with its situation.
     for (const text of ['O que o cliente informou, campo a campo', 'Toyota Corolla', 'a partir de 2019', 'Lido pela IA · não confirmado', 'Não informado', 'Transferir placa']) await expect(fullCard).toContainText(text);
-    await expect(page.locator('#record-detail')).toContainText('placa: transferir');
+    // The plate is in the case summary above ("Transferir placa"); block 4, which repeated it, left the ficha.
+    await expect(page.locator('#record-detail')).not.toContainText('4 — O QUE ELE QUER');
     await noOverflow();
     await shot(page, `ficha-${width}`);
 

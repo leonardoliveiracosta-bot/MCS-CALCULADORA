@@ -79,12 +79,12 @@ test('Ficha enxuta: sem os blocos 4, 7, 9, 11 e 12; anexos abaixo da Conversa; l
   await expect(detail).not.toContainText('Linha do tempo');
   // What stays: 1, 2, 6, 5, 10, and ANEXOS right after the conversation.
   for (const kept of ['1 — CABEÇALHO DA LIGAÇÃO', '2 — CONVERSA', '6 — NÚMEROS PRONTOS', '5 — OPÇÕES NO LOTE', '10 — O QUE A IA NÃO VIU', 'ANEXOS']) expect(labels).toContain(kept);
-  const order = await detail.evaluate((root) => [...root.querySelectorAll('.lead-card > .lead-label')].map((label) => label.textContent));
-  expect(order.indexOf('ANEXOS')).toBe(order.indexOf('2 — CONVERSA') + 1);
+  expect(await detail.evaluate(() => document.getElementById('lead-conversation').nextElementSibling.id)).toBe('lead-attachments');
   await expect(detail.locator('#lead-attachments .lead-attachment')).toContainText('print-sms.png');
   await expect(detail.locator('#lead-attachments')).toContainText('Anexar print');
   // The client's page link: a small button in the header, next to Excluir / Não é lead.
-  const copy = detail.locator('.lead-head-actions').getByRole('button', { name: 'Copiar link do cliente' });
+  const copy = detail.locator('.lead-head-actions .lead-copy-link');
+  await expect(copy).toHaveText('Copiar link do cliente');
   await copy.click();
   await expect(copy).toHaveText('Link copiado');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(base + '/t/abc123xyz');
