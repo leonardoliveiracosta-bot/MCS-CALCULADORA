@@ -12,4 +12,19 @@
 .assistant-proposal-line { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .assistant-proposal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .assistant-proposal-status { margin: 0; }
-.assistant-authorize.screen { background¶»§q«^
+.assistant-authorize.screen { background: #2f7fd1; color: #fff; }
+.assistant-authorize.write { background: #e07b1a; color: #10141a; }
+.assistant-foot { border-top: 1px solid #29465f; padding: 10px 14px 14px; display: grid; gap: 8px; }
+.assistant-input-row { display: flex; gap: 8px; align-items: end; }
+.assistant-input { flex: 1; resize: none; min-height: 44px; }
+.assistant-incident { display: grid; gap: 2px; padding: 8px 0; border-top: 1px solid #29465f; overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .mcs-assistant-fab { bottom: 84px; right: 12px; }
+  .mcs-assistant { top: auto; left: 0; right: 0; width: 100vw; height: 82vh; border-left: 0; border-top: 1px solid #2c4969; border-radius: 14px 14px 0 0; }
+}
+/* BotÃµes discretos legÃ­veis no fundo escuro do assistente. */
+.mcs-assistant button.quiet { color: #e8f4ff; background: transparent; border: 1px solid #5a7c9c; }
+.mcs-assistant button.quiet:hover { background: #15293d; }
+.mcs-assistant .assistant-report { justify-self: start; font-weight: 600; }
+
+.assistant-head-actions{display:flex;gap:8px;align-items:center}.assistant-proposal-done{opacity:.78}.assistant-proposal-done .assistant-proposal-actions{display:none}
