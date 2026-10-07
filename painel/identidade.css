@@ -1552,3 +1552,22 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .reply-composer .reply-send .suggestion-path p { margin: 0; }
 .reply-composer label > textarea[readonly] { min-height: 0; overflow: hidden; }
 .reply-composer .reply-send > .suggestion-result:empty { display: none; }
+
+/* Ficha · cabeçalho da ligação: um cartão só, sem linhas vazias. Badges à esquerda e "Não é lead" / "Excluir" à direita
+   na mesma linha; o Resultado rápido logo abaixo, com a data do retorno e a anotação abrindo só quando pedidas. */
+.lead-head-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin: 10px 0 0; }
+.lead-head-meta > .lead-badges { margin: 0; flex: 1 1 auto; }
+.lead-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.lead-head-actions > .disposition-controls { margin: 0; padding: 0; border: 0; }
+.lead-head-actions > .disposition-controls > .quiet:last-of-type { margin-left: 0; }
+.lead-quick { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid #ECE7DC; }
+.lead-quick-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #6B6B70; }
+.lead-quick > .lead-actions { margin: 0; }
+.lead-quick [hidden] { display: none !important; }
+.lead-quick > .lead-quick-note, .lead-quick > .lead-actions:not(.lead-quick-actions) { flex: 1 1 100%; align-items: flex-start; }
+.lead-quick-note-text { flex: 1 1 320px; min-height: 44px; margin: 0; resize: vertical; }
+.lead-quick-notes { flex: 1 1 100%; margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 14px; line-height: 1.4; }
+.lead-quick-notes > li { overflow-wrap: anywhere; }
+.lead-quick-more { flex: 1 1 100%; font-size: 13px; }
+.lead-quick-more > summary { cursor: pointer; color: #5C5E62; }
+@media (max-width: 760px) { .lead-head-actions { margin-left: 0; } }
