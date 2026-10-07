@@ -1679,14 +1679,6 @@
    ]
   },
   {
-   "name": "ficha-demand",
-   "usedBy": [
-    "tests/aud001-atualizacao.spec.js",
-    "tests/aud001-tela.spec.js",
-    "tests/aud001-venda.spec.js"
-   ]
-  },
-  {
    "name": "freshness",
    "usedBy": [
     "painel/painel.js",
@@ -1786,18 +1778,6 @@
    ]
   },
   {
-   "name": "list-more",
-   "usedBy": [
-    "painel/lead.js"
-   ]
-  },
-  {
-   "name": "list-more-hidden",
-   "usedBy": [
-    "painel/lead.js"
-   ]
-  },
-  {
    "name": "login-screen",
    "usedBy": [
     "painel/painel.js"
@@ -1810,27 +1790,11 @@
    ]
   },
   {
-   "name": "manheim-options-toggle",
-   "usedBy": [
-    "tests/aud001-tela.spec.js",
-    "tests/contexto-cliente.spec.js",
-    "tests/manheim-import.spec.js",
-    "tests/manheim-selecao.spec.js",
-    "tests/manheim-trim.spec.js"
-   ]
-  },
-  {
    "name": "manheim-row",
    "usedBy": [
     "tests/contexto-cliente.spec.js",
     "tests/manheim-conferencia.spec.js",
     "tests/manheim-import.spec.js"
-   ]
-  },
-  {
-   "name": "manheim-table",
-   "usedBy": [
-    "tests/buscas-split.spec.js"
    ]
   },
   {
@@ -1892,14 +1856,6 @@
    ]
   },
   {
-   "name": "offer-counter",
-   "usedBy": [
-    "tests/aud001-venda.spec.js",
-    "tests/manheim-selecao.spec.js",
-    "tests/manheim-trim.spec.js"
-   ]
-  },
-  {
    "name": "offer-final",
    "usedBy": [
     "tests/manheim-selecao.spec.js"
@@ -1918,29 +1874,9 @@
    ]
   },
   {
-   "name": "offer-group",
-   "usedBy": [
-    "painel/painel.js",
-    "tests/aud001-atualizacao.spec.js",
-    "tests/aud001-tela.spec.js",
-    "tests/aud001-venda.spec.js",
-    "tests/contexto-cliente.spec.js",
-    "tests/manheim-import.spec.js",
-    "tests/manheim-selecao.spec.js",
-    "tests/manheim-trim.spec.js",
-    "tests/v1-envio.spec.js"
-   ]
-  },
-  {
    "name": "offer-invalid",
    "usedBy": [
     "painel/painel.js"
-   ]
-  },
-  {
-   "name": "offer-item",
-   "usedBy": [
-    "painel/lead.js"
    ]
   },
   {
@@ -1991,14 +1927,6 @@
     "tests/manheim-selecao.spec.js",
     "tests/manheim-trim.spec.js",
     "tests/v1-envio.spec.js"
-   ]
-  },
-  {
-   "name": "offer-sort-select",
-   "usedBy": [
-    "tests/aud001-venda.spec.js",
-    "tests/manheim-selecao.spec.js",
-    "tests/manheim-trim.spec.js"
    ]
   },
   {
@@ -2138,18 +2066,6 @@
    "usedBy": [
     "painel/lead.js",
     "painel/painel.js"
-   ]
-  },
-  {
-   "name": "reality-card",
-   "usedBy": [
-    "painel/lead.js"
-   ]
-  },
-  {
-   "name": "reality-row",
-   "usedBy": [
-    "painel/lead.js"
    ]
   },
   {
@@ -3164,7 +3080,6 @@
    "danger",
    "decision-red",
    "definition-grid",
-   "demand-essential",
    "demand-options-count",
    "detail-simulation",
    "detail-simulations",
@@ -3192,9 +3107,6 @@
    "export-error",
    "eyebrow",
    "failed-print",
-   "ficha-demand",
-   "ficha-demand-head",
-   "ficha-options-mount",
    "ficha-v1-foot",
    "ficha-v1-status",
    "filters",
@@ -3248,7 +3160,6 @@
    "lead-manual-date",
    "lead-message",
    "lead-note",
-   "lead-offer",
    "lead-one",
    "lead-phone",
    "lead-question",
@@ -3257,27 +3168,21 @@
    "lead-route",
    "lead-route-value",
    "lead-score",
-   "lead-search-group",
    "lead-steps",
    "lead-thread",
-   "lead-three",
    "lead-timeline",
    "lead-top-anchor",
    "lead-two",
    "lead-unit",
-   "list-more",
-   "list-more-hidden",
    "login-screen",
    "login-view",
    "manheim-append",
    "manheim-audit-note",
    "manheim-complement",
    "manheim-notice",
-   "manheim-options-toggle",
    "manheim-progress",
    "manheim-progress-file",
    "manheim-row",
-   "manheim-table",
    "manual-entry",
    "menu-action",
    "message",
@@ -3305,22 +3210,14 @@
    "offer-budget",
    "offer-car",
    "offer-consulted",
-   "offer-count",
-   "offer-counter",
    "offer-cr-when",
    "offer-detail",
    "offer-final",
    "offer-final-label",
    "offer-final-msg",
    "offer-fit",
-   "offer-go",
-   "offer-group",
    "offer-invalid",
    "offer-invalid-reason",
-   "offer-invalidated",
-   "offer-item",
-   "offer-list",
-   "offer-meta",
    "offer-mmr",
    "offer-note",
    "offer-pct",
@@ -3333,13 +3230,7 @@
    "offer-price",
    "offer-reason",
    "offer-row",
-   "offer-section",
-   "offer-sort",
-   "offer-sort-select",
    "offer-status",
-   "offer-tags",
-   "offer-title",
-   "offer-tools",
    "offer-trim",
    "offer-trim-asked",
    "offer-trim-list",
@@ -3383,19 +3274,7 @@
    "queue-item",
    "quiet",
    "readwrite",
-   "reality-card",
-   "reality-label",
-   "reality-lines",
-   "reality-list",
-   "reality-miles",
-   "reality-model",
-   "reality-pick",
-   "reality-pick-status",
-   "reality-row",
-   "reality-trim",
    "reality-typical",
-   "reality-value",
-   "reality-year",
    "record-block",
    "record-conversation-column",
    "record-data-column",

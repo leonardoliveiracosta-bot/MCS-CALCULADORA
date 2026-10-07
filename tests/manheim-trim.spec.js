@@ -218,6 +218,7 @@ test('selecionados: lista no pedido, remover um e remover todos, e as linhas abe
   await picked.locator('.offer-picked-row').first().getByRole('button', { name: 'Remover' }).click();
   await expect(picked.locator('> summary')).toHaveText('Selecionados para o cliente (2)');
   await expect(rows.nth(0)).toHaveAttribute('data-status', 'AVAILABLE');
+  await expect(items.nth(0).locator('.oc-row input[type="checkbox"]')).not.toBeChecked();
   const all = picked.locator('.offer-picked-all');
   await all.click();
   await expect(all).toHaveText('Confirmar: remover os 2 selecionados');
@@ -225,7 +226,8 @@ test('selecionados: lista no pedido, remover um e remover todos, e as linhas abe
   await expect(picked).toBeHidden();
   await expect(rows.nth(1)).toHaveAttribute('data-status', 'AVAILABLE');
   await expect(rows.nth(2)).toHaveAttribute('data-status', 'AVAILABLE');
-  await expect(card.locator('.offer-counter')).toContainText('0 de 10');
+  for (const index of [1, 2]) await expect(items.nth(index).locator('.oc-row input[type="checkbox"]')).not.toBeChecked();
+  await expect(card.locator('.oc-act .oc-count')).toContainText('0 de 10');
   const { rows: [{ n }] } = await backend.db.query(`select count(*)::int n from public.manheim_option_selections where status='SELECTED'`);
   expect(n).toBe(0);
   expect(errors).toEqual([]);
