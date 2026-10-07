@@ -86,3 +86,17 @@ test('delayed post-send reload does nothing after leaving the ficha',async()=>{
   vm.createContext(ctx);vm.runInContext(part(lead,'    const reload=','    // "Desfazer"')+part(lead,'    const afterSend=','    if(journeyId&&window.MCSSuggest)'),ctx);
   vm.runInContext('afterSend({});',ctx);current=false;await callback();assert.equal(changed,0);
 });
+test('a notice pinned to the page ("Desfazer") still reloads the same ficha after it was redrawn, never after leaving it',async()=>{
+  const a=navigation();
+  const first=a.ctx.openDetail('ficha','a',{push:false});const old=a.openings[0];old.resolve();await first;
+  const second=a.ctx.openDetail('ficha','a',{push:false});a.openings[1].resolve();await second;
+  assert.equal(old.options.isCurrent(),false,'the first render is stale');
+  const again=old.options.onChanged();a.openings[2].resolve();await again;
+  assert.equal(a.openings.length,3,'the same ficha is still open: it is redrawn');
+  await a.ctx.switchPanel('v1');
+  await old.options.onChanged();
+  assert.equal(a.openings.length,3,'after a tab switch nothing reopens');
+  const other=a.ctx.openDetail('ficha','b',{push:false});a.openings[3].resolve();await other;
+  await old.options.onChanged();
+  assert.equal(a.openings.length,4,'another ficha open: the old one does not come back');
+});

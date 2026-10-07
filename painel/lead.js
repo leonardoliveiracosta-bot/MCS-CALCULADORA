@@ -59,9 +59,10 @@
     };
     const reload=async()=>{if(typeof isCurrent==='function'&&!isCurrent())return;await onChanged({scrollY:window.scrollY});};
     // "Desfazer" right after a reversible action: a notice pinned to the page (it survives the ficha
-    // being redrawn) with one button that puts the previous state back.
+    // being redrawn) with one button that puts the previous state back. It outlives this render, so it reloads through
+    // onChanged, which redraws only while this same ficha is the one open (never after a tab switch or another ficha).
     const undoNotice=(text,undoFn)=>{const notice=window.MCSAction&&MCSAction.feedback(document.body,text,'','lead-undo');if(!notice)return;const back=e('button','quiet small','Desfazer');back.type='button';notice.append(' ',back);
-      back.addEventListener('click',async()=>{back.disabled=true;try{await undoFn();notice.replaceChildren(document.createTextNode('Desfeito'));await reload();}catch(failure){back.disabled=false;notice.append(' · '+(failure&&failure.code==='UNDO_EXPIRED'?'Passou o tempo para desfazer':'Não consegui desfazer'));}});};
+      back.addEventListener('click',async()=>{back.disabled=true;try{await undoFn();notice.replaceChildren(document.createTextNode('Desfeito'));await onChanged({scrollY:window.scrollY});}catch(failure){back.disabled=false;notice.append(' · '+(failure&&failure.code==='UNDO_EXPIRED'?'Passou o tempo para desfazer':'Não consegui desfazer'));}});};
     const actionsApi=(action,fields)=>request('/api/panel/actions',{method:'POST',body:JSON.stringify({action,journeyId,...fields})});
     const failed=(card,text)=>append(card,'p','status error',text);
     const title=record.contact?.display_name||order.contactName||'Contato sem nome';

@@ -2283,7 +2283,9 @@
       let leadDetailData=null;
       const detailRequest=async(path,requestOptions)=>{const result=await request(path,requestOptions);if(String(path).startsWith('/api/panel/lead?')&&!String(path).includes('cityZip='))leadDetailData=result;return result;};
       await MCSLead.open({ kind, key, root: $('record-detail'), request:detailRequest, isCurrent: () => requestVersion === detailRequestVersion,
-        onChanged: (reloadOptions = {}) => requestVersion === detailRequestVersion ? openDetail(kind, key, { ...reloadOptions, push: false, origin: detailOrigin }) : Promise.resolve(),
+        // Reload only while this same ficha is still the one open: a notice pinned to the page ("Desfazer") outlives the render
+        // that made it, but a tab switch or another ficha (currentDetail changed) never brings this one back.
+        onChanged: (reloadOptions = {}) => requestVersion === detailRequestVersion || (currentDetail && currentDetail.kind === kind && currentDetail.key === key) ? openDetail(kind, key, { ...reloadOptions, push: false, origin: detailOrigin }) : Promise.resolve(),
         actionMessage, downloadShortlist, dispositionControls, replyComposer, openOptions: openOptionsCard, renderFichaOffersSummary, openTab: (view) => switchPanel(view).then(() => loadCurrent(view, viewRequestVersion)).catch(() => {}),
         mediaObjectUrl:async(messageId)=>{const data=await request('/api/panel/media?signed=1&messageId='+encodeURIComponent(messageId));if(!data.url)throw Error('MEDIA_NOT_AVAILABLE');return data.url;} });
       if(requestVersion!==detailRequestVersion)return;
