@@ -35,7 +35,7 @@ test('calculadora: taxa e total da tabela nova em Florida e fora, sem gravar nad
   if (await page.locator('#modal-ok').isVisible()) await page.locator('#modal-ok').click();
   await expect(page.locator('#resultado')).toBeVisible();
   const loaded = await page.evaluate(() => [...document.scripts].map((script) => script.getAttribute('src')).filter((src) => src && src.includes('calc-core')));
-  expect(loaded).toEqual(['/calc-core.js?v=envio-titulo-20261007']);
+  expect(loaded).toEqual(['/calc-core.js?v=onde-vai-20261007']);
   const rows = [];
   for (const [zip, florida] of [['33101', true], ['97201', false]]) {
     for (const bid of BIDS) {
@@ -52,8 +52,10 @@ test('calculadora: taxa e total da tabela nova em Florida e fora, sem gravar nad
       const usd = (value) => '$' + Math.round(value).toLocaleString('en-US');
       expect(shown.text).toContain(usd(shown.fee));
       expect(shown.text).toContain(usd(shown.total));
-      // Title Mailing ($45) sits in the lower block in every case, never under the auction house.
-      expect(shown.text).not.toContain('Title Mailing Fee');
+      // Where it goes: the auction fee and My Car Scout show only title and subtitle (no detail lines below).
+      expect(shown.text).toContain('Auction fee');
+      expect(shown.text).toContain('advisory, vehicle review and bidding');
+      for (const line of ['Auction house', 'Environmental Fee', 'Title Mailing Fee', 'Bidding service']) expect(shown.text).not.toContain(line);
       rows.push({ bid, florida, fee: shown.fee, total: shown.total, deposit: shown.deposit, tax: shown.tax });
     }
   }
