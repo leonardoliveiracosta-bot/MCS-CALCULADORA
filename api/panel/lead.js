@@ -57,6 +57,20 @@ module.exports = async (req, res) => {
       await insert(ctx, 'manheim_saved_searches', { environment: ctx.environment, search_key: key, created: body.created === true, updated_by: ctx.panel.id }, false).catch(async () => patchRows(ctx, 'manheim_saved_searches', { environment: 'eq.' + ctx.environment, search_key: 'eq.' + key }, { created: body.created === true, updated_at: new Date().toISOString(), updated_by: ctx.panel.id }));
       return send(res, 200, { saved: true });
     }
+    if (body.action === 'note_remove') {
+      // Desfazer uma anotação simples (sem dados distribuídos) desta ficha. O texto fica guardado no evento da anotação,
+      // que passa a constar como desfeito; uma anotação que distribuiu dados não se desfaz por aqui.
+      if (!isUuid(body.noteId)) return send(res, 400, { error: 'NOTE_ID_INVALID' });
+      const [note] = await rows(ctx, 'lead_notes', { select: 'id,ref_code,journey_id,body_text,distributed_json,created_by', environment: 'eq.' + ctx.environment, id: 'eq.' + body.noteId, limit: '1' });
+      const own = note && ((lead.record && note.journey_id === lead.record.id) || (REF_RE.test(String(lead.ref || '')) && note.ref_code === lead.ref));
+      if (!own) return send(res, 404, { error: 'NOTE_NOT_FOUND' });
+      if (Array.isArray(note.distributed_json) && note.distributed_json.length) return send(res, 409, { error: 'NOTE_HAS_ITEMS' });
+      const at = new Date().toISOString();
+      const [confirmed] = await rows(ctx, 'lead_events', { select: 'id,detail_json', environment: 'eq.' + ctx.environment, event_type: 'eq.NOTE_CONFIRMED', 'detail_json->>noteId': 'eq.' + note.id, limit: '1' });
+      if (confirmed) await patchRows(ctx, 'lead_events', { environment: 'eq.' + ctx.environment, id: 'eq.' + confirmed.id }, { undone_at: at, detail_json: { ...(confirmed.detail_json || {}), removedBody: note.body_text, removedBy: ctx.panel.id, removedAt: at } });
+      await supabase(ctx.config.url, ctx.config.secretKey, '/rest/v1/lead_notes?' + new URLSearchParams({ environment: 'eq.' + ctx.environment, id: 'eq.' + note.id }).toString(), { method: 'DELETE', headers: { prefer: 'return=minimal' } });
+      return send(res, 200, { removed: true, noteId: note.id, body: note.body_text });
+    }
     const journey = body.action === 'note' ? lead.record : await ensureJourney(ctx, lead);
     if (body.action === 'ensure') return send(res, 200, { journeyId: journey.id, contactId: journey.contact_id });
     if (body.action === 'contact_lead') {

@@ -279,7 +279,11 @@
     const savedNotes=(data.notes||[]).filter((item)=>safeString(item.body_text).trim()).sort((a,b)=>(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0));
     if(savedNotes.length){
       const notesList=append(quick,'ul','lead-quick-notes');
-      const noteLine=(parent,item)=>{const line=append(parent,'li');append(line,'span','muted',shortWhen(item.created_at)+' · ');line.append(document.createTextNode(safeString(item.body_text)));};
+      // "Desfazer" on a plain note (one that distributed no data): it leaves the ficha; the notice brings it back.
+      const noteLine=(parent,item)=>{const line=append(parent,'li');append(line,'span','muted',shortWhen(item.created_at)+' · ');line.append(document.createTextNode(safeString(item.body_text)));
+        if(Array.isArray(item.distributed_json)&&item.distributed_json.length)return;
+        const text=safeString(item.body_text);
+        button(line,'Desfazer',async()=>{await api('note_remove',{noteId:item.id});undoNotice('Anotação desfeita',()=>api('note',{note:text,proposal:[],selected:[],confirmationKey:crypto.randomUUID()}));await reload();},'lead-quick-note-undo');};
       savedNotes.slice(0,3).forEach((item)=>noteLine(notesList,item));
       if(savedNotes.length>3){const more=append(quick,'details','lead-quick-more');append(more,'summary','',`Ver todas as anotações (${savedNotes.length})`);const rest=append(more,'ul','lead-quick-notes');savedNotes.slice(3).forEach((item)=>noteLine(rest,item));}
     }
