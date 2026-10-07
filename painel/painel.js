@@ -1376,6 +1376,18 @@
     const warning=$('ai-budget-warning');warning.classList.toggle('hidden',!warn.length);
     warning.textContent=warn.map(([key,,name])=>ai[key].exhausted?`${name} sem saldo pré-pago: as funções dela param sozinhas até você informar um novo saldo · O painel continua funcionando`:ai[key].sinceStart?`Aviso: ${name} já usou ${usd(ai[key].spentUsd)} dos ${usd(ai[key].balanceUsd)} pré-pagos (aviso a partir de ${usd(ai[key].warnAtUsd)}) · Restam ${usd(ai[key].remainingUsd)}`:`${name}: restam ${usd(ai[key].remainingUsd)} (20% ou menos do saldo informado) · O crédito pré-pago está acabando`).join(' · ');
     if(!box.dataset.bound){box.dataset.bound='1';box.addEventListener('toggle',()=>{if(box.open)loadAiBudgetDetails().catch(()=>{});});}
+    paintAiSaldo(ai,usd);
+  }
+  // Top bar, between the logo and the search: what each AI has used and its balance, one line each. A tap opens the
+  // details in Configurações (same data, no new rule).
+  function paintAiSaldo(ai,usd){
+    const top=$('ai-saldo');if(!top)return;
+    const lines=AI_PROVIDERS.map(([key,,name])=>{const state=ai[key];const line=element('span','ai-saldo-line');line.dataset.provider=key;
+      line.append(element('strong','',name));
+      const text=!state?'—':state.exhausted?'sem saldo':`usado ${usd(state.spentUsd)}${state.priorUnknown?'+':''} · ${state.remainingUsd===null||state.remainingUsd===undefined||!(state.informed||state.sinceStart)?'saldo não informado':`saldo ${state.priorUnknown?'até ':''}${usd(state.remainingUsd)}`}`;
+      line.append(' '+text);line.classList.toggle('ai-saldo-warn',Boolean(state&&(state.warn||state.exhausted)));line.title=`${name}: ${text}`;return line;});
+    top.replaceChildren(...lines);top.classList.remove('hidden');
+    if(!top.dataset.bound){top.dataset.bound='1';top.addEventListener('click',()=>{const link=document.querySelector('.settings-link');if(link)link.click();const box=$('ai-budget');if(box){box.open=true;box.scrollIntoView({block:'start'});}});}
   }
   async function loadAiBudgetDetails(){
     const usd=(value)=>'US$ '+Number(value||0).toFixed(2);

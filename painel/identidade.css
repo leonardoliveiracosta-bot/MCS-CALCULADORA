@@ -1575,6 +1575,22 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .lead-quick-note-text { flex: 1 1 320px; min-height: 44px; margin: 0; resize: vertical; }
 .lead-quick-notes { flex: 1 1 100%; margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 14px; line-height: 1.4; }
 .lead-quick-notes > li { overflow-wrap: anywhere; }
+.lead-quick-notes .lead-quick-note-undo { min-height: 0; margin-left: 8px; padding: 0; border: 0; background: none; color: var(--mcs-muted); font-size: 12px; font-weight: 500; text-decoration: underline; cursor: pointer; }
+.lead-quick-notes .lead-quick-note-undo:hover { color: var(--mcs-text); }
 .lead-quick-more { flex: 1 1 100%; font-size: 13px; }
 .lead-quick-more > summary { cursor: pointer; color: #5C5E62; }
 @media (max-width: 760px) { .lead-head-actions { margin-left: 0; } }
+
+/* ---------- topo: consumo e saldo de cada IA, entre a logo e a busca ---------- */
+.ai-saldo { grid-area: saldo; justify-self: start; display: grid; gap: 1px; min-width: 0; max-width: 100%; min-height: 0; margin: 0; padding: 2px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--mcs-muted); font-size: 12px; font-weight: 400; line-height: 1.35; letter-spacing: 0; text-align: left; cursor: pointer; }
+.ai-saldo:hover { background: var(--mcs-elevated); color: var(--mcs-text); }
+.ai-saldo-line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ai-saldo-line strong { margin-right: 4px; color: var(--mcs-text); font-weight: 600; }
+.ai-saldo-line.ai-saldo-warn { color: var(--mcs-red); }
+@media (min-width: 900px) {
+  .topbar { grid-template-areas: "logo saldo search actions" "tabs tabs tabs tabs"; }
+}
+@media (max-width: 899px) {
+  .topbar { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "logo saldo" "actions actions" "search search" "tabs tabs"; }
+  .ai-saldo { justify-self: end; font-size: 11px; text-align: right; }
+}
