@@ -3671,6 +3671,7 @@
       arrivedAt: journey ? (journey.latestMessage && (journey.latestMessage.occurred_at_utc || journey.latestMessage.created_at) || null)
         : (order ? (order.lastMessageAt || order.createdAt || null) : null),
       purchaseWindow: journey ? String(journey.purchaseWindow || 'NONE') : 'NONE',
+      state: String((item && (item.state || item.estado || item.contact?.state || item.contact?.state_code)) || '').toUpperCase().slice(0, 2),
       // The client's last message (not ours) and whether it came by SMS or WhatsApp, for "Ordenar".
       customerAt: Date.parse((journey || order) && (journey || order).contactAt || '') || null,
       medium: journey && journey.contactMedium || null,
@@ -3781,8 +3782,12 @@
     const list = sortQueue(optionsQueueData.filter((row) => queueMatches(row, query)));
     root.replaceChildren();
     if (note) note.textContent = query.trim() ? `${list.length} de ${optionsQueueData.length} na fila` : `${optionsQueueData.length} na fila · toque na linha para ver as opções do cliente`;
-    list.forEach((row) => renderQueueRow(root, row));
-    if (!list.length) root.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia' : 'Nenhuma importação ativa'));
+    if (list.length) {
+      const head = element('div', 'options-queue-list-head');
+      ['Cliente', 'Telefone', 'Ref', 'Pedido', 'Opções', 'Prazo', 'Estado', 'Ação'].forEach((label) => head.append(element('span', '', label)));
+      root.append(head);
+      list.forEach((row) => renderQueueRow(root, row));
+    } else root.append(element('p', 'empty-state', query.trim() ? 'Nada na fila com esta busca' : optionsQueueHasUpload ? 'Fila vazia' : 'Nenhuma importação ativa'));
   }
   function openQueueDetail(demand, person) {
     if (person && person.journeyId) return openDetail('ficha', person.journeyId);
@@ -3810,39 +3815,33 @@
   const STATE_TEXT = { cars: (state) => plural(state.count, 'carro aguardando', 'carros aguardando'), expired: () => EXPIRED_TEXT, none: () => 'sem resultado no lote atual', pending: () => 'não comparado com o lote atual', nobatch: () => 'nenhuma importação ativa' };
   function renderQueueRow(root, row) {
     const person = row.person;
-    const waiting = !row.sent && row.states.some((state) => state.kind === 'cars');
-    // The card of the TODOS tab: the summary in the status strip, the cars asked as the title, the Ref
-    // tag, the phone and one labelled row per request (with its own state and "Atualizar").
-    const arrival = floridaArrival(person.arrivedAt);
-    const rows = [...(arrival ? [['Chegou', arrival, 'case-request-line']] : []),
-      ['Prazo', WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE, 'case-request-line'],
-      ...row.states.map((state) => ['Pedido', [state.demand.mode === 'VALOR' ? 'Por valor' : state.demand.mode === 'CARRO' ? 'Por carro' : '', demandSummary(state.demand), STATE_TEXT[state.kind](state)].filter(Boolean).join(' · '), 'case-request-line options-queue-demand'])];
-    // With cars of the batch the card opens the client's options screen; without them there is nothing to choose: the ficha.
     const withCars = row.states.some((state) => state.kind === 'cars');
     const openRow = () => withCars ? openOptionsClient(row) : openQueueDetail(row.demands[0] || null, person);
-    const { card } = todosCard({ status: rowSummary(row), tone: waiting ? 'red' : '', title: person.name, ref: person.ref, phone: person.phoneRaw ? person.phoneDisplay : '', rows,
-      open: openRow, className: 'options-queue-card options-queue-row' + (waiting ? '' : ' options-queue-nocar') });
-    card.querySelector('.card-decision-label').classList.add('options-queue-reason');
-    card.querySelector('.case-face-title').classList.add('identity-name');
-    // Every request key and mode of the person (read by openOptionsCard and the tests).
-    card.dataset.demandKey = row.demands.map((demand) => demand.key).filter(Boolean).join(' ');
-    card.dataset.mode = [...new Set(row.demands.map((demand) => demand.mode).filter(Boolean))].join(' ');
-    const open = element('button', 'today-primary small', withCars ? 'Ver opções' : person.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
-    open.addEventListener('click', (event) => { event.stopPropagation(); openRow(); });
-    card.querySelector('.card-primary').append(open);
-    card.querySelectorAll('.options-queue-demand').forEach((line, index) => {
-      const state = row.states[index];
-      line.dataset.demandKey = state.demand.key;
+    const cars = row.states.filter((state) => state.kind === 'cars').reduce((sum, state) => sum + state.count, 0);
+    const requestText = row.states.length
+      ? row.states.map((state) => [state.demand.mode === 'VALOR' ? 'Por valor' : state.demand.mode === 'CARRO' ? 'Por carro' : '', demandSummary(state.demand)].filter(Boolean).join(' · ')).join(' | ')
+      : (row.issues.length ? row.issues.join(' · ') : 'Nenhum pedido de carro registrado');
+    const optionText = cars ? String(cars) : row.states.some((state) => state.kind === 'expired') ? 'Expiradas' : row.states.some((state) => state.kind === 'pending') ? 'Não comparado' : row.states.some((state) => state.kind === 'nobatch') ? 'Sem lote' : row.states.some((state) => state.kind === 'none') ? 'Sem resultado' : 'Busca não feita';
+    const line = element('div', 'options-queue-card options-queue-row options-queue-list-row' + (withCars ? '' : ' options-queue-nocar'));
+    line.dataset.demandKey = row.demands.map((demand) => demand.key).filter(Boolean).join(' ');
+    line.dataset.mode = [...new Set(row.demands.map((demand) => demand.mode).filter(Boolean))].join(' ');
+    line.tabIndex = 0; line.setAttribute('role', 'button'); line.title = rowSummary(row);
+    const cell = (className, label, value) => { const node = element('div', 'options-queue-cell ' + className, value || ''); node.dataset.label = label; node.title = value || ''; return node; };
+    line.append(cell('options-queue-name', 'Cliente', person.name || 'Cliente'),cell('options-queue-phone', 'Telefone', person.phoneRaw ? person.phoneDisplay : 'Sem telefone'),cell('options-queue-ref', 'Ref', person.ref || '—'),cell('options-queue-demand', 'Pedido', requestText),cell('options-queue-reason options-queue-options', 'Opções', optionText),cell('options-queue-window', 'Prazo', WINDOW_LABELS[person.purchaseWindow] || WINDOW_LABELS.NONE),cell('options-queue-state', 'Estado', person.state || ''));
+    line.querySelector('.options-queue-reason').title = rowSummary(row);
+    const actions = element('div', 'options-queue-cell options-queue-actions'); actions.dataset.label = 'Ação';
+    row.states.forEach((state) => {
       if (state.kind !== 'pending') return;
-      const update = element('button', 'small chip options-queue-update', 'Atualizar'); update.type = 'button';
-      update.addEventListener('click', async (event) => {
-        event.stopPropagation(); update.disabled = true; update.textContent = 'Comparando…';
-        try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: state.demand.key }) }); update.textContent = 'Comparado'; manheimData = null; loadCurrent('searches').catch(() => {}); }
-        catch (_) { update.disabled = false; update.textContent = 'Atualizar'; }
-      });
-      line.querySelector('.case-field-value').append(document.createTextNode(' '), update);
+      const update = element('button', 'quiet small options-queue-update', 'Atualizar'); update.type = 'button'; update.dataset.demandKey = state.demand.key;
+      update.addEventListener('click', async (event) => { event.stopPropagation(); update.disabled = true; update.textContent = 'Comparando…'; try { await request('/api/panel/manheim-options', { method: 'POST', body: JSON.stringify({ action: 'rematch', key: state.demand.key }) }); update.textContent = 'Comparado'; manheimData = null; loadCurrent('searches').catch(() => {}); } catch (_) { update.disabled = false; update.textContent = 'Atualizar'; } });
+      actions.append(update);
     });
-    root.append(card);
+    const open = element('button', 'small', withCars ? 'Ver opções' : person.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
+    open.addEventListener('click', (event) => { event.stopPropagation(); openRow(); });
+    actions.append(open); line.append(actions);
+    line.addEventListener('click', openRow);
+    line.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openRow(); } });
+    root.append(line);
   }
 
   // ===== ENVIAR OPÇÕES · Opções do cliente =====

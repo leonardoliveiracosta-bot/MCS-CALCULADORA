@@ -56,16 +56,16 @@ test('HOJE keeps contact metadata once for journeys and once for calculator orde
   assert.doesNotMatch(panel,/\$\{item\.contactChannel\} CLICADO/);
 });
 
-test('options queue cards show one compact identity block and never expand inline',()=>{
+test('options queue is a compact list and never expands inline',()=>{
   const panel=read('painel/painel.js');
   const start=panel.indexOf('function renderQueueRow'),end=panel.indexOf('function v1ErrorText');
   assert.ok(start>0&&end>start,'renderQueueRow delimitado');
   const queue=panel.slice(start,end);
-  assert.match(queue,/identity-name/);
-  // The TODOS card: the Ref tag and the phone in the card face.
-  assert.match(queue,/todosCard\(/);
-  assert.match(queue,/ref: person\.ref/);
+  assert.match(queue,/options-queue-list-row/);
+  // ENVIAR OPÇÕES is presentation-only: same Ref, phone and existing open action in table cells.
+  assert.match(queue,/options-queue-ref/);
   assert.match(queue,/person\.phoneDisplay/);
+  assert.match(queue,/Ver opções/);
   assert.doesNotMatch(queue,/contactMeta\(/);
   assert.doesNotMatch(queue,/<details/);
   // The old inline cards are gone: the selection lives in the ficha.
