@@ -1,13 +1,14 @@
 'use strict';
 
-// BUSCAS com a seleção para o cliente, no navegador real, com os handlers reais contra um banco
-// PGlite: três grupos por demanda, 10 carros por vez (nunca todos), selecionar três, contador
-// "Selecionados 3 de 10" e percentual ajustado mudando o valor na hora. Depois, o complemento do
-// lote ativo pelo botão: conta, pede confirmação e reagrupa. Nada sai da máquina.
+// ENVIAR OPÇÕES · tela "Opções do cliente" com a seleção para o cliente, no navegador real, com os
+// handlers reais contra um banco PGlite: três abas (grupos) por demanda, 25 carros por vez (nunca todos),
+// selecionar três, contador "3 de 10 selecionados" e percentual ajustado mudando o valor na hora. Depois,
+// o complemento do lote ativo pelo botão: conta, pede confirmação e reagrupa. O PDF dos selecionados fica
+// na barra da tela; o PDF de todos os compatíveis fica na ficha (DADOS E HISTÓRICO). Nada sai da máquina.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-selecao.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { openOptionsFicha, fichaSection } = require('./abrir-ficha-opcoes');
+const { openOptionsScreen } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -30,10 +31,17 @@ const car = (n, extra = {}) => {
   const vin = 'TELA' + String(n).padStart(13, '0');
   return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2020, make: 'Honda', model: 'CR-V', trim: 'EX', miles: 20000 + n, mmrCents: 2500000, location: 'FL - Orlando', startsAt: '2099-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: (4.9 - n * 0.2).toFixed(1), cleanTitle: true, odometerOk: true, ...extra } };
 };
-// 14 in Lane/Run, one in Lane/Run WITH Buy Now Price and one without CR (both stay in Lane/Run), one
+// 30 in Lane/Run, one in Lane/Run WITH Buy Now Price and one without CR (both stay in Lane/Run), one
 // without Lane/Run and with Buy Now (outside Lane/Run), two without Lane/Run nor Buy Now (incomplete).
-// Car 12 is the oldest (2019, lowest MMR) and car 13 the newest (2022, highest MMR): the order must reach them in the whole group.
-const cars = [...Array.from({ length: 12 }, (_, n) => car(n)), car(12, { year: 2019, mmrCents: 2200000 }), car(13, { year: 2022, mmrCents: 3200000 }), car(30, { buyNowPrice: '26500' }), car(32, { conditionGrade: '' }), car(33, { lane: '', run: '', buyNowPrice: '26500' }), car(31, { lane: '', run: '' }), car(34, { lane: '', run: '' })];
+// The screen shows 25 cars per page: 32 in Lane/Run keep a second page ("Ver mais").
+// Car 12 is the oldest (2019, lowest MMR) and car 13 the newest (2022, highest MMR), both with the most miles
+// (last in the default order, outside the first page): the order must reach them in the whole group.
+const cars = [...Array.from({ length: 12 }, (_, n) => car(n)), car(12, { year: 2019, mmrCents: 2200000, miles: 55012 }), car(13, { year: 2022, mmrCents: 3200000, miles: 55013 }), ...Array.from({ length: 16 }, (_, n) => car(40 + n, { conditionGrade: '4.0' })), car(30, { buyNowPrice: '26500' }), car(32, { conditionGrade: '' }), car(33, { lane: '', run: '', buyNowPrice: '26500' }), car(31, { lane: '', run: '' }), car(34, { lane: '', run: '' })];
+// The car's line opens the car itself (price, select, remove…) under it.
+async function openCar(item) {
+  if (await item.locator('.oc-detail').isHidden()) await item.locator('.oc-car').click();
+  await expect(item.locator('.oc-detail')).toBeVisible();
+}
 
 let backend, handlers;
 async function run(handler, request) {
@@ -83,72 +91,78 @@ test('três grupos, seleção com contador 3 de 10 e percentual mudando o valor,
   await openPanel(page, optionPages);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await expect(card.locator('.offer-counter')).toContainText('16 em Lane/Run · 1 em Buy Now / Make Offer · 0 de 10 selecionados', { timeout: 60000 });
-  // The client's screen (the way into the ficha) already listed its first page; from here on, the ficha's own groups.
-  optionPages.length = 0;
-  await expect(card.locator('.offer-group')).toHaveCount(3);
-  await expect(card.locator('.offer-group[data-group="LANE"] > summary')).toHaveText('Passa em Lane/Run (16)');
-  await expect(card.locator('.offer-group[data-group="OFFLANE"] > summary')).toHaveText('Buy Now / Make Offer / fora de Lane-Run (1)');
+  const screen = await openOptionsScreen(page, { mode: 'CARRO' });
+  await expect(screen.locator('.oc-act .oc-count')).toHaveText('0 de 10 selecionados', { timeout: 60000 });
+  await expect(screen.locator('.oc-bar .oc-tab')).toHaveCount(3);
+  await expect(screen.locator('.oc-tab[data-group="LANE"]')).toHaveText('Lane/Run (32)');
+  await expect(screen.locator('.oc-tab[data-group="OFFLANE"]')).toHaveText('Buy Now / Make Offer (1)');
   // v3.2 (04/10): a car without Lane/Run and without Buy Now never becomes a match (cars 31 and 34), so this group is empty.
-  await expect(card.locator('.offer-group[data-group="INCOMPLETE"] > summary')).toHaveText(/Informação incompleta \(0\)|Nenhum/);
-  expect(optionPages, 'nenhum carro antes de abrir um grupo').toEqual([]);
-  // Opening the group loads 10 of 16, never all of them.
-  await card.locator('.offer-group[data-group="LANE"] > summary').click();
-  const lane = card.locator('.offer-group[data-group="LANE"] .offer-row');
-  await expect(lane).toHaveCount(10);
-  expect(optionPages).toEqual([10]);
+  await expect(screen.locator('.oc-tab[data-group="INCOMPLETE"]')).toHaveText('Informação incompleta (0)');
+  // Opening the screen loads only the first page (25 of 32) of the first tab with cars, never all of them,
+  // and nothing of the other tabs.
+  const lane = screen.locator('.oc-list .oc-item');
+  await expect(lane).toHaveCount(25);
+  await expect(screen.locator('.oc-tab[data-group="LANE"]')).toHaveClass(/\bon\b/);
+  expect(optionPages).toEqual([25]);
   // Select three.
   for (let index = 0; index < 3; index += 1) {
+    await openCar(lane.nth(index));
     await lane.nth(index).locator('[data-offer-action="select"]:visible').click();
-    await expect(lane.nth(index)).toHaveAttribute('data-status', 'SELECTED');
+    await expect(lane.nth(index).locator('.offer-row')).toHaveAttribute('data-status', 'SELECTED');
   }
-  await expect(card.locator('.offer-counter')).toContainText('3 de 10 selecionados');
+  await expect(screen.locator('.oc-act .oc-count')).toHaveText('3 de 10 selecionados');
   // US$ 25.000 MMR: 5% by default (US$ 26.250); the operator types 8% and the value changes at once.
   const fourth = lane.nth(3);
+  await openCar(fourth);
   await expect(fourth.locator('.offer-final')).toHaveValue('26.250,00');
   await fourth.locator('.offer-pct').fill('8');
   await expect(fourth.locator('.offer-final')).toHaveValue('27.000,00');
   await fourth.locator('.offer-pct').dispatchEvent('change');
   await expect.poll(async () => (await backend.db.query(`select manual_pct::float from public.manheim_option_selections where final_cents = 2700000`)).rows.length).toBe(1);
   // Outside Lane/Run only with a reason.
-  await card.locator('.offer-group[data-group="OFFLANE"] > summary').click();
-  const offLane = card.locator('.offer-group[data-group="OFFLANE"] .offer-row').first();
+  await screen.locator('.oc-tab[data-group="OFFLANE"]').click();
+  await expect(lane).toHaveCount(1);
+  const offLane = lane.first();
+  await openCar(offLane);
   await expect(offLane.locator('[data-offer-action="select"]:visible')).toHaveText('Incluir manualmente');
-  if (SHOTS) await card.screenshot({ path: path.join(SHOTS, 'selecao-buscas-1366.png') });
+  if (SHOTS) await screen.screenshot({ path: path.join(SHOTS, 'selecao-buscas-1366.png') });
   const { rows: [{ n }] } = await backend.db.query(`select count(*)::int n from public.manheim_option_selections where status='SELECTED'`);
   expect(n).toBe(3);
   expect(errors).toEqual([]);
   expect(backend.refused).toEqual([]);
 });
 
-test('ordenar o grupo por ano e por MMR considera o grupo inteiro, não só os 10 da tela', async ({ page }) => {
+test('ordenar o grupo por ano e por MMR considera o grupo inteiro, não só os 25 da tela', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  const group = card.locator('.offer-group[data-group="LANE"]');
-  await group.locator('> summary').click({ timeout: 60000 });
-  const rows = group.locator('.offer-row');
-  await expect(rows).toHaveCount(10);
-  await group.locator('.offer-sort-select').selectOption('mmr_desc');
+  const screen = await openOptionsScreen(page, { mode: 'CARRO' });
+  await screen.locator('.oc-tab[data-group="LANE"]').click({ timeout: 60000 });
+  const rows = screen.locator('.oc-list .oc-item');
+  await expect(rows).toHaveCount(25, { timeout: 60000 });
+  // In the default order (fewer miles first) the newest/oldest cars are not on the first page.
+  await expect(screen.locator('.oc-sort')).toHaveValue('miles_asc');
+  await expect(rows.locator('.oc-car .oc-l1', { hasText: /^20(19|22) / })).toHaveCount(0);
+  await screen.locator('.oc-sort').selectOption('mmr_desc');
   await expect(rows.first().locator('.offer-mmr')).toContainText('32.000,00');
-  await expect(rows).toHaveCount(10);
-  await group.locator('.offer-sort-select').selectOption('year_desc');
-  await expect(rows.first().locator('.offer-car')).toHaveText(/^2022 /);
-  await group.locator('.offer-sort-select').selectOption('year_asc');
-  await expect(rows.first().locator('.offer-car')).toHaveText(/^2019 /);
-  await group.locator('.offer-sort-select').selectOption('mmr_asc');
+  await expect(rows).toHaveCount(25);
+  await screen.locator('.oc-sort').selectOption('year_desc');
+  await expect(rows.first().locator('.oc-car .oc-l1')).toHaveText(/^2022 /);
+  await screen.locator('.oc-sort').selectOption('year_asc');
+  await expect(rows.first().locator('.oc-car .oc-l1')).toHaveText(/^2019 /);
+  await screen.locator('.oc-sort').selectOption('mmr_asc');
   await expect(rows.first().locator('.offer-mmr')).toContainText('22.000,00');
   // "Ver mais" continues in the same order, without repeating cars.
-  await group.locator('.manheim-options-toggle').click();
-  await expect(rows).toHaveCount(16);
+  await screen.locator('.oc-more-button').click();
+  await expect(rows).toHaveCount(32);
   const mmrs = await rows.locator('.offer-mmr').allTextContents();
   const values = mmrs.map((text) => Number(text.match(/MMR US\$\s?([\d.]+)/)[1].replace(/\./g, '')));
   expect(values).toEqual([...values].sort((a, b) => a - b));
-  await group.locator('.offer-sort-select').selectOption('cr');
-  await expect(rows).toHaveCount(10);
+  const matchIds = await rows.locator('.oc-row').evaluateAll((list) => list.map((row) => row.dataset.matchId));
+  expect(new Set(matchIds).size, 'nenhum carro repetido').toBe(32);
+  await screen.locator('.oc-sort').selectOption('cr');
+  await expect(rows).toHaveCount(25);
   expect(errors).toEqual([]);
 });
 
@@ -157,11 +171,12 @@ test('valor para o cliente digitado em dólar fica exato, também depois de sele
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  const group = card.locator('.offer-group[data-group="LANE"]');
-  await group.locator('> summary').click({ timeout: 60000 });
-  const matchId = await group.locator('.offer-row[data-status="AVAILABLE"]').last().getAttribute('data-match-id');
-  const row = group.locator(`.offer-row[data-match-id="${matchId}"]`);
+  const screen = await openOptionsScreen(page, { mode: 'CARRO' });
+  await screen.locator('.oc-tab[data-group="LANE"]').click({ timeout: 60000 });
+  await expect(screen.locator('.oc-list .oc-item')).toHaveCount(25, { timeout: 60000 });
+  const matchId = await screen.locator('.oc-list .offer-row[data-status="AVAILABLE"]').last().getAttribute('data-match-id');
+  const row = screen.locator(`.oc-list .offer-row[data-match-id="${matchId}"]`);
+  await openCar(screen.locator('.oc-list .oc-item', { has: page.locator(`.offer-row[data-match-id="${matchId}"]`) }));
   // MMR US$ 25.000: US$ 26.137 is 4,548% (shown 4.55); by the percentage it would be US$ 26.137,50.
   await row.locator('.offer-final').fill('26.137');
   await expect(row.locator('.offer-pct')).toHaveValue('4.55');
@@ -213,11 +228,12 @@ test('complementar dados do lote ativo: conta, confirma, reagrupa e cria as comb
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
+  const screen = await openOptionsScreen(page, { mode: 'CARRO' });
   // v3.2: only cars with Lane/Run or Buy Now become matches. The old batch kept only the Buy Now price,
   // so before the complement the 3 CR-V with Buy Now (…001, …004, …005) are the only matches.
-  await expect(card.locator('.offer-counter')).toHaveText('3 em Buy Now / Make Offer · 0 de 10 selecionados', { timeout: 60000 });
-  // The complement lives in IMPORTAÇÕES; the groups stay in OPÇÕES.
+  await expect(screen.locator('.oc-bar .oc-tab')).toHaveText(['Lane/Run (0)', 'Buy Now / Make Offer (3)', 'Informação incompleta (0)'], { timeout: 60000 });
+  await expect(screen.locator('.oc-act .oc-count')).toHaveText('0 de 10 selecionados');
+  // The complement lives in IMPORTAÇÕES; the groups stay in ENVIAR OPÇÕES (screen "Opções do cliente").
   await page.locator('[data-view="imports"]').click();
   const button = page.locator('#manheim-complement');
   await expect(button).toHaveText('Complementar dados do lote ativo');
@@ -231,13 +247,19 @@ test('complementar dados do lote ativo: conta, confirma, reagrupa e cria as comb
   await confirm.getByRole('button', { name: 'Complementar agora' }).click();
   await expect(status).toHaveText('Complemento concluído · 7 carros complementados · 4 com Lane/Run · 2 Buy Now / Make Offer · 1 ainda incompletos · 5 combinações (2 novas)', { timeout: 30000 });
   await page.locator('[data-view="searches"]').click();
-  const reopened = await openOptionsFicha(page, { mode: 'CARRO' });
+  const reopened = await openOptionsScreen(page, { mode: 'CARRO' });
   // Rule B: the CR-V that got Lane/Run only through the complement (…002, …003) went through the search and
   // became combinations of this client, in Lane/Run; …001 moved to Lane/Run; …004 and …005 stay in Buy Now.
   // The one still without any sale data (…006) stays out.
-  await expect(reopened.locator('.offer-counter')).toHaveText('3 em Lane/Run · 2 em Buy Now / Make Offer · 0 de 10 selecionados', { timeout: 30000 });
-  await reopened.locator('.offer-group[data-group="LANE"] > summary').click();
-  for (const vin of ['600001', '600002', '600003']) await expect(reopened.locator('.offer-group[data-group="LANE"] .offer-row', { hasText: vin }).first()).toBeVisible({ timeout: 30000 });
+  await expect(reopened.locator('.oc-bar .oc-tab')).toHaveText(['Lane/Run (3)', 'Buy Now / Make Offer (2)', 'Informação incompleta (0)'], { timeout: 30000 });
+  await expect(reopened.locator('.oc-act .oc-count')).toHaveText('0 de 10 selecionados');
+  await reopened.locator('.oc-tab[data-group="LANE"]').click();
+  await expect(reopened.locator('.oc-list .oc-item')).toHaveCount(3, { timeout: 30000 });
+  for (const vin of ['600001', '600002', '600003']) {
+    const item = reopened.locator('.oc-list .oc-item', { hasText: vin }).first();
+    await openCar(item);
+    await expect(item.locator('.offer-row', { hasText: vin })).toBeVisible({ timeout: 30000 });
+  }
   if (SHOTS) await page.locator('#searches-panel').screenshot({ path: path.join(SHOTS, 'complemento-concluido.png') });
   const after = await q(`select (select count(*) from public.manheim_uploads)::int uploads, (select count(*) from public.manheim_matches)::int matches, (select count(*) from public.manheim_vehicles)::int vehicles`);
   // No new batch and no new car; only the 2 new combinations.
@@ -256,26 +278,34 @@ async function printedPdf(page, click) {
   return body;
 }
 
-test('Baixar PDF: imprime os carros selecionados, também depois de recarregar a página sem abrir o grupo', async ({ page }) => {
+test('Baixar PDF: imprime os carros selecionados, também depois de recarregar a página sem o carro na tela', async ({ page }) => {
   const errors = []; page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  let card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await expect(card.locator('.offer-counter')).toContainText('selecionados', { timeout: 60000 });
-  await card.locator('.offer-group[data-group="LANE"] > summary').click();
-  const lane = card.locator('.offer-group[data-group="LANE"] .offer-row');
+  let screen = await openOptionsScreen(page, { mode: 'CARRO' });
+  await expect(screen.locator('.oc-act .oc-count')).toContainText('selecionados', { timeout: 60000 });
+  await screen.locator('.oc-tab[data-group="LANE"]').click();
+  const lane = screen.locator('.oc-list .oc-item');
+  await openCar(lane.first());
   await lane.first().locator('[data-offer-action="select"]:visible').click();
-  await expect(lane.first()).toHaveAttribute('data-status', 'SELECTED');
-  const foot = page.locator('#detail-panel .ficha-v1-foot');
-  // The button is at the foot of the ficha and prints the selected car right away.
+  await expect(lane.first().locator('.offer-row')).toHaveAttribute('data-status', 'SELECTED');
+  const foot = page.locator('#options-client .oc-act');
+  // The button is in the screen's fixed bar and prints the selected car right away.
   let body = await printedPdf(page, () => foot.getByRole('button', { name: 'Baixar PDF' }).click());
   expect(body.matchIds.length).toBe(1);
   await expect(foot.locator('.ficha-v1-status')).toContainText('PDF com 1 carro pronto');
-  // Fresh page: the selected car is on the server and no group is open.
+  // Fresh page: the selected car is on the server. The screen opens on Lane/Run by itself, so the other tab
+  // is opened: the selected car is not on screen and the PDF reads it from the server.
   await page.reload({ waitUntil: 'domcontentloaded' });
-  card = await openOptionsFicha(page, { mode: 'CARRO' });
-  await expect(card.locator('.offer-counter')).toContainText('1 de 10 selecionados', { timeout: 60000 });
+  screen = await openOptionsScreen(page, { mode: 'CARRO' });
+  await expect(screen.locator('.oc-act .oc-count')).toHaveText('1 de 10 selecionados', { timeout: 60000 });
+  const offLane = screen.locator('.oc-tab[data-group="OFFLANE"]');
+  const offLaneCount = Number(await offLane.getAttribute('data-count'));
+  expect(offLaneCount).toBeGreaterThan(0);
+  await offLane.click();
+  await expect(lane).toHaveCount(offLaneCount);
+  await expect(screen.locator('.oc-list .oc-row.sel')).toHaveCount(0);
   body = await printedPdf(page, () => foot.getByRole('button', { name: 'Baixar PDF' }).click());
   expect(body.matchIds.length).toBe(1);
   expect(errors).toEqual([]);
@@ -286,15 +316,16 @@ test('Baixar PDF na ficha: imprime todos os compatíveis do lote', async ({ page
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = await openOptionsFicha(page, { mode: 'CARRO', realLead: true });
-  await expect(card.locator('.offer-counter')).toContainText('selecionados', { timeout: 60000 });
-  await card.locator('.offer-counter').click();
-  const lead = page.locator('#detail-panel, .lead-detail, dialog').filter({ hasText: 'Baixar PDF' }).first();
-  const button = page.getByRole('button', { name: 'Baixar PDF' }).last();
+  const screen = await openOptionsScreen(page, { mode: 'CARRO', realLead: true });
+  await expect(screen.locator('.oc-act .oc-count')).toContainText('selecionados', { timeout: 60000 });
+  // The PDF of every compatible car stays in the ficha (DADOS E HISTÓRICO), opened from the screen.
+  await screen.getByRole('button', { name: 'Abrir ficha completa' }).click();
+  const lead = page.locator('#detail-panel #lead-history');
+  const button = lead.getByRole('button', { name: 'Baixar PDF' });
   await expect(button).toBeVisible({ timeout: 30000 });
+  await expect(lead).toContainText('PDF com todos os compatíveis do lote');
   const body = await printedPdf(page, () => button.click());
   // Every compatible car of the batch goes in (the ficha's shortlist), not only the selected ones.
   expect(body.vehicles.length).toBeGreaterThan(1);
   expect(errors).toEqual([]);
-  void lead;
 });

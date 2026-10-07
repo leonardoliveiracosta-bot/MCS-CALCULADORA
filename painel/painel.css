@@ -250,3 +250,35 @@ nav[aria-label="Seções do painel"]{
   .options-client .oc-sort-label { margin-left: 0; }
   .options-client .oc-act .oc-count { flex-basis: 100%; }
 }
+/* Opções do cliente: a linha abre o carro (preço, motivo, Manter fora…), trim no topo, selecionados e conferência na barra */
+.options-client .oc-item { border-bottom: 1px solid var(--mcs-line, #E4E4E7); }
+.options-client .oc-item > .oc-row { border-bottom: 0; cursor: pointer; }
+.options-client .oc-item > .oc-row.open { background: var(--mcs-elevated, #F4F4F5); }
+.options-client .oc-item > .oc-row.sel { background: var(--mcs-gold-tint, #FBF6EA); }
+.options-client .oc-detail { padding: 4px 24px 16px 78px; background: var(--mcs-elevated, #F4F4F5); }
+.options-client .oc-detail[hidden] { display: none; }
+.options-client .oc-tags:empty, .options-client .oc-client-price:empty { display: none; }
+.options-client .oc-tags { color: var(--mcs-amber, #735C00); font-weight: 600; }
+.options-client .oc-client-price { color: var(--mcs-green, #15803D); font-weight: 600; }
+.options-client .oc-trim { position: relative; }
+.options-client .oc-trim[hidden] { display: none; }
+.options-client .oc-trim > summary { cursor: pointer; padding: 8px 12px; border: 1px solid var(--mcs-line, #E4E4E7); border-radius: 999px; list-style: none; }
+.options-client .oc-trim .offer-trim-list { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 240px; max-height: 50vh; overflow: auto; padding: 10px 12px; border: 1px solid var(--mcs-line, #E4E4E7); border-radius: 10px; background: var(--mcs-card, #FFFFFF); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); display: grid; gap: 6px; }
+.options-client .oc-trim-outside { padding: 0 24px; display: flex; gap: 8px; align-items: center; }
+.options-client .oc-trim-outside.hidden { display: none; }
+.options-client .oc-act .oc-count { flex: 1; margin: 0; text-align: left; min-height: 0; padding: 6px 0; border: 0; background: transparent; text-decoration: underline; text-underline-offset: 3px; }
+.options-client .oc-act .oc-count:disabled { text-decoration: none; opacity: 1; cursor: default; }
+.options-client .oc-act .oc-count strong { font-size: 17px; }
+.options-client .oc-act .oc-picked { flex-basis: 100%; max-height: 40vh; overflow: auto; margin: 0; }
+.options-client .oc-act .oc-picked[hidden] { display: none; }
+.options-client .oc-act .offer-advice, .options-client .oc-act .offer-ended, .options-client .oc-act .oc-audit { flex-basis: 100%; margin: 0; }
+.options-client .oc-act .offer-advice.hidden, .options-client .oc-act .oc-audit[hidden] { display: none; }
+.options-client .oc-act .audit-block { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+@media (max-width: 700px) {
+  .options-client .oc-detail { padding: 4px 16px 14px; }
+}
+/* Ficha · 5 Opções no lote: o resumo e "Ver opções", no formato do bloco 3 */
+.offers-summary .offers-summary-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 6px 0; }
+.offers-summary .offers-summary-groups { flex-basis: 100%; color: var(--mcs-text-2, #52525B); }
+.offers-summary .search-empty-reason { flex-basis: 100%; }
+.offers-summary .reality-typical { margin: 0 0 6px; }

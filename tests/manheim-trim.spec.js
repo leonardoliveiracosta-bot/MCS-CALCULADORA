@@ -1,13 +1,13 @@
 'use strict';
 
-// BUSCAS: filtro por TRIM num grupo, no navegador real, com os handlers reais contra um banco PGlite.
-// Marcar um trim reduz a lista e a contagem do título; o selecionado fora do filtro continua no
-// contador de selecionados e aparece em "X selecionados fora do filtro"; o filtro volta depois de
-// recarregar; no celular o campo cabe na largura. Nada sai da máquina.
+// ENVIAR OPÇÕES · tela "Opções do cliente": filtro por TRIM numa aba (grupo), no navegador real, com os
+// handlers reais contra um banco PGlite. Marcar um trim reduz a lista e a contagem da aba; o selecionado
+// fora do filtro continua no contador de selecionados e aparece em "X selecionados fora do filtro"; o
+// filtro volta depois de recarregar; no celular o campo cabe na largura. Nada sai da máquina.
 // Run: CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome PANEL_VISUAL_LOCAL=1 npx playwright test tests/manheim-trim.spec.js
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { openOptionsFicha, fichaSection } = require('./abrir-ficha-opcoes');
+const { openOptionsScreen } = require('./abrir-ficha-opcoes');
 const { BASE, createBackend } = require('./fixtures/banco-simulado');
 const { contentHash } = require('../panel-manheim-batch');
 
@@ -31,8 +31,14 @@ const car = (n) => {
   const vin = 'TRIM' + String(n).padStart(13, '0');
   return { fingerprint: 'vin:' + vin, vehicle: { vin, year: 2019 + (n % 4), make: 'Honda', model: 'CR-V', trim: TRIMS[n % TRIMS.length], miles: 20000 + n, mmrCents: 2500000 + n * 1000, location: 'FL - Orlando', startsAt: '2099-10-01T15:00:00Z', lane: String(1 + (n % 3)), run: String(10 + n), saleType: 'Simulcast', conditionGrade: '4.0', cleanTitle: true, odometerOk: true } };
 };
-// 25 cars in Lane/Run: EX 5, EX-L 10 (two spellings), Touring 5, no trim 5.
-const cars = Array.from({ length: 25 }, (_, n) => car(n));
+// 60 cars in Lane/Run: EX 12, EX-L 24 (two spellings), Touring 12, no trim 12. The screen shows 25 per page,
+// so the whole group and a two-trim filter (36) have a second page, and EX-L alone (24) fits in one.
+const cars = Array.from({ length: 60 }, (_, n) => car(n));
+// The car's line opens the car itself (price, select, remove…) under it.
+async function openCar(item) {
+  if (await item.locator('.oc-detail').isHidden()) await item.locator('.oc-car').click();
+  await expect(item.locator('.oc-detail')).toBeVisible();
+}
 let backend, handlers;
 async function run(handler, request) {
   const url = new URL(request.url());
@@ -80,47 +86,49 @@ test('trim: marcar reduz lista e contagem, selecionado fora do filtro continua c
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  const group = card.locator('.offer-group[data-group="LANE"]');
-  await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
-  await group.locator('> summary').click();
-  const rows = group.locator('.offer-row');
-  await expect(rows).toHaveCount(10);
-  await expect(group.locator('.offer-trim-asked')).toHaveText('Cliente pediu: Plug in hybrid, Ultra or plus');
+  const screen = await openOptionsScreen(page, { mode: 'CARRO' });
+  const tab = screen.locator('.oc-tab[data-group="LANE"]');
+  await expect(tab).toHaveText(/\(60\)$/, { timeout: 60000 });
+  await tab.click();
+  const rows = screen.locator('.oc-list .oc-item');
+  await expect(rows).toHaveCount(25);
+  await expect(screen.locator('.offer-trim-asked')).toHaveText('Cliente pediu: Plug in hybrid, Ultra or plus');
   // Nothing checked by itself; the options are the trims of the group, with counts.
-  await group.locator('.offer-trim > summary').click();
-  const options = group.locator('.offer-trim-option');
-  await expect(options).toHaveText(['EX-L (10)', 'EX (5)', 'Touring (5)', 'Sem trim (5)']);
-  await expect(group.locator('.offer-trim-option input:checked')).toHaveCount(0);
+  await screen.locator('.oc-trim > summary').click();
+  const options = screen.locator('.offer-trim-option');
+  await expect(options).toHaveText(['EX-L (24)', 'EX (12)', 'Touring (12)', 'Sem trim (12)']);
+  await expect(screen.locator('.offer-trim-option input:checked')).toHaveCount(0);
   // Select a Touring car, then filter by EX-L.
-  await group.locator('.offer-sort-select').selectOption('year_desc');
+  await screen.locator('.oc-sort').selectOption('year_desc');
   const touring = rows.filter({ hasText: 'Touring' }).first();
+  await openCar(touring);
   await touring.locator('[data-offer-action="select"]:visible').click();
-  await expect(touring).toHaveAttribute('data-status', 'SELECTED');
-  await expect(card.locator('.offer-counter')).toContainText('1 de 10');
-  await options.filter({ hasText: 'EX-L (10)' }).locator('input').check();
-  await expect(group.locator('> summary')).toHaveText(/\(10 de 25\)$/);
-  await expect(rows).toHaveCount(10);
-  await expect(group.locator('.manheim-options-toggle')).toHaveCount(0);
-  const trims = await rows.locator('.offer-car').allTextContents();
+  await expect(touring.locator('.offer-row')).toHaveAttribute('data-status', 'SELECTED');
+  await expect(screen.locator('.oc-act .oc-count')).toContainText('1 de 10');
+  await options.filter({ hasText: 'EX-L (24)' }).locator('input').check();
+  await expect(tab).toHaveText(/\(24 de 60\)$/);
+  await expect(rows).toHaveCount(24);
+  await expect(screen.locator('.oc-more-button')).toHaveCount(0);
+  const trims = await rows.locator('.oc-car .oc-l1').allTextContents();
   expect(trims.every((text) => /EX-L|ex l/i.test(text)), trims.join(' | ')).toBe(true);
-  await expect(card.locator('.offer-counter')).toContainText('1 de 10');
-  await expect(group.locator('.offer-trim-outside')).toContainText('1 selecionado fora do filtro');
+  await expect(screen.locator('.oc-act .oc-count')).toContainText('1 de 10');
+  await expect(screen.locator('.offer-trim-outside')).toContainText('1 selecionado fora do filtro');
   // Two trims: EX-L + no trim.
-  await options.filter({ hasText: 'Sem trim (5)' }).locator('input').check();
-  await expect(group.locator('> summary')).toHaveText(/\(15 de 25\)$/);
-  await expect(group.locator('.manheim-options-toggle')).toHaveText('Ver mais (5)');
-  await group.locator('.manheim-options-toggle').click();
-  await expect(rows).toHaveCount(15);
+  await options.filter({ hasText: 'Sem trim (12)' }).locator('input').check();
+  await expect(tab).toHaveText(/\(36 de 60\)$/);
+  await expect(screen.locator('.oc-more')).toHaveText('+ 11 carros · Ver mais');
+  await screen.locator('.oc-more-button').click();
+  await expect(rows).toHaveCount(36);
   // The filter survives a reload; "Limpar filtro" shows everything again.
   await page.reload({ waitUntil: 'domcontentloaded' });
-  const again = (await openOptionsFicha(page, { mode: 'CARRO' })).locator('.offer-group[data-group="LANE"]');
-  await again.locator('> summary').click({ timeout: 60000 });
-  await expect(again.locator('> summary')).toHaveText(/\(15 de 25\)$/);
-  await expect(again.locator('.offer-trim > summary')).toHaveText('Trim (2)');
+  const again = await openOptionsScreen(page, { mode: 'CARRO' });
+  const againTab = again.locator('.oc-tab[data-group="LANE"]');
+  await againTab.click({ timeout: 60000 });
+  await expect(againTab).toHaveText(/\(36 de 60\)$/);
+  await expect(again.locator('.oc-trim > summary')).toHaveText('Trim (2)');
   await again.locator('.offer-trim-outside button', { hasText: 'Limpar filtro' }).click();
-  await expect(again.locator('> summary')).toHaveText(/\(25\)$/);
-  await expect(again.locator('.offer-row')).toHaveCount(10);
+  await expect(againTab).toHaveText(/\(60\)$/);
+  await expect(again.locator('.oc-list .oc-item')).toHaveCount(25);
   const { rows: [{ n }] } = await backend.db.query(`select count(*)::int n from public.manheim_option_selections where status='SELECTED'`);
   expect(n, 'o filtro nunca muda a seleção').toBe(1);
   expect(errors).toEqual([]);
@@ -131,51 +139,55 @@ test('celular: Ordenar e Trim cabem na largura, sem rolagem lateral', async ({ p
   await openPanel(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
-  const group = (await openOptionsFicha(page, { mode: 'CARRO' })).locator('.offer-group[data-group="LANE"]');
-  await group.locator('> summary').click({ timeout: 60000 });
-  await expect(group.locator('.offer-row').first()).toBeVisible();
-  await group.locator('.offer-trim > summary').click();
-  await expect(group.locator('.offer-trim-option').first()).toBeVisible();
+  const screen = await openOptionsScreen(page, { mode: 'CARRO' });
+  await screen.locator('.oc-tab[data-group="LANE"]').click({ timeout: 60000 });
+  await expect(screen.locator('.oc-list .oc-row').first()).toBeVisible();
+  await screen.locator('.oc-trim > summary').click();
+  await expect(screen.locator('.offer-trim-option').first()).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  const box = await group.locator('.offer-trim > summary').boundingBox();
+  const box = await screen.locator('.oc-trim > summary').boundingBox();
   expect(box.x + box.width).toBeLessThanOrEqual(390);
+  const sort = await screen.locator('.oc-sort').boundingBox();
+  expect(sort.x + sort.width).toBeLessThanOrEqual(390);
 });
 
-test('cartão da fila: só abre com apertar e soltar no mesmo lugar livre; dentro da ficha o trim não navega', async ({ page }) => {
+test('cartão da fila: só abre com apertar e soltar no mesmo lugar livre; dentro da tela de opções o trim não navega', async ({ page }) => {
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
   const queueCard = page.locator('#options-queue .options-queue-card[data-mode~="CARRO"]').first();
   await expect(queueCard).toBeVisible({ timeout: 60000 });
-  // Press on the card, the queue is redrawn, the release lands on the card: no ficha.
+  // Press on the card, the queue is redrawn, the release lands on the card: no ficha and no options screen.
   await queueCard.evaluate((card) => {
     card.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     card.querySelector('.options-queue-demand').replaceChildren();
     card.parentElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
   await page.waitForTimeout(500);
-  await expect(page.locator('#detail-panel .ficha-demand')).toHaveCount(0);
+  await expect(page.locator('#detail-panel')).toBeHidden();
   await expect(page.locator('#options-client')).toBeHidden();
-  // A plain press and release on the card opens the client's options screen; the ficha opens from there.
+  await expect(page.locator('#options-queue')).toBeVisible();
+  // A plain press and release on the card opens the client's options screen (where the trim lives).
   await queueCard.evaluate((card) => {
     card.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
-  await page.locator('#options-client').getByRole('button', { name: 'Abrir ficha completa' }).click();
-  const card = fichaSection(page, 'CARRO');
-  await expect(card).toBeVisible({ timeout: 30000 });
-  // Inside the ficha the trim and the groups never navigate: the same ficha stays open.
+  const screen = page.locator('#options-client');
+  await expect(screen.locator('.oc-bar')).toBeVisible({ timeout: 30000 });
+  await expect(screen).toHaveAttribute('data-mode', 'CARRO');
+  // Inside the screen the trim and the tabs never navigate: the same screen stays open.
   const url = page.url();
-  const group = card.locator('.offer-group[data-group="LANE"]');
-  await expect(group.locator('> summary')).toHaveText(/\(25\)$/, { timeout: 60000 });
-  await group.locator('> summary').click();
-  await expect(group.locator('.offer-row')).toHaveCount(10);
-  await group.locator('.offer-trim > summary').click();
-  await group.locator('.offer-trim-option input').first().check();
+  const tab = screen.locator('.oc-tab[data-group="LANE"]');
+  await expect(tab).toHaveText(/\(60\)$/, { timeout: 60000 });
+  await tab.click();
+  await expect(screen.locator('.oc-list .oc-item')).toHaveCount(25);
+  await screen.locator('.oc-trim > summary').click();
+  await screen.locator('.offer-trim-option input').first().check();
   await page.waitForTimeout(500);
   expect(page.url()).toBe(url);
-  await expect(card).toBeVisible();
+  await expect(screen).toBeVisible();
+  await expect(page.locator('#detail-panel')).toBeHidden();
 });
 
 test('selecionados: lista no pedido, remover um e remover todos, e as linhas abertas acompanham', async ({ page }) => {
@@ -184,24 +196,29 @@ test('selecionados: lista no pedido, remover um e remover todos, e as linhas abe
   await openPanel(page);
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-view="searches"]').click();
-  const card = await openOptionsFicha(page, { mode: 'CARRO' });
-  const group = card.locator('.offer-group[data-group="LANE"]');
-  await group.locator('> summary').click({ timeout: 60000 });
-  const rows = group.locator('.offer-row');
-  await expect(rows).toHaveCount(10);
+  const card = await openOptionsScreen(page, { mode: 'CARRO' });
+  const tab = card.locator('.oc-tab[data-group="LANE"]');
+  await tab.click({ timeout: 60000 });
+  const items = card.locator('.oc-list .oc-item');
+  const rows = card.locator('.oc-list .offer-row');
+  await expect(rows).toHaveCount(25);
   // Clean start: whatever an earlier test selected is removed first.
   await backend.db.query(`update public.manheim_option_selections set status='AVAILABLE' where status='SELECTED'`);
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await openOptionsFicha(page, { mode: 'CARRO' });
-  await group.locator('> summary').click({ timeout: 60000 });
-  for (const index of [0, 1, 2]) { await rows.nth(index).locator('[data-offer-action="select"]:visible').click(); await expect(rows.nth(index)).toHaveAttribute('data-status', 'SELECTED'); }
+  await openOptionsScreen(page, { mode: 'CARRO' });
+  await tab.click({ timeout: 60000 });
+  await expect(rows).toHaveCount(25);
+  for (const index of [0, 1, 2]) { await openCar(items.nth(index)); await rows.nth(index).locator('[data-offer-action="select"]:visible').click(); await expect(rows.nth(index)).toHaveAttribute('data-status', 'SELECTED'); }
+  // The selected list opens from the counter of the fixed bar.
   const picked = card.locator('.offer-picked');
+  await expect(picked).toBeHidden();
+  await card.locator('.oc-act .oc-count').click();
   await expect(picked.locator('> summary')).toHaveText('Selecionados para o cliente (3)');
-  await picked.locator('> summary').click();
   await expect(picked.locator('.offer-picked-row')).toHaveCount(3);
   await picked.locator('.offer-picked-row').first().getByRole('button', { name: 'Remover' }).click();
   await expect(picked.locator('> summary')).toHaveText('Selecionados para o cliente (2)');
   await expect(rows.nth(0)).toHaveAttribute('data-status', 'AVAILABLE');
+  await expect(items.nth(0).locator('.oc-row input[type="checkbox"]')).not.toBeChecked();
   const all = picked.locator('.offer-picked-all');
   await all.click();
   await expect(all).toHaveText('Confirmar: remover os 2 selecionados');
@@ -209,7 +226,8 @@ test('selecionados: lista no pedido, remover um e remover todos, e as linhas abe
   await expect(picked).toBeHidden();
   await expect(rows.nth(1)).toHaveAttribute('data-status', 'AVAILABLE');
   await expect(rows.nth(2)).toHaveAttribute('data-status', 'AVAILABLE');
-  await expect(card.locator('.offer-counter')).toContainText('0 de 10');
+  for (const index of [1, 2]) await expect(items.nth(index).locator('.oc-row input[type="checkbox"]')).not.toBeChecked();
+  await expect(card.locator('.oc-act .oc-count')).toContainText('0 de 10');
   const { rows: [{ n }] } = await backend.db.query(`select count(*)::int n from public.manheim_option_selections where status='SELECTED'`);
   expect(n).toBe(0);
   expect(errors).toEqual([]);
