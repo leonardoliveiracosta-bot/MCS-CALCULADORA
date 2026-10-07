@@ -88,16 +88,17 @@
     const calling=append(right,'div','lead-actions');
     if(phones.length){phones.forEach((phone)=>{const line=append(calling,'div','lead-phone');const shown=formatPhone(phone.phone_e164||phone.phone_raw);const link=append(line,'a','lead-call',`${shown}${phone.phone_owner?' — '+phone.phone_owner:''}${phone.is_primary?' · principal':''}`);link.href='tel:'+safeString(phone.phone_e164||phone.phone_raw).replace(/[^\d+]/g,'');button(line,'Copiar',()=>navigator.clipboard.writeText(phone.phone_e164||phone.phone_raw));});}
     else append(calling,'span','muted','Sem telefone, pedir no WhatsApp');
-    const badges=append(heading,'div','lead-badges');
+    // One line under the name: the badges on the left, "Não é lead" and "Excluir" on the right (no empty rows).
+    const headMeta=append(heading,'div','lead-head-meta');const badges=append(headMeta,'div','lead-badges');const headActions=append(headMeta,'div','lead-head-actions');
     // M11: an unknown deadline or payment is shown as unknown, not as "sem prazo" or "à vista".
     badges.append(data.deadlineKnown?badge(deadlineLabel[data.deadlineKnown]||data.deadlineKnown,'green'):badge('Prazo não informado','yellow'),data.paymentKnown?badge(paymentLabel[data.paymentKnown],'green'):badge('Pagamento não informado','yellow'));
     if(data.searchStage)badges.append(badge(data.searchStage.label||({MISSING:'🔍 Busca não salva no Manheim',SAVED:'💾 Busca salva no Manheim',SENT:'📤 Opções enviadas'}[data.searchStage.stage]||''),data.searchStage.stage==='SENT'?'green':data.searchStage.stage==='SAVED'?'':'yellow'));
     if(data.lastCustomerAt) badges.append(badge(`última mensagem do cliente há ${elapsed(data.lastCustomerAt)}`));
     badges.append(badge(record.enabled===false?'DESLIGADO':'LIGADO',record.enabled===false?'red':'green'));
     if(data.disposition)badges.append(badge(data.disposition==='TREATED'?'Tratado':'Descartado',data.disposition==='DISCARDED'?'red':''));
-    if(dispositionControls) heading.append(dispositionControls(order.ref?{kind:'CALCULATOR',ref,disposition:data.disposition}:{kind:'JOURNEY',id:record.id,disposition:data.disposition}));
+    if(dispositionControls) headActions.append(dispositionControls(order.ref?{kind:'CALCULATOR',ref,disposition:data.disposition}:{kind:'JOURNEY',id:record.id,disposition:data.disposition}));
     // Two clicks on the page itself (a browser dialog can be answered "no" without showing up).
-    const restoring=record.contact?.is_lead===false;const leadToggle=button(heading,restoring?'Restaurar como lead':'Não é lead',async()=>{if(leadToggle.dataset.confirmed!=='true'){leadToggle.dataset.confirmed='true';leadToggle.textContent=restoring?'Confirmar: restaurar como lead':'Confirmar: não é lead (as mensagens ficam guardadas)';return;}await api('contact_lead',{isLead:restoring});undoNotice(restoring?'Restaurado como lead':'Marcado como não é lead',()=>api('contact_lead',{isLead:!restoring}));await onChanged();});
+    const restoring=record.contact?.is_lead===false;const leadToggle=button(headActions,restoring?'Restaurar como lead':'Não é lead',async()=>{if(leadToggle.dataset.confirmed!=='true'){leadToggle.dataset.confirmed='true';leadToggle.textContent=restoring?'Confirmar: restaurar como lead':'Confirmar: não é lead (as mensagens ficam guardadas)';return;}await api('contact_lead',{isLead:restoring});undoNotice(restoring?'Restaurado como lead':'Marcado como não é lead',()=>api('contact_lead',{isLead:!restoring}));await onChanged();});
     const aiReading=data.ai?.reading;
     let aiReadingBlock=null;
     if(aiReading){
@@ -130,7 +131,7 @@
       (journeyId?MCSContext.forJourney(journeyId,request):MCSContext.forRef(ref,request)).then((context)=>{if(!slot.isConnected)return;if(!context||context.unlinked){slot.replaceChildren(e('span','lead-label','RESUMO DO CASO'),e('p','muted',context&&context.unlinked||'Resumo indisponível para este caso.'));return;}slot.replaceWith(MCSContext.full(context));})
         .catch(()=>{if(slot.isConnected)slot.replaceChildren(e('span','lead-label','RESUMO DO CASO'),e('p','muted','Não foi possível carregar o resumo agora · O resto da ficha continua valendo'));});}
     if(aiReadingBlock)root.append(aiReadingBlock);
-    // The conversation and the quick result come right after the summary (built below, moved here).
+    // The conversation comes right after the summary (built below, moved here).
     const topAnchor=append(root,'div','lead-top-anchor');
     const trio=append(root,'div','lead-grid lead-two');
     const wishes=section(trio,4,'O QUE ELE QUER');
@@ -254,7 +255,9 @@
     },'small');
     const helpHistory=data.aiHelp||[];if(helpHistory.length){append(note,'h3','','Histórico de ajuda deste lead');helpHistory.forEach((entry)=>append(note,'p','muted',`${date(entry.created_at,data.timezone)} — Você: ${safeString(entry.question).slice(0,150)} · IA: ${safeString(entry.answer_json?.sugestao).slice(0,180)}`));}
 
-    const quick=section(root,3,'RESULTADO RÁPIDO');const quickActions=append(quick,'div','lead-actions');
+    // Resultado rápido lives inside the header card (one card for the call): the buttons on one line, the return date and the
+    // note only open when asked. Anotações writes the note right here (no AI) and the saved notes show below.
+    const quick=append(heading,'div','lead-quick');append(quick,'span','lead-quick-label','Resultado');const quickActions=append(quick,'div','lead-actions lead-quick-actions');
     function undo(event){if(activeUndo)activeUndo.remove();const toast=append(document.body,'div','undo-toast');activeUndo=toast;append(toast,'span','','Resultado registrado');
       button(toast,'Desfazer',async()=>{await api('undo',{eventId:event.eventId});toast.remove();await reload();});setTimeout(()=>{toast.remove();if(activeUndo===toast)activeUndo=null;},10000);}
     async function quickResult(type,dueLocal){
@@ -266,9 +269,20 @@
       await reload();
     }
     [['Atendeu','ANSWERED'],['Não atendeu','NO_ANSWER'],['Conversa presencial','IN_PERSON'],['Vai pagar o depósito','DEPOSIT']].forEach(([label,type])=>button(quickActions,label,()=>quickResult(type)));
-    const later=button(quickActions,'Pediu para ligar depois',()=>{laterForm.hidden=false;});
+    const later=button(quickActions,'Pediu para ligar depois',()=>{laterForm.hidden=false;noteForm.hidden=true;laterDate.focus();});
+    const noteOpen=button(quickActions,'Anotações',()=>{noteForm.hidden=!noteForm.hidden;laterForm.hidden=true;if(!noteForm.hidden)noteInput.focus();});
     const laterForm=append(quick,'div','lead-actions');laterForm.hidden=true;const laterDate=append(laterForm,'input');laterDate.type='datetime-local';append(laterForm,'small','muted','horário do cliente');
     button(laterForm,'Registrar retorno',async()=>{if(!laterDate.value)throw needs('Escolha o dia e a hora do retorno');await quickResult('LATER',laterDate.value);},'small');
+    const noteForm=append(quick,'div','lead-actions lead-quick-note');noteForm.hidden=true;
+    const noteInput=append(noteForm,'textarea','lead-quick-note-text');noteInput.rows=2;noteInput.maxLength=12000;noteInput.placeholder='Escreva a anotação…';noteInput.setAttribute('aria-label','Anotação');
+    button(noteForm,'Inserir',async()=>{const text=noteInput.value.trim();if(!text)throw needs('Escreva a anotação antes de inserir');await api('note',{note:text,proposal:[],selected:[],confirmationKey:crypto.randomUUID()});noteInput.value='';await reload();},'small');
+    const savedNotes=(data.notes||[]).filter((item)=>safeString(item.body_text).trim()).sort((a,b)=>(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0));
+    if(savedNotes.length){
+      const notesList=append(quick,'ul','lead-quick-notes');
+      const noteLine=(parent,item)=>{const line=append(parent,'li');append(line,'span','muted',shortWhen(item.created_at)+' · ');line.append(document.createTextNode(safeString(item.body_text)));};
+      savedNotes.slice(0,3).forEach((item)=>noteLine(notesList,item));
+      if(savedNotes.length>3){const more=append(quick,'details','lead-quick-more');append(more,'summary','',`Ver todas as anotações (${savedNotes.length})`);const rest=append(more,'ul','lead-quick-notes');savedNotes.slice(3).forEach((item)=>noteLine(rest,item));}
+    }
 
     const tracking=section(root,11,'PÁGINA DO CLIENTE','lead-highlight');
     const resultChoice=append(tracking,'div','lead-actions');resultChoice.hidden=true;
@@ -437,8 +451,8 @@
     else {const reason=append(power,'select');[['','Desligar com motivo'],['MCS_PURCHASE','Comprou com a MCS'],['OTHER_PURCHASE','Comprou em outro lugar'],['GAVE_UP','Desistiu'],['NO_RESPONSE','Sem resposta']].forEach(([v,label])=>reason.append(new Option(label,v)));
       const off=button(power,'Desligar',async()=>{await api('manual',{panelAction:'toggle_journey',payload:{enabled:false,reason:reason.value}});undoNotice('Ficha desligada',()=>api('manual',{panelAction:'toggle_journey',payload:{enabled:true}}));await reload();});
       off.disabled=true;off.title='Escolha o motivo';reason.addEventListener('change',()=>{off.disabled=!reason.value;});}
-    // Order on screen: header → case summary → conversation → quick result → the rest.
-    topAnchor.replaceWith(conversation,quick);finalGrid.classList.add('lead-one');
+    // Order on screen: header (with the quick result inside) → case summary → conversation → the rest.
+    topAnchor.replaceWith(conversation);finalGrid.classList.add('lead-one');
     if(downloadShortlist){const matching=(data.offers||[]).map((car)=>({vehicle_json:{parsed:car}}));if(matching.length){const pdfStatus=e('span','status','');button(history,'Baixar PDF',async()=>{pdfStatus.textContent='Preparando o PDF…';try{await downloadShortlist(matching,ref,journeyId);pdfStatus.textContent='PDF pronto · escolha Salvar como PDF';}catch(_){pdfStatus.textContent='Não consegui preparar o PDF, tente de novo';}});history.append(pdfStatus);append(history,'span','muted','PDF com todos os compatíveis do lote · o PDF só dos selecionados para o cliente fica em ENVIAR OPÇÕES');}}
   }
   window.MCSLead={open};
