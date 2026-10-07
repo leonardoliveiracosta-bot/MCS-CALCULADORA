@@ -136,6 +136,13 @@
     if(renderFichaOffersSummary)renderFichaOffersSummary(lotMount,{journeyId:journeyId||null,ref:ref||null,kind,key}).catch(()=>{if(lotMount.isConnected)append(lotMount,'p','warning','Não consegui carregar as opções agora');});
     else append(lotMount,'p','muted','Opções do lote em ENVIAR OPÇÕES');
     const shortWhen=(value)=>{try{return new Intl.DateTimeFormat('pt-BR',{timeZone:data.timezone||'America/New_York',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value)).replace(' ',' ');}catch(_){return '';}};
+    // "Já apresentados" (back in the ficha, inside OPÇÕES NO LOTE): the cars registered as presented and the cars of a
+    // V1/V2 whose /v/ link went in the conversation (sent by hand), once per car.
+    const unitMatches=new Set((record.units||[]).map((unit)=>unit.details_json&&unit.details_json.manheim_match_id).filter(Boolean));
+    const byLink=(record.sentByLink||[]).flatMap((sent)=>sent.cars.filter((car)=>!car.matchId||!unitMatches.has(car.matchId)).map((car)=>({text:car.vehicleText,at:sent.sentAt,key:car.matchId||car.vin||car.vehicleText})));
+    const linkSeen=new Set();const linkCars=byLink.filter((car)=>car.text&&!linkSeen.has(car.key)&&linkSeen.add(car.key));
+    const shownCars=[...(record.units||[]).map((unit)=>unit.vehicle_text+(unit.presented_at?` (${shortWhen(unit.presented_at)})`:'')),...linkCars.map((car)=>car.text+(car.at?` (link enviado ${shortWhen(car.at)})`:' (link enviado)'))];
+    const presented=e('p','context-presented',`Já apresentados: ${shownCars.length?shownCars.join(' · '):'nenhum carro'}`);lot.insertBefore(presented,lotMount);
 
     const note=section(root,10,'O QUE A IA NÃO VIU','lead-highlight');
     append(note,'p','muted','Alimente aqui com o que não está na conversa: ligação, pessoalmente, qualquer informação que a IA não tem como saber');
