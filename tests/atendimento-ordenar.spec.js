@@ -35,12 +35,12 @@ test('Ordenar · Mais recentes muda a ordem dos cartões', async ({ page }) => {
   await page.goto(base + '/painel/', { waitUntil: 'domcontentloaded' });
   const cards = page.locator('#today-list .case-card');
   await expect(cards).toHaveCount(2, { timeout: 30000 });
-  await expect(cards.nth(0)).toContainText('Antiga Espera');
+  await expect(cards.nth(0)).toHaveAttribute('data-journey-id', OLD.id);
   await page.selectOption('#today-sort', 'recent');
-  await expect(cards.nth(0)).toContainText('Recente Conversa', { timeout: 15000 });
-  await expect(cards.nth(1)).toContainText('Antiga Espera');
+  await expect(cards.nth(0)).toHaveAttribute('data-journey-id', NEW.id, { timeout: 15000 });
+  await expect(cards.nth(1)).toHaveAttribute('data-journey-id', OLD.id);
   await page.selectOption('#today-sort', 'oldest');
   await page.selectOption('#today-sort', 'recent');
-  await expect(cards.nth(0)).toContainText('Recente Conversa', { timeout: 15000 });
+  await expect(cards.nth(0)).toHaveAttribute('data-journey-id', NEW.id, { timeout: 15000 });
   expect(errors).toEqual([]);
 });

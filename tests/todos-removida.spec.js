@@ -101,7 +101,8 @@ test('"sem resposta há +24 h" da faixa dos números filtra a lista com o filtro
   // Only the client whose last real message is theirs and older than 24 h (not the recent one, not one
   // answered by the MCS, not an automatic message).
   await expect(page.locator('#today-list .case-card')).toHaveCount(1, { timeout: 30000 });
-  await expect(page.locator('#today-list .case-card')).toContainText('Ana Atrasada');
+  // The name is not a column of the table: the row is Ana's ficha.
+  await expect(page.locator('#today-list .case-card')).toHaveAttribute('data-journey-id', id(1));
   await expect(page.locator('[data-today-stat="late24"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-today-stat="late24"] strong')).toHaveText('1');
   // Clicking the same number again shows every case of the list again.
