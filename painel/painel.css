@@ -282,3 +282,17 @@ nav[aria-label="Seções do painel"]{
 .offers-summary .offers-summary-groups { flex-basis: 100%; color: var(--mcs-text-2, #52525B); }
 .offers-summary .search-empty-reason { flex-basis: 100%; }
 .offers-summary .reality-typical { margin: 0 0 6px; }
+
+/* ENVIAR OPÇÕES: somente apresentação. Mesma fila, filtros, ordenação e ações; cards viram linhas compactas. */
+#searches-panel #options-queue{display:block;margin:0;padding:0}
+#searches-panel .options-queue-list-head,#searches-panel .options-queue-list-row{display:grid;grid-template-columns:minmax(130px,1.05fr) minmax(125px,.9fr) minmax(72px,.55fr) minmax(260px,2.2fr) minmax(76px,.55fr) minmax(150px,1.15fr) minmax(54px,.42fr) minmax(150px,1.05fr);align-items:center;gap:10px;padding:0 12px}
+#searches-panel .options-queue-list-head{min-height:40px;border-bottom:2px solid #2B7BD6;background:#fff;color:#171A20;font-size:14px;font-weight:700}
+#searches-panel .options-queue-list-row{min-height:58px;margin:0;border:0;border-radius:0;box-shadow:none;background:#fff;color:#171A20;font-size:14px;cursor:pointer}
+#searches-panel .options-queue-list-row:nth-of-type(odd){background:#F2F3F5}
+#searches-panel .options-queue-list-row:hover{background:#E9EBEE}
+#searches-panel .options-queue-cell{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#searches-panel .options-queue-name{font-weight:700}
+#searches-panel .options-queue-options{text-align:center;font-weight:700}
+#searches-panel .options-queue-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;overflow:visible;white-space:normal}
+#searches-panel .options-queue-actions button{margin:0;white-space:nowrap}
+@media(max-width:760px){#searches-panel .options-queue-list-head{display:none}#searches-panel .options-queue-list-row{grid-template-columns:1fr auto;gap:5px 10px;padding:12px 16px;border-bottom:1px solid #E3E5E8}#searches-panel .options-queue-cell{grid-column:1;white-space:normal}#searches-panel .options-queue-cell:empty{display:none}#searches-panel .options-queue-cell::before{content:attr(data-label) ": ";font-weight:700}#searches-panel .options-queue-actions{grid-column:2;grid-row:1 / span 8;align-self:center;flex-direction:column}#searches-panel .options-queue-actions::before{display:none}}

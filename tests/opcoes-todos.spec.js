@@ -17,7 +17,7 @@ const ago = (hours) => new Date(Date.now() - hours * HOUR).toISOString();
 const id = (n) => `6e200000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const NAMES = ['Ana Carro', 'Bia Sem Carro', 'Caio Atualizar', 'Duda Falta', 'Eva V1', 'Fabio Sem Pedido'];
 const journeys = NAMES.map((name, index) => ({
-  id: id(index + 1), reference_code: 'REF' + (index + 1) + 'X', status: 'ATIVO', stage: 'RESPONDIDO', enabled: true, name, contact: { display_name: name }, phones: [],
+  id: id(index + 1), reference_code: 'REF' + (index + 1) + 'X', status: 'ATIVO', stage: 'RESPONDIDO', enabled: true, name, state: index === 0 ? 'FL' : '', contact: { display_name: name }, phones: [],
   created_at: ago(48), simulations: [{ occurredAt: ago(200 - index * 10) }], contactAt: ago(index + 1), contactMedium: 'WHATSAPP', contactChannel: 'WHATSAPP', latestMessage: { direction: 'CUSTOMER', occurred_at_utc: ago(index + 1) }
 }));
 const wish = [{ make: 'Honda', model: 'CR-V', yearMin: 2019, yearMax: 2022 }];
@@ -60,16 +60,17 @@ test('ENVIAR OPÇÕES: todos, com o motivo de quem não tem carro; Atualizar com
   const names = await cards.evaluateAll((list) => list.map((card) => (card.innerText.match(/Ana Carro|Bia Sem Carro|Caio Atualizar|Duda Falta|Eva V1|Fabio Sem Pedido/) || ['?'])[0]));
   expect(names).toEqual(NAMES);
   const card = (name) => cards.filter({ hasText: name });
-  const summary = (name) => card(name).locator('.options-queue-reason');
-  await expect(summary('Ana Carro')).toHaveText('1 pedido · 2 carros aguardando');
-  await expect(summary('Bia Sem Carro')).toHaveText('1 pedido · 1 sem resultado no lote atual');
-  await expect(summary('Caio Atualizar')).toHaveText('1 pedido · 1 não comparado com o lote atual');
-  await expect(summary('Duda Falta')).toHaveText('Busca ainda não feita · Falta o modelo');
-  // V1 sent and cars waiting: both states show, the cars are never hidden.
-  await expect(summary('Eva V1')).toHaveText('1 pedido · 1 carro aguardando · V1 já enviada');
-  await expect(summary('Fabio Sem Pedido')).toHaveText('Busca ainda não feita · nenhum pedido de carro registrado');
+  await expect(page.locator('.options-queue-list-head')).toHaveText(/Cliente.*Telefone.*Ref.*Pedido.*Opções.*Prazo.*Estado.*Ação/);
+  const options = (name) => card(name).locator('.options-queue-options');
+  await expect(options('Ana Carro')).toHaveText('2');
+  await expect(options('Bia Sem Carro')).toHaveText('Sem resultado');
+  await expect(options('Caio Atualizar')).toHaveText('Não comparado');
+  await expect(options('Duda Falta')).toHaveText('Busca não feita');
+  await expect(options('Eva V1')).toHaveText('1');
+  await expect(options('Fabio Sem Pedido')).toHaveText('Busca não feita');
   await expect(card('Ana Carro').locator('.options-queue-demand')).toContainText('Por carro · Honda CR-V · 2019 a 2022');
-  await expect(card('Ana Carro').locator('.options-queue-demand')).toContainText('2 carros aguardando');
+  await expect(card('Ana Carro').locator('.options-queue-state')).toHaveText('FL');
+  await expect(card('Ana Carro').getByRole('button', { name: 'Ver opções' })).toBeVisible();
   await expect(page.locator('#options-queue-count')).toHaveText('6 na fila · toque na linha para ver as opções do cliente');
   // The tab still counts who has cars and is waiting for the V1.
   await expect(page.locator('.tab[data-view="searches"] [data-count]')).toHaveText('1');
