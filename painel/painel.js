@@ -931,10 +931,6 @@
     const right = { name: (ficha.names || []).length ? ficha.names.join(' / ') : 'Sem nome na ficha', detail: [fichaChannel && fichaDay ? `${fichaChannel}, última mensagem ${fichaDay}` : fichaChannel || '', link.ref ? `Ref ${link.ref}` : ''].filter(Boolean).join(' · ') };
     return { left, right };
   }
-  const pendingNameLinks = (journeyId) => journeyId ? nameLinks.filter((link) => link.journeyId === journeyId) : [];
-  function nameConflictRows(journeyId) {
-    return pendingNameLinks(journeyId).map((link) => { const { left, right } = nameLinkSides(link); return ['Nomes', `${left.name} (${left.detail}) ≠ ${right.name}${right.detail ? ` (${right.detail})` : ''}`, 'case-request-line case-name-conflict']; });
-  }
   function renderNameLinks() {
     const root = $('name-link-reviews');
     if (!root) return;
@@ -1585,7 +1581,7 @@
   function clientSection(root,key,label,hint,count){
     let section=root.querySelector(`[data-group="${key}"]`);if(section)return section;
     const folded=key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD';
-    section=element(folded?'details':'section',`contact-group contact-group-${key.toLowerCase().replace(/_/g,'-')}`);section.dataset.group=key;
+    section=element(folded?'details':'section',`contact-group contact-group-${key.toLowerCase().replace(/_/g,'-')}`);section.dataset.group=key;section.dataset.total=String(count);
     const head=element(folded?'summary':'header','contact-group-head');head.append(element('strong','contact-group-label',label),element('span','badge contact-group-count',String(count)),element('span','muted contact-group-hint',hint));section.append(head);
     const list=root.querySelector('.clients-more');if(list)root.insertBefore(section,list);else root.append(section);return section;
   }
@@ -1593,7 +1589,7 @@
   // conversation with the search still incomplete, direct conversation with the search defined.
   function clientArea(section,sectionKey,areaKey,count){
     let area=section.querySelector(`:scope > [data-area="${areaKey}"]`);if(area)return area;
-    const spec=MCSGroups.AREAS[areaKey];area=element('section',`contact-area contact-area-${areaKey.toLowerCase().replace(/_/g,'-')}`);area.dataset.area=areaKey;area.dataset.section=sectionKey;
+    const spec=MCSGroups.AREAS[areaKey];area=element('section',`contact-area contact-area-${areaKey.toLowerCase().replace(/_/g,'-')}`);area.dataset.area=areaKey;area.dataset.section=sectionKey;area.dataset.total=String(count);
     const head=element('header','contact-area-head');head.append(element('strong','contact-area-label',spec.label),element('span','badge contact-area-count',String(count)),element('span','muted contact-area-hint',spec.hint));area.append(head);section.append(area);return area;
   }
   // "Conversas sem Ref" is one block, organized by the subject (same order as ATENDIMENTO); a subject appears when it has someone.
@@ -1610,16 +1606,31 @@
   function refreshSubjectCounts(box){box.querySelectorAll(':scope > .contact-subject').forEach((part)=>{const count=part.querySelector('.contact-subject-count');if(count)count.textContent=String(part.querySelectorAll('.client-card').length);});}
   // The cards of a section, area or subject sit in the same 3-column grid as ATENDER AGORA.
   function clientGrid(holder){let grid=holder.querySelector(':scope > .client-grid');if(!grid){grid=element('div','client-grid contact-group-flat');holder.append(grid);}return grid;}
+  // "Mais" never repeats the TODOS list above it: a client whose case is already there has no card here (the server
+  // list, its filters and the spreadsheet stay whole). Without the TODOS list loaded, nothing is hidden.
+  const todosJourneyIds=()=>{try{return new Set(attendModel(todayItems).cases.filter((entry)=>MCSAttend.inBucket(entry,'todos')).map((entry)=>entry.journeyId).filter(Boolean).map(String));}catch(_){return new Set();}};
+  // Section and area counts stay the server totals, minus the clients hidden because they are in TODOS.
+  let clientsHiddenInTodos=0,clientsHiddenBy=new Map();
+  const clientSectionKey=(item)=>item.isLead===false?'NAO_LEAD':(item.group?.key||'ATENDIDO');
+  function refreshClientCounts(root){
+    root.querySelectorAll('.contact-group[data-group], .contact-area[data-area]').forEach((box)=>{const area=box.classList.contains('contact-area'),key=area?box.dataset.section+':'+box.dataset.area:box.dataset.group;
+      const count=box.querySelector(area?':scope > .contact-area-head .contact-area-count':':scope > .contact-group-head .contact-group-count');if(count&&box.dataset.total!==undefined)count.textContent=String(Math.max(0,Number(box.dataset.total)-(clientsHiddenBy.get(key)||0)));});
+    const note=$('clients-todos-note');if(note)note.textContent=clientsHiddenInTodos?`${clientsHiddenInTodos} cliente(s) desta lista já estão no TODOS acima e não se repetem aqui`:'';
+  }
   function appendClients(root,data){
     const sections=data.counts?.sections||{},areaCounts=data.counts?.areas||{};
     // A page loaded after something changed may repeat a card already shown: it is shown once.
     const shown=new Set([...root.querySelectorAll('.client-card[data-journey-id]')].map((card)=>card.dataset.journeyId));
-    data.items.filter((item)=>!shown.has(String(item.id))).forEach((item)=>{const key=item.isLead===false?'NAO_LEAD':(item.group?.key||'ATENDIDO');const spec=key==='NAO_LEAD'?{label:'Não é lead',hint:'Marcados como não é lead · ficam fora das contagens e podem ser restaurados'}:MCSGroups.SECTIONS[key];
+    const inTodos=todosJourneyIds();
+    const fresh=data.items.filter((item)=>!shown.has(String(item.id)));
+    fresh.filter((item)=>inTodos.has(String(item.id))).forEach((item)=>{const key=clientSectionKey(item);clientsHiddenInTodos+=1;[key,key+':'+MCSGroups.areaOf(item)].forEach((name)=>clientsHiddenBy.set(name,(clientsHiddenBy.get(name)||0)+1));});
+    fresh.filter((item)=>!inTodos.has(String(item.id))).forEach((item)=>{const key=clientSectionKey(item);const spec=key==='NAO_LEAD'?{label:'Não é lead',hint:'Marcados como não é lead · ficam fora das contagens e podem ser restaurados'}:MCSGroups.SECTIONS[key];
       const section=clientSection(root,key,spec.label,spec.hint,sections[key]||0);const card=clientCard(item);card.dataset.group=key;
       const areaKey=MCSGroups.areaOf(item);card.dataset.area=areaKey;card.dataset.journeyId=String(item.id);
       // Off-topic and "não é lead" stay as one list (no search to separate).
       if(key==='FORA_DO_ASSUNTO'||key==='NAO_LEAD')clientGrid(section).append(card);
       else{const box=clientArea(section,key,areaKey,(areaCounts[key]||{})[areaKey]||0);clientGrid(areaKey==='SEM_REF'?clientSubject(box,item):box).append(card);if(areaKey==='SEM_REF')refreshSubjectCounts(box);}});
+    refreshClientCounts(root);
     root.querySelector('.clients-more')?.remove();clientsObserver?.disconnect();
     if(data.hasMore){const remaining=data.total-data.page*data.pageSize,more=element('button','quiet clients-more',`Mostrar mais (${remaining} restantes)`);more.type='button';more.dataset.page=String(data.page+1);
       const next=()=>{if(more.disabled||clientsRestoring)return;more.disabled=true;more.textContent='Carregando…';loadClientsPage(data.page+1).catch(()=>{more.disabled=false;more.textContent=`Mostrar mais (${remaining} restantes)`;});};
@@ -1632,10 +1643,11 @@
     renderPendingGeneral(data.pending||{},'clients-general-card');renderClientStats(counts);
     const shown=counts.shownLeads||0,period=counts.periodLeads||0;
     $('clients-period-note').textContent=(clientsPeriod()==='all'?`Período: tudo, sem corte por data`:`Período: atividade real ${MCSOrigin.periodLabel(clientsPeriod())}`)+` · ${shown} de ${period} clientes nesta lista · ${Math.max(0,period-shown)} fora dos filtros`+(counts.nonLeads?` · ${counts.nonLeads} não é lead (fora da contagem)`:'');
-    const root=$('clients-list');root.replaceChildren();
+    const root=$('clients-list');root.replaceChildren();clientsHiddenInTodos=0;clientsHiddenBy=new Map();
     // M28: the ">24 h" shortcut from the weekly summary is a visible filter that can be cleared.
-    if(!data.items.length){root.append(element('p','empty-state','Nenhum cliente neste filtro'));return;}
+    if(!data.items.length){refreshClientCounts(root);root.append(element('p','empty-state','Nenhum cliente neste filtro'));return;}
     appendClients(root,data);
+    if(!root.querySelector('.client-card')&&!data.hasMore)root.prepend(element('p','empty-state','Todos os clientes deste filtro já estão no TODOS acima'));
   }
   async function loadClientsPage(page){const version=clientsVersion;const data=await request(clientsQuery({page:String(page)}));if(version!==clientsVersion||!clientsOpen())return;clientsPagesLoaded=Math.max(clientsPagesLoaded,page);appendClients($('clients-list'),data);}
   // Old conversations to pick up, oldest first, loaded only when the section is opened.
@@ -2766,10 +2778,9 @@
   }
 
 
-  // ---------- ATENDIMENTO em lista: uma linha por caso, as mesmas informações do cartão ----------
+  // ---------- ATENDIMENTO em tabela (aba TODOS): uma linha por caso ----------
   // Espera: o tempo do cartão ("WhatsApp há 8 dias · sem resposta") dividido em tempo e canal, com a
-  // decisão pendente quando houver. A bolinha é a única cor: dourada < 24 h, laranja até 7 dias,
-  // vermelha acima. Caso sem tempo (aguardando, agendado, só decisão): o texto curto de hoje, sem bolinha.
+  // decisão pendente quando houver. Caso sem tempo (aguardando, agendado, só decisão): o texto curto de hoje.
   const ATTEND_DAY_MS = 86400000;
   function attendWait(entry, item) {
     if (!item && entry.bucket === 'completar') return MCSCompleting.wait(attendIdentity.get(entry.journeyId));
@@ -2787,21 +2798,6 @@
     const extra = status.slice(label.length).replace(/^\s*·\s*/, '');
     return { tone, main: parts[2], sub: [parts[1], parts[3], extra].filter(Boolean).join(' · ') };
   }
-  // "33101 · Miami · FL" (ou só o número, buscado uma vez como no cartão) em cidade · estado e CEP.
-  function fillAttendPlace(cityNode, zipNode, value) {
-    const text = String(value || '').trim();
-    const found = /^(\d{5})(?:-\d{4})?\b\s*(?:[·—-]\s*)?(.*)$/.exec(text);
-    if (!found) { cityNode.textContent = text || '—'; zipNode.textContent = ''; return; }
-    const zip = found[1], rest = found[2].trim();
-    zipNode.textContent = zip;
-    if (rest && !/^[A-Z]{2}$/.test(rest) && !/recogni|reconhec|reconoc|identif/i.test(rest)) { cityNode.textContent = rest.replace(/\s*,\s*/, ' · '); return; }
-    cityNode.textContent = rest || '—';
-    let cached = null; try { cached = localStorage.getItem('mcs_zip_' + zip); } catch {}
-    if (cached) { cityNode.textContent = cached; return; }
-    if (!zipPlaces.has(zip)) zipPlaces.set(zip, fetch('https://api.zippopotam.us/us/' + zip).then((response) => response.ok ? response.json() : null).then((data) => { const place = data && data.places && data.places[0]; const found = place ? `${place['place name']} · ${place['state abbreviation']}` : null; if (found) { try { localStorage.setItem('mcs_zip_' + zip, found); } catch {} } return found; }).catch(() => null));
-    zipPlaces.get(zip).then((found) => { if (found && cityNode.isConnected) cityNode.textContent = found; });
-  }
-  const attendCell = (cls, main, sub, mainCls) => { const cell = element('div', 'attend-cell ' + cls); const one = element('div', 'attend-l1' + (mainCls ? ' ' + mainCls : ''), main || ''); cell.append(one); if (sub !== undefined && sub !== null) cell.append(element('div', 'attend-l2', sub)); return cell; };
   // What the row search reads of a case: phone digits, Ref, car and name.
   function attendHaystack(entry) {
     const item = entry.item;
@@ -2835,12 +2831,44 @@
     link.addEventListener('click', (event) => { event.stopPropagation(); if (window.MCSWaLink) { event.preventDefault(); window.MCSWaLink.open(link.href); } });
     return link;
   }
-  function attendRefNode(ref) {
-    const code = /^[A-Z0-9]{5}$/.test(String(ref || ''));
-    return element('span', code ? 'attend-ref' : 'attend-ref attend-ref-none', code ? 'REF ' + ref : ref === 'a recuperar' ? 'Ref a recuperar' : ref ? 'Sem Ref' : '');
+  // TODOS em tabela (como uma planilha): uma linha por caso, uma linha de texto em cada coluna. Texto longo termina
+  // em "…" e aparece inteiro ao passar o mouse; campo sem informação fica em branco.
+  // Colunas: Espera · Canal · Ref · Telefone · Carro · Valor · Ano · Milha · Origem · Estado (e ⋯ quando há decisão).
+  const ATTEND_CHANNELS = { WHATSAPP: 'WhatsApp', SMS: 'SMS' };
+  const attendChannelOf = (value) => { const text = String(value || '').toUpperCase(); return /SMS/.test(text) ? 'SMS' : /WHATSAPP/.test(text) ? 'WhatsApp' : ''; };
+  // Espera without the channel (it has its own column): "8 dias · sem resposta · Confirmar vínculo".
+  function attendWaitParts(wait) {
+    const parts = [wait.main, ...String(wait.sub || '').split(' · ')].map((one) => String(one || '').trim()).filter(Boolean);
+    const channel = parts.map(attendChannelOf).find((one, index) => one && Object.values(ATTEND_CHANNELS).includes(parts[index])) || '';
+    return { text: parts.filter((one) => !Object.values(ATTEND_CHANNELS).includes(one)).join(' · '), channel };
   }
-  // One row = one case: caixinha, espera, cliente, carro, pedido, local, falta para buscar, ⋯ Mais or ›.
-  // The whole row opens the same screen the card button opened (Responder → ficha on the conversation).
+  // Origem: the calculator when it is known; Financiamento (the site's financing form); Site (came from the site,
+  // calculator not known); blank when it did not come from the site.
+  const attendOriginGroup = (origin) => origin ? origin.group || String(origin.key || '').split(':')[0] : '';
+  function attendOrigin(item, origin) {
+    const facts = (item && item.cardFacts && item.cardFacts.modes) || [];
+    const modes = facts.length ? facts : (item && item.logicalModes) || [item && item.group && item.group.calcMode].filter(Boolean);
+    const names = [modes.includes('VALOR') && 'Calculate My Cost', modes.includes('CARRO') && 'Find One For Me'].filter(Boolean);
+    if (names.length) return names.join(' · ');
+    if (origin && origin.financing) return 'Financiamento';
+    return attendOriginGroup(origin) === 'CALCULADORA' ? 'Site' : '';
+  }
+  // Estado: the state of the client's ZIP ("33101 — Miami, FL", or only the number, looked up once as before).
+  function fillAttendState(cell, value) {
+    const text = String(value || '').trim();
+    const written = /(?:^|[\s,·—-])([A-Z]{2})\s*$/.exec(text.replace(/^\d{5}(?:-\d{4})?/, ''));
+    const put = (state) => { cell.textContent = state; cell.title = state; };
+    if (written && !/^\d/.test(written[1])) return put(written[1]);
+    const zip = (/^(\d{5})/.exec(text) || [])[1];
+    if (!zip) return;
+    const stateOf = (place) => (/·\s*([A-Z]{2})\s*$/.exec(String(place || '')) || [])[1] || '';
+    let cached = null; try { cached = localStorage.getItem('mcs_zip_' + zip); } catch {}
+    if (cached) return put(stateOf(cached));
+    if (!zipPlaces.has(zip)) zipPlaces.set(zip, fetch('https://api.zippopotam.us/us/' + zip).then((response) => response.ok ? response.json() : null).then((data) => { const place = data && data.places && data.places[0]; const found = place ? `${place['place name']} · ${place['state abbreviation']}` : null; if (found) { try { localStorage.setItem('mcs_zip_' + zip, found); } catch {} } return found; }).catch(() => null));
+    zipPlaces.get(zip).then((found) => { if (found && cell.isConnected) put(stateOf(found)); });
+  }
+  // A cell with one line of text; the whole text on hover. Empty when there is nothing to show.
+  const attendText = (cls, label, text) => { const cell = element('div', 'attend-cell ' + cls); cell.dataset.label = label; const value = String(text || '').trim(); if (value) { cell.textContent = value; cell.title = value; } return cell; };
   function attendRow(entry) {
     const item = entry.item;
     const row = element('article', 'attend-row case-card');
@@ -2851,67 +2879,46 @@
     if (item) row.attendItem = item;
     else row.attendShell = { journeyId: uuidOnly(entry.journeyId) || null, chats: entry.decisions.filter((decision) => decision.kind === 'TRIAGEM' && decision.chatId).map((decision) => decision.chatId) };
     const pick = element('div', 'attend-cell attend-pick'); pick.append(pickBox(row)); row.append(pick);
-    // Espera
-    const wait = attendWait(entry, item);
-    const waitCell = element('div', 'attend-cell attend-wait');
-    if (wait.tone) { const dot = element('span', 'attend-dot attend-dot-' + wait.tone); dot.setAttribute('aria-hidden', 'true'); waitCell.append(dot); }
-    const waitText = element('div', 'attend-wait-text'); waitText.append(element('div', 'attend-l1', wait.main)); if (wait.sub) waitText.append(element('div', 'attend-l2', wait.sub));
-    waitCell.append(waitText); row.append(waitCell);
-    // Cliente: telefone, REF (e o nome, quando há) e as linhas extras do cartão (nomes em conflito, código interno)
-    let phone = '', ref = '', name = '';
-    const extras = nameConflictRows(entry.journeyId).map(([label, value]) => [`${label}: ${value}`, 'case-name-conflict']);
+    // Data of the case: from the item, or (a case without one) from its decisions and the ficha's identity.
+    const identity = entry.journeyId && attendIdentity.get(entry.journeyId);
+    const known = identity && identity !== 'loading' ? identity : null;
+    let phone = '', ref = '', origin = item && item.group && item.group.origin || known?.origin || null;
     if (item) {
       const own = primaryPhone(item); phone = own ? (own.phone_e164 || own.phone_raw || '') : '';
-      ref = calcRefOf(item) || (refStateOf(item) === 'A_RECUPERAR' ? 'a recuperar' : 'sem Ref');
-      const raw = String(item.contactName || item.name || item.contact?.display_name || '').trim(); name = realName(raw) ? raw : '';
-      if (!calcRefOf(item) && item.internalCode) extras.push([`Código ${item.internalCode} · interno, não é Ref da calculadora`, 'case-internal-code']);
+      ref = calcRefOf(item) || '';
     } else {
-      const first = entry.decisions[0] || entry.requests[0] || {};
-      const identity = entry.journeyId && attendIdentity.get(entry.journeyId);
-      const known = identity && identity !== 'loading' ? identity : null;
-      name = [first.name, first.sourceName, known?.name].find(realName) || '';
       phone = [...entry.decisions, ...entry.requests].map((one) => one.phone || '').find(Boolean) || '';
-      ref = known ? (known.calcRef || 'sem Ref') : '';
-      if (entry.bucket === 'completar' && known) {
-        phone = known.phones[0] || phone;
-        if (!known.calcRef && known.internalCode) extras.push([`Código ${known.internalCode} · interno, não é Ref da calculadora`, 'case-internal-code']);
-      }
+      ref = known?.calcRef || '';
+      if (entry.bucket === 'completar' && known) phone = known.phones[0] || phone;
     }
-    const client = element('div', 'attend-cell attend-client');
-    const phoneLine = element('div', 'attend-l1'); phoneLine.append(attendPhone(phone)); client.append(phoneLine);
-    const refLine = element('div', 'attend-l2 attend-ref-line'); refLine.append(attendRefNode(ref)); if (name) refLine.append(element('span', 'attend-name', (ref ? ' · ' : '') + name)); client.append(refLine);
-    extras.forEach(([text, cls]) => client.append(element('div', 'attend-l2 attend-extra ' + cls, text)));
-    row.append(client);
-    // Carro · calculadora, Pedido, Local
+    const wait = attendWaitParts(attendWait(entry, item));
+    const originSub = origin ? origin.sub || String(origin.key || '').split(':')[1] || '' : '';
+    const channel = wait.channel || ATTEND_CHANNELS[originSub] || '';
     const fields = item ? caseRequestFields(item) : [];
-    const value = (label) => (fields.find(([one]) => one === label) || [])[1];
+    const value = (label) => { const found = (fields.find(([one]) => one === label) || [])[1]; return found && found !== 'não informado' ? found : ''; };
     const cars = [...new Set(fields.filter(([label]) => /^Carro/.test(label)).map(([, one]) => one).filter((one) => one && one !== 'não informado'))];
-    const calc = item ? calculatorLabel(item).replace(/\s\((por [^)]+)\)/g, ' · $1') : '';
-    row.append(attendCell('attend-car', cars.join(' · ') || (item ? 'Carro não informado' : '—'), calc || null, cars.length ? '' : 'attend-muted'));
-    const order = element('div', 'attend-cell attend-order attend-right');
-    const bid = value('Lance máximo'), years = value('Anos'), miles = value('Milhas');
-    if (bid !== undefined) { order.append(element('div', 'attend-l1', bid), element('div', 'attend-l2', 'lance máximo')); }
-    if (years !== undefined || miles !== undefined) { order.append(element('div', 'attend-l1' + (bid !== undefined ? ' attend-l1-next' : ''), years || 'não informado'), element('div', 'attend-l2', miles || 'não informado')); }
-    if (!order.childElementCount) order.append(element('div', 'attend-l1 attend-muted', '—'));
-    row.append(order);
-    const place = element('div', 'attend-cell attend-place'); const city = element('div', 'attend-l1'), zip = element('div', 'attend-l2');
-    place.append(city, zip); fillAttendPlace(city, zip, value('ZIP')); row.append(place);
-    // Falta para buscar
-    const lacks = element('div', 'attend-cell attend-lacks');
-    const labels = [...new Set((entry.requests || []).flatMap(lacksOf))];
-    if (labels.length) { const chips = element('div', 'attend-chips'); labels.forEach((label) => chips.append(element('span', 'attend-chip', label))); lacks.append(chips); }
-    else lacks.append(element('span', 'attend-muted', '—'));
-    row.append(lacks);
+    row.append(attendText('attend-wait', 'Espera', wait.text));
+    row.append(attendText('attend-channel', 'Canal', channel));
+    row.append(attendText('attend-ref', 'Ref', /^[A-Z0-9]{5}$/.test(ref) ? ref : ''));
+    const phoneCell = element('div', 'attend-cell attend-tel'); phoneCell.dataset.label = 'Telefone';
+    if (String(phone || '').replace(/\D/g, '')) { const link = attendPhone(phone); link.title = link.textContent; phoneCell.append(link); }
+    row.append(phoneCell);
+    row.append(attendText('attend-car', 'Carro', cars.join(' · ')));
+    row.append(attendText('attend-value', 'Valor', value('Lance máximo')));
+    row.append(attendText('attend-year', 'Ano', value('Anos')));
+    row.append(attendText('attend-miles', 'Milha', value('Milhas')));
+    row.append(attendText('attend-origin', 'Origem', attendOrigin(item, origin)));
+    const state = attendText('attend-state', 'Estado', ''); fillAttendState(state, value('ZIP')); row.append(state);
     // ⋯ Mais: only the decision controls of the case (they exist nowhere else) and the missing SMS print.
     const end = element('div', 'attend-cell attend-end');
-    const more = element('details', 'card-more case-more attend-more-menu'); more.append(element('summary', '', '⋯ Mais'));
+    const more = element('details', 'card-more case-more attend-more-menu'); const moreSummary = element('summary', '', '⋯'); moreSummary.title = 'Decisão pendente'; moreSummary.setAttribute('aria-label', 'Decisão pendente'); more.append(moreSummary);
     more.addEventListener('click', (event) => event.stopPropagation());
     const body = element('div', 'case-more-body'); const holder = element('div', 'case-decisions'); holder.dataset.caseKey = entry.key; body.append(holder); more.append(body);
     const smsMissing = item ? smsPrintMissing(item) : null; if (smsMissing) body.prepend(smsMissing);
     more.addEventListener('toggle', () => { if (more.open) closeOtherMores(more); });
     entry.decisions.forEach((decision) => { const one = decisionRow(decision.key); if (one) holder.append(one); });
     if (!holder.childElementCount) holder.remove();
-    if (body.childElementCount) end.append(more); else end.append(element('span', 'attend-chev', '›'));
+    if (body.childElementCount) end.append(more);
     row.append(end);
     // The whole row opens what the card button opened.
     if (item) {

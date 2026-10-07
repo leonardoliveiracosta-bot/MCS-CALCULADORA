@@ -1,7 +1,7 @@
 'use strict';
 
-// ATENDIMENTO em lista (aba TODOS): só visual. Uma linha por caso, as mesmas informações do cartão,
-// a lista sempre com todos os casos (as pílulas de classificação saíram) e a cor só na bolinha da espera.
+// ATENDIMENTO em tabela (aba TODOS): só visual. Uma linha por caso com Espera · Canal · Ref · Telefone · Carro ·
+// Valor · Ano · Milha · Origem · Estado, a lista sempre com todos os casos e nenhuma cor nem etiqueta na linha.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -60,29 +60,49 @@ test('números numa faixa fina, mesmo cálculo; "prontos para comprar" em dourad
   assert.equal((js.match(/setCount\('today', model\.counts\.todos\)/g) || []).length, 2);
 });
 
-test('linha: as mesmas informações do cartão e abre o que o botão abria', () => {
+test('linha: as 10 colunas na ordem pedida e abre o que o botão abria', () => {
   const row = js.slice(js.indexOf('function attendRow'), js.indexOf('function renderToday'));
-  for (const cls of ['attend-pick', 'attend-wait', 'attend-client', 'attend-car', 'attend-order', 'attend-place', 'attend-lacks', 'attend-end']) assert.match(row, new RegExp(cls));
-  assert.match(row, /value\('Lance máximo'\), years = value\('Anos'\), miles = value\('Milhas'\)/);
-  assert.match(row, /nameConflictRows\(entry\.journeyId\)/);
-  assert.match(row, /item\.internalCode/);
+  const order = ['attend-wait', 'attend-channel', 'attend-ref', 'attend-tel', 'attend-car', 'attend-value', 'attend-year', 'attend-miles', 'attend-origin', 'attend-state'];
+  const at = order.map((cls) => row.search(new RegExp(`[' ]${cls}'`)));
+  assert.ok(at.every((index) => index > 0), 'todas as colunas existem');
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'na ordem pedida');
+  assert.match(html, /<div class="attend-head"[^>]*><span><\/span><span>Espera<\/span><span>Canal<\/span><span>Ref<\/span><span>Telefone<\/span><span>Carro<\/span><span>Valor<\/span><span>Ano<\/span><span>Milha<\/span><span>Origem<\/span><span>Estado<\/span><span><\/span><\/div>/);
   assert.match(row, /smsPrintMissing\(item\)/);
   assert.match(row, /decisionRow\(decision\.key\)/);
   // Responder opened the ficha on the conversation: the row does the same.
   assert.match(row, /replying \? \{ anchor: 'lead-conversation' \} : \{\}/);
   // Phone: WhatsApp of that number, without opening the row.
   assert.match(js, /link\.addEventListener\('click', \(event\) => \{ event\.stopPropagation\(\); if \(window\.MCSWaLink\)/);
-  // No gold button on the row.
-  assert.doesNotMatch(row, /today-primary/);
+  // No gold button on the row; "⋯" only when there is a pending decision (no arrow otherwise).
+  assert.doesNotMatch(row, /today-primary|attend-chev/);
+  assert.match(row, /if \(body\.childElementCount\) end\.append\(more\);/);
 });
 
-test('cor só na bolinha: dourada < 24 h, laranja até 7 dias, vermelha acima; sem tempo, sem bolinha', () => {
-  assert.match(js, /const tone = ms < ATTEND_DAY_MS \? 'new' : ms <= 7 \* ATTEND_DAY_MS \? 'mid' : 'old';/);
-  assert.match(js, /if \(wait\.tone\) \{ const dot = element\('span', 'attend-dot attend-dot-' \+ wait\.tone\)/);
-  assert.match(css, /\.attend-dot-new \{ background: var\(--al-gold\); \}/);
-  assert.match(css, /\.attend-dot-mid \{ background: var\(--al-orange\); \}/);
-  assert.match(css, /\.attend-dot-old \{ background: var\(--al-red\); \}/);
-  assert.doesNotMatch(css, /decision-red|heat-/);
-  // Celular: a card per row, by width (not by a button).
+test('Origem: calculadora conhecida, Financiamento, Site ou em branco', () => {
+  const origin = new Function(js.slice(js.indexOf('const attendOriginGroup'), js.indexOf('// Estado: the state')) + 'return attendOrigin;')();
+  assert.equal(origin({ cardFacts: { modes: ['VALOR'] } }, { group: 'CALCULADORA' }), 'Calculate My Cost');
+  assert.equal(origin({ cardFacts: { modes: ['CARRO'] } }, { group: 'CALCULADORA' }), 'Find One For Me');
+  assert.equal(origin({ cardFacts: { modes: ['VALOR', 'CARRO'] } }, { group: 'CALCULADORA' }), 'Calculate My Cost · Find One For Me');
+  assert.equal(origin({}, { group: 'MENSAGEM', financing: true }), 'Financiamento');
+  assert.equal(origin({}, { group: 'CALCULADORA' }), 'Site');
+  assert.equal(origin({}, { group: 'MENSAGEM' }), '');
+  assert.equal(origin({}, { group: 'VITRINE' }), '');
+  assert.equal(origin(null, null), '');
+  // Older answers carry only the key ("CALCULADORA:WHATSAPP") and the calculator type in group.calcMode or logicalModes.
+  assert.equal(origin({}, { key: 'CALCULADORA:WHATSAPP' }), 'Site');
+  assert.equal(origin({ group: { calcMode: 'VALOR' } }, { key: 'CALCULADORA:WHATSAPP' }), 'Calculate My Cost');
+  assert.equal(origin({ logicalModes: ['CARRO'] }, { key: 'CALCULADORA:SMS' }), 'Find One For Me');
+  assert.equal(origin({}, { key: 'MENSAGEM:WHATSAPP' }), '');
+});
+
+test('visual da foto: títulos em negrito com linha embaixo, linhas cinza e branco, sem cor na linha', () => {
+  assert.match(css, /\.attend-head \{[^}]*border-bottom: 2px solid[^}]*font-weight: 700; color: #171A20; \}/);
+  assert.match(css, /\.attend-row:nth-of-type\(even\) \{ background: #F2F3F5; \}/);
+  assert.match(css, /\.attend-row > \.attend-cell \{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
+  assert.doesNotMatch(css, /attend-dot|attend-chip|decision-red|heat-/);
+  assert.doesNotMatch(js.slice(js.indexOf('function attendRow'), js.indexOf('function renderToday')), /attend-dot|attend-chip|makeBadge/);
+  // At most 8 rows a screen on the computer; a card per row on the phone, by width (not by a button).
+  assert.match(css, /min-height: max\(52px, calc\(\(100vh - 320px\) \/ 8\)\)/);
   assert.match(css, /@media \(max-width: 760px\)/);
+  assert.match(css, /content: attr\(data-label\) ": "/);
 });

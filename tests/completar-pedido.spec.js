@@ -47,20 +47,17 @@ test('Completar pedido: telefone, identificação, canal e de quem é a vez; dem
   const incoming = page.locator('#today-list .attend-row[data-journey-id="' + id(3) + '"]');
   await expect(incoming).toHaveAttribute('data-bucket', 'completar');
   await expect(incoming.locator('.attend-wait')).toContainText('5 dias · sem resposta');
-  await expect(incoming.locator('.attend-wait')).toContainText('SMS');
-  await expect(incoming.locator('.attend-dot-mid')).toHaveCount(1);
-  await expect(incoming.locator('.attend-client')).toContainText('Sem Ref');
-  await expect(incoming.locator('.attend-client')).toContainText('Código 2L2TD · interno');
-  await expect(incoming.locator('.attend-car')).toHaveText('—');
-  await expect(incoming.locator('.attend-order')).toHaveText('—');
-  await expect(incoming.locator('.attend-lacks .attend-chip')).toHaveText(['Make', 'Model']);
+  await expect(incoming.locator('.attend-channel')).toHaveText('SMS');
+  // No Ref and no car yet: blank cells (an internal code is not a Ref; the search still finds it).
+  await expect(incoming.locator('.attend-ref')).toHaveText('');
+  await expect(incoming.locator('.attend-car')).toHaveText('');
+  await expect(incoming.locator('.attend-value')).toHaveText('');
   const outgoing = page.locator('#today-list .attend-row[data-journey-id="' + id(4) + '"]');
   await expect(outgoing.locator('.attend-wait')).toContainText('Aguardando o cliente · há 10 dias');
-  await expect(outgoing.locator('.attend-wait')).toContainText('WhatsApp');
-  await expect(outgoing.locator('.attend-dot')).toHaveCount(0);
+  await expect(outgoing.locator('.attend-channel')).toHaveText('WhatsApp');
   const undated = page.locator('#today-list .attend-row[data-journey-id="' + id(5) + '"]');
-  await expect(undated.locator('.attend-wait')).toHaveText('Sem respostaSMS · data original desconhecida');
-  await expect(undated.locator('.attend-dot')).toHaveCount(0);
+  await expect(undated.locator('.attend-wait')).toHaveText('Sem resposta · data original desconhecida');
+  await expect(undated.locator('.attend-channel')).toHaveText('SMS');
   await expect(page.locator('[data-count="today"]')).toHaveText('5');
   await incoming.locator('.attend-phone').click();
   expect((await page.evaluate(() => window.__opened)).join(' ')).toMatch(/13055550123/);
@@ -74,7 +71,6 @@ test('Completar pedido: telefone, identificação, canal e de quem é a vez; dem
   await page.locator('#attend-search').fill('');
   await page.selectOption('#today-sort', 'recent');
   await expect(incoming.locator('.attend-wait')).toContainText('Aguardando o cliente · há 24 h');
-  await expect(incoming.locator('.attend-dot')).toHaveCount(0);
   await expect(incoming).toHaveAttribute('data-bucket', 'completar');
   expect(errors).toEqual([]);
 });

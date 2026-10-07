@@ -92,14 +92,15 @@ test('ATENDIMENTO: conversas sem Ref num bloco só por assunto, filtro de assunt
   expect(await semRef.evaluateAll((cards) => cards.map((card) => card.dataset.subject))).toEqual(['FINANCIAMENTO', 'PEDIDO_CARRO', 'SO_CUMPRIMENTO', 'OUTROS', 'NAO_IDENTIFICADO']);
   // origin Calculadora with subject Financiamento stays in the calculator area; the row says which calculator, not the subject
   const calc = page.locator('#today-list .attend-row[data-area="CALC_SEM_TIPO"]');
-  await expect(calc).toContainText('Fábio Calc');
-  await expect(calc.locator('.attend-car .attend-l2')).toHaveCount(1);
+  // Came from the site with the calculator not known: Origem "Site".
+  await expect(calc.locator('.attend-origin')).toHaveText('Site');
   await expect(calc.locator('.subject-chip')).toHaveCount(0);
   await expect(page.locator('#triage-state')).toContainText('assunto e identidade (desatualizado)');
   // Assunto left the screen: the list search narrows the loaded list by name, phone, Ref or car
   await page.locator('#attend-search').fill('Carla');
   await expect(page.locator('#today-list .attend-row')).toHaveCount(1);
-  await expect(page.locator('#today-list')).toContainText('Carla Oi');
+  // The name is not a column of the table: the row found is Carla's (her phone).
+  await expect(page.locator('#today-list .attend-tel')).toHaveText('(305) 555-1003');
   await page.locator('#attend-search').fill('');
   await expect(page.locator('#today-list .attend-row')).toHaveCount(6);
   expect(errors).toEqual([]);
