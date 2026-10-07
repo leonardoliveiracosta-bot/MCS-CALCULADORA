@@ -54,7 +54,7 @@ test('calculadora: taxa e total da tabela nova em Florida e fora, sem gravar nad
       expect(shown.text).toContain(usd(shown.total));
       // Where it goes: the auction fee and My Car Scout show only title and subtitle (no detail lines below).
       expect(shown.text).toContain('Auction fee');
-      expect(shown.text).toContain('advisory, vehicle review and bidding');
+      expect(shown.text).toContain('Personal advisory. Precise selection. Strategic bidding.');
       for (const line of ['Auction house', 'Environmental Fee', 'Title Mailing Fee', 'Bidding service']) expect(shown.text).not.toContain(line);
       rows.push({ bid, florida, fee: shown.fee, total: shown.total, deposit: shown.deposit, tax: shown.tax });
     }
