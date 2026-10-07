@@ -26,6 +26,32 @@ const tree=n=>[n.textContent,...n.children.map(x=>x&&typeof x==='object'?tree(x)
 const allButtons=n=>{const out=[];const walk=x=>{if(x.tagName==='BUTTON')out.push(x);x.children.filter(y=>y&&typeof y==='object').forEach(walk);};walk(n);return out;};
 const findButton=(n,label)=>allButtons(n).find(x=>x.textContent===label);
 const settle=async()=>{await new Promise(setImmediate);await new Promise(setImmediate);};
+function queueUpdate(){
+  const {action}=actions(),root=el();let fail=false,refreshFail=false,writes=0,reads=0,opened=0,release;
+  const ctx={Set,Promise,String,MCSAction:action,element:el,viewRequestVersion:1,currentView:'searches',manheimData:{},WINDOW_LABELS:{NONE:'Sem prazo'},rowSummary:()=>'',demandSummary:()=>'',openOptionsClient:()=>opened++,openQueueDetail:()=>opened++,
+    request:async()=>{writes++;if(release)await new Promise(r=>release=r);if(fail)throw Error('503');return {ok:true};},loadCurrent:async()=>{reads++;if(refreshFail)throw Error('503');}};
+  vm.createContext(ctx);vm.runInContext(part(panel,'  function renderQueueRow(root, row) {','  // ===== ENVIAR OPÇÕES'),ctx);
+  ctx.renderQueueRow(root,{person:{journeyId:'test'},demands:[{key:'test'}],states:[{kind:'pending',demand:{key:'test',mode:'VALOR'}}]});
+  const line=root.children[0],button=findButton(root,'Atualizar');
+  return {ctx,root,line,button,fail:v=>fail=v,refreshFail:v=>refreshFail=v,writes:()=>writes,reads:()=>reads,opened:()=>opened,hold:()=>release=true,release:()=>{release();release=null;}};
+}
+test('queue comparison gives progress, rejects duplicate clicks, then reports success without an extra step',async()=>{
+  const a=queueUpdate();a.hold();const pending=a.button.click();assert.equal(a.button.disabled,true);assert.equal(a.button.textContent,'Comparando…');await a.button.click();assert.equal(a.writes(),1);a.release();await pending;await settle();
+  assert.equal(a.button.disabled,false);assert.equal(a.button.textContent,'Comparado');assert.match(tree(a.root),/Pedido comparado/);assert.equal(a.reads(),1);assert.equal(a.ctx.manheimData,null);assert.equal(a.opened(),0);
+});
+test('queue comparison failure stays visible and the same button retries successfully',async()=>{
+  const a=queueUpdate();a.fail(true);await a.button.click();assert.equal(a.button.disabled,false);assert.equal(a.button.textContent,'Atualizar');assert.match(tree(a.root),/Não consegui comparar este pedido/);assert.equal(a.reads(),0);
+  a.fail(false);await a.button.click();await settle();assert.equal(a.writes(),2);assert.equal(a.reads(),1);assert.doesNotMatch(tree(a.root),/Não consegui comparar/);
+});
+test('queue refresh failure retries only the read; leaving the view does not refresh another page',async()=>{
+  const a=queueUpdate();a.refreshFail(true);await a.button.click();await settle();assert.match(tree(a.root),/Não consegui atualizar a lista/);a.refreshFail(false);await findButton(a.root,'Atualizar lista').click();assert.equal(a.writes(),1);assert.equal(a.reads(),2);
+  const b=queueUpdate();b.hold();const pending=b.button.click();b.ctx.currentView='v1';b.ctx.viewRequestVersion++;b.release();await pending;await settle();assert.equal(b.reads(),0);
+});
+test('queue row keyboard opens only the row, without stealing Enter or Space from its buttons',()=>{
+  const a=queueUpdate(),handler=a.line.listeners.keydown[0];let prevented=0;
+  handler({target:a.button,key:'Enter',preventDefault:()=>prevented++});handler({target:a.button,key:' ',preventDefault:()=>prevented++});assert.equal(a.opened(),0);assert.equal(prevented,0);
+  handler({target:a.line,key:'Enter',preventDefault:()=>prevented++});assert.equal(a.opened(),1);assert.equal(prevented,1);
+});
 function actions(body=el('body')){const ctx={window:{},document:{body,createElement:el},Promise,setTimeout:()=>0,clearTimeout(){}};vm.createContext(ctx);vm.runInContext(action,ctx);return {body,action:ctx.window.MCSAction};}
 function requests(response){const logs=[];const ctx={AbortController,Date,Number,String,Error,Object,Array,Promise,Set,Map,setTimeout:()=>0,clearTimeout(){},window:{MCSAssistantLog:{request:x=>logs.push(x)}},DEFAULT_TIMEOUT_MS:1000,accessToken:null,refreshToken:null,fetch:async()=>response,CRITERIA_WRITES:/actions/,scheduleOptionsSync(){}};vm.createContext(ctx);vm.runInContext(part(panel,'  const request = async (path, options = {}) => {','  const CRITERIA_WRITES =')+'\nthis.request=request;',ctx);return {ctx,logs};}
 
