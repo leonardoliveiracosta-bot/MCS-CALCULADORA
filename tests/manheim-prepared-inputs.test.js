@@ -22,7 +22,9 @@ const variants=[
  {vin:'zero',mmrCents:0},{vin:'negative',mmrCents:-1},{vin:'fallback',mmrCents:'800000'},
  {vin:'invalidMMR',mmrCents:'N/A'},{vin:'missing'},{vin:''},
  {vin:'whitespace',endsAt:' 2999-01-01T00:00:00Z '},
- {vin:'DST',lane:'A',run:'1',startsAt:'2999-03-10T01:59:59-05:00'}
+ {vin:'DST',lane:'A',run:'1',startsAt:'2999-03-10T01:59:59-05:00'},
+ {vin:'EMPTYKEY',blankKey:true},{vin:'EMPTYKEY',blankKey:true,buyNowPrice:'20000'},
+ {vin:'EMPTYKEY',buyNowPrice:'30000'}
 ];
 let backend,db;
 const rows=(sql,args=[])=>db.query(sql,args).then(r=>r.rows);
@@ -33,7 +35,7 @@ async function parity(label){
 }
 async function insertMatch(n,parsed){
  await db.query("insert into public.manheim_matches(id,environment,upload_id,journey_id,logical_mode,demand_key,match_kind,row_fingerprint,mmr_cents,wish_index,criteria_hash,vehicle_json) values($1,'preview',$2,$3,'CARRO',$4,'BATE',$5,$6,0,$7,$8)",
- [id(100+n),upload,demo.IDS.JOURNEY,n%3===0?null:dk,'row-'+n,n>=14&&n<=18?null:800000,'hash-'+n%3,JSON.stringify({parsed:{year:2020,make:'Toyota',model:'Corolla',...parsed}})]);
+ [id(100+n),upload,demo.IDS.JOURNEY,parsed.blankKey?'':n%3===0?null:dk,'row-'+n,n>=14&&n<=18?null:800000,'hash-'+n%3,JSON.stringify({parsed:{year:2020,make:'Toyota',model:'Corolla',...parsed}})]);
 }
 test.before(async()=>{
  backend=await createBackend({seed:demo.seed});db=backend.db;await db.exec("begin;set time zone 'UTC'");await db.exec(original);
