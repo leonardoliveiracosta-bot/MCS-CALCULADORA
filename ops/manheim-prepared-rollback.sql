@@ -5,7 +5,7 @@ CREATE OR REPLACE FUNCTION public.panel_manheim_grouped_light(p_environment pane
  STABLE
  SET search_path TO ''
  SET work_mem TO '32MB'
-AS $function$
+AS $function$;
   with selected as (
     select ss.match_id, ss.updated_at, ss.id from public.manheim_option_selections ss where ss.environment = p_environment and ss.status = 'SELECTED'
   ), flagged as materialized (
@@ -40,7 +40,7 @@ AS $function$
   select r.upload_id, r.demand_key, r.dk, r.car_key, r.id, r.logical_mode, r.journey_id, r.calc_ref, r.match_kind, r.criteria_hash, r.any_presented, r.mmr_cents, r.wish_index,
          case r.priority when 0 then 'LANE' when 1 then 'OFFLANE' else 'INCOMPLETE' end, r.first_selected
     from ranked r where r.rn = 1 and r.active;
-$function$
+$function$;
 
 
 drop trigger if exists manheim_prepare_insert on public.manheim_matches;

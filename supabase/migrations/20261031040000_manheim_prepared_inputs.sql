@@ -206,7 +206,7 @@ CREATE OR REPLACE FUNCTION panel_internal.manheim_batch_overview_prepared(p_envi
  STABLE
  SET search_path TO ''
  SET work_mem TO '32MB'
-AS $function$
+AS $function$;
   with g as materialized (
     select * from panel_internal.manheim_grouped_prepared(p_environment, p_upload_id)
   ),
@@ -265,7 +265,7 @@ AS $function$
     'summary', coalesce((select jsonb_agg(to_jsonb(s)) from summary s), '[]'::jsonb),
     'offer', coalesce((select jsonb_agg(to_jsonb(o)) from offer o), '[]'::jsonb),
     'cars', coalesce((select jsonb_agg(to_jsonb(c)) from cars c), '[]'::jsonb));
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION panel_internal.manheim_score_mmr_prepared(p_environment panel_environment, p_since timestamp with time zone)
@@ -274,7 +274,7 @@ CREATE OR REPLACE FUNCTION panel_internal.manheim_score_mmr_prepared(p_environme
  STABLE SECURITY INVOKER
  SET search_path TO ''
  SET work_mem TO '32MB'
-AS $function$
+AS $function$;
   with live as (
     select u.id from public.manheim_uploads u
      where u.environment = p_environment and u.undone_at is null and u.activated_at is not null and u.uploaded_at >= p_since
@@ -289,7 +289,7 @@ AS $function$
   )
   select person, round(percentile_cont(0.5) within group (order by mmr_cents))::bigint, count(*)::integer
     from unique_cars group by person;
-$function$
+$function$;
 
 
 revoke all on all functions in schema panel_internal from public,anon,authenticated;
