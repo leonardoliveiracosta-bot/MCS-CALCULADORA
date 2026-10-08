@@ -3916,8 +3916,10 @@
     const open = element('button', 'small', withCars ? 'Ver opções' : person.journeyId ? 'Abrir ficha' : 'Abrir pedido'); open.type = 'button';
     open.addEventListener('click', (event) => { event.stopPropagation(); openRow(); });
     actions.append(open); line.append(actions);
-    line.addEventListener('click', openRow);
-    line.addEventListener('keydown', (event) => { if (event.target === line && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openRow(); } });
+    // Same guard as the old card: only a press and release on the same plain part of the line opens it (a queue redrawn
+    // under the finger or text selected to copy a phone or Ref never opens a client). It also opens on Enter on the line.
+    makeCardClickable(line, openRow);
+    line.addEventListener('keydown', (event) => { if (event.target === line && event.key === ' ') { event.preventDefault(); openRow(); } });
     root.append(line);
   }
 

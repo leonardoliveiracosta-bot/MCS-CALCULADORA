@@ -77,12 +77,13 @@ test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e 
   page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page, { calls });
   const card = page.locator('#options-queue .options-queue-card', { hasText: 'JJ' });
-  // The card's number is the total of the screen's tabs (114 + 13).
-  await expect(card.locator('.options-queue-reason')).toHaveText('1 pedido · 127 carros aguardando');
+  // The line's Opções column is the total of the screen's tabs (114 + 13); the summary stays as its tooltip.
+  await expect(card.locator('.options-queue-reason')).toHaveText('127');
+  await expect(card.locator('.options-queue-reason')).toHaveAttribute('title', '1 pedido · 127 carros aguardando');
   await card.scrollIntoViewIfNeeded();
   const scrolled = await page.evaluate(() => window.scrollY);
   // Common path: one tap opens the client's screen, never the ficha.
-  await card.locator('.identity-name').click();
+  await card.locator('.options-queue-name').click();
   const screen = page.locator('#options-client');
   await expect(screen).toBeVisible();
   await expect(page.locator('#options-queue')).toBeHidden();
@@ -161,7 +162,7 @@ test('Opções do cliente: abre ao tocar no cartão, uma lista só, seleção e 
   await expect(screen).toBeHidden();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrolled);
   // The full ficha opens from its small link.
-  await card.locator('.identity-name').click();
+  await card.locator('.options-queue-name').click();
   await screen.getByRole('button', { name: 'Abrir ficha completa' }).click();
   await expect(page.locator('#detail-panel')).toBeVisible({ timeout: 30000 });
   expect(errors).toEqual([]);
@@ -171,7 +172,7 @@ test('Opções do cliente: Montar V2 liberado depois do toque na V1; no celular 
   const errors = [], calls = { pages: [], posts: [] };
   page.on('pageerror', (failure) => errors.push(failure.message));
   await openPanel(page, { width: 390, calls });
-  await page.locator('#options-queue .options-queue-card', { hasText: 'Tina Tocou' }).locator('.identity-name').click();
+  await page.locator('#options-queue .options-queue-card', { hasText: 'Tina Tocou' }).locator('.options-queue-name').click();
   const screen = page.locator('#options-client');
   await expect(screen.locator('.oc-list .oc-row')).toHaveCount(25);
   await expect(screen.locator('.oc-ask')).toContainText('V1: enviada');

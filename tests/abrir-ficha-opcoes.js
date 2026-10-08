@@ -31,7 +31,7 @@ async function openOptionsScreen(page, { name = null, mode = null, realLead = fa
   if (mode) cards = cards.and(page.locator(`[data-mode~="${mode}"]`));
   if (name) cards = cards.filter({ hasText: name });
   await expect(cards.first()).toBeVisible({ timeout: 30000 });
-  await cards.first().locator('.identity-name').click();
+  await cards.first().locator('.options-queue-name').click();
   const screen = page.locator('#options-client');
   await expect(screen.locator('.oc-bar, .offer-pending').first()).toBeVisible({ timeout: 30000 });
   // A person with both requests: the chip of the asked mode.
