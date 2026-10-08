@@ -313,6 +313,24 @@ function normalizedInput(input) {
 }
 
 const JOURNEY_COLUMNS = 'id,contact_id,reference_code,source,status,stage,vehicle_text,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,criteria_json,next_action_text,next_action_at,next_action_set_at,last_effective_contact_at,created_at,updated_at,closed_at,closed_reason';
+function prepareListContexts(ctx) {
+  const environment='eq.'+ctx.environment;
+  // These exact sources are needed by the complete queue's identities. Start their
+  // projections with the opening reads, without changing any identity calculation.
+  const sources=[
+    ['journeys',JOURNEY_COLUMNS],
+    ['contacts','id,display_name,location_text,source,created_at'],
+    ['contact_phones','contact_id,phone_e164,is_primary,is_current,retired_at'],
+    ['journey_refs','journey_id,ref_code'],
+    ['message_journeys','journey_id,message_id',{undone_at:'is.null'}],
+    ['journey_toggle_states','journey_id,enabled,switched_at'],
+    ['panel_identity_state','journey_id,status,calc_origin,refs,conflict'],
+    ['panel_conversation_class','journey_id,subject,manual_subject,classified_at,reason,request_summaries'],
+    ['messages','id,direction,body_text,is_automatic,is_edit_marker,is_delete_marker,original_order,occurred_at_utc,created_at,channel,source_kind,undone_at']
+  ];
+  // A failed optional projection retains the existing per-source fallback later.
+  return Promise.allSettled(sources.map(([table,select,filters])=>allRows(ctx,table,{select,environment,...filters})));
+}
 
 async function loadJourneys(ctx, input) {
   const env = 'eq.' + ctx.environment;
@@ -546,4 +564,4 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
   return out;
 }
 
-module.exports = { DEADLINE_LABELS, UNLINKED, carBlocks, carEntries, criteriaSummary, deadlineLabel, FIELD_LABELS, JOURNEY_STAGES, MAX_IDS, MODES, REQUIRED, SEARCH_STAGES, STATUS, buildContexts, buildFields, calculatorSources, conversationSources, conversationState, field, fichaSources, nextStep, normalizedInput, waitingOn };
+module.exports = { DEADLINE_LABELS, UNLINKED, carBlocks, carEntries, criteriaSummary, deadlineLabel, FIELD_LABELS, JOURNEY_STAGES, MAX_IDS, MODES, REQUIRED, SEARCH_STAGES, STATUS, buildContexts, prepareListContexts, buildFields, calculatorSources, conversationSources, conversationState, field, fichaSources, nextStep, normalizedInput, waitingOn };
