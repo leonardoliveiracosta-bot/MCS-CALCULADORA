@@ -13,13 +13,13 @@ module.exports = function createSharedProjections(read, compare) {
   const sourceKey=(table,pageSize,filters)=>JSON.stringify([table,pageSize,Object.entries(filters).sort(([a],[b])=>a.localeCompare(b))]);
   const plain = value => /^[a-z_][a-z0-9_]*$/.test(value);
   const project = (entry,rows) => {
-    const own=structuredClone(rows);
+    const own=rows.slice();
     own.sort(compare(entry.params.order,entry.keys));
-    return own.map(row=>{
+    return structuredClone(own.map(row=>{
       const projected=Object.fromEntries(entry.fields.map(field=>[field,row[field]]));
       if([...entry.fields,...entry.keys,...entry.orderColumns].includes('created_at') && row.date_unknown) projected.date_unknown=row.date_unknown;
       return projected;
-    });
+    }));
   };
   const flush = async key => {
     const group = pending.get(key); pending.delete(key);

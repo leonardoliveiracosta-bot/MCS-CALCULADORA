@@ -75,3 +75,21 @@ test('relações, seleções especiais e filtros diferentes mantêm leituras sep
   ]);
   assert.equal(calls.length,4);
 });
+test('identidade leve reaproveitada é idêntica à leitura própria, incluindo prova e propriedade de Ref',async()=>{
+  const backend=await createBackend({seed:demo.seed,maxRows:1000,nativeJsonRows:true}),originalFetch=global.fetch,RealDate=Date;
+  const fixed=RealDate.now();
+  global.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[fixed]))}static now(){return fixed}};
+  global.fetch=(url,options)=>backend.fetch(url,options);
+  const base={environment:'preview',config:{url:'http://banco-simulado.local',secretKey:'test'}};
+  const {buildContexts,prepareListContexts}=require('../panel-client-context');
+  try{
+    const input={journeyIds:[demo.IDS.JOURNEY]},services={listOnly:true};
+    const control=await buildContexts(base,input,services);
+    const shared={...base,sharedProjections:create((table,params,size)=>allRows(base,table,params,size),orderComparator)};
+    await prepareListContexts(shared);
+    const result=await buildContexts(shared,input,services);
+    assert.deepEqual(result,control,'same complete identity output');
+    assert.ok(shared.sharedProjections.stats.scopedReuses>0,'identity uses complete opening sources');
+    assert.equal(backend.refused.length,0);
+  }finally{global.fetch=originalFetch;global.Date=RealDate;await backend.db.close();}
+});
