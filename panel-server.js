@@ -182,6 +182,7 @@ async function allRows(ctx, table, params = {}, pageSize = 1000) {
   const fields = filters.select ? topLevelFields(filters.select) : ['*'];
   // The order columns are read too (then removed), so the sort never runs on absent values.
   const orderColumns = String(order || '').split(',').map((part) => part.trim().split('.')[0]).filter(Boolean);
+  if (ctx.sharedProjections) return ctx.sharedProjections.load(table,params,pageSize,{fields,keys,orderColumns});
   const missing = fields.includes('*') ? [] : [...new Set([...keys, ...orderColumns])].filter((key) => !fields.includes(key));
   const select = missing.length ? fields.concat(missing).join(',') : filters.select;
   const request = { ...filters, ...(select ? { select } : {}) };
