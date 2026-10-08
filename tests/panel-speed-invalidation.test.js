@@ -22,7 +22,7 @@ test('resposta em andamento antes de invalidar não sobrescreve a resposta nova 
 
 test('boot iniciado antes de uma gravação não altera nem salva a cópia persistente',async()=>{
  let reply;let saves=0;const store={parts:{},items:{}};
- const ctx={sessionScope:'pessoa',cacheEpoch:0,accessToken:'fake',bootState:async()=>store,request:()=>new Promise(resolve=>reply=resolve),saveBootState:()=>saves++,console:{log(){}},Date,Object,Array,Set,Math};
+ const ctx={initialBoot:null,sessionScope:'pessoa',cacheEpoch:0,accessToken:'fake',bootState:async()=>store,request:()=>new Promise(resolve=>reply=resolve),saveBootState:()=>saves++,console:{log(){}},Date,Object,Array,Set,Math};
  vm.createContext(ctx);
  vm.runInContext(source.slice(source.indexOf('  async function bootLoadNow('),source.indexOf('  function primeBoot(')),ctx);
  const pending=ctx.bootLoadNow('main',{});await new Promise(setImmediate);
