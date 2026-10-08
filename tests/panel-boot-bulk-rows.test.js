@@ -35,6 +35,28 @@ test('leituras inteiras preservam campos, ordem, microssegundos e sete SMS sem d
     } else assert.equal(b.some(row => 'id' in row), false);
   }
 });
+test('checklist e vínculos ativos preservam projeção e ordenação sem páginas sequenciais', async () => {
+  await backend.db.exec(`insert into public.journeys(id,environment,contact_id,source,stage,status,criteria_json,stage_frozen,created_at,updated_at)
+    select md5('checklist-ficticio-'||n)::uuid,'preview','${demo.IDS.CONTACT}','WHATSAPP_DIRECT','NOVO','ATIVO','{}',false,'2026-09-01','2026-09-01' from generate_series(1,350)n;
+    insert into public.journey_checklist(environment,journey_id,point_number,point_label,status,created_at,updated_at)
+    select 'preview',md5('checklist-ficticio-'||n)::uuid,p,'Ponto fictício','OPEN',now(),now() from generate_series(1,350)n cross join generate_series(1,5)p;
+    insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at)
+    select 'preview',id,'${demo.IDS.JOURNEY}','IMPORT',now() from public.messages where signature_base like 'bulk-history-%';
+    update public.message_journeys set undone_at=now() where message_id=(select id from public.messages where signature_base='bulk-history-1');`);
+  for (const [table,params] of [
+    ['journey_checklist',{select:'journey_id,point_number,status',environment:'eq.preview',order:'point_number.desc,journey_id.asc'}],
+    ['message_journeys',{select:'message_id,journey_id',environment:'eq.preview',undone_at:'is.null'}]
+  ]) {
+    const old=await allRows({...ctx(),bootBulkRows:false},table,params),start=backend.calls.length;
+    const current=await allRows(ctx(),table,params);
+    assert.deepEqual(current,old);assert.ok(current.length>1000);
+    assert.equal(backend.calls.length-start,1);
+    assert.equal(current.some(row=>'id' in row),false);
+  }
+  const start=backend.calls.length;
+  await allRows(ctx(),'message_journeys',{select:'id',environment:'eq.preview'});
+  assert.ok(backend.calls.slice(start).every(call=>call.path==='/rest/v1/message_journeys'));
+});
 test('filtros específicos e contexto fora da abertura mantêm as leituras antigas', async () => {
   for (const [context, table, params] of [
     [ctx(), 'messages', { select: 'id', environment: 'eq.preview', direction: 'eq.MCS' }],
