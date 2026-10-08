@@ -16,13 +16,16 @@ function latestVersions(versions) {
   });
   return latest;
 }
-async function attach(ctx, base, read) {
+function readInputs(ctx, read) {
   const env = 'eq.' + ctx.environment;
-  const [stored, versions, marks] = await Promise.all([
+  return Promise.all([
     read(ctx, 'vehicle_requests', { select: 'id,journey_id', environment: env }),
     read(ctx, 'vehicle_request_versions', { select: 'id,request_id,criteria_json,evidence_json,needs_review,review_reason,created_at', environment: env, order: 'created_at.asc,id.asc' }),
     read(ctx, 'journey_declarations', { select: 'journey_id,value_json', environment: env, field: 'eq.VEICULO', order: 'created_at.asc' })
   ]);
+}
+async function attach(ctx, base, read, inputs = null) {
+  const [stored, versions, marks] = await (inputs || readInputs(ctx, read));
   const latest = latestVersions(versions);
   const carried = new Map(marks.filter((m) => m.value_json?.origin === 'PESQUISAS').map((m) => [m.value_json.requestKey, m]));
   for (const r of stored) {
@@ -81,4 +84,4 @@ async function forJourney(ctx, journey, demands, read) {
     : table === 'vehicle_request_versions' ? read(c, table, { ...query, request_id: 'in.(' + [...ids].join(',') + ')' }) : read(c, table, { ...query, journey_id: 'eq.' + journey.id }));
   return base.demands.byJourney.get(journey.id) || demands;
 }
-module.exports = { attach, forJourney, latestVersions };
+module.exports = { attach, forJourney, latestVersions, readInputs };
