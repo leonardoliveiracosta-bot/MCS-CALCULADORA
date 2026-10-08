@@ -142,3 +142,83 @@ Fatos medidos: funções em iad1 e banco em us-east-2; premissa sfo1 do PR 288 r
 Suposições: ganho de 0,1 a 0,2 s com cle1; tamanho Medium da instância; efeitos estimados de guardar as contas da Manheim, limitar a simultaneidade e aquecer funções; distâncias de rede públicas
 
 Riscos: reverter ou repetir a abordagem do PR 286 sem explicar a diferença de totais; resultado guardado ficar velho; medidas contaminadas por abas esquecidas; nenhuma das mudanças medida ainda em produção
+
+## Comparação com o rascunho do executor
+
+Etapa: comparação, feita depois de registrada a avaliação cega acima (que não foi alterada)
+Rascunho lido: setores/confiabilidade-sre/entregas/PERF-001-executor.md
+Novas verificações feitas nesta etapa (somente leitura): edge_logs do Supabase (tempo no portão e no PostgREST por origem, trabalho por ambiente e por minuto, horários das leituras vindas de Ohio), postgres_logs (tempo esgotado), pg_roles (limite por consulta), registros [boot-timing] da prévia dpl_ER1wDraxnnJqBBJzizshH2tGMecc
+
+### Pontos em que concordamos
+
+- Funções em produção em iad1 (Virgínia) e banco em us-east-2 (Ohio); a premissa sfo1 do PR 288 está refutada; o campo region=sfo1 dos registros da Vercel não indica onde a função rodou
+- A Vercel aceita cle1 (prévia dpl_79RPAPHHAXHj2dF9EsaNW5wC24cM pronta com regions ["cle1"]); a prévia do PR 288 não recebeu chamadas, então o efeito não foi medido
+- Prévias usam os dados de prévia (muito menores) e não medem produção
+- cle1 sozinho não leva a abertura a 3 s; agendas, webhook e SMS não mudam de endereço nem de horário; desfazer é voltar à publicação anterior na Vercel, que mantém iad1
+- Tempos da abertura no servidor: main com página perto de 4,7 a 5 s, sem página 3,6 a 4,4 s, counters 4,1 a 4,4 s (uma de 5,2 s); today gasta cerca de 1 s calculando na função
+- O peso principal está nas funções pesadas do banco (score_mmr, batch_overview, batch_people e identity_evidence), refeitas a cada atualização automática, e na disputa por processamento nos picos
+- Primeira abertura após publicar: main 7,08 e 7,39 s, counters 5,2 s; sinais de função fria (cálculo de fichas 10 a 20 vezes mais lento na primeira execução); aquecimento automático após publicar como hipótese, sem passo novo para a Leo
+- Porte do banco: os dois inferem o tamanho Medium pelo par max_connections 120 e shared_buffers 1 GB; os dois pedem confirmação no painel do Supabase
+- Arquivos do painel com no-store; abas de prévia e de publicações antigas competindo com a produção no mesmo banco; a função panel_boot_read_bundle não existe mais no banco
+
+### Divergências, com a evidência de cada lado e nova verificação
+
+1. Custo por ida e volta (executor: 36 ms saindo de Virgínia contra 15 ms saindo de Ohio; revisor na avaliação cega: no máximo 16 ms e diferença não visível)
+   - Nova verificação: nas leituras GET do servidor entre 03:30 e 05:20, o tempo entre o portão do Supabase e o PostgREST (tempo de origem menos tempo do PostgREST) foi de 18 ms (10% mais rápidas) e 37 ms (mediana) para 23.384 leituras vindas de Virgínia, contra 5 ms e 14 ms para 3.910 leituras vindas de Ohio
+   - Conclusão: o executor está certo e a minha conta da avaliação cega estava errada. Eu tratei o tempo de origem como tempo só do servidor, mas ele já inclui o trecho de Virgínia até Ohio; o que sobrou na minha conta foi processamento da função, não rede. Correção: cada ida e volta saindo de Virgínia custa de 13 ms (10% mais rápidas, mais próximo da distância pura) a 23 ms (mediana, que inclui fila no portão) a mais do que saindo de Ohio
+2. Ganho de cle1 (executor: 0,15 a 0,4 s; revisor: 0,1 a 0,2 s)
+   - Com a correção do item 1, refaço a conta: 8 a 16 idas e voltas no caminho mais longo vezes 13 a 23 ms dão de 0,1 a 0,37 s, de 2% a 8% de uma abertura de cerca de 4,7 s no servidor
+   - Faixa sustentada pelos dois lados: abaixo de 0,4 s e abaixo de 10%. O valor exato depende da contagem da cadeia (item 3) e só uma medida com o mesmo código e os mesmos dados confirma
+3. Leituras em cadeia (executor: 12 a 20, estimadas pelo código; revisor: 10 a 15, pela reconstrução de uma abertura)
+   - Reexame da abertura de 05:17:42: o caminho que define o fim da abertura passa por autenticação (2), primeira onda (1), panel_manheim_batch_overview (1), manheim_demand_syncs e vehicle_request_checks (2) e montagem das identidades da página (2 a 3), cerca de 8 a 9 idas e voltas; a cadeia de páginas de calc_runs e messages tem de 5 a 6 passos, mas corre em paralelo e termina antes
+   - Conclusão: a cadeia que conta para a distância tem cerca de 8 a 16 passos; o número exato segue pendente, como o executor também registrou
+4. Peso das prévias abertas (executor: 26%; revisor: 55%)
+   - Não há contradição: são medidas diferentes. Nova verificação entre 04:20 e 05:20: as leituras GET de prévia somaram 622 s de cerca de 2.395 s de trabalho do PostgREST, 26% (confirma o executor); elas foram 6.088 de cerca de 16.900 chamadas do servidor (36%); e pelas marcas [boot-timing] houve 158 aberturas entre 04:25 e 05:25, 87 delas em prévias (55%, a minha medida)
+   - Leitura correta: as prévias fazem mais da metade das aberturas e cerca de um terço das chamadas, mas pesam cerca de um quarto do trabalho do banco, porque têm poucos dados. As chamadas de funções do banco (POST) não foram separadas por ambiente, então o peso das prévias no trabalho total pode ser um pouco maior que 26%
+5. Origem das leituras vindas de Ohio (executor: cliente de prévia não identificado; as duas prévias da tentativa anterior ficaram em iad1)
+   - Nova verificação: as rajadas vindas de Ohio terminam alguns milissegundos antes de cada registro [boot-timing] da prévia dpl_ER1wDraxnnJqBBJzizshH2tGMecc (05:11:09, 05:13:13, 05:15:16, 05:17:20, 05:19:24, 05:21:27, 05:23:30), com 110 a 122 chamadas cada, compatíveis com as 113 leituras dessa prévia mais a autenticação
+   - Conclusão: o cliente vindo de Ohio é essa prévia. A Vercel mostra iad1 para a publicação inteira, mas o commit 06572c7 pôs boot.js, config.js, session.js e client-context.js em cle1 função por função, e essas funções rodam em Ohio. A afirmação do executor de que as duas prévias ficaram em iad1 vale só para o nível da publicação
+6. Tentativas anteriores de cle1 (commits 06572c7 e ea958a1)
+   - O executor não conseguiu ver o conteúdo; eu li com git fetch do ramo perf-panel-loading: 06572c7 acrescentou regions ["cle1"] a 4 funções; ea958a1 retirou as 4 com a mensagem "keep existing regions after runtime verification". O motivo da reversão não está escrito em lugar nenhum que eu tenha lido
+   - Consequência: a aba aberta nessa prévia é hoje a única medida real de funções em cle1, mas com dados de prévia e código diferente do atual, então não serve para comparar velocidade com a produção
+7. Disputa de conexões (executor: não há disputa, 39 de 120 livres e nenhum erro 429; revisor: a onda de cerca de 60 leituras passa das 39 conexões do PostgREST e espera em fila)
+   - Concordamos que não houve recusa nem erro de conexão. Não se sustenta, porém, que não haja espera: a minha medida mostra a mediana por leitura subindo de 27 ms (1 a 4 leituras por segundo) para 208 ms (50 ou mais por segundo). Se a espera acontece no grupo de conexões do PostgREST ou no processador do banco não foi separado por nenhum dos dois; o tamanho do grupo de conexões do PostgREST não foi lido
+8. Tempo esgotado no banco (executor: limite de 8 s, 4 estouros em 24 h, um às 04:48:42; revisor na avaliação cega: sem tempo esgotado)
+   - Nova verificação: pg_roles mostra statement_timeout de 8 s para authenticator e authenticated; os registros do Postgres mostram 4 cancelamentos por tempo esgotado em 24 h (2026-10-07 06:03:55, 06:03:56 e 13:08:42; 2026-10-08 04:48:42). O executor está certo; a minha afirmação estava errada, porque agrupei só as mensagens mais frequentes e essas ficaram de fora
+9. Quem chama as funções pesadas (executor: score_mmr em cada main e batch_overview em counters; revisor: score_mmr chamada em separado por today, records e buscas, e batch_overview também em main quando a página é pedida)
+   - As duas descrições são parciais e compatíveis: pelo código e pela abertura de 05:17:42, batch_overview roda dentro de pesquisas, que entra em main com página e em counters; score_mmr não usa a memória compartilhada da abertura (chama rpc direto), então pode rodar mais de uma vez por ciclo de main mais counters
+
+### Afirmações do executor que confirmei
+
+- Regiões, premissa sfo1 refutada e significado do campo region (confirmadas por get_deployment e pela origem das chamadas no banco)
+- Custo por ida e volta de 36 ms contra 15 ms na mediana (confirmado: 37 contra 14 ms)
+- Pico de trabalho do banco em 04:48 (121,6 s em 60 s) e 04:50 (94,2 s), coincidindo com a primeira abertura após a publicação das 04:50 (confirmado)
+- 26% do trabalho GET vindo de prévias (confirmado: 622 s de cerca de 2.395 s)
+- Limite de 8 s e 4 estouros em 24 h (confirmado)
+- Médias e totais de pg_stat_statements das quatro funções pesadas e todas STABLE (confirmado para as que consultei)
+
+### Afirmações do executor que não consegui sustentar ou que corrijo
+
+- "Nenhuma leitura de servidor veio de pontos da Califórnia" e "origem de Ohio não identificada": a primeira eu também vi; a segunda está resolvida, a origem é a prévia ER1w com funções em cle1 (item 5)
+- "As duas prévias ficaram em iad1": vale só para o nível da publicação (item 5)
+- "Não há disputa de conexões": não há recusa, mas há espera crescente com a simultaneidade (item 7)
+- "10 publicações de produção entre 02:00 e 04:50": não conferi a janela inteira; a listagem que li mostra ao menos 7 publicações de produção entre 02:36 e 04:50
+- A falha da subject-cron às 04:48:42 e os limites internos do webhook (25 s e 40 s) não foram conferidos por mim
+- "Cada ciclo de uma aba custa uma score_mmr": pelo código pode ser mais de uma por ciclo de main mais counters (item 9)
+
+### Correções à minha avaliação cega (registradas aqui, sem alterar a seção original)
+
+- Ida e volta: o valor de "no máximo 16 ms" e a frase "a diferença de rede entre iad1 e cle1 não aparece" estão errados; o correto é de 13 a 23 ms a mais por ida e volta saindo de Virgínia (item 1)
+- Ganho de cle1: passa de 0,1 a 0,2 s para 0,1 a 0,37 s (item 2); a conclusão não muda
+- Tempo esgotado: houve 4 em 24 h, e não nenhum (item 8)
+
+### Pendências
+
+- Medir a cadeia real de idas e voltas de uma abertura de produção com contagem automática, para fechar a faixa de 8 a 16
+- Medir cle1 com o mesmo código e os mesmos dados: o roteiro do executor (prévia dpl_AjaNz449zXf5ed6PDGuphTw1p8QY em iad1 contra dpl_79RPAPHHAXHj2dF9EsaNW5wC24cM em cle1) mede só a distância, com dados de prévia; serve para confirmar os 13 a 23 ms por ida e volta, não o ganho em produção
+- Descobrir o motivo da reversão ea958a1 com quem fez a verificação
+- Separar por ambiente o trabalho das funções do banco (POST) para fechar o peso real das prévias
+- Separar se a espera nas ondas de leituras acontece no grupo de conexões do PostgREST ou no processador do banco
+- Confirmar o porte da instância e o uso de processador nos minutos de pico no painel do Supabase
+- Fechar as abas das prévias ApNu e ER1w antes de qualquer medida de antes e depois
+- Tempo no navegador sem cache continua com a Leo, pelos roteiros dos dois arquivos
