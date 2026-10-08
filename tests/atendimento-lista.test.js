@@ -42,8 +42,8 @@ test('pílulas, Origem, Assunto e Período saíram; busca, Ordenar e Ref ficam n
   assert.match(html, /data-today-ref="recover">Ref a recuperar/);
   // Origem/Assunto/Período are fixed on "all": a value saved before never hides anyone.
   assert.match(js, /const origin='all',period='all',subject='all';/);
-  // The search only filters the loaded list (nothing goes to the server).
-  assert.match(js, /const visible=query\?byStat\.filter\(\(entry\)=>attendMatches\(entry,query\)\):byStat;/);
+  // Legacy lists filter locally; a server page has already applied the same global search.
+  assert.match(js, /const visible=page\?byStat:query\?byStat\.filter\(\(entry\)=>attendMatches\(entry,query\)\):byStat;/);
 });
 
 test('números numa faixa fina, mesmo cálculo; "prontos para comprar" em dourado', () => {

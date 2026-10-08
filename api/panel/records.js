@@ -209,7 +209,7 @@ module.exports = async (req, res) => {
   const ctx = await requirePanel(req, res);
   if (!ctx) return;
   try {
-    if (String((req.query && req.query.view) || '') === 'manheim') return send(res, 200, await manheimView(ctx));
+    if (String((req.query && req.query.view) || '') === 'manheim') return send(res, 200, await manheimView(ctx, { summary: String(req.query.summary || '') === '1' }));
     const id = String((req.query && req.query.id) || '');
     const activeBatch = await activeFilter(ctx, { rows });
     if (!id) {

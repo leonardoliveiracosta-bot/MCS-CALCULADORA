@@ -528,6 +528,10 @@ module.exports = async (req, res) => {
       // request on screen (the reading stays as its unconfirmed evidence); the counts follow the list.
       const shown = merge.present(list.items);
       const presentMs = Date.now() - presentAt;
+      if (url.searchParams.get('summary') === '1') return send(res, 200, {
+        ...require('../../panel-counter-summary').requestsSummary(shown.items),
+        requestsPending: list.requestsPending, checksPending: list.checksPending
+      });
       // Only the numbers the "Ordenar" of each column needs (bid, years) leave with the item; the targets stay on the server.
       const sortOf = (item) => { const target = (item.targets || [])[0] || null; const wishes = target ? target.wishes || [] : [item.criteria || {}];
         const years = wishes.flatMap((wish) => [Number(wish.yearMin) || null, Number(wish.yearMax) || null]).filter(Boolean);
