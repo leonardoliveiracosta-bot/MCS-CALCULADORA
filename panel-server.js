@@ -229,7 +229,10 @@ async function bootTableRows(ctx, table, request) {
   if (!columns.length || !columns.every((column) => /^[a-z_][a-z0-9_]*$/.test(column))) return null;
   let list;
   try {
-    list = await readRpc(ctx, 'panel_boot_table_rows', { p_environment: ctx.environment, p_table: table, p_columns: columns });
+    const args = { p_environment: ctx.environment, p_table: table, p_columns: columns };
+    list = ctx.bootTableReads
+      ? await memoRead(ctx, 'rpc:panel_boot_table_rows:' + JSON.stringify(args), () => ctx.bootTableReads.load(table, columns))
+      : await readRpc(ctx, 'panel_boot_table_rows', args);
   } catch (error) {
     // Additive rollout/rollback: an absent RPC uses the existing keyset reads. Other
     // failures propagate instead of silently delivering a partial or stale history.

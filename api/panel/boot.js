@@ -7,8 +7,9 @@
 // 3. Só o que mudou: o painel manda o que já tem (hash de cada parte e de cada caso do Atendimento); o servidor devolve
 //    só as partes e os casos diferentes, mais a ordem completa para remontar a lista igual.
 const crypto = require('crypto');
-const { requirePanel, send, jsonBody } = require('../../panel-server');
+const { requirePanel, send, jsonBody, rpc } = require('../../panel-server');
 const createReadBudget = require('../../panel-read-budget');
+const createHistoryBatch = require('../../panel-history-batch');
 
 const PARTS = {
   main: {
@@ -62,6 +63,10 @@ module.exports = async (req, res) => {
   const have = input.have && typeof input.have === 'object' ? input.have : {};
   const knownItems = new Set(Array.isArray(have.todayItems) ? have.todayItems.map(String) : []);
   const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), readBudget: createReadBudget(), bootBulkRows: true, readTimings: [] };
+  base.bootTableReads = createHistoryBatch(
+    requests => rpc(base, 'panel_boot_history_batch', { p_environment: base.environment, p_requests: requests }),
+    (table,columns) => rpc(base, 'panel_boot_table_rows', { p_environment: base.environment, p_table: table, p_columns: columns })
+  );
   const pageRequested = group === 'main' && input.page && typeof input.page === 'object';
   const requestsPart = input.includeCounters ? 'pesquisas' : 'completing';
   const definitions = group === 'main' && input.includeCounters ? {...PARTS.main, ...PARTS.counters} : {...PARTS[group]};
