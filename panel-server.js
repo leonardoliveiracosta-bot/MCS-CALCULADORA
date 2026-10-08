@@ -221,6 +221,9 @@ async function bootTableRows(ctx, table, request) {
     throw error;
   }
   if (!Array.isArray(list)) throw new Error('INVALID_BOOT_TABLE_ROWS');
+  // JSONB orders object keys differently from REST's selected row columns. Restore
+  // projection order too, so hashes keep the exact same serialization as before.
+  list = list.map((row) => Object.fromEntries(columns.map((column) => [column, row[column]])));
   return table === 'messages' ? maskUnknownDates(list, shaped.added) : list;
 }
 

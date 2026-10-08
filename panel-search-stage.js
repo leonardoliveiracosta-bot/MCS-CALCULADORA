@@ -1,7 +1,7 @@
 'use strict';
 
 // The same deterministic search identity is used by BUSCAS and Manheim saves.
-const { allRows } = require('./panel-server');
+const { allRows, memoRead } = require('./panel-server');
 const { buildSearchDemands, consolidateCalcRuns, toggleEnabled } = require('./panel-domain');
 const { undoSupported } = require('./panel-manheim-state');
 const vehicleMatch = require('./vehicle-match');
@@ -45,6 +45,13 @@ function directLeadSource(journey, hasOrder) {
 }
 
 async function loadSearchStageIndex(ctx, options = {}) {
+  if (!ctx.readCache) return buildSearchStageIndex(ctx, options);
+  // HOJE and ENTRADA use the identical index in a boot. Build it once from the
+  // request's existing shared reads, with an isolated Map for each caller.
+  const scope = Array.isArray(options.journeyIds) ? [...new Set(options.journeyIds.filter(Boolean))].sort() : null;
+  return memoRead(ctx, 'search-stage:' + JSON.stringify(scope), () => buildSearchStageIndex(ctx, options));
+}
+async function buildSearchStageIndex(ctx, options = {}) {
   const targetIds = Array.isArray(options.journeyIds) ? [...new Set(options.journeyIds.filter(Boolean))] : null;
   const scoped = Boolean(targetIds);
   if (scoped && !targetIds.length) return new Map();

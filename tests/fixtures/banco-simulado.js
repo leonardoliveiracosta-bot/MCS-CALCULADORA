@@ -96,7 +96,7 @@ async function createBackend({ seed, maxRows = null, nativeJsonRows = false } = 
       // PostgREST serializes rows in PostgreSQL, retaining timezone/microseconds. This
       // option allows exact REST/RPC comparisons without JS Date normalizing either side.
       const rows = nativeJsonRows
-        ? (await db.query(`select to_jsonb(t) as row from (${sql}) t`, values)).rows.map((row) => row.row)
+        ? (await db.query(`select row_to_json(t) as row from (${sql}) t`, values)).rows.map((row) => row.row)
         : (await db.query(sql, values)).rows;
       return maxRows ? rows.slice(0, maxRows) : rows;
     }
