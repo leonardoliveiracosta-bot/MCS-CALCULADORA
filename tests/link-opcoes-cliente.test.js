@@ -71,10 +71,12 @@ test('página pública: busca encerrada ou desligada mostra "encerrada"; código
   assert.equal(await links.publicView(ctx, 'curto', services({ id: 'j', status: 'ATIVO' })), null);
 });
 
-test('painel: botão "Copiar link das opções" na tela Opções do cliente; a página pública não mostra preço', () => {
+test('painel: botão "Copiar link de todas as opções" na tela Opções do cliente e no cabeçalho da ficha; a página pública não mostra preço', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'painel', 'painel.js'), 'utf8');
-  assert.match(js, /'Copiar link das opções'/);
-  assert.match(js, /request\('\/api\/panel\/option-link', \{ method: 'POST', body: JSON\.stringify\(\{ key: demand\.key \}\) \}\)/);
+  assert.match(js, /const OPTIONS_LINK_TEXT = 'Copiar link de todas as opções'/);
+  assert.match(js, /request\('\/api\/panel\/option-link', \{ method: 'POST', body: JSON\.stringify\(\{ key \}\) \}\)/);
+  assert.match(js, /copyOptionsLink\(share, demand\.key\)/);
+  assert.match(js, /optionLinkButtons: fichaOptionLinkButtons/);
   const page = fs.readFileSync(path.join(__dirname, '..', 'o', 'options.js'), 'utf8').split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
   assert.doesNotMatch(page, /money|price|mmr|Manheim/i);
   const vercel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'vercel.json'), 'utf8'));

@@ -43,7 +43,7 @@
     return String(v||'');
   }
   async function open(options) {
-    const {kind,key,root,request,onChanged,actionMessage,dispositionControls,mediaObjectUrl,replyComposer,openOptions,renderFichaOffersSummary,openTab,isCurrent} = options;
+    const {kind,key,root,request,onChanged,actionMessage,dispositionControls,mediaObjectUrl,replyComposer,openOptions,renderFichaOffersSummary,optionLinkButtons,openTab,isCurrent} = options;
     const data=await request('/api/panel/lead?'+new URLSearchParams(kind==='order'?{ref:key}:{id:key}));
     // A late answer of another person (or another opening of the same one) never draws over the ficha now on screen.
     if(typeof isCurrent==='function'&&!isCurrent())return;
@@ -91,6 +91,8 @@
     if(data.disposition)badges.append(badge(data.disposition==='TREATED'?'Tratado':'Descartado',data.disposition==='DISCARDED'?'red':''));
     // The link of the client's page (/t/…): the only place the panel gives it, a small button next to Excluir.
     if(track&&track.public_code){const copyLink=append(headActions,'button','quiet small lead-copy-link','Copiar link do cliente');copyLink.type='button';copyLink.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(location.origin+'/t/'+track.public_code);copyLink.textContent='Link copiado';}catch(_){copyLink.textContent='Não consegui copiar';}setTimeout(()=>{if(copyLink.isConnected)copyLink.textContent='Copiar link do cliente';},2500);});}
+    // "Copiar link de todas as opções" (the same button as in Opções do cliente), once the batch view answers.
+    if(optionLinkButtons){const optionLinks=append(headActions,'span','lead-options-links');optionLinkButtons(optionLinks,{journeyId:journeyId||null,ref:ref||null}).catch(()=>{});}
     if(dispositionControls) headActions.append(dispositionControls(order.ref?{kind:'CALCULATOR',ref,disposition:data.disposition}:{kind:'JOURNEY',id:record.id,disposition:data.disposition}));
     // Two clicks on the page itself (a browser dialog can be answered "no" without showing up).
     const restoring=record.contact?.is_lead===false;const leadToggle=button(headActions,restoring?'Restaurar como lead':'Não é lead',async()=>{if(leadToggle.dataset.confirmed!=='true'){leadToggle.dataset.confirmed='true';leadToggle.textContent=restoring?'Confirmar: restaurar como lead':'Confirmar: não é lead (as mensagens ficam guardadas)';return;}await api('contact_lead',{isLead:restoring});undoNotice(restoring?'Restaurado como lead':'Marcado como não é lead',()=>api('contact_lead',{isLead:!restoring}));await onChanged();});

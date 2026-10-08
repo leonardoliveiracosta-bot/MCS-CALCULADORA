@@ -1564,6 +1564,7 @@ a.wa-web { background: #FFFFFF; color: #1B1A18; border: 1.5px solid #CFC6B6; }
 .lead-head-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin: 10px 0 0; }
 .lead-head-meta > .lead-badges { margin: 0; flex: 1 1 auto; }
 .lead-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.lead-options-links { display: contents; }
 .lead-head-actions > .disposition-controls { margin: 0; padding: 0; border: 0; }
 .lead-head-actions > .disposition-controls > .quiet:last-of-type { margin-left: 0; }
 .lead-quick { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid #ECE7DC; }
