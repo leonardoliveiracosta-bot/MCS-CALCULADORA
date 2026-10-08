@@ -29,6 +29,19 @@ test('abertura inteira A/B/A: mesmos corpos, hashes, grupos e contagens com SMS 
       insert into public.calc_runs(created_at,zip,estado,lance,pagamento,dados,is_test)
       select '2026-09-01T00:00:00Z',zip,estado,lance,pagamento,dados,is_test from public.calc_runs cross join generate_series(1,200)n;`);
     const roots=[path.resolve(baseline),path.resolve(__dirname,'..')];
+    // Existing saved keys, unrelated keys, disabled saves and another environment
+    // must produce the same badges when the whole-panel read starts earlier.
+    const stage=await require(path.join(roots[0],'panel-search-stage')).loadSearchStageIndex({environment:'preview',config:{url:'http://banco-simulado.local',secretKey:'test'}});
+    const keys=[...new Set([...stage.values()].flatMap(row=>Object.values(row.modes||{}).map(mode=>mode.searchKey)).filter(Boolean))];
+    assert.ok(keys.length,'fixture includes active search keys');
+    await backend.db.query(`insert into public.manheim_saved_searches(environment,search_key,created,updated_at,updated_by)
+      select 'preview',value,true,'2026-09-01T00:00:00Z',id from jsonb_array_elements_text($1::jsonb),public.panel_users limit 100`,[JSON.stringify(keys)]);
+    await backend.db.exec(`insert into public.manheim_saved_searches(environment,search_key,created,updated_by)
+      select 'preview','unrelated-key',true,id from public.panel_users limit 1;
+      insert into public.manheim_saved_searches(environment,search_key,created,updated_by)
+      select 'preview','disabled-key',false,id from public.panel_users limit 1;
+      insert into public.manheim_saved_searches(environment,search_key,created,updated_by)
+      select 'production','unrelated-production-key',true,id from public.panel_users limit 1;`);
     for(const body of [{part:'main',sort:'ready',page:{limit:10000},includeCounters:true},{part:'main',sort:'recent',page:{limit:30,ref:'without'},includeCounters:true},{part:'main',sort:'ready',page:{limit:10000,stat:'late24'}},{part:'counters',summary:true}]) {
       const a=await boot(roots[0],body), b=await boot(roots[1],body), again=await boot(roots[0],body);
       assert.deepEqual(again,a,'controle A/A');
