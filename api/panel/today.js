@@ -1,4 +1,5 @@
 'use strict';
+const { dateFormatter } = require('../../panel-date-format');
 
 const { buildTodayItems, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, listCriteria, standardBudget, time } = require('../../panel-domain');
 const { dispositionIndex, refKey } = require('../../panel-disposition');
@@ -19,7 +20,7 @@ const { loadVitrineOrigins } = require('../../panel-vitrine-origin');
 const { loadClassification, factsOf } = require('../../panel-classification');
 
 function dueToday(promises, ref, zip, now, journeyId) {
-  const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
+  const format = dateFormatter('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
   const today = format.format(now);
   // A promise from a ficha without calculator Ref has no ref_code: it belongs to the journey.
   const mine = (item) => item.ref_code == null ? Boolean(journeyId) && item.journey_id === journeyId : String(item.ref_code).trim() === ref;

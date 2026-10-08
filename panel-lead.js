@@ -1,4 +1,5 @@
 'use strict';
+const { dateFormatter } = require('./panel-date-format');
 
 const crypto = require('node:crypto');
 const calc = require('./calc-core');
@@ -40,7 +41,7 @@ function localToUtc(local, zone) {
   const target = Date.UTC(+match[1], +match[2]-1, +match[3], +match[4], +match[5]);
   let stamp = target;
   for (let tries=0; tries<3; tries++) {
-    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(stamp).map((part)=>[part.type,part.value]));
+    const parts = Object.fromEntries(dateFormatter('en-US',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(stamp).map((part)=>[part.type,part.value]));
     const observed=Date.UTC(+parts.year,+parts.month-1,+parts.day,+parts.hour,+parts.minute);
     stamp+=target-observed;
   }
@@ -48,7 +49,7 @@ function localToUtc(local, zone) {
 }
 
 function addClientDays(now, zone, days) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map((part)=>[part.type,part.value]));
+  const parts = Object.fromEntries(dateFormatter('en-US',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map((part)=>[part.type,part.value]));
   const shifted = new Date(Date.UTC(+parts.year,+parts.month-1,+parts.day+days,+parts.hour,+parts.minute));
   return localToUtc(shifted.toISOString().slice(0,16),zone);
 }
@@ -284,7 +285,7 @@ async function leadData(ctx, req, refInput, idInput) {
     return [];
   });
   const lastCustomer = record && [...(record.conversation || [])].reverse().find((message) => message.direction === 'CUSTOMER');
-  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
+  const hour = Number(dateFormatter('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
   const goodHour = hour >= 9 && hour < 20;
   const mmr = typical[0] && typical[0].mmrCents;
   const phone = record && record.phones && record.phones.find((item) => item.is_current !== false);

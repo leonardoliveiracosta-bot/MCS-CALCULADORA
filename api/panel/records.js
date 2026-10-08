@@ -1,4 +1,5 @@
 'use strict';
+const { dateFormatter } = require('../../panel-date-format');
 
 const crypto = require('node:crypto');
 
@@ -35,7 +36,7 @@ async function manheimCounts(ctx, journeyId) {
 
 
 function newPromiseToday(promises, ref, zip, journeyId) {
-  const format = new Intl.DateTimeFormat('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
+  const format = dateFormatter('en-CA', { timeZone: timezoneForZip(zip), year: 'numeric', month: '2-digit', day: '2-digit' });
   const today = format.format(new Date());
   // A promise from a ficha without calculator Ref has no ref_code: it belongs to the journey.
   const mine = (item) => item.ref_code == null ? Boolean(journeyId) && item.journey_id === journeyId : String(item.ref_code).trim() === ref;

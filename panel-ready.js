@@ -1,4 +1,5 @@
 'use strict';
+const { dateFormatter } = require('./panel-date-format');
 const { timezoneForZip, realisticBid, median } = require('./panel-lead');
 const { effectiveCriteria, journeyDemands, normalizeDeadline, normalizePayment, orderDemand } = require('./panel-domain');
 const vehicleMatch = require('./vehicle-match');
@@ -46,7 +47,7 @@ function scoreDemands(item={}, journey) {
 function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   const zip=leadZip(item,journey);
   const tz=timezoneForZip(zip);
-  const hour=Number(new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',hourCycle:'h23'}).format(now));
+  const hour=Number(dateFormatter('en-US',{timeZone:tz,hour:'numeric',hourCycle:'h23'}).format(now));
   // M2: a good hour to call is shown as a badge; it is not part of the score (the score must not
   // change with the clock).
   const goodHour=hour>=9&&hour<20;
@@ -77,7 +78,7 @@ function score(item={}, journey, data={}, vehicles=[], now=Date.now()) {
   // R2: a total ceiling confirmed by the operator wins (budget_cents is usually the calculator bid
   // copied into the ficha); without it, the maximum bid.
   const bid=ceiling?realisticBid(ceiling,{florida:state?state.uf==='FL':true,payment,plate:item.plate||'transf',zip,stateIndex:state?String(calc.CONFIG.estados.findIndex((entry)=>entry.nome===state.nome)):''}):maxBid?Math.floor(maxBid/100):null;
-  const clientDate=(value)=>new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(value);
+  const clientDate=(value)=>dateFormatter('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(value);
   const today=clientDate(now);
   const promiseToday=Boolean(id&&(data.promises||[]).some((p)=>p.journey_id===id&&p.status==='OPEN'&&clientDate(new Date(p.due_at))===today));
   const value=Math.min(100,(phone?15:0)+Math.min(30,checklist*5)+(['now','30d'].includes(deadline)?20:deadline==='3m'?10:0)

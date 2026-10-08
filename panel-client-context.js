@@ -1,4 +1,5 @@
 'use strict';
+const { dateFormatter } = require('./panel-date-format');
 
 // Contexto do caso, igual em todas as abas: quem é o cliente, como falar com ele, de onde veio, o
 // que ele informou (campo por campo, com a origem de cada valor), o que está confirmado, ausente,
@@ -259,7 +260,7 @@ function criteriaSummary(step) {
   return { complete: true, text: 'Completos' };
 }
 // The day a V1 went out, as the team reads it (Florida).
-const sentDay = (iso) => { const stamp = time(iso); return stamp ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', day: '2-digit', month: '2-digit' }).format(new Date(stamp)) : null; };
+const sentDay = (iso) => { const stamp = time(iso); return stamp ? dateFormatter('pt-BR', { timeZone: 'America/New_York', day: '2-digit', month: '2-digit' }).format(new Date(stamp)) : null; };
 function nextStep({ journey = null, closed = false, off = false, owner, fields, modes = [], searches = [], unlinkedRef = null, conversationCount = 0, conversationRead = false, sharedRefs = [], v1 = null }) {
   const byKey = new Map(fields.map((item) => [item.key, item]));
   const needed = [...new Set(modes.flatMap((mode) => REQUIRED[mode] || []))];
