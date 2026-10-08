@@ -5,6 +5,7 @@
 module.exports = function createSharedProjections(read, compare) {
   const pending = new Map();
   const available = new Map();
+  const stats={requests:0,loads:0,reuses:0,fallbacks:0};
   const eligible = new Set(['messages','calc_runs','contacts','journeys','chats','contact_phones','journey_refs','journey_toggle_states']);
   const plain = value => /^[a-z_][a-z0-9_]*$/.test(value);
   const project = (entry,rows) => {
@@ -20,11 +21,13 @@ module.exports = function createSharedProjections(read, compare) {
     const group = pending.get(key); pending.delete(key);
     const columns=[...new Set(group.entries.flatMap(entry=>[...entry.fields,...entry.keys,...entry.orderColumns]))];
     let rows;
+    stats.loads+=1;
     const cached={columns,promise:read(group.table,{...group.filters,select:columns.join(',')},group.pageSize)};
     if(!available.has(key)) available.set(key,[]);
     available.get(key).push(cached);
     try { rows=await cached.promise; }
     catch(error) {
+      stats.fallbacks+=1;
       available.set(key,available.get(key).filter(entry=>entry!==cached));
       if(group.entries.length===1) { group.entries[0].reject(error); return; }
       // A column unavailable to one projection must not fail unrelated callers.
@@ -40,14 +43,15 @@ module.exports = function createSharedProjections(read, compare) {
       } catch(error) { entry.reject(error); }
     }
   };
-  return { load(table,params,pageSize,metadata) {
+  return { stats, load(table,params,pageSize,metadata) {
     const {fields,keys,orderColumns}=metadata;
     if(!eligible.has(table)||!fields.length||![...fields,...orderColumns].every(plain)) return read(table,params,pageSize);
+    stats.requests+=1;
     const {select,order,...filters}=params;
     const key=JSON.stringify([table,pageSize,Object.entries(filters).sort(([a],[b])=>a.localeCompare(b))]);
     const entry={params,fields,keys,orderColumns};
     const cached=(available.get(key)||[]).find(read=>[...fields,...keys,...orderColumns].every(column=>read.columns.includes(column)));
-    if(cached) return cached.promise.then(rows=>project(entry,rows),()=>read(table,params,pageSize));
+    if(cached) { stats.reuses+=1; return cached.promise.then(rows=>project(entry,rows),()=>read(table,params,pageSize)); }
     return new Promise((resolve,reject)=>{
       if(!pending.has(key)) { pending.set(key,{table,pageSize,filters,entries:[]}); setImmediate(()=>flush(key)); }
       pending.get(key).entries.push({params,fields,keys,orderColumns,resolve,reject});

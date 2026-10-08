@@ -126,6 +126,7 @@ module.exports = async (req, res) => {
     parts[name] = { ok: true, hash, body };
   });
   console.log('[boot-timing]', JSON.stringify({ part: group, ms: Date.now() - started, reads: base.readCache.size, hash: Date.now() - hashAt }));
+  console.log('[boot-projection-timing]',JSON.stringify({part:group,...base.sharedProjections.stats}));
   const sources = new Map();
   for (const { source, wait, network } of base.readTimings) {
     const entry = sources.get(source) || { source, calls: 0, wait: 0, network: 0, maxWait: 0, maxNetwork: 0 };
