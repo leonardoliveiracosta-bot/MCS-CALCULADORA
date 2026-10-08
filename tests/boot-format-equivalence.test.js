@@ -1,0 +1,39 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const baseline = process.env.PANEL_PERF_BASELINE;
+Object.assign(process.env,{VERCEL_ENV:'preview',SUPABASE_URL:'http://banco-simulado.local',SUPABASE_PUBLISHABLE_KEY:'publica-simulada',SUPABASE_SECRET_KEY:'secreta-simulada',ENTRADA_OPENAI_ENABLED:'0',MANHEIM_OPENAI_ENABLED:'0',MANHEIM_MATCH_AUDIT_ENABLED:'0'});
+const {createBackend} = require('./fixtures/banco-simulado');
+const demo = require('./fixtures/caso-demonstracao');
+async function boot(root, body) {
+  const res={statusCode:200,setHeader(){},status(code){this.statusCode=code;return this},json(value){this.payload=value;return value},end(){}};
+  await require(path.join(root,'api/panel/boot'))({method:'POST',url:'/api/panel/boot',headers:{authorization:'Bearer token-simulado'},body},res);
+  assert.equal(res.statusCode,200);
+  return res.payload;
+}
+test('abertura inteira A/B/A: mesmos corpos, hashes, grupos e contagens com SMS sem data e tabelas paginadas', {skip:!baseline}, async()=>{
+  const backend=await createBackend({seed:demo.seed,maxRows:1000});
+  const originalFetch=global.fetch, RealDate=Date;
+  global.fetch=(url,options)=>backend.fetch(url,options);
+  const fixed=RealDate.parse('2026-10-08T05:40:00Z');
+  global.Date=class extends RealDate {constructor(...args){super(...(args.length?args:[fixed]))}static now(){return fixed}};
+  try {
+    await backend.db.exec(`insert into public.messages(id,environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,time_uncertain,original_datetime_text,signature_base,occurrence_index,source_kind,created_at)
+      values('6f000000-0000-4000-8000-000000000001','preview','${demo.IDS.CHAT}','SMS','CUSTOMER','Print fictício sem data','print',null,true,'data original desconhecida','format-unknown',1,'SMS_PRINT','2026-10-08T04:00:00Z');
+      insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at) values('preview','6f000000-0000-4000-8000-000000000001','${demo.IDS.JOURNEY}','IMPORT',now());
+      insert into public.messages(environment,chat_id,channel,direction,body_text,body_normalized,occurred_at_utc,signature_base,occurrence_index,source_kind,created_at)
+      select 'preview','${demo.IDS.CHAT}','WHATSAPP','CUSTOMER','Histórico fictício','histórico','2026-09-01T00:00:00Z','format-history-'||n,1,'IMPORT','2026-09-01T00:00:00Z' from generate_series(1,1100)n;
+      insert into public.message_journeys(environment,message_id,journey_id,association_source,associated_at)
+      select 'preview',id,'${demo.IDS.JOURNEY}','IMPORT',now() from public.messages where signature_base like 'format-history-%';
+      insert into public.calc_runs(created_at,zip,estado,lance,pagamento,dados,is_test)
+      select '2026-09-01T00:00:00Z',zip,estado,lance,pagamento,dados,is_test from public.calc_runs cross join generate_series(1,200)n;`);
+    const roots=[path.resolve(baseline),path.resolve(__dirname,'..')];
+    for(const body of [{part:'main',sort:'ready',page:{limit:10000},includeCounters:true},{part:'main',sort:'recent',page:{limit:30,ref:'without'},includeCounters:true},{part:'main',sort:'ready',page:{limit:10000,stat:'late24'}},{part:'counters',summary:true}]) {
+      const a=await boot(roots[0],body), b=await boot(roots[1],body), again=await boot(roots[0],body);
+      assert.deepEqual(again,a,'controle A/A');
+      assert.deepEqual(b,a,'mesmos dados sem normalizar datas/números');
+    }
+    assert.equal(backend.refused.length,0);
+  } finally {global.Date=RealDate;global.fetch=originalFetch;await backend.db.close();}
+});
