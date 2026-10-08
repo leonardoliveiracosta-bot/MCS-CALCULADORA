@@ -145,3 +145,8 @@ test('fila inteira e contadores A/B/A preservam SMS sem data, mensagem nova e pe
   assert.deepEqual(again,a,'controle A/A');assert.deepEqual(b,a,'mesmas filas, grupos, ordem, textos e contagens');assert.equal(backend.refused.length,0);
  }finally{global.fetch=originalFetch;global.Date=RealDate;await db.exec(original);}
 });
+
+test('preparo em bloco coincide campo a campo com a extração unitária',async()=>{
+ const result=await rows("select count(*) n,count(*) filter(where q is distinct from panel_internal.manheim_prepare(m,si.sale,m.xmin::text,c.run_id,si.xmin::text)) differences from public.manheim_matches m join panel_internal.manheim_prepared_inputs q on q.match_id=m.id left join public.manheim_sale_current c on c.environment=m.environment and c.upload_id=m.upload_id left join public.manheim_complement_items si on si.run_id=c.run_id and si.row_fingerprint=m.row_fingerprint where m.undone_at is null");
+ assert.equal(result[0].differences,0);assert.ok(result[0].n>20);
+});
