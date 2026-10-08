@@ -2,7 +2,7 @@
 
 const { allRows, rows } = require('./panel-server');
 const { toggleEnabled } = require('./panel-domain');
-const { outOfFunnelIndex } = require('./panel-triage');
+const { activeRows, outOfFunnelJourneys } = require('./panel-triage');
 
 function flattenMessageLinks(links, messages) {
   const byId = new Map((Array.isArray(messages) ? messages : []).map((message) => [message.id, message]));
@@ -13,7 +13,7 @@ function flattenMessageLinks(links, messages) {
 }
 
 async function operational(ctx) {
-  const [journeys, contacts, phones, refs, messageLinks, messages, checklist, promises, divergences, units, suppressions, toggleStates, userIds] = await Promise.all([
+  const [journeys, contacts, phones, refs, messageLinks, messages, checklist, promises, divergences, units, suppressions, toggleStates, userIds, activeTriage] = await Promise.all([
     allRows(ctx, 'journeys', {
       select: 'id,contact_id,reference_code,source,stage,status,vehicle_text,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_at,customer_deadline_text,next_action_text,next_action_at,next_action_set_at,next_action_missing_since,last_effective_contact_at,search_started_at,qualified_at,closed_at,closed_reason,stage_frozen,created_at,updated_at',
       environment: 'eq.' + ctx.environment, order: 'updated_at.desc'
@@ -32,11 +32,13 @@ async function operational(ctx) {
     allRows(ctx, 'units', { select: 'id,journey_id,vehicle_text,details_json,presented_at,last_customer_response_at,status,decline_reason,updated_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_alert_suppressions', { select: 'id,journey_id,kind,action,until_at,created_at,cancelled_at', environment: 'eq.' + ctx.environment }),
     allRows(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,off_reason,switched_at', environment: 'eq.' + ctx.environment }),
-    allRows(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: 'eq.' + ctx.environment })
+    allRows(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: 'eq.' + ctx.environment }),
+    // The classification read does not depend on journeys or Refs; only applying it does.
+    activeRows(ctx)
   ]);
   const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
   // Triagem: a ficha cuja conversa ficou fora do funil comercial sai das listas (os dados ficam).
-  const triageOut = await outOfFunnelIndex(ctx, journeys, refs);
+  const triageOut = outOfFunnelJourneys(activeTriage, journeys, refs);
   const excludedJourneyIds=new Set(journeys.filter((journey)=>contactsById.get(journey.contact_id)?.is_lead===false||triageOut.has(journey.id)).map((journey)=>journey.id));
   const excludedRefs=[...new Set(journeys.filter((journey)=>excludedJourneyIds.has(journey.id)).flatMap((journey)=>[journey.reference_code,...refs.filter((ref)=>ref.journey_id===journey.id).map((ref)=>ref.ref_code)]).filter(Boolean).map((ref)=>String(ref).trim().toUpperCase()))];
   const toggleByJourney = new Map(toggleStates.map((state) => [state.journey_id, state]));

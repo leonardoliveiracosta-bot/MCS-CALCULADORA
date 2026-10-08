@@ -6,7 +6,7 @@ const { dispositionIndex, refKey } = require('../../panel-disposition');
 const { operational } = require('../../panel-read-model');
 const { allRows, panelMeta, requirePanel, send } = require('../../panel-server');
 const refProof = require('../../panel-ref-proof');
-const { outOfFunnelIndex } = require('../../panel-triage');
+const { activeRows, outOfFunnelJourneys } = require('../../panel-triage');
 const { score, loadScoreIndex } = require('../../panel-ready');
 const { timezoneForZip } = require('../../panel-lead');
 const { sortItems, lastRealMessageAt } = require('../../panel-sort');
@@ -43,6 +43,7 @@ module.exports = async (req, res) => {
     const t0 = Date.now();
     const timed = (name, promise) => { const started = Date.now(); return Promise.resolve(promise).finally(() => mark(name, started)); };
     const early = {
+      triageRows: timed('triageRows', activeRows(ctx)),
       topic: timed('topic', loadTopic(ctx).catch(soft('fora do assunto', null))),
       vitrine: timed('vitrine', loadVitrineOrigins(ctx).catch(soft('origem pela vitrine', null))),
       classification: timed('classification', loadClassification(ctx)),
@@ -75,7 +76,7 @@ module.exports = async (req, res) => {
     mark('phase1', t0);
     const t1 = Date.now();
     const [topic, vitrineOrigins, triageOut, classification] = await Promise.all([early.topic, early.vitrine,
-      timed('triageOut', outOfFunnelIndex(ctx, data.journeys, data.refs || []).catch(soft('triagem (fora do funil)', new Set()))), early.classification]);
+      timed('triageOut', early.triageRows.then(rows => outOfFunnelJourneys(rows, data.journeys, data.refs || [])).catch(soft('triagem (fora do funil)', new Set()))), early.classification]);
     mark('phase2', t1);
     const t2 = Date.now();
     if (!classification.available) degraded.push('assunto e identidade');
