@@ -67,6 +67,7 @@ module.exports = async (req, res) => {
     (table,params,size) => allRows({...base,sharedProjections:null},table,params,size), orderComparator
   );
   const pageRequested = group === 'main' && input.page && typeof input.page === 'object';
+  const contextSources=pageRequested?require('../../panel-client-context').prepareListContexts(base):null;
   const requestsPart = input.includeCounters ? 'pesquisas' : 'completing';
   const definitions = group === 'main' && input.includeCounters ? {...PARTS.main, ...PARTS.counters} : {...PARTS[group]};
   if (pageRequested) {
@@ -86,6 +87,7 @@ module.exports = async (req, res) => {
       const model = pageRules.modelOf(list.today,list.entry,list.triage,list.whatsapp,list[requestsPart],input.sort||'ready',started);
       const ids = [...new Set(model.cases.filter(entry => !entry.item && entry.journeyId).map(entry => entry.journeyId))];
       const identities = new Map();
+      if(contextSources) await contextSources;
       const chunks = []; for (let index=0;index<ids.length;index+=MAX_IDS) chunks.push(ids.slice(index,index+MAX_IDS));
       await Promise.all(chunks.map(async journeyIds => {
         const contexts = await buildContexts(base,{journeyIds},{listOnly:true});

@@ -32,6 +32,26 @@ test('projeções compartilham paginação sem mudar dados, ordem, campos ou má
     assert.ok(actual[2].some(row=>row.date_unknown===true&&!('created_at' in row)));
     actual[0][0].id='isolated';assert.notEqual(actual[1][0].id,'isolated');
     assert.deepEqual(Object.keys(actual[1][0]),['chat_id','id']);
+    const ids=control[0].map(row=>row.id);
+    const scopedParams={select:'id,created_at',environment:'eq.preview',id:'in.('+ids.map(id=>'"'+id+'"').join(',')+')',order:'created_at.desc'};
+    const scopedControl=await allRows(base,'messages',scopedParams,2);
+    const beforeScoped=backend.calls.length;
+    const scoped=await allRows(shared,'messages',scopedParams,2);
+    assert.deepEqual(scoped,scopedControl,'UUID matching, order, fields and unknown SMS date match PostgreSQL');
+    assert.equal(backend.calls.length,beforeScoped,'known scoped projection adds no source read');
+    // The REST fixture compares UUIDs as text. Verify PostgreSQL's typed UUID
+    // semantics directly for uppercase literals, then compare the reused rows.
+    const upperIds=ids.map(id=>id.toUpperCase());
+    const typedIds=(await backend.db.query('select id from public.messages where id=any($1::uuid[]) order by id',[upperIds])).rows.map(row=>row.id);
+    assert.deepEqual(typedIds,ids.slice().sort());
+    assert.deepEqual(await allRows(shared,'messages',{...scopedParams,id:'in.('+upperIds.map(id=>'"'+id+'"').join(',')+')'},2),scopedControl);
+    scoped[0].created_at='isolated';
+    assert.deepEqual(await allRows(shared,'messages',scopedParams,2),scopedControl,'each caller has isolated rows');
+    const dateParams={...scopedParams,created_at:'gte.2026-10-08T00:00:00Z'};
+    const dateControl=await allRows(base,'messages',dateParams,2);
+    const beforeDate=backend.calls.length;
+    assert.deepEqual(await allRows(shared,'messages',dateParams,2),dateControl,'date filters remain in PostgreSQL before masking SMS');
+    assert.ok(backend.calls.length>beforeDate,'different source filters cannot reuse the unfiltered source');
     assert.equal(backend.refused.length,0);
   }finally{global.fetch=original;await backend.db.close();}
 });

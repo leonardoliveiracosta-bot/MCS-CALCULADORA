@@ -5,8 +5,12 @@
 module.exports = function createSharedProjections(read, compare) {
   const pending = new Map();
   const available = new Map();
-  const stats={requests:0,loads:0,reuses:0,fallbacks:0};
-  const eligible = new Set(['messages','calc_runs','contacts','journeys','chats','contact_phones','journey_refs','journey_toggle_states']);
+  const stats={requests:0,loads:0,reuses:0,scopedReuses:0,fallbacks:0};
+  const eligible = new Set(['messages','calc_runs','contacts','journeys','chats','contact_phones','journey_refs','journey_toggle_states','message_journeys','calculator_request_links','panel_identity_state','panel_conversation_class']);
+  // Only equality lists on known UUID/text columns. Date/JSON/inequality filters stay in PostgreSQL.
+  const scopedColumns={messages:{id:'uuid'},journeys:{id:'uuid',contact_id:'uuid',reference_code:'ref'},contacts:{id:'uuid'},contact_phones:{contact_id:'uuid'},journey_refs:{journey_id:'uuid',ref_code:'ref'},journey_toggle_states:{journey_id:'uuid'},message_journeys:{journey_id:'uuid'},calculator_request_links:{calc_ref:'ref'},panel_identity_state:{journey_id:'uuid'},panel_conversation_class:{journey_id:'uuid'}};
+  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const sourceKey=(table,pageSize,filters)=>JSON.stringify([table,pageSize,Object.entries(filters).sort(([a],[b])=>a.localeCompare(b))]);
   const plain = value => /^[a-z_][a-z0-9_]*$/.test(value);
   const project = (entry,rows) => {
     const own=structuredClone(rows);
@@ -48,10 +52,25 @@ module.exports = function createSharedProjections(read, compare) {
     if(!eligible.has(table)||!fields.length||![...fields,...orderColumns].every(plain)) return read(table,params,pageSize);
     stats.requests+=1;
     const {select,order,...filters}=params;
-    const key=JSON.stringify([table,pageSize,Object.entries(filters).sort(([a],[b])=>a.localeCompare(b))]);
+    const key=sourceKey(table,pageSize,filters);
     const entry={params,fields,keys,orderColumns};
     const cached=(available.get(key)||[]).find(read=>[...fields,...keys,...orderColumns].every(column=>read.columns.includes(column)));
     if(cached) { stats.reuses+=1; return cached.promise.then(rows=>project(entry,rows),()=>read(table,params,pageSize)); }
+    const predicates=Object.entries(filters).filter(([,value])=>typeof value==='string'&&value.startsWith('in.('));
+    if(predicates.length===1) {
+      const [column,filter]=predicates[0],type=scopedColumns[table]?.[column];
+      const match=/^in\.\("([^"(),]+)"(?:,"([^"(),]+)")*\)$/.test(filter);
+      const values=match?filter.slice(4,-1).split(',').map(value=>value.slice(1,-1)):[];
+      if(type&&values.length&&values.every(value=>type==='uuid'?uuid.test(value):/^[A-Z0-9]{5}$/.test(value))) {
+        const sourceFilters={...filters};delete sourceFilters[column];
+        const complete=(available.get(sourceKey(table,pageSize,sourceFilters))||[]).find(source=>[...fields,...keys,...orderColumns,column].every(field=>source.columns.includes(field)));
+        if(complete) {
+          stats.reuses+=1;stats.scopedReuses+=1;
+          const wanted=new Set(values.map(value=>type==='uuid'?value.toLowerCase():value));
+          return complete.promise.then(rows=>project(entry,rows.filter(row=>row[column]!=null&&wanted.has(type==='uuid'?String(row[column]).toLowerCase():row[column]))),()=>read(table,params,pageSize));
+        }
+      }
+    }
     return new Promise((resolve,reject)=>{
       if(!pending.has(key)) { pending.set(key,{table,pageSize,filters,entries:[]}); setImmediate(()=>flush(key)); }
       pending.get(key).entries.push({params,fields,keys,orderColumns,resolve,reject});
