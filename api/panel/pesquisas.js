@@ -41,11 +41,14 @@ const wishText = (demand) => (demand.wishes || []).map((wish) => {
 }).join(' | ') + (demand.mode === 'VALOR' && demand.bidCents ? ` · lance US$ ${Math.round(demand.bidCents / 100).toLocaleString('en-US')}` : '');
 
 // Every request of the operation, from the ficha, the calculator and the read conversations.
-async function buildList(ctx) {
+async function buildList(ctx, { includeResults = true } = {}) {
   const started = Date.now(), timing = {};
   const timed = (name, work) => { work.then(() => { timing[name] = Date.now() - started; }, () => {}); return work; };
   // The batch summary only needs the active batch: it starts as soon as the batch is known, while the base loads.
-  const uploadRead = latestActiveUpload(ctx, 'id,uploaded_at');
+  // Completar pedido uses criteria/completeness, never the result of comparing a ready
+  // request with the batch. Build every request and merge its evidence as usual, but
+  // do not calculate batch results for this projection. Full lists/counters keep them.
+  const uploadRead = includeResults ? latestActiveUpload(ctx, 'id,uploaded_at') : Promise.resolve(null);
   const summaryRead = timed('summary', uploadRead.then((upload) => upload ? buscasView.batchSummary(ctx, upload.id).catch(() => null) : []));
   summaryRead.catch(() => {});
   // The requests read from conversations do not depend on the base either: they load at the same time.
@@ -522,12 +525,17 @@ module.exports = async (req, res) => {
     if (req.method === 'GET') {
       const url = new URL(req.url, 'http://painel.local');
       if (url.searchParams.get('view') === 'audit') return send(res, 200, await audit(ctx));
-      const list = await buildList(ctx);
+      const completionOnly = url.searchParams.get('view') === 'completion';
+      const list = await buildList(ctx, { includeResults: !completionOnly });
       const presentAt = Date.now();
       // The ficha request and the same request read by the AI from its conversation are one
       // request on screen (the reading stays as its unconfirmed evidence); the counts follow the list.
       const shown = merge.present(list.items);
       const presentMs = Date.now() - presentAt;
+      if (completionOnly) return send(res, 200, {
+        items: require('../../panel-counter-summary').requestsSummary(shown.items).items,
+        requestsPending: list.requestsPending
+      });
       if (url.searchParams.get('summary') === '1') return send(res, 200, {
         ...require('../../panel-counter-summary').requestsSummary(shown.items),
         requestsPending: list.requestsPending, checksPending: list.checksPending

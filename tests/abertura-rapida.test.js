@@ -95,3 +95,20 @@ test('boot paginado combina todas as fontes antes do corte, mantém contagens e 
   assert.equal(paged.payload.parts.manheim.body.summary,true);
   console.log('BOOT PAGINADO',{leiturasAntes:fullReads,leiturasDepois:reads,bytesAntes:JSON.stringify(full.payload).length,bytesDepois:JSON.stringify(paged.payload).length});
 });
+
+test('boot sem contadores mantém a fila completa, filtros, grupos e hashes; não publica contagens parciais',async()=>{
+  const RealDate = Date, stamp = RealDate.now();
+  global.Date = class extends RealDate { constructor(...args){super(...(args.length?args:[stamp]))} static now(){return stamp} };
+  try {
+    for (const options of [{sort:'ready',ref:'all'}, {sort:'recent',ref:'without'}, {sort:'ready',ref:'all',stat:'late24'}, {sort:'ready',ref:'all',query:'Carro'}]) {
+      const {sort,...page}=options;
+      const full=await call('boot','/api/panel/boot','POST',{part:'main',sort,page:{...page,limit:10000},includeCounters:true});
+      const light=await call('boot','/api/panel/boot','POST',{part:'main',sort,page:{...page,limit:10000},includeCounters:false});
+      assert.ok(full.payload.parts.today.body.page);
+      assert.deepEqual(light.payload.parts.today,full.payload.parts.today);
+      assert.deepEqual(light.payload.parts.completing.body.items,full.payload.parts.pesquisas.body.items);
+      assert.equal(light.payload.parts.manheim,undefined);
+      assert.equal(light.payload.parts.pesquisas,undefined);
+    }
+  } finally { global.Date=RealDate; }
+});

@@ -32,7 +32,13 @@ test('abertura inteira A/B/A: mesmos corpos, hashes, grupos e contagens com SMS 
     for(const body of [{part:'main',sort:'ready',page:{limit:10000},includeCounters:true},{part:'main',sort:'recent',page:{limit:30,ref:'without'},includeCounters:true},{part:'main',sort:'ready',page:{limit:10000,stat:'late24'}},{part:'counters',summary:true}]) {
       const a=await boot(roots[0],body), b=await boot(roots[1],body), again=await boot(roots[0],body);
       assert.deepEqual(again,a,'controle A/A');
-      assert.deepEqual(b,a,'mesmos dados sem normalizar datas/números');
+      if (body.part === 'main' && body.page && !body.includeCounters) {
+        const {pesquisas, ...oldParts} = a.parts;
+        const {completing, ...newParts} = b.parts;
+        assert.deepEqual(newParts,oldParts,'fila inteira idêntica sem esperar os resultados do lote');
+        assert.deepEqual(completing.body.items,pesquisas.body.items,'mesmos pedidos incompletos');
+        assert.equal(completing.body.requestsPending,pesquisas.body.requestsPending);
+      } else assert.deepEqual(b,a,'mesmos dados sem normalizar datas/números');
     }
     assert.equal(backend.refused.length,0);
   } finally {global.Date=RealDate;global.fetch=originalFetch;await backend.db.close();}
