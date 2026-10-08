@@ -14,8 +14,16 @@ const upper = (value) => String(value || '').trim().toUpperCase();
 
 // `services.allRows` lets the caller pass its own reader (the handler's module, in tests).
 async function loadBuscasBase(ctx, services = {}) {
-  const read = services.allRows || allRows;
   await require('./panel-model-aliases').load(ctx, { ...services, rpc: services.rpc || rpc });
+  // PESQUISAS and the options counter in the same boot build the identical base.
+  // Keep this promise inside that authenticated request only, never across users or requests.
+  if (!ctx.buscasBases) return loadBuscasBaseNow(ctx, services);
+  const read = services.allRows || allRows;
+  if (!ctx.buscasBases.has(read)) ctx.buscasBases.set(read, loadBuscasBaseNow(ctx, services).catch((error) => { ctx.buscasBases.delete(read); throw error; }));
+  return ctx.buscasBases.get(read);
+}
+async function loadBuscasBaseNow(ctx, services = {}) {
+  const read = services.allRows || allRows;
   const env = 'eq.' + ctx.environment;
   const [journeys, contacts, phones, refs, toggleStates, calcRuns, calcLinks, dispositions, messageLinks, messages] = await Promise.all([
     read(ctx, 'journeys', { select: 'id,contact_id,reference_code,source,stage,status,criteria_json,budget_cents,confirmed_total_ceiling_cents,payment_text,customer_deadline_text,qualified_at,closed_at,vehicle_text,created_at,updated_at', environment: env, order: 'updated_at.desc' }),

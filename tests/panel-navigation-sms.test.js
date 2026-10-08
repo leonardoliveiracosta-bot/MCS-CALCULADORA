@@ -18,7 +18,7 @@ function navigation() {
   };
   const ctx = {
     currentView:'today', currentDetail:null, viewRequestVersion:1, detailRequestVersion:0, detailOrigin:{view:'today'},
-    VIEWS:['today','v1'], VIEW_LABELS:{today:'Hoje',v1:'V1'}, viewScroll:new Map(),
+    VIEWS:['today','v1'], VIEW_LABELS:{today:'Hoje',v1:'V1'}, viewScroll:new Map(), loadedViews:new Map(), viewCacheKey:view=>view,
     window:{scrollY:350, scrollTo:(x,y)=>moves.push([x,y])},
     document:{querySelectorAll:()=>[], getElementById:node}, $:node,
     history:{replaceState(){},pushState(){}}, location:{pathname:'/painel/',search:'',hash:''},

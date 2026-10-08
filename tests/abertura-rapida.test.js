@@ -75,3 +75,23 @@ test('boot: a prévia corta mensagens longas e marca body_preview', () => {
   assert.match(src, /PREVIEW_CHARS = 600/);
   assert.match(src, /body_preview: true/);
 });
+
+test('boot paginado combina todas as fontes antes do corte, mantém contagens e compartilha leituras dos contadores',async()=>{
+  reads=0;
+  const full=await call('boot','/api/panel/boot','POST',{part:'main',sort:'ready',includeCounters:true});
+  const fullReads=reads;
+  assert.equal(full.statusCode,200);
+  const rules=require('../panel-attend-page');
+  const p=full.payload.parts;
+  const today={...p.today.body,items:p.today.order.map(key=>p.today.items[key])};
+  const model=rules.modelOf(today,p.entry.body,p.triage.body,p.whatsapp.body,p.pesquisas.body,'ready',Date.now());
+  reads=0;
+  const paged=await call('boot','/api/panel/boot','POST',{part:'main',sort:'ready',includeCounters:true,page:{ref:'all',limit:30}});
+  const result=paged.payload.parts.today;
+  assert.ok(result.body.page,'nenhuma fonte pode faltar silenciosamente');
+  assert.deepEqual(result.body.page.counts,model.counts);
+  assert.deepEqual(result.body.page.allKeys.slice().sort(),model.cases.map(entry=>entry.key).sort());
+  assert.ok(result.order.length<=30);
+  assert.equal(paged.payload.parts.manheim.body.summary,true);
+  console.log('BOOT PAGINADO',{leiturasAntes:fullReads,leiturasDepois:reads,bytesAntes:JSON.stringify(full.payload).length,bytesDepois:JSON.stringify(paged.payload).length});
+});

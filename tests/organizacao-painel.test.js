@@ -134,7 +134,7 @@ test('ATENDIMENTO: o badge e a lista usam o mesmo modelo; conversas lidas não v
   assert.match(client, /setCount\('today', model\.counts\.todos\)/);
   assert.doesNotMatch(client, /setCount\('today', model\.counts\.depende\)/);
   // 7cdbf0d: o caso excluído sai das caixas de decisão no badge e na lista (withoutExcluded nos dois).
-  assert.match(client, /const model = MCSAttend\.model\(\{ todayItems: today\.items \|\| \[\], decisions: withoutExcluded\(today\.items, attendDecisions\(\{ entry, triage: triageData, whatsapp: whatsappData \}\), new Set\(today\.discardedJourneys \|\| \[\]\)\), incomplete: withoutExcluded\(today\.items, attendData\.incomplete, new Set\(today\.discardedJourneys \|\| \[\]\)\) \}\);\n      setCount\('today', model\.counts\.todos\);/);
+  assert.match(client, /const model = today\.page\?\{counts:today\.page\.counts\}:MCSAttend\.model\(\{ todayItems: today\.items \|\| \[\], decisions: withoutExcluded\(today\.items, attendDecisions\(\{ entry, triage: triageData, whatsapp: whatsappData \}\), new Set\(today\.discardedJourneys \|\| \[\]\)\), incomplete: withoutExcluded\(today\.items, attendData\.incomplete, new Set\(today\.discardedJourneys \|\| \[\]\)\) \}\);\n      setCount\('today', model\.counts\.todos\);/);
   assert.match(client, /const attendModel = \(items\) => MCSAttend\.model\(\{ todayItems: items, decisions: withoutExcluded\(items, attendDecisions\(\), attendData\.discarded\),/);
   assert.match(client, /chat\.resolution_status !== 'RESOLVED' \|\| chat\.hasTimeUncertain/);
   const html = read('painel/index.html');

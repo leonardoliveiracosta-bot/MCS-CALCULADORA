@@ -99,7 +99,7 @@ for (const scrolled of [0, 600]) {
     const many = Array.from({ length: 40 }, (_, n) => item(id(100 + n), 'Cliente ' + n, '+1305555' + String(2000 + n), 60 * (n + 1), (n + 1) + ' h'));
     const order = many.map((_, n) => 'k' + n), items = Object.fromEntries(many.map((one, n) => ['k' + n, one]));
     await open(page, () => ({ today: { ok: true, hash: 'x' + scrolled, body: { meta: {} }, order, items } }));
-    await page.route('**/api/panel/pesquisas', async (route) => {
+    await page.route('**/api/panel/pesquisas?summary=1', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 3000));
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: Array.from({ length: 11 }, (_, n) => ({ key: 'p' + n, state: 'PRECISA_DETALHE', person: { journeyId: id(300 + n), name: 'Pedido ' + n }, lacksText: 'Falta o carro' })), meta: {} }) });
     });

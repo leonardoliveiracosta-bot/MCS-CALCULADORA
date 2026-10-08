@@ -219,6 +219,7 @@ async function batchReadsFor(ctx, uploads, latest, batchOn) {
 
 async function manheimView(ctx, options = {}) {
   if (options.auditInput) return auditInputFor(ctx);
+  if (options.summary) return manheimCounter(ctx);
   const started = Date.now(), timing = {};
   const timed = (name, work) => work.finally(() => { timing[name] = Date.now() - started; });
   const [supported, batchOn] = await Promise.all([undoSupported(ctx, { rows }), batchSupported(ctx, { rows }).catch(() => false)]);
@@ -345,4 +346,19 @@ async function manheimView(ctx, options = {}) {
   };
 }
 
-module.exports = { batchCounts, batchSummary, comparedKeys, manheimView, loadUploads, loadMatchTargets, demandContext, auditInputFor, auditOptions, latestLiveUpload, liveOptions };
+async function manheimCounter(ctx) {
+  const [supported, batchOn] = await Promise.all([undoSupported(ctx, { rows }), batchSupported(ctx, { rows }).catch(() => false)]);
+  const uploadRead = loadUploads(ctx, supported, 20, batchOn).then((uploads) => latestLiveUpload(ctx, uploads, supported, batchOn));
+  const summaryRead = uploadRead.then((latest) => latest && batchOn ? batchSummary(ctx, latest.id) : []);
+  summaryRead.catch(() => {});
+  const [base, summary] = await Promise.all([loadBuscasBase(ctx, { allRows }), summaryRead]);
+  const context = demandContext(base);
+  const byKey = new Map((summary || []).map((row) => [row.demand_key, row]));
+  const demands = context.listed.filter((demand) => demand.active).map((demand) => ({
+    journeyId: demand.journeyId, ref: demand.ref,
+    matchCount: batchCounts(byKey.get(demand.key), Boolean(context.targetByKey.get(demand.key)?.reactivation)).matchCount
+  }));
+  return require('./panel-counter-summary').optionsSummary(demands);
+}
+
+module.exports = { batchCounts, batchSummary, comparedKeys, manheimView, manheimCounter, loadUploads, loadMatchTargets, demandContext, auditInputFor, auditOptions, latestLiveUpload, liveOptions };

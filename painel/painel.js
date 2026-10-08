@@ -330,6 +330,7 @@
     // A change on a ficha (car, search type, AI item confirmed, Ref or conversation linked) must
     // reach OPÇÕES without waiting for the next CSV.
     if (String(options.method || 'GET').toUpperCase() === 'POST' && CRITERIA_WRITES.test(path)) scheduleOptionsSync();
+    if (String(options.method || 'GET').toUpperCase() !== 'GET' && !/^\/api\/panel\/(boot|client-context|suggestions|assistant)(\?|$)/.test(path)) invalidatePanelLists();
     logRequest(response.status, null);
     return result;
   };
@@ -359,6 +360,21 @@
   // Same GET already running: one request for everyone. A counter can reuse a fresh answer.
   const requestPool = window.MCSRefresh ? MCSRefresh.createRequestPool() : null;
   const sharedGet = (path, ttlMs = 0) => requestPool ? requestPool.get(path, () => request(path), { ttlMs }) : request(path);
+  let sessionScope = '', cacheEpoch = 0, counterCacheAt = 0;
+  const loadedViews = new Map();
+  function invalidatePanelLists() {
+    ++cacheEpoch;
+    counterCacheAt = 0;
+    loadedViews.clear();
+    mainBootRunning=null; countersRunning=null;
+    if(accessToken && sessionScope){const scope=sessionScope;bootState().then(store=>{if(scope===sessionScope){store.invalidated=true;saveBootState(store,scope);}}).catch(()=>{});}
+    if (requestPool) requestPool.invalidate();
+  }
+  function viewCacheKey(view) {
+    const panel = $(view + '-panel');
+    const values = panel ? [...panel.querySelectorAll('select[id],input[id]')].filter((input) => /sort|filter|search|period|heat|origin|subject/.test(input.id)).map((input) => [input.id, input.type === 'checkbox' ? input.checked : input.value]) : [];
+    return JSON.stringify([sessionScope, view, values, view === 'today' ? [todayRefFilter, todayStatFilter, attendQuery()] : null]);
+  }
 
   const sha256 = async (value) => {
     const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
@@ -660,16 +676,21 @@
     $('page-title').textContent = VIEW_LABELS[view];
     // The active area is always evident (style and aria-current).
     document.querySelectorAll('[data-view]').forEach((button) => { const on = button.dataset.view === view; button.classList.toggle('active', on); if (on) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); });
-    renderLoading(view);
+    const tabStarted=Date.now();
+    const cached = loadedViews.get(view) === viewCacheKey(view);
+    if (!cached) renderLoading(view);
+    const restoreScroll = () => {
+      if (options.keepScroll !== false && currentView === view && viewRequestVersion === requestVersion && options.scrollY === undefined) {
+        const back = viewScroll.get(view) || 0, detailVersion = detailRequestVersion;
+        requestAnimationFrame(() => { if (currentView === view && viewRequestVersion === requestVersion && detailRequestVersion === detailVersion && !currentDetail) window.scrollTo(0, back); });
+      }
+    };
+    if (cached) {restoreScroll();if(view==='today')console.log('[panel-performance]',JSON.stringify({kind:'tab-cached',ms:Math.round(Date.now()-tabStarted)}));}
     try { await loadCurrent(view, requestVersion); } catch (failure) {
       console.error(failure);
       if (currentView === view && viewRequestVersion === requestVersion) renderFailure(view);
     }
-    if (options.keepScroll !== false && currentView === view && viewRequestVersion === requestVersion && options.scrollY === undefined) {
-      const back = viewScroll.get(view) || 0;
-      const detailVersion = detailRequestVersion;
-      requestAnimationFrame(() => { if (currentView === view && viewRequestVersion === requestVersion && detailRequestVersion === detailVersion && !currentDetail) window.scrollTo(0, back); });
-    }
+    if (!cached) {restoreScroll();if(view==='today')console.log('[panel-performance]',JSON.stringify({kind:'tab-fresh',ms:Math.round(Date.now()-tabStarted)}));}
   }
 
   // A18: a print that only matches a lead by name waits for the operator
@@ -1934,7 +1955,12 @@
     if (viewController) viewController.abort();
     const controller = new AbortController();
     viewController = controller;
-    try { return await loadCurrentNow(view, requestVersion); }
+    const epoch = cacheEpoch;
+    try {
+      const result = await loadCurrentNow(view, requestVersion);
+      if (epoch === cacheEpoch && accessToken && currentView === view && viewRequestVersion === requestVersion) loadedViews.set(view, viewCacheKey(view));
+      return result;
+    }
     catch (failure) { if (failure && failure.code === 'REQUEST_ABORTED') return; throw failure; }
     finally { if (viewController === controller) viewController = null; }
   }
@@ -1962,7 +1988,8 @@
   }
   async function loadCurrentNow(view, requestVersion) {
     if (window.MCSContext) MCSContext.forget();
-    const current = () => currentView === view && viewRequestVersion === requestVersion;
+    const loadEpoch=cacheEpoch;
+    const current = () => currentView === view && viewRequestVersion === requestVersion && loadEpoch===cacheEpoch;
     if (view === 'settings') {
       if (window.MCSAssistant) window.MCSAssistant.renderIncidents().catch(() => {});
       loadAutomaticMessages().catch(() => {});
@@ -1977,24 +2004,26 @@
       // replaces it as soon as it arrives. Each request is shared with the tab counters (never fetched twice).
       // Abertura rápida: one call brings the five lists (one shared read in the database, message previews only, and
       // only what changed since the last load); if it fails, the five lists are read one by one as before.
-      const viaBoot=bootLoad('main',{sort:$('today-sort')?.value||''}).then(async(parts)=>{if(!parts.today)throw new Error('BOOT_INCOMPLETE');
-        primeBoot({[todayPath()]:parts.today,'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
+      const pageOptions=attendPageOptions();
+      const viaBoot=loadMainBoot({sort:$('today-sort')?.value||'',page:pageOptions,includeCounters:Date.now()-counterCacheAt>60000}).then(async(parts)=>{if(!current())return [];if(!parts.today)throw new Error('BOOT_INCOMPLETE');
+        primeBoot({...(parts.today.page?{}:{[todayPath()]:parts.today}),'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
+        primeCounterParts(parts);
         const entryData=parts.entry?await loadQueue(false,parts.entry).catch(()=>null):null;
         return [parts.today,null,null,entryData,parts.triage||null,parts.whatsapp||null];});
-      const pending=viaBoot.catch(()=>Promise.all([fresh(todayPath()),null,null,
+      const pending=viaBoot.catch(()=>!current()?[]:Promise.all([fresh(todayPath()),null,null,
         loadQueue(false).catch(()=>null),fresh('/api/panel/triage').catch(()=>null),fresh('/api/panel/whatsapp').catch(()=>null)]));
       let freshArrived=false;pending.then(()=>{freshArrived=true;},()=>{});
-      if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
+      if (!attendSnapshotTried) { attendSnapshotTried = true; await bootState().then((store) => { const p = store.parts; if (!store.invalidated && p.today && p.today.body && !freshArrived && current()) applyAttend(p.today.body, p.entry?.body || null, p.triage?.body || null, p.whatsapp?.body || null, store.at); }).catch(() => {}); }
       const [data,,,entryData,triageData,whatsappData]=await pending;
-      if (!current()) return;
+      if (!current() || (data.page && data.page.key!==attendRemoteKey())) return;
       applyAttend(data, entryData, triageData, whatsappData, null);
       // The tab counters' heavier lists (BUSCAR CARROS, CLIENTES, ENVIAR OPÇÕES) come in a second single call, then the counters.
-      countersBoot=bootLoad('counters',{}).then((parts)=>{primeBoot({'/api/panel/pesquisas':parts.pesquisas,'/api/panel/records?view=manheim':parts.manheim});}).catch(()=>{});
+      countersBoot=loadCounterBoot();
       // The real V1s (vitrines table) arrive after the queue is on screen; the
       // "Opções enviadas" stat counts these and redraws when they arrive.
-      sharedGet('/api/panel/vitrine-funnel?summary=1', 60000).then((summary)=>{if(!current())return;v1JourneySet=new Set(summary.v1JourneyIds||[]);v1TodayCount=Number(summary.v1Today)||0;renderToday(todayItems,true);}).catch(()=>{});
+      if (!data.page) sharedGet('/api/panel/vitrine-funnel?summary=1', 60000).then((summary)=>{if(!current())return;v1JourneySet=new Set(summary.v1JourneyIds||[]);v1TodayCount=Number(summary.v1Today)||0;renderToday(todayItems,true);}).catch(()=>{});
       // The incomplete requests (what is missing to search) arrive after the queue is on screen.
-      (countersBoot||Promise.resolve()).then(()=>sharedGet('/api/panel/pesquisas', 30000)).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;
+      if (!data.page) (countersBoot||Promise.resolve()).then(()=>sharedGet('/api/panel/pesquisas?summary=1', 30000)).then((pesquisas)=>{if(!current())return;attendData.incomplete=incompleteRequests(pesquisas);attendData.incompleteFailed=false;
         // A refreshed incomplete list also rereads its last message (for example, after replying).
         attendModel(todayItems).cases.filter((entry)=>entry.bucket==='completar').forEach((entry)=>{if(attendIdentity.get(entry.journeyId)!=='loading')attendIdentity.delete(entry.journeyId);});
         renderToday(todayItems,true);})
@@ -2047,31 +2076,66 @@
   async function refreshCounters() {
     // A second call while one is running waits for the same answer (actions in a row).
     if (countersRunning) return countersRunning;
-    countersRunning = refreshCountersNow().finally(() => { countersRunning = null; });
-    return countersRunning;
+    const run=refreshCountersNow().finally(()=>{if(countersRunning===run)countersRunning=null;});
+    countersRunning=run;return run;
   }
   let countersBoot = null;
+  let mainBootRunning=null;
+  function loadMainBoot(options) {
+    const epoch=cacheEpoch;
+    const run=bootLoad('main',options).then(parts=>{
+      if(epoch!==cacheEpoch)return parts;
+      if(parts.today && requestPool)requestPool.prime('panel:today-counter',parts.today);
+      primeBoot({'/api/panel/entry':parts.entry,'/api/panel/triage':parts.triage,'/api/panel/whatsapp':parts.whatsapp});
+      primeCounterParts(parts);
+      return parts;
+    }).finally(()=>{if(mainBootRunning===run)mainBootRunning=null;});
+    mainBootRunning=run;return run;
+  }
+  function readTodayCounter() {
+    if(mainBootRunning)return mainBootRunning.then(parts=>parts.today);
+    const read=()=>loadMainBoot({sort:$('today-sort')?.value||'ready',page:attendPageOptions()}).then(parts=>parts.today);
+    return requestPool?requestPool.get('panel:today-counter',read,{ttlMs:10000}):read();
+  }
+  function primeCounterParts(parts) {
+    primeBoot({'/api/panel/pesquisas?summary=1':parts.pesquisas,'/api/panel/records?view=manheim&summary=1':parts.manheim});
+    if (parts.pesquisas && parts.manheim) {
+      counterCacheAt = Date.now();
+      if (requestPool) requestPool.prime('boot:counters:summary', parts);
+    }
+  }
+  function loadCounterBoot() {
+    const epoch=cacheEpoch;
+    const run = () => bootLoad('counters', { summary: true }).then((parts) => {
+      if(epoch===cacheEpoch)primeCounterParts(parts);
+      if (!parts.pesquisas || !parts.manheim) throw new Error('BOOT_COUNTERS_INCOMPLETE');
+      return parts;
+    });
+    return (requestPool ? requestPool.get('boot:counters:summary', run, {ttlMs:60000}) : run()).catch(() => null);
+  }
   async function refreshCountersNow() {
+    const epoch=cacheEpoch;
     // The opening's single call for the counters' lists is waited for (its answers serve the counters).
     if (countersBoot) { const waiting = countersBoot; countersBoot = null; await waiting; }
     // C5: only the visible tabs are counted. Each GET is shared with an identical one already running
     // and reuses an answer of the last seconds. Every badge uses the same rule as its list.
     const settled = await Promise.allSettled([
-      sharedGet(todayPath(), 10000),
+      readTodayCounter(),
       sharedGet('/api/panel/entry', 10000),
       Promise.resolve(null),
       Promise.resolve(null),
       sharedGet('/api/panel/triage', 10000),
       sharedGet('/api/panel/whatsapp', 10000),
-      sharedGet('/api/panel/pesquisas', 60000),
-      sharedGet('/api/panel/records?view=manheim', 60000)
+      sharedGet('/api/panel/pesquisas?summary=1', 60000),
+      sharedGet('/api/panel/records?view=manheim&summary=1', 60000)
     ]);
+    if(epoch!==cacheEpoch)return {failed:0,superseded:true};
     const [today, entry, , , triageData, whatsappData, pesquisas, options] = settled.map((result) => result.status === 'fulfilled' ? result.value : null);
     // One failing counter never touches the others; it keeps its last confirmed number.
     const count = (view, data, compute) => { if (!data) return setCountUnknown(view); try { setCount(view, compute(data)); } catch (_) { setCountUnknown(view); } };
     // ATENDIMENTO: the cases of the list, from the same model as the list.
     if (today && entry && triageData && whatsappData) {
-      const model = MCSAttend.model({ todayItems: today.items || [], decisions: withoutExcluded(today.items, attendDecisions({ entry, triage: triageData, whatsapp: whatsappData }), new Set(today.discardedJourneys || [])), incomplete: withoutExcluded(today.items, attendData.incomplete, new Set(today.discardedJourneys || [])) });
+      const model = today.page?{counts:today.page.counts}:MCSAttend.model({ todayItems: today.items || [], decisions: withoutExcluded(today.items, attendDecisions({ entry, triage: triageData, whatsapp: whatsappData }), new Set(today.discardedJourneys || [])), incomplete: withoutExcluded(today.items, attendData.incomplete, new Set(today.discardedJourneys || [])) });
       setCount('today', model.counts.todos);
     } else setCountUnknown('today');
     count('imports', entry, (data) => (data.reviews || []).length + (data.printReviews || []).length + (data.failedPrints || []).length + (data.calcQueue || []).length);
@@ -2672,6 +2736,15 @@
   }
   // "Excluir selecionados": every selected card leaves the panel (the same "Excluir" as in the ficha), with one "Desfazer".
   function applyAttend(data, entryData, triageData, whatsappData, savedAt) {
+    if (data.page && data.page.key!==attendRemoteKey()) return;
+    attendRemotePage=data.page?{...data.page,rows:data.page.rows.map(row=>({...row,entry:{...row.entry}}))}:null;
+    if (attendRemotePage) {
+      Object.entries(attendRemotePage.identities||{}).forEach(([id,identity])=>attendIdentity.set(id,identity));
+      const byCase=new Map((data.items||[]).map(item=>[MCSAttend.caseKeyOf(item),item]));
+      attendRemotePage.rows.forEach(row=>{row.entry.item=row.entry.itemCaseKey?byCase.get(row.entry.itemCaseKey)||null:null;});
+      attendData.incompleteFailed=false;
+      v1TodayCount=Number(attendRemotePage.v1Today)||0;
+    }
     updateMeta(data.meta);
     if(entryData){if(Array.isArray(entryData.nameLinks))nameLinks=entryData.nameLinks;renderQueue(entryData.chats||[],entryData.reviews||[]);}
     renderTriage(triageData);
@@ -2681,6 +2754,7 @@
     attendData.discarded=new Set(data.discardedJourneys||[]);
     attendData.contactResults=data.contactResults&&typeof data.contactResults==='object'?data.contactResults:null;
     renderToday(data.items || []);
+    if (!savedAt) console.log('[panel-performance]',JSON.stringify({kind:'list-ready',sinceNavigationMs:typeof performance==='object'?Math.round(performance.now()):null,paged:Boolean(data.page)}));
     if (savedAt) { const note = $('triage-state'); if (note) note.textContent = [`Mostrando os dados de ${formatDate(savedAt)} · atualizando…`, note.textContent].filter(Boolean).join(' · '); }
   }
   // One request per path at a time, shared with the counters; the answer is kept for the counters of the next seconds.
@@ -2688,18 +2762,25 @@
   const todayPath = () => '/api/panel/today?sort=' + encodeURIComponent($('today-sort')?.value || '');
   // What the panel already received, kept in this browser (IndexedDB, no size limit like localStorage): it is drawn at
   // once on the next opening and tells the server what not to send again (hash of each list and of each case).
-  let attendSnapshotTried = false, bootStore = null;
+  let attendSnapshotTried = false, bootStore = null, bootStoreLoading = null;
   function attendDb() { return new Promise((resolve, reject) => { if (!window.indexedDB) return reject(new Error('NO_IDB')); const open = indexedDB.open('mcs-painel', 1); open.onupgradeneeded = () => open.result.createObjectStore('snap'); open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error); }); }
   // v: the shape of what is kept. A copy saved by an older panel (which could miss cases, see bootLoad) is dropped once.
-  const BOOT_STORE_VERSION = 2;
-  const emptyBootStore = () => ({ v: BOOT_STORE_VERSION, at: null, parts: {}, items: {} });
+  const BOOT_STORE_VERSION = 3;
+  const bootStorageKey = () => JSON.stringify(['boot', sessionScope, $('today-sort')?.value || 'ready']);
+  const emptyBootStore = (key) => ({ key, v: BOOT_STORE_VERSION, at: null, parts: {}, items: {} });
   async function bootState() {
-    if (bootStore) return bootStore;
-    const saved = await attendDb().then((db) => new Promise((resolve) => { const req = db.transaction('snap').objectStore('snap').get('boot'); req.onsuccess = () => resolve(req.result || null); req.onerror = () => resolve(null); })).catch(() => null);
-    bootStore = saved && saved.v === BOOT_STORE_VERSION && saved.parts && saved.items ? saved : emptyBootStore();
-    return bootStore;
+    const key = bootStorageKey(), scope = sessionScope;
+    if (bootStore?.key === key) return bootStore;
+    if (bootStoreLoading?.key === key) return bootStoreLoading.promise;
+    const promise = attendDb().then((db) => new Promise((resolve) => { const req = db.transaction('snap').objectStore('snap').get(key); req.onsuccess = () => resolve(req.result || null); req.onerror = () => resolve(null); })).catch(() => null).then((saved) => {
+      const store = saved && saved.key === key && saved.v === BOOT_STORE_VERSION && saved.parts && saved.items ? saved : emptyBootStore(key);
+      if (sessionScope === scope && bootStorageKey() === key) bootStore = store;
+      return store;
+    });
+    bootStoreLoading = {key, promise};
+    return promise;
   }
-  function saveBootState(store) { attendDb().then((db) => { db.transaction('snap', 'readwrite').objectStore('snap').put(store, 'boot'); }).catch(() => {}); }
+  function saveBootState(store, scope) { attendDb().then((db) => { if (sessionScope === scope && accessToken) db.transaction('snap', 'readwrite').objectStore('snap').put(store, store.key); }).catch(() => {}); }
   // One load per part at a time. Two loads running together (the opening, a click on TODOS, a new message) used to answer
   // out of order: the older answer was applied last and built the list with cases the newer one had already removed from
   // this browser, so a case vanished with no warning (and the next opening drew the list without it).
@@ -2710,13 +2791,17 @@
     return run;
   }
   async function bootLoadNow(part, extra, full = false) {
+    const scope = sessionScope, epoch=cacheEpoch;
     const store = await bootState();
     const have = {};
     if (!full) {
       Object.entries(store.parts).forEach(([name, saved]) => { if (saved && saved.hash && saved.body) have[name] = saved.hash; });
       if (part === 'main') have.todayItems = Object.keys(store.items);
     }
+    const bootStarted=Date.now();
     const answer = await request('/api/panel/boot', { method: 'POST', body: JSON.stringify({ part, have, ...extra }) });
+    console.log('[panel-performance]',JSON.stringify({kind:'boot',part,ms:Math.round(Date.now()-bootStarted)}));
+    if (sessionScope !== scope || !accessToken || epoch!==cacheEpoch) throw Object.assign(new Error('REQUEST_ABORTED'), {code:'REQUEST_ABORTED'});
     const parts = (answer && answer.parts) || {};
     // Nothing is drawn from a partial copy: an answer that relies on something this browser does not have (a "same" part
     // it never kept, a case it no longer has) is asked again in full.
@@ -2736,13 +2821,26 @@
       store.parts[name] = { hash: got.hash, body };
       out[name] = body;
     });
-    if (part === 'main') store.at = answer.generatedAt || new Date().toISOString();
-    saveBootState(store);
+    if (part === 'main') {store.at = answer.generatedAt || new Date().toISOString();store.invalidated=false;}
+    saveBootState(store, scope);
     return out;
   }
   function primeBoot(map) { if (!requestPool || !requestPool.prime) return; Object.entries(map).forEach(([path, value]) => { if (value) requestPool.prime(path, value); }); }
   const ATTEND_PAGE = 30;
   let attendLimit = ATTEND_PAGE, attendPageKey = '';
+  let attendRemotePage=null, attendRemotePending=null;
+  const attendRemoteKey=()=>JSON.stringify([$('today-sort')?.value||'ready',todayRefFilter,todayStatFilter||null,attendQuery()]);
+  function attendPageOptions() {
+    const key=['todos','all','all','all',todayRefFilter,todayStatFilter,attendQuery()].join('|');
+    if(key!==attendPageKey){attendPageKey=key;attendLimit=ATTEND_PAGE;}
+    return {ref:todayRefFilter,stat:todayStatFilter,query:attendQuery(),limit:attendLimit};
+  }
+  function requestAttendPage() {
+    const key=JSON.stringify([attendRemoteKey(),attendLimit,$('today-sort')?.value]);
+    if(attendRemotePending?.key===key)return attendRemotePending.promise;
+    const promise=loadCurrent('today',viewRequestVersion).catch(()=>{}).finally(()=>{if(attendRemotePending?.key===key)attendRemotePending=null;});
+    attendRemotePending={key,promise};return promise;
+  }
   const attendPicked = new Set();
   function bulkBar() {
     const bar = element('div', 'attend-bulk hidden');
@@ -3027,6 +3125,8 @@
     }
   }
   function renderTodayNow(items, preserveAll=false) {
+    const page=attendRemotePage;
+    if(page && page.key!==attendRemoteKey()){attendPageOptions();requestAttendPage();return;}
     const root = $('today-list');
     const stats = $('today-stats');
     stageDecisionRows();
@@ -3034,14 +3134,14 @@
     stats.replaceChildren();
     if(!preserveAll)todayItems = items.slice();
     const all=preserveAll?todayItems:items.slice();
-    const model = attendModel(all);
+    const model = page?{cases:page.rows.map(row=>row.entry),counts:page.counts}:attendModel(all);
     const sourcesReady = attendData.entry && attendData.triage && attendData.whatsapp && !attendData.incompleteFailed;
-    if(sourcesReady){const liveKeys=new Set(model.cases.map((entry)=>entry.key));attendPicked.forEach((key)=>{if(!liveKeys.has(key))attendPicked.delete(key);});}
+    if(sourcesReady){const liveKeys=new Set(page?page.allKeys:model.cases.map((entry)=>entry.key));attendPicked.forEach((key)=>{if(!liveKeys.has(key))attendPicked.delete(key);});}
     // The badge counts the cases of the list (all of them, whatever filter is on screen); when a decision
     // list did not load, the number would be too low, so it is marked as not updated.
     if (sourcesReady) setCount('today', model.counts.todos);
     else setCountUnknown('today');
-    loadAttendIdentities(model.cases);
+    if(!page)loadAttendIdentities(model.cases);
     // Ref, Origem and Período narrow the cases first; chips, Ref buttons and the list then count the
     // same cases. No period by default: an open contact stays whatever its age.
     // Origem, Assunto e Período saíram da tela: a lista mostra sempre todos (um valor salvo antes não esconde ninguém).
@@ -3061,32 +3161,33 @@
     const bucketAll = model.cases.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
     const bucketNarrowed = narrowed.filter((entry) => MCSAttend.inBucket(entry, attendBucket));
     const countRef=(state)=>bucketNarrowed.filter((entry)=>{const facts=factsOf.get(entry.key);return facts.known&&facts.refState===state;}).length;
-    const refCounts={all:bucketNarrowed.length,with:countRef('COM_REF'),recover:countRef('A_RECUPERAR'),without:countRef('SEM_REF')};
+    const refCounts=page?page.refCounts:{all:bucketNarrowed.length,with:countRef('COM_REF'),recover:countRef('A_RECUPERAR'),without:countRef('SEM_REF')};
     document.querySelectorAll('[data-today-ref]').forEach((button)=>{button.classList.toggle('active',button.dataset.todayRef===todayRefFilter);const count=button.querySelector('span');if(count)count.textContent=String(refCounts[button.dataset.todayRef]||0);});
-    const shown=passing.filter((entry)=>MCSAttend.inBucket(entry, attendBucket));
+    const shown=page?model.cases:passing.filter((entry)=>MCSAttend.inBucket(entry, attendBucket));
+    const shownCount=page?page.shownCount:shown.length;
     const base=shown.filter((entry)=>entry.item).map((entry)=>entry.item);
     // Every number is a button that shows its list, and says its complement (same cases as the list).
     // late24: same rule as the weekly "Sem resposta há mais de 24 h" (last real message is the client's, older than 24 h).
     const STAT_FILTERS={late24:(item)=>{const latest=item.latestMessage;const at=Date.parse(latest&&latest.occurred_at_utc||'');return Boolean(latest&&!latest.is_automatic&&latest.direction==='CUSTOMER'&&Number.isFinite(at)&&Date.now()-at>86400000);},hot:(item)=>item.purchaseWindow==='NOW',sent:(item)=>v1JourneySet.has(journeyIdOf(item))};
     if(todayStatFilter&&!STAT_FILTERS[todayStatFilter])todayStatFilter=null;
     const stat = (key, label, complement) => {
-      const value=key?base.filter(STAT_FILTERS[key]).length:shown.length;
+      const value=page?(key?page.stats[key]:page.shownCount):(key?base.filter(STAT_FILTERS[key]).length:shown.length);
       const block = element('button', 'today-stat attend-num'+(key==='hot'?' attend-num-hot':'')+((todayStatFilter||null)===key?' active':''));block.type='button';block.dataset.todayStat=key||'all';block.setAttribute('aria-pressed',String((todayStatFilter||null)===key));
-      block.title = complement(shown.length-value) + ((todayStatFilter||null)===key ? ' · clique de novo para ver todos' : '');
+      block.title = complement(shownCount-value) + ((todayStatFilter||null)===key ? ' · clique de novo para ver todos' : '');
       block.append(element('strong', '', value), element('span', '', label));
       block.addEventListener('click',()=>{todayStatFilter=key&&todayStatFilter!==key?key:null;renderToday(todayItems,true);});
       stats.append(block);
     };
     stat('late24', 'sem resposta há +24 h', (rest)=>`${rest} respondidos ou com menos de 24 h`);
     // Purchase window (calculator deadline): how many in each range; the number filters the ones ready to buy now.
-    const windowCount=(key)=>base.filter((item)=>String(item.purchaseWindow||'NONE')===key).length;
+    const windowCount=(key)=>page?page.windows[key]:base.filter((item)=>String(item.purchaseWindow||'NONE')===key).length;
     stat('hot', 'prontos para comprar', ()=>`${windowCount('30D')} em até 30 dias · ${windowCount('3M')} em até 3 meses · ${windowCount('NONE')} sem prazo informado`);
     // "Opções enviadas" counts real V1s (vitrines table), never the manual mark.
     stat('sent', 'opções enviadas', (rest)=>`${v1TodayCount} hoje · ${rest} sem V1 enviada`);
-    const byStat=todayStatFilter?shown.filter((entry)=>entry.item&&STAT_FILTERS[todayStatFilter](entry.item)):shown;
+    const byStat=page?shown:todayStatFilter?shown.filter((entry)=>entry.item&&STAT_FILTERS[todayStatFilter](entry.item)):shown;
     // Busca da barra: só filtra a lista já carregada (telefone, Ref, carro ou nome), nada vai ao servidor.
     const query=attendQuery();
-    const visible=query?byStat.filter((entry)=>attendMatches(entry,query)):byStat;
+    const visible=page?byStat:query?byStat.filter((entry)=>attendMatches(entry,query)):byStat;
     syncAttendStamp();
     const offCount=model.counts.fora;
     if (!visible.length) {
@@ -3104,7 +3205,7 @@
     // Only 30 rows are built at a time (the page
     // stays fast); "Mostrar mais" adds the next 30, or what is left.
     let order = without.filter((entry) => entry.bucket !== 'completar').map((entry) => ({ entry, data: { group: 'DECISOES' } }));
-    if (withItem.length) {
+    if (!page && withItem.length) {
       const scratch = document.createElement('div');
       MCSContactGroups.render(scratch, withItem.map((entry) => entry.item), (item) => { const stub = document.createElement('i'); stub.attendEntry = byItem.get(item); return stub; }, { emptyText: '', flat: true });
       const placed = [...scratch.querySelectorAll('i')].map((stub) => ({ entry: stub.attendEntry, data: { ...stub.dataset } }));
@@ -3112,7 +3213,7 @@
       if (($('today-sort')?.value || 'ready') === 'ready') order.push(...placed);
       else { const dataOf = new Map(placed.map((one) => [one.entry, one.data])); withItem.forEach((entry) => order.push({ entry, data: dataOf.get(entry) || {} })); }
     }
-    order = MCSCompleting.insert(order, without.filter((entry) => entry.bucket === 'completar').map((entry) => ({ entry, data: { group: 'COMPLETAR' } })), attendIdentity, $('today-sort')?.value || 'ready');
+    order = page?page.rows:MCSCompleting.insert(order, without.filter((entry) => entry.bucket === 'completar').map((entry) => ({ entry, data: { group: 'COMPLETAR' } })), attendIdentity, $('today-sort')?.value || 'ready');
     const filterKey = [attendBucket, origin, period, subject, todayRefFilter, todayStatFilter, query].join('|');
     if (filterKey !== attendPageKey) { attendPageKey = filterKey; attendLimit = ATTEND_PAGE; }
     const grid = element('section', 'attend-list contact-group contact-group-flat');
@@ -3125,12 +3226,12 @@
       slice.forEach(({ entry, data }) => { const card = buildCard(entry); Object.assign(card.dataset, data); grid.append(card); });
       built += slice.length;
       updateBulkBar();
-      const rest = order.length - built;
+      const rest = (page?page.total:order.length) - built;
       moreWrap.classList.toggle('hidden', rest <= 0);
       moreButton.textContent = `Mostrar mais ${Math.min(ATTEND_PAGE, rest)}${rest > ATTEND_PAGE ? ` · ${rest} restantes` : ''}`;
       if (slice.length) { hydrateContexts(grid); MCSContactGroups.hydrateTranslations(grid, { request }).catch(() => {}); }
     };
-    moreButton.addEventListener('click', () => { attendLimit = built + ATTEND_PAGE; buildUpTo(attendLimit); });
+    moreButton.addEventListener('click', () => { attendLimit = built + ATTEND_PAGE; if(page){moreButton.disabled=true;requestAttendPage().finally(()=>{if(moreButton.isConnected)moreButton.disabled=false;});}else buildUpTo(attendLimit); });
     buildUpTo(Math.max(ATTEND_PAGE, attendLimit));
     if(offCount&&attendBucket!=='fora')root.append(element('p','muted',`${offCount} caso(s) fora do assunto estão na seção Fora do assunto, abaixo`));
     hydrateContexts(root);
@@ -3675,7 +3776,7 @@
   }
 
   // People with cars of the active batch in ENVIAR OPÇÕES (a person with VALOR and CARRO cars is one).
-  const optionsPeopleOf = (data) => new Set((data && data.demands || []).filter((demand) => demand.matchCount > 0).map((demand) => demand.journeyId ? 'ficha:' + demand.journeyId : 'ref:' + String(demand.ref || '').toUpperCase())).size;
+  const optionsPeopleOf = (data) => data?.summary ? data.peopleWithOptions : new Set((data && data.demands || []).filter((demand) => demand.matchCount > 0).map((demand) => demand.journeyId ? 'ficha:' + demand.journeyId : 'ref:' + String(demand.ref || '').toUpperCase())).size;
   let manheimData = null;
   const queueSearchInput = document.getElementById('options-queue-search');
   if (queueSearchInput) queueSearchInput.addEventListener('input', () => paintOptionsQueue());
@@ -4620,7 +4721,7 @@
       else columns[item.searchMode].push(item);
     });
     const listed = columns.VALOR.concat(columns.CARRO);
-    return { columns, review, incomplete, total: listed.length, people: new Set(listed.map(requestPersonKey)).size };
+    return { columns, review, incomplete, total: data?.summary ? data.requestCount : listed.length, people: new Set(listed.map(requestPersonKey)).size };
   }
   let requestsUploadId = null;
   function renderRequests(data) {
@@ -6073,6 +6174,12 @@
     storeSession();
   };
   const clearSession = () => {
+    const oldScope = sessionScope;
+    sessionScope = ''; attendRemotePage=null; attendRemotePending=null;
+    invalidatePanelLists();
+    bootStore = null; bootStoreLoading = null; attendSnapshotTried = false;
+    // Remove every saved filter/sort of this user and the unscoped legacy copy.
+    attendDb().then((db) => { const cursor = db.transaction('snap','readwrite').objectStore('snap').openCursor(); cursor.onsuccess = () => { const one = cursor.result; if (!one) return; let belongs = one.key === 'boot'; try { belongs = belongs || JSON.parse(one.key)[1] === oldScope; } catch (_) {} if (belongs) one.delete(); one.continue(); }; }).catch(() => {});
     attendPicked.clear();
     sessionStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(SESSION_KEY);
@@ -6278,6 +6385,8 @@
     let session;
     try {
       session = await request('/api/panel/session', { timeoutMs: SESSION_TIMEOUT_MS });
+      const scope = JSON.stringify([location.origin, session.environment || '', session.email || '']);
+      if (sessionScope !== scope) { invalidatePanelLists(); bootStore = null; bootStoreLoading = null; attendSnapshotTried = false; sessionScope = scope; }
     } catch (failure) {
       if (['AUTHENTICATION_REQUIRED', 'PANEL_ACCESS_DENIED'].includes(failure && failure.code) || !accessToken) {
         clearSession();

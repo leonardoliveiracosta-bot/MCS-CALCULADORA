@@ -141,19 +141,21 @@
     const now = options.now || (() => Date.now());
     const inflight = new Map();
     const cache = new Map();
+    let epoch = 0;
     return {
       get(key, run, config = {}) {
         const ttl = Number(config.ttlMs) || 0;
         const cached = cache.get(key);
         if (ttl && cached && now() - cached.at <= ttl) return Promise.resolve(cached.value);
         if (inflight.has(key)) return inflight.get(key);
-        const promise = Promise.resolve().then(run).then((value) => { cache.set(key, { value, at: now() }); return value; }).finally(() => inflight.delete(key));
+        const startedEpoch = epoch;
+        const promise = Promise.resolve().then(run).then((value) => { if (epoch === startedEpoch) cache.set(key, { value, at: now() }); return value; }).finally(() => { if (inflight.get(key) === promise) inflight.delete(key); });
         inflight.set(key, promise);
         return promise;
       },
       // An answer already in hand (the panel's single opening call) serves the next identical GET of the ttl.
       prime(key, value) { cache.set(key, { value, at: now() }); },
-      invalidate(prefix) { if (!prefix) { cache.clear(); return; } [...cache.keys()].filter((key) => key.startsWith(prefix)).forEach((key) => cache.delete(key)); },
+      invalidate(prefix) { ++epoch; if (!prefix) { cache.clear(); inflight.clear(); return; } [...cache.keys()].filter((key) => key.startsWith(prefix)).forEach((key) => cache.delete(key)); [...inflight.keys()].filter((key) => key.startsWith(prefix)).forEach((key) => inflight.delete(key)); },
       inflightCount: () => inflight.size
     };
   }

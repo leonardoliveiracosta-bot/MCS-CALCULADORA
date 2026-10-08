@@ -166,7 +166,7 @@ test('10 · ENTRADA, CLIENTES e HOJE mostram a pessoa uma vez', () => {
   assert.doesNotMatch(client, /makeBadge\([^)]*(MIXED|Misto)/i);
   // ENVIAR OPÇÕES counts people (a person with VALOR and CARRO cars is one), same rule as its list.
   assert.match(client, /count\('searches', options, \(data\) => optionsPeopleOf\(data\)\)/);
-  assert.match(client, /const optionsPeopleOf = \(data\) => new Set\(/);
+  assert.match(client, /const optionsPeopleOf = \(data\) => data\?\.summary \? data.peopleWithOptions : new Set\(/);
 });
 
 test('11 · novos matches sem logical_mode são recusados pelo banco e 12 · linhas históricas nulas ficam', () => {
