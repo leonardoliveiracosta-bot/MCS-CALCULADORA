@@ -212,12 +212,18 @@ async function allRows(ctx, table, params = {}, pageSize = 1000) {
   return result;
 }
 
-// Only the two unfiltered histories used by boot. One snapshot replaces their sequential
+// Only the complete histories used by boot. One snapshot replaces their sequential
 // pages; every grouping/filter/order rule remains in the callers. No cross-request cache.
 async function bootTableRows(ctx, table, request) {
-  if (!ctx.bootBulkRows || !['messages', 'calc_runs'].includes(table)) return null;
+  if (!ctx.bootBulkRows || !['messages', 'calc_runs', 'journey_checklist', 'message_journeys'].includes(table)) return null;
   const filterKeys = Object.keys(request).filter((key) => key !== 'select');
-  if (table === 'messages' ? filterKeys.length !== 1 || request.environment !== 'eq.' + ctx.environment : filterKeys.length !== 0) return null;
+  if (table === 'calc_runs') { if (filterKeys.length !== 0) return null; }
+  else {
+    if (request.environment !== 'eq.' + ctx.environment) return null;
+    if (table === 'message_journeys') {
+      if (filterKeys.length !== 2 || request.undone_at !== 'is.null') return null;
+    } else if (filterKeys.length !== 1) return null;
+  }
   const shaped = table === 'messages' ? messageDateParams(request) : { params: request, added: [] };
   const columns = topLevelFields(shaped.params.select || '*');
   if (!columns.length || !columns.every((column) => /^[a-z_][a-z0-9_]*$/.test(column))) return null;
