@@ -176,7 +176,10 @@ async function allRows(ctx, table, params = {}, pageSize = 1000) {
   const select = missing.length ? fields.concat(missing).join(',') : filters.select;
   const request = { ...filters, ...(select ? { select } : {}) };
   const result = [];
-  if (keys.length === 1) {
+  const bulk = await bootTableRows(ctx, table, request);
+  if (bulk !== null) {
+    result.push(...bulk);
+  } else if (keys.length === 1) {
     const [key] = keys;
     let last = null;
     for (;;) {
@@ -197,6 +200,28 @@ async function allRows(ctx, table, params = {}, pageSize = 1000) {
   if (order) result.sort(orderComparator(order, keys));
   if (missing.length) result.forEach((row) => missing.forEach((key) => { delete row[key]; }));
   return result;
+}
+
+// Only the two unfiltered histories used by boot. One snapshot replaces their sequential
+// pages; every grouping/filter/order rule remains in the callers. No cross-request cache.
+async function bootTableRows(ctx, table, request) {
+  if (!ctx.bootBulkRows || !['messages', 'calc_runs'].includes(table)) return null;
+  const filterKeys = Object.keys(request).filter((key) => key !== 'select');
+  if (table === 'messages' ? filterKeys.length !== 1 || request.environment !== 'eq.' + ctx.environment : filterKeys.length !== 0) return null;
+  const shaped = table === 'messages' ? messageDateParams(request) : { params: request, added: [] };
+  const columns = topLevelFields(shaped.params.select || '*');
+  if (!columns.length || !columns.every((column) => /^[a-z_][a-z0-9_]*$/.test(column))) return null;
+  let list;
+  try {
+    list = await readRpc(ctx, 'panel_boot_table_rows', { p_environment: ctx.environment, p_table: table, p_columns: columns });
+  } catch (error) {
+    // Additive rollout/rollback: an absent RPC uses the existing keyset reads. Other
+    // failures propagate instead of silently delivering a partial or stale history.
+    if (error.status === 404) return null;
+    throw error;
+  }
+  if (!Array.isArray(list)) throw new Error('INVALID_BOOT_TABLE_ROWS');
+  return table === 'messages' ? maskUnknownDates(list, shaped.added) : list;
 }
 
 // One database function (RPC), with the service key. Business errors keep their code.

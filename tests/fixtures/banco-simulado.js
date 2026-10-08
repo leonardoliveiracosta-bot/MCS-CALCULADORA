@@ -55,7 +55,7 @@ function orderClause(order) {
 
 // maxRows: like Supabase (PostgREST db-max-rows = 1000), a row result (table read or a function
 // returning rows) is cut at this many rows. A single jsonb value is never cut.
-async function createBackend({ seed, maxRows = null } = {}) {
+async function createBackend({ seed, maxRows = null, nativeJsonRows = false } = {}) {
   const { db } = await migratedDatabase();
   if (seed) await db.exec(seed);
   const refused = [];
@@ -93,7 +93,11 @@ async function createBackend({ seed, maxRows = null } = {}) {
       let sql = `select ${select} from public.${ident(table)}${whereClause(params, values)}${orderClause(get('order'))}`;
       if (get('limit')) sql += ` limit ${Number(get('limit'))}`;
       if (get('offset')) sql += ` offset ${Number(get('offset'))}`;
-      const rows = (await db.query(sql, values)).rows;
+      // PostgREST serializes rows in PostgreSQL, retaining timezone/microseconds. This
+      // option allows exact REST/RPC comparisons without JS Date normalizing either side.
+      const rows = nativeJsonRows
+        ? (await db.query(`select to_jsonb(t) as row from (${sql}) t`, values)).rows.map((row) => row.row)
+        : (await db.query(sql, values)).rows;
       return maxRows ? rows.slice(0, maxRows) : rows;
     }
     const known = new Set(await columns(table));
