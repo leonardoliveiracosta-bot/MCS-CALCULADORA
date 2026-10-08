@@ -354,53 +354,49 @@ const messageAt = (message) => message.occurred_at_utc || message.created_at || 
 
 async function buildContexts(ctx, rawInput = {}, services = {}) {
   const input = normalizedInput(rawInput);
+  const listOnly = services.listOnly === true;
   const env = 'eq.' + ctx.environment;
   const journeys = await loadJourneys(ctx, input);
   const ids = journeys.map((journey) => journey.id);
   const contactIds = [...new Set(journeys.map((journey) => journey.contact_id).concat(input.contactIds).filter(Boolean))];
-  const [contacts, phones, userIds, journeyRefs, links, promises, toggles, insights] = await Promise.all([
+  const [contacts, phones, userIds, journeyRefs, links, promises, toggles, insights, identityRows, classRows] = await Promise.all([
     contactIds.length ? inChunks(ctx, 'contacts', { select: 'id,display_name,location_text,source,created_at', environment: env }, 'id', contactIds) : [],
     contactIds.length ? inChunks(ctx, 'contact_phones', { select: 'contact_id,phone_e164,is_primary,is_current,retired_at', environment: env }, 'contact_id', contactIds) : [],
-    contactIds.length ? inChunks(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: env }, 'contact_id', contactIds) : [],
+    !listOnly && contactIds.length ? inChunks(ctx, 'whatsapp_user_ids', { select: 'contact_id,username', environment: env }, 'contact_id', contactIds) : [],
     ids.length ? inChunks(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env }, 'journey_id', ids) : [],
     ids.length ? inChunks(ctx, 'message_journeys', { select: 'journey_id,message_id', environment: env, undone_at: 'is.null' }, 'journey_id', ids) : [],
-    ids.length ? inChunks(ctx, 'promises', { select: 'journey_id,promise_text,due_at,status', environment: env, status: 'eq.OPEN' }, 'journey_id', ids) : [],
+    !listOnly && ids.length ? inChunks(ctx, 'promises', { select: 'journey_id,promise_text,due_at,status', environment: env, status: 'eq.OPEN' }, 'journey_id', ids) : [],
     ids.length ? inChunks(ctx, 'journey_toggle_states', { select: 'journey_id,enabled,switched_at', environment: env }, 'journey_id', ids) : [],
-    ids.length ? safe(inChunks(ctx, 'conversation_pending_insights', { select: 'journey_id,summary_text,next_step_text,last_ai_message_id,updated_at', environment: env }, 'journey_id', ids), []) : []
+    !listOnly && ids.length ? safe(inChunks(ctx, 'conversation_pending_insights', { select: 'journey_id,summary_text,next_step_text,last_ai_message_id,updated_at', environment: env }, 'journey_id', ids), []) : [],
+    ids.length ? safe(inChunks(ctx, 'panel_identity_state', { select: 'journey_id,status,calc_origin,refs,conflict', environment: env }, 'journey_id', ids), null) : [],
+    ids.length ? safe(inChunks(ctx, 'panel_conversation_class', { select: 'journey_id,subject,manual_subject,classified_at,reason,request_summaries', environment: env }, 'journey_id', ids), null) : []
   ]);
   // The same identity and subject the lists use; a source that cannot be read is unavailable, never "not identified".
-  const [identityRows, classRows] = ids.length ? await Promise.all([
-    safe(inChunks(ctx, 'panel_identity_state', { select: 'journey_id,status,calc_origin,refs,conflict', environment: env }, 'journey_id', ids), null),
-    safe(inChunks(ctx, 'panel_conversation_class', { select: 'journey_id,subject,manual_subject,classified_at,reason,request_summaries', environment: env }, 'journey_id', ids), null)
-  ]) : [[], []];
   const classification = identityRows && classRows ? buildIndex(identityRows, classRows) : UNAVAILABLE;
   const refsOf = (journey) => [...new Set([journey.reference_code, ...journeyRefs.filter((row) => row.journey_id === journey.id).map((row) => row.ref_code)].map((ref) => clean(ref).toUpperCase()).filter((ref) => REF.test(ref)))];
   const allRefs = [...new Set(journeys.flatMap(refsOf).concat(input.refs))];
-  const [calcRuns, calcLinks] = allRefs.length ? await Promise.all([
-    inChunks(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test' }, 'dados->>ref', allRefs),
-    inChunks(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: env }, 'calc_ref', allRefs)
-  ]) : [[], []];
+  const messageIds = [...new Set(links.map((row) => row.message_id))];
+  // Independent sources start together. Their failures retain the same per-source behavior.
+  const [calcRuns, calcLinks, ownerCodes, ownerLinks, messages, vitrineOrigins] = await Promise.all([
+    allRefs.length ? inChunks(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test' }, 'dados->>ref', allRefs) : [],
+    allRefs.length ? inChunks(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: env }, 'calc_ref', allRefs) : [],
+    allRefs.length ? inChunks(ctx, 'journeys', { select: 'id,reference_code', environment: env }, 'reference_code', allRefs) : [],
+    allRefs.length ? inChunks(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env }, 'ref_code', allRefs) : [],
+    messageIds.length ? inChunks(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,is_edit_marker,is_delete_marker,original_order,occurred_at_utc,created_at,channel,source_kind,undone_at', environment: env }, 'id', messageIds) : [],
+    loadVitrineOrigins(ctx).catch(() => null)
+  ]);
   const orders = consolidateCalcRuns(calcRuns, calcLinks);
-  // Every ficha that owns each Ref, in the whole environment (not only the fichas asked for): a Ref
-  // in two fichas belongs to neither, whichever one is on screen.
-  const [ownerCodes, ownerLinks] = allRefs.length ? await Promise.all([
-    inChunks(ctx, 'journeys', { select: 'id,reference_code', environment: env }, 'reference_code', allRefs),
-    inChunks(ctx, 'journey_refs', { select: 'journey_id,ref_code', environment: env }, 'ref_code', allRefs)
-  ]) : [[], []];
+  // Ref ownership is checked throughout the environment, including fichas outside this request.
   const ownersByRef = new Map();
   [...ownerCodes.map((row) => [row.reference_code, row.id]), ...ownerLinks.map((row) => [row.ref_code, row.journey_id])].forEach(([ref, owner]) => {
     const key = clean(ref).toUpperCase();
     if (!ownersByRef.has(key)) ownersByRef.set(key, new Set());
     ownersByRef.get(key).add(owner);
   });
-  const messageIds = [...new Set(links.map((row) => row.message_id))];
-  const messages = messageIds.length ? await inChunks(ctx, 'messages', { select: 'id,direction,body_text,is_automatic,is_edit_marker,is_delete_marker,original_order,occurred_at_utc,created_at,channel,source_kind,undone_at', environment: env }, 'id', messageIds) : [];
-  // The same origin and "não atendido" rule as HOJE, ENTRADA and CLIENTES (panel-groups).
-  const vitrineOrigins = await loadVitrineOrigins(ctx).catch(() => null);
   const messageById = new Map(messages.filter((message) => !message.undone_at).map((message) => [message.id, message]));
   // Requests read from the conversation belong to the contact: the ficha link is never stored, so
   // they only count for a contact with exactly one ficha.
-  const requests = contactIds.length ? await inChunks(ctx, 'vehicle_requests', { select: 'id,contact_id,chat_id,updated_at', environment: env }, 'contact_id', contactIds) : [];
+  const requests = !listOnly && contactIds.length ? await inChunks(ctx, 'vehicle_requests', { select: 'id,contact_id,chat_id,updated_at', environment: env }, 'contact_id', contactIds) : [];
   const versions = requests.length ? await inChunks(ctx, 'vehicle_request_versions', { select: 'request_id,criteria_json,evidence_json,missing_fields,confidence,needs_review,review_reason,created_at', environment: env, order: 'created_at.asc' }, 'request_id', requests.map((row) => row.id)) : [];
   const latestVersion = new Map();
   versions.forEach((version) => latestVersion.set(version.request_id, version));
@@ -408,9 +404,10 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
   const evidenceMessages = evidenceIds.length ? await inChunks(ctx, 'messages', { select: 'id,body_text,occurred_at_utc,created_at,direction', environment: env }, 'id', evidenceIds) : [];
   const evidenceById = new Map(evidenceMessages.map((message) => [String(message.id), message]));
   // The V1 sent by the panel (confirmed or not confirmed by the WhatsApp): the latest per ficha.
-  const v1Sends = ids.length ? await safe(inChunks(ctx, 'v1_sends', { select: 'journey_id,origin,status,simulated,created_at,updated_at', environment: env, status: 'in.(SENT,UNCONFIRMED)', order: 'created_at.desc' }, 'journey_id', ids), []) : [];
-  const stageIndex = ids.length ? await safe(stageIndexFor(ctx, services.loadSearchStageIndex || loadSearchStageIndex, ids), new Map()) : new Map();
-  const cars = await safe(batchCars(ctx), { byJourney: new Map(), byJourneyMode: new Map(), byRef: new Map(), upload: null });
+  const v1Sends = !listOnly && ids.length ? await safe(inChunks(ctx, 'v1_sends', { select: 'journey_id,origin,status,simulated,created_at,updated_at', environment: env, status: 'in.(SENT,UNCONFIRMED)', order: 'created_at.desc' }, 'journey_id', ids), []) : [];
+  const stageIndex = !listOnly && ids.length ? await safe(stageIndexFor(ctx, services.loadSearchStageIndex || loadSearchStageIndex, ids), new Map()) : new Map();
+  const emptyCars = { byJourney: new Map(), byJourneyMode: new Map(), byRef: new Map(), upload: null };
+  const cars = listOnly ? emptyCars : await safe(batchCars(ctx), emptyCars);
   const uploadAt = cars.upload ? cars.upload.activated_at || cars.upload.uploaded_at : null;
 
   const contactById = new Map(contacts.map((contact) => [contact.id, contact]));
@@ -439,11 +436,25 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const proof = refProof.proofFor({ journey, linkedRefs: own, runRefs: refProof.runRefsOf(calcRuns),
       explicit: journeyMessages.filter((message) => message.direction === 'CUSTOMER').flatMap((message) => refProof.explicitRefs(message.body_text).map((ref) => ({ ref, mode: refProof.messageMode(message.body_text), at: message.occurred_at_utc || message.created_at || null }))) });
     proof.messageModes.forEach((mode) => { if (REQUIRED[mode] && !modes.includes(mode)) modes.push(mode); });
-    const fields = buildFields([calculatorSources(ownOrders), fichaSources(journey, contact, modes), conversationSources(ownRequests, evidenceById)]);
+    const fields = listOnly ? [] : buildFields([calculatorSources(ownOrders), fichaSources(journey, contact, modes), conversationSources(ownRequests, evidenceById)]);
     const conversation = conversationState(journeyMessages);
     const groupFacts = groups.factsFor({ calcProof: proof, messages: journeyMessages, orders: ownOrders, journey: { ...journey, enabled: toggles.find((row) => row.journey_id === journey.id)?.enabled, switchedAt: toggles.find((row) => row.journey_id === journey.id)?.switched_at || null },
       vitrine: vitrineOrigins ? vitrineOrigins.forPerson({ journeyId: journey.id, contactId: journey.contact_id }) : null, template: journeyMessages.some((message) => message.direction === 'CUSTOMER' && refProof.isCalculatorTemplate(message.body_text)), ...factsOf(classification, journey.id) });
     const grouped = groups.classify(groupFacts);
+    // The list reads this exact identity from the full context too. Keep proof, global Ref
+    // ownership, message selection and classification shared; only ficha details are deferred.
+    const phoneList = phones.filter((row) => row.contact_id === journey.contact_id && row.is_current !== false && !row.retired_at).sort((a, b) => Number(b.is_primary) - Number(a.is_primary)).map((row) => row.phone_e164).filter(Boolean);
+    const identity = {
+      calcRef: proof.calcRef, hasCalcRef: proof.hasCalcRef, refState: grouped.refState, internalCode: proof.internalCode,
+      name: clean(contact && contact.display_name) || null,
+      listMessage: completing.lastMessage(journeyMessages),
+      refAt: (() => { const at = Math.min(...ownOrders.flatMap((order) => order.simulations || [order]).map((simulation) => time(simulation.occurredAt) || Infinity)); return Number.isFinite(at) ? new Date(at).toISOString() : null; })(),
+      contact: { phones: phoneList, location: clean(contact && contact.location_text) || null },
+      origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing },
+      conversation: { lastAt: conversation.lastAt }
+    };
+    if (listOnly) { out.journeys[journey.id] = identity; return; }
+
     const closed = journey.status === 'ENCERRADO';
     const toggle = toggles.find((row) => row.journey_id === journey.id);
     const off = !closed && Boolean(toggle && toggle.enabled === false);
@@ -466,15 +477,14 @@ async function buildContexts(ctx, rawInput = {}, services = {}) {
     const latestMessage = journeyMessages.slice().sort((a, b) => (time(messageAt(b)) || 0) - (time(messageAt(a)) || 0))[0];
     const insight = insights.find((row) => row.journey_id === journey.id && latestMessage && row.last_ai_message_id === latestMessage.id) || null;
     const step = nextStep({ journey, closed, off, owner, fields, modes, searches, conversationCount: conversation.messageCount, conversationRead: ownRequests.length > 0 || Boolean(insight), sharedRefs, v1 });
-    const phoneList = phones.filter((row) => row.contact_id === journey.contact_id && row.is_current !== false && !row.retired_at).sort((a, b) => Number(b.is_primary) - Number(a.is_primary)).map((row) => row.phone_e164).filter(Boolean);
     out.journeys[journey.id] = {
       key: 'journey:' + journey.id, journeyId: journey.id, contactId: journey.contact_id,
       ref: clean(journey.reference_code).toUpperCase() || own[0] || null, refs: own, sharedRefs,
       calcRef: proof.calcRef, calcRefs: proof.calcRefs, hasCalcRef: proof.hasCalcRef, refState: grouped.refState, calcRefsWithoutRun: proof.calcRefsWithoutRun, internalCode: proof.internalCode,
-      name: clean(contact && contact.display_name) || null,
+      name: identity.name,
       // Used only by the incomplete rows in TODOS; the existing context and group rules stay intact.
-      listMessage: completing.lastMessage(journeyMessages),
-      refAt: (() => { const at = Math.min(...ownOrders.flatMap((order) => order.simulations || [order]).map((simulation) => time(simulation.occurredAt) || Infinity)); return Number.isFinite(at) ? new Date(at).toISOString() : null; })(),
+      listMessage: identity.listMessage,
+      refAt: identity.refAt,
       contact: { phones: phoneList, whatsappUsername: (userIds.find((row) => row.contact_id === journey.contact_id) || {}).username || null, location: clean(contact && contact.location_text) || null, note: phoneList.length ? null : 'Nenhum telefone salvo neste contato.' },
       origin: { code: grouped.origin.key, label: grouped.origin.label, financing: grouped.origin.financing, since: journey.created_at || null, calculator: ownOrders.length > 0 || proof.hasCalcRef || grouped.refState === 'A_RECUPERAR' },
       unattended: grouped.unattended,

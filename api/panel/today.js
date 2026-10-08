@@ -1,5 +1,7 @@
 'use strict';
 
+const { readBootSource } = require('../../panel-boot-reads');
+
 const { buildTodayItems, consolidateCalcRuns, effectiveCriteria, groupCalculatorByRef, listCriteria, standardBudget, time } = require('../../panel-domain');
 const { dispositionIndex, refKey } = require('../../panel-disposition');
 const { operational } = require('../../panel-read-model');
@@ -45,16 +47,19 @@ module.exports = async (req, res) => {
       topic: timed('topic', loadTopic(ctx).catch(soft('fora do assunto', null))),
       vitrine: timed('vitrine', loadVitrineOrigins(ctx).catch(soft('origem pela vitrine', null))),
       classification: timed('classification', loadClassification(ctx)),
-      stageIndex: timed('stageIndex', loadSearchStageIndex(ctx).catch(soft('andamento da busca', new Map())))
+      stageIndex: timed('stageIndex', loadSearchStageIndex(ctx).catch(soft('andamento da busca', new Map()))),
+      contactResults: allRows(ctx, 'lead_events', { select: 'journey_id,event_type,detail_json,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'like.QUICK_*', undone_at: 'is.null', order: 'occurred_at.asc' })
+      .then((rows) => { const latest = {}; rows.forEach((row) => { if (row.journey_id) latest[row.journey_id] = { type: String(row.event_type).replace(/^QUICK_/, ''), label: String(row.detail_json && row.detail_json.label || ''), at: row.occurred_at }; }); return latest; })
+      .catch(soft('resultado marcado na ficha', null))
     };
     Object.values(early).forEach((promise) => promise.catch(() => {}));
     // HOJE never reads Manheim cars: the score gets one reference MMR per person from the database
     // (live batches only; an undone or unfinished batch never feeds HOJE).
     const [data, calcRuns, links, dispositions, meta, responses, vehicles, leadPromises, aiItems, aiSuggestions, pendingInsights] = await Promise.all([
       timed('operational', operational(ctx)),
-      allRows(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }),
-      allRows(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }),
-      allRows(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }),
+      readBootSource(ctx, 'calc_runs', { select: 'id,created_at,zip,estado,lance,pagamento,dados,is_test', order: 'created_at.asc' }, allRows),
+      readBootSource(ctx, 'calculator_request_links', { select: 'calc_sid,calc_ref,logical_mode,contact_id,journey_id', environment: 'eq.' + ctx.environment }, allRows),
+      readBootSource(ctx, 'panel_item_dispositions', { select: 'item_kind,item_key,status,discard_reason,updated_at', environment: 'eq.' + ctx.environment, cleared_at:'is.null' }, allRows),
       panelMeta(ctx),
       // A12: "quero este carro" stays until it is handled, not only for 24 hours (30 days at most).
       allRows(ctx, 'lead_events', { select: 'ref_code,journey_id,unit_id,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'eq.WANT_CAR', undone_at: 'is.null', occurred_at: 'gte.' + new Date(now - 30 * 86400000).toISOString() }),
@@ -66,9 +71,7 @@ module.exports = async (req, res) => {
     ]);
     // TODOS · Espera: the last result marked by hand in the ficha ("Resultado rápido"); without one, "sem resposta".
     // Read apart and never blocking: when it cannot be read, Espera stays as it was.
-    const contactResults = await allRows(ctx, 'lead_events', { select: 'journey_id,event_type,detail_json,occurred_at', environment: 'eq.' + ctx.environment, event_type: 'like.QUICK_*', undone_at: 'is.null', order: 'occurred_at.asc' })
-      .then((rows) => { const latest = {}; rows.forEach((row) => { if (row.journey_id) latest[row.journey_id] = { type: String(row.event_type).replace(/^QUICK_/, ''), label: String(row.detail_json && row.detail_json.label || ''), at: row.occurred_at }; }); return latest; })
-      .catch(soft('resultado marcado na ficha', null));
+    const contactResults = await early.contactResults;
     // Adendo: fora do assunto (leitura da triagem ou correção sua); sem tabela, ninguém fica fora.
     mark('phase1', t0);
     const t1 = Date.now();

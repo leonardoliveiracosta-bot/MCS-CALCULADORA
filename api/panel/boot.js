@@ -81,7 +81,7 @@ module.exports = async (req, res) => {
       const identities = new Map();
       const chunks = []; for (let index=0;index<ids.length;index+=MAX_IDS) chunks.push(ids.slice(index,index+MAX_IDS));
       await Promise.all(chunks.map(async journeyIds => {
-        const contexts = await buildContexts(base,{journeyIds});
+        const contexts = await buildContexts(base,{journeyIds},{listOnly:true});
         journeyIds.forEach(id => identities.set(id,pageRules.identityOf(contexts.journeys?.[id])));
       }));
       const ref = ['all','with','recover','without'].includes(input.page.ref) ? input.page.ref : 'all';
