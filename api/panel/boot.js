@@ -61,7 +61,7 @@ module.exports = async (req, res) => {
   const group = PARTS[input.part] ? input.part : 'main';
   const have = input.have && typeof input.have === 'object' ? input.have : {};
   const knownItems = new Set(Array.isArray(have.todayItems) ? have.todayItems.map(String) : []);
-  const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), readBudget: createReadBudget() };
+  const base = { ...ctx, readCache: new Map(), buscasBases: new Map(), readBudget: createReadBudget(), bootBulkRows: true };
   const pageRequested = group === 'main' && input.page && typeof input.page === 'object';
   const requestsPart = input.includeCounters ? 'pesquisas' : 'completing';
   const definitions = group === 'main' && input.includeCounters ? {...PARTS.main, ...PARTS.counters} : {...PARTS[group]};

@@ -13,7 +13,7 @@ async function boot(root, body) {
   return res.payload;
 }
 test('abertura inteira A/B/A: mesmos corpos, hashes, grupos e contagens com SMS sem data e tabelas paginadas', {skip:!baseline}, async()=>{
-  const backend=await createBackend({seed:demo.seed,maxRows:1000});
+  const backend=await createBackend({seed:demo.seed,maxRows:1000,nativeJsonRows:true});
   const originalFetch=global.fetch, RealDate=Date;
   global.fetch=(url,options)=>backend.fetch(url,options);
   const fixed=RealDate.parse('2026-10-08T05:40:00Z');
